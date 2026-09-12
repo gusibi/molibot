@@ -2,7 +2,7 @@
   import At from "reicon-svelte/icons/At";
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import Check from "reicon-svelte/icons/Check";
-  import Copy from "reicon-svelte/icons/Copy";
+  import Copy from "../icons/duotone/components/Copy.svelte";
   import FolderOpen from "reicon-svelte/icons/FolderOpen";
   import type { Translation } from "../i18n";
   import { fileIconKind, fileIconStyle, formatSize } from "./fileIcons";

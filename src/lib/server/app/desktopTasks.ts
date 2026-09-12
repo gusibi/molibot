@@ -1,4 +1,5 @@
 import type {
+  DesktopConversationActivity,
   DesktopTaskExecution,
   DesktopTaskItem,
   DesktopTaskSessionMessage,
@@ -41,6 +42,27 @@ function taskSessionText(content: unknown): string {
     .trim();
 }
 
+/**
+ * The persisted content blocks behind a message: either the block array itself
+ * or a legacy JSON-encoded block array. Returns null when the content is
+ * ordinary text — the caller decides what text means for its role.
+ */
+function agentContentBlocks(content: unknown): Array<Record<string, unknown>> | null {
+  let parsed: unknown = content;
+  if (typeof content === "string") {
+    const value = content.trim();
+    if (!value || (value[0] !== "[" && value[0] !== "{")) return null;
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  const blocks = Array.isArray(parsed) ? parsed : [parsed];
+  if (!isAgentContentBlocks(blocks)) return null;
+  return blocks.filter((block): block is Record<string, unknown> => Boolean(block) && typeof block === "object");
+}
+
 function isAgentContentBlocks(value: unknown): boolean {
   const blocks = Array.isArray(value) ? value : [value];
   const knownTypes = new Set(["text", "thinking", "toolCall", "toolResult", "image"]);
@@ -56,14 +78,118 @@ function taskSessionCreatedAt(value: unknown): string {
 }
 
 export function buildDesktopTaskSessionMessages(messages: unknown[]): DesktopTaskSessionMessage[] {
-  return messages.flatMap((message) => {
-    if (!message || typeof message !== "object") return [];
-    const source = message as { role?: unknown; content?: unknown; timestamp?: unknown; createdAt?: unknown };
+  const projected: DesktopTaskSessionMessage[] = [];
+  // One automation round = one transcript turn, shaped like a live chat turn:
+  // the run's tool calls render as the turn's process activities, and the
+  // model's text is the answer. Dropping tool activity here used to make an
+  // automation transcript read as "input only, no output".
+  let activities: DesktopConversationActivity[] = [];
+  let textParts: string[] = [];
+  let turnEndedAt = "";
+
+  const flushAssistantTurn = (): void => {
+    const content = textParts.join("\n\n").trim();
+    if (!content && activities.length === 0) {
+      activities = [];
+      textParts = [];
+      return;
+    }
+    projected.push({
+      role: "assistant",
+      content,
+      createdAt: turnEndedAt,
+      ...(activities.length ? { activities } : {})
+    });
+    activities = [];
+    textParts = [];
+  };
+
+  for (const message of messages) {
+    if (!message || typeof message !== "object") continue;
+    const source = message as { role?: unknown; content?: unknown; timestamp?: unknown; createdAt?: unknown; isError?: unknown; toolCallId?: unknown; toolName?: unknown };
     const role = String(source.role ?? "");
-    if (role !== "user" && role !== "assistant") return [];
-    const content = taskSessionText(source.content);
-    return content ? [{ role, content, createdAt: taskSessionCreatedAt(source.timestamp ?? source.createdAt) }] : [];
-  });
+    const at = taskSessionCreatedAt(source.timestamp ?? source.createdAt);
+    if (role === "user") {
+      flushAssistantTurn();
+      const content = taskSessionText(source.content);
+      if (content) projected.push({ role: "user", content, createdAt: at });
+      continue;
+    }
+    if (role === "toolResult") {
+      const callId = String(source.toolCallId ?? "");
+      const match = activities.find((activity) => activity.key === callId);
+      if (match) {
+        match.state = source.isError === true ? "error" : "success";
+        match.summary = summarizeActivityText(taskSessionText(source.content));
+        match.finishedAt = at || undefined;
+        if (match.startedAt && match.finishedAt) {
+          const started = Date.parse(match.startedAt);
+          const finished = Date.parse(match.finishedAt);
+          if (Number.isFinite(started) && Number.isFinite(finished) && finished >= started) {
+            match.durationMs = finished - started;
+          }
+        }
+      } else {
+        // A result whose call entry was compacted away still carries what
+        // happened; keep it as a standalone activity instead of dropping it.
+        activities.push({
+          key: callId || `result-${projected.length}-${activities.length}`,
+          kind: "tool",
+          tool: String(source.toolName ?? "") || undefined,
+          label: String(source.toolName ?? "") || "tool",
+          state: source.isError === true ? "error" : "success",
+          summary: summarizeActivityText(taskSessionText(source.content)),
+          finishedAt: at || undefined
+        });
+      }
+      turnEndedAt = at || turnEndedAt;
+      continue;
+    }
+    if (role === "assistant") {
+      turnEndedAt = at || turnEndedAt;
+      const blocks = agentContentBlocks(source.content);
+      if (!blocks) {
+        const text = taskSessionText(source.content);
+        if (text) textParts.push(text);
+        continue;
+      }
+      for (const block of blocks) {
+        if (block.type === "toolCall") {
+          activities.push(buildToolCallActivity(block, at, `call-${activities.length}`));
+        } else if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+          textParts.push(block.text.trim());
+        }
+      }
+    }
+  }
+  flushAssistantTurn();
+  return projected;
+}
+
+const MUTATING_TOOL_NAMES = new Set(["write", "edit"]);
+const MAX_ACTIVITY_SUMMARY_LENGTH = 4_000;
+
+function summarizeActivityText(text: string): string | undefined {
+  return text ? text.slice(0, MAX_ACTIVITY_SUMMARY_LENGTH) : undefined;
+}
+
+function buildToolCallActivity(block: Record<string, unknown>, startedAt: string, fallbackKey: string): DesktopConversationActivity {
+  const tool = String(block.name ?? "") || "tool";
+  const callId = String(block.id ?? "") || fallbackKey;
+  const args = (block.arguments && typeof block.arguments === "object" ? block.arguments : {}) as Record<string, unknown>;
+  const label = typeof args.label === "string" && args.label.trim() ? args.label.trim() : tool;
+  const path = typeof args.path === "string" && args.path.trim() ? args.path.trim() : "";
+  return {
+    key: callId,
+    kind: "tool",
+    tool,
+    label,
+    // A call whose result never arrived (crash, suspension) must not render as
+    // an eternal spinner — close it as an error, like the live collector does.
+    state: "error",
+    startedAt: startedAt || undefined,
+    ...(path ? { paths: [path], mutates: MUTATING_TOOL_NAMES.has(tool) } : {})
+  };
 }
 
 function executionCount(value: unknown): number {

@@ -31,7 +31,8 @@ import {
   type SessionEntry,
   type SessionFileEntry,
   type SessionMessageEntry,
-  type SessionRuntimeEventEntry
+  type SessionRuntimeEventEntry,
+  type SessionContextSnapshot
 } from "$lib/server/agent/session/session.js";
 import {
   resolveDataRootFromWorkspacePath,
@@ -1058,7 +1059,7 @@ export class MomRuntimeStore {
     chatId: string,
     message: AgentMessage,
     sessionId?: string,
-    options?: { runId?: string; retention?: TurnRetentionPolicy }
+    options?: { runId?: string; retention?: TurnRetentionPolicy; contextBreakdown?: SessionContextSnapshot }
   ): string {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const entryId = createEntryId();
@@ -1073,6 +1074,7 @@ export class MomRuntimeStore {
       ).toISOString(),
       runId: String(options?.runId ?? "").trim() || undefined,
       retention: options?.retention,
+      contextBreakdown: options?.contextBreakdown,
       message
     });
     if (this.readSessionOrigin(chatId, id)?.archiveMode === "shared") {

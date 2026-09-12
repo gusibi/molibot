@@ -36,6 +36,7 @@ import {
   capModelPromptToTokens,
   contextMessageBudget
 } from "$lib/server/agent/session/contextPreflight.js";
+import type { SessionContextSnapshot } from "$lib/server/agent/session/session.js";
 import {
   describesUnexecutedMiniAppChange,
   getFileMutationReceipt,
@@ -207,6 +208,13 @@ export class MomRunner implements RunnerLike {
   private selectedMcpServerIds = new Set<string>();
   private promptRefreshKey = "";
   private systemPromptReady = false;
+  /**
+   * Category estimate of the context as of the most recent dispatch
+   * (`streamFn`), consumed by the `message_end` handler that persists the
+   * assistant entry produced by that same call. One write per dispatch, one
+   * read per assistant message — never spans turns.
+   */
+  private activeContextEstimate: Pick<SessionContextSnapshot, "contextWindow" | "estimatedTokens" | "breakdown"> | null = null;
   private activeProject: MomContext["project"] | undefined;
   /**
    * Set the moment one of this run's tools suspends on a real, persisted
@@ -224,6 +232,26 @@ export class MomRunner implements RunnerLike {
   // `never` and fails to compile.
   private approvalSuspensionRequestId(): string | null {
     return this.activeApprovalSuspension?.requestId ?? null;
+  }
+
+  /**
+   * Joins the latest dispatch estimate with the usage this assistant message
+   * actually reported, producing the snapshot persisted on its session entry.
+   * The call's own input side (not the turn aggregate) is what equals the
+   * context size the panel displays.
+   */
+  private contextSnapshotFor(message: AgentMessage): SessionContextSnapshot | undefined {
+    const estimate = this.activeContextEstimate;
+    const usage = (message as { usage?: { input?: unknown; cacheRead?: unknown; cacheWrite?: unknown } }).usage;
+    if (!estimate || !usage) return undefined;
+    return {
+      contextWindow: estimate.contextWindow,
+      estimatedTokens: estimate.estimatedTokens,
+      breakdown: estimate.breakdown,
+      inputTokens: Number(usage.input ?? 0),
+      cacheReadTokens: Number(usage.cacheRead ?? 0),
+      cacheWriteTokens: Number(usage.cacheWrite ?? 0)
+    };
   }
 
   private currentWorkingDir(): string {
@@ -552,6 +580,11 @@ export class MomRunner implements RunnerLike {
           tools: patchedContext.tools ?? [],
           contextWindow
         });
+        this.activeContextEstimate = {
+          contextWindow,
+          estimatedTokens: contextAssessment.estimatedTokens,
+          breakdown: contextAssessment.breakdown
+        };
         momLog("runner", "llm_stream_start", {
           runId: this.activeHookContext?.runId,
           chatId: this.chatId,
@@ -928,8 +961,8 @@ export class MomRunner implements RunnerLike {
         };
       }
     });
-    const appendRunContextMessage = (message: AgentMessage): string =>
-      this.store.appendContextMessage(this.chatId, message, this.sessionId, { runId, retention: turnRetention });
+    const appendRunContextMessage = (message: AgentMessage, contextBreakdown?: SessionContextSnapshot): string =>
+      this.store.appendContextMessage(this.chatId, message, this.sessionId, { runId, retention: turnRetention, contextBreakdown });
     const respondInThread = async (text: string): Promise<void> => {
       const normalized = String(text ?? "").trim();
       if (!normalized) return;
@@ -1316,6 +1349,7 @@ export class MomRunner implements RunnerLike {
       sessionId: this.sessionId,
       executionSessionId: executionScopeSessionId,
       isolateSessionHostApproval: isIsolatedAutomationRun,
+      unattendedDenials: isIsolatedAutomationRun,
       runId,
       workspaceId,
       timezone: settings.timezone,
@@ -1420,7 +1454,24 @@ export class MomRunner implements RunnerLike {
       },
       onSideEffectPreflight: sideEffectPreflight,
       onSideEffectReceipt: ctx.onToolSideEffectReceipt,
-      onApprovalRequest: ctx.onApprovalRequest,
+      // An unattended automation run (scheduled event, fresh session) can never
+      // show an approval card: approve -> resume has no human, and the pending
+      // request expires unread while the run sits parked. Deny broker-gated
+      // calls instead so the model finishes and reports the gap. An explicit
+      // caller hook (durable attempts) keeps its own disposition.
+      onApprovalRequest: ctx.onApprovalRequest
+        ?? (isIsolatedAutomationRun
+          ? async (request) => {
+            momLog("runner", "unattended_approval_denied", {
+              runId,
+              chatId: this.chatId,
+              sessionId: this.sessionId,
+              backend: request.backend,
+              requestId: request.requestId
+            });
+            return "deny" as const;
+          }
+          : undefined),
       consumeDurableApproval: ctx.consumeDurableApproval,
       readDurableEvidence: ctx.readDurableEvidence,
     });
@@ -1766,7 +1817,10 @@ export class MomRunner implements RunnerLike {
             appendRunContextMessage(persisted);
           }
         } else if (message.role === "assistant" || message.role === "toolResult") {
-          const sourceEntryId = appendRunContextMessage(message);
+          const sourceEntryId = appendRunContextMessage(
+            message,
+            message.role === "assistant" ? this.contextSnapshotFor(message) : undefined
+          );
           if (message.role === "assistant") {
             assistantMessagePersisted = true;
             assistantSourceEntryId = sourceEntryId;
@@ -1836,6 +1890,7 @@ export class MomRunner implements RunnerLike {
           this.usageTracker.record({
             channel: this.channel,
             botId,
+            sessionId: this.sessionId,
             provider: msg.provider ?? activeSelection.model.provider,
             model: msg.model ?? activeSelection.model.id,
             api: msg.api ?? activeSelection.model.api,

@@ -82,7 +82,18 @@
       <img class="assistant-avatar" src="/molibot-icon.png" alt="" width="24" height="24" />
       <div class="message-stack">
         <div class="assistant-identity"><strong>{assistantName}</strong><span>{copy.agents}</span></div>
-        <div class="message-status" role="status"><span class="message-status-pulse" aria-hidden="true"></span><span>{activity || copy.working}</span></div>
+        <!-- The pre-card phase hint. It only covers the void between sending
+             and the first streamed content: the moment thinking or an
+             activity arrives, the process card below is the running
+             indicator and this pill would just restate it one line above
+             (it held a literal "Thinking..." over the streaming thinking
+             text). Deliberately carries no icon for the same reason — the
+             wave is the card's mark. -->
+        {#if !liveSections.process.length}
+          <div class="message-status" role="status">
+            <span class="message-status-text">{activity || copy.working}</span>
+          </div>
+        {/if}
         {#if liveSections.process.length}
           <!-- Force-open only until the answer exists: reasoning streams with
                the process card open, and the moment the first response block

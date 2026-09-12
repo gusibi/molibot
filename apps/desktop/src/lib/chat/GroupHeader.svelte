@@ -1,8 +1,8 @@
 <script lang="ts">
   import AngleDown from "reicon-svelte/icons/AngleDown";
-  import Folder from "reicon-svelte/icons/Folder";
-  import More from "reicon-svelte/icons/More";
-  import Notebook from "reicon-svelte/icons/Notebook";
+  import Folder from "../icons/duotone/components/Folder.svelte";
+  import More from "../icons/duotone/components/More.svelte";
+  import Notebook from "../icons/duotone/components/Notebook.svelte";
   import Plus from "reicon-svelte/icons/Plus";
 
   const GROUP_ICONS = { folder: Folder, notebook: Notebook } as const;

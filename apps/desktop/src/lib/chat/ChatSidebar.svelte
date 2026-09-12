@@ -1,13 +1,13 @@
 <script lang="ts">
-  import CalendarDays from "reicon-svelte/icons/CalendarDays";
+  import CalendarDays from "../icons/duotone/components/CalendarDays.svelte";
   import CaretRight from "reicon-svelte/icons/CaretRight";
-  import Cpu from "reicon-svelte/icons/Cpu";
-  import Gear from "reicon-svelte/icons/Gear";
-  import Grid from "reicon-svelte/icons/Grid";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
-  import Pen from "reicon-svelte/icons/Pen";
-  import PuzzlePiece from "reicon-svelte/icons/PuzzlePiece";
-  import Sidebar from "reicon-svelte/icons/Sidebar";
+  import Grid from "../icons/duotone/components/Grid.svelte";
+  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
+  import Pen from "../icons/duotone/components/Pen.svelte";
+  import Reorder2 from "../icons/duotone/components/Reorder2.svelte";
+  import Sidebar from "../icons/duotone/components/Sidebar.svelte";
+  import TuningSquare2 from "../icons/duotone/components/TuningSquare2.svelte";
+  import Vacuum2 from "../icons/duotone/components/Vacuum2.svelte";
   import ChannelAccordion, { type ChannelDescriptor } from "./ChannelAccordion.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
@@ -47,6 +47,8 @@
     onMoreChannel,
     onRenameSession,
     onDeleteSession,
+    onCopySessionPath,
+    onRevealSessionInFinder,
     onActivateProjectSession,
     durableExecutions = [],
     onOpenDurableExecution,
@@ -83,6 +85,8 @@
     onMoreChannel: (channel: string) => void;
     onRenameSession: (item: DesktopConversationItem, title: string) => void;
     onDeleteSession: (item: DesktopConversationItem) => void;
+    onCopySessionPath?: (item: DesktopConversationItem) => void | Promise<void>;
+    onRevealSessionInFinder?: (item: DesktopConversationItem) => void | Promise<void>;
     onActivateProjectSession: () => void;
     durableExecutions?: DesktopDurableExecutionItem[];
     onOpenDurableExecution: (executionId: string) => void;
@@ -104,6 +108,8 @@
     menu: copy.conversationMenu,
     rename: copy.renameConversation,
     delete: copy.deleteConversation,
+    copyPath: copy.copySessionPath,
+    revealInFinder: copy.openInFinder,
     renamePlaceholder: copy.renamePlaceholder,
     deletePrompt: copy.deleteConversationPrompt,
     cancel: copy.cancelAction,
@@ -157,11 +163,11 @@
       {#if automationUnreadCount > 0}<span class="nav-notification" aria-label={`${automationUnreadCount} ${copy.tasksReminderUnread}`}>{automationUnreadCount > 99 ? "99+" : automationUnreadCount}</span>{/if}
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "skills"} aria-current={activeWorkspacePane === "skills" ? "page" : undefined} onclick={onOpenSkills}>
-      <PuzzlePiece size={16} aria-hidden="true" />
+      <Reorder2 size={16} aria-hidden="true" />
       <span>{copy.skillsSquare}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "agents"} aria-current={activeWorkspacePane === "agents" ? "page" : undefined} onclick={onOpenAgents}>
-      <Cpu size={16} aria-hidden="true" />
+      <Vacuum2 size={16} aria-hidden="true" />
       <span>{copy.agentsNav}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "miniapps"} aria-current={activeWorkspacePane === "miniapps" ? "page" : undefined} onclick={onOpenMiniApps}>
@@ -196,6 +202,8 @@
             onConfigure={onOpenSettings}
             onRenameItem={onRenameSession}
             onDeleteItem={onDeleteSession}
+            onCopySessionPath={onCopySessionPath}
+            onRevealSessionInFinder={onRevealSessionInFinder}
           />
         {/each}
       {/if}
@@ -210,7 +218,7 @@
       <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
     </span>
     <span class="sidebar-footer-copy"><strong>{copy.appName}</strong><small>{serviceState === "ready" ? copy.statusOnline : copy.statusOffline}</small></span>
-    <Gear class="sidebar-footer-gear" size={16} aria-hidden="true" />
+    <TuningSquare2 class="sidebar-footer-gear" size={16} aria-hidden="true" />
   </button>
 </aside>
 

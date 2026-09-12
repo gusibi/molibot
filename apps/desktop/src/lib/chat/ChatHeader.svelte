@@ -1,6 +1,5 @@
 <script lang="ts">
-  import Sidebar from "reicon-svelte/icons/Sidebar";
-  export let sourceInitial = "";
+  import Sidebar from "../icons/duotone/components/Sidebar.svelte";
   export let sourceLabel = "";
   export let title: string;
   export let subtitle = "";
@@ -23,8 +22,6 @@
     </button>
   {/if}
   <div class="chat-title-block" data-tauri-drag-region>
-    {#if sourceInitial}<span class="chat-source-tag" data-tauri-drag-region aria-label={sourceLabel} title={sourceLabel}><span aria-hidden="true">#</span><b aria-hidden="true">{sourceInitial}</b></span>{/if}
-    {#if sourceInitial}<span class="chat-title-separator" data-tauri-drag-region aria-hidden="true">/</span>{/if}
     <div class="chat-title-text" data-tauri-drag-region>
       <div class="chat-title-name" data-tauri-drag-region>{title}</div>
       {#if subtitle || $$slots.subtitle}
@@ -33,6 +30,9 @@
         </div>
       {/if}
     </div>
+    {#if sourceLabel}
+      <span class="chat-source-label" data-tauri-drag-region title={sourceLabel}>{sourceLabel}</span>
+    {/if}
   </div>
   <div class="header-actions">
     <slot name="actions" />

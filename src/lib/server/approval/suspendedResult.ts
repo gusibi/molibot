@@ -19,6 +19,16 @@ export const APPROVAL_WAITING_METADATA_STATUS = "waiting_for_approval";
 export const APPROVAL_INLINE_HANDSHAKE_WINDOW_MS = 30_000;
 
 /**
+ * The model-facing denial an unattended automation run gets instead of an
+ * approval card. No human can answer a card on a scheduled run, and a pending
+ * request would expire unread — so the tool fails plainly, the loop continues,
+ * and the final answer reports what was skipped. Shared by the Host Bash path
+ * and the generic broker path so both backends deny with one voice.
+ */
+export const UNATTENDED_APPROVAL_DENIAL_TEXT =
+  "Approval is unavailable in this unattended automation run: no user can answer an approval card, so this command was not executed. Continue the task without it and report in your final answer which step was skipped and why.";
+
+/**
  * The one shape a tool returns when its run must suspend for a user decision:
  * caller-deferred (`onApprovalRequest` -> "defer"), inline window elapsed, or
  * the request record vanished mid-wait. `terminate` is unconditional — a wait

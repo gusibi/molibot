@@ -88,6 +88,117 @@ export function formatCompactTokens(value: number): string {
 }
 
 /**
+ * Token count in the unit the locale reads naturally: 万-based for Chinese
+ * (26200 -> "2.62万"), `formatCompactTokens` for English (26200 -> "26.2k").
+ */
+export function formatContextTokens(value: number, locale: Locale): string {
+  const n = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  if (locale !== "zh-CN" || n < 10_000) return formatCompactTokens(n);
+  const wan = n / 10_000;
+  const formatted = wan >= 100 ? Math.round(wan).toString() : wan.toFixed(2).replace(/\.?0+$/, "");
+  return `${formatted}万`;
+}
+
+/** One rendered row of the composer context-usage panel. */
+export interface ComposerContextUsageCategory {
+  key: "messages" | "mcpTools" | "systemTools" | "systemPrompt" | "skills" | "other";
+  tokens: number;
+  /** Share of the estimated dispatch total, 0-100. */
+  percent: number;
+}
+
+/** Everything the composer context-usage panel renders, already derived. */
+export interface ComposerContextUsage {
+  /** 0 when the window is unknown (no snapshot and no model config): the panel then hides the bar and percent. */
+  contextWindow: number;
+  /** Real prompt size of the last model call: input + cache read + cache write. */
+  usedTokens: number;
+  /** `usedTokens / contextWindow` in percent, clamped for display; 0 without a window. */
+  percent: number;
+  /** Mean of per-call cache hit rates across the transcript; null without usage data. */
+  cacheHitRate: number | null;
+  /** Empty for sessions without a dispatch snapshot: the category rows stay hidden. */
+  categories: ComposerContextUsageCategory[];
+}
+
+type ContextUsageSourceMessage = {
+  role: string;
+  usage?: { inputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
+  contextBreakdown?: {
+    contextWindow: number;
+    estimatedTokens: number;
+    breakdown: Record<ComposerContextUsageCategory["key"], number>;
+    inputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+  };
+};
+
+/** The selected model's configured context window, 0 when unknown. */
+export function resolveModelContextWindow(
+  options: readonly { key: string; contextWindow?: number }[],
+  activeKey: string
+): number {
+  return options.find((option) => option.key === activeKey)?.contextWindow ?? 0;
+}
+
+/**
+ * Derives the composer context-usage panel data from a transcript. The
+ * snapshot rides the last assistant row that carries one (each model call
+ * refreshes it); `usedTokens` comes from that call's own input side because
+ * the turn-aggregated `usage` double-counts shared context across calls.
+ *
+ * Sessions transcribed before snapshots existed still have the real per-call
+ * usage: they degrade to reported usage against `fallbackContextWindow` (the
+ * selected model's config), with category rows omitted. `null` means the
+ * transcript has no model usage at all (fresh conversation).
+ */
+export function deriveComposerContextUsage(
+  messages: readonly ContextUsageSourceMessage[],
+  fallbackContextWindow = 0
+): ComposerContextUsage | null {
+  let snapshot: NonNullable<ContextUsageSourceMessage["contextBreakdown"]> | null = null;
+  let lastUsage: NonNullable<ContextUsageSourceMessage["usage"]> | null = null;
+  const hitRates: number[] = [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "assistant") continue;
+    const usage = message.usage;
+    if (usage) {
+      const denominator = (usage.inputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+      if (denominator > 0) {
+        hitRates.push((usage.cacheReadTokens ?? 0) / denominator);
+        if (!lastUsage) lastUsage = usage;
+      }
+    }
+    if (!snapshot) snapshot = message.contextBreakdown ?? null;
+  }
+  if (!snapshot && !lastUsage) return null;
+  const contextWindow = snapshot && snapshot.contextWindow > 0 ? snapshot.contextWindow : fallbackContextWindow;
+  const usedSource = snapshot ?? lastUsage!;
+  const usedTokens = Math.max(
+    0,
+    Math.round((usedSource.inputTokens ?? 0) + (usedSource.cacheReadTokens ?? 0) + (usedSource.cacheWriteTokens ?? 0))
+  );
+  const percent = contextWindow > 0 ? Math.min(100, (usedTokens / contextWindow) * 100) : 0;
+  const total = snapshot && snapshot.estimatedTokens > 0 ? snapshot.estimatedTokens : 1;
+  const order: ComposerContextUsageCategory["key"][] = ["messages", "mcpTools", "systemTools", "systemPrompt", "skills", "other"];
+  const categories = snapshot
+    ? order.map((key) => {
+        const tokens = Math.max(0, Math.round(snapshot!.breakdown[key] ?? 0));
+        return { key, tokens, percent: (tokens / total) * 100 };
+      })
+    : [];
+  return {
+    contextWindow,
+    usedTokens,
+    percent,
+    cacheHitRate: hitRates.length ? hitRates.reduce((sum, rate) => sum + rate, 0) / hitRates.length : null,
+    categories
+  };
+}
+
+/**
  * Display copy for one model option in a selector.
  *
  * `name` leads with the configured alias and otherwise falls back to the
@@ -108,7 +219,7 @@ export interface ModelOptionGroup<T> {
   options: Array<{ option: T; name: string }>;
 }
 
-/** Groups selector options by provider while preserving their source order. */
+/** Groups selector options by provider, both levels sorted alphabetically by display name. */
 export function groupModelOptions<T extends { key: string; label: string; alias?: string }>(options: T[]): ModelOptionGroup<T>[] {
   const groups = new Map<string, ModelOptionGroup<T>>();
   for (const option of options) {
@@ -123,7 +234,10 @@ export function groupModelOptions<T extends { key: string; label: string; alias?
     group.options.push({ option, name });
     groups.set(groupKey, group);
   }
-  return [...groups.values()];
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+  return [...groups.values()]
+    .sort((a, b) => a.provider.localeCompare(b.provider, undefined, { sensitivity: "base" }))
+    .map((group) => ({ ...group, options: [...group.options].sort(byName) }));
 }
 
 export function humanizeProviderName(name: string, id: string): { label: string; technicalId: string } {

@@ -3,9 +3,9 @@
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import FolderOpen from "reicon-svelte/icons/FolderOpen";
   import FolderPlus from "reicon-svelte/icons/FolderPlus";
-  import Pen from "reicon-svelte/icons/Pen";
+  import Pen from "../icons/duotone/components/Pen.svelte";
   import Plus from "reicon-svelte/icons/Plus";
-  import Trash from "reicon-svelte/icons/Trash";
+  import Trash from "../icons/duotone/components/Trash.svelte";
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
   import ConversationRow from "../chat/ConversationRow.svelte";
@@ -67,10 +67,31 @@
     menu: copy.conversationMenu,
     rename: copy.renameConversation,
     delete: copy.deleteConversation,
+    copyPath: copy.copySessionPath,
+    revealInFinder: copy.openInFinder,
     placeholder: copy.renamePlaceholder,
     deletePrompt: copy.deleteConversationPrompt,
     cancel: copy.cancelAction
   });
+
+  async function copySessionPath(sessionId: string, projectId: string): Promise<void> {
+    const { getDesktopSessionPath } = await import("../api");
+    try {
+      const path = await getDesktopSessionPath(endpoint, { sessionId, projectId });
+      await navigator.clipboard.writeText(path);
+    } catch {
+      // clipboard unavailable
+    }
+  }
+
+  async function revealSessionInFinder(sessionId: string, projectId: string): Promise<void> {
+    const { revealDesktopSession } = await import("../api");
+    try {
+      await revealDesktopSession(endpoint, { sessionId, projectId });
+    } catch {
+      // reveal failed
+    }
+  }
 
   $effect(() => {
     if (!menuProjectId) return;
@@ -254,6 +275,8 @@
                 onSelect={() => void openSession(project.id, session.conversationId)}
                 onRename={(title) => void renameProjectSession(session.conversationId, title, project.id)}
                 onDelete={() => void removeProjectSession(session.conversationId, project.id)}
+                onCopyPath={() => void copySessionPath(session.conversationId, project.id)}
+                onRevealInFinder={() => void revealSessionInFinder(session.conversationId, project.id)}
               />
             {/each}
             {#if projectSessions.length > visibleProjectSessions.length}

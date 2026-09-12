@@ -1,10 +1,10 @@
 <script lang="ts">
   import { isActiveDurableExecution, isOpenDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
-  import Layers from "reicon-svelte/icons/Layers";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
-  import Pen from "reicon-svelte/icons/Pen";
-  import Sidebar from "reicon-svelte/icons/Sidebar";
+  import Layers from "./lib/icons/duotone/components/Layers.svelte";
+  import Magnifier from "./lib/icons/duotone/components/Magnifier.svelte";
+  import Pen from "./lib/icons/duotone/components/Pen.svelte";
+  import Sidebar from "./lib/icons/duotone/components/Sidebar.svelte";
   import X from "reicon-svelte/icons/X";
   import type { EmptyActionIcon } from "./lib/chat/activityIcons";
   import { onDestroy, onMount, tick, untrack } from "svelte";
@@ -46,6 +46,8 @@
     createDesktopProvider,
     fetchDesktopFileBlob,
     deleteDesktopConversation,
+    getDesktopSessionPath,
+    revealDesktopSession,
     forkDesktopSession,
     truncateDesktopMessages,
     listDesktopConversations,
@@ -167,7 +169,7 @@
     type CommandId,
     type CommandSnapshot
   } from "./lib/native/commandSystem";
-  import { humanizeModelOption } from "./lib/presentation";
+  import { deriveComposerContextUsage, humanizeModelOption, resolveModelContextWindow } from "./lib/presentation";
   import {
     loadCommandUsage,
     rankCommands,
@@ -873,6 +875,10 @@
   $: chatState = $stateStore;
   $: sending = chatState.sending;
   $: messages = chatState.messages;
+  // Composer context-usage panel: snapshot when the transcript carries one;
+  // otherwise reported usage against the selected model's configured window;
+  // null (empty-state panel) only when no assistant row has usage at all.
+  $: composerContextUsage = deriveComposerContextUsage(messages, resolveModelContextWindow(modelOptions, activeModelKey));
   $: streamingText = chatState.streamingText;
   $: streamingThinking = chatState.streamingThinking;
   $: activity = chatState.activity;
@@ -997,7 +1003,6 @@
   $: activeExternalSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeExternalSessionId);
   $: activeHeaderChannel = viewMode === "external" ? activeExternalChannel : (activeSessionItem?.channel ?? "web");
   $: activeHeaderSourceLabel = sidebarChannels.find((channel) => channel.id === activeHeaderChannel)?.name ?? activeHeaderChannel;
-  $: activeHeaderSourceInitial = ({ web: "W", telegram: "T", feishu: "F", qq: "Q", weixin: "W" } as Record<string, string>)[activeHeaderChannel] ?? activeHeaderSourceLabel.trim().charAt(0).toUpperCase();
   $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (activeSessionItem?.title || copy.chat);
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: activeDurableExecution = viewMode === "local" && activeSessionId
@@ -1646,6 +1651,26 @@
       await loadChannel(item.channel);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  async function copySessionPath(item: DesktopConversationItem): Promise<void> {
+    if (!connectedEndpoint) return;
+    try {
+      const sessionPath = await getDesktopSessionPath(connectedEndpoint, { sessionId: item.sessionId });
+      await navigator.clipboard.writeText(sessionPath);
+      showMiniAppFeedback(copy.sessionPathCopied);
+    } catch (cause) {
+      showMiniAppFeedback(cause instanceof Error ? cause.message : copy.sessionPathFailed);
+    }
+  }
+
+  async function revealSessionInFinder(item: DesktopConversationItem): Promise<void> {
+    if (!connectedEndpoint) return;
+    try {
+      await revealDesktopSession(connectedEndpoint, { sessionId: item.sessionId });
+    } catch (cause) {
+      showMiniAppFeedback(cause instanceof Error ? cause.message : copy.sessionRevealFailed);
     }
   }
 
@@ -3117,6 +3142,8 @@
     onMoreChannel={(channel) => void loadMoreChannel(channel as DesktopConversationChannel)}
     onRenameSession={renameSession}
     onDeleteSession={deleteSession}
+    onCopySessionPath={copySessionPath}
+    onRevealSessionInFinder={revealSessionInFinder}
     onActivateProjectSession={() => {
       projectPaneActive = true;
       workspacePane = "chat";
@@ -3187,11 +3214,12 @@
         </button>
       {/if}
       <div class="chat-title-block" data-tauri-drag-region>
-        <span class="chat-source-tag" data-tauri-drag-region role="img" aria-label={activeHeaderSourceLabel} title={activeHeaderSourceLabel}><span aria-hidden="true">#</span><b aria-hidden="true">{activeHeaderSourceInitial}</b></span>
-        <span class="chat-title-separator" data-tauri-drag-region aria-hidden="true">/</span>
         <div class="chat-title-text" data-tauri-drag-region>
           <div class="chat-title-name" data-tauri-drag-region>{activeHeaderTitle}</div>
         </div>
+        {#if activeHeaderChannel !== "web"}
+          <span class="chat-source-label" data-tauri-drag-region title={activeHeaderSourceLabel}>{activeHeaderSourceLabel}</span>
+        {/if}
       </div>
       <div class="header-actions">
         {#if durableActiveCount > 0}
@@ -3398,10 +3426,13 @@
       <ChatInputArea
         bind:this={chatInputArea}
         bind:value={messageInput}
+        floating
         thinkingLevel={clampedThinkingLevel}
         {thinkingLevelOptions}
         endpoint={connectedEndpoint}
         {copy}
+        {locale}
+        contextUsage={composerContextUsage}
         {sending}
         disabled={!modelReady || (!draftMode && !activeSessionId) || modelSelectionHydrating}
         canSend={Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}

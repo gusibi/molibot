@@ -224,6 +224,26 @@ test("completed event lease retains its structured execution result", () => {
   store.close();
 });
 
+test("an approval suspension is recorded as waiting_approval, never as completed", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput({ taskId: "daily-report" }));
+  assert.ok(lease);
+
+  const result = { runId: lease.runId, stopReason: "waiting_for_approval" };
+  assert.equal(store.markWaitingApproval(lease.id, lease.runId, result), true);
+  const settled = store.getById(lease.id);
+  assert.equal(settled?.status, "waiting_approval");
+  assert.equal(settled?.stopReason, "waiting_for_approval");
+  assert.ok(settled?.finishedAt);
+  assert.deepEqual(settled?.result, result);
+
+  // The wait is terminal for this attempt: marking completion afterwards must
+  // not resurrect it, and it must not retry either.
+  assert.equal(store.markCompleted(lease.id, lease.runId), false);
+  assert.equal(store.getById(lease.id)?.status, "waiting_approval");
+  store.close();
+});
+
 // Two production runs hung as "运行中" indefinitely because their process died
 // 38s and 4min into a 10min timeout: age-based recovery read "young" as "alive"
 // and skipped them, and the surviving `running` row then blocked every later run

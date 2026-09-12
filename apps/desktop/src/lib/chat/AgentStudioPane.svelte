@@ -1,12 +1,12 @@
 <script lang="ts">
-  import Crosshairs from "reicon-svelte/icons/Crosshairs";
+  import Crosshairs from "../icons/duotone/components/Crosshairs.svelte";
   import Loader from "reicon-svelte/icons/Loader";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
-  import Map from "reicon-svelte/icons/Map";
+  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
+  import Map from "../icons/duotone/components/Map.svelte";
   import Minus from "reicon-svelte/icons/Minus";
   import Plug from "reicon-svelte/icons/Plug";
   import Plus from "reicon-svelte/icons/Plus";
-  import Video from "reicon-svelte/icons/Video";
+  import Video from "../icons/duotone/components/Video.svelte";
   import X from "reicon-svelte/icons/X";
   import { onDestroy, onMount } from "svelte";
   import { ActivityScheduler, agentActivityPolicy, documentActivityVisibility } from "../native/activityScheduler";

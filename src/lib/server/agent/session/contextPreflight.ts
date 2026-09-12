@@ -9,18 +9,82 @@ function estimateTextTokens(text: string): number {
   return cjkCount + Math.ceil((text.length - cjkCount) / 4);
 }
 
-function serializedToolTokens(tools: unknown[]): number {
-  if (tools.length === 0) return 0;
-  try {
-    return estimateTextTokens(JSON.stringify(tools));
-  } catch {
-    return tools.reduce((sum, tool) => sum + estimateTextTokens(String(tool)), 0);
-  }
+export interface ContextUsageBreakdown {
+  /** Estimated tokens of the conversation history sent to the model. */
+  messages: number;
+  /** Estimated tokens of third-party MCP tool schemas (`mcp__` prefix). */
+  mcpTools: number;
+  /** Estimated tokens of built-in tool schemas. */
+  systemTools: number;
+  /** Estimated tokens of the system prompt, excluding the skills catalogue. */
+  systemPrompt: number;
+  /** Estimated tokens of the `<available-skills>` catalogue inside the system prompt. */
+  skills: number;
+  /** Plugin/extension tool schemas and anything not covered by the buckets above. */
+  other: number;
 }
 
-export interface ModelContextPreflightAssessment {
-  fits: boolean;
+export interface ContextUsageEstimate {
+  breakdown: ContextUsageBreakdown;
   estimatedTokens: number;
+}
+
+/** The skills catalogue is one self-contained XML block in the assembled prompt (see `buildSkillsCatalogue`). */
+const SKILLS_BLOCK_PATTERN = /<available-skills>[\s\S]*?<\/available-skills>/;
+
+function estimateToolsByKind(tools: unknown[]): Pick<ContextUsageBreakdown, "mcpTools" | "systemTools" | "other"> {
+  const result = { mcpTools: 0, systemTools: 0, other: 0 };
+  for (const tool of tools) {
+    const name = typeof (tool as { name?: unknown } | null | undefined)?.name === "string"
+      ? (tool as { name: string }).name
+      : "";
+    const tokens = estimateTextTokens(
+      (() => {
+        try {
+          return JSON.stringify(tool) ?? String(tool);
+        } catch {
+          return String(tool);
+        }
+      })()
+    );
+    if (name.startsWith("mcp__")) result.mcpTools += tokens;
+    else if (name) result.systemTools += tokens;
+    else result.other += tokens;
+  }
+  return result;
+}
+
+/**
+ * Split the dispatch context into the display categories the composer's
+ * context-usage panel renders. Estimates share the preflight estimator so the
+ * parts always sum to `estimatedTokens`; the real prompt size still comes from
+ * the provider's usage report.
+ */
+export function estimateContextBreakdown(input: {
+  systemPrompt: string;
+  messages: AgentMessage[];
+  tools: unknown[];
+}): ContextUsageEstimate {
+  const skillsBlock = input.systemPrompt.match(SKILLS_BLOCK_PATTERN)?.[0] ?? "";
+  const skills = estimateTextTokens(skillsBlock);
+  const toolSplit = estimateToolsByKind(input.tools);
+  const breakdown: ContextUsageBreakdown = {
+    messages: estimateContextTokens(input.messages),
+    mcpTools: toolSplit.mcpTools,
+    systemTools: toolSplit.systemTools,
+    systemPrompt: estimateTextTokens(input.systemPrompt) - skills,
+    skills,
+    other: toolSplit.other
+  };
+  return {
+    breakdown,
+    estimatedTokens: breakdown.messages + breakdown.mcpTools + breakdown.systemTools
+      + breakdown.systemPrompt + breakdown.skills + breakdown.other
+  };
+}
+
+export interface ModelContextPreflightAssessment extends ContextUsageEstimate {
+  fits: boolean;
   fixedTokens: number;
   messageTokens: number;
   contextWindow: number;
@@ -38,13 +102,15 @@ export function assessModelContextPreflight(input: {
   tools: unknown[];
   contextWindow: number;
 }): ModelContextPreflightAssessment {
-  const fixedTokens = estimateTextTokens(input.systemPrompt) + serializedToolTokens(input.tools);
-  const messageTokens = estimateContextTokens(input.messages);
-  const estimatedTokens = fixedTokens + messageTokens;
+  const estimate = estimateContextBreakdown(input);
+  const fixedTokens = estimate.breakdown.systemPrompt + estimate.breakdown.skills
+    + estimate.breakdown.mcpTools + estimate.breakdown.systemTools + estimate.breakdown.other;
+  const messageTokens = estimate.breakdown.messages;
   const contextWindow = Math.max(1, Math.floor(input.contextWindow));
   return {
-    fits: estimatedTokens <= contextWindow,
-    estimatedTokens,
+    fits: estimate.estimatedTokens <= contextWindow,
+    estimatedTokens: estimate.estimatedTokens,
+    breakdown: estimate.breakdown,
     fixedTokens,
     messageTokens,
     contextWindow

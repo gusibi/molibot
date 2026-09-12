@@ -14,6 +14,7 @@
   import { modelOptionCopy } from "../presentation";
   import { tablist } from "../a11y/tablist";
   import Dialog from "../components/ui/Dialog.svelte";
+  import Button from "../components/ui/Button.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import TasksSection from "../settings/TasksSection.svelte";
 
@@ -155,12 +156,12 @@
             {/each}
           </div>
           <div class="project-commands-foot">
-            <button class="secondary-button project-command-add" type="button" onclick={addCustomCommand}><Plus size={14} aria-hidden="true" />{copy.projectCommandAdd}</button>
+            <Button variant="secondary" class="project-command-add" onclick={addCustomCommand}><Plus size={14} aria-hidden="true" />{copy.projectCommandAdd}</Button>
             {#if commandError}<small class="project-commands-error" role="alert"><TriangleWarning weight="Filled" size={12} aria-hidden="true" />{commandError}</small>{/if}
           </div>
         </div>
       </div>
     </div>
-    <footer class="settings-footbar project-settings-foot"><span class="settings-footbar-label project-settings-foot-label" aria-live="polite">{saved ? copy.projectSettingsSaved : projectsStore.error}</span><div class="settings-footbar-actions project-settings-foot-actions"><button class="secondary-button" type="button" onclick={onClose}>{copy.cancel}</button><button class="primary-button" type="submit" disabled={!name.trim() || Boolean(projectsStore.busy)}>{copy.save}</button></div></footer>
+    <footer class="settings-footbar project-settings-foot"><span class="settings-footbar-label project-settings-foot-label" aria-live="polite">{saved ? copy.projectSettingsSaved : projectsStore.error}</span><div class="settings-footbar-actions project-settings-foot-actions"><Button variant="secondary" onclick={onClose}>{copy.cancel}</Button><Button variant="primary" type="submit" disabled={!name.trim() || Boolean(projectsStore.busy)}>{copy.save}</Button></div></footer>
   </form>{:else}<div id="project-settings-panel-automations" class="project-settings-automations" role="tabpanel" aria-labelledby="project-settings-tab-automations"><TasksSection projectId={project.id} presentation="project" /></div>{/if}
 </Dialog>

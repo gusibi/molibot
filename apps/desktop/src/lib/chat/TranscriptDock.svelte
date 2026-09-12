@@ -19,7 +19,7 @@
    * this component knows nothing about approvals and the next such card reuses
    * it as-is (pitfall #7).
    */
-  import ArrowDown from "reicon-svelte/icons/ArrowDown";
+  import ArrowDown from "../icons/duotone/components/ArrowDown.svelte";
   import Hand from "reicon-svelte/icons/Hand";
   import { onDestroy } from "svelte";
   import { SCROLL_PINNED_EVENT, resumeStickToBottom } from "./stickToBottom";

@@ -14,7 +14,6 @@ export interface ConversationTurnHandlers {
   onToken?: (delta: string) => void;
   onReplace?: (text: string) => void;
   onThinking?: (delta: string) => void;
-  onStatus?: (text: string) => void;
   onActivities?: (activities: DesktopActivityEntry[]) => void;
   onActivity?: (activity: DesktopConversationActivity) => void;
   onPlan?: (plan: DesktopConversationPlan) => void;
@@ -63,9 +62,6 @@ export async function runDesktopConversationTurn(input: {
     if (event === "token") handlers.onToken?.(String(data.delta ?? ""));
     if (event === "replace") handlers.onReplace?.(String(data.text ?? ""));
     if (event === "thinking_delta") handlers.onThinking?.(String(data.delta ?? ""));
-    if (event === "status") {
-      handlers.onStatus?.(String(data.text ?? ""));
-    }
     const activity = parseDesktopActivity(event, data);
     if (activity) {
       activities = reduceDesktopActivities(activities, activity);

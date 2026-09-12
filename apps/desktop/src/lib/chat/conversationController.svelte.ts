@@ -445,7 +445,6 @@ export class ConversationController {
         onThinking: (delta) => {
           this.bufferLiveText("thinking", delta);
         },
-        onStatus: (text) => { if (text) this.activity = text; },
         onActivities: (next) => (this.activities = next),
         onActivity: (entry) => this.upsertLiveActivity(entry),
         onPlan: (plan) => { publishSessionPlan(plan); if (plan.status === "proposed") this.appendLivePlan(plan); },

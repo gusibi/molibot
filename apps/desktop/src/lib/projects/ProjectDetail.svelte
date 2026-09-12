@@ -1,7 +1,7 @@
 <script lang="ts">
-  import Gear from "reicon-svelte/icons/Gear";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
-  import Sidebar from "reicon-svelte/icons/Sidebar";
+  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
+  import Sidebar from "../icons/duotone/components/Sidebar.svelte";
+  import TuningSquare2 from "../icons/duotone/components/TuningSquare2.svelte";
   import DuotoneIcon from "../icons/duotone/DuotoneIcon.svelte";
   import { onDestroy, tick } from "svelte";
   import type { Translation } from "../i18n";
@@ -42,7 +42,7 @@
   } = $props();
   const project = $derived(projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId));
   const session = $derived(projectsStore.sessions.find((item) => item.conversationId === projectsStore.selectedSessionId));
-  const headerTitle = $derived(project ? `${project.name} / ${session?.title || copy.newChat}` : copy.chat);
+  const headerTitle = $derived(session?.title || copy.newChat);
   let settingsOpen = $state(false);
   let modelOptions = $state<DesktopModelOption[]>([]);
   let contentElement = $state<HTMLElement>();
@@ -117,9 +117,8 @@
 {#if project}
   <section class="chat-content" bind:this={contentElement}>
     <ChatHeader
-      sourceInitial="P"
-      sourceLabel={copy.projects}
       title={headerTitle}
+      sourceLabel={project.name}
       searching={searchOpen}
       {sidebarCollapsed}
       {onToggleSidebar}
@@ -155,7 +154,7 @@
         <button class="icon-button" type="button" aria-label={copy.files} title={copy.files} onclick={onOpenFiles}>
           <Sidebar class="flip" size={16} aria-hidden="true" />
         </button>
-        <button class="icon-button" type="button" aria-label={copy.projectSettings} title={copy.projectSettings} onclick={() => (settingsOpen = true)}><Gear size={16} aria-hidden="true" /></button>
+        <button class="icon-button" type="button" aria-label={copy.projectSettings} title={copy.projectSettings} onclick={() => (settingsOpen = true)}><TuningSquare2 size={16} aria-hidden="true" /></button>
       </svelte:fragment>
     </ChatHeader>
     <div class="project-body">{#if projectsStore.selectedSessionId}<ProjectChat {copy} {searchMatchIds} {activeMatchId} />{:else}<div class="project-empty"><strong>{copy.projectNoSessions}</strong><button class="primary-button" type="button" onclick={() => void newProjectSession()}>{copy.newChat}</button></div>{/if}</div>

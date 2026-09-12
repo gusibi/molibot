@@ -147,7 +147,7 @@ export abstract class BaseChannelRuntime {
    * runtime as its driver, but all orchestration stays in this shared runtime
    * layer and the response handle deliberately performs no Channel delivery.
    */
-  async triggerProjectTask(event: unknown, filename: string): Promise<void> {
+  async triggerProjectTask(event: unknown, filename: string): Promise<unknown> {
     const task = event as MomEvent;
     const projectId = task?.target?.kind === "project" ? String(task.target.projectId ?? "").trim() : "";
     if (
@@ -185,7 +185,9 @@ export abstract class BaseChannelRuntime {
     };
 
     try {
-      await this.runSharedTextTask<{ messageId: number }>(task.chatId, synthetic, {
+      // Surfaced so the event lease can record a `waiting_for_approval` park
+      // as 等待审批 instead of a completed run that produced nothing.
+      return await this.runSharedTextTask<{ messageId: number }>(task.chatId, synthetic, {
         createBotMessageId: () => Date.now(),
         response: {
           sendText: async () => ({ messageId: Date.now() }),

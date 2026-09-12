@@ -478,28 +478,199 @@ body typography, financial imagery, and presentation frames are not app defaults
   usage, trace, and service-log data pages and the memory center — and the chat
   transcript share one centered column capped at 720px, so settings and chat
   content align edge to edge.
-- Prefer quiet, opaque surfaces and separators. Translucency may reinforce hierarchy
-  but must preserve legibility with reduced transparency, increased contrast, dark
-  mode, and inactive windows. Shadows are reserved for floating overlays and the
-  focal content surfaces defined in Art direction.
+- Prefer quiet, opaque surfaces and separators for structural regions. Transient
+  chat surfaces — decision/approval and plan cards, the running-turn status pill,
+  popover menus, the transcript dock pill — and the chat page's floating chrome
+  (the toolbar and the composer, which the transcript scrolls underneath) use
+  the shared glass material defined in "Chat glass materials" below. All
+  translucency must preserve legibility with reduced transparency, increased
+  contrast, dark mode, and inactive windows; every glass token degrades to the
+  opaque equivalent in those modes. Shadows are reserved for floating overlays
+  and the focal content surfaces defined in Art direction.
+
+### Chat glass materials
+
+The chat page's transient surfaces share one material system so the chat reads
+as macOS glass instead of loose opaque cards. The tokens live once in
+`styles.css` and derive from the theme's own surface tokens, so every theme
+family inherits the material without per-family values.
+
+- **Tokens:** `--glass-surface-bg` and `--glass-popover-bg` (a `color-mix` of
+  `--card-bg` toward transparent, at the large-surface and small-text-surface
+  densities respectively), `--glass-surface-filter` / `--glass-popover-filter` /
+  `--glass-chrome-filter` (`blur() saturate()`, sized to the surface),
+  `--glass-edge` (the bright top-edge inset highlight that reads as light
+  catching the material), `--glass-surface-shadow` (float-tier depth: contact
+  shadow plus two ambient layers) and `--glass-chip-shadow` (the lighter tier).
+  Surfaces compose them as `background: var(--glass-surface-bg)`,
+  `backdrop-filter: var(--glass-popover-filter)`, and
+  `box-shadow: var(--glass-chip-shadow), var(--glass-edge)`. A background and a
+  blur are one decision: translucent without blur is a wash of text showing
+  through, blur without translucency is invisible.
+- **Density is a legibility floor, not a taste call.** Legibility comes from the
+  frost, not from opacity: a translucent surface without its blur is a wash of
+  sharp text — a menu over the transcript was unreadable at 78% *because its
+  blur was missing*, and the fix is the blur, not density — while a too-dense
+  surface reads as an opaque card with no glass left. Large surfaces sit at 66%,
+  text-carrying menus and pills at 72%, the floating chrome at 72%; the frost is
+  28-40px. Both bounds are guarded (65-92%), so neither can drift back silently.
+- **`--glass-edge` rides `--glass-border-light`**, which every family and
+  brightness already declares (42-72% white on light, 14-25% on dark). A baked
+  white would paint a hard line across every dark family.
+- **Glass depth follows brightness, not family.** `--glass-surface-shadow` and
+  `--glass-chip-shadow` are re-declared once under
+  `:root[data-resolved-appearance="dark"]`, because a dark canvas needs a much
+  heavier ambient shadow for the same perceived lift.
+- **Where glass applies:** the approval/decision card, the plan card, the
+  in-progress thinking card, the turn files card, the running-turn status pill,
+  the composer and the
+  strips stacked above it, the chat toolbar, chat popover menus (slash
+  suggestions, model/permission/context-usage menus, overflow menus,
+  file/context menus, the
+  conversation row menu, command palette, Mini Apps quick menu, prompt preview)
+  and the transcript dock pill. The completed reasoning disclosure
+  (`.turn-process`) stays a borderless transparent details element, and static
+  transcript prose, message bubbles, the sidebar, and settings stay opaque.
+- **Hierarchy:** bigger surfaces read as thicker material — the cards take the
+  32px surface blur and the float-tier shadow; chips, pills and menus take the
+  28px popover blur and the chip tier; the composer and the toolbar take the
+  40px chrome blur, the composer with the float-tier shadow and the full-bleed
+  toolbar with the rim only. Never stack a glass surface directly on another.
+- **The dialog scrim frosts, the dialog sheet stays opaque.** Every dialog
+  opens over the shared `desktop-dialog-overlay`, which composes
+  `--modal-scrim` with `--glass-modal-filter` (the popover blur tier): the app
+  behind the sheet blurs into a quiet wash so the sheet separates from its
+  context, while the sheet itself stays a plain opaque surface. The token
+  degrades to `none` under reduced transparency like the rest of the family.
+- **No refraction displacement.** An SVG `feDisplacementMap` ("liquid glass")
+  was tried on the material layer and removed: `filter` warps everything the
+  layer paints *including its own edges*, so every straight panel edge rendered
+  as a slow wave; and moving the displacement into `backdrop-filter` is not
+  available on WebKit — it parses (`CSS.supports` answers true, so `@supports`
+  cannot detect it) and then drops the whole chain, blur included
+  (bugs.webkit.org/245510; verified in WKWebView). The material is tint + blur +
+  edge + shadow; if real refraction is ever wanted it must live on a masked,
+  inset inner layer that keeps the panel's own edges out of the filtered region
+  — never as a filter on the material layer or an SVG reference inside
+  `backdrop-filter`.
+
+#### A host that contains a popover must not be a backdrop root
+
+This is the one non-obvious rule in the system, and getting it wrong is
+invisible in review.
+
+An element with `backdrop-filter` becomes a **backdrop root**: a descendant's
+own `backdrop-filter` may then only sample content painted *inside* it (Filter
+Effects §Backdrop Root). The composer hosts the model menu, the permission menu
+and the slash suggestions; the toolbar hosts the Mini Apps quick menu. All four
+hang outside their parent's box, over the transcript — so with the filter on the
+parent they found nothing to blur and degraded to plain translucent panes with
+the transcript's text sharp behind them.
+
+- The material of such a host therefore lives on a **`::before` layer**
+  (`background` + `backdrop-filter` + `box-shadow` together on that layer, the
+  element itself left `background: transparent`). The element then creates no
+  backdrop root at all, and its children blur the page behind them as intended.
+- That layer needs `z-index: -1`, which is only scoped if the host establishes a
+  stacking context. Use `z-index: 0`, **never `isolation: isolate`** — the
+  latter is itself on the backdrop-root list and reinstates the bug.
+- The host's border-radius must be inherited by the layer and the layer sized to
+  the *border* box (`inset: -1px` under a 1px border), or a translucent border
+  composites over raw content and reads as a seam.
+- The same degradation comes from any ancestor that groups painting — `opacity`
+  below 1, a `filter`, a `mask` — not only from the host's own backdrop-filter.
+  The prompt navigator therefore keeps its rail dimming on the marker children,
+  and the element carrying the preview never sits inside an opacity ancestor.
+- Before giving any surface a `backdrop-filter`, ask whether it contains a
+  popover. Guarded in `chat-ui.test.mjs`.
+
+#### Floating chrome
+
+The toolbar and the composer are taken out of the chat column's flow and float
+over the transcript, so content genuinely travels underneath them. An opaque bar
+that consumes a strip of the column reads as chrome bolted on; a blurred bar
+with content moving behind it reads as depth.
+
+- The toolbar is `position: absolute` inside `.chat-content` with no bottom
+  border — the blur is what separates it from the transcript. The composer is
+  `.composer-wrap.is-floating`, also absolute, with a `::before` band where
+  content fades out as it approaches the card. That band reaches exactly to the
+  card's top edge (10px past the pane's own edge, through its top padding) so
+  faded content and the material meet with no strip of raw transcript between
+  them, and stops there so the material still has real content to sample.
+- Both carry their material on a `::before` layer rather than on the element —
+  see "A host that contains a popover must not be a backdrop root" above.
+- Both mix their own appearance-aware base — `--chrome-header-bg` and
+  `--composer-bg` — through `--glass-chrome-opacity`, rather than using
+  `--glass-surface-bg`. Mixing the chrome token is what keeps the
+  `[data-window-active="false"]` projection working for the toolbar.
+- Because they overlap the transcript, the transcript reserves their heights
+  instead of sitting below them: `.messages` pads by `--chat-header-h` and
+  `--composer-h`, and the dock, the prompt navigator and the action toast offset
+  by `--composer-h`. These are **budgets, not design values**. `--composer-h` in
+  particular is a live measurement — the composer stack grows with every line of
+  input, queued chip, attachment and banner — so `ChatInputArea` observes the
+  whole footer and publishes its height to the host, rather than any constant
+  being guessed.
+- A surface nested in a glass surface takes a tint, never a second layer: the
+  strips above the card (queued follow-ups, attachments, recording and editing
+  banners, model and error notices) take the material only under `.is-floating`.
+  ProjectChat renders the same component in the flow over an opaque pane, where
+  the solid surfaces are correct.
+
+#### Motion and degradation
+
+- **Material arrivals:** glass surfaces enter with a materialize transition —
+  `opacity` + `transform` per the Motion section, plus `filter: blur()` easing
+  from `blur(6px)` to `blur(0)`, so the surface reads as a real material
+  arriving rather than a flat fade. `filter` joins the allowed property list for
+  this one pattern; it must not be used for other motion. The final keyframe is
+  `blur(0)` and is never pinned with `forwards` — a filter left on the element
+  would make it a containing block for its children for the rest of the session.
+  Entrances are anchored to the trigger that opened them (`transform-origin`).
+- **Entrance only.** The popovers and cards here are conditionally rendered, so
+  there is no element left to transition out. Exits stay instant; a symmetric
+  exit needs a keep-mounted architecture and is a separate work package.
+- **Degradation is mandatory, not opt-in:** every tier that removes the blur
+  must also take the surface opaque — `data-reduced-transparency`,
+  `data-performance="low"` and `prefers-contrast: more` all set
+  `--glass-surface-bg: var(--card-bg)` **and** `--glass-chrome-opacity: 100%`.
+  Dropping only the filter leaves translucent bars over moving text, which is
+  worse than either extreme. `prefers-reduced-motion` keeps the opacity
+  cross-fade, drops the blur and scale travel, and holds the running-turn wave
+  at a still crest — a gentler equivalent, not no feedback.
 - Status never relies on color alone. Pair color with readable text and, where useful,
   a dot, icon, or shape. Reserve red for terminal failure or destructive actions.
 - Reicon ships Outline, Filled, and (data-only) duotone weights, and the app uses
-  them as a hybrid system. Functional and status icons at 16px and below — nav
-  tiles, row actions, buttons, spinners, and every status signal — stay linear
-  Outline, keeping Filled only for the existing active-state accents. Decorative
-  showcase icons at 20px and larger — empty states, welcome panels, and
-  panel-level empty file lists — use the duotone weight through the local
-  `DuotoneIcon` component (`apps/desktop/src/lib/icons/duotone/`), whose bodies
-  are generated from the official Reicon data by
+  them as a hybrid system. Decorative showcase icons at 20px and larger — empty
+  states, welcome panels, and panel-level empty file lists — and the desktop
+  chat page's icon chrome (sidebar nav, header and composer controls, row
+  actions, section headers, search bars, pane toolbars) use the duotone weight.
+  Showcase surfaces render it through the local name-based `DuotoneIcon`
+  component; chat chrome swaps its imports to the generated per-icon components
+  (`apps/desktop/src/lib/icons/duotone/components/`), which share the Reicon
+  props contract so they drop in wherever a `ReiconComponent` is expected. All
+  duotone bodies come from the official Reicon data via
   `scripts/generate-duotone-icons.mjs`; add an icon by extending the script's
-  manifest and regenerating, never by hand-editing the generated module. A glyph
-  without an official duotone falls back to its Outline component instead of
-  substituting a different concept; the manifest may map a name to an official
-  same-concept duotone (for example `Timer` → `stopwatch-duotone`) and that
-  mapping is a reviewed, explicit entry. Duotone layers paint with `currentColor`
-  and a baked 50% secondary layer, so the icons inherit theme colors across
-  brightness and family — never restyle the layers individually.
+  manifest and regenerating, never by hand-editing the generated modules. A
+  glyph without an official duotone falls back to its Outline component instead
+  of substituting a different concept; the manifest may map a name to an
+  official same-concept duotone (for example `Timer` → `stopwatch-duotone`,
+  `Grid` → `squares-duotone`) and that mapping is a reviewed, explicit entry.
+  A few chat chrome slots use owner-picked duotone glyphs that replace the
+  literal-outline concept entirely — skills → `reorder2-duotone`, agent →
+  `vacuum2-duotone`, the settings entry → `tuning-square2-duotone`, send →
+  `plane2-duotone`, plan mode → `circle-arrows-down-duotone`, manual mode →
+  `handshake-duotone`, the all-mini-apps CTA → `list-duotone` — so matching an
+  old outline name there no longer predicts the rendered glyph.
+  Still linear Outline everywhere — including inside duotone surfaces — are the
+  small functional and status glyphs: spinners, done/failed/warning markers,
+  read receipts, activity tool-type icons, and the bare `Check` / `X` / `Plus` /
+  `Minus` / chevrons that have no duotone counterpart; `XCircle` stays Outline
+  so the search-clear affordance stays identical across chat and settings.
+  Duotone layers paint with `currentColor` and a baked 50% secondary layer, so
+  the icons inherit theme colors across brightness and family — never restyle
+  the layers individually.
 
 ### macOS semantic color roles
 
@@ -689,12 +860,13 @@ block, status color, and sidebar tint must resolve through the same family block
   composer to transcript. The pill is background and box-shadow only and may never move
   a glyph: the overlay mirrors the textarea glyph-for-glyph, and any advance change
   drifts the tint off the text and misplaces the CJK IME candidate window.
-- Chat headers identify the active source with a quiet `#` + initial micro-tag
-  (for example W, F, T, or P), not a large avatar. The accessible label and title
-  expose the full source name. A quiet slash expresses the source/title hierarchy;
-  tag, slash, and title share one compact type size, 18px line box, and vertical center.
-  The title carries only the conversation or project/session name and does not repeat
-  the channel prefix.
+- Chat headers lead with the conversation title. Local Web conversations omit
+  the source; external conversations show the full localized channel name after
+  the title as secondary text, without a badge, initial, or slash. Title and source
+  stay on one line; the title truncates within its column while source text is
+  bounded and truncates when space is limited. Project headers show the session title first and the project name as the
+  trailing secondary source label, without a slash or project-type badge. Passive title
+  and source text remain part of the native window drag region.
 - Chat's four primary sidebar destinations use one coherent regular-weight icon set
   and compact 30px rows. Their spacing is sufficient grouping: do not add a hairline
   between the primary destinations and the conversation tree. Their content begins
@@ -815,6 +987,22 @@ block, status color, and sidebar tint must resolve through the same family block
   uses an in-place overview → option-list transition, and caps long model lists with
   internal scrolling; do not split these settings into separate pills or fall back
   to native `select` menus.
+- The context-usage gauge is an always-present trigger beside the model summary
+  drawn as a progress ring — one full turn of the circle equals 100% of the
+  context window, so remaining capacity reads at a glance without opening the
+  panel (accent fill over a neutral track; an empty track means no usage data
+  yet). It opens a read-only glass panel: a capacity header
+  (`used/window（percent）`), one accent progress bar, category rows (messages /
+  MCP tools / built-in tools / system prompt / skills / other) as dot + label +
+  share, and an average cache hit rate line under a divider. It renders data,
+  not menu items — no checkmarks, no hover rows, no actions. Sessions without a
+  dispatch snapshot (transcribed before the feature existed, or no reply since)
+  degrade to reported usage: the capacity header and bar plus the cache line
+  render from the message's real token report against the selected model's
+  configured window, and the category rows are omitted. The cache line renders
+  whenever the transcript has usage — a real 0% (no reported cache hits) stays
+  visible. With no usage at all the panel keeps its title and shows one
+  secondary hint line.
 
 ## Components and interaction
 
@@ -917,6 +1105,10 @@ Nothing exceeds 300ms; longer reads as waiting, not communicating.
 **Allowed properties:** `opacity` and `transform` only. Never animate
 `width`, `height`, or grid tracks - per-frame reflow is jank, and the
 file-panel grid animation was explicitly rejected in the motion audit.
+The one exception is the glass material arrival defined in Foundations:
+`filter: blur()` may transition on a glass surface's entrance, paired with
+the opacity/transform travel, so the material reads as arriving rather than
+fading.
 Transcript entrances are CSS `@starting-style` gated behind `.settled`
 (see `settleEntrances.ts`), so a session switch never replays them.
 

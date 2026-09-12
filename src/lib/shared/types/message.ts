@@ -104,6 +104,27 @@ export interface InboundMessage {
   conversationId?: string;
 }
 
+/**
+ * Estimated category split of a dispatched context plus the real prompt usage
+ * the provider reported for that call. Produced by the agent runner, persisted
+ * on the assistant entry, consumed by the composer's context-usage panel.
+ */
+export interface ConversationContextSnapshot {
+  contextWindow: number;
+  estimatedTokens: number;
+  breakdown: {
+    messages: number;
+    mcpTools: number;
+    systemTools: number;
+    systemPrompt: number;
+    skills: number;
+    other: number;
+  };
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
 export interface ConversationMessage {
   /** Execution duration, excluding time spent waiting before this run started. */
   durationMs?: number;
@@ -125,6 +146,8 @@ export interface ConversationMessage {
     cacheWriteTokens: number;
     totalTokens: number;
   };
+  /** Context-usage snapshot of the model call that produced this assistant row. */
+  contextBreakdown?: ConversationContextSnapshot;
   plan?: ConversationPlan;
   /** Durable handling policy for the whole user turn. Missing means standard. */
   retention?: TurnRetentionPolicy;

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Files from "reicon-svelte/icons/Files";
-  import SquareArrowUp from "reicon-svelte/icons/SquareArrowUp";
+  import Files from "../icons/duotone/components/Files.svelte";
+  import SquareArrowUp from "../icons/duotone/components/SquareArrowUp.svelte";
   import type { Translation } from "../i18n";
   import TurnFileList from "./TurnFileList.svelte";
   import type { TurnFileItem } from "./turnFiles";

@@ -21,7 +21,8 @@ export interface ChannelManager {
   snapshotRuns?(): Array<{ chatId: string; sessionId: string }>;
   abortRun?(chatId: string, sessionId: string, reason?: string): { aborted: boolean };
   triggerTask?(event: unknown, filename: string): Promise<void>;
-  triggerProjectTask?(event: unknown, filename: string): Promise<void>;
+  /** Resolves to the runner's RunResult so the lease can record a suspension instead of a fake completion. */
+  triggerProjectTask?(event: unknown, filename: string): Promise<unknown>;
   abortProjectTaskRun?(runId: string, reason?: string): { aborted: boolean };
   runDurableAttempt?(event: ChannelInboundMessage, hooks?: DurableAttemptHooks): Promise<DurableAttemptResult>;
   readDurableRunDetail?(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[];

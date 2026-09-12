@@ -1,9 +1,9 @@
 <script lang="ts">
   import Check from "reicon-svelte/icons/Check";
-  import Hand from "reicon-svelte/icons/Hand";
-  import Lightning from "reicon-svelte/icons/Lightning";
-  import ListCheck from "reicon-svelte/icons/ListCheck";
-  import PenLine from "reicon-svelte/icons/PenLine";
+  import CircleArrowsDown from "../icons/duotone/components/CircleArrowsDown.svelte";
+  import Handshake from "../icons/duotone/components/Handshake.svelte";
+  import Lightning from "../icons/duotone/components/Lightning.svelte";
+  import PenLine from "../icons/duotone/components/PenLine.svelte";
   import type { ReiconComponent } from "../components/ui/iconTypes";
   import { onMount, tick } from "svelte";
   import type { Translation } from "../i18n";
@@ -11,8 +11,8 @@
   type PermissionModeOption = "plan" | "manual" | "accept_edits" | "auto";
 
   const MODE_ICONS: Record<PermissionModeOption, ReiconComponent> = {
-    plan: ListCheck,
-    manual: Hand,
+    plan: CircleArrowsDown,
+    manual: Handshake,
     accept_edits: PenLine,
     auto: Lightning
   };

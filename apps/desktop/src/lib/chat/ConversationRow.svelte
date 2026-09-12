@@ -1,8 +1,10 @@
 <script lang="ts">
-  import More from "reicon-svelte/icons/More";
-  import Pen from "reicon-svelte/icons/Pen";
-  import Trash from "reicon-svelte/icons/Trash";
+  import Copy from "../icons/duotone/components/Copy.svelte";
+  import FolderOpen from "../icons/duotone/components/FolderOpen.svelte";
+  import Pen from "../icons/duotone/components/Pen.svelte";
+  import Trash from "../icons/duotone/components/Trash.svelte";
   import { tick } from "svelte";
+  import { Portal } from "bits-ui";
   import BotAvatar from "./BotAvatar.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
@@ -17,7 +19,9 @@
     labels,
     onSelect,
     onRename,
-    onDelete
+    onDelete,
+    onCopyPath,
+    onRevealInFinder
   }: {
     item: ConversationRowItem;
     active?: boolean;
@@ -31,6 +35,8 @@
       menu?: string;
       rename?: string;
       delete?: string;
+      copyPath?: string;
+      revealInFinder?: string;
       placeholder?: string;
       deletePrompt?: string;
       cancel?: string;
@@ -39,16 +45,16 @@
     onSelect: () => void;
     onRename?: (title: string) => void;
     onDelete?: () => void;
+    onCopyPath?: () => void | Promise<void>;
+    onRevealInFinder?: () => void | Promise<void>;
   } = $props();
 
-  // The row menu (rename/delete) is only offered for editable Web conversations
-  // when the host wires up handlers — the browser dialog reuses the row for
-  // selection only and passes none.
-  const canManage = $derived(!item.readOnly && Boolean(onRename) && Boolean(onDelete));
+  const canRename = $derived(!item.readOnly && Boolean(onRename));
+  const canDelete = $derived(!item.readOnly && Boolean(onDelete));
+  const canContextMenu = $derived(canRename || canDelete || Boolean(onCopyPath) || Boolean(onRevealInFinder));
 
   let menuOpen = $state(false);
   let menuPos = $state({ top: 0, left: 0 });
-  let menuBtn: HTMLButtonElement | null = $state(null);
   let menuEl: HTMLDivElement | null = $state(null);
   let confirmingDelete = $state(false);
 
@@ -56,7 +62,9 @@
   let draftTitle = $state("");
   let inputEl: HTMLInputElement | null = $state(null);
 
-  const MENU_WIDTH = 148;
+  const MENU_WIDTH = 180;
+  const MENU_HEIGHT = 160;
+  const MARGIN = 8;
 
   /** Focuses the menu container when it mounts so Escape/arrow keys work immediately. */
   function autofocus(node: HTMLElement): void {
@@ -67,7 +75,6 @@
     if (event.key === "Escape") {
       event.preventDefault();
       menuOpen = false;
-      menuBtn?.focus();
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -80,16 +87,13 @@
     }
   }
 
-  function openMenu(event: MouseEvent): void {
+  function onContextMenu(event: MouseEvent): void {
+    if (editing) return;
+    event.preventDefault();
     event.stopPropagation();
-    if (menuOpen) {
-      menuOpen = false;
-      return;
-    }
-    const rect = (menuBtn ?? (event.currentTarget as HTMLElement)).getBoundingClientRect();
     menuPos = {
-      top: rect.bottom + 4,
-      left: Math.max(8, rect.right - MENU_WIDTH)
+      top: Math.max(MARGIN, Math.min(event.clientY, window.innerHeight - MENU_HEIGHT - MARGIN)),
+      left: Math.max(MARGIN, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - MARGIN))
     };
     confirmingDelete = false;
     menuOpen = true;
@@ -97,7 +101,7 @@
 
   function onWindowPointerDown(event: PointerEvent): void {
     const target = event.target as HTMLElement | null;
-    if (target?.closest(".row-menu") || target?.closest(".row-menu-btn")) return;
+    if (target?.closest(".row-menu")) return;
     menuOpen = false;
   }
 
@@ -119,6 +123,16 @@
       window.removeEventListener("scroll", close, true);
     };
   });
+
+  async function handleCopyPath(): Promise<void> {
+    menuOpen = false;
+    await onCopyPath?.();
+  }
+
+  async function handleRevealInFinder(): Promise<void> {
+    menuOpen = false;
+    await onRevealInFinder?.();
+  }
 
   async function startRename(): Promise<void> {
     menuOpen = false;
@@ -166,12 +180,14 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="conversation-row"
   class:active
   class:menu-open={menuOpen}
   class:forked={Boolean(item.parentSessionId)}
   data-read-only={item.readOnly}
+  oncontextmenu={canContextMenu ? onContextMenu : undefined}
 >
   {#if editing}
     <input
@@ -203,42 +219,58 @@
       <span class="row-title">{item.title}</span>
       <span class="row-time">{formatTime(item.updatedAt)}</span>
     </button>
-    {#if canManage}
-      <button
-        type="button"
-        class="row-menu-btn"
-        bind:this={menuBtn}
-        aria-label={labels.menu}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        title={labels.menu}
-        onclick={openMenu}
-      >
-        <More size={16} aria-hidden="true" />
-      </button>
-    {/if}
   {/if}
 </div>
 
 {#if menuOpen}
-  <div class="row-menu" role="menu" tabindex="-1" bind:this={menuEl} use:autofocus onkeydown={onMenuKeydown} style={`top:${menuPos.top}px; left:${menuPos.left}px;`}>
-    {#if confirmingDelete}
-      <p class="row-menu-prompt">{labels.deletePrompt}</p>
-      <div class="row-menu-confirm">
-        <button type="button" class="row-menu-btn-plain" onclick={() => (confirmingDelete = false)}>{labels.cancel}</button>
-        <button type="button" class="row-menu-btn-danger" onclick={confirmDelete}>{labels.delete}</button>
-      </div>
-    {:else}
-      <button type="button" class="row-menu-item" role="menuitem" onclick={startRename}>
-        <Pen size={16} aria-hidden="true" />
-        <span>{labels.rename}</span>
-      </button>
-      <button type="button" class="row-menu-item danger" role="menuitem" onclick={askDelete}>
-        <Trash size={16} aria-hidden="true" />
-        <span>{labels.delete}</span>
-      </button>
-    {/if}
-  </div>
+  <Portal to="body">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="row-menu-backdrop"
+      role="presentation"
+      aria-hidden="true"
+      onclick={() => (menuOpen = false)}
+      oncontextmenu={(event) => { event.preventDefault(); menuOpen = false; }}
+    ></div>
+    <div class="row-menu" role="menu" tabindex="-1" bind:this={menuEl} use:autofocus onkeydown={onMenuKeydown} style={`top:${menuPos.top}px; left:${menuPos.left}px;`}>
+      {#if confirmingDelete}
+        <p class="row-menu-prompt">{labels.deletePrompt}</p>
+        <div class="row-menu-confirm">
+          <button type="button" class="row-menu-btn-plain" onclick={() => (confirmingDelete = false)}>{labels.cancel}</button>
+          <button type="button" class="row-menu-btn-danger" onclick={confirmDelete}>{labels.delete}</button>
+        </div>
+      {:else}
+        {#if canRename}
+          <button type="button" class="row-menu-item" role="menuitem" onclick={startRename}>
+            <Pen size={14} aria-hidden="true" />
+            <span>{labels.rename}</span>
+          </button>
+        {/if}
+        {#if onCopyPath}
+          <button type="button" class="row-menu-item" role="menuitem" onclick={handleCopyPath}>
+            <Copy size={14} aria-hidden="true" />
+            <span>{labels.copyPath ?? "复制 session 路径"}</span>
+          </button>
+        {/if}
+        {#if onRevealInFinder}
+          <button type="button" class="row-menu-item" role="menuitem" onclick={handleRevealInFinder}>
+            <FolderOpen size={14} aria-hidden="true" />
+            <span>{labels.revealInFinder ?? "从 Finder 打开"}</span>
+          </button>
+        {/if}
+        {#if canDelete}
+          {#if canRename || onCopyPath || onRevealInFinder}
+            <div class="row-menu-separator" role="separator"></div>
+          {/if}
+          <button type="button" class="row-menu-item danger" role="menuitem" onclick={askDelete}>
+            <Trash size={14} aria-hidden="true" />
+            <span>{labels.delete}</span>
+          </button>
+        {/if}
+      {/if}
+    </div>
+  </Portal>
 {/if}
 
 <style>
@@ -333,13 +365,6 @@
     color: var(--label-tertiary, #8f8f8f);
     white-space: nowrap;
   }
-  /* On hover / active, the timestamp yields to the ellipsis menu in the same slot.
-     Read-only rows have no menu, so they keep showing the time. */
-  .conversation-row:not([data-read-only="true"]):hover .row-time,
-  .conversation-row:not([data-read-only="true"]):focus-within .row-time,
-  .conversation-row.menu-open .row-time {
-    display: none;
-  }
   .row-rename-input {
     flex: 1 1 auto;
     min-width: 0;
@@ -382,45 +407,31 @@
     .status-dot[data-color="running"] { animation: none; }
   }
 
-  /* Ellipsis menu trigger — hidden until row hover / active / menu open, and
-     sits in the timestamp's right-hand slot. */
-  .row-menu-btn {
-    display: none;
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: none;
-    border-radius: var(--rounded-sm, 6px);
+  .row-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
     background: transparent;
-    color: var(--label-secondary, #666);
-    cursor: pointer;
-    transition: background var(--duration-instant) var(--ease-standard);
   }
-  .conversation-row:hover .row-menu-btn,
-  .conversation-row:focus-within .row-menu-btn,
-  .conversation-row.menu-open .row-menu-btn {
-    display: flex;
-  }
-  .row-menu-btn:hover { background: var(--fill-hover, rgba(0, 0, 0, 0.08)); }
 
   .row-menu {
     position: fixed;
     z-index: 40;
-    min-width: 148px;
+    min-width: 170px;
     padding: 4px;
     border: 1px solid var(--separator, rgba(0, 0, 0, 0.08));
     border-radius: var(--rounded-md, 12px);
-    background: var(--card-bg);
-    box-shadow: var(--popover-shadow);
+    background: var(--glass-popover-bg, var(--card-bg));
+    backdrop-filter: var(--glass-popover-filter, blur(24px) saturate(180%));
+    -webkit-backdrop-filter: var(--glass-popover-filter, blur(24px) saturate(180%));
+    box-shadow: var(--glass-chip-shadow, var(--popover-shadow)), var(--glass-edge, 0 0 #0000);
     transform-origin: top right;
     animation: popover-in 120ms var(--ease-spring);
+  }
+  .row-menu-separator {
+    height: 1px;
+    margin: 4px -4px;
+    background: var(--separator, rgba(0, 0, 0, 0.08));
   }
   .row-menu-item {
     display: flex;

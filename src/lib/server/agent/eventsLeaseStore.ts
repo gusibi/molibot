@@ -30,7 +30,11 @@ export type EventExecutionLeaseStatus =
   | "skipped"
   // The service died while this attempt was in flight. Distinct from `failed`
   // so the UI can say "被中断" instead of blaming the task itself.
-  | "interrupted";
+  | "interrupted"
+  // The run parked on an approval it cannot obtain by itself. Distinct from
+  // `completed` so the automation page says "等待审批" instead of claiming an
+  // outcome the run never reached.
+  | "waiting_approval";
 
 export interface EventExecutionLease {
   id: string;
@@ -314,6 +318,28 @@ export class EventExecutionLeaseStore {
       SET status = 'completed',
           finished_at = ?,
           stop_reason = 'completed',
+          retry_scheduled_at = NULL,
+          result_json = ?,
+          updated_at = ?
+      WHERE id = ? AND run_id = ? AND status = 'running'
+    `).run(nowIso, resultJson, nowIso, id, runId);
+    return Number(writeResult.changes ?? 0) > 0;
+  }
+
+  /**
+   * The run ended by suspending on an approval, not by producing an outcome.
+   * Terminal on the lease (the attempt is over and must not retry — a retry
+   * would re-run every side effect that came before the gate), but never
+   * counted as completed: the automation page renders this as 等待审批.
+   */
+  markWaitingApproval(id: string, runId: string, result?: unknown, now = new Date()): boolean {
+    const nowIso = now.toISOString();
+    const resultJson = result === undefined ? null : JSON.stringify(result);
+    const writeResult = this.db.prepare(`
+      UPDATE event_execution_leases
+      SET status = 'waiting_approval',
+          finished_at = ?,
+          stop_reason = 'waiting_for_approval',
           retry_scheduled_at = NULL,
           result_json = ?,
           updated_at = ?

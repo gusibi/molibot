@@ -468,3 +468,47 @@ test("markOneShotReminderReadFile persists read state and rejects periodic tasks
     rmSync(eventsDir, { recursive: true, force: true });
   }
 });
+
+// An unattended run that parks on an approval used to be recorded as
+// "completed" — the automation page claimed success for a run whose answer was
+// never produced. The lease must say waiting_approval while the schedule lock
+// still releases, so the task keeps firing.
+test("a run suspended on approval settles its lease as waiting_approval and releases the run-lock", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-"));
+  const filename = "event.json";
+  const eventPath = join(eventsDir, filename);
+  const event: MomEvent = { ...createPeriodicEvent(), taskId: "daily-report" };
+  writeFileSync(eventPath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+
+  const watcher = new EventsWatcher(
+    eventsDir,
+    async () => ({ runId: "run-1", stopReason: "waiting_for_approval" }),
+    { leaseStore: store, channel: "telegram" }
+  ) as unknown as {
+    tryAcquirePeriodicRunLock: (filename: string, slotKey: string) => { event: MomEvent; slotKey: string; runId: string } | null;
+    runLeasedEvent: (event: MomEvent, filename: string, triggerSlot: string, runId: string) => Promise<void>;
+  };
+
+  try {
+    const lock = watcher.tryAcquirePeriodicRunLock(filename, "2026-06-04T17:00");
+    assert.ok(lock, "periodic dispatch should acquire the file run-lock");
+
+    await watcher.runLeasedEvent(lock.event, filename, lock.slotKey, lock.runId);
+
+    const settled = store.listForTask("daily-report", 5, 0);
+    assert.equal(settled.length, 1);
+    assert.equal(settled[0].status, "waiting_approval");
+    assert.equal(settled[0].stopReason, "waiting_for_approval");
+
+    // The trigger itself was consumed: the file is back to pending so the
+    // schedule keeps firing.
+    const status = JSON.parse(readFileSync(eventPath, "utf8")).status;
+    assert.equal(status.state, "pending");
+    assert.equal(status.reason, "waiting_approval");
+    assert.equal(status.runningSlotKey, undefined);
+  } finally {
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});

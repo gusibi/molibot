@@ -114,3 +114,27 @@ test("a vanished request record still suspends the run (no blind continuation)",
   assert.equal(result.terminate, true, "a vanished record must not let the loop continue");
   assert.equal(result.metadata?.approvalRequestId, "hba-vanish-1");
 });
+
+// Unattended automation runs cannot show a card: the deny disposition must
+// fail the call without terminating and leave no answerable request behind.
+test("an unattended deny expires the request and returns a plain, non-terminating denial", async () => {
+  const expired: string[] = [];
+  const result = await waitForHostBashApprovalAndExecute({
+    store: {
+      getApprovalRecord: () => {
+        throw new Error("must not poll when denying");
+      },
+      expirePending: (requestId: string) => {
+        expired.push(requestId);
+      }
+    } as any,
+    prompt: prompt("hba-unattended-1"),
+    scopeId: "scope-1",
+    requestText: "Host Bash approval requested.",
+    ctx: ctx({ onApprovalRequest: async () => "deny" })
+  });
+  assert.equal(result.ok, false, "the call must fail so the model reports the skip");
+  assert.notEqual(result.terminate, true, "a denial must not suspend the run");
+  assert.deepEqual(expired, ["hba-unattended-1"]);
+  assert.match(String(result.error), /unattended automation run/i);
+});

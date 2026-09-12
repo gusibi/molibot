@@ -343,6 +343,16 @@ test("SessionStore.listAllWebConversations aggregates across profiles with a pre
     // Run→profile reverse lookup (plan §11.3).
     assert.equal(store.getWebConversationOwner(a.id), "web:personal:web-anonymous");
     assert.equal(store.getWebConversationOwner("does-not-exist"), null);
+
+    // Session file path resolution
+    const pathA = store.getSessionFilePath(a.id);
+    assert.ok(pathA?.endsWith(`${a.id}.json`));
+    assert.ok(pathA?.includes("ui-sessions"));
+
+    const projConv = store.createProjectConversation("test-proj", "web:personal:web-anonymous");
+    const projPath = store.getSessionFilePath(projConv.id, "test-proj");
+    assert.ok(projPath?.endsWith(`${projConv.id}.json`));
+    assert.ok(projPath?.includes("projects"));
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;

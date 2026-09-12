@@ -18,7 +18,7 @@ import {
 import { executeApprovedHostBash, executeHostBashApproval } from "$lib/server/agent/hostBashExec.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { pollUntilResolved, type PollOutcome } from "$lib/server/approval/approvalWaiter.js";
-import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult } from "$lib/server/approval/suspendedResult.js";
+import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult, UNATTENDED_APPROVAL_DENIAL_TEXT } from "$lib/server/approval/suspendedResult.js";
 import { execCommand, normalizeCommandOutput, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
 import { buildTempOutputPath as buildSpillPath } from "$lib/server/agent/tools/outputSpill.js";
@@ -81,6 +81,12 @@ export interface BashToolHostApprovalOptions {
   runId?: string;
   store: MomRuntimeStore;
   ignoreSessionApprovalMode?: boolean;
+  /**
+   * This run is unattended (scheduled automation): no user can answer an
+   * approval card and the pending request would expire unread, so a host
+   * command that needs approval is denied outright instead of parking the run.
+   */
+  unattendedDenials?: boolean;
   hostBashStore?: HostBashStore;
   requestedByDepth?: number;
   approvalWaitTimeoutMs?: number;
@@ -415,8 +421,20 @@ export async function waitForHostBashApprovalAndExecute(input: {
   ctx: ToolExecutionContext;
   fallbackDetails?: BashToolDetails;
   waitTimeoutMs?: number;
+  /** Unattended automation run: expire the just-created request and deny instead of waiting. */
+  unattendedDenials?: boolean;
 }): Promise<ToolResult> {
   const { store, prompt, ctx } = input;
+  if (input.unattendedDenials) {
+    // The request was already recorded by the caller; expire it so no card
+    // promises an approval nobody can give, and let the model report the skip.
+    store.expirePending?.(prompt.requestId);
+    return {
+      ok: false,
+      error: UNATTENDED_APPROVAL_DENIAL_TEXT,
+      details: input.fallbackDetails
+    };
+  }
   // Every waiting outcome of this function suspends the run: `terminate` is
   // unconditional and the suspended result carries the request id so the
   // out-of-band approve -> execute -> resume flow finds it. The previous
@@ -444,6 +462,10 @@ export async function waitForHostBashApprovalAndExecute(input: {
       requestId: prompt.requestId,
       prompt
     });
+    if (approvalDisposition === "deny") {
+      store.expirePending?.(prompt.requestId);
+      return { ok: false, error: UNATTENDED_APPROVAL_DENIAL_TEXT, details: input.fallbackDetails };
+    }
     if (approvalDisposition === "defer") return buildFallbackResult();
   }
   // Partial store doubles (tests) cannot be polled; keep the async approve flow.
@@ -675,6 +697,16 @@ export function getBashToolDefinition(
         if (!options.hostApproval) {
           return { ok: false, error: "Host Bash approval is not configured for this bash tool instance." };
         }
+        if (options.hostApproval.unattendedDenials) {
+          // A scheduled run has no one to approve: creating a request would
+          // park the run until the request expired unread. Deny plainly so the
+          // model finishes and reports the skipped step.
+          return {
+            ok: false,
+            error: UNATTENDED_APPROVAL_DENIAL_TEXT,
+            details: { command: params.command, denialReason: "unattended_run" }
+          };
+        }
         const requested = requestApprovalFromBash(
           options.hostApproval,
           params.command,
@@ -690,7 +722,8 @@ export function getBashToolDefinition(
           scopeId: options.hostApproval.scopeId,
           requestText: requested.text,
           ctx,
-          waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs
+          waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs,
+          unattendedDenials: options.hostApproval.unattendedDenials
         });
       }
 
@@ -806,7 +839,8 @@ export function getBashToolDefinition(
               requestText: "Sandbox blocked this command and host approval was requested automatically.",
               ctx,
               fallbackDetails: details,
-              waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs
+              waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs,
+              unattendedDenials: options.hostApproval.unattendedDenials
             });
           }
           const reason = (() => {

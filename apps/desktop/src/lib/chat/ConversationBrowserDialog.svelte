@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
   import X from "reicon-svelte/icons/X";
   import XCircle from "reicon-svelte/icons/XCircle";
   import { CHANNEL_ICONS } from "./activityIcons";

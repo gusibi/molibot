@@ -1,7 +1,7 @@
 <script lang="ts">
   import At from "reicon-svelte/icons/At";
   import Loader from "reicon-svelte/icons/Loader";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
   import X from "reicon-svelte/icons/X";
   import type { Translation } from "../i18n";
   import { tablist } from "../a11y/tablist";

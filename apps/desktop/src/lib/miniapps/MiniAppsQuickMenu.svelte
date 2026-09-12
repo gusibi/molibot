@@ -1,9 +1,10 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import ArrowRight from "reicon-svelte/icons/ArrowRight";
-  import Grid from "reicon-svelte/icons/Grid";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
-  import Star from "reicon-svelte/icons/Star";
+  import ArrowRight from "../icons/duotone/components/ArrowRight.svelte";
+  import Grid from "../icons/duotone/components/Grid.svelte";
+  import List from "../icons/duotone/components/List.svelte";
+  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
+  import Star from "../icons/duotone/components/Star.svelte";
   import StarOff from "reicon-svelte/icons/StarOff";
   import type { DesktopMiniAppItem } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
@@ -267,7 +268,7 @@
 
       <button type="button" class="miniapps-quick-all" onclick={() => { closeMenu(false); onOpenLaunchpad(); }}>
         <span>{copy.miniAppsAll}</span>
-        <ArrowRight size={14} aria-hidden="true" />
+        <List size={14} aria-hidden="true" />
       </button>
     </div>
   {/if}

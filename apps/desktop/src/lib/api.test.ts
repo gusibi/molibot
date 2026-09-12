@@ -46,6 +46,7 @@ import {
   resolveDesktopHostBashById,
   runDesktopMemoryAction,
   runDesktopTaskAction,
+  saveDesktopExecutionDefault,
   loadDesktopTrace,
   loadDesktopUsage,
   loadDesktopMemoryRejections,
@@ -308,6 +309,32 @@ test("legacy task sessions decode JSON-string Agent blocks in the Desktop client
   });
 });
 
+test("task session messages keep tool activities and survive without answer text", () => {
+  const activities = [{
+    key: "call-1",
+    kind: "tool" as const,
+    tool: "bash",
+    label: "build_check",
+    state: "error" as const,
+    summary: "Host Bash approval requested."
+  }];
+  assert.deepEqual(normalizeDesktopTaskSession({
+    taskId: "task-1",
+    sessionId: "session-1",
+    messages: [
+      { role: "user", content: "Run the build" },
+      { role: "assistant", content: "", activities }
+    ]
+  }), {
+    taskId: "task-1",
+    sessionId: "session-1",
+    messages: [
+      { role: "user", content: "Run the build", createdAt: "" },
+      { role: "assistant", content: "", createdAt: "", activities }
+    ]
+  });
+});
+
 test("service reconnect is only offered while the local service is unavailable", () => {
   assert.equal(shouldShowServiceReconnect(false), true);
   assert.equal(shouldShowServiceReconnect(true), false);
@@ -323,6 +350,35 @@ test("sandbox policy parsing never resurrects the removed enable switch or prese
   // advanced restrictions, and participation follows the permission mode.
   const parsed = parseDesktopSandboxList("github.com, npmjs.org\ngithub.com\n");
   assert.deepEqual(parsed, ["github.com", "npmjs.org"]);
+});
+
+test("execution-default save PATCHes the shared route through the transport layer", async () => {
+  // The settings section must call this helper, never raw fetch: in the Tauri
+  // webview a raw cross-origin PATCH fails the CORS preflight (issue: "执行与权限
+  // 保存失败"). Guarded structurally by src/api-transport-guard.test.mjs.
+  const original = globalThis.fetch;
+  let captured: { url: string; method: string; body: unknown } | null = null;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    captured = {
+      url: String(url),
+      method: init?.method ?? "GET",
+      body: init?.body ? JSON.parse(String(init.body)) : null
+    };
+    return new Response(JSON.stringify({ ok: true, mode: "auto" }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal(await saveDesktopExecutionDefault("http://127.0.0.1:3000", "auto"), "auto");
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.deepEqual(captured, {
+    url: "http://127.0.0.1:3000/api/desktop/execution-default",
+    method: "PATCH",
+    body: { mode: "auto" }
+  });
 });
 
 function externalSummary(overrides: Partial<DesktopExternalSessionsSummary> = {}): DesktopExternalSessionsSummary {
@@ -492,13 +548,12 @@ test("shared conversation turn streams a project response through the same Chat 
     requestBody = JSON.parse(String(init?.body ?? "{}"));
     const body = [
       'event: token\ndata: {"delta":"hello"}',
-      'event: status\ndata: {"text":"working"}',
       'event: done\ndata: {"response":"hello world","thinkingText":""}',
       ""
     ].join("\n\n");
     return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
   }) as typeof globalThis.fetch;
-  const observed = { token: "", status: "", done: "" };
+  const observed = { token: "", done: "" };
   try {
     await runDesktopConversationTurn({
       endpoint: "http://127.0.0.1:3210",
@@ -509,11 +564,10 @@ test("shared conversation turn streams a project response through the same Chat 
       thinkingLevel: "medium"
     }, {
       onToken: (delta) => (observed.token += delta),
-      onStatus: (status) => (observed.status = status),
       onDone: (result) => (observed.done = result.response)
     });
     assert.equal(requestBody.projectId, "project-1");
-    assert.deepEqual(observed, { token: "hello", status: "working", done: "hello world" });
+    assert.deepEqual(observed, { token: "hello", done: "hello world" });
   } finally {
     globalThis.fetch = original;
   }
@@ -587,10 +641,10 @@ test("clipboard image items become composer attachments while text items stay un
 
   assert.equal(files.length, 1);
   assert.equal(files[0]?.type, "image/png");
-  assert.match(files[0]?.name ?? "", /^clipboard-image-\d+\.png$/);
+  assert.match(files[0]?.name ?? "", /^image-\d+\.png$/);
 });
 
-test("one clipboard image with multiple image representations becomes one attachment", () => {
+test("one clipboard image exposed in several formats becomes one attachment", () => {
   const png = new File([new Uint8Array([137, 80, 78, 71])], "", { type: "image/png" });
   const tiff = new File([new Uint8Array([73, 73, 42, 0])], "", { type: "image/tiff" });
   const files = clipboardImageFiles([
@@ -602,9 +656,37 @@ test("one clipboard image with multiple image representations becomes one attach
   assert.equal(files[0]?.type, "image/png");
 });
 
-test("pasting several named clipboard images attaches every one of them", () => {
-  const first = new File([new Uint8Array([1])], "image.png", { type: "image/png" });
-  const second = new File([new Uint8Array([2])], "image.png", { type: "image/png" });
+test("a screenshot's browser-named png/tiff representations attach once", () => {
+  // macOS puts one screenshot on the pasteboard as several encodings and the
+  // WebView names every one of them `image.<ext>`: two entries, one picture.
+  const png = new File([new Uint8Array([137, 80, 78, 71])], "image.png", { type: "image/png" });
+  const tiff = new File([new Uint8Array([73, 73, 42, 0])], "image.tiff", { type: "image/tiff" });
+  const files = clipboardImageFiles([
+    { kind: "file", type: "image/png", getAsFile: () => png },
+    { kind: "file", type: "image/tiff", getAsFile: () => tiff }
+  ]);
+
+  assert.equal(files.length, 1);
+  assert.equal(files[0]?.type, "image/png");
+  assert.match(files[0]?.name ?? "", /^image-\d+\.png$/);
+});
+
+test("consecutive screenshots paste under distinct names", () => {
+  const paste = () => {
+    const shot = new File([new Uint8Array([137, 80, 78, 71])], "image.png", { type: "image/png" });
+    return clipboardImageFiles([{ kind: "file", type: "image/png", getAsFile: () => shot }]);
+  };
+
+  const first = paste()[0]?.name ?? "";
+  const second = paste()[0]?.name ?? "";
+  assert.match(first, /^image-\d+\.png$/);
+  assert.match(second, /^image-\d+\.png$/);
+  assert.notEqual(first, second);
+});
+
+test("pasting several clipboard files attaches every one of them under its own name", () => {
+  const first = new File([new Uint8Array([1])], "screen-a.png", { type: "image/png" });
+  const second = new File([new Uint8Array([2])], "screen-b.png", { type: "image/png" });
   const third = new File([new Uint8Array([3])], "photo.jpg", { type: "image/jpeg" });
   const files = clipboardImageFiles([
     { kind: "file", type: "image/png", getAsFile: () => first },
@@ -616,6 +698,31 @@ test("pasting several named clipboard images attaches every one of them", () => 
   assert.equal(files[0], first);
   assert.equal(files[1], second);
   assert.equal(files[2], third);
+});
+
+test("a pasted file wins over the pasteboard copy of its own bytes", () => {
+  const file = new File([new Uint8Array([1, 2, 3])], "diagram.png", { type: "image/png" });
+  const repng = new File([new Uint8Array([1, 2, 3])], "image.png", { type: "image/png" });
+  const retiff = new File([new Uint8Array([9, 9])], "image.tiff", { type: "image/tiff" });
+  const files = clipboardImageFiles([
+    { kind: "file", type: "image/png", getAsFile: () => file },
+    { kind: "file", type: "image/png", getAsFile: () => repng },
+    { kind: "file", type: "image/tiff", getAsFile: () => retiff }
+  ]);
+
+  assert.equal(files.length, 1);
+  assert.equal(files[0], file);
+});
+
+test("two pasted files sharing a name are kept apart", () => {
+  const first = new File([new Uint8Array([1])], "copy.png", { type: "image/png" });
+  const second = new File([new Uint8Array([2])], "copy.png", { type: "image/png" });
+  const files = clipboardImageFiles([
+    { kind: "file", type: "image/png", getAsFile: () => first },
+    { kind: "file", type: "image/png", getAsFile: () => second }
+  ]);
+
+  assert.deepEqual(files.map((file) => file.name), ["copy.png", "copy-2.png"]);
 });
 
 

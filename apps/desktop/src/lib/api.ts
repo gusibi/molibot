@@ -796,6 +796,17 @@ export async function loadDesktopExecutionDefault(
   )).mode;
 }
 
+export async function saveDesktopExecutionDefault(
+  endpoint: string,
+  mode: "plan" | "manual" | "accept_edits" | "auto"
+): Promise<typeof mode> {
+  return (await requestJson<{ ok: true; mode: typeof mode }>(endpoint, "/api/desktop/execution-default", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode })
+  })).mode;
+}
+
 export async function loadDesktopSessionPermission(
   endpoint: string,
   profileId: string,
@@ -1321,14 +1332,23 @@ function isDesktopAgentContent(value: unknown): boolean {
 export function normalizeDesktopTaskSession(session: {
   taskId: string;
   sessionId: string;
-  messages: Array<{ role: string; content: string; createdAt?: string }>;
+  messages: Array<{ role: string; content: string; createdAt?: string; activities?: DesktopConversationActivity[] }>;
 }): NonNullable<DesktopTaskActionResponse["session"]> {
   return {
     ...session,
     messages: session.messages.flatMap((message) => {
       if (message.role !== "user" && message.role !== "assistant") return [];
       const content = desktopTaskContentText(message.content);
-      return content ? [{ role: message.role, content, createdAt: message.createdAt ?? "" }] : [];
+      const activities = message.activities?.length ? message.activities.map((activity) => ({ ...activity })) : undefined;
+      // A run that suspended mid-tool has no answer text — its activity trail
+      // is the content, so the transcript must keep the message.
+      if (!content && !activities?.length) return [];
+      return [{
+        role: message.role,
+        content,
+        createdAt: message.createdAt ?? "",
+        ...(activities ? { activities } : {})
+      }];
     })
   };
 }
@@ -2563,6 +2583,37 @@ export async function deleteDesktopConversation(endpoint: string, sessionId: str
     endpoint,
     `/api/desktop/conversations?sessionId=${encodeURIComponent(sessionId)}`,
     { method: "DELETE" }
+  );
+}
+
+export async function getDesktopSessionPath(
+  endpoint: string,
+  input: { sessionId: string; projectId?: string }
+): Promise<string> {
+  const query = new URLSearchParams({ sessionId: input.sessionId });
+  if (input.projectId) query.set("projectId", input.projectId);
+  const payload = await requestJson<{ ok: true; path: string }>(
+    endpoint,
+    `/api/desktop/conversations/path?${query}`
+  );
+  return payload.path;
+}
+
+export async function revealDesktopSession(
+  endpoint: string,
+  input: { sessionId: string; projectId?: string }
+): Promise<{ ok: boolean; path?: string }> {
+  return await requestJson<{ ok: true; path?: string }>(
+    endpoint,
+    "/api/desktop/conversations/reveal",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: input.sessionId,
+        projectId: input.projectId
+      })
+    }
   );
 }
 

@@ -1392,4 +1392,24 @@ export class SessionStore {
     return true;
   }
 
+  /**
+   * Resolves the filesystem path where the session is stored on disk.
+   */
+  getSessionFilePath(conversationId: string, projectId?: string): string | null {
+    const id = String(conversationId ?? "").trim();
+    if (!id) return null;
+    if (projectId) {
+      return projectSessionFilePath(projectId, id);
+    }
+    const located = this.resolveSessionStorage(id);
+    if (!located) return null;
+    if (located.type === "project") {
+      return projectSessionFilePath(located.projectId, id);
+    }
+    if (located.type === "web") {
+      return webSessionFilePath(located.externalUserId, id);
+    }
+    return legacySessionFilePath(id);
+  }
+
 }

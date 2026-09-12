@@ -12,7 +12,7 @@
   import { USAGE_RANGES, loadUsage, resetUsageFilters, updateUsageQuery, usageStore, usageWindowLabel } from "../stores/usage.svelte";
   import { DONUT_R, donutSegments, percentOf, trendAreaPath, trendLinePath } from "./charts";
 
-  type RankingView = "apis" | "models" | "bots" | "channels";
+  type RankingView = "apis" | "models" | "bots" | "channels" | "sessions";
   let rankingView = $state<RankingView>("models");
 
   $effect(() => {
@@ -54,7 +54,8 @@
     { id: "models" as const, label: session.text.usageRankModel },
     { id: "apis" as const, label: session.text.usageRankApi },
     { id: "bots" as const, label: session.text.usageRankBot },
-    { id: "channels" as const, label: session.text.usageRankChannel }
+    { id: "channels" as const, label: session.text.usageRankChannel },
+    { id: "sessions" as const, label: session.text.usageRankSession }
   ]);
 
   function formatDate(value: string): string {

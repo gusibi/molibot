@@ -1,10 +1,10 @@
 <script lang="ts">
   import Check from "reicon-svelte/icons/Check";
-  import EyeSlash from "reicon-svelte/icons/EyeSlash";
+  import EyeSlash from "../icons/duotone/components/EyeSlash.svelte";
   import Loader from "reicon-svelte/icons/Loader";
-  import PenLine from "reicon-svelte/icons/PenLine";
-  import ThumbsUp from "reicon-svelte/icons/ThumbsUp";
-  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import PenLine from "../icons/duotone/components/PenLine.svelte";
+  import ThumbsUp from "../icons/duotone/components/ThumbsUp.svelte";
+  import TriangleWarning from "../icons/duotone/components/TriangleWarning.svelte";
   import X from "reicon-svelte/icons/X";
   import { onDestroy, onMount, tick } from "svelte";
   import type { DesktopMemoryFeedbackValue, DesktopMemoryTraceResponse } from "@molibot/desktop-contract";

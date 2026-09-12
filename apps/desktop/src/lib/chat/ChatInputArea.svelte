@@ -1,20 +1,23 @@
 <script lang="ts">
-  import Paperclip from "reicon-svelte/icons/Paperclip";
-  import Microphone from "reicon-svelte/icons/Microphone";
-  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import Paperclip from "../icons/duotone/components/Paperclip.svelte";
+  import Microphone from "../icons/duotone/components/Microphone.svelte";
+  import TriangleWarning from "../icons/duotone/components/TriangleWarning.svelte";
   import X from "reicon-svelte/icons/X";
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import {
     DESKTOP_THINKING_LEVELS,
     type DesktopModelOption,
     type DesktopThinkingLevel
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
+  import type { Locale } from "../i18n";
   import { searchDesktopProjectFiles, type DesktopProjectSearchNameHit } from "../api";
   import { formatProjectFileReference } from "@molibot/shared/projectFileReference";
   import type { ComposerMenuItem } from "./composerSuggestionCatalog";
   import { composerSuggestionsStore, ensureComposerSuggestions } from "./composerSuggestions.svelte";
+  import type { ComposerContextUsage } from "../presentation";
   import ChatComposerShell from "./ChatComposerShell.svelte";
+  import ComposerContextMenu from "./ComposerContextMenu.svelte";
   import ComposerModelMenu from "./ComposerModelMenu.svelte";
   import ComposerPermissionMenu from "./ComposerPermissionMenu.svelte";
   import PendingFilesBar from "./PendingFilesBar.svelte";
@@ -23,6 +26,7 @@
   import SlashSuggestionMenu from "./SlashSuggestionMenu.svelte";
 
   export let copy: Translation;
+  export let locale: Locale = "en";
   export let value = "";
   export let endpoint = "";
   export let projectId = "";
@@ -68,12 +72,31 @@
   export let onOpenSettings: () => void;
   export let onChangeModel: (value: string) => void;
   export let onChangeThinking: (value: DesktopThinkingLevel) => void;
+  /**
+   * Derived context-usage panel data from the host transcript; null renders
+   * the panel's empty state ("usage appears after the first reply").
+   */
+  export let contextUsage: ComposerContextUsage | null = null;
   /** Passed through to the composer menu; absent host = no permission page. */
   export let permissionMode: "plan" | "manual" | "accept_edits" | "auto" = "accept_edits";
   export let permissionModeOptions: readonly ("plan" | "manual" | "accept_edits" | "auto")[] = [];
   /** Where the effective mode comes from — rendered as "inherited from …" in the menu. */
   export let permissionModeSource: "session" | "project" | "instance" | "agent" | "global" = "global";
   export let onChangePermissionMode: ((value: "plan" | "manual" | "accept_edits" | "auto") => void) | undefined = undefined;
+  /**
+   * True when the host renders this composer as a floating pane over the
+   * transcript (`.composer-wrap.is-floating`) rather than in the flow. The
+   * difference belongs to the host, so it is injected here — this component
+   * stays free of any host or channel conditional.
+   *
+   * A floating composer owes the layout one thing an in-flow one does not: its
+   * height. Everything that has to stay clear of it — the transcript's bottom
+   * padding, the dock, the prompt navigator — reads `--composer-h`, and the
+   * stack above the card (queued follow-ups, attachments, banners) is part of
+   * that height, so the whole footer is measured, not just the card.
+   */
+  export let floating = false;
+  let composerWrap: HTMLElement;
   let activeSuggestionIndex = 0;
   let suggestionsDismissed = false;
   let shell: ChatComposerShell;
@@ -197,9 +220,26 @@
     });
   }
 
+  // Publishing a measurement the layout needs, so it goes straight onto the host
+  // element rather than through component state: a reactive round-trip would
+  // re-render the whole composer once per resize frame. The property is removed
+  // on teardown so a host that later renders a composer in the flow (or none at
+  // all) falls back to the `0px` default instead of a stale height.
+  onMount(() => {
+    if (!floating || !composerWrap) return;
+    const host = composerWrap.parentElement;
+    const publish = (): void => host?.style.setProperty("--composer-h", `${composerWrap.offsetHeight}px`);
+    const observer = new ResizeObserver(publish);
+    observer.observe(composerWrap);
+    publish();
+    return () => {
+      observer.disconnect();
+      host?.style.removeProperty("--composer-h");
+    };
+  });
 </script>
 
-<footer class="composer-wrap">
+<footer class="composer-wrap" class:is-floating={floating} bind:this={composerWrap}>
   {#if !modelReady}
     <div class="model-banner" role="status">
       <div>
@@ -292,6 +332,7 @@
       {/if}
     </div>
     <div class="composer-selectors" slot="selectors">
+      <ComposerContextMenu {copy} {locale} usage={contextUsage} />
       <ComposerModelMenu
         {copy}
         {modelOptions}

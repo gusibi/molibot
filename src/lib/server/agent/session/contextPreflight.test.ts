@@ -68,3 +68,40 @@ test("an oversized current prompt can be capped for model context without changi
   assert.ok(capped.length < source.length / 5);
   assert.equal(source.length, 20_004);
 });
+
+test("the breakdown splits skills out of the system prompt and MCP out of built-in tools", () => {
+  const skillsBlock = "<available-skills>\n## Available Skills\n- alpha: does things\n</available-skills>";
+  const result = assessModelContextPreflight({
+    systemPrompt: `You are Molibot.\n${skillsBlock}\nBe helpful.`,
+    messages: [user("中".repeat(400))],
+    tools: [
+      { name: "read", description: "D".repeat(400) },
+      { name: "mcp__github.search", description: "D".repeat(400) },
+      { description: "anonymous tool" }
+    ],
+    contextWindow: 100_000
+  });
+
+  assert.ok(result.breakdown.skills > 0);
+  assert.equal(result.breakdown.systemPrompt + result.breakdown.skills, result.fixedTokens - result.breakdown.mcpTools - result.breakdown.systemTools - result.breakdown.other);
+  assert.ok(result.breakdown.mcpTools > 0);
+  assert.ok(result.breakdown.systemTools > 0);
+  assert.ok(result.breakdown.other > 0);
+  assert.ok(result.breakdown.messages > 0);
+  // The parts always sum to the headline estimate the panel displays.
+  const sum = result.breakdown.messages + result.breakdown.mcpTools + result.breakdown.systemTools
+    + result.breakdown.systemPrompt + result.breakdown.skills + result.breakdown.other;
+  assert.equal(sum, result.estimatedTokens);
+});
+
+test("a system prompt without a skills catalogue reports zero skill tokens", () => {
+  const result = assessModelContextPreflight({
+    systemPrompt: "plain prompt",
+    messages: [user("hello")],
+    tools: [{ name: "ls" }],
+    contextWindow: 10_000
+  });
+
+  assert.equal(result.breakdown.skills, 0);
+  assert.ok(result.breakdown.systemPrompt > 0);
+});

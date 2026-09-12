@@ -3,6 +3,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import { retentionCapabilities, type TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
 import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
+import type { ContextUsageBreakdown } from "$lib/server/agent/session/contextPreflight.js";
 
 export interface SessionPreferences {
   thinkingLevelOverride?: RuntimeThinkingLevel | null;
@@ -42,6 +43,27 @@ export interface SessionMessageEntry extends SessionEntryBase {
   runId?: string;
   retention?: TurnRetentionPolicy;
   message: AgentMessage;
+  /**
+   * Context-usage snapshot of the model call that produced an assistant
+   * message: category estimates from the dispatch preflight plus that call's
+   * real reported prompt usage. UI bookkeeping only — never part of the model
+   * context rebuilt from entries.
+   */
+  contextBreakdown?: SessionContextSnapshot;
+}
+
+/**
+ * Estimated category split of the dispatched context (see
+ * `estimateContextBreakdown`) joined with the usage the provider reported for
+ * that same call, so the UI can render both without re-deriving either side.
+ */
+export interface SessionContextSnapshot {
+  contextWindow: number;
+  estimatedTokens: number;
+  breakdown: ContextUsageBreakdown;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
 }
 
 export interface SessionCompactionEntry extends SessionEntryBase {

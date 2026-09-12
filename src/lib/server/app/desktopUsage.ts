@@ -137,6 +137,16 @@ function rankedModels(records: AiUsageRecord[]): DesktopUsageModelRow[] {
   return [...rows.values()].sort((a, b) => b.totalTokens - a.totalTokens || a.model.localeCompare(b.model));
 }
 
+// Session-scoped accounting covers only calls that actually ran inside a
+// conversation; Mini App / assistant calls have no session and are already
+// covered by the other dimensions.
+function rankedSessions(records: AiUsageRecord[]): DesktopUsageDimensionRow[] {
+  return rankedDimensions(
+    records.filter((record) => Boolean(record.sessionId)),
+    (record) => record.sessionId ?? ""
+  );
+}
+
 function projectRecord(record: AiUsageRecord): DesktopUsageRecord {
   return {
     ts: record.ts,
@@ -193,7 +203,8 @@ export function buildDesktopUsageSummary(stats: UsageStatsResponse, rawQuery: Pa
       models: rankedModels(filtered),
       apis: rankedDimensions(filtered, (record) => record.api),
       bots: rankedDimensions(filtered, (record) => record.botId),
-      channels: rankedDimensions(filtered, (record) => record.channel)
+      channels: rankedDimensions(filtered, (record) => record.channel),
+      sessions: rankedSessions(filtered)
     },
     records: { items: filtered.slice(start, start + query.pageSize).map(projectRecord), total: filtered.length, page: query.page, pageSize: query.pageSize }
   };

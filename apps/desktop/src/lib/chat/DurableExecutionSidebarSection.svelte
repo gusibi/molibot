@@ -1,6 +1,6 @@
 <script lang="ts">
   import CaretRight from "reicon-svelte/icons/CaretRight";
-  import Layers from "reicon-svelte/icons/Layers";
+  import Layers from "../icons/duotone/components/Layers.svelte";
   import type { DesktopDurableExecutionItem, DesktopDurableExecutionStatus } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import { isActiveDurableExecution } from "./sessionPlanUi";

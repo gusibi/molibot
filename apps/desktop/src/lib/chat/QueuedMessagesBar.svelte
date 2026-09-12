@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Compass from "reicon-svelte/icons/Compass";
+  import Compass from "../icons/duotone/components/Compass.svelte";
   import X from "reicon-svelte/icons/X";
   export let queued: string[] = [];
   export let label: string;

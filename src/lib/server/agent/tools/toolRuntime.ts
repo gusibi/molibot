@@ -12,7 +12,7 @@ import { getWorkspaceStore, type WorkspaceStore } from "$lib/server/workspaces/s
 import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
 import { BrokerApprovalService, type ApprovalService } from "$lib/server/approval/approvalService.js";
-import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult } from "$lib/server/approval/suspendedResult.js";
+import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult, UNATTENDED_APPROVAL_DENIAL_TEXT } from "$lib/server/approval/suspendedResult.js";
 import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
 
@@ -218,6 +218,11 @@ export class ToolRuntime {
           prompt: pendingPrompt,
           request: decision.request
         });
+        if (deferred === "deny") {
+          // Unattended automation run: no card can ever be answered, so fail
+          // the call without persisting a request that would only expire.
+          return { ok: false, error: UNATTENDED_APPROVAL_DENIAL_TEXT };
+        }
         if (deferred === "defer") {
           // Recorded before returning, so the request the caller was handed is
           // the one an out-of-band resolve will find.

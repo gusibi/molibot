@@ -1,6 +1,6 @@
 <script lang="ts">
-  import ArrowUp from "reicon-svelte/icons/ArrowUp";
-  import Stop from "reicon-svelte/icons/Stop";
+  import Plane2 from "../icons/duotone/components/Plane2.svelte";
+  import Stop from "../icons/duotone/components/Stop.svelte";
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
   import { segmentComposerValue } from "./composerSuggestions.svelte";
@@ -97,7 +97,7 @@
     {#if sending && onStop}
       <button class="send-button" type="button" aria-label={copy.stop} title={copy.stop} onclick={onStop}><Stop weight="Filled" size={16} aria-hidden="true" /></button>
     {:else}
-      <button class="send-button" type="button" aria-label={copy.send} title={copy.send} disabled={!canSend || disabled} onclick={onSend}><ArrowUp size={16} aria-hidden="true" /></button>
+      <button class="send-button" type="button" aria-label={copy.send} title={copy.send} disabled={!canSend || disabled} onclick={onSend}><Plane2 size={16} aria-hidden="true" /></button>
     {/if}
   </div>
 </div>

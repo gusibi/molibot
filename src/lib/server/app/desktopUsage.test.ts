@@ -21,9 +21,9 @@ function summarize(records: AiUsageRecord[]): UsageTotals {
 }
 
 const records: AiUsageRecord[] = [
-  { ts: "2026-06-28T08:00:00.000Z", channel: "web", botId: "alpha", provider: "anthropic", model: "claude-a", api: "messages", inputTokens: 100, outputTokens: 20, cacheReadTokens: 80, cacheWriteTokens: 0, totalTokens: 200 },
-  { ts: "2026-06-28T09:00:00.000Z", channel: "web", botId: "beta", provider: "openai", model: "gpt-b", api: "responses", inputTokens: 50, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 10, totalTokens: 90 },
-  { ts: "2026-06-27T08:00:00.000Z", channel: "feishu", botId: "alpha", provider: "anthropic", model: "claude-a", api: "messages", inputTokens: 70, outputTokens: 10, cacheReadTokens: 20, cacheWriteTokens: 0, totalTokens: 100 },
+  { ts: "2026-06-28T08:00:00.000Z", channel: "web", botId: "alpha", provider: "anthropic", model: "claude-a", api: "messages", inputTokens: 100, outputTokens: 20, cacheReadTokens: 80, cacheWriteTokens: 0, totalTokens: 200, sessionId: "s-20260628-aaaa" },
+  { ts: "2026-06-28T09:00:00.000Z", channel: "web", botId: "beta", provider: "openai", model: "gpt-b", api: "responses", inputTokens: 50, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 10, totalTokens: 90, sessionId: "s-20260628-bbbb" },
+  { ts: "2026-06-27T08:00:00.000Z", channel: "feishu", botId: "alpha", provider: "anthropic", model: "claude-a", api: "messages", inputTokens: 70, outputTokens: 10, cacheReadTokens: 20, cacheWriteTokens: 0, totalTokens: 100, sessionId: "s-20260628-aaaa" },
   { ts: "2026-06-20T08:00:00.000Z", channel: "telegram", botId: "gamma", provider: "anthropic", model: "claude-c", api: "messages", inputTokens: 40, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 50 }
 ];
 
@@ -94,4 +94,18 @@ test("desktop usage response exposes local observability ids but no credentials 
     assert.equal(serialized.includes(forbidden), false, forbidden);
   }
   assert.equal("records" in summary, true);
+});
+
+// Session-dimension accounting: only records carrying a conversation id group
+// into the sessions ranking — non-session AI calls (telegram row) stay out.
+test("buildDesktopUsageSummary ranks usage per session within the selected window", () => {
+  const summary = buildDesktopUsageSummary(fixture(), { range: "last7Days", modelId: "all", botId: "all", channel: "all", page: 1, pageSize: 20 });
+
+  assert.deepEqual(summary.rankings.sessions, [
+    { id: "s-20260628-aaaa", label: "s-20260628-aaaa", requests: 2, inputTokens: 170, outputTokens: 30, cacheReadTokens: 100, cacheWriteTokens: 0, totalTokens: 300 },
+    { id: "s-20260628-bbbb", label: "s-20260628-bbbb", requests: 1, inputTokens: 50, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 10, totalTokens: 90 }
+  ]);
+
+  const today = buildDesktopUsageSummary(fixture(), { range: "today", modelId: "all", botId: "all", channel: "all", page: 1, pageSize: 20 });
+  assert.deepEqual(today.rankings.sessions.map((row) => row.id), ["s-20260628-aaaa", "s-20260628-bbbb"]);
 });

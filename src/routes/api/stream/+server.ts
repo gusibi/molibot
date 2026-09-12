@@ -402,9 +402,10 @@ export const POST: RequestHandler = async ({ request }) => {
               if (shouldLog) {
                 finalText = finalText ? `${finalText}${text}` : text;
                 writeEvent(controller, encoder, "token", { delta: text });
-                return;
               }
-              writeEvent(controller, encoder, "status", { text });
+              // Non-logged responds are channel progress notices (tool and
+              // subagent labels); this client already renders them as
+              // structured activities on the process card.
             },
             replaceMessage: async (text) => {
               finalText = text;
@@ -423,10 +424,11 @@ export const POST: RequestHandler = async ({ request }) => {
               if (trimmed) threadNotes.push(trimmed);
               writeEvent(controller, encoder, "thread_note", { text });
             },
-            setTyping: async (isTyping) => {
-              if (isTyping) {
-                writeEvent(controller, encoder, "status", { text: "Thinking..." });
-              }
+            setTyping: async () => {
+              // Typing is a channel-adapter concept with no SSE counterpart:
+              // the client shows its own localized phase pill until the
+              // thinking card takes over, so a textual "Thinking..." frame
+              // would only duplicate what the card already streams.
             },
             setWorking: async (isWorking) => {
               writeEvent(controller, encoder, "working", { isWorking });

@@ -32,7 +32,9 @@
     onMore,
     onConfigure,
     onRenameItem,
-    onDeleteItem
+    onDeleteItem,
+    onCopySessionPath,
+    onRevealSessionInFinder
   }: {
     channel: ChannelDescriptor;
     expanded: boolean;
@@ -60,6 +62,8 @@
       cancel: string;
       forkedConversation: string;
       newChat: string;
+      copyPath?: string;
+      revealInFinder?: string;
       loading?: string;
     };
     formatTime: (iso: string) => string;
@@ -70,6 +74,8 @@
     onConfigure: () => void;
     onRenameItem: (item: DesktopConversationItem, title: string) => void;
     onDeleteItem: (item: DesktopConversationItem) => void;
+    onCopySessionPath?: (item: DesktopConversationItem) => void | Promise<void>;
+    onRevealSessionInFinder?: (item: DesktopConversationItem) => void | Promise<void>;
   } = $props();
 
   function dotFor(item: DesktopConversationItem): SessionStatusDot | null {
@@ -136,10 +142,26 @@
                 active={item.sessionId === activeSessionId}
                 statusDot={dotFor(item)}
                 {formatTime}
-                labels={{ running: labels.running, waitingApproval: labels.waitingApproval, completed: labels.completed, failed: labels.failed, menu: labels.menu, rename: labels.rename, delete: labels.delete, placeholder: labels.renamePlaceholder, deletePrompt: labels.deletePrompt, cancel: labels.cancel, forkedConversation: labels.forkedConversation }}
+                labels={{
+                  running: labels.running,
+                  waitingApproval: labels.waitingApproval,
+                  completed: labels.completed,
+                  failed: labels.failed,
+                  menu: labels.menu,
+                  rename: labels.rename,
+                  delete: labels.delete,
+                  copyPath: labels.copyPath,
+                  revealInFinder: labels.revealInFinder,
+                  placeholder: labels.renamePlaceholder,
+                  deletePrompt: labels.deletePrompt,
+                  cancel: labels.cancel,
+                  forkedConversation: labels.forkedConversation
+                }}
                 onSelect={() => onSelect(item)}
                 onRename={(title) => onRenameItem(item, title)}
                 onDelete={() => onDeleteItem(item)}
+                onCopyPath={onCopySessionPath ? () => onCopySessionPath(item) : undefined}
+                onRevealInFinder={onRevealSessionInFinder ? () => onRevealSessionInFinder(item) : undefined}
               />
             </li>
           {/each}

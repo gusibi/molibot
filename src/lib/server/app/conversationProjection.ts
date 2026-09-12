@@ -282,6 +282,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
         thinking: thinking || undefined,
         steps: displaySteps,
         usage,
+        contextBreakdown: entry.contextBreakdown,
         ...status
       };
       terminalCommitted = isTerminalReply;
@@ -308,6 +309,9 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     if (thinking) assistant.thinking = [assistant.thinking, thinking].filter(Boolean).join("\n\n");
     assistant.steps = [...(assistant.steps ?? []), ...displaySteps];
     assistant.usage = addUsage(assistant.usage, usage);
+    // Each model call refreshes the snapshot; the last one describes the
+    // context the turn finally answered from.
+    if (entry.contextBreakdown) assistant.contextBreakdown = entry.contextBreakdown;
     if (status.stopReason && (!terminalCommitted || status.stopReason !== "toolUse")) {
       assistant.stopReason = status.stopReason;
     }

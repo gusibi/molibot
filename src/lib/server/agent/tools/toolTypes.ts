@@ -82,8 +82,13 @@ export interface ToolExecutionContext {
   onSideEffectPreflight?: (effect: ToolSideEffect) => Promise<ToolPreflightOutcome | void>;
   /** Durable runs install this hook after the handler settles to persist a receipt. */
   onSideEffectReceipt?: (effect: ToolSideEffect, result: ToolResult) => Promise<void>;
-  /** Durable runs use this to surface approval without blocking a hidden attempt. */
-  onApprovalRequest?: (request: ToolApprovalRequest) => Promise<"defer" | "wait" | void>;
+  /**
+   * The run's approval disposition. `"defer"` parks the run on a persisted
+   * request for an out-of-band approve -> resume; `"deny"` fails the tool call
+   * without creating a request — the unattended-automation disposition, where
+   * no user could ever answer the card. Absent/void keeps the inline handshake.
+   */
+  onApprovalRequest?: (request: ToolApprovalRequest) => Promise<"defer" | "deny" | "wait" | void>;
   /** Durable retries may consume an already approved, execution-scoped action exactly once. */
   consumeDurableApproval?: (request: ToolApprovalConsumptionRequest) => Promise<false | "once" | "session" | "persistent">;
   /** Durable attempts may read only evidence references already attached to their execution. */

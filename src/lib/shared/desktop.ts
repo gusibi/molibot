@@ -118,6 +118,8 @@ export interface DesktopUsageSummary {
     apis: DesktopUsageDimensionRow[];
     bots: DesktopUsageDimensionRow[];
     channels: DesktopUsageDimensionRow[];
+    /** Per-conversation totals; only calls that ran inside a session carry one. */
+    sessions: DesktopUsageDimensionRow[];
   };
   records: { items: DesktopUsageRecord[]; total: number; page: number; pageSize: number };
 }
@@ -499,7 +501,7 @@ export interface DesktopProjectTaskTarget {
 
 export type DesktopTaskTarget = DesktopChannelTaskTarget | DesktopProjectTaskTarget;
 
-export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped" | "interrupted";
+export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped" | "interrupted" | "waiting_approval";
 
 export interface DesktopTaskExecution {
   id: string;
@@ -518,6 +520,8 @@ export interface DesktopTaskSessionMessage {
   role: string;
   content: string;
   createdAt: string;
+  /** The run's tool activity, so the transcript shows what the automation actually did. */
+  activities?: DesktopConversationActivity[];
 }
 
 export type DesktopSystemTaskExecutionResult =
@@ -882,6 +886,31 @@ export interface DesktopMessageAttachment {
   size?: number;
 }
 
+/** Category split of a dispatched context, mirrored from `ConversationContextSnapshot`. */
+export interface DesktopContextUsageBreakdown {
+  messages: number;
+  mcpTools: number;
+  systemTools: number;
+  systemPrompt: number;
+  skills: number;
+  other: number;
+}
+
+/**
+ * Estimated category split of the dispatched context joined with the real
+ * prompt usage the provider reported for that same model call (see
+ * `SessionContextSnapshot`). Present on assistant messages since the feature
+ * shipped; older rows simply lack it.
+ */
+export interface DesktopContextUsageSnapshot {
+  contextWindow: number;
+  estimatedTokens: number;
+  breakdown: DesktopContextUsageBreakdown;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
 export interface DesktopConversationMessage {
   /** Execution duration, excluding time spent waiting before this run started. */
   durationMs?: number;
@@ -898,6 +927,7 @@ export interface DesktopConversationMessage {
   activities?: DesktopConversationActivity[];
   steps?: DesktopConversationStep[];
   usage?: DesktopConversationTokenUsage;
+  contextBreakdown?: DesktopContextUsageSnapshot;
   plan?: DesktopConversationPlan;
   memoryTrace?: DesktopMessageMemoryTraceMeta;
 }

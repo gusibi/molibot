@@ -1542,6 +1542,8 @@ export function createSubagentTool(options: {
   requestedByDepth?: number;
   /** The parent attempt's effective execution policy; delegated work inherits it. */
   executionPolicy?: EffectiveExecutionPolicy;
+  /** Unattended parent run: the child's approval-gated calls are denied, never parked. */
+  unattendedDenials?: boolean;
   /** Restrict delegation roles for read-only contexts such as Plan mode. */
   allowedAgents?: readonly SubagentName[];
   /** Remove tools that a restricted parent mode must not delegate indirectly. */
@@ -1695,7 +1697,8 @@ export function createSubagentTool(options: {
               scopeId: options.runId ?? options.chatId,
               sessionId: options.sessionId,
               store: options.store,
-              requestedByDepth: (options.requestedByDepth ?? 0) + 1
+              requestedByDepth: (options.requestedByDepth ?? 0) + 1,
+              unattendedDenials: options.unattendedDenials
             }
             : undefined;
 

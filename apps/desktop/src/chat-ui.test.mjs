@@ -46,7 +46,9 @@ const sections = {
   models: read("./lib/settings/ModelsSection.svelte"),
   plugins: read("./lib/settings/PluginsSection.svelte"),
   providers: read("./lib/settings/ProvidersSection.svelte"),
-  sandbox: read("./lib/settings/SandboxSection.svelte"),
+  // The sandbox policy controls were folded into the unified execution
+  // permissions section; the markup assertions below follow it there.
+  sandbox: read("./lib/settings/ExecutionPermissionsSection.svelte"),
   usage: read("./lib/settings/UsageSection.svelte"),
   trace: read("./lib/settings/TraceSection.svelte"),
   image: read("./lib/settings/ImageGenerateSection.svelte"),
@@ -67,6 +69,8 @@ const turnProcess = read("./lib/chat/TurnProcess.svelte");
 const processTimeline = read("./lib/chat/ProcessTimeline.svelte");
 const processActivityItem = read("./lib/chat/ProcessActivityItem.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
+const conversationTurnSource = read("./lib/chat/conversationTurn.ts");
+const streamRouteSource = read("../../../src/routes/api/stream/+server.ts");
 const markdownArtifactOverlay = read("./lib/chat/MarkdownArtifactOverlay.svelte");
 const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
 const agentCityCanvas = read("./lib/chat/AgentCityCanvas.svelte");
@@ -479,12 +483,21 @@ test("Settings and Chat expose one edge-to-edge native macOS sidebar material", 
   assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme-family="rose-pine"\]\[data-resolved-appearance="dark"\][\s\S]*--sidebar-material-tint:\s*transparent;/);
   assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="dark"\][\s\S]*--sidebar-material-tint:\s*transparent;/);
   assert.match(styles, /--sidebar-material-filter:\s*blur\(18px\) saturate\(160%\)/);
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*margin: 0[\s\S]*border-radius: 0[\s\S]*background: var\(--sidebar-material-tint\)[\s\S]*backdrop-filter: var\(--sidebar-material-filter\)/);
+  // The sidebar material must live on a ::before layer, never on the element:
+  // a backdrop-filter on the element itself makes it the containing block for
+  // fixed-position descendants, which trapped the session row's fixed
+  // .row-menu inside the sidebar's overflow: hidden and clipped it at the
+  // sidebar's edge instead of floating above the window.
+  assert.doesNotMatch(styles, /\.chat-sidebar(?![\w:-])[^{}]*\{[^{}]*backdrop-filter/);
+  assert.doesNotMatch(styles, /\.settings-sidebar(?![\w:-])[^{}]*\{[^{}]*backdrop-filter/);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[^}]*z-index: 0;[^}]*background: transparent;/);
+  assert.match(styles, /\.chat-sidebar::before, \.settings-sidebar::before \{[^}]*z-index: -1;[^}]*background: var\(--sidebar-material-tint\)[^}]*backdrop-filter: var\(--sidebar-material-filter\)[^}]*-webkit-backdrop-filter: var\(--sidebar-material-filter\)/);
   assert.match(styles, /:root\[data-performance="low"\]\s*\{[\s\S]*--sidebar-material-filter:\s*none/);
   assert.match(styles, /html\[data-reduced-transparency="true"\]\s*\{[\s\S]*--sidebar-material-filter:\s*none/);
   assert.match(styles, /html\[data-increased-contrast="true"\]\s*\{[\s\S]*--sidebar-material-filter:\s*none/);
   assert.match(styles, /html\[data-reduced-transparency="true"\][^}]*--sidebar-material-bg:\s*var\(--chrome-sidebar-bg\)/s);
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar \{[\s\S]*-webkit-backdrop-filter:\s*var\(--sidebar-material-filter\)/);
+  // The opaque fallback modes retarget the ::before layer, not the element.
+  assert.match(styles, /:root\[data-performance="low"\] \.chat-sidebar::before[^{]*\{[^}]*background: var\(--sidebar-material-bg\)[^}]*backdrop-filter: none/);
   assert.match(styles, /left: var\(--sidebar-w, var\(--sidebar-nav-w\)\)/);
 });
 
@@ -847,7 +860,10 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   // kept its full 56px after the file panel narrowed the column and pushed the
   // composer's own controls past the pane edge.
   assert.match(styles, /\.composer-wrap\s*\{[^}]*max-width:\s*calc\(var\(--message-content-width\)[^}]*padding:[^}]*clamp\(20px, 5%, 56px\)/s);
-  assert.match(styles, /\.messages \{[^}]*padding: 24px clamp\(20px, 5%, 56px\)/);
+  // The top and bottom insets are *reservations* for the two floating chrome
+  // surfaces — the toolbar the transcript scrolls under and the composer it
+  // scrolls behind — so both ends read a budget rather than a fixed gutter.
+  assert.match(styles, /\.messages \{[^}]*padding: calc\(var\(--chat-header-h\) \+ 24px\) clamp\(20px, 5%, 56px\) calc\(var\(--composer-h\) \+ 24px\)/);
   assert.doesNotMatch(styles, /\.(messages|composer-wrap|chat-title-name) \{[^}]*\dvw/);
   assert.match(styles, /\.composer textarea\s*\{[^}]*min-height:\s*42px;[^}]*max-height:\s*180px/s);
   assert.match(transcript, /humanizeModelOption\(message\.model, message\.model\)\.label/);
@@ -858,15 +874,218 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
 
 test("Desktop Chat keeps structural sidebars separate from one unified workspace surface", () => {
   assert.match(styles, /\.chat-layout\s*\{[^}]*background:\s*transparent/s);
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
+  assert.match(styles, /\.chat-sidebar::before, \.settings-sidebar::before\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
   assert.match(styles, /\.file-panel\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
   assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
-  assert.match(styles, /\.chat-header\s*\{[^}]*background:\s*var\(--chrome-header-bg\)/s);
+  // The toolbar floats over the transcript and is translucent, but it must still
+  // project the window-activation tint. `--chrome-header-bg` is the mix source
+  // precisely so `[data-window-active="false"]` keeps retinting it — and it is
+  // mixed on the `::before` material layer, never on the header element, so the
+  // header does not become a backdrop root for the Mini Apps menu it hosts.
+  assert.match(styles, /\.chat-header::before \{[^}]*background:\s*color-mix\(in srgb, var\(--chrome-header-bg\) var\(--glass-chrome-opacity\), transparent\)/s);
+});
+
+// The chat page's transient surfaces share one material system (DESIGN.md
+// §Chat glass materials). The tokens landed once before with *no consumers at
+// all* — the design doc and the variables shipped, and not a single pixel
+// changed — so the guards below are about wiring, not about values.
+test("Chat floating surfaces share one glass material, background and blur together", () => {
+  // Pull one rule's body by its own selector so a surface can only pass by
+  // carrying the material itself, never by inheriting it from a neighbour.
+  // Anchored to a line start: `indexOf(".x {")` also matches the tail of
+  // `.scope .x {`, which would read a descendant rule as the base one.
+  const cssRule = (selector) => {
+    const start = styles.indexOf(`\n${selector} {`);
+    assert.notEqual(start, -1, `${selector} must keep its own rule`);
+    return styles.slice(start, styles.indexOf("}", start));
+  };
+  // Every transient surface over the transcript: cards, popovers, the two
+  // floating chrome bars, and the running-turn pill. `.composer` and
+  // `.chat-header` carry their material on `::before` (see the backdrop-root
+  // guard below), so they are checked through that layer.
+  const glassSurfaces = [
+    ".approval-card", ".plan-card", ".composer-model-popover", ".slash-suggestions",
+    ".overflow-menu-popover", ".command-palette", ".transcript-dock", ".miniapps-quick-menu",
+    ".prompt-navigation-preview", ".chat-action-toast", ".message-status"
+  ];
+  const material = (selector) =>
+    styles.includes(`\n${selector}::before {`) ? cssRule(`${selector}::before`) : cssRule(selector);
+  for (const selector of [...glassSurfaces, ".composer", ".chat-header"]) {
+    const rule = material(selector);
+    // A background and a blur are one decision: translucent without blur is a
+    // wash of text showing through, and blur without translucency is invisible.
+    assert.match(
+      rule,
+      /background:\s*(var\(--glass-(surface|popover)-bg\)|color-mix\([^;]*var\(--glass-chrome-opacity\))/,
+      `${selector} must take the shared glass background`
+    );
+    assert.match(
+      rule,
+      /backdrop-filter:\s*var\(--glass-(surface|popover|chrome)-filter\)/,
+      `${selector} must pair the glass background with a blur`
+    );
+    // The bright top rim is what makes a surface read as material rather than
+    // as a flat rectangle with a shadow.
+    assert.match(rule, /box-shadow:[^;]*var\(--glass-edge\)/, `${selector} must carry the glass edge highlight`);
+  }
+  // Bigger surfaces read as thicker (apple-design §12): the cards and the
+  // composer take the float-tier depth, the small pills and menus the chip tier.
+  for (const selector of [".approval-card", ".plan-card", ".composer", ".command-palette"]) {
+    assert.match(material(selector), /box-shadow:\s*var\(--glass-surface-shadow\), var\(--glass-edge\)/, `${selector} must take the heavier float tier`);
+  }
+  for (const selector of [".composer-model-popover", ".slash-suggestions", ".overflow-menu-popover", ".transcript-dock", ".message-status"]) {
+    assert.match(cssRule(selector), /box-shadow:\s*var\(--glass-chip-shadow\), var\(--glass-edge\)/, `${selector} must take the lighter chip tier`);
+  }
+  // The rim rides the per-family, per-brightness token — a baked white would
+  // paint a hard line across every dark family.
+  assert.match(styles, /--glass-edge:\s*inset 0 1px 0 var\(--glass-border-light\);/);
+  assert.doesNotMatch(styles, /--glass-edge:[^;]*rgb\(255 255 255/);
+  // Glass never stacks on glass: the strips above the card take the material
+  // only where the composer floats over the transcript. ProjectChat renders the
+  // same component in the flow over an opaque pane, where the solid surfaces are
+  // right, and the host-scoped selector is what keeps one component's two hosts
+  // from fighting (pitfall 7).
+  assert.match(styles, /\.composer-wrap\.is-floating \.queued-messages,[\s\S]*?background: var\(--glass-surface-bg\);/, "composer strips take the material only under a floating host");
+  assert.doesNotMatch(styles, /(^|\n)\.queued-messages \{[^}]*--glass-/);
+});
+
+// A `backdrop-filter` element is a *backdrop root*: a descendant's own
+// `backdrop-filter` may then only sample content painted inside it (Filter
+// Effects §Backdrop Root). The composer hosts the model menu, the permission
+// menu and the slash suggestions; the toolbar hosts the Mini Apps quick menu.
+// All four hang *outside* their parent's box, over the transcript — so with the
+// filter on the parent they found nothing to blur and rendered as plain
+// translucent panes with the transcript's text sharp behind them, which is the
+// "it's just semi-transparent, the text is unreadable" report. Moving each
+// parent's material onto `::before` keeps the parent from creating a backdrop
+// root at all, and the children blur the page behind them as intended.
+test("Surfaces that host popovers keep their backdrop filter off the element", () => {
+  const cssRule = (selector) => {
+    const start = styles.indexOf(`\n${selector} {`);
+    assert.notEqual(start, -1, `${selector} must keep its own rule`);
+    return styles.slice(start, styles.indexOf("}", start));
+  };
+  for (const selector of [".composer", ".chat-header"]) {
+    assert.match(styles, new RegExp(`\\${selector}::before \\{[^}]*backdrop-filter: var\\(--glass-chrome-filter\\)`), `${selector} must frost from its ::before layer`);
+    assert.doesNotMatch(cssRule(selector), /backdrop-filter/, `${selector} must not create a backdrop root for its popovers`);
+    assert.doesNotMatch(cssRule(selector), /background:\s*color-mix/, `${selector} must not paint the material itself`);
+  }
+  // The `z-index: -1` layer is only scoped if the host establishes a stacking
+  // context. It has to be `z-index`, not `isolation: isolate` — the latter is
+  // itself on the backdrop-root list and would reinstate the very bug above.
+  assert.match(cssRule(".composer"), /z-index: 0;/, ".composer needs a stacking context for its material layer");
+  assert.doesNotMatch(cssRule(".composer"), /isolation:/);
+});
+
+// Density sits in a band, and *both* ends are failures the owner has already
+// hit. Too thin and the text behind reads through sharp; too thick and there is
+// no glass left at all — 93% passes 7% of the backdrop, which is invisible next
+// to a strong blur, so the surface reads as a plain opaque card. Legibility
+// comes from the frost, not from the density, which is why the band can stay
+// low enough for the material to actually show.
+test("Chat glass density stays inside the band where it reads as glass", () => {
+  const pct = (token) => Number(styles.match(new RegExp(`${token}: color-mix\\(in srgb, var\\(--card-bg\\) (\\d+)%`))?.[1]);
+  const check = (name, value) => {
+    assert.ok(value >= 65, `${name} at ${value}% is too thin — content reads through sharp`);
+    assert.ok(value <= 92, `${name} at ${value}% is too dense — the material becomes invisible`);
+  };
+  check("--glass-surface-bg", pct("--glass-surface-bg"));
+  check("--glass-popover-bg", pct("--glass-popover-bg"));
+  check("--glass-chrome-opacity", Number(styles.match(/--glass-chrome-opacity:\s*(\d+)%/)?.[1]));
+  // Frost is what makes the translucency read as material rather than as a
+  // hole; anything under 24px is legible as "a slightly tinted sheet".
+  const blurOf = (token) => Number(styles.match(new RegExp(`${token}: blur\\((\\d+)px\\)`))?.[1]);
+  for (const token of ["--glass-surface-filter", "--glass-popover-filter", "--glass-chrome-filter"]) {
+    assert.ok(blurOf(token) >= 24, `${token} must frost hard enough to read as glass`);
+  }
+  // Saturation above the natural value is what keeps the frosted wash reading
+  // as glass rather than as grey fog.
+  for (const token of ["--glass-surface-filter", "--glass-popover-filter", "--glass-chrome-filter"]) {
+    assert.ok(Number(styles.match(new RegExp(`${token}: blur\\(\\d+px\\) saturate\\((\\d+)%\\)`))?.[1]) >= 150, `${token} must lift saturation`);
+  }
+  // The denser tier is reserved for small text surfaces; the big cards keep the
+  // lighter one so their translucency still shows.
+  const ruleOf = (selector) => {
+    const start = styles.indexOf(`\n${selector} {`);
+    assert.notEqual(start, -1, `${selector} must keep its own rule`);
+    return styles.slice(start, styles.indexOf("}", start));
+  };
+  for (const selector of [".composer-model-popover", ".slash-suggestions", ".overflow-menu-popover", ".transcript-dock", ".message-status", ".miniapps-quick-menu"]) {
+    assert.match(ruleOf(selector), /background:\s*var\(--glass-popover-bg\);/, `${selector} carries text and must use the denser tier`);
+  }
+  // ...and it must actually be the denser one, not a copy of the large tier.
+  assert.ok(pct("--glass-popover-bg") > pct("--glass-surface-bg"), "the popover tier must be denser than the large-surface tier");
+});
+
+// Every tier that strips the blur must flatten *every* glass tier. Missing one
+// leaves those surfaces translucent without their blur — the unreadable case,
+// not the degraded one. `--glass-popover-bg` was missed on the first pass
+// precisely because it was added last.
+test("Every glass degradation tier flattens every glass tier", () => {
+  const blockOf = (selector) => {
+    const start = styles.indexOf(selector);
+    assert.notEqual(start, -1, `${selector} must exist`);
+    // The block's own close is `\n}`; nested closes are indented.
+    return styles.slice(start, styles.indexOf("\n}", start));
+  };
+  for (const selector of ['html[data-reduced-transparency="true"]', ':root[data-performance="low"]', "@media (prefers-contrast: more)"]) {
+    const block = blockOf(selector);
+    assert.match(block, /--glass-surface-bg:\s*var\(--card-bg\);/, `${selector} must flatten the large-surface tier`);
+    assert.match(block, /--glass-popover-bg:\s*var\(--card-bg\);/, `${selector} must flatten the popover tier`);
+    assert.match(block, /--glass-chrome-opacity:\s*100%;/, `${selector} must flatten the floating chrome`);
+  }
+});
+
+test("Chat chrome floats over the transcript and the transcript reserves its height", () => {
+  // The toolbar and the composer are taken out of the flow so content travels
+  // under them; every surface that has to stay clear of either one reads a
+  // shared budget instead of a fixed offset.
+  assert.match(styles, /\.chat-header \{[^}]*position:\s*absolute;[^}]*inset:\s*0 0 auto;/s);
+  assert.match(styles, /\.composer-wrap\.is-floating \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
+  assert.match(styles, /--chat-header-h:\s*42px;/);
+  assert.match(styles, /--composer-h:\s*0px;/);
+  assert.match(styles, /\.messages \{[^}]*padding: calc\(var\(--chat-header-h\) \+ 24px\)[^}]*calc\(var\(--composer-h\) \+ 24px\)/);
+  assert.match(styles, /\.transcript-dock \{[^}]*bottom: calc\(var\(--composer-h\) \+ 14px\)/s);
+  assert.match(styles, /\.conversation-prompt-navigator \{[^}]*top: calc\(var\(--chat-header-h\) \+ 14px\);[^}]*bottom: calc\(var\(--composer-h\) \+ 14px\);/s);
+  // The toolbar is a full-bleed bar, so it takes the rim but no float shadow.
+  assert.match(styles, /\.chat-header::before \{[^}]*box-shadow: var\(--glass-edge\);/, "a full-bleed bar must not cast a float shadow");
+  // The height is a measurement, not a constant: the stack grows with every
+  // line of input, queued chip and banner, and the observer has to publish it
+  // and clean it up (a stale value would leave the transcript short of its tail).
+  assert.match(chatInputArea, /new ResizeObserver/);
+  assert.match(chatInputArea, /setProperty\("--composer-h"/);
+  assert.match(chatInputArea, /removeProperty\("--composer-h"\)/);
+  assert.match(chatInputArea, /class:is-floating=\{floating\}/);
+  assert.match(view, /<ChatInputArea[\s\S]{0,200}?floating/);
+});
+
+test("Glass materializes on entry and degrades to opaque, never to a wash", () => {
+  // "Materialize, don't just fade" (apple-design §12): the entrance resolves
+  // opacity, scale and blur together. It is not pinned with `forwards` — a
+  // filter left on the element would make it a containing block for its
+  // children for the rest of the session.
+  assert.match(styles, /@keyframes popover-in \{ from \{ opacity: 0; transform: scale\(\.98\); filter: blur\(6px\); \}/);
+  assert.match(styles, /@keyframes command-palette-in \{ from \{ opacity: 0; transform: translateX\(-50%\) scale\(\.98\); filter: blur\(6px\); \}/);
+  assert.doesNotMatch(styles, /animation: popover-in[^;]*forwards/);
+  // Every tier that strips the blur must also take the surface opaque. Dropping
+  // only the filter leaves translucent bars over moving text, which is worse
+  // than either extreme — and it is the failure mode a `--glass-*` token that
+  // degrades on its own would hide.
+  assert.match(styles, /html\[data-reduced-transparency="true"\][\s\S]*?--glass-chrome-opacity: 100%;/);
+  assert.match(styles, /:root\[data-performance="low"\][\s\S]*?--glass-surface-bg: var\(--card-bg\);[\s\S]*?--glass-chrome-opacity: 100%;/);
+  assert.match(styles, /html\[data-increased-contrast="true"\][\s\S]*?--glass-chrome-opacity: 100%;/);
+  // Reduced motion is a gentler equivalent, not no feedback: the wave holds a
+  // still crest so the running state stays legible without the oscillation.
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.timeline-wave-bar \{ transform: scaleY\(\.8\); opacity: \.85; \}/);
+  // One live indicator, one rhythm: the running pill shimmers instead of
+  // pairing its own pulse with the process card's wave.
+  assert.match(styles, /\.message-status::after \{[\s\S]*?animation: message-status-sheen/);
+  assert.doesNotMatch(styles, /message-status-pulse/);
 });
 
 test("Desktop Settings uses a secondary canvas with quiet primary-surface cards", () => {
   assert.match(styles, /\.settings-layout\s*\{[^}]*background:\s*transparent/s);
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
+  assert.match(styles, /\.chat-sidebar::before, \.settings-sidebar::before\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
   assert.match(styles, /\.settings-content\s*\{[^}]*background:\s*var\(--gray-100\)/s);
   assert.match(styles, /\.settings-card\s*\{[^}]*border:\s*1px solid var\(--hairline\)[^}]*background:\s*var\(--card-bg\)/s);
   assert.match(styles, /\.settings-card \.settings-row \+ \.settings-row\s*\{[^}]*border-top:\s*0\.5px solid var\(--gray-alpha-100\)/s);
@@ -1268,6 +1487,20 @@ test("a streaming reply renders as keyed per-block fragments, not one swapped tr
   assert.match(styles, /\.chat-markdown-segment:last-child > :last-child[^{]*\{[^}]*margin-bottom:\s*0/s);
 });
 
+// The status pill and the process card used to say the same thing one line
+// apart: a literal "Thinking..." pill sitting directly over the streaming
+// thinking text. The pill now only covers the void between sending and the
+// first streamed content; once the card has content, the card is the running
+// indicator. The SSE bridge stopped shipping textual status frames for the
+// same reason - tool/subagent labels arrive as structured activities and
+// reasoning arrives as thinking_delta, so a "Thinking..."/"_→ label_" frame
+// could only ever duplicate the card.
+test("the status pill yields to the process card and the turn stream ships no status frames", () => {
+  assert.match(conversationLiveView, /\{#if !liveSections\.process\.length\}[\s\S]*?class="message-status"/);
+  assert.doesNotMatch(conversationTurnSource, /"status"/);
+  assert.doesNotMatch(streamRouteSource, /writeEvent\(controller, encoder, "status"/);
+});
+
 // A turn that produced six images used to render six full-width cards stacked
 // vertically, which pushed the rest of the conversation off screen.
 test("consecutive images render as a gallery and open one shared viewer", () => {
@@ -1418,7 +1651,6 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(row, /\.row-title\s*\{[^}]*flex:\s*1 1 auto[^}]*min-width:\s*0/s);
   assert.doesNotMatch(row, /\.row-title\s*\{[^}]*max-width:/s, "the title must grow with the resized sidebar");
   assert.match(row, /\.row-time\s*\{[^}]*flex:\s*0 0 auto/s);
-  assert.match(row, /right: 10px/);
   assert.doesNotMatch(view, /const firstBot = externalNav/);
   // Project and Chat share the same collapsible group rhythm and DESIGN's compact 32px Session row.
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
@@ -1707,17 +1939,21 @@ test("Agent City chrome themes through tokens, not a data-attribute-only overrid
   }
 });
 
-test("sidebar conversation rows expose a rename/delete menu", () => {
-  // Web conversation rows carry an ellipsis menu (rename + delete); external
-  // channels are read-only mirrors and never surface it.
-  assert.match(row, /class="row-menu-btn"/);
+test("sidebar conversation rows expose a right-click context menu with rename, delete, copy path and reveal", () => {
+  // Web conversation rows expose a context menu (rename, delete, copy session path, reveal in finder);
+  // the old hover ellipsis button is removed in favor of right-click context menu.
+  assert.doesNotMatch(row, /class="row-menu-btn"/);
+  assert.match(row, /oncontextmenu=/);
   assert.match(row, /class="row-menu"/);
   assert.match(row, /onRename\?\.\(/);
   assert.match(row, /onDelete\?\.\(/);
-  assert.match(row, /!item\.readOnly && Boolean\(onRename\) && Boolean\(onDelete\)/);
+  assert.match(row, /onCopyPath/);
+  assert.match(row, /onRevealInFinder/);
   // The host wires the row actions to the desktop conversation API.
   assert.match(view, /renameDesktopConversation\(connectedEndpoint/);
   assert.match(view, /deleteDesktopConversation\(connectedEndpoint/);
+  assert.match(view, /getDesktopSessionPath\(connectedEndpoint/);
+  assert.match(view, /revealDesktopSession\(connectedEndpoint/);
 });
 
 test("chat primary navigation stays in the Chat workspace", () => {
@@ -1734,9 +1970,9 @@ test("chat primary navigation stays in the Chat workspace", () => {
 
 test("chat header is single-line and service status lives on the sidebar logo", () => {
   const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
-  assert.match(view, /activeHeaderSourceInitial/);
+  assert.doesNotMatch(view, /activeHeaderSourceInitial/);
   assert.match(view, /activeHeaderTitle/);
-  assert.match(view, /class="chat-title-separator"[^>]*>\/<\/span>/);
+  assert.match(view, /\{#if activeHeaderChannel !== "web"\}/);
   // The title takes the row's slack and ellipsizes inside the CHAT COLUMN. A
   // viewport-relative `max-width` let it run underneath the action buttons as
   // soon as the file panel narrowed the column.
@@ -1787,8 +2023,8 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.match(chatSidebar, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(sidebarShell, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*42px;[^}]*pointer-events:\s*auto;/s);
-  assert.match(view, /class="chat-source-tag" data-tauri-drag-region/);
-  assert.match(chatHeader, /class="chat-source-tag" data-tauri-drag-region/);
+  assert.match(view, /class="chat-source-label" data-tauri-drag-region/);
+  assert.match(chatHeader, /class="chat-source-label" data-tauri-drag-region/);
   const pageHeader = read("./lib/components/ui/PageHeader.svelte");
   assert.match(pageHeader, /class="page-header settings-page-header" data-tauri-drag-region/);
   // Workspace destinations reuse the shared draggable PageHeader for their chrome.
@@ -2146,12 +2382,6 @@ test("collapsed transcript cards mount their body only once opened", () => {
   assert.match(runActivity, /\{#if opened\}[\s\S]*\{#each activities/);
 });
 
-test("structured runner events do not leak into the live answer status", () => {
-  const conversationTurn = read("./lib/chat/conversationTurn.ts");
-  assert.match(conversationTurn, /if \(event === "status"\) \{/);
-  assert.doesNotMatch(conversationTurn, /event === "status" \|\| event === "runner_event"/);
-});
-
 test("shared composer turns pasted clipboard images into attachments", () => {
   assert.match(chatComposerShell, /onpaste=\{handlePaste\}/);
   assert.match(chatComposerShell, /clipboardImageFiles\(event\.clipboardData\?\.items \?\? \[\]\)/);
@@ -2391,15 +2621,16 @@ test("project detail reuses the chat header chrome for a single visual language"
   assert.doesNotMatch(app, /ProjectsView|mainView/);
   assert.match(projectDetail, /class="chat-content"/);
   assert.match(projectDetail, /<ChatHeader/);
-  assert.match(projectDetail, /\$\{project\.name\} \/ \$\{session\?\.title/);
-  assert.match(projectDetail, /sourceInitial="P"/);
+  assert.match(projectDetail, /headerTitle = \$derived\(session\?\.title \|\| copy\.newChat\)/);
+  assert.match(projectDetail, /sourceLabel=\{project\.name\}/);
+  assert.doesNotMatch(projectDetail, /sourceInitial=|\$\{project\.name\} \//);
   assert.doesNotMatch(projectDetail, /subtitle=\{project\.rootPath\}/);
   assert.match(projectDetail, /class="icon-button"[\s\S]*aria-label=\{copy\.search\}/);
   assert.match(projectDetail, /class="icon-button"[\s\S]*aria-label=\{copy\.files\}/);
   assert.doesNotMatch(projectDetail, /aria-label=\{copy\.delete\}/);
   assert.match(chatHeader, /class="chat-header"/);
-  assert.match(chatHeader, /class="chat-source-tag"/);
-  assert.match(chatHeader, /class="chat-title-separator"/);
+  assert.match(chatHeader, /class="chat-source-label"/);
+  assert.doesNotMatch(chatHeader, /chat-title-separator|sourceInitial/);
 });
 
 test("project file panel exposes live files, Git changes, and session attachments", () => {
@@ -3055,7 +3286,7 @@ test("project sessions support rename and delete from the session list", () => {
 test("projects expose a guarded remove action without deleting the working directory", () => {
   const projectTree = readFileSync(new URL("./lib/projects/ProjectTree.svelte", import.meta.url), "utf8");
   const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
-  assert.match(groupHeader, /reicon-svelte\/icons\/More/);
+  assert.match(groupHeader, /icons\/duotone\/components\/More\.svelte/);
   assert.match(projectTree, /copy\.renameProject/);
   assert.match(projectTree, /renameProject\(renameProjectId, renameProjectName\)/);
   assert.doesNotMatch(groupHeader, /conv-group-remove|reicon-svelte\/icons\/Trash/);
@@ -3206,7 +3437,7 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /id: "tools", sections: \["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
   assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs", "hostBash"\]/);
-  assert.match(app, /id: "system", sections: \["runtimeEnv", "executionPermissions", "sandbox", "plugins", "diagnostics"\]/);
+  assert.match(app, /id: "system", sections: \["runtimeEnv", "executionPermissions", "plugins", "diagnostics"\]/);
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
     assert.match(sections[key], /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
@@ -3337,8 +3568,9 @@ test("built-in provider configuration reuses saved Web settings without pollutin
 
 test("Execution environment declares the backend, keeps advanced restrictions collapsed, and has a fixed save footer", () => {
   // Unified execution modes: the sandbox section no longer owns a preset
-  // slider or an enable switch — participation follows the permission mode.
-  assert.match(sections.sandbox, /id="desktop-sandbox-form"/);
+  // slider or an enable switch — participation follows the permission mode —
+  // and its save footer drives `save()` directly from the buttons instead of
+  // routing through a `<form>` submit, so there is no form id to assert on.
   assert.match(sections.sandbox, /session\.text\.executionEnvBackend/);
   assert.match(sections.sandbox, /backend\.supportedPlatform/);
   assert.match(sections.sandbox, /backend\.dependenciesAvailable/);
@@ -3347,7 +3579,6 @@ test("Execution environment declares the backend, keeps advanced restrictions co
   assert.match(sections.sandbox, /session\.text\.sandboxEnvAllow/);
   assert.match(sections.sandbox, /session\.text\.sandboxNetworkAllow/);
   assert.match(sections.sandbox, /session\.text\.sandboxFilesystemAllowWrite/);
-  assert.match(sections.sandbox, /form="desktop-sandbox-form"/);
   assert.match(sections.sandbox, /class="settings-footbar"/);
   assert.doesNotMatch(sections.sandbox, /sandbox-slider|id: "locked"|IosSwitch/);
   assert.match(styles, /\.settings-advanced-group\s*\{/s);
@@ -3429,7 +3660,7 @@ test("Chat and sidebar typography goes through the type scale, never raw px", ()
   assert.match(styles, /\.chat-layout \{ font-size: var\(--fs-label\); line-height: var\(--lh-label\); \}/);
 
   const scopePrefixes = [
-    "chat-title", "chat-source-tag", "chat-header", "chat-layout",
+    "chat-title", "chat-source-label", "chat-header", "chat-layout",
     "message-", "user-message-", "assistant-", "markdown-body", "transcript-",
     "attachment-", "composer", "slash-suggestion", "invocation-", "queued-",
     "pending-", "send-button", "recording-", "approval-", "run-activity",
@@ -3458,6 +3689,23 @@ test("Chat and sidebar typography goes through the type scale, never raw px", ()
       // headings, inline code), so they follow a theme change for free.
       for (const decl of rule[2].matchAll(/font-size\s*:\s*([0-9.]+px)/gi)) violations.push(`${selector} { font-size: ${decl[1]} }`);
       for (const decl of rule[2].matchAll(/font\s*:\s*(?:[0-9]{3}\s+)?([0-9.]+px)/gi)) violations.push(`${selector} { font: … ${decl[1]} }`);
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+// The project settings dialog once restyled the global buttons into 38px
+// pills with an inset gloss — a one-off treatment nothing else in the app
+// shared, which is exactly how a control family falls apart. Buttons render
+// through components/ui/Button onto the global `.primary-button` /
+// `.secondary-button` styles; a surface-scoped fork of those styles is the
+// regression this guard exists for.
+test("Dialog surfaces never fork the global button styles", () => {
+  const violations = [];
+  for (const css of allStyleSources) {
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1].trim();
+      if (/\.project-settings-modal[^{}]*\.(primary|secondary)-button/.test(selector)) violations.push(selector);
     }
   }
   assert.deepEqual(violations, []);
@@ -4618,4 +4866,48 @@ test("an approval card stays until the server confirms and cannot double-submit"
   assert.match(decisionCard, /!disabled && !submitting && optionId/);
   assert.match(decisionCard, /disabled \|\| submitting \|\| options\.length === 0/);
   assert.match(decisionCard, /approval-submitting/);
+});
+
+// Pitfall 16c recurrence (task-session modal): `.task-session-detail` is a
+// flex column and `.message-row`'s auto side margins defeat stretch, so a
+// `width: auto` row shrink-wraps to its content. An assistant reply that is
+// one wide code block then collapses the scrollable `pre` (min-width: 0)
+// into a one-character sliver — the transcript read as "empty bubble plus a
+// vertical line". Assistant rows must keep the full modal column; only the
+// user's own rows may shrink-wrap.
+test("task-session modal assistant rows never shrink-wrap (pitfall 16c)", () => {
+  const detailRules = styles.match(/\.task-session-detail\s+\.message-row\s*\{[^}]*\}/);
+  assert.ok(detailRules, "the task-session modal must scope .message-row layout");
+  assert.match(detailRules[0], /width:\s*auto/, "user rows keep shrink-to-fit");
+
+  const assistantRule = styles.match(/\.task-session-detail\s+\.message-row\.assistant\s*\{[^}]*\}/);
+  assert.ok(assistantRule, "assistant rows need their own width rule in the task-session modal");
+  assert.match(assistantRule[0], /width:\s*100%/, "assistant rows must fill the modal column so wide code blocks scroll instead of collapsing");
+});
+
+test("conversation menus and their dismiss layer escape sidebar stacking and clipping", () => {
+  const row = read("./lib/chat/ConversationRow.svelte");
+  assert.match(row, /import \{ Portal \} from "bits-ui"/);
+  assert.match(row, /<Portal to="body">[\s\S]*class="row-menu-backdrop"[\s\S]*class="row-menu"[\s\S]*<\/Portal>/);
+});
+
+test("header source follows the title as bounded secondary text without a badge", () => {
+  const shared = read("./lib/chat/ChatHeader.svelte");
+  for (const source of [view, shared]) {
+    assert.ok(source.indexOf('class="chat-title-name"') < source.indexOf('class="chat-source-label"'));
+    assert.doesNotMatch(source, /chat-source-tag|chat-title-separator|sourceInitial/);
+  }
+  const sourceRule = styles.match(/\.chat-source-label \{([^}]+)\}/)?.[1] ?? "";
+  assert.match(sourceRule, /max-width: 30%/);
+  assert.match(sourceRule, /color: var\(--label-secondary\)/);
+  assert.match(sourceRule, /text-overflow: ellipsis/);
+  assert.doesNotMatch(sourceRule, /background:|border:/);
+});
+
+test("thinking stops retain their positioning class and selected-state styling", () => {
+  const stop = composerModelMenu.match(/<button\s+type="button"\s+class="composer-level-stop"[\s\S]*?<\/button>/)?.[0];
+  assert.ok(stop, "Every generated stop must opt into the positioned track styles");
+  assert.match(stop, /aria-checked=\{level === thinkingLevel\}/);
+  assert.match(styles, /\.composer-level-stop \{[^}]*position: absolute/);
+  assert.match(styles, /\.composer-level-stop\[aria-checked="true"\]::after/);
 });

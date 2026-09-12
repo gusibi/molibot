@@ -1,6 +1,6 @@
 <script lang="ts">
   import { publishSessionPlan, sessionPlanInspector } from "../chat/sessionPlanUi";
-  import PenLine from "reicon-svelte/icons/PenLine";
+  import PenLine from "../icons/duotone/components/PenLine.svelte";
   import X from "reicon-svelte/icons/X";
   import { onDestroy, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
@@ -46,7 +46,7 @@
   import { projectsStore, projectsView, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
   import { saveBlobAsFile } from "../saveFile";
   import { session, SETTINGS_CHANGED_EVENT } from "../stores/session.svelte";
-  import { humanizeModelOption } from "../presentation";
+  import { deriveComposerContextUsage, humanizeModelOption, resolveModelContextWindow } from "../presentation";
   import { miniAppsCatalog } from "../stores/miniapps.svelte";
   import { catalogMessageActions, invokeTranscriptMessageAction } from "../miniapps/messageActions";
   import { formatMiniAppDeepLink } from "@molibot/shared/miniappDeepLink";
@@ -336,6 +336,9 @@
   $: chatState = $chatStateStore;
   $: sending = chatState.sending;
   $: messages = chatState.messages;
+  // Composer context-usage panel: snapshot when present, otherwise reported
+  // usage against the selected model's window; null only without any usage.
+  $: composerContextUsage = deriveComposerContextUsage(messages, resolveModelContextWindow(modelOptions, activeModelKey));
   $: activity = chatState.activity;
   $: streamingText = chatState.streamingText;
   $: streamingThinking = chatState.streamingThinking;
@@ -1087,6 +1090,8 @@
     endpoint={projectsStore.endpoint}
     projectId={projectsStore.selectedProjectId}
     {copy}
+    locale={session.locale}
+    contextUsage={composerContextUsage}
     {sending}
     disabled={!projectsStore.selectedSessionId || !modelReady}
     canSend={Boolean(message.trim()) || pendingFiles.length > 0}

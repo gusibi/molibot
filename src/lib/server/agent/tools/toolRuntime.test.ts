@@ -535,6 +535,63 @@ test("an approval_required decision is honoured for a medium-risk tool", async (
   assert.deepEqual(asked, ["req-medium-1"], "the request must reach the approval surface");
 });
 
+test("an unattended deny fails the call without creating a request or suspending the run", async () => {
+  const registry = new ToolRegistry();
+  let executed = false;
+  const created: string[] = [];
+  registry.register(tool({
+    id: "write",
+    name: "Write",
+    risk: "medium",
+    source: "builtin",
+    effect: "write",
+    handler: async () => {
+      executed = true;
+      return { ok: true, content: "written" };
+    }
+  }));
+
+  const runtime = new ToolRuntime(registry, {
+    approvalService: {
+      checkGrant: () => null,
+      createRequest: (request: { id: string }) => {
+        created.push(request.id);
+      }
+    },
+    decidePolicy: (tool, input, ctx) => ({
+      type: "approval_required",
+      request: {
+        id: "req-unattended-1",
+        runId: ctx.runId,
+        sessionId: ctx.sessionId,
+        workspaceId: ctx.workspaceId,
+        actorId: ctx.actorId,
+        toolId: tool.id,
+        capability: "file.write",
+        actionFingerprint: "fp-1",
+        action: { path: "notes.md" },
+        risk: tool.risk,
+        createdAt: new Date().toISOString()
+      } as unknown as ApprovalRequest
+    })
+  });
+
+  const result = await runtime.executeToolCall({
+    toolId: "write",
+    input: { path: "notes.md" },
+    context: {
+      ...context([]),
+      onApprovalRequest: async () => "deny"
+    }
+  });
+
+  assert.equal(executed, false, "the tool must not run");
+  assert.equal(result.ok, false, "the call fails so the model reports the skip");
+  assert.notEqual(result.terminate, true, "a denial must not suspend the run");
+  assert.deepEqual(created, [], "no pending request may be persisted");
+  assert.match(String(result.error), /unattended automation run/i);
+});
+
 test("an approval card offers a lasting grant, so a mode is not a permanent nag", () => {
   // PRD §132: the scopes existed but `persistent` was never offered, so
   // "always allow" had no way to be chosen through the broker — only Host Bash

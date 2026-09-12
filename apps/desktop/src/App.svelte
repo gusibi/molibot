@@ -30,7 +30,6 @@
   import { onMount } from "svelte";
   import ChatView from "./ChatView.svelte";
   import { tablist } from "./lib/a11y/tablist";
-  import SandboxSection from "./lib/settings/SandboxSection.svelte";
   import ExecutionPermissionsSection from "./lib/settings/ExecutionPermissionsSection.svelte";
   import HostBashSection from "./lib/settings/HostBashSection.svelte";
   import RuntimeEnvSection from "./lib/settings/RuntimeEnvSection.svelte";
@@ -101,7 +100,7 @@
     hapticPreference: HapticPreference;
   };
 
-  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "sandbox" | "hostBash" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -282,7 +281,6 @@
     { id: "logs", icon: TerminalSquare },
     { id: "trace", icon: Search },
     { id: "executionPermissions", icon: ShieldCheck },
-    { id: "sandbox", icon: Box },
     { id: "hostBash", icon: TerminalSquare },
     { id: "diagnostics", icon: Stethoscope },
     { id: "runtimeEnv", icon: Box }
@@ -295,7 +293,7 @@
     { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
     { id: "channels", sections: ["profiles", "channels"] },
     { id: "activity", sections: ["runHistory", "usage", "trace", "logs", "hostBash"] },
-    { id: "system", sections: ["runtimeEnv", "executionPermissions", "sandbox", "plugins", "diagnostics"] }
+    { id: "system", sections: ["runtimeEnv", "executionPermissions", "plugins", "diagnostics"] }
   ];
 
   let settingsFilter = "";
@@ -347,7 +345,6 @@
       case "logs": return copy.logs;
       case "trace": return copy.trace;
       case "executionPermissions": return copy.executionPermissions;
-      case "sandbox": return copy.executionEnvironment;
       case "hostBash": return copy.hostBash;
       case "diagnostics": return copy.diagnostics;
       case "runtimeEnv": return copy.runtimeEnv;
@@ -377,7 +374,6 @@
       case "logs": return copy.logsHint;
       case "trace": return copy.traceHint;
       case "executionPermissions": return copy.executionPermissionsHint;
-      case "sandbox": return copy.executionEnvironmentHint;
       case "hostBash": return copy.hostBashHint;
       case "diagnostics": return copy.diagnosticsHint;
       case "runtimeEnv": return copy.runtimeEnvHint;
@@ -1048,8 +1044,6 @@
         <TtsGenerateSection />
       {:else if activeSection === "executionPermissions"}
         <ExecutionPermissionsSection />
-      {:else if activeSection === "sandbox"}
-        <SandboxSection />
       {:else if activeSection === "hostBash"}
         <HostBashSection />
       {:else if activeSection === "runtimeEnv"}

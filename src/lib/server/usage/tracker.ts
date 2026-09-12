@@ -20,6 +20,12 @@ export interface AiUsageRecord {
   durationMs?: number;
   audioSeconds?: number;
   errorCode?: string;
+  /**
+   * Owning conversation id (the `s-…` session the desktop UI knows) for calls
+   * made inside a chat session; absent for non-session AI calls (Mini Apps,
+   * assistant helpers). The session-dimension breakdown groups on this.
+   */
+  sessionId?: string;
 }
 
 export interface UsageTotals {
@@ -263,6 +269,7 @@ export class AiUsageTracker {
     durationMs?: number;
     audioSeconds?: number;
     errorCode?: string;
+    sessionId?: string;
   }): void {
     const record: AiUsageRecord = {
       ts: new Date().toISOString(),
@@ -281,7 +288,8 @@ export class AiUsageTracker {
       ...(input.status ? { status: input.status } : {}),
       ...(input.durationMs !== undefined ? { durationMs: toInt(input.durationMs) } : {}),
       ...(input.audioSeconds !== undefined ? { audioSeconds: Math.max(0, Number(input.audioSeconds) || 0) } : {}),
-      ...(input.errorCode ? { errorCode: String(input.errorCode).trim() } : {})
+      ...(input.errorCode ? { errorCode: String(input.errorCode).trim() } : {}),
+      ...(String(input.sessionId ?? "").trim() ? { sessionId: String(input.sessionId).trim() } : {})
     };
 
     if (record.totalTokens === 0) {
@@ -330,7 +338,8 @@ export class AiUsageTracker {
             : {}),
           ...((parsed as { durationMs?: unknown }).durationMs !== undefined ? { durationMs: toInt((parsed as { durationMs?: unknown }).durationMs) } : {}),
           ...((parsed as { audioSeconds?: unknown }).audioSeconds !== undefined ? { audioSeconds: Math.max(0, Number((parsed as { audioSeconds?: unknown }).audioSeconds) || 0) } : {}),
-          ...((parsed as { errorCode?: unknown }).errorCode ? { errorCode: String((parsed as { errorCode?: unknown }).errorCode) } : {})
+          ...((parsed as { errorCode?: unknown }).errorCode ? { errorCode: String((parsed as { errorCode?: unknown }).errorCode) } : {}),
+          ...((parsed as { sessionId?: unknown }).sessionId ? { sessionId: String((parsed as { sessionId?: unknown }).sessionId) } : {})
         });
       } catch {
         // ignore malformed lines

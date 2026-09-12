@@ -118,6 +118,19 @@
   --radius-small: 6px; --radius-control: 8px; --radius-panel: 12px; --radius-full: 999px;
   --rounded-sm: var(--radius-control); --rounded-md: var(--radius-panel); --rounded-lg: var(--radius-panel); --rounded-full: var(--radius-full);
   --toolbar-height: 52px;
+  /* The chat toolbar floats over the transcript, so its height is a budget the
+     transcript has to reserve rather than a strip it sits below. Declared once
+     because three rules read it: the toolbar's own height, the transcript's
+     top padding, and the empty states that are not inside the scroller. */
+  --chat-header-h: 42px;
+  /* Height of the floating composer, measured on the live element by
+     ChatInputArea (which owns the footer) and written back as an inline custom
+     property on the host column. It is a *measurement*, not a design value: the
+     composer grows with every line of input, queue chip and attachment, so
+     anything that has to stay clear of it (the transcript's bottom padding, the
+     dock, the navigator) reads this instead of guessing. Defaults to 0 for
+     hosts that render a composer in the flow, or none at all. */
+  --composer-h: 0px;
   /* The transcript column never yields below this: the composer's tool row and
      the header's title/actions stop fitting under it, so the file panel and the
      sidebar give up their width first (and the panel becomes an overlay drawer
@@ -200,6 +213,48 @@
   --glass-inset: 0 0 #0000;
   --modal-scrim: rgba(0,0,0,0.32);
 
+  /* Chat glass material (DESIGN.md §Chat glass materials). Derived from the
+     theme's own card surface so every theme family inherits the material; the
+     edge highlight is the bright top rim that reads as light catching glass.
+     Surfaces compose: glass-surface-bg + glass-surface-filter +
+     (glass-surface-shadow, glass-edge).
+
+     The top rim rides `--glass-border-light`, which every family and
+     brightness already declares (42-72% white on light, 14-25% on dark). A
+     baked white here would paint a hard line across every dark family.
+
+     Opacity sits in a band, and both ends are failures the owner has already
+     hit. Too thin and the text behind reads through sharp — a menu over the
+     transcript was unreadable at 78% *because its blur was missing*, and the
+     fix is the blur, not the density. Too thick and there is no glass left at
+     all: 93% passes only 7% of the backdrop, which is invisible next to a
+     strong blur, and the surface reads as a plain opaque card. Legibility
+     comes from the frost — a heavy blur turns the backdrop into a low-contrast
+     wash — so density can stay low enough for the material to actually show.
+     Saturation above the natural value is what makes that wash read as glass
+     rather than as grey fog. */
+  --glass-surface-bg: color-mix(in srgb, var(--card-bg) 66%, transparent);
+  --glass-popover-bg: color-mix(in srgb, var(--card-bg) 72%, transparent);
+  --glass-surface-filter: blur(32px) saturate(190%);
+  --glass-popover-filter: blur(28px) saturate(190%);
+  /* The dialog scrim sits over the whole app and carries no content of its
+     own, so it takes the popover tier: enough frost to separate the sheet
+     from whatever is behind it without turning the backdrop into noise. */
+  --glass-modal-filter: blur(28px) saturate(190%);
+  --glass-edge: inset 0 1px 0 var(--glass-border-light);
+  --glass-surface-shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 12px 32px -10px rgb(0 0 0 / 16%), 0 32px 64px -20px rgb(0 0 0 / 12%);
+  --glass-chip-shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 6px 16px -6px rgb(0 0 0 / 12%);
+
+  /* The chat's two structural chrome surfaces — the toolbar the transcript
+     scrolls under and the composer it scrolls behind. Bigger than any popover
+     and carrying reading text directly over dense content, so they take the
+     heaviest material (apple-design §12: bigger surfaces read as thicker).
+     Declared per-host instead of as a token because each keeps its own
+     appearance-aware base: `--chrome-header-bg` also dims with window
+     activation, and mixing it here preserves that for free. */
+  --glass-chrome-opacity: 72%;
+  --glass-chrome-filter: blur(40px) saturate(200%);
+
   /* Controls — flat white fill, translucent border, no shadow */
   --control-bg: var(--mac-control-background);
   --control-bg-hover: var(--mac-grouped-background);
@@ -261,11 +316,24 @@
   --panel-blur: none;
 }
 
-/* Plan decisions share the approval card's hierarchy and keyboard affordance. */
+/* Glass depth follows brightness, not family: a dark canvas needs a much
+   heavier ambient shadow for the same perceived lift, and no family wants a
+   different one. Keyed on the resolved appearance so every family gets it. */
+:root[data-resolved-appearance="dark"] {
+  --glass-surface-shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -10px rgb(0 0 0 / 50%), 0 32px 64px -20px rgb(0 0 0 / 44%);
+  --glass-chip-shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 6px 16px -6px rgb(0 0 0 / 40%);
+}
+
+/* Plan decisions share the approval card's hierarchy and keyboard affordance —
+   including the material, so a plan proposed mid-turn and a plan running out
+   of the Inspector read as the same surface. */
 .plan-card {
   border: 1px solid var(--separator);
   border-radius: var(--rounded-md);
-  background: var(--card-bg);
+  background: var(--glass-surface-bg);
+  backdrop-filter: var(--glass-surface-filter);
+  -webkit-backdrop-filter: var(--glass-surface-filter);
+  box-shadow: var(--glass-surface-shadow), var(--glass-edge);
   padding: 14px;
 }
 
@@ -302,6 +370,19 @@ html[data-reduced-transparency="true"] {
   --chrome-popover-bg: var(--card-bg);
   --sidebar-material-bg: var(--chrome-sidebar-bg);
   --sidebar-material-filter: none;
+  /* Glass materials go fully opaque; blur carries nothing when the surface
+     must not be translucent. The chrome surfaces mix their own base colour at
+     `--glass-chrome-opacity`, so they need the opacity taken to 100% — dropping
+     only the filter would leave the toolbar and composer as washed-out
+     see-through bars, which is worse than either extreme. Every glass tier has
+     to be covered here: missing one leaves those surfaces translucent *without*
+     their blur, which is the unreadable case rather than the degraded one. */
+  --glass-surface-bg: var(--card-bg);
+  --glass-popover-bg: var(--card-bg);
+  --glass-surface-filter: none;
+  --glass-popover-filter: none;
+  --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%;
 }
 
 html[data-increased-contrast="true"] {
@@ -309,6 +390,9 @@ html[data-increased-contrast="true"] {
   --sidebar-material-bg: color-mix(in srgb, var(--chrome-sidebar-bg) 94%, transparent);
   --sidebar-material-border: var(--control-border-strong);
   --sidebar-material-filter: none;
+  /* Increased contrast means "everything reads against a defined background",
+     which a translucent toolbar over moving text does not. */
+  --glass-chrome-opacity: 100%;
 }
 
 * { box-sizing: border-box; }
@@ -515,6 +599,10 @@ a:focus-visible {
 .chat-layout > .window-drag-mask { height: 42px; pointer-events: none; }
 .chat-sidebar, .settings-sidebar {
   position: relative;
+  /* Explicit stacking context for the ::before material layer below. The
+     backdrop blur it replaces already implied one, so overlay ordering vs
+     the floating chrome is unchanged. */
+  z-index: 0;
   min-height: 0;
   margin: 0;
   padding: 42px 12px 8px;
@@ -522,12 +610,25 @@ a:focus-visible {
   border: 0;
   border-right: 0.5px solid var(--sidebar-material-border);
   border-radius: 0;
-  background: var(--sidebar-material-tint);
+  background: transparent;
   box-shadow: none;
-  backdrop-filter: var(--sidebar-material-filter);
-  -webkit-backdrop-filter: var(--sidebar-material-filter);
   display: flex;
   flex-direction: column;
+}
+/* The sidebar material rides a ::before layer, not the element: an element
+   carrying backdrop-filter is the containing block for fixed-position
+   descendants, so the session row's fixed .row-menu was trapped inside this
+   overflow: hidden box and clipped at the sidebar's edge instead of floating
+   above the whole window. */
+.chat-sidebar::before, .settings-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--sidebar-material-tint);
+  backdrop-filter: var(--sidebar-material-filter);
+  -webkit-backdrop-filter: var(--sidebar-material-filter);
 }
 .settings-sidebar {
   padding: 0;
@@ -918,7 +1019,29 @@ a:focus-visible {
   background: var(--gray-100);
 }
 .chat-header, .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--separator); box-sizing: border-box; }
-.chat-header { min-height: 42px; height: 42px; position: relative; z-index: 31; pointer-events: none; background: var(--chrome-header-bg); transition: padding-left var(--duration-normal) var(--ease-standard); }
+/* The chat toolbar is NOT a strip the transcript sits below — it floats over
+   the transcript, which scrolls underneath it. That is the whole point of the
+   material: an opaque bar consuming 42px reads as chrome bolted on, while a
+   blurred bar with content moving behind it reads as depth (apple-design §12).
+   It is therefore absolutely positioned inside `.chat-content` and the
+   transcript reserves its height with padding instead (see `.messages`). The
+   hard bottom border goes with it: the blur is what separates the two.
+
+   The material lives on `::before`, not on the header itself, and that is
+   load-bearing rather than tidiness. A `backdrop-filter` element becomes a
+   *backdrop root*: a descendant's own `backdrop-filter` may then only sample
+   content painted inside it (Filter Effects §Backdrop Root). The Mini Apps
+   quick menu is a child of this header and hangs *below* it, into the
+   transcript — so with the filter on the header the menu found nothing to blur
+   and rendered as a plain translucent pane with the transcript's text showing
+   through it sharp. On a `::before` layer the element itself creates no
+   backdrop root, and its children blur the page behind them as intended. */
+.chat-header { min-height: var(--chat-header-h); height: var(--chat-header-h); border-bottom: 0; position: absolute; inset: 0 0 auto; z-index: 31; pointer-events: none; background: transparent; transition: padding-left var(--duration-normal) var(--ease-standard); }
+/* `z-index: -1` is scoped inside the header's own stacking context (it is
+   positioned with a z-index), so the material sits above `.chat-content` and
+   below the header's content — the background, the rim and the filter all
+   belong to this one layer. */
+.chat-header::before { content: ""; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--chrome-header-bg) var(--glass-chrome-opacity), transparent); backdrop-filter: var(--glass-chrome-filter); -webkit-backdrop-filter: var(--glass-chrome-filter); box-shadow: var(--glass-edge); pointer-events: none; }
 .chat-header > * { pointer-events: auto; }
 .page-header { min-height: 82px; padding: 28px 28px 18px; background: var(--chrome-header-bg); border-bottom-color: var(--chrome-border); }
 .settings-page-header {
@@ -959,27 +1082,20 @@ a:focus-visible {
    instead let it run under the action buttons whenever the file panel narrowed
    the column. */
 .chat-title-block { display: flex; align-items: center; flex: 1 1 auto; gap: 6px; min-width: 0; height: 28px; }
-.chat-source-tag {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-width: 24px;
-  height: 20px;
-  padding: 0 5px;
-  box-sizing: border-box;
-  border: 1px solid var(--separator);
-  border-radius: var(--rounded-full);
-  background: var(--fill);
-  color: var(--label-tertiary);
-  font: 500 var(--fs-meta)/1 var(--font-mono);
+.chat-source-label {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 30%;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-secondary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
 }
-.chat-source-tag > span { opacity: .55; }
-.chat-source-tag > b { color: var(--label-secondary); font: inherit; }
-.chat-title-separator { flex: none; height: 20px; display: flex; align-items: center; color: var(--label-tertiary); font: 400 var(--fs-meta)/var(--lh-label) var(--font-mono); opacity: .65; }
-.chat-title-text { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; height: 28px; }
-.chat-title-name { min-width: 0; max-width: 100%; font-size: var(--fs-label); font-weight: 500; line-height: 28px; height: 28px; display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-title-text { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; height: 28px; }
+.chat-title-name { min-width: 0; max-width: 100%; font-size: var(--fs-label); font-weight: 500; line-height: 28px; height: 28px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-title-sub { display: flex; align-items: center; gap: 5px; font-size: var(--fs-meta); color: var(--label-secondary); line-height: var(--lh-meta); }
 .chat-header h1, .page-header h2, .settings-sidebar h1 { margin: 0; font-size: var(--fs-page); line-height: var(--lh-page); }
 .chat-header .eyebrow, .page-header .eyebrow { margin: 0 0 3px; }
@@ -1021,9 +1137,15 @@ a:focus-visible {
   padding: 8px;
   border: 1px solid var(--separator);
   border-radius: var(--rounded-md);
-  background: var(--popover-bg, var(--card-bg));
-  box-shadow: var(--popover-shadow);
+  background: var(--glass-popover-bg);
+  backdrop-filter: var(--glass-popover-filter);
+  -webkit-backdrop-filter: var(--glass-popover-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   color: var(--label-primary);
+  /* Anchored to the header button that opens it: the material grows out of its
+     trigger, not out of the menu's own centre (apple-design §7). */
+  transform-origin: top right;
+  animation: popover-in 140ms var(--ease-spring);
 }
 .miniapps-quick-search {
   display: flex;
@@ -1058,7 +1180,7 @@ a:focus-visible {
 .miniapps-quick-retry { align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: var(--fs-meta); cursor: pointer; }
 .miniapps-quick-all { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; margin-top: 8px; padding: 0 8px; border: 0; border-top: 1px solid var(--separator); background: transparent; color: var(--accent); font-size: var(--fs-meta); text-align: left; cursor: pointer; }
 .miniapps-quick-all:hover { color: var(--label-primary); }
-.miniapps-quick button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--popover-bg, var(--card-bg)), 0 0 0 4px var(--accent); }
+.miniapps-quick button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--glass-surface-bg), 0 0 0 4px var(--accent); }
 
 .durable-header-badge {
   display: inline-flex;
@@ -1263,7 +1385,9 @@ a:focus-visible {
   position: absolute;
   z-index: 12;
   right: 16px;
-  bottom: 88px;
+  /* Anchored to the composer's live height — the old fixed 88px was a guess
+     that only held for a single-line input. */
+  bottom: calc(var(--composer-h) + 16px);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1271,8 +1395,10 @@ a:focus-visible {
   padding: 9px 12px;
   border: 1px solid var(--separator);
   border-radius: var(--radius-panel);
-  background: var(--card-bg);
-  box-shadow: var(--popover-shadow);
+  background: var(--glass-popover-bg);
+  backdrop-filter: var(--glass-popover-filter);
+  -webkit-backdrop-filter: var(--glass-popover-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   color: var(--label-primary);
   font-size: var(--fs-label);
   line-height: var(--lh-label);
@@ -2065,8 +2191,10 @@ a:focus-visible {
   padding: 4px;
   border: 1px solid var(--separator);
   border-radius: var(--rounded-md);
-  background: var(--card-bg);
-  box-shadow: var(--popover-shadow);
+  background: var(--glass-popover-bg);
+  backdrop-filter: var(--glass-popover-filter);
+  -webkit-backdrop-filter: var(--glass-popover-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   outline: none;
 }
 .file-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 26px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); font-size: var(--fs-label); text-align: left; cursor: pointer; }
@@ -2269,6 +2397,10 @@ a:focus-visible {
 .message-row.search-match .message-bubble { box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 55%, transparent); }
 .message-row.search-active .message-bubble { box-shadow: 0 0 0 2px var(--accent); }
 .empty-state { max-width: 440px; margin: 20vh auto 0; text-align: center; }
+/* The toolbar floats over the chat column, so a direct child has to reserve its
+   height — `.messages` does it with padding, and these panes are not inside the
+   scroller. */
+.chat-content > .empty-state { padding-top: var(--chat-header-h); }
 .empty-icon { width: 58px; height: 58px; margin: auto; border-radius: var(--rounded-lg); }
 .empty-state h2 { margin: 18px 0 8px; font-size: var(--fs-page); line-height: var(--lh-page); }
 .empty-state p { margin: 0; color: var(--label-secondary); font-size: var(--fs-body); line-height: var(--lh-body); }
@@ -2282,20 +2414,35 @@ a:focus-visible {
 /* The gutter is a share of the CHAT COLUMN, not of the window: a `vw` gutter
    kept its full 56px after the file panel narrowed the column, which left the
    composer's tool row with less width than its own controls needed. */
-.messages { flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 24px clamp(20px, 5%, 56px); scroll-behavior: smooth; }
+/* The top and bottom insets are reservations for the two floating chrome
+   surfaces, not decorative gutters: the scroll box now spans the full height of
+   `.chat-content` so content genuinely travels under the toolbar and behind the
+   composer, and these paddings are what keep the first and last message
+   reachable. `stickToBottom` measures `scrollHeight`, which includes padding, so
+   the bottom reservation keeps the "am I at the bottom" math correct. */
+.messages { flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: calc(var(--chat-header-h) + 24px) clamp(20px, 5%, 56px) calc(var(--composer-h) + 24px); scroll-behavior: smooth; }
 .chat-messages-frame.has-prompt-navigator .messages { padding-inline: clamp(44px, 6%, 72px); }
 .conversation-prompt-navigator {
   position: absolute;
   z-index: 4;
-  top: 14px;
-  bottom: 14px;
+  /* Both ends clear a floating chrome surface: the toolbar above, the composer
+     below. Without this the rail runs under the composer and its tail markers
+     become unclickable. */
+  top: calc(var(--chat-header-h) + 14px);
+  bottom: calc(var(--composer-h) + 14px);
   left: 12px;
   width: 54px;
-  opacity: .38;
   pointer-events: auto;
+}
+/* The rail's dimming lives on the marker children, never on the host: an
+   `opacity` ancestor is a backdrop root, and the preview's backdrop-filter
+   would then sample only the navigator's own (empty) painting — a flat tint
+   with no frost. The preview must stay outside every opacity ancestor. */
+.conversation-prompt-navigator > :not(.prompt-navigation-preview) {
+  opacity: .38;
   transition: opacity var(--duration-fast) var(--ease-standard);
 }
-.chat-messages-frame:hover .conversation-prompt-navigator { opacity: .72; }
+.chat-messages-frame:hover .conversation-prompt-navigator > :not(.prompt-navigation-preview) { opacity: .72; }
 
 /* Transcript dock — jump-to-latest and the blocked-turn pill. Centred over the
    transcript's bottom edge, above the prompt navigator (z-index 4) so it is
@@ -2303,7 +2450,8 @@ a:focus-visible {
 .transcript-dock {
   position: absolute;
   z-index: 6;
-  bottom: 14px;
+  /* Rides above the floating composer, not above the pane's bottom edge. */
+  bottom: calc(var(--composer-h) + 14px);
   left: 50%;
   display: flex;
   align-items: center;
@@ -2312,8 +2460,10 @@ a:focus-visible {
   padding: 7px 12px;
   border: 1px solid var(--chrome-border);
   border-radius: var(--rounded-full);
-  background: var(--card-bg);
-  box-shadow: var(--popover-shadow);
+  background: var(--glass-popover-bg);
+  backdrop-filter: var(--glass-popover-filter);
+  -webkit-backdrop-filter: var(--glass-popover-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   color: var(--label-primary);
   font-size: var(--fs-label);
   line-height: var(--lh-label);
@@ -2339,8 +2489,8 @@ a:focus-visible {
 }
 .transcript-dock-action:hover { filter: brightness(1.06); }
 @keyframes transcript-dock-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
-.conversation-prompt-navigator:hover,
-.conversation-prompt-navigator:focus-within { opacity: 1; }
+.conversation-prompt-navigator:hover > :not(.prompt-navigation-preview),
+.conversation-prompt-navigator:focus-within > :not(.prompt-navigation-preview) { opacity: 1; }
 .prompt-navigation-marker {
   position: absolute;
   left: 0;
@@ -2388,11 +2538,13 @@ a:focus-visible {
   width: min(320px, calc(100vw - 96px));
   min-height: 52px;
   padding: 9px 11px;
-  border: 1px solid var(--control-border-strong);
+  border: 1px solid var(--separator);
   border-radius: var(--radius-control);
-  background: var(--chrome-popover-bg);
+  background: var(--glass-popover-bg);
+  backdrop-filter: var(--glass-popover-filter);
+  -webkit-backdrop-filter: var(--glass-popover-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   color: var(--label-primary);
-  box-shadow: var(--popover-shadow);
   font-size: var(--fs-label);
   line-height: var(--lh-label);
   pointer-events: none;
@@ -2404,7 +2556,7 @@ a:focus-visible {
 .prompt-navigation-preview-user span { overflow: hidden; color: var(--label-primary); text-overflow: ellipsis; white-space: nowrap; }
 .prompt-navigation-preview-assistant { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--label-secondary); }
 .prompt-navigation-preview time { color: var(--label-tertiary); font-variant-numeric: tabular-nums; }
-@keyframes prompt-navigation-preview-in { from { opacity: 0; transform: translate(-4px, -50%); } }
+@keyframes prompt-navigation-preview-in { from { opacity: 0; transform: translate(-4px, -50%); filter: blur(6px); } }
 .message-row.navigation-target .message-bubble { animation: prompt-navigation-target 1s var(--ease-standard); }
 @keyframes prompt-navigation-target { 0%, 45% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent); } 100% { box-shadow: 0 0 0 3px transparent; } }
 .conversation-empty { max-width: 560px; margin: clamp(40px, 15vh, 160px) auto 32px; color: var(--label-secondary); text-align: center; animation: conversation-empty-in var(--duration-panel) var(--ease-spring) both; }
@@ -2464,7 +2616,10 @@ a:focus-visible {
 .assistant-error-note > .reicon { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--warning-text); }
 .assistant-error-label { flex: none; color: var(--warning-text); font-weight: 600; }
 .assistant-error-text { color: var(--label-secondary); word-break: break-word; }
-.turn-files-card { overflow: hidden; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: transparent; }
+/* Same material color as the floating composer: both mix the elevated
+   background at --glass-chrome-opacity, so the card reads against the
+   transcript instead of vanishing into it. */
+.turn-files-card { overflow: hidden; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); }
 .turn-files-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 8px 10px 8px 12px; border: 0; border-bottom: 1px solid var(--separator); background: transparent; color: var(--label-primary); font: inherit; text-align: left; cursor: pointer; }
 .turn-files-head:hover { background: var(--fill); }
 .turn-files-head > span:first-child { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 600; }
@@ -2473,6 +2628,7 @@ a:focus-visible {
 .turn-files-review { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 .turn-file-list { margin: 0; padding: 4px; list-style: none; }
 .turn-file-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); font: inherit; text-align: left; cursor: pointer; }
+.turn-file-row > .reicon { color: var(--file-color, var(--label-secondary)); }
 .turn-file-row:hover { background: var(--fill); }
 .turn-file-row:focus-visible, .turn-files-head:focus-visible, .turn-process-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .turn-file-action { min-width: 32px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 500; text-align: center; }
@@ -2535,11 +2691,47 @@ a:focus-visible {
 }
 .transcript-divider .reicon { width: var(--icon-xs); height: var(--icon-xs); }
 .message-row.mine .message-time { justify-self: end; }
-.message-status { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-meta); line-height: var(--lh-meta); color: var(--label-tertiary); padding: 0 2px; }
-/* Breathing dot signals the turn is actively running while the status text
-   carries the elapsed time / token count / phase pushed from the backend. */
-.message-status-pulse { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: status-pulse 1.4s var(--ease-standard) infinite; }
-@keyframes status-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.62); } }
+/* The running turn's status. It used to be a flat 11px text row with a pulsing
+   dot, sitting *next to* a separately animated wave in the process card below —
+   two rhythms for one fact, which is most of what made a running turn read as
+   busy rather than alive. The wave now belongs to the steps it describes; this
+   pill carries the phase text and a single travelling sheen.
+   It is also the one shape on the transcript that exists only while a turn is
+   running, which is exactly what the glass material is for.
+   `overflow: hidden` is what clips the sheen below. */
+.message-status {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 26px;
+  padding: 0 11px;
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-full);
+  background: var(--glass-popover-bg);
+  backdrop-filter: var(--glass-popover-filter);
+  -webkit-backdrop-filter: var(--glass-popover-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
+  color: var(--label-secondary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+}
+.message-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The Apple Intelligence shimmer: one soft band crossing the pill while the
+   turn runs. Transform-only, so it stays off the paint path — a
+   `background-position` sweep would repaint the whole chip every frame. */
+.message-status::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 32%, color-mix(in srgb, var(--label-primary) 10%, transparent) 50%, transparent 68%);
+  transform: translateX(-100%);
+  animation: message-status-sheen 2.4s var(--ease-standard) infinite;
+  pointer-events: none;
+}
+@keyframes message-status-sheen { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(100%); } }
 .message-actions {
   display: inline-flex;
   align-items: center;
@@ -2924,7 +3116,9 @@ a:focus-visible {
 .streaming-message .message-bubble:empty::after { content: "…"; }
 /* Host Bash approval prompt. A neutral elevated card, not a warning banner —
    the alarm colour was carrying meaning the buttons already carry, and it made
-   every routine approval look like an incident. */
+   every routine approval look like an incident.
+   It is the biggest transient surface on the page, so it takes the heaviest
+   glass tier: full shadow, 28px blur, and the bright top rim. */
 .approval-card {
   width: min(100%, 720px);
   margin: 0 auto 20px;
@@ -2933,14 +3127,21 @@ a:focus-visible {
   padding: 16px 18px;
   border: 1px solid var(--separator);
   border-radius: var(--rounded-md);
-  background: var(--card-bg);
-  box-shadow: var(--soft-shadow);
+  background: var(--glass-surface-bg);
+  backdrop-filter: var(--glass-surface-filter);
+  -webkit-backdrop-filter: var(--glass-surface-filter);
+  box-shadow: var(--glass-surface-shadow), var(--glass-edge);
   font-size: var(--fs-label);
-  /* Rare, high-attention moment: enters with the modal's spatial language. */
-  transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-spring);
+  transform-origin: top center;
+  /* Rare, high-attention moment: the material arrives — opacity, travel and
+     blur together — rather than a flat card fading in. */
+  transition:
+    opacity var(--duration-normal) var(--ease-standard),
+    transform var(--duration-normal) var(--ease-spring),
+    filter var(--duration-normal) var(--ease-standard);
 }
 @starting-style {
-  .approval-card { opacity: 0; transform: translateY(8px) scale(.985); }
+  .approval-card { opacity: 0; transform: translateY(8px) scale(.985); filter: blur(6px); }
 }
 .approval-head { display: grid; gap: 4px; }
 /* States its own age, so a blocked run never reads as a hung service. */
@@ -3061,7 +3262,18 @@ a:focus-visible {
 .run-activity-more button:hover { background: var(--fill-hover); }
 /* Shell output keeps its columns: alignment is the content in a terminal. */
 .run-activity-item pre.run-activity-terminal { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
-.thinking-card { max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--label-secondary); font-size: var(--fs-label); }
+.thinking-card {
+  max-width: 100%;
+  padding: 6px 12px 8px;
+  border: 1px solid var(--separator);
+  border-radius: var(--rounded-sm);
+  background: var(--glass-surface-bg);
+  backdrop-filter: var(--glass-surface-filter);
+  -webkit-backdrop-filter: var(--glass-surface-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
+  color: var(--label-secondary);
+  font-size: var(--fs-label);
+}
 .thinking-card summary { width: fit-content; cursor: pointer; color: var(--label-tertiary); font-weight: 500; }
 .thinking-card pre { margin: 8px 0 2px; padding-left: 12px; border-left: 1px solid var(--separator); font: inherit; line-height: 1.6; white-space: pre-wrap; transition: opacity var(--duration-fast) var(--ease-standard); }
 .turn-process { width: min(100%, 680px); overflow: hidden; border: 0; background: transparent; color: var(--label-secondary); }
@@ -3075,13 +3287,17 @@ a:focus-visible {
 .turn-process[data-state="error"] .turn-process-summary > .reicon:first-child { color: var(--danger); }
 .turn-process-summary > .spin, .process-timeline > .process-timeline-entry > .spin { animation: activity-spin 1.1s linear infinite; }
 .timeline-wave-node { position: relative; margin-left: -22px; display: inline-flex; align-items: center; justify-content: center; gap: 2.5px; width: 16px; height: 16px; background: var(--content-bg); padding: 2px 0; vertical-align: middle; }
-.timeline-wave-bar { display: block; width: 2px; border-radius: 1.5px; background: var(--accent); transform-origin: center; animation: timeline-wave-pulse 1s ease-in-out infinite alternate; }
-.timeline-wave-bar:nth-child(1) { height: 6px; animation-delay: 0s; }
-.timeline-wave-bar:nth-child(2) { height: 11px; animation-delay: 0.25s; }
-.timeline-wave-bar:nth-child(3) { height: 8px; animation-delay: 0.5s; }
+.timeline-wave-bar { display: block; width: 2px; border-radius: 1.5px; background: var(--accent); transform-origin: center; animation: timeline-wave-pulse 1.2s ease-in-out infinite; }
+/* Negative delays put each bar part-way through the shared cycle, so the crest
+   travels left to right instead of the bars blinking in place. */
+.timeline-wave-bar:nth-child(1) { height: 6px; animation-delay: -.24s; }
+.timeline-wave-bar:nth-child(2) { height: 11px; animation-delay: -.12s; }
+.timeline-wave-bar:nth-child(3) { height: 8px; animation-delay: 0s; }
+/* A full crest-trough-crest cycle rather than `alternate`: with `alternate` each
+   bar reverses on its own schedule, so staggered bars never form a wave. */
 @keyframes timeline-wave-pulse {
-  0% { transform: scaleY(0.35); opacity: 0.45; }
-  100% { transform: scaleY(1.15); opacity: 1; }
+  0%, 100% { transform: scaleY(0.35); opacity: 0.45; }
+  50% { transform: scaleY(1.15); opacity: 1; }
 }
 .turn-process-wave-node { margin-left: 0; background: transparent; }
 .run-activity-wave-node { margin-left: 0; background: transparent; width: 14px; height: 14px; }
@@ -3141,6 +3357,22 @@ a:focus-visible {
    on narrower surfaces like the project chat. The widened max-width absorbs the
    padding so the inner content still caps at --message-content-width. */
 .composer-wrap { width: 100%; max-width: calc(var(--message-content-width) + 2 * clamp(20px, 5%, 56px)); margin: 0 auto; padding: 10px clamp(20px, 5%, 56px) 16px; background: transparent; }
+/* A floating composer host. Taking it out of `.chat-content`'s flex column is
+   what lets `.chat-messages-frame` own the full height, so the transcript passes
+   *behind* the glass instead of stopping above an opaque footer (apple-design
+   §12: "content scrolling underneath — not opaque bars that consume a fixed
+   strip").
+   The pane paints nothing and takes no pointer events, so a trackpad scroll
+   started over its padding still reaches the transcript; only the composer
+   inside it is interactive. `::before` is the scroll-edge effect — the band
+   where content fades out as it approaches the card. It reaches 10px past the
+   pane's top edge, i.e. exactly to the card's top, so faded content and the
+   material meet with no strip of raw transcript between them; it stops there
+   rather than covering the card, so the material still has real content to
+   sample. `--composer-h` is measured off this element by ChatInputArea. */
+.composer-wrap.is-floating { position: absolute; z-index: 20; inset-inline: 0; bottom: 0; pointer-events: none; }
+.composer-wrap.is-floating > * { pointer-events: auto; }
+.composer-wrap.is-floating::before { content: ""; position: absolute; inset-inline: 0; bottom: calc(100% - 10px); height: 26px; background: linear-gradient(to bottom, transparent, var(--content-bg)); pointer-events: none; }
 .composer-selectors { display: flex; align-items: center; flex: 0 1 auto; gap: 6px; flex-wrap: nowrap; min-width: 0; margin-left: auto; }
 .composer-model-menu { position: relative; min-width: 0; max-width: min(260px, 100%); }
 .composer-model-menu > summary::-webkit-details-marker { display: none; }
@@ -3169,11 +3401,54 @@ a:focus-visible {
 .composer-permission-trigger[aria-disabled="true"] { opacity: .45; cursor: default; }
 .composer-permission-popover { right: auto; left: 0; width: min(320px, calc(100vw - 40px)); transform-origin: bottom left; }
 .composer-permission-popover .composer-menu-options { padding-top: 0; }
+/* Context-usage gauge beside the model selector. The trigger is a progress
+   ring — one full turn = 100% of the context window — so the remaining
+   capacity reads at a glance without opening the panel. It opens exactly like
+   the sibling menus (same glass popover base class, guard-tested) but renders
+   data instead of menu items, so it carries no interactive rows. */
+.composer-context-menu { position: relative; flex: none; }
+.composer-context-menu > summary::-webkit-details-marker { display: none; }
+.composer-context-trigger {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--rounded-full);
+  background: transparent;
+  color: var(--label-secondary);
+  cursor: pointer;
+  list-style: none;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.composer-context-ring { display: block; width: 18px; height: 18px; }
+.composer-context-ring circle { fill: none; stroke-width: 3; }
+.composer-context-ring-track { stroke: var(--fill-hover); }
+.composer-context-ring-fill { stroke: var(--accent); stroke-linecap: round; }
+.composer-context-trigger:hover, .composer-context-menu[open] .composer-context-trigger { background: var(--fill); color: var(--label-primary); }
+.composer-context-trigger:hover .composer-context-ring-track, .composer-context-menu[open] .composer-context-ring-track { stroke: var(--separator); }
+.composer-context-trigger:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--composer-bg), 0 0 0 4px var(--accent); }
+.composer-context-popover { width: min(320px, calc(100vw - 40px)); display: grid; gap: 12px; padding: 14px 16px 15px; }
+.composer-context-empty { margin: 0; color: var(--label-secondary); font-size: var(--fs-label); line-height: var(--lh-label); }
+.composer-context-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.composer-context-head:focus { outline: none; }
+.composer-context-head strong { font-size: var(--fs-label); font-weight: 600; color: var(--label-primary); }
+.composer-context-total { color: var(--label-secondary); font-size: var(--fs-label); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.composer-context-bar { height: 6px; overflow: hidden; border-radius: var(--rounded-full); background: var(--fill); }
+.composer-context-bar-fill { height: 100%; border-radius: inherit; background: var(--accent); transition: width var(--duration-normal) var(--ease-standard); }
+.composer-context-rows { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.composer-context-rows li { display: flex; align-items: center; gap: 10px; font-size: var(--fs-label); line-height: var(--lh-label); }
+.composer-context-dot { flex: none; width: 7px; height: 7px; border-radius: var(--rounded-full); background: var(--accent); }
+.composer-context-label { min-width: 0; overflow: hidden; color: var(--label-primary); text-overflow: ellipsis; white-space: nowrap; }
+.composer-context-value { margin-left: auto; color: var(--label-primary); font-weight: 500; font-variant-numeric: tabular-nums; }
+.composer-context-cache { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--separator); color: var(--label-secondary); font-size: var(--fs-label); }
+.composer-context-cache strong { color: var(--label-primary); font-weight: 500; font-variant-numeric: tabular-nums; }
 .execution-mode-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-  margin: 12px 0;
+  /* Fixed 2×2: auto-fit wraps 4 cards into 3+1 on the 720px settings column. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 16px 12px;
 }
 .execution-mode-card {
   display: flex;
@@ -3205,18 +3480,22 @@ a:focus-visible {
   font-size: var(--fs-meta);
   line-height: var(--lh-meta);
 }
+.execution-mode-footnote { margin: 0; padding: 0 16px 14px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.execution-mode-footnote strong { display: block; margin-bottom: 2px; color: var(--label-primary); font-weight: 500; }
 
 .settings-advanced-group {
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
-  background: var(--card-bg);
-  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  padding: 0;
   margin-bottom: 16px;
 }
 .settings-advanced-group > summary {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: var(--settings-col);
+  margin: 0 auto;
+  padding: 6px 0;
   cursor: pointer;
   color: var(--label-secondary);
   font-size: var(--fs-label);
@@ -3227,17 +3506,21 @@ a:focus-visible {
 .settings-advanced-group > summary:hover { color: var(--label-primary); }
 .settings-advanced-group .settings-advanced-chevron { transition: transform var(--duration-fast) var(--ease-standard); }
 .settings-advanced-group[open] > summary .settings-advanced-chevron { transform: rotate(180deg); }
-.settings-advanced-group > .settings-section-hint { margin: 8px 0 0; }
+.settings-advanced-group > .settings-section-hint { margin: 8px auto 18px; }
 
 .composer-permission-source {
-  padding: 8px 14px 10px;
+  padding: 5px 12px 7px;
   border-top: 1px solid var(--separator);
   color: var(--label-tertiary);
   font-size: var(--fs-meta);
   line-height: var(--lh-meta);
 }
-.composer-permission-popover .composer-menu-options > button { min-height: 48px; }
-.composer-permission-popover .composer-menu-options > button > .reicon:first-child { flex: none; width: var(--icon-md); height: var(--icon-md); margin-left: 0; color: var(--label-secondary); }
+.composer-permission-popover .composer-menu-options > button { align-items: flex-start; padding-block: 7px; }
+.composer-permission-popover .composer-menu-options > button > .reicon:first-child { flex: none; width: var(--icon-md); height: var(--icon-md); margin-left: 0; margin-top: 1px; color: var(--label-secondary); }
+.composer-permission-popover .composer-menu-check { margin-top: 2px; }
+.composer-model-option-copy { display: grid; flex: 1; gap: 1px; min-width: 0; }
+.composer-model-option-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-model-option-id { overflow: hidden; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); text-overflow: ellipsis; white-space: nowrap; }
 .composer-model-trigger {
   position: relative;
   display: inline-flex;
@@ -3279,8 +3562,10 @@ a:focus-visible {
   padding: 6px;
   border: 1px solid var(--separator);
   border-radius: var(--rounded-md);
-  background: var(--card-bg);
-  box-shadow: var(--popover-shadow);
+  background: var(--glass-popover-bg);
+  backdrop-filter: var(--glass-popover-filter);
+  -webkit-backdrop-filter: var(--glass-popover-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   transform-origin: bottom right;
   animation: popover-in 160ms var(--ease-spring);
 }
@@ -3291,8 +3576,8 @@ a:focus-visible {
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 42px;
-  padding: 7px 10px;
+  min-height: 34px;
+  padding: 5px 10px;
   border: 0;
   border-radius: var(--rounded-sm);
   background: transparent;
@@ -3306,15 +3591,30 @@ a:focus-visible {
 .composer-menu-copy { display: grid; grid-template-columns: 86px minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; min-width: 0; }
 .composer-menu-copy strong { font-size: var(--fs-label); font-weight: 600; }
 .composer-menu-copy small { overflow: hidden; color: var(--label-secondary); font-size: var(--fs-label); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.composer-menu-heading { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; min-height: 36px; margin-bottom: 3px; border-bottom: 1px solid var(--separator); }
+.composer-menu-heading { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; min-height: 32px; margin-bottom: 2px; border-bottom: 1px solid var(--separator); }
 .composer-menu-heading strong { grid-column: 2; font-size: var(--fs-label); text-align: center; }
 .composer-menu-back { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; cursor: pointer; }
-.composer-menu-options { max-height: min(360px, 48vh); overflow: auto; padding-top: 3px; overscroll-behavior: contain; }
+/* Horizontal thinking-level track (popover overview): knob travels between
+   evenly spaced stops; knob and stops share the same `calc(11px + (100% - 22px) * frac)`
+   centerline so dots always sit under the knob's resting positions. */
+.composer-level-picker { display: grid; gap: 8px; margin-top: 5px; padding: 10px 8px 4px; border-top: 1px solid var(--separator); }
+.composer-level-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--label-secondary); font-size: var(--fs-label); }
+.composer-level-head strong { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; }
+.composer-level-endpoints { display: flex; justify-content: space-between; gap: 12px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.composer-level-head .reicon { width: var(--icon-sm); height: var(--icon-sm); color: var(--label-secondary); }
+.composer-level-track { position: relative; height: 26px; margin: 0; border-radius: var(--rounded-full); background: var(--fill); }
+.composer-level-knob { position: absolute; top: 50%; z-index: 1; width: 22px; height: 22px; border-radius: 50%; background: var(--card-bg); box-shadow: 0 1px 4px rgb(0 0 0 / 0.16), 0 0 0 1px var(--separator); transform: translate(-50%, -50%); transition: left var(--duration-fast) var(--ease-standard); pointer-events: none; }
+.composer-level-stop { position: absolute; top: 50%; z-index: 2; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; transform: translate(-50%, -50%); cursor: pointer; }
+.composer-level-stop::after { content: ""; display: block; width: 5px; height: 5px; margin: auto; border-radius: 50%; background: var(--label-tertiary); transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard); }
+.composer-level-stop:hover::after { background: var(--label-secondary); transform: scale(1.3); }
+.composer-level-stop[aria-checked="true"]::after { background: var(--accent); }
+.composer-level-stop:focus-visible { outline: none; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 62%, transparent); }
+.composer-menu-options { max-height: min(360px, 48vh); overflow: auto; padding-top: 2px; overscroll-behavior: contain; }
 .composer-menu-options > button,
-.composer-model-option-group > button { min-height: 36px; padding-block: 5px; }
+.composer-model-option-group > button { min-height: 28px; padding-block: 3px; }
 .composer-menu-options > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-model-option-group + .composer-model-option-group { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--separator); }
-.composer-model-option-provider { padding: 5px 10px 3px; color: var(--label-tertiary); font-size: var(--fs-meta); font-weight: 600; }
+.composer-model-option-group + .composer-model-option-group { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--separator); }
+.composer-model-option-provider { padding: 4px 10px 2px; color: var(--label-tertiary); font-size: var(--fs-meta); font-weight: 600; }
 .composer-model-option-group > button {
   display: flex;
   align-items: center;
@@ -3333,18 +3633,73 @@ a:focus-visible {
 .composer-model-option-group > button[aria-checked="true"] { background: var(--accent-soft); }
 .composer-menu-options > button[aria-checked="true"] > .reicon,
 .composer-model-option-group > button[aria-checked="true"] > .reicon { color: var(--accent); }
+/* The chat's primary interactive surface, floating over the transcript it is
+   composing into. Heaviest glass tier: it carries reading text directly over
+   dense content, so it stays the least transparent surface on the page.
+
+   The material is on `::before` for the reason spelled out on `.chat-header`:
+   a `backdrop-filter` element is a backdrop root, and the model menu, the
+   permission menu and the slash suggestions are all children of this card that
+   hang *above* it over the transcript. With the filter here they could only
+   sample this card's own (already blurred) painting, so they lost their blur
+   entirely and rendered as plain translucent panes with the transcript's text
+   showing through sharp — the popups the owner reads most, and exactly the
+   ones that looked "unreadable". `z-index: 0` gives this card the stacking
+   context the `z-index: -1` layer needs, and — unlike `isolation: isolate` —
+   does not itself create a backdrop root. */
 .composer {
   position: relative;
+  z-index: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--control-border);
   border-radius: var(--radius-panel);
-  background: var(--composer-bg);
-  box-shadow: var(--focal-shadow);
+  background: transparent;
 }
-.slash-suggestions { position: absolute; z-index: 40; inset: auto 0 calc(100% + 8px); max-height: min(420px, 52vh); padding: 7px; overflow: auto; border: 1px solid var(--control-border); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--popover-shadow); }
+.composer::before {
+  content: "";
+  /* `inset: -1px` reaches the border box, not the padding box, so the material
+     sits under the 1px translucent border too — otherwise the border ring would
+     composite over raw page content and read as a seam around the glass. The
+     inherited 12px radius is the outer one, which is what this box now is. */
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--composer-bg) var(--glass-chrome-opacity), transparent);
+  backdrop-filter: var(--glass-chrome-filter);
+  -webkit-backdrop-filter: var(--glass-chrome-filter);
+  box-shadow: var(--glass-surface-shadow), var(--glass-edge);
+  pointer-events: none;
+}
+/* The strips stacked above the composer card — queued follow-ups, pending
+   attachments, the recording / editing banners, the model and error notices —
+   float over the same transcript the card does, so they have to be the same
+   material. Left on the solid `--card-bg` they were a glass card wearing opaque
+   slabs, and the translucent-tint ones (recording, model banner) let scrolling
+   text show straight through the notice.
+   Scoped to `.is-floating`, i.e. only where the composer actually overlaps the
+   transcript. ProjectChat renders `ChatInputArea` in the flow over an opaque
+   pane, where the solid surfaces are correct and this rule must not reach. */
+.composer-wrap.is-floating .queued-messages,
+.composer-wrap.is-floating .composer-error,
+.composer-wrap.is-floating .model-banner,
+.composer-wrap.is-floating .recording-bar,
+.composer-wrap.is-floating .composer-edit-banner {
+  backdrop-filter: var(--glass-popover-filter);
+  -webkit-backdrop-filter: var(--glass-popover-filter);
+  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
+}
+.composer-wrap.is-floating .queued-messages,
+.composer-wrap.is-floating .composer-error { background: var(--glass-surface-bg); }
+.composer-wrap.is-floating .composer-error { background: color-mix(in srgb, var(--danger) 7%, var(--glass-surface-bg)); }
+.composer-wrap.is-floating .model-banner { background: color-mix(in srgb, var(--warning) 10%, var(--glass-surface-bg)); }
+.composer-wrap.is-floating .recording-bar { background: color-mix(in srgb, var(--danger) 8%, var(--glass-surface-bg)); }
+.composer-wrap.is-floating .composer-edit-banner { background: color-mix(in srgb, var(--accent) 10%, var(--glass-surface-bg)); }
+
+.slash-suggestions { position: absolute; z-index: 40; inset: auto 0 calc(100% + 8px); max-height: min(420px, 52vh); padding: 7px; overflow: auto; border: 1px solid var(--control-border); border-radius: var(--rounded-md); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: bottom center; animation: popover-in 160ms var(--ease-spring); }
 .slash-suggestion-group + .slash-suggestion-group { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--separator); }
 .slash-suggestion-heading { padding: 4px 8px 5px; color: var(--label-tertiary); font-size: var(--fs-meta); font-weight: 600; letter-spacing: var(--tracking-caps); }
 .slash-suggestion { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
@@ -3440,7 +3795,10 @@ a:focus-visible {
 }
 /* Focus keeps the resting border and signals with a soft neutral glow only -
    a tinted border here read as a loud ring around the whole input area. */
-.composer:focus-within { border-color: var(--control-border-strong); box-shadow: var(--focal-shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
+/* The elevation lives on the `::before` material layer, so focus contributes
+   only its ring — carrying a second shadow here stacked two elevations on one
+   card. */
+.composer:focus-within { border-color: var(--control-border-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
 .composer textarea { width: 100%; min-width: 0; min-height: 42px; max-height: 180px; resize: none; padding: 0 2px 2px; border: 0; outline: 0; background: transparent; line-height: var(--lh-body); font-size: var(--fs-body); overflow-y: auto; }
 .composer textarea::placeholder { color: var(--label-secondary); }
 .recording-bar {
@@ -3519,8 +3877,8 @@ a:focus-visible {
 .pending-chip[data-kind="video"] { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pending-chip[data-kind="audio"] { max-width: 320px; border-radius: var(--rounded-md); border-color: color-mix(in srgb, var(--chart-purple) 40%, transparent); }
 .pending-audio { height: 30px; max-width: 220px; }
-.send-button { display: flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: var(--label-primary); color: var(--composer-bg); cursor: pointer; }
-.send-button > .reicon { width: var(--icon-md); height: var(--icon-md); }
+.send-button { display: flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: var(--label-primary); color: var(--composer-bg); cursor: pointer; }
+.send-button > .reicon { width: var(--icon-sm); height: var(--icon-sm); }
 .send-button:hover:not(:disabled) { background: var(--label-secondary); }
 .send-button:disabled { cursor: default; opacity: .4; }
 .composer-error { display: grid; grid-template-columns: 18px minmax(0, 1fr) 28px; align-items: center; gap: 8px; margin: 0 0 8px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent); border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--danger) 7%, var(--card-bg)); color: var(--danger); font-size: var(--fs-meta); line-height: var(--lh-meta); }
@@ -4009,8 +4367,15 @@ a:focus-visible {
 #desktop-task-form > .settings-field { margin: 16px; }
 @keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
 @keyframes modal-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(8px) scale(.985); } }
-@keyframes popover-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: scale(1); } }
-@keyframes command-palette-in { from { opacity: 0; transform: translateX(-50%) scale(.98); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+/* A glass surface *materializes*: opacity, scale and blur resolve together, so
+   it reads as a real material arriving over the content rather than a flat card
+   fading in (apple-design §12, "Materialize, don't just fade").
+   `filter` is animated only here, on a short entrance, and the final keyframe is
+   blur(0) rather than being pinned with `forwards` — once the animation ends the
+   element carries no filter at all, so it never becomes a containing block or a
+   permanent stacking context for its children. */
+@keyframes popover-in { from { opacity: 0; transform: scale(.98); filter: blur(6px); } to { opacity: 1; transform: scale(1); filter: blur(0); } }
+@keyframes command-palette-in { from { opacity: 0; transform: translateX(-50%) scale(.98); filter: blur(6px); } to { opacity: 1; transform: translateX(-50%) scale(1); filter: blur(0); } }
 @media (prefers-reduced-motion: reduce) { .entity-editor-dialog { animation: none; } }
 .memory-record-preview { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; max-width: 620px; }
 .provider-inline-options { display: flex; flex-wrap: wrap; gap: 12px 22px; padding: 0 16px 14px; color: var(--label-secondary); font-size: var(--fs-meta); }
@@ -4646,7 +5011,7 @@ select.provider-input { padding-right: 6px; }
 .automation-run-button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 500; cursor: pointer; transition: background var(--duration-instant) var(--ease-standard), border-color var(--duration-instant) var(--ease-standard); }.automation-run-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 28%, var(--separator)); background: var(--accent-soft); color: var(--accent); }.automation-run-button:disabled { opacity: .45; }
 .task-execution-row { display: grid; grid-column: 2; grid-template-columns: 92px minmax(145px, .75fr) minmax(140px, 1fr); gap: 10px; align-items: center; min-height: 27px; font-size: var(--fs-meta); line-height: var(--lh-meta); color: var(--label-secondary); }
 .task-execution-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.execution-state { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 500; }.execution-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--label-tertiary); }.execution-state.state-completed { color: var(--online); }.execution-state.state-completed i { background: var(--online); }.execution-state.state-failed, .execution-state.state-aborted, .execution-state.state-interrupted { color: var(--danger); }.execution-state.state-failed i, .execution-state.state-aborted i, .execution-state.state-interrupted i { background: var(--danger); }.execution-state.state-running, .execution-state.state-retry_wait { color: var(--accent); }.execution-state.state-running i, .execution-state.state-retry_wait i { background: var(--accent); }
+.execution-state { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 500; }.execution-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--label-tertiary); }.execution-state.state-completed { color: var(--online); }.execution-state.state-completed i { background: var(--online); }.execution-state.state-failed, .execution-state.state-aborted, .execution-state.state-interrupted { color: var(--danger); }.execution-state.state-failed i, .execution-state.state-aborted i, .execution-state.state-interrupted i { background: var(--danger); }.execution-state.state-running, .execution-state.state-retry_wait { color: var(--accent); }.execution-state.state-running i, .execution-state.state-retry_wait i { background: var(--accent); }.execution-state.state-waiting_approval { color: var(--warning-text); }.execution-state.state-waiting_approval i { background: var(--warning-text); }
 .task-history-toggle { display: flex; align-items: center; justify-content: flex-start; grid-column: 2; gap: 6px; width: fit-content; min-height: 28px; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 500; cursor: pointer; }.task-history-toggle:hover { text-decoration: underline; text-underline-offset: 3px; }
 .modal-card.task-editor-modal { width: min(720px, 100%); max-height: min(86vh, 760px); }
 .task-editor-modal > form { display: contents; }
@@ -4683,6 +5048,13 @@ select.provider-input { padding-right: 6px; }
 .task-session-detail > p { color: var(--label-secondary); }
 .task-session-technical { align-self: center; text-align: center; }
 .task-session-detail .message-row { flex: 0 0 auto; width: auto; }
+/* The transcript column is the modal, not the row's own content. An assistant
+   reply that is one wide code block must keep the full column and scroll
+   horizontally: this container is a flex column and `.message-row`'s auto
+   side margins defeat stretch, so a plain `width: auto` here shrink-wraps the
+   row and the scrollable `pre` (min-width 0) collapses into a one-character
+   sliver (pitfall 16c). Only user rows may shrink. */
+.task-session-detail .message-row.assistant { width: 100%; }
 
 /* When the toolbar can no longer hold search + action + totals on one line the
    totals take their own full-width line, left-aligned with the grid below —
@@ -4858,7 +5230,7 @@ select.provider-input { padding-right: 6px; }
 .settings-footbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .settings-footbar-notice { justify-content: flex-end; }
 .modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--modal-scrim); }
-.desktop-dialog-overlay { position: fixed; inset: 0; z-index: 50; background: var(--modal-scrim); }
+.desktop-dialog-overlay { position: fixed; inset: 0; z-index: 50; background: var(--modal-scrim); backdrop-filter: var(--glass-modal-filter); -webkit-backdrop-filter: var(--glass-modal-filter); }
 .desktop-dialog-content { position: fixed; z-index: 51; left: 50%; top: 50%; width: min(560px, calc(100vw - 48px)); max-height: min(80vh, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 0.5px solid var(--glass-border); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--glass-shadow), var(--glass-inset); transform: translate(-50%, -50%); outline: none; }
 .conversation-browser-dialog { top: 8vh; width: min(640px, calc(100vw - 48px)); transform: translateX(-50%); max-height: 78vh; }
 .browser-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--separator); }
@@ -4926,35 +5298,16 @@ select.provider-input { padding-right: 6px; }
 /* Loading/error/empty states reuse the settings-card surface; align it to the
    same 20px gutters as the workspace column. */
 .project-settings-modal .automation-workspace .settings-card { width: calc(100% - 40px); }
-/* Automations tab, dialog presentation — one reference style scoped to this
-   modal: cards float on layered shadows instead of visible borders, text rides
-   a 19/24 section-title + 14.5/18 body/date ramp, primary controls are 38px
-   pills with an inset highlight and a soft drop shadow, and dividers stay
-   1px var(--separator). */
+/* Automations tab, dialog presentation — typography and controls come from
+   the shared automation styles and the global button styles (same ramp and
+   control sizes as the workspace page and the General tab); this modal only
+   restyles surfaces: cards float on layered shadows instead of visible
+   borders, and dividers stay 1px var(--separator). */
 .project-settings-modal .automation-task-row { border: 0; box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgb(0 0 0 / 4%), 0 8px 20px rgb(0 0 0 / 5%); }
 .project-settings-modal .automation-task-row:hover { box-shadow: inset 0 0 0 1px var(--hairline), 0 2px 4px rgb(0 0 0 / 4%), 0 12px 28px rgb(0 0 0 / 7%); }
-.project-settings-modal .automation-task-card-title { font-size: var(--fs-section); line-height: var(--lh-section); font-weight: 600; letter-spacing: 0.6px; }
-.project-settings-modal .row-outcome { font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); letter-spacing: 0.3px; }
-.project-settings-modal .automation-task-card-preview,
-.project-settings-modal .automation-task-card-footer,
-.project-settings-modal .automation-workspace-summary { font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); letter-spacing: 0.3px; }
-.project-settings-modal .automation-workspace-summary strong { font: 600 var(--fs-body-lg)/var(--lh-body-lg) var(--font-mono); letter-spacing: 0.3px; }
-.project-settings-modal .automation-task-card-footer .task-schedule-line,
-.project-settings-modal .automation-task-card-footer .task-last-run-time { font-family: inherit; font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); letter-spacing: 0.3px; }
-.project-settings-modal .automation-workspace-toolbar .search-field { height: 38px; min-height: 38px; max-height: 38px; }
-/* The compact list beside the detail pane keeps the small title rank, and the
-   selection ring moves from border-color to the shadow stack. */
-.project-settings-modal .automation-workspace-layout.detail-open .automation-task-card-title { font-size: var(--fs-label); line-height: var(--lh-label); letter-spacing: 0; }
+/* The selection ring moves from border-color to the shadow stack. */
 .project-settings-modal .automation-workspace-layout.detail-open .automation-task-row { box-shadow: inset 0 0 0 1px var(--hairline); }
 .project-settings-modal .automation-workspace-layout.detail-open .automation-task-row.active { border: 0; box-shadow: inset 0 0 0 1px var(--accent); }
-.project-settings-modal .automation-task-detail-head h2 { font-size: var(--fs-section); line-height: var(--lh-section); font-weight: 600; letter-spacing: 0.6px; }
-/* Dialog buttons: 38px pills with a 6px inset top highlight and a soft drop
-   shadow instead of a flat fill or a border. --on-accent is white in every
-   current appearance, so the gloss reads on dark fills and vanishes on light
-   ones; the hairline ring keeps dark-mode edges visible without a border. */
-.project-settings-modal .primary-button,
-.project-settings-modal .secondary-button { height: 38px; padding: 0 16px; border: 0; border-radius: var(--rounded-full); font-size: var(--fs-body-lg); box-shadow: inset 0 6px 14px color-mix(in srgb, var(--on-accent) 28%, transparent), inset 0 0 0 1px var(--hairline), 0 1px 2px rgb(0 0 0 / 8%), 0 4px 12px rgb(0 0 0 / 8%); }
-.project-settings-modal .primary-button { box-shadow: inset 0 6px 14px color-mix(in srgb, var(--on-accent) 18%, transparent), 0 1px 2px rgb(0 0 0 / 14%), 0 4px 12px rgb(0 0 0 / 16%); }
 .project-settings-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: 16px; }
 .project-settings-foot { position: static; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 0; padding: 12px 20px; border-top: 1px solid var(--separator); background: var(--footbar-bg); }
 .project-settings-foot-label { min-width: 0; overflow: hidden; color: var(--label-secondary); font-size: var(--fs-label); line-height: var(--lh-label); text-overflow: ellipsis; white-space: nowrap; }
@@ -5074,7 +5427,7 @@ select.provider-input { padding-right: 6px; }
 .overflow-menu > summary::-webkit-details-marker { display: none; }
 .overflow-menu > summary:hover { background: var(--fill); color: var(--label-primary); }
 .overflow-menu[open] > summary { background: var(--fill); color: var(--label-primary); }
-.overflow-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--card-bg); box-shadow: var(--popover-shadow); transform-origin: top right; animation: popover-in 120ms var(--ease-spring); }
+.overflow-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: top right; animation: popover-in 120ms var(--ease-spring); }
 .overflow-menu-up .overflow-menu-popover { top: auto; bottom: calc(100% + 6px); transform-origin: bottom right; }
 .overflow-menu-inline.overflow-menu-up .overflow-menu-popover { right: auto; left: 0; transform-origin: bottom left; }
 .overflow-menu-popover button { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 9px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
@@ -5082,7 +5435,7 @@ select.provider-input { padding-right: 6px; }
 .overflow-menu-popover button.danger-action { color: var(--danger); }
 .overflow-menu-popover button:disabled { opacity: .45; cursor: default; }
 .command-palette-layer { position: fixed; z-index: 90; inset: 0; pointer-events: auto; }
-.command-palette { position: absolute; top: 64px; left: 50%; display: grid; width: min(360px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--chrome-border); border-radius: var(--radius-panel); background: var(--chrome-popover-bg); box-shadow: var(--popover-shadow); transform: translateX(-50%); transform-origin: top center; animation: command-palette-in 120ms var(--ease-spring); }
+.command-palette { position: absolute; top: 64px; left: 50%; display: grid; width: min(360px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--chrome-border); border-radius: var(--radius-panel); background: color-mix(in srgb, var(--chrome-popover-bg) var(--glass-chrome-opacity), transparent); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-surface-shadow), var(--glass-edge); transform: translateX(-50%); transform-origin: top center; animation: command-palette-in 120ms var(--ease-spring); }
 .command-palette header { display: flex; align-items: center; justify-content: space-between; min-height: 34px; padding: 0 8px 5px; color: var(--label-secondary); font-size: var(--fs-meta); }
 .command-palette-input { width: 100%; height: 32px; margin-bottom: 6px; padding: 0 9px; border: 1px solid var(--control-border); border-radius: var(--radius-control); background: var(--fill); color: var(--label-primary); font: inherit; font-size: var(--fs-label); outline: none; }
 .command-palette-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
@@ -5841,12 +6194,22 @@ select.provider-input { padding-right: 6px; }
     --label-tertiary: color-mix(in srgb, var(--label-primary) 64%, transparent);
     --separator: color-mix(in srgb, var(--label-primary) 22%, transparent);
     --control-border: color-mix(in srgb, var(--label-primary) 34%, transparent);
+    /* Near-solid surfaces with a defined border, per apple-design §14: a
+       contrast preference is about legibility over motion or material. */
+    --glass-surface-bg: var(--card-bg);
+    --glass-popover-bg: var(--card-bg);
+    --glass-chrome-opacity: 100%;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
-  .recording-indicator, .run-activity .spin, .transcript-media-loading > .reicon, .service-starting-spinner span, .message-status-pulse, .timeline-wave-bar, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .row-menu, .mention-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble, .image-lightbox, .markdown-artifact-overlay, .markdown-artifact-dialog, .transcript-dock, .automation-spinner, .project-panel-loading .reicon, .project-transcript-loading > .reicon, .provider-modal-form .spin, .memory-trace-state > .reicon, .provider-auth-pulse, .miniapps-launchpad-cell { animation: none !important; }
+  .recording-indicator, .run-activity .spin, .transcript-media-loading > .reicon, .service-starting-spinner span, .message-status::after, .timeline-wave-bar, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .composer-model-popover, .slash-suggestions, .miniapps-quick-menu, .chat-action-toast, .row-menu, .mention-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble, .image-lightbox, .markdown-artifact-overlay, .markdown-artifact-dialog, .transcript-dock, .automation-spinner, .project-panel-loading .reicon, .project-transcript-loading > .reicon, .provider-modal-form .spin, .memory-trace-state > .reicon, .provider-auth-pulse, .miniapps-launchpad-cell { animation: none !important; }
+  /* "A gentler equivalent, not no feedback" (apple-design §14). Killing the
+     wave animation leaves the bars at their natural scale, which happens to
+     read fine — but that is an accident of the base rule, not a decision, so
+     the still crest is stated outright and stays stable if the bars change. */
+  .timeline-wave-bar { transform: scaleY(.8); opacity: .85; }
   .turn-process-summary, .turn-process-caret, .process-tool-detail > summary > .reicon, .process-activity-group > summary > .reicon { transition: none !important; }
   .turn-process-summary > .spin, .process-timeline > .process-timeline-entry > .spin { animation: none !important; }
   .agent-studio-spinner { animation: none !important; }
@@ -5860,17 +6223,28 @@ select.provider-input { padding-right: 6px; }
   --float-shadow: none;
   --sidebar-material-bg: var(--chrome-sidebar-bg);
   --sidebar-material-filter: none;
+  /* The global `backdrop-filter: none !important` below strips the blur from
+     every glass surface, and translucency without blur is just a wash of text
+     showing through. So the whole material goes opaque here, not only its
+     filter — same rule as the reduced-transparency tier, reached differently,
+     and covering every glass tier for the same reason. */
+  --glass-surface-bg: var(--card-bg);
+  --glass-popover-bg: var(--card-bg);
+  --glass-chrome-opacity: 100%;
 }
-:root[data-performance="low"] .chat-sidebar,
-:root[data-performance="low"] .settings-sidebar,
-html[data-reduced-transparency="true"] .chat-sidebar,
-html[data-reduced-transparency="true"] .settings-sidebar {
+/* The sidebar material lives on the sidebar's ::before layer (see the base
+   rule), so the opaque fallbacks target the layer too — the element itself
+   stays transparent in every mode. */
+:root[data-performance="low"] .chat-sidebar::before,
+:root[data-performance="low"] .settings-sidebar::before,
+html[data-reduced-transparency="true"] .chat-sidebar::before,
+html[data-reduced-transparency="true"] .settings-sidebar::before {
   background: var(--sidebar-material-bg);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-html[data-increased-contrast="true"] .chat-sidebar,
-html[data-increased-contrast="true"] .settings-sidebar {
+html[data-increased-contrast="true"] .chat-sidebar::before,
+html[data-increased-contrast="true"] .settings-sidebar::before {
   background: var(--sidebar-material-bg);
 }
 :root[data-performance="low"] *,
@@ -5882,7 +6256,7 @@ html[data-increased-contrast="true"] .settings-sidebar {
   transition: none !important;
 }
 :root[data-performance="low"] .recording-indicator,
-:root[data-performance="low"] .message-status-pulse,
+:root[data-performance="low"] .message-status::after,
 :root[data-performance="low"] .run-activity .spin,
 :root[data-performance="low"] .transcript-media-loading .reicon,
 :root[data-performance="low"] .service-starting-spinner span,

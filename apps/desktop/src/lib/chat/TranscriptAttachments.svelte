@@ -1,7 +1,7 @@
 <script lang="ts">
-  import Download from "reicon-svelte/icons/Download";
+  import Download from "../icons/duotone/components/Download.svelte";
   import Loader from "reicon-svelte/icons/Loader";
-  import Soundwave from "reicon-svelte/icons/Soundwave";
+  import Soundwave from "../icons/duotone/components/Soundwave.svelte";
   import { contributionIcon } from "./activityIcons";
   import type { Translation } from "../i18n";
   import type { DesktopSessionFile } from "@molibot/desktop-contract";

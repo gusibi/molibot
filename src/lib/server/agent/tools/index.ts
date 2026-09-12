@@ -148,6 +148,8 @@ export function createMomTools(options: {
   sessionId: string;
   executionSessionId?: string;
   isolateSessionHostApproval?: boolean;
+  /** Unattended automation run: approval-gated work is denied and reported, never parked. */
+  unattendedDenials?: boolean;
   runId?: string;
   workspaceId?: string;
   timezone: string;
@@ -635,7 +637,8 @@ export function createMomTools(options: {
       }),
       runId: options.runId,
       store: options.store,
-      ignoreSessionApprovalMode: options.isolateSessionHostApproval
+      ignoreSessionApprovalMode: options.isolateSessionHostApproval,
+      unattendedDenials: options.unattendedDenials
     }
   });
   registry.register(bashToolDef);
@@ -953,6 +956,7 @@ export function createMomTools(options: {
       // Delegated work follows the parent task's permissions: the child's
       // execution environment and approval outcomes come from this policy.
       executionPolicy: policy,
+      unattendedDenials: options.unattendedDenials,
       allowedAgents: permissionMode === "plan" ? ["scout", "planner"] : undefined,
       excludedTools: permissionMode === "plan" ? ["bash"] : undefined
     }),

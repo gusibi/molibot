@@ -21,7 +21,7 @@ export type SettingsDestination =
   | "runHistory"
   | "logs"
   | "trace"
-  | "sandbox"
+  | "executionPermissions"
   | "hostBash"
   | "diagnostics"
   | "runtimeEnv";
@@ -83,7 +83,7 @@ type CommandDefinition = {
 export const settingsDestinations: SettingsDestination[] = [
   "general", "models", "providers", "agents", "mcp", "openConnector", "skills", "memory", "channels", "plugins",
   "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "profiles", "usage", "runHistory",
-  "logs", "trace", "sandbox", "hostBash", "diagnostics", "runtimeEnv"
+  "logs", "trace", "executionPermissions", "hostBash", "diagnostics", "runtimeEnv"
 ];
 
 export function commandIdForSettings(destination: SettingsDestination): `settings.${SettingsDestination}` {
@@ -111,7 +111,7 @@ function sectionLabel(destination: SettingsDestination, locale: Locale): string 
     case "runHistory": return copy.runHistory;
     case "logs": return copy.logs;
     case "trace": return copy.trace;
-    case "sandbox": return copy.sandbox;
+    case "executionPermissions": return copy.executionPermissions;
     case "hostBash": return copy.hostBash;
     case "diagnostics": return copy.diagnostics;
     case "runtimeEnv": return copy.runtimeEnv;

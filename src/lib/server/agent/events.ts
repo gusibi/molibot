@@ -166,6 +166,20 @@ export function resolveEventTargetSessionId(
   return String(event.sessionId ?? "").trim() || activeSessionId;
 }
 
+/**
+ * A runner result whose run suspended on an approval instead of finishing.
+ * Executions dispatchers return the runner's `RunResult` when they have one;
+ * a suspension must surface on the lease as `waiting_approval`, never as a
+ * completed run that produced nothing.
+ */
+export function isApprovalSuspensionOutcome(result: unknown): boolean {
+  return Boolean(
+    result
+    && typeof result === "object"
+    && (result as { stopReason?: unknown }).stopReason === "waiting_for_approval"
+  );
+}
+
 interface CronFieldRule {
   values: Set<number> | null;
   step: number;
@@ -628,6 +642,16 @@ export class EventsWatcher {
       this.markRunning(filename, eventForAttempt, triggerSlot, currentRunId);
       const outcome = await this.runAttemptWithTimeout(eventForAttempt, filename, lease);
       if (outcome.status === "success") {
+        if (isApprovalSuspensionOutcome(outcome.result)) {
+          // The run parked on an approval (issue #48 lifecycle). The attempt is
+          // over — record it as waiting, never as completed — but the trigger
+          // itself was consumed, so release the periodic run lock and let the
+          // schedule keep firing.
+          if (store.markWaitingApproval(lease.id, lease.runId, outcome.result)) {
+            this.markDone(filename, eventForAttempt, "waiting_approval", triggerSlot, currentRunId);
+          }
+          return;
+        }
         if (store.markCompleted(lease.id, lease.runId, outcome.result)) {
           this.markDone(filename, eventForAttempt, "executed", triggerSlot, currentRunId);
         }

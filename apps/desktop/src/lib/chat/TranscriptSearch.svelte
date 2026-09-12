@@ -1,7 +1,7 @@
 <script lang="ts">
   import AngleDown from "reicon-svelte/icons/AngleDown";
   import AngleUp from "reicon-svelte/icons/AngleUp";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
   import X from "reicon-svelte/icons/X";
   import { tick } from "svelte";
 

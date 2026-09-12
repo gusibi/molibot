@@ -77,6 +77,34 @@ test("restoreContextCheckpoint refuses to cross a session boundary", () => {
   }
 });
 
+// The composer context panel reads this snapshot back from the entries file,
+// so it must survive the JSON round-trip intact — and never leak onto the
+// model context rebuild (`loadContext` reads `entry.message` only).
+test("appendContextMessage persists the context snapshot on the entry", () => {
+  const { store, dir } = makeStore();
+  try {
+    const snapshot = {
+      contextWindow: 100_000,
+      estimatedTokens: 1_234,
+      breakdown: { messages: 900, mcpTools: 200, systemTools: 80, systemPrompt: 40, skills: 10, other: 4 },
+      inputTokens: 1_100,
+      cacheReadTokens: 200,
+      cacheWriteTokens: 30
+    };
+    store.appendContextMessage(CHAT, textMessage("user", "hi"), SID);
+    store.appendContextMessage(CHAT, textMessage("assistant", "done"), SID, { contextBreakdown: snapshot });
+
+    const [userEntry, assistantEntry] = store.listSessionMessageEntries(CHAT, SID);
+    assert.equal(userEntry.contextBreakdown, undefined);
+    assert.deepEqual(assistantEntry.contextBreakdown, snapshot);
+
+    // The model context rebuild carries the messages only.
+    assert.deepEqual(store.loadContext(CHAT, SID).map((m) => (m as { role?: string }).role), ["user", "assistant"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("discardLatestContextAssistant preserves completed tool results", () => {
   const { store, dir } = makeStore();
   try {

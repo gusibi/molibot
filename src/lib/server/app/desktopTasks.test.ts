@@ -64,16 +64,67 @@ test("task session projection extracts chat text instead of serializing content 
   assert.deepEqual(buildDesktopTaskSessionMessages([
     { role: "system", content: "hidden prompt", timestamp: 1 },
     { role: "user", content: [{ type: "text", text: "Run the report" }], timestamp: 1000 },
-    { role: "assistant", content: [{ type: "thinking", thinking: "private" }, { type: "text", text: "## Done\n\nReport ready." }], timestamp: 2000 },
-    { role: "toolResult", content: [{ type: "text", text: "raw tool JSON" }], timestamp: 3000 }
+    { role: "assistant", content: [{ type: "thinking", thinking: "private" }, { type: "text", text: "## Done\n\nReport ready." }], timestamp: 2000 }
   ]), [
     { role: "user", content: "Run the report", createdAt: "1970-01-01T00:00:01.000Z" },
     { role: "assistant", content: "## Done\n\nReport ready.", createdAt: "1970-01-01T00:00:02.000Z" }
   ]);
 });
 
-test("task session projection decodes legacy JSON-string Agent blocks without exposing thinking or tools", () => {
-  assert.deepEqual(buildDesktopTaskSessionMessages([
+test("task session projection surfaces the run's tool activity with its result", () => {
+  const messages = buildDesktopTaskSessionMessages([
+    { role: "user", content: [{ type: "text", text: "[EVENT] Run AI HOT" }], timestamp: 1000 },
+    { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "curl secret", label: "fetch_daily" } }], timestamp: 2000 },
+    { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "daily report body" }], timestamp: 2500 },
+    { role: "assistant", content: [{ type: "toolCall", id: "call-2", name: "write", arguments: { path: "content/blog/zh/aihot-daily.md" } }], timestamp: 3000 },
+    { role: "toolResult", toolCallId: "call-2", toolName: "write", isError: true, content: [{ type: "text", text: "disk full" }], timestamp: 3500 },
+    { role: "assistant", content: [{ type: "text", text: "Report published." }], timestamp: 4000 }
+  ]);
+  assert.equal(messages.length, 2);
+  assert.deepEqual(
+    { role: messages[0].role, content: messages[0].content, createdAt: messages[0].createdAt },
+    { role: "user", content: "[EVENT] Run AI HOT", createdAt: "1970-01-01T00:00:01.000Z" }
+  );
+  const turn = messages[1];
+  assert.equal(turn.role, "assistant");
+  assert.equal(turn.content, "Report published.");
+  assert.equal(turn.createdAt, "1970-01-01T00:00:04.000Z");
+  assert.equal(turn.activities?.length, 2);
+  assert.deepEqual(turn.activities?.[0], {
+    key: "call-1",
+    kind: "tool",
+    tool: "bash",
+    label: "fetch_daily",
+    state: "success",
+    summary: "daily report body",
+    startedAt: "1970-01-01T00:00:02.000Z",
+    finishedAt: "1970-01-01T00:00:02.500Z",
+    durationMs: 500
+  });
+  assert.equal(turn.activities?.[1].key, "call-2");
+  assert.equal(turn.activities?.[1].state, "error");
+  assert.equal(turn.activities?.[1].summary, "disk full");
+  assert.deepEqual(turn.activities?.[1].paths, ["content/blog/zh/aihot-daily.md"]);
+  assert.equal(turn.activities?.[1].mutates, true);
+});
+
+test("task session projection keeps a suspended run visible: calls without results close as errors", () => {
+  const messages = buildDesktopTaskSessionMessages([
+    { role: "user", content: "Run the build", timestamp: 1000 },
+    { role: "assistant", content: [{ type: "toolCall", id: "call-9", name: "bash", arguments: { command: "make build" } }], timestamp: 2000 },
+    { role: "toolResult", toolCallId: "call-9", toolName: "bash", content: [{ type: "text", text: "Host Bash approval requested." }], timestamp: 2300 }
+  ]);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[1].content, "");
+  assert.equal(messages[1].activities?.length, 1);
+  assert.equal(messages[1].activities?.[0].state, "success");
+  assert.equal(messages[1].activities?.[0].summary, "Host Bash approval requested.");
+  // Tool arguments never leak into the activity surface.
+  assert.equal(JSON.stringify(messages[1].activities?.[0]).includes("make build"), false);
+});
+
+test("task session projection decodes legacy JSON-string Agent blocks, hides thinking, shows tools", () => {
+  const messages = buildDesktopTaskSessionMessages([
     { role: "user", content: JSON.stringify({ type: "text", text: "[EVENT] Run AI HOT" }) },
     { role: "assistant", content: JSON.stringify([
       { type: "thinking", thinking: "private chain" },
@@ -81,11 +132,22 @@ test("task session projection decodes legacy JSON-string Agent blocks without ex
       { type: "text", text: "# AI HOT\n\nHere is the result." }
     ]) },
     { role: "user", content: "{\"query\":\"ordinary user JSON\"}" }
-  ]), [
-    { role: "user", content: "[EVENT] Run AI HOT", createdAt: "" },
-    { role: "assistant", content: "# AI HOT\n\nHere is the result.", createdAt: "" },
-    { role: "user", content: "{\"query\":\"ordinary user JSON\"}", createdAt: "" }
   ]);
+  assert.equal(messages.length, 3);
+  assert.deepEqual(
+    { role: messages[0].role, content: messages[0].content },
+    { role: "user", content: "[EVENT] Run AI HOT" }
+  );
+  assert.equal(messages[1].role, "assistant");
+  assert.equal(messages[1].content, "# AI HOT\n\nHere is the result.");
+  assert.equal(messages[1].activities?.length, 1);
+  assert.equal(messages[1].activities?.[0].tool, "bash");
+  assert.equal(messages[1].activities?.[0].state, "error");
+  assert.equal(JSON.stringify(messages[1].activities?.[0]).includes("curl secret"), false);
+  assert.deepEqual(
+    { role: messages[2].role, content: messages[2].content },
+    { role: "user", content: "{\"query\":\"ordinary user JSON\"}" }
+  );
 });
 
 function item(overrides: Record<string, unknown> = {}) {

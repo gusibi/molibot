@@ -1,11 +1,14 @@
+import fs from "node:fs";
+import path, { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import { getRuntime } from "$lib/server/app/runtime.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { resolveDesktopWebProfiles } from "$lib/server/app/desktopProfiles.js";
 import { buildDesktopChannelsSummary } from "$lib/server/app/desktopChannels.js";
-import { listExternalSessionsFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
+import { listExternalSessionsFromContexts, decodeExternalSessionId } from "$lib/server/app/externalSessionsFromContexts.js";
+import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
+import { revealAbsolutePath, revealSupported } from "$lib/server/web/revealFile.js";
 import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import { parseBotInstanceId, type ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
@@ -511,4 +514,55 @@ export function listDesktopSessionRuns(): { runs: DesktopSessionRun[] } {
   });
 
   return { runs };
+}
+
+/**
+ * Resolves the filesystem path where a session file is stored.
+ * Handles Project sessions, Web sessions, and External channel sessions.
+ */
+export function resolveDesktopSessionFilePath(sessionId: string, projectId?: string): string | null {
+  const cleanSessionId = String(sessionId ?? "").trim();
+  if (!cleanSessionId) return null;
+
+  const external = decodeExternalSessionId(cleanSessionId);
+  if (external) {
+    const root = TASK_CHANNEL_ROOTS.find((entry) => entry.channel === external.channel);
+    if (!root) return null;
+    const contexts = path.resolve(config.dataDir, root.dir, "bots", external.botId, external.chatId, "contexts");
+    const jsonl = path.join(contexts, `${external.sessionId}.jsonl`);
+    const json = path.join(contexts, `${external.sessionId}.json`);
+    if (fs.existsSync(jsonl)) return jsonl;
+    if (fs.existsSync(json)) return json;
+    return jsonl;
+  }
+
+  const sessions = getRuntime().sessions;
+  return sessions.getSessionFilePath(cleanSessionId, projectId);
+}
+
+/**
+ * Reveals the session's file in macOS Finder (using `open -R`).
+ * If the file exists, it will be selected in Finder.
+ * If the file does not exist yet but its containing directory exists, the directory will be opened.
+ */
+export function revealDesktopSessionPath(sessionId: string, projectId?: string): { ok: boolean; path?: string; error?: string } {
+  const filePath = resolveDesktopSessionFilePath(sessionId, projectId);
+  if (!filePath) {
+    return { ok: false, error: "Session file path not found" };
+  }
+  if (!revealSupported()) {
+    return { ok: false, path: filePath, error: "Revealing files is only supported on macOS." };
+  }
+
+  const targetToReveal = fs.existsSync(filePath)
+    ? filePath
+    : fs.existsSync(path.dirname(filePath))
+      ? path.dirname(filePath)
+      : null;
+
+  if (targetToReveal) {
+    revealAbsolutePath(targetToReveal, "reveal");
+    return { ok: true, path: filePath };
+  }
+  return { ok: false, path: filePath, error: "Session location does not exist" };
 }

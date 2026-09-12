@@ -2,7 +2,7 @@
 //
 // Wraps the pure transport helpers in `../api` with the UI state (loading
 // flags, working draft, pristine snapshot for dirty detection) consumed by
-// `settings/SandboxSection.svelte`. There is no enable switch and no preset
+// `settings/ExecutionPermissionsSection.svelte`. There is no enable switch and no preset
 // here: sandbox participation follows the effective permission mode, so this
 // store only shapes the advanced restrictions that apply to sandboxed
 // commands.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Sidebar from "reicon-svelte/icons/Sidebar";
+  import Sidebar from "../icons/duotone/components/Sidebar.svelte";
   import type { Component } from "svelte";
   import type { Translation } from "../i18n";
   import PageHeader from "../components/ui/PageHeader.svelte";

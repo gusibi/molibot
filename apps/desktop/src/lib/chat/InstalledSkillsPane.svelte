@@ -1,13 +1,13 @@
 <script lang="ts">
   import AngleDown from "reicon-svelte/icons/AngleDown";
   import AngleUp from "reicon-svelte/icons/AngleUp";
-  import Code from "reicon-svelte/icons/Code";
-  import Cpu from "reicon-svelte/icons/Cpu";
-  import FileText from "reicon-svelte/icons/FileText";
-  import InfoCircle from "reicon-svelte/icons/InfoCircle";
-  import MagicWand from "reicon-svelte/icons/MagicWand";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
-  import Palette from "reicon-svelte/icons/Palette";
+  import Code from "../icons/duotone/components/Code.svelte";
+  import Cpu from "../icons/duotone/components/Cpu.svelte";
+  import FileText from "../icons/duotone/components/FileText.svelte";
+  import InfoCircle from "../icons/duotone/components/InfoCircle.svelte";
+  import MagicWand from "../icons/duotone/components/MagicWand.svelte";
+  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
+  import Palette from "../icons/duotone/components/Palette.svelte";
   import X from "reicon-svelte/icons/X";
   import type { Translation } from "../i18n";
   import Dialog from "../components/ui/Dialog.svelte";

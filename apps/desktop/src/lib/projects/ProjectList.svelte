@@ -39,6 +39,8 @@
     menu: string;
     rename: string;
     delete: string;
+    copyPath: string;
+    revealInFinder: string;
     placeholder: string;
     deletePrompt: string;
     cancel: string;
@@ -51,10 +53,31 @@
     menu: copy.conversationMenu,
     rename: copy.renameConversation,
     delete: copy.deleteConversation,
+    copyPath: copy.copySessionPath,
+    revealInFinder: copy.openInFinder,
     placeholder: copy.renamePlaceholder,
     deletePrompt: copy.deleteConversationPrompt,
     cancel: copy.cancelAction
   };
+
+  async function copySessionPath(sessionId: string, projectId: string): Promise<void> {
+    const { getDesktopSessionPath } = await import("../api");
+    try {
+      const path = await getDesktopSessionPath(projectsStore.endpoint, { sessionId, projectId });
+      await navigator.clipboard.writeText(path);
+    } catch {
+      // clipboard unavailable
+    }
+  }
+
+  async function revealSessionInFinder(sessionId: string, projectId: string): Promise<void> {
+    const { revealDesktopSession } = await import("../api");
+    try {
+      await revealDesktopSession(projectsStore.endpoint, { sessionId, projectId });
+    } catch {
+      // reveal failed
+    }
+  }
   function formatSessionTime(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
@@ -137,6 +160,8 @@
               onSelect={() => void selectProjectSession(session.conversationId, project.id)}
               onRename={(title) => void renameProjectSession(session.conversationId, title)}
               onDelete={() => void removeProjectSession(session.conversationId)}
+              onCopyPath={() => void copySessionPath(session.conversationId, project.id)}
+              onRevealInFinder={() => void revealSessionInFinder(session.conversationId, project.id)}
             />
           {/each}
         {/if}

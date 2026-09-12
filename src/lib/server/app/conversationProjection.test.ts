@@ -335,3 +335,51 @@ test("a turn with no text at all still shows its error as the bubble body", () =
   });
   assert.equal(result.messages.find((message) => message.id === "m-a")?.content, "401: invalid api key");
 });
+
+const contextSnapshot = (messages: number) => ({
+  contextWindow: 100_000,
+  estimatedTokens: 1_000,
+  breakdown: { messages, mcpTools: 0, systemTools: 0, systemPrompt: 0, skills: 0, other: 0 },
+  inputTokens: 900 + messages,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0
+});
+
+// The composer context panel reads the snapshot off the display row: each
+// model call in a turn refreshes it, so the last assistant entry must win.
+test("the context snapshot rides the assistant row and the last call wins", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "hi" }], 0),
+      { ...assistantEntry("a-1", [{ type: "text", text: "working" }], 1, { stopReason: "toolUse" }), contextBreakdown: contextSnapshot(100) },
+      { ...assistantEntry("a-2", [{ type: "text", text: "done" }], 2, { stopReason: "stop" }), contextBreakdown: contextSnapshot(200) },
+      entry("t-1", "toolResult", [{ type: "text", text: "ok" }], 3)
+    ],
+    metadata: [
+      { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+      { id: "m-a", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:02:00.000Z", contextBacked: true }
+    ]
+  });
+  const reply = result.messages.find((message) => message.id === "m-a");
+  assert.equal(reply?.usage?.totalTokens, 0);
+  assert.equal(reply?.contextBreakdown?.estimatedTokens, 1_000);
+  assert.equal(reply?.contextBreakdown?.breakdown.messages, 200);
+  // User rows never carry a snapshot.
+  assert.equal(result.messages.find((message) => message.id === "m-u")?.contextBreakdown, undefined);
+});
+
+test("a turn without snapshots projects no context breakdown", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "hi" }], 0),
+      assistantEntry("a", [{ type: "text", text: "hey" }], 1, { stopReason: "stop" })
+    ],
+    metadata: [
+      { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+      { id: "m-a", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:01:00.000Z", contextBacked: true }
+    ]
+  });
+  assert.equal(result.messages.find((message) => message.id === "m-a")?.contextBreakdown, undefined);
+});

@@ -1,4 +1,56 @@
+### Fixed: 设置「执行与权限」保存永远失败（2026-09-12）
+
+桌面端「执行与权限」页保存默认执行模式总是提示「保存失败，请重试。」，且页面显示的「已保存模式」其实从未真实加载过。根因：该页用原生 fetch 直连服务 API，在 Tauri webview 里属跨域请求，而服务端不带 CORS 头（PATCH 预检 405）；curl、服务端直测、同源浏览器全部正常，唯独 app 内必挂。现已改走与其他设置页一致的共享请求通道（Tauri 内由 Rust 侧发请求，不受跨域限制），加载失败从静默改为可见报错，并新增机器守卫（`api-transport-guard.test.mjs`）禁止组件层再直接调用 fetch。
+
+### Fixed: 思考档位选择器错位（2026-09-12）
+
+修复模型菜单中档位刻度挤在一起、与滑块脱离的问题。补充首尾档位标签，明确当前选择，并支持左右方向键切换。
+
 # Molibot ChangeLog
+
+### Added: 用量账本支持会话维度统计（2026-09-12）
+
+AI 用量账本（「用量」页的数据源）每条记录现在可选携带会话 id：聊天会话内的模型调用自动归入所属会话，Mini App 等非会话调用不变。「用量」页排行榜新增「会话」维度，可按时间范围查看每个会话的请求次数与 token 消耗。这为后续的会话级用量限额/预算控制打下账本基础——控制将直接读取这份统一账目，不再另建统计体系。
+
+### Added: Chat 输入框上下文用量面板（2026-09-12）
+
+Chat 与项目会话的输入框底栏新增上下文容量仪表：弹出面板展示上下文容量（已用/窗口 + 进度条）、消息 / MCP 工具 / 系统工具 / 系统提示词 / 技能 / 其他六类占比，以及平均缓存命中率。数据来自 runner 每次 dispatch 时的分类估算（与真实报回的 token 用量在 assistant 消息上合成快照持久化），会话有第一条回复后面板自动出现；中英文、明暗主题与降透明度降级齐备。
+
+### Changed: Desktop Chat 页图标升级为 Reicon Duotone 字重（2026-09-12）
+
+Chat 页可见的图标 chrome——侧栏导航（新对话/自动任务/技能/Agent/小程序）、侧栏搜索与折叠按钮、会话行悬停操作（重命名/复制/打开目录/删除）、输入区附件与录音按钮、发送/停止按钮、权限与模型菜单、分组头、会话搜索、转写工具栏、技能面板、Agent 城市工具栏、记忆抽屉、header 小程序快捷菜单（搜索、行箭头、收藏星标、"全部小程序"入口改用 list 字形）、项目会话 header（搜索/文件面板/设置）及文件树与项目菜单等 20+ 组件——从线性 Outline 切换为 Reicon 官方 Duotone 字重（50% 双层着色，继承主题色）。多处字形由用户逐项指定：发送为纸飞机（plane2）、技能为 reorder2、Agent 为 vacuum2、设置入口为 tuning-square2、计划模式为 circle-arrows-down、手动模式为 handshake；其余用精确 duotone 或目检过的同概念替代。无官方 duotone 字形的（Check/X/加号/箭头/加载指示/取消星标 StarOff 等）与对话流内的状态信号（成功/失败/警告标记、activity 工具类型小图标）按 DESIGN.md 字重规则保留线性；XCircle 保留线性以使搜索清除按钮与设置页一致。替换走的是既有的 `scripts/generate-duotone-icons.mjs` 生成管线：manifest 为唯一采用入口（当前 71 项），并新增产出与 reicon-svelte 同 props 契约的 per-icon duotone 组件，chat 组件仅切换 import 路径。验证：生成器通过、`svelte-check` 0 错误 0 警告、desktop vite build 通过、UI 契约测试全绿、隔离预览实例实测侧栏导航、发送/停止按钮、项目会话 header 与小程序快捷菜单渲染正常。
+
+### Improved: 对话顶部信息层级（2026-09-12）
+
+会话标题优先展示，外部渠道名称和项目名移到标题后方；移除 Web 来源、斜杠及重复的项目类型标签，让顶部更简洁。
+
+### Fixed: 会话右键菜单被聊天区域遮挡（2026-09-12）
+
+会话菜单及关闭遮罩移至页面顶层，解决菜单右半部分被聊天区域覆盖、无法点击的问题。
+
+### Fixed: 侧栏右键菜单被侧栏边缘裁剪，浮回窗口最上层 (2026-09-12)
+
+左侧会话列表的右键菜单在侧栏右边缘被硬裁掉，右半截不可见。根因是玻璃材质改动把 `backdrop-filter` 直接挂在 `.chat-sidebar` 元素上：带该属性的元素会成为 `position: fixed` 后代的 containing block，并以自身 `overflow: hidden` 裁剪它们，于是按视口坐标定位的菜单被困在侧栏盒子里（低性能/减弱透明度模式下 filter 为 none，菜单反而正常——行为随模式漂移）。侧栏材质现移到 `::before` 层（元素显式 `z-index: 0` 保持原 stacking 语义，先模糊后叠 tint 的合成结果不变），三处降级覆盖同步改指向 `::before`；菜单恢复按视口定位浮在包括聊天区在内的整个窗口之上。守卫断言钉住「侧栏元素本体不得携带 backdrop-filter」。验证：`chat-ui.test.mjs` 240/240、`svelte-check` 0 错误、build 通过；无头 Chrome 结构 harness 截图确认菜单完整浮出侧栏边缘，`::before` 去留对照像素 diff 42% 确认材质仍在渲染。
+
+### Fixed: 运行中不再「Thinking...」胶囊与思考过程上下重复显示 (2026-09-12)
+
+回合运行时状态胶囊显示硬编码英文「Thinking...」，而紧挨其下的「运行进度」卡片里就是正在流式输出的思考原文——同一状态上下说两遍。根因在 SSE 桥接层：`setTyping` 被照搬成文本 `status` 帧（打字指示本是 Telegram/微信等频道适配器概念），工具/子代理进度也以 `_→ label_` 文本帧重复发给已经用结构化活动渲染同一信息的桌面端（Web 端从未消费这些帧）。现在 SSE 路径不再发出文本 `status` 帧，桌面端删除对应的死处理；状态胶囊只在已发送但过程卡片尚无内容的空窗期显示本地化阶段文案，思考或工具活动一旦出现即由卡片接管。验证：桌面测试三批 281/250/289 全过、`svelte-check` 0 错误、双端 build 通过；契约用例钉住胶囊门控与「不再发出 status 帧」。
+
+### Fixed: 自动任务会话只剩输入没有输出、空气泡竖线、卡审批却报已完成 (2026-09-12)
+
+自动任务页的会话弹窗把一次真实的自动化执行显示成了"只有一个输入"：会话投影曾把 toolCall/toolResult 全部过滤掉，而 08:30 的 Project 日报任务恰好卡在 Host Bash 审批上（`stopReason=waiting_for_approval`，最终文本从未产生），于是弹窗里除了输入什么都不剩。现在会话投影把整次运行的工具调用与结果配对成活动轨迹（与聊天页一致的过程卡 + 答复），thinking 与工具参数依旧不外泄；挂起的执行在租约里记为新的 `waiting_approval` 状态并显示"等待审批"，不再谎报已完成，定时排程照常继续；更重要的是无人值守的定时任务不再挂起成僵尸——审批闸门在自动化运行中直接拒绝（Host Bash 与通用 broker 双路），模型继续执行并在最终答复里报告被跳过的步骤，需要常驻放行的命令走白名单。同屏的另一个症状——assistant 回复塌缩成空气泡加一条竖线——是会话弹窗 flex column 下 `width:auto` 行收缩把滚动代码块压成 1 字符宽的 Layout 塌陷（pitfall 16c 变体），assistant 行已固定全宽并加了结构守卫。验证：相关服务端套件 92/92、`test:desktop-chat` 289/289、`svelte-check` 0 错误、双端 build 通过，并用真实运行归档与无头浏览器截图做了修复前后对比。
+
+### Changed: 玻璃材质统一为三档磨砂玻璃，移除液态折射位移，面板边缘恢复直线 (2026-09-12)
+
+此前尝试的"液态玻璃"位移方案整体撤回：`feDisplacementMap` 滤镜通过 `filter` 套在材质层上，会把面板自己的直边一起扭成波浪（顶栏底边、底部输入卡、各卡片边缘均呈波纹，即用户报告的"上下栏不是直线"）。标准修法"位移进 `backdrop-filter`、只扭曲透过的背景"在 WKWebView 上不可用——WebKit 会解析 `backdrop-filter: … url(#f)`（`CSS.supports` 返回 true，`@supports` 探测不到）但渲染时丢弃整条链，连 blur 一起失效（bugs.webkit.org/245510，已用离屏 WKWebView 对照样张实测）。玻璃材质回归统一的 `--glass-*` 三档体系：surface 74% + blur 32px（审批/计划/思维卡）、popover 80% + blur 28px（右键菜单、会话菜单、导航预览等文字面）、chrome 80% + blur 40px（顶栏与底部输入卡），统一携带边缘高光与两档阴影；完成态推理块（`.turn-process`）维持无边框透明折叠条的既有设计。顺带清理：删除 `LiquidGlassFilters.svelte`、`--liquid-glass-*` 双主题变量与一处 `TEMP DIAGNOSTIC` 临时覆盖。按反馈追加：对话内文件结果卡（`.turn-files-card`）接入 popover 档材质，与输入框同色（80% elevated 底 + blur28），不再隐入背景；修复提示导航预览卡 blur 失效——其根因是导航主机的 `opacity:.38/.72` 构成 backdrop root，预览卡的 backdrop-filter 只能采样到空内容，现将透明度下放到标记子元素，预览卡恢复全不透明度与真实磨砂。验证：`chat-ui.test.mjs` 240/240（此前被违反的 5 条材质守卫全数恢复）、桌面 node 批次 250/250、相关 tsx 逻辑测试 199/199、`svelte-check` 0 错误、vite build 通过；离屏 WKWebView（与桌面壳同引擎）对真实 dev server 与磨砂材质 harness 截图确认各面板边缘为直线、磨砂与边缘高光正常。
+
+### Fixed: Pasted screenshots attach once and every pasted image gets its own name (2026-09-12)
+
+Pasting a screenshot into the composer produced two attachments, both labelled `image.png`, and pasting a second image reused that same name — the two chips were indistinguishable and read as one overwriting the other. The browser invents that name for clipboard *data*: a screenshot has no filename, and macOS hands one picture over in 9 formats (verified on the pasteboard: png, avif, gif, jpeg, tiff, bmp, jp2, 8BPS, TPIC), each surfacing as its own file item named `image.<ext>`. The previous dedup only recognised the *empty*-name case, so both entries were taken as two different images. `clipboardImageFiles` now keys on whether a name can prove identity at all: unnamed entries and `image.<ext>` placeholders are format representations of one pasted image, of which the best renderable one is kept (png > jpeg > webp > gif > other), while entries carrying a real filename are separate files and all survive — so pasting several copied files still attaches every one of them, and a pasted file now wins over the pasteboard's copy of its own bytes instead of doubling it. Representations are named from a per-session sequence (`image-1.png`, `image-2.png`, …), real filenames are preserved and only disambiguated (`-2`, `-3`) when one paste repeats a name, and extensions now follow the MIME type, so a lone TIFF is no longer mislabelled `.png`. Attachment paths are not overwritten either way — `saveAttachment` already reserves a distinct path per name — but identical names made the attachments indistinguishable in the composer and in the transcript. Pinned by seven clipboard cases in `apps/desktop/src/lib/api.test.ts`.
+
+### Changed: The chat page's transient surfaces are one glass material, and the toolbar and composer float over the transcript (2026-09-12)
+
+The Desktop chat page read as loose opaque cards: every popup, approval prompt, plan card and status row was the same `--card-bg` rectangle with a different shadow, so elevation was noise rather than hierarchy, and nothing ever passed behind anything. It now runs on one material system. Cards, popovers, menus and the running-turn pill take a shared translucent surface with a real backdrop blur, a bright top rim (`--glass-edge`) and two depth tiers — bigger surfaces read as thicker — while static prose, message bubbles, the sidebar and settings stay opaque. The rim rides the per-family, per-brightness `--glass-border-light` rather than a baked white, so the same declaration is correct on all four theme families in both appearances, and glass depth is keyed on brightness alone. The toolbar and the composer are no longer opaque strips consuming the top and bottom of the column: both were lifted out of flow to float over the transcript, so content genuinely travels underneath the blur, with a fade band above the composer and no bottom border under the toolbar. Because they overlap it, the transcript reserves their heights — and the composer's is a live measurement rather than a constant, since the stack grows with every line of input, queued follow-up, attachment and banner. Two behaviours that were silently dropped in the same pass were restored: the toolbar still projects the window-activation tint, and the command palette and prompt preview still dim with an inactive window. Motion is entrance-only and honest about it — glass surfaces materialize with opacity, scale and blur resolving together, exits stay instant because the surfaces are conditionally rendered and there is nothing left to transition — and every tier that strips the blur (reduced transparency, low performance, increased contrast) now also takes the surfaces opaque, since translucent bars over moving text are worse than either extreme. The running turn also stopped saying one thing twice: the pulsing status dot competed with a separately animated wave in the process card below it, so the row is now a single glass pill with a travelling sheen (transform-only) and the wave belongs to the steps it describes, with reduced motion holding a still crest instead of freezing mid-animation. Two corrections followed the first cut. The material was far too thin at 78% — a menu over the transcript was unreadable and read as plain translucency — and the frosted read in macOS comes from a hard blur over a high-opacity surface (90-97% for anything carrying text), not from letting content through; the tiers are now 90/93/92% at 24-36px and both bounds are guarded so they cannot drift back. And the sharpest bug was structural: a `backdrop-filter` element is a backdrop root, so a descendant's own filter may only sample what is painted inside it. Putting the material on the composer and the toolbar made exactly the wrong surfaces lose their blur — the model menu, the permission menu and the slash suggestions (inside the composer) and the Mini Apps quick menu (inside the toolbar) all hang outside their parent's box over the transcript, found nothing to blur, and degraded to translucent panes with text sharp behind them. Those two hosts now carry their background, filter and shadow on a `::before` layer so the element itself creates no backdrop root, with `z-index: 0` supplying the stacking context (not `isolation: isolate`, which is itself on the backdrop-root list) and the layer sized to the border box so a translucent border cannot composite over raw content.
 
 ### Changed: One set of execution permission modes; Auto is now Full Access (2026-09-11)
 

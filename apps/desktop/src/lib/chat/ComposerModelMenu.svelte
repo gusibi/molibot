@@ -3,7 +3,8 @@
   import AngleLeft from "reicon-svelte/icons/AngleLeft";
   import AngleRight from "reicon-svelte/icons/AngleRight";
   import Check from "reicon-svelte/icons/Check";
-  import Cpu from "reicon-svelte/icons/Cpu";
+  import Cpu from "../icons/duotone/components/Cpu.svelte";
+  import Lightning from "../icons/duotone/components/Lightning.svelte";
   import { onMount, tick } from "svelte";
   import type { DesktopModelOption, DesktopThinkingLevel } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
@@ -24,11 +25,13 @@
   let root: HTMLDetailsElement;
   let trigger: HTMLElement;
   let open = false;
-  let page: "overview" | "model" | "thinking" = "overview";
+  let page: "overview" | "model" = "overview";
 
   $: modelLabel = activeModelLabel || copy.model;
   $: levelLabel = thinkingLevelLabel || copy.thinkingLevel;
   $: modelGroups = groupModelOptions(modelOptions);
+  $: levelIndex = Math.max(0, thinkingLevelOptions.indexOf(thinkingLevel));
+  $: levelFrac = thinkingLevelOptions.length > 1 ? levelIndex / (thinkingLevelOptions.length - 1) : 0.5;
 
   function thinkingOptionLabel(level: DesktopThinkingLevel): string {
     return {
@@ -99,9 +102,7 @@
   }
 
   function selectThinking(value: DesktopThinkingLevel): void {
-    if (value === thinkingLevel) return close(true);
-    onChangeThinking(value);
-    close(true);
+    if (value !== thinkingLevel) onChangeThinking(value);
   }
 
   onMount(() => {
@@ -139,36 +140,59 @@
           <span class="composer-menu-copy"><strong>{copy.model}</strong><small title={activeModelTitle || modelLabel}>{modelLabel}</small></span>
           <AngleRight size={14} aria-hidden="true" />
         </button>
-        <button type="button" role="menuitem" disabled={thinkingLevelOptions.length <= 1} onclick={() => showPage("thinking", true)}>
-          <span class="composer-menu-copy"><strong>{copy.thinkingLevel}</strong><small>{levelLabel}</small></span>
-          <AngleRight size={14} aria-hidden="true" />
-        </button>
+        {#if thinkingLevelOptions.length > 1}
+          <div class="composer-level-picker" role="group" aria-label={copy.thinkingLevel}>
+            <div class="composer-level-head">
+              <span>{copy.thinkingLevel}</span>
+              <strong><Lightning size={14} aria-hidden="true" />{levelLabel}</strong>
+            </div>
+            <div class="composer-level-track">
+              <div class="composer-level-knob" style={`left: calc(11px + (100% - 22px) * ${levelFrac})`} aria-hidden="true"></div>
+              {#each thinkingLevelOptions as level, i (level)}
+                <button
+                  type="button"
+                  class="composer-level-stop"
+                  role="menuitemradio"
+                  aria-checked={level === thinkingLevel}
+                  aria-label={thinkingOptionLabel(level)}
+                  title={thinkingOptionLabel(level)}
+                  style={`left: calc(11px + (100% - 22px) * ${thinkingLevelOptions.length > 1 ? i / (thinkingLevelOptions.length - 1) : 0.5})`}
+                  onkeydown={(event) => {
+                    const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+                    if (!delta) return;
+                    event.preventDefault();
+                    const next = Math.max(0, Math.min(thinkingLevelOptions.length - 1, i + delta));
+                    selectThinking(thinkingLevelOptions[next]);
+                    const track = event.currentTarget.parentElement;
+                    track?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
+                  }}
+                  onclick={() => selectThinking(level)}
+                ></button>
+              {/each}
+            </div>
+            <div class="composer-level-endpoints" aria-hidden="true">
+              <span>{thinkingOptionLabel(thinkingLevelOptions[0])}</span>
+              <span>{thinkingOptionLabel(thinkingLevelOptions[thinkingLevelOptions.length - 1])}</span>
+            </div>
+          </div>
+        {/if}
       {:else}
         <div class="composer-menu-heading">
           <button type="button" class="composer-menu-back" aria-label={copy.cancelAction} onclick={() => showPage("overview", true)}><AngleLeft size={14} aria-hidden="true" /></button>
-          <strong>{page === "model" ? copy.model : copy.thinkingLevel}</strong>
+          <strong>{copy.model}</strong>
         </div>
         <div class="composer-menu-options">
-          {#if page === "model"}
-            {#each modelGroups as group (group.provider)}
-              <div class="composer-model-option-group" role="group" aria-label={group.provider}>
-                <div class="composer-model-option-provider">{group.provider}</div>
-                {#each group.options as item (item.option.key)}
-                  <button type="button" role="menuitemradio" aria-checked={item.option.key === activeModelKey} title={item.option.label} onclick={() => selectModel(item.option.key)}>
-                    <span class="composer-model-option-name">{item.name}</span>
-                    {#if item.option.key === activeModelKey}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
-                  </button>
-                {/each}
-              </div>
-            {/each}
-          {:else}
-            {#each thinkingLevelOptions as level (level)}
-              <button type="button" role="menuitemradio" aria-checked={level === thinkingLevel} onclick={() => selectThinking(level)}>
-                <span>{thinkingOptionLabel(level)}</span>
-                {#if level === thinkingLevel}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
-              </button>
-            {/each}
-          {/if}
+          {#each modelGroups as group (group.provider)}
+            <div class="composer-model-option-group" role="group" aria-label={group.provider}>
+              <div class="composer-model-option-provider">{group.provider}</div>
+              {#each group.options as item (item.option.key)}
+                <button type="button" role="menuitemradio" aria-checked={item.option.key === activeModelKey} title={item.option.label} onclick={() => selectModel(item.option.key)}>
+                  <span class="composer-model-option-name">{item.name}</span>
+                  {#if item.option.key === activeModelKey}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
+                </button>
+              {/each}
+            </div>
+          {/each}
         </div>
       {/if}
     </div>

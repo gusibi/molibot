@@ -54,7 +54,7 @@ export async function dispatchProjectTaskEvent(
   filename: string,
   projectId: string,
   manager: ChannelManager
-): Promise<void> {
+): Promise<unknown> {
   if (event.target?.kind !== "project" || event.target.projectId !== projectId) {
     throw new Error("Project task target does not match its watched Project.");
   }
@@ -64,7 +64,7 @@ export async function dispatchProjectTaskEvent(
   if (typeof manager.triggerProjectTask !== "function") {
     throw new Error("Project task runtime is not available.");
   }
-  await manager.triggerProjectTask(event, filename);
+  return manager.triggerProjectTask(event, filename);
 }
 
 function allowedChatIds(channel: string, botId: string, allowed: string[] = []): string[] {
