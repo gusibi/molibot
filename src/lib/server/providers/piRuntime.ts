@@ -48,6 +48,33 @@ export async function hasPiProviderAuth(
 }
 
 /**
+ * Header name this service uses to identify the owning conversation of a
+ * model request. The value is the Molibot session id (`s-…`). Proxies that
+ * need a provider-specific session header (cli-proxy-api → opencode Go's
+ * `x-opencode-session`) map from this Molibot-owned name at the proxy, so
+ * the header we send stays stable across upstreams.
+ */
+export const SESSION_AFFINITY_HEADER = "x-molibot-session";
+
+/**
+ * Attach the session-affinity header when a request declares its session.
+ * Requests without a session id (provider tests, owner-level helpers) are
+ * returned untouched.
+ */
+export function withSessionAffinityHeaders(
+  options?: ModelsSimpleStreamOptions
+): ModelsSimpleStreamOptions | undefined {
+  if (!options?.sessionId) return options;
+  return {
+    ...options,
+    headers: {
+      ...options.headers,
+      [SESSION_AFFINITY_HEADER]: options.sessionId
+    }
+  };
+}
+
+/**
  * Route a model to its stream implementation.
  *
  * Custom providers deliberately bypass `Models` rather than being registered
@@ -70,7 +97,8 @@ export function streamWithPiRuntime(
   context: Context,
   options?: ModelsSimpleStreamOptions
 ): AssistantMessageEventStream {
-  const telemetryContext = options?.telemetryContext;
+  const enhancedOptions = withSessionAffinityHeaders(options);
+  const telemetryContext = enhancedOptions?.telemetryContext;
   if (telemetryContext) {
     const output = createAssistantMessageEventStream();
     const startedAt = Date.now();
@@ -88,11 +116,11 @@ export function streamWithPiRuntime(
       let firstChunkAt: number | undefined;
       let httpStatus: number | undefined;
       const stream = streamProvider(model, context, {
-        ...options,
+        ...enhancedOptions,
         telemetryContext: span,
         onResponse: async (response, responseModel) => {
           httpStatus = response.status;
-          await options.onResponse?.(response, responseModel);
+          await enhancedOptions?.onResponse?.(response, responseModel);
         }
       });
       let terminal: AssistantMessage | undefined;
@@ -154,7 +182,7 @@ export function streamWithPiRuntime(
     });
     return output;
   }
-  return streamProvider(model, context, options);
+  return streamProvider(model, context, enhancedOptions);
 }
 
 function streamProvider(

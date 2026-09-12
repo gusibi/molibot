@@ -15,6 +15,8 @@ type StreamFn = typeof streamWithPiRuntime;
 
 export interface SummarizeTitleOptions {
   signal?: AbortSignal;
+  /** Owning conversation id, sent as the session-affinity identity to providers. */
+  sessionId?: string;
   /** Override the shared pi runtime stream; used by tests. */
   streamFn?: StreamFn;
   /** Custom API key resolver function for testing */
@@ -95,7 +97,8 @@ export async function summarizeSessionTitleWithLlm(
     const streamOptions: Record<string, unknown> = {
       maxTokens: isReasoningModel ? 500 : 120,
       apiKey,
-      signal
+      signal,
+      sessionId: options?.sessionId
     };
     if (isReasoningModel) {
       streamOptions.reasoning = "low";
@@ -207,7 +210,7 @@ export async function tryAutoSummarizeConversationTitleAsync(params: {
     const generatedTitle = await summarizeSessionTitleWithLlm(
       params.firstUserMessage,
       getSettings(),
-      params.options
+      { ...params.options, sessionId: params.conversationId }
     );
 
     console.log(`[title-summarizer] LLM summary result: generatedTitle="${generatedTitle}"`);

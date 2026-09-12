@@ -90,6 +90,22 @@ test("summarizeSessionTitleWithLlm includes English system prompt when locale is
   assert.match(captured.context?.messages[0]?.content as string ?? "", /Output MUST be in English/);
 });
 
+test("summarizeSessionTitleWithLlm forwards sessionId into stream options", async () => {
+  const captured: { context?: Context; options?: Record<string, unknown> } = {};
+
+  await summarizeSessionTitleWithLlm(
+    "请帮我写一个 Python 脚本用于清理 CSV 数据文件中的重复项和空值",
+    mockZhSettings,
+    {
+      sessionId: "s-20260912-eqpo",
+      streamFn: createMockStreamFn("标题", "stop", captured),
+      resolveApiKeyFn: async () => "dummy-key"
+    }
+  );
+
+  assert.equal(captured.options?.sessionId, "s-20260912-eqpo");
+});
+
 test("summarizeSessionTitleWithLlm ignores slash commands", async () => {
   const title = await summarizeSessionTitleWithLlm("/status", mockZhSettings);
   assert.equal(title, null);

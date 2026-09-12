@@ -612,6 +612,7 @@ export class MomRunner implements RunnerLike {
         });
         const requestOptions = {
           ...(opts as any),
+          sessionId: this.sessionId,
           telemetryContext: createPiTelemetryContext({
             hookManager: this.hookManager,
             getHookContext: () => this.activeHookContext,
