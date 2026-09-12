@@ -80,7 +80,9 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
           ? resolve(baseRoot, requestedPath)
           : resolveToolPath(ctx.cwd, legacyTarget.path);
       ensureAllowedPath(filePath);
-      if (options.outputLayout && isAbsolute(requestedPath)) {
+      // Full access removes the output-layout containment too: file tools obey
+      // the same effective policy as commands.
+      if (options.outputLayout && isAbsolute(requestedPath) && !options.hostWideAccess) {
         if (isWithinRoot(options.outputLayout.scratchRoot, filePath)) {
           rootKind = "scratch";
           baseRoot = options.outputLayout.scratchRoot;

@@ -324,3 +324,53 @@ test("full access lets the write tool touch paths outside the workspace roots; r
     rmSync(outsideDir, { recursive: true, force: true });
   }
 });
+
+test("full access also lifts the output-layout containment for absolute paths", async () => {
+  // Reviewer repro: the path guard opened up, but write's second check still
+  // returned "Absolute output paths must stay inside the Project root or
+  // runtime scratch root". Full access removes that layer too.
+  const { getWriteToolDefinition } = await import("$lib/server/agent/tools/write.js");
+  const { mkdtempSync, rmSync, existsSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-write-layout-ws-"));
+  const scratchRoot = join(workspaceDir, "scratch");
+  const outsideDir = mkdtempSync(join(tmpdir(), "molibot-write-layout-out-"));
+  const outsidePath = join(outsideDir, "external.txt");
+  try {
+    const buildCtx = () => ({
+      runId: "run-1", sessionId: "session-1", workspaceId: "personal", actorId: "chat-1",
+      cwd: workspaceDir,
+      fs: {
+        readText: async () => "",
+        writeText: async (p: string, c: string) => { const { writeFile } = await import("node:fs/promises"); await writeFile(p, c, "utf8"); },
+        readBuffer: async () => Buffer.alloc(0)
+      },
+      shell: { run: async () => ({ exitCode: 0, stdout: "", stderr: "" }) },
+      network: { fetch: async () => ({}) },
+      emit: () => {}
+    } as unknown as ToolExecutionContext);
+    const outputLayout = { scratchRoot } as never;
+
+    // Restricted mode: an absolute path outside the workspace hits the root
+    // wall first; a path inside the workspace but outside the scratch root
+    // reaches the output-layout containment.
+    const restricted = getWriteToolDefinition({ cwd: workspaceDir, workspaceDir, outputLayout });
+    await assert.rejects(
+      restricted.handler({ path: outsidePath, content: "no" }, buildCtx()),
+      /Path outside allowed workspace roots/
+    );
+    const insideWorkspaceOutsideScratch = join(workspaceDir, "other.txt");
+    const layoutBlocked = await restricted.handler({ path: insideWorkspaceOutsideScratch, content: "no" }, buildCtx());
+    assert.match(String(layoutBlocked.error ?? ""), /Absolute output paths must stay inside/);
+
+    const full = getWriteToolDefinition({ cwd: workspaceDir, workspaceDir, outputLayout, hostWideAccess: true });
+    const result = await full.handler({ path: outsidePath, content: "layout-free" }, buildCtx());
+    assert.equal(result.ok, true, String(result.error ?? ""));
+    assert.equal(readFileSync(outsidePath, "utf8"), "layout-free");
+    assert.equal(existsSync(outsidePath), true);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(outsideDir, { recursive: true, force: true });
+  }
+});

@@ -247,7 +247,16 @@ export function toolDefToAgentTool(
                 signal,
                 env
               });
-              return { exitCode: result.code, stdout: result.stdout, stderr: result.stderr };
+              // Metadata must survive: the bash handler reads sandboxApplied to
+              // recognize sandbox denials and escalate into the Host Bash
+              // approval flow, and warning feeds the result details.
+              return {
+                exitCode: result.code,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                sandboxApplied: result.sandboxApplied,
+                warning: result.warning
+              };
             }
             const res = await execCommand(cmd, {
               cwd: opts?.cwd ?? cwd,

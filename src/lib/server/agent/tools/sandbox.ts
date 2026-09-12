@@ -41,17 +41,20 @@ export interface SandboxProvider {
 
 /**
  * What the SDK keeps in module-global state and therefore cannot vary per
- * command: the static profile knobs (allowLocalBinding) and whether the shared
- * network proxy infrastructure must exist. Everything that differs between
- * environment handles (workspace paths, domain lists) travels per command as
- * `wrapWithSandbox`'s customConfig — dedup on this key means a second handle's
- * initialize never resets the manager for its own settings, and never runs
- * under the first handle's.
+ * command: the static profile knobs (allowLocalBinding) and the entire network
+ * configuration — the shared proxy's allow/deny filter reads the manager's
+ * global config (`filterNetworkRequest`), so a settings change that alters the
+ * domain lists must re-initialize the manager or every later sandboxed command
+ * keeps filtering under the stale allowlist. Filesystem settings, by contrast,
+ * travel per command as `wrapWithSandbox`'s customConfig and are deliberately
+ * excluded: workspace paths differ between concurrent handles and must never
+ * reset the manager for one another.
  */
 export function sandboxInfrastructureKey(config: SandboxRuntimeConfig): string {
   return JSON.stringify({
     allowLocalBinding: config.network?.allowLocalBinding ?? false,
-    proxyRequired: (config.network?.allowedDomains?.length ?? 0) > 0
+    allowedDomains: [...(config.network?.allowedDomains ?? [])].sort(),
+    deniedDomains: [...(config.network?.deniedDomains ?? [])].sort()
   });
 }
 

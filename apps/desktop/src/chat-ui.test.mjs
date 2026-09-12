@@ -3187,6 +3187,10 @@ test("a draft session only writes a permission override when the user explicitly
   assert.match(chatView, /draftPermissionModeTouched/);
   assert.match(chatView, /if \(draftPermissionModeTouched\) \{[\s\S]*?saveDesktopSessionPermission/);
   assert.match(chatView, /loadDesktopExecutionDefault/);
+  // The untouched default must refetch on every new draft and on settings
+  // changes, or the menu shows a stale mode the runtime has moved past.
+  assert.match(chatView, /draftMode !== lastDraftMode/);
+  assert.match(chatView, /if \(draftMode && !draftPermissionModeTouched\) draftPermissionDefaultEndpoint = "";/);
   // The untouched branch must exist beside the touched one and never save.
   const draftBlock = chatView.match(/if \(draftPermissionModeTouched\) \{[\s\S]*?\} else \{[\s\S]*?\n          \}/);
   assert.ok(draftBlock, "the touched/untouched pair must stay inside onDraftSessionCreated");

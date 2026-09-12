@@ -959,3 +959,52 @@ test("a subagent-bound sandbox environment fails closed when the provider is una
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("bound-environment sandbox denials still escalate into a Host Bash approval", async () => {
+  // Reviewer repro: the bound backend wrapper dropped sandboxApplied, so the
+  // bash handler could not recognize a sandbox denial and the approval request
+  // count stayed at 0. The metadata must survive the environment boundary.
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const pendingApprovals: HostBashApprovalRecord[] = [];
+  let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  try {
+    const denialEnvironment = {
+      backend: { id: "scripted", displayName: "Scripted", executionTarget: "sandbox" as const, supportsNetworkDomainRestrictions: true, supportsFilesystemRestrictions: true, supportsEnvInjection: true },
+      workspaceDir: cwd,
+      execute: async () => ({
+        code: 1, stdout: "", stderr: "longbridge: Operation not permitted",
+        sandboxApplied: true, warning: undefined
+      })
+    };
+    const tool = createBashTool(cwd, {
+      executionTarget: "sandbox",
+      executionEnvironment: denialEnvironment as never,
+      hostApproval: {
+        channel: "telegram",
+        chatId: "chat-1",
+        scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
+        hostBashStore: capturingHostBashStore(pendingApprovals),
+        // Collapse the inline wait so the test exercises the recorded request.
+        approvalWaitTimeoutMs: 1,
+        getSettings: () => settings,
+        updateSettings: (patch: any) => {
+          settings = { ...settings, ...patch } as RuntimeSettings;
+          return settings;
+        }
+      } as any
+    });
+    const result = await tool.execute("tool-1", {
+      label: "bash",
+      command: "longbridge news FIG.US",
+      hostApproval: undefined
+    });
+
+    assert.equal(pendingApprovals.length, 1, "the sandbox denial must raise exactly one approval request");
+    assert.equal(pendingApprovals[0]?.command, "longbridge");
+    assert.match(firstText(result), /host approval was requested automatically/i, "the denial requests approval instead of returning the raw EPERM");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

@@ -100,6 +100,7 @@
   let draftPermissionMode: PermissionMode = "accept_edits";
   let draftPermissionModeTouched = false;
   let draftPermissionDefaultEndpoint = "";
+  let lastDraftMode = false;
   const sessionPermissionModes = new Map<string, PermissionMode>();
   let permissionHydrationSession = "";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
@@ -1193,6 +1194,9 @@
 
   function requestSettingsRefresh(): void {
     pendingSettingsRefresh = true;
+    // The execution default may have changed in Settings: an untouched draft
+    // menu must refetch (an explicit in-draft pick stays).
+    if (draftMode && !draftPermissionModeTouched) draftPermissionDefaultEndpoint = "";
     void refreshModelsAndProfiles();
   }
 
@@ -1371,10 +1375,19 @@
 
   $: if (draftMode) permissionMode = draftPermissionMode;
   // A fresh draft starts at the configured default (not a hardcoded mode), so
-  // the menu never advertises something the runtime will not do.
+  // the menu never advertises something the runtime will not do. Every new
+  // draft — and every settings change while a draft is open — refetches: an
+  // untouched menu must never show a default the runtime has moved past.
+  $: if (draftMode !== lastDraftMode) {
+    const entering = draftMode;
+    lastDraftMode = draftMode;
+    if (entering) {
+      draftPermissionModeTouched = false;
+      draftPermissionDefaultEndpoint = "";
+    }
+  }
   $: if (draftMode && connectedEndpoint && connectedEndpoint !== draftPermissionDefaultEndpoint) {
     draftPermissionDefaultEndpoint = connectedEndpoint;
-    draftPermissionModeTouched = false;
     void loadDesktopExecutionDefault(connectedEndpoint).then((mode) => {
       if (!draftPermissionModeTouched) draftPermissionMode = mode;
     }).catch(() => undefined);

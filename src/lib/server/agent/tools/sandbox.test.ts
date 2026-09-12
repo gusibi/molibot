@@ -350,36 +350,63 @@ test("sandbox defaults keep the minimal env-inheritance posture", () => {
   assert.equal(defaultToolSandboxSettings.env.inheritMode, "minimal");
 });
 
-test("sandboxInfrastructureKey varies only with manager-global state", () => {
-  // Two environment handles in the same runtime differ by workspace paths and
-  // domain lists — those must NOT reset the shared manager (and never run the
-  // second handle under the first one's init). Only static profile knobs and
-  // proxy presence are manager-global.
-  const workspaceA = "/tmp/ws-a/scratch";
-  const workspaceB = "/tmp/ws-b/scratch";
-  const domainsA = ["example.com"];
+test("sandboxInfrastructureKey: filesystem is per-handle, network is manager-global", () => {
+  // The shared proxy's allow/deny filter reads the manager's GLOBAL config,
+  // so a domain-list change must re-initialize it (reviewer repro: allow-all
+  // then a specific deny kept returning 200 until a manual reinit). Workspace
+  // paths differ between concurrent handles and travel per command via
+  // customConfig — they must never reset the manager for one another.
   const base = {
     network: { allowedDomains: ["*"], deniedDomains: [], allowLocalBinding: true },
-    filesystem: { denyRead: [] as string[], allowWrite: [workspaceA], denyWrite: [] as string[] }
+    filesystem: { denyRead: [] as string[], allowWrite: ["/tmp/ws-a"], denyWrite: [] as string[] }
   };
-  const handleA = { ...base, filesystem: { ...base.filesystem, allowWrite: [workspaceA] } };
-  const handleB = {
-    ...base,
-    network: { allowedDomains: domainsA, deniedDomains: [], allowLocalBinding: true },
-    filesystem: { ...base.filesystem, allowWrite: [workspaceB] }
-  };
-  assert.equal(sandboxInfrastructureKey(handleA), sandboxInfrastructureKey(handleB), "per-handle differences must not change the infrastructure key");
+  const otherWorkspace = { ...base, filesystem: { ...base.filesystem, allowWrite: ["/tmp/ws-b"] } };
+  assert.equal(sandboxInfrastructureKey(base), sandboxInfrastructureKey(otherWorkspace), "workspace differences must not reset the manager");
 
+  assert.notEqual(
+    sandboxInfrastructureKey({ ...base, network: { allowedDomains: ["example.com"], deniedDomains: [], allowLocalBinding: true } }),
+    sandboxInfrastructureKey(base),
+    "a new allowlist must re-initialize the shared proxy"
+  );
+  assert.notEqual(
+    sandboxInfrastructureKey({ ...base, network: { allowedDomains: ["*"], deniedDomains: ["blocked.example"], allowLocalBinding: true } }),
+    sandboxInfrastructureKey(base),
+    "a new denylist must re-initialize the shared proxy"
+  );
   assert.notEqual(
     sandboxInfrastructureKey({ ...base, network: { ...base.network, allowLocalBinding: false } }),
     sandboxInfrastructureKey(base),
     "static profile knobs are manager-global"
   );
-  assert.notEqual(
-    sandboxInfrastructureKey({ ...base, network: { allowedDomains: [], deniedDomains: [], allowLocalBinding: true } }),
-    sandboxInfrastructureKey(base),
-    "proxy presence is manager-global"
-  );
+});
+
+test("a changed domain allowlist re-initializes the manager with the new network config", async () => {
+  const originalProvider = getSandboxProvider();
+  const initializeCalls: Array<unknown> = [];
+  const capturingProvider: SandboxProvider = {
+    name: "capture-network-sandbox",
+    checkDependencies: () => true,
+    async initialize(config) { initializeCalls.push(JSON.parse(JSON.stringify(config))); },
+    async reset() {},
+    async wrapWithSandbox(command) { return command; },
+    isInitialized: () => true,
+    getLastError: () => undefined
+  };
+  try {
+    setSandboxProvider(capturingProvider);
+    const allowAll = { ...defaultToolSandboxSettings };
+    const restricted = {
+      ...defaultToolSandboxSettings,
+      network: { allowedDomains: ["example.com"], deniedDomains: ["blocked.example"] }
+    };
+    await prepareToolSandboxExecution({ settings: allowAll, cwd: "/w", workspaceDir: "/ws", command: "echo 1", env: {} });
+    await prepareToolSandboxExecution({ settings: restricted, cwd: "/w", workspaceDir: "/ws", command: "echo 2", env: {} });
+
+    assert.equal(initializeCalls.length, 2, "the network change must re-initialize the shared manager");
+    assert.deepEqual((initializeCalls[1] as { network: { allowedDomains: string[] } }).network.allowedDomains, ["example.com"], "the new allowlist reaches the proxy config");
+  } finally {
+    setSandboxProvider(originalProvider);
+  }
 });
 
 test("prepareToolSandboxExecution hands the environment's own config to the provider wrap", async () => {

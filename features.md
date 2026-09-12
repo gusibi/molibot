@@ -1,5 +1,13 @@
 # Molibot Features
 
+### 统一权限模式第二轮复审修复：代理白名单时效、Auto 布局墙、子代理审批升级、draft 默认刷新（2026-09-12，已实现）
+
+- **P1 改域名限制后共享代理仍用旧白名单**：基础设施去重键此前只含静态 knob + 代理存在性，而 SDK 的共享代理过滤器读的是管理器全局 config——先允许全部再收紧域名后，沙箱命令仍按旧白名单放行（复现：仍返回 200）。修复：`sandboxInfrastructureKey` 纳入完整网络配置（allow/deny 域名排序后参与），网络设置变更触发管理器重初始化；文件系统仍走逐命令 customConfig（并发句柄的 workspace 差异继续互不干扰）。守卫：infra key 语义反转后的纯函数测试 + 「allow-all → 收紧域名」两段 prepare 断言第二次 initialize 携带新 allowlist。
+- **P1 Auto 写外部文件被输出布局检查拦住**：路径守卫放开后，write 的第二层 `Absolute output paths must stay inside the Project root or runtime scratch root` 仍在。修复：该层包含性检查同样按 `hostWideAccess`（Auto）跳过，受限模式两层照旧（测试分别钉住两层错误）。守卫：write 工具带 outputLayout 的 Auto/受限对照测试。
+- **P1 子代理沙箱拒绝无法升级审批**：绑定环境的 shell 包装只返回退出码和输出，丢掉 `sandboxApplied`/`warning`，bash 无法识别沙箱拒绝（复现：审批请求数 0）。修复：完整透传执行元数据；沙箱拒绝照常升级为 Host Bash 审批请求并挂起。守卫：脚本化环境返回 `Operation not permitted` + `sandboxApplied: true` → 恰好一个审批请求 + 挂起文本。
+- **P2 draft 默认模式可能过期**：只在服务地址变化时读取一次。修复：每次新开 draft（draftMode 翻转）与收到设置变更事件（未主动选择时）都重新拉取全局默认；用户在 draft 中显式选择过的值不被覆盖。守卫：chat-ui 结构守卫补两条刷新条件。
+- **验证**：受影响服务端测试 256/256 + 外部适配器契约 3/3；desktop `svelte-check` 0 错 0 警、chat-ui 233/233、api.test 103/103；`vite build` 通过；重建产物冷启动冒烟（health 200 → execution-default GET/PATCH → sandbox GET → kill 重启恢复 200）通过。
+
 ### 统一权限模式复审修复：子代理真沙箱、Auto 文件全host、draft 继承、Provider 配置所有权、提示词契约（2026-09-12，已实现）
 
 - **P1 子代理 bash 未接沙箱（review 复现）**：`createBashTool` 走 `toolDefToAgentTool` 的 legacy ctx，`shell.run` 直接 `execCommand`，`executionTarget` 只是摆设——沙箱不可用时子代理照样在宿主建文件。修复：`toolDefToAgentTool`/`createBashTool` 接受绑定执行环境，`createBashDefinition` 用 `bindExecutionEnvironment`（继承父尝试策略）绑定后传入——沙箱目标真沙箱、全自动真宿主、Plan 显式失败（不再静默逃逸宿主）；子代理 read/write/edit 同步继承 `hostWideAccess`。守卫：注入式后端路由测试 + 沙箱不可用组合复现（拒绝且不落盘）+ subagent.ts 结构断言。
