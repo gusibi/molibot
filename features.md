@@ -1,5 +1,14 @@
 # Molibot Features
 
+### 统一权限模式复审修复：子代理真沙箱、Auto 文件全host、draft 继承、Provider 配置所有权、提示词契约（2026-09-12，已实现）
+
+- **P1 子代理 bash 未接沙箱（review 复现）**：`createBashTool` 走 `toolDefToAgentTool` 的 legacy ctx，`shell.run` 直接 `execCommand`，`executionTarget` 只是摆设——沙箱不可用时子代理照样在宿主建文件。修复：`toolDefToAgentTool`/`createBashTool` 接受绑定执行环境，`createBashDefinition` 用 `bindExecutionEnvironment`（继承父尝试策略）绑定后传入——沙箱目标真沙箱、全自动真宿主、Plan 显式失败（不再静默逃逸宿主）；子代理 read/write/edit 同步继承 `hostWideAccess`。守卫：注入式后端路由测试 + 沙箱不可用组合复现（拒绝且不落盘）+ subagent.ts 结构断言。
+- **P1 Auto 文件工具仍被 workspace 根墙拦住**：只取消了 denyWrite，`createPathGuard` 的 approved-root 检查仍拒绝外部路径。修复：`createPathGuard` 增加 `hostWideAccess`（Auto 时跳过根限制，保留 memory gateway / 全局 profile 两类结构路由守卫），主路径 ctx.fs 与 read/write/edit 及子代理同名工具按有效策略传参——文件工具与命令服从同一份策略。守卫：path 守卫单测 + write 工具在 Auto 写外部路径成功 / 受限模式仍拒绝的对照测试。
+- **P1 新会话无条件写会话覆盖**：`draftPermissionMode` 硬编码初始值且 `onDraftSessionCreated` 无条件保存，全局默认改了新会话不跟随。修复：draft 进入时从 `/api/desktop/execution-default` 读取真实默认（新增 `loadDesktopExecutionDefault` 客户端），只有用户在 draft 中主动选择（`draftPermissionModeTouched`）才落会话覆盖，否则继承并在来源行显示「继承自全局默认」。守卫：chat-ui 结构守卫锁定 touched 条件与未触碰分支不含保存调用。
+- **P1 后端句柄未隔离真实沙箱配置**：Anthropic provider 的 `initialize` 以完整 config 为去重键，并发时第二个句柄等第一个的初始化 Promise 却应用不上自己的配置。经 SDK 源码核实：`wrapWithSandbox` 第三参支持逐命令 `customConfig`（文件系统逐命令生效），网络代理过滤读全局 config 而域名限制本就是全局设置（各句柄一致）。修复三件套：(1) `sandboxInfrastructureKey`（allowLocalBinding + 代理是否需要）作为去重键，句柄间差异不再触发 reset 抢占；(2) `prepareToolSandboxExecution` 把本句柄 effective config 传入 `wrapWithSandbox` customConfig，wrapped 命令自带配置、与全局状态解耦；(3) init→wrap 以模块级互斥串行（执行仍在锁外，并发保持并行）。守卫：infra key 纯函数测试 + pluggable provider 捕获「wrap 收到本句柄 config」契约测试。
+- **P2 静态提示词与全自动冲突**：缓存稳定前缀里的「Bash 在沙箱中执行、宿主操作须请求审批 `bash(command, hostApproval=…)`」教学会让 Auto 模型主动停下等一张永远不会来的卡。修复：删除静态 `host-tool-approval` section（含 pipeline 第 4 步的指向），沙箱→宿主访问契约移入 manual/accept_edits 的逐轮 runtime instructions（Auto/Plan 不含），bash 工具描述改为模式中立；modeInstructions 的 Auto 行显式加「不要请求/等待审批、不要把命令描述为沙箱内」。守卫：modeInstructions 测试（受限模式含契约、Auto 无 hostApproval 教学、四模式互异）+ prompt.ts 源结构守卫（静态前缀不再含审批教学）。
+- **验证**：受影响服务端测试 269/269（approvalSuspension harness 10/10 连续三轮稳定）；desktop `svelte-check` 0 错 0 警、chat-ui 结构守卫 233/233、api.test 103/103；`vite build` 通过。
+
 ### 统一执行权限模式：一套四模式，全自动=完全访问（2026-09-11，已实现，issue #49）
 
 - **统一模式**：产品只保留一套执行权限模式（计划/手动/接受修改/全自动），设置默认值与对话窗口覆盖共用同一套名称、说明与运行时策略；会话覆盖按原五级链（Session → Project → Bot 实例 → Agent → 全局默认）解析，`resolveEffectivePermissionMode` 现同时返回决策来源（session/project/instance/agent/global），`/api/desktop/session-permission` GET 透出 `source`，composer 权限菜单底部显示「来源：本会话覆盖/继承自…」。删除 `clampModeForChannel`：渠道不再把 Plan/Manual 钳制成 Accept Edits（Plan 各渠道只读可守、Manual 走既有 defer/挂起审批路径），杜绝无审批面渠道上的静默放宽。

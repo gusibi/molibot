@@ -208,9 +208,15 @@ export async function execCommand(command: string, opts: ExecOptions): Promise<E
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
+import type { BoundExecutionEnvironment } from "$lib/server/agent/exec/executionBackend.js";
 import { promises as fsPromises } from "node:fs";
 
-export function toolDefToAgentTool(def: ToolDefinition, cwd: string, env?: Record<string, string>): AgentTool<any> {
+export function toolDefToAgentTool(
+  def: ToolDefinition,
+  cwd: string,
+  env?: Record<string, string>,
+  options?: { executionEnvironment?: BoundExecutionEnvironment }
+): AgentTool<any> {
   return {
     name: def.id,
     label: def.name,
@@ -230,6 +236,19 @@ export function toolDefToAgentTool(def: ToolDefinition, cwd: string, env?: Recor
         },
         shell: {
           run: async (cmd, opts) => {
+            // A bound execution environment (the shared backend boundary) owns
+            // the run when supplied — sandbox participation and host execution
+            // follow the attempt's effective policy instead of the host.
+            if (options?.executionEnvironment) {
+              const result = await options.executionEnvironment.execute({
+                command: cmd,
+                cwd: opts?.cwd ?? cwd,
+                timeoutSeconds: opts?.timeoutMs ? opts.timeoutMs / 1000 : undefined,
+                signal,
+                env
+              });
+              return { exitCode: result.code, stdout: result.stdout, stderr: result.stderr };
+            }
             const res = await execCommand(cmd, {
               cwd: opts?.cwd ?? cwd,
               timeoutSeconds: opts?.timeoutMs ? opts.timeoutMs / 1000 : undefined,

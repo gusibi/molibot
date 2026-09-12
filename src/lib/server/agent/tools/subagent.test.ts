@@ -706,3 +706,13 @@ test("createSubagentTool rejects a provider disabled after the tool was created"
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("subagent bash binds the shared execution backend from the inherited policy", () => {
+  // Regression (unified execution modes review): the child bash must route
+  // through the bound execution backend — sandbox target really sandboxes,
+  // host target really runs on the host, Plan fails closed.
+  const source = fs.readFileSync(path.resolve("src/lib/server/agent/tools/subagent.ts"), "utf8");
+  assert.match(source, /bindExecutionEnvironment\(\{[\s\S]*?executionTarget: policy\.executionTarget[\s\S]*?sandboxSettings: settings\.toolSandbox[\s\S]*?\}\)/);
+  assert.match(source, /executionEnvironment\s*\n?\s*\}\);/m);
+  assert.match(source, /createBashTool\(cwd, \{[\s\S]*?executionEnvironment[\s\S]*?\}\);/);
+});

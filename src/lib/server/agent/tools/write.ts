@@ -48,8 +48,8 @@ function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { re
   };
 }
 
-export function getWriteToolDefinition(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy }): ToolDefinition {
-  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
+export function getWriteToolDefinition(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy; hostWideAccess?: boolean }): ToolDefinition {
+  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir, { hostWideAccess: options.hostWideAccess });
 
   return {
     id: "write",
@@ -136,7 +136,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
   };
 }
 
-export function createWriteTool(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy }): AgentTool<typeof writeSchema> {
+export function createWriteTool(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy; hostWideAccess?: boolean }): AgentTool<typeof writeSchema> {
   const def = getWriteToolDefinition(options);
   return toolDefToAgentTool(def, options.cwd);
 }

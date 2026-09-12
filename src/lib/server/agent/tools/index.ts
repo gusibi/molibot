@@ -392,7 +392,10 @@ export function createMomTools(options: {
     decidePolicy
   });
 
-  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
+  // File tools obey the same effective policy as commands: full access removes
+  // the workspace-root wall (paths still resolve with normal file-tool
+  // semantics); restricted modes keep the approved-root protections.
+  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir, { hostWideAccess: policy.mode === "auto" });
 
   const buildExecutionContext = (
     signal?: AbortSignal,
@@ -585,6 +588,7 @@ export function createMomTools(options: {
   const readToolDef = getReadToolDefinition({
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
+    hostWideAccess: policy.mode === "auto",
     channel: options.channel,
     spillDir: toolOutputDir ?? join(options.cwd, ".mom-tool-output"),
     getSettings: options.getSettings,
@@ -605,10 +609,10 @@ export function createMomTools(options: {
     }
     : undefined;
 
-  const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir, outputLayout, filesystemPolicy });
+  const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir, outputLayout, filesystemPolicy, hostWideAccess: policy.mode === "auto" });
   registry.register(writeToolDef);
 
-  const editToolDef = getEditToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, outputLayout, filesystemPolicy });
+  const editToolDef = getEditToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, outputLayout, filesystemPolicy, hostWideAccess: policy.mode === "auto" });
   registry.register(editToolDef);
 
   const bashToolDef = getBashToolDefinition({

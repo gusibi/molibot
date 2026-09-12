@@ -33,8 +33,8 @@ export function buildDiff(oldText: string, newText: string, contextLines = 4): s
   return generateDiffString(oldText, newText, contextLines).diff;
 }
 
-export function getEditToolDefinition(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy }): ToolDefinition {
-  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
+export function getEditToolDefinition(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy; hostWideAccess?: boolean }): ToolDefinition {
+  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir, { hostWideAccess: options.hostWideAccess });
 
   return {
     id: "edit",
@@ -117,7 +117,7 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
   };
 }
 
-export function createEditTool(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy }): AgentTool<typeof editSchema> {
+export function createEditTool(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout; filesystemPolicy?: FilesystemPolicy; hostWideAccess?: boolean }): AgentTool<typeof editSchema> {
   const def = getEditToolDefinition(options);
   return toolDefToAgentTool(def, options.cwd);
 }

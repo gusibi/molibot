@@ -283,3 +283,44 @@ test("a non-read MCP operation runs without an approval card in full access and 
     rmSync(isolationRoot, { recursive: true, force: true });
   }
 });
+
+test("full access lets the write tool touch paths outside the workspace roots; restricted modes keep the wall", async () => {
+  const { getWriteToolDefinition } = await import("$lib/server/agent/tools/write.js");
+  const { mkdtempSync, rmSync, existsSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-write-policy-ws-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "molibot-write-policy-out-"));
+  const outsidePath = join(outsideDir, "external.txt");
+  try {
+    const buildCtx = () => ({
+      runId: "run-1", sessionId: "session-1", workspaceId: "personal", actorId: "chat-1",
+      cwd: workspaceDir,
+      fs: {
+        readText: async () => "",
+        writeText: async (p: string, c: string) => { const { writeFile } = await import("node:fs/promises"); await writeFile(p, c, "utf8"); },
+        readBuffer: async () => Buffer.alloc(0)
+      },
+      shell: { run: async () => ({ exitCode: 0, stdout: "", stderr: "" }) },
+      network: { fetch: async () => ({}) },
+      emit: () => {}
+    } as unknown as ToolExecutionContext);
+    // Restricted mode keeps the approved-root wall.
+    const restricted = getWriteToolDefinition({ cwd: workspaceDir, workspaceDir });
+    await assert.rejects(
+      restricted.handler({ path: outsidePath, content: "no" }, buildCtx()),
+      /Path outside allowed workspace roots/
+    );
+
+    // Full access writes the very same path (issue: file tools obey the same
+    // effective policy as commands).
+    const full = getWriteToolDefinition({ cwd: workspaceDir, workspaceDir, hostWideAccess: true });
+    const result = await full.handler({ path: outsidePath, content: "host-wide" }, buildCtx());
+    assert.equal(result.ok, true, String(result.error ?? ""));
+    assert.equal(existsSync(outsidePath), true);
+    assert.equal(readFileSync(outsidePath, "utf8"), "host-wide");
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(outsideDir, { recursive: true, force: true });
+  }
+});

@@ -3179,6 +3179,22 @@ test("Desktop Stop waits for server finalization and reloads preserved output", 
   assert.doesNotMatch(conversationController, /this\.abort\?\.abort\(\);\s*try \{\s*const stopped = await stopDesktopChat/);
 });
 
+test("a draft session only writes a permission override when the user explicitly picked one", () => {
+  // Regression (unified execution modes review): creating a session from a
+  // draft used to persist the composer's initial mode as a session override,
+  // so changing the global default never reached new conversations.
+  const chatView = read("./ChatView.svelte");
+  assert.match(chatView, /draftPermissionModeTouched/);
+  assert.match(chatView, /if \(draftPermissionModeTouched\) \{[\s\S]*?saveDesktopSessionPermission/);
+  assert.match(chatView, /loadDesktopExecutionDefault/);
+  // The untouched branch must exist beside the touched one and never save.
+  const draftBlock = chatView.match(/if \(draftPermissionModeTouched\) \{[\s\S]*?\} else \{[\s\S]*?\n          \}/);
+  assert.ok(draftBlock, "the touched/untouched pair must stay inside onDraftSessionCreated");
+  const untouched = draftBlock[0].slice(draftBlock[0].indexOf("} else {"));
+  assert.match(untouched, /permissionModeSource = "global";/);
+  assert.doesNotMatch(untouched, /saveDesktopSessionPermission/);
+});
+
 test("settings navigation keeps the current product taxonomy and entity editors open as dialogs", () => {
   assert.match(app, /id: "general", sections: \["general"\]/);
   assert.match(app, /id: "models", sections: \["models", "providers"\]/);

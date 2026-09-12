@@ -106,7 +106,14 @@ export function resolveToolPath(baseDir: string, input: string): string {
   return resolve(baseDir, input);
 }
 
-export function createPathGuard(cwd: string, workspaceDir: string): (filePath: string) => void {
+/**
+ * @param options.hostWideAccess — full access (Auto) removes the workspace-root
+ * wall: file tools obey the same effective policy as commands and may touch the
+ * whole host (paths still resolve with normal file-tool semantics). The
+ * memory-gateway and global-profile routing guards stay in every mode — they
+ * protect Molibot's own structural boundaries, not sandbox walls.
+ */
+export function createPathGuard(cwd: string, workspaceDir: string, options?: { hostWideAccess?: boolean }): (filePath: string) => void {
   const workspaceResolved = resolve(workspaceDir);
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceResolved);
   const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceResolved);
@@ -146,6 +153,7 @@ export function createPathGuard(cwd: string, workspaceDir: string): (filePath: s
       );
     }
 
+    if (options?.hostWideAccess === true) return;
     const ok = allowedRoots.some((root) => {
       const rel = relative(root, resolved);
       return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));

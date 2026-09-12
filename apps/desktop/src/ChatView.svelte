@@ -74,6 +74,7 @@
     summarizeOnboardingDiagnostics,
     loadDesktopSessionModel,
     saveDesktopSessionModel,
+    loadDesktopExecutionDefault,
     loadDesktopSessionPermission,
     saveDesktopSessionPermission,
     resolveDesktopPlan,
@@ -93,7 +94,12 @@
   const permissionModeOptions: readonly PermissionMode[] = ["plan", "manual", "accept_edits", "auto"];
   let permissionMode: PermissionMode = "accept_edits";
   let permissionModeSource: PermissionSource = "global";
+  // The composer menu in a draft shows the *global default* until the user
+  // actively picks a mode; only an explicit pick becomes a session override
+  // when the draft turns into a session.
   let draftPermissionMode: PermissionMode = "accept_edits";
+  let draftPermissionModeTouched = false;
+  let draftPermissionDefaultEndpoint = "";
   const sessionPermissionModes = new Map<string, PermissionMode>();
   let permissionHydrationSession = "";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
@@ -1301,8 +1307,18 @@
             appliedModelSessionId = sessionId;
             activeModelKey = key;
           }
-          await saveDesktopSessionPermission(connectedEndpoint, _profileId, sessionId, draftPermissionMode);
-          sessionPermissionModes.set(sessionId, draftPermissionMode);
+          // Only an explicit in-draft pick becomes an override; an untouched
+          // draft lets the session inherit the resolved default, so changing
+          // the global default mode still reaches new conversations.
+          if (draftPermissionModeTouched) {
+            const saved = await saveDesktopSessionPermission(connectedEndpoint, _profileId, sessionId, draftPermissionMode);
+            sessionPermissionModes.set(sessionId, saved);
+            permissionModeSource = "session";
+          } else {
+            sessionPermissionModes.delete(sessionId);
+            permissionModeSource = "global";
+          }
+          draftPermissionModeTouched = false;
         },
         onSessionCreated: (profileId, sessionId) => {
           localStorage.setItem(LAST_BOT_KEY, profileId);
@@ -1354,6 +1370,15 @@
   }
 
   $: if (draftMode) permissionMode = draftPermissionMode;
+  // A fresh draft starts at the configured default (not a hardcoded mode), so
+  // the menu never advertises something the runtime will not do.
+  $: if (draftMode && connectedEndpoint && connectedEndpoint !== draftPermissionDefaultEndpoint) {
+    draftPermissionDefaultEndpoint = connectedEndpoint;
+    draftPermissionModeTouched = false;
+    void loadDesktopExecutionDefault(connectedEndpoint).then((mode) => {
+      if (!draftPermissionModeTouched) draftPermissionMode = mode;
+    }).catch(() => undefined);
+  }
   $: if (!draftMode && activeSessionId && activeSessionId !== permissionHydrationSession) {
     permissionHydrationSession = activeSessionId;
     const cached = sessionPermissionModes.get(activeSessionId);
@@ -1371,6 +1396,7 @@
     permissionMode = mode;
     if (draftMode) {
       draftPermissionMode = mode;
+      draftPermissionModeTouched = true;
       return;
     }
     if (!connectedEndpoint || !activeSessionId || !activeProfileId) return;

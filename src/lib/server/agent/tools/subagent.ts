@@ -788,8 +788,8 @@ function buildStatusText(mode: "single" | "parallel" | "chain", completed: numbe
   return `Subagents running: ${completed}/${total} completed.`;
 }
 
-function createReadDefinition(cwd: string, workspaceDir: string): ToolDefinition {
-  const tool = createReadTool({ cwd, workspaceDir });
+function createReadDefinition(cwd: string, workspaceDir: string, hostWideAccess?: boolean): ToolDefinition {
+  const tool = createReadTool({ cwd, workspaceDir, hostWideAccess });
   const schema = Type.Object({
     path: Type.String(),
     offset: Type.Optional(Type.Number()),
@@ -806,8 +806,8 @@ function createReadDefinition(cwd: string, workspaceDir: string): ToolDefinition
   });
 }
 
-function createWriteDefinition(cwd: string, workspaceDir: string, chatId: string, artifactDir?: string): ToolDefinition {
-  const tool = createWriteTool({ cwd, workspaceDir, chatId, artifactDir });
+function createWriteDefinition(cwd: string, workspaceDir: string, chatId: string, artifactDir?: string, hostWideAccess?: boolean): ToolDefinition {
+  const tool = createWriteTool({ cwd, workspaceDir, chatId, artifactDir, hostWideAccess });
   const schema = Type.Object({
     path: Type.String(),
     content: Type.String()
@@ -823,8 +823,8 @@ function createWriteDefinition(cwd: string, workspaceDir: string, chatId: string
   });
 }
 
-function createEditDefinition(cwd: string, workspaceDir: string): ToolDefinition {
-  const tool = createEditTool({ cwd, workspaceDir });
+function createEditDefinition(cwd: string, workspaceDir: string, hostWideAccess?: boolean): ToolDefinition {
+  const tool = createEditTool({ cwd, workspaceDir, hostWideAccess });
   const schema = Type.Object({
     path: Type.String(),
     oldText: Type.String(),
@@ -855,10 +855,19 @@ function createBashDefinition(
   // included — instead of re-resolving settings that could drift mid-run.
   const policy = executionPolicy
     ?? resolveEffectiveExecutionPolicy({ getSettings: () => settings });
+  // The child's shell runs through the shared execution backend bound to this
+  // attempt: sandbox target actually sandboxes, full access runs on the host,
+  // and Plan fails closed instead of silently escaping to the host.
+  const executionEnvironment = bindExecutionEnvironment({
+    executionTarget: policy.executionTarget,
+    workspaceDir,
+    sandboxSettings: settings.toolSandbox
+  });
   const tool = createBashTool(cwd, {
     artifactDir,
     hostApproval,
-    executionTarget: policy.executionTarget
+    executionTarget: policy.executionTarget,
+    executionEnvironment
   });
   const schema = Type.Object({
     command: Type.String(),
@@ -898,8 +907,11 @@ function createCustomTools(
   }
 ): ToolDefinition[] {
   const readOnlyShell = agent.name === "scout" || agent.name === "planner" || agent.name === "reviewer";
+  // The child's file tools obey the same effective policy as its shell: full
+  // access removes the workspace-root wall for them too.
+  const hostWideAccess = (options.executionPolicy?.mode ?? "accept_edits") === "auto";
   const tools: ToolDefinition[] = [
-    createReadDefinition(options.cwd, options.workspaceDir),
+    createReadDefinition(options.cwd, options.workspaceDir, hostWideAccess),
     createBashDefinition(
       options.cwd,
       options.workspaceDir,
@@ -911,8 +923,8 @@ function createCustomTools(
     )
   ];
   if (agent.name === "worker") {
-    tools.push(createEditDefinition(options.cwd, options.workspaceDir));
-    tools.push(createWriteDefinition(options.cwd, options.workspaceDir, options.chatId, options.artifactDir));
+    tools.push(createEditDefinition(options.cwd, options.workspaceDir, hostWideAccess));
+    tools.push(createWriteDefinition(options.cwd, options.workspaceDir, options.chatId, options.artifactDir, hostWideAccess));
   }
   return tools;
 }

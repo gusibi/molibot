@@ -203,7 +203,7 @@ function buildMessageProcessingPipeline(): string {
     "1. Step 1 — Explicit skill: honor it and follow `skills-protocol`.",
     "2. Step 2 — Dedicated runtime tool: otherwise route image/video/speech/current-web/reminder outcomes through the authoritative `tools` table in any language, loading the tool with `toolSearch` first.",
     "3. Step 3 — Skill discovery: for other non-trivial actions, call `skillSearch` before generic tools.",
-    "4. Step 4 — Tool or bash: only when no runtime tool or skill matched; see `tools` and `host-tool-approval`.",
+    "4. Step 4 — Tool or bash: only when no runtime tool or skill matched; see `tools`.",
     "5. Step 5 — Direct answer: only conversation, formatting, or static knowledge needing no external data/media.",
     "For real-time, current, or version-sensitive requests, never rely on internal knowledge; go back and load `webSearch`.",
   ], "message-processing-pipeline");
@@ -224,7 +224,7 @@ function buildPathsSection(vars: PromptRenderVars, project?: ProjectPromptContex
       "- Use paths relative to the project root for project work. When a shell command needs the absolute path, quote it — it may contain spaces or non-ASCII characters.",
       "- Project work belongs under the project root; Molibot session files, indexes, logs, and hidden runtime metadata never go there.",
       "- Use only paths listed here or returned by tools; never assume `/workspace` exists.",
-      "- Safety, sandbox, and approval requirements are unchanged in project mode.",
+      "- Permission and approval behavior follows the Session's execution mode, unchanged by project mode.",
     ], "paths");
   }
   return section("Paths", [
@@ -382,23 +382,6 @@ function buildToolsSection(): string {
   ].join("\n"));
 }
 
-/**
- * The single home for the sandbox → host-access contract. It used to be split
- * across the pipeline's two sandbox subsections and this block, which said the
- * same thing in three slightly different ways.
- */
-function buildHostToolApprovalSection(): string {
-  return xmlBlock("host-tool-approval", [
-    "## Bash Sandbox and Host Tool Approval",
-    "- Bash runs in a runtime-managed sandbox and is fine for ordinary shell work. Do not try to bypass sandbox limits with bash workarounds, and do not ask the user for unsandboxed bash.",
-    "- Some capabilities are host-only: native app control, browser processes, IPC, desktop integration, or OAuth callbacks.",
-    "- When you already know a task needs host-only access, or a sandboxed command fails with a permission, IPC, browser, or native-app limitation, request approval instead of retrying: `bash(command, hostApproval={ reason, permissions? })`, naming the exact fixed command, why host execution is required, and minimal permissions.",
-    "- Never retry the same command hoping it passes, and never report such a failure without requesting approval.",
-    "- You may request approval but must never claim to approve host tools yourself.",
-    "- After approval, runtime immediately executes the stored host action; the agent does not call a second host-run tool.",
-    "- Approved host tools are controlled capabilities, not a general host shell."
-  ].join("\n"));
-}
 
 function buildSubagentSection(settings?: RuntimeSettings): string {
   const externalPlugin = resolveExternalSubagentConfig(settings);
@@ -536,8 +519,6 @@ function buildBaseSystemPromptWithOptions(
     buildToolSearchProtocolSection(),
     "",
     buildToolsSection(),
-    "",
-    buildHostToolApprovalSection(),
     "",
     buildSubagentSection(options?.settings),
     "",

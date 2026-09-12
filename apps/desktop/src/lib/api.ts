@@ -787,6 +787,15 @@ export async function performDesktopContractPluginLifecycle(
 
 export type SessionPermissionSource = "session" | "project" | "instance" | "agent" | "global";
 
+export async function loadDesktopExecutionDefault(
+  endpoint: string
+): Promise<"plan" | "manual" | "accept_edits" | "auto"> {
+  return (await requestJson<{ ok: true; mode: "plan" | "manual" | "accept_edits" | "auto" }>(
+    endpoint,
+    "/api/desktop/execution-default"
+  )).mode;
+}
+
 export async function loadDesktopSessionPermission(
   endpoint: string,
   profileId: string,

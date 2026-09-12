@@ -46,6 +46,8 @@ interface ReadToolDetails {
 export interface ReadToolOptions {
   cwd: string;
   workspaceDir: string;
+  /** Full access (Auto): reads obey the same policy as commands — host-wide. */
+  hostWideAccess?: boolean;
   channel?: string;
   spillDir?: string;
   getSettings?: () => RuntimeSettings;
@@ -55,7 +57,7 @@ export interface ReadToolOptions {
 }
 
 export function getReadToolDefinition(options: ReadToolOptions): ToolDefinition {
-  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
+  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir, { hostWideAccess: options.hostWideAccess });
 
   return {
     id: "read",

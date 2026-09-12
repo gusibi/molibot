@@ -885,3 +885,77 @@ test("approving a multi-capability pipeline stays one-time and grants no global 
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("a bound execution environment owns the standalone bash tool's shell runs", async () => {
+  // Regression (unified execution modes review): passing only executionTarget
+  // left the subagent bash on the legacy direct-host wrapper — a simulated
+  // unavailable sandbox never blocked it. The bound backend is the mechanism.
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  try {
+    const viaBackend: string[] = [];
+    const scripted = {
+      backend: { id: "scripted", displayName: "Scripted", executionTarget: "sandbox" as const, supportsNetworkDomainRestrictions: true, supportsFilesystemRestrictions: true, supportsEnvInjection: true },
+      workspaceDir: cwd,
+      execute: async (request: { command: string; cwd: string }) => {
+        viaBackend.push(request.command);
+        return { code: 0, stdout: "sandbox-ran", stderr: "", sandboxApplied: true };
+      }
+    };
+    const sandboxed = createBashTool(cwd, { executionTarget: "sandbox", executionEnvironment: scripted as never });
+    const result = await sandboxed.execute("tool-1", { label: "bash", command: "echo probe" });
+    assert.equal(firstText(result), "sandbox-ran");
+    assert.deepEqual(viaBackend, ["echo probe"], "the command must run through the bound backend, never the host wrapper");
+
+    // Fail closed: a Plan-mode environment refuses instead of escaping to host.
+    const planEnvironment = {
+      backend: scripted.backend,
+      workspaceDir: cwd,
+      execute: async () => { throw new Error("Plan mode is read-only: shell execution is unavailable."); }
+    };
+    const planTool = createBashTool(cwd, { executionTarget: "none", executionEnvironment: planEnvironment as never });
+    await assert.rejects(
+      planTool.execute("tool-2", { label: "bash", command: "echo must-not-run" }),
+      /Plan mode is read-only/
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a subagent-bound sandbox environment fails closed when the provider is unavailable", async () => {
+  // Reviewer repro: with the sandbox simulated unavailable, the subagent bash
+  // entry used to create the file anyway on the host. The bound backend is the
+  // only shell path, so an unavailable provider must fail the call.
+  const { bindExecutionEnvironment } = await import("$lib/server/agent/exec/executionBackend.js");
+  const { setSandboxProvider, getSandboxProvider } = await import("$lib/server/agent/tools/sandbox.js");
+  const { defaultToolSandboxSettings } = await import("$lib/server/settings/toolSandbox.js");
+  const unavailable = {
+    name: "missing-subagent-sandbox",
+    checkDependencies: () => false,
+    async initialize() {},
+    async reset() {},
+    async wrapWithSandbox(command) { return command; },
+    isInitialized: () => false,
+    getLastError: () => "dependencies missing"
+  };
+  const originalProvider = getSandboxProvider();
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const target = join(cwd, "must-not-exist.txt");
+  try {
+    setSandboxProvider(unavailable);
+    const environment = bindExecutionEnvironment({
+      executionTarget: "sandbox",
+      workspaceDir: cwd,
+      sandboxSettings: defaultToolSandboxSettings
+    });
+    const tool = createBashTool(cwd, { executionTarget: "sandbox", executionEnvironment: environment });
+    await assert.rejects(
+      tool.execute("tool-1", { label: "bash", command: `printf x > ${JSON.stringify(target)}` }),
+      /Sandbox unavailable/
+    );
+    assert.equal(existsSync(target), false, "no file may be created when the sandbox cannot start");
+  } finally {
+    setSandboxProvider(originalProvider);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

@@ -11,6 +11,7 @@ import {
   setSandboxProvider,
   getSandboxProvider,
   prepareToolSandboxExecution,
+  sandboxInfrastructureKey,
   type SandboxProvider
 } from "$lib/server/agent/tools/sandbox.js";
 
@@ -347,4 +348,77 @@ test("the sandbox backend fails closed when its provider is unavailable", async 
 
 test("sandbox defaults keep the minimal env-inheritance posture", () => {
   assert.equal(defaultToolSandboxSettings.env.inheritMode, "minimal");
+});
+
+test("sandboxInfrastructureKey varies only with manager-global state", () => {
+  // Two environment handles in the same runtime differ by workspace paths and
+  // domain lists — those must NOT reset the shared manager (and never run the
+  // second handle under the first one's init). Only static profile knobs and
+  // proxy presence are manager-global.
+  const workspaceA = "/tmp/ws-a/scratch";
+  const workspaceB = "/tmp/ws-b/scratch";
+  const domainsA = ["example.com"];
+  const base = {
+    network: { allowedDomains: ["*"], deniedDomains: [], allowLocalBinding: true },
+    filesystem: { denyRead: [] as string[], allowWrite: [workspaceA], denyWrite: [] as string[] }
+  };
+  const handleA = { ...base, filesystem: { ...base.filesystem, allowWrite: [workspaceA] } };
+  const handleB = {
+    ...base,
+    network: { allowedDomains: domainsA, deniedDomains: [], allowLocalBinding: true },
+    filesystem: { ...base.filesystem, allowWrite: [workspaceB] }
+  };
+  assert.equal(sandboxInfrastructureKey(handleA), sandboxInfrastructureKey(handleB), "per-handle differences must not change the infrastructure key");
+
+  assert.notEqual(
+    sandboxInfrastructureKey({ ...base, network: { ...base.network, allowLocalBinding: false } }),
+    sandboxInfrastructureKey(base),
+    "static profile knobs are manager-global"
+  );
+  assert.notEqual(
+    sandboxInfrastructureKey({ ...base, network: { allowedDomains: [], deniedDomains: [], allowLocalBinding: true } }),
+    sandboxInfrastructureKey(base),
+    "proxy presence is manager-global"
+  );
+});
+
+test("prepareToolSandboxExecution hands the environment's own config to the provider wrap", async () => {
+  // Regression (unified execution modes review): the second concurrent handle
+  // used to wait out the first one's initialization and wrap under its config.
+  // The provider contract now receives the calling handle's config so the SDK
+  // bakes it into that command alone.
+  const originalProvider = getSandboxProvider();
+  const wrappedWith: Array<unknown> = [];
+  const capturingProvider: SandboxProvider = {
+    name: "capture-config-sandbox",
+    checkDependencies: () => true,
+    async initialize() {},
+    async reset() {},
+    async wrapWithSandbox(command, options) {
+      wrappedWith.push(options?.config);
+      return command;
+    },
+    isInitialized: () => true,
+    getLastError: () => undefined
+  };
+  try {
+    setSandboxProvider(capturingProvider);
+    const settings = {
+      ...defaultToolSandboxSettings,
+      filesystem: { ...defaultToolSandboxSettings.filesystem, allowWrite: ["/tmp/handle-b"] }
+    };
+    await prepareToolSandboxExecution({
+      settings,
+      cwd: "/tmp/handle-b-cwd",
+      workspaceDir: "/tmp/handle-b-ws",
+      command: "echo hi",
+      env: {}
+    });
+    assert.equal(wrappedWith.length, 1);
+    const config = wrappedWith[0] as { filesystem: { allowWrite: string[] } };
+    assert.ok(config.filesystem.allowWrite.includes("/tmp/handle-b-cwd"), "the wrap config belongs to this handle");
+    assert.ok(config.filesystem.allowWrite.includes("/tmp/handle-b"), "and carries this handle's settings");
+  } finally {
+    setSandboxProvider(originalProvider);
+  }
 });

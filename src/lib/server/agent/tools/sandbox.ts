@@ -31,9 +31,28 @@ export interface SandboxProvider {
   checkDependencies(): boolean;
   initialize(config: SandboxRuntimeConfig, callback?: () => Promise<boolean>): Promise<void>;
   reset(): Promise<void>;
-  wrapWithSandbox(command: string, options?: { signal?: AbortSignal }): Promise<string>;
+  /** `config` is the calling environment handle's own runtime config; the SDK
+   *  bakes it into the wrapped command, so concurrent handles never execute
+   *  under another handle's filesystem/network settings. */
+  wrapWithSandbox(command: string, options?: { signal?: AbortSignal; config?: SandboxRuntimeConfig }): Promise<string>;
   isInitialized(): boolean;
   getLastError(): string | undefined;
+}
+
+/**
+ * What the SDK keeps in module-global state and therefore cannot vary per
+ * command: the static profile knobs (allowLocalBinding) and whether the shared
+ * network proxy infrastructure must exist. Everything that differs between
+ * environment handles (workspace paths, domain lists) travels per command as
+ * `wrapWithSandbox`'s customConfig — dedup on this key means a second handle's
+ * initialize never resets the manager for its own settings, and never runs
+ * under the first handle's.
+ */
+export function sandboxInfrastructureKey(config: SandboxRuntimeConfig): string {
+  return JSON.stringify({
+    allowLocalBinding: config.network?.allowLocalBinding ?? false,
+    proxyRequired: (config.network?.allowedDomains?.length ?? 0) > 0
+  });
 }
 
 // Anthropic Sandbox Runtime SDK Implementation
@@ -52,7 +71,7 @@ export class AnthropicSandboxProvider implements SandboxProvider {
   }
 
   async initialize(config: SandboxRuntimeConfig, callback?: () => Promise<boolean>): Promise<void> {
-    const nextKey = JSON.stringify(config);
+    const nextKey = sandboxInfrastructureKey(config);
     if (this.initializedConfigKey === nextKey && !this.lastInitializationError) return;
     if (this.initializationPromise) return this.initializationPromise;
 
@@ -83,8 +102,8 @@ export class AnthropicSandboxProvider implements SandboxProvider {
     this.lastInitializationError = "";
   }
 
-  async wrapWithSandbox(command: string, options?: { signal?: AbortSignal }): Promise<string> {
-    return SandboxManager.wrapWithSandbox(command, undefined, undefined, options?.signal);
+  async wrapWithSandbox(command: string, options?: { signal?: AbortSignal; config?: SandboxRuntimeConfig }): Promise<string> {
+    return SandboxManager.wrapWithSandbox(command, undefined, options?.config as AnthropicSandboxRuntimeConfig | undefined, options?.signal);
   }
 
   isInitialized(): boolean {
@@ -387,6 +406,12 @@ function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string,
   };
 }
 
+// Serializes initialize→wrap so a config transition (rare: static-knob or
+// proxy-presence change) can never interleave with another handle's wrap. The
+// per-command customConfig makes the wrapped command self-contained, so the
+// execution itself runs outside the mutex and concurrent attempts stay parallel.
+let providerWrapChain: Promise<unknown> = Promise.resolve();
+
 export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput): Promise<ToolSandboxPrepareResult> {
   if (!isSupportedPlatform()) {
     throw new Error(`Sandbox unavailable: Sandbox is not supported on ${process.platform}. Command was not executed.`);
@@ -395,26 +420,31 @@ export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput
   const envDetails = buildToolSandboxEnv(input.settings, input.workspaceDir, input.env);
   const provider = getSandboxProvider();
 
-  try {
-    if (!provider.checkDependencies()) {
-      throw new Error("Sandbox dependencies are missing.");
-    }
-    const effective = buildEffectiveSandboxConfig(input.settings, input.cwd, input.workspaceDir);
-    const allowAll = isAllowAll(input.settings.network.allowedDomains);
-    const sandboxAskCallback = allowAll ? async () => true : undefined;
+  const task = async (): Promise<ToolSandboxPrepareResult> => {
+    try {
+      if (!provider.checkDependencies()) {
+        throw new Error("Sandbox dependencies are missing.");
+      }
+      const effective = buildEffectiveSandboxConfig(input.settings, input.cwd, input.workspaceDir);
+      const allowAll = isAllowAll(input.settings.network.allowedDomains);
+      const sandboxAskCallback = allowAll ? async () => true : undefined;
 
-    await provider.initialize(effective, sandboxAskCallback);
-    const command = await provider.wrapWithSandbox(input.command, { signal: input.signal });
-    return {
-      command,
-      env: envDetails.env,
-      inheritProcessEnv: false,
-      sandboxApplied: true
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Sandbox unavailable: ${message} Command was not executed.`);
-  }
+      await provider.initialize(effective, sandboxAskCallback);
+      const command = await provider.wrapWithSandbox(input.command, { signal: input.signal, config: effective });
+      return {
+        command,
+        env: envDetails.env,
+        inheritProcessEnv: false,
+        sandboxApplied: true
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Sandbox unavailable: ${message} Command was not executed.`);
+    }
+  };
+  const run = providerWrapChain.then(task, task);
+  providerWrapChain = run.then(() => undefined, () => undefined);
+  return run;
 }
 
 export async function getToolSandboxDiagnostics(

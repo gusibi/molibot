@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -46,4 +47,25 @@ test("path guard allows the Mini App code root but not its private data root", (
     () => guard(path.join(root, "miniapps", "data", "expense-tracker", "app.sqlite")),
     /outside allowed workspace roots/
   );
+});
+
+test("host-wide access removes the workspace-root wall but keeps memory and profile routing guards", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-path-hostwide-"));
+  const cwd = path.join(workspace, "scratch");
+  fs.mkdirSync(cwd, { recursive: true });
+  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-path-hostwide-out-"));
+  const outside = path.join(outsideDir, "external.txt");
+  try {
+    const guard = createPathGuard(cwd, workspace, { hostWideAccess: true });
+    assert.doesNotThrow(() => guard(outside), "full access must let file tools obey the same policy as commands");
+
+    // Structural routing guards survive: they protect Molibot's own boundaries,
+    // not sandbox walls.
+    const memoryRoot = path.join(workspace, "memory");
+    fs.mkdirSync(memoryRoot, { recursive: true });
+    assert.throws(() => guard(path.join(memoryRoot, "MEMORY.md")), /memory gateway/);
+  } finally {
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });

@@ -638,7 +638,7 @@ export function getBashToolDefinition(
     id: "bash",
     name: "bash",
     description:
-      `Execute shell commands in the scratch workspace under a runtime-managed sandbox. Use for shell-native work such as scripts, builds, tests, package installs, and data processing. IMPORTANT: Do NOT use bash for reading, writing, or editing files — the dedicated read, write, and edit tools MUST be used instead. Avoid commands like \`cat\`, \`head\`, \`tail\`, \`less\` for reading files (use the read tool), \`cat > file\`, \`echo > file\`, heredocs, or \`tee\` for creating files (use the write tool), and \`sed -i\`, \`awk\`, or \`perl -i\` for modifying files (use the edit tool). Only fall back to shell file manipulation when those tools genuinely cannot express the operation (e.g. bulk renames, chmod, binary processing). Use hostApproval only for host-only capabilities; do not attempt to bypass sandbox limits with command workarounds. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+      `Execute shell commands in the scratch workspace. In restricted permission modes commands run under a runtime-managed sandbox; with Full Access they run directly on the host. Use for shell-native work such as scripts, builds, tests, package installs, and data processing. IMPORTANT: Do NOT use bash for reading, writing, or editing files — the dedicated read, write, and edit tools MUST be used instead. Avoid commands like \`cat\`, \`head\`, \`tail\`, \`less\` for reading files (use the read tool), \`cat > file\`, \`echo > file\`, heredocs, or \`tee\` for creating files (use the write tool), and \`sed -i\`, \`awk\`, or \`perl -i\` for modifying files (use the edit tool). Only fall back to shell file manipulation when those tools genuinely cannot express the operation (e.g. bulk renames, chmod, binary processing). Use hostApproval only for host-only capabilities in modes where approval applies. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     inputSchema: bashSchema,
     risk: "high",
     source: "host",
@@ -836,9 +836,11 @@ export function createBashTool(cwd: string, options?: {
   relocateRootArtifacts?: boolean;
   toolOutputDir?: string;
   executionTarget?: "sandbox" | "host" | "none";
+  /** Bound backend for this attempt; when set, shell runs route through it. */
+  executionEnvironment?: import("$lib/server/agent/exec/executionBackend.js").BoundExecutionEnvironment;
   hostApproval?: BashToolHostApprovalOptions;
 }): AgentTool<typeof bashSchema> {
   const def = getBashToolDefinition({ cwd, ...options });
   const env = options?.artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: options.artifactDir } : undefined;
-  return toolDefToAgentTool(def, cwd, env);
+  return toolDefToAgentTool(def, cwd, env, { executionEnvironment: options?.executionEnvironment });
 }
