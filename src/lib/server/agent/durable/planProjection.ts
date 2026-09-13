@@ -18,7 +18,10 @@ export function projectDurableConversationPlan(
     updatedAt: durable.execution.updatedAt,
     status: durable.execution.status === "running" ? "executing"
       : durable.execution.status === "waiting_for_user" && durable.steps.every((step) => step.planVersion !== durable.execution.currentPlanVersion || ["completed", "skipped"].includes(step.status)) ? "waiting_review"
-      : durable.execution.status === "planned" ? "accepted"
+      // A saved plan in `planned` has not passed first approval, so the chat
+      // card must keep offering accept/modify/reject rather than claim it was
+      // accepted merely because the aggregate exists.
+      : durable.execution.status === "planned" ? "proposed"
       : (durable.execution.status === "partial" || durable.execution.status === "recovery_required") ? "blocked"
       : durable.execution.status,
     steps: plan.steps.map((step, index) => {

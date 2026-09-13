@@ -1,3 +1,11 @@
+### 计划看板修复：没有接受按钮 / 无法开始 / 右侧面板重复（2026-09-13，已修复）
+
+- 症状（owner 真机走查）：生成计划后计划卡直接显示「已接受」，没有接受/修改/拒绝按钮；Durable inspector 对 `planned` 只显示「暂停/取消任务」、没有「开始」，流程卡死；右侧先后出现「查看计划进度」和「长任务详情」两套面板，聊天里同时有计划卡和「长任务」卡，看起来重复。
+- 根因 1（接受按钮消失）：Slice 3 起计划在生成时就保存为 Durable Execution（状态 `planned`），而 `projectDurableConversationPlan` 把 durable `planned` 投影为会话计划 `accepted`，于是 `PlanCard` 认为已接受、不再渲染决策卡。根修：`planned` → `proposed`（未批准＝待批准），补 `planProjection.test.ts` 断言。
+- 根因 2（无法开始）：仓库的 durable 控制动作只有 pause/resume/cancel，`DurableExecutionInspector` 对 `planned` 因此只给暂停。根修：`/api/desktop/durable-executions` 新增 `activate` 动作（复用 `coordinator.activate`），inspector 对 `planned` 渲染「开始」，与计划看板一致。
+- 根因 3（面板/卡片重复）：计划卡「查看计划进度」固定打开旧的 `SessionPlanInspector`（PlanCard 进度视图），而计划实际由 Durable 执行驱动；聊天转写里又额外渲染一张 `DurableExecutionCard`。根修：计划若带 `durableExecutionId`，进度入口直接打开 Durable inspector（单一真相源）；同一 session 内已被计划引用的 durable 执行不再重复渲染「长任务」卡。
+- 验证：`planProjection.test.ts` 4/4、`plans/durable/sessionPlan` 55/55、`svelte-check` 0 错误 0 警告、mjs 守卫 251/251、desktop `vite build` 通过。
+
 ### 计划看板（Plan Board）Session 接入：生成即保存 + 首次批准走 Durable Execution（2026-09-13，部分交付）
 
 - 背景：Slice 1/2 之后，计划已能在看板查看/编辑/控制，但还不能从 Session 生成，接受计划仍走「原 Session 内执行」旧链路。本 slice 把计划接入真实的生成与批准流程，并统一到 Durable Execution。

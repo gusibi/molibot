@@ -88,14 +88,16 @@
     return "desktop-durable-" + action + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
   }
 
-  async function runAction(action: "pause" | "resume" | "cancel"): Promise<void> {
+  async function runAction(action: "activate" | "pause" | "resume" | "cancel"): Promise<void> {
     if (!detail || busy) return;
     if (action === "cancel" && !window.confirm(copy.durableCancelConfirm)) return;
-    const input: DesktopDurableExecutionActionRequest = action === "pause"
-      ? { action: "pause", executionId, expectedVersion: detail.execution.version, actionId: actionId(action) }
-      : action === "resume"
-        ? { action: "resume", executionId, expectedVersion: detail.execution.version, actionId: actionId(action) }
-        : { action: "cancel", executionId, expectedVersion: detail.execution.version, actionId: actionId(action) };
+    const input: DesktopDurableExecutionActionRequest = action === "activate"
+      ? { action: "activate", executionId, expectedVersion: detail.execution.version }
+      : action === "pause"
+        ? { action: "pause", executionId, expectedVersion: detail.execution.version, actionId: actionId(action) }
+        : action === "resume"
+          ? { action: "resume", executionId, expectedVersion: detail.execution.version, actionId: actionId(action) }
+          : { action: "cancel", executionId, expectedVersion: detail.execution.version, actionId: actionId(action) };
     busy = true;
     error = "";
     try {
@@ -353,9 +355,11 @@
 
     {#if error}<p class="durable-inspector-action-error" role="alert">{error}</p>{/if}
     <footer class="durable-inspector-actions">
-      {#if detail.execution.status === "paused" || detail.execution.status === "recovery_required"}
+      {#if detail.execution.status === "planned"}
+        <button type="button" class="primary-button" disabled={busy} onclick={() => void runAction("activate")}>{busy ? copy.loading : copy.planBoardStart}</button>
+      {:else if detail.execution.status === "paused" || detail.execution.status === "recovery_required"}
         <button type="button" class="primary-button" disabled={busy} onclick={() => void runAction("resume")}>{busy ? copy.loading : copy.durableResume}</button>
-      {:else if detail.execution.status === "planned" || detail.execution.status === "queued" || detail.execution.status === "running"}
+      {:else if detail.execution.status === "queued" || detail.execution.status === "running" || detail.execution.status === "verifying"}
         <button type="button" class="secondary-button" disabled={busy} onclick={() => void runAction("pause")}>{copy.durablePause}</button>
       {/if}
       {#if !["completed", "failed", "cancelled"].includes(detail.execution.status) && detail.projection.waiting?.kind !== "review"}

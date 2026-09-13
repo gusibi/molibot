@@ -88,6 +88,11 @@ export const POST: RequestHandler = async ({ request }) => {
       const response: DesktopDurableExecutionActionResponse = { ok: true, item: activated };
       return json(response, { headers: { "Cache-Control": "no-store" } });
     }
+    if (body.action === "activate") {
+      const result = coordinator.activate({ ownerId: owner, executionId: body.executionId, expectedVersion: body.expectedVersion });
+      const response: DesktopDurableExecutionActionResponse = { ok: true, item: result };
+      return json(response, { headers: { "Cache-Control": "no-store" } });
+    }
     if (body.action === "answer_decision") {
       const result = coordinator.answerDecision({ ...body, ownerId: owner });
       const response: DesktopDurableExecutionActionResponse = { ok: true, item: result };

@@ -757,7 +757,15 @@
     executionId: string;
   } | { kind: "session-plan" } | null;
   let inspector: ChatInspector = null;
-  $: if ($sessionPlanInspector) inspector = { kind: "session-plan" };
+  $: if ($sessionPlanInspector) {
+    // A durable-linked plan has one progress surface (the Durable inspector);
+    // the legacy Session-plan inspector is only for plans that still execute
+    // inside the chat turn.
+    const linkedExecutionId = $sessionPlanInspector.plan.durableExecutionId;
+    inspector = linkedExecutionId
+      ? { kind: "durable-execution", executionId: linkedExecutionId }
+      : { kind: "session-plan" };
+  }
   let miniAppSeq = 0;
   let sessionFileSeq = 0;
   let openPathSeq = 0;
@@ -1012,8 +1020,9 @@
   $: activeDurableExecution = viewMode === "local" && activeSessionId
     ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId && isActiveDurableExecution(item)) ?? null)
     : null;
+  $: linkedPlanExecutionIds = new Set(messages.map((message) => message.plan?.durableExecutionId).filter((id): id is string => Boolean(id)));
   $: sessionDurableExecution = viewMode === "local" && activeSessionId
-    ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId && isOpenDurableExecution(item)) ?? null)
+    ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId && isOpenDurableExecution(item) && !linkedPlanExecutionIds.has(item.execution.id)) ?? null)
     : null;
   $: activeDurableExecutions = durableExecutions.filter(isActiveDurableExecution);
   $: durableActiveCount = activeDurableExecutions.length;

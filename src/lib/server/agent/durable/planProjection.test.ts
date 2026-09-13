@@ -55,3 +55,7 @@ test("review, pause, approval and completion never appear as executing", () => {
   }
   assert.equal(projectDurableConversationPlan(plan, detail("waiting_for_user", ["completed", "completed"])).status, "waiting_review");
 });
+
+test("a saved but unapproved durable plan projects back as proposed", () => {
+  assert.equal(projectDurableConversationPlan(plan, detail("planned", ["pending", "pending"])).status, "proposed");
+});

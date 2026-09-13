@@ -797,6 +797,7 @@ export type DesktopDurableExecutionActionRequest =
       activationReason?: string;
       budget?: { tokenLimit?: number; attemptLimit?: number; lifetimeDays?: number };
     }
+  | { action: "activate"; ownerId?: string; executionId: string; expectedVersion: number }
   | { action: "pause" | "resume" | "cancel"; ownerId?: string; executionId: string; expectedVersion: number; actionId: string; reason?: string }
   | { action: "answer_decision"; ownerId?: string; executionId: string; decisionId: string; answer: string; expectedVersion: number; actionId: string }
   | { action: "resolve_approval"; ownerId?: string; executionId: string; approvalId: string; status: "approved" | "rejected" | "expired"; selectedScope?: string; expectedVersion: number; actionId: string };
