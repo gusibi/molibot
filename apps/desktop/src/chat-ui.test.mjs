@@ -667,7 +667,12 @@ test("memory chip claims reference only for truly-used memories and the drawer s
   // so injected-but-unused memories no longer fake an association under every reply.
   assert.match(transcript, /message\.memoryTrace\.referencedCount \?\? 0\) > 0 \|\| message\.memoryTrace\.writeCount > 0/);
   assert.doesNotMatch(transcript, /memoryTrace\.injectedCount/);
-  assert.match(transcript, /copy\.memoryTraceReferenced\.replace\("\{count\}", String\(message\.memoryTrace\.referencedCount\)\)/);
+  assert.match(transcript, /labels\.memoryTraceReferenced\.replace\("\{count\}", String\(trace\.referencedCount\)\)/);
+  // The chip is the database duotone icon plus the count; the full sentence
+  // lives in the tooltip, not the row.
+  assert.match(transcript, /import Database from "\.\.\/icons\/duotone\/components\/Database\.svelte"/);
+  assert.match(transcript, /aria-label=\{memoryTitle\(message\.memoryTrace, copy\)\}/);
+  assert.match(transcript, /<span>\{memoryCount\(message\.memoryTrace\)\}<\/span>/);
 
   // Drawer: referenced group on top (with provenance source tag), provided
   // group collapsed as secondary transparency info.
@@ -4698,10 +4703,10 @@ test("Artifact Inspector chrome follows the shared family tokens", () => {
 });
 
 test("assistant technical metadata folds only in a narrow message column and shares one menu", () => {
-  assert.match(transcript, /hasTechnicalDetails = hasTurnSummary \|\| Boolean\(message\.model\) \|\| hasMemoryMeta/);
+  assert.match(transcript, /hasTechnicalDetails = Boolean\(message\.model\) \|\| hasMemoryMeta/);
   assert.match(transcript, /class="message-meta-inline"/);
   assert.match(transcript, /<OverflowMenu label=\{copy\.conversationMenu\} placement="up" popoverRole="dialog" closeOnPointerLeave=\{true\}>/);
-  assert.match(transcript, /class="message-meta-details"[\s\S]*class="turn-summary"[\s\S]*class="message-model"[\s\S]*class="message-memory-trace"/);
+  assert.match(transcript, /class="message-meta-details"[\s\S]*class="message-model"[\s\S]*class="message-memory-trace"/);
   assert.match(styles, /\.assistant-layout \{[^}]*container: assistant-message \/ inline-size/s);
   assert.match(styles, /@container assistant-message \(max-width: 620px\) \{[\s\S]*?\.message-meta-inline \{ display: none; \}[\s\S]*?\.message-meta-details \{ display: grid; \}/);
   assert.match(styles, /\.assistant-overflow-details-only \{ display: none; \}/);
@@ -4715,6 +4720,17 @@ test("assistant technical metadata folds only in a narrow message column and sha
   assert.match(overflowMenu, /setTimeout\(\(\) => \{[\s\S]*?menu\.open = false;[\s\S]*?\}, 120\)/);
   assert.match(overflowMenu, /onpointerenter=\{onPointerEnter\} onpointerleave=\{onPointerLeave\}/);
   assert.match(styles, /\.overflow-menu-up \.overflow-menu-popover \{[^}]*top: auto;[^}]*bottom: calc\(100% \+ 6px\)/s);
+});
+
+test("the call trace entry is an icon-only action shown first, and the per-turn summary is gone", () => {
+  assert.match(transcript, /import AlignLeft from "\.\.\/icons\/duotone\/components\/AlignLeft\.svelte"/);
+  // Trace action precedes copy/fork in the message action row.
+  assert.match(transcript, /class="message-actions">\s*\{#if traceEnabled && message\.traceRunIds\?\.length\}[\s\S]*?AlignLeft[\s\S]*?copy\.copyMessage/);
+  // Visible even for a reply without other actionable content.
+  assert.match(transcript, /\(canShowActions \|\| \(traceEnabled && message\.traceRunIds\?\.length\)\) && messageActions/);
+  // The duration/tool/token summary moved into the trace report.
+  assert.doesNotMatch(transcript, /turnSummary/);
+  assert.doesNotMatch(transcript, /turn-summary/);
 });
 
 test("right-click with a selection offers the same actions on either role", () => {

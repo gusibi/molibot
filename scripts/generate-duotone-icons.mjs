@@ -47,6 +47,7 @@ const EXACT = [
   "Compass",
   "Copy",
   "Cpu",
+  "Database",
   "Download",
   "Eye",
   "EyeClosed",

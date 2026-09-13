@@ -9,38 +9,30 @@
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Copy from "reicon-svelte/icons/Copy";
   import Cpu from "reicon-svelte/icons/Cpu";
-  import Database from "reicon-svelte/icons/Database";
+  import Database from "../icons/duotone/components/Database.svelte";
   import AlignLeft from "../icons/duotone/components/AlignLeft.svelte";
   import Loader from "reicon-svelte/icons/Loader";
   import More from "reicon-svelte/icons/More";
   import PenLine from "reicon-svelte/icons/PenLine";
   import StopCircle from "reicon-svelte/icons/StopCircle";
-  import Timer from "reicon-svelte/icons/Timer";
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import { contributionIcon, INVOCATION_ICONS } from "./activityIcons";
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
-  import { finalizeTranscriptActivities, transcriptCompletedTurnSections, transcriptDisplayContent, transcriptRenderBlocks, transcriptTurnSummary, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
+  import { finalizeTranscriptActivities, transcriptCompletedTurnSections, transcriptDisplayContent, transcriptRenderBlocks, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
   import TranscriptAttachments from "./TranscriptAttachments.svelte";
   import RunActivity from "./RunActivity.svelte";
   import ThinkingCard from "./ThinkingCard.svelte";
   import PlanCard from "./PlanCard.svelte";
   import TurnProcess from "./TurnProcess.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
-  import { formatCompactTokens, formatDuration, humanizeModelOption, modelShortLabel } from "../presentation";
+  import { humanizeModelOption, modelShortLabel } from "../presentation";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
   import ChatMarkdown from "./ChatMarkdown.svelte";
   import TurnFilesCard from "./TurnFilesCard.svelte";
   import { collectTurnFiles, type TurnFileItem } from "./turnFiles";
-
-  function findPreviousUserMessage(list: TranscriptMessage[], currentIndex: number): TranscriptMessage | null {
-    for (let i = currentIndex - 1; i >= 0; i -= 1) {
-      if (list[i]?.role === "user") return list[i];
-    }
-    return null;
-  }
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
@@ -124,6 +116,17 @@
     event.preventDefault();
     selectionMenu = { x: event.clientX, y: event.clientY, message, selection };
   }
+
+  function memoryCount(trace: { referencedCount: number; writeCount: number }): number {
+    return (trace.referencedCount ?? 0) + trace.writeCount;
+  }
+
+  function memoryTitle(trace: { referencedCount: number; writeCount: number }, labels: Translation): string {
+    const parts: string[] = [];
+    if ((trace.referencedCount ?? 0) > 0) parts.push(labels.memoryTraceReferenced.replace("{count}", String(trace.referencedCount)));
+    if (trace.writeCount > 0) parts.push(labels.memoryTraceStored.replace("{count}", String(trace.writeCount)));
+    return parts.join(" · ");
+  }
 </script>
 
 {#each messages as message, index (message.id ?? `${index}-${message.role}`)}
@@ -139,11 +142,8 @@
   {@const isExpanded = expandedMessages.has(key)}
   {@const renderBlocks = message.role === "assistant" ? transcriptRenderBlocks(message) : []}
   {@const turnSections = message.role === "assistant" ? transcriptCompletedTurnSections(renderBlocks) : { process: [], response: [] }}
-  {@const previousUserMessage = message.role === "assistant" ? findPreviousUserMessage(messages, index) : null}
-  {@const turnSummary = message.role === "assistant" ? transcriptTurnSummary(message, previousUserMessage) : null}
-  {@const hasTurnSummary = Boolean(turnSummary && (turnSummary.durationMs || turnSummary.toolCount || turnSummary.fileCount || turnSummary.totalTokens))}
   {@const hasMemoryMeta = Boolean(message.memoryTrace && messageActions?.onOpenMemoryTrace && ((message.memoryTrace.referencedCount ?? 0) > 0 || message.memoryTrace.writeCount > 0))}
-  {@const hasTechnicalDetails = hasTurnSummary || Boolean(message.model) || hasMemoryMeta}
+  {@const hasTechnicalDetails = Boolean(message.model) || hasMemoryMeta}
   {@const textContributions = messageActions?.contributions?.filter((action) => action.accepts.includes("text")) ?? []}
   {@const assistantStatus = message.role !== "assistant"
     ? ""
@@ -310,27 +310,29 @@
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
             {#if hasTechnicalDetails}
               <div class="message-meta-inline">
-                {#if hasTurnSummary && turnSummary}
-                  <span class="turn-summary" aria-label={copy.turnSummaryLabel}>
-                    {#if turnSummary.durationMs}<span><Timer size={12} aria-hidden="true" />{formatDuration(turnSummary.durationMs)}</span>{/if}
-                    {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
-                    {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
-                    {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", formatCompactTokens(turnSummary.totalTokens))}</span>{/if}
-                  </span>
-                {/if}
                 {#if message.model}<span class="message-model-inline"><Cpu size={12} aria-hidden="true" />{modelShortLabel(message.model)}</span>{/if}
                 {#if hasMemoryMeta && message.memoryTrace && messageActions?.onOpenMemoryTrace}
-                  <button type="button" class="message-memory-trace" onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}>
-                    <Database size={12} aria-hidden="true" />
-                    {#if (message.memoryTrace.referencedCount ?? 0) > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.referencedCount))}{/if}
-                    {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
-                    {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
-                  </button>
+                  <button
+                    type="button"
+                    class="message-memory-trace"
+                    aria-label={memoryTitle(message.memoryTrace, copy)}
+                    title={memoryTitle(message.memoryTrace, copy)}
+                    onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}
+                  ><Database size={12} aria-hidden="true" /><span>{memoryCount(message.memoryTrace)}</span></button>
                 {/if}
               </div>
             {/if}
-            {#if canShowActions && messageActions}
+            {#if (canShowActions || (traceEnabled && message.traceRunIds?.length)) && messageActions}
               <div class="message-actions">
+                {#if traceEnabled && message.traceRunIds?.length}
+                  <button
+                    type="button"
+                    class="message-action"
+                    aria-label={session.locale === "zh-CN" ? "查看调用链" : "View call trace"}
+                    title={session.locale === "zh-CN" ? "查看调用链" : "View call trace"}
+                    onclick={() => { traceRunIds = message.traceRunIds ?? []; }}
+                  ><AlignLeft size={14} aria-hidden="true" /></button>
+                {/if}
                 <button
                   type="button"
                   class="message-action"
@@ -348,15 +350,6 @@
                     onclick={() => messageActions.onForkAssistant!(message)}
                   >{#if isForking}<Loader class="message-action-spin" size={14} aria-hidden="true" />{:else}<BranchUp size={14} aria-hidden="true" />{/if}</button>
                 {/if}
-                {#if traceEnabled && message.traceRunIds?.length}
-                  <button
-                    type="button"
-                    class="message-action"
-                    aria-label={session.locale === "zh-CN" ? "查看调用链" : "View call trace"}
-                    title={session.locale === "zh-CN" ? "查看调用链" : "View call trace"}
-                    onclick={() => { traceRunIds = message.traceRunIds ?? []; }}
-                  ><AlignLeft size={14} aria-hidden="true" /></button>
-                {/if}
               </div>
             {/if}
             {#if hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length) || (textContributions.length && messageActions?.onRunContribution)}
@@ -370,14 +363,6 @@
                     </span>
                   </svelte:fragment>
                   {#if hasTechnicalDetails}<div class="message-meta-details">
-                  {#if hasTurnSummary && turnSummary}
-                    <div class="turn-summary" aria-label={copy.turnSummaryLabel}>
-                      {#if turnSummary.durationMs}<span><Timer size={12} aria-hidden="true" />{formatDuration(turnSummary.durationMs)}</span>{/if}
-                      {#if turnSummary.toolCount}<span>{copy.turnSummaryTools.replace("{count}", String(turnSummary.toolCount))}</span>{/if}
-                      {#if turnSummary.fileCount}<span>{copy.turnSummaryFiles.replace("{count}", String(turnSummary.fileCount))}</span>{/if}
-                      {#if turnSummary.totalTokens}<span>{copy.turnSummaryTokens.replace("{count}", formatCompactTokens(turnSummary.totalTokens))}</span>{/if}
-                    </div>
-                  {/if}
                   {#if message.model}<div class="message-model"><Cpu size={12} aria-hidden="true" /><span>{humanizeModelOption(message.model, message.model).label}</span><code>{message.model}</code></div>{/if}
                   <!-- Only truly-used memories earn a row: referenced (cited or
                        tool-retrieved) and writes. Injected-but-unused memories
@@ -386,12 +371,12 @@
                     <button
                       type="button"
                       class="message-memory-trace"
+                      aria-label={memoryTitle(message.memoryTrace, copy)}
+                      title={memoryTitle(message.memoryTrace, copy)}
                       onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}
                     >
                       <Database size={12} aria-hidden="true" />
-                      {#if (message.memoryTrace.referencedCount ?? 0) > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.referencedCount))}{/if}
-                      {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
-                      {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
+                      <span>{memoryCount(message.memoryTrace)}</span>
                     </button>
                   {/if}
                   </div>{/if}

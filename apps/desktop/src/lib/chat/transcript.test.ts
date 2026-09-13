@@ -5,8 +5,7 @@ import {
   finalizeTranscriptActivities,
   findTranscriptMatches,
   transcriptCompletedTurnSections,
-  transcriptProcessSummary,
-  transcriptTurnSummary
+  transcriptProcessSummary
 } from "./transcript";
 import { formatCompactTokens, modelShortLabel } from "../presentation";
 
@@ -152,38 +151,6 @@ test("transcript search index stays valid as result counts change", () => {
   assert.equal(clampTranscriptSearchIndex(1, 0), 0);
 });
 
-test("transcriptTurnSummary calculates total elapsed duration from user sent time to assistant finish time", () => {
-  const userMessage = {
-    role: "user",
-    content: "hello",
-    createdAt: "2026-08-19T23:50:00.000Z"
-  };
-  const assistantMessage = {
-    role: "assistant",
-    content: "world",
-    createdAt: "2026-08-19T23:50:45.500Z",
-    activities: [
-      { key: "tool-1", kind: "tool" as const, label: "Read", state: "success" as const, durationMs: 1200 }
-    ],
-    usage: {
-      inputTokens: 1000,
-      outputTokens: 500,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      totalTokens: 1500
-    }
-  };
-
-  const summary = transcriptTurnSummary(assistantMessage, userMessage);
-  assert.equal(summary.durationMs, 45500);
-  assert.equal(summary.toolCount, 1);
-  assert.equal(summary.totalTokens, 1500);
-
-  // Fallback when userMessage is absent
-  const fallbackSummary = transcriptTurnSummary(assistantMessage);
-  assert.equal(fallbackSummary.durationMs, 1200);
-});
-
 test("formatCompactTokens formats numbers cleanly as k, m, or raw count", () => {
   assert.equal(formatCompactTokens(0), "0");
   assert.equal(formatCompactTokens(500), "500");
@@ -201,12 +168,4 @@ test("modelShortLabel strips provider prefix and returns only the model display 
   assert.equal(modelShortLabel("custom::gemini-3.7-flash-high"), "Gemini 3.7 Flash High");
   assert.equal(modelShortLabel("anthropic/claude-3-5-sonnet"), "Claude 3 5 Sonnet");
   assert.equal(modelShortLabel("gemini-3.7-flash-high"), "Gemini 3.7 Flash High");
-});
-
-
-test("approval continuation duration excludes the earlier user turn and approval wait", () => {
-  const summary = transcriptTurnSummary({
-    role: "assistant", content: "Build passed", createdAt: "2026-09-06T02:36:28.000Z", durationMs: 40871
-  }, { role: "user", content: "Continue", createdAt: "2026-09-06T02:28:38.000Z" });
-  assert.equal(summary.durationMs, 40871);
 });
