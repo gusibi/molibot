@@ -1,0 +1,29 @@
+{
+  "name": "@molibot/plugin-trace-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Inspect conversation call traces and publish HTML snapshots.",
+  "molibot": {
+    "plugin": {
+      "manifestVersion": 1,
+      "id": "trace-viewer",
+      "name": "Call Trace / 调用链",
+      "version": "0.1.0",
+      "description": "Model and tool timing, tokens and HTML reports / 模型与工具耗时、Token 和 HTML 报告",
+      "engines": {
+        "molibot": ">=2.0.0"
+      },
+      "config": {
+        "schemaVersion": 1
+      },
+      "settings": {
+        "mode": "schema",
+        "schema": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  }
+}

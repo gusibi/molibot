@@ -383,3 +383,16 @@ test("a turn without snapshots projects no context breakdown", () => {
   });
   assert.equal(result.messages.find((message) => message.id === "m-a")?.contextBreakdown, undefined);
 });
+
+test("a displayed turn keeps its recorded run IDs across model continuations", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      { ...entry("u-trace", "user", [{ type: "text", text: "hello" }], 0), runId: "run-a" },
+      { ...assistantEntry("a-trace-1", [{ type: "text", text: "working" }], 1, { stopReason: "toolUse" }), runId: "run-a" },
+      { ...assistantEntry("a-trace-2", [{ type: "text", text: "done" }], 2, { stopReason: "stop" }), runId: "run-b" }
+    ],
+    metadata: []
+  });
+  assert.deepEqual(result.messages.find(message => message.role === "assistant")?.traceRunIds, ["run-a", "run-b"]);
+});

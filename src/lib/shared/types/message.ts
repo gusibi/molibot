@@ -126,6 +126,7 @@ export interface ConversationContextSnapshot {
 }
 
 export interface ConversationMessage {
+  traceRunIds?: string[];
   /** Execution duration, excluding time spent waiting before this run started. */
   durationMs?: number;
   id: string;

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import TraceReportDialog from "./TraceReportDialog.svelte";
+  import { loadTraceViewerEnabled } from "../api";
+  import { session } from "../stores/session.svelte";
   import BranchUp from "reicon-svelte/icons/BranchUp";
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
   import Check from "reicon-svelte/icons/Check";
@@ -52,6 +55,9 @@
   export let onOpenTurnFiles: ((files: TurnFileItem[], selectedKey?: string) => void) | null = null;
   export let endpoint = "";
 
+  let traceEnabled = false;
+  let traceRunIds: string[] = [];
+  $: if (endpoint) void loadTraceViewerEnabled(endpoint).then(value => { traceEnabled = value; }).catch(() => { traceEnabled = false; });
   let expandedMessages = new Set<string>();
   let selectionMenu: { x: number; y: number; message: TranscriptMessage; selection: string } | null = null;
 
@@ -343,7 +349,7 @@
                 {/if}
               </div>
             {/if}
-            {#if hasTechnicalDetails || (textContributions.length && messageActions?.onRunContribution)}
+            {#if hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length) || (textContributions.length && messageActions?.onRunContribution)}
               {@const busy = textContributions.some((action) => messageActions?.pendingContributionKey === contributionKey(message, action))}
               {@const done = textContributions.some((action) => messageActions?.successfulContributionKey === contributionKey(message, action))}
               <div class:assistant-overflow-details-only={!textContributions.length || !messageActions?.onRunContribution} class="assistant-overflow">
@@ -353,6 +359,9 @@
                       {#if busy}<Loader class="message-action-spin" size={14} />{:else if done}<Check size={14} />{:else}<More size={14} />{/if}
                     </span>
                   </svelte:fragment>
+                  {#if traceEnabled && message.traceRunIds?.length}
+                    <button type="button" class="message-memory-trace" onclick={() => { traceRunIds = message.traceRunIds ?? []; }}>{session.locale === "zh-CN" ? "查看调用链" : "View call trace"}</button>
+                  {/if}
                   {#if hasTechnicalDetails}<div class="message-meta-details">
                   {#if hasTurnSummary && turnSummary}
                     <div class="turn-summary" aria-label={copy.turnSummaryLabel}>
@@ -419,3 +428,5 @@
     onClose={() => (selectionMenu = null)}
   />
 {/if}
+
+{#if traceRunIds.length}<TraceReportDialog {endpoint} runIds={traceRunIds} onClose={() => { traceRunIds = []; }} />{/if}

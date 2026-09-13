@@ -1,3 +1,4 @@
+import { traceViewerFeaturePlugin } from "./traceViewer/plugin.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { cloudflareHtmlFeaturePlugin } from "$lib/server/plugins/cloudflareHtml/plugin.js";
@@ -5,6 +6,7 @@ import { externalSubagentFeaturePlugin } from "$lib/server/plugins/externalSubag
 import type { BuiltInFeaturePlugin, FeaturePluginContext, InstalledPluginCatalogEntry } from "$lib/server/plugins/types.js";
 
 export const builtInFeaturePlugins: BuiltInFeaturePlugin[] = [
+  traceViewerFeaturePlugin,
   cloudflareHtmlFeaturePlugin,
   externalSubagentFeaturePlugin
 ];

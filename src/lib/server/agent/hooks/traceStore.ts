@@ -30,6 +30,7 @@ export interface TraceFactRecord {
   factType: TraceFactType;
   runId: string;
   factId: string;
+  parentFactId?: string;
   channel: string;
   botId?: string;
   chatId: string;
@@ -62,6 +63,7 @@ type TraceFactRow = {
   fact_type: TraceFactType;
   run_id: string;
   fact_id: string;
+  parent_fact_id: string | null;
   channel: string;
   bot_id: string | null;
   chat_id: string;
@@ -164,6 +166,7 @@ export class SqliteTraceStore {
       CREATE INDEX IF NOT EXISTS idx_agent_trace_facts_created_at ON agent_trace_facts(created_at);
     `);
     for (const statement of [
+      `ALTER TABLE agent_trace_facts ADD COLUMN parent_fact_id TEXT;`,
       `ALTER TABLE agent_trace_facts ADD COLUMN bot_id TEXT;`,
       `ALTER TABLE agent_trace_facts ADD COLUMN cache_read_tokens INTEGER;`,
       `ALTER TABLE agent_trace_facts ADD COLUMN cache_write_tokens INTEGER;`
@@ -200,13 +203,14 @@ export class SqliteTraceStore {
   upsertFact(record: TraceFactRecord): void {
     this.db.prepare(`
       INSERT INTO agent_trace_facts (
-        id, fact_type, run_id, fact_id, channel, bot_id, chat_id, session_id, workspace_id,
+        id, fact_type, run_id, fact_id, parent_fact_id, channel, bot_id, chat_id, session_id, workspace_id,
         name, provider, model, api, status, started_at, finished_at, duration_ms,
         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, blocked_by, error_preview,
         args_preview, result_preview, payload_json, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(fact_type, run_id, fact_id) DO UPDATE SET
+        parent_fact_id = COALESCE(excluded.parent_fact_id, agent_trace_facts.parent_fact_id),
         channel = excluded.channel,
         bot_id = COALESCE(excluded.bot_id, agent_trace_facts.bot_id),
         chat_id = excluded.chat_id,
@@ -240,6 +244,7 @@ export class SqliteTraceStore {
       record.factType,
       record.runId,
       record.factId,
+      record.parentFactId ?? (typeof record.payload.parentFactId === "string" ? record.payload.parentFactId : null),
       record.channel,
       record.botId ?? null,
       record.chatId,
@@ -362,7 +367,7 @@ export class SqliteTraceStore {
   listRecentFacts(limit = 5000): TraceFactRecord[] {
     const safeLimit = Math.max(1, Math.min(10000, Math.trunc(limit)));
     const rows = this.db.prepare(`
-      SELECT id, fact_type, run_id, fact_id, channel, bot_id, chat_id, session_id, workspace_id,
+      SELECT id, fact_type, run_id, fact_id, parent_fact_id, channel, bot_id, chat_id, session_id, workspace_id,
         name, provider, model, api, status, started_at, finished_at, duration_ms,
         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, blocked_by, error_preview,
         args_preview, result_preview, payload_json, created_at, updated_at
@@ -376,7 +381,7 @@ export class SqliteTraceStore {
 
   private listFactsByColumn(column: "run_id" | "session_id", value: string): TraceFactRecord[] {
     const rows = this.db.prepare(`
-      SELECT id, fact_type, run_id, fact_id, channel, bot_id, chat_id, session_id, workspace_id,
+      SELECT id, fact_type, run_id, fact_id, parent_fact_id, channel, bot_id, chat_id, session_id, workspace_id,
         name, provider, model, api, status, started_at, finished_at, duration_ms,
         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, blocked_by, error_preview,
         args_preview, result_preview, payload_json, created_at, updated_at
@@ -394,6 +399,7 @@ export class SqliteTraceStore {
       factType: row.fact_type,
       runId: row.run_id,
       factId: row.fact_id,
+      parentFactId: row.parent_fact_id ?? undefined,
       channel: row.channel,
       botId: row.bot_id ?? undefined,
       chatId: row.chat_id,

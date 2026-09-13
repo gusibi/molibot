@@ -165,29 +165,7 @@ export function createCloudflareHtmlPublishTool(
         throw new Error("publishHtml requires a local HTML file containing a complete document with <html>, <head>, and <body>.");
       }
 
-      const fileName = `${randomUUID().replace(/-/g, "").slice(0, 20)}.html`;
-      const objectKey = `${normalizeObjectPrefix(settings.objectPrefix)}${fileName}`;
-      const contentType = "text/html; charset=utf-8";
-      const signed = buildAuthorization({
-        accessKeyId: settings.accessKeyId,
-        secretAccessKey: settings.secretAccessKey,
-        accountId: settings.accountId,
-        bucketName: settings.bucketName,
-        objectKey,
-        payload: html,
-        contentType,
-        now: new Date()
-      });
-      const response = await fetch(signed.url, {
-        method: "PUT",
-        headers: signed.headers,
-        body: html
-      });
-      if (!response.ok) {
-        throw new Error(`Cloudflare R2 upload failed (${response.status}): ${await response.text()}`);
-      }
-
-      const publicUrl = buildPublicUrl(settings, fileName);
+      const { fileName, objectKey, url: publicUrl } = await publishHtmlDocument(settings, html);
       return {
         content: [{ type: "text", text: `Published HTML: ${publicUrl}` }],
         details: {
@@ -200,4 +178,35 @@ export function createCloudflareHtmlPublishTool(
       };
     }
   };
+}
+
+/** Shared publishing operation for generated reports and local HTML files. */
+export async function publishHtmlDocument(settings: CloudflareHtmlPluginConfig, html: string) {
+  const error = ensureConfigured(settings);
+  if (error) throw new Error(error);
+  if (!isCompleteHtmlDocument(html)) throw new Error("A complete HTML document is required.");
+  const fileName = `${randomUUID().replace(/-/g, "").slice(0, 20)}.html`;
+  const objectKey = `${normalizeObjectPrefix(settings.objectPrefix)}${fileName}`;
+  const contentType = "text/html; charset=utf-8";
+  const signed = buildAuthorization({
+    accessKeyId: settings.accessKeyId,
+    secretAccessKey: settings.secretAccessKey,
+    accountId: settings.accountId,
+    bucketName: settings.bucketName,
+    objectKey,
+    payload: html,
+    contentType,
+    now: new Date()
+  });
+  const response = await fetch(signed.url, {
+    method: "PUT",
+    headers: signed.headers,
+    body: html
+  });
+  if (!response.ok) {
+    throw new Error(`Cloudflare R2 upload failed (${response.status}): ${await response.text()}`);
+  }
+
+  const publicUrl = buildPublicUrl(settings, fileName);
+  return { fileName, objectKey, url: publicUrl };
 }

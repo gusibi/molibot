@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createCloudflareHtmlPublishTool } from "$lib/server/plugins/cloudflareHtml/publishHtmlTool.js";
+import { createCloudflareHtmlPublishTool, publishHtmlDocument } from "$lib/server/plugins/cloudflareHtml/publishHtmlTool.js";
+import { DEFAULT_CLOUDFLARE_HTML_CONFIG } from "$lib/server/plugins/cloudflareHtml/config.js";
 import { PluginConfigStore, resetPluginConfigStoreForTests } from "$lib/server/plugins/contract/configStore.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
@@ -67,6 +68,13 @@ test("publishHtml reads HTML from file path and uploads it", async () => {
     globalThis.fetch = originalFetch;
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test("publishHtmlDocument surfaces the real configuration error instead of a fake link", async () => {
+  await assert.rejects(
+    () => publishHtmlDocument({ ...DEFAULT_CLOUDFLARE_HTML_CONFIG, enabled: false }, "<!doctype html><html><head></head><body></body></html>"),
+    /disabled/
+  );
 });
 
 test("publishHtml rejects files that are not complete HTML documents", async () => {

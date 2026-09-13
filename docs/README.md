@@ -65,7 +65,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Plugin guides](guides/plugins/) — [manifest design](designs/plugins/plugin-manifest.md), [plugin contract](guides/plugins/authoring.md), [plugin authoring](guides/plugins/plugin-authoring.md)
 - [Deferred tool guide](guides/tools/deferred-tool-authoring.md)
 - [Permission modes × sandbox policy](guides/permission-and-sandbox-modes.md)
-- [Trace design](designs/trace/)
+- [Call trace guide](guides/trace/call-trace.md) · [Trace design](designs/trace/)
 - [Operations / remote control](designs/operations/control-daemon.md)
 
 ## Filing rules

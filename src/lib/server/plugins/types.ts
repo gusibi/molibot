@@ -30,6 +30,10 @@ export interface FeaturePlugin {
 }
 
 export interface FeaturePluginContext {
+  replyToMessageId?: string;
+  resolveMessageRunIds?: (messageId: string) => string[];
+  traceScope?: { channel: string; botId?: string; chatId: string; sessionId: string };
+  runId?: string;
   getSettings: () => RuntimeSettings;
   cwd: string;
   workspaceDir: string;

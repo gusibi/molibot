@@ -429,6 +429,7 @@ export class MomRunner implements RunnerLike {
             toolCallId: context.toolCall.id,
             displayName,
             label,
+            parentFactId: this.activeModelCallContext ? `model_call:${this.activeModelCallContext.modelAttemptId}` : undefined,
             argsPreview: JSON.stringify(context.args ?? {}).slice(0, 500),
             // The live arguments object, by reference: gate hooks (pi extension
             // `tool_call` handlers) patch tool arguments by mutating it in
@@ -482,6 +483,7 @@ export class MomRunner implements RunnerLike {
             toolCallId: context.toolCall.id,
             displayName,
             label,
+            parentFactId: this.activeModelCallContext ? `model_call:${this.activeModelCallContext.modelAttemptId}` : undefined,
             argsPreview: JSON.stringify(context.args ?? {}).slice(0, 500)
           });
         }
@@ -878,9 +880,11 @@ export class MomRunner implements RunnerLike {
       actorId: ctx.message.userId,
       signal: undefined
     };
+    const deliveryTraceContext = this.activeHookContext;
+    ctx.recordDeliveredMessage = (messageId) => this.hookManager.emit("reply.delivered", deliveryTraceContext, { messageId });
     const taskPreview = ctx.message.text.replace(/\s+/g, " ").trim().slice(0, 160);
     this.hookManager.emit("run.beforeStart", this.activeHookContext, {
-      messageId: ctx.message.messageId,
+      messageId: ctx.message.platformMessageId ?? ctx.message.messageId,
       textLength: ctx.message.text.length,
       attachmentCount: ctx.message.attachments.length,
       imageCount: ctx.message.imageContents.length,
@@ -1341,7 +1345,10 @@ export class MomRunner implements RunnerLike {
     // host must be loaded first: on a cold start the very first turn would
     // otherwise silently run without any extension-provided tools.
     await getPiExtensionHost().load().catch(() => undefined);
+    const traceContext = this.activeHookContext;
     localTools = createMomTools({
+      replyToMessageId: ctx.message.platformParentMessageId,
+      onTrace: (stage, payload) => { if (traceContext) this.hookManager.emit(stage, traceContext, payload); },
       sessionPlanProgress: ctx.sessionPlanProgress,
       channel: ctx.channel,
       cwd: this.currentWorkingDir(),
@@ -1406,27 +1413,6 @@ export class MomRunner implements RunnerLike {
             subagentTaskRecords.push(
               buildSubagentTaskRecord(event, startedAt ? Date.now() - startedAt : undefined)
             );
-          }
-        }
-        if (event.type === "subagent_execution" && this.activeHookContext) {
-          if (event.phase === "task_start") {
-            this.hookManager.emit("subagent.task.before", this.activeHookContext, {
-              mode: event.mode,
-              agent: event.agent,
-              task: event.task,
-              taskIndex: event.taskIndex,
-              taskCount: event.taskCount
-            });
-          } else if (event.phase === "task_end") {
-            this.hookManager.emit("subagent.task.after", this.activeHookContext, {
-              mode: event.mode,
-              agent: event.agent,
-              task: event.task,
-              taskIndex: event.taskIndex,
-              taskCount: event.taskCount,
-              stopReason: event.stopReason,
-              errorMessage: event.errorMessage
-            });
           }
         }
         if (event.type === "subagent_execution" && event.phase === "end" && event.stopReason === "waiting_for_approval" && !this.activeApprovalSuspension) {

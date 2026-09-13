@@ -2054,6 +2054,7 @@ export class TelegramManager extends BaseChannelRuntime {
       if (!streamOutputEnabled && status.accumulatedText.trim()) {
         await ctx.replaceMessage(status.accumulatedText.trim());
       }
+      if (status.answerMessageId) ctx.recordDeliveredMessage?.(String(status.answerMessageId));
       momLog("telegram", "process_runner_done", {
         runId,
         chatId,
@@ -2493,6 +2494,7 @@ export class TelegramManager extends BaseChannelRuntime {
       scopeId,
       chatType,
       messageId: msg.message_id,
+      platformParentMessageId: msg.reply_to_message ? String(msg.reply_to_message.message_id) : undefined,
       messageThreadId,
       userId: String(msg.from?.id ?? "unknown"),
       userName: msg.from?.username || msg.from?.first_name,

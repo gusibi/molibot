@@ -10,6 +10,7 @@ import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 const BUILTIN_PACKAGES: Array<{ id: string; sourceRelative: string }> = [
   { id: "external-subagent", sourceRelative: "package/external-subagent" },
+  { id: "trace-viewer", sourceRelative: "package/trace-viewer" },
   { id: "cloudflare-html", sourceRelative: "package/cloudflare-html" }
 ];
 

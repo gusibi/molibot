@@ -1035,6 +1035,7 @@ export class FeishuManager extends BaseChannelRuntime {
             this.running.delete(scopeId);
             await streaming.finalize(result ?? { runId, stopReason: "error", errorMessage: "Run did not complete." });
         }
+        if (streaming.sentMessageId) ctx.recordDeliveredMessage?.(String(streaming.sentMessageId));
 
         const finalText = streaming.finalText;
         if (finalText) {

@@ -1,3 +1,4 @@
+import type { HookStage } from "$lib/server/agent/hooks/types.js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
@@ -939,6 +940,7 @@ interface RunSingleSubagentOptions {
   /** The parent attempt's effective execution policy; child work inherits it. */
   executionPolicy?: EffectiveExecutionPolicy;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  onTrace?: (stage: HookStage, payload: Record<string, unknown>) => void;
   signal?: AbortSignal;
   subagentSessionId?: string;
   parentRunId?: string;
@@ -1107,6 +1109,7 @@ async function runSubagentOnce(
 
     if (event.type === "message_start" && event.message?.role === "assistant") {
       subagentLlmCallCount += 1;
+      options.onTrace?.("model.call.before", { modelAttemptId: `${options.subagentTaskId}:model:${subagentLlmCallCount}`, parentFactId: `subagent_task:${options.subagentTaskId}`, provider: model.provider, model: model.id });
       momLog("runner", "subagent_llm_call_start", {
         ...logContext,
         chatId: options.chatId,
@@ -1118,6 +1121,7 @@ async function runSubagentOnce(
     }
 
     if (event.type === "message_end" && event.message?.role === "assistant") {
+      options.onTrace?.("model.call.after", { modelAttemptId: `${options.subagentTaskId}:model:${subagentLlmCallCount}`, parentFactId: `subagent_task:${options.subagentTaskId}`, provider: model.provider, model: model.id, usage: event.message.usage, stopReason: event.message.stopReason });
       const msg = event.message as { stopReason?: string; usage?: { input?: number; output?: number; totalTokens?: number } };
       momLog("runner", "subagent_llm_call_end", {
         ...logContext,
@@ -1133,6 +1137,7 @@ async function runSubagentOnce(
 
     if (event.type === "tool_execution_start") {
       subagentToolCallCount += 1;
+      options.onTrace?.("tool.call.before", { toolCallId: `${options.subagentTaskId}:${event.toolCallId}`, toolName: event.toolName, parentFactId: `model_call:${options.subagentTaskId}:model:${subagentLlmCallCount}`, argsPreview: JSON.stringify(event.args ?? {}).slice(0, 500) });
       momLog("runner", "subagent_tool_start", {
         ...logContext,
         chatId: options.chatId,
@@ -1146,6 +1151,7 @@ async function runSubagentOnce(
     }
 
     if (event.type !== "tool_execution_end") return;
+    options.onTrace?.(event.isError ? "tool.call.error" : "tool.call.after", { toolCallId: `${options.subagentTaskId}:${event.toolCallId}`, toolName: event.toolName, resultPreview: extractTextFromToolResult(event.result).slice(0, 1000) });
 
     const toolName = String((event as { toolName?: unknown }).toolName ?? "unknown");
     const isError = Boolean((event as { isError?: unknown }).isError);
@@ -1538,6 +1544,7 @@ export function createSubagentTool(options: {
   artifactDir?: string;
   getSettings: () => RuntimeSettings;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  onTrace?: (stage: HookStage, payload: Record<string, unknown>) => void;
   runId?: string;
   requestedByDepth?: number;
   /** The parent attempt's effective execution policy; delegated work inherits it. */
@@ -1667,6 +1674,9 @@ export function createSubagentTool(options: {
         const subagentTaskId = `${delegationId}:${index + 1}:${agent.name}`;
         const subagentSessionId = `${options.runId ?? options.chatId}-${subagentTaskId}`;
         let started = false;
+        const traceTask = (stage: HookStage, stopReason?: string) => options.onTrace?.(stage, {
+          agent: agent.name, subagentTaskId, parentFactId: `tool_call:${delegationId}`, taskIndex: index + 1, stopReason
+        });
         try {
           momLog("runner", "subagent_task_start", {
             runId: options.runId,
@@ -1690,6 +1700,7 @@ export function createSubagentTool(options: {
             taskCount: parsed.tasks.length
           });
           started = true;
+          traceTask("subagent.task.before");
           const hostApproval = options.channel && options.sessionId && options.store
             ? {
               channel: options.channel,
@@ -1715,6 +1726,7 @@ export function createSubagentTool(options: {
             hostApproval,
             executionPolicy: options.executionPolicy,
             emitRunnerEvent: options.emitRunnerEvent,
+            onTrace: options.onTrace,
             signal,
             subagentSessionId,
             parentRunId: options.runId,
@@ -1752,9 +1764,11 @@ export function createSubagentTool(options: {
             model: result.model,
             sessionId: result.sessionId
           });
+          traceTask("subagent.task.after", result.stopReason);
           return result;
         } catch (error) {
           if (started) {
+            traceTask("subagent.task.after", signal?.aborted ? "aborted" : "error");
             await options.emitRunnerEvent?.({
               type: "subagent_execution",
               phase: "task_end",

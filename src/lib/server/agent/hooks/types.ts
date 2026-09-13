@@ -9,6 +9,7 @@ export type HookKind = "observe" | "transform" | "gate";
  */
 export type HookStage =
   | "run.started"
+  | "reply.delivered"
   | "run.finished"
   | "model.call.before"
   | "model.call.after"

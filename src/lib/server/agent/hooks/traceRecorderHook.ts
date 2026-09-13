@@ -131,6 +131,7 @@ export class TraceRecorderHook implements RuntimeHook {
     "run.beforeStart",
     "run.started",
     "run.finished",
+    "reply.delivered",
     "input.enrich.before",
     "input.enrich.after",
     "model.call.before",
@@ -396,7 +397,7 @@ export class TraceRecorderHook implements RuntimeHook {
   ): void {
     const agent = stringField(payload, "agent") ?? "unknown";
     const taskIndex = numberField(payload, "taskIndex") ?? 0;
-    const factId = `${agent}:${taskIndex}`;
+    const factId = stringField(payload, "subagentTaskId") ?? `${agent}:${taskIndex}`;
     this.recordGenericFact(event, payload, "subagent_task", factId, agent, status);
   }
 

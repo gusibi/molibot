@@ -9,6 +9,7 @@ export type TranscriptAttachment = {
 };
 
 export type TranscriptMessage = {
+  traceRunIds?: string[];
   /** Execution duration, excluding time spent waiting before this run started. */
   durationMs?: number;
   id?: string;

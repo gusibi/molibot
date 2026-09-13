@@ -248,6 +248,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
       out.push({
         id: entry.id,
         sourceEntryId: entry.id,
+        traceRunIds: entry.runId ? [entry.runId] : undefined,
         conversationId,
         role: "user",
         content,
@@ -273,6 +274,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
       assistant = {
         id: entry.id,
         sourceEntryId: entry.id,
+        traceRunIds: entry.runId ? [entry.runId] : undefined,
         conversationId,
         role: "assistant",
         content,
@@ -304,6 +306,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
       assistant.sourceEntryId = entry.id;
       assistant.createdAt = entry.timestamp;
     }
+    if (entry.runId && !assistant.traceRunIds?.includes(entry.runId)) assistant.traceRunIds = [...(assistant.traceRunIds ?? []), entry.runId];
     const model = modelLabel(entry.message);
     if (model) assistant.model = model;
     if (thinking) assistant.thinking = [assistant.thinking, thinking].filter(Boolean).join("\n\n");

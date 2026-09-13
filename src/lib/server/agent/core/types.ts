@@ -200,6 +200,8 @@ export type RunnerUiEvent =
     };
 
 export interface MomContext {
+  /** Runner-owned observation of a platform reply ID; never changes delivery behavior. */
+  recordDeliveredMessage?: (messageId: string) => void;
   channel: string;
   message: ChannelInboundMessage;
   workspaceDir: string;

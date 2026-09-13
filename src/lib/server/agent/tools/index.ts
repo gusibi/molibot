@@ -1,3 +1,5 @@
+import { SessionStore } from "$lib/server/sessions/store.js";
+import type { HookStage } from "$lib/server/agent/hooks/types.js";
 import { createUpdatePlanTool, type SessionPlanProgress } from "./updatePlan.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
@@ -140,6 +142,7 @@ function createDeferredToolEntry(options: {
 }
 
 export function createMomTools(options: {
+  replyToMessageId?: string;
   sessionPlanProgress?: SessionPlanProgress;
   channel: string;
   cwd: string;
@@ -171,6 +174,7 @@ export function createMomTools(options: {
   miniAppId?: string;
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  onTrace?: (stage: HookStage, payload: Record<string, unknown>) => void;
   onSideEffectPreflight?: ToolExecutionContext["onSideEffectPreflight"];
   onSideEffectReceipt?: ToolExecutionContext["onSideEffectReceipt"];
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
@@ -310,7 +314,16 @@ export function createMomTools(options: {
     getSettings: options.getSettings,
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
-    executionMode: permissionMode
+    executionMode: permissionMode,
+    runId: options.runId,
+    replyToMessageId: options.replyToMessageId,
+    resolveMessageRunIds: (messageId) => {
+      const metadata = new SessionStore().listMessageMetadata(options.sessionId).find(item => item.id === messageId || item.platformMessageId === messageId);
+      if (!metadata?.sourceEntryId) return [];
+      const entry = options.store.listSessionMessageEntries(options.chatId, options.sessionId).find(item => item.id === metadata.sourceEntryId);
+      return entry?.runId ? [entry.runId] : [];
+    },
+    traceScope: { channel: options.channel, botId: basename(options.workspaceDir), chatId: options.chatId, sessionId: options.sessionId }
   }).map((tool) => wrapSerializedTool(tool));
 
   let tools: AgentTool<any>[] = [];
@@ -952,6 +965,7 @@ export function createMomTools(options: {
       artifactDir,
       getSettings: options.getSettings,
       emitRunnerEvent: options.emitRunnerEvent,
+      onTrace: options.onTrace,
       runId: options.runId,
       // Delegated work follows the parent task's permissions: the child's
       // execution environment and approval outcomes come from this policy.

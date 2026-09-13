@@ -144,6 +144,7 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
         textLength: normalized.length
       });
       state.lastSentMessage = await options.response.sendText(normalized);
+      if (state.lastSentMessage) ctx.recordDeliveredMessage?.(String(state.lastSentMessage.messageId));
       state.hasResponded = true;
       state.accumulatedText += state.accumulatedText ? `\n${normalized}` : normalized;
       if (shouldLog) {
