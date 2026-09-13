@@ -14,8 +14,6 @@
   import type { SessionStatusDot } from "./sessionStatusDot.js";
   import ProjectTree from "../projects/ProjectTree.svelte";
   import type { Translation } from "../i18n";
-  import DurableExecutionSidebarSection from "./DurableExecutionSidebarSection.svelte";
-  import type { DesktopDurableExecutionItem } from "@molibot/desktop-contract";
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
   let {
@@ -52,8 +50,6 @@
     onCopySessionPath,
     onRevealSessionInFinder,
     onActivateProjectSession,
-    durableExecutions = [],
-    onOpenDurableExecution,
     onOpenMiniApps,
     onOpenConversationSearch,
     onToggleCollapse
@@ -91,8 +87,6 @@
     onCopySessionPath?: (item: DesktopConversationItem) => void | Promise<void>;
     onRevealSessionInFinder?: (item: DesktopConversationItem) => void | Promise<void>;
     onActivateProjectSession: () => void;
-    durableExecutions?: DesktopDurableExecutionItem[];
-    onOpenDurableExecution: (executionId: string) => void;
     onOpenMiniApps: () => void;
     onOpenConversationSearch: () => void;
     onToggleCollapse?: () => void;
@@ -184,7 +178,6 @@
   </nav>
 
   <div class="sidebar-channels" data-theme-region="session-list">
-    <DurableExecutionSidebarSection items={durableExecutions} {copy} onOpen={onOpenDurableExecution} />
     <section class="sidebar-tree-section">
       <button type="button" class="sidebar-section-head sidebar-section-toggle" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>
         <span>{copy.chat}</span><i aria-hidden="true"><CaretRight class={conversationsExpanded ? "sidebar-section-caret open" : "sidebar-section-caret"} size={12} /></i>

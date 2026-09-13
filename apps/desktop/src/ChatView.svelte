@@ -1017,9 +1017,6 @@
   $: activeHeaderSourceLabel = sidebarChannels.find((channel) => channel.id === activeHeaderChannel)?.name ?? activeHeaderChannel;
   $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (activeSessionItem?.title || copy.chat);
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
-  $: activeDurableExecution = viewMode === "local" && activeSessionId
-    ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId && isActiveDurableExecution(item)) ?? null)
-    : null;
   $: linkedPlanExecutionIds = new Set(messages.map((message) => message.plan?.durableExecutionId).filter((id): id is string => Boolean(id)));
   $: sessionDurableExecution = viewMode === "local" && activeSessionId
     ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId && isOpenDurableExecution(item) && !linkedPlanExecutionIds.has(item.execution.id)) ?? null)
@@ -3150,8 +3147,6 @@
     endpoint={connectedEndpoint}
     serviceState={serviceState}
     {statusDots}
-    {durableExecutions}
-    onOpenDurableExecution={openDurableExecutionInspector}
     formatTime={formatListTime}
     onNewConversation={newConversation}
     onOpenAutoTasks={() => openWorkspacePane("automations")}
@@ -3250,9 +3245,9 @@
           <button
             type="button"
             class="durable-header-badge"
-            aria-label={copy.durableInProgress}
-            title={copy.durableInProgress}
-            onclick={() => openDurableExecutionInspector(activeDurableExecution?.execution.id ?? activeDurableExecutions[0]?.execution.id ?? "")}
+            aria-label={copy.planBoardNav}
+            title={copy.planBoardNav}
+            onclick={() => openWorkspacePane("plans")}
           >
             <Layers size={16} aria-hidden="true" />
             <span>{durableActiveCount > 99 ? "99+" : durableActiveCount}</span>

@@ -100,6 +100,7 @@
           <li class:completed={step.status === "completed"}><span class="plan-step-marker">{#if step.status === "completed"}<Check size={12} aria-hidden="true" />{:else if step.status === "blocked"}<TriangleWarning size={12} aria-hidden="true" />{:else}<Record size={12} aria-hidden="true" />{/if}</span><span>{step.text}</span></li>
         {/each}
       </ol>
+      {#if current.durableExecutionId}<button type="button" class="secondary-button plan-open-progress" onclick={openProgress}>{copy.planOpenProgress}</button>{/if}
     {/if}
   </DecisionCard>
 {:else}
