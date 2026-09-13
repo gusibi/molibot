@@ -10,6 +10,7 @@
   import Copy from "reicon-svelte/icons/Copy";
   import Cpu from "reicon-svelte/icons/Cpu";
   import Database from "reicon-svelte/icons/Database";
+  import AlignLeft from "../icons/duotone/components/AlignLeft.svelte";
   import Loader from "reicon-svelte/icons/Loader";
   import More from "reicon-svelte/icons/More";
   import PenLine from "reicon-svelte/icons/PenLine";
@@ -307,7 +308,7 @@
         {#if (canShowActions && messageActions) || message.createdAt || hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length)}
           <div class="message-meta assistant-meta">
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
-            {#if hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length)}
+            {#if hasTechnicalDetails}
               <div class="message-meta-inline">
                 {#if hasTurnSummary && turnSummary}
                   <span class="turn-summary" aria-label={copy.turnSummaryLabel}>
@@ -325,9 +326,6 @@
                     {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
                     {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
                   </button>
-                {/if}
-                {#if traceEnabled && message.traceRunIds?.length}
-                  <button type="button" class="message-memory-trace" onclick={() => { traceRunIds = message.traceRunIds ?? []; }}>{session.locale === "zh-CN" ? "查看调用链" : "View call trace"}</button>
                 {/if}
               </div>
             {/if}
@@ -350,6 +348,15 @@
                     onclick={() => messageActions.onForkAssistant!(message)}
                   >{#if isForking}<Loader class="message-action-spin" size={14} aria-hidden="true" />{:else}<BranchUp size={14} aria-hidden="true" />{/if}</button>
                 {/if}
+                {#if traceEnabled && message.traceRunIds?.length}
+                  <button
+                    type="button"
+                    class="message-action"
+                    aria-label={session.locale === "zh-CN" ? "查看调用链" : "View call trace"}
+                    title={session.locale === "zh-CN" ? "查看调用链" : "View call trace"}
+                    onclick={() => { traceRunIds = message.traceRunIds ?? []; }}
+                  ><AlignLeft size={14} aria-hidden="true" /></button>
+                {/if}
               </div>
             {/if}
             {#if hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length) || (textContributions.length && messageActions?.onRunContribution)}
@@ -362,9 +369,6 @@
                       {#if busy}<Loader class="message-action-spin" size={14} />{:else if done}<Check size={14} />{:else}<More size={14} />{/if}
                     </span>
                   </svelte:fragment>
-                  {#if traceEnabled && message.traceRunIds?.length}
-                    <button type="button" class="message-memory-trace" onclick={() => { traceRunIds = message.traceRunIds ?? []; }}>{session.locale === "zh-CN" ? "查看调用链" : "View call trace"}</button>
-                  {/if}
                   {#if hasTechnicalDetails}<div class="message-meta-details">
                   {#if hasTurnSummary && turnSummary}
                     <div class="turn-summary" aria-label={copy.turnSummaryLabel}>

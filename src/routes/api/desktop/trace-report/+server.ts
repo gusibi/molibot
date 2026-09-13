@@ -14,7 +14,9 @@ export const GET: RequestHandler = async ({ url }) => {
   const store = new SqliteTraceStore();
   try {
     const report = queryTurnTraceReport(store, url.searchParams.getAll("runId"));
-    const html = renderTraceReport(report, url.searchParams.get("language") === "en" ? "en" : "zh");
+    const themeParam = url.searchParams.get("theme");
+    const theme = themeParam === "light" || themeParam === "dark" ? themeParam : "auto";
+    const html = renderTraceReport(report, url.searchParams.get("language") === "en" ? "en" : "zh", theme);
     return json({ ok: true, html, report }, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     return json({ ok: false, error: cause instanceof Error ? cause.message : "Trace unavailable." }, { status: 404 });

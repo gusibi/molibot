@@ -30,7 +30,7 @@
   });
   $: zh = session.locale === "zh-CN";
   $: errorText = friendlyError(error, zh);
-  $: if (runIds.length && endpoint) void load(endpoint, runIds, session.locale);
+  $: if (runIds.length && endpoint) void load(endpoint, runIds, session.locale, appearance === "dark" ? "dark" : "light");
   function friendlyError(raw: string, chinese: boolean): string {
     if (!raw) return "";
     if (/trace not found|not recorded yet|ambiguous/i.test(raw)) return chinese ? "这一轮没有可用的调用链记录：可能早于 trace 记录功能、该轮未执行，或记录已被清理。" : "No call trace is available for this turn: it may predate trace recording, never executed, or the record was cleaned up.";
@@ -46,10 +46,10 @@
   function onKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") requestClose();
   }
-  async function load(host: string, ids: string[], locale: string) {
+  async function load(host: string, ids: string[], locale: string, theme: "auto" | "light" | "dark") {
     const current = ++generation;
     busy = true; error = "";
-    try { const value = await loadTraceReportHtml(host, ids, locale); if (current === generation) html = value; }
+    try { const value = await loadTraceReportHtml(host, ids, locale, theme); if (current === generation) html = value; }
     catch (cause) { if (current === generation) error = String(cause instanceof Error ? cause.message : cause); }
     finally { if (current === generation) busy = false; }
   }
@@ -72,9 +72,8 @@
     onkeydown={onKeydown}
   >
     <header class="memory-trace-header trace-report-header">
-      <div>
+      <div class="trace-report-header-title">
         <h2 id="trace-report-title">{zh ? "调用链" : "Call trace"}</h2>
-        <p>{zh ? "面板显示当前快照；点“刷新”读取最新执行状态。" : "This panel shows a snapshot; refresh to read the latest execution state."}</p>
       </div>
       <div class="trace-report-header-actions">
         <button
@@ -89,7 +88,7 @@
     </header>
     <div class="memory-trace-body trace-report-body">
       <div class="trace-report-toolbar">
-        <Button class="secondary-button" disabled={busy} onclick={() => load(endpoint, runIds, session.locale)}>{zh ? "刷新" : "Refresh"}</Button>
+        <Button class="secondary-button" disabled={busy} onclick={() => load(endpoint, runIds, session.locale, appearance === "dark" ? "dark" : "light")}>{zh ? "刷新" : "Refresh"}</Button>
         <Button class="secondary-button" disabled={busy} onclick={publish}>{zh ? "分享公开链接（不含摘要）" : "Share public link (no previews)"}</Button>
       </div>
       {#if errorText}<p class="trace-report-error" role="alert">{errorText}</p>{/if}

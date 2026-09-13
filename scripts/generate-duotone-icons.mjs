@@ -30,6 +30,7 @@ const COMPONENTS_DIR = join(OUT_DIR, "components");
 
 /** Reicon export names with an exact `<kebab>-duotone` counterpart. */
 const EXACT = [
+  "AlignLeft",
   "ArrowDown",
   "ArrowRight",
   "Bell",

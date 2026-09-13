@@ -4036,8 +4036,8 @@ export async function loadTraceViewerEnabled(endpoint: string): Promise<boolean>
   return (await requestJson<{ enabled: boolean }>(endpoint, "/api/desktop/trace-report")).enabled;
 }
 
-export async function loadTraceReportHtml(endpoint: string, runIds: string[], language: string): Promise<string> {
-  const query = new URLSearchParams({ language });
+export async function loadTraceReportHtml(endpoint: string, runIds: string[], language: string, theme: "auto" | "light" | "dark" = "auto"): Promise<string> {
+  const query = new URLSearchParams({ language, theme });
   runIds.forEach(id => query.append("runId", id));
   return (await requestJson<{ html: string }>(endpoint, `/api/desktop/trace-report?${query}`)).html;
 }

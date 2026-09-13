@@ -7303,9 +7303,10 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 
 .trace-report-drawer { width: min(560px, 92vw); }
 .trace-report-drawer.trace-report-fullscreen { width: 100%; border-left: 0; }
-.trace-report-header { align-items: center; }
-.trace-report-header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
-.trace-report-body { display: flex; flex-direction: column; gap: 10px; overflow: hidden; padding: 14px 14px 16px; }
+.memory-trace-header.trace-report-header { align-items: center; gap: 8px; padding: 14px 12px 12px; }
+.memory-trace-header > .trace-report-header-title { min-width: 0; flex: 1; }
+.memory-trace-header > .trace-report-header-actions { display: flex; flex: none; align-items: center; gap: 2px; }
+.trace-report-body { display: flex; flex-direction: column; gap: 8px; overflow: hidden; padding: 10px 12px 12px; }
 .trace-report-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .trace-report-body iframe { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 8px; background: var(--card-bg); }
 .trace-report-error, .trace-report-url { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-meta); }
