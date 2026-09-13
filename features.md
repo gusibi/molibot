@@ -1,3 +1,11 @@
+### 计划看板修复：重启后残留「需要审批」卡片点击报 no longer pending（2026-09-13，已修复）
+
+- 症状（owner 走查）：服务重启后，Durable inspector 仍显示上一次中断 attempt 的「需要审批」卡片，点击「仅此一次/长期允许」报 `The underlying approval request is no longer pending.`，执行停在中转态。
+- 根因：审批 broker 的请求是内存态（`ApprovalBroker.requests = new Map`），重启即丢；但 `durable_approval_requests` 行仍是 `pending`，UI 据此渲染可点击卡片。
+- 根修：`DurableExecutionStore` 新增 `expireAttemptApprovals`，在两条路径把不再可答的 pending 审批置为 `expired`：① 启动 reconcile 把孤儿 attempt 标为 interrupted 时；② `finishAttempt` 的落点不是 `waiting_for_approval`（暂停/中断/失败）时。卡片随之消失，恢复由「继续/开始」触发的 runtime recovery 重新请求。
+- 边界：已批准的持久/session 授权在键稳定时仍会被消费复用；若模型同一文件在两次 attempt 里分别用相对路径与绝对路径（审批键含路径），键不同会重新请求——这是模型输入不稳定，非状态泄漏。
+- 验证：`store.test.ts` 14/14（含新增「停止等待即过期 pending 审批」用例）。
+
 ### 计划看板修复：持久审批被反复重新请求（2026-09-13，已修复）
 
 - 症状（owner 走查）：计划里同一个 `write` 步骤在每次恢复后都重新弹审批，即使已选「一直允许」；执行因此反复中断/暂停，看起来像卡住。

@@ -1453,6 +1453,13 @@ export class DurableExecutionStore {
         ? input.reason ?? null
         : null;
       this.db.prepare("UPDATE durable_attempts SET status = ?, finished_at = ?, end_reason = ?, tokens_used = ? WHERE id = ?").run(input.status, timestamp, input.reason ?? null, Math.max(0, Math.round(input.tokensUsed ?? 0)), input.attemptId);
+      // An attempt that is not parked on an approval can no longer answer one.
+      // Leaving these pending produced zombie cards after a pause/crash that
+      // failed at resolve time ("no longer pending") because the in-memory
+      // broker request was gone.
+      if (input.nextExecutionStatus !== "waiting_for_approval") {
+        this.expireAttemptApprovals(input.executionId, timestamp, input.attemptId);
+      }
       this.db.prepare(`UPDATE durable_executions SET status = ?, version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, tokens_used = tokens_used + ?, updated_at = ?, terminal_at = ?, waiting_kind = ?, waiting_reason = ?, last_error = ? WHERE id = ? AND version = ?`).run(
         input.nextExecutionStatus, Math.max(0, Math.round(input.tokensUsed ?? 0)), timestamp,
         TERMINAL_STATUSES.has(input.nextExecutionStatus) ? timestamp : null,
@@ -1508,6 +1515,10 @@ export class DurableExecutionStore {
           this.db.prepare("UPDATE durable_steps SET status = 'uncertain', updated_at = ? WHERE execution_id = ? AND status = 'running'").run(timestamp, row.id);
         }
         this.db.prepare("UPDATE durable_attempts SET status = 'interrupted', finished_at = ?, end_reason = ? WHERE execution_id = ? AND status = 'running'").run(timestamp, isVerifying ? "verification_interrupted" : "service_restarted", row.id);
+        // Broker requests are in-memory, so a restart makes every pending
+        // approval unanswerable. Expire them here instead of showing a card
+        // whose buttons can only return "no longer pending".
+        this.expireAttemptApprovals(row.id, timestamp);
         this.db.prepare(`UPDATE durable_executions SET status = ?, version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = ?, waiting_reason = ?, last_error = ?, updated_at = ? WHERE id = ? AND version = ?`).run(
           isVerifying ? "verifying" : "recovery_required",
           isVerifying ? null : "recovery",
@@ -2036,6 +2047,14 @@ export class DurableExecutionStore {
       const current = this.requireRow(executionId);
       throw new DurableExecutionConflictError(executionId, expectedVersion, current.version);
     }
+  }
+
+  private expireAttemptApprovals(executionId: string, timestamp: string, attemptId?: string): void {
+    if (attemptId) {
+      this.db.prepare("UPDATE durable_approval_requests SET status = 'expired', resolved_at = ? WHERE execution_id = ? AND attempt_id = ? AND status = 'pending'").run(timestamp, executionId, attemptId);
+      return;
+    }
+    this.db.prepare("UPDATE durable_approval_requests SET status = 'expired', resolved_at = ? WHERE execution_id = ? AND status = 'pending'").run(timestamp, executionId);
   }
 
   private ensureSchema(): void {

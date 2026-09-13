@@ -599,6 +599,48 @@ test("a one-time durable approval is consumed before a resumed attempt can run",
   }
 });
 
+test("an attempt that stops without waiting expires its pending approval", () => {
+  const database = tempDatabase();
+  const store = new DurableExecutionStore(database.file);
+  try {
+    const created = store.create(createInput());
+    const claimed = store.claimAttempt({
+      executionId: created.id,
+      expectedVersion: created.version,
+      processOwnerId: "process-a",
+      runId: "run-pause",
+      contextSessionId: "session-a",
+      leaseDurationMs: 60_000
+    });
+    const approval = store.recordApprovalRequest({
+      executionId: created.id,
+      attemptId: claimed.attempt.id,
+      expectedVersion: claimed.execution.version,
+      processOwnerId: "process-a",
+      requestId: "approval-request-pause",
+      backend: "approval_broker",
+      actionKey: "write:plan.txt:persistent",
+      toolId: "write",
+      title: "Needs approval",
+      summary: "Write plan.txt.",
+      options: ["approve_once", "reject"]
+    });
+    store.finishAttempt({
+      executionId: created.id,
+      attemptId: claimed.attempt.id,
+      expectedVersion: store.getById(created.id)!.version,
+      processOwnerId: "process-a",
+      status: "interrupted",
+      nextExecutionStatus: "paused",
+      reason: "Paused by user."
+    });
+    assert.equal(store.getDetail(created.id)!.approvals.find((item) => item.id === approval.id)?.status, "expired");
+  } finally {
+    store.close();
+    database.cleanup();
+  }
+});
+
 test("decision answers are constrained, versioned, and idempotent", () => {
   const database = tempDatabase();
   const store = new DurableExecutionStore(database.file);
