@@ -179,16 +179,25 @@ export class ToolRuntime {
         actionFingerprint: decision.request.actionFingerprint
       });
 
+      // Derived once and reused for both the durable-consumption key and the
+      // prompt: the Durable Execution records its approval key from this exact
+      // prompt, so a resumed attempt must consume with the same derivation or a
+      // previously approved persistent action is never reused.
+      const pendingPrompt = buildHostBashApprovalPrompt(buildBrokerApprovalRecord({
+        request: decision.request,
+        actorId: call.context.actorId,
+        toolId: tool.id,
+        displayName: tool.name,
+        command: decision.request.action.command ?? decision.request.action.path ?? tool.name,
+        status: "pending"
+      }));
+
       const durableApprovalScope = !grant
         ? await call.context.consumeDurableApproval?.({
             backend: "approval_broker",
-            actionKey: [
-              tool.id,
-              decision.request.action.command ?? decision.request.action.path ?? tool.name,
-              "ephemeral"
-            ].join(":"),
+            actionKey: [pendingPrompt.request.toolId, pendingPrompt.request.command, pendingPrompt.request.approvalMode].filter(Boolean).join(":"),
             toolId: tool.id,
-            command: decision.request.action.command ?? decision.request.action.path ?? tool.name
+            command: pendingPrompt.request.command
           })
         : false;
 
@@ -204,14 +213,6 @@ export class ToolRuntime {
         // `write`, and an unattended automation run must be able to suspend
         // instead of blocking on `pollApprovalRequest` — a blocked run holds its
         // execution lease in `running` forever (CLAUDE.md pitfall 23).
-        const pendingPrompt = buildHostBashApprovalPrompt(buildBrokerApprovalRecord({
-          request: decision.request,
-          actorId: call.context.actorId,
-          toolId: tool.id,
-          displayName: tool.name,
-          command: decision.request.action.command ?? decision.request.action.path ?? tool.name,
-          status: "pending"
-        }));
         const deferred = await call.context.onApprovalRequest?.({
           backend: "approval_broker",
           requestId: decision.request.id,

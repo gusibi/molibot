@@ -365,7 +365,9 @@ test("ToolRuntime consumes a durable approval before running a high-risk handler
 
   assert.equal(result.ok, true);
   assert.equal(executed, true);
-  assert.equal(actionKey, "host-bash:git status:ephemeral");
+  // The consume key must equal the key the Durable Execution recorded from the
+  // same prompt (toolId:command:approvalMode), not a hardcoded "ephemeral".
+  assert.equal(actionKey, "host-bash:git status:persistent");
 });
 
 test("ToolRuntime blocks tool execution if not in workspace whitelist", async () => {

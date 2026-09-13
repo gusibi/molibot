@@ -1,3 +1,10 @@
+### 计划看板修复：持久审批被反复重新请求（2026-09-13，已修复）
+
+- 症状（owner 走查）：计划里同一个 `write` 步骤在每次恢复后都重新弹审批，即使已选「一直允许」；执行因此反复中断/暂停，看起来像卡住。
+- 根因：durable 记录审批键时用 `[toolId, command, approvalMode]`（来自 prompt），而 broker 路径消费审批时用的是 `[toolId, command, "ephemeral"]` 硬编码（`toolRuntime.ts`）。键不一致 → `consumeDurableApproval` 找不到已批准的持久审批 → 每次都重新请求。
+- 根修：在 `ToolRuntime` 里把 `pendingPrompt`（`buildBrokerApprovalRecord` + `buildHostBashApprovalPrompt`）提前构造一次，消费键与后续 `onApprovalRequest` 传给 durable runtime 的 prompt 同源；`toolRuntime.test.ts` 的期望键从错误的 `...:ephemeral` 修正为真实的 `...:persistent`。
+- 验证：`toolRuntime.test.ts` + `durable/runtime.test.ts` 28/28。
+
 ### 计划看板修复：durable 续跑事件污染「自动任务」未读（2026-09-13，已修复）
 
 - 症状（owner 走查）：计划执行时左侧「自动任务」出现未读角标 1，本不应出现。
