@@ -3216,6 +3216,7 @@
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
         onOpenMiniAppAiSettings={() => openSettings("models")}
+        formatTime={formatListTime}
         {sidebarCollapsed}
         onToggleSidebar={toggleSidebarCollapse}
       />

@@ -1,3 +1,25 @@
+### Bash 审批归属修复（2026-09-13，已修复）
+
+- 通用 ToolRuntime 生成的宿主工具审批使用 `host:<toolId>`，`bash:*` 保留给 HostBashStore。SQLite broker 可以读取并批准自己创建的 Bash 请求，长期授权可在后续执行中复用。
+- 根因是审批生产端与存储读取端对 capability 命名空间的约定不一致：请求仍为 pending，却被读取过滤器隐藏，界面因此误报请求失效。先前内存 broker 测试没有覆盖这个过滤器。
+- 回归在同一临时数据库中使用真实 ToolRuntime、SQLite broker 和 HostBashStore，验证挂起、请求查询、长期批准、新轮次执行，以及 Host Bash 审批不被 broker 接管。既有错误标识的请求不会自动改写，需重新触发执行生成新请求。
+
+### 计划审批后恢复执行（2026-09-13，已修复）
+
+- 批准长任务中的工具操作时，审批结果、任务重新排队和当前步骤恢复为待执行在同一事务中保存。续跑可消费既有授权并推进步骤，支持仅此一次、执行期间和长期允许。
+- 步骤启动异常进入统一失败收尾，释放执行租约并保留恢复原因，避免任务停留在无人执行的“执行中”状态。
+- 根因属于任务与步骤状态转换不一致，以及启动异常遗漏收尾。临时数据库回归覆盖完整审批续跑、授权消费、计划完成和启动失败；历史审批测试只验证授权消费，未覆盖真实步骤从挂起到重新启动的链路。
+
+### 计划看板 UI 重做：更清晰的列表/详情层次与本地化（2026-09-13，已交付）
+
+- 背景：owner 反馈计划看板「太烂」，截图暴露拥挤的列表、全宽怪进度条、原始 ISO 时间、内部英文串外泄（`The bounded Agent attempt completed this plan step.`、`The plan's requested outcome is verified.`）、删除按钮过重等问题。
+- 列表（左栏）：统一行结构（标题 + 状态 chip；次行 shortHandle · 进度 · 项目，等宽数字），搜索框与状态筛选改为 pill，选中行用卡片边框而非整行高亮。
+- 详情（右栏）：标题行 = 计划名 + 状态 chip，副标题行聚合 shortHandle / 版本 / 更新时间（用会话列表同一 `formatTime`，不再显示 ISO）；内容改为卡片式分区（概览 / 任务 / 验收要求 / 返工），细进度条（5px）+ 等宽计数；步骤用图标区分完成/执行中/受阻/待执行并对齐状态文字。
+- 本地化：复用 inspector 的内部串映射（`durableStepAttemptCompleted`、`durableCriterionAllStepsComplete`），新增 `planBoardDefaultCriterion` 映射默认验收语；中英同步。
+- 交互：操作集中在底部固定栏，左「新增返工任务」、右按状态排序的 删除/取消/暂停/开始/继续；删除与取消改用 `.secondary-button.danger-action`（文字红、幽灵底），不再整块红。
+- 布局：新增 `.workspace-scroll[data-workspace-pane="plans"] { padding:0; overflow:hidden }`，让看板成为全高 master–detail，由左右两栏各自滚动；<900px 单列折叠 + 返回按钮。
+- 验证：`svelte-check` 0 错误 0 警告、mjs 守卫 251/251、desktop `vite build` 通过。
+
 ### 计划看板修复：重启后残留「需要审批」卡片点击报 no longer pending（2026-09-13，已修复）
 
 - 症状（owner 走查）：服务重启后，Durable inspector 仍显示上一次中断 attempt 的「需要审批」卡片，点击「仅此一次/长期允许」报 `The underlying approval request is no longer pending.`，执行停在中转态。
