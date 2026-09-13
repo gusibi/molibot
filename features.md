@@ -10,6 +10,17 @@
 - 步骤启动异常进入统一失败收尾，释放执行租约并保留恢复原因，避免任务停留在无人执行的“执行中”状态。
 - 根因属于任务与步骤状态转换不一致，以及启动异常遗漏收尾。临时数据库回归覆盖完整审批续跑、授权消费、计划完成和启动失败；历史审批测试只验证授权消费，未覆盖真实步骤从挂起到重新启动的链路。
 
+### 计划执行改为 Session 普通轮次（2026-09-13，已交付）
+
+- 背景/期望（owner）：点击执行应等同于在对话里发一轮——有流式思考、工具调用、回复，至少是第二轮；审批走 chat 标准审批卡而不是右侧面板；右侧面板只读展示记录。
+- 变更：
+  - 接受（`session-permission`）不再启动 Durable runtime，只按接受时内容同步计划版本并写入权限；客户端接受后恢复 `resumePlan`，在来源 Session 以普通轮次执行（流式 + 标准审批卡）。
+  - `/api/stream` 把带 `durableExecutionId` 的计划纳入 `sessionPlan`；轮次开始、每次 `plan_progress`、轮次结束/出错都把会话计划镜像到 Durable 记录（新增 `DurableExecutionStore.syncPlanProgress`、`PlanService.mirrorFromConversationPlan`），看板继续以 Durable 为读取源。
+  - 看板「开始/继续」不再调用 plans API 启动 durable；改为 `onContinuePlan`：切到来源 Session 并 resume（项目计划仅打开会话）。移除看板暂停/取消（由对话的停止承担）。新增「打开会话」入口。
+  - 右侧 Durable inspector 对计划执行改为只读：隐藏执行/审批按钮，显示「计划在对话中执行和审批；此面板仅展示记录」。
+- 附带：首次批准选择的权限现在作用于来源会话的普通轮次。
+- 验证：`plans + durable + sessionPlan` 61/61、`tsc` 改动文件无报错、桌面 `svelte-check` 0 错误 0 警告、mjs 守卫 251/251、`vite build` 通过；`DESIGN.md` 与能力矩阵同步。**真机冷启动走查未做**。
+
 ### 计划看板修复：计划卡进度不随 Durable 执行同步（2026-09-13，已修复）
 
 - 症状（owner 走查）：执行结束、右侧 inspector 显示 3/3，但聊天里的计划卡仍是「排队中 0/3」、步骤不打勾；看起来像执行没有回到拆解面板。

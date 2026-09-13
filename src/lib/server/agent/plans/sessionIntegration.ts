@@ -50,26 +50,26 @@ export function ensureSessionPlanRecord(input: {
 }
 
 /**
- * First approval: binds the accepted content version and starts the plan. Edits
- * made before approval are applied as a new version first, so the executed
- * content is exactly what the owner approved. Throws when the plan is already
- * executing or the version changed underneath the decision.
+ * First approval binds the accepted content version. Edits made before approval
+ * are applied as a new version first, so the executed content is exactly what
+ * the owner approved. Execution itself runs as an ordinary Session turn — this
+ * never starts the Durable runtime.
  */
-export function approveAndStartPlan(input: {
+export function applyApprovedPlanContent(input: {
   plan: ConversationPlan;
   ownerId?: string;
 }, service = new PlanService()): ConversationPlan {
   const plan = input.plan;
   if (!plan.durableExecutionId) return plan;
   const ownerId = input.ownerId ?? DEFAULT_OWNER_ID;
-  let detail = service.read(ownerId, plan.durableExecutionId);
+  const detail = service.read(ownerId, plan.durableExecutionId);
   const desiredSteps = plan.steps.map((step) => step.text.trim()).filter(Boolean);
   const currentTitles = detail.tasks.flatMap((task) => task.steps.map((step) => step.title));
   const contentChanged = plan.title.trim() !== detail.meta.title
     || plan.summary.trim() !== detail.meta.summary
     || desiredSteps.join("\n") !== currentTitles.join("\n");
   if (contentChanged && desiredSteps.length > 0) {
-    detail = service.replaceContent({
+    service.replaceContent({
       executionId: plan.durableExecutionId,
       ownerId,
       expectedVersion: detail.execution.version,
@@ -80,6 +80,5 @@ export function approveAndStartPlan(input: {
       tasks: [{ title: plan.title.trim() || "Plan", steps: desiredSteps.map((title) => ({ title })) }]
     });
   }
-  service.start({ ownerId, planId: plan.durableExecutionId, expectedVersion: detail.execution.version });
   return plan;
 }

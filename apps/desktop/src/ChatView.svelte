@@ -1184,9 +1184,52 @@
         });
       }
       await entry?.reloadFromServer();
-      // Plans saved as Durable Executions are started by the accept API; only
-      // in-session plans resume the chat turn.
-      if (decision === "accept" && !resolved.plan.durableExecutionId) await entry?.controller.resumePlan(plan.id);
+      // Plans execute as the next ordinary Session turn, including saved
+      // (durable-backed) plans, so the owner sees streaming thinking/tools and
+      // uses the standard chat approval cards.
+      if (decision === "accept") await entry?.controller.resumePlan(plan.id);
+    } catch (cause) {
+      chatStore.setActiveError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  /**
+   * The Plan Board's start/continue opens the plan's source Session and runs the
+   * plan as the next ordinary turn. Execution then streams in chat with standard
+   * approval cards instead of running out-of-band through the Durable runtime.
+   */
+  async function continuePlan(input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }): Promise<void> {
+    if (!connectedEndpoint || !input.planId) return;
+    try {
+      if (input.projectId && input.sessionId) {
+        projectsStore.endpoint = connectedEndpoint;
+        await selectProject(input.projectId);
+        await selectProjectSession(input.sessionId, input.projectId);
+        projectPaneActive = true;
+        viewMode = "local";
+        activeProjectSessionId = input.sessionId;
+        workspacePane = "chat";
+        await projectChatStore.reloadActive();
+        // Project plans are accepted from the in-conversation card.
+        return;
+      }
+      if (!input.sessionId) {
+        chatStore.setActiveError(copy.planBoardSourceMissing);
+        return;
+      }
+      const conversation = Object.values(channelItems).flat().find((item) => item.sessionId === input.sessionId);
+      if (!conversation) {
+        chatStore.setActiveError(copy.planBoardSourceMissing);
+        return;
+      }
+      projectPaneActive = false;
+      workspacePane = "chat";
+      openSession(conversation);
+      await chatStore.reloadActive();
+      if (!input.resume) return;
+      const message = chatStore.registry.active?.messages.find((entry) => entry.plan?.id === input.planId);
+      if (message?.plan) await resolvePlan(message as TranscriptMessage, message.plan, "accept");
+      else chatStore.setActiveError(copy.planBoardSourceMissing);
     } catch (cause) {
       chatStore.setActiveError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -3236,6 +3279,7 @@
         onOpenMiniApp={openMiniAppInspector}
         onOpenMiniAppAiSettings={() => openSettings("models")}
         formatTime={formatListTime}
+        onContinuePlan={continuePlan}
         {sidebarCollapsed}
         onToggleSidebar={toggleSidebarCollapse}
       />

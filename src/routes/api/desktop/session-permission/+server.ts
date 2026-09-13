@@ -6,7 +6,7 @@ import { resolveEffectivePermissionMode } from "$lib/server/agent/permissions/re
 import { PERMISSION_MODES } from "$lib/server/agent/permissions/decidePermission";
 import { getRuntimeContextForConversation, resolveRunnerChatId } from "$lib/server/web/runtimeContext";
 import { sanitizeWebProfileId, toWebExternalUserId } from "$lib/server/web/identity";
-import { approveAndStartPlan } from "$lib/server/agent/plans/sessionIntegration.js";
+import { applyApprovedPlanContent } from "$lib/server/agent/plans/sessionIntegration.js";
 import type { DesktopPlanDecisionRequest, DesktopSessionPermissionUpdateRequest } from "$lib/shared/desktop";
 
 function context(profileId: string, conversationId: string) {
@@ -80,12 +80,13 @@ export const POST: RequestHandler = async ({ request }) => {
     if (decision === "accept") {
       const mode = body.mode === "manual" ? "manual" : "accept_edits";
       runtimeContext.store.setSessionPermissionModeOverride(chatId, conversationId, mode);
-      // A saved plan executes through the shared Durable Execution runtime, not
-      // by resuming the chat turn. First approval binds the accepted content
-      // version and starts the plan; the chat card then projects durable status.
+      // A saved plan executes as the next ordinary Session turn (the client
+      // resumes the conversation after accepting); it is not started through the
+      // Durable runtime. Applying the accepted content version keeps the board
+      // record aligned with what the owner approved.
       if (plan.durableExecutionId) {
         try {
-          approveAndStartPlan({ plan });
+          applyApprovedPlanContent({ plan });
         } catch (cause) {
           return json({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }, { status: 409 });
         }

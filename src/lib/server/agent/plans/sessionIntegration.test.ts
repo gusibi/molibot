@@ -7,7 +7,7 @@ import type { ConversationPlan } from "$lib/shared/types/message.js";
 import { DurableExecutionStore } from "../durable/store.js";
 import { DurableExecutionCoordinator } from "../durable/coordinator.js";
 import { PlanService } from "./service.js";
-import { ensureSessionPlanRecord, approveAndStartPlan, planTasksFromConversationPlan } from "./sessionIntegration.js";
+import { ensureSessionPlanRecord, applyApprovedPlanContent, planTasksFromConversationPlan } from "./sessionIntegration.js";
 
 function makeService(): { store: DurableExecutionStore; service: PlanService; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "molibot-plan-session-"));
@@ -51,7 +51,7 @@ test("a proposed Session plan is saved, linked, and idempotent", () => {
   }
 });
 
-test("approving applies edited content and starts the plan without resuming the chat", () => {
+test("applying approved content replaces the plan version without starting execution", () => {
   const { service, cleanup } = makeService();
   try {
     const saved = ensureSessionPlanRecord({ plan: proposal(), botId: "bot", sourceUiSessionId: "sess-a" }, service)!;
@@ -64,11 +64,12 @@ test("approving applies edited content and starts the plan without resuming the 
         { id: saved.steps[1].id, text: "翻译成日语", status: "pending" }
       ]
     };
-    const approved = approveAndStartPlan({ plan: edited }, service);
+    const approved = applyApprovedPlanContent({ plan: edited }, service);
     assert.equal(approved.durableExecutionId, "plan-call-1");
 
     const detail = service.read("owner", "plan-call-1");
-    assert.equal(detail.execution.status, "queued");
+    // Plans run as ordinary Session turns, so approval only aligns content.
+    assert.equal(detail.execution.status, "planned");
     assert.equal(detail.meta.title, "翻译产品文档 v2");
     assert.equal(detail.meta.summary, "改成日语");
     assert.deepEqual(detail.tasks[0].steps.map((step) => step.title), ["读取原文", "翻译成日语"]);

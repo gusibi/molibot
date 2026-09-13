@@ -20,6 +20,9 @@
   export let copy: Translation;
   export let endpoint: string;
   export let formatTime: (iso: string) => string = (iso) => iso;
+  /** Plans execute as ordinary Session turns, so "start/continue" opens the
+   *  source Session and resumes there instead of running the Durable runtime. */
+  export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
 
   type FilterBucket = "all" | DesktopPlanStatus;
 
@@ -69,11 +72,10 @@
   $: progressPercent = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
   $: waitingText = detail ? resolveWaitingText(detail) : "";
   $: showDetailPane = detailLoading || Boolean(detail) || Boolean(selectedId);
-  $: canStart = detail?.execution.status === "planned";
-  $: canPause = detail?.execution.status === "queued" || detail?.execution.status === "running" || detail?.execution.status === "verifying";
-  $: canResume = detail?.execution.status === "paused" || detail?.execution.status === "recovery_required";
+  $: canContinue = Boolean(detail?.execution.sourceUiSessionId) && ["planned", "paused", "recovery_required", "waiting_for_user", "waiting_for_approval"].includes(detail?.execution.status ?? "");
+  $: canOpenSession = Boolean(detail?.execution.sourceUiSessionId);
   $: canRework = detail !== null && !["queued", "running", "verifying", "waiting_for_user", "waiting_for_approval", "cancelled"].includes(detail.execution.status);
-  $: canDelete = Boolean(detail) && (canRework || canStart);
+  $: canDelete = detail !== null && !["queued", "running", "verifying", "waiting_for_user", "waiting_for_approval"].includes(detail.execution.status);
 
   onMount(() => {
     void refreshList();
@@ -123,30 +125,14 @@
     }
   }
 
-  function actionId(action: string): string {
-    return "desktop-plan-" + action + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-  }
-
-  async function runControl(action: "start" | "pause" | "resume" | "cancel"): Promise<void> {
-    if (!detail || busy) return;
-    if (action === "start" && !window.confirm(copy.planBoardStartConfirm)) return;
-    if (action === "cancel" && !window.confirm(copy.durableCancelConfirm)) return;
-    busy = true;
-    actionError = "";
-    try {
-      const response = await runDesktopPlanAction(endpoint, {
-        action,
-        planId: detail.execution.id,
-        expectedVersion: detail.execution.version,
-        actionId: actionId(action)
-      });
-      if (response.item) detail = response.item;
-      await refreshList(true);
-    } catch (cause) {
-      actionError = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      busy = false;
-    }
+  function continuePlan(resume: boolean): void {
+    if (!detail?.execution.sourceUiSessionId) return;
+    onContinuePlan({
+      planId: detail.execution.id,
+      sessionId: detail.execution.sourceUiSessionId,
+      projectId: detail.execution.sourceProjectId,
+      resume
+    });
   }
 
   async function deletePlan(): Promise<void> {
@@ -470,10 +456,8 @@
         </div>
         <div class="plans-actions-trailing">
           {#if canDelete}<button type="button" class="secondary-button danger-action" disabled={busy} onclick={() => void deletePlan()}>{copy.planBoardDelete}</button>{/if}
-          {#if canPause}<button type="button" class="secondary-button danger-action" disabled={busy} onclick={() => void runControl("cancel")}>{copy.planBoardCancel}</button>{/if}
-          {#if canPause}<button type="button" class="secondary-button" disabled={busy} onclick={() => void runControl("pause")}>{copy.planBoardPause}</button>{/if}
-          {#if canStart}<button type="button" class="primary-button" disabled={busy} onclick={() => void runControl("start")}>{copy.planBoardStart}</button>{/if}
-          {#if canResume}<button type="button" class="primary-button" disabled={busy} onclick={() => void runControl("resume")}>{copy.planBoardResume}</button>{/if}
+          {#if canOpenSession}<button type="button" class="secondary-button" onclick={() => continuePlan(false)}>{copy.planBoardOpenSession}</button>{/if}
+          {#if canContinue}<button type="button" class="primary-button" onclick={() => continuePlan(true)}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</button>{/if}
         </div>
       </footer>
     {/if}

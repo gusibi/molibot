@@ -215,6 +215,50 @@ test("creating the same deterministic plan id is idempotent", () => {
   }
 });
 
+test("in-session plan progress mirrors into the durable record", () => {
+  const { service, cleanup } = makeService();
+  try {
+    service.create(planInput());
+    const base = {
+      title: "翻译产品文档",
+      summary: "把文档翻成中英双语",
+      artifactPath: "plans/p.md",
+      recommendedMode: "accept_edits" as const,
+      durableExecutionId: "plan-test-1"
+    };
+    service.mirrorFromConversationPlan({
+      ...base,
+      id: "plan-test-1",
+      status: "executing",
+      steps: [
+        { id: "s1", text: "读取原文", status: "completed" },
+        { id: "s2", text: "翻译", status: "in_progress" },
+        { id: "s3", text: "整理术语", status: "pending" }
+      ]
+    });
+    const running = service.read("owner", "plan-test-1");
+    assert.equal(running.execution.status, "running");
+    assert.deepEqual(
+      running.steps.filter((step) => step.planVersion === 1).map((step) => step.status),
+      ["completed", "running", "pending"]
+    );
+
+    service.mirrorFromConversationPlan({
+      ...base,
+      id: "plan-test-1",
+      status: "completed",
+      steps: [
+        { id: "s1", text: "读取原文", status: "completed" },
+        { id: "s2", text: "翻译", status: "completed" },
+        { id: "s3", text: "整理术语", status: "completed" }
+      ]
+    });
+    assert.equal(service.read("owner", "plan-test-1").execution.status, "completed");
+  } finally {
+    cleanup();
+  }
+});
+
 test("plans are isolated by owner", () => {
   const { service, cleanup } = makeService();
   try {

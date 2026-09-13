@@ -2,6 +2,7 @@ import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinat
 import { describeExecutionHistory } from "$lib/server/agent/session/executionHistory.js";
 import { applyPlanProgress, finishPlanTurn } from "$lib/server/agent/session/planProgress.js";
 import { ensureSessionPlanRecord } from "$lib/server/agent/plans/sessionIntegration.js";
+import { PlanService } from "$lib/server/agent/plans/service.js";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
@@ -217,7 +218,8 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   }
   const sessionPlan = acceptedPlan ?? runtime.sessions.listMessages(conversation.id)
-    .map((entry) => entry.plan).filter((plan): plan is ConversationPlan => Boolean(plan && !["proposed", "rejected", "cancelled"].includes(plan.status) && !plan.durableExecutionId)).at(-1);
+    .map((entry) => entry.plan).filter((plan): plan is ConversationPlan => Boolean(plan && !["proposed", "rejected", "cancelled"].includes(plan.status))).at(-1);
+  const planService = new PlanService();
   const linkedPlan = runtime.sessions.listMessages(conversation.id).map((entry) => entry.plan).filter((plan) => plan?.durableExecutionId).at(-1);
   const coordinator = linkedPlan ? new DurableExecutionCoordinator() : undefined;
   const linkedExecution = coordinator && linkedPlan?.durableExecutionId ? coordinator.inspect("owner", linkedPlan.durableExecutionId) : undefined;
@@ -361,7 +363,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
         try {
           if (sessionPlan && !["completed", "waiting_review"].includes(sessionPlan.status)) {
-            runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (plan) => ({ ...plan, status: "executing", updatedAt: new Date().toISOString() }));
+            const executingPlan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (plan) => ({ ...plan, status: "executing", updatedAt: new Date().toISOString() }));
+            if (executingPlan) planService.mirrorFromConversationPlan(executingPlan);
             writeEvent(controller, encoder, "plan_progress", { ...sessionPlan, status: "executing", updatedAt: new Date().toISOString() });
           }
           const result = await runner.run({
@@ -372,6 +375,7 @@ export const POST: RequestHandler = async ({ request }) => {
               update: async (update) => {
                 const plan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => applyPlanProgress(current, update));
                 if (!plan) throw new Error("Session plan no longer exists.");
+                planService.mirrorFromConversationPlan(plan);
                 writeEvent(controller, encoder, "plan_progress", plan);
               }
             } : undefined,
@@ -518,8 +522,9 @@ export const POST: RequestHandler = async ({ request }) => {
           });
 
           if (sessionPlan) {
-            const plan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, result.stopReason));
-            writeEvent(controller, encoder, "plan_progress", plan);
+            const finishedPlan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, result.stopReason));
+            if (finishedPlan) planService.mirrorFromConversationPlan(finishedPlan);
+            writeEvent(controller, encoder, "plan_progress", finishedPlan);
           }
           const assistantText =
             finalText.trim() ||
@@ -553,8 +558,9 @@ export const POST: RequestHandler = async ({ request }) => {
           });
         } catch (error) {
           if (sessionPlan) {
-            const plan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, "error"));
-            writeEvent(controller, encoder, "plan_progress", plan);
+            const failedPlan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, "error"));
+            if (failedPlan) planService.mirrorFromConversationPlan(failedPlan);
+            writeEvent(controller, encoder, "plan_progress", failedPlan);
           }
           const messageText = error instanceof Error ? error.message : String(error);
           // Never drop what the run already produced: persist the partial

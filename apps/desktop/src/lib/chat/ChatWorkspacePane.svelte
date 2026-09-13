@@ -23,6 +23,7 @@
   export let sidebarCollapsed = false;
   export let onToggleSidebar: () => void = () => {};
   export let formatTime: (iso: string) => string = (iso) => iso;
+  export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
 
   interface AgentStudioProps {
     copy: Translation;
@@ -76,7 +77,7 @@
   {:else if pane === "miniapps"}
     <MiniAppsLaunchpad onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
   {:else if pane === "plans"}
-    <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} />
+    <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} />
   {:else if AgentStudioComponent}
     <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} />
   {:else}

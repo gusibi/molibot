@@ -61,6 +61,7 @@
   $: currentCriteria = detail
     ? detail.acceptanceCriteria.filter((criterion) => criterion.planVersion === currentPlanVersion)
     : [];
+  $: isPlanRecord = detail?.execution.activationReason === "plan";
   $: openDecisions = detail?.decisions.filter((decision) => decision.status === "open") ?? [];
   $: progress = detail && detail.projection.progress.total > 0
     ? Math.round(detail.projection.progress.completed / detail.projection.progress.total * 100)
@@ -314,7 +315,7 @@
         </section>
       {/if}
 
-      {#if openDecisions.length > 0}
+      {#if !isPlanRecord && openDecisions.length > 0}
         <section class="durable-inspector-section durable-decision-section">
           <h3>{copy.durableDecision}</h3>
           {#each openDecisions as decision (decision.id)}
@@ -332,7 +333,7 @@
         </section>
       {/if}
 
-      {#if detail.approvals.some((approval) => approval.status === "pending")}
+      {#if !isPlanRecord && detail.approvals.some((approval) => approval.status === "pending")}
         <section class="durable-inspector-section durable-decision-section">
           <h3>{copy.durableApproval}</h3>
           {#each detail.approvals.filter((approval) => approval.status === "pending") as approval (approval.id)}
@@ -354,18 +355,22 @@
     </div>
 
     {#if error}<p class="durable-inspector-action-error" role="alert">{error}</p>{/if}
-    <footer class="durable-inspector-actions">
-      {#if detail.execution.status === "planned"}
-        <button type="button" class="primary-button" disabled={busy} onclick={() => void runAction("activate")}>{busy ? copy.loading : copy.planBoardStart}</button>
-      {:else if detail.execution.status === "paused" || detail.execution.status === "recovery_required"}
-        <button type="button" class="primary-button" disabled={busy} onclick={() => void runAction("resume")}>{busy ? copy.loading : copy.durableResume}</button>
-      {:else if detail.execution.status === "queued" || detail.execution.status === "running" || detail.execution.status === "verifying"}
-        <button type="button" class="secondary-button" disabled={busy} onclick={() => void runAction("pause")}>{copy.durablePause}</button>
-      {/if}
-      {#if !["completed", "failed", "cancelled"].includes(detail.execution.status) && detail.projection.waiting?.kind !== "review"}
-        <button type="button" class="danger-button" disabled={busy} onclick={() => void runAction("cancel")}>{copy.durableCancel}</button>
-      {/if}
-    </footer>
+    {#if isPlanRecord}
+      <p class="durable-inspector-readonly">{copy.planBoardPanelReadOnly}</p>
+    {:else}
+      <footer class="durable-inspector-actions">
+        {#if detail.execution.status === "planned"}
+          <button type="button" class="primary-button" disabled={busy} onclick={() => void runAction("activate")}>{busy ? copy.loading : copy.planBoardStart}</button>
+        {:else if detail.execution.status === "paused" || detail.execution.status === "recovery_required"}
+          <button type="button" class="primary-button" disabled={busy} onclick={() => void runAction("resume")}>{busy ? copy.loading : copy.durableResume}</button>
+        {:else if detail.execution.status === "queued" || detail.execution.status === "running" || detail.execution.status === "verifying"}
+          <button type="button" class="secondary-button" disabled={busy} onclick={() => void runAction("pause")}>{copy.durablePause}</button>
+        {/if}
+        {#if !["completed", "failed", "cancelled"].includes(detail.execution.status) && detail.projection.waiting?.kind !== "review"}
+          <button type="button" class="danger-button" disabled={busy} onclick={() => void runAction("cancel")}>{copy.durableCancel}</button>
+        {/if}
+      </footer>
+    {/if}
   {/if}
 </aside>
 
@@ -460,6 +465,7 @@
   .durable-inspector-empty p { margin: 0; color: var(--label-primary); font-weight: 600; }
   .durable-inspector-empty small { max-width: 280px; overflow-wrap: anywhere; color: var(--label-tertiary); }
   .durable-inspector-action-error { margin: 0; padding: 8px 16px; color: var(--danger); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+  .durable-inspector-readonly { margin: 0; padding: 10px 16px; border-top: 1px solid var(--separator); background: var(--card-bg); color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
   .durable-inspector-actions { display: flex; gap: 8px; padding: 12px 16px 16px; border-top: 1px solid var(--separator); background: var(--card-bg); }
   .durable-inspector-actions button { flex: 1; }
   .primary-button,

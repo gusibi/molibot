@@ -23,6 +23,7 @@ import {
   type ExecutionAttempt,
   type ExecutionStep,
   type ExecutionStepInput,
+  type ExecutionStepStatus,
   type FinishAttemptInput,
   type PlanCriterionInput,
   type PlanMeta,
@@ -905,6 +906,13 @@ export class DurableExecutionStore {
     return Number(count?.count ?? 0);
   }
 
+  findExecutionByApprovalRequest(requestId: string, ownerId: string): DurableExecution | null {
+    const row = this.db.prepare(`SELECT e.* FROM durable_executions e
+      JOIN durable_approval_requests a ON a.execution_id = e.id
+      WHERE a.request_id = ? AND e.owner_id = ?`).get(requestId, ownerId) as ExecutionRow | undefined;
+    return row ? rowToExecution(row) : null;
+  }
+
   getDetail(idValue: string, ownerId?: string): DurableExecutionDetail | null {
     const execution = this.getById(idValue, ownerId);
     if (!execution) return null;
@@ -1193,6 +1201,40 @@ export class DurableExecutionStore {
       const next = this.requireRow(current.id);
       this.db.exec("COMMIT");
       return rowToExecution(next);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Mirrors in-Session plan execution into the durable record. Plans execute as
+   * ordinary Session turns, so this record is a projection target rather than a
+   * lease-holding executor: no version CAS or lease is required, and the caller
+   * (the Session progress callback) owns ordering.
+   */
+  syncPlanProgress(input: {
+    executionId: string;
+    status: DurableExecutionStatus;
+    steps: Array<{ index: number; status: ExecutionStepStatus }>;
+    now?: Date;
+  }): DurableExecution {
+    const timestamp = nowIso(input.now);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.requireRow(input.executionId);
+      const version = Number(current.current_plan_version);
+      this.db.prepare(`
+        UPDATE durable_executions
+        SET status = ?, version = version + 1, updated_at = ?, lease_owner_id = NULL,
+          lease_expires_at = NULL, waiting_kind = NULL, waiting_reason = NULL
+        WHERE id = ?
+      `).run(input.status, timestamp, input.executionId);
+      const updateStep = this.db.prepare("UPDATE durable_steps SET status = ?, updated_at = ? WHERE execution_id = ? AND plan_version = ? AND step_index = ?");
+      for (const step of input.steps) updateStep.run(step.status, timestamp, input.executionId, version, step.index);
+      const next = rowToExecution(this.requireRow(input.executionId));
+      this.db.exec("COMMIT");
+      return next;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
@@ -1836,6 +1878,13 @@ export class DurableExecutionStore {
       timestamp,
       input.approvalId
     );
+    if (input.status === "approved") {
+      // Approval resumes the suspended step in a new attempt; the old attempt
+      // no longer owns a running step once its approval has been resolved.
+      this.db.prepare("UPDATE durable_steps SET status = 'pending', updated_at = ? WHERE execution_id = ? AND plan_version = ? AND status = 'running'").run(
+        timestamp, input.executionId, current.current_plan_version
+      );
+    }
     this.db.prepare(`
       UPDATE durable_executions
       SET status = ?, version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL,

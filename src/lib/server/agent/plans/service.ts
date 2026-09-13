@@ -1,16 +1,47 @@
 import { DurableExecutionCoordinator, projectDurableExecution } from "$lib/server/agent/durable/coordinator.js";
 import { getDurableExecutionStore, type DurableExecutionStore } from "$lib/server/agent/durable/store.js";
+import type { ConversationPlan, ConversationPlanStepStatus } from "$lib/shared/types/message.js";
 import {
   DurableExecutionNotFoundError,
   PlanDeletedError,
   type CreatePlanInput,
   type DurableExecution,
   type DurableExecutionStatus,
+  type ExecutionStepStatus,
   type PlanDetail,
   type PlanListFilter,
   type ReplacePlanContentInput,
   type RevisePlanInput
 } from "$lib/server/agent/durable/types.js";
+
+type ConversationPlanStatus = ConversationPlan["status"];
+
+// In-Session plan statuses project back unchanged through
+// `projectDurableConversationPlan`; `accepted` maps to `queued` so the card
+// shows "queued" instead of falling back to the proposal decision.
+const CONVERSATION_TO_DURABLE_STATUS: Record<ConversationPlanStatus, DurableExecutionStatus> = {
+  proposed: "planned",
+  accepted: "queued",
+  rejected: "cancelled",
+  executing: "running",
+  completed: "completed",
+  blocked: "recovery_required",
+  waiting_review: "waiting_for_user",
+  paused: "paused",
+  queued: "queued",
+  verifying: "verifying",
+  waiting_for_approval: "waiting_for_approval",
+  waiting_for_user: "waiting_for_user",
+  cancelled: "cancelled",
+  failed: "failed"
+};
+
+const CONVERSATION_STEP_TO_DURABLE: Record<ConversationPlanStepStatus, ExecutionStepStatus> = {
+  pending: "pending",
+  in_progress: "running",
+  completed: "completed",
+  blocked: "blocked"
+};
 
 /** Lifecycle buckets the Plan list filters on. Derived from execution truth. */
 export type PlanStatus = "not_started" | "in_progress" | "needs_attention" | "finished" | "archived";
@@ -118,6 +149,25 @@ export class PlanService {
   replaceContent(input: ReplacePlanContentInput): PlanDetail {
     this.store.replacePlanContent(input);
     return this.read(input.ownerId, input.executionId);
+  }
+
+  /**
+   * Mirrors an in-Session plan execution into its durable record. Plans execute
+   * as ordinary Session turns, so the aggregate is the board's read model and
+   * this is how its status/step progress stays in sync.
+   */
+  mirrorFromConversationPlan(plan: ConversationPlan): void {
+    const executionId = plan.durableExecutionId?.trim();
+    if (!executionId) return;
+    try {
+      this.store.syncPlanProgress({
+        executionId,
+        status: CONVERSATION_TO_DURABLE_STATUS[plan.status] ?? "planned",
+        steps: plan.steps.map((step, index) => ({ index, status: CONVERSATION_STEP_TO_DURABLE[step.status] ?? "pending" }))
+      });
+    } catch (error) {
+      console.error(`[plans] failed to mirror Session progress for ${executionId}`, error);
+    }
   }
 
   start(input: PlanStartInput): PlanDetail {
