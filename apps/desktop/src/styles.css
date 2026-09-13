@@ -7301,8 +7301,12 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .plan-progress-steps li small { grid-column: 2; color: var(--label-secondary); font-size: var(--fs-meta); }
 .plan-progress-steps .plan-step-marker { display: flex; align-items: center; min-height: 20px; }
 
-.desktop-dialog-content.trace-report-dialog { max-height: none; width: min(1200px, 96vw); height: 90dvh; display: flex; flex-direction: column; padding: 16px; gap: 12px; background: var(--card-bg); color: var(--label-primary); border-radius: 12px; }
-.trace-report-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.trace-report-toolbar h2 { margin: 0 auto 0 0; font-size: 18px; }
-.trace-report-dialog iframe { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 8px; }
-.trace-report-dialog p { margin: 0; overflow-wrap: anywhere; }
+.trace-report-drawer { width: min(560px, 92vw); }
+.trace-report-drawer.trace-report-fullscreen { width: 100%; border-left: 0; }
+.trace-report-header { align-items: center; }
+.trace-report-header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+.trace-report-body { display: flex; flex-direction: column; gap: 10px; overflow: hidden; padding: 14px 14px 16px; }
+.trace-report-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.trace-report-body iframe { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 8px; background: var(--card-bg); }
+.trace-report-error, .trace-report-url { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-meta); }
+.trace-report-error { color: var(--label-secondary); }

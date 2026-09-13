@@ -1,5 +1,5 @@
 <script lang="ts">
-  import TraceReportDialog from "./TraceReportDialog.svelte";
+  import TraceReportDrawer from "./TraceReportDrawer.svelte";
   import { loadTraceViewerEnabled } from "../api";
   import { session } from "../stores/session.svelte";
   import BranchUp from "reicon-svelte/icons/BranchUp";
@@ -432,4 +432,4 @@
   />
 {/if}
 
-{#if traceRunIds.length}<TraceReportDialog {endpoint} runIds={traceRunIds} onClose={() => { traceRunIds = []; }} />{/if}
+{#if traceRunIds.length}<TraceReportDrawer {endpoint} runIds={traceRunIds} onClose={() => { traceRunIds = []; }} />{/if}
