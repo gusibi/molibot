@@ -90,6 +90,24 @@ export const POST: RequestHandler = async ({ request }) => {
         const result = plans.delete({ ownerId: owner, planId: String(body.planId), expectedVersion: body.expectedVersion === undefined ? undefined : Number(body.expectedVersion) });
         return json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
       }
+      case "complete": {
+        // Owner confirmation for a plan whose turn already finished. Plans live
+        // as Session turns, so completion is recorded on the source Session plan
+        // and mirrored into the durable record the board reads.
+        const planId = String(body.planId);
+        const detail = plans.read(owner, planId);
+        const sessionId = detail.execution.sourceUiSessionId;
+        if (!sessionId) return json({ ok: false, error: "Plan has no source session." }, { status: 409 });
+        const updated = getRuntime().sessions.updateConversationPlan(sessionId, planId, (plan) => ({
+          ...plan,
+          status: "completed",
+          progressSummary: undefined,
+          updatedAt: new Date().toISOString()
+        }));
+        if (!updated) return json({ ok: false, error: "Plan not found in its source session." }, { status: 404 });
+        plans.mirrorFromConversationPlan(updated);
+        return json({ ok: true, item: plans.read(owner, planId) }, { headers: { "Cache-Control": "no-store" } });
+      }
       default:
         return json({ ok: false, error: `Unknown plan action: ${String(body.action)}` }, { status: 400 });
     }

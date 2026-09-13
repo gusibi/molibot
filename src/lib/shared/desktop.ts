@@ -874,6 +874,7 @@ export interface DesktopPlanTaskInput {
 export type DesktopPlanActionRequest =
   | { action: "start" | "pause" | "resume" | "cancel"; ownerId?: string; planId: string; expectedVersion: number; actionId?: string; reason?: string }
   | { action: "delete"; ownerId?: string; planId: string; expectedVersion?: number }
+  | { action: "complete"; ownerId?: string; planId: string }
   | {
       action: "revise";
       ownerId?: string;

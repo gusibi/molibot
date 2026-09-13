@@ -1259,12 +1259,17 @@ export class DurableExecutionStore {
       }
       if (text(input.ownerId) && row.owner_id !== text(input.ownerId)) throw new DurableExecutionNotFoundError(executionId);
       if (input.expectedVersion !== undefined) this.assertVersion(row, input.expectedVersion);
-      if (["queued", "running", "verifying", "waiting_for_user", "waiting_for_approval"].includes(row.status)) {
+      // Only a live durable attempt blocks deletion. Plans execute as ordinary
+      // Session turns, so their paused/waiting rows are records — not active
+      // work — and must stay deletable.
+      if (["queued", "running", "verifying"].includes(row.status)) {
         throw new DurableExecutionTransitionError(row.status, "cancelled");
       }
-      const pendingApproval = this.db.prepare("SELECT 1 AS found FROM durable_approval_requests WHERE execution_id = ? AND status = 'pending' LIMIT 1").get(executionId) as { found?: number } | undefined;
-      if (Number(pendingApproval?.found ?? 0) === 1) {
-        throw new DurableExecutionTransitionError(row.status, "cancelled");
+      if (row.activation_reason !== "plan") {
+        const pendingApproval = this.db.prepare("SELECT 1 AS found FROM durable_approval_requests WHERE execution_id = ? AND status = 'pending' LIMIT 1").get(executionId) as { found?: number } | undefined;
+        if (Number(pendingApproval?.found ?? 0) === 1) {
+          throw new DurableExecutionTransitionError(row.status, "cancelled");
+        }
       }
       this.db.prepare("INSERT OR REPLACE INTO durable_plan_tombstones (execution_id, owner_id, title, deleted_at) VALUES (?, ?, ?, ?)")
         .run(executionId, row.owner_id, this.getPlanMeta(executionId)?.title ?? row.goal, timestamp);

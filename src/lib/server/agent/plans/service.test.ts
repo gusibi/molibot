@@ -259,6 +259,21 @@ test("in-session plan progress mirrors into the durable record", () => {
   }
 });
 
+test("only an active attempt blocks plan deletion; paused plans are deletable", () => {
+  const { service, cleanup } = makeService();
+  try {
+    const created = service.create(planInput());
+    const started = service.start({ ownerId: "owner", planId: "plan-test-1", expectedVersion: created.execution.version });
+    assert.equal(started.execution.status, "queued");
+    assert.throws(() => service.delete({ ownerId: "owner", planId: "plan-test-1" }), /Illegal Durable Execution transition/);
+    const paused = service.pause({ ownerId: "owner", planId: "plan-test-1", expectedVersion: started.execution.version, actionId: "pause-1" });
+    assert.equal(paused.execution.status, "paused");
+    assert.equal(service.delete({ ownerId: "owner", planId: "plan-test-1" }).deleted, true);
+  } finally {
+    cleanup();
+  }
+});
+
 test("plans are isolated by owner", () => {
   const { service, cleanup } = makeService();
   try {
