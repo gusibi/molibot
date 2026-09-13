@@ -250,9 +250,9 @@
                     </button>
                   {/each}
                 </OverflowMenu>
-              {/if}
-            </div>
-          {/if}
+                {/if}
+              </div>
+            {/if}
           {#if message.createdAt}
             <time class="message-time">
               {formatTime(message.createdAt)}
@@ -304,10 +304,10 @@
         {#if turnFiles.length && onOpenTurnFiles}
           <TurnFilesCard files={turnFiles} {copy} onOpen={onOpenTurnFiles} />
         {/if}
-        {#if (canShowActions && messageActions) || message.createdAt || hasTechnicalDetails}
+        {#if (canShowActions && messageActions) || message.createdAt || hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length)}
           <div class="message-meta assistant-meta">
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
-            {#if hasTechnicalDetails}
+            {#if hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length)}
               <div class="message-meta-inline">
                 {#if hasTurnSummary && turnSummary}
                   <span class="turn-summary" aria-label={copy.turnSummaryLabel}>
@@ -325,6 +325,9 @@
                     {#if (message.memoryTrace.referencedCount ?? 0) > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
                     {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
                   </button>
+                {/if}
+                {#if traceEnabled && message.traceRunIds?.length}
+                  <button type="button" class="message-memory-trace" onclick={() => { traceRunIds = message.traceRunIds ?? []; }}>{session.locale === "zh-CN" ? "查看调用链" : "View call trace"}</button>
                 {/if}
               </div>
             {/if}
