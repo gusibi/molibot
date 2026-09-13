@@ -133,6 +133,29 @@ test("the report follows an explicit theme and falls back to auto", () => {
   } finally { store.close(); }
 });
 
+test("a resolved approval closes its waiting span and stays terminal", () => {
+  const store = new SqliteTraceStore(":memory:");
+  try {
+    const hook = new TraceRecorderHook(store);
+    const context = { runId: "r", channel: "web", chatId: "chat", sessionId: "session" };
+    const emit = (stage: any, seconds: number, payload: Record<string, unknown>) => hook.handle({ stage, context, timestamp: new Date(100000 + seconds * 1000).toISOString(), payload } as any);
+    emit("run.started", 0, {});
+    emit("approval.requested", 0, { requestId: "hba-1", displayName: "Run host bash", toolId: "git" });
+    const waiting = queryTraceReport(store, { runId: "r" }, context).nodes.find(node => node.factType === "approval");
+    assert.equal(waiting?.status, "waiting");
+    assert.equal(waiting?.durationMs, undefined);
+
+    assert.equal(store.resolveApprovalFact("hba-1", "success", new Date(105000)), true);
+    const resolved = queryTraceReport(store, { runId: "r" }, context).nodes.find(node => node.factType === "approval");
+    assert.equal(resolved?.status, "success");
+    assert.equal(resolved?.durationMs, 5000);
+    // A late duplicate decision must not reopen or rewrite a terminal span.
+    assert.equal(store.resolveApprovalFact("hba-1", "blocked"), false);
+    assert.equal(queryTraceReport(store, { runId: "r" }, context).nodes.find(node => node.factType === "approval")?.status, "success");
+    assert.equal(store.resolveApprovalFact("missing", "success"), false);
+  } finally { store.close(); }
+});
+
 test("unfinished steps only grow while the run is active", () => {
   const store = new SqliteTraceStore(":memory:");
   try {

@@ -1,5 +1,6 @@
 import type { ApprovalGrant, ApprovalMatchContext, ApprovalRequest, ApprovalScope } from "$lib/server/approval/approvalTypes.js";
 import { PENDING_APPROVAL_TTL_MS as PENDING_REQUEST_TTL_MS } from "$lib/server/approval/approvalTypes.js";
+import { emitApprovalResolved } from "$lib/server/approval/resolutionEvents.js";
 
 export interface ApprovalBrokerStore {
   listActiveGrants(): ApprovalGrant[];
@@ -129,6 +130,7 @@ export class ApprovalBroker {
       resolvedAt
     };
     this.store.updateRequest(nextRequest);
+    emitApprovalResolved(input.requestId, input.status, new Date(resolvedAt));
 
     if (input.status !== "approved") {
       return { request: nextRequest };
@@ -180,6 +182,7 @@ export class ApprovalBroker {
         resolvedAt: now.toISOString()
       };
       this.store.updateRequest(nextRequest);
+      emitApprovalResolved(request.id, "expired", now);
       expired.push(nextRequest);
     }
 

@@ -41,6 +41,8 @@ import { getHostBashStore, type HostBashStore } from "$lib/server/hostBash/index
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import { getTurnOrchestrator, SqliteTurnCleanupStore } from "$lib/server/agent/core/turnOrchestrator.js";
 import { createDefaultHookManager, type HookManager } from "$lib/server/agent/hooks/index.js";
+import { resolveTraceApprovalFact } from "$lib/server/agent/hooks/traceStore.js";
+import { onApprovalResolved } from "$lib/server/approval/resolutionEvents.js";
 import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.js";
 import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, previousReflectionLocalDate, recommendedCandidateNamespace, type ReflectionExtractor, type ReflectionTarget } from "$lib/server/memory/reflection.js";
 import { MemoryCandidateReview, MemoryReviewStore } from "$lib/server/memory/review.js";
@@ -190,6 +192,13 @@ function initializeRuntime(): RuntimeState {
     });
     const hostBashStore = getHostBashStore();
     hostBashStore.migrateLegacySettings(settings.hostTools);
+    // Trace observability follows approval decisions without the approval layer
+    // depending on the trace store. Recorded approval spans close on approve,
+    // reject, or expiry; an approval with no recorded span is a silent no-op.
+    onApprovalResolved((approvalId, status, resolvedAt) => {
+      const traceStatus = status === "approved" ? "success" : status === "rejected" ? "blocked" : "aborted";
+      resolveTraceApprovalFact(approvalId, traceStatus, resolvedAt);
+    });
     if (
       settings.hostTools.pendingApprovals.length > 0 ||
       settings.hostTools.approvalHistory.length > 0 ||

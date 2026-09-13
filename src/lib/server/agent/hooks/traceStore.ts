@@ -428,11 +428,60 @@ export class SqliteTraceStore {
     };
   }
 
+  /**
+   * Closes an approval span that was recorded while waiting. The approval's
+   * request id is the fact id and the decision may arrive on a different
+   * connection or after the run parked, so the row is located by fact id and
+   * its existing scope columns are preserved. No-op when absent or already
+   * terminal.
+   */
+  resolveApprovalFact(
+    approvalId: string,
+    status: TraceFactRecord["status"],
+    resolvedAt: Date = new Date()
+  ): boolean {
+    const id = String(approvalId ?? "").trim();
+    if (!id) return false;
+    const row = this.db.prepare(`
+      SELECT run_id, started_at, status
+      FROM agent_trace_facts
+      WHERE fact_type = 'approval' AND fact_id = ?
+      ORDER BY seq DESC
+      LIMIT 1
+    `).get(id) as { run_id: string; started_at: string | null; status: string } | undefined;
+    if (!row) return false;
+    if (row.status === "success" || row.status === "blocked" || row.status === "aborted" || row.status === "error") return false;
+
+    const finishedAt = resolvedAt.toISOString();
+    const startedMs = row.started_at ? Date.parse(row.started_at) : NaN;
+    const durationMs = Number.isFinite(startedMs) ? Math.max(0, resolvedAt.getTime() - startedMs) : null;
+    this.db.prepare(`
+      UPDATE agent_trace_facts
+      SET status = ?, finished_at = ?, duration_ms = ?, updated_at = ?
+      WHERE fact_type = 'approval' AND run_id = ? AND fact_id = ?
+    `).run(status, finishedAt, durationMs, finishedAt, row.run_id, id);
+    return true;
+  }
+
   getDatabase(): DatabaseSync {
     return this.db;
   }
 
   close(): void {
     this.db.close();
+  }
+}
+
+/** Resolve an approval span from outside the recorder's connection. */
+export function resolveTraceApprovalFact(
+  approvalId: string,
+  status: TraceFactRecord["status"],
+  resolvedAt: Date = new Date()
+): boolean {
+  const store = new SqliteTraceStore();
+  try {
+    return store.resolveApprovalFact(approvalId, status, resolvedAt);
+  } finally {
+    store.close();
   }
 }

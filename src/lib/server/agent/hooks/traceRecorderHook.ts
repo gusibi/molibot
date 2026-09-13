@@ -413,10 +413,14 @@ export class TraceRecorderHook implements RuntimeHook {
     const facts = this.runState(event.context.runId, event.timestamp).facts;
     const key = factKey(factType, factId);
     const existing = facts.get(key);
-    const startedAt = timing.startedAt ?? existing?.startedAt ?? (status === "started" ? event.timestamp : undefined);
-    const finishedAt = timing.finishedAt ?? (status === "started" ? undefined : event.timestamp);
+    // `waiting` is the start of a wait (an approval or a parked subagent), not a
+    // completion: it must keep a start time and no finish time so the decision
+    // can later close the same open span.
+    const open = status === "started" || status === "waiting";
+    const startedAt = timing.startedAt ?? existing?.startedAt ?? (open ? event.timestamp : undefined);
+    const finishedAt = timing.finishedAt ?? (open ? undefined : event.timestamp);
     const id = existing?.id ?? randomUUID();
-    if (status === "started" || status === "waiting") {
+    if (open) {
       facts.set(key, { id, startedAt: startedAt ?? event.timestamp });
     } else {
       facts.delete(key);

@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostBashStore } from "$lib/server/hostBash/store.js";
 import { classifyHostBashCommand } from "$lib/server/hostBash/commandClassifier.js";
+import {
+  onApprovalResolved,
+  resetApprovalResolutionListenersForTests
+} from "$lib/server/approval/resolutionEvents.js";
 
 function createStore(): HostBashStore {
   const dir = mkdtempSync(join(tmpdir(), "hostbash-store-"));
@@ -316,4 +320,25 @@ test("a fresh executing record is left untouched by the recovery", () => {
 
   store.listHistory();
   assert.equal(store.getApprovalRecord(id)?.status, "executing");
+});
+
+test("approve and reject announce the decision for observers", () => {
+  resetApprovalResolutionListenersForTests();
+  try {
+    const store = createStore();
+    const seen: Array<[string, string]> = [];
+    onApprovalResolved((approvalId, status) => seen.push([approvalId, status]));
+
+    const first = store.requestApproval(requestInput());
+    store.approve("scope-1", first.approval!.id, { scope: "once" });
+    const second = store.requestApproval(requestInput({ scopeId: "scope-2", chatId: "chat-2" }));
+    store.reject("scope-2", second.approval!.id);
+
+    assert.deepEqual(seen, [
+      [first.approval!.id, "approved"],
+      [second.approval!.id, "rejected"]
+    ]);
+  } finally {
+    resetApprovalResolutionListenersForTests();
+  }
 });

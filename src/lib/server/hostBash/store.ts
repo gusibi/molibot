@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import { ensureApprovalsTable, migrateLegacyApprovalTables } from "$lib/server/approval/approvalSchema.js";
 import { PENDING_APPROVAL_TTL_MS } from "$lib/server/approval/approvalTypes.js";
+import { emitApprovalResolved } from "$lib/server/approval/resolutionEvents.js";
 import {
   coerceApprovalMode,
   createHostBashApprovalRecord,
@@ -489,6 +490,8 @@ export class HostBashStore {
       action_json: JSON.stringify(action)
     });
 
+    emitApprovalResolved(record.id, "approved", new Date(now));
+
     return {
       record: this.getApprovalRecord(record.id) ?? { ...record, status: "approved", resolvedAt: now },
       approved: approvedEntries[0],
@@ -506,6 +509,7 @@ export class HostBashStore {
           resolved_at = @resolved_at
       WHERE type = 'request' AND id = @id
     `).run({ id: record.id, resolved_at: now });
+    emitApprovalResolved(record.id, "rejected", new Date(now));
     return this.getApprovalRecord(record.id) ?? { ...record, status: "rejected", resolvedAt: now };
   }
 
@@ -616,11 +620,18 @@ export class HostBashStore {
 
   private expireStalePending(): void {
     const cutoff = new Date(Date.now() - PENDING_APPROVAL_TTL_MS).toISOString();
+    const now = new Date();
+    const stale = this.db.prepare(`
+      SELECT id FROM approvals
+      WHERE type = 'request' AND status = 'pending' AND created_at < @cutoff
+    `).all({ cutoff }) as Array<{ id: string }>;
+    if (stale.length === 0) return;
     this.db.prepare(`
       UPDATE approvals
       SET status = 'expired', resolved_at = @resolved_at
       WHERE type = 'request' AND status = 'pending' AND created_at < @cutoff
-    `).run({ resolved_at: new Date().toISOString(), cutoff });
+    `).run({ resolved_at: now.toISOString(), cutoff });
+    for (const row of stale) emitApprovalResolved(row.id, "expired", now);
   }
 
   listPending(scopeId?: string, sessionId?: string, category?: string): HostBashApprovalRecord[] {
