@@ -1,0 +1,155 @@
+/* Terminal — Phosphor (dark) and Paper (light), a monospace TUI. */
+
+/* Terminal — Phosphor. A green-on-black TUI: every surface is a near-black
+   with a green cast (never pure #000000, per the structural rule), the whole
+   UI runs on a monospace stack, corners are square and elevation is flat. */
+:root[data-theme-family="terminal"][data-resolved-appearance="dark"] {
+  color: #b9ffb9;
+  color-scheme: dark;
+  font-family: "SF Mono", "Menlo", "Cascadia Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --font-ui: "SF Mono", "Menlo", "Cascadia Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --font-display: "SF Mono", "Menlo", "Cascadia Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --font-mono: "SF Mono", "Menlo", "Cascadia Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #050805;
+  --mac-control-background: #0a120a;
+  --mac-grouped-background: #0d160d;
+  --mac-elevated-background: #0c140c;
+  --mac-label: #b9ffb9;
+  --mac-secondary-label: #6fbf6f;
+  --mac-tertiary-label: #3f7a3f;
+  --mac-separator: #1f4a1f;
+  --mac-unemphasized-selection: #143514;
+  --sidebar-material-tint: #050805;
+  --sidebar-material-filter: none;
+  --gray-100: #050805; --gray-200: #0c140c; --gray-300: #0d160d; --gray-400: #143514;
+  --gray-500: #1f4a1f; --gray-600: #356035; --gray-700: #4f8f4f; --gray-800: #6fbf6f;
+  --gray-900: #93d993; --gray-1000: #b9ffb9;
+  --gray-alpha-100: rgb(51 255 102 / 6%); --gray-alpha-200: rgb(51 255 102 / 9%);
+  --gray-alpha-300: rgb(51 255 102 / 13%); --gray-alpha-400: rgb(51 255 102 / 16%);
+  --gray-alpha-500: rgb(51 255 102 / 26%); --gray-alpha-600: rgb(51 255 102 / 34%);
+  --blue-700: #33ff66; --blue-800: #66ff99;
+  --accent: #33ff66; --accent-hover: #66ff99; --accent-soft: rgb(51 255 102 / 16%);
+  --on-accent: #001a08;
+  --online: #33ff66; --danger: #ff5f56; --warning: #ffbd2e; --warning-text: #ffbd2e;
+  --agent-city-sky: #101820;
+  --skill-accent: #66ff99; --miniapp-accent: #33ffcc;
+  --verify-passed-fg: #66ff99; --verify-failed-fg: #ff7b72;
+  --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #1f4a1f; --hairline: rgb(51 255 102 / 10%);
+  --glass-border: #1f4a1f; --glass-border-dark: #0a120a; --glass-border-light: rgb(51 255 102 / 22%);
+  --fill: rgb(51 255 102 / 7%); --fill-hover: rgb(51 255 102 / 12%);
+  --panel-bg: #050805; --sidebar-bg: #050805;
+  --sidebar-surface: rgb(51 255 102 / 6%); --sidebar-surface-hover: rgb(51 255 102 / 11%);
+  --content-bg: #050805; --header-bg: #050805; --card-bg: #0c140c;
+  --surface-secondary: #122012; --bubble-bg: #0c140c; --composer-bg: #0c140c;
+  --footbar-bg: #050805; --window-bg: #050805;
+  --soft-shadow: none; --float-shadow: none;
+  --popover-shadow: 0 0 0 1px #1f4a1f;
+  --glass-shadow: 0 0 0 1px #1f4a1f;
+  --drawer-shadow: -1px 0 0 #1f4a1f;
+  --modal-scrim: rgb(0 0 0 / 62%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: none; --glass-chip-shadow: none;
+  --glass-surface-bg: #0c140c; --glass-popover-bg: #0c140c;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #0a120a; --control-bg-hover: #0d160d;
+  --control-border: #1f4a1f; --control-border-strong: #356035; --control-shadow: none;
+  --chart-blue: #66ffcc; --chart-teal: #33ffcc; --chart-green: #33ff66;
+  --chart-purple: #b3ff66; --chart-orange: #ffbd2e; --chart-red: #ff5f56; --chart-indigo: #99ff99;
+  --chart-track: rgb(51 255 102 / 13%); --chart-grid: rgb(51 255 102 / 10%);
+  --code-bg: #000000; --code-text: #33ff66;
+  --syntax-code-bg: #000000; --syntax-code-gutter: #050805; --syntax-code-border: #1f4a1f;
+  --syntax-code-fg: #b9ffb9; --syntax-code-keyword: #33ff66; --syntax-code-string: #7dff7d;
+  --syntax-code-title: #33ffcc; --syntax-code-number: #ffbd2e; --syntax-code-comment: #4f8f4f;
+  --syntax-code-variable: #ffd866; --syntax-code-attr: #66ff99; --syntax-code-built-in: #66ffff;
+  --diff-add-line: rgb(51 255 102 / 14%); --diff-add-num: rgb(51 255 102 / 28%); --diff-add-word: rgb(51 255 102 / 40%);
+  --diff-del-line: rgb(255 95 86 / 16%); --diff-del-num: rgb(255 95 86 / 30%); --diff-del-word: rgb(255 95 86 / 42%);
+  --diff-add-label: #33ff66; --diff-del-label: #ff5f56;
+  --wallpaper: #050805; --panel-blur: none;
+}
+
+
+/* Terminal — Paper. The daylight variant of the same TUI: a green-tinted sheet
+   with dark ink, still entirely monospaced and flat. */
+:root[data-theme-family="terminal"][data-resolved-appearance="light"] {
+  color: #16331f;
+  color-scheme: light;
+  font-family: "SF Mono", "Menlo", "Cascadia Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --font-ui: "SF Mono", "Menlo", "Cascadia Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --font-display: "SF Mono", "Menlo", "Cascadia Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --font-mono: "SF Mono", "Menlo", "Cascadia Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #eef3ea;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #e2ebe0;
+  --mac-elevated-background: #f7faf5;
+  --mac-label: #16331f;
+  --mac-secondary-label: #4a6b52;
+  --mac-tertiary-label: #7a9482;
+  --mac-separator: rgb(22 51 31 / 18%);
+  --mac-unemphasized-selection: #cfe0cd;
+  --sidebar-material-tint: #eef3ea;
+  --sidebar-material-filter: none;
+  --gray-100: #eef3ea; --gray-200: #e2ebe0; --gray-300: #d5e0d2; --gray-400: #cfe0cd;
+  --gray-500: #a9bfa5; --gray-600: #86a082; --gray-700: #6b8a6a; --gray-800: #4a6b52;
+  --gray-900: #2b4a34; --gray-1000: #16331f;
+  --gray-alpha-100: rgb(22 51 31 / 5%); --gray-alpha-200: rgb(22 51 31 / 8%);
+  --gray-alpha-300: rgb(22 51 31 / 12%); --gray-alpha-400: rgb(22 51 31 / 15%);
+  --gray-alpha-500: rgb(22 51 31 / 24%); --gray-alpha-600: rgb(22 51 31 / 32%);
+  --blue-700: #1f9d55; --blue-800: #178247;
+  --accent: #1f9d55; --accent-hover: #178247; --accent-soft: rgb(31 157 85 / 12%);
+  --on-accent: #ffffff;
+  --online: #1f9d55; --danger: #c0392b; --warning: #a66a00; --warning-text: #8a5a00;
+  --agent-city-sky: #eaf3f5;
+  --skill-accent: #7a4fbf; --miniapp-accent: #1f8a8a;
+  --verify-passed-fg: #1f8a55; --verify-failed-fg: #b5342a;
+  --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(22 51 31 / 10%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(22 51 31 / 22%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(22 51 31 / 6%); --fill-hover: rgb(22 51 31 / 10%);
+  --panel-bg: #eef3ea; --sidebar-bg: #eef3ea;
+  --sidebar-surface: rgb(22 51 31 / 5%); --sidebar-surface-hover: rgb(22 51 31 / 9%);
+  --content-bg: #eef3ea; --header-bg: #eef3ea; --card-bg: #f7faf5;
+  --surface-secondary: #e2ebe0; --bubble-bg: #ffffff; --composer-bg: #f7faf5;
+  --footbar-bg: #eef3ea; --window-bg: #eef3ea;
+  --soft-shadow: none; --float-shadow: none;
+  --popover-shadow: 0 0 0 1px rgb(22 51 31 / 20%);
+  --glass-shadow: 0 0 0 1px rgb(22 51 31 / 20%);
+  --drawer-shadow: -1px 0 0 rgb(22 51 31 / 18%);
+  --modal-scrim: rgb(22 51 31 / 32%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: none; --glass-chip-shadow: none;
+  --glass-surface-bg: #f7faf5; --glass-popover-bg: #f7faf5;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #ffffff; --control-bg-hover: #e2ebe0;
+  --control-border: rgb(22 51 31 / 22%); --control-border-strong: rgb(22 51 31 / 34%); --control-shadow: none;
+  --chart-blue: #1f6f9d; --chart-teal: #1f8a8a; --chart-green: #1f9d55;
+  --chart-purple: #7a4fbf; --chart-orange: #a66a00; --chart-red: #c0392b; --chart-indigo: #3f6fd0;
+  --chart-track: rgb(22 51 31 / 8%); --chart-grid: rgb(22 51 31 / 7%);
+  --code-bg: #16331f; --code-text: #d6ffd6;
+  --syntax-code-bg: #f2f7ef; --syntax-code-gutter: #e2ebe0; --syntax-code-border: #c9d8c6;
+  --syntax-code-fg: #16331f; --syntax-code-keyword: #1f9d55; --syntax-code-string: #a66a00;
+  --syntax-code-title: #7a4fbf; --syntax-code-number: #1f6f9d; --syntax-code-comment: #7a9482;
+  --syntax-code-variable: #a6531a; --syntax-code-attr: #178247; --syntax-code-built-in: #1f6f9d;
+  --diff-add-line: #e2f1e6; --diff-add-num: #c6e5d0; --diff-del-line: #fbe4e2; --diff-del-num: #f3c6c2;
+  --diff-add-word: #a5d8bd; --diff-del-word: #e9a2ab;
+  --diff-add-label: #1f8a55; --diff-del-label: #b5342a;
+  --wallpaper: #eef3ea; --panel-blur: none;
+}
+
+
+.theme-swatch[data-theme-family-preview="terminal"][data-theme-preview-appearance="light"] .tp-side { background: #d5e0d2; }
+.theme-swatch[data-theme-family-preview="terminal"][data-theme-preview-appearance="light"] .tp-body { background: #eef3ea; }
+.theme-swatch[data-theme-family-preview="terminal"][data-theme-preview-appearance="dark"] .tp-side { background: #0a120a; }
+.theme-swatch[data-theme-family-preview="terminal"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #0c140c, #050805); }
+.theme-swatch[data-theme-family-preview="terminal"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #d5e0d2 0 50%, #0a120a 50%); }
+.theme-swatch[data-theme-family-preview="terminal"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #eef3ea 0 50%, #0c140c 50%); }

@@ -680,10 +680,50 @@ resolved from the corresponding macOS semantic colors and must be applied by rol
 
 Brightness and theme family are two independent controls. Brightness is `Light`,
 `Dark`, or `System`; it owns the resolved light/dark state and the native window
-appearance. The family is `Minimal (macOS)`, `Rosé Pine`, `Catppuccin`, or
-`Midnight`; it owns the token ramp and has a paired light/dark variant. The DOM
-keeps the preference in `data-appearance`, the resolved state in
+appearance. The family owns the token ramp and always has a paired light/dark
+variant. Two tiers ship side by side:
+
+- **Product families** — `Minimal (macOS)`, `Rosé Pine`, `Catppuccin`, `Midnight`.
+  These vary colour only: the macOS control geometry (radii, fonts, shadows) is
+  shared, so a family switch never moves a pixel.
+- **Bold families** — `Windows 98`, `Terminal`, `Brutalism`, `Blueprint`,
+  `System 6`, `Cyberpunk`. These are deliberately expressive and rewrite the
+  control language as well as the palette: the token block sets `--font-ui` /
+  `--font-display` / `--font-mono`, the `--radius-*` scale, the elevation tokens
+  and the glass/hover material. A bold family may therefore ship square corners,
+  monospace chrome, hard offset shadows or a fully opaque (blur-free) sidebar.
+
+The DOM keeps the preference in `data-appearance`, the resolved state in
 `data-resolved-appearance`, and the family in `data-theme-family`.
+
+Bold families are still token-only: they must not introduce per-component
+selectors. The one exception is the Windows 98 3D bevel, whose two-tone raised
+edge cannot be expressed through the shared `--soft-shadow` role because buttons
+and inputs own a fixed 1px border; it lives in `themes/win98.css` as a single
+family-scoped layer driven by bevel tokens (`--win98-bevel-raised` /
+`-sunken`), so it never leaks into another family.
+
+### Theme file layout
+
+The shared product system stays in `styles.css`: the base `:root` ramp, the
+brightness-keyed glass depth, and every component rule. Each family lives in its
+own file under `apps/desktop/src/themes/<family>.css`, owning its light and dark
+token blocks, its system-dark sidebar-tint override, and its appearance-picker
+thumbnail. `themes/index.css` imports them and `main.ts` imports the index, so a
+family is added by creating one file and one import line, not by appending to a
+growing shared sheet.
+
+Embedded documents follow the same rule. A report rendered as standalone HTML
+and shown in a sandboxed iframe (the call trace) must paint from the app's
+semantic token names with a built-in fallback, e.g.
+`--bg: var(--card-bg, #fff)`; the host injects the live computed values into the
+iframe root and re-injects when the family or brightness changes. The published
+standalone snapshot keeps the fallback palette. Never duplicate the family ramp
+on the server.
+
+System 6 is the documented exception to the "no pure black structural surface"
+rule below: its entire identity is the 1-bit `#000000` / `#ffffff` inversion, so
+the dark variant uses pure black on purpose. No other family may.
 
 Light and Dark values for the macOS family are resolved from AppKit semantic
 colors on the current macOS release (sampled via Digital Color Meter /
@@ -722,6 +762,12 @@ block, status color, and sidebar tint must resolve through the same family block
 | Rosé Pine | Dawn | Moon | warm, muted, designed |
 | Catppuccin | Latte | Macchiato | soft, modern, coordinated |
 | Midnight | Daybreak | Midnight | cool deep-blue with a bright companion |
+| Windows 98 | Classic | Midnight | grey 3D desktop, navy selection, square corners |
+| Terminal | Paper | Phosphor | monospace TUI, phosphor green on near-black |
+| Brutalism | Poster | Night | cobalt/yellow, black rules, hard offset shadows |
+| Blueprint | Vellum | Diazotype | drafting blue + cyan line work, technical mono |
+| System 6 | 1-bit White | 1-bit Black | pure monochrome, pixel corners, hard rules |
+| Cyberpunk | Daylight | Midnight | violet night, magenta/cyan neon, glow |
 
 - Structural dark surfaces must never use `#000000` or near-black `#0A0A0A`.
   Pure black is reserved for media/code content that intentionally needs it.
@@ -742,6 +788,32 @@ block, status color, and sidebar tint must resolve through the same family block
   the system-dark media rule makes dark-variant tints transparent so native dark
   material is not veiled. Reduced transparency, increased contrast, and
   low-performance modes remove the blur and use the opaque sidebar surface.
+
+### Imported themes (VSCode JSON)
+
+An imported theme is a color-only, single-variant family produced at runtime. The
+desktop app parses a VSCode color theme JSON (`colors` + `tokenColors`), maps the
+workbench palette onto the product token set, derives the rest from the base colors,
+and injects the result as one `:root[data-theme-family="imported-<id>"]` rule.
+Geometry — fonts, radii, shadows, motion, glass blur — stays the shared macOS system,
+so an imported theme is always product tier and never a bold family.
+
+- Brightness belongs to the theme, not the user control: an imported dark theme keeps
+  its own dark ramp even when the brightness preference is Light, and it drives the
+  native window appearance. Built-in light/dark families are unaffected.
+- The mapper must emit every token a family variant block owns (`VARIANT_TOKENS` in
+  `lib/theme/vscodeTheme.ts`), or a missing token would fall back to the light macOS
+  ramp under a dark theme. A unit test pins the list.
+- Labels are floored to WCAG AA against the canvas (`ensureContrast`), since a source
+  theme's own text color can be faint (Solarized Light sits near 3.6:1). The canvas
+  invariant `--header-bg === --content-bg` must hold too: the chat canvas paints
+  `--header-bg` while the composer's scroll-edge fade blends into `--content-bg`, so
+  splitting them leaves a visible band above the composer.
+- Imported themes persist as one JSON file per theme under the app data directory's
+  `themes/` folder; ids are filename-safe slugs validated before touching disk. Only
+  normalized colors produced by the importer reach the injected stylesheet — the raw
+  source is never applied directly.
+- `.vsix` bundles and `.tmTheme` are out of scope for this tier.
 
 ## Application templates
 

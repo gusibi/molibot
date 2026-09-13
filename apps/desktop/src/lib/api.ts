@@ -2942,10 +2942,31 @@ export function filterDesktopFiles(
 }
 
 export type DesktopAppearance = "system" | "light" | "dark";
-export type DesktopThemeFamily = "macos" | "rose-pine" | "catppuccin" | "midnight";
+export type DesktopThemeFamily =
+  | "macos"
+  | "rose-pine"
+  | "catppuccin"
+  | "midnight"
+  | "win98"
+  | "terminal"
+  | "brutalism"
+  | "blueprint"
+  | "system6"
+  | "cyberpunk";
 
 const DESKTOP_APPEARANCES: readonly DesktopAppearance[] = ["system", "light", "dark"];
-const DESKTOP_THEME_FAMILIES: readonly DesktopThemeFamily[] = ["macos", "rose-pine", "catppuccin", "midnight"];
+const DESKTOP_THEME_FAMILIES: readonly DesktopThemeFamily[] = [
+  "macos",
+  "rose-pine",
+  "catppuccin",
+  "midnight",
+  "win98",
+  "terminal",
+  "brutalism",
+  "blueprint",
+  "system6",
+  "cyberpunk"
+];
 
 /** Validates the independent brightness preference, defaulting to OS-following. */
 export function normalizeAppearance(value: unknown): DesktopAppearance {

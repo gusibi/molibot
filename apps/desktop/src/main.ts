@@ -6,6 +6,7 @@ import "@fontsource/geist-sans/600.css";
 import "@fontsource/geist-mono/400.css";
 import "diff2html/bundles/css/diff2html.min.css";
 import "./styles.css";
+import "./themes/index.css";
 import "katex/dist/katex.min.css";
 
 mount(App, {

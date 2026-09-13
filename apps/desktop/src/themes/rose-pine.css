@@ -1,0 +1,125 @@
+/* Rosé Pine — Dawn (light) and Moon (dark), plus the system-dark sidebar tint. */
+
+/* Rosé Pine Dawn — a warm, restrained light companion to Moon. */
+:root[data-theme-family="rose-pine"][data-resolved-appearance="light"] {
+  color: #575279;
+  color-scheme: light;
+  --mac-window-background: #faf4ed;
+  --mac-control-background: #fffaf3;
+  --mac-grouped-background: #f2e9e1;
+  --mac-elevated-background: #fffaf3;
+  --mac-label: #575279;
+  --mac-secondary-label: #797593;
+  --mac-tertiary-label: #9893a5;
+  --mac-separator: rgb(87 82 121 / 16%);
+  --mac-unemphasized-selection: #dfdad9;
+  --sidebar-material-tint: rgb(250 244 237 / 72%);
+  --gray-100: #faf4ed; --gray-200: #f2e9e1; --gray-300: #e4dfd9; --gray-400: #dfdad9;
+  --gray-500: #cecacd; --gray-600: #b9b5bd; --gray-700: #9893a5; --gray-800: #797593;
+  --gray-900: #575279; --gray-1000: #403d52;
+  --gray-alpha-100: rgb(87 82 121 / 5%); --gray-alpha-200: rgb(87 82 121 / 8%);
+  --gray-alpha-300: rgb(87 82 121 / 11%); --gray-alpha-400: rgb(87 82 121 / 8%);
+  --gray-alpha-500: rgb(87 82 121 / 20%); --gray-alpha-600: rgb(87 82 121 / 26%);
+  --blue-700: #286983; --blue-800: #1f566d;
+  --accent: #286983; --accent-hover: #1f566d; --accent-soft: rgb(40 105 131 / 13%);
+  --online: #56949f; --danger: #b4637a; --warning: #ea9d34; --warning-text: #a65b18;
+  --on-accent: #fffaf3; --agent-city-sky: #eaf3f5;
+  --skill-accent: #907aa9; --miniapp-accent: #56949f;
+  --verify-passed-fg: #286983; --verify-failed-fg: #b4637a; --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(87 82 121 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(87 82 121 / 20%); --glass-border-light: rgb(255 250 243 / 55%);
+  --fill: rgb(87 82 121 / 6%); --fill-hover: rgb(87 82 121 / 10%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(87 82 121 / 5%); --sidebar-surface-hover: rgb(87 82 121 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(87 82 121 / 7%); --float-shadow: 0 8px 24px -12px rgb(87 82 121 / 28%);
+  --popover-shadow: 0 1px 1px rgb(87 82 121 / 4%), 0 4px 8px -4px rgb(87 82 121 / 8%), 0 16px 24px -8px rgb(87 82 121 / 12%);
+  --glass-shadow: 0 1px 1px rgb(87 82 121 / 4%), 0 8px 16px -4px rgb(87 82 121 / 8%), 0 24px 32px -8px rgb(87 82 121 / 12%);
+  --drawer-shadow: -8px 0 24px -8px rgb(87 82 121 / 18%); --modal-scrim: rgb(87 82 121 / 32%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(87 82 121 / 18%); --control-border-strong: rgb(87 82 121 / 30%); --control-shadow: none;
+  --chart-blue: #286983; --chart-teal: #56949f; --chart-green: #797593; --chart-purple: #907aa9;
+  --chart-orange: #ea9d34; --chart-red: #b4637a; --chart-indigo: #907aa9;
+  --chart-track: rgb(87 82 121 / 8%); --chart-grid: rgb(87 82 121 / 7%);
+  --code-bg: #26233a; --code-text: #e0def4;
+  --syntax-code-bg: #fffaf3; --syntax-code-gutter: #f2e9e1; --syntax-code-border: #dfdad9; --syntax-code-fg: #575279;
+  --syntax-code-keyword: #b4637a; --syntax-code-string: #286983; --syntax-code-title: #907aa9; --syntax-code-number: #ea9d34;
+  --syntax-code-comment: #9893a5; --syntax-code-variable: #d7827e; --syntax-code-attr: #56949f; --syntax-code-built-in: #907aa9;
+  --diff-add-line: #e2f1ec; --diff-add-num: #c6e5d8; --diff-add-word: #9ed5bf;
+  --diff-del-line: #fbe9ed; --diff-del-num: #f4cbd6; --diff-del-word: #e9a5b7; --diff-add-label: #286983; --diff-del-label: #b4637a;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* Rosé Pine Moon — the deep counterpart to Dawn. */
+:root[data-theme-family="rose-pine"][data-resolved-appearance="dark"] {
+  color: #e0def4;
+  color-scheme: dark;
+  --mac-window-background: #191724;
+  --mac-control-background: #1f1d2e;
+  --mac-grouped-background: #26233a;
+  --mac-elevated-background: #1f1d2e;
+  --mac-label: #e0def4;
+  --mac-secondary-label: #908caa;
+  --mac-tertiary-label: #6e6a86;
+  --mac-separator: rgb(224 222 244 / 15%);
+  --mac-unemphasized-selection: #403d52;
+  --sidebar-material-tint: rgb(25 23 36 / 72%);
+  --gray-100: #191724; --gray-200: #1f1d2e; --gray-300: #26233a; --gray-400: #403d52;
+  --gray-500: #524f67; --gray-600: #6e6a86; --gray-700: #908caa; --gray-800: #aaa6c2;
+  --gray-900: #c5c0d9; --gray-1000: #e0def4;
+  --gray-alpha-100: rgb(224 222 244 / 6%); --gray-alpha-200: rgb(224 222 244 / 9%);
+  --gray-alpha-300: rgb(224 222 244 / 13%); --gray-alpha-400: rgb(224 222 244 / 11%);
+  --gray-alpha-500: rgb(224 222 244 / 24%); --gray-alpha-600: rgb(224 222 244 / 31%);
+  --blue-700: #31748f; --blue-800: #286983;
+  --accent: #c4a7e7; --accent-hover: #d6bff0; --accent-soft: rgb(196 167 231 / 18%);
+  --online: #9ccfd8; --danger: #eb6f92; --warning: #f6c177; --warning-text: #f6c177;
+  --on-accent: #191724; --agent-city-sky: #101820;
+  --skill-accent: #c4a7e7; --miniapp-accent: #9ccfd8;
+  --verify-passed-fg: #9ccfd8; --verify-failed-fg: #eb6f92; --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(224 222 244 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(224 222 244 / 22%); --glass-border-light: rgb(224 222 244 / 25%);
+  --fill: rgb(224 222 244 / 8%); --fill-hover: rgb(224 222 244 / 13%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(224 222 244 / 7%); --sidebar-surface-hover: rgb(224 222 244 / 12%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-grouped-background); --surface-secondary: #26233a;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 28%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 55%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 4px 8px -4px rgb(0 0 0 / 38%), 0 16px 24px -8px rgb(0 0 0 / 48%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 8px 16px -4px rgb(0 0 0 / 38%), 0 24px 32px -8px rgb(0 0 0 / 48%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 44%); --modal-scrim: rgb(0 0 0 / 52%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(224 222 244 / 19%); --control-border-strong: rgb(224 222 244 / 32%); --control-shadow: none;
+  --chart-blue: #9ccfd8; --chart-teal: #9ccfd8; --chart-green: #6ecca9; --chart-purple: #c4a7e7;
+  --chart-orange: #f6c177; --chart-red: #eb6f92; --chart-indigo: #c4a7e7;
+  --chart-track: rgb(224 222 244 / 12%); --chart-grid: rgb(224 222 244 / 9%);
+  --code-bg: #191724; --code-text: #e0def4;
+  --syntax-code-bg: #1f1d2e; --syntax-code-gutter: #26233a; --syntax-code-border: #403d52; --syntax-code-fg: #e0def4;
+  --syntax-code-keyword: #eb6f92; --syntax-code-string: #9ccfd8; --syntax-code-title: #c4a7e7; --syntax-code-number: #f6c177;
+  --syntax-code-comment: #908caa; --syntax-code-variable: #ebbcba; --syntax-code-attr: #6ecca9; --syntax-code-built-in: #c4a7e7;
+  --diff-add-line: rgb(110 204 169 / 16%); --diff-add-num: rgb(110 204 169 / 30%); --diff-add-word: rgb(110 204 169 / 42%);
+  --diff-del-line: rgb(235 111 146 / 16%); --diff-del-num: rgb(235 111 146 / 30%); --diff-del-word: rgb(235 111 146 / 42%);
+  --diff-add-label: #6ecca9; --diff-del-label: #eb6f92;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="rose-pine"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+}
+
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="light"] .tp-side { background: #f2e9e1; }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #fffaf3, #faf4ed); }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="dark"] .tp-side { background: #26233a; }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #1f1d2e, #191724); }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #f2e9e1 0 50%, #26233a 50%); }
+.theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #fffaf3 0 50%, #1f1d2e 50%); }

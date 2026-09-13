@@ -38,6 +38,55 @@ export function renderTraceReport(report: TraceReport, language: "zh" | "en" = "
     return `<details><summary><span class="name" style="padding-inline-start:${Math.min(depth, 8) * 12}px"><small>${escape(label(node.factType))}</small><strong>${escape(node.factType === "run" ? label("run") : node.name ?? label(node.factType))}</strong></span><span class="track"><i class="${escape(node.factType)}" style="margin-left:${offset}%;width:${width}%"></i></span><span class="metric">${escape(duration(node.durationMs ?? (known ? end - start : undefined)))}<small>${escape(label(node.status))}</small></span></summary><section><dl>${fields.filter(([, value]) => value !== undefined).map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}${node.factType === "model_call" ? `<div><dt>Tokens</dt><dd>${escape(node.totalTokens ?? text.missing)}</dd></div>` : ""}</dl>${[[text.args, node.argsPreview], [text.result, node.resultPreview], [text.error, node.errorPreview]].filter(([, value]) => value).map(([key, value]) => `<h3>${escape(key)}</h3><pre>${escape(value)}</pre>`).join("")}</section></details>`;
   }).join("");
   return `<!doctype html><html lang="${language}" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${text.title}</title><style>
-:root{color-scheme:light;--bg:#fff;--panel:#f5f5f7;--ink:#1d1d1f;--muted:#6e6e73;--line:rgba(0,0,0,.1);--blue:#007aff;--green:#248a3d;--purple:#8944ab;--d-bg:#1c1c1e;--d-panel:#2c2c2e;--d-ink:#f5f5f7;--d-muted:#98989d;--d-line:rgba(255,255,255,.14);--d-blue:#0a84ff;--d-green:#30d158;--d-purple:#bf5af2}html[data-theme=dark]{color-scheme:dark;--bg:var(--d-bg);--panel:var(--d-panel);--ink:var(--d-ink);--muted:var(--d-muted);--line:var(--d-line);--blue:var(--d-blue);--green:var(--d-green);--purple:var(--d-purple)}@media(prefers-color-scheme:dark){html[data-theme=auto]{color-scheme:dark;--bg:var(--d-bg);--panel:var(--d-panel);--ink:var(--d-ink);--muted:var(--d-muted);--line:var(--d-line);--blue:var(--d-blue);--green:var(--d-green);--purple:var(--d-purple)}}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}main{max-width:1180px;margin:0 auto;padding:18px}h1{font-size:20px;letter-spacing:-.02em;margin:0}header p,.hint,small,dt{color:var(--muted)}header p{margin:2px 0 0;font-size:12px;overflow-wrap:anywhere}.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:8px;margin:12px 0 10px;overflow:hidden}.stats div{padding:10px 12px}.stats small{font-size:11px}.stats strong{display:block;margin-top:2px;font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}.hint{margin:0 0 10px;font-size:11px}.axis{display:flex;justify-content:space-between;margin:0 96px 4px 34%;color:var(--muted);font-size:11px}details{border-top:1px solid var(--line)}summary{display:grid;grid-template-columns:34% 1fr 96px;align-items:center;gap:8px;padding:7px 4px;cursor:pointer;list-style:none}summary:hover,details[open]{background:var(--panel)}summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}.name{min-width:0}.name strong{display:block;font-size:13px;font-weight:500;overflow-wrap:anywhere}.name small{font-size:10px;text-transform:uppercase;letter-spacing:.05em}.track{height:18px;background:repeating-linear-gradient(90deg,transparent,transparent calc(25% - 1px),var(--line) 25%)}i{height:10px;display:block;position:relative;top:4px;background:var(--muted);border-radius:3px}i.model_call{background:var(--blue)}i.tool_call{background:var(--green)}i.subagent_task{background:var(--purple)}.metric{text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.metric small{display:block;font-size:10px}section{padding:6px 12px 12px}dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}dd{margin:1px 0;font-size:12px;overflow-wrap:anywhere}dt{font-size:11px}h3{margin:10px 0 4px;font-size:11px;font-weight:600}pre{margin:0;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}footer{margin-top:14px;color:var(--muted);font-size:11px}@media(max-width:600px){main{padding:14px 10px}.stats{grid-template-columns:repeat(2,1fr)}summary{grid-template-columns:40% 1fr 72px;gap:6px}.axis{margin-left:40%;margin-right:74px}dl{grid-template-columns:1fr 1fr}}
+:root{color-scheme:light;
+--r-bg:#fff;--r-panel:#f5f5f7;--r-ink:#1d1d1f;--r-muted:#6e6e73;--r-line:rgba(0,0,0,.1);--r-blue:#007aff;--r-green:#248a3d;--r-purple:#8944ab;
+--r-d-bg:#1c1c1e;--r-d-panel:#2c2c2e;--r-d-ink:#f5f5f7;--r-d-muted:#98989d;--r-d-line:rgba(255,255,255,.14);--r-d-blue:#0a84ff;--r-d-green:#30d158;--r-d-purple:#bf5af2;
+/* The report is a standalone document, but when the app embeds it (sandboxed
+   iframe) the drawer injects the live app token values. Every colour therefore
+   reads the app's semantic token first and falls back to the built-in palette
+   for a published snapshot, so a theme family applies without duplicating the
+   ramp on the server. */
+--bg:var(--card-bg,var(--r-bg));--panel:var(--surface-secondary,var(--r-panel));--ink:var(--label-primary,var(--r-ink));--muted:var(--label-secondary,var(--r-muted));--line:var(--separator,var(--r-line));--blue:var(--accent,var(--r-blue));--green:var(--online,var(--r-green));--purple:var(--skill-accent,var(--r-purple))}
+html[data-theme=dark]{color-scheme:dark;--r-bg:var(--r-d-bg);--r-panel:var(--r-d-panel);--r-ink:var(--r-d-ink);--r-muted:var(--r-d-muted);--r-line:var(--r-d-line);--r-blue:var(--r-d-blue);--r-green:var(--r-d-green);--r-purple:var(--r-d-purple)}
+@media(prefers-color-scheme:dark){html[data-theme=auto]{color-scheme:dark;--r-bg:var(--r-d-bg);--r-panel:var(--r-d-panel);--r-ink:var(--r-d-ink);--r-muted:var(--r-d-muted);--r-line:var(--r-d-line);--r-blue:var(--r-d-blue);--r-green:var(--r-d-green);--r-purple:var(--r-d-purple)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif);font-size:var(--fs-body,13px);line-height:1.45}
+main{max-width:1180px;margin:0 auto;padding:18px}
+h1{font-size:var(--fs-page,20px);letter-spacing:-.02em;margin:0}
+header p,.hint,small,dt{color:var(--muted)}
+header p{margin:2px 0 0;font-size:var(--fs-meta,12px);overflow-wrap:anywhere}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:var(--radius-control,8px);margin:12px 0 10px;overflow:hidden}
+.stats div{padding:10px 12px}
+.stats small{font-size:var(--fs-meta,11px)}
+.stats strong{display:block;margin-top:2px;font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.hint{margin:0 0 10px;font-size:var(--fs-meta,11px)}
+.axis{display:flex;justify-content:space-between;margin:0 96px 4px 34%;color:var(--muted);font-size:var(--fs-meta,11px)}
+details{border-top:1px solid var(--line)}
+summary{display:grid;grid-template-columns:34% 1fr 96px;align-items:center;gap:8px;padding:7px 4px;cursor:pointer;list-style:none}
+summary:hover,details[open]{background:var(--panel)}
+summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.name{min-width:0}
+.name strong{display:block;font-size:var(--fs-label,13px);font-weight:500;overflow-wrap:anywhere}
+.name small{font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.track{height:18px;background:repeating-linear-gradient(90deg,transparent,transparent calc(25% - 1px),var(--line) 25%)}
+i{height:10px;display:block;position:relative;top:4px;background:var(--muted);border-radius:var(--radius-small,3px)}
+i.model_call{background:var(--blue)}
+i.tool_call{background:var(--green)}
+i.subagent_task{background:var(--purple)}
+.metric{text-align:right;font-variant-numeric:tabular-nums;font-size:var(--fs-label,12px)}
+.metric small{display:block;font-size:10px}
+section{padding:6px 12px 12px}
+dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+dd{margin:1px 0;font-size:var(--fs-label,12px);overflow-wrap:anywhere}
+dt{font-size:var(--fs-meta,11px)}
+h3{margin:10px 0 4px;font-size:var(--fs-meta,11px);font-weight:600}
+pre{margin:0;padding:8px;border:1px solid var(--syntax-code-border,var(--line));border-radius:var(--radius-control,6px);background:var(--syntax-code-bg,var(--r-panel));color:var(--syntax-code-fg,var(--r-ink));font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--fs-meta,12px);white-space:pre-wrap;overflow-wrap:anywhere}
+footer{margin-top:14px;color:var(--muted);font-size:var(--fs-meta,11px)}
+@media(max-width:600px){main{padding:14px 10px}
+.stats{grid-template-columns:repeat(2,1fr)}
+summary{grid-template-columns:40% 1fr 72px;gap:6px}
+.axis{margin-left:40%;margin-right:74px}
+dl{grid-template-columns:1fr 1fr}
+}
 </style></head><body><main><header><h1>${text.title}</h1><p>${escape(report.runId)} · ${escape(label(report.status))}</p></header><div class="stats">${[[text.duration, duration(report.durationMs)], [text.models, report.modelCalls], [text.tools, report.toolCalls], ["Tokens", `${report.totalTokens ?? text.missing}${report.usageComplete ? "" : ` · ${text.partial}`}`]].map(([key, value]) => `<div><small>${escape(key)}</small><strong>${escape(value)}</strong></div>`).join("")}</div><p class="hint">${text.hint}</p><div class="axis"><span>0 s</span><span>${escape(duration(report.durationMs))}</span></div>${rows}<footer>${text.snapshot} ${escape(report.generatedAt)}</footer></main></body></html>`;
 }

@@ -1,0 +1,216 @@
+/* Windows 98 — Classic (light) and Midnight (dark), plus the 3D bevel layer the
+   shared token ramp cannot express. */
+
+/* Windows 98 — Classic. The authentic #c0c0c0 face, navy selection, square
+   corners and Tahoma metrics; the 3D bevel is restored at the bottom of this
+   file, because buttons and inputs own a fixed 1px border and cannot read the
+   shared --soft-shadow role. */
+:root[data-theme-family="win98"][data-resolved-appearance="light"] {
+  color: #000000;
+  color-scheme: light;
+  font-family: "Tahoma", "MS Sans Serif", "Geneva", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Tahoma", "MS Sans Serif", "Geneva", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Tahoma", "MS Sans Serif", "Geneva", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Lucida Console", "SF Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #c0c0c0;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #d4d0c8;
+  --mac-elevated-background: #c0c0c0;
+  --mac-label: #000000;
+  --mac-secondary-label: #404040;
+  --mac-tertiary-label: #808080;
+  --mac-separator: #808080;
+  --mac-unemphasized-selection: #b0b0b0;
+  --sidebar-material-tint: #c0c0c0;
+  --sidebar-material-filter: none;
+  --gray-100: #c0c0c0; --gray-200: #cacaca; --gray-300: #d4d0c8; --gray-400: #dfdfdf;
+  --gray-500: #808080; --gray-600: #6a6a6a; --gray-700: #565656; --gray-800: #404040;
+  --gray-900: #202020; --gray-1000: #000000;
+  --gray-alpha-100: rgb(0 0 0 / 8%); --gray-alpha-200: rgb(0 0 0 / 12%);
+  --gray-alpha-300: rgb(0 0 0 / 16%); --gray-alpha-400: rgb(0 0 0 / 20%);
+  --gray-alpha-500: rgb(0 0 0 / 32%); --gray-alpha-600: rgb(0 0 0 / 40%);
+  --blue-700: #000080; --blue-800: #0000a0;
+  --accent: #000080; --accent-hover: #1084d0; --accent-soft: rgb(0 0 128 / 12%);
+  --on-accent: #ffffff;
+  --online: #008000; --danger: #ff0000; --warning: #808000; --warning-text: #6a6a00;
+  --agent-city-sky: #eaf3f5;
+  --skill-accent: #800080; --miniapp-accent: #008080;
+  --verify-passed-fg: #008000; --verify-failed-fg: #ff0000;
+  --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #808080; --hairline: #808080;
+  --glass-border: #808080; --glass-border-dark: #404040; --glass-border-light: #ffffff;
+  --fill: rgb(0 0 0 / 6%); --fill-hover: rgb(0 0 0 / 10%);
+  --panel-bg: #c0c0c0; --sidebar-bg: #c0c0c0;
+  --sidebar-surface: rgb(0 0 0 / 6%); --sidebar-surface-hover: rgb(0 0 0 / 10%);
+  --content-bg: #c0c0c0; --header-bg: #c0c0c0; --card-bg: #c0c0c0;
+  --surface-secondary: #d4d0c8; --bubble-bg: #ffffff; --composer-bg: #c0c0c0;
+  --footbar-bg: #c0c0c0; --window-bg: #c0c0c0;
+  --soft-shadow: inset -1px -1px #808080, inset 1px 1px #ffffff;
+  --float-shadow: inset -1px -1px #808080, inset 1px 1px #ffffff, 2px 2px 0 rgb(0 0 0 / 35%);
+  --popover-shadow: 2px 2px 0 rgb(0 0 0 / 45%);
+  --glass-shadow: 2px 2px 0 rgb(0 0 0 / 45%);
+  --drawer-shadow: -2px 0 0 rgb(0 0 0 / 35%);
+  --modal-scrim: rgb(0 0 0 / 35%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: none; --glass-chip-shadow: none;
+  --glass-surface-bg: #c0c0c0; --glass-popover-bg: #c0c0c0;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #ffffff; --control-bg-hover: #f0f0f0;
+  --control-border: #808080; --control-border-strong: #404040; --control-shadow: none;
+  --chart-blue: #000080; --chart-teal: #008080; --chart-green: #008000;
+  --chart-purple: #800080; --chart-orange: #808000; --chart-red: #ff0000; --chart-indigo: #0000ff;
+  --chart-track: rgb(0 0 0 / 12%); --chart-grid: rgb(0 0 0 / 10%);
+  --code-bg: #000000; --code-text: #c0c0c0;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #d4d0c8; --syntax-code-border: #808080;
+  --syntax-code-fg: #000000; --syntax-code-keyword: #0000ff; --syntax-code-string: #ff0000;
+  --syntax-code-title: #800080; --syntax-code-number: #000000; --syntax-code-comment: #008000;
+  --syntax-code-variable: #808000; --syntax-code-attr: #000080; --syntax-code-built-in: #800080;
+  --diff-add-line: #d8f0d8; --diff-add-num: #b8e4b8; --diff-add-word: #92d492;
+  --diff-del-line: #f8d8d8; --diff-del-num: #f0b8b8; --diff-del-word: #e09090;
+  --diff-add-label: #008000; --diff-del-label: #ff0000;
+  --wallpaper: #c0c0c0; --panel-blur: none;
+}
+
+
+/* Windows 98 — Midnight. The grey face darkened for the independent brightness
+   control; the bevel inverts so a raised control still reads as raised. */
+:root[data-theme-family="win98"][data-resolved-appearance="dark"] {
+  color: #e8e8e8;
+  color-scheme: dark;
+  font-family: "Tahoma", "MS Sans Serif", "Geneva", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Tahoma", "MS Sans Serif", "Geneva", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Tahoma", "MS Sans Serif", "Geneva", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Lucida Console", "SF Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #2b2b2b;
+  --mac-control-background: #1e1e1e;
+  --mac-grouped-background: #383838;
+  --mac-elevated-background: #333333;
+  --mac-label: #e8e8e8;
+  --mac-secondary-label: #b0b0b0;
+  --mac-tertiary-label: #7a7a7a;
+  --mac-separator: #555555;
+  --mac-unemphasized-selection: #4a4a4a;
+  --sidebar-material-tint: #2b2b2b;
+  --sidebar-material-filter: none;
+  --gray-100: #1e1e1e; --gray-200: #2b2b2b; --gray-300: #333333; --gray-400: #383838;
+  --gray-500: #4a4a4a; --gray-600: #6a6a6a; --gray-700: #8a8a8a; --gray-800: #b0b0b0;
+  --gray-900: #d0d0d0; --gray-1000: #f0f0f0;
+  --gray-alpha-100: rgb(255 255 255 / 7%); --gray-alpha-200: rgb(255 255 255 / 11%);
+  --gray-alpha-300: rgb(255 255 255 / 15%); --gray-alpha-400: rgb(255 255 255 / 18%);
+  --gray-alpha-500: rgb(255 255 255 / 28%); --gray-alpha-600: rgb(255 255 255 / 36%);
+  --blue-700: #1084d0; --blue-800: #3aa6f0;
+  --accent: #1084d0; --accent-hover: #3aa6f0; --accent-soft: rgb(16 132 208 / 22%);
+  --on-accent: #ffffff;
+  --online: #4ade80; --danger: #ff6b6b; --warning: #ffd166; --warning-text: #ffd166;
+  --agent-city-sky: #101820;
+  --skill-accent: #c084fc; --miniapp-accent: #2dd4bf;
+  --verify-passed-fg: #7ee2a8; --verify-failed-fg: #ff8f8f;
+  --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #555555; --hairline: rgb(255 255 255 / 10%);
+  --glass-border: #555555; --glass-border-dark: #101010; --glass-border-light: #6a6a6a;
+  --fill: rgb(255 255 255 / 8%); --fill-hover: rgb(255 255 255 / 13%);
+  --panel-bg: #2b2b2b; --sidebar-bg: #2b2b2b;
+  --sidebar-surface: rgb(255 255 255 / 6%); --sidebar-surface-hover: rgb(255 255 255 / 11%);
+  --content-bg: #2b2b2b; --header-bg: #2b2b2b; --card-bg: #333333;
+  --surface-secondary: #383838; --bubble-bg: #1e1e1e; --composer-bg: #2b2b2b;
+  --footbar-bg: #2b2b2b; --window-bg: #2b2b2b;
+  --soft-shadow: inset -1px -1px #101010, inset 1px 1px #6a6a6a;
+  --float-shadow: inset -1px -1px #101010, inset 1px 1px #6a6a6a, 2px 2px 0 rgb(0 0 0 / 55%);
+  --popover-shadow: 2px 2px 0 rgb(0 0 0 / 60%);
+  --glass-shadow: 2px 2px 0 rgb(0 0 0 / 60%);
+  --drawer-shadow: -2px 0 0 rgb(0 0 0 / 55%);
+  --modal-scrim: rgb(0 0 0 / 55%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: none; --glass-chip-shadow: none;
+  --glass-surface-bg: #333333; --glass-popover-bg: #333333;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #1e1e1e; --control-bg-hover: #2b2b2b;
+  --control-border: #6a6a6a; --control-border-strong: #8a8a8a; --control-shadow: none;
+  --chart-blue: #4d9fdc; --chart-teal: #2dd4bf; --chart-green: #4ade80;
+  --chart-purple: #c084fc; --chart-orange: #ffd166; --chart-red: #ff6b6b; --chart-indigo: #7c8cff;
+  --chart-track: rgb(255 255 255 / 13%); --chart-grid: rgb(255 255 255 / 10%);
+  --code-bg: #000000; --code-text: #c0c0c0;
+  --syntax-code-bg: #1e1e1e; --syntax-code-gutter: #2b2b2b; --syntax-code-border: #555555;
+  --syntax-code-fg: #e8e8e8; --syntax-code-keyword: #6cb6ff; --syntax-code-string: #ff8a8a;
+  --syntax-code-title: #d7a8ff; --syntax-code-number: #ffd166; --syntax-code-comment: #8a8a8a;
+  --syntax-code-variable: #ffcf8a; --syntax-code-attr: #7ee2a8; --syntax-code-built-in: #d7a8ff;
+  --diff-add-line: rgb(74 222 128 / 16%); --diff-add-num: rgb(74 222 128 / 30%); --diff-add-word: rgb(74 222 128 / 42%);
+  --diff-del-line: rgb(255 107 107 / 16%); --diff-del-num: rgb(255 107 107 / 30%); --diff-del-word: rgb(255 107 107 / 42%);
+  --diff-add-label: #4ade80; --diff-del-label: #ff6b6b;
+  --wallpaper: #2b2b2b; --panel-blur: none;
+}
+
+
+/* The 3D bevel. A two-tone raised edge cannot ride the shared --soft-shadow
+   role: buttons and inputs own a fixed 1px border and never read a shadow
+   token, so the family restores its signature depth with one scoped layer.
+   The bevel colours are tokens so both variants compose the same rules. */
+:root[data-theme-family="win98"] {
+  --win98-bevel-light: #ffffff;
+  --win98-bevel-mid: #dfdfdf;
+  --win98-bevel-dark: #808080;
+  --win98-bevel-frame: #000000;
+  --win98-bevel-raised: inset -1px -1px 0 var(--win98-bevel-dark), inset 1px 1px 0 var(--win98-bevel-light), inset -2px -2px 0 var(--win98-bevel-frame), inset 2px 2px 0 var(--win98-bevel-mid);
+  --win98-bevel-sunken: inset 1px 1px 0 var(--win98-bevel-dark), inset -1px -1px 0 var(--win98-bevel-light), inset 2px 2px 0 var(--win98-bevel-frame), inset -2px -2px 0 var(--win98-bevel-mid);
+}
+:root[data-theme-family="win98"][data-resolved-appearance="dark"] {
+  --win98-bevel-light: #6a6a6a;
+  --win98-bevel-mid: #4a4a4a;
+  --win98-bevel-dark: #101010;
+  --win98-bevel-frame: #000000;
+}
+:root[data-theme-family="win98"] :is(.secondary-button, .appearance-segmented button) {
+  border: 1px solid var(--control-border);
+  box-shadow: var(--win98-bevel-raised);
+}
+:root[data-theme-family="win98"] .primary-button:not(.danger-action) {
+  border: 1px solid var(--win98-bevel-frame);
+  background: var(--card-bg);
+  color: var(--label-primary);
+  box-shadow: var(--win98-bevel-raised);
+}
+:root[data-theme-family="win98"] .primary-button:not(.danger-action):hover {
+  opacity: 1;
+  background: var(--control-bg-hover);
+}
+:root[data-theme-family="win98"] :is(.secondary-button, .primary-button, .appearance-segmented button):active {
+  box-shadow: var(--win98-bevel-sunken);
+}
+:root[data-theme-family="win98"] :is(.row-input, .settings-field input, .settings-field textarea) {
+  box-shadow: var(--win98-bevel-sunken);
+}
+/* The chat composer is a transparent textarea on a card, not an <input>, so the
+   generic field rule above never reached it and the card read as a plain grey
+   slab. Win98 frames a sunken white well inside the grey panel; the highlight
+   overlay keeps the same padding so invocation pills stay on the glyphs. The
+   base focus state paints a soft accent glow that reads as a lavender halo on
+   the grey face, so focus is signalled by the frame instead. */
+:root[data-theme-family="win98"] .composer textarea {
+  padding: 4px 6px;
+  background: var(--control-bg);
+  box-shadow: var(--win98-bevel-sunken);
+}
+:root[data-theme-family="win98"] .composer-highlight {
+  padding: 4px 6px;
+}
+:root[data-theme-family="win98"] .composer:focus-within {
+  border-color: var(--win98-bevel-frame);
+  box-shadow: none;
+}
+
+.theme-swatch[data-theme-family-preview="win98"][data-theme-preview-appearance="light"] .tp-side { background: #808080; }
+.theme-swatch[data-theme-family-preview="win98"][data-theme-preview-appearance="light"] .tp-body { background: #c0c0c0; }
+.theme-swatch[data-theme-family-preview="win98"][data-theme-preview-appearance="dark"] .tp-side { background: #1e1e1e; }
+.theme-swatch[data-theme-family-preview="win98"][data-theme-preview-appearance="dark"] .tp-body { background: #2b2b2b; }
+.theme-swatch[data-theme-family-preview="win98"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #808080 0 50%, #1e1e1e 50%); }
+.theme-swatch[data-theme-family-preview="win98"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #c0c0c0 0 50%, #2b2b2b 50%); }

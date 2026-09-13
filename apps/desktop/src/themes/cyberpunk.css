@@ -1,0 +1,158 @@
+/* Cyberpunk — Midnight Neon (dark) and Daylight (light). */
+
+/* Cyberpunk — Midnight Neon. Near-black violet canvas, hot magenta accent,
+   cyan support and glow shadows; corners are cut nearly square. The mono
+   display rank carries the terminal-punk character without hurting prose. */
+:root[data-theme-family="cyberpunk"][data-resolved-appearance="dark"] {
+  color: #e8ddff;
+  color-scheme: dark;
+  font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "SF Mono", ui-monospace, monospace;
+  --font-mono: "SF Mono", ui-monospace, monospace;
+  --radius-small: 2px; --radius-control: 2px; --radius-panel: 2px; --radius-full: 2px;
+  --mac-window-background: #0b0714;
+  --mac-control-background: #140b26;
+  --mac-grouped-background: #1a0f30;
+  --mac-elevated-background: #1d1136;
+  --mac-label: #e8ddff;
+  --mac-secondary-label: #b39ddb;
+  --mac-tertiary-label: #7e6aa5;
+  --mac-separator: rgb(255 45 149 / 22%);
+  --mac-unemphasized-selection: #2a1a4a;
+  --sidebar-material-tint: #0b0714;
+  --sidebar-material-filter: none;
+  --gray-100: #0b0714; --gray-200: #140b26; --gray-300: #1a0f30; --gray-400: #2a1a4a;
+  --gray-500: #432f6b; --gray-600: #5f4a8a; --gray-700: #7e6aa5; --gray-800: #b39ddb;
+  --gray-900: #d3c4f0; --gray-1000: #e8ddff;
+  --gray-alpha-100: rgb(255 45 149 / 7%); --gray-alpha-200: rgb(255 45 149 / 11%);
+  --gray-alpha-300: rgb(255 45 149 / 15%); --gray-alpha-400: rgb(255 45 149 / 18%);
+  --gray-alpha-500: rgb(255 45 149 / 28%); --gray-alpha-600: rgb(255 45 149 / 36%);
+  --blue-700: #ff2d95; --blue-800: #d81f7a;
+  --accent: #ff2d95; --accent-hover: #ff5aa8; --accent-soft: rgb(255 45 149 / 18%);
+  --on-accent: #14001f;
+  --online: #00f0ff; --danger: #ff3b5c; --warning: #ffd166; --warning-text: #ffd166;
+  --agent-city-sky: #101820;
+  --skill-accent: #a855f7; --miniapp-accent: #00f0ff;
+  --verify-passed-fg: #00f0ff; --verify-failed-fg: #ff5c7a;
+  --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(255 45 149 / 12%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 45 149 / 28%); --glass-border-light: rgb(255 45 149 / 34%);
+  --fill: rgb(255 45 149 / 9%); --fill-hover: rgb(255 45 149 / 14%);
+  --panel-bg: #0b0714; --sidebar-bg: #0b0714;
+  --sidebar-surface: rgb(255 45 149 / 7%); --sidebar-surface-hover: rgb(255 45 149 / 12%);
+  --content-bg: #0b0714; --header-bg: #0b0714; --card-bg: #1d1136;
+  --surface-secondary: #1a0f30; --bubble-bg: #1d1136; --composer-bg: #1d1136;
+  --footbar-bg: #0b0714; --window-bg: #0b0714;
+  --soft-shadow: 0 0 12px -2px rgb(255 45 149 / 45%);
+  --float-shadow: 0 0 20px -4px rgb(0 240 255 / 45%), 0 0 40px -12px rgb(255 45 149 / 35%);
+  --popover-shadow: 0 0 0 1px rgb(255 45 149 / 35%), 0 0 24px -6px rgb(255 45 149 / 45%);
+  --glass-shadow: 0 0 30px -8px rgb(0 240 255 / 40%), 0 0 60px -20px rgb(255 45 149 / 40%);
+  --drawer-shadow: -8px 0 32px -8px rgb(255 45 149 / 45%);
+  --modal-scrim: rgb(5 2 12 / 65%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 0 24px -6px rgb(255 45 149 / 40%); --glass-chip-shadow: 0 0 16px -4px rgb(0 240 255 / 40%);
+  --glass-surface-bg: #1d1136; --glass-popover-bg: #1d1136;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #140b26; --control-bg-hover: #1a0f30;
+  --control-border: rgb(255 45 149 / 26%); --control-border-strong: rgb(255 45 149 / 42%); --control-shadow: none;
+  --chart-blue: #00f0ff; --chart-teal: #00f0ff; --chart-green: #4ade80;
+  --chart-purple: #a855f7; --chart-orange: #ffd166; --chart-red: #ff3b5c; --chart-indigo: #ff2d95;
+  --chart-track: rgb(255 45 149 / 14%); --chart-grid: rgb(255 45 149 / 11%);
+  --code-bg: #05020c; --code-text: #e8ddff;
+  --syntax-code-bg: #0d0618; --syntax-code-gutter: #120a24; --syntax-code-border: #3a1f5c;
+  --syntax-code-fg: #e8ddff; --syntax-code-keyword: #ff2d95; --syntax-code-string: #00f0ff;
+  --syntax-code-title: #c084fc; --syntax-code-number: #ffd166; --syntax-code-comment: #6b5a8a;
+  --syntax-code-variable: #ff8fb0; --syntax-code-attr: #7dffb0; --syntax-code-built-in: #c084fc;
+  --diff-add-line: rgb(0 240 255 / 14%); --diff-add-num: rgb(0 240 255 / 28%); --diff-add-word: rgb(0 240 255 / 40%);
+  --diff-del-line: rgb(255 59 92 / 16%); --diff-del-num: rgb(255 59 92 / 30%); --diff-del-word: rgb(255 59 92 / 42%);
+  --diff-add-label: #00f0ff; --diff-del-label: #ff3b5c;
+  --wallpaper: #0b0714; --panel-blur: none;
+}
+
+
+/* Cyberpunk — Daylight. The neon read is preserved by moving the accent to a
+   deep magenta ink and keeping cyan as the support hue, so the family does not
+   collapse into an ordinary pastel light theme. */
+:root[data-theme-family="cyberpunk"][data-resolved-appearance="light"] {
+  color: #1a1030;
+  color-scheme: light;
+  font-family: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "SF Mono", ui-monospace, monospace;
+  --font-mono: "SF Mono", ui-monospace, monospace;
+  --radius-small: 2px; --radius-control: 2px; --radius-panel: 2px; --radius-full: 2px;
+  --mac-window-background: #f6f2ff;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #ece4fb;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #1a1030;
+  --mac-secondary-label: #4a3d6b;
+  --mac-tertiary-label: #7d6fa0;
+  --mac-separator: rgb(124 58 173 / 22%);
+  --mac-unemphasized-selection: #ddcdf5;
+  --sidebar-material-tint: #f6f2ff;
+  --sidebar-material-filter: none;
+  --gray-100: #f6f2ff; --gray-200: #ece4fb; --gray-300: #ded0f5; --gray-400: #ddcdf5;
+  --gray-500: #bda8e0; --gray-600: #9a86c4; --gray-700: #7d6fa0; --gray-800: #4a3d6b;
+  --gray-900: #2a1c4a; --gray-1000: #1a1030;
+  --gray-alpha-100: rgb(26 16 48 / 6%); --gray-alpha-200: rgb(26 16 48 / 10%);
+  --gray-alpha-300: rgb(26 16 48 / 14%); --gray-alpha-400: rgb(26 16 48 / 18%);
+  --gray-alpha-500: rgb(26 16 48 / 28%); --gray-alpha-600: rgb(26 16 48 / 36%);
+  --blue-700: #d6218a; --blue-800: #b81a74;
+  --accent: #d6218a; --accent-hover: #b81a74; --accent-soft: rgb(214 33 138 / 12%);
+  --on-accent: #ffffff;
+  --online: #0f9b6c; --danger: #d92b4b; --warning: #b06a00; --warning-text: #8a5a00;
+  --agent-city-sky: #eaf3f5;
+  --skill-accent: #7c3aed; --miniapp-accent: #0f8f9b;
+  --verify-passed-fg: #0f9b6c; --verify-failed-fg: #d92b4b;
+  --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(124 58 173 / 12%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(124 58 173 / 26%); --glass-border-light: rgb(255 255 255 / 70%);
+  --fill: rgb(124 58 173 / 6%); --fill-hover: rgb(124 58 173 / 11%);
+  --panel-bg: #f6f2ff; --sidebar-bg: #f6f2ff;
+  --sidebar-surface: rgb(124 58 173 / 5%); --sidebar-surface-hover: rgb(124 58 173 / 10%);
+  --content-bg: #f6f2ff; --header-bg: #f6f2ff; --card-bg: #ffffff;
+  --surface-secondary: #ece4fb; --bubble-bg: #ffffff; --composer-bg: #ffffff;
+  --footbar-bg: #f6f2ff; --window-bg: #f6f2ff;
+  --soft-shadow: 0 4px 16px -6px rgb(124 58 173 / 30%);
+  --float-shadow: 0 8px 24px -8px rgb(214 33 138 / 30%), 0 0 0 1px rgb(124 58 173 / 14%);
+  --popover-shadow: 0 8px 28px -10px rgb(214 33 138 / 30%), 0 0 0 1px rgb(124 58 173 / 16%);
+  --glass-shadow: 0 12px 36px -12px rgb(15 143 155 / 28%), 0 4px 16px -6px rgb(214 33 138 / 22%);
+  --drawer-shadow: -8px 0 28px -8px rgb(124 58 173 / 28%);
+  --modal-scrim: rgb(26 16 48 / 34%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 8px 24px -8px rgb(214 33 138 / 26%); --glass-chip-shadow: 0 4px 14px -4px rgb(15 143 155 / 26%);
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #ffffff; --control-bg-hover: #ece4fb;
+  --control-border: rgb(124 58 173 / 22%); --control-border-strong: rgb(124 58 173 / 36%); --control-shadow: none;
+  --chart-blue: #0f8f9b; --chart-teal: #0f8f9b; --chart-green: #0f9b6c;
+  --chart-purple: #7c3aed; --chart-orange: #b06a00; --chart-red: #d92b4b; --chart-indigo: #d6218a;
+  --chart-track: rgb(124 58 173 / 9%); --chart-grid: rgb(124 58 173 / 8%);
+  --code-bg: #14082a; --code-text: #e8ddff;
+  --syntax-code-bg: #fbf8ff; --syntax-code-gutter: #efe7fb; --syntax-code-border: #d9c9f2;
+  --syntax-code-fg: #1a1030; --syntax-code-keyword: #d6218a; --syntax-code-string: #0f8f9b;
+  --syntax-code-title: #7c3aed; --syntax-code-number: #b06a00; --syntax-code-comment: #8d7fae;
+  --syntax-code-variable: #b05000; --syntax-code-attr: #0f9b6c; --syntax-code-built-in: #7c3aed;
+  --diff-add-line: #e7f6ef; --diff-add-num: #c9ead9; --diff-del-line: #fbe7ec; --diff-del-num: #f3c8d2;
+  --diff-add-word: #a5d8bd; --diff-del-word: #e9a2b4;
+  --diff-add-label: #0f9b6c; --diff-del-label: #d92b4b;
+  --wallpaper: #f6f2ff; --panel-blur: none;
+}
+
+
+.theme-swatch[data-theme-family-preview="cyberpunk"][data-theme-preview-appearance="light"] .tp-side { background: #ded0f5; }
+.theme-swatch[data-theme-family-preview="cyberpunk"][data-theme-preview-appearance="light"] .tp-body { background: #f6f2ff; }
+.theme-swatch[data-theme-family-preview="cyberpunk"][data-theme-preview-appearance="dark"] .tp-side { background: #0b0714; }
+.theme-swatch[data-theme-family-preview="cyberpunk"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #1d1136, #0b0714); }
+.theme-swatch[data-theme-family-preview="cyberpunk"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #ded0f5 0 50%, #0b0714 50%); }
+.theme-swatch[data-theme-family-preview="cyberpunk"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #f6f2ff 0 50%, #1d1136 50%); }

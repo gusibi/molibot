@@ -1,0 +1,156 @@
+/* Blueprint — Diazotype (dark) and Vellum (light). */
+
+/* Blueprint — Diazotype. Deep drafting blue with cyan line work, a technical
+   monospace display rank and thin cyan outlines instead of drop shadows. */
+:root[data-theme-family="blueprint"][data-resolved-appearance="dark"] {
+  color: #d6ecff;
+  color-scheme: dark;
+  font-family: "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "SF Mono", ui-monospace, monospace;
+  --font-mono: "SF Mono", ui-monospace, monospace;
+  --radius-small: 2px; --radius-control: 2px; --radius-panel: 3px; --radius-full: 3px;
+  --mac-window-background: #0a2540;
+  --mac-control-background: #0d2f50;
+  --mac-grouped-background: #0f365c;
+  --mac-elevated-background: #123c64;
+  --mac-label: #d9ecff;
+  --mac-secondary-label: #8fb8dd;
+  --mac-tertiary-label: #5f88ad;
+  --mac-separator: rgb(150 200 245 / 20%);
+  --mac-unemphasized-selection: #1d4d78;
+  --sidebar-material-tint: #0a2540;
+  --sidebar-material-filter: none;
+  --gray-100: #0a2540; --gray-200: #0f365c; --gray-300: #123c64; --gray-400: #1d4d78;
+  --gray-500: #2f6591; --gray-600: #4a82ad; --gray-700: #6f9cc0; --gray-800: #8fb8dd;
+  --gray-900: #b8d6f0; --gray-1000: #d9ecff;
+  --gray-alpha-100: rgb(150 200 245 / 7%); --gray-alpha-200: rgb(150 200 245 / 11%);
+  --gray-alpha-300: rgb(150 200 245 / 15%); --gray-alpha-400: rgb(150 200 245 / 18%);
+  --gray-alpha-500: rgb(150 200 245 / 28%); --gray-alpha-600: rgb(150 200 245 / 36%);
+  --blue-700: #4db8ff; --blue-800: #7fccff;
+  --accent: #4db8ff; --accent-hover: #7fccff; --accent-soft: rgb(77 184 255 / 16%);
+  --on-accent: #06192b;
+  --online: #4ade80; --danger: #ff6b6b; --warning: #ffd166; --warning-text: #ffd166;
+  --agent-city-sky: #101820;
+  --skill-accent: #a78bfa; --miniapp-accent: #2dd4bf;
+  --verify-passed-fg: #7fe3a8; --verify-failed-fg: #ff8f8f;
+  --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(150 200 245 / 12%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(150 200 245 / 26%); --glass-border-light: rgb(150 200 245 / 30%);
+  --fill: rgb(150 200 245 / 8%); --fill-hover: rgb(150 200 245 / 13%);
+  --panel-bg: #0a2540; --sidebar-bg: #0a2540;
+  --sidebar-surface: rgb(150 200 245 / 7%); --sidebar-surface-hover: rgb(150 200 245 / 12%);
+  --content-bg: #0a2540; --header-bg: #0a2540; --card-bg: #123c64;
+  --surface-secondary: #0f365c; --bubble-bg: #123c64; --composer-bg: #123c64;
+  --footbar-bg: #0a2540; --window-bg: #0a2540;
+  --soft-shadow: 0 0 0 1px rgb(127 207 255 / 22%);
+  --float-shadow: 0 0 0 1px rgb(127 207 255 / 30%), 0 8px 24px -12px rgb(0 0 0 / 60%);
+  --popover-shadow: 0 0 0 1px rgb(127 207 255 / 30%), 0 12px 32px -12px rgb(0 0 0 / 65%);
+  --glass-shadow: 0 0 0 1px rgb(127 207 255 / 30%), 0 16px 40px -16px rgb(0 0 0 / 65%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 60%);
+  --modal-scrim: rgb(2 12 24 / 60%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 0 0 1px rgb(127 207 255 / 22%); --glass-chip-shadow: 0 0 0 1px rgb(127 207 255 / 22%);
+  --glass-surface-bg: #123c64; --glass-popover-bg: #123c64;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #0d2f50; --control-bg-hover: #0f365c;
+  --control-border: rgb(150 200 245 / 26%); --control-border-strong: rgb(150 200 245 / 42%); --control-shadow: none;
+  --chart-blue: #4db8ff; --chart-teal: #2dd4bf; --chart-green: #4ade80;
+  --chart-purple: #a78bfa; --chart-orange: #ffd166; --chart-red: #ff6b6b; --chart-indigo: #7f9dff;
+  --chart-track: rgb(150 200 245 / 14%); --chart-grid: rgb(150 200 245 / 11%);
+  --code-bg: #061c33; --code-text: #d6ecff;
+  --syntax-code-bg: #071f36; --syntax-code-gutter: #0a2643; --syntax-code-border: #1c4a72;
+  --syntax-code-fg: #d6ecff; --syntax-code-keyword: #7fdfff; --syntax-code-string: #9fe8b0;
+  --syntax-code-title: #c9b6ff; --syntax-code-number: #ffd166; --syntax-code-comment: #6f93b5;
+  --syntax-code-variable: #ffb4a2; --syntax-code-attr: #7fe3a8; --syntax-code-built-in: #c9b6ff;
+  --diff-add-line: rgb(74 222 128 / 16%); --diff-add-num: rgb(74 222 128 / 30%); --diff-add-word: rgb(74 222 128 / 42%);
+  --diff-del-line: rgb(255 107 107 / 16%); --diff-del-num: rgb(255 107 107 / 30%); --diff-del-word: rgb(255 107 107 / 42%);
+  --diff-add-label: #4ade80; --diff-del-label: #ff6b6b;
+  --wallpaper: #0a2540; --panel-blur: none;
+}
+
+
+/* Blueprint — Vellum. The same schematic drawn in navy ink on pale drafting
+   paper, so a printed drawing keeps the family's technical character. */
+:root[data-theme-family="blueprint"][data-resolved-appearance="light"] {
+  color: #0a2540;
+  color-scheme: light;
+  font-family: "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "SF Mono", ui-monospace, monospace;
+  --font-mono: "SF Mono", ui-monospace, monospace;
+  --radius-small: 2px; --radius-control: 2px; --radius-panel: 3px; --radius-full: 3px;
+  --mac-window-background: #eef4fb;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #e2ecf7;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #0a2540;
+  --mac-secondary-label: #3f5f80;
+  --mac-tertiary-label: #7089a5;
+  --mac-separator: rgb(10 74 130 / 20%);
+  --mac-unemphasized-selection: #cfe1f2;
+  --sidebar-material-tint: #eef4fb;
+  --sidebar-material-filter: none;
+  --gray-100: #eef4fb; --gray-200: #e2ecf7; --gray-300: #d5e4f2; --gray-400: #cfe1f2;
+  --gray-500: #a9c4dd; --gray-600: #7fa0c0; --gray-700: #5f82a5; --gray-800: #3f5f80;
+  --gray-900: #1f3f60; --gray-1000: #0a2540;
+  --gray-alpha-100: rgb(10 74 130 / 5%); --gray-alpha-200: rgb(10 74 130 / 9%);
+  --gray-alpha-300: rgb(10 74 130 / 13%); --gray-alpha-400: rgb(10 74 130 / 16%);
+  --gray-alpha-500: rgb(10 74 130 / 26%); --gray-alpha-600: rgb(10 74 130 / 34%);
+  --blue-700: #1a5fb4; --blue-800: #144a8c;
+  --accent: #1a5fb4; --accent-hover: #144a8c; --accent-soft: rgb(26 95 180 / 12%);
+  --on-accent: #ffffff;
+  --online: #1f8a4c; --danger: #c0392b; --warning: #a66a00; --warning-text: #8a5a00;
+  --agent-city-sky: #eaf3f5;
+  --skill-accent: #6b3fa0; --miniapp-accent: #178a8a;
+  --verify-passed-fg: #1f8a4c; --verify-failed-fg: #c0392b;
+  --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(10 74 130 / 11%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(10 74 130 / 24%); --glass-border-light: rgb(255 255 255 / 70%);
+  --fill: rgb(10 74 130 / 6%); --fill-hover: rgb(10 74 130 / 10%);
+  --panel-bg: #eef4fb; --sidebar-bg: #eef4fb;
+  --sidebar-surface: rgb(10 74 130 / 5%); --sidebar-surface-hover: rgb(10 74 130 / 9%);
+  --content-bg: #eef4fb; --header-bg: #eef4fb; --card-bg: #ffffff;
+  --surface-secondary: #e2ecf7; --bubble-bg: #ffffff; --composer-bg: #ffffff;
+  --footbar-bg: #eef4fb; --window-bg: #eef4fb;
+  --soft-shadow: 0 0 0 1px rgb(26 95 180 / 14%);
+  --float-shadow: 0 0 0 1px rgb(26 95 180 / 18%), 0 8px 24px -12px rgb(10 40 80 / 24%);
+  --popover-shadow: 0 0 0 1px rgb(26 95 180 / 18%), 0 12px 32px -12px rgb(10 40 80 / 28%);
+  --glass-shadow: 0 0 0 1px rgb(26 95 180 / 18%), 0 16px 40px -16px rgb(10 40 80 / 28%);
+  --drawer-shadow: -8px 0 24px -8px rgb(10 40 80 / 24%);
+  --modal-scrim: rgb(10 37 64 / 34%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 0 0 1px rgb(26 95 180 / 14%); --glass-chip-shadow: 0 0 0 1px rgb(26 95 180 / 14%);
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #ffffff; --control-bg-hover: #e2ecf7;
+  --control-border: rgb(10 74 130 / 22%); --control-border-strong: rgb(10 74 130 / 36%); --control-shadow: none;
+  --chart-blue: #1a5fb4; --chart-teal: #178a8a; --chart-green: #1f8a4c;
+  --chart-purple: #6b3fa0; --chart-orange: #a66a00; --chart-red: #c0392b; --chart-indigo: #3f5fd0;
+  --chart-track: rgb(10 74 130 / 8%); --chart-grid: rgb(10 74 130 / 7%);
+  --code-bg: #0a2540; --code-text: #d6ecff;
+  --syntax-code-bg: #f7fafd; --syntax-code-gutter: #e2ecf7; --syntax-code-border: #c3d6ea;
+  --syntax-code-fg: #0a2540; --syntax-code-keyword: #1a5fb4; --syntax-code-string: #1f8a4c;
+  --syntax-code-title: #6b3fa0; --syntax-code-number: #b06a00; --syntax-code-comment: #7089a5;
+  --syntax-code-variable: #a6531a; --syntax-code-attr: #1f8a4c; --syntax-code-built-in: #6b3fa0;
+  --diff-add-line: #e2f1e6; --diff-add-num: #c6e5d0; --diff-del-line: #fbe4e2; --diff-del-num: #f3c6c2;
+  --diff-add-word: #a5d8bd; --diff-del-word: #e9a2ab;
+  --diff-add-label: #1f8a4c; --diff-del-label: #c0392b;
+  --wallpaper: #eef4fb; --panel-blur: none;
+}
+
+
+.theme-swatch[data-theme-family-preview="blueprint"][data-theme-preview-appearance="light"] .tp-side { background: #d5e4f2; }
+.theme-swatch[data-theme-family-preview="blueprint"][data-theme-preview-appearance="light"] .tp-body { background: #eef4fb; }
+.theme-swatch[data-theme-family-preview="blueprint"][data-theme-preview-appearance="dark"] .tp-side { background: #0a2540; }
+.theme-swatch[data-theme-family-preview="blueprint"][data-theme-preview-appearance="dark"] .tp-body { background: #123c64; }
+.theme-swatch[data-theme-family-preview="blueprint"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #d5e4f2 0 50%, #0a2540 50%); }
+.theme-swatch[data-theme-family-preview="blueprint"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #eef4fb 0 50%, #123c64 50%); }

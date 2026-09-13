@@ -129,7 +129,10 @@ test("the report follows an explicit theme and falls back to auto", () => {
     assert.ok(renderTraceReport(report, "en", "dark").includes('data-theme="dark"'));
     assert.ok(renderTraceReport(report, "en", "light").includes('data-theme="light"'));
     assert.ok(renderTraceReport(report, "en").includes('data-theme="auto"'));
-    assert.ok(renderTraceReport(report, "en", "dark").includes("--d-bg"));
+    assert.ok(renderTraceReport(report, "en", "dark").includes("--r-d-bg"));
+    // The palette prefers the embedding app's tokens and falls back to the
+    // built-in ramp for a published snapshot.
+    assert.ok(renderTraceReport(report, "en", "light").includes("var(--card-bg,var(--r-bg))"));
   } finally { store.close(); }
 });
 

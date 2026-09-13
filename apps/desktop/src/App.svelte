@@ -81,6 +81,9 @@
     type DesktopAppearance,
     type DesktopThemeFamily
   } from "./lib/api";
+  import { hydrateImportedTheme, ThemeImportError, toStoredImportedTheme, type ImportedTheme } from "./lib/theme/vscodeTheme";
+  import { applyImportedThemeStyle, clearImportedThemeStyle } from "./lib/theme/themeStyle";
+  import { deleteImportedTheme, listImportedThemes, listThemeDirectories, openThemeDirectory, pickThemeSourceFile, saveImportedTheme, type ThemeSourceDirectory } from "./lib/native/importedThemes";
 
   type Ownership = "managed" | "external";
   type CloseBehavior = "background" | "quit";
@@ -134,10 +137,18 @@
   let onSystemAppearanceChange: (() => void) | null = null;
   const APPEARANCE_STORAGE_KEY = "molibot-desktop-appearance";
   const THEME_FAMILY_STORAGE_KEY = "molibot-desktop-theme-family";
+  const IMPORTED_THEME_STORAGE_KEY = "molibot-desktop-imported-theme";
   const LOW_PERFORMANCE_STORAGE_KEY = "molibot-desktop-low-performance";
   const runningInTauri = "__TAURI_INTERNALS__" in window;
   let appearance: DesktopAppearance = normalizeAppearance(localStorage.getItem(APPEARANCE_STORAGE_KEY));
   let themeFamily: DesktopThemeFamily = normalizeThemeFamily(localStorage.getItem(THEME_FAMILY_STORAGE_KEY));
+  let importedThemes: ImportedTheme[] = [];
+  let activeImportedThemeId: string | null = localStorage.getItem(IMPORTED_THEME_STORAGE_KEY);
+  let themeImportBusy = false;
+  let themeImportError = "";
+  let themeDirectories: ThemeSourceDirectory[] = [];
+  let themeDirectoryBusy = "";
+  let themeDirectoryError = "";
   let lowPerformance = localStorage.getItem(LOW_PERFORMANCE_STORAGE_KEY) === "true";
   const previewPane = new URL(window.location.href).searchParams.get("pane");
   let requestedChatPane: "chat" | "automations" | "skills" | "agents" = !runningInTauri && ["automations", "skills", "agents"].includes(previewPane ?? "")
@@ -167,7 +178,7 @@
 
   async function startWindowState(): Promise<void> {
     windowStateAdapter = runningInTauri ? await createTauriWindowState() : createWindowState();
-    await windowStateAdapter.setTheme(nativeThemeFor(appearance));
+    await windowStateAdapter.setTheme(effectiveNativeTheme(appearance));
     applyWindowState(windowStateAdapter.snapshot);
     windowStateUnsubscribe = windowStateAdapter.subscribe(applyWindowState);
     await windowStateAdapter.start();
@@ -196,12 +207,33 @@
     void hapticCoordinator?.commit(gestureId);
   }
 
+  function activeImportedTheme(): ImportedTheme | null {
+    if (!activeImportedThemeId) return null;
+    return importedThemes.find((theme) => theme.id === activeImportedThemeId) ?? null;
+  }
+
+  // The native window appearance must agree with the resolved ramp: a
+  // single-variant imported theme overrides the user brightness control.
+  function effectiveNativeTheme(value: DesktopAppearance): "light" | "dark" | null {
+    return activeImportedTheme()?.variant ?? nativeThemeFor(value);
+  }
+
   function applyTheme(value: DesktopAppearance, family: DesktopThemeFamily): void {
     const root = document.documentElement;
+    const imported = activeImportedTheme();
     root.dataset.appearance = value;
-    root.dataset.resolvedAppearance = resolvedAppearance(value);
+    void windowStateAdapter?.setTheme(effectiveNativeTheme(value));
+    if (imported) {
+      // A single-variant import owns its own light/dark state, so brightness
+      // resolves to the theme's declared variant instead of the user control.
+      root.dataset.themeFamily = `imported-${imported.id}`;
+      root.dataset.resolvedAppearance = imported.variant;
+      applyImportedThemeStyle(document, imported);
+      return;
+    }
+    clearImportedThemeStyle(document);
     root.dataset.themeFamily = family;
-    void windowStateAdapter?.setTheme(nativeThemeFor(value));
+    root.dataset.resolvedAppearance = resolvedAppearance(value);
   }
 
   function transitionTheme(): void {
@@ -220,10 +252,131 @@
   }
 
   function changeThemeFamily(value: DesktopThemeFamily): void {
+    if (activeImportedThemeId) {
+      activeImportedThemeId = null;
+      localStorage.removeItem(IMPORTED_THEME_STORAGE_KEY);
+    }
     themeFamily = value;
     localStorage.setItem(THEME_FAMILY_STORAGE_KEY, value);
     transitionTheme();
     applyTheme(appearance, value);
+  }
+
+  function changeImportedTheme(id: string): void {
+    activeImportedThemeId = id;
+    localStorage.setItem(IMPORTED_THEME_STORAGE_KEY, id);
+    transitionTheme();
+    applyTheme(appearance, themeFamily);
+  }
+
+  function importedSwatchColors(theme: ImportedTheme): { side: string; body: string } {
+    return {
+      side: theme.tokens["--sidebar-bg"] ?? theme.tokens["--panel-bg"] ?? "#000000",
+      body: theme.tokens["--mac-window-background"] ?? theme.tokens["--card-bg"] ?? "#ffffff"
+    };
+  }
+
+  async function refreshImportedThemes(): Promise<void> {
+    const stored = await listImportedThemes();
+    importedThemes = stored
+      .map(hydrateImportedTheme)
+      .filter((theme): theme is ImportedTheme => theme !== null);
+  }
+
+  async function loadImportedThemes(): Promise<void> {
+    if (!runningInTauri) return;
+    try {
+      await refreshImportedThemes();
+    } catch {
+      importedThemes = [];
+    }
+    if (activeImportedThemeId && !importedThemes.some((theme) => theme.id === activeImportedThemeId)) {
+      activeImportedThemeId = null;
+      localStorage.removeItem(IMPORTED_THEME_STORAGE_KEY);
+    }
+    applyTheme(appearance, themeFamily);
+  }
+
+  const THEME_DIRECTORY_NAMES: Record<string, string> = {
+    vscode: "VS Code",
+    "vscode-insiders": "VS Code Insiders",
+    antigravity: "Antigravity",
+    cursor: "Cursor",
+    vscodium: "VSCodium",
+    windsurf: "Windsurf"
+  };
+
+  async function loadThemeDirectories(): Promise<void> {
+    if (!runningInTauri) return;
+    try {
+      themeDirectories = await listThemeDirectories();
+    } catch {
+      themeDirectories = [];
+    }
+  }
+
+  function themeDirectoryLabel(directory: ThemeSourceDirectory): string {
+    const base = directory.id.replace(/-extensions$/, "");
+    const name = THEME_DIRECTORY_NAMES[base] ?? base;
+    const prefix = directory.kind === "extensions" ? text.openExtensionDirectory : text.openThemeDirectory;
+    return `${prefix} · ${name}`;
+  }
+
+  async function openThemeDirectoryAction(id: string): Promise<void> {
+    if (!runningInTauri || themeDirectoryBusy) return;
+    themeDirectoryBusy = id;
+    themeDirectoryError = "";
+    try {
+      await openThemeDirectory(id);
+    } catch (cause) {
+      themeDirectoryError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      themeDirectoryBusy = "";
+    }
+  }
+
+  function themeImportErrorMessage(cause: unknown): string {
+    if (cause instanceof ThemeImportError) {
+      return cause.code === "json-parse" ? text.themeImportInvalidJson : text.themeImportUnsupported;
+    }
+    return cause instanceof Error ? cause.message : String(cause);
+  }
+
+  async function importVscodeTheme(): Promise<void> {
+    if (!runningInTauri || themeImportBusy) return;
+    themeImportBusy = true;
+    themeImportError = "";
+    try {
+      const file = await pickThemeSourceFile();
+      if (!file) return;
+      const stored = toStoredImportedTheme(file.contents);
+      await saveImportedTheme(stored);
+      await refreshImportedThemes();
+      changeImportedTheme(stored.id);
+    } catch (cause) {
+      themeImportError = themeImportErrorMessage(cause);
+    } finally {
+      themeImportBusy = false;
+    }
+  }
+
+  async function removeImportedTheme(id: string): Promise<void> {
+    if (!runningInTauri || themeImportBusy) return;
+    themeImportBusy = true;
+    themeImportError = "";
+    try {
+      await deleteImportedTheme(id);
+      await refreshImportedThemes();
+      if (activeImportedThemeId === id) {
+        activeImportedThemeId = null;
+        localStorage.removeItem(IMPORTED_THEME_STORAGE_KEY);
+        applyTheme(appearance, themeFamily);
+      }
+    } catch (cause) {
+      themeImportError = themeImportErrorMessage(cause);
+    } finally {
+      themeImportBusy = false;
+    }
   }
 
   function applyPerformanceMode(value: boolean): void {
@@ -249,14 +402,50 @@
 
   const THEME_FAMILY_PREVIEWS: {
     value: DesktopThemeFamily;
-    labelKey: "themeFamilyMacos" | "themeFamilyRosePine" | "themeFamilyCatppuccin" | "themeFamilyMidnight";
-    lightVariantKey: "themeVariantMacosLight" | "themeVariantDawn" | "themeVariantLatte" | "themeVariantDaybreak";
-    darkVariantKey: "themeVariantMacosDark" | "themeVariantMoon" | "themeVariantMacchiato" | "themeVariantMidnight";
+    labelKey:
+      | "themeFamilyMacos"
+      | "themeFamilyRosePine"
+      | "themeFamilyCatppuccin"
+      | "themeFamilyMidnight"
+      | "themeFamilyWin98"
+      | "themeFamilyTerminal"
+      | "themeFamilyBrutalism"
+      | "themeFamilyBlueprint"
+      | "themeFamilySystem6"
+      | "themeFamilyCyberpunk";
+    lightVariantKey:
+      | "themeVariantMacosLight"
+      | "themeVariantDawn"
+      | "themeVariantLatte"
+      | "themeVariantDaybreak"
+      | "themeVariantWin98Classic"
+      | "themeVariantTerminalPaper"
+      | "themeVariantBrutalismPoster"
+      | "themeVariantBlueprintVellum"
+      | "themeVariantSystem6White"
+      | "themeVariantCyberpunkDaylight";
+    darkVariantKey:
+      | "themeVariantMacosDark"
+      | "themeVariantMoon"
+      | "themeVariantMacchiato"
+      | "themeVariantMidnight"
+      | "themeVariantWin98Midnight"
+      | "themeVariantTerminalPhosphor"
+      | "themeVariantBrutalismNight"
+      | "themeVariantBlueprintDiazotype"
+      | "themeVariantSystem6Black"
+      | "themeVariantCyberpunkMidnight";
   }[] = [
     { value: "macos", labelKey: "themeFamilyMacos", lightVariantKey: "themeVariantMacosLight", darkVariantKey: "themeVariantMacosDark" },
     { value: "rose-pine", labelKey: "themeFamilyRosePine", lightVariantKey: "themeVariantDawn", darkVariantKey: "themeVariantMoon" },
     { value: "catppuccin", labelKey: "themeFamilyCatppuccin", lightVariantKey: "themeVariantLatte", darkVariantKey: "themeVariantMacchiato" },
-    { value: "midnight", labelKey: "themeFamilyMidnight", lightVariantKey: "themeVariantDaybreak", darkVariantKey: "themeVariantMidnight" }
+    { value: "midnight", labelKey: "themeFamilyMidnight", lightVariantKey: "themeVariantDaybreak", darkVariantKey: "themeVariantMidnight" },
+    { value: "win98", labelKey: "themeFamilyWin98", lightVariantKey: "themeVariantWin98Classic", darkVariantKey: "themeVariantWin98Midnight" },
+    { value: "terminal", labelKey: "themeFamilyTerminal", lightVariantKey: "themeVariantTerminalPaper", darkVariantKey: "themeVariantTerminalPhosphor" },
+    { value: "brutalism", labelKey: "themeFamilyBrutalism", lightVariantKey: "themeVariantBrutalismPoster", darkVariantKey: "themeVariantBrutalismNight" },
+    { value: "blueprint", labelKey: "themeFamilyBlueprint", lightVariantKey: "themeVariantBlueprintVellum", darkVariantKey: "themeVariantBlueprintDiazotype" },
+    { value: "system6", labelKey: "themeFamilySystem6", lightVariantKey: "themeVariantSystem6White", darkVariantKey: "themeVariantSystem6Black" },
+    { value: "cyberpunk", labelKey: "themeFamilyCyberpunk", lightVariantKey: "themeVariantCyberpunkDaylight", darkVariantKey: "themeVariantCyberpunkMidnight" }
   ];
 
   const SETTINGS_NAV: { id: SettingsSection; icon: ReiconComponent }[] = [
@@ -748,6 +937,11 @@
       applyTheme(appearance, themeFamily);
       return;
     }
+    if (event.key === IMPORTED_THEME_STORAGE_KEY) {
+      activeImportedThemeId = event.newValue || null;
+      applyTheme(appearance, themeFamily);
+      return;
+    }
     if (event.key !== THEME_FAMILY_STORAGE_KEY) return;
     themeFamily = normalizeThemeFamily(event.newValue);
     applyTheme(appearance, themeFamily);
@@ -764,6 +958,8 @@
     void startWindowState();
     void startFeedback();
     void startHaptics();
+    void loadImportedThemes();
+    void loadThemeDirectories();
     const onSettingsChanged = () => {
       if (status?.service.endpoint) void loadReadiness(status.service.endpoint);
     };
@@ -965,10 +1161,10 @@
                 <button
                   type="button"
                   class="theme-swatch"
-                  class:active={themeFamily === preview.value}
+                  class:active={!activeImportedThemeId && themeFamily === preview.value}
                   data-theme-family-preview={preview.value}
                   data-theme-preview-appearance={appearance}
-                  aria-pressed={themeFamily === preview.value}
+                  aria-pressed={!activeImportedThemeId && themeFamily === preview.value}
                   onclick={() => changeThemeFamily(preview.value)}
                 >
                   <span class="theme-preview" aria-hidden="true"><span class="tp-side"></span><span class="tp-body"></span></span>
@@ -977,6 +1173,82 @@
                 </button>
               {/each}
             </div>
+          </div>
+          <div class="appearance-block">
+            <p class="appearance-label">{text.importedThemes}</p>
+            <p class="appearance-description">{text.importedThemesDescription}</p>
+            {#if importedThemes.length > 0}
+              <div class="theme-grid theme-family-grid">
+                {#each importedThemes as item (item.id)}
+                  <div class="imported-theme" class:active={activeImportedThemeId === item.id}>
+                    <button
+                      type="button"
+                      class="theme-swatch"
+                      class:active={activeImportedThemeId === item.id}
+                      aria-pressed={activeImportedThemeId === item.id}
+                      onclick={() => changeImportedTheme(item.id)}
+                    >
+                      <span class="theme-preview" aria-hidden="true">
+                        <span class="tp-side" style={`background:${importedSwatchColors(item).side}`}></span>
+                        <span class="tp-body" style={`background:${importedSwatchColors(item).body}`}></span>
+                      </span>
+                      <span class="theme-name">{item.name}</span>
+                      <span class="theme-variants">{item.variant === "dark" ? text.appearanceDark : text.appearanceLight}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="imported-theme-remove"
+                      aria-label={text.removeImportedTheme}
+                      title={text.removeImportedTheme}
+                      onclick={() => removeImportedTheme(item.id)}
+                    >
+                      <XCircle size={14} />
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <p class="imported-themes-empty">{text.importedThemesEmpty}</p>
+            {/if}
+            <div class="imported-theme-actions">
+              <button
+                class="secondary-button"
+                type="button"
+                onclick={importVscodeTheme}
+                disabled={!runningInTauri || themeImportBusy}
+              >
+                {themeImportBusy ? text.importingTheme : text.importVscodeTheme}
+              </button>
+              {#if !runningInTauri}<span class="imported-theme-note">{text.importedThemeDesktopOnly}</span>{/if}
+            </div>
+            {#if themeImportError}<p class="imported-theme-error" role="alert">{themeImportError}</p>{/if}
+            {#if runningInTauri && themeDirectories.some((directory) => directory.hasThemes)}
+              <div class="theme-directory-block">
+                <p class="appearance-description">{text.themeDirectoryHint}</p>
+                <div class="theme-directory-actions">
+                  {#each themeDirectories.filter((directory) => directory.hasThemes) as directory (directory.id)}
+                    <button
+                      class="secondary-button theme-directory-button"
+                      type="button"
+                      title={directory.path}
+                      disabled={themeDirectoryBusy === directory.id}
+                      onclick={() => openThemeDirectoryAction(directory.id)}
+                    >
+                      {themeDirectoryLabel(directory)}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+            {#if themeDirectoryError}<p class="imported-theme-error" role="alert">{themeDirectoryError}</p>{/if}
+            <details class="imported-theme-help">
+              <summary>{text.importedThemeHelpTitle}</summary>
+              <div class="imported-theme-help-body">
+                <p><strong>{text.importedThemeHelpSupportedLabel}</strong>{text.importedThemeHelpSupported}</p>
+                <p><strong>{text.importedThemeHelpWhereLabel}</strong>{text.importedThemeHelpWhere}</p>
+                <p><strong>{text.importedThemeHelpHowLabel}</strong>{text.importedThemeHelpHow}</p>
+              </div>
+            </details>
           </div>
         </SettingGroup>
 

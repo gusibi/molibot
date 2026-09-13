@@ -1,0 +1,184 @@
+/* macOS (Minimal) — the product default. Its light ramp is the base :root in
+   styles.css; this file owns the explicit dark block, the system-dark mirror
+   and the appearance-picker thumbnail. */
+
+/* Explicit dark appearance for the macOS family overrides the OS preference
+   with AppKit semantic roles. Other families layer their own token ramps below. */
+:root[data-theme-family="macos"][data-resolved-appearance="dark"] {
+  color: rgb(255 255 255 / 84.7%);
+  color-scheme: dark;
+  /* macOS dark neutral ramp: unified window+sidebar canvas = #1e1e1e (the tone
+     System Settings shows with reduced transparency), grouped fill = #282828,
+     raised card = #2c2c2e. Nav and content share the base; cards supply the
+     only elevation step, matching macOS. */
+  --mac-window-background: #1e1e1e;
+  --mac-control-background: #1e1e1e;
+  --mac-grouped-background: #282828;
+  --mac-elevated-background: #2c2c2e;
+  --mac-label: rgb(255 255 255 / 84.7%);
+  --mac-secondary-label: rgb(255 255 255 / 54.9%);
+  --mac-tertiary-label: rgb(255 255 255 / 24.7%);
+  --mac-separator: rgb(255 255 255 / 9.8%);
+  --mac-unemphasized-selection: #464646;
+  /* A white veil lifts native dark material slightly; using the dark canvas
+     itself here would reproduce the opaque black rectangle this glass replaces. */
+
+  /* Git diff — Primer dark. Alpha over the panel surface, exactly as GitHub
+     composites it, so the tint stays correct on any dark canvas. */
+  --diff-add-line: rgba(46,160,67,0.15);
+  --diff-add-num: rgba(63,185,80,0.3);
+  --diff-add-word: rgba(46,160,67,0.4);
+  --diff-del-line: rgba(248,81,73,0.15);
+  --diff-del-num: rgba(248,81,73,0.3);
+  --diff-del-word: rgba(248,81,73,0.4);
+  --diff-add-label: #3fb950;
+  --diff-del-label: #f85149;
+  /* Explicit dark theme under a LIGHT OS: the native macOS sidebar material
+     follows the OS, so this dark tint keeps the nav dark while leaving enough
+     native material visible for glass. When the OS itself is dark, the native
+     material is already dark and the tint drops to transparent below. */
+  --sidebar-material-tint: rgb(30 30 30 / 68%);
+  --gray-100: #1e1e1e; --gray-200: #2c2c2e; --gray-300: #3a3a3a; --gray-400: #424242;
+  --gray-500: #464646; --gray-600: #5a5a5a; --gray-700: #777777; --gray-800: #999999;
+  --gray-900: #b8b8b8; --gray-1000: #f2f2f2;
+  --gray-alpha-100: rgba(255,255,255,0.06); --gray-alpha-200: rgba(255,255,255,0.09);
+  --gray-alpha-300: rgba(255,255,255,0.12); --gray-alpha-400: rgba(255,255,255,0.12);
+  --gray-alpha-500: rgba(255,255,255,0.24); --gray-alpha-600: rgba(255,255,255,0.30);
+
+  --accent: #007aff; --accent-hover: #419cff; --accent-soft: rgb(0 122 255 / 18%);
+  --online: #30d158; --danger: #ff4245; --warning: #ff9230; --warning-text: #ff9230;
+  --agent-city-sky: #101820;
+  --skill-accent: #c07cf0; --miniapp-accent: #2dd4bf;
+  --verify-passed-fg: #72de8d; --verify-failed-fg: #ff857c;
+  --message-bubble-border: var(--hairline);
+
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+
+  --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 6%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
+
+  --fill: rgba(255,255,255,0.07); --fill-hover: rgba(255,255,255,0.11);
+
+  --panel-bg: var(--mac-window-background);
+  --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgba(255,255,255,0.06);
+  --sidebar-surface-hover: rgba(255,255,255,0.10);
+  --content-bg: var(--mac-window-background);
+  --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background);
+  --surface-secondary: #343436;
+  --bubble-bg: var(--mac-elevated-background);
+  --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background);
+  --window-bg: var(--mac-window-background);
+
+  --soft-shadow: 0 2px 2px rgba(0,0,0,0.3);
+  --float-shadow: 0 8px 24px -12px rgba(0,0,0,0.5);
+  --popover-shadow: 0 1px 1px rgba(0,0,0,0.2), 0 4px 8px -4px rgba(0,0,0,0.4), 0 16px 24px -8px rgba(0,0,0,0.5);
+  --glass-shadow: 0 1px 1px rgba(0,0,0,0.2), 0 8px 16px -4px rgba(0,0,0,0.4), 0 24px 32px -8px rgba(0,0,0,0.5);
+  --drawer-shadow: -8px 0 24px -8px rgba(0,0,0,0.4);
+  --modal-scrim: rgba(0,0,0,0.5);
+  --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-elevated-background);
+  --control-border: rgb(255 255 255 / 16%); --control-border-strong: rgb(255 255 255 / 28%);
+  --control-shadow: none;
+
+  --chart-blue: #0091ff; --chart-teal: #00d2e0; --chart-green: #30d158;
+  --chart-purple: #db34f2; --chart-orange: #ff9230; --chart-red: #ff4245;
+  --chart-indigo: #5e5ce6;
+  --chart-track: rgba(255,255,255,0.10); --chart-grid: rgba(255,255,255,0.08);
+
+  /* Code surface stays dark in dark theme too. */
+  --code-bg: #000000;
+  --code-text: #ededed;
+
+  --syntax-code-bg: #0d1117;
+  --syntax-code-gutter: #161b22;
+  --syntax-code-border: #30363d;
+  --syntax-code-fg: #e6edf3;
+  --syntax-code-keyword: #ff7b72;
+  --syntax-code-string: #a5d6ff;
+  --syntax-code-title: #d2a8ff;
+  --syntax-code-number: #79c0ff;
+  --syntax-code-comment: #8b949e;
+  --syntax-code-variable: #ffa657;
+  --syntax-code-attr: #7ee787;
+  --syntax-code-built-in: #d2a8ff;
+
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* System appearance follows the OS preference for the macOS family. */
+@media (prefers-color-scheme: dark) {
+  /* OS is dark → the native sidebar material is already dark, so drop the veil
+     back to transparent and let the translucent glass effect show through. */
+  :root[data-theme-family="macos"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+  :root[data-theme-family="macos"][data-resolved-appearance="dark"] {
+    color: rgb(255 255 255 / 84.7%);
+    color-scheme: dark;
+    --mac-window-background: #1e1e1e; --mac-control-background: #1e1e1e;
+    --mac-grouped-background: #282828; --mac-elevated-background: #2c2c2e;
+    --mac-label: rgb(255 255 255 / 84.7%); --mac-secondary-label: rgb(255 255 255 / 54.9%);
+    --mac-tertiary-label: rgb(255 255 255 / 24.7%); --mac-separator: rgb(255 255 255 / 9.8%);
+    --mac-unemphasized-selection: #464646;
+
+    /* Git diff — Primer dark. Alpha over the panel surface, exactly as GitHub
+       composites it, so the tint stays correct on any dark canvas. */
+    --diff-add-line: rgba(46,160,67,0.15);
+    --diff-add-num: rgba(63,185,80,0.3);
+    --diff-add-word: rgba(46,160,67,0.4);
+    --diff-del-line: rgba(248,81,73,0.15);
+    --diff-del-num: rgba(248,81,73,0.3);
+    --diff-del-word: rgba(248,81,73,0.4);
+  --diff-add-label: #3fb950;
+  --diff-del-label: #f85149;
+    --sidebar-material-tint: transparent;
+    --gray-100: #1e1e1e; --gray-200: #2c2c2e; --gray-300: #3a3a3a; --gray-400: #424242;
+    --gray-500: #464646; --gray-600: #5a5a5a; --gray-700: #777777; --gray-800: #999999;
+    --gray-900: #b8b8b8; --gray-1000: #f2f2f2;
+    --gray-alpha-100: rgba(255,255,255,0.06); --gray-alpha-200: rgba(255,255,255,0.09);
+    --gray-alpha-300: rgba(255,255,255,0.12); --gray-alpha-400: rgba(255,255,255,0.12);
+    --gray-alpha-500: rgba(255,255,255,0.24); --gray-alpha-600: rgba(255,255,255,0.30);
+    --accent: #007aff; --accent-hover: #419cff; --accent-soft: rgb(0 122 255 / 18%);
+    --online: #30d158; --danger: #ff4245; --warning: #ff9230; --warning-text: #ff9230;
+    --agent-city-sky: #101820;
+    --skill-accent: #c07cf0; --miniapp-accent: #2dd4bf;
+    --verify-passed-fg: #72de8d; --verify-failed-fg: #ff857c;
+    --message-bubble-border: var(--hairline);
+    --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+    --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+    --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 6%);
+    --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
+    --fill: rgba(255,255,255,0.07); --fill-hover: rgba(255,255,255,0.11);
+    --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+    --sidebar-surface: rgba(255,255,255,0.06); --sidebar-surface-hover: rgba(255,255,255,0.10);
+    --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background); --card-bg: var(--mac-elevated-background); --surface-secondary: #343436;
+    --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background); --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+    --soft-shadow: 0 2px 2px rgba(0,0,0,0.3);
+    --float-shadow: 0 8px 24px -12px rgba(0,0,0,0.5);
+    --popover-shadow: 0 1px 1px rgba(0,0,0,0.2), 0 4px 8px -4px rgba(0,0,0,0.4), 0 16px 24px -8px rgba(0,0,0,0.5);
+    --glass-shadow: 0 1px 1px rgba(0,0,0,0.2), 0 8px 16px -4px rgba(0,0,0,0.4), 0 24px 32px -8px rgba(0,0,0,0.5);
+    --drawer-shadow: -8px 0 24px -8px rgba(0,0,0,0.4); --modal-scrim: rgba(0,0,0,0.5);
+    --glass-inset: 0 0 #0000;
+    --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-elevated-background);
+    --control-border: rgb(255 255 255 / 16%); --control-border-strong: rgb(255 255 255 / 28%); --control-shadow: none;
+    --chart-blue: #0091ff; --chart-teal: #00d2e0; --chart-green: #30d158;
+    --chart-purple: #db34f2; --chart-orange: #ff9230; --chart-red: #ff4245; --chart-indigo: #5e5ce6;
+    --chart-track: rgba(255,255,255,0.10); --chart-grid: rgba(255,255,255,0.08);
+    --code-bg: #000000; --code-text: #ededed;
+    --syntax-code-bg: #0d1117; --syntax-code-gutter: #161b22; --syntax-code-border: #30363d; --syntax-code-fg: #e6edf3;
+    --syntax-code-keyword: #ff7b72; --syntax-code-string: #a5d6ff; --syntax-code-title: #d2a8ff; --syntax-code-number: #79c0ff;
+    --syntax-code-comment: #8b949e; --syntax-code-variable: #ffa657; --syntax-code-attr: #7ee787; --syntax-code-built-in: #d2a8ff;
+    --wallpaper: var(--mac-window-background); --panel-blur: none;
+  }
+}
+
+
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="light"] .tp-side { background: #e8ecf5; }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #f6f8fc, #eef1f8); }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="dark"] .tp-side { background: #3a3a3c; }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #2b2b2e, #1f1f22); }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #e8ecf5 0 50%, #3a3a3c 50%); }
+.theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #f6f8fc 0 50%, #2b2b2e 50%); }

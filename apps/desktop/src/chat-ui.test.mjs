@@ -3,6 +3,15 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+// Theme families live in their own files under ./themes/. Tests assert against
+// the concatenation so a rule can move between the shared sheet and a family
+// file without rewriting every assertion; the guard test below also pins the
+// split itself (every family has a file, every file is imported).
+const THEME_FAMILIES = ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk"];
+const baseStyles = read("./styles.css");
+const themeStyles = THEME_FAMILIES.map((family) => read(`./themes/${family}.css`)).join("\n");
+const themesIndex = read("./themes/index.css");
+const mainEntry = read("./main.ts");
 const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
   const url = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
   if (entry.isDirectory()) return listSvelteSources(url);
@@ -11,7 +20,7 @@ const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(
 const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
 const i18n = read("./lib/i18n.ts");
-const styles = read("./styles.css");
+const styles = baseStyles + "\n" + themeStyles;
 
 test("compact numeric settings do not shrink inside auto-sized control wrappers", () => {
   const rule = styles.match(/\.model-number-input\s*\{([^}]+)\}/)?.[1] ?? "";
@@ -413,8 +422,11 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
   assert.match(app, /root\.dataset\.windowActive/);
   assert.match(app, /windowStateAdapter\?\.dispose\(\);/);
   assert.match(app, /function nativeThemeFor\(value: DesktopAppearance\)/);
-  assert.match(app, /await windowStateAdapter\.setTheme\(nativeThemeFor\(appearance\)\)/);
-  assert.match(app, /windowStateAdapter\?\.setTheme\(nativeThemeFor\(value\)\)/);
+  // Imported themes are single-variant and must also drive the native window
+  // appearance, so both call sites go through one resolver.
+  assert.match(app, /function effectiveNativeTheme\(value: DesktopAppearance\)/);
+  assert.match(app, /await windowStateAdapter\.setTheme\(effectiveNativeTheme\(appearance\)\)/);
+  assert.match(app, /windowStateAdapter\?\.setTheme\(effectiveNativeTheme\(value\)\)/);
   assert.match(styles, /html\[data-window-active="false"\]/);
   assert.match(styles, /--chrome-sidebar-bg/);
   assert.match(styles, /--chrome-header-bg/);
@@ -435,12 +447,104 @@ test("appearance and theme family remain independent persisted controls", () => 
   assert.match(app, /function changeThemeFamily\(value: DesktopThemeFamily\)/);
   assert.match(app, /appearance-segmented/);
   assert.match(app, /theme-family-grid/);
-  for (const family of ["macos", "rose-pine", "catppuccin", "midnight"]) {
+  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk"]) {
     assert.match(app, new RegExp(`value: "${family}"`));
   }
   for (const appearance of ["light", "dark", "system"]) {
     assert.match(app, new RegExp(`value: "${appearance}"`));
   }
+});
+
+test("theme families live in their own files, are imported, and each ships paired variants", () => {
+  // The split is the guard: families must not collapse back into styles.css,
+  // every family file must be imported from themes/index.css, and the index
+  // must be wired into the entry. Then each family is checked for the two ways
+  // it can silently half-ship: a missing brightness variant, or a swatch with
+  // no thumbnail. The token list is the minimum a family needs to repaint every
+  // surface without falling back to another family's ramp.
+  assert.match(mainEntry, /import "\.\/themes\/index\.css"/);
+  assert.doesNotMatch(baseStyles, /data-theme-family/, "family rules must live under ./themes/, not in the shared sheet");
+  const requiredTokens = [
+    "--mac-window-background",
+    "--accent",
+    "--on-accent",
+    "--card-bg",
+    "--panel-bg",
+    "--content-bg",
+    "--header-bg",
+    "--sidebar-material-tint",
+    "--label-primary",
+    "--separator",
+    "--control-border",
+    "--skill-accent",
+    "--miniapp-accent",
+    "--syntax-code-bg",
+    "--diff-add-line",
+    "--agent-city-sky"
+  ];
+  for (const family of THEME_FAMILIES) {
+    assert.match(themesIndex, new RegExp(`@import "./${family}\\.css";`), `${family}.css is missing from themes/index.css`);
+    const source = read(`./themes/${family}.css`);
+    for (const appearance of ["light", "dark"]) {
+      // macOS light is the base :root ramp in styles.css, so it is the one
+      // variant without an explicit family block.
+      if (family === "macos" && appearance === "light") continue;
+      const match = source.match(new RegExp(`:root\\[data-theme-family="${family}"\\]\\[data-resolved-appearance="${appearance}"\\]\\s*\\{([\\s\\S]*?)\\n\\}`));
+      assert.ok(match, `${family}.css is missing its ${appearance} token block`);
+      // macOS dark inherits --on-accent from the base macOS ramp; every other
+      // family owns its own pair because bold accents flip the foreground.
+      const tokens = family === "macos" ? requiredTokens.filter((token) => token !== "--on-accent") : requiredTokens;
+      for (const token of tokens) {
+        assert.match(match[1], new RegExp(`${token}:`), `${family} ${appearance} is missing ${token}`);
+      }
+      // Bold families rewrite the control language too; product families keep
+      // the shared macOS geometry and vary colour only.
+      if (["win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk"].includes(family)) {
+        assert.match(match[1], /font-family:/, `${family} ${appearance} must pin a family font`);
+        assert.match(match[1], /--radius-control:/, `${family} ${appearance} must pin a corner radius`);
+      }
+    }
+    for (const appearance of ["light", "dark", "system"]) {
+      assert.match(
+        source,
+        new RegExp(`data-theme-family-preview="${family}"\\]\\[data-theme-preview-appearance="${appearance}"\\]`),
+        `${family}.css is missing its ${appearance} preview swatch`
+      );
+    }
+  }
+  // Windows 98 is the one family allowed a structural layer, because its
+  // two-tone bevel cannot ride the shared --soft-shadow role. It must stay
+  // scoped to the family and drive both variants from bevel tokens.
+  const win98 = read("./themes/win98.css");
+  assert.match(win98, /:root\[data-theme-family="win98"\] \{[\s\S]*--win98-bevel-light/);
+  assert.match(win98, /:root\[data-theme-family="win98"\]\[data-resolved-appearance="dark"\] \{[\s\S]*--win98-bevel-light/);
+  assert.match(win98, /:root\[data-theme-family="win98"\] :is\(\.secondary-button[\s\S]*box-shadow: var\(--win98-bevel-raised\)/);
+  // The composer textarea is the one field the generic bevel rule misses; its
+  // sunken well and the matching highlight padding are what make it read as an
+  // input on the grey Win98 face.
+  assert.match(win98, /:root\[data-theme-family="win98"\] \.composer textarea \{[\s\S]*box-shadow: var\(--win98-bevel-sunken\)/);
+  assert.match(win98, /:root\[data-theme-family="win98"\] \.composer-highlight \{[\s\S]*padding: 4px 6px/);
+  assert.doesNotMatch(baseStyles, /win98-bevel/, "the Windows 98 bevel must stay inside its family file");
+});
+
+test("the call trace report follows the app theme when embedded", () => {
+  // The report is a server-rendered document in a sandboxed iframe, so it
+  // cannot inherit the app stylesheet. Its palette must read the app's semantic
+  // token names with a built-in fallback (for the published snapshot), and the
+  // drawer must hand the iframe the live values and re-inject when the family
+  // changes — brightness alone is not enough.
+  const drawer = read("./lib/chat/TraceReportDrawer.svelte");
+  const renderer = read("../../../src/lib/server/plugins/traceViewer/render.ts");
+  for (const token of ["--card-bg", "--surface-secondary", "--label-primary", "--label-secondary", "--separator", "--accent", "--online", "--skill-accent"]) {
+    assert.match(renderer, new RegExp(`var\\(${token},`), `report CSS must read ${token} with a fallback`);
+  }
+  assert.match(renderer, /font-family:var\(--font-ui,/);
+  assert.match(renderer, /background:var\(--syntax-code-bg,/);
+  assert.match(drawer, /const REPORT_TOKENS = \[/);
+  assert.match(drawer, /getComputedStyle\(document\.documentElement\)/);
+  assert.match(drawer, /attributeFilter: \["data-resolved-appearance", "data-theme-family", "data-appearance"\]/);
+  assert.match(drawer, /\$: themedHtml = injectReportTheme\(html, appearance, themeFamily\)/);
+  assert.match(drawer, /srcdoc=\{themedHtml\}/);
 });
 
 test("Settings and Chat expose one edge-to-edge native macOS sidebar material", () => {
@@ -1289,9 +1393,9 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   assert.match(catalog, /SKILL\\.md/);
   assert.match(styles, /\.composer-token\[data-kind="file"\]/);
   // Pitfall 4: an undefined var() fails silently, so both invocation hues must
-  // exist as real tokens in the light AND dark declarations.
-  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 9);
-  assert.equal(styles.match(/--skill-accent:/g)?.length, 9);
+  // exist as real tokens in the light AND dark declarations of every family.
+  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 21);
+  assert.equal(styles.match(/--skill-accent:/g)?.length, 21);
   assert.doesNotMatch(styles, /--purple-700/);
   // Pitfall 12: the catalog now carries Mini Apps, so every catalog mutation
   // must invalidate the composer's cache or `@` keeps advertising a stale set.
@@ -1919,29 +2023,39 @@ test("Agent City chrome themes through tokens, not a data-attribute-only overrid
   }
   assert.deepEqual(violations, []);
 
-  // The one Agent City colour that cannot derive from a token: it has to match
-  // the WebGL clear colour, so it must be mirrored into every theme context.
+  // The one Agent City colour that cannot derive from a token: the canvas
+  // paints a WebGL clear colour from DAY_SKY / NIGHT_SKY in agentCityScene.ts
+  // while the shell around it paints --agent-city-sky. The two must agree or a
+  // seam shows at the shell edges, so the expected token value is read from the
+  // scene source instead of being duplicated here, and every family/variant is
+  // checked against it.
+  const scene = read("./lib/chat/agentCityScene.ts");
+  const skyHex = (name) => {
+    const hex = scene.match(new RegExp(`const ${name} = 0x([0-9a-f]{6});`, "i"))?.[1];
+    assert.ok(hex, `agentCityScene.ts is missing ${name}`);
+    return `#${hex.toLowerCase()}`;
+  };
+  const daySky = skyHex("DAY_SKY");
+  const nightSky = skyHex("NIGHT_SKY");
+  const baseRoot = source.match(/^:root \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  assert.match(baseRoot, new RegExp(`--agent-city-sky:\\s*${daySky}`), "base :root must carry the day sky");
+  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk"]) {
+    for (const appearance of ["light", "dark"]) {
+      if (family === "macos" && appearance === "light") continue; // base :root owns macOS light
+      const selector = `:root[data-theme-family="${family}"][data-resolved-appearance="${appearance}"]`;
+      const offset = source.indexOf(`${selector} {`);
+      assert.ok(offset >= 0, `missing Agent City sky context for ${selector}`);
+      const expected = appearance === "dark" ? nightSky : daySky;
+      assert.match(
+        source.slice(offset, offset + 4000),
+        new RegExp(`--agent-city-sky:\\s*${expected}`),
+        `${selector} sky must match the canvas clear colour ${expected}`
+      );
+    }
+  }
+  // 19 family blocks + base :root + the system-dark macOS mirror = 21.
   const skyDeclarations = [...source.matchAll(/--agent-city-sky\s*:/g)];
-  assert.equal(skyDeclarations.length, 9, "--agent-city-sky must cover macOS, Rosé Pine, Catppuccin, Midnight and their resolved variants");
-  for (const selector of [
-    ':root[data-theme-family="macos"][data-resolved-appearance="dark"]',
-    ':root[data-theme-family="rose-pine"][data-resolved-appearance="dark"]',
-    ':root[data-theme-family="catppuccin"][data-resolved-appearance="dark"]',
-    ':root[data-theme-family="midnight"][data-resolved-appearance="dark"]'
-  ]) {
-    const offset = source.indexOf(`${selector} {`);
-    assert.ok(offset >= 0, `missing Agent City sky context for ${selector}`);
-    assert.match(source.slice(offset, offset + 4000), /--agent-city-sky:\s*#101820/);
-  }
-  for (const selector of [
-    ':root[data-theme-family="rose-pine"][data-resolved-appearance="light"]',
-    ':root[data-theme-family="catppuccin"][data-resolved-appearance="light"]',
-    ':root[data-theme-family="midnight"][data-resolved-appearance="light"]'
-  ]) {
-    const offset = source.indexOf(`${selector} {`);
-    assert.ok(offset >= 0, `missing Agent City sky context for ${selector}`);
-    assert.match(source.slice(offset, offset + 4000), /--agent-city-sky:\s*#eaf3f5/);
-  }
+  assert.equal(skyDeclarations.length, 21, "--agent-city-sky must cover every family and resolved variant");
 });
 
 test("sidebar conversation rows expose a right-click context menu with rename, delete, copy path and reveal", () => {
@@ -4734,16 +4848,6 @@ test("the call trace entry is an icon-only action shown first, and the per-turn 
   // The duration/tool/token summary moved into the trace report.
   assert.doesNotMatch(transcript, /turnSummary/);
   assert.doesNotMatch(transcript, /turn-summary/);
-});
-
-test("the trace drawer follows the app resolved appearance", () => {
-  const traceDrawer = read("./lib/chat/TraceReportDrawer.svelte");
-  assert.match(traceDrawer, /attributeFilter: \["data-resolved-appearance"\]/);
-  assert.match(traceDrawer, /appearance === "dark" \? "dark" : "light"/);
-  // The snapshot string is re-themed in place so a service without the theme
-  // parameter still follows the app.
-  assert.match(traceDrawer, /srcdoc=\{themedHtml\}/);
-  assert.match(traceDrawer, /themedHtml = html\.replace\(\/data-theme=/);
 });
 
 test("right-click with a selection offers the same actions on either role", () => {

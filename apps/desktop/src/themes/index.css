@@ -1,0 +1,22 @@
+/* Theme families.
+ *
+ * styles.css holds the shared product system: the base :root token ramp, the
+ * brightness-keyed glass depth, and every component rule. Each family below
+ * owns its full token ramp (light + dark), its system-dark sidebar override and
+ * its appearance-picker thumbnail, so a family can be added or edited without
+ * touching a shared file.
+ *
+ * Adding a family: create <family>.css here, add its import below, then extend
+ * the family list in lib/api.ts, the labels in lib/i18n.ts and the previews in
+ * App.svelte. chat-ui.test.mjs guards that those stay in sync.
+ */
+@import "./macos.css";
+@import "./rose-pine.css";
+@import "./catppuccin.css";
+@import "./midnight.css";
+@import "./win98.css";
+@import "./terminal.css";
+@import "./brutalism.css";
+@import "./blueprint.css";
+@import "./system6.css";
+@import "./cyberpunk.css";

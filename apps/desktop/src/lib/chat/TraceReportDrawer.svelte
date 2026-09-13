@@ -19,23 +19,52 @@
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
   let generation = 0;
   let appearance = "light";
+  let themeFamily = "macos";
   let panel: HTMLDivElement | undefined;
   onMount(() => {
     panel?.focus();
-    const update = () => { appearance = document.documentElement.dataset.resolvedAppearance ?? "light"; };
+    const update = () => {
+      appearance = document.documentElement.dataset.resolvedAppearance ?? "light";
+      themeFamily = document.documentElement.dataset.themeFamily ?? "macos";
+    };
     update();
     const observer = new MutationObserver(update);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance"] });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance", "data-theme-family", "data-appearance"] });
     return () => { generation++; if (closeTimer) clearTimeout(closeTimer); observer.disconnect(); };
   });
   $: zh = session.locale === "zh-CN";
   $: errorText = friendlyError(error, zh);
   $: if (runIds.length && endpoint) void load(endpoint, runIds, session.locale, appearance === "dark" ? "dark" : "light");
-  // Applying the resolved theme to the snapshot string keeps the report in sync
-  // with the app even if the service predates the theme parameter or the
-  // refresh is still in flight (the iframe is sandboxed, so the parent cannot
-  // reach into its document).
-  $: themedHtml = html.replace(/data-theme="[^"]*"/, `data-theme="${appearance === "dark" ? "dark" : "light"}"`);
+  // The report is a server-rendered document inside a sandboxed iframe, so the
+  // parent cannot reach into its document and the report cannot inherit the app
+  // stylesheet. Its CSS reads the app's semantic token names with standalone
+  // fallbacks, so we inject the live computed values here: every theme family,
+  // brightness and type scale then follows the app without duplicating the ramp
+  // on the server. The published snapshot keeps the fallback palette.
+  const REPORT_TOKENS = [
+    "--card-bg", "--surface-secondary", "--label-primary", "--label-secondary", "--separator",
+    "--accent", "--online", "--skill-accent", "--font-ui", "--font-mono",
+    "--fs-body", "--fs-label", "--fs-meta", "--fs-page", "--radius-small", "--radius-control",
+    "--syntax-code-bg", "--syntax-code-fg", "--syntax-code-border"
+  ];
+  function reportThemeStyle(family: string): string {
+    if (typeof document === "undefined") return "";
+    const computed = getComputedStyle(document.documentElement);
+    const declarations = REPORT_TOKENS
+      .map((name) => `${name}:${computed.getPropertyValue(name).trim()}`)
+      .filter((declaration) => !declaration.endsWith(":"))
+      .join(";");
+    // The drawer already shows the title; the report's own <h1> is the
+    // published-snapshot header, so hide the duplicate only while embedded.
+    return `<style data-theme-family="${family}">:root{${declarations}}main>header h1{display:none}main>header p{margin:0 0 8px}</style>`;
+  }
+  function injectReportTheme(source: string, resolved: string, family: string): string {
+    if (!source) return source;
+    const themed = source.replace(/data-theme="[^"]*"/, `data-theme="${resolved === "dark" ? "dark" : "light"}"`);
+    const style = reportThemeStyle(family);
+    return style ? themed.replace("</head>", `${style}</head>`) : themed;
+  }
+  $: themedHtml = injectReportTheme(html, appearance, themeFamily);
   function friendlyError(raw: string, chinese: boolean): string {
     if (!raw) return "";
     if (/trace not found|not recorded yet|ambiguous/i.test(raw)) return chinese ? "这一轮没有可用的调用链记录：可能早于 trace 记录功能、该轮未执行，或记录已被清理。" : "No call trace is available for this turn: it may predate trace recording, never executed, or the record was cleaned up.";

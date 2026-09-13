@@ -981,6 +981,12 @@ test("normalizeThemeFamily accepts supported families and falls back to macOS", 
   assert.equal(normalizeThemeFamily("rose-pine"), "rose-pine");
   assert.equal(normalizeThemeFamily("catppuccin"), "catppuccin");
   assert.equal(normalizeThemeFamily("midnight"), "midnight");
+  assert.equal(normalizeThemeFamily("win98"), "win98");
+  assert.equal(normalizeThemeFamily("terminal"), "terminal");
+  assert.equal(normalizeThemeFamily("brutalism"), "brutalism");
+  assert.equal(normalizeThemeFamily("blueprint"), "blueprint");
+  assert.equal(normalizeThemeFamily("system6"), "system6");
+  assert.equal(normalizeThemeFamily("cyberpunk"), "cyberpunk");
   assert.equal(normalizeThemeFamily("solarized"), "macos");
   assert.equal(normalizeThemeFamily(null), "macos");
 });

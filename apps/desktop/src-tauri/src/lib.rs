@@ -2,11 +2,13 @@ mod app_menu;
 mod audio;
 mod artifact_protocol;
 mod desktop_preferences;
+mod imported_themes;
 mod miniapp_protocol;
 mod native_feedback;
 mod plugin_protocol;
 pub mod service;
 mod supervisor;
+mod theme_sources;
 
 use serde::Serialize;
 use service::{ServiceOwnership, ServiceStatus};
@@ -114,6 +116,92 @@ async fn pick_miniapp_archive(window: tauri::Window) -> Result<Option<String>, S
     let Some(path) = picked else { return Ok(None) };
     let path = path.into_path().map_err(|error| error.to_string())?;
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Largest theme source accepted, in bytes. VSCode theme JSON is normally tens
+/// of kilobytes; the cap only exists to reject an unrelated large file picked
+/// by mistake before it is read into memory.
+const MAX_THEME_FILE_BYTES: u64 = 4 * 1024 * 1024;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThemeSourceFile {
+    file_name: String,
+    contents: String,
+}
+
+/// Native picker for a VSCode theme JSON file. Returns the raw text so the
+/// frontend owns parsing and mapping; the Rust side only guarantees a bounded,
+/// readable file.
+#[tauri::command]
+async fn pick_theme_source_file(window: tauri::Window) -> Result<Option<ThemeSourceFile>, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter("VSCode theme", &["json"])
+        .pick_file(move |picked| {
+            let _ = sender.send(picked);
+        });
+    let picked = tauri::async_runtime::spawn_blocking(move || receiver.recv())
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|_| "The file picker closed unexpectedly.".to_string())?;
+    let Some(path) = picked else { return Ok(None) };
+    let path = path.into_path().map_err(|error| error.to_string())?;
+    let metadata = std::fs::metadata(&path).map_err(|error| error.to_string())?;
+    if metadata.len() > MAX_THEME_FILE_BYTES {
+        return Err("The selected file is larger than 4 MB.".into());
+    }
+    let contents = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(Some(ThemeSourceFile { file_name, contents }))
+}
+
+fn imported_themes_root(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|directory| directory.join(imported_themes::THEMES_DIR))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn list_imported_themes(app: AppHandle) -> Result<Vec<imported_themes::ImportedTheme>, String> {
+    imported_themes::list(&imported_themes_root(&app)?)
+}
+
+#[tauri::command]
+fn save_imported_theme(app: AppHandle, theme: imported_themes::ImportedTheme) -> Result<(), String> {
+    imported_themes::save(&imported_themes_root(&app)?, &theme)
+}
+
+#[tauri::command]
+fn delete_imported_theme(app: AppHandle, id: String) -> Result<(), String> {
+    imported_themes::delete(&imported_themes_root(&app)?, &id)
+}
+
+/// Known editor theme folders, so the UI can offer one-click "open folder"
+/// buttons. Only paths already on this list can be opened.
+#[tauri::command]
+fn list_theme_directories(app: AppHandle) -> Vec<theme_sources::ThemeSourceDirectory> {
+    theme_sources::directories(app.path().home_dir().ok())
+}
+
+#[tauri::command]
+fn open_theme_directory(app: AppHandle, id: String) -> Result<(), String> {
+    let directories = theme_sources::directories(app.path().home_dir().ok());
+    let directory = theme_sources::find(&directories, &id)
+        .ok_or_else(|| "Unknown theme directory.".to_string())?;
+    if !directory.has_themes {
+        return Err("No themes were found in that folder.".into());
+    }
+    app.opener()
+        .open_path(directory.path.clone(), None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 /// Native save file dialog for saving images or exported files from Mini Apps / desktop.
@@ -367,6 +455,12 @@ pub fn run() {
             show_main_window,
             pick_project_directory,
             pick_miniapp_archive,
+            pick_theme_source_file,
+            list_imported_themes,
+            save_imported_theme,
+            delete_imported_theme,
+            list_theme_directories,
+            open_theme_directory,
             save_file_dialog,
             desktop_status,
             set_login_start,

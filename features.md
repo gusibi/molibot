@@ -1,3 +1,49 @@
+### 导入主题映射修正：对比度下限 + 输入框渐隐接缝（2026-09-13，已交付）
+
+- 背景：owner 导入 Solarized (light) 后反馈两处——整体对比度低（尤其字体、侧栏），以及 chat 输入框上方多出一道阴影带。
+- 根因 1（对比度）：Solarized 的 `editor.foreground`(#657b83) 对画布只有约 3.6:1，而映射又把 `--label-secondary/tertiary` 按「primary 向背景混 40%~68%」推导，得到 #a9b2ae / #cccfc4，几乎看不清。根修：颜色工具新增 `contrastRatio` 与 `ensureContrast`，映射时对 primary 施加 WCAG AA（4.5:1）、secondary（3.2:1）、tertiary（2.2:1）对比度下限；`--on-accent`、`--warning-text`、`--code-text`、`--syntax-code-fg` 同样兜底（4.5:1）。`readableOn` 改为在黑白中选对比度更高者——此前阈值错误，把白字压到橄榄色 accent 上只有约 2.7:1。
+- 根因 2（阴影带）：所有内置家族都保证 `header-bg === content-bg`；`.composer-wrap.is-floating::before` 的滚动渐隐是 `transparent → var(--content-bg)`，而聊天画布用 `var(--header-bg)`。映射此前把 `header-bg` 映射成 `titleBar.activeBackground`(#eee8d5)，与 `content-bg`(#fdf6e3) 不等，于是渐隐条显影成一条更亮的带子。根修：`header-bg` = 画布 surface（与 content-bg 一致），不再取 titleBar。
+- 存储改为保存原始主题文件：记录只存 `{id, importedAt, raw}`，加载时前端用当前映射器重新推导 token（`hydrateImportedTheme`）。以后调整映射无需重新导入即可生效；旧格式（内嵌 tokens）不兼容，会被 `list` 跳过。
+- 验证：`vscodeTheme.test.ts` 12/12（新增对比度下限、header-bg 等于 content-bg、on-accent 非白、hydrate 容错）；Rust `imported_themes` 6/6（新 schema）；`cargo test` 70/70；`svelte-check` 0 错误；桌面 mjs 守卫 258/258；desktop build 通过。**真机走查未做**：需重新导入 Solarized (light)，确认字体变清晰、输入框上方阴影消失。
+
+### 主题导入增加「一键打开主题目录」（2026-09-13，已交付）
+
+- 背景：owner 找不到 VSCode 主题文件在哪（实际装的是 Insiders，且未安装任何主题扩展，只有 App 内置、且多为 `include` 拆分的主题），希望导入说明处能一键在访达打开目录，并覆盖 VS Code / Insiders / Antigravity 等。
+- 方案：Rust 侧 `theme_sources.rs` 维护已知目录白名单——macOS 下各编辑器的 `Contents/Resources/app/extensions`（VS Code / Insiders / Antigravity / Cursor / VSCodium / Windsurf），加上用户扩展目录（`~/.vscode/extensions`、`~/.vscode-insiders/extensions`、`~/.cursor/extensions`、`~/.vscode-oss/extensions`、`~/.windsurf/extensions`）。命令 `list_theme_directories` 返回目录及 `exists`，`open_theme_directory(id)` 只接受白名单 id 再用 opener 打开；前端只传 id，绝不传路径，从根上杜绝任意路径打开。
+- UI：外观设置的导入区块新增「打开内置主题目录 / 打开已装扩展目录 · <编辑器>」按钮组，鼠标悬停显示完整路径，附文案说明进入 `theme-*/themes/` 选 `*.json`。
+- 二次修正（owner 反馈「为什么有两个 VS Code Insiders，扩展目录是什么，一个不就够了吗」）：`hasThemes` 改为「目录存在且至少有一个扩展在 `package.json` 的 `contributes.themes` 里声明了配色主题」才为真——纯扩展目录（如 `~/.vscode-insiders/extensions` 只有 Claude/Go/Python 等非主题扩展）不会再出现无效按钮；标签也改为「内置主题目录 / 已装扩展目录」区分来源。用户现在只看到两个按钮（Insiders 内置、Antigravity 内置），装了市场主题后才会多出扩展目录按钮。
+- 验证：Rust `theme_sources` 4/4（id 唯一且可解析、用户扩展路径在 home 下、未知 id 拒绝、无主题贡献的扩展目录不被判定为可开）、`cargo test` 70/70；`svelte-check` 0 错误 0 警告；`chat-ui.test.mjs` 247/247；desktop vite build 通过。**真机 GUI 走查未做**：需在 app 里确认按钮出现、扩展目录在无主题扩展时被隐藏、并能在访达打开对应目录。
+
+### VSCode 主题导入（2026-09-13，已交付）
+
+- 背景：owner 希望外观不再只有内置家族，能直接导入 VSCode / 其他编辑器主题。确认范围：只做桌面端、只导入单个 VSCode `.json`、单变体（明暗由主题自己声明）、落盘到 Tauri app data、运行时注入，并在导入处给出「支持什么 / 在哪下载 / 怎么拿文件」的说明。
+- 数据模型：导入主题是只换颜色的产品档家族、单变体。`lib/theme/vscodeTheme.ts` 解析 VSCode 的 `colors` + `tokenColors`（含 JSONC 注释与尾逗号，尾逗号去除是字符串感知的），把工作台色板映射到产品 token；缺失项由 `lib/theme/color.ts` 从基础色推导（灰阶、hover、alpha 标签、玻璃 tint、阴影、图表、diff、syntax）。几何 / 字体 / 圆角仍继承共享 macOS 系统，所以导入项永远是产品档，不会变成大胆档。TextMate scope 归并到现有 8 个 `--syntax-code-*` 桶。
+- 完整性：映射器必须输出内置家族变体块拥有的全部 token（`VARIANT_TOKENS`，共 110 个），否则暗色主题的缺项会静默回退到浅色 macOS ramp；由单测逐 token 守卫。
+- 持久化：Rust 侧 `imported_themes.rs` 每主题一个 `<id>.json`，落在 app data 目录的 `themes/`。id 是文件名安全 slug 且写入前校验，防止路径逃逸；`list` 跳过损坏文件、`delete` 幂等。命令：`pick_theme_source_file`（原生选择器 + 4 MB 上限 + 读取文本）、`list_imported_themes`、`save_imported_theme`、`delete_imported_theme`。
+- 应用：`App.svelte` 用 `data-theme-family="imported-<id>"` 加一个动态 `<style>` 注入映射后的 token（值全部由 `parseColor` 归一化，主题原文绝不进入样式表），并按主题变体设置 `data-resolved-appearance` 与原生窗口外观。新增 `effectiveNativeTheme()` 统一解析，修复启动时原生外观可能被用户亮度偏好覆盖的问题；`storage` 事件跨窗口同步。
+- UI 与说明：外观设置新增「导入的主题」区块——导入按钮、已导入列表（缩略图用主题真实色值内联）、悬停删除、错误提示，以及可展开的说明，覆盖支持类型（VSCode / Cursor / VSCodium 的 `*.json`，暂不支持 `.vsix` / `.tmTheme`）、下载渠道（VS Code Marketplace / Open VSX / 作者仓库）、获取方法（右键已安装扩展 → 显示于文件资源管理器 → `themes/*.json`）。
+- 验证：新增 `lib/theme/vscodeTheme.test.ts` 10/10（解析、JSONC、变体推断、非法输入、映射值、110 token 全覆盖、注入安全、注入样式串、记录生成）；Rust `imported_themes` 6/6（id 校验、round-trip、损坏跳过、幂等删除）；全套桌面 mjs 守卫 258/258（含 `chat-ui.test.mjs` 247，原生外观断言已更新为 `effectiveNativeTheme`）；`svelte-check` 0 错误 0 警告；desktop vite build 通过。**真机 UI 冷启动走查未做**：需在 app 里打开设置 → 外观 → 导入一个真实主题 JSON，确认缩略图、切换、重启后仍生效、删除后回退。
+
+### 调用链报告接入共享主题（2026-09-13，已交付）
+
+- 背景：owner 反馈调用链弹窗看起来像独立页面、不遵守主题规范。根因：报告由服务端 `renderTraceReport` 生成独立 HTML，配色是自带硬编码调色板，只认 `light/dark`，不认主题家族；弹窗用沙盒 iframe 内联 `srcdoc`，父页无法把样式注进去，服务端也不该复制一份主题 ramp。
+- 根修（共享层，不复制主题）：报告 CSS 改为读取应用语义 token 名并保留内置兜底——`--bg: var(--card-bg, var(--r-bg))`、`--panel: var(--surface-secondary, …)`、`--ink: var(--label-primary, …)`、`--line: var(--separator, …)`、`--blue: var(--accent, …)`、`--green: var(--online, …)`、`--purple: var(--skill-accent, …)`，并接入 `--font-ui / --font-mono / --fs-* / --radius-* / --syntax-code-*`。`TraceReportDrawer` 打开时读取 `getComputedStyle(document.documentElement)` 的实时值注入 iframe 的 `:root`，并监听 `data-resolved-appearance`、`data-theme-family`、`data-appearance`，切换家族即时重注入。公开发布的 R2 快照不注入，继续用内置兜底调色板（含明暗）。
+- 观感：嵌入式隐藏报告自带的重复 `<h1>` 标题（弹窗头部已有「调用链」），保留 runId / 统计 / 时间线；字号、圆角、代码块都改吃应用 token，Win98 等主题下自动变方角、等宽与对应色板。
+- 守卫：新增用例断言报告 CSS 逐 token 带兜底、drawer 注入实时值并在家族变化时重注入；删除过时的「只跟随 resolved appearance」断言，`--d-bg` 断言改为 `--r-d-bg` 与新 token 兜底。
+- 验证：traceViewer 测试 12/12、`chat-ui.test.mjs` 247/247、`svelte-check` 0 错误、根 `pnpm build` 与 desktop build 通过；渲染冒烟确认输出含 token 兜底。
+
+### 六款大胆主题家族（2026-09-13，已交付）
+
+- 在既有 4 款产品家族（macOS / Rosé Pine / Catppuccin / Midnight）之外，新增 6 款「大胆」家族，每款都有明暗两个变体：Windows 98（Classic / Midnight）、终端（Paper / Phosphor）、野兽派（Poster / Night）、蓝图（Vellum / Diazotype）、System 6（1-bit White / 1-bit Black）、赛博朋克（Daylight / Midnight）。
+- 改造范围不止配色：家族 token 块同时覆盖 `--font-ui / --font-display / --font-mono`、`--radius-*` 圆角刻度、`--soft-shadow / --float-shadow / --popover-shadow / --glass-*` 阴影与玻璃、以及 `--sidebar-material-tint / -filter`，因此能做出等宽 TUI、方块直角、硬偏移阴影、纯单色、完全不透明侧栏等现有产品家族做不到的形态。
+- 数据面：`DesktopThemeFamily` 联合类型与 `DESKTOP_THEME_FAMILIES` 白名单（`lib/api.ts`）、10 项家族标签 + 12 项变体标签（中英 `lib/i18n.ts`）、`THEME_FAMILY_PREVIEWS` 预览项（`App.svelte`）。旧持久化值不受影响，未知值仍回退 macOS。
+- 主题文件拆分（owner 要求，避免单文件膨胀）：共享系统（基础 `:root`、按明暗变化的玻璃层级、所有组件规则）留在 `styles.css`；每个家族独占 `apps/desktop/src/themes/<family>.css`，内含该家族的明/暗 token 块、系统深色侧栏覆盖与外观缩略图。`themes/index.css` 统一 `@import`，`main.ts` 引入 index。新增家族 = 新建一个文件 + 一行 import，不再往共享大表里追加；`styles.css` 从 8199 行降到 6759 行。
+- Windows 98 3D 立体边（补齐）：按钮边框固定 1px、不读 `--soft-shadow`，token 层无法表达双色凸起，因此在 `themes/win98.css` 内用一层家族限定的规则实现——凸起/凹陷两套边由 `--win98-bevel-raised / -sunken` token 组合，明暗变体只换 bevel 颜色；作用于次要/主要按钮、分段控件按钮与输入框。危险态主按钮与聚焦态排除在外，不覆盖其语义色与焦点环。
+- Windows 98 聊天输入框修复（owner 反馈「看不出是输入框」）：聊天输入区是 `.composer` 卡片里的透明 `textarea`（非原生 `<input>`），通用输入框规则没命中，整块灰底看起来像窗口而非字段；那圈淡紫边其实是基础聚焦态的 accent 光晕。现给 `textarea` 加 Win98 凹陷白色输入井（`--control-bg` 底 + `--win98-bevel-sunken`），高亮浮层同步 padding 保证 invocation 药丸与字形对齐；聚焦反馈改为边框加粗、去掉与 Win98 不搭的柔和光晕。
+- 机器守卫：`chat-ui.test.mjs` 用例改为「家族必须在自己文件里、必须被 index 引入、每个家族必须有明/暗 token 块 + 三态缩略图」；新增断言「共享 `styles.css` 不得出现 `data-theme-family` 规则」与「win98 bevel 只允许存在于 win98.css」；`--agent-city-sky` 的期望值改为从 `agentCityScene.ts` 的 DAY_SKY / NIGHT_SKY 常量反查（此前错误地让新家族用自定义天空色，会在 Agent City 外壳边缘露出接缝）。
+- 设计规范：DESIGN.md 区分「产品家族（只换颜色）」与「大胆家族（重写控件语言）」两档，记录 6 款家族的明暗变体表、主题文件布局，并注明 System 6 是「禁止纯黑结构面」规则的唯一记录在案例外。
+- 验证：`node --test src/chat-ui.test.mjs` 247/247、`api.test.ts` 109/109、`svelte-check` 0 错误 0 警告、`apps/desktop` vite build 通过（构建产物含全部家族与 bevel）。**真机 UI 走查未做**：需在 app 里逐款切换，确认明暗态、窄宽与中英下的实际观感。
+
 ### Project 模式下 `/sessions` 列出并切换项目会话（2026-09-13，已交付）
 
 - 背景：飞书/Telegram 在 `/project` 下输入 `/sessions` 仍列出 bot 本地会话，与 Project 无关；Project 会话（含 Desktop 创建的）无法从聊天里看到和切换。

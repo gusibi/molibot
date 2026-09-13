@@ -1,0 +1,159 @@
+/* Brutalism — Poster (light) and Night (dark). */
+
+/* Brutalism — Poster. Flat warm paper, pure-black 1px rules, cobalt accent and
+   zero radius; the hard offset shadow turns every floating surface into a
+   pasted paper slip. The accent flips to electric yellow in Night because a
+   dark canvas needs the high-key hue to stay the focal colour. */
+:root[data-theme-family="brutalism"][data-resolved-appearance="light"] {
+  color: #111111;
+  color-scheme: light;
+  font-family: "Helvetica Neue", "Arial", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Helvetica Neue", "Arial", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Helvetica Neue", "Arial", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #faf6ec;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #efe9d8;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #0a0a0a;
+  --mac-secondary-label: #3a3a3a;
+  --mac-tertiary-label: #6a6a6a;
+  --mac-separator: #000000;
+  --mac-unemphasized-selection: #ffe066;
+  --sidebar-material-tint: #faf6ec;
+  --sidebar-material-filter: none;
+  --gray-100: #faf6ec; --gray-200: #efe9d8; --gray-300: #e4dcc6; --gray-400: #d8cfb4;
+  --gray-500: #b0a68a; --gray-600: #8a8068; --gray-700: #5f5a4a; --gray-800: #3a3a3a;
+  --gray-900: #1f1f1f; --gray-1000: #000000;
+  --gray-alpha-100: rgb(0 0 0 / 8%); --gray-alpha-200: rgb(0 0 0 / 14%);
+  --gray-alpha-300: rgb(0 0 0 / 20%); --gray-alpha-400: rgb(0 0 0 / 24%);
+  --gray-alpha-500: rgb(0 0 0 / 40%); --gray-alpha-600: rgb(0 0 0 / 52%);
+  --blue-700: #2540ff; --blue-800: #1a30d8;
+  --accent: #2540ff; --accent-hover: #1a30d8; --accent-soft: rgb(37 64 255 / 14%);
+  --on-accent: #ffffff;
+  --online: #008a3a; --danger: #e5322d; --warning: #f5a623; --warning-text: #8a5a00;
+  --agent-city-sky: #eaf3f5;
+  --skill-accent: #7a2ff5; --miniapp-accent: #00a99d;
+  --verify-passed-fg: #008a3a; --verify-failed-fg: #e5322d;
+  --message-bubble-border: #000000;
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #000000; --hairline: #000000;
+  --glass-border: #000000; --glass-border-dark: #000000; --glass-border-light: #000000;
+  --fill: rgb(0 0 0 / 7%); --fill-hover: rgb(0 0 0 / 12%);
+  --panel-bg: #faf6ec; --sidebar-bg: #faf6ec;
+  --sidebar-surface: #ffffff; --sidebar-surface-hover: #ffe066;
+  --content-bg: #faf6ec; --header-bg: #faf6ec; --card-bg: #ffffff;
+  --surface-secondary: #efe9d8; --bubble-bg: #ffffff; --composer-bg: #ffffff;
+  --footbar-bg: #faf6ec; --window-bg: #faf6ec;
+  --soft-shadow: 3px 3px 0 0 #000000;
+  --float-shadow: 5px 5px 0 0 #000000;
+  --popover-shadow: 5px 5px 0 0 #000000;
+  --glass-shadow: 6px 6px 0 0 #000000;
+  --drawer-shadow: -6px 0 0 0 #000000;
+  --modal-scrim: rgb(0 0 0 / 45%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 4px 4px 0 0 #000000; --glass-chip-shadow: 3px 3px 0 0 #000000;
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #ffffff; --control-bg-hover: #ffe066;
+  --control-border: #000000; --control-border-strong: #000000; --control-shadow: none;
+  --chart-blue: #2540ff; --chart-teal: #00a99d; --chart-green: #008a3a;
+  --chart-purple: #7a2ff5; --chart-orange: #f5a623; --chart-red: #e5322d; --chart-indigo: #5b5bff;
+  --chart-track: rgb(0 0 0 / 14%); --chart-grid: rgb(0 0 0 / 12%);
+  --code-bg: #111111; --code-text: #f4f1e8;
+  --syntax-code-bg: #111111; --syntax-code-gutter: #1c1c1c; --syntax-code-border: #333333;
+  --syntax-code-fg: #f4f1e8; --syntax-code-keyword: #ff5c8a; --syntax-code-string: #7ef29d;
+  --syntax-code-title: #ffd23f; --syntax-code-number: #7ec8ff; --syntax-code-comment: #8a8a8a;
+  --syntax-code-variable: #ffb066; --syntax-code-attr: #7ef29d; --syntax-code-built-in: #c9a7ff;
+  --diff-add-line: #d6f5df; --diff-add-num: #b3ecc6; --diff-add-word: #8fe0ab;
+  --diff-del-line: #fbdcdc; --diff-del-num: #f5bcbc; --diff-del-word: #eb9696;
+  --diff-add-label: #008a3a; --diff-del-label: #e5322d;
+  --wallpaper: #faf6ec; --panel-blur: none;
+}
+
+
+/* Brutalism — Night. Charcoal poster stock, cream rules and a hard cream
+   shadow, with the electric yellow promoted to the accent so the family keeps
+   one focal hue after dark. */
+:root[data-theme-family="brutalism"][data-resolved-appearance="dark"] {
+  color: #f5f0e6;
+  color-scheme: dark;
+  font-family: "Helvetica Neue", "Arial", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Helvetica Neue", "Arial", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Helvetica Neue", "Arial", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #111111;
+  --mac-control-background: #1b1b1b;
+  --mac-grouped-background: #161616;
+  --mac-elevated-background: #1b1b1b;
+  --mac-label: #f5f0e6;
+  --mac-secondary-label: #c4bcae;
+  --mac-tertiary-label: #8a857a;
+  --mac-separator: #e8e0d0;
+  --mac-unemphasized-selection: #3a3a3a;
+  --sidebar-material-tint: #111111;
+  --sidebar-material-filter: none;
+  --gray-100: #111111; --gray-200: #161616; --gray-300: #1b1b1b; --gray-400: #2a2a2a;
+  --gray-500: #3a3a3a; --gray-600: #5a5a5a; --gray-700: #8a857a; --gray-800: #c4bcae;
+  --gray-900: #e0d8c8; --gray-1000: #f5f0e6;
+  --gray-alpha-100: rgb(245 240 230 / 7%); --gray-alpha-200: rgb(245 240 230 / 11%);
+  --gray-alpha-300: rgb(245 240 230 / 16%); --gray-alpha-400: rgb(245 240 230 / 20%);
+  --gray-alpha-500: rgb(245 240 230 / 30%); --gray-alpha-600: rgb(245 240 230 / 40%);
+  --blue-700: #ffd23f; --blue-800: #ffdf70;
+  --accent: #ffd23f; --accent-hover: #ffdf70; --accent-soft: rgb(255 210 63 / 16%);
+  --on-accent: #111111;
+  --online: #4ade80; --danger: #ff6b6b; --warning: #ffd23f; --warning-text: #ffd23f;
+  --agent-city-sky: #101820;
+  --skill-accent: #c9a7ff; --miniapp-accent: #4dd6c8;
+  --verify-passed-fg: #7ee2a8; --verify-failed-fg: #ff8f8f;
+  --message-bubble-border: #e8e0d0;
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #e8e0d0; --hairline: #e8e0d0;
+  --glass-border: #e8e0d0; --glass-border-dark: #e8e0d0; --glass-border-light: #e8e0d0;
+  --fill: rgb(245 240 230 / 8%); --fill-hover: rgb(245 240 230 / 14%);
+  --panel-bg: #111111; --sidebar-bg: #111111;
+  --sidebar-surface: #1b1b1b; --sidebar-surface-hover: #ffd23f;
+  --content-bg: #111111; --header-bg: #111111; --card-bg: #1b1b1b;
+  --surface-secondary: #161616; --bubble-bg: #1b1b1b; --composer-bg: #1b1b1b;
+  --footbar-bg: #111111; --window-bg: #111111;
+  --soft-shadow: 3px 3px 0 0 #e8e0d0;
+  --float-shadow: 5px 5px 0 0 #e8e0d0;
+  --popover-shadow: 5px 5px 0 0 #e8e0d0;
+  --glass-shadow: 6px 6px 0 0 #e8e0d0;
+  --drawer-shadow: -6px 0 0 0 #e8e0d0;
+  --modal-scrim: rgb(0 0 0 / 62%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 4px 4px 0 0 #e8e0d0; --glass-chip-shadow: 3px 3px 0 0 #e8e0d0;
+  --glass-surface-bg: #1b1b1b; --glass-popover-bg: #1b1b1b;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #1b1b1b; --control-bg-hover: #2a2a2a;
+  --control-border: #e8e0d0; --control-border-strong: #e8e0d0; --control-shadow: none;
+  --chart-blue: #7ec8ff; --chart-teal: #4dd6c8; --chart-green: #4ade80;
+  --chart-purple: #c9a7ff; --chart-orange: #ffd23f; --chart-red: #ff6b6b; --chart-indigo: #9aa8ff;
+  --chart-track: rgb(245 240 230 / 14%); --chart-grid: rgb(245 240 230 / 11%);
+  --code-bg: #050505; --code-text: #f5f0e6;
+  --syntax-code-bg: #0a0a0a; --syntax-code-gutter: #161616; --syntax-code-border: #e8e0d0;
+  --syntax-code-fg: #f5f0e6; --syntax-code-keyword: #ff5c8a; --syntax-code-string: #7ef29d;
+  --syntax-code-title: #ffd23f; --syntax-code-number: #7ec8ff; --syntax-code-comment: #8a857a;
+  --syntax-code-variable: #ffb066; --syntax-code-attr: #7ef29d; --syntax-code-built-in: #c9a7ff;
+  --diff-add-line: rgb(74 222 128 / 16%); --diff-add-num: rgb(74 222 128 / 30%); --diff-add-word: rgb(74 222 128 / 42%);
+  --diff-del-line: rgb(255 107 107 / 16%); --diff-del-num: rgb(255 107 107 / 30%); --diff-del-word: rgb(255 107 107 / 42%);
+  --diff-add-label: #4ade80; --diff-del-label: #ff6b6b;
+  --wallpaper: #111111; --panel-blur: none;
+}
+
+
+.theme-swatch[data-theme-family-preview="brutalism"][data-theme-preview-appearance="light"] .tp-side { background: #efe9d8; }
+.theme-swatch[data-theme-family-preview="brutalism"][data-theme-preview-appearance="light"] .tp-body { background: #ffffff; }
+.theme-swatch[data-theme-family-preview="brutalism"][data-theme-preview-appearance="dark"] .tp-side { background: #111111; }
+.theme-swatch[data-theme-family-preview="brutalism"][data-theme-preview-appearance="dark"] .tp-body { background: #1b1b1b; }
+.theme-swatch[data-theme-family-preview="brutalism"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #efe9d8 0 50%, #111111 50%); }
+.theme-swatch[data-theme-family-preview="brutalism"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #1b1b1b 50%); }

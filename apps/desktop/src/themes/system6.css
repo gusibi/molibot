@@ -1,0 +1,159 @@
+/* System 6 — 1-bit White (light) and 1-bit Black (dark). */
+
+/* System 6 — 1-bit White. A black-ink-on-white Macintosh: pure monochrome
+   surfaces, black rules, square pixels and a hard 2px offset shadow. Status
+   hues survive only because badge glyphs need to stay distinguishable; every
+   structural surface is strictly #000000 / #ffffff. */
+:root[data-theme-family="system6"][data-resolved-appearance="light"] {
+  color: #000000;
+  color-scheme: light;
+  font-family: "Geneva", "Charcoal", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Geneva", "Charcoal", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Geneva", "Charcoal", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Monaco", "SF Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #ffffff;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #f0f0f0;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #000000;
+  --mac-secondary-label: #333333;
+  --mac-tertiary-label: #666666;
+  --mac-separator: #000000;
+  --mac-unemphasized-selection: #d0d0d0;
+  --sidebar-material-tint: #ffffff;
+  --sidebar-material-filter: none;
+  --gray-100: #ffffff; --gray-200: #f0f0f0; --gray-300: #e0e0e0; --gray-400: #d0d0d0;
+  --gray-500: #a0a0a0; --gray-600: #808080; --gray-700: #606060; --gray-800: #444444;
+  --gray-900: #222222; --gray-1000: #000000;
+  --gray-alpha-100: rgb(0 0 0 / 8%); --gray-alpha-200: rgb(0 0 0 / 14%);
+  --gray-alpha-300: rgb(0 0 0 / 20%); --gray-alpha-400: rgb(0 0 0 / 26%);
+  --gray-alpha-500: rgb(0 0 0 / 40%); --gray-alpha-600: rgb(0 0 0 / 55%);
+  --blue-700: #000000; --blue-800: #000000;
+  --accent: #000000; --accent-hover: #333333; --accent-soft: rgb(0 0 0 / 10%);
+  --on-accent: #ffffff;
+  --online: #007a00; --danger: #b00000; --warning: #806000; --warning-text: #6a4f00;
+  --agent-city-sky: #eaf3f5;
+  --skill-accent: #000000; --miniapp-accent: #000000;
+  --verify-passed-fg: #007a00; --verify-failed-fg: #b00000;
+  --message-bubble-border: #000000;
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #000000; --hairline: #000000;
+  --glass-border: #000000; --glass-border-dark: #000000; --glass-border-light: #000000;
+  --fill: rgb(0 0 0 / 7%); --fill-hover: rgb(0 0 0 / 12%);
+  --panel-bg: #ffffff; --sidebar-bg: #ffffff;
+  --sidebar-surface: #f0f0f0; --sidebar-surface-hover: #e0e0e0;
+  --content-bg: #ffffff; --header-bg: #ffffff; --card-bg: #ffffff;
+  --surface-secondary: #f0f0f0; --bubble-bg: #ffffff; --composer-bg: #ffffff;
+  --footbar-bg: #ffffff; --window-bg: #ffffff;
+  --soft-shadow: 2px 2px 0 0 #000000;
+  --float-shadow: 3px 3px 0 0 #000000;
+  --popover-shadow: 3px 3px 0 0 #000000;
+  --glass-shadow: 4px 4px 0 0 #000000;
+  --drawer-shadow: -4px 0 0 0 #000000;
+  --modal-scrim: rgb(0 0 0 / 40%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 3px 3px 0 0 #000000; --glass-chip-shadow: 2px 2px 0 0 #000000;
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #ffffff; --control-bg-hover: #f0f0f0;
+  --control-border: #000000; --control-border-strong: #000000; --control-shadow: none;
+  --chart-blue: #000000; --chart-teal: #444444; --chart-green: #007a00;
+  --chart-purple: #606060; --chart-orange: #806000; --chart-red: #b00000; --chart-indigo: #222222;
+  --chart-track: rgb(0 0 0 / 14%); --chart-grid: rgb(0 0 0 / 12%);
+  --code-bg: #000000; --code-text: #ffffff;
+  --syntax-code-bg: #000000; --syntax-code-gutter: #000000; --syntax-code-border: #ffffff;
+  --syntax-code-fg: #ffffff; --syntax-code-keyword: #ffffff; --syntax-code-string: #cccccc;
+  --syntax-code-title: #ffffff; --syntax-code-number: #cccccc; --syntax-code-comment: #888888;
+  --syntax-code-variable: #cccccc; --syntax-code-attr: #ffffff; --syntax-code-built-in: #ffffff;
+  --diff-add-line: #dcdcdc; --diff-add-num: #c4c4c4; --diff-add-word: #acacac;
+  --diff-del-line: #c8c8c8; --diff-del-num: #b0b0b0; --diff-del-word: #989898;
+  --diff-add-label: #007a00; --diff-del-label: #b00000;
+  --wallpaper: #ffffff; --panel-blur: none;
+}
+
+
+/* System 6 — 1-bit Black. The same drawing inverted: white ink on a pure black
+   canvas. Pure #000000 is the whole point of the 1-bit family and is the
+   documented exception to the near-black surface rule (see DESIGN.md). */
+:root[data-theme-family="system6"][data-resolved-appearance="dark"] {
+  color: #ffffff;
+  color-scheme: dark;
+  font-family: "Geneva", "Charcoal", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Geneva", "Charcoal", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Geneva", "Charcoal", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Monaco", "SF Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #000000;
+  --mac-control-background: #000000;
+  --mac-grouped-background: #111111;
+  --mac-elevated-background: #000000;
+  --mac-label: #ffffff;
+  --mac-secondary-label: #cccccc;
+  --mac-tertiary-label: #888888;
+  --mac-separator: #ffffff;
+  --mac-unemphasized-selection: #333333;
+  --sidebar-material-tint: #000000;
+  --sidebar-material-filter: none;
+  --gray-100: #000000; --gray-200: #111111; --gray-300: #222222; --gray-400: #333333;
+  --gray-500: #555555; --gray-600: #808080; --gray-700: #a0a0a0; --gray-800: #cccccc;
+  --gray-900: #e0e0e0; --gray-1000: #ffffff;
+  --gray-alpha-100: rgb(255 255 255 / 8%); --gray-alpha-200: rgb(255 255 255 / 14%);
+  --gray-alpha-300: rgb(255 255 255 / 20%); --gray-alpha-400: rgb(255 255 255 / 26%);
+  --gray-alpha-500: rgb(255 255 255 / 40%); --gray-alpha-600: rgb(255 255 255 / 55%);
+  --blue-700: #ffffff; --blue-800: #ffffff;
+  --accent: #ffffff; --accent-hover: #cccccc; --accent-soft: rgb(255 255 255 / 16%);
+  --on-accent: #000000;
+  --online: #4ade80; --danger: #ff6b6b; --warning: #ffd166; --warning-text: #ffd166;
+  --agent-city-sky: #101820;
+  --skill-accent: #ffffff; --miniapp-accent: #ffffff;
+  --verify-passed-fg: #7ee2a8; --verify-failed-fg: #ff8f8f;
+  --message-bubble-border: #ffffff;
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #ffffff; --hairline: #ffffff;
+  --glass-border: #ffffff; --glass-border-dark: #ffffff; --glass-border-light: #ffffff;
+  --fill: rgb(255 255 255 / 8%); --fill-hover: rgb(255 255 255 / 14%);
+  --panel-bg: #000000; --sidebar-bg: #000000;
+  --sidebar-surface: #111111; --sidebar-surface-hover: #222222;
+  --content-bg: #000000; --header-bg: #000000; --card-bg: #000000;
+  --surface-secondary: #111111; --bubble-bg: #000000; --composer-bg: #000000;
+  --footbar-bg: #000000; --window-bg: #000000;
+  --soft-shadow: 2px 2px 0 0 #ffffff;
+  --float-shadow: 3px 3px 0 0 #ffffff;
+  --popover-shadow: 3px 3px 0 0 #ffffff;
+  --glass-shadow: 4px 4px 0 0 #ffffff;
+  --drawer-shadow: -4px 0 0 0 #ffffff;
+  --modal-scrim: rgb(0 0 0 / 62%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 3px 3px 0 0 #ffffff; --glass-chip-shadow: 2px 2px 0 0 #ffffff;
+  --glass-surface-bg: #000000; --glass-popover-bg: #000000;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #000000; --control-bg-hover: #111111;
+  --control-border: #ffffff; --control-border-strong: #ffffff; --control-shadow: none;
+  --chart-blue: #ffffff; --chart-teal: #bbbbbb; --chart-green: #4ade80;
+  --chart-purple: #a0a0a0; --chart-orange: #ffd166; --chart-red: #ff6b6b; --chart-indigo: #dddddd;
+  --chart-track: rgb(255 255 255 / 14%); --chart-grid: rgb(255 255 255 / 12%);
+  --code-bg: #000000; --code-text: #ffffff;
+  --syntax-code-bg: #000000; --syntax-code-gutter: #000000; --syntax-code-border: #ffffff;
+  --syntax-code-fg: #ffffff; --syntax-code-keyword: #ffffff; --syntax-code-string: #cccccc;
+  --syntax-code-title: #ffffff; --syntax-code-number: #cccccc; --syntax-code-comment: #888888;
+  --syntax-code-variable: #cccccc; --syntax-code-attr: #ffffff; --syntax-code-built-in: #ffffff;
+  --diff-add-line: rgb(74 222 128 / 16%); --diff-add-num: rgb(74 222 128 / 30%); --diff-add-word: rgb(74 222 128 / 42%);
+  --diff-del-line: rgb(255 107 107 / 16%); --diff-del-num: rgb(255 107 107 / 30%); --diff-del-word: rgb(255 107 107 / 42%);
+  --diff-add-label: #4ade80; --diff-del-label: #ff6b6b;
+  --wallpaper: #000000; --panel-blur: none;
+}
+
+
+.theme-swatch[data-theme-family-preview="system6"][data-theme-preview-appearance="light"] .tp-side { background: #000000; }
+.theme-swatch[data-theme-family-preview="system6"][data-theme-preview-appearance="light"] .tp-body { background: #ffffff; }
+.theme-swatch[data-theme-family-preview="system6"][data-theme-preview-appearance="dark"] .tp-side { background: #ffffff; }
+.theme-swatch[data-theme-family-preview="system6"][data-theme-preview-appearance="dark"] .tp-body { background: #000000; }
+.theme-swatch[data-theme-family-preview="system6"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #000000 0 50%, #ffffff 50%); }
+.theme-swatch[data-theme-family-preview="system6"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #000000 50%); }
