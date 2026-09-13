@@ -356,6 +356,7 @@
   let durableExecutionError = "";
   let durableExecutionScheduler: ActivityScheduler | null = null;
   let observedDurableExecutionStatuses = new Map<string, DesktopDurableExecutionStatus>();
+  let observedDurableExecutionSignatures = new Map<string, string>();
   let reconnectScheduler: ActivityScheduler | null = null;
 
   const durableFeedbackStatuses = new Set<DesktopDurableExecutionStatus>([
@@ -384,6 +385,7 @@
   }
 
   function observeDurableExecutionTransitions(items: DesktopDurableExecutionItem[]): void {
+    let reloadActive = false;
     for (const item of items) {
       const status = item.execution.status;
       const previous = observedDurableExecutionStatuses.get(item.execution.id);
@@ -397,6 +399,22 @@
         });
       }
       observedDurableExecutionStatuses.set(item.execution.id, status);
+
+      // A plan card is projected from the Durable aggregate, and a session-sourced
+      // attempt appends its transcript to the source Session. Refresh the open
+      // Session when such an execution advances (status or progress) so the card's
+      // checkmarks and the new activity appear without a manual reload.
+      const signature = `${status}:${item.execution.version}`;
+      const previousSignature = observedDurableExecutionSignatures.get(item.execution.id);
+      observedDurableExecutionSignatures.set(item.execution.id, signature);
+      if (previousSignature && previousSignature !== signature && item.execution.sourceUiSessionId) {
+        if (projectPaneActive && item.execution.sourceUiSessionId === activeProjectSessionId) reloadActive = true;
+        else if (!projectPaneActive && viewMode === "local" && item.execution.sourceUiSessionId === activeSessionId) reloadActive = true;
+      }
+    }
+    if (reloadActive) {
+      void chatStore.reloadActive();
+      void projectChatStore.reloadActive();
     }
   }
 
@@ -1062,6 +1080,7 @@
     durableExecutions = [];
     durableExecutionError = "";
     observedDurableExecutionStatuses = new Map();
+    observedDurableExecutionSignatures = new Map();
     profiles = [];
     onboardingProfiles = [];
     onboardingAgents = [];
