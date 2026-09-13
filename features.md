@@ -1,3 +1,16 @@
+### 计划看板（Plan Board）桌面列表与详情面板（2026-09-13，部分交付 / 桌面 UI）
+
+- 背景：Slice 1 落地共享计划服务后，本 slice 补齐桌面 App 专享的「计划」入口与两层编辑/控制界面。
+- 入口：工作区导航新增「计划」（`workspace.plans` 命令 + 侧栏 nav item + commandSystem 目录），路由到新的 `PlansWorkspace.svelte`；沿用 workspace 的 master–detail 轨道，未占用聊天 Inspector 的第四个 adapter 位置。
+- 列表：`/api/desktop/plans` 拉取（`includeArchived`），本地即时搜索（名称/ID）与状态分桶筛选（全部/未开始/进行中/需要处理/已结束/已归档）；行显示标题、状态 chip、短 handle、完成数、当前步骤与项目。空列表/无匹配/加载失败均有明确提示。
+- 详情：标题 + 状态 + 版本 + 更新时间 + 当前步骤；两层任务/步骤列表（状态图标、产出摘要）、验收要求结果；`completed/skipped` 只读。操作区按状态启用：planned 显示「开始」、queued/running/verifying 显示「暂停」「取消」、paused/recovery_required 显示「继续」、可修订状态显示「新增返工任务」「删除」。
+- 返工编辑：新增任务行（任务名 + 每行一个步骤），提交 `revise` 追加为新版本并回到待批准（与 Slice 1 store 语义一致，已完成结果结转）。
+- 轮询：列表 5s、已选详情 5s（`document.hidden` 时暂停），`requestSeq` 丢弃过期响应，避免旧详情覆盖新选择。
+- 契约与 API 客户端：`src/lib/shared/desktop.ts` 新增 `DesktopPlan*`（含 `DesktopPlanDetail` = durable inspection + `meta` + `tasks` + `projection`）；`api.ts` 新增 `loadDesktopPlans/loadDesktopPlan/runDesktopPlanAction`。
+- i18n：中英各新增计划看板文案（导航/筛选/空态/操作/返工/状态）。
+- 验证：服务端 `plans/*.test.ts` 8/8；`tsc` 改动文件 0 报错；桌面 `svelte-check` 0 错误 0 警告；desktop `vite build` 通过；`chat-ui.test.mjs` 等 mjs 守卫 251/251、`commandSystem.test.ts` 8/8（含新 `workspace.plans` 断言）。**真机冷启动走查未做**。
+- **未交付**：从 Session 生成并保存计划（`exitPlan` 接入）、首次批准选择权限、跨 Session 继续、实时事件（当前为轮询）、已完成计划的历史结果入口与完整任意增删改排序（当前为追加返工）。
+
 ### 计划看板（Plan Board）共享计划服务基础（2026-09-13，部分交付 / 后端基础）
 
 - 背景：落实 `docs/requirements/plan-board-prd.md`（方案 v4）。第一阶段先把「计划 = Durable Execution 聚合」的共享底座跑通，避免先做 UI 再返工执行真相源。

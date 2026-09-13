@@ -38,10 +38,11 @@ export type CommandId =
   | "workspace.automations"
   | "workspace.skills"
   | "workspace.agents"
+  | "workspace.plans"
   | `settings.${SettingsDestination}`;
 
 export type CommandScope = "application" | "chat" | "workspace" | "settings" | "service";
-export type CommandWorkspace = "chat" | "automations" | "skills" | "agents" | "miniapps" | "project";
+export type CommandWorkspace = "chat" | "automations" | "skills" | "agents" | "miniapps" | "plans" | "project";
 
 export type CommandContext = {
   locale: Locale;
@@ -156,6 +157,7 @@ const recommendedRank = (context: CommandContext, command: CommandId): number =>
   if (command === "workspace.automations" && context.workspace === "automations") return 0;
   if (command === "workspace.skills" && context.workspace === "skills") return 0;
   if (command === "workspace.agents" && context.workspace === "agents") return 0;
+  if (command === "workspace.plans" && context.workspace === "plans") return 0;
   if (command === "chat.search" && context.workspace === "chat") return 1;
   if (command.startsWith("workspace.")) return 2;
   if (command === "app.open-settings") return 3;
@@ -236,6 +238,12 @@ const definitions: CommandDefinition[] = [
     id: "workspace.agents",
     label: (locale) => translator(locale).agents,
     keywords: ["agents", "studio"],
+    scope: "workspace"
+  },
+  {
+    id: "workspace.plans",
+    label: (locale) => translator(locale).planBoardNav,
+    keywords: ["plans", "plan", "board"],
     scope: "workspace"
   },
   ...settingsDestinations.map((destination): CommandDefinition => ({

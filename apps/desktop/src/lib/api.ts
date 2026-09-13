@@ -147,6 +147,12 @@ import type {
   DesktopDurableExecutionInspectionResponse,
   DesktopDurableExecutionItem,
   DesktopDurableExecutionResponse,
+  DesktopPlanActionRequest,
+  DesktopPlanActionResponse,
+  DesktopPlanDetail,
+  DesktopPlanDetailResponse,
+  DesktopPlanListItem,
+  DesktopPlanListResponse,
   DesktopThinkingLevel,
   DesktopTraceFactType,
   DesktopTraceRange,
@@ -1296,12 +1302,39 @@ export async function runDesktopDurableExecutionAction(
   });
 }
 
+export async function loadDesktopPlans(
+  endpoint: string,
+  params: { search?: string; statuses?: string[]; includeArchived?: boolean; projectId?: string; limit?: number } = {}
+): Promise<DesktopPlanListItem[]> {
+  const query = new URLSearchParams();
+  if (params.search) query.set("search", params.search);
+  if (params.statuses && params.statuses.length > 0) query.set("statuses", params.statuses.join(","));
+  if (params.includeArchived) query.set("includeArchived", "true");
+  if (params.projectId) query.set("projectId", params.projectId);
+  if (params.limit) query.set("limit", String(params.limit));
+  const suffix = query.toString();
+  const payload = await requestJson<DesktopPlanListResponse>(endpoint, "/api/desktop/plans" + (suffix ? `?${suffix}` : ""));
+  return payload.items;
+}
+
+export async function loadDesktopPlan(endpoint: string, planId: string): Promise<DesktopPlanDetail> {
+  const payload = await requestJson<DesktopPlanDetailResponse>(endpoint, "/api/desktop/plans?id=" + encodeURIComponent(planId));
+  return payload.item;
+}
+
+export async function runDesktopPlanAction(endpoint: string, input: DesktopPlanActionRequest): Promise<DesktopPlanActionResponse> {
+  return requestJson<DesktopPlanActionResponse>(endpoint, "/api/desktop/plans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+}
+
 export async function loadDesktopTaskHistory(endpoint: string, id: string, page: number, pageSize = 10) {
   const payload = await runDesktopTaskAction(endpoint, { action: "history", id, page, pageSize });
   if (!payload.history) throw new Error("Execution history not found");
   return payload.history;
 }
-
 export async function loadDesktopTaskSession(
   endpoint: string,
   id: string,

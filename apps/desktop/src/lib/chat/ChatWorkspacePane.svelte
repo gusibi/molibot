@@ -6,6 +6,7 @@
   import TasksSection from "../settings/TasksSection.svelte";
   import InstalledSkillsPane from "./InstalledSkillsPane.svelte";
   import MiniAppsLaunchpad from "../miniapps/MiniAppsLaunchpad.svelte";
+  import PlansWorkspace from "../plans/PlansWorkspace.svelte";
   import type { ChatWorkspacePane } from "./workspace";
 
   export let pane: Exclude<ChatWorkspacePane, "chat">;
@@ -41,8 +42,8 @@
     });
   }
 
-  $: workspaceTitle = pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : copy.agentsNav;
-  $: workspaceDescription = pane === "automations" ? copy.autoTasksHint : pane === "skills" ? copy.skillsSquareHint : pane === "miniapps" ? copy.miniAppsHint : copy.agentStudioHint;
+  $: workspaceTitle = pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : pane === "plans" ? copy.planBoardTitle : copy.agentsNav;
+  $: workspaceDescription = pane === "automations" ? copy.autoTasksHint : pane === "skills" ? copy.skillsSquareHint : pane === "miniapps" ? copy.miniAppsHint : pane === "plans" ? copy.planBoardHint : copy.agentStudioHint;
 </script>
 
 <PageHeader title={workspaceTitle} description={workspaceDescription} workspace>
@@ -73,6 +74,8 @@
     <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
   {:else if pane === "miniapps"}
     <MiniAppsLaunchpad onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
+  {:else if pane === "plans"}
+    <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} />
   {:else if AgentStudioComponent}
     <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} />
   {:else}

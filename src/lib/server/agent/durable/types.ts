@@ -357,6 +357,7 @@ export interface PlanMeta {
 export interface PlanDetail extends DurableExecutionDetail {
   meta: PlanMeta;
   tasks: PlanTask[];
+  projection: DurableExecutionProjection;
 }
 
 export interface PlanListFilter {

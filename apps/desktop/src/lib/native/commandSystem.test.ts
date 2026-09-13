@@ -35,6 +35,7 @@ test("CommandSystem projects stable localized commands and settings destinations
   );
   assert.equal(snapshot.find((command) => command.id === commandIdForSettings("memory"))?.label, "Memory");
   assert.equal(snapshot.find((command) => command.id === "workspace.automations")?.label, "Automations");
+  assert.equal(snapshot.find((command) => command.id === "workspace.plans")?.label, "Plans");
   assert.equal(snapshot.filter((command) => command.id.startsWith("settings.")).length, 23);
 
   const chinese = system.snapshot(context({ locale: "zh-CN" }));
@@ -49,6 +50,9 @@ test("CommandSystem recommends current workspace actions without creating a seco
   assert.equal(snapshot.find((command) => command.id === "workspace.automations")?.recommendedRank, 0);
   assert.equal(snapshot.find((command) => command.id === "workspace.skills")?.recommendedRank, 2);
   assert.equal(snapshot.find((command) => command.id === "chat.new")?.recommendedRank, 4);
+
+  const plans = system.snapshot(context({ workspace: "plans" }));
+  assert.equal(plans.find((command) => command.id === "workspace.plans")?.recommendedRank, 0);
 });
 
 test("CommandSystem exposes disabled actions with a readable reason", () => {

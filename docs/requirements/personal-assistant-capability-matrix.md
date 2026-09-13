@@ -1,6 +1,6 @@
 # Personal Assistant Capability Matrix
 
-Last verified: 2026-08-22
+Last verified: 2026-09-13
 
 This file is the single current-status source for Molibot's work/life assistant capabilities. `prd.md` sections below the current-status banner are design and delivery history: their old status wording must not be used to create new work. `features.md` and `CHANGELOG.md` remain delivery logs, not backlogs.
 
@@ -21,6 +21,7 @@ This file is the single current-status source for Molibot's work/life assistant 
 | Evaluation | Deterministic golden-set harness | 已交付 | 31 tasks, strict state/trace/text assertions, isolated `DATA_DIR`, external-channel kill switch, fixture generation, and harness tests are present. |
 | Evaluation | Full baseline | 已交付 | Full run on 2026-08-10 after the harness upload fix: **30/31**, 0 errors, 0 unproven. The only failure is A5, which is `baseline: unknown` by design — the sandbox blocks egress, so the Agent correctly asks for Host approval and an unattended run stops there. The earlier 23/31 on the same day was a harness defect (global `FormData` through undici's `fetch`), not a capability regression; B2-B6 went 1/6 → 6/6 once the body was built in the sending realm. |
 | Durable Execution | Cold-start recovery after a crash | 已交付 | `node evals/durable-restart-live.mjs` — 14/14. Stops the scratch service, leaves a `running` execution holding a dead process's unexpired lease, restarts on the same `DATA_DIR`, and asserts startup reconcile reclaims it: execution → `recovery_required`, attempt → `interrupted`, running step → `uncertain`, and the recovered execution is still cancellable (idempotently) through the public API. Cross-channel transport and external-provider live acceptance remain. |
+| Planning | Session-generated plan board (list, edit, control, cross-session continue) | 部分交付 | Plans reuse the Durable Execution aggregate (stable `planId`, two-layer tasks, versioned revisions, tombstones) with a shared `PlanService` and `/api/desktop/plans`, plus a desktop "Plans" workspace (search/status filters, in-flow detail, start/pause/resume/cancel/delete, append-rework revision); temp-DB tests and desktop svelte-check/build pass. Gap: no in-app creation path yet (`exitPlan` save is unwired), and cross-session continue plus first-approval permission selection are not wired, so the full user-facing flow does not exist. |
 | Memory | Owner/project namespaces and turn retention | 已交付 | `owner:` / `project:` routing and `standard`, `no_memory`, `not_searchable`, `turn_only` are enforced across context, search, reflection, and memory writes. Historical namespace rows are intentionally not migrated. |
 | Memory | `add_content` routing | 已交付 | Only explicit published-content `world_knowledge` is accepted. Personal facts, preferences, and missing types fail and direct the Agent to `add`; `content:` is not added to normal recall. |
 | Input | Public webpage reading | 已交付 | `webFetch` has SSRF, redirect, size, timeout, cache, Markdown conversion, and context-budget controls. It is not an authenticated browser. |

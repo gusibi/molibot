@@ -806,6 +806,93 @@ export interface DesktopDurableExecutionActionResponse {
   item: DesktopDurableExecutionItem;
 }
 
+/** Plan Board: a plan is the same aggregate as a Durable Execution, viewed for editing. */
+export type DesktopPlanStatus = "not_started" | "in_progress" | "needs_attention" | "finished" | "archived";
+
+export interface DesktopPlanListItem {
+  planId: string;
+  shortHandle: string;
+  title: string;
+  summary: string;
+  projectId?: string;
+  status: DesktopDurableExecutionStatus;
+  planStatus: DesktopPlanStatus;
+  archived: boolean;
+  version: number;
+  currentPlanVersion: number;
+  progress: { completed: number; total: number; currentStepTitle?: string };
+  waitingReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopPlanMeta {
+  executionId: string;
+  title: string;
+  summary: string;
+  updatedAt: string;
+}
+
+export interface DesktopPlanTask {
+  id: string;
+  executionId: string;
+  planVersion: number;
+  index: number;
+  title: string;
+  description: string;
+  steps: DesktopDurableExecutionStep[];
+}
+
+export interface DesktopPlanDetail extends DesktopDurableExecutionInspection {
+  meta: DesktopPlanMeta;
+  tasks: DesktopPlanTask[];
+}
+
+export interface DesktopPlanListResponse {
+  ok: true;
+  items: DesktopPlanListItem[];
+}
+
+export interface DesktopPlanDetailResponse {
+  ok: true;
+  item: DesktopPlanDetail;
+}
+
+export interface DesktopPlanTaskInput {
+  title: string;
+  description?: string;
+  steps: Array<{
+    title: string;
+    description?: string;
+    sideEffectClass?: "pure" | "idempotent" | "queryable" | "non_idempotent";
+    idempotencyKey?: string;
+    inputSummary?: string;
+  }>;
+}
+
+export type DesktopPlanActionRequest =
+  | { action: "start" | "pause" | "resume" | "cancel"; ownerId?: string; planId: string; expectedVersion: number; actionId?: string; reason?: string }
+  | { action: "delete"; ownerId?: string; planId: string; expectedVersion?: number }
+  | {
+      action: "revise";
+      ownerId?: string;
+      executionId: string;
+      expectedVersion: number;
+      reason: string;
+      title?: string;
+      summary?: string;
+      addTasks: DesktopPlanTaskInput[];
+      addCriteria?: Array<{ description: string; required?: boolean; checkerType?: "deterministic" | "subjective"; checkerKey?: string }>;
+    };
+
+export interface DesktopPlanActionResponse {
+  ok: true;
+  item?: DesktopPlanDetail;
+  deleted?: boolean;
+  title?: string;
+}
+
+
 export interface DesktopModelOption {
   key: string;
   label: string;

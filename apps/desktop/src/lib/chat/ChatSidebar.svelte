@@ -2,6 +2,7 @@
   import CalendarDays from "../icons/duotone/components/CalendarDays.svelte";
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import Grid from "../icons/duotone/components/Grid.svelte";
+  import Layers from "../icons/duotone/components/Layers.svelte";
   import Magnifier from "../icons/duotone/components/Magnifier.svelte";
   import Pen from "../icons/duotone/components/Pen.svelte";
   import Reorder2 from "../icons/duotone/components/Reorder2.svelte";
@@ -39,6 +40,7 @@
     onOpenAutoTasks,
     onOpenSkills,
     onOpenAgents,
+    onOpenPlans,
     onOpenSettings,
     onToggleConversations,
     onToggleProjects,
@@ -60,7 +62,7 @@
     channels: ChannelDescriptor[];
     conversationsExpanded: boolean;
     projectsExpanded: boolean;
-    activeWorkspacePane?: "chat" | "automations" | "skills" | "agents" | "miniapps";
+    activeWorkspacePane?: "chat" | "automations" | "skills" | "agents" | "miniapps" | "plans";
     automationUnreadCount?: number;
     expandedChannels: Record<string, boolean>;
     channelItems: Record<string, DesktopConversationItem[]>;
@@ -77,6 +79,7 @@
     onOpenAutoTasks: () => void;
     onOpenSkills: () => void;
     onOpenAgents: () => void;
+    onOpenPlans: () => void;
     onOpenSettings: () => void;
     onToggleConversations: () => void;
     onToggleProjects: () => void;
@@ -169,6 +172,10 @@
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "agents"} aria-current={activeWorkspacePane === "agents" ? "page" : undefined} onclick={onOpenAgents}>
       <Vacuum2 size={16} aria-hidden="true" />
       <span>{copy.agentsNav}</span>
+    </button>
+    <button type="button" class="nav-item" class:active={activeWorkspacePane === "plans"} aria-current={activeWorkspacePane === "plans" ? "page" : undefined} onclick={onOpenPlans}>
+      <Layers size={16} aria-hidden="true" />
+      <span>{copy.planBoardNav}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "miniapps"} aria-current={activeWorkspacePane === "miniapps" ? "page" : undefined} onclick={onOpenMiniApps}>
       <Grid size={16} aria-hidden="true" />

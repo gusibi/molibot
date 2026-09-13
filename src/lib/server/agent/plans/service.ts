@@ -106,7 +106,7 @@ export class PlanService {
       const steps = detail.steps.filter((step) => step.planVersion === version).sort((left, right) => left.index - right.index);
       tasks = [{ id: `${planId}-task-1`, executionId: planId, planVersion: version, index: 0, title: meta.title, description: meta.summary, steps }];
     }
-    return { ...detail, meta, tasks };
+    return { ...detail, meta, tasks, projection: projectDurableExecution(detail, this.store.queuePosition(planId)) };
   }
 
   revise(input: RevisePlanInput): PlanDetail {

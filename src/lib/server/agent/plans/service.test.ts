@@ -49,6 +49,8 @@ test("createPlan persists two-layer structure, meta, and stable plan id", () => 
     assert.deepEqual(created.tasks[0].steps.map((step) => step.title), ["读取原文", "翻译"]);
     assert.equal(created.tasks[1].steps[0].title, "整理术语");
     assert.equal(created.acceptanceCriteria[0].description, "术语一致");
+    assert.equal(created.projection.progress.total, 3);
+    assert.equal(created.projection.progress.completed, 0);
 
     const reread = service.read("owner", "plan-test-1");
     assert.equal(reread.tasks.length, 2);

@@ -2611,6 +2611,9 @@
       case "workspace.agents":
         openWorkspacePane("agents");
         return;
+      case "workspace.plans":
+        openWorkspacePane("plans");
+        return;
       case "app.open-settings":
         openSettings();
         return;
@@ -3143,6 +3146,7 @@
     onOpenAutoTasks={() => openWorkspacePane("automations")}
     onOpenSkills={() => openWorkspacePane("skills")}
     onOpenAgents={() => openWorkspacePane("agents")}
+    onOpenPlans={() => openWorkspacePane("plans")}
     onOpenSettings={() => openSettings()}
     onToggleConversations={toggleConversations}
     onToggleProjects={toggleProjects}
