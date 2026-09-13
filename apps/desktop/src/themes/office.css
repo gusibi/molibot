@@ -1,0 +1,175 @@
+/* Office — Fluent White (light) and Night (dark). A productivity family on a
+   cool blue-grey workspace with white cards and the Word/Fluent blue accent.
+   Document work reads as bare prose, not bubbles. */
+
+/* Office — White. Cool blue-grey Fluent canvas with the #2B579A Word blue. */
+:root[data-theme-family="office"][data-resolved-appearance="light"] {
+  color: #22303c;
+  color-scheme: light;
+  --mac-window-background: #eef3f9;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #e0e8f1;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #22303c;
+  --mac-secondary-label: #5b6b7a;
+  --mac-tertiary-label: #8794a1;
+  --mac-separator: rgb(34 48 60 / 14%);
+  --mac-unemphasized-selection: #cfdbe8;
+  --sidebar-material-tint: rgb(238 243 249 / 72%);
+  --gray-100: #eef3f9; --gray-200: #e0e8f1; --gray-300: #cfdbe8; --gray-400: #bccbdb;
+  --gray-500: #a3b4c6; --gray-600: #8595a8; --gray-700: #697a8d; --gray-800: #4f6072;
+  --gray-900: #364656; --gray-1000: #22303c;
+  --gray-alpha-100: rgb(34 48 60 / 5%); --gray-alpha-200: rgb(34 48 60 / 8%);
+  --gray-alpha-300: rgb(34 48 60 / 12%); --gray-alpha-400: rgb(34 48 60 / 10%);
+  --gray-alpha-500: rgb(34 48 60 / 22%); --gray-alpha-600: rgb(34 48 60 / 28%);
+  --blue-700: #2b579a; --blue-800: #1f3f73;
+  --accent: #2b579a; --accent-hover: #1f3f73; --accent-soft: rgb(43 87 154 / 12%);
+  --online: #107c10; --danger: #a4262c; --warning: #c77700; --warning-text: #8a5200;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7a3db8; --miniapp-accent: #0f7b8a;
+  --verify-passed-fg: #107c10; --verify-failed-fg: #a4262c; --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(34 48 60 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(34 48 60 / 18%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(34 48 60 / 5%); --fill-hover: rgb(34 48 60 / 9%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(34 48 60 / 5%); --sidebar-surface-hover: rgb(34 48 60 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(34 48 60 / 8%); --float-shadow: 0 8px 24px -12px rgb(34 48 60 / 26%);
+  --popover-shadow: 0 1px 1px rgb(34 48 60 / 5%), 0 4px 8px -4px rgb(34 48 60 / 10%), 0 16px 24px -8px rgb(34 48 60 / 14%);
+  --glass-shadow: 0 1px 1px rgb(34 48 60 / 5%), 0 8px 16px -4px rgb(34 48 60 / 10%), 0 24px 32px -8px rgb(34 48 60 / 14%);
+  --drawer-shadow: -8px 0 24px -8px rgb(34 48 60 / 20%); --modal-scrim: rgb(34 48 60 / 34%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(34 48 60 / 18%); --control-border-strong: rgb(34 48 60 / 32%); --control-shadow: none;
+  --chart-blue: #2b579a; --chart-teal: #0f7b8a; --chart-green: #107c10; --chart-purple: #7a3db8;
+  --chart-orange: #c77700; --chart-red: #a4262c; --chart-indigo: #4f52b2;
+  --chart-track: rgb(34 48 60 / 8%); --chart-grid: rgb(34 48 60 / 8%);
+  --code-bg: #1e1e1e; --code-text: #d4d4d4;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #eef3f9; --syntax-code-border: #cfdbe8; --syntax-code-fg: #22303c;
+  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
+  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  --diff-add-line: #e6f4e6; --diff-add-num: #c9e8c9; --diff-add-word: #a9dba9;
+  --diff-del-line: #fbe9ea; --diff-del-num: #f4cdd0; --diff-del-word: #eca9af; --diff-add-label: #107c10; --diff-del-label: #a4262c;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* Office — Night. Fluent's dark grey ramp with a lifted blue accent. */
+:root[data-theme-family="office"][data-resolved-appearance="dark"] {
+  color: #f3f2f1;
+  color-scheme: dark;
+  --mac-window-background: #201f1e;
+  --mac-control-background: #292827;
+  --mac-grouped-background: #323130;
+  --mac-elevated-background: #3b3a39;
+  --mac-label: #f3f2f1;
+  --mac-secondary-label: #c8c6c4;
+  --mac-tertiary-label: #a19f9d;
+  --mac-separator: rgb(255 255 255 / 10%);
+  --mac-unemphasized-selection: #484644;
+  --sidebar-material-tint: #201f1e;
+  --gray-100: #201f1e; --gray-200: #292827; --gray-300: #323130; --gray-400: #3b3a39;
+  --gray-500: #484644; --gray-600: #605e5c; --gray-700: #8a8886; --gray-800: #a19f9d;
+  --gray-900: #c8c6c4; --gray-1000: #f3f2f1;
+  --gray-alpha-100: rgb(255 255 255 / 6%); --gray-alpha-200: rgb(255 255 255 / 9%);
+  --gray-alpha-300: rgb(255 255 255 / 13%); --gray-alpha-400: rgb(255 255 255 / 16%);
+  --gray-alpha-500: rgb(255 255 255 / 26%); --gray-alpha-600: rgb(255 255 255 / 34%);
+  --blue-700: #4a8fe7; --blue-800: #6fa8f0;
+  --accent: #4a8fe7; --accent-hover: #6fa8f0; --accent-soft: rgb(74 143 231 / 18%);
+  --online: #6ccb5f; --danger: #f1707b; --warning: #ffc83d; --warning-text: #ffc83d;
+  --on-accent: #0b1220; --agent-city-sky: var(--header-bg);
+  --skill-accent: #b89be8; --miniapp-accent: #4fd1c5;
+  --verify-passed-fg: #6ccb5f; --verify-failed-fg: #f1707b; --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 7%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
+  --fill: rgb(255 255 255 / 7%); --fill-hover: rgb(255 255 255 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(255 255 255 / 6%); --sidebar-surface-hover: rgb(255 255 255 / 10%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #343332;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 30%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 50%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 4px 8px -4px rgb(0 0 0 / 38%), 0 16px 24px -8px rgb(0 0 0 / 48%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 8px 16px -4px rgb(0 0 0 / 38%), 0 24px 32px -8px rgb(0 0 0 / 48%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 44%); --modal-scrim: rgb(0 0 0 / 52%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(255 255 255 / 16%); --control-border-strong: rgb(255 255 255 / 28%); --control-shadow: none;
+  --chart-blue: #4a8fe7; --chart-teal: #4fd1c5; --chart-green: #6ccb5f; --chart-purple: #b89be8;
+  --chart-orange: #ffc83d; --chart-red: #f1707b; --chart-indigo: #8ea2ff;
+  --chart-track: rgb(255 255 255 / 10%); --chart-grid: rgb(255 255 255 / 8%);
+  --code-bg: #1b1b1b; --code-text: #d4d4d4;
+  --syntax-code-bg: #1e1e1e; --syntax-code-gutter: #252526; --syntax-code-border: #3b3a39; --syntax-code-fg: #d4d4d4;
+  --syntax-code-keyword: #569cd6; --syntax-code-string: #ce9178; --syntax-code-title: #dcdcaa; --syntax-code-number: #b5cea8;
+  --syntax-code-comment: #6a9955; --syntax-code-variable: #9cdcfe; --syntax-code-attr: #4ec9b0; --syntax-code-built-in: #4ec9b0;
+  --diff-add-line: rgb(108 203 95 / 15%); --diff-add-num: rgb(108 203 95 / 30%); --diff-add-word: rgb(108 203 95 / 42%);
+  --diff-del-line: rgb(241 112 123 / 16%); --diff-del-num: rgb(241 112 123 / 30%); --diff-del-word: rgb(241 112 123 / 42%);
+  --diff-add-label: #6ccb5f; --diff-del-label: #f1707b;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="office"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+}
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Office — a business workspace: Word blue on the chrome, white document canvas.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="office"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--header-bg)), color-mix(in srgb, var(--accent) 3%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="office"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="office"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 42%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="office"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-family="office"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="office"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="office"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="office"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 40%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="office"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="office"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="office"][data-theme-preview-appearance="light"] .tp-side { background: #cfdbe8; }
+.theme-swatch[data-theme-family-preview="office"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #eef3f9); }
+.theme-swatch[data-theme-family-preview="office"][data-theme-preview-appearance="dark"] .tp-side { background: #323130; }
+.theme-swatch[data-theme-family-preview="office"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #3b3a39, #201f1e); }
+.theme-swatch[data-theme-family-preview="office"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #cfdbe8 0 50%, #323130 50%); }
+.theme-swatch[data-theme-family-preview="office"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #3b3a39 50%); }

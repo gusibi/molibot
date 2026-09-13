@@ -60,6 +60,12 @@ export interface AgentCitySceneOptions {
   canvas: HTMLCanvasElement;
   projection: AgentCityProjection;
   theme: AgentCityTheme;
+  /**
+   * Sky/fog colour, read from the family's `--agent-city-sky` token. The shell
+   * around the canvas paints the same token, so the two cannot drift and leave
+   * a seam at the panel edge.
+   */
+  sky: string;
   reducedMotion: boolean;
   quality: Exclude<AgentCityQuality, "fallback">;
   onPerformanceFallback: () => void;
@@ -72,6 +78,7 @@ export interface AgentCitySceneController {
   resize(width: number, height: number): void;
   setVisible(visible: boolean): void;
   setTheme(theme: AgentCityTheme): void;
+  setSky(sky: string): void;
   setReducedMotion(reducedMotion: boolean): void;
   setQuality(quality: Exclude<AgentCityQuality, "fallback">): void;
   hitTest(clientX: number, clientY: number): AgentCityHover | null;
@@ -162,8 +169,6 @@ function moveMarquee(perimeter: AnimatedFloorPerimeter, offset: number): void {
 }
 
 const FLOOR_HEIGHT = AGENT_CITY_FLOOR_HEIGHT;
-const DAY_SKY = 0xeaf3f5;
-const NIGHT_SKY = 0x101820;
 const STATUS_COLORS: Record<AgentCityStatus, number> = {
   disabled: 0x8f8f8f,
   idle: 0x7d7d7d,
@@ -600,6 +605,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   let projection = options.projection;
   let theme = options.theme;
+  let skyColor = new THREE.Color(options.sky);
   let quality = options.quality;
   let reducedMotion = options.reducedMotion;
   let visible = true;
@@ -668,8 +674,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   }
 
   function applyTheme(): void {
-    scene.background = new THREE.Color(theme === "dark" ? NIGHT_SKY : DAY_SKY);
-    scene.fog = new THREE.Fog(theme === "dark" ? NIGHT_SKY : DAY_SKY, 42, 130);
+    scene.background = skyColor;
+    scene.fog = new THREE.Fog(skyColor, 42, 130);
     ambient.intensity = theme === "dark" ? 1.45 : 1.8;
     sun.color.setHex(theme === "dark" ? 0x9fc6ff : 0xfff4df);
     sun.intensity = theme === "dark" ? 2.2 : 3.4;
@@ -1290,6 +1296,16 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         floorNodes.delete(key);
       }
       syncProjection();
+    },
+    setSky(nextSky) {
+      const next = new THREE.Color(nextSky);
+      if (next.equals(skyColor)) return;
+      skyColor = next;
+      // Background and fog both read the same colour so the horizon dissolves
+      // into the shell instead of drawing a seam.
+      scene.background = skyColor;
+      scene.fog = new THREE.Fog(skyColor, 42, 130);
+      renderer.render(scene, camera);
     },
     setReducedMotion(nextReducedMotion) {
       reducedMotion = nextReducedMotion;

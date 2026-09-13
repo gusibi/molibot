@@ -1,0 +1,180 @@
+/* WhatsApp — Light and Dark. The WhatsApp Web look: light-grey chrome, a beige
+   chat canvas, white incoming bubbles and the green outgoing bubble. */
+
+/* WhatsApp — Light. Grey chrome, #ECE5DD chat canvas, #D9FDD3 sent bubble. */
+:root[data-theme-family="whatsapp"][data-resolved-appearance="light"] {
+  color: #111b21;
+  color-scheme: light;
+  --mac-window-background: #f0f2f5;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #f0f2f5;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #111b21;
+  --mac-secondary-label: #667781;
+  --mac-tertiary-label: #8696a0;
+  --mac-separator: rgb(17 27 33 / 12%);
+  --mac-unemphasized-selection: #d1d7db;
+  --sidebar-material-tint: rgb(240 242 245 / 72%);
+  --gray-100: #f0f2f5; --gray-200: #ece5dd; --gray-300: #d1d7db; --gray-400: #c5cdd3;
+  --gray-500: #a7b4bc; --gray-600: #8696a0; --gray-700: #667781; --gray-800: #4a5a64;
+  --gray-900: #2a3942; --gray-1000: #111b21;
+  --gray-alpha-100: rgb(17 27 33 / 5%); --gray-alpha-200: rgb(17 27 33 / 8%);
+  --gray-alpha-300: rgb(17 27 33 / 11%); --gray-alpha-400: rgb(17 27 33 / 9%);
+  --gray-alpha-500: rgb(17 27 33 / 21%); --gray-alpha-600: rgb(17 27 33 / 26%);
+  --blue-700: #198845; --blue-800: #156f39;
+  --accent: #198845; --accent-hover: #156f39; --accent-soft: rgb(25 136 69 / 12%);
+  --online: #25d366; --danger: #ea0038; --warning: #f0a64c; --warning-text: #b36a0a;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7a3db8; --miniapp-accent: #0f7b8a;
+  --verify-passed-fg: #1fa855; --verify-failed-fg: #ea0038; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #d9fdd3; --bubble-mine-border: transparent;
+  --bubble-assistant-bg: #ffffff; --bubble-assistant-border: var(--separator);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(17 27 33 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(17 27 33 / 18%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(17 27 33 / 5%); --fill-hover: rgb(17 27 33 / 9%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(17 27 33 / 5%); --sidebar-surface-hover: rgb(17 27 33 / 9%);
+  --content-bg: #ece5dd; --header-bg: #ece5dd;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #e9edef;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 1px 1px rgb(17 27 33 / 8%); --float-shadow: 0 8px 24px -12px rgb(17 27 33 / 28%);
+  --popover-shadow: 0 1px 1px rgb(17 27 33 / 4%), 0 4px 8px -4px rgb(17 27 33 / 10%), 0 16px 24px -8px rgb(17 27 33 / 14%);
+  --glass-shadow: 0 1px 1px rgb(17 27 33 / 4%), 0 8px 16px -4px rgb(17 27 33 / 10%), 0 24px 32px -8px rgb(17 27 33 / 14%);
+  --drawer-shadow: -8px 0 24px -8px rgb(17 27 33 / 22%); --modal-scrim: rgb(17 27 33 / 36%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(17 27 33 / 16%); --control-border-strong: rgb(17 27 33 / 30%); --control-shadow: none;
+  --chart-blue: #1f7a8c; --chart-teal: #0f7b8a; --chart-green: #1fa855; --chart-purple: #7a3db8;
+  --chart-orange: #f0a64c; --chart-red: #ea0038; --chart-indigo: #4f52b2;
+  --chart-track: rgb(17 27 33 / 8%); --chart-grid: rgb(17 27 33 / 8%);
+  --code-bg: #1e1e1e; --code-text: #d4d4d4;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #f0f2f5; --syntax-code-border: #e9edef; --syntax-code-fg: #111b21;
+  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
+  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  --diff-add-line: #e3f7e6; --diff-add-num: #c6ebcc; --diff-del-line: #fde7ea; --diff-del-num: #f8c8d0;
+  --diff-add-word: #a5dcb0; --diff-del-word: #efa3ad; --diff-add-label: #1fa855; --diff-del-label: #ea0038;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* WhatsApp — Dark. Deep teal chrome, #0B141A chat canvas and #005C4B sent bubble. */
+:root[data-theme-family="whatsapp"][data-resolved-appearance="dark"] {
+  color: #e9edef;
+  color-scheme: dark;
+  --mac-window-background: #0e1b22;
+  --mac-control-background: #111b21;
+  --mac-grouped-background: #1f2c34;
+  --mac-elevated-background: #1f2c33;
+  --mac-label: #e9edef;
+  --mac-secondary-label: #8696a0;
+  --mac-tertiary-label: #667781;
+  --mac-separator: rgb(233 237 239 / 10%);
+  --mac-unemphasized-selection: #2a3942;
+  --sidebar-material-tint: #0e1b22;
+  --gray-100: #0e1b22; --gray-200: #111b21; --gray-300: #1f2c34; --gray-400: #2a3942;
+  --gray-500: #3b4a54; --gray-600: #54656f; --gray-700: #667781; --gray-800: #8696a0;
+  --gray-900: #a7b4bc; --gray-1000: #e9edef;
+  --gray-alpha-100: rgb(233 237 239 / 6%); --gray-alpha-200: rgb(233 237 239 / 9%);
+  --gray-alpha-300: rgb(233 237 239 / 13%); --gray-alpha-400: rgb(233 237 239 / 16%);
+  --gray-alpha-500: rgb(233 237 239 / 26%); --gray-alpha-600: rgb(233 237 239 / 34%);
+  --blue-700: #25d366; --blue-800: #4ade80;
+  --accent: #25d366; --accent-hover: #4ade80; --accent-soft: rgb(37 211 102 / 18%);
+  --online: #25d366; --danger: #f15c6d; --warning: #f0a64c; --warning-text: #ffc46b;
+  --on-accent: #0a1a12; --agent-city-sky: var(--header-bg);
+  --skill-accent: #b89be8; --miniapp-accent: #4fd1c5;
+  --verify-passed-fg: #25d366; --verify-failed-fg: #f15c6d; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #005c4b; --bubble-mine-border: transparent;
+  --bubble-assistant-bg: #1f2c33; --bubble-assistant-border: var(--hairline);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(233 237 239 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(233 237 239 / 14%); --glass-border-light: rgb(233 237 239 / 18%);
+  --fill: rgb(233 237 239 / 7%); --fill-hover: rgb(233 237 239 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(233 237 239 / 6%); --sidebar-surface-hover: rgb(233 237 239 / 10%);
+  --content-bg: #0b141a; --header-bg: #0b141a;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #1f2c34;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 34%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 55%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 22%), 0 4px 8px -4px rgb(0 0 0 / 40%), 0 16px 24px -8px rgb(0 0 0 / 50%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 22%), 0 8px 16px -4px rgb(0 0 0 / 40%), 0 24px 32px -8px rgb(0 0 0 / 50%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 46%); --modal-scrim: rgb(0 0 0 / 54%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(233 237 239 / 16%); --control-border-strong: rgb(233 237 239 / 28%); --control-shadow: none;
+  --chart-blue: #53bdeb; --chart-teal: #4fd1c5; --chart-green: #25d366; --chart-purple: #b89be8;
+  --chart-orange: #f0a64c; --chart-red: #f15c6d; --chart-indigo: #8ea2ff;
+  --chart-track: rgb(233 237 239 / 10%); --chart-grid: rgb(233 237 239 / 8%);
+  --code-bg: #0b141a; --code-text: #d4d4d4;
+  --syntax-code-bg: #111b21; --syntax-code-gutter: #1f2c34; --syntax-code-border: #2a3942; --syntax-code-fg: #d4d4d4;
+  --syntax-code-keyword: #569cd6; --syntax-code-string: #ce9178; --syntax-code-title: #dcdcaa; --syntax-code-number: #b5cea8;
+  --syntax-code-comment: #6a9955; --syntax-code-variable: #9cdcfe; --syntax-code-attr: #4ec9b0; --syntax-code-built-in: #4ec9b0;
+  --diff-add-line: rgb(37 211 102 / 15%); --diff-add-num: rgb(37 211 102 / 30%); --diff-add-word: rgb(37 211 102 / 42%);
+  --diff-del-line: rgb(241 92 109 / 16%); --diff-del-num: rgb(241 92 109 / 30%); --diff-del-word: rgb(241 92 109 / 42%);
+  --diff-add-label: #25d366; --diff-del-label: #f15c6d;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="whatsapp"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+}
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — WhatsApp — the beige chat canvas under a green-tinted chrome.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="whatsapp"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 13%, var(--header-bg)), color-mix(in srgb, var(--accent) 4%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 42%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 40%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="whatsapp"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="whatsapp"][data-theme-preview-appearance="light"] .tp-side { background: #d9fdd3; }
+.theme-swatch[data-theme-family-preview="whatsapp"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #ece5dd); }
+.theme-swatch[data-theme-family-preview="whatsapp"][data-theme-preview-appearance="dark"] .tp-side { background: #005c4b; }
+.theme-swatch[data-theme-family-preview="whatsapp"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #1f2c33, #0b141a); }
+.theme-swatch[data-theme-family-preview="whatsapp"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #d9fdd3 0 50%, #005c4b 50%); }
+.theme-swatch[data-theme-family-preview="whatsapp"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #1f2c33 50%); }

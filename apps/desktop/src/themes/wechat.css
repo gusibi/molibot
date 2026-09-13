@@ -1,0 +1,181 @@
+/* WeChat — Light and Dark. The WeChat look: a light-grey canvas, white incoming
+   bubbles and the signature #95EC69 sent bubble under the #07C160 green. */
+
+/* WeChat — Light. Flat #EDEDED canvas with the WeChat green accent. */
+:root[data-theme-family="wechat"][data-resolved-appearance="light"] {
+  color: #191919;
+  color-scheme: light;
+  --mac-window-background: #ededed;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #e5e5e5;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #191919;
+  --mac-secondary-label: #888888;
+  --mac-tertiary-label: #b2b2b2;
+  --mac-separator: rgb(0 0 0 / 9%);
+  --mac-unemphasized-selection: #d9d9d9;
+  --sidebar-material-tint: rgb(237 237 237 / 72%);
+  --gray-100: #ededed; --gray-200: #e5e5e5; --gray-300: #d9d9d9; --gray-400: #cccccc;
+  --gray-500: #b2b2b2; --gray-600: #999999; --gray-700: #888888; --gray-800: #666666;
+  --gray-900: #404040; --gray-1000: #191919;
+  --gray-alpha-100: rgb(0 0 0 / 4%); --gray-alpha-200: rgb(0 0 0 / 7%);
+  --gray-alpha-300: rgb(0 0 0 / 10%); --gray-alpha-400: rgb(0 0 0 / 8%);
+  --gray-alpha-500: rgb(0 0 0 / 18%); --gray-alpha-600: rgb(0 0 0 / 24%);
+  --blue-700: #058844; --blue-800: #04713a;
+  --accent: #058844; --accent-hover: #04713a; --accent-soft: rgb(5 136 68 / 12%);
+  --online: #07c160; --danger: #fa5151; --warning: #ffc300; --warning-text: #b08a00;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7a3db8; --miniapp-accent: #0f7b8a;
+  --verify-passed-fg: #07c160; --verify-failed-fg: #fa5151; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #95ec69; --bubble-mine-border: transparent;
+  --bubble-assistant-bg: #ffffff; --bubble-assistant-border: var(--separator);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(0 0 0 / 7%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(0 0 0 / 16%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(0 0 0 / 4%); --fill-hover: rgb(0 0 0 / 8%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(0 0 0 / 4%); --sidebar-surface-hover: rgb(0 0 0 / 8%);
+  --content-bg: #ededed; --header-bg: #ededed;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #e5e5e5;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 1px 1px rgb(0 0 0 / 6%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 24%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 4%), 0 4px 8px -4px rgb(0 0 0 / 9%), 0 16px 24px -8px rgb(0 0 0 / 13%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 4%), 0 8px 16px -4px rgb(0 0 0 / 9%), 0 24px 32px -8px rgb(0 0 0 / 13%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 18%); --modal-scrim: rgb(0 0 0 / 32%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(0 0 0 / 14%); --control-border-strong: rgb(0 0 0 / 28%); --control-shadow: none;
+  --chart-blue: #16839b; --chart-teal: #0f7b8a; --chart-green: #07c160; --chart-purple: #7a3db8;
+  --chart-orange: #ffc300; --chart-red: #fa5151; --chart-indigo: #4f52b2;
+  --chart-track: rgb(0 0 0 / 7%); --chart-grid: rgb(0 0 0 / 7%);
+  --code-bg: #1e1e1e; --code-text: #d4d4d4;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #ededed; --syntax-code-border: #e5e5e5; --syntax-code-fg: #191919;
+  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
+  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  --diff-add-line: #e3f7e8; --diff-add-num: #c6ebd2; --diff-del-line: #fdeaea; --diff-del-num: #f8caca;
+  --diff-add-word: #a5dcba; --diff-del-word: #efa6a6; --diff-add-label: #07c160; --diff-del-label: #fa5151;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* WeChat — Dark. Near-black chrome, #191919 chat canvas and a muted green sent
+   bubble that keeps the light label legible. */
+:root[data-theme-family="wechat"][data-resolved-appearance="dark"] {
+  color: #ececec;
+  color-scheme: dark;
+  --mac-window-background: #111111;
+  --mac-control-background: #1e1e1e;
+  --mac-grouped-background: #2c2c2c;
+  --mac-elevated-background: #252525;
+  --mac-label: #ececec;
+  --mac-secondary-label: #a0a0a0;
+  --mac-tertiary-label: #6e6e6e;
+  --mac-separator: rgb(255 255 255 / 10%);
+  --mac-unemphasized-selection: #383838;
+  --sidebar-material-tint: #111111;
+  --gray-100: #111111; --gray-200: #1e1e1e; --gray-300: #2c2c2c; --gray-400: #383838;
+  --gray-500: #4a4a4a; --gray-600: #666666; --gray-700: #888888; --gray-800: #a0a0a0;
+  --gray-900: #cccccc; --gray-1000: #ececec;
+  --gray-alpha-100: rgb(255 255 255 / 6%); --gray-alpha-200: rgb(255 255 255 / 9%);
+  --gray-alpha-300: rgb(255 255 255 / 13%); --gray-alpha-400: rgb(255 255 255 / 16%);
+  --gray-alpha-500: rgb(255 255 255 / 26%); --gray-alpha-600: rgb(255 255 255 / 34%);
+  --blue-700: #07c160; --blue-800: #2adb7e;
+  --accent: #07c160; --accent-hover: #2adb7e; --accent-soft: rgb(7 193 96 / 18%);
+  --online: #07c160; --danger: #fa6a6a; --warning: #ffc300; --warning-text: #ffd45c;
+  --on-accent: #06210f; --agent-city-sky: var(--header-bg);
+  --skill-accent: #b89be8; --miniapp-accent: #4fd1c5;
+  --verify-passed-fg: #3ad07f; --verify-failed-fg: #fa6a6a; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #2e7d52; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #1e1e1e; --bubble-assistant-border: var(--hairline);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 7%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
+  --fill: rgb(255 255 255 / 7%); --fill-hover: rgb(255 255 255 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(255 255 255 / 6%); --sidebar-surface-hover: rgb(255 255 255 / 10%);
+  --content-bg: #191919; --header-bg: #191919;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #2c2c2c;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 34%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 55%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 22%), 0 4px 8px -4px rgb(0 0 0 / 40%), 0 16px 24px -8px rgb(0 0 0 / 50%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 22%), 0 8px 16px -4px rgb(0 0 0 / 40%), 0 24px 32px -8px rgb(0 0 0 / 50%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 46%); --modal-scrim: rgb(0 0 0 / 54%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(255 255 255 / 15%); --control-border-strong: rgb(255 255 255 / 27%); --control-shadow: none;
+  --chart-blue: #40c8e0; --chart-teal: #4fd1c5; --chart-green: #07c160; --chart-purple: #b89be8;
+  --chart-orange: #ffc300; --chart-red: #fa6a6a; --chart-indigo: #8ea2ff;
+  --chart-track: rgb(255 255 255 / 10%); --chart-grid: rgb(255 255 255 / 8%);
+  --code-bg: #0d0d0d; --code-text: #d4d4d4;
+  --syntax-code-bg: #161616; --syntax-code-gutter: #1e1e1e; --syntax-code-border: #2c2c2c; --syntax-code-fg: #d4d4d4;
+  --syntax-code-keyword: #569cd6; --syntax-code-string: #ce9178; --syntax-code-title: #dcdcaa; --syntax-code-number: #b5cea8;
+  --syntax-code-comment: #6a9955; --syntax-code-variable: #9cdcfe; --syntax-code-attr: #4ec9b0; --syntax-code-built-in: #4ec9b0;
+  --diff-add-line: rgb(58 208 127 / 15%); --diff-add-num: rgb(58 208 127 / 30%); --diff-add-word: rgb(58 208 127 / 42%);
+  --diff-del-line: rgb(250 106 106 / 16%); --diff-del-num: rgb(250 106 106 / 30%); --diff-del-word: rgb(250 106 106 / 42%);
+  --diff-add-label: #3ad07f; --diff-del-label: #fa6a6a;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="wechat"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+}
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — WeChat — flat grey workspace with the green reserved for the selected chat.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="wechat"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, var(--card-bg), color-mix(in srgb, var(--accent) 5%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="wechat"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="wechat"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 48%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="wechat"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+:root[data-theme-family="wechat"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="wechat"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="wechat"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="wechat"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 40%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="wechat"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="wechat"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="wechat"][data-theme-preview-appearance="light"] .tp-side { background: #95ec69; }
+.theme-swatch[data-theme-family-preview="wechat"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #ededed); }
+.theme-swatch[data-theme-family-preview="wechat"][data-theme-preview-appearance="dark"] .tp-side { background: #2e7d52; }
+.theme-swatch[data-theme-family-preview="wechat"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #252525, #111111); }
+.theme-swatch[data-theme-family-preview="wechat"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #95ec69 0 50%, #2e7d52 50%); }
+.theme-swatch[data-theme-family-preview="wechat"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #252525 50%); }

@@ -1,0 +1,181 @@
+/* iOS — Light and Dark. The iOS system look: a #F2F2F7 grouped canvas with
+   white cards, hairline separators and the system blue, so it reads as a phone
+   OS surface rather than a desktop one. */
+
+/* iOS — Light. Grouped-canvas grey behind white cards, system blue accent. */
+:root[data-theme-family="ios"][data-resolved-appearance="light"] {
+  color: rgb(0 0 0 / 90%);
+  color-scheme: light;
+  --mac-window-background: #f2f2f7;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #e5e5ea;
+  --mac-elevated-background: #ffffff;
+  --mac-label: rgb(0 0 0 / 90%);
+  --mac-secondary-label: rgb(60 60 67 / 60%);
+  --mac-tertiary-label: rgb(60 60 67 / 30%);
+  --mac-separator: rgb(60 60 67 / 29%);
+  --mac-unemphasized-selection: #d1d1d6;
+  --sidebar-material-tint: rgb(242 242 247 / 72%);
+  --gray-100: #f2f2f7; --gray-200: #e5e5ea; --gray-300: #d1d1d6; --gray-400: #c7c7cc;
+  --gray-500: #aeaeb2; --gray-600: #8e8e93; --gray-700: #636366; --gray-800: #48484a;
+  --gray-900: #3a3a3c; --gray-1000: #1c1c1e;
+  --gray-alpha-100: rgb(60 60 67 / 4%); --gray-alpha-200: rgb(60 60 67 / 8%);
+  --gray-alpha-300: rgb(60 60 67 / 12%); --gray-alpha-400: rgb(60 60 67 / 9%);
+  --gray-alpha-500: rgb(60 60 67 / 22%); --gray-alpha-600: rgb(60 60 67 / 28%);
+  --blue-700: #007aff; --blue-800: #0062cc;
+  --accent: #007aff; --accent-hover: #0062cc; --accent-soft: rgb(0 122 255 / 12%);
+  --online: #34c759; --danger: #ff3b30; --warning: #ff9500; --warning-text: #c25e00;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #af52de; --miniapp-accent: #30b0c7;
+  --verify-passed-fg: #248a3d; --verify-failed-fg: #d70015; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #007aff; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #ffffff; --bubble-assistant-border: var(--separator);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(60 60 67 / 12%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(60 60 67 / 22%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(60 60 67 / 5%); --fill-hover: rgb(60 60 67 / 9%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(60 60 67 / 5%); --sidebar-surface-hover: rgb(60 60 67 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 1px 2px rgb(0 0 0 / 6%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 22%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 4%), 0 4px 8px -4px rgb(0 0 0 / 8%), 0 16px 24px -8px rgb(0 0 0 / 12%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 4%), 0 8px 16px -4px rgb(0 0 0 / 8%), 0 24px 32px -8px rgb(0 0 0 / 12%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 16%); --modal-scrim: rgb(0 0 0 / 30%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(60 60 67 / 18%); --control-border-strong: rgb(60 60 67 / 32%); --control-shadow: none;
+  --chart-blue: #007aff; --chart-teal: #30b0c7; --chart-green: #34c759; --chart-purple: #af52de;
+  --chart-orange: #ff9500; --chart-red: #ff3b30; --chart-indigo: #5856d6;
+  --chart-track: rgb(60 60 67 / 8%); --chart-grid: rgb(60 60 67 / 8%);
+  --code-bg: #1c1c1e; --code-text: #f2f2f7;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #f2f2f7; --syntax-code-border: #e5e5ea; --syntax-code-fg: #1c1c1e;
+  --syntax-code-keyword: #ad3da4; --syntax-code-string: #d12f1b; --syntax-code-title: #4b21b0; --syntax-code-number: #1c00cf;
+  --syntax-code-comment: #536579; --syntax-code-variable: #0f68a0; --syntax-code-attr: #3f6e74; --syntax-code-built-in: #23575c;
+  --diff-add-line: #e4f6e8; --diff-add-num: #c6ebcf; --diff-del-line: #fde7e6; --diff-del-num: #f8c8c5;
+  --diff-add-word: #a5dcb3; --diff-del-word: #efa39e; --diff-add-label: #248a3d; --diff-del-label: #d70015;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* iOS — Dark. Near-black grouped canvas with iOS dark system blue. */
+:root[data-theme-family="ios"][data-resolved-appearance="dark"] {
+  color: rgb(255 255 255 / 92%);
+  color-scheme: dark;
+  --mac-window-background: #101014;
+  --mac-control-background: #1c1c1e;
+  --mac-grouped-background: #2c2c2e;
+  --mac-elevated-background: #2c2c2e;
+  --mac-label: rgb(255 255 255 / 92%);
+  --mac-secondary-label: rgb(235 235 245 / 60%);
+  --mac-tertiary-label: rgb(235 235 245 / 30%);
+  --mac-separator: rgb(84 84 88 / 65%);
+  --mac-unemphasized-selection: #3a3a3c;
+  --sidebar-material-tint: #101014;
+  --gray-100: #101014; --gray-200: #1c1c1e; --gray-300: #2c2c2e; --gray-400: #3a3a3c;
+  --gray-500: #48484a; --gray-600: #636366; --gray-700: #8e8e93; --gray-800: #aeaeb2;
+  --gray-900: #c7c7cc; --gray-1000: #f2f2f7;
+  --gray-alpha-100: rgb(255 255 255 / 6%); --gray-alpha-200: rgb(255 255 255 / 9%);
+  --gray-alpha-300: rgb(255 255 255 / 13%); --gray-alpha-400: rgb(255 255 255 / 16%);
+  --gray-alpha-500: rgb(255 255 255 / 26%); --gray-alpha-600: rgb(255 255 255 / 34%);
+  --blue-700: #0a84ff; --blue-800: #409cff;
+  --accent: #0a84ff; --accent-hover: #409cff; --accent-soft: rgb(10 132 255 / 22%);
+  --online: #30d158; --danger: #ff453a; --warning: #ff9f0a; --warning-text: #ff9f0a;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #bf5af2; --miniapp-accent: #40c8e0;
+  --verify-passed-fg: #30d158; --verify-failed-fg: #ff6961; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #0a78e6; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #2c2c2e; --bubble-assistant-border: var(--hairline);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
+  --fill: rgb(255 255 255 / 7%); --fill-hover: rgb(255 255 255 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(255 255 255 / 6%); --sidebar-surface-hover: rgb(255 255 255 / 10%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #242426;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 30%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 50%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 4px 8px -4px rgb(0 0 0 / 38%), 0 16px 24px -8px rgb(0 0 0 / 48%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 8px 16px -4px rgb(0 0 0 / 38%), 0 24px 32px -8px rgb(0 0 0 / 48%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 44%); --modal-scrim: rgb(0 0 0 / 52%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(255 255 255 / 16%); --control-border-strong: rgb(255 255 255 / 28%); --control-shadow: none;
+  --chart-blue: #0a84ff; --chart-teal: #40c8e0; --chart-green: #30d158; --chart-purple: #bf5af2;
+  --chart-orange: #ff9f0a; --chart-red: #ff453a; --chart-indigo: #5e5ce6;
+  --chart-track: rgb(255 255 255 / 10%); --chart-grid: rgb(255 255 255 / 8%);
+  --code-bg: #000000; --code-text: #f2f2f7;
+  --syntax-code-bg: #1c1c1e; --syntax-code-gutter: #2c2c2e; --syntax-code-border: #3a3a3c; --syntax-code-fg: #f2f2f7;
+  --syntax-code-keyword: #fc5fa3; --syntax-code-string: #fc6a5d; --syntax-code-title: #d0bf69; --syntax-code-number: #d0bf69;
+  --syntax-code-comment: #6c7986; --syntax-code-variable: #41a1c0; --syntax-code-attr: #5dd8ff; --syntax-code-built-in: #5dd8ff;
+  --diff-add-line: rgb(48 209 88 / 15%); --diff-add-num: rgb(48 209 88 / 30%); --diff-add-word: rgb(48 209 88 / 42%);
+  --diff-del-line: rgb(255 69 58 / 16%); --diff-del-num: rgb(255 69 58 / 30%); --diff-del-word: rgb(255 69 58 / 42%);
+  --diff-add-label: #30d158; --diff-del-label: #ff453a;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="ios"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+}
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — iOS — the grouped grey canvas with a lifted header and blue selection.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="ios"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 58%, var(--header-bg)), var(--header-bg));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="ios"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="ios"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 40%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="ios"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-family="ios"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="ios"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="ios"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="ios"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 40%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="ios"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="ios"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="ios"][data-theme-preview-appearance="light"] .tp-side { background: #e5e5ea; }
+.theme-swatch[data-theme-family-preview="ios"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #f2f2f7); }
+.theme-swatch[data-theme-family-preview="ios"][data-theme-preview-appearance="dark"] .tp-side { background: #2c2c2e; }
+.theme-swatch[data-theme-family-preview="ios"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #1c1c1e, #101014); }
+.theme-swatch[data-theme-family-preview="ios"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #e5e5ea 0 50%, #2c2c2e 50%); }
+.theme-swatch[data-theme-family-preview="ios"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #1c1c1e 50%); }

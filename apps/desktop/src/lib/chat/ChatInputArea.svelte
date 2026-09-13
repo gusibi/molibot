@@ -242,7 +242,7 @@
   });
 </script>
 
-<footer class="composer-wrap" class:is-floating={floating} bind:this={composerWrap}>
+<footer class="composer-wrap" class:is-floating={floating} data-theme-region="composer" bind:this={composerWrap}>
   {#if !modelReady}
     <div class="model-banner" role="status">
       <div>

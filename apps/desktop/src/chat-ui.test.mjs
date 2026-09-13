@@ -7,7 +7,7 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 // the concatenation so a rule can move between the shared sheet and a family
 // file without rewriting every assertion; the guard test below also pins the
 // split itself (every family has a file, every file is imported).
-const THEME_FAMILIES = ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk"];
+const THEME_FAMILIES = ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"];
 const baseStyles = read("./styles.css");
 const themeStyles = THEME_FAMILIES.map((family) => read(`./themes/${family}.css`)).join("\n");
 const themesIndex = read("./themes/index.css");
@@ -447,7 +447,7 @@ test("appearance and theme family remain independent persisted controls", () => 
   assert.match(app, /function changeThemeFamily\(value: DesktopThemeFamily\)/);
   assert.match(app, /appearance-segmented/);
   assert.match(app, /theme-family-grid/);
-  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk"]) {
+  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"]) {
     assert.match(app, new RegExp(`value: "${family}"`));
   }
   for (const appearance of ["light", "dark", "system"]) {
@@ -499,7 +499,7 @@ test("theme families live in their own files, are imported, and each ships paire
       }
       // Bold families rewrite the control language too; product families keep
       // the shared macOS geometry and vary colour only.
-      if (["win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk"].includes(family)) {
+      if (["win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk", "qq", "candy", "cartoon", "android", "discord", "google"].includes(family)) {
         assert.match(match[1], /font-family:/, `${family} ${appearance} must pin a family font`);
         assert.match(match[1], /--radius-control:/, `${family} ${appearance} must pin a corner radius`);
       }
@@ -1394,8 +1394,8 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   assert.match(styles, /\.composer-token\[data-kind="file"\]/);
   // Pitfall 4: an undefined var() fails silently, so both invocation hues must
   // exist as real tokens in the light AND dark declarations of every family.
-  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 21);
-  assert.equal(styles.match(/--skill-accent:/g)?.length, 21);
+  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 49);
+  assert.equal(styles.match(/--skill-accent:/g)?.length, 49);
   assert.doesNotMatch(styles, /--purple-700/);
   // Pitfall 12: the catalog now carries Mini Apps, so every catalog mutation
   // must invalidate the composer's cache or `@` keeps advertising a stale set.
@@ -2023,39 +2023,79 @@ test("Agent City chrome themes through tokens, not a data-attribute-only overrid
   }
   assert.deepEqual(violations, []);
 
-  // The one Agent City colour that cannot derive from a token: the canvas
-  // paints a WebGL clear colour from DAY_SKY / NIGHT_SKY in agentCityScene.ts
-  // while the shell around it paints --agent-city-sky. The two must agree or a
-  // seam shows at the shell edges, so the expected token value is read from the
-  // scene source instead of being duplicated here, and every family/variant is
-  // checked against it.
-  const scene = read("./lib/chat/agentCityScene.ts");
-  const skyHex = (name) => {
-    const hex = scene.match(new RegExp(`const ${name} = 0x([0-9a-f]{6});`, "i"))?.[1];
-    assert.ok(hex, `agentCityScene.ts is missing ${name}`);
-    return `#${hex.toLowerCase()}`;
-  };
-  const daySky = skyHex("DAY_SKY");
-  const nightSky = skyHex("NIGHT_SKY");
+  // The shell and the WebGL canvas both paint the family's `--agent-city-sky`
+  // token: the shell through CSS, the canvas through the value the pane reads
+  // off `document.documentElement` and hands to `createAgentCityScene`. One
+  // source of truth means the two cannot drift and leave a seam at the edge.
+  const scene = agentCityScene;
+  assert.match(scene, /sky: string;/);
+  assert.match(scene, /new THREE\.Color\(options\.sky\)/);
+  assert.match(scene, /scene\.background = skyColor/);
+  assert.match(scene, /new THREE\.Fog\(skyColor/);
+  assert.doesNotMatch(scene, /DAY_SKY|NIGHT_SKY/, "the sky must come from the family token, not a scene constant");
+  assert.match(agentCityCanvas, /export let sky: string;/);
+  assert.match(agentCityCanvas, /controller\.setSky\(sky\)/);
+  assert.match(agentStudio, /getComputedStyle\(document\.documentElement\)\.getPropertyValue\("--agent-city-sky"\)/);
+  assert.match(agentStudio, /\{sky\}/);
+  assert.match(agentStudio, /attributeFilter: \["data-resolved-appearance", "data-theme-family"\]/);
   const baseRoot = source.match(/^:root \{([\s\S]*?)\n\}/)?.[1] ?? "";
-  assert.match(baseRoot, new RegExp(`--agent-city-sky:\\s*${daySky}`), "base :root must carry the day sky");
-  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk"]) {
+  assert.match(baseRoot, /--agent-city-sky:\s*var\(--header-bg\)/, "base :root must carry the family-canvas sky");
+  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"]) {
     for (const appearance of ["light", "dark"]) {
       if (family === "macos" && appearance === "light") continue; // base :root owns macOS light
       const selector = `:root[data-theme-family="${family}"][data-resolved-appearance="${appearance}"]`;
       const offset = source.indexOf(`${selector} {`);
       assert.ok(offset >= 0, `missing Agent City sky context for ${selector}`);
-      const expected = appearance === "dark" ? nightSky : daySky;
       assert.match(
         source.slice(offset, offset + 4000),
-        new RegExp(`--agent-city-sky:\\s*${expected}`),
-        `${selector} sky must match the canvas clear colour ${expected}`
+        /--agent-city-sky:\s*var\(--header-bg\)/,
+        `${selector} sky must follow the family canvas so the Agent City panel blends`
       );
     }
   }
-  // 19 family blocks + base :root + the system-dark macOS mirror = 21.
+  // 47 family blocks + base :root + the system-dark macOS mirror = 49.
   const skyDeclarations = [...source.matchAll(/--agent-city-sky\s*:/g)];
-  assert.equal(skyDeclarations.length, 21, "--agent-city-sky must cover every family and resolved variant");
+  assert.equal(skyDeclarations.length, 49, "--agent-city-sky must cover every family and resolved variant");
+  // Imported themes have no family file; their mapper points the sky at their canvas.
+  assert.match(read("./lib/theme/vscodeTheme.ts"), /set\("--agent-city-sky", hex\(surface\)\)/);
+});
+
+// A family may recolour through tokens and, for the form tokens cannot express,
+// dress the existing chrome regions through the stable `[data-theme-region]`
+// hooks. Any other descendant selector is the per-component drift the family-file
+// split exists to prevent; Windows 98 is the one documented structural exception
+// (its 3D bevel) and is exempted by family id.
+test("theme families adapt existing chrome only through the documented region hooks", () => {
+  const REGION_HOOKS = ["window", "header", "sidebar", "session-list", "chat", "composer", "file-panel"];
+  for (const family of THEME_FAMILIES) {
+    const source = read(`./themes/${family}.css`).replace(/\/\*[\s\S]*?\*\//g, "");
+    const selectors = [...source.matchAll(/([^{}]+)\{/g)]
+      .map((match) => match[1].trim())
+      .filter((selector) => selector && !selector.startsWith("@"));
+    for (const selector of selectors) {
+      const isTokenBlock = new RegExp(`^:root\\[data-theme-family="${family}"\\](\\[data-resolved-appearance="(light|dark)"\\])?$`).test(selector);
+      const isPreview = selector.startsWith(`.theme-swatch[data-theme-family-preview="${family}"]`);
+      const isRegionRule = selector.includes("[data-theme-region=");
+      assert.ok(
+        isTokenBlock || isPreview || isRegionRule || family === "win98",
+        `${family}.css has a selector outside tokens/regions: ${selector}`
+      );
+      for (const hook of selector.matchAll(/data-theme-region="([^"]+)"/g)) {
+        assert.ok(REGION_HOOKS.includes(hook[1]), `${family}.css uses an undocumented region hook "${hook[1]}"`);
+      }
+    }
+  }
+  // The hooks must be mounted on the real chrome, or a family rule silently
+  // matches nothing. One attribute per region, on the element that owns it.
+  const chatView = read("./ChatView.svelte");
+  assert.match(chatView, /class="chat-layout"[\s\S]{0,40}data-theme-region="window"/);
+  assert.match(chatView, /class="chat-content" data-theme-region="chat"/);
+  assert.match(chatView, /class="chat-header" data-theme-region="header"/);
+  assert.match(chatSidebar, /class="chat-sidebar" data-theme-region="sidebar"/);
+  assert.match(chatSidebar, /class="sidebar-channels" data-theme-region="session-list"/);
+  assert.match(chatInputArea, /class="composer-wrap"[\s\S]{0,80}data-theme-region="composer"/);
+  const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
+  assert.match(artifactPanel, /class="file-panel project-file-panel artifact-panel"\s+data-theme-region="file-panel"/);
 });
 
 test("sidebar conversation rows expose a right-click context menu with rename, delete, copy path and reveal", () => {
@@ -2216,15 +2256,20 @@ test("automation session detail renders a chat-style transcript", () => {
   assert.doesNotMatch(transcript, /class="message-avatar"/);
   assert.match(transcript, /class="message-stack"/);
   assert.match(transcript, /<ChatMarkdown/);
-  assert.match(styles, /\.message-row\.assistant \.message-bubble \{[^}]*background: transparent/s);
-  // The assistant turn has no bubble, so the user turn is the only card in the
-  // transcript: keep it a full step above the background plus tier-1 elevation,
-  // not a near-invisible 1px outline.
-  assert.match(styles, /\.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-300\)[^}]*box-shadow: var\(--soft-shadow\)/s);
-  // The user-bubble elevation is token-driven: the base rule above reads
-  // --gray-300 (theme-aware), so it lifts the sent turn above the transcript
-  // in BOTH light and dark. A per-theme [data-resolved-appearance="dark"] override used to
-  // duplicate this and drift out of sync with system-dark; it is now gone.
+  // Assistant replies are bare prose by default; chat-app families opt the
+  // reply text into a bubble through the --bubble-assistant-* roles.
+  assert.match(styles, /--bubble-assistant-bg:\s*transparent/);
+  assert.match(styles, /\.message-row\.assistant \.message-bubble \{[^}]*padding: var\(--bubble-assistant-padding\)[^}]*background: var\(--bubble-assistant-bg\)[^}]*\}/s);
+  // The assistant turn default stays bubble-free, so the user turn is the only
+  // card in the transcript by default: keep it a full step above the background
+  // plus tier-1 elevation, not a near-invisible 1px outline.
+  assert.match(styles, /\.message-row\.mine \.message-bubble \{[^}]*background: var\(--bubble-mine-bg\)[^}]*box-shadow: var\(--soft-shadow\)/s);
+  // The user-bubble surface is token-driven: the base rule above reads
+  // --bubble-mine-bg, which defaults to the theme-aware neutral ramp, so it
+  // lifts the sent turn above the transcript in BOTH light and dark while
+  // letting chat-app families brand the bubble. A per-theme
+  // [data-resolved-appearance="dark"] override used to duplicate this and drift
+  // out of sync with system-dark; it is now gone.
   assert.doesNotMatch(styles, /\[data-resolved-appearance="dark"\] \.message-row\.mine \.message-bubble/s);
   assert.match(styles, /\.run-activity \{[^}]*border: 0;[^}]*background: transparent/s);
   assert.doesNotMatch(sections.tasks, /class="message-(row|avatar|stack|bubble)/);

@@ -1,0 +1,237 @@
+/* QQ — Sky (light) and Night (dark). A committed blue family: the whole window
+   canvas is QQ blue, cards are white, corners are chunky and BOTH directions
+   chat in bubbles (the sent bubble is solid QQ blue with white text). */
+
+/* QQ — Sky. The entire workspace is light QQ blue; white cards and bubbles. */
+:root[data-theme-family="qq"][data-resolved-appearance="light"] {
+  color: #10334f;
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "Geist Mono", ui-monospace, monospace;
+  --radius-small: 10px; --radius-control: 14px; --radius-panel: 18px; --radius-full: 999px;
+  --mac-window-background: #e6f2ff;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #d8e8fa;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #0d2f49;
+  --mac-secondary-label: #37678f;
+  --mac-tertiary-label: #6f9cc2;
+  --mac-separator: rgb(13 47 73 / 12%);
+  --mac-unemphasized-selection: #bcd9f5;
+  --sidebar-material-tint: #dcebfb;
+  --sidebar-material-filter: none;
+  --gray-100: #e6f2ff; --gray-200: #d8e8fa; --gray-300: #c4dcf5; --gray-400: #a9ccef;
+  --gray-500: #6fa3d6; --gray-600: #4e86be; --gray-700: #37678f; --gray-800: #234e72;
+  --gray-900: #143b5b; --gray-1000: #0d2f49;
+  --gray-alpha-100: rgb(13 47 73 / 5%); --gray-alpha-200: rgb(13 47 73 / 8%);
+  --gray-alpha-300: rgb(13 47 73 / 12%); --gray-alpha-400: rgb(13 47 73 / 10%);
+  --gray-alpha-500: rgb(13 47 73 / 22%); --gray-alpha-600: rgb(13 47 73 / 28%);
+  --blue-700: #0f79c0; --blue-800: #0d69a8;
+  --accent: #0f79c0; --accent-hover: #0d69a8; --accent-soft: rgb(15 121 192 / 14%);
+  --online: #16a34a; --danger: #e5484d; --warning: #c26a00; --warning-text: #a15a00;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7c3aed; --miniapp-accent: #0e7490;
+  --verify-passed-fg: #16a34a; --verify-failed-fg: #e5484d; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #0090e8; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #ffffff; --bubble-assistant-border: var(--separator);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(16 51 79 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(16 51 79 / 18%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(16 51 79 / 5%); --fill-hover: rgb(16 51 79 / 9%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(16 51 79 / 5%); --sidebar-surface-hover: rgb(16 51 79 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 3px 8px -2px rgb(16 70 110 / 18%); --float-shadow: 0 12px 28px -12px rgb(16 70 110 / 36%);
+  --popover-shadow: 0 2px 4px rgb(16 70 110 / 8%), 0 10px 22px -8px rgb(16 70 110 / 22%);
+  --glass-shadow: 0 2px 4px rgb(16 70 110 / 8%), 0 12px 28px -8px rgb(16 70 110 / 24%);
+  --drawer-shadow: -8px 0 28px -8px rgb(16 70 110 / 24%); --modal-scrim: rgb(8 30 48 / 36%); --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 10px 26px -10px rgb(16 70 110 / 26%); --glass-chip-shadow: 0 4px 14px -6px rgb(16 70 110 / 24%);
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(16 51 79 / 15%); --control-border-strong: rgb(16 51 79 / 30%); --control-shadow: none;
+  --chart-blue: #0d7faa; --chart-teal: #0e7490; --chart-green: #16a34a; --chart-purple: #7c3aed;
+  --chart-orange: #c26a00; --chart-red: #e5484d; --chart-indigo: #2f6fd0;
+  --chart-track: rgb(16 51 79 / 8%); --chart-grid: rgb(16 51 79 / 8%);
+  --code-bg: #0f2740; --code-text: #e4f0fb;
+  --syntax-code-bg: #f2f8fd; --syntax-code-gutter: #e2eefb; --syntax-code-border: #bdd9f2; --syntax-code-fg: #10334f;
+  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
+  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  --diff-add-line: #e1f5e8; --diff-add-num: #c3e9d2; --diff-del-line: #fde8e9; --diff-del-num: #f8c9cd;
+  --diff-add-word: #a3dcba; --diff-del-word: #efa6ab; --diff-add-label: #16a34a; --diff-del-label: #e5484d;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* QQ — Night. Deep-blue canvas; both bubbles stay blue-tinged. */
+:root[data-theme-family="qq"][data-resolved-appearance="dark"] {
+  color: #e4f0fb;
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "Geist Mono", ui-monospace, monospace;
+  --radius-small: 10px; --radius-control: 14px; --radius-panel: 18px; --radius-full: 999px;
+  --mac-window-background: #101822;
+  --mac-control-background: #1a2330;
+  --mac-grouped-background: #22303f;
+  --mac-elevated-background: #18222f;
+  --mac-label: #e4f0fb;
+  --mac-secondary-label: #9fbed8;
+  --mac-tertiary-label: #6e93b4;
+  --mac-separator: rgb(228 240 251 / 10%);
+  --mac-unemphasized-selection: #26333f;
+  --sidebar-material-tint: #101822;
+  --sidebar-material-filter: none;
+  --gray-100: #101822; --gray-200: #1a2330; --gray-300: #22303f; --gray-400: #2a3a4a;
+  --gray-500: #35485a; --gray-600: #4e86be; --gray-700: #6e93b4; --gray-800: #9fbed8;
+  --gray-900: #c8e0f2; --gray-1000: #e4f0fb;
+  --gray-alpha-100: rgb(228 240 251 / 6%); --gray-alpha-200: rgb(228 240 251 / 9%);
+  --gray-alpha-300: rgb(228 240 251 / 13%); --gray-alpha-400: rgb(228 240 251 / 16%);
+  --gray-alpha-500: rgb(228 240 251 / 26%); --gray-alpha-600: rgb(228 240 251 / 34%);
+  --blue-700: #2bc2ff; --blue-800: #5fd0ff;
+  --accent: #2bc2ff; --accent-hover: #5fd0ff; --accent-soft: rgb(43 194 255 / 18%);
+  --online: #34d399; --danger: #ff6b70; --warning: #ffb84d; --warning-text: #ffc46b;
+  --on-accent: #04212e; --agent-city-sky: var(--header-bg);
+  --skill-accent: #c084fc; --miniapp-accent: #2dd4bf;
+  --verify-passed-fg: #34d399; --verify-failed-fg: #ff6b70; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #1e7fc4; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #18222f; --bubble-assistant-border: var(--hairline);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(228 240 251 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(228 240 251 / 14%); --glass-border-light: rgb(228 240 251 / 18%);
+  --fill: rgb(228 240 251 / 7%); --fill-hover: rgb(228 240 251 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(228 240 251 / 6%); --sidebar-surface-hover: rgb(228 240 251 / 10%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #22303f;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 4px 12px -4px rgb(0 0 0 / 46%); --float-shadow: 0 12px 30px -12px rgb(0 0 0 / 62%);
+  --popover-shadow: 0 2px 6px rgb(0 0 0 / 32%), 0 12px 26px -8px rgb(0 0 0 / 50%);
+  --glass-shadow: 0 2px 6px rgb(0 0 0 / 32%), 0 14px 32px -8px rgb(0 0 0 / 52%);
+  --drawer-shadow: -8px 0 28px -8px rgb(0 0 0 / 54%); --modal-scrim: rgb(2 8 14 / 62%); --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 12px 28px -10px rgb(0 0 0 / 52%); --glass-chip-shadow: 0 6px 18px -8px rgb(0 0 0 / 48%);
+  --glass-surface-bg: #18222f; --glass-popover-bg: #18222f;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(228 240 251 / 15%); --control-border-strong: rgb(228 240 251 / 27%); --control-shadow: none;
+  --chart-blue: #2bc2ff; --chart-teal: #2dd4bf; --chart-green: #34d399; --chart-purple: #c084fc;
+  --chart-orange: #ffb84d; --chart-red: #ff6b70; --chart-indigo: #7aa8ff;
+  --chart-track: rgb(228 240 251 / 10%); --chart-grid: rgb(228 240 251 / 8%);
+  --code-bg: #081827; --code-text: #d4d4d4;
+  --syntax-code-bg: #0e2135; --syntax-code-gutter: #16304a; --syntax-code-border: #24476a; --syntax-code-fg: #d4d4d4;
+  --syntax-code-keyword: #569cd6; --syntax-code-string: #ce9178; --syntax-code-title: #dcdcaa; --syntax-code-number: #b5cea8;
+  --syntax-code-comment: #6a9955; --syntax-code-variable: #9cdcfe; --syntax-code-attr: #4ec9b0; --syntax-code-built-in: #4ec9b0;
+  --diff-add-line: rgb(52 211 153 / 15%); --diff-add-num: rgb(52 211 153 / 30%); --diff-add-word: rgb(52 211 153 / 42%);
+  --diff-del-line: rgb(255 107 112 / 16%); --diff-del-num: rgb(255 107 112 / 30%); --diff-del-word: rgb(255 107 112 / 42%);
+  --diff-add-label: #34d399; --diff-del-label: #ff6b70;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — QQ dresses the existing chrome regions (header, sidebar,
+   session list, chat canvas, composer, file panel) so the family reads as one
+   QQ window rather than a recoloured macOS app. Every rule is scoped to a
+   documented `[data-theme-region]` hook and never changes layout; families
+   without a section like this fall back to the shared chrome. */
+
+/* Header — QQ's title bar: a light blue sheen over a bottom rule. */
+:root[data-theme-family="qq"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, #f3f9ff, #e6f2ff);
+  border-bottom: 1px solid rgb(13 47 73 / 14%);
+}
+:root[data-theme-family="qq"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* Sidebar — QQ's nav: a blue gradient veil instead of the neutral glass. */
+:root[data-theme-family="qq"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, #eaf4ff, #d7e9fb);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Session list — QQ group headers as filled bars, the active buddy row as a
+   solid blue pill with white text. */
+:root[data-theme-family="qq"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: rgb(13 47 73 / 7%);
+}
+:root[data-theme-family="qq"] [data-theme-region="session-list"] .conversation-row.active {
+  background: linear-gradient(180deg, #2aa7ef, #0f79c0);
+}
+:root[data-theme-family="qq"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: #ffffff;
+}
+:root[data-theme-family="qq"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: rgb(255 255 255 / 80%);
+}
+
+/* Chat canvas — a soft white wash at the top so the transcript sits in a QQ
+   window; it fades to transparent before the composer so the scroll-edge
+   blend stays seamless (header-bg === content-bg still holds). */
+:root[data-theme-family="qq"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, rgb(255 255 255 / 60%) 0%, transparent 42%);
+}
+
+/* Composer — QQ frames the input as a raised white card. */
+:root[data-theme-family="qq"] [data-theme-region="composer"] .composer {
+  border-color: rgb(13 47 73 / 16%);
+  box-shadow: 0 12px 30px -18px rgb(16 70 110 / 45%), inset 0 1px 0 #ffffff;
+}
+
+/* File panel — QQ gives the panel a titled header bar. */
+:root[data-theme-family="qq"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, #f3f9ff, #e6f2ff);
+  border-bottom: 1px solid rgb(13 47 73 / 12%);
+}
+
+/* Night — the same shapes in QQ's calm blue-gray. */
+:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, #18222f, #101822);
+  border-bottom-color: rgb(228 240 251 / 12%);
+}
+:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, #16202c, #0d1620);
+}
+:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="session-list"] .sidebar-section-head {
+  background: rgb(228 240 251 / 7%);
+}
+:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, rgb(255 255 255 / 5%) 0%, transparent 42%);
+}
+:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="composer"] .composer {
+  border-color: rgb(228 240 251 / 16%);
+  box-shadow: 0 16px 34px -18px rgb(0 0 0 / 65%), inset 0 1px 0 rgb(255 255 255 / 6%);
+}
+:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, #18222f, #101822);
+  border-bottom-color: rgb(228 240 251 / 12%);
+}
+
+
+.theme-swatch[data-theme-family-preview="qq"][data-theme-preview-appearance="light"] .tp-side { background: #bcd9f5; }
+.theme-swatch[data-theme-family-preview="qq"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #e6f2ff); }
+.theme-swatch[data-theme-family-preview="qq"][data-theme-preview-appearance="dark"] .tp-side { background: #22303f; }
+.theme-swatch[data-theme-family-preview="qq"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #18222f, #101822); }
+.theme-swatch[data-theme-family-preview="qq"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #bcd9f5 0 50%, #22303f 50%); }
+.theme-swatch[data-theme-family-preview="qq"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #18222f 50%); }

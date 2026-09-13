@@ -26,7 +26,7 @@
   --accent: #9b8cff; --accent-hover: #b2a6ff; --accent-soft: rgb(155 140 255 / 20%);
   --on-accent: #141226;
   --online: #55d6a0; --danger: #ff7b8a; --warning: #f6c66e; --warning-text: #f6c66e;
-  --agent-city-sky: #101820;
+  --agent-city-sky: var(--header-bg);
   --skill-accent: #d5a8ff; --miniapp-accent: #63e6d5;
   --verify-passed-fg: #7ee2b3; --verify-failed-fg: #ff9ca8;
   --message-bubble-border: var(--hairline);
@@ -94,7 +94,7 @@
   --blue-700: #5567d9; --blue-800: #4657c4;
   --accent: #5567d9; --accent-hover: #4657c4; --accent-soft: rgb(85 103 217 / 12%);
   --online: #2f9b72; --danger: #d95c69; --warning: #b87a27; --warning-text: #8a5a16;
-  --on-accent: #ffffff; --agent-city-sky: #eaf3f5;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
   --skill-accent: #7357c7; --miniapp-accent: #168b8b;
   --verify-passed-fg: #2f8f6b; --verify-failed-fg: #c84f5e; --message-bubble-border: var(--separator);
   --text-primary: var(--mac-label); --label-primary: var(--mac-label);
@@ -130,6 +130,54 @@
 @media (prefers-color-scheme: dark) {
   :root[data-theme-family="midnight"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
 }
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Midnight — deep-blue chrome with the periwinkle accent on the selection.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="midnight"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--header-bg)), color-mix(in srgb, var(--accent) 3%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="midnight"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="midnight"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="midnight"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-family="midnight"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="midnight"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="midnight"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="midnight"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 36%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="midnight"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="midnight"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
 
 .theme-swatch[data-theme-family-preview="midnight"][data-theme-preview-appearance="light"] .tp-side { background: #e8eef7; }
 .theme-swatch[data-theme-family-preview="midnight"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #f3f7fc); }

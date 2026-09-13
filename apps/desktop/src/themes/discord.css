@@ -1,0 +1,192 @@
+/* Discord — Light and Dark. The Discord look: a grey/white two-plane layout,
+   slightly squared corners and the #5865F2 blurple accent. */
+
+/* Discord — Light. White chat surface over a #F2F3F5 sidebar. */
+:root[data-theme-family="discord"][data-resolved-appearance="light"] {
+  color: #060607;
+  color-scheme: light;
+  font-family: "gg sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "gg sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "gg sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "Geist Mono", ui-monospace, monospace;
+  --radius-small: 4px; --radius-control: 6px; --radius-panel: 10px; --radius-full: 999px;
+  --mac-window-background: #ffffff;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #f2f3f5;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #060607;
+  --mac-secondary-label: #4e5058;
+  --mac-tertiary-label: #80848e;
+  --mac-separator: rgb(6 6 7 / 10%);
+  --mac-unemphasized-selection: #e3e5e8;
+  --sidebar-material-tint: #f2f3f5;
+  --sidebar-material-filter: none;
+  --gray-100: #ffffff; --gray-200: #f2f3f5; --gray-300: #e3e5e8; --gray-400: #d4d7dc;
+  --gray-500: #b5bac1; --gray-600: #80848e; --gray-700: #4e5058; --gray-800: #313338;
+  --gray-900: #1e1f22; --gray-1000: #060607;
+  --gray-alpha-100: rgb(6 6 7 / 5%); --gray-alpha-200: rgb(6 6 7 / 8%);
+  --gray-alpha-300: rgb(6 6 7 / 11%); --gray-alpha-400: rgb(6 6 7 / 9%);
+  --gray-alpha-500: rgb(6 6 7 / 20%); --gray-alpha-600: rgb(6 6 7 / 26%);
+  --blue-700: #5865f2; --blue-800: #4752c4;
+  --accent: #5865f2; --accent-hover: #4752c4; --accent-soft: rgb(88 101 242 / 12%);
+  --online: #23a55a; --danger: #da373c; --warning: #f0b232; --warning-text: #b47a00;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #eb459e; --miniapp-accent: #0f7b8a;
+  --verify-passed-fg: #1f8b4c; --verify-failed-fg: #da373c; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #e0e3ff; --bubble-mine-border: rgb(88 101 242 / 20%);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(6 6 7 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(6 6 7 / 16%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(6 6 7 / 5%); --fill-hover: rgb(6 6 7 / 9%);
+  --panel-bg: #ffffff; --sidebar-bg: #f2f3f5;
+  --sidebar-surface: rgb(6 6 7 / 5%); --sidebar-surface-hover: rgb(6 6 7 / 9%);
+  --content-bg: #ffffff; --header-bg: #ffffff;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #f2f3f5;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: #ffffff; --window-bg: #ffffff;
+  --soft-shadow: 0 1px 2px rgb(6 6 7 / 10%); --float-shadow: 0 8px 20px -12px rgb(6 6 7 / 30%);
+  --popover-shadow: 0 1px 2px rgb(6 6 7 / 8%), 0 8px 18px -8px rgb(6 6 7 / 20%);
+  --glass-shadow: 0 1px 2px rgb(6 6 7 / 8%), 0 10px 22px -8px rgb(6 6 7 / 22%);
+  --drawer-shadow: -8px 0 24px -10px rgb(6 6 7 / 22%); --modal-scrim: rgb(6 6 7 / 34%); --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 10px 22px -12px rgb(6 6 7 / 24%); --glass-chip-shadow: 0 4px 12px -6px rgb(6 6 7 / 22%);
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(6 6 7 / 13%); --control-border-strong: rgb(6 6 7 / 26%); --control-shadow: none;
+  --chart-blue: #5865f2; --chart-teal: #0f7b8a; --chart-green: #23a55a; --chart-purple: #eb459e;
+  --chart-orange: #f0b232; --chart-red: #da373c; --chart-indigo: #7983f5;
+  --chart-track: rgb(6 6 7 / 8%); --chart-grid: rgb(6 6 7 / 8%);
+  --code-bg: #1e1f22; --code-text: #dbdee1;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #f2f3f5; --syntax-code-border: #e3e5e8; --syntax-code-fg: #060607;
+  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
+  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  --diff-add-line: #e5f6ea; --diff-add-num: #c9ebd4; --diff-del-line: #fde9ea; --diff-del-num: #f8cccc;
+  --diff-add-word: #a8ddb8; --diff-del-word: #efa7a9; --diff-add-label: #1f8b4c; --diff-del-label: #da373c;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* Discord — Dark. The classic #313338 / #2B2D31 planes with the blurple accent. */
+:root[data-theme-family="discord"][data-resolved-appearance="dark"] {
+  color: #f2f3f5;
+  color-scheme: dark;
+  font-family: "gg sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "gg sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "gg sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "Geist Mono", ui-monospace, monospace;
+  --radius-small: 4px; --radius-control: 6px; --radius-panel: 10px; --radius-full: 999px;
+  --mac-window-background: #313338;
+  --mac-control-background: #2b2d31;
+  --mac-grouped-background: #232428;
+  --mac-elevated-background: #383a40;
+  --mac-label: #f2f3f5;
+  --mac-secondary-label: #b5bac1;
+  --mac-tertiary-label: #949ba4;
+  --mac-separator: rgb(255 255 255 / 8%);
+  --mac-unemphasized-selection: #3f4147;
+  --sidebar-material-tint: #2b2d31;
+  --sidebar-material-filter: none;
+  --gray-100: #313338; --gray-200: #2b2d31; --gray-300: #232428; --gray-400: #1e1f22;
+  --gray-500: #3f4147; --gray-600: #4e5058; --gray-700: #80848e; --gray-800: #949ba4;
+  --gray-900: #b5bac1; --gray-1000: #f2f3f5;
+  --gray-alpha-100: rgb(255 255 255 / 6%); --gray-alpha-200: rgb(255 255 255 / 9%);
+  --gray-alpha-300: rgb(255 255 255 / 13%); --gray-alpha-400: rgb(255 255 255 / 16%);
+  --gray-alpha-500: rgb(255 255 255 / 26%); --gray-alpha-600: rgb(255 255 255 / 34%);
+  --blue-700: #5865f2; --blue-800: #7983f5;
+  --accent: #5865f2; --accent-hover: #7983f5; --accent-soft: rgb(88 101 242 / 20%);
+  --online: #23a55a; --danger: #f23f43; --warning: #f0b232; --warning-text: #ffc46b;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #eb459e; --miniapp-accent: #4fd1c5;
+  --verify-passed-fg: #23a55a; --verify-failed-fg: #f23f43; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #5865f2; --bubble-mine-border: rgb(121 131 245 / 45%);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 7%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
+  --fill: rgb(255 255 255 / 7%); --fill-hover: rgb(255 255 255 / 11%);
+  --panel-bg: #313338; --sidebar-bg: #2b2d31;
+  --sidebar-surface: rgb(255 255 255 / 6%); --sidebar-surface-hover: rgb(255 255 255 / 10%);
+  --content-bg: #313338; --header-bg: #313338;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #232428;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: #313338; --window-bg: #313338;
+  --soft-shadow: 0 2px 4px rgb(0 0 0 / 36%); --float-shadow: 0 10px 26px -12px rgb(0 0 0 / 58%);
+  --popover-shadow: 0 2px 6px rgb(0 0 0 / 30%), 0 12px 24px -8px rgb(0 0 0 / 48%);
+  --glass-shadow: 0 2px 6px rgb(0 0 0 / 30%), 0 14px 30px -8px rgb(0 0 0 / 50%);
+  --drawer-shadow: -8px 0 24px -10px rgb(0 0 0 / 50%); --modal-scrim: rgb(0 0 0 / 60%); --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 12px 26px -12px rgb(0 0 0 / 50%); --glass-chip-shadow: 0 5px 16px -8px rgb(0 0 0 / 46%);
+  --glass-surface-bg: #383a40; --glass-popover-bg: #383a40;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(255 255 255 / 13%); --control-border-strong: rgb(255 255 255 / 24%); --control-shadow: none;
+  --chart-blue: #7983f5; --chart-teal: #4fd1c5; --chart-green: #23a55a; --chart-purple: #eb459e;
+  --chart-orange: #f0b232; --chart-red: #f23f43; --chart-indigo: #a1a8f7;
+  --chart-track: rgb(255 255 255 / 10%); --chart-grid: rgb(255 255 255 / 8%);
+  --code-bg: #1e1f22; --code-text: #dbdee1;
+  --syntax-code-bg: #2b2d31; --syntax-code-gutter: #232428; --syntax-code-border: #3f4147; --syntax-code-fg: #dbdee1;
+  --syntax-code-keyword: #569cd6; --syntax-code-string: #ce9178; --syntax-code-title: #dcdcaa; --syntax-code-number: #b5cea8;
+  --syntax-code-comment: #6a9955; --syntax-code-variable: #9cdcfe; --syntax-code-attr: #4ec9b0; --syntax-code-built-in: #4ec9b0;
+  --diff-add-line: rgb(35 165 90 / 15%); --diff-add-num: rgb(35 165 90 / 30%); --diff-add-word: rgb(35 165 90 / 42%);
+  --diff-del-line: rgb(242 63 67 / 16%); --diff-del-num: rgb(242 63 67 / 30%); --diff-del-word: rgb(242 63 67 / 42%);
+  --diff-add-label: #23a55a; --diff-del-label: #f23f43;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Discord — squared planes; the blurple is the selection, not the canvas.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="discord"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 34%, var(--header-bg)), var(--header-bg));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="discord"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="discord"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 22%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="discord"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+:root[data-theme-family="discord"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="discord"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="discord"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="discord"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 34%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="discord"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="discord"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="discord"][data-theme-preview-appearance="light"] .tp-side { background: #f2f3f5; }
+.theme-swatch[data-theme-family-preview="discord"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #e3e5e8); }
+.theme-swatch[data-theme-family-preview="discord"][data-theme-preview-appearance="dark"] .tp-side { background: #2b2d31; }
+.theme-swatch[data-theme-family-preview="discord"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #383a40, #313338); }
+.theme-swatch[data-theme-family-preview="discord"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #f2f3f5 0 50%, #2b2d31 50%); }
+.theme-swatch[data-theme-family-preview="discord"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #383a40 50%); }

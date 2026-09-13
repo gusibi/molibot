@@ -1,0 +1,197 @@
+/* Android — Material Light (light) and Material Dark (dark). A committed
+   Material You family: a lavender workspace, tonal surfaces, large radii and
+   M3 bubbles in both directions. */
+
+/* Android — Material Light. M3 surface tint with the #6750A4 primary. */
+:root[data-theme-family="android"][data-resolved-appearance="light"] {
+  color: #1d1b20;
+  color-scheme: light;
+  font-family: Roboto, "Noto Sans", "Noto Sans CJK SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: Roboto, "Noto Sans", "Noto Sans CJK SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: Roboto, "Noto Sans", "Noto Sans CJK SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Roboto Mono", "SF Mono", ui-monospace, monospace;
+  --radius-small: 12px; --radius-control: 16px; --radius-panel: 24px; --radius-full: 999px;
+  --mac-window-background: #f0e9fa;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #e5daf6;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #1d1b20;
+  --mac-secondary-label: #49454f;
+  --mac-tertiary-label: #79747e;
+  --mac-separator: rgb(29 27 32 / 12%);
+  --mac-unemphasized-selection: #e8def8;
+  --sidebar-material-tint: #f0e9fa;
+  --sidebar-material-filter: none;
+  --gray-100: #f0e9fa; --gray-200: #e5daf6; --gray-300: #d8caeb; --gray-400: #c9b8e0;
+  --gray-500: #b0a0c8; --gray-600: #938f99; --gray-700: #79747e; --gray-800: #49454f;
+  --gray-900: #322f37; --gray-1000: #1d1b20;
+  --gray-alpha-100: rgb(29 27 32 / 5%); --gray-alpha-200: rgb(29 27 32 / 8%);
+  --gray-alpha-300: rgb(29 27 32 / 12%); --gray-alpha-400: rgb(29 27 32 / 10%);
+  --gray-alpha-500: rgb(29 27 32 / 22%); --gray-alpha-600: rgb(29 27 32 / 28%);
+  --blue-700: #6750a4; --blue-800: #5a3fa0;
+  --accent: #6750a4; --accent-hover: #5a3fa0; --accent-soft: rgb(103 80 164 / 14%);
+  --online: #146c2e; --danger: #b3261e; --warning: #e08600; --warning-text: #8a5200;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7d5260; --miniapp-accent: #006a6a;
+  --verify-passed-fg: #146c2e; --verify-failed-fg: #b3261e; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #eaddff; --bubble-mine-border: transparent;
+  --bubble-assistant-bg: #ffffff; --bubble-assistant-border: var(--separator);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(29 27 32 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(29 27 32 / 18%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(29 27 32 / 5%); --fill-hover: rgb(29 27 32 / 9%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(29 27 32 / 5%); --sidebar-surface-hover: rgb(29 27 32 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 4px rgb(29 27 32 / 14%); --float-shadow: 0 12px 30px -12px rgb(29 27 32 / 34%);
+  --popover-shadow: 0 2px 6px rgb(29 27 32 / 12%), 0 12px 26px -10px rgb(29 27 32 / 24%);
+  --glass-shadow: 0 2px 6px rgb(29 27 32 / 12%), 0 14px 30px -10px rgb(29 27 32 / 26%);
+  --drawer-shadow: -8px 0 28px -10px rgb(29 27 32 / 26%); --modal-scrim: rgb(29 27 32 / 38%); --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 12px 30px -12px rgb(29 27 32 / 28%); --glass-chip-shadow: 0 5px 16px -8px rgb(29 27 32 / 26%);
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(29 27 32 / 14%); --control-border-strong: rgb(29 27 32 / 28%); --control-shadow: none;
+  --chart-blue: #6750a4; --chart-teal: #006a6a; --chart-green: #146c2e; --chart-purple: #7d5260;
+  --chart-orange: #e08600; --chart-red: #b3261e; --chart-indigo: #4355b9;
+  --chart-track: rgb(29 27 32 / 8%); --chart-grid: rgb(29 27 32 / 8%);
+  --code-bg: #1d1b20; --code-text: #e6e0e9;
+  --syntax-code-bg: #faf6ff; --syntax-code-gutter: #f0e9fa; --syntax-code-border: #e5daf6; --syntax-code-fg: #1d1b20;
+  --syntax-code-keyword: #7d5260; --syntax-code-string: #006a6a; --syntax-code-title: #6750a4; --syntax-code-number: #8a5200;
+  --syntax-code-comment: #79747e; --syntax-code-variable: #b3261e; --syntax-code-attr: #146c2e; --syntax-code-built-in: #6750a4;
+  --diff-add-line: #e4f5e8; --diff-add-num: #c6e9d0; --diff-del-line: #fcebe9; --diff-del-num: #f5cfcb;
+  --diff-add-word: #a5dcb6; --diff-del-word: #eba9a3; --diff-add-label: #146c2e; --diff-del-label: #b3261e;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* Android — Material Dark. M3 dark surface tint with the #D0BCFF primary. */
+:root[data-theme-family="android"][data-resolved-appearance="dark"] {
+  color: #e6e0e9;
+  color-scheme: dark;
+  font-family: Roboto, "Noto Sans", "Noto Sans CJK SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: Roboto, "Noto Sans", "Noto Sans CJK SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: Roboto, "Noto Sans", "Noto Sans CJK SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Roboto Mono", "SF Mono", ui-monospace, monospace;
+  --radius-small: 12px; --radius-control: 16px; --radius-panel: 24px; --radius-full: 999px;
+  --mac-window-background: #141218;
+  --mac-control-background: #211f26;
+  --mac-grouped-background: #2b2930;
+  --mac-elevated-background: #2b2930;
+  --mac-label: #e6e0e9;
+  --mac-secondary-label: #cac4d0;
+  --mac-tertiary-label: #938f99;
+  --mac-separator: rgb(230 224 233 / 10%);
+  --mac-unemphasized-selection: #36343b;
+  --sidebar-material-tint: #141218;
+  --sidebar-material-filter: none;
+  --gray-100: #141218; --gray-200: #211f26; --gray-300: #2b2930; --gray-400: #36343b;
+  --gray-500: #49454f; --gray-600: #605d66; --gray-700: #79747e; --gray-800: #938f99;
+  --gray-900: #cac4d0; --gray-1000: #e6e0e9;
+  --gray-alpha-100: rgb(230 224 233 / 6%); --gray-alpha-200: rgb(230 224 233 / 9%);
+  --gray-alpha-300: rgb(230 224 233 / 13%); --gray-alpha-400: rgb(230 224 233 / 16%);
+  --gray-alpha-500: rgb(230 224 233 / 26%); --gray-alpha-600: rgb(230 224 233 / 34%);
+  --blue-700: #d0bcff; --blue-800: #e0d2ff;
+  --accent: #d0bcff; --accent-hover: #e0d2ff; --accent-soft: rgb(208 188 255 / 18%);
+  --online: #6dd58c; --danger: #f2b8b5; --warning: #ffb77c; --warning-text: #ffb77c;
+  --on-accent: #381e72; --agent-city-sky: var(--header-bg);
+  --skill-accent: #efb8c8; --miniapp-accent: #4fd8d8;
+  --verify-passed-fg: #6dd58c; --verify-failed-fg: #f2b8b5; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #4f378b; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #211f26; --bubble-assistant-border: var(--hairline);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(230 224 233 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(230 224 233 / 14%); --glass-border-light: rgb(230 224 233 / 18%);
+  --fill: rgb(230 224 233 / 7%); --fill-hover: rgb(230 224 233 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(230 224 233 / 6%); --sidebar-surface-hover: rgb(230 224 233 / 10%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #2b2930;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 4px rgb(0 0 0 / 44%); --float-shadow: 0 14px 32px -14px rgb(0 0 0 / 62%);
+  --popover-shadow: 0 2px 6px rgb(0 0 0 / 34%), 0 12px 28px -10px rgb(0 0 0 / 50%);
+  --glass-shadow: 0 2px 6px rgb(0 0 0 / 34%), 0 16px 34px -10px rgb(0 0 0 / 54%);
+  --drawer-shadow: -8px 0 28px -10px rgb(0 0 0 / 54%); --modal-scrim: rgb(0 0 0 / 60%); --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 14px 32px -14px rgb(0 0 0 / 54%); --glass-chip-shadow: 0 6px 18px -8px rgb(0 0 0 / 50%);
+  --glass-surface-bg: #2b2930; --glass-popover-bg: #2b2930;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(230 224 233 / 15%); --control-border-strong: rgb(230 224 233 / 27%); --control-shadow: none;
+  --chart-blue: #d0bcff; --chart-teal: #4fd8d8; --chart-green: #6dd58c; --chart-purple: #efb8c8;
+  --chart-orange: #ffb77c; --chart-red: #f2b8b5; --chart-indigo: #b0c0ff;
+  --chart-track: rgb(230 224 233 / 10%); --chart-grid: rgb(230 224 233 / 8%);
+  --code-bg: #0f0d13; --code-text: #e6e0e9;
+  --syntax-code-bg: #141218; --syntax-code-gutter: #211f26; --syntax-code-border: #36343b; --syntax-code-fg: #e6e0e9;
+  --syntax-code-keyword: #efb8c8; --syntax-code-string: #4fd8d8; --syntax-code-title: #d0bcff; --syntax-code-number: #ffb77c;
+  --syntax-code-comment: #938f99; --syntax-code-variable: #ffb0b0; --syntax-code-attr: #6dd58c; --syntax-code-built-in: #d0bcff;
+  --diff-add-line: rgb(109 213 140 / 15%); --diff-add-num: rgb(109 213 140 / 30%); --diff-add-word: rgb(109 213 140 / 42%);
+  --diff-del-line: rgb(242 184 181 / 16%); --diff-del-num: rgb(242 184 181 / 30%); --diff-del-word: rgb(242 184 181 / 42%);
+  --diff-add-label: #6dd58c; --diff-del-label: #f2b8b5;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Android — Material tonal surfaces with the violet selection.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="android"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, var(--header-bg)), color-mix(in srgb, var(--accent) 4%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="android"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="android"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="android"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-family="android"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="android"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="android"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="android"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 38%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="android"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="android"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="android"][data-theme-preview-appearance="light"] .tp-side { background: #ded0f0; }
+.theme-swatch[data-theme-family-preview="android"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #f0e9fa); }
+.theme-swatch[data-theme-family-preview="android"][data-theme-preview-appearance="dark"] .tp-side { background: #2b2930; }
+.theme-swatch[data-theme-family-preview="android"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #2b2930, #141218); }
+.theme-swatch[data-theme-family-preview="android"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #ded0f0 0 50%, #2b2930 50%); }
+.theme-swatch[data-theme-family-preview="android"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #2b2930 50%); }

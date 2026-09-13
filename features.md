@@ -1,3 +1,36 @@
+### 主题区域适配层：现有 chrome 区域按家族改写 + QQ 样板（2026-09-13，已交付）
+
+- 背景：owner 用一张完整 QQ 皮肤举例，指出「完整形态」不只是换色 + 气泡，而是 header、文件面板、输入区、会话列表、聊天区这些**独立结构**都要有对应的适配项；但明确不改整体布局、不加底部状态栏/顶部命令带。此前主题只能改 token，作用在同一棵组件树上，无法表达这些区域的**形态**。
+- 方案（共享层）：新增「区域适配层」——在现有元素上挂固定的 `data-theme-region` 钩子，家族文件用 `:root[data-theme-family="X"] [data-theme-region="Y"] …` 限定作用域改写区域形态（渐变、边框、圆角、阴影、装饰伪元素、被重绘元素的文字色），**禁止改布局**（不得动 display/grid/position/尺寸）。token 能表达的仍放 token 块。契约见 `DESIGN.md`「Region adaptation」。
+- 钩子落位：`.chat-layout`→`window`、`.chat-header`→`header`、`.chat-sidebar`→`sidebar`、`.sidebar-channels`→`session-list`、`.chat-content`→`chat`、`.composer-wrap`→`composer`、ArtifactPanel `.file-panel`→`file-panel`（7 个，全部挂在已存在的元素上，零布局改动）。
+- 样板（QQ，`themes/qq.css` 新增区域段）：header 变 QQ 标题栏（浅蓝渐变 + 下边线、去掉玻璃层）、sidebar 换蓝色渐变 veil、会话分组头变填充条、选中会话变蓝色药丸白字、聊天画布顶部加白色洗淡（在输入框渐隐条之前淡出，维持 `header-bg === content-bg` 不产生接缝）、输入区加凸起白卡框、文件面板加标题栏；暗态同形换 QQ 蓝灰。
+- 全家族铺开（共 23 款，除 macOS 外全部）：QQ 之外，9 款品牌聊天/社交家族（WeChat、Telegram、Discord、Feishu、WhatsApp、Facebook、Google、iOS、Android）、7 款大胆家族（Terminal、Brutalism、Blueprint、System 6、Cyberpunk、Candy、Cartoon）、2 款商务文档家族（Office、WPS），以及 win98 与 3 款纯调色板家族（Rosé Pine、Catppuccin、Midnight）都用同一套钩子补齐区域适配。实现走**token 派生的 color-mix**（`color-mix(in srgb, var(--accent) …)`、`var(--card-bg)`、`var(--sidebar-bg)`、`var(--on-accent)`），所以同一段规则在明暗两态自动成立、无需各写一遍；差异来自各自 token（WeChat 绿、Telegram 蓝、Discord blurple、Office Word 蓝、WPS 红、Catppuccin 蓝、Rosé Pine pine/iris、Midnight 蓝紫、Win98 深蓝、Cyberpunk 品红、System 6 黑白反转、Terminal 荧光绿等）。半径/字体/硬阴影仍由各家族 token 决定（System 6/Brutalism/Terminal/Win98 的 `--radius-*:0` 让选中药丸自动变方块）。
+- 刻意未做：仅 `macos`（产品默认，必须保持原生玻璃与中性，不能有品牌 chrome）。其余 23 款全部有区域适配段。
+- 守卫：`chat-ui.test.mjs` 新增用例——家族文件里每个选择器只能是「token 块 / 缩略图 / `data-theme-region` 区域规则 / win98 bevel」，且用到的 region 钩子必须在文档表内；并断言钩子确实挂在真实 chrome 元素上。既放开了结构适配，又堵住「回退成任意 per-component 选择器」的漂移。
+- 验证：`chat-ui.test.mjs` 248/248、全量桌面守卫 259/259、`svelte-check` 0 错误 0 警告、desktop `vite build` 通过。渲染台截图确认 23 款家族的 header/侧栏/会话列表/聊天区/输入区/文件面板都按各自形态改写、明暗两态都成立，`macos` 保持原生玻璃。**未做**：Tauri 真机走查未做。
+
+### 主题走查修复：QQ 品牌色重调 + Agent City 天空跟家族走（2026-09-13，已交付）
+
+- 背景：上一批 24 款家族交付时明确标注「真机 GUI 冷启动走查未做」。owner 走查后反馈两点：QQ 只换了颜色、整体并不像 QQ；以及希望整个 APP（含 Agent City）都符合主题，而不是只改其中一部分。本轮补上了 24 款家族明/暗两态的真实像素走查——临时改用独立渲染台（直接加载 `styles.css` + 全部主题文件，无头 Chromium 截图 48 张 + 4×6 拼图）逐款比对。
+- 根因 1（QQ）：强调色 `#0d7faa` 是发灰的深青蓝、整屏 `#cfe4f7` 是偏饱和中蓝，像「普通蓝色聊天软件」而非 QQ。QQ 真正的品牌天蓝是亮而通透的 azure。重调亮态：强调 `/`/ 链接 `#0f79c0`、发出气泡 `#0090e8`（白字 3.41:1，达「饱和品牌气泡 3:1」下限）、画布 `#e6f2ff`、侧栏 `#dcebfb`;暗态改为 QQ NT 冷静蓝灰 `#101822`（蓝色只留在气泡/强调色），发出气泡 `#1e7fc4`。同步更新三态缩略图。
+- 根因 2（Agent City 跑题）：天空色原为场景写死的 `DAY_SKY`/`NIGHT_SKY`，每个家族再用 `--agent-city-sky` 反向对齐，于是 System 6 / Win98 / Terminal / Candy / Cartoon 等主题里 Agent City 永远是一块固定蓝灰孤岛。根修（共享层、单一事实来源）：全 24 家族 + base `:root` + 导入主题映射统一把 `--agent-city-sky` 指向 `var(--header-bg)`;`AgentStudioPane` 用 `getComputedStyle` 读该 token、经 `AgentCityCanvas` 传给新 `AgentCitySceneOptions.sky`,`scene.background` 与 `scene.fog` 同源;新增 `setSky` 在家族/明暗切换时只重绘画布不重建场景。删除了场景里的 DAY_SKY/NIGHT_SKY 常量——外壳与画布再也不可能各说各话，接缝类问题从结构上消失，而不是靠两处常量手工对齐。
+- 守卫改写：`chat-ui.test.mjs` 的 Agent City 用例从「从场景常量反查期望天空色」改为「断言 48 个家族/变体全部 `--agent-city-sky: var(--header-bg)`、场景消费 `options.sky`、pane 读计算 token 并监听 `data-theme-family` + `data-resolved-appearance`、导入映射 `set("--agent-city-sky", hex(surface))`」，并断言场景不再出现 `DAY_SKY|NIGHT_SKY`。`CLAUDE.md` pitfall #4 同步更新为新契约。
+- 验证：`chat-ui.test.mjs` 247/247、`agentCityScene.test.ts` 6/6、`vscodeTheme.test.ts` 12/12、`svelte-check` 0 错误 0 警告、desktop `vite build` 通过;48 张渲染台截图确认 Agent City 面板在 24 款明/暗下均与页面同色（system6 纯黑、candy 粉/酒红、qq 蓝灰等）。**Tauri 真机 GUI 冷启动走查仍未做**：渲染台用真实 `styles.css` + 全部主题文件和真实类名复刻了聊天/侧栏/气泡/工具卡/输入框/Agent City 结构，但非真机 WebView，需在 app 内逐款切换做最终确认。**未处理**：Blueprint 亮态 / Cyberpunk 亮态的招牌（制图网格、霓虹）是结构性的，仅靠颜色无法表达，未纳入本轮;Android/Google 亮态发出气泡与助手气泡对比也偏弱，留作后续。
+
+### 新增 14 款生活化/品牌主题家族 + 双向气泡语义 token（2026-09-13，已交付）
+
+- 背景：owner 反馈主题风格单一（原 10 款全是原生/开发/复古技术风或柔和配色），希望增加活泼可爱、商务、平台识别、社交通讯、儿童卡通五类，且要「一看就知道是 iOS / WhatsApp / 安卓」。第一版只做了强调色 + 气泡色，owner 二次反馈「背景基本没变、不够彻底、回复也要有气泡」，于是重做为一整套视觉语言。
+- 新增家族（`apps/desktop/src/themes/`，各自一个文件）：产品档（只换颜色）`ios`、`office`、`wps`、`whatsapp`、`wechat`、`telegram`、`facebook`、`feishu`；大胆档（重写字体/圆角/阴影/玻璃）`android`、`discord`、`qq`、`candy`、`cartoon`、`google`。共 14 款，主题家族从 10 增至 24。
+- 彻底化（第二轮）：每款都让**整幅窗口画布**带品牌色而非只改强调色——QQ 全蓝、糖果全粉、卡通暖黄、安卓薰衣草、Material 紫、Google 白+谷歌四色、Feishu 灰+飞书蓝；聊天类家族同时把**助手回复正文**包进气泡（工具/思考卡片保持无框，在 `.message-bubble` 之外），文档类家族（Office/WPS/Google）保持裸文。
+- 共享层根修 1（发出气泡）：原本写死 `--gray-300`（开关关闭态也用它），新增 `--bubble-mine-bg` / `--bubble-mine-border` / `--bubble-mine-text`，`.message-row.mine .message-bubble` 改读新 token。饱和气泡（iMessage/飞书/Facebook 蓝）用白字。导入主题无需改映射器：`var()` 在计算期解析，覆盖 `--gray-300` 后气泡自动跟随。
+- 共享层根修 2（回复气泡）：助手回复原本被 `.message-row.assistant .message-bubble { background: transparent; border: 0 }` 强制裸文；改为读取 `--bubble-assistant-bg` / `-border` / `-padding` / `-radius`，默认仍是裸文（transparent/0），聊天类家族填这 4 个 token 即获得气泡。
+- 品牌气泡（发出 / 回复）：qq 蓝实色白字 / 白、candy 粉 / 白、cartoon 橙 / 白、android #4F378B / 深面、discord #5865F2、whatsapp #D9FDD3 / 白、wechat #95EC69 / 白、telegram #EFFDDE / 白、ios #007AFF / 白、facebook #1877F2 / #F0F2F5、google #E8F0FE / #F1F3F4、feishu #3370FF / 白。
+- 边界约束：`--agent-city-sky` 每个家族/明暗固定为 `#eaf3f5`/`#101820`（须与 Agent City WebGL 画布 `DAY_SKY`/`NIGHT_SKY` 一致，否则外壳露缝）；产品档保持 `header-bg === content-bg`（输入框渐隐条不显影）；暗色结构面不用纯黑（iOS #101014、WhatsApp #0B141A、WeChat #111111 均避开 `#000000`/`#0A0A0A`）。
+- 可读性：亮色态强调色同时用作按钮填充（白字 `--on-accent`）和链接文字，逐家族校准白字对比度 ≥4.5——wechat #058844、telegram #1f7eaf、qq #0d7faa、cartoon #b46100、candy #c84877、whatsapp #198845、wps #d54037、ios 保留系统蓝 #007aff；饱和品牌气泡（ios/facebook 深色态、feishu 深色 danger）按 WCAG UI 3:1 兜底。缩略图色块保留原始品牌色。
+- 登记点：`themes/index.css` 14 条 import、`lib/api.ts` 类型+白名单、`api.test.ts`、`lib/i18n.ts`（中英各 14 家族 + 28 变体标签）、`App.svelte` 三个 key 联合类型 + `THEME_FAMILY_PREVIEWS`、`chat-ui.test.mjs` 家族清单/大档清单/sky 与 accent 计数（21→49）。
+- 验证：`chat-ui.test.mjs` 247/247、`api.test.ts` 109/109、`vscodeTheme.test.ts` 12/12、`svelte-check` 0 错误 0 警告、`vite build` 通过；另有 token 对比度对抗脚本（label/canvas、on-accent、danger、发出/回复气泡文字）全部达标。**真机 GUI 冷启动走查未做**：需在设置 → 外观逐一切换 24 款家族，确认画布品牌色、助手/发出气泡、明暗两态、Agent City 接缝、窄宽度网格换行。
+
+
 ### 导入主题映射修正：对比度下限 + 输入框渐隐接缝（2026-09-13，已交付）
 
 - 背景：owner 导入 Solarized (light) 后反馈两处——整体对比度低（尤其字体、侧栏），以及 chat 输入框上方多出一道阴影带。

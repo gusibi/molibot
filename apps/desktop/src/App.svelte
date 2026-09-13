@@ -412,7 +412,21 @@
       | "themeFamilyBrutalism"
       | "themeFamilyBlueprint"
       | "themeFamilySystem6"
-      | "themeFamilyCyberpunk";
+      | "themeFamilyCyberpunk"
+      | "themeFamilyIos"
+      | "themeFamilyAndroid"
+      | "themeFamilyOffice"
+      | "themeFamilyWps"
+      | "themeFamilyWhatsapp"
+      | "themeFamilyWechat"
+      | "themeFamilyTelegram"
+      | "themeFamilyDiscord"
+      | "themeFamilyQq"
+      | "themeFamilyCandy"
+      | "themeFamilyCartoon"
+      | "themeFamilyFacebook"
+      | "themeFamilyGoogle"
+      | "themeFamilyFeishu";
     lightVariantKey:
       | "themeVariantMacosLight"
       | "themeVariantDawn"
@@ -423,7 +437,21 @@
       | "themeVariantBrutalismPoster"
       | "themeVariantBlueprintVellum"
       | "themeVariantSystem6White"
-      | "themeVariantCyberpunkDaylight";
+      | "themeVariantCyberpunkDaylight"
+      | "themeVariantIosLight"
+      | "themeVariantAndroidLight"
+      | "themeVariantOfficeDay"
+      | "themeVariantWpsPaper"
+      | "themeVariantWhatsappLight"
+      | "themeVariantWechatLight"
+      | "themeVariantTelegramLight"
+      | "themeVariantDiscordLight"
+      | "themeVariantQqSky"
+      | "themeVariantCandyMarshmallow"
+      | "themeVariantCartoonDay"
+      | "themeVariantFacebookLight"
+      | "themeVariantGoogleLight"
+      | "themeVariantFeishuLight";
     darkVariantKey:
       | "themeVariantMacosDark"
       | "themeVariantMoon"
@@ -434,7 +462,21 @@
       | "themeVariantBrutalismNight"
       | "themeVariantBlueprintDiazotype"
       | "themeVariantSystem6Black"
-      | "themeVariantCyberpunkMidnight";
+      | "themeVariantCyberpunkMidnight"
+      | "themeVariantIosDark"
+      | "themeVariantAndroidDark"
+      | "themeVariantOfficeNight"
+      | "themeVariantWpsNight"
+      | "themeVariantWhatsappDark"
+      | "themeVariantWechatDark"
+      | "themeVariantTelegramDark"
+      | "themeVariantDiscordDark"
+      | "themeVariantQqNight"
+      | "themeVariantCandyDarkChocolate"
+      | "themeVariantCartoonNight"
+      | "themeVariantFacebookDark"
+      | "themeVariantGoogleDark"
+      | "themeVariantFeishuDark";
   }[] = [
     { value: "macos", labelKey: "themeFamilyMacos", lightVariantKey: "themeVariantMacosLight", darkVariantKey: "themeVariantMacosDark" },
     { value: "rose-pine", labelKey: "themeFamilyRosePine", lightVariantKey: "themeVariantDawn", darkVariantKey: "themeVariantMoon" },
@@ -445,7 +487,21 @@
     { value: "brutalism", labelKey: "themeFamilyBrutalism", lightVariantKey: "themeVariantBrutalismPoster", darkVariantKey: "themeVariantBrutalismNight" },
     { value: "blueprint", labelKey: "themeFamilyBlueprint", lightVariantKey: "themeVariantBlueprintVellum", darkVariantKey: "themeVariantBlueprintDiazotype" },
     { value: "system6", labelKey: "themeFamilySystem6", lightVariantKey: "themeVariantSystem6White", darkVariantKey: "themeVariantSystem6Black" },
-    { value: "cyberpunk", labelKey: "themeFamilyCyberpunk", lightVariantKey: "themeVariantCyberpunkDaylight", darkVariantKey: "themeVariantCyberpunkMidnight" }
+    { value: "cyberpunk", labelKey: "themeFamilyCyberpunk", lightVariantKey: "themeVariantCyberpunkDaylight", darkVariantKey: "themeVariantCyberpunkMidnight" },
+    { value: "ios", labelKey: "themeFamilyIos", lightVariantKey: "themeVariantIosLight", darkVariantKey: "themeVariantIosDark" },
+    { value: "android", labelKey: "themeFamilyAndroid", lightVariantKey: "themeVariantAndroidLight", darkVariantKey: "themeVariantAndroidDark" },
+    { value: "office", labelKey: "themeFamilyOffice", lightVariantKey: "themeVariantOfficeDay", darkVariantKey: "themeVariantOfficeNight" },
+    { value: "wps", labelKey: "themeFamilyWps", lightVariantKey: "themeVariantWpsPaper", darkVariantKey: "themeVariantWpsNight" },
+    { value: "whatsapp", labelKey: "themeFamilyWhatsapp", lightVariantKey: "themeVariantWhatsappLight", darkVariantKey: "themeVariantWhatsappDark" },
+    { value: "wechat", labelKey: "themeFamilyWechat", lightVariantKey: "themeVariantWechatLight", darkVariantKey: "themeVariantWechatDark" },
+    { value: "telegram", labelKey: "themeFamilyTelegram", lightVariantKey: "themeVariantTelegramLight", darkVariantKey: "themeVariantTelegramDark" },
+    { value: "discord", labelKey: "themeFamilyDiscord", lightVariantKey: "themeVariantDiscordLight", darkVariantKey: "themeVariantDiscordDark" },
+    { value: "qq", labelKey: "themeFamilyQq", lightVariantKey: "themeVariantQqSky", darkVariantKey: "themeVariantQqNight" },
+    { value: "candy", labelKey: "themeFamilyCandy", lightVariantKey: "themeVariantCandyMarshmallow", darkVariantKey: "themeVariantCandyDarkChocolate" },
+    { value: "cartoon", labelKey: "themeFamilyCartoon", lightVariantKey: "themeVariantCartoonDay", darkVariantKey: "themeVariantCartoonNight" },
+    { value: "facebook", labelKey: "themeFamilyFacebook", lightVariantKey: "themeVariantFacebookLight", darkVariantKey: "themeVariantFacebookDark" },
+    { value: "google", labelKey: "themeFamilyGoogle", lightVariantKey: "themeVariantGoogleLight", darkVariantKey: "themeVariantGoogleDark" },
+    { value: "feishu", labelKey: "themeFamilyFeishu", lightVariantKey: "themeVariantFeishuLight", darkVariantKey: "themeVariantFeishuDark" }
   ];
 
   const SETTINGS_NAV: { id: SettingsSection; icon: ReiconComponent }[] = [

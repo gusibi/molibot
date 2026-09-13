@@ -49,6 +49,7 @@
   let shellObserver: ResizeObserver | null = null;
   let themeObserver: MutationObserver | null = null;
   let theme: AgentCityTheme = currentTheme();
+  let sky = currentSky();
   let hoveredFloorKey: string | null = null;
   let hoveredFloorAnchor: { x: number; y: number } | null = null;
   let selectedFloorKey: string | null = null;
@@ -74,6 +75,14 @@
     if (explicit === "dark") return "dark";
     if (explicit === "light") return "light";
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  // The shell paints `--agent-city-sky`; the WebGL canvas must use the exact
+  // same computed colour or a seam shows at the panel edge. Read it from the
+  // document instead of duplicating the family ramp in JS.
+  function currentSky(): string {
+    const value = getComputedStyle(document.documentElement).getPropertyValue("--agent-city-sky").trim();
+    return value || (currentTheme() === "dark" ? "#101820" : "#eaf3f5");
   }
 
   $: globalAgent = {
@@ -259,8 +268,8 @@
       if (entry) cityWidth = entry.contentRect.width;
     });
     shellObserver.observe(cityShell);
-    themeObserver = new MutationObserver(() => theme = currentTheme());
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance"] });
+    themeObserver = new MutationObserver(() => { theme = currentTheme(); sky = currentSky(); });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance", "data-theme-family"] });
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
     const handleSystemTheme = (): void => {
       theme = currentTheme();
@@ -327,6 +336,7 @@
           bind:this={cityCanvas}
           {projection}
           {theme}
+          {sky}
           onQuality={(value) => { quality = value; }}
           onFallback={handleFallback}
           onHover={handleHover}

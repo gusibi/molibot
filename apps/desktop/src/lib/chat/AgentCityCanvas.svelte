@@ -14,6 +14,7 @@
 
   export let projection: AgentCityProjection;
   export let theme: AgentCityTheme;
+  export let sky: string;
   export let onQuality: (quality: AgentCityQuality) => void;
   export let onFallback: () => void;
   export let onHover: (hover: AgentCityHover | null) => void;
@@ -122,6 +123,7 @@
       canvas,
       projection,
       theme,
+      sky,
       reducedMotion,
       quality,
       onPerformanceFallback: () => {
@@ -172,6 +174,9 @@
   $: if (mounted && controller) {
     controller.setTheme(theme);
     clearHover();
+  }
+  $: if (mounted && controller) {
+    controller.setSky(sky);
   }
 
   onDestroy(() => {

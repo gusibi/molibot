@@ -32,7 +32,7 @@
   --accent: #33ff66; --accent-hover: #66ff99; --accent-soft: rgb(51 255 102 / 16%);
   --on-accent: #001a08;
   --online: #33ff66; --danger: #ff5f56; --warning: #ffbd2e; --warning-text: #ffbd2e;
-  --agent-city-sky: #101820;
+  --agent-city-sky: var(--header-bg);
   --skill-accent: #66ff99; --miniapp-accent: #33ffcc;
   --verify-passed-fg: #66ff99; --verify-failed-fg: #ff7b72;
   --message-bubble-border: var(--hairline);
@@ -105,7 +105,7 @@
   --accent: #1f9d55; --accent-hover: #178247; --accent-soft: rgb(31 157 85 / 12%);
   --on-accent: #ffffff;
   --online: #1f9d55; --danger: #c0392b; --warning: #a66a00; --warning-text: #8a5a00;
-  --agent-city-sky: #eaf3f5;
+  --agent-city-sky: var(--header-bg);
   --skill-accent: #7a4fbf; --miniapp-accent: #1f8a8a;
   --verify-passed-fg: #1f8a55; --verify-failed-fg: #b5342a;
   --message-bubble-border: var(--separator);
@@ -144,6 +144,54 @@
   --diff-add-word: #a5d8bd; --diff-del-word: #e9a2ab;
   --diff-add-label: #1f8a55; --diff-del-label: #b5342a;
   --wallpaper: #eef3ea; --panel-blur: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Terminal — the phosphor TUI: chrome stays mono, green marks the selected row.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="terminal"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, var(--header-bg)), color-mix(in srgb, var(--accent) 4%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="terminal"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="terminal"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 22%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="terminal"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 30%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="terminal"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="terminal"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
 }
 
 

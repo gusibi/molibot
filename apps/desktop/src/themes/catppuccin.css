@@ -23,7 +23,7 @@
   --blue-700: #1e66f5; --blue-800: #1453d4;
   --accent: #1e66f5; --accent-hover: #1453d4; --accent-soft: rgb(30 102 245 / 12%);
   --online: #40a02b; --danger: #d20f39; --warning: #df8e1d; --warning-text: #a86000;
-  --on-accent: #ffffff; --agent-city-sky: #eaf3f5;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
   --skill-accent: #8839ef; --miniapp-accent: #179299;
   --verify-passed-fg: #179299; --verify-failed-fg: #d20f39; --message-bubble-border: var(--separator);
   --text-primary: var(--mac-label); --label-primary: var(--mac-label);
@@ -79,7 +79,7 @@
   --blue-700: #8aadf4; --blue-800: #6e9ce8;
   --accent: #8aadf4; --accent-hover: #a6c8ff; --accent-soft: rgb(138 173 244 / 18%);
   --online: #a6da95; --danger: #ed8796; --warning: #eed49f; --warning-text: #eed49f;
-  --on-accent: #1e2030; --agent-city-sky: #101820;
+  --on-accent: #1e2030; --agent-city-sky: var(--header-bg);
   --skill-accent: #c6a0f6; --miniapp-accent: #8bd5ca;
   --verify-passed-fg: #a6da95; --verify-failed-fg: #ed8796; --message-bubble-border: var(--hairline);
   --text-primary: var(--mac-label); --label-primary: var(--mac-label);
@@ -116,6 +116,54 @@
 @media (prefers-color-scheme: dark) {
   :root[data-theme-family="catppuccin"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
 }
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Catppuccin — soft pastel chrome with the blue accent on the selection.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="catppuccin"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, var(--header-bg)), color-mix(in srgb, var(--accent) 3%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 34%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="catppuccin"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
 
 .theme-swatch[data-theme-family-preview="catppuccin"][data-theme-preview-appearance="light"] .tp-side { background: #e6e9ef; }
 .theme-swatch[data-theme-family-preview="catppuccin"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #eff1f5, #dce0e8); }

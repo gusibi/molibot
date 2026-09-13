@@ -125,7 +125,7 @@
   }
 </script>
 
-<aside class="chat-sidebar">
+<aside class="chat-sidebar" data-theme-region="sidebar">
   <div class="sidebar-top-bar" data-tauri-drag-region>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true" onmousedown={startWindowDrag}></div>
@@ -176,7 +176,7 @@
     </button>
   </nav>
 
-  <div class="sidebar-channels">
+  <div class="sidebar-channels" data-theme-region="session-list">
     <DurableExecutionSidebarSection items={durableExecutions} {copy} onOpen={onOpenDurableExecution} />
     <section class="sidebar-tree-section">
       <button type="button" class="sidebar-section-head sidebar-section-toggle" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>

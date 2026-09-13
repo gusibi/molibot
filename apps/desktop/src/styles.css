@@ -91,6 +91,20 @@
   --card-bg: var(--mac-elevated-background);
   --surface-secondary: var(--mac-grouped-background);
   --bubble-bg: var(--mac-elevated-background);
+  /* The sent ("mine") bubble is the one message surface that chat-app families
+     brand; the assistant turn is bare prose. Its own role so recolouring the
+     bubble never drags the shared neutral ramp (e.g. the switch off-track). */
+  --bubble-mine-bg: var(--gray-300);
+  --bubble-mine-border: var(--gray-alpha-300);
+  /* Saturated bubbles (iMessage blue, Messenger blue) flip to white text. */
+  --bubble-mine-text: var(--label-primary);
+  /* Assistant reply surface. Bare prose by default; chat-app families opt the
+     reply text into a bubble by filling all four. Tool/thinking cards sit
+     outside `.message-bubble`, so they stay unboxed in every family. */
+  --bubble-assistant-bg: transparent;
+  --bubble-assistant-border: transparent;
+  --bubble-assistant-padding: 0;
+  --bubble-assistant-radius: 0;
   --composer-bg: var(--mac-elevated-background);
   --footbar-bg: var(--mac-window-background);
   --window-bg: var(--mac-window-background);
@@ -101,7 +115,7 @@
   --chrome-border: var(--separator);
   /* Backdrop behind the Agent City canvas. Must match DAY_SKY / NIGHT_SKY in
      agentCityScene.ts, or the shell edges show a seam against the render. */
-  --agent-city-sky: #eaf3f5;
+  --agent-city-sky: var(--header-bg);
 
   /* WKWebView composites this translucent sheet against the native sidebar
      material. Keep enough of the backing visible for the glass to read, while
@@ -2808,12 +2822,17 @@ a:focus-visible {
   word-break: break-word;
   min-width: 0;
 }
-.message-row.assistant .message-bubble { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.message-row.assistant .message-bubble {
+  padding: var(--bubble-assistant-padding);
+  border-color: var(--bubble-assistant-border);
+  border-radius: var(--bubble-assistant-radius);
+  background: var(--bubble-assistant-bg);
+}
 /* The assistant turn renders as bare prose (no bubble), so the user turn is the
    only thing carrying a card. `--gray-100` sat ~1 step off the transcript
    background, leaving the border as the only cue; lift it to `--gray-300` plus
    the tier-1 `--soft-shadow` so a user turn reads as a distinct surface. */
-.message-row.mine .message-bubble { color: var(--label-primary); border-color: var(--gray-alpha-300); background: var(--gray-300); box-shadow: var(--soft-shadow); }
+.message-row.mine .message-bubble { color: var(--bubble-mine-text); border-color: var(--bubble-mine-border); background: var(--bubble-mine-bg); box-shadow: var(--soft-shadow); }
 .attachment-strip { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; }
 .message-row.mine .attachment-strip { justify-content: flex-end; }
 .attachment-chip {

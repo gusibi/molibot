@@ -1,0 +1,181 @@
+/* Facebook — Light and Dark. The Facebook/Messenger look: a #F0F2F5 grey
+   chrome over a white feed, the #1877F2 blue accent and Messenger-style bubbles
+   in both directions. */
+
+/* Facebook — Light. Grey chrome, white feed, #1877F2 accent. */
+:root[data-theme-family="facebook"][data-resolved-appearance="light"] {
+  color: #050505;
+  color-scheme: light;
+  --mac-window-background: #f0f2f5;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #f0f2f5;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #050505;
+  --mac-secondary-label: #65676b;
+  --mac-tertiary-label: #8a8d91;
+  --mac-separator: rgb(5 5 5 / 10%);
+  --mac-unemphasized-selection: #e4e6eb;
+  --sidebar-material-tint: rgb(240 242 245 / 72%);
+  --gray-100: #ffffff; --gray-200: #f0f2f5; --gray-300: #e4e6eb; --gray-400: #ced0d4;
+  --gray-500: #bcc0c4; --gray-600: #8a8d91; --gray-700: #65676b; --gray-800: #4b4f56;
+  --gray-900: #2e2f33; --gray-1000: #050505;
+  --gray-alpha-100: rgb(5 5 5 / 5%); --gray-alpha-200: rgb(5 5 5 / 8%);
+  --gray-alpha-300: rgb(5 5 5 / 11%); --gray-alpha-400: rgb(5 5 5 / 9%);
+  --gray-alpha-500: rgb(5 5 5 / 20%); --gray-alpha-600: rgb(5 5 5 / 26%);
+  --blue-700: #1877f2; --blue-800: #166fe5;
+  --accent: #1877f2; --accent-hover: #166fe5; --accent-soft: rgb(24 119 242 / 12%);
+  --online: #31a24c; --danger: #fa383e; --warning: #f7b928; --warning-text: #b07a00;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7a3db8; --miniapp-accent: #0f7b8a;
+  --verify-passed-fg: #1f8b3c; --verify-failed-fg: #fa383e; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #1877f2; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #f0f2f5; --bubble-assistant-border: transparent;
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(5 5 5 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(5 5 5 / 16%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(5 5 5 / 5%); --fill-hover: rgb(5 5 5 / 9%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(5 5 5 / 5%); --sidebar-surface-hover: rgb(5 5 5 / 9%);
+  --content-bg: #ffffff; --header-bg: #ffffff;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #f0f2f5;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 1px 2px rgb(5 5 5 / 10%); --float-shadow: 0 8px 24px -12px rgb(5 5 5 / 28%);
+  --popover-shadow: 0 1px 2px rgb(5 5 5 / 8%), 0 8px 18px -8px rgb(5 5 5 / 20%);
+  --glass-shadow: 0 1px 2px rgb(5 5 5 / 8%), 0 10px 22px -8px rgb(5 5 5 / 22%);
+  --drawer-shadow: -8px 0 24px -10px rgb(5 5 5 / 22%); --modal-scrim: rgb(5 5 5 / 34%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(5 5 5 / 13%); --control-border-strong: rgb(5 5 5 / 26%); --control-shadow: none;
+  --chart-blue: #1877f2; --chart-teal: #0f7b8a; --chart-green: #31a24c; --chart-purple: #7a3db8;
+  --chart-orange: #f7b928; --chart-red: #fa383e; --chart-indigo: #5a54f0;
+  --chart-track: rgb(5 5 5 / 8%); --chart-grid: rgb(5 5 5 / 8%);
+  --code-bg: #1c1e21; --code-text: #dadde1;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #f0f2f5; --syntax-code-border: #e4e6eb; --syntax-code-fg: #050505;
+  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
+  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  --diff-add-line: #e5f6e9; --diff-add-num: #c9ebd3; --diff-del-line: #fde8e8; --diff-del-num: #f8caca;
+  --diff-add-word: #a8ddb8; --diff-del-word: #efa6a6; --diff-add-label: #1f8b3c; --diff-del-label: #fa383e;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* Facebook — Dark. The #18191A / #242526 planes with the #2D88FF accent. */
+:root[data-theme-family="facebook"][data-resolved-appearance="dark"] {
+  color: #e4e6eb;
+  color-scheme: dark;
+  --mac-window-background: #18191a;
+  --mac-control-background: #242526;
+  --mac-grouped-background: #3a3b3c;
+  --mac-elevated-background: #3a3b3c;
+  --mac-label: #e4e6eb;
+  --mac-secondary-label: #b0b3b8;
+  --mac-tertiary-label: #8a8d91;
+  --mac-separator: rgb(228 230 235 / 10%);
+  --mac-unemphasized-selection: #3a3b3c;
+  --sidebar-material-tint: #18191a;
+  --gray-100: #18191a; --gray-200: #242526; --gray-300: #3a3b3c; --gray-400: #4e4f50;
+  --gray-500: #5a5b5c; --gray-600: #8a8d91; --gray-700: #b0b3b8; --gray-800: #ced0d4;
+  --gray-900: #e4e6eb; --gray-1000: #ffffff;
+  --gray-alpha-100: rgb(228 230 235 / 6%); --gray-alpha-200: rgb(228 230 235 / 9%);
+  --gray-alpha-300: rgb(228 230 235 / 13%); --gray-alpha-400: rgb(228 230 235 / 16%);
+  --gray-alpha-500: rgb(228 230 235 / 26%); --gray-alpha-600: rgb(228 230 235 / 34%);
+  --blue-700: #2d88ff; --blue-800: #4a97ff;
+  --accent: #2d88ff; --accent-hover: #4a97ff; --accent-soft: rgb(45 136 255 / 18%);
+  --online: #31a24c; --danger: #f02849; --warning: #f7b928; --warning-text: #ffc46b;
+  --on-accent: #0a1a33; --agent-city-sky: var(--header-bg);
+  --skill-accent: #b89be8; --miniapp-accent: #4fd1c5;
+  --verify-passed-fg: #31a24c; --verify-failed-fg: #f02849; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #2a7ae6; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #3a3b3c; --bubble-assistant-border: transparent;
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(228 230 235 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(228 230 235 / 14%); --glass-border-light: rgb(228 230 235 / 18%);
+  --fill: rgb(228 230 235 / 7%); --fill-hover: rgb(228 230 235 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(228 230 235 / 6%); --sidebar-surface-hover: rgb(228 230 235 / 10%);
+  --content-bg: #242526; --header-bg: #242526;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #3a3b3c;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 4px rgb(0 0 0 / 36%); --float-shadow: 0 10px 26px -12px rgb(0 0 0 / 58%);
+  --popover-shadow: 0 2px 6px rgb(0 0 0 / 30%), 0 12px 24px -8px rgb(0 0 0 / 48%);
+  --glass-shadow: 0 2px 6px rgb(0 0 0 / 30%), 0 14px 30px -8px rgb(0 0 0 / 50%);
+  --drawer-shadow: -8px 0 24px -10px rgb(0 0 0 / 50%); --modal-scrim: rgb(0 0 0 / 60%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(228 230 235 / 13%); --control-border-strong: rgb(228 230 235 / 24%); --control-shadow: none;
+  --chart-blue: #2d88ff; --chart-teal: #4fd1c5; --chart-green: #31a24c; --chart-purple: #b89be8;
+  --chart-orange: #f7b928; --chart-red: #f02849; --chart-indigo: #7a86ff;
+  --chart-track: rgb(228 230 235 / 10%); --chart-grid: rgb(228 230 235 / 8%);
+  --code-bg: #101112; --code-text: #d4d4d4;
+  --syntax-code-bg: #242526; --syntax-code-gutter: #18191a; --syntax-code-border: #3a3b3c; --syntax-code-fg: #d4d4d4;
+  --syntax-code-keyword: #569cd6; --syntax-code-string: #ce9178; --syntax-code-title: #dcdcaa; --syntax-code-number: #b5cea8;
+  --syntax-code-comment: #6a9955; --syntax-code-variable: #9cdcfe; --syntax-code-attr: #4ec9b0; --syntax-code-built-in: #4ec9b0;
+  --diff-add-line: rgb(49 162 76 / 15%); --diff-add-num: rgb(49 162 76 / 30%); --diff-add-word: rgb(49 162 76 / 42%);
+  --diff-del-line: rgb(240 40 73 / 16%); --diff-del-num: rgb(240 40 73 / 30%); --diff-del-word: rgb(240 40 73 / 42%);
+  --diff-add-label: #31a24c; --diff-del-label: #f02849;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="facebook"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+}
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Facebook — white surfaces, the blue is the outgoing bubble and selection.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="facebook"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, var(--card-bg), color-mix(in srgb, var(--accent) 4%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="facebook"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="facebook"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 30%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="facebook"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-family="facebook"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="facebook"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="facebook"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="facebook"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 38%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="facebook"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="facebook"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="facebook"][data-theme-preview-appearance="light"] .tp-side { background: #e4e6eb; }
+.theme-swatch[data-theme-family-preview="facebook"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #f0f2f5); }
+.theme-swatch[data-theme-family-preview="facebook"][data-theme-preview-appearance="dark"] .tp-side { background: #3a3b3c; }
+.theme-swatch[data-theme-family-preview="facebook"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #242526, #18191a); }
+.theme-swatch[data-theme-family-preview="facebook"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #e4e6eb 0 50%, #3a3b3c 50%); }
+.theme-swatch[data-theme-family-preview="facebook"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #242526 50%); }

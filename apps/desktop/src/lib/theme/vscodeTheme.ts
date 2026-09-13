@@ -412,7 +412,7 @@ export function buildThemeTokens(theme: ParsedVscodeTheme): Record<string, strin
   set("--verify-failed-fg", hex(ensureContrast(red, surface, 3)));
   set("--skill-accent", hex(magenta));
   set("--miniapp-accent", hex(cyan));
-  set("--agent-city-sky", dark ? "#101820" : "#eaf3f5");
+  set("--agent-city-sky", hex(surface));
   set("--message-bubble-border", hairline);
 
   // Elevated neutrals.

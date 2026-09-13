@@ -33,7 +33,7 @@
   --accent: #000000; --accent-hover: #333333; --accent-soft: rgb(0 0 0 / 10%);
   --on-accent: #ffffff;
   --online: #007a00; --danger: #b00000; --warning: #806000; --warning-text: #6a4f00;
-  --agent-city-sky: #eaf3f5;
+  --agent-city-sky: var(--header-bg);
   --skill-accent: #000000; --miniapp-accent: #000000;
   --verify-passed-fg: #007a00; --verify-failed-fg: #b00000;
   --message-bubble-border: #000000;
@@ -108,7 +108,7 @@
   --accent: #ffffff; --accent-hover: #cccccc; --accent-soft: rgb(255 255 255 / 16%);
   --on-accent: #000000;
   --online: #4ade80; --danger: #ff6b6b; --warning: #ffd166; --warning-text: #ffd166;
-  --agent-city-sky: #101820;
+  --agent-city-sky: var(--header-bg);
   --skill-accent: #ffffff; --miniapp-accent: #ffffff;
   --verify-passed-fg: #7ee2a8; --verify-failed-fg: #ff8f8f;
   --message-bubble-border: #ffffff;
@@ -148,6 +148,54 @@
   --diff-del-line: rgb(255 107 107 / 16%); --diff-del-num: rgb(255 107 107 / 30%); --diff-del-word: rgb(255 107 107 / 42%);
   --diff-add-label: #4ade80; --diff-del-label: #ff6b6b;
   --wallpaper: #000000; --panel-blur: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — System 6 — the 1-bit inversion: hard rules and an inverted selected row, no wash.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="system6"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, var(--card-bg), var(--header-bg));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="system6"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="system6"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 10%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="system6"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+:root[data-theme-family="system6"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="system6"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="system6"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="system6"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 0%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="system6"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="system6"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
 }
 
 

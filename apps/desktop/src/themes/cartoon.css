@@ -1,0 +1,196 @@
+/* Cartoon — Daytime (light) and Bedtime (dark). A children's family: a warm
+   yellow workspace, huge rounded corners and both directions in bright bubbles. */
+
+/* Cartoon — Daytime. Warm yellow workspace, white cards, extra-large radii. */
+:root[data-theme-family="cartoon"][data-resolved-appearance="light"] {
+  color: #4a2f00;
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "Geist Mono", ui-monospace, monospace;
+  --radius-small: 14px; --radius-control: 18px; --radius-panel: 22px; --radius-full: 999px;
+  --mac-window-background: #ffe9b0;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #ffdd8a;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #4a2f00;
+  --mac-secondary-label: #8a5e1e;
+  --mac-tertiary-label: #b58a48;
+  --mac-separator: rgb(74 47 0 / 12%);
+  --mac-unemphasized-selection: #ffd166;
+  --sidebar-material-tint: #ffe9b0;
+  --sidebar-material-filter: none;
+  --gray-100: #ffe9b0; --gray-200: #ffdd8a; --gray-300: #ffd166; --gray-400: #f5bd3f;
+  --gray-500: #e5a01f; --gray-600: #c07f12; --gray-700: #a06a1e; --gray-800: #7a4f00;
+  --gray-900: #5a3a00; --gray-1000: #4a2f00;
+  --gray-alpha-100: rgb(74 47 0 / 5%); --gray-alpha-200: rgb(74 47 0 / 8%);
+  --gray-alpha-300: rgb(74 47 0 / 12%); --gray-alpha-400: rgb(74 47 0 / 10%);
+  --gray-alpha-500: rgb(74 47 0 / 22%); --gray-alpha-600: rgb(74 47 0 / 28%);
+  --blue-700: #b46100; --blue-800: #9a5300;
+  --accent: #b46100; --accent-hover: #9a5300; --accent-soft: rgb(180 97 0 / 14%);
+  --online: #16a34a; --danger: #dc2626; --warning: #b45309; --warning-text: #92400e;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7c3aed; --miniapp-accent: #0891b2;
+  --verify-passed-fg: #16a34a; --verify-failed-fg: #dc2626; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #ffc44d; --bubble-mine-border: transparent;
+  --bubble-assistant-bg: #ffffff; --bubble-assistant-border: var(--separator);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(74 47 0 / 9%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(74 47 0 / 18%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(74 47 0 / 5%); --fill-hover: rgb(74 47 0 / 9%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(74 47 0 / 5%); --sidebar-surface-hover: rgb(74 47 0 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 4px 0 rgb(120 80 0 / 16%); --float-shadow: 0 16px 32px -16px rgb(120 80 0 / 36%);
+  --popover-shadow: 0 4px 0 rgb(120 80 0 / 14%), 0 14px 28px -12px rgb(120 80 0 / 24%);
+  --glass-shadow: 0 4px 0 rgb(120 80 0 / 14%), 0 16px 32px -12px rgb(120 80 0 / 26%);
+  --drawer-shadow: -8px 0 28px -10px rgb(120 80 0 / 26%); --modal-scrim: rgb(74 47 0 / 34%); --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 14px 28px -14px rgb(120 80 0 / 28%); --glass-chip-shadow: 0 6px 16px -8px rgb(120 80 0 / 26%);
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(74 47 0 / 16%); --control-border-strong: rgb(74 47 0 / 30%); --control-shadow: none;
+  --chart-blue: #2f9bff; --chart-teal: #0891b2; --chart-green: #22c55e; --chart-purple: #8b5cf6;
+  --chart-orange: #ff8a00; --chart-red: #ef4444; --chart-indigo: #6366f1;
+  --chart-track: rgb(74 47 0 / 8%); --chart-grid: rgb(74 47 0 / 8%);
+  --code-bg: #2b1d00; --code-text: #fdf6e3;
+  --syntax-code-bg: #fffdf7; --syntax-code-gutter: #ffe9b0; --syntax-code-border: #ffd166; --syntax-code-fg: #4a2f00;
+  --syntax-code-keyword: #b02a8f; --syntax-code-string: #0f7b8a; --syntax-code-title: #7c3aed; --syntax-code-number: #9a5300;
+  --syntax-code-comment: #b58a48; --syntax-code-variable: #b45309; --syntax-code-attr: #16a34a; --syntax-code-built-in: #7c3aed;
+  --diff-add-line: #e6f8ec; --diff-add-num: #ccecd8; --diff-del-line: #fdeceb; --diff-del-num: #f8d2d1;
+  --diff-add-word: #b0e3c3; --diff-del-word: #f0b3b1; --diff-add-label: #16a34a; --diff-del-label: #dc2626;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* Cartoon — Bedtime. Violet night workspace; bubbles stay warm and round. */
+:root[data-theme-family="cartoon"][data-resolved-appearance="dark"] {
+  color: #fdf6e3;
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "Geist Mono", ui-monospace, monospace;
+  --radius-small: 14px; --radius-control: 18px; --radius-panel: 22px; --radius-full: 999px;
+  --mac-window-background: #241c33;
+  --mac-control-background: #332a47;
+  --mac-grouped-background: #40345a;
+  --mac-elevated-background: #40345a;
+  --mac-label: #fdf6e3;
+  --mac-secondary-label: #c9b8e0;
+  --mac-tertiary-label: #9a87b8;
+  --mac-separator: rgb(253 246 227 / 10%);
+  --mac-unemphasized-selection: #514070;
+  --sidebar-material-tint: #241c33;
+  --sidebar-material-filter: none;
+  --gray-100: #241c33; --gray-200: #332a47; --gray-300: #40345a; --gray-400: #514070;
+  --gray-500: #6b568f; --gray-600: #8a72ad; --gray-700: #9a87b8; --gray-800: #c9b8e0;
+  --gray-900: #e6dbf3; --gray-1000: #fdf6e3;
+  --gray-alpha-100: rgb(253 246 227 / 6%); --gray-alpha-200: rgb(253 246 227 / 9%);
+  --gray-alpha-300: rgb(253 246 227 / 13%); --gray-alpha-400: rgb(253 246 227 / 16%);
+  --gray-alpha-500: rgb(253 246 227 / 26%); --gray-alpha-600: rgb(253 246 227 / 34%);
+  --blue-700: #ffa733; --blue-800: #ffbe5c;
+  --accent: #ffa733; --accent-hover: #ffbe5c; --accent-soft: rgb(255 167 51 / 18%);
+  --online: #4ade80; --danger: #ff6b70; --warning: #ffc46b; --warning-text: #ffc46b;
+  --on-accent: #2a1600; --agent-city-sky: var(--header-bg);
+  --skill-accent: #c4a2ff; --miniapp-accent: #5eead4;
+  --verify-passed-fg: #4ade80; --verify-failed-fg: #ff6b70; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #7a4a12; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #40345a; --bubble-assistant-border: var(--hairline);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(253 246 227 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(253 246 227 / 14%); --glass-border-light: rgb(253 246 227 / 18%);
+  --fill: rgb(253 246 227 / 7%); --fill-hover: rgb(253 246 227 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(253 246 227 / 6%); --sidebar-surface-hover: rgb(253 246 227 / 10%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #40345a;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 4px 0 rgb(0 0 0 / 40%); --float-shadow: 0 16px 34px -16px rgb(0 0 0 / 64%);
+  --popover-shadow: 0 4px 0 rgb(0 0 0 / 34%), 0 14px 30px -12px rgb(0 0 0 / 52%);
+  --glass-shadow: 0 4px 0 rgb(0 0 0 / 34%), 0 16px 34px -12px rgb(0 0 0 / 54%);
+  --drawer-shadow: -8px 0 28px -10px rgb(0 0 0 / 54%); --modal-scrim: rgb(8 4 16 / 62%); --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 0 16px 32px -16px rgb(0 0 0 / 54%); --glass-chip-shadow: 0 6px 18px -8px rgb(0 0 0 / 50%);
+  --glass-surface-bg: #40345a; --glass-popover-bg: #40345a;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(253 246 227 / 15%); --control-border-strong: rgb(253 246 227 / 27%); --control-shadow: none;
+  --chart-blue: #5aa9ff; --chart-teal: #5eead4; --chart-green: #4ade80; --chart-purple: #c4a2ff;
+  --chart-orange: #ffa733; --chart-red: #ff6b70; --chart-indigo: #8a8cff;
+  --chart-track: rgb(253 246 227 / 10%); --chart-grid: rgb(253 246 227 / 8%);
+  --code-bg: #17101f; --code-text: #fdf6e3;
+  --syntax-code-bg: #241c33; --syntax-code-gutter: #332a47; --syntax-code-border: #514070; --syntax-code-fg: #fdf6e3;
+  --syntax-code-keyword: #ff8fc2; --syntax-code-string: #5eead4; --syntax-code-title: #c4a2ff; --syntax-code-number: #ffc46b;
+  --syntax-code-comment: #9a87b8; --syntax-code-variable: #ffb37a; --syntax-code-attr: #4ade80; --syntax-code-built-in: #c4a2ff;
+  --diff-add-line: rgb(74 222 128 / 15%); --diff-add-num: rgb(74 222 128 / 30%); --diff-add-word: rgb(74 222 128 / 42%);
+  --diff-del-line: rgb(255 107 112 / 16%); --diff-del-num: rgb(255 107 112 / 30%); --diff-del-word: rgb(255 107 112 / 42%);
+  --diff-add-label: #4ade80; --diff-del-label: #ff6b70;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Cartoon — playful chrome: an orange-tinted header and selection.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="cartoon"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 15%, var(--header-bg)), color-mix(in srgb, var(--accent) 5%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="cartoon"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="cartoon"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="cartoon"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-family="cartoon"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="cartoon"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="cartoon"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="cartoon"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 34%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="cartoon"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="cartoon"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="cartoon"][data-theme-preview-appearance="light"] .tp-side { background: #ffd166; }
+.theme-swatch[data-theme-family-preview="cartoon"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #ffe9b0); }
+.theme-swatch[data-theme-family-preview="cartoon"][data-theme-preview-appearance="dark"] .tp-side { background: #40345a; }
+.theme-swatch[data-theme-family-preview="cartoon"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #40345a, #241c33); }
+.theme-swatch[data-theme-family-preview="cartoon"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #ffd166 0 50%, #40345a 50%); }
+.theme-swatch[data-theme-family-preview="cartoon"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #40345a 50%); }

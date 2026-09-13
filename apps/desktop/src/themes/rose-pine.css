@@ -23,7 +23,7 @@
   --blue-700: #286983; --blue-800: #1f566d;
   --accent: #286983; --accent-hover: #1f566d; --accent-soft: rgb(40 105 131 / 13%);
   --online: #56949f; --danger: #b4637a; --warning: #ea9d34; --warning-text: #a65b18;
-  --on-accent: #fffaf3; --agent-city-sky: #eaf3f5;
+  --on-accent: #fffaf3; --agent-city-sky: var(--header-bg);
   --skill-accent: #907aa9; --miniapp-accent: #56949f;
   --verify-passed-fg: #286983; --verify-failed-fg: #b4637a; --message-bubble-border: var(--separator);
   --text-primary: var(--mac-label); --label-primary: var(--mac-label);
@@ -79,7 +79,7 @@
   --blue-700: #31748f; --blue-800: #286983;
   --accent: #c4a7e7; --accent-hover: #d6bff0; --accent-soft: rgb(196 167 231 / 18%);
   --online: #9ccfd8; --danger: #eb6f92; --warning: #f6c177; --warning-text: #f6c177;
-  --on-accent: #191724; --agent-city-sky: #101820;
+  --on-accent: #191724; --agent-city-sky: var(--header-bg);
   --skill-accent: #c4a7e7; --miniapp-accent: #9ccfd8;
   --verify-passed-fg: #9ccfd8; --verify-failed-fg: #eb6f92; --message-bubble-border: var(--hairline);
   --text-primary: var(--mac-label); --label-primary: var(--mac-label);
@@ -116,6 +116,54 @@
 @media (prefers-color-scheme: dark) {
   :root[data-theme-family="rose-pine"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
 }
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Rosé Pine — warm muted chrome with the pine/iris accent on the selection.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="rose-pine"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, var(--header-bg)), color-mix(in srgb, var(--accent) 3%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 32%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="rose-pine"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
 
 .theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="light"] .tp-side { background: #f2e9e1; }
 .theme-swatch[data-theme-family-preview="rose-pine"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #fffaf3, #faf4ed); }

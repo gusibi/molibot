@@ -683,25 +683,61 @@ Brightness and theme family are two independent controls. Brightness is `Light`,
 appearance. The family owns the token ramp and always has a paired light/dark
 variant. Two tiers ship side by side:
 
-- **Product families** — `Minimal (macOS)`, `Rosé Pine`, `Catppuccin`, `Midnight`.
-  These vary colour only: the macOS control geometry (radii, fonts, shadows) is
-  shared, so a family switch never moves a pixel.
+- **Product families** — `Minimal (macOS)`, `Rosé Pine`, `Catppuccin`, `Midnight`,
+  `iOS`, `Office`, `WPS`, `WhatsApp`, `WeChat`, `Telegram`, `Facebook`, `Feishu`.
+  These share the macOS control geometry (radii, fonts, shadows), so a family
+  switch never changes a control's shape. A branded product family may still add
+  a region-adaptation layer (below) so its window chrome reads as the product.
+  `Minimal (macOS)` alone stays chrome-neutral and ships no adaptation section:
+  it is the product default.
 - **Bold families** — `Windows 98`, `Terminal`, `Brutalism`, `Blueprint`,
-  `System 6`, `Cyberpunk`. These are deliberately expressive and rewrite the
-  control language as well as the palette: the token block sets `--font-ui` /
-  `--font-display` / `--font-mono`, the `--radius-*` scale, the elevation tokens
-  and the glass/hover material. A bold family may therefore ship square corners,
-  monospace chrome, hard offset shadows or a fully opaque (blur-free) sidebar.
+  `System 6`, `Cyberpunk`, `Android`, `Discord`, `QQ`, `Candy`, `Cartoon`, `Google`.
+  These are deliberately expressive and rewrite the control language as well as
+  the palette: the token block sets `--font-ui` / `--font-display` / `--font-mono`,
+  the `--radius-*` scale, the elevation tokens and the glass/hover material. A
+  bold family may therefore ship square corners, monospace chrome, hard offset
+  shadows or a fully opaque (blur-free) sidebar.
 
 The DOM keeps the preference in `data-appearance`, the resolved state in
 `data-resolved-appearance`, and the family in `data-theme-family`.
 
-Bold families are still token-only: they must not introduce per-component
-selectors. The one exception is the Windows 98 3D bevel, whose two-tone raised
-edge cannot be expressed through the shared `--soft-shadow` role because buttons
-and inputs own a fixed 1px border; it lives in `themes/win98.css` as a single
-family-scoped layer driven by bevel tokens (`--win98-bevel-raised` /
-`-sunken`), so it never leaks into another family.
+Bold families are still token-only for ordinary surfaces: they must not introduce
+per-component selectors. Two exceptions exist, both family-scoped and never leaked
+into another family:
+
+- The **Windows 98 3D bevel**, whose two-tone raised edge cannot be expressed
+  through the shared `--soft-shadow` role because buttons and inputs own a fixed
+  1px border; it lives in `themes/win98.css` as a single family-scoped layer
+  driven by bevel tokens (`--win98-bevel-raised` / `-sunken`).
+- The **region adaptation layer** below, for form tokens cannot express on the
+  existing chrome regions.
+
+### Region adaptation
+
+A family may dress the *existing* chrome regions — never add or re-lay-out UI —
+through a fixed set of hooks. Each hook is a `data-theme-region` attribute on the
+element that already owns the region:
+
+| Hook | Element | Region |
+| --- | --- | --- |
+| `window` | `.chat-layout` | the whole chat window |
+| `header` | `.chat-header` | the floating session header |
+| `sidebar` | `.chat-sidebar` | the navigation column |
+| `session-list` | `.sidebar-channels` | the conversation/project tree |
+| `chat` | `.chat-content` | the transcript canvas |
+| `composer` | `.composer-wrap` | the input area |
+| `file-panel` | `.file-panel` (ArtifactPanel) | the right inspector |
+
+A family opts in with a clearly commented section in its own file, scoped as
+`:root[data-theme-family="<family>"] [data-theme-region="<hook>"] …`. The rules may
+change form (backgrounds, gradients, borders, radii, shadows, decorative
+pseudo-elements, and the text colours of elements they repaint) but must not
+change layout: no `display`, grid/flex template, position, or sizing that moves
+the shared tree. Anything a shared token can already express belongs in the token
+block, not here. `chat-ui.test.mjs` enforces both halves: every selector in a
+family file must be a token block, a preview swatch, a `data-theme-region` rule,
+or the Windows 98 bevel; and every region hook used must be in the table above.
+Families without such a section fall back to the shared chrome.
 
 ### Theme file layout
 
@@ -768,7 +804,31 @@ block, status color, and sidebar tint must resolve through the same family block
 | Blueprint | Vellum | Diazotype | drafting blue + cyan line work, technical mono |
 | System 6 | 1-bit White | 1-bit Black | pure monochrome, pixel corners, hard rules |
 | Cyberpunk | Daylight | Midnight | violet night, magenta/cyan neon, glow |
+| iOS | Light | Dark | #F2F2F7 grouped canvas, white cards, system blue |
+| Office | White | Night | Fluent grey, Word blue, business workspace |
+| WPS | Paper | Night | WPS red over a clean neutral canvas |
+| WhatsApp | Light | Dark | beige chat canvas, green sent bubble |
+| WeChat | Light | Dark | flat grey canvas, #95EC69 sent bubble |
+| Telegram | Light | Dark | cool blue-grey canvas, #2AABEE accent |
+| Android | Material Light | Material Dark | M3 violet, tonal surfaces, larger radii |
+| Discord | Light | Dark | #313338/#2B2D31 planes, blurple, squared corners |
+| QQ | Sky | Night | QQ blue, airy blue-white canvas, chunky radii |
+| Candy | Marshmallow | Dark Chocolate | pastel pink/mint, extra-large radii |
+| Cartoon | Daytime | Bedtime | primary orange/blue/red, extra-large radii |
+| Facebook | Light | Dark | #F0F2F5 chrome, #1877F2 accent, Messenger bubbles |
+| Google | Light | Dark | white surfaces, #1A73E8, four Google colours, pill controls |
+| Feishu | Light | Dark | soft grey workspace, #3370FF Feishu blue, chat bubbles |
 
+- The sent ("mine") chat bubble is `--bubble-mine-bg` / `--bubble-mine-border` /
+  `--bubble-mine-text`, defaulting to the neutral ramp. Chat-app families recolour
+  it to the brand's outgoing-bubble colour (WhatsApp #D9FDD3, WeChat #95EC69,
+  Telegram #EFFDDE, iMessage/Facebook/Feishu blue with white text, Discord
+  blurple) without dragging the shared neutral ramp — the switch off-track stays
+  grey.
+- The assistant reply is bare prose by default. Chat-app families opt the reply
+  text into a bubble by filling `--bubble-assistant-bg` / `-border` /
+  `-padding` / `-radius`; tool and thinking cards sit outside `.message-bubble`,
+  so the process trace stays unboxed in every family.
 - Structural dark surfaces must never use `#000000` or near-black `#0A0A0A`.
   Pure black is reserved for media/code content that intentionally needs it.
 - Chat's transcript workspace and headers use the window role, and the sidebar

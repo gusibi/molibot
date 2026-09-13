@@ -3075,6 +3075,7 @@
 
 <main
   class="chat-layout"
+  data-theme-region="window"
   class:sidebar-collapsed={sidebarCollapsed}
   class:with-files={inspectorVisible}
   class:resizing={resizingSidebar || resizingFiles}
@@ -3192,7 +3193,7 @@
       onToggleSidebar={toggleSidebarCollapse}
     />
   {:else}
-  <section class="chat-content">
+  <section class="chat-content" data-theme-region="chat">
     {#if workspacePane !== "chat"}
       <ChatWorkspacePane
         pane={workspacePane}
@@ -3209,7 +3210,7 @@
         onToggleSidebar={toggleSidebarCollapse}
       />
     {:else}
-    <header class:searching={searchOpen} class="chat-header" data-tauri-drag-region>
+    <header class:searching={searchOpen} class="chat-header" data-theme-region="header" data-tauri-drag-region>
       {#if sidebarCollapsed}
         <button
           type="button"
@@ -3349,7 +3350,7 @@
         {/if}
       </div>
       {#if externalTranscript}
-        <footer class="composer-wrap">
+        <footer class="composer-wrap" data-theme-region="composer">
           <p class="external-readonly-notice">
             {copy.externalSessionReadOnly.replace("{channel}", activeHeaderSourceLabel)}
           </p>

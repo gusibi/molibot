@@ -1,0 +1,180 @@
+/* Telegram — Light and Dark. Telegram Web's cool blue-grey: a #E6EBEE chat
+   canvas, white incoming bubbles and the #EFFDDE sent bubble under #2AABEE. */
+
+/* Telegram — Light. Cool grey-blue canvas with the Telegram sky-blue accent. */
+:root[data-theme-family="telegram"][data-resolved-appearance="light"] {
+  color: #212121;
+  color-scheme: light;
+  --mac-window-background: #ffffff;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #f1f4f6;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #212121;
+  --mac-secondary-label: #707579;
+  --mac-tertiary-label: #a2acb4;
+  --mac-separator: rgb(0 0 0 / 10%);
+  --mac-unemphasized-selection: #dadfe3;
+  --sidebar-material-tint: rgb(255 255 255 / 72%);
+  --gray-100: #ffffff; --gray-200: #f1f4f6; --gray-300: #e6ebee; --gray-400: #dadfe3;
+  --gray-500: #c4cdd3; --gray-600: #a2acb4; --gray-700: #707579; --gray-800: #4a4a4a;
+  --gray-900: #2a2a2a; --gray-1000: #212121;
+  --gray-alpha-100: rgb(0 0 0 / 4%); --gray-alpha-200: rgb(0 0 0 / 7%);
+  --gray-alpha-300: rgb(0 0 0 / 10%); --gray-alpha-400: rgb(0 0 0 / 8%);
+  --gray-alpha-500: rgb(0 0 0 / 18%); --gray-alpha-600: rgb(0 0 0 / 24%);
+  --blue-700: #1f7eaf; --blue-800: #1a6c96;
+  --accent: #1f7eaf; --accent-hover: #1a6c96; --accent-soft: rgb(31 126 175 / 12%);
+  --online: #31a952; --danger: #e53935; --warning: #f5a623; --warning-text: #b36a0a;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7a3db8; --miniapp-accent: #0f7b8a;
+  --verify-passed-fg: #31a952; --verify-failed-fg: #e53935; --message-bubble-border: var(--separator);
+  --bubble-mine-bg: #effdde; --bubble-mine-border: transparent;
+  --bubble-assistant-bg: #ffffff; --bubble-assistant-border: var(--separator);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(0 0 0 / 7%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(0 0 0 / 16%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(0 0 0 / 4%); --fill-hover: rgb(0 0 0 / 8%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(0 0 0 / 4%); --sidebar-surface-hover: rgb(0 0 0 / 8%);
+  --content-bg: #dce7ef; --header-bg: #dce7ef;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #f1f4f6;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 1px 1px rgb(0 0 0 / 6%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 24%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 4%), 0 4px 8px -4px rgb(0 0 0 / 9%), 0 16px 24px -8px rgb(0 0 0 / 13%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 4%), 0 8px 16px -4px rgb(0 0 0 / 9%), 0 24px 32px -8px rgb(0 0 0 / 13%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 18%); --modal-scrim: rgb(0 0 0 / 32%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(0 0 0 / 14%); --control-border-strong: rgb(0 0 0 / 28%); --control-shadow: none;
+  --chart-blue: #1f7eaf; --chart-teal: #0f7b8a; --chart-green: #31a952; --chart-purple: #7a3db8;
+  --chart-orange: #f5a623; --chart-red: #e53935; --chart-indigo: #4f52b2;
+  --chart-track: rgb(0 0 0 / 7%); --chart-grid: rgb(0 0 0 / 7%);
+  --code-bg: #1e1e1e; --code-text: #d4d4d4;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #f1f4f6; --syntax-code-border: #dadfe3; --syntax-code-fg: #212121;
+  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
+  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  --diff-add-line: #e4f6e9; --diff-add-num: #c6ebd4; --diff-del-line: #fde9e8; --diff-del-num: #f8cbc9;
+  --diff-add-word: #a5dcbc; --diff-del-word: #efa7a4; --diff-add-label: #31a952; --diff-del-label: #e53935;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* Telegram — Dark. #17212B chrome over the deeper #0E1621 chat canvas. */
+:root[data-theme-family="telegram"][data-resolved-appearance="dark"] {
+  color: #ffffff;
+  color-scheme: dark;
+  --mac-window-background: #17212b;
+  --mac-control-background: #1e2c3a;
+  --mac-grouped-background: #232e3c;
+  --mac-elevated-background: #232e3c;
+  --mac-label: #ffffff;
+  --mac-secondary-label: #7f91a4;
+  --mac-tertiary-label: #5c6c7c;
+  --mac-separator: rgb(255 255 255 / 10%);
+  --mac-unemphasized-selection: #2b3a4a;
+  --sidebar-material-tint: #17212b;
+  --gray-100: #17212b; --gray-200: #1e2c3a; --gray-300: #232e3c; --gray-400: #2b3a4a;
+  --gray-500: #3b4a5a; --gray-600: #54656f; --gray-700: #7f91a4; --gray-800: #a2acb4;
+  --gray-900: #c4cdd3; --gray-1000: #ffffff;
+  --gray-alpha-100: rgb(255 255 255 / 6%); --gray-alpha-200: rgb(255 255 255 / 9%);
+  --gray-alpha-300: rgb(255 255 255 / 13%); --gray-alpha-400: rgb(255 255 255 / 16%);
+  --gray-alpha-500: rgb(255 255 255 / 26%); --gray-alpha-600: rgb(255 255 255 / 34%);
+  --blue-700: #2aabee; --blue-800: #51bdf5;
+  --accent: #2aabee; --accent-hover: #51bdf5; --accent-soft: rgb(42 171 238 / 18%);
+  --online: #4dcd5e; --danger: #ef5350; --warning: #f5a623; --warning-text: #ffc46b;
+  --on-accent: #04222f; --agent-city-sky: var(--header-bg);
+  --skill-accent: #b89be8; --miniapp-accent: #4fd1c5;
+  --verify-passed-fg: #4dcd5e; --verify-failed-fg: #ef5350; --message-bubble-border: var(--hairline);
+  --bubble-mine-bg: #2b5278; --bubble-mine-border: transparent; --bubble-mine-text: #ffffff;
+  --bubble-assistant-bg: #1e2c3a; --bubble-assistant-border: var(--hairline);
+  --bubble-assistant-padding: 10px 14px; --bubble-assistant-radius: var(--radius-panel);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 7%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
+  --fill: rgb(255 255 255 / 7%); --fill-hover: rgb(255 255 255 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(255 255 255 / 6%); --sidebar-surface-hover: rgb(255 255 255 / 10%);
+  --content-bg: #0e1621; --header-bg: #0e1621;
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #232e3c;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 34%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 55%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 22%), 0 4px 8px -4px rgb(0 0 0 / 40%), 0 16px 24px -8px rgb(0 0 0 / 50%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 22%), 0 8px 16px -4px rgb(0 0 0 / 40%), 0 24px 32px -8px rgb(0 0 0 / 50%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 46%); --modal-scrim: rgb(0 0 0 / 54%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(255 255 255 / 15%); --control-border-strong: rgb(255 255 255 / 27%); --control-shadow: none;
+  --chart-blue: #2aabee; --chart-teal: #4fd1c5; --chart-green: #4dcd5e; --chart-purple: #b89be8;
+  --chart-orange: #f5a623; --chart-red: #ef5350; --chart-indigo: #8ea2ff;
+  --chart-track: rgb(255 255 255 / 10%); --chart-grid: rgb(255 255 255 / 8%);
+  --code-bg: #0e1621; --code-text: #d4d4d4;
+  --syntax-code-bg: #17212b; --syntax-code-gutter: #1e2c3a; --syntax-code-border: #2b3a4a; --syntax-code-fg: #d4d4d4;
+  --syntax-code-keyword: #569cd6; --syntax-code-string: #ce9178; --syntax-code-title: #dcdcaa; --syntax-code-number: #b5cea8;
+  --syntax-code-comment: #6a9955; --syntax-code-variable: #9cdcfe; --syntax-code-attr: #4ec9b0; --syntax-code-built-in: #4ec9b0;
+  --diff-add-line: rgb(77 205 94 / 15%); --diff-add-num: rgb(77 205 94 / 30%); --diff-add-word: rgb(77 205 94 / 42%);
+  --diff-del-line: rgb(239 83 80 / 16%); --diff-del-num: rgb(239 83 80 / 30%); --diff-del-word: rgb(239 83 80 / 42%);
+  --diff-add-label: #4dcd5e; --diff-del-label: #ef5350;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="telegram"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+}
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Telegram — a blue chrome band over the pale/void chat canvas.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="telegram"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, var(--header-bg)), color-mix(in srgb, var(--accent) 6%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="telegram"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="telegram"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 42%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="telegram"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-family="telegram"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="telegram"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="telegram"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="telegram"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 42%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="telegram"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="telegram"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="telegram"][data-theme-preview-appearance="light"] .tp-side { background: #effdde; }
+.theme-swatch[data-theme-family-preview="telegram"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #e6ebee); }
+.theme-swatch[data-theme-family-preview="telegram"][data-theme-preview-appearance="dark"] .tp-side { background: #2b5278; }
+.theme-swatch[data-theme-family-preview="telegram"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #232e3c, #0e1621); }
+.theme-swatch[data-theme-family-preview="telegram"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #effdde 0 50%, #2b5278 50%); }
+.theme-swatch[data-theme-family-preview="telegram"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #232e3c 50%); }

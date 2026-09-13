@@ -878,6 +878,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <aside
   class="file-panel project-file-panel artifact-panel"
+  data-theme-region="file-panel"
   class:miniapp-active={miniAppActive}
   class:splitting
   aria-label={panelTitle}

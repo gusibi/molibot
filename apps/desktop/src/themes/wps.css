@@ -1,0 +1,174 @@
+/* WPS — Paper (light) and Night (dark). A productivity family built on the WPS
+   red (#E0433A) over a clean neutral canvas with system geometry. */
+
+/* WPS — Paper. White sheet, cool neutral chrome and the WPS red accent. */
+:root[data-theme-family="wps"][data-resolved-appearance="light"] {
+  color: #262626;
+  color-scheme: light;
+  --mac-window-background: #f7f7f7;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #efefef;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #262626;
+  --mac-secondary-label: #595959;
+  --mac-tertiary-label: #8c8c8c;
+  --mac-separator: rgb(0 0 0 / 11%);
+  --mac-unemphasized-selection: #e5e5e5;
+  --sidebar-material-tint: rgb(247 247 247 / 72%);
+  --gray-100: #f7f7f7; --gray-200: #efefef; --gray-300: #e5e5e5; --gray-400: #d9d9d9;
+  --gray-500: #bfbfbf; --gray-600: #a3a3a3; --gray-700: #8c8c8c; --gray-800: #595959;
+  --gray-900: #404040; --gray-1000: #262626;
+  --gray-alpha-100: rgb(0 0 0 / 5%); --gray-alpha-200: rgb(0 0 0 / 8%);
+  --gray-alpha-300: rgb(0 0 0 / 11%); --gray-alpha-400: rgb(0 0 0 / 9%);
+  --gray-alpha-500: rgb(0 0 0 / 21%); --gray-alpha-600: rgb(0 0 0 / 26%);
+  --blue-700: #d54037; --blue-800: #b8352d;
+  --accent: #d54037; --accent-hover: #b8352d; --accent-soft: rgb(213 64 55 / 12%);
+  --online: #2ba471; --danger: #d8392e; --warning: #e37318; --warning-text: #a9520a;
+  --on-accent: #ffffff; --agent-city-sky: var(--header-bg);
+  --skill-accent: #7a3db8; --miniapp-accent: #0f7b8a;
+  --verify-passed-fg: #2ba471; --verify-failed-fg: #d8392e; --message-bubble-border: var(--separator);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(0 0 0 / 8%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(0 0 0 / 16%); --glass-border-light: rgb(255 255 255 / 60%);
+  --fill: rgb(0 0 0 / 5%); --fill-hover: rgb(0 0 0 / 9%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(0 0 0 / 5%); --sidebar-surface-hover: rgb(0 0 0 / 9%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: var(--mac-grouped-background);
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 7%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 24%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 4%), 0 4px 8px -4px rgb(0 0 0 / 9%), 0 16px 24px -8px rgb(0 0 0 / 13%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 4%), 0 8px 16px -4px rgb(0 0 0 / 9%), 0 24px 32px -8px rgb(0 0 0 / 13%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 18%); --modal-scrim: rgb(0 0 0 / 32%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(0 0 0 / 16%); --control-border-strong: rgb(0 0 0 / 30%); --control-shadow: none;
+  --chart-blue: #2f74b5; --chart-teal: #0f7b8a; --chart-green: #2ba471; --chart-purple: #7a3db8;
+  --chart-orange: #e37318; --chart-red: #d8392e; --chart-indigo: #4f52b2;
+  --chart-track: rgb(0 0 0 / 8%); --chart-grid: rgb(0 0 0 / 8%);
+  --code-bg: #1e1e1e; --code-text: #d4d4d4;
+  --syntax-code-bg: #ffffff; --syntax-code-gutter: #f7f7f7; --syntax-code-border: #e5e5e5; --syntax-code-fg: #262626;
+  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
+  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  --diff-add-line: #e6f4ec; --diff-add-num: #c9e8d8; --diff-add-word: #a9dbbf;
+  --diff-del-line: #fbe9e7; --diff-del-num: #f4cdc9; --diff-del-word: #ecaaa4; --diff-add-label: #2ba471; --diff-del-label: #d8392e;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+/* WPS — Night. A neutral dark grey workspace with the red lifted for contrast. */
+:root[data-theme-family="wps"][data-resolved-appearance="dark"] {
+  color: #f0f0f0;
+  color-scheme: dark;
+  --mac-window-background: #1f1f1f;
+  --mac-control-background: #2b2b2b;
+  --mac-grouped-background: #333333;
+  --mac-elevated-background: #3a3a3a;
+  --mac-label: #f0f0f0;
+  --mac-secondary-label: #b8b8b8;
+  --mac-tertiary-label: #8c8c8c;
+  --mac-separator: rgb(255 255 255 / 10%);
+  --mac-unemphasized-selection: #4a4a4a;
+  --sidebar-material-tint: #1f1f1f;
+  --gray-100: #1f1f1f; --gray-200: #2b2b2b; --gray-300: #333333; --gray-400: #3a3a3a;
+  --gray-500: #4a4a4a; --gray-600: #666666; --gray-700: #8c8c8c; --gray-800: #b8b8b8;
+  --gray-900: #d9d9d9; --gray-1000: #f0f0f0;
+  --gray-alpha-100: rgb(255 255 255 / 6%); --gray-alpha-200: rgb(255 255 255 / 9%);
+  --gray-alpha-300: rgb(255 255 255 / 13%); --gray-alpha-400: rgb(255 255 255 / 16%);
+  --gray-alpha-500: rgb(255 255 255 / 26%); --gray-alpha-600: rgb(255 255 255 / 34%);
+  --blue-700: #f26d62; --blue-800: #f58c82;
+  --accent: #f26d62; --accent-hover: #f58c82; --accent-soft: rgb(242 109 98 / 18%);
+  --online: #4cc38a; --danger: #f26d62; --warning: #f5a623; --warning-text: #ffc46b;
+  --on-accent: #1a0a08; --agent-city-sky: var(--header-bg);
+  --skill-accent: #b89be8; --miniapp-accent: #4fd1c5;
+  --verify-passed-fg: #4cc38a; --verify-failed-fg: #f26d62; --message-bubble-border: var(--hairline);
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label); --label-tertiary: var(--mac-tertiary-label);
+  --separator: var(--mac-separator); --hairline: rgb(255 255 255 / 7%);
+  --glass-border: var(--mac-separator); --glass-border-dark: rgb(255 255 255 / 14%); --glass-border-light: rgb(255 255 255 / 18%);
+  --fill: rgb(255 255 255 / 7%); --fill-hover: rgb(255 255 255 / 11%);
+  --panel-bg: var(--mac-window-background); --sidebar-bg: var(--mac-window-background);
+  --sidebar-surface: rgb(255 255 255 / 6%); --sidebar-surface-hover: rgb(255 255 255 / 10%);
+  --content-bg: var(--mac-window-background); --header-bg: var(--mac-window-background);
+  --card-bg: var(--mac-elevated-background); --surface-secondary: #3d3d3d;
+  --bubble-bg: var(--mac-elevated-background); --composer-bg: var(--mac-elevated-background);
+  --footbar-bg: var(--mac-window-background); --window-bg: var(--mac-window-background);
+  --soft-shadow: 0 2px 2px rgb(0 0 0 / 30%); --float-shadow: 0 8px 24px -12px rgb(0 0 0 / 50%);
+  --popover-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 4px 8px -4px rgb(0 0 0 / 38%), 0 16px 24px -8px rgb(0 0 0 / 48%);
+  --glass-shadow: 0 1px 1px rgb(0 0 0 / 20%), 0 8px 16px -4px rgb(0 0 0 / 38%), 0 24px 32px -8px rgb(0 0 0 / 48%);
+  --drawer-shadow: -8px 0 24px -8px rgb(0 0 0 / 44%); --modal-scrim: rgb(0 0 0 / 52%); --glass-inset: 0 0 #0000;
+  --control-bg: var(--mac-control-background); --control-bg-hover: var(--mac-grouped-background);
+  --control-border: rgb(255 255 255 / 16%); --control-border-strong: rgb(255 255 255 / 28%); --control-shadow: none;
+  --chart-blue: #5aa9e6; --chart-teal: #4fd1c5; --chart-green: #4cc38a; --chart-purple: #b89be8;
+  --chart-orange: #f5a623; --chart-red: #f26d62; --chart-indigo: #8ea2ff;
+  --chart-track: rgb(255 255 255 / 10%); --chart-grid: rgb(255 255 255 / 8%);
+  --code-bg: #1b1b1b; --code-text: #d4d4d4;
+  --syntax-code-bg: #1e1e1e; --syntax-code-gutter: #262626; --syntax-code-border: #3a3a3a; --syntax-code-fg: #d4d4d4;
+  --syntax-code-keyword: #569cd6; --syntax-code-string: #ce9178; --syntax-code-title: #dcdcaa; --syntax-code-number: #b5cea8;
+  --syntax-code-comment: #6a9955; --syntax-code-variable: #9cdcfe; --syntax-code-attr: #4ec9b0; --syntax-code-built-in: #4ec9b0;
+  --diff-add-line: rgb(76 195 138 / 15%); --diff-add-num: rgb(76 195 138 / 30%); --diff-add-word: rgb(76 195 138 / 42%);
+  --diff-del-line: rgb(242 109 98 / 16%); --diff-del-num: rgb(242 109 98 / 30%); --diff-del-word: rgb(242 109 98 / 42%);
+  --diff-add-label: #4cc38a; --diff-del-label: #f26d62;
+  --wallpaper: var(--mac-window-background); --panel-blur: none;
+}
+
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme-family="wps"][data-resolved-appearance="dark"] { --sidebar-material-tint: transparent; }
+}
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — WPS — a clean paper workspace with the WPS red on the chrome.
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="wps"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 11%, var(--header-bg)), color-mix(in srgb, var(--accent) 3%, var(--header-bg)));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="wps"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="wps"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 42%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="wps"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+:root[data-theme-family="wps"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="wps"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="wps"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="wps"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 38%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="wps"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="wps"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
+
+.theme-swatch[data-theme-family-preview="wps"][data-theme-preview-appearance="light"] .tp-side { background: #efefef; }
+.theme-swatch[data-theme-family-preview="wps"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #f7f7f7); }
+.theme-swatch[data-theme-family-preview="wps"][data-theme-preview-appearance="dark"] .tp-side { background: #333333; }
+.theme-swatch[data-theme-family-preview="wps"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #3a3a3a, #1f1f1f); }
+.theme-swatch[data-theme-family-preview="wps"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #efefef 0 50%, #333333 50%); }
+.theme-swatch[data-theme-family-preview="wps"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #3a3a3a 50%); }

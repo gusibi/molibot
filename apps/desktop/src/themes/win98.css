@@ -34,7 +34,7 @@
   --accent: #000080; --accent-hover: #1084d0; --accent-soft: rgb(0 0 128 / 12%);
   --on-accent: #ffffff;
   --online: #008000; --danger: #ff0000; --warning: #808000; --warning-text: #6a6a00;
-  --agent-city-sky: #eaf3f5;
+  --agent-city-sky: var(--header-bg);
   --skill-accent: #800080; --miniapp-accent: #008080;
   --verify-passed-fg: #008000; --verify-failed-fg: #ff0000;
   --message-bubble-border: var(--separator);
@@ -108,7 +108,7 @@
   --accent: #1084d0; --accent-hover: #3aa6f0; --accent-soft: rgb(16 132 208 / 22%);
   --on-accent: #ffffff;
   --online: #4ade80; --danger: #ff6b6b; --warning: #ffd166; --warning-text: #ffd166;
-  --agent-city-sky: #101820;
+  --agent-city-sky: var(--header-bg);
   --skill-accent: #c084fc; --miniapp-accent: #2dd4bf;
   --verify-passed-fg: #7ee2a8; --verify-failed-fg: #ff8f8f;
   --message-bubble-border: var(--hairline);
@@ -207,6 +207,54 @@
   border-color: var(--win98-bevel-frame);
   box-shadow: none;
 }
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Windows 98 — grey chrome, navy selection, square everything (radii come from tokens).
+   Scoped to the documented [data-theme-region] hooks; never changes layout. */
+
+:root[data-theme-family="win98"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, var(--card-bg), var(--header-bg));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="win98"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="win98"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, var(--sidebar-bg), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-family="win98"] [data-theme-region="session-list"] .sidebar-section-head {
+  min-height: 26px;
+  margin: 2px 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+:root[data-theme-family="win98"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--accent);
+}
+:root[data-theme-family="win98"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-accent);
+}
+:root[data-theme-family="win98"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
+}
+:root[data-theme-family="win98"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 16%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="win98"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-family="win98"] [data-theme-region="file-panel"] .file-panel-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
+  border-bottom: 1px solid var(--separator);
+}
+
 
 .theme-swatch[data-theme-family-preview="win98"][data-theme-preview-appearance="light"] .tp-side { background: #808080; }
 .theme-swatch[data-theme-family-preview="win98"][data-theme-preview-appearance="light"] .tp-body { background: #c0c0c0; }

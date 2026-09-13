@@ -2952,7 +2952,21 @@ export type DesktopThemeFamily =
   | "brutalism"
   | "blueprint"
   | "system6"
-  | "cyberpunk";
+  | "cyberpunk"
+  | "ios"
+  | "android"
+  | "office"
+  | "wps"
+  | "whatsapp"
+  | "wechat"
+  | "telegram"
+  | "discord"
+  | "qq"
+  | "candy"
+  | "cartoon"
+  | "facebook"
+  | "google"
+  | "feishu";
 
 const DESKTOP_APPEARANCES: readonly DesktopAppearance[] = ["system", "light", "dark"];
 const DESKTOP_THEME_FAMILIES: readonly DesktopThemeFamily[] = [
@@ -2965,7 +2979,21 @@ const DESKTOP_THEME_FAMILIES: readonly DesktopThemeFamily[] = [
   "brutalism",
   "blueprint",
   "system6",
-  "cyberpunk"
+  "cyberpunk",
+  "ios",
+  "android",
+  "office",
+  "wps",
+  "whatsapp",
+  "wechat",
+  "telegram",
+  "discord",
+  "qq",
+  "candy",
+  "cartoon",
+  "facebook",
+  "google",
+  "feishu"
 ];
 
 /** Validates the independent brightness preference, defaulting to OS-following. */
