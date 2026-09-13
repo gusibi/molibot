@@ -66,6 +66,7 @@ import {
   type DurableRequestMode
 } from "$lib/server/agent/durable/activation.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
+import { ensureSessionPlanRecord } from "$lib/server/agent/plans/sessionIntegration.js";
 import { tryAutoSummarizeConversationTitleAsync, hasDefaultConversationTitle } from "$lib/server/sessions/titleSummarizer.js";
 
 interface ChatBody {
@@ -920,7 +921,16 @@ export const POST: RequestHandler = async ({ request }) => {
     },
     onRunnerEvent: async (event) => {
       appendRunnerDiagnostic(event);
-      if (event.type === "plan_proposal") planProposal = event.plan;
+      if (event.type === "plan_proposal") {
+        planProposal = ensureSessionPlanRecord({
+          plan: event.plan,
+          botId: durableBotId,
+          sourceChannel: "web",
+          sourceChatId: runnerChatId,
+          sourceUiSessionId: conversation.id,
+          sourceProjectId: project?.id
+        });
+      }
       activityCollector.record(event);
     }
   });

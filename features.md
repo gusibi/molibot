@@ -1,3 +1,14 @@
+### 计划看板（Plan Board）Session 接入：生成即保存 + 首次批准走 Durable Execution（2026-09-13，部分交付）
+
+- 背景：Slice 1/2 之后，计划已能在看板查看/编辑/控制，但还不能从 Session 生成，接受计划仍走「原 Session 内执行」旧链路。本 slice 把计划接入真实的生成与批准流程，并统一到 Durable Execution。
+- 生成即保存：Plan mode 产出 `plan_proposal` 时，`ensureSessionPlanRecord` 立即把计划写为 Durable Execution（`planId = plan.id`，幂等，拍平为一个任务包含全部步骤），并把返回的 `durableExecutionId` 写回会话计划元数据；`/api/stream` 与 `/api/chat` 两条持久化路径都接入。保存失败只记录结构化日志、不中断本轮回答。未批准的计划因此进入看板待批准。
+- 首次批准：`/api/desktop/session-permission` 的 accept 分支不再依赖聊天续跑。若计划已保存为 Durable Execution，先按接受时（可能已编辑）的标题/摘要/步骤用 `replacePlanContent` 生成一个新内容版本（仅允许 `planned` 状态，不覆盖任何结果），再 `start` 进入 `queued`；失败返回 409。权限覆盖仍按 accept 的 `manual/accept_edits` 写入来源 Session。
+- 客户端：接受计划时若带 `durableExecutionId`，不再调用 `resumePlan` 走原 Session 内执行，避免两个执行者；只有在 Session 内、未落库的计划才保留旧链路。
+- store 新增 `replacePlanContent`（`planned` 专用、写新版本、复用计划内容写入），`PlanService.replaceContent`，以及 `sessionIntegration.ts`（`planTasksFromConversationPlan` / `ensureSessionPlanRecord` / `approveAndStartPlan`）。
+- 跨 Session：计划执行由 Durable runtime 在独立 attempt session 中推进，事件与结果按执行/任务身份路由；在任意 Session 打开看板都能查看与暂停/继续，不依赖来源 Session 仍打开。
+- 验证：服务端 `plans/*.test.ts` 12/12（含生成幂等、批准时应用编辑并 queued、启动后禁止替换内容、35 步不截断）；`durable/*.test.ts` + `sessionPlan.test.ts` 42/42；`tsc` 改动文件 0 报错；桌面 `svelte-check` 0 错误 0 警告、`vite build` 通过、mjs 守卫 251/251。**真机冷启动走查未做**。
+- **未交付**：看板内的确认/审批/证据交互（当前由侧栏 Durable Execution inspector 承担）、跨 Session 显式认领（`setAttemptContextSession`）与承接历史展示、首次批准的权限选择 UI（当前沿用来源 Session 权限）、实时事件（当前轮询）、完整任意两层增删改排序（当前替换仅限未开始、返回后为追加返工）。
+
 ### 计划看板（Plan Board）桌面列表与详情面板（2026-09-13，部分交付 / 桌面 UI）
 
 - 背景：Slice 1 落地共享计划服务后，本 slice 补齐桌面 App 专享的「计划」入口与两层编辑/控制界面。

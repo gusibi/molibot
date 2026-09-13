@@ -1,6 +1,7 @@
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { describeExecutionHistory } from "$lib/server/agent/session/executionHistory.js";
 import { applyPlanProgress, finishPlanTurn } from "$lib/server/agent/session/planProgress.js";
+import { ensureSessionPlanRecord } from "$lib/server/agent/plans/sessionIntegration.js";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
@@ -466,8 +467,15 @@ export const POST: RequestHandler = async ({ request }) => {
                 return;
               }
               if (event.type === "plan_proposal") {
-                planProposal = event.plan;
-                writeEvent(controller, encoder, "plan_proposal", event.plan);
+                planProposal = ensureSessionPlanRecord({
+                  plan: event.plan,
+                  botId: durableBotId,
+                  sourceChannel: "web",
+                  sourceChatId: runnerChatId,
+                  sourceUiSessionId: conversation.id,
+                  sourceProjectId: project?.id
+                });
+                writeEvent(controller, encoder, "plan_proposal", planProposal);
                 return;
               }
               if (event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "subagent_execution") {

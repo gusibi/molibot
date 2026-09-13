@@ -8,6 +8,7 @@ import {
   type DurableExecutionStatus,
   type PlanDetail,
   type PlanListFilter,
+  type ReplacePlanContentInput,
   type RevisePlanInput
 } from "$lib/server/agent/durable/types.js";
 
@@ -111,6 +112,11 @@ export class PlanService {
 
   revise(input: RevisePlanInput): PlanDetail {
     this.store.revisePlan(input);
+    return this.read(input.ownerId, input.executionId);
+  }
+
+  replaceContent(input: ReplacePlanContentInput): PlanDetail {
+    this.store.replacePlanContent(input);
     return this.read(input.ownerId, input.executionId);
   }
 

@@ -347,6 +347,20 @@ export interface PlanTask {
   steps: ExecutionStep[];
 }
 
+/** Replaces an unstarted plan's content with the version the owner just approved. */
+export interface ReplacePlanContentInput {
+  executionId: string;
+  ownerId: string;
+  expectedVersion: number;
+  reason?: string;
+  author: PlanAuthor;
+  title?: string;
+  summary?: string;
+  tasks: PlanTaskInput[];
+  acceptanceCriteria?: PlanCriterionInput[];
+  now?: Date;
+}
+
 export interface PlanMeta {
   executionId: string;
   title: string;

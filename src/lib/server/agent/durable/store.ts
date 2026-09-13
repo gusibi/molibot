@@ -30,6 +30,7 @@ import {
   type PlanTaskInput,
   type PlanVersion,
   type RecordAcceptanceResultInput,
+  type ReplacePlanContentInput,
   type RevisePlanInput,
   type SideEffectClass,
   type SideEffectInput,
@@ -1151,6 +1152,44 @@ export class DurableExecutionStore {
           next_run_at = NULL, terminal_at = NULL, last_error = NULL, updated_at = ?
         WHERE id = ? AND version = ?
       `).run(title, nextVersion, timestamp, current.id, input.expectedVersion);
+      const next = this.requireRow(current.id);
+      this.db.exec("COMMIT");
+      return rowToExecution(next);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Replaces the content of an unstarted plan with a new version. Only valid
+   * while the plan is still `planned`, so no recorded step result can be lost;
+   * this is how edits made before first approval are applied.
+   */
+  replacePlanContent(input: ReplacePlanContentInput): DurableExecution {
+    const tasks = normalizePlanContent({ tasks: input.tasks });
+    if (tasks.length === 0) throw new Error("A plan requires at least one task.");
+    const criteria = normalizePlanCriteria(input.acceptanceCriteria);
+    const timestamp = nowIso(input.now);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.requireRow(input.executionId);
+      if (text(input.ownerId) && current.owner_id !== text(input.ownerId)) throw new DurableExecutionNotFoundError(input.executionId);
+      this.assertVersion(current, input.expectedVersion);
+      if (current.status !== "planned") throw new DurableExecutionTransitionError(current.status, "planned");
+      const nextVersion = Number(current.current_plan_version) + 1;
+      this.db.prepare("INSERT INTO durable_plan_versions (execution_id, plan_version, revision_reason, author, created_at) VALUES (?, ?, ?, ?, ?)")
+        .run(current.id, nextVersion, text(input.reason) || "plan content replaced", input.author, timestamp);
+      this.writePlanContentInTransaction(current.id, nextVersion, tasks, criteria, timestamp);
+      const existingMeta = this.getPlanMeta(current.id);
+      const title = text(input.title) || existingMeta?.title || current.goal;
+      const summary = input.summary === undefined ? existingMeta?.summary ?? "" : text(input.summary);
+      this.db.prepare(`
+        INSERT INTO durable_plan_meta (execution_id, title, summary, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(execution_id) DO UPDATE SET title = excluded.title, summary = excluded.summary, updated_at = excluded.updated_at
+      `).run(current.id, title, summary, timestamp);
+      this.db.prepare("UPDATE durable_executions SET goal = ?, current_plan_version = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?")
+        .run(title, nextVersion, timestamp, current.id, input.expectedVersion);
       const next = this.requireRow(current.id);
       this.db.exec("COMMIT");
       return rowToExecution(next);

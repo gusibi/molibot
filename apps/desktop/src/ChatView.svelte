@@ -1159,7 +1159,9 @@
         });
       }
       await entry?.reloadFromServer();
-      if (decision === "accept") await entry?.controller.resumePlan(plan.id);
+      // Plans saved as Durable Executions are started by the accept API; only
+      // in-session plans resume the chat turn.
+      if (decision === "accept" && !resolved.plan.durableExecutionId) await entry?.controller.resumePlan(plan.id);
     } catch (cause) {
       chatStore.setActiveError(cause instanceof Error ? cause.message : String(cause));
     }
