@@ -349,6 +349,16 @@ export function buildDesktopTaskTargets(
 const ACTIVE_EXECUTION_STATUSES: readonly string[] = ["running", "retry_wait"];
 
 /**
+ * Durable Execution continuations are internal runtime events, not user
+ * automations. They live in the same watched-events folder as scheduled tasks,
+ * so the Tasks projection must drop them or every plan step request shows up as
+ * an unread reminder beside real automations.
+ */
+export function isDurableExecutionTaskEvent(event: { execution?: string; internal?: { kind?: string } }): boolean {
+  return event.execution === "internal" && event.internal?.kind === "durable-execution";
+}
+
+/**
  * The status a user should see for a task.
  *
  * The event file's own `status.state` is a scheduling lock, not a report: a

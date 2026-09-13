@@ -1,3 +1,11 @@
+### 计划看板修复：durable 续跑事件污染「自动任务」未读（2026-09-13，已修复）
+
+- 症状（owner 走查）：计划执行时左侧「自动任务」出现未读角标 1，本不应出现。
+- 根因：Durable Execution 的续跑事件与定时任务共用 `system/bots/<owner>/events/` 目录，`/api/settings/tasks` 把所有 JSON 事件都投影成用户 one-shot 任务，于是 `durable-execution:*` 事件进入自动任务列表与 `unreadOneShot` 计数（`category:"user"`、`channel:"system"`）。
+- 根修：在任务投影层新增 `isDurableExecutionTaskEvent`（`execution:"internal" && internal.kind==="durable-execution"`），`toTaskItem` 命中即返回 null，从列表与徽标剔除；durable 续跑仍由 `taskScheduler` 正常调度，只是不再出现在用户自动化里。
+- 附带结论（owner 反馈「卡在运行 shell」）：不是死锁。`durable_attempts` 显示该 attempt 的 `end_reason = service_restarted`（dev 服务在运行中重启），启动 reconcile 已把旧 attempt 标为 `interrupted` 并自动发起新一轮（attempt 3 running），属预期恢复。
+- 验证：`desktopTasks.test.ts` 19/19（含新增 durable 事件剔除单测）；`tsc` 本次改动文件无新增报错。
+
 ### 计划看板 UI 调整：移除侧栏「进行中」、入口收敛到顶部图标、计划卡保留进度入口（2026-09-13，已修复）
 
 - owner 走查反馈：左侧「进行中」列表不需要；计划应通过右上角的图标点开展示列表；新版计划卡丢失了「查看计划进度」按钮。

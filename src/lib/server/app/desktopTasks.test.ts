@@ -6,6 +6,7 @@ import {
   buildDesktopTaskItem,
   buildDesktopTaskSummary,
   buildDesktopTaskTargets,
+  isDurableExecutionTaskEvent,
   resolveDesktopOneShotTaskPaths,
   resolveDesktopTaskPaths,
   type DesktopTaskExecutionLoader
@@ -330,6 +331,13 @@ test("task targets include enabled Web profiles and external Bot allowed chat id
   assert.equal(JSON.stringify(targets).includes("should-not-appear"), false);
   assert.equal(JSON.stringify(targets).includes("web-chat"), false);
   assert.equal(targets.every((target) => target.scope === "workspace"), true);
+});
+
+test("durable execution continuations are not projected as user automations", () => {
+  assert.equal(isDurableExecutionTaskEvent({ execution: "internal", internal: { kind: "durable-execution" } }), true);
+  assert.equal(isDurableExecutionTaskEvent({ execution: "internal", internal: { kind: "session-auto-archive" } }), false);
+  assert.equal(isDurableExecutionTaskEvent({ execution: "one-shot", internal: { kind: "durable-execution" } }), false);
+  assert.equal(isDurableExecutionTaskEvent({}), false);
 });
 
 test("task ids resolve to server-side paths and reject unknown ids", () => {

@@ -7,7 +7,7 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { createRuntimeTaskId, markOneShotReminderReadFile, type MomEvent } from "$lib/server/agent/events";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
 import { SYSTEM_TASK_BOTS_DIR, SYSTEM_TASK_CHANNEL, TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
-import { buildDesktopTaskTargets } from "$lib/server/app/desktopTasks";
+import { buildDesktopTaskTargets, isDurableExecutionTaskEvent } from "$lib/server/app/desktopTasks";
 import { dispatchProjectTaskEvent, dispatchTaskEvent } from "$lib/server/agent/taskScheduler";
 import { getProjectStore } from "$lib/server/projects/store";
 import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache";
@@ -146,6 +146,7 @@ function toTaskItem(
   if (raw.type !== "one-shot" && raw.type !== "periodic" && raw.type !== "immediate") {
     return null;
   }
+  if (isDurableExecutionTaskEvent(raw)) return null;
 
   const stat = statSync(filePath);
   const updatedAt = stat.mtime.toISOString();
