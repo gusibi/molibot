@@ -457,7 +457,7 @@
         <div class="plans-actions-trailing">
           {#if canDelete}<button type="button" class="secondary-button danger-action" disabled={busy} onclick={() => void deletePlan()}>{copy.planBoardDelete}</button>{/if}
           {#if canOpenSession}<button type="button" class="secondary-button" onclick={() => continuePlan(false)}>{copy.planBoardOpenSession}</button>{/if}
-          {#if canContinue}<button type="button" class="primary-button" onclick={() => continuePlan(true)}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</button>{/if}
+          {#if canContinue}<button type="button" class="primary-button" onclick={() => continuePlan(detail?.execution.status === "planned")}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</button>{/if}
         </div>
       </footer>
     {/if}
