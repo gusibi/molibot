@@ -31,6 +31,11 @@
   $: zh = session.locale === "zh-CN";
   $: errorText = friendlyError(error, zh);
   $: if (runIds.length && endpoint) void load(endpoint, runIds, session.locale, appearance === "dark" ? "dark" : "light");
+  // Applying the resolved theme to the snapshot string keeps the report in sync
+  // with the app even if the service predates the theme parameter or the
+  // refresh is still in flight (the iframe is sandboxed, so the parent cannot
+  // reach into its document).
+  $: themedHtml = html.replace(/data-theme="[^"]*"/, `data-theme="${appearance === "dark" ? "dark" : "light"}"`);
   function friendlyError(raw: string, chinese: boolean): string {
     if (!raw) return "";
     if (/trace not found|not recorded yet|ambiguous/i.test(raw)) return chinese ? "这一轮没有可用的调用链记录：可能早于 trace 记录功能、该轮未执行，或记录已被清理。" : "No call trace is available for this turn: it may predate trace recording, never executed, or the record was cleaned up.";
@@ -94,7 +99,7 @@
       {#if errorText}<p class="trace-report-error" role="alert">{errorText}</p>{/if}
       {#if url}<p class="trace-report-url"><a href={url} target="_blank" rel="noreferrer">{url}</a></p>{/if}
       {#if busy && !html}<div class="memory-trace-state" role="status"><Loader size={14} aria-hidden="true" />{zh ? "加载中…" : "Loading…"}</div>{/if}
-      {#if html}<iframe title={zh ? "调用链报告" : "Call trace report"} sandbox="" style:color-scheme={appearance} srcdoc={html}></iframe>{/if}
+      {#if html}<iframe title={zh ? "调用链报告" : "Call trace report"} sandbox="" style:color-scheme={appearance} srcdoc={themedHtml}></iframe>{/if}
     </div>
   </div>
 </div>

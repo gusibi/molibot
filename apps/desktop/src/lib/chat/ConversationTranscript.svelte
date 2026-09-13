@@ -2,12 +2,12 @@
   import TraceReportDrawer from "./TraceReportDrawer.svelte";
   import { loadTraceViewerEnabled } from "../api";
   import { session } from "../stores/session.svelte";
-  import BranchUp from "reicon-svelte/icons/BranchUp";
+  import UsbSquare from "../icons/duotone/components/UsbSquare.svelte";
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
   import Check from "reicon-svelte/icons/Check";
   import CheckRead from "reicon-svelte/icons/CheckRead";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
-  import Copy from "reicon-svelte/icons/Copy";
+  import Copy from "../icons/duotone/components/Copy.svelte";
   import Cpu from "reicon-svelte/icons/Cpu";
   import Database from "../icons/duotone/components/Database.svelte";
   import AlignLeft from "../icons/duotone/components/AlignLeft.svelte";
@@ -348,7 +348,7 @@
                     title={copy.forkMessage}
                     disabled={isForking}
                     onclick={() => messageActions.onForkAssistant!(message)}
-                  >{#if isForking}<Loader class="message-action-spin" size={14} aria-hidden="true" />{:else}<BranchUp size={14} aria-hidden="true" />{/if}</button>
+                  >{#if isForking}<Loader class="message-action-spin" size={14} aria-hidden="true" />{:else}<UsbSquare size={14} aria-hidden="true" />{/if}</button>
                 {/if}
               </div>
             {/if}

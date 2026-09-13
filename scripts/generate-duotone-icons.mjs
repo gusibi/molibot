@@ -85,6 +85,7 @@ const EXACT = [
   "Stopwatch",
   "Trash",
   "TuningSquare2",
+  "UsbSquare",
   "User",
   "Vacuum2",
   "Wand",

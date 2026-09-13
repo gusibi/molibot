@@ -188,8 +188,8 @@ test("editing rewrites the current Session in place while only assistant message
   const userMessageBranch = transcript.slice(transcript.indexOf('{#if message.role === "user"}'), assistantBranchIndex);
   const assistantMessageBranch = transcript.slice(assistantBranchIndex);
   // User messages do not offer a fork button; completed assistant replies do.
-  assert.doesNotMatch(userMessageBranch, /onForkAssistant|BranchUp/);
-  assert.match(assistantMessageBranch, /messageActions\.onForkAssistant[\s\S]*BranchUp/);
+  assert.doesNotMatch(userMessageBranch, /onForkAssistant|UsbSquare/);
+  assert.match(assistantMessageBranch, /messageActions\.onForkAssistant[\s\S]*UsbSquare/);
   assert.doesNotMatch(transcriptHelpers, /onForkUser/);
   assert.match(transcriptHelpers, /onForkAssistant/);
   assert.match(view, /onForkAssistant:[\s\S]*forkFromAssistantMessage/);
@@ -4724,6 +4724,9 @@ test("assistant technical metadata folds only in a narrow message column and sha
 
 test("the call trace entry is an icon-only action shown first, and the per-turn summary is gone", () => {
   assert.match(transcript, /import AlignLeft from "\.\.\/icons\/duotone\/components\/AlignLeft\.svelte"/);
+  assert.match(transcript, /import Copy from "\.\.\/icons\/duotone\/components\/Copy\.svelte"/);
+  assert.match(transcript, /import UsbSquare from "\.\.\/icons\/duotone\/components\/UsbSquare\.svelte"/);
+  assert.doesNotMatch(transcript, /BranchUp/);
   // Trace action precedes copy/fork in the message action row.
   assert.match(transcript, /class="message-actions">\s*\{#if traceEnabled && message\.traceRunIds\?\.length\}[\s\S]*?AlignLeft[\s\S]*?copy\.copyMessage/);
   // Visible even for a reply without other actionable content.
@@ -4731,6 +4734,16 @@ test("the call trace entry is an icon-only action shown first, and the per-turn 
   // The duration/tool/token summary moved into the trace report.
   assert.doesNotMatch(transcript, /turnSummary/);
   assert.doesNotMatch(transcript, /turn-summary/);
+});
+
+test("the trace drawer follows the app resolved appearance", () => {
+  const traceDrawer = read("./lib/chat/TraceReportDrawer.svelte");
+  assert.match(traceDrawer, /attributeFilter: \["data-resolved-appearance"\]/);
+  assert.match(traceDrawer, /appearance === "dark" \? "dark" : "light"/);
+  // The snapshot string is re-themed in place so a service without the theme
+  // parameter still follows the app.
+  assert.match(traceDrawer, /srcdoc=\{themedHtml\}/);
+  assert.match(traceDrawer, /themedHtml = html\.replace\(\/data-theme=/);
 });
 
 test("right-click with a selection offers the same actions on either role", () => {

@@ -118,6 +118,21 @@ test("retries keep distinct identities without double counting tokens", () => {
   } finally { store.close(); }
 });
 
+test("the report follows an explicit theme and falls back to auto", () => {
+  const store = new SqliteTraceStore(":memory:");
+  try {
+    const hook = new TraceRecorderHook(store);
+    const context = { runId: "r", channel: "web", chatId: "chat", sessionId: "session" };
+    hook.handle({ stage: "run.started", context, timestamp: new Date(100000).toISOString(), payload: {} } as any);
+    hook.handle({ stage: "run.finished", context, timestamp: new Date(101000).toISOString(), payload: { status: "success" } } as any);
+    const report = queryTraceReport(store, { runId: "r" }, context);
+    assert.ok(renderTraceReport(report, "en", "dark").includes('data-theme="dark"'));
+    assert.ok(renderTraceReport(report, "en", "light").includes('data-theme="light"'));
+    assert.ok(renderTraceReport(report, "en").includes('data-theme="auto"'));
+    assert.ok(renderTraceReport(report, "en", "dark").includes("--d-bg"));
+  } finally { store.close(); }
+});
+
 test("unfinished steps only grow while the run is active", () => {
   const store = new SqliteTraceStore(":memory:");
   try {
