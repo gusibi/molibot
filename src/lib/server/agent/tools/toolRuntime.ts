@@ -522,7 +522,9 @@ export function createDefaultApprovalRequest(
     sessionId: ctx.sessionId,
     workspaceId: ctx.workspaceId,
     actorId: ctx.actorId,
-    capability: tool.source === "host" ? `bash:${tool.id}` : `${tool.source}:${tool.id}`,
+    // bash:* is reserved for HostBashStore requests that carry a host action.
+    // Broker-gated host tools must remain readable through the broker store.
+    capability: `${tool.source}:${tool.id}`,
     riskLevel: tool.risk,
     action: {
       type: tool.source === "mcp" ? "mcp_tool" : tool.source === "host" ? "bash" : "file_write",

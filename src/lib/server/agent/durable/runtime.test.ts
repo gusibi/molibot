@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { MomEvent } from "$lib/server/agent/events.js";
-import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
+import type { ChannelInboundMessage, DurableAttemptHooks } from "$lib/server/agent/core/types.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { DurableExecutionRuntime } from "./runtime.js";
 import { DurableExecutionStore } from "./store.js";
@@ -25,6 +25,95 @@ function fixture() {
   };
   return { root, store, input };
 }
+
+for (const scope of ["once", "session", "persistent"] as const) {
+  test(`approved ${scope} execution resumes the suspended step and completes the plan`, async () => {
+    const { root, store, input } = fixture();
+    try {
+      const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+      const created = coordinator.create(input);
+      const executionId = created.execution.id;
+      coordinator.activate({ ownerId: input.ownerId, executionId, expectedVersion: created.execution.version });
+      let calls = 0;
+      const runtime = new DurableExecutionRuntime({
+        store, processOwnerId: "process-a", dataDir: root,
+        channelManagers: new Map([["web", new Map([["bot-1", {
+          runDurableAttempt: async (message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+            calls += 1;
+            if (calls === 1) {
+              await hooks.onApprovalRequest!({
+                requestId: "write-request", backend: "approval_broker",
+                prompt: {
+                  title: "Approve write", body: "Write report.txt",
+                  request: { toolId: "write", command: "report.txt", approvalMode: "persistent" },
+                  options: [{ id: "approve_once", label: "Allow once" }]
+                }
+              } as Parameters<NonNullable<DurableAttemptHooks["onApprovalRequest"]>>[0]);
+              return { result: { stopReason: "waiting_for_approval" }, contextSessionId: "suspended-context" };
+            }
+            assert.equal(await hooks.consumeDurableApproval!({
+              backend: "approval_broker", actionKey: "write:report.txt:persistent", toolId: "write", command: "report.txt"
+            }), scope);
+            return { result: { stopReason: "stop", runId: message.runId }, contextSessionId: "resumed-context" };
+          }
+        }]])]]) as any
+      });
+      const runNext = async () => {
+        const version = store.getById(executionId)!.version;
+        const file = join(root, "system", "bots", "owner", "events", `durable-execution-${executionId}-v${version}.json`);
+        await runtime.run(JSON.parse(readFileSync(file, "utf8")) as MomEvent, file);
+      };
+      await runNext();
+      const waiting = store.getDetail(executionId)!;
+      assert.equal(waiting.execution.status, "waiting_for_approval");
+      coordinator.resolveApproval({
+        ownerId: input.ownerId, executionId, expectedVersion: waiting.execution.version,
+        approvalId: waiting.approvals[0].id, status: "approved", selectedScope: scope, actionId: "approve-write"
+      });
+      await runNext();
+      const resumed = store.getDetail(executionId)!;
+      assert.equal(calls, 2);
+      assert.equal(resumed.steps[0].status, "completed");
+      assert.equal(resumed.execution.status, "verifying");
+      assert.equal(resumed.approvals.length, 1);
+      assert.equal(resumed.attempts.every((attempt) => attempt.status !== "running"), true);
+      await runNext();
+      assert.equal(store.getById(executionId)!.status, "completed");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("step startup failure settles the claimed attempt instead of leaving it running", async () => {
+  const { root, store, input } = fixture();
+  try {
+    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const created = coordinator.create(input);
+    const executionId = created.execution.id;
+    const activated = coordinator.activate({ ownerId: input.ownerId, executionId, expectedVersion: created.execution.version });
+    let calls = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: root,
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async () => { calls += 1; return { result: { stopReason: "stop" } }; }
+      }]])]]) as any
+    });
+    store.markStepRunning = () => { throw new Error("Step startup failed"); };
+    const file = join(root, "system", "bots", "owner", "events", `durable-execution-${executionId}-v${activated.execution.version}.json`);
+    await runtime.run(JSON.parse(readFileSync(file, "utf8")) as MomEvent, file);
+    const detail = store.getDetail(executionId)!;
+    assert.equal(calls, 0);
+    assert.equal(detail.execution.status, "recovery_required");
+    assert.equal(detail.execution.leaseOwnerId, undefined);
+    assert.equal(detail.execution.lastError, "Step startup failed");
+    assert.equal(detail.attempts[0].status, "failed");
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("watched durable event claims one fresh attempt and leaves verification explicit", async () => {
   const { root, store, input } = fixture();

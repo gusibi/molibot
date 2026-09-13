@@ -1,3 +1,4 @@
+import { resolveDurableToolApproval } from "./approvalResolution.js";
 import { randomUUID } from "node:crypto";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import type { HostBashStore } from "$lib/server/hostBash/index.js";
@@ -156,30 +157,14 @@ export class DurableChannelCommandService {
 
   private async resolveApproval(
     pending: PendingApproval,
-    scopeId: string,
+    _scopeId: string,
     status: "approved" | "rejected",
     selectedScope: "once" | "session" | "persistent"
   ): Promise<string> {
     const { approval, detail } = pending;
-    if (approval.backend === "approval_broker") {
-      const request = getApprovalBroker().getRequest(approval.requestId);
-      if (!request || request.status !== "pending") {
-        return this.text("The underlying approval is no longer pending.", "底层审批已不再等待处理。");
-      }
-      const resolved = getApprovalBroker().resolveRequest({
-        requestId: approval.requestId,
-        status,
-        ...(status === "approved" ? { selectedScope } : {})
-      });
-      if (!resolved.request) return this.text("The approval could not be resolved.", "审批无法完成处理。");
-    } else {
-      const resolved = status === "approved"
-        ? this.options.hostBashStore.approve(scopeId, approval.requestId, { scope: selectedScope })
-        : this.options.hostBashStore.reject(scopeId, approval.requestId);
-      if (!resolved) return this.text("The underlying Host Bash approval is no longer pending.", "底层 Host Bash 审批已不再等待处理。");
-    }
-
-    const result = this.coordinator.resolveApproval({
+    const result = resolveDurableToolApproval({
+      coordinator: this.coordinator, broker: getApprovalBroker(), hostBashStore: this.options.hostBashStore
+    }, {
       ownerId: this.ownerId,
       executionId: detail.execution.id,
       approvalId: approval.id,

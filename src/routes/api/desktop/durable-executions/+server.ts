@@ -16,6 +16,8 @@ import type {
   DesktopDurableExecutionResponse
 } from "$lib/shared/desktop";
 
+import { resolveDurableToolApproval } from "$lib/server/agent/durable/approvalResolution.js";
+
 const coordinator = new DurableExecutionCoordinator();
 
 function ownerId(value: unknown): string {
@@ -99,35 +101,7 @@ export const POST: RequestHandler = async ({ request }) => {
       return json(response, { headers: { "Cache-Control": "no-store" } });
     }
     if (body.action === "resolve_approval") {
-      const detail = coordinator.inspect(owner, body.executionId);
-      const approval = detail.approvals.find((item) => item.id === body.approvalId);
-      if (!approval) return json({ ok: false, error: "Approval request not found." }, { status: 404 });
-      const selectedScope = body.selectedScope === "session" || body.selectedScope === "persistent" ? body.selectedScope : "once";
-      if (approval.backend === "approval_broker") {
-        const brokerRequest = getApprovalBroker().getRequest(approval.requestId);
-        if (!brokerRequest || brokerRequest.status !== "pending") {
-          return json({ ok: false, error: "The underlying approval request is no longer pending." }, { status: 409 });
-        }
-        const resolved = getApprovalBroker().resolveRequest({
-          requestId: approval.requestId,
-          status: body.status === "approved" ? "approved" : "rejected",
-          ...(body.status === "approved" ? { selectedScope } : {})
-        });
-        if (!resolved.request) return json({ ok: false, error: "The underlying approval request could not be resolved." }, { status: 409 });
-      } else if (body.status === "approved") {
-        const sourceChatId = detail.execution.sourceChatId;
-        if (!sourceChatId) return json({ ok: false, error: "Durable approval has no source chat." }, { status: 409 });
-        const approved = getRuntime().hostBashStore.approve(sourceChatId, approval.requestId, {
-          scope: selectedScope === "persistent" ? "persistent" : selectedScope === "session" ? "session" : "once"
-        });
-        if (!approved) return json({ ok: false, error: "The underlying Host Bash approval request is no longer pending." }, { status: 409 });
-      } else {
-        const sourceChatId = detail.execution.sourceChatId;
-        if (!sourceChatId || !getRuntime().hostBashStore.reject(sourceChatId, approval.requestId)) {
-          return json({ ok: false, error: "The underlying Host Bash approval request is no longer pending." }, { status: 409 });
-        }
-      }
-      const result = coordinator.resolveApproval({ ...body, ownerId: owner });
+      const result = resolveDurableToolApproval({ coordinator, broker: getApprovalBroker(), hostBashStore: getRuntime().hostBashStore }, { ...body, ownerId: owner });
       const response: DesktopDurableExecutionActionResponse = { ok: true, item: result };
       return json(response, { headers: { "Cache-Control": "no-store" } });
     }

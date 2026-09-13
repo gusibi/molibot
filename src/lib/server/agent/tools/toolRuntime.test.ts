@@ -8,6 +8,8 @@ import { buildBrokerApprovalRecord, createDefaultApprovalRequest, ToolRegistry, 
 import type { ApprovalRequest } from "$lib/server/approval/approvalTypes.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { WorkspaceStore } from "$lib/server/workspaces/store.js";
+import { SqliteApprovalStore } from "$lib/server/approval/approvalStore.js";
+import { HostBashStore } from "$lib/server/hostBash/store.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 
 function context(events: RunDetailEntry[] = [], signal?: AbortSignal): ToolExecutionContext {
@@ -46,6 +48,46 @@ function tool(input: Partial<ToolDefinition>): ToolDefinition {
     ...input
   };
 }
+
+test("deferred host tool approval stays visible to the SQLite broker and resumes after approval", async () => {
+  const root = mkdtempSync(join(tmpdir(), "durable-broker-bash-"));
+  const database = join(root, "settings.sqlite");
+  const store = new SqliteApprovalStore(database);
+  const broker = new ApprovalBroker(store);
+  const host = new HostBashStore(database);
+  try {
+    const hostRequest = host.requestApproval({ command: "printf", reason: "test", channel: "web", scopeId: "scope", chatId: "scope" }).approval!;
+    const registry = new ToolRegistry();
+    let executions = 0;
+    registry.register(tool({ id: "bash", name: "bash", source: "host", risk: "high", handler: async () => {
+      executions += 1;
+      return { ok: true, content: "approval-ok" };
+    } }));
+    let requestId = "";
+    const runtime = new ToolRuntime(registry, { approvalBroker: broker });
+    const callContext = { ...context(), onApprovalRequest: async (request: { requestId: string }) => {
+      requestId = request.requestId;
+      return "defer" as const;
+    } };
+    const blocked = await runtime.executeToolCall({ toolId: "bash", input: { command: "printf approval-ok" }, context: callContext });
+    assert.equal(blocked.terminate, true);
+    assert.equal(executions, 0);
+    assert.equal(broker.getRequest(requestId)?.status, "pending");
+    assert.deepEqual(broker.listPendingRequests().map((request) => request.id), [requestId]);
+    assert.equal(broker.getRequest(hostRequest.id), null);
+    assert.equal(broker.resolveRequest({ requestId, status: "approved", selectedScope: "persistent" }).request?.status, "approved");
+    const resumed = await runtime.executeToolCall({ toolId: "bash", input: { command: "printf approval-ok" }, context: {
+      ...callContext, runId: "resumed-run", sessionId: "resumed-session"
+    } });
+    assert.equal(resumed.ok, true);
+    assert.equal(executions, 1);
+    assert.equal(broker.listPendingRequests().length, 0);
+    assert.equal(host.getApprovalRecord(hostRequest.id)?.status, "pending");
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("ToolRuntime executes allowed tools and emits audit events", async () => {
   const registry = new ToolRegistry();
@@ -319,7 +361,7 @@ test("ToolRuntime uses existing approval grant to execute high-risk tool", async
   store.saveGrant({
     id: "grant-1",
     scope: "session",
-    capability: "bash:host-bash",
+    capability: "host:host-bash",
     actorId: "agent-1",
     workspaceId: "personal",
     sessionId: "session-1",

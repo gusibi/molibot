@@ -138,6 +138,11 @@ export class DurableExecutionCoordinator {
     });
   }
 
+  findByApprovalRequest(ownerId: string, requestId: string) {
+    const execution = this.store.findExecutionByApprovalRequest(requestId, ownerId);
+    return execution ? this.inspect(ownerId, execution.id) : null;
+  }
+
   inspect(ownerId: string, executionId: string): DurableExecutionDetail & { projection: DurableExecutionProjection } {
     const detail = this.store.getDetail(executionId, ownerId);
     if (!detail) throw new DurableExecutionNotFoundError(executionId);

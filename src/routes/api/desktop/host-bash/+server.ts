@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
+import { resolveDurableToolApproval } from "$lib/server/agent/durable/approvalResolution.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
@@ -98,6 +101,22 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ ok: false, error: "requestId and a valid decision are required" }, { status: 400 });
     }
     const runtime = getRuntime();
+    const coordinator = new DurableExecutionCoordinator();
+    const durable = coordinator.findByApprovalRequest("owner", requestId);
+    if (durable) {
+      try {
+        const approval = durable.approvals.find((item) => item.requestId === requestId)!;
+        const status = decision === "reject" ? "rejected" : "approved";
+        const selectedScope = decision === "approve_persistent" ? "persistent" : decision === "approve_session" ? "session" : "once";
+        const result = resolveDurableToolApproval({ coordinator, broker: getApprovalBroker(), hostBashStore: runtime.hostBashStore }, {
+          ownerId: "owner", executionId: durable.execution.id, approvalId: approval.id,
+          expectedVersion: durable.execution.version, actionId: `operator-approval-${randomUUID()}`, status, selectedScope
+        });
+        return json({ ok: true, approval: { status }, item: result }, { headers: { "Cache-Control": "no-store" } });
+      } catch (cause) {
+        return json({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }, { status: 409 });
+      }
+    }
     const record = runtime.hostBashStore.listPending().find((item) => item.id === requestId);
     if (!record) {
       return json({
