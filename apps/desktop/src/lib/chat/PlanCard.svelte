@@ -110,7 +110,7 @@
     {#if !inInspector}<button type="button" class="secondary-button" onclick={openProgress}>{copy.planOpenProgress}</button>{/if}
     {#if current.summary}<p class="plan-summary">{current.summary}</p>{/if}
     <ol class="plan-steps plan-progress-steps">{#each current.steps as step (step.id)}<li class:completed={step.status === "completed"} class:blocked={step.status === "blocked"}><span class="plan-step-marker">{#if step.status === "completed"}<Check size={14} aria-hidden="true" />{:else if step.status === "in_progress"}<Loader size={14} aria-hidden="true" />{:else if step.status === "blocked"}<TriangleWarning size={14} aria-hidden="true" />{:else}<Record size={14} aria-hidden="true" />{/if}</span><span>{step.text}</span><small>{step.status === "completed" ? copy.planStatusCompleted : step.status === "in_progress" ? copy.planStatusExecuting : step.status === "blocked" ? copy.planStatusBlocked : copy.durableStatusPlanned}</small></li>{/each}</ol>
-    {#if current.status === "waiting_review" && !current.durableExecutionId}<button type="button" class="secondary-button" disabled={disabled} onclick={() => onResolve("complete")}>{copy.planConfirmComplete}</button>{/if}
+    {#if current.status === "waiting_review"}<button type="button" class="secondary-button" disabled={disabled} onclick={() => onResolve("complete")}>{copy.planConfirmComplete}</button>{/if}
     <p class="plan-summary">{copy.planFeedbackHint}</p>
   </section>
 {/if}

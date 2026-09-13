@@ -7,6 +7,7 @@ import { PERMISSION_MODES } from "$lib/server/agent/permissions/decidePermission
 import { getRuntimeContextForConversation, resolveRunnerChatId } from "$lib/server/web/runtimeContext";
 import { sanitizeWebProfileId, toWebExternalUserId } from "$lib/server/web/identity";
 import { applyApprovedPlanContent } from "$lib/server/agent/plans/sessionIntegration.js";
+import { PlanService } from "$lib/server/agent/plans/service.js";
 import type { DesktopPlanDecisionRequest, DesktopSessionPermissionUpdateRequest } from "$lib/shared/desktop";
 
 function context(profileId: string, conversationId: string) {
@@ -52,8 +53,9 @@ export const POST: RequestHandler = async ({ request }) => {
     const decision = body.decision;
     if (decision === "complete") {
       const current = runtime.sessions.updateConversationPlan(conversationId, body.planId, (plan) => plan);
-      if (!current || !["waiting_review", "completed"].includes(current.status) || current.durableExecutionId) return json({ ok: false, error: "Plan is not awaiting review." }, { status: 409 });
+      if (!current || !["waiting_review", "completed"].includes(current.status)) return json({ ok: false, error: "Plan is not awaiting review." }, { status: 409 });
       const plan = runtime.sessions.updateConversationPlan(conversationId, body.planId, (value) => ({ ...value, status: "completed", progressSummary: undefined, updatedAt: new Date().toISOString() }));
+      if (plan) new PlanService().mirrorFromConversationPlan(plan);
       return json({ ok: true, plan }, { headers: { "Cache-Control": "no-store" } });
     }
     if (!["accept", "reject", "modify"].includes(decision)) return json({ ok: false, error: "Invalid plan decision" }, { status: 400 });

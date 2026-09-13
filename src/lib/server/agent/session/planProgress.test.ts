@@ -26,6 +26,12 @@ test("verified completion and human review survive the end of the turn", () => {
   }
 });
 
+test("a normally finished turn with every step done awaits confirmation, not paused", () => {
+  const allDone = { ...plan, steps: plan.steps.map((step) => ({ ...step, status: "completed" as const })) };
+  assert.equal(finishPlanTurn(allDone, "stop").status, "waiting_review");
+  assert.equal(finishPlanTurn(allDone, "aborted").status, "paused");
+});
+
 test("step identity and current-step integrity are enforced", () => {
   assert.throws(() => applyPlanProgress(plan, { steps: [{ id: "other", status: "completed" }], status: "executing", summary: "bad id" }));
   assert.throws(() => applyPlanProgress(plan, { steps: plan.steps.map((step) => ({ id: step.id, status: "in_progress" })), status: "executing", summary: "ambiguous" }));

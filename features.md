@@ -10,6 +10,14 @@
 - 步骤启动异常进入统一失败收尾，释放执行租约并保留恢复原因，避免任务停留在无人执行的“执行中”状态。
 - 根因属于任务与步骤状态转换不一致，以及启动异常遗漏收尾。临时数据库回归覆盖完整审批续跑、授权消费、计划完成和启动失败；历史审批测试只验证授权消费，未覆盖真实步骤从挂起到重新启动的链路。
 
+### 计划修复：执行完成应进入待确认而非暂停 + 计划页去除外层滚动（2026-09-14，已修复）
+
+- 症状（owner 走查）：三轮都执行完了，计划却是「已暂停／需要处理」，聊天计划卡没有任何交互（没有完成/继续/返回）。
+- 根因 1：`finishPlanTurn` 对正常结束（`stop`）且步骤全完成的计划仍设为 `paused`（历史语义是「中断可继续」）。现在改为——正常结束且全部步骤完成 → `waiting_review`（等待人工确认）；中止/未完成才 `paused`。
+- 根因 2：`session-permission` 的 `complete` 明确拒绝带 `durableExecutionId` 的计划，且 PlanCard 的「确认完成」按钮以 `!durableExecutionId` 为前提——这是 Slice 3 遗留，与新流程冲突。现在 `complete` 允许计划记录（并把 completed 镜像回 Durable），PlanCard 在 `waiting_review` 一律显示「确认完成」。
+- 症状/根因 3（计划页外层滚动）：`.workspace-scroll` 的 padding 与 `calc(100vh - 120px)` 叠加超出可视高度。改为该 pane `padding: 0; overflow: hidden`，`.plans-shell`/`.plans-workspace` `height: 100%` 填满工作区，由左列/详情内部滚动——不再出现整页滚动条。
+- 验证：`planProgress` 5/5、`plans` + `sessionPlan` 共 19/19、`tsc` 改动文件无报错、桌面 `svelte-check` 0、mjs 守卫 251/251、`vite build` 通过。真机走查未做。
+
 ### 计划执行改为 Session 普通轮次（2026-09-13，已交付）
 
 - 背景/期望（owner）：点击执行应等同于在对话里发一轮——有流式思考、工具调用、回复，至少是第二轮；审批走 chat 标准审批卡而不是右侧面板；右侧面板只读展示记录。

@@ -466,11 +466,11 @@
 </div>
 
 <style>
-  .plans-shell { width: var(--workspace-col); margin: 0 auto; }
+  .plans-shell { width: var(--workspace-col); height: 100%; margin: 0 auto; }
   .plans-workspace {
     display: grid;
     grid-template-columns: minmax(280px, 336px) minmax(0, 1fr);
-    height: calc(100vh - 120px);
+    height: 100%;
     min-height: 0;
     overflow: hidden;
     border: 1px solid var(--separator);

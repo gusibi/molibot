@@ -15,5 +15,10 @@ export function applyPlanProgress(plan: ConversationPlan, update: PlanProgressUp
 
 export function finishPlanTurn(plan: ConversationPlan, stopReason: string): ConversationPlan {
   if (["completed", "waiting_review", "blocked", "waiting_for_user"].includes(plan.status)) return plan;
-  return { ...plan, updatedAt: new Date().toISOString(), status: stopReason === "waiting_for_approval" ? "waiting_for_approval" : "paused" };
+  const timestamp = new Date().toISOString();
+  if (stopReason === "waiting_for_approval") return { ...plan, updatedAt: timestamp, status: "waiting_for_approval" };
+  // A turn that finished normally with every step done is awaiting the owner's
+  // confirmation, not paused; anything else was interrupted and can continue.
+  const allStepsDone = plan.steps.length > 0 && plan.steps.every((step) => step.status === "completed");
+  return { ...plan, updatedAt: timestamp, status: stopReason === "stop" && allStepsDone ? "waiting_review" : "paused" };
 }
