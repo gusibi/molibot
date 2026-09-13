@@ -10,6 +10,7 @@ import {
   type ClaimAttemptInput,
   type ClaimedAttempt,
   type CreateDurableExecutionInput,
+  type CreatePlanInput,
   type DecisionRequest,
   type DurableExecution,
   type DurableExecutionDetail,
@@ -23,8 +24,13 @@ import {
   type ExecutionStep,
   type ExecutionStepInput,
   type FinishAttemptInput,
+  type PlanCriterionInput,
+  type PlanMeta,
+  type PlanTask,
+  type PlanTaskInput,
   type PlanVersion,
   type RecordAcceptanceResultInput,
+  type RevisePlanInput,
   type SideEffectClass,
   type SideEffectInput,
   type SideEffectRecord,
@@ -220,6 +226,39 @@ interface AttemptRow {
   finished_at: string | null;
   end_reason: string | null;
   tokens_used: number;
+}
+
+interface TaskRow {
+  id: string;
+  execution_id: string;
+  plan_version: number;
+  task_index: number;
+  title: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TaskStepRow {
+  execution_id: string;
+  plan_version: number;
+  task_id: string;
+  step_id: string;
+  position: number;
+}
+
+interface PlanMetaRow {
+  execution_id: string;
+  title: string;
+  summary: string;
+  updated_at: string;
+}
+
+interface TombstoneRow {
+  execution_id: string;
+  owner_id: string;
+  title: string;
+  deleted_at: string;
 }
 
 function id(prefix: string): string {
@@ -426,6 +465,87 @@ function rowToAttempt(row: AttemptRow): ExecutionAttempt {
     ...(row.end_reason ? { endReason: row.end_reason } : {}),
     tokensUsed: Number(row.tokens_used)
   };
+}
+
+function rowToTask(row: TaskRow, steps: ExecutionStep[]): PlanTask {
+  return {
+    id: row.id,
+    executionId: row.execution_id,
+    planVersion: Number(row.plan_version),
+    index: Number(row.task_index),
+    title: row.title,
+    description: row.description,
+    steps
+  };
+}
+
+function rowToPlanMeta(row: PlanMetaRow): PlanMeta {
+  return {
+    executionId: row.execution_id,
+    title: row.title,
+    summary: row.summary,
+    updatedAt: row.updated_at
+  };
+}
+
+interface NormalizedPlanStep {
+  id: string;
+  title: string;
+  description: string;
+  sideEffectClass: SideEffectClass;
+  idempotencyKey?: string;
+  inputSummary?: string;
+}
+
+interface NormalizedPlanTask {
+  id: string;
+  title: string;
+  description: string;
+  steps: NormalizedPlanStep[];
+}
+
+function normalizePlanContent(input: { tasks: PlanTaskInput[] }): NormalizedPlanTask[] {
+  return input.tasks.map((task) => {
+    const title = text(task.title);
+    if (!title) throw new Error("Plan task title is required.");
+    if (task.steps.length === 0) throw new Error(`Plan task "${title}" needs at least one step.`);
+    return {
+      id: id("task"),
+      title,
+      description: text(task.description),
+      steps: task.steps.map((step) => {
+        const stepTitle = text(step.title);
+        if (!stepTitle) throw new Error(`A step in task "${title}" is missing its title.`);
+        return {
+          id: id("step"),
+          title: stepTitle,
+          description: text(step.description),
+          sideEffectClass: step.sideEffectClass ?? DEFAULT_SIDE_EFFECT_CLASS,
+          idempotencyKey: text(step.idempotencyKey) || undefined,
+          inputSummary: text(step.inputSummary) || undefined
+        };
+      })
+    };
+  });
+}
+
+function normalizePlanCriteria(input: PlanCriterionInput[] | undefined): PlanCriterionInput[] {
+  const provided = input ?? [];
+  if (provided.length === 0) {
+    return [{ id: id("criterion"), description: "The plan's requested outcome is verified.", checkerType: "subjective", required: true, author: "model" }];
+  }
+  return provided.map((criterion) => {
+    const description = text(criterion.description);
+    if (!description) throw new Error("Plan acceptance criterion is required.");
+    return {
+      id: id("criterion"),
+      description,
+      required: criterion.required !== false,
+      checkerType: criterion.checkerType ?? (criterion.checkerKey ? "deterministic" : "subjective"),
+      checkerKey: text(criterion.checkerKey) || undefined,
+      author: criterion.author ?? "model"
+    };
+  });
 }
 
 function normalizeSteps(input: ExecutionStepInput[]): ExecutionStepInput[] {
@@ -797,6 +917,329 @@ export class DurableExecutionStore {
     const approvals = (this.db.prepare("SELECT * FROM durable_approval_requests WHERE execution_id = ? ORDER BY requested_at ASC").all(idText) as unknown as ApprovalRow[]).map(rowToApproval);
     const attempts = (this.db.prepare("SELECT * FROM durable_attempts WHERE execution_id = ? ORDER BY started_at DESC").all(idText) as unknown as AttemptRow[]).map(rowToAttempt);
     return { execution, plans, steps, acceptanceCriteria, sideEffects, evidenceRefs, decisions, approvals, attempts };
+  }
+
+  /**
+   * Plan creation shares the durable aggregate so a plan never grows a second
+   * progress store: the execution row, version, criteria and two-layer task
+   * structure are written in one transaction and start in `planned`.
+   */
+  createPlan(input: CreatePlanInput): DurableExecution {
+    const ownerId = text(input.ownerId);
+    const botId = text(input.botId);
+    const title = text(input.title);
+    if (!ownerId || !botId || !title) throw new Error("ownerId, botId and title are required.");
+    const tasks = normalizePlanContent(input);
+    if (tasks.length === 0) throw new Error("A plan requires at least one task.");
+    const criteria = normalizePlanCriteria(input.acceptanceCriteria);
+    const summary = text(input.summary);
+    const createdAt = nowIso(input.now);
+    const executionId = text(input.planId) || id("plan");
+    if (text(input.planId)) {
+      const existing = this.getById(executionId);
+      if (existing) {
+        if (existing.ownerId !== ownerId) throw new DurableExecutionNotFoundError(executionId);
+        return existing;
+      }
+    }
+
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const sequenceRow = this.db.prepare("SELECT COALESCE(MAX(handle_sequence), 0) + 1 AS next FROM durable_executions WHERE owner_id = ?").get(ownerId) as { next: number };
+      const handleSequence = Number(sequenceRow.next);
+      const execution: ExecutionRow = {
+        id: executionId,
+        short_handle: `#${handleSequence}`,
+        handle_sequence: handleSequence,
+        owner_id: ownerId,
+        bot_id: botId,
+        source_channel: text(input.sourceChannel, "web"),
+        source_chat_id: text(input.sourceChatId) || null,
+        source_ui_session_id: text(input.sourceUiSessionId) || null,
+        source_project_id: text(input.sourceProjectId) || null,
+        goal: title,
+        constraints_json: "[]",
+        status: "planned",
+        version: 1,
+        current_plan_version: 1,
+        lease_owner_id: null,
+        lease_expires_at: null,
+        budget_token_limit: null,
+        budget_attempt_limit: null,
+        budget_lifetime_days: null,
+        tokens_used: 0,
+        attempts_used: 0,
+        created_at: createdAt,
+        started_at: null,
+        updated_at: createdAt,
+        terminal_at: null,
+        waiting_kind: null,
+        waiting_reason: null,
+        next_run_at: null,
+        last_error: null,
+        activation_path: "forced",
+        activation_reason: "plan"
+      };
+      this.db.prepare(`
+        INSERT INTO durable_executions (
+          id, short_handle, handle_sequence, owner_id, bot_id, source_channel, source_chat_id,
+          source_ui_session_id, source_project_id, goal, constraints_json, status, version,
+          current_plan_version, lease_owner_id, lease_expires_at, budget_token_limit,
+          budget_attempt_limit, budget_lifetime_days, tokens_used, attempts_used, created_at,
+          started_at, updated_at, terminal_at, waiting_kind, waiting_reason, next_run_at,
+          last_error, activation_path, activation_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        execution.id, execution.short_handle, execution.handle_sequence, execution.owner_id,
+        execution.bot_id, execution.source_channel, execution.source_chat_id, execution.source_ui_session_id,
+        execution.source_project_id, execution.goal, execution.constraints_json, execution.status,
+        execution.version, execution.current_plan_version, execution.lease_owner_id, execution.lease_expires_at,
+        execution.budget_token_limit, execution.budget_attempt_limit, execution.budget_lifetime_days,
+        execution.tokens_used, execution.attempts_used, execution.created_at, execution.started_at,
+        execution.updated_at, execution.terminal_at, execution.waiting_kind, execution.waiting_reason,
+        execution.next_run_at, execution.last_error, execution.activation_path, execution.activation_reason
+      );
+      this.db.prepare("INSERT INTO durable_plan_versions (execution_id, plan_version, revision_reason, author, created_at) VALUES (?, 1, ?, 'model', ?)")
+        .run(executionId, "initial plan", createdAt);
+      this.writePlanContentInTransaction(executionId, 1, tasks, criteria, createdAt);
+      this.db.prepare("INSERT INTO durable_plan_meta (execution_id, title, summary, updated_at) VALUES (?, ?, ?, ?)")
+        .run(executionId, title, summary, createdAt);
+      this.db.exec("COMMIT");
+      return rowToExecution(execution);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  getPlanMeta(executionId: string): PlanMeta | null {
+    const row = this.db.prepare("SELECT * FROM durable_plan_meta WHERE execution_id = ?").get(text(executionId)) as unknown as PlanMetaRow | undefined;
+    if (row) return rowToPlanMeta(row);
+    const execution = this.getById(executionId);
+    if (!execution) return null;
+    return { executionId: execution.id, title: execution.goal, summary: "", updatedAt: execution.updatedAt };
+  }
+
+  getPlanTasks(executionId: string, planVersion?: number): PlanTask[] {
+    const execution = this.getById(executionId);
+    if (!execution) return [];
+    const version = planVersion ?? execution.currentPlanVersion;
+    const taskRows = this.db.prepare("SELECT * FROM durable_tasks WHERE execution_id = ? AND plan_version = ? ORDER BY task_index ASC").all(execution.id, version) as unknown as TaskRow[];
+    if (taskRows.length === 0) return [];
+    const stepRows = this.db.prepare(`
+      SELECT s.*, ts.task_id AS task_id, ts.position AS position
+      FROM durable_task_steps ts
+      JOIN durable_steps s ON s.id = ts.step_id
+      WHERE ts.execution_id = ? AND ts.plan_version = ?
+      ORDER BY ts.task_id ASC, ts.position ASC
+    `).all(execution.id, version) as unknown as Array<StepRow & { task_id: string; position: number }>;
+    const stepsByTask = new Map<string, ExecutionStep[]>();
+    for (const row of stepRows) {
+      const list = stepsByTask.get(row.task_id) ?? [];
+      list.push(rowToStep(row));
+      stepsByTask.set(row.task_id, list);
+    }
+    return taskRows.map((task) => rowToTask(task, stepsByTask.get(task.id) ?? []));
+  }
+
+  /**
+   * Adds work to the current plan as a new version. Existing tasks and steps
+   * are carried over with their recorded results; completed work is never
+   * rewritten, and the new version re-enters `planned` for fresh approval.
+   */
+  revisePlan(input: RevisePlanInput): DurableExecution {
+    const reason = text(input.reason);
+    const author = input.author;
+    const addedTasks = normalizePlanContent({ tasks: input.addTasks });
+    if (addedTasks.length === 0) throw new Error("A plan revision requires at least one added task.");
+    const addedCriteria = input.addCriteria && input.addCriteria.length > 0 ? normalizePlanCriteria(input.addCriteria) : [];
+    const timestamp = nowIso(input.now);
+
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.requireRow(input.executionId);
+      if (text(input.ownerId) && current.owner_id !== text(input.ownerId)) throw new DurableExecutionNotFoundError(input.executionId);
+      this.assertVersion(current, input.expectedVersion);
+      if (["queued", "running", "verifying", "waiting_for_user", "waiting_for_approval", "cancelled"].includes(current.status)) {
+        throw new DurableExecutionTransitionError(current.status, "planned");
+      }
+      const currentVersion = Number(current.current_plan_version);
+      const nextVersion = currentVersion + 1;
+      const currentTasks = this.getPlanTasks(current.id, currentVersion);
+      const currentCriteria = this.db.prepare("SELECT * FROM durable_acceptance_criteria WHERE execution_id = ? AND plan_version = ? ORDER BY rowid ASC").all(current.id, currentVersion) as unknown as CriterionRow[];
+
+      this.db.prepare("INSERT INTO durable_plan_versions (execution_id, plan_version, revision_reason, author, created_at) VALUES (?, ?, ?, ?, ?)")
+        .run(current.id, nextVersion, reason || "plan revision", author, timestamp);
+
+      const insertStep = this.db.prepare(`
+        INSERT INTO durable_steps (
+          id, execution_id, plan_version, step_index, title, description, status,
+          side_effect_class, idempotency_key, input_summary, output_summary, output_ref,
+          evidence_summary, attempt_count, started_at, completed_at, last_error, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const insertTask = this.db.prepare("INSERT INTO durable_tasks (id, execution_id, plan_version, task_index, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      const insertTaskStep = this.db.prepare("INSERT INTO durable_task_steps (execution_id, plan_version, task_id, step_id, position) VALUES (?, ?, ?, ?, ?)");
+      let stepIndex = 0;
+      let taskIndex = 0;
+      const writeStep = (taskId: string, step: ExecutionStep | NormalizedPlanStep, position: number): void => {
+        const rowId = id("step");
+        if ("executionId" in step) {
+          insertStep.run(
+            rowId, current.id, nextVersion, stepIndex, step.title, step.description, step.status,
+            step.sideEffectClass, step.idempotencyKey ?? null, step.inputSummary ?? null,
+            step.outputSummary ?? null, step.outputRef ?? null, step.evidenceSummary ?? null,
+            step.attemptCount, step.startedAt ?? null, step.completedAt ?? null, step.lastError ?? null,
+            step.createdAt, timestamp
+          );
+        } else {
+          insertStep.run(
+            rowId, current.id, nextVersion, stepIndex, step.title, step.description, "pending",
+            step.sideEffectClass, step.idempotencyKey ?? null, step.inputSummary ?? null, null, null,
+            null, 0, null, null, null, timestamp, timestamp
+          );
+        }
+        insertTaskStep.run(current.id, nextVersion, taskId, rowId, position);
+        stepIndex += 1;
+      };
+      for (const task of currentTasks) {
+        const taskRowId = id("task");
+        insertTask.run(taskRowId, current.id, nextVersion, taskIndex, task.title, task.description, timestamp, timestamp);
+        task.steps.forEach((step, position) => writeStep(taskRowId, step, position));
+        taskIndex += 1;
+      }
+      for (const task of addedTasks) {
+        insertTask.run(task.id, current.id, nextVersion, taskIndex, task.title, task.description, timestamp, timestamp);
+        task.steps.forEach((step, position) => writeStep(task.id, step, position));
+        taskIndex += 1;
+      }
+
+      const insertCriterion = this.db.prepare(`
+        INSERT INTO durable_acceptance_criteria (
+          id, execution_id, plan_version, description, required, checker_type, checker_key,
+          author, result, evidence_ref_id, user_edited, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const criterion of currentCriteria) {
+        insertCriterion.run(
+          id("criterion"), current.id, nextVersion, criterion.description, criterion.required,
+          criterion.checker_type, criterion.checker_key, criterion.author, criterion.result,
+          criterion.evidence_ref_id, criterion.user_edited, timestamp, timestamp
+        );
+      }
+      for (const criterion of addedCriteria) {
+        insertCriterion.run(
+          criterion.id ?? id("criterion"), current.id, nextVersion, criterion.description,
+          criterion.required !== false ? 1 : 0, criterion.checkerType ?? (criterion.checkerKey ? "deterministic" : "subjective"),
+          criterion.checkerKey ?? null, criterion.author ?? "model", "unproven", null,
+          criterion.author === "user" ? 1 : 0, timestamp, timestamp
+        );
+      }
+
+      const existingMeta = this.getPlanMeta(current.id);
+      const title = text(input.title) || existingMeta?.title || current.goal;
+      const summary = input.summary === undefined ? existingMeta?.summary ?? "" : text(input.summary);
+      this.db.prepare(`
+        INSERT INTO durable_plan_meta (execution_id, title, summary, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(execution_id) DO UPDATE SET title = excluded.title, summary = excluded.summary, updated_at = excluded.updated_at
+      `).run(current.id, title, summary, timestamp);
+
+      this.db.prepare(`
+        UPDATE durable_executions
+        SET goal = ?, current_plan_version = ?, status = 'planned', version = version + 1,
+          lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = NULL, waiting_reason = NULL,
+          next_run_at = NULL, terminal_at = NULL, last_error = NULL, updated_at = ?
+        WHERE id = ? AND version = ?
+      `).run(title, nextVersion, timestamp, current.id, input.expectedVersion);
+      const next = this.requireRow(current.id);
+      this.db.exec("COMMIT");
+      return rowToExecution(next);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Deletes a stopped plan and all of its aggregate records. Generated files and
+   * external side effects are intentionally untouched. A tombstone keeps the
+   * stable id so a stale chat card can report that the plan was deleted.
+   */
+  deletePlan(input: { executionId: string; ownerId: string; expectedVersion?: number; now?: Date }): boolean {
+    const executionId = text(input.executionId);
+    if (!executionId) return false;
+    const timestamp = nowIso(input.now);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.db.prepare("SELECT * FROM durable_executions WHERE id = ?").get(executionId) as unknown as ExecutionRow | undefined;
+      if (!row) {
+        this.db.exec("COMMIT");
+        return false;
+      }
+      if (text(input.ownerId) && row.owner_id !== text(input.ownerId)) throw new DurableExecutionNotFoundError(executionId);
+      if (input.expectedVersion !== undefined) this.assertVersion(row, input.expectedVersion);
+      if (["queued", "running", "verifying", "waiting_for_user", "waiting_for_approval"].includes(row.status)) {
+        throw new DurableExecutionTransitionError(row.status, "cancelled");
+      }
+      const pendingApproval = this.db.prepare("SELECT 1 AS found FROM durable_approval_requests WHERE execution_id = ? AND status = 'pending' LIMIT 1").get(executionId) as { found?: number } | undefined;
+      if (Number(pendingApproval?.found ?? 0) === 1) {
+        throw new DurableExecutionTransitionError(row.status, "cancelled");
+      }
+      this.db.prepare("INSERT OR REPLACE INTO durable_plan_tombstones (execution_id, owner_id, title, deleted_at) VALUES (?, ?, ?, ?)")
+        .run(executionId, row.owner_id, this.getPlanMeta(executionId)?.title ?? row.goal, timestamp);
+      this.db.prepare("DELETE FROM durable_executions WHERE id = ?").run(executionId);
+      this.db.exec("COMMIT");
+      return true;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  getPlanTombstone(executionId: string): { executionId: string; ownerId: string; title: string; deletedAt: string } | null {
+    const row = this.db.prepare("SELECT * FROM durable_plan_tombstones WHERE execution_id = ?").get(text(executionId)) as unknown as TombstoneRow | undefined;
+    return row ? { executionId: row.execution_id, ownerId: row.owner_id, title: row.title, deletedAt: row.deleted_at } : null;
+  }
+
+  private writePlanContentInTransaction(
+    executionId: string,
+    planVersion: number,
+    tasks: NormalizedPlanTask[],
+    criteria: PlanCriterionInput[],
+    createdAt: string
+  ): void {
+    const insertStep = this.db.prepare(`
+      INSERT INTO durable_steps (
+        id, execution_id, plan_version, step_index, title, description, status,
+        side_effect_class, idempotency_key, input_summary, output_summary, output_ref,
+        evidence_summary, attempt_count, started_at, completed_at, last_error, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, NULL, NULL, NULL, 0, NULL, NULL, NULL, ?, ?)
+    `);
+    const insertTask = this.db.prepare("INSERT INTO durable_tasks (id, execution_id, plan_version, task_index, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    const insertTaskStep = this.db.prepare("INSERT INTO durable_task_steps (execution_id, plan_version, task_id, step_id, position) VALUES (?, ?, ?, ?, ?)");
+    const insertCriterion = this.db.prepare(`
+      INSERT INTO durable_acceptance_criteria (
+        id, execution_id, plan_version, description, required, checker_type, checker_key,
+        author, result, evidence_ref_id, user_edited, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unproven', NULL, ?, ?, ?)
+    `);
+    let stepIndex = 0;
+    tasks.forEach((task, taskIndex) => {
+      insertTask.run(task.id, executionId, planVersion, taskIndex, task.title, task.description, createdAt, createdAt);
+      task.steps.forEach((step, position) => {
+        insertStep.run(
+          step.id, executionId, planVersion, stepIndex, step.title, step.description,
+          step.sideEffectClass, step.idempotencyKey ?? null, step.inputSummary ?? null, createdAt, createdAt
+        );
+        insertTaskStep.run(executionId, planVersion, task.id, step.id, position);
+        stepIndex += 1;
+      });
+    });
+    criteria.forEach((criterion) => insertCriterion.run(
+      criterion.id ?? id("criterion"), executionId, planVersion, criterion.description,
+      criterion.required !== false ? 1 : 0, criterion.checkerType ?? (criterion.checkerKey ? "deterministic" : "subjective"),
+      criterion.checkerKey ?? null, criterion.author ?? "model", criterion.author === "user" ? 1 : 0, createdAt, createdAt
+    ));
   }
 
   transitionStatus(
@@ -1724,6 +2167,40 @@ export class DurableExecutionStore {
         PRIMARY KEY (execution_id, action_id)
       );
       CREATE INDEX IF NOT EXISTS idx_durable_action_receipts_execution ON durable_action_receipts(execution_id, created_at);
+      CREATE TABLE IF NOT EXISTS durable_plan_meta (
+        execution_id TEXT PRIMARY KEY REFERENCES durable_executions(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS durable_tasks (
+        id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
+        plan_version INTEGER NOT NULL,
+        task_index INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (execution_id, plan_version, task_index)
+      );
+      CREATE INDEX IF NOT EXISTS idx_durable_tasks_execution ON durable_tasks(execution_id, plan_version, task_index);
+      CREATE TABLE IF NOT EXISTS durable_task_steps (
+        execution_id TEXT NOT NULL,
+        plan_version INTEGER NOT NULL,
+        task_id TEXT NOT NULL REFERENCES durable_tasks(id) ON DELETE CASCADE,
+        step_id TEXT NOT NULL REFERENCES durable_steps(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        PRIMARY KEY (execution_id, plan_version, step_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_durable_task_steps_task ON durable_task_steps(task_id, position);
+      CREATE TABLE IF NOT EXISTS durable_plan_tombstones (
+        execution_id TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        deleted_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_durable_plan_tombstones_owner ON durable_plan_tombstones(owner_id, deleted_at DESC);
     `);
   }
 }

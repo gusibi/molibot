@@ -276,6 +276,99 @@ export interface DurableExecutionListFilter {
   limit?: number;
 }
 
+/** A plan is a Durable Execution aggregate used as an editable, cross-session work object. */
+export interface PlanStepInput {
+  /** Stable identity reused across revisions; generated when absent. */
+  id?: string;
+  title: string;
+  description?: string;
+  sideEffectClass?: SideEffectClass;
+  idempotencyKey?: string;
+  inputSummary?: string;
+}
+
+export interface PlanTaskInput {
+  id?: string;
+  title: string;
+  description?: string;
+  steps: PlanStepInput[];
+}
+
+export interface PlanCriterionInput {
+  id?: string;
+  description: string;
+  required?: boolean;
+  checkerType?: "deterministic" | "subjective";
+  checkerKey?: string;
+  author?: PlanAuthor;
+}
+
+export interface CreatePlanInput {
+  /** Deterministic id used to make an accepted Session plan idempotent. */
+  planId?: string;
+  ownerId: string;
+  botId: string;
+  title: string;
+  summary?: string;
+  sourceChannel?: string;
+  sourceChatId?: string;
+  sourceUiSessionId?: string;
+  sourceProjectId?: string;
+  tasks: PlanTaskInput[];
+  acceptanceCriteria?: PlanCriterionInput[];
+  now?: Date;
+}
+
+/**
+ * Adds work to the current plan as a new version. Existing tasks and steps are
+ * carried over with their recorded results; completed work is never rewritten.
+ * Full in-place two-layer editing is a later capability.
+ */
+export interface RevisePlanInput {
+  executionId: string;
+  ownerId: string;
+  expectedVersion: number;
+  reason: string;
+  author: PlanAuthor;
+  title?: string;
+  summary?: string;
+  addTasks: PlanTaskInput[];
+  addCriteria?: PlanCriterionInput[];
+  now?: Date;
+}
+
+export interface PlanTask {
+  id: string;
+  executionId: string;
+  planVersion: number;
+  index: number;
+  title: string;
+  description: string;
+  steps: ExecutionStep[];
+}
+
+export interface PlanMeta {
+  executionId: string;
+  title: string;
+  summary: string;
+  updatedAt: string;
+}
+
+export interface PlanDetail extends DurableExecutionDetail {
+  meta: PlanMeta;
+  tasks: PlanTask[];
+}
+
+export interface PlanListFilter {
+  ownerId: string;
+  botId?: string;
+  projectId?: string;
+  statuses?: DurableExecutionStatus[];
+  search?: string;
+  includeArchived?: boolean;
+  limit?: number;
+}
+
 export interface ClaimAttemptInput {
   executionId: string;
   expectedVersion: number;
@@ -335,6 +428,13 @@ export class DurableExecutionNotFoundError extends Error {
   constructor(id: string) {
     super(`Durable Execution not found: ${id}`);
     this.name = "DurableExecutionNotFoundError";
+  }
+}
+
+export class PlanDeletedError extends Error {
+  constructor(id: string) {
+    super(`Plan was deleted: ${id}`);
+    this.name = "PlanDeletedError";
   }
 }
 

@@ -1,3 +1,14 @@
+### 计划看板（Plan Board）共享计划服务基础（2026-09-13，部分交付 / 后端基础）
+
+- 背景：落实 `docs/requirements/plan-board-prd.md`（方案 v4）。第一阶段先把「计划 = Durable Execution 聚合」的共享底座跑通，避免先做 UI 再返工执行真相源。
+- 存储（复用 `durable-execution.sqlite`，全部为新增表，不改动既有表）：`durable_plan_meta`（title/summary）、`durable_tasks`、`durable_task_steps`（step→task 映射，执行仍按 `durable_steps.step_index` 线性推进）、`durable_plan_tombstones`（删除后旧引用可判定）。`ensureSchema` 只用 `CREATE TABLE IF NOT EXISTS`，无 migration、不触碰既有用户数据。
+- 领域能力（`src/lib/server/agent/durable/store.ts`）：`createPlan`（一个事务写入执行行、版本、两层任务/步骤、验收标准、meta，初始 `planned`）、`getPlanTasks`、`getPlanMeta`、`revisePlan`（追加返工任务为新版本，原样结转已完成步骤的结果与证据，新版本回到 `planned` 待重新批准；运行中/排队/等待/已取消拒绝应用，须先安全暂停）、`deletePlan`（仅停止且无待审批的计划可删，保留产出文件，写 tombstone，重复删除幂等）、`getPlanTombstone`。
+- 共享服务（`src/lib/server/agent/plans/service.ts`）：`PlanService` 提供 create/list（标题/ID 搜索、状态/项目筛选、默认隐藏已归档）/read（含两层任务、真实进度投影、`PlanDeletedError`）/revise/start/pause/resume/cancel/delete；生命周期分桶 `not_started / in_progress / needs_attention / finished / archived` 由执行状态派生，completed 视为归档。
+- API：`/api/desktop/plans`（GET list/read，POST create/revise/start/pause/resume/cancel/delete），返回 `Cache-Control: no-store`；错误按 404/410/409/400 映射。仅桌面 `api/desktop` 前缀，未加入 Web/Channel。
+- 与 Durable Execution 的关系：计划即聚合，`planId` 复用执行 id，杜绝第二套进度源；任务层只做展示分组，执行器继续按线性步骤推进，未改 runtime。
+- 测试：新增 `plans/service.test.ts` 7/7（两层结构、31 步无静默截断、搜索/筛选/归档、start 入队事件、暂停后返工结转已完成结果、删除幂等与 `PlanDeletedError`、owner 隔离）；`durable/*.test.ts` + `plans/*.test.ts` 共 48/48 通过；`tsc --noEmit` 对本次改动文件无报错。
+- **未交付**（后续 slice）：桌面「计划」列表 + 右侧编辑面板（两层编辑、固定操作栏、中英/明暗/窄窗）、`exitPlan` 生成即保存与首次批准接入、实时快照/增量与断线补齐、跨 Session 继续、完整的确认/审批复用。真机冷启动走查未做。能力矩阵未新增行：尚无用户可见的端到端能力。
+
 ### 主题区域适配层：现有 chrome 区域按家族改写 + QQ 样板（2026-09-13，已交付）
 
 - 背景：owner 用一张完整 QQ 皮肤举例，指出「完整形态」不只是换色 + 气泡，而是 header、文件面板、输入区、会话列表、聊天区这些**独立结构**都要有对应的适配项；但明确不改整体布局、不加底部状态栏/顶部命令带。此前主题只能改 token，作用在同一棵组件树上，无法表达这些区域的**形态**。
