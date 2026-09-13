@@ -990,6 +990,70 @@ test("project command lists, switches, and exits shared Bot Project mode", async
   assert.match(sent.at(-1) ?? "", /normal Chat mode/);
 });
 
+test("project /sessions lists Project sessions and switches the pinned conversation", async () => {
+  const sent: string[] = [];
+  const project = {
+    id: "mobile-project",
+    name: "Mobile Project",
+    rootPath: "/tmp/mobile-project",
+    createdAt: "",
+    updatedAt: ""
+  };
+  let activeConversationId: string | null = null;
+  const projectSessions = [
+    { id: "conv-1", title: "First Project Chat", updatedAt: "2026-01-02T00:00:00.000Z" },
+    { id: "conv-2", title: "Second Project Chat", updatedAt: "2026-01-01T00:00:00.000Z" }
+  ];
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "feishu",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "feishu",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    listProjects: () => [project],
+    getActiveProject: () => project,
+    setActiveProject: () => project,
+    listProjectSessions: () => projectSessions,
+    getActiveProjectSession: () => activeConversationId,
+    setActiveProjectSession: (_scopeId, conversationId) => {
+      activeConversationId = conversationId;
+    },
+    createProjectSession: () => ({ id: "conv-new", title: "New Project Chat" }),
+    sendText: async (_target, text) => { sent.push(text); }
+  });
+
+  const run = (text: string) => service.handle({ chatId: "chat-1", scopeId: "chat-1", text, target: "chat-1" });
+
+  await run("/sessions");
+  assert.match(sent.at(-1) ?? "", /Project · Mobile Project \(mobile-project\)/);
+  assert.match(sent.at(-1) ?? "", /First Project Chat/);
+  assert.match(sent.at(-1) ?? "", /Second Project Chat/);
+  assert.match(sent.at(-1) ?? "", /Auto/);
+
+  await run("/sessions 2");
+  assert.equal(activeConversationId, "conv-2");
+  assert.match(sent.at(-1) ?? "", /Second Project Chat/);
+
+  await run("/sessions");
+  assert.match(sent.at(-1) ?? "", /conv-2/);
+  assert.match(sent.at(-1) ?? "", /\(current\)/);
+
+  await run("/sessions bad-id");
+  assert.match(sent.at(-1) ?? "", /Invalid session selector/);
+  assert.equal(activeConversationId, "conv-2");
+
+  await run("/new");
+  assert.equal(activeConversationId, "conv-new");
+  assert.match(sent.at(-1) ?? "", /New Project Chat/);
+
+  await run("/delete_sessions");
+  assert.match(sent.at(-1) ?? "", /Desktop app/);
+});
+
 test("skills commands split summary and detail output", async () => {
   const sent: string[] = [];
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-skills-"));

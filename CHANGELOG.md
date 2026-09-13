@@ -1,3 +1,7 @@
+### Added: Project 模式下 /sessions 列出并切换项目会话（2026-09-13）
+
+飞书、Telegram 在 `/project` 模式下输入 `/sessions` 现在展示该 Project 的会话列表（含 Desktop 端创建的会话），并标注当前处于哪个项目、正在使用哪个会话。`/sessions <编号|id>` 可切换项目会话并持久记住选择，之后的消息续写到所选会话，与 Desktop 共享同一份上下文。`/new` 在项目内新建项目会话；`/delete_sessions` 提示到 Desktop 管理，避免误删。
+
 ### Added: 对话调用链报告（2026-09-13）
 
 新增可启用的 Call Trace 内置插件。从 APP 回复菜单查看模型、工具和内置子 Agent 的调用树、耗时与 token，并可通过现有 Cloudflare HTML Publish 发布精简 HTML 快照。Telegram、飞书可请求上一轮或指定消息的报告。小程序入口留待后续单独实现。

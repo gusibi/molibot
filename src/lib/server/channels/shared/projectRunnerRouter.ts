@@ -112,10 +112,13 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
     }
     if (!project) return botTarget;
 
+    const pinnedConversationId = explicitProjectId
+      ? undefined
+      : getProjectStore().getChannelConversation(this.options.channel, this.options.instanceId, scopeId) ?? undefined;
     const conversation = this.options.sessions.getOrCreateConversation(
       this.options.channel as Channel,
       conversationKey,
-      undefined,
+      pinnedConversationId,
       { projectId: project.id, origin: "automation" }
     );
     const { store, pool } = this.getProjectRuntime(project.id);
@@ -123,7 +126,9 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
     return {
       pool,
       store,
-      chatId: conversationKey,
+      // Key the runner by the conversation's own identity, matching the Web /
+      // Desktop router, so a pinned Project conversation shares one agent context.
+      chatId: conversation.externalUserId,
       sessionId: conversation.id,
       project,
       conversationKey,

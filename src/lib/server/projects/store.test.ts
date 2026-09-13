@@ -139,3 +139,36 @@ test("ProjectStore persists and isolates channel conversation bindings", () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("ProjectStore pins a channel scope to one Project conversation and resets it on Project change", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-project-conversation-"));
+  const dbFile = path.join(root, "settings.sqlite");
+  const firstRoot = path.join(root, "first");
+  const secondRoot = path.join(root, "second");
+  fs.mkdirSync(firstRoot);
+  fs.mkdirSync(secondRoot);
+  try {
+    const store = new ProjectStore(dbFile);
+    const first = store.create({ name: "First", rootPath: firstRoot });
+    const second = store.create({ name: "Second", rootPath: secondRoot });
+    store.setChannelBinding("feishu", "work", "chat-1", first.id);
+    assert.equal(store.getChannelConversation("feishu", "work", "chat-1"), null);
+
+    store.setChannelConversation("feishu", "work", "chat-1", "conv-a");
+    assert.equal(new ProjectStore(dbFile).getChannelConversation("feishu", "work", "chat-1"), "conv-a");
+
+    // Re-selecting the same Project keeps the pinned conversation.
+    store.setChannelBinding("feishu", "work", "chat-1", first.id);
+    assert.equal(store.getChannelConversation("feishu", "work", "chat-1"), "conv-a");
+
+    // Switching to another Project drops the stale conversation.
+    store.setChannelBinding("feishu", "work", "chat-1", second.id);
+    assert.equal(store.getChannelConversation("feishu", "work", "chat-1"), null);
+
+    store.setChannelConversation("feishu", "work", "chat-1", "conv-b");
+    store.setChannelConversation("feishu", "work", "chat-1", null);
+    assert.equal(store.getChannelConversation("feishu", "work", "chat-1"), null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

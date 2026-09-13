@@ -1339,8 +1339,8 @@ export class SessionStore {
     return located?.type === "project" ? located.projectId : null;
   }
 
-  createProjectConversation(projectId: string, externalUserId: string): Conversation {
-    return this.createConversation("web", externalUserId, projectId);
+  createProjectConversation(projectId: string, externalUserId: string, channel: Channel = "web"): Conversation {
+    return this.createConversation(channel, externalUserId, projectId);
   }
 
   /** Same empty-session contract as Web, scoped to one project workspace. */
@@ -1360,6 +1360,31 @@ export class SessionStore {
       .filter((item): item is Conversation => Boolean(item));
     conversations.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return conversations;
+  }
+
+  /**
+   * Project conversations a channel scope may switch between: every conversation
+   * visible in the Desktop Project list, plus the ones this scope itself created.
+   *
+   * Channel-originated Project conversations are stored with `origin:
+   * "automation"` (see ProjectAwareRunnerPool.resolveTarget) so they stay out of
+   * the ordinary Desktop list, but they must remain reachable from the chat that
+   * owns them. Explicit Project automations belong to a `project:<id>` scope and
+   * are therefore excluded by the identity prefix.
+   */
+  listSwitchableProjectConversations(
+    projectId: string,
+    channel: string,
+    botId: string,
+    scopeId: string
+  ): Conversation[] {
+    const scopePrefix = `bot:${botId}:chat:${scopeId}:`;
+    return this.listProjectConversations(projectId).filter((conversation) => {
+      const origin = conversation.origin ?? "";
+      if (origin.startsWith("internal:")) return false;
+      if (origin !== "automation") return true;
+      return conversation.channel === channel && conversation.externalUserId.startsWith(scopePrefix);
+    });
   }
 
   getProjectConversation(projectId: string, conversationId: string): Conversation | null {

@@ -277,6 +277,59 @@ test("project conversations use isolated project storage and remain outside Web 
   }
 });
 
+test("listSwitchableProjectConversations scopes automation conversations to their own chat", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-switchable-project-"));
+  const original = {
+    projectsDir: storagePaths.projectsDir,
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+  try {
+    storagePaths.projectsDir = path.join(root, "projects");
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    const store = new SessionStore();
+
+    const ownScope = store.getOrCreateConversation(
+      "feishu",
+      "bot:bot-1:chat:oc_1:default",
+      undefined,
+      { projectId: "wiki", origin: "automation" }
+    );
+    const otherScope = store.getOrCreateConversation(
+      "feishu",
+      "bot:bot-1:chat:oc_2:default",
+      undefined,
+      { projectId: "wiki", origin: "automation" }
+    );
+    const automation = store.getOrCreateConversation(
+      "feishu",
+      "bot:bot-1:chat:project:wiki:t-archive-x",
+      undefined,
+      { projectId: "wiki", origin: "automation" }
+    );
+    const visible = store.getOrCreateConversation(
+      "web",
+      "web:personal:user",
+      undefined,
+      { projectId: "wiki" }
+    );
+
+    const switchable = new Set(
+      store.listSwitchableProjectConversations("wiki", "feishu", "bot-1", "oc_1").map((item) => item.id)
+    );
+    assert.equal(switchable.has(ownScope.id), true);
+    assert.equal(switchable.has(visible.id), true);
+    assert.equal(switchable.has(otherScope.id), false);
+    assert.equal(switchable.has(automation.id), false);
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("empty conversations are reused once per Web profile and project", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-empty-session-"));
   const original = {

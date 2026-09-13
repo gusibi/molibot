@@ -536,6 +536,31 @@ export abstract class BaseChannelRuntime {
       listProjects: () => getProjectStore().list(),
       getActiveProject: (scopeId) => getProjectStore().getChannelBinding(this.channelName, this.instanceId, scopeId),
       setActiveProject: (scopeId, projectId) => getProjectStore().setChannelBinding(this.channelName, this.instanceId, scopeId, projectId),
+      listProjectSessions: (scopeId) => {
+        const project = getProjectStore().getChannelBinding(this.channelName, this.instanceId, scopeId);
+        if (!project) return [];
+        return this.sessions
+          .listSwitchableProjectConversations(project.id, this.channelName, this.instanceId, scopeId)
+          .map((conversation) => ({
+            id: conversation.id,
+            title: conversation.title,
+            updatedAt: conversation.updatedAt
+          }));
+      },
+      getActiveProjectSession: (scopeId) => getProjectStore().getChannelConversation(this.channelName, this.instanceId, scopeId),
+      setActiveProjectSession: (scopeId, conversationId) => {
+        getProjectStore().setChannelConversation(this.channelName, this.instanceId, scopeId, conversationId);
+      },
+      createProjectSession: (scopeId) => {
+        const project = getProjectStore().getChannelBinding(this.channelName, this.instanceId, scopeId);
+        if (!project) throw new Error("No active Project.");
+        const conversation = this.sessions.createProjectConversation(
+          project.id,
+          `bot:${this.instanceId}:chat:${scopeId}`,
+          this.channelName as Channel
+        );
+        return { id: conversation.id, title: conversation.title };
+      },
       executeApprovedHostBash: options.executeApprovedHostBash ?? (async (input, approved, request) => {
         if (!request.pendingAction) return;
         // Run where the agent's turn ran. A chat bound to a project executes in

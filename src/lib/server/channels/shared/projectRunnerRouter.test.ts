@@ -75,6 +75,17 @@ test("Project-bound channel scopes share the project runtime with the Desktop ro
     const again = router.resolveTarget("oc_bound", "default");
     assert.equal(again.conversationId, target.conversationId);
 
+    // Pinning a Project conversation (e.g. via /sessions) routes the scope to
+    // it and keys the runner by the conversation's own identity, matching the
+    // Web/Desktop router so both surfaces share one agent context.
+    const pinned = sessions.createProjectConversation(project.id, "web:personal:web-anonymous");
+    getProjectStore().setChannelConversation("feishu", "feishu-test", "oc_bound", pinned.id);
+    const pinnedTarget = router.resolveTarget("oc_bound", "default");
+    assert.equal(pinnedTarget.conversationId, pinned.id);
+    assert.equal(pinnedTarget.chatId, pinned.externalUserId);
+    getProjectStore().setChannelConversation("feishu", "feishu-test", "oc_bound", null);
+    assert.equal(router.resolveTarget("oc_bound", "default").conversationId !== pinned.id, true);
+
     // Desktop resolves the exact same pool through the shared runtime cache;
     // identical pool + identical (chatId, sessionId) keys means both surfaces
     // drive the same MomRunner instance (= same agent context).

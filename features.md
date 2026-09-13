@@ -1,3 +1,12 @@
+### Project 模式下 `/sessions` 列出并切换项目会话（2026-09-13，已交付）
+
+- 背景：飞书/Telegram 在 `/project` 下输入 `/sessions` 仍列出 bot 本地会话，与 Project 无关；Project 会话（含 Desktop 创建的）无法从聊天里看到和切换。
+- 根修（共享层）：渠道 scope 与 Project 的绑定 `channel_project_bindings` 新增可空 `conversation_id`（`ProjectStore.getChannelConversation` / `setChannelConversation`），把"用哪个项目会话"从隐式的 bot session 映射改为显式持久选择；切换项目（或退出）时若项目变化自动清空，重选同一项目保留。
+- 路由：`ProjectAwareRunnerPool.resolveTarget` 读取 pinned conversation 传给 `getOrCreateConversation`，并把 runner key 的 `chatId` 改为会话自身的 `externalUserId`，与 Desktop/Web 路由一致，保证渠道和 Desktop 续写同一份 agent context。默认未 pin 时行为不变（仍取该 scope 最近会话）。
+- 会话集合：`SessionStore.listSwitchableProjectConversations` 返回 Desktop Project 列表可见的会话，加上该渠道 scope 自己创建的 Project 会话（渠道会话以 `origin: "automation"` 落库，不会出现在 Desktop 普通列表，但必须能从自己的聊天切回）；`project:<id>` 的显式自动化归档不在其中。
+- 命令行为：`/sessions` 在 Project 下展示「Current mode: Project · 名称 (id)」、当前会话（或 Auto）与全部项目会话，`/sessions <编号|id>` 设置 pinned conversation；`/new` 创建新的项目会话并 pin；`/delete_sessions` 在 Project 下提示到 Desktop 管理，不误删 bot 会话。中英双语。
+- 验证：ProjectStore 绑定 round-trip（持久化 / 换项目清空 / 同项目保留 / 手动清空）、`listSwitchableProjectConversations` scope 过滤、`resolveTarget` pin 命中且 `chatId = externalUserId`、`/sessions`/`/new`/`/delete_sessions` 项目分支用例全过（58/58）；`tsc` 无新增错误（仅遗留的 `resolveRouteSummary(..., "vision")` 旧错误）。**真实渠道冷路径未走查**：需在飞书/Telegram 执行 `/project` → `/sessions` → 切换 → 发消息确认落到目标会话。
+
 ### 内置调用链插件（2026-09-13）
 
 - 新增 Call Trace 插件：APP 回复菜单打开 HTML 调用树和时间瀑布图，展示模型、工具、耗时及 token；支持刷新与公开 R2 快照。

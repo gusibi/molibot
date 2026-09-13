@@ -211,11 +211,14 @@ export class ProjectStore {
         bot_id TEXT NOT NULL,
         scope_id TEXT NOT NULL,
         project_id TEXT NOT NULL,
+        conversation_id TEXT,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (channel, bot_id, scope_id)
       );
       CREATE INDEX IF NOT EXISTS idx_channel_project_bindings_project ON channel_project_bindings(project_id);
     `);
+    const bindingColumns = new Set((db.prepare("PRAGMA table_info(channel_project_bindings)").all() as Array<{ name: string }>).map((row) => row.name));
+    if (!bindingColumns.has("conversation_id")) db.exec("ALTER TABLE channel_project_bindings ADD COLUMN conversation_id TEXT");
     const columns = new Set((db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>).map((row) => row.name));
     if (!columns.has("model_key")) db.exec("ALTER TABLE projects ADD COLUMN model_key TEXT");
     if (!columns.has("thinking_level")) db.exec("ALTER TABLE projects ADD COLUMN thinking_level TEXT");
@@ -276,9 +279,45 @@ export class ProjectStore {
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(channel, bot_id, scope_id) DO UPDATE SET
           project_id = excluded.project_id,
+          conversation_id = CASE
+            WHEN channel_project_bindings.project_id = excluded.project_id
+            THEN channel_project_bindings.conversation_id
+            ELSE NULL
+          END,
           updated_at = excluded.updated_at
       `).run(channel, botId, scopeId, normalizedProjectId, new Date().toISOString());
       return rowToProject(row);
+    } finally {
+      db.close();
+    }
+  }
+
+  /**
+   * The Project conversation this channel scope is pinned to, if any. Null means
+   * the scope follows the default (most recent conversation for its identity).
+   */
+  getChannelConversation(channel: string, botId: string, scopeId: string): string | null {
+    const db = this.openDb();
+    try {
+      const row = db.prepare(
+        "SELECT conversation_id FROM channel_project_bindings WHERE channel = ? AND bot_id = ? AND scope_id = ?"
+      ).get(channel, botId, scopeId) as { conversation_id: string | null } | undefined;
+      const id = String(row?.conversation_id ?? "").trim();
+      return id || null;
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Pins the channel scope to one Project conversation; null restores the default. */
+  setChannelConversation(channel: string, botId: string, scopeId: string, conversationId?: string | null): string | null {
+    const id = String(conversationId ?? "").trim();
+    const db = this.openDb();
+    try {
+      db.prepare(
+        "UPDATE channel_project_bindings SET conversation_id = ? WHERE channel = ? AND bot_id = ? AND scope_id = ?"
+      ).run(id || null, channel, botId, scopeId);
+      return id || null;
     } finally {
       db.close();
     }

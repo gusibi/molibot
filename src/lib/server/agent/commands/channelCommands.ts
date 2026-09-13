@@ -92,6 +92,11 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   listProjects?: () => ProjectRecord[];
   getActiveProject?: (scopeId: string) => ProjectRecord | null;
   setActiveProject?: (scopeId: string, projectId: string | null) => ProjectRecord | null;
+  /** Project sessions this scope may switch between, in display order. */
+  listProjectSessions?: (scopeId: string) => Array<{ id: string; title: string; updatedAt: string }>;
+  getActiveProjectSession?: (scopeId: string) => string | null;
+  setActiveProjectSession?: (scopeId: string, conversationId: string | null) => void;
+  createProjectSession?: (scopeId: string) => { id: string; title: string };
 }
 
 export type QueuedControlAction = "stop" | "steer";
@@ -783,6 +788,24 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(input.target, this.text("Already working. Send /stop first, then /new.", "已有任务正在运行，请先发送 /stop，再发送 /new。"));
         return true;
       }
+      const project = this.options.getActiveProject?.(input.scopeId) ?? null;
+      if (project && this.options.createProjectSession && this.options.setActiveProjectSession) {
+        const created = this.options.createProjectSession(input.scopeId);
+        this.options.setActiveProjectSession(input.scopeId, created.id);
+        await this.options.sendText(input.target, this.text(
+          `Created and switched to new Project session: ${created.title} (${created.id})`,
+          `已创建并切换到新的项目会话：${created.title}（${created.id}）`
+        ));
+        await this.options.onSessionMutation?.(input.scopeId);
+        momLog(this.options.channel, "project_session_new", {
+          chatId: input.chatId,
+          scopeId: input.scopeId,
+          projectId: project.id,
+          conversationId: created.id,
+          instanceId: this.options.instanceId
+        });
+        return true;
+      }
       const sessionId = this.options.store.createSession(input.scopeId);
       this.options.runners.reset(input.scopeId, sessionId);
       await this.options.sendText(input.target, this.text(`Created and switched to new session: ${sessionId}`, `已创建并切换到新会话：${sessionId}`));
@@ -820,6 +843,36 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(input.target, this.text("Already working. Send /stop first, then switch sessions.", "已有任务正在运行，请先发送 /stop，再切换会话。"));
         return true;
       }
+      const project = this.options.getActiveProject?.(input.scopeId) ?? null;
+      const projectSessions = project && this.options.listProjectSessions
+        ? this.options.listProjectSessions(input.scopeId)
+        : null;
+      if (project && projectSessions && this.options.setActiveProjectSession) {
+        if (rawArg) {
+          const picked = this.resolveProjectSessionSelection(projectSessions, rawArg);
+          if (!picked) {
+            await this.options.sendText(input.target, this.text("Invalid session selector. Use /sessions to list Project sessions.", "无效的会话选择器。使用 /sessions 查看项目会话。"));
+            return true;
+          }
+          this.options.setActiveProjectSession(input.scopeId, picked.id);
+          await this.options.sendText(input.target, this.text(
+            `Project · ${project.name}: switched to session ${picked.title} (${picked.id})`,
+            `项目「${project.name}」已切换会话：${picked.title}（${picked.id}）`
+          ));
+          await this.options.onSessionMutation?.(input.scopeId);
+          momLog(this.options.channel, "project_session_switch", {
+            chatId: input.chatId,
+            scopeId: input.scopeId,
+            projectId: project.id,
+            conversationId: picked.id,
+            selector: rawArg,
+            instanceId: this.options.instanceId
+          });
+          return true;
+        }
+        await this.options.sendText(input.target, this.formatProjectSessionsOverview(input.scopeId, project, projectSessions));
+        return true;
+      }
       if (rawArg) {
         const picked = this.resolveSessionSelection(input.scopeId, rawArg);
         if (!picked) {
@@ -845,6 +898,14 @@ export class SharedRuntimeCommandService<TTarget> {
     if (cmd === "/delete_sessions") {
       if (this.options.isRunning(input.scopeId)) {
         await this.options.sendText(input.target, this.text("Already working. Send /stop first, then delete sessions.", "已有任务正在运行，请先发送 /stop，再删除会话。"));
+        return true;
+      }
+      const activeProject = this.options.getActiveProject?.(input.scopeId) ?? null;
+      if (activeProject) {
+        await this.options.sendText(input.target, this.text(
+          "Project sessions are shared across surfaces and managed from the Desktop app. Use /sessions to switch between them.",
+          "项目会话跨端共享，请在 Desktop 应用中管理。使用 /sessions 切换会话。"
+        ));
         return true;
       }
       if (!rawArg) {
@@ -1826,6 +1887,62 @@ export class SharedRuntimeCommandService<TTarget> {
     return sessions.includes(raw) ? raw : null;
   }
 
+  private resolveProjectSessionSelection(
+    sessions: Array<{ id: string; title: string }>,
+    selector: string
+  ): { id: string; title: string } | null {
+    const raw = selector.trim();
+    if (!raw) return null;
+
+    const asIndex = Number.parseInt(raw, 10);
+    if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= sessions.length) {
+      return sessions[asIndex - 1] ?? null;
+    }
+
+    return sessions.find((session) => session.id === raw) ?? null;
+  }
+
+  private formatProjectSessionsOverview(
+    scopeId: string,
+    project: ProjectRecord,
+    sessions: Array<{ id: string; title: string; updatedAt: string }>
+  ): string {
+    const active = this.options.getActiveProjectSession?.(scopeId) ?? null;
+    const lines = [
+      this.renderMarkdownBulletList(this.text("Project session overview", "项目会话概览"), [
+        { label: this.text("Current mode", "当前模式"), value: `Project · ${project.name} (${project.id})` },
+        {
+          label: this.text("Current session", "当前会话"),
+          value: active ? this.code(active) : this.text("Auto (most recent)", "自动（最近会话）")
+        },
+        { label: this.text("Total sessions", "会话总数"), value: String(sessions.length) }
+      ]),
+      "",
+      `**${this.text("Project sessions", "项目会话")}**`
+    ];
+    if (sessions.length === 0) {
+      lines.push(this.text(
+        "(no Project sessions yet; send a message to create one)",
+        "（暂无项目会话；发送一条消息即可创建）"
+      ));
+    } else {
+      for (let i = 0; i < sessions.length; i += 1) {
+        const session = sessions[i];
+        const title = session.title?.trim() || this.text("Untitled", "未命名");
+        lines.push(
+          `${i + 1}. ${title} ${this.code(session.id)}${session.id === active ? this.text(" (current)", "（当前）") : ""}`
+        );
+      }
+    }
+    lines.push("");
+    lines.push(this.renderMarkdownCommandList(this.text("Project session commands", "项目会话命令"), [
+      "/sessions <index|sessionId>",
+      "/new",
+      "/project off"
+    ]));
+    return lines.join("\n");
+  }
+
   private formatSessionsOverview(scopeId: string): string {
     const sessions = this.options.store.listVisibleSessions(scopeId);
     const active = this.options.store.getActiveSession(scopeId);
@@ -2382,7 +2499,7 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/new", value: d("create and switch to a new session", "创建并切换到新会话") },
       { label: "/clear", value: d("clear context of current session", "清除当前会话上下文") },
       { label: "/stop", value: d("stop current running task", "停止当前运行中的任务") },
-      { label: "/sessions", value: d("list sessions, or switch with /sessions <index|sessionId>", "查看会话列表，或用 /sessions <编号|sessionId> 切换") },
+      { label: "/sessions", value: d("list sessions, or switch with /sessions <index|sessionId>; in Project mode lists that Project's sessions", "查看会话列表，或用 /sessions <编号|sessionId> 切换；在 Project 模式下列出该项目会话") },
       { label: "/status", value: d("show current bot/session/runtime status", "查看当前机器人、会话和运行时状态") },
       { label: "/models", value: d("show or switch model (/models <index|key>)", "查看或切换模型（/models <编号|key>）") },
       { label: "/skills", value: d("list loaded skill names and file paths", "查看已加载技能名称和文件路径") },
