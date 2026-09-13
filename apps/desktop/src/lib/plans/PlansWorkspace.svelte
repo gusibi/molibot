@@ -67,6 +67,7 @@
   $: completedCount = detail?.projection.progress.completed ?? 0;
   $: totalCount = detail?.projection.progress.total ?? 0;
   $: progressPercent = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
+  $: waitingText = detail ? resolveWaitingText(detail) : "";
   $: showDetailPane = detailLoading || Boolean(detail) || Boolean(selectedId);
   $: canStart = detail?.execution.status === "planned";
   $: canPause = detail?.execution.status === "queued" || detail?.execution.status === "running" || detail?.execution.status === "verifying";
@@ -263,27 +264,38 @@
   function criterionResultLabel(result: "unproven" | "passed" | "failed"): string {
     return result === "passed" ? copy.planStatusCompleted : result === "failed" ? copy.planStatusBlocked : copy.durableStatusPlanned;
   }
+
+  /** Runtime waiting text is English; known kinds render localized copy instead. */
+  function resolveWaitingText(plan: DesktopPlanDetail): string {
+    const waiting = plan.projection.waiting;
+    if (waiting?.kind === "review") return copy.planReviewPrompt;
+    if (waiting?.kind === "recovery") return copy.planBoardRecoveryReason;
+    return plan.execution.waitingReason ?? "";
+  }
 </script>
 
-<div class="plans-workspace" class:detail-open={showDetailPane}>
+<div class="plans-shell">
+  <div class="plans-workspace" class:detail-open={showDetailPane}>
   <aside class="plans-rail" aria-label={copy.planBoardTitle}>
     <div class="plans-toolbar">
       <label class="plans-search">
         <Magnifier size={14} aria-hidden="true" />
         <input
           type="search"
+          name="plan-search"
+          autocomplete="off"
+          spellcheck="false"
           value={search}
           placeholder={copy.planBoardSearchPlaceholder}
-          aria-label={copy.planBoardSearchPlaceholder}
+          aria-label={copy.planBoardSearchLabel}
           oninput={(event) => (search = (event.currentTarget as HTMLInputElement).value)}
         />
       </label>
-      <div class="plans-filters" role="tablist" aria-label={copy.planBoardTitle}>
+      <div class="plans-filters" role="group" aria-label={copy.planBoardTitle}>
         {#each filterOptions as option (option)}
           <button
             type="button"
-            role="tab"
-            aria-selected={filter === option}
+            aria-pressed={filter === option}
             class:active={filter === option}
             onclick={() => (filter = option)}
           >{filterLabel(option)}</button>
@@ -307,6 +319,7 @@
               type="button"
               class="plans-row"
               class:active={selectedId === item.planId}
+              aria-current={selectedId === item.planId ? "true" : undefined}
               onclick={() => void selectPlan(item.planId)}
             >
               <span class="plans-row-top">
@@ -314,10 +327,10 @@
                 <span class="plans-chip" data-plan-status={item.planStatus}>{planStatusLabel(item.planStatus)}</span>
               </span>
               <span class="plans-row-sub">
-                <span class="plans-mono">{item.shortHandle}</span>
+                <span class="plans-mono" translate="no">{item.shortHandle}</span>
                 <span class="plans-dot" aria-hidden="true">·</span>
-                <span>{item.progress.completed}/{item.progress.total}</span>
-                {#if item.projectId}<span class="plans-dot" aria-hidden="true">·</span><span>{item.projectId}</span>{/if}
+                <span class="plans-count">{item.progress.completed}/{item.progress.total}</span>
+                {#if item.projectId}<span class="plans-dot" aria-hidden="true">·</span><span translate="no">{item.projectId}</span>{/if}
               </span>
               {#if item.progress.currentStepTitle}<span class="plans-row-step">{item.progress.currentStepTitle}</span>{/if}
             </button>
@@ -341,7 +354,7 @@
             <span class="plans-chip" data-plan-status={statusBucket(detail.execution.status)}>{planStatusLabel(statusBucket(detail.execution.status))}</span>
           </div>
           <p class="plans-subtitle">
-            <span class="plans-mono">{detail.execution.shortHandle}</span>
+            <span class="plans-mono" translate="no">{detail.execution.shortHandle}</span>
             <span class="plans-dot" aria-hidden="true">·</span>
             <span>{copy.planBoardVersion} {detail.execution.currentPlanVersion}</span>
             <span class="plans-dot" aria-hidden="true">·</span>
@@ -354,11 +367,11 @@
         <section class="plans-card plans-overview">
           {#if detail.meta.summary}<p class="plans-summary-text">{detail.meta.summary}</p>{/if}
           <div class="plans-progress">
-            <div class="plans-progress-track" role="progressbar" aria-valuenow={progressPercent} aria-valuemin="0" aria-valuemax="100"><span style={"transform: scaleX(" + progressPercent / 100 + ")"}></span></div>
+            <div class="plans-progress-track" role="progressbar" aria-label={copy.planBoardProgress} aria-valuenow={progressPercent} aria-valuemin="0" aria-valuemax="100"><span style={"transform: scaleX(" + progressPercent / 100 + ")"}></span></div>
             <span class="plans-progress-count">{completedCount}/{totalCount}</span>
           </div>
           {#if detail.projection.nextStep}<p class="plans-current"><span>{copy.planBoardCurrentStep}</span>{detail.projection.nextStep.title}</p>{/if}
-          {#if detail.execution.waitingReason}<p class="plans-waiting"><strong>{copy.durableWaitingReason}</strong>{detail.execution.waitingReason}</p>{/if}
+          {#if waitingText}<p class="plans-waiting"><strong>{copy.durableWaitingReason}</strong>{waitingText}</p>{/if}
           {#if detail.execution.lastError}<p class="plans-error-alert">{detail.execution.lastError}</p>{/if}
         </section>
 
@@ -465,15 +478,20 @@
       </footer>
     {/if}
   </section>
+  </div>
 </div>
 
 <style>
+  .plans-shell { width: var(--workspace-col); margin: 0 auto; }
   .plans-workspace {
     display: grid;
     grid-template-columns: minmax(280px, 336px) minmax(0, 1fr);
-    height: 100%;
-    min-height: 0;
-    background: var(--content-bg);
+    height: calc(100vh - 220px);
+    min-height: min(560px, calc(100vh - 220px));
+    overflow: hidden;
+    border: 1px solid var(--separator);
+    border-radius: var(--rounded-md);
+    background: var(--card-bg);
   }
 
   /* Left rail */
@@ -502,7 +520,7 @@
     background: var(--card-bg);
     color: var(--label-tertiary);
   }
-  .plans-search:focus-within { border-color: var(--accent); }
+  .plans-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .plans-search input {
     min-width: 0;
     flex: 1;
@@ -525,20 +543,27 @@
     transition: background var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard);
   }
   .plans-filters button:hover { background: var(--fill); color: var(--label-primary); }
+  .plans-filters button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
   .plans-filters button.active { background: var(--accent-soft); color: var(--accent); }
   .plans-list {
     display: grid;
+    align-content: start;
     gap: 2px;
+    min-height: 0;
+    flex: 1 1 auto;
     margin: 0;
     padding: 8px;
     list-style: none;
     overflow-y: auto;
+    overflow-x: hidden;
     overscroll-behavior: contain;
   }
+  .plans-list > li { min-width: 0; }
   .plans-row {
     display: grid;
     gap: 4px;
     width: 100%;
+    min-width: 0;
     padding: 9px 10px;
     border: 1px solid transparent;
     border-radius: var(--radius-control);
@@ -551,11 +576,12 @@
   .plans-row:hover { background: var(--fill); }
   .plans-row:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
   .plans-row.active { background: var(--card-bg); border-color: var(--separator); }
-  .plans-row-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .plans-row-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-width: 0; }
   .plans-row-top strong { min-width: 0; overflow: hidden; font-size: var(--fs-label); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-  .plans-row-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--label-tertiary); font-size: var(--fs-meta); }
+  .plans-row-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; overflow: hidden; color: var(--label-tertiary); font-size: var(--fs-meta); }
   .plans-row-step { overflow: hidden; color: var(--label-secondary); font-size: var(--fs-meta); text-overflow: ellipsis; white-space: nowrap; }
   .plans-mono, .plans-row-sub .plans-mono { font-family: var(--font-mono); }
+  .plans-count { font-variant-numeric: tabular-nums; }
   .plans-dot { color: var(--label-tertiary); }
 
   .plans-chip {
@@ -573,7 +599,7 @@
   .plans-chip[data-plan-status="archived"] { background: color-mix(in srgb, var(--online) 16%, transparent); color: var(--online); }
 
   /* Detail */
-  .plans-detail { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--content-bg); }
+  .plans-detail { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--card-bg); }
   .plans-detail-head {
     display: flex;
     align-items: center;
@@ -673,6 +699,7 @@
   .plans-rework-task input:focus-visible, .plans-rework-task textarea:focus-visible { border-color: var(--accent); }
   .plans-remove { flex: none; padding: 0; border: 0; background: transparent; color: var(--label-tertiary); font: var(--fs-meta)/var(--lh-meta) var(--font-ui); cursor: pointer; }
   .plans-remove:hover { color: var(--danger); }
+  .plans-remove:focus-visible { outline: none; color: var(--danger); text-decoration: underline; }
   .plans-rework-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
   .plans-state { display: grid; place-items: center; align-content: center; gap: 10px; height: 100%; min-height: 180px; padding: 24px; color: var(--label-secondary); text-align: center; }

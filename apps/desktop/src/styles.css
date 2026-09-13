@@ -1656,8 +1656,6 @@ a:focus-visible {
 
 /* Mini App launchpad (sidebar destination) + its manage view */
 .workspace-scroll[data-workspace-pane="miniapps"] { padding-top: 12px; }
-/* Plans workspace is a full-height master–detail; the panes own their scrolling. */
-.workspace-scroll[data-workspace-pane="plans"] { padding: 0; overflow: hidden; }
 .workspace-scroll[data-workspace-pane="miniapps"] > .miniapps-launchpad { width: var(--workspace-col); margin: 0 auto; }
 .miniapps-launchpad { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .miniapps-launchpad-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px 12px; margin: 0; padding: 0; list-style: none; }

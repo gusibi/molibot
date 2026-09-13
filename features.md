@@ -10,6 +10,16 @@
 - 步骤启动异常进入统一失败收尾，释放执行租约并保留恢复原因，避免任务停留在无人执行的“执行中”状态。
 - 根因属于任务与步骤状态转换不一致，以及启动异常遗漏收尾。临时数据库回归覆盖完整审批续跑、授权消费、计划完成和启动失败；历史审批测试只验证授权消费，未覆盖真实步骤从挂起到重新启动的链路。
 
+### 计划看板规范修复：贴合工作区容器约定 + 消除多余滚动 + Web 规范（2026-09-13，已修复）
+
+- 背景：owner 走查指出①看板面板无圆角、与主题不一致且像 hardcode；②左列明明有空间却出现上下滚动；③左列出现左右滚动、长文本不截断；并要求按 Web Interface Guidelines 一并整改。
+- 圆角/容器：改为与 `TasksSection` 等一致的 workspace 约定——`.plans-shell { width: var(--workspace-col); margin: 0 auto }` 居中，`.plans-workspace` 用 `border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); height: calc(100vh - 220px); overflow: hidden`。圆角全部走主题 token，组件内 0 处硬编码 px 圆角。
+- 滚动：`.plans-list` 改为 `flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden`，让左列填满容器高度、只在真正溢出时滚动；去掉“有空间却滚动”。
+- 横向溢出/截断：`.plans-row / .plans-row-top / .plans-row-sub` 加 `min-width: 0`，标题 `overflow: hidden; text-overflow: ellipsis`，chip `flex: none`，列表 `overflow-x: hidden`——不再出现左右滚动条和右侧被裁掉的 chip。
+- 其他规范整改（PlansWorkspace）：筛选由伪 tablist 改为 `role="group"` + `aria-pressed`（去掉无 tabpanel/无方向键的假 tab）；搜索框补 `name/autocomplete="off"/spellcheck="false"` 与独立 `aria-label`；进度条补 `aria-label`；选中行补 `aria-current`；`.plans-filters`/`.plans-remove` 补 `:focus-visible`；搜索框 `:focus-within` 由仅变色改为可见焦点环；计数用 `font-variant-numeric: tabular-nums`；标识符（shortHandle/projectId）加 `translate="no"`；占位符以 `…` 结尾。
+- 运行期英文串收口：`waitingReason` 按 `projection.waiting.kind` 映射为本地化文案（review→`planReviewPrompt`、recovery→新增 `planBoardRecoveryReason`），不再直接显示英文 "Please confirm whether the requested goal is satisfied…"。
+- 验证：`svelte-check` 0 错误 0 警告、mjs 守卫 251/251、desktop `vite build` 通过。真机冷启动/窄窗/多主题走查未做。
+
 ### 计划看板 UI 重做：更清晰的列表/详情层次与本地化（2026-09-13，已交付）
 
 - 背景：owner 反馈计划看板「太烂」，截图暴露拥挤的列表、全宽怪进度条、原始 ISO 时间、内部英文串外泄（`The bounded Agent attempt completed this plan step.`、`The plan's requested outcome is verified.`）、删除按钮过重等问题。
