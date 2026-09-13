@@ -14,17 +14,34 @@ export interface FileToolDetails {
 export interface RunOutputLayout {
   projectRoot?: string;
   scratchRoot: string;
+  /**
+   * Directory that a scratch `relativePath` is measured from. Files are written
+   * into `scratchRoot` (the dated artifact folder), but the rest of the system —
+   * the Session file list and the transcript file card — resolves those paths
+   * from the scratch root, so the receipt must include the dated segment
+   * (`2026/09/14/report.html`), not just the basename.
+   */
+  scratchBase?: string;
 }
 
 export function buildRunOutputLayout(input: {
   cwd: string;
   scratchRoot: string;
+  scratchBase?: string;
   projectRoot?: string;
 }): RunOutputLayout {
   return {
     projectRoot: input.projectRoot ? resolve(input.projectRoot) : undefined,
-    scratchRoot: resolve(input.scratchRoot)
+    scratchRoot: resolve(input.scratchRoot),
+    ...(input.scratchBase ? { scratchBase: resolve(input.scratchBase) } : {})
   };
+}
+
+/** Base a reported path is measured from for the given root kind. */
+export function outputReportBase(layout: RunOutputLayout, rootKind: "project" | "scratch"): string {
+  return rootKind === "project"
+    ? layout.projectRoot ?? layout.scratchRoot
+    : layout.scratchBase ?? layout.scratchRoot;
 }
 
 export function describeFileToolResult(
@@ -36,7 +53,7 @@ export function describeFileToolResult(
 ): FileToolDetails | undefined {
   const target = resolve(filePath);
   const roots: Array<{ rootKind: FileRootKind; root: string }> = [
-    { rootKind: "scratch", root: resolve(layout.scratchRoot) },
+    { rootKind: "scratch", root: resolve(outputReportBase(layout, "scratch")) },
     ...(layout.projectRoot ? [{ rootKind: "project" as const, root: resolve(layout.projectRoot) }] : [])
   ];
   for (const candidate of roots) {

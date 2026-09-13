@@ -191,6 +191,7 @@ export function createMomTools(options: {
   const outputLayout = buildRunOutputLayout({
     cwd: options.cwd,
     scratchRoot: options.project ? artifactDir : join(options.cwd, artifactDir),
+    scratchBase: options.project ? options.project.scratchDir : options.cwd,
     projectRoot: options.project?.rootPath
   });
   const botId = basename(options.workspaceDir) || "unknown";

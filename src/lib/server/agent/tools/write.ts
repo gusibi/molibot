@@ -11,6 +11,7 @@ import {
 } from "$lib/server/agent/tools/filesystemPolicy.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 import type { RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
+import { outputReportBase } from "$lib/server/agent/tools/outputLayout.js";
 
 function isWithinRoot(root: string, filePath: string): boolean {
   const rel = relative(root, filePath);
@@ -128,7 +129,9 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
         }],
         details: baseRoot ? {
           requestedPath,
-          relativePath: relative(baseRoot, filePath).replaceAll("\\", "/"),
+          // Reported from the scratch/project root so the path the Session file
+          // list resolves (scratch/<path>) is the file that was actually written.
+          relativePath: relative(options.outputLayout ? outputReportBase(options.outputLayout, rootKind) : baseRoot, filePath).replaceAll("\\", "/"),
           rootKind,
           action,
           sizeBytes: writtenBytes

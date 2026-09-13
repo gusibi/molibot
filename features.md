@@ -10,6 +10,13 @@
 - 步骤启动异常进入统一失败收尾，释放执行租约并保留恢复原因，避免任务停留在无人执行的“执行中”状态。
 - 根因属于任务与步骤状态转换不一致，以及启动异常遗漏收尾。临时数据库回归覆盖完整审批续跑、授权消费、计划完成和启动失败；历史审批测试只验证授权消费，未覆盖真实步骤从挂起到重新启动的链路。
 
+### 修复：产物文件写入后打不开（「文件当前不可用」，复发）（2026-09-14，已修复）
+
+- 症状（多次出现）：聊天里出现「创建 plan-approval-check.txt」卡片，右侧文件面板点开报「文件当前不可用」，但文件其实已在盘上。
+- 根因：`write`/`edit`/`documentExport` 把文件写进带日期的 artifact 目录（`<scratch>/2026/09/14/`），但 receipt 的 `relativePath` 相对**日期目录**计算（只剩文件名），而 `/api/web/files` 与客户端 `matchesSessionOutputPath` 都按 `<scratch>/<path>` 解析 → 少了日期段，解析不到。
+- 根修：`RunOutputLayout` 增加 `scratchBase`（非项目 = run cwd，项目 = `project.scratchDir`）与 `outputReportBase`；`write`/`edit`（走 `describeFileToolResult`）/`documentExport` 的 scratch `relativePath` 从 `scratchBase` 计算，日期段包含在内，写入与读取用同一把尺子；项目产物仍相对 projectRoot。
+- 守卫与验证：新增 `outputLayout.test.ts`（dated-inclusive / project-relative / 无 `scratchBase` 回退），更新 `write.test.ts`；tools 相关测试 54/54、`outputLayout` 3/3、`/api/web/files` 5/5、`tsc` 改动文件无新增报错。`CLAUDE.md` pitfall #49 记录长期规则。
+
 ### 计划修复：历史卡住的计划可删除 / 标记完成（2026-09-14，已修复）
 
 - 症状（owner 走查）：停留在 `paused` / `waiting_for_user`（「需要处理」）的旧计划在看板既没有删除、也没有完成入口，看起来永久卡死。

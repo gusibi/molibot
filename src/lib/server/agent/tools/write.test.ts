@@ -112,7 +112,7 @@ test("project write classifies an absolute scratch path as scratch even when scr
       cwd: projectRoot,
       workspaceDir: runtime,
       chatId: "chat-1",
-      outputLayout: { projectRoot, scratchRoot }
+      outputLayout: { projectRoot, scratchRoot, scratchBase: join(projectRoot, "scratch") }
     });
 
     const result = await tool.execute("tool-1", {
@@ -124,7 +124,9 @@ test("project write classifies an absolute scratch path as scratch even when scr
     assert.equal(readFileSync(join(scratchRoot, "generated.png"), "utf8"), "x");
     const details = result.details as { rootKind: string; relativePath: string } | undefined;
     assert.equal(details?.rootKind, "scratch");
-    assert.equal(details?.relativePath, "generated.png");
+    // Scratch paths are reported from the scratch root (dated segment included)
+    // so the Session file list resolves the same file that was written.
+    assert.equal(details?.relativePath, "2026/07/11/generated.png");
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
     rmSync(runtime, { recursive: true, force: true });

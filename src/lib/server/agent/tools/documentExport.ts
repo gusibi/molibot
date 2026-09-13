@@ -6,6 +6,7 @@ import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { marked } from "marked";
 import type { RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
+import { outputReportBase } from "$lib/server/agent/tools/outputLayout.js";
 import { createPathGuard } from "$lib/server/agent/tools/path.js";
 
 const MAX_MARKDOWN_CHARS = 500_000;
@@ -581,7 +582,11 @@ function resolveOutput(input: DocumentExportInput, options: ExportOptions): { pa
   const rel = relative(root, target);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error("Document output path must stay inside the selected output root.");
   createPathGuard(options.cwd, options.workspaceDir)(target);
-  return { path: target, root, rootKind, relativePath: rel.replaceAll("\\", "/") };
+  // Report from the scratch/project root (dated segment included) so the
+  // Session file list resolves the same file that was written.
+  const reportBase = options.outputLayout ? outputReportBase(options.outputLayout, rootKind) : root;
+  const reportRel = relative(reportBase, target).replaceAll("\\", "/");
+  return { path: target, root, rootKind, relativePath: reportRel || rel.replaceAll("\\", "/") };
 }
 
 export async function runDocumentExport(input: DocumentExportInput, options: ExportOptions): Promise<DocumentExportResult> {
