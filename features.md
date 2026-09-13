@@ -10,6 +10,14 @@
 - 步骤启动异常进入统一失败收尾，释放执行租约并保留恢复原因，避免任务停留在无人执行的“执行中”状态。
 - 根因属于任务与步骤状态转换不一致，以及启动异常遗漏收尾。临时数据库回归覆盖完整审批续跑、授权消费、计划完成和启动失败；历史审批测试只验证授权消费，未覆盖真实步骤从挂起到重新启动的链路。
 
+### 计划执行回归修复：恢复在来源 Session 的可见执行记录 + 看板去留白（2026-09-13，已修复）
+
+- 症状（owner 走查）：计划执行被当成独立执行——对话里看不到 LLM 调用/工具调用/输出，只有最终任务完成；看板详情下方留白过多。
+- 根因（执行记录丢失）：`DurableExecutionRuntime` 把 attempt 的 inbound 固定为 `sessionMode: "fresh"`，于是每次都开一个任务归档 Session（`t-archive-*`），来源会话没有任何活动。这偏离了 DESIGN「批准计划在当前 Session 的下一轮执行」。
+- 根修：会话来源的执行（`sourceUiSessionId` 存在：计划与普通运行晋升）改为 `sessionMode: "chat"` 且 `sessionId = sourceUiSessionId`，attempt 继续来源会话，LLM/工具/产出留在同一对话；仅有调度/项目等无来源会话的执行才用 fresh 归档。附带修正：首次批准选择的来源会话权限（manual/accept_edits）现在会作用于该 attempt。
+- 看板留白：`.plans-workspace` 由固定 `height: calc(100vh - 220px)` 改为 `height: auto; max-height: calc(100vh - 220px)`，短计划收缩到内容高度，长计划才到上限并内部滚动。
+- 验证：`durable/*.test.ts` + `plans/*.test.ts` 59/59、`tsc` 改动文件无报错、桌面 `svelte-check` 0、mjs 守卫 251/251、`vite build` 通过。**真机冷启动/多主题走查未做**。
+
 ### 计划看板规范修复：贴合工作区容器约定 + 消除多余滚动 + Web 规范（2026-09-13，已修复）
 
 - 背景：owner 走查指出①看板面板无圆角、与主题不一致且像 hardcode；②左列明明有空间却出现上下滚动；③左列出现左右滚动、长文本不截断；并要求按 Web Interface Guidelines 一并整改。

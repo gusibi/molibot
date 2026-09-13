@@ -257,8 +257,11 @@ export class DurableExecutionRuntime {
       return { kind: "durable-execution" };
     }
 
-    this.store.markStepRunning(input.executionId, step.id, expectedVersion, this.processOwnerId);
-    expectedVersion = this.store.getById(input.executionId)!.version;
+    // Session-originated executions (accepted plans, promoted runs) continue the
+    // conversation they came from so the owner can see the LLM calls, tool
+    // activity and output in the same Session. Only work without a source
+    // Session (scheduled/Project tasks) runs in a fresh task archive.
+    const sourceUiSessionId = detail.execution.sourceUiSessionId?.trim();
     const inbound: ChannelInboundMessage = {
       chatId: sourceChatId,
       chatType: "private",
@@ -272,7 +275,8 @@ export class DurableExecutionRuntime {
       isEvent: true,
       taskId: taskEvent.taskId,
       projectId: detail.execution.sourceProjectId,
-      sessionMode: "fresh",
+      ...(sourceUiSessionId ? { sessionId: sourceUiSessionId } : {}),
+      sessionMode: sourceUiSessionId ? "chat" : "fresh",
       runId
     };
 
@@ -345,6 +349,8 @@ export class DurableExecutionRuntime {
     };
 
     try {
+      this.store.markStepRunning(input.executionId, step.id, expectedVersion, this.processOwnerId);
+      expectedVersion = this.store.getById(input.executionId)!.version;
       const attemptHooks: DurableAttemptHooks = {
         onRunnerEvent: async (runnerEvent) => {
           if (runnerEvent.type === "tool_execution_start" || runnerEvent.type === "tool_execution_end") {

@@ -486,8 +486,10 @@
   .plans-workspace {
     display: grid;
     grid-template-columns: minmax(280px, 336px) minmax(0, 1fr);
-    height: calc(100vh - 220px);
-    min-height: min(560px, calc(100vh - 220px));
+    /* Shrink to content so a short plan leaves no dead space; cap at the
+       viewport and let the rail/detail scroll only when they really overflow. */
+    height: auto;
+    max-height: calc(100vh - 220px);
     overflow: hidden;
     border: 1px solid var(--separator);
     border-radius: var(--rounded-md);
@@ -632,7 +634,7 @@
     gap: 14px;
     min-height: 0;
     flex: 1;
-    padding: 16px 18px 24px;
+    padding: 16px 18px 18px;
     overflow: auto;
     overscroll-behavior: contain;
   }
