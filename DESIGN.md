@@ -734,7 +734,11 @@ change form (backgrounds, gradients, borders, radii, shadows, decorative
 pseudo-elements, and the text colours of elements they repaint) but must not
 change layout: no `display`, grid/flex template, position, or sizing that moves
 the shared tree. Anything a shared token can already express belongs in the token
-block, not here. `chat-ui.test.mjs` enforces both halves: every selector in a
+block, not here. Interactive chrome inside a region keeps the shared rest state:
+list rows and section heads (e.g. the 对话/项目 heads in the session list) stay
+transparent until hovered and read as selected only through `.active` — a family
+may add a background to `:hover`/`.active` states but never as a rest-state fill.
+`chat-ui.test.mjs` enforces both halves: every selector in a
 family file must be a token block, a preview swatch, a `data-theme-region` rule,
 or the Windows 98 bevel; and every region hook used must be in the table above.
 Families without such a section fall back to the shared chrome.

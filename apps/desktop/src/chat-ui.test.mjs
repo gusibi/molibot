@@ -527,6 +527,32 @@ test("theme families live in their own files, are imported, and each ships paire
   assert.doesNotMatch(baseStyles, /win98-bevel/, "the Windows 98 bevel must stay inside its family file");
 });
 
+test("families never paint a rest-state background behind session-list section heads", () => {
+  // 对话/项目 heads are interactive chrome: transparent at rest, background is
+  // a hover/active state. A rest-state fill reads as a selected row in every
+  // family that tried it (regression: 23 families shipped an always-on accent
+  // pill behind the heads).
+  for (const family of THEME_FAMILIES) {
+    const source = read(`./themes/${family}.css`);
+    const restRules = source.matchAll(/[^\n]*\[data-theme-region="session-list"\] \.sidebar-section-head \{([^}]*)\}/g);
+    for (const [, props] of restRules) {
+      assert.doesNotMatch(
+        props,
+        /background:/,
+        `${family}.css paints a rest-state background behind section heads; move it to a :hover rule`
+      );
+    }
+    // A family that shapes the heads at all must keep a hover affordance.
+    if (/data-theme-region="session-list"\] \.sidebar-section-head \{/.test(source) && family !== "macos") {
+      assert.match(
+        source,
+        /data-theme-region="session-list"\] \.sidebar-section-head:hover \{[^}]*background:/,
+        `${family}.css shapes section heads but lost their hover background`
+      );
+    }
+  }
+});
+
 test("the call trace report follows the app theme when embedded", () => {
   // The report is a server-rendered document in a sandboxed iframe, so it
   // cannot inherit the app stylesheet. Its palette must read the app's semantic

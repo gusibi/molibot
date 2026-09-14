@@ -174,6 +174,8 @@
   margin: 2px 6px;
   padding: 0 6px;
   border-radius: var(--radius-small);
+}
+:root[data-theme-family="qq"] [data-theme-region="session-list"] .sidebar-section-head:hover {
   background: rgb(13 47 73 / 7%);
 }
 :root[data-theme-family="qq"] [data-theme-region="session-list"] .conversation-row.active {
@@ -213,7 +215,7 @@
 :root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="sidebar"]::before {
   background: linear-gradient(180deg, #16202c, #0d1620);
 }
-:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="session-list"] .sidebar-section-head {
+:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="session-list"] .sidebar-section-head:hover {
   background: rgb(228 240 251 / 7%);
 }
 :root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="chat"] .messages {
