@@ -1,6 +1,7 @@
 /* Feishu — Light and Dark. The Feishu/Lark look: a soft grey workspace, white
    cards, the #3370FF Feishu blue accent and blue/grey chat bubbles in both
-   directions. */
+   directions. Dark sits on neutral charcoal with a darker transcript canvas
+   and keeps Feishu's signature white bot card for assistant replies. */
 
 /* Feishu — Light. Soft grey workspace with the #3370FF Feishu blue. */
 :root[data-theme-family="feishu"][data-resolved-appearance="light"] {
@@ -157,19 +158,45 @@
   margin: 2px 6px;
   padding: 0 6px;
   border-radius: var(--radius-small);
+}
+:root[data-theme-family="feishu"] [data-theme-region="session-list"] .sidebar-section-head:hover {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
-:root[data-theme-family="feishu"] [data-theme-region="session-list"] .conversation-row.active {
-  background: var(--accent);
-}
-:root[data-theme-family="feishu"] [data-theme-region="session-list"] .conversation-row.active .row-title {
-  color: var(--on-accent);
-}
-:root[data-theme-family="feishu"] [data-theme-region="session-list"] .conversation-row.active .row-time {
-  color: color-mix(in srgb, var(--on-accent) 78%, transparent);
-}
+/* Feishu selects a conversation with the soft accent wash and keeps the row's
+   own text colours (the shared base already does exactly this); the previous
+   solid-accent pill was an iMessage-ism, not Feishu. */
 :root[data-theme-family="feishu"] [data-theme-region="chat"] .messages {
   background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 40%, transparent) 0%, transparent 40%);
+}
+/* Dark drops the wash for Feishu's real hierarchy: the transcript canvas sits
+   below the chrome (#191919 under #1F1F1F) and stays flat. */
+:root[data-theme-family="feishu"][data-resolved-appearance="dark"] [data-theme-region="chat"] .messages {
+  background: #191919;
+}
+/* Dark keeps Feishu's signature white bot card: the assistant reply renders as
+   a light card with dark text, so the content surfaces inside the card flip
+   with it — code chips, quotes, tables and diff labels get their light-skin
+   values; fenced code blocks stay dark, exactly like Feishu light cards. */
+:root[data-theme-family="feishu"][data-resolved-appearance="dark"] [data-theme-region="chat"] .message-row.assistant .message-bubble {
+  background: #ffffff;
+  border-color: transparent;
+  color: #1f2329;
+  --d2h-ins-label-color: #2ba471;
+  --d2h-del-label-color: #f54a45;
+}
+:root[data-theme-family="feishu"][data-resolved-appearance="dark"] [data-theme-region="chat"] .message-row.assistant .message-bubble .markdown-body code {
+  background: rgb(31 35 41 / 6%);
+}
+:root[data-theme-family="feishu"][data-resolved-appearance="dark"] [data-theme-region="chat"] .message-row.assistant .message-bubble .markdown-body blockquote {
+  background: rgb(31 35 41 / 4%);
+  color: #646a73;
+}
+:root[data-theme-family="feishu"][data-resolved-appearance="dark"] [data-theme-region="chat"] .message-row.assistant .message-bubble .markdown-body th,
+:root[data-theme-family="feishu"][data-resolved-appearance="dark"] [data-theme-region="chat"] .message-row.assistant .message-bubble .markdown-body td {
+  border-color: rgb(31 35 41 / 12%);
+}
+:root[data-theme-family="feishu"][data-resolved-appearance="dark"] [data-theme-region="chat"] .message-row.assistant .message-bubble .markdown-body hr {
+  background: rgb(31 35 41 / 12%);
 }
 :root[data-theme-family="feishu"] [data-theme-region="composer"] .composer {
   border-color: var(--control-border-strong);
@@ -184,6 +211,6 @@
 .theme-swatch[data-theme-family-preview="feishu"][data-theme-preview-appearance="light"] .tp-side { background: #dee0e3; }
 .theme-swatch[data-theme-family-preview="feishu"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #f5f6f7); }
 .theme-swatch[data-theme-family-preview="feishu"][data-theme-preview-appearance="dark"] .tp-side { background: #333333; }
-.theme-swatch[data-theme-family-preview="feishu"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #2b2b2b, #1f1f1f); }
+.theme-swatch[data-theme-family-preview="feishu"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #2b2b2b, #191919); }
 .theme-swatch[data-theme-family-preview="feishu"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #dee0e3 0 50%, #333333 50%); }
 .theme-swatch[data-theme-family-preview="feishu"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #2b2b2b 50%); }
