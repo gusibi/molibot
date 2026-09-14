@@ -1,3 +1,10 @@
+### 修复：内置插件 trace-viewer 未进发布包，其它机器没有 Call Trace（2026-09-14，已修复）
+
+- 症状（owner 走查）：发布新版本后，其它电脑的插件设置页没有「Call Trace / 调用链」，开发机正常。
+- 根因：内置插件采用「启动时从 app 根 `package/<id>` 暂存到数据目录 `plugins/packages/`」机制；`bin/molibot-release.sh` 的拷贝白名单只写了 `external-subagent`、`cloudflare-html`，漏掉 `trace-viewer`，而 `ensureBuiltinPlugins` 对缺失源目录静默 `continue`，发布包在其它机器上永远不会暂存出该插件。排查中确认 Docker 镜像运行时层同样没拷任何 `package/`（Docker 部署下三个内置插件全部缺失），一并修复。这是「发布包手写清单漂移」同类根因第二次出现（上次为 v2.9.0 runtime 模块清单遗漏导致启动崩溃）。
+- 根修：发布脚本拷贝列表补齐 `trace-viewer`；Dockerfile 运行时层补齐三个内置插件包的 COPY；`ensureBuiltinPlugins` 缺失源目录时显式 warning；插件目录对 `BUILTIN_PACKAGES` 内的暂存包默认标记「内置」来源（此前随包分发的三个内置功能插件都误显示「外置目录」）。
+- 守卫与验证：`release-bundle.test.mjs` 新增 BUILTIN_PACKAGES ↔ 发布清单双向同步守卫（含 Dockerfile 运行时层检查；临时还原旧清单可复现失败）；新增 `builtinBootstrap.test.ts`（首启暂存、同版本不重拷、升级自动备份、缺失告警）；`catalogRoute.test.ts` 新增来源默认值用例。插件相关测试全部通过（contract/traceViewer/cloudflareHtml/externalSubagent 39 项、desktopPlugins 8 项、settings handlers 2 项）；真实运行 `molibot-release.sh` 产物含 `package/trace-viewer` 且与仓库一致，以产物为 app root + 全新 DATA_DIR 可暂存出全部三个内置插件。
+
 ### Bash 审批归属修复（2026-09-13，已修复）
 
 - 通用 ToolRuntime 生成的宿主工具审批使用 `host:<toolId>`，`bash:*` 保留给 HostBashStore。SQLite broker 可以读取并批准自己创建的 Bash 请求，长期授权可在后续执行中复用。

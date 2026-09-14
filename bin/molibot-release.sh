@@ -71,7 +71,9 @@ for script_name in molibot.js molibot-release.sh molibot-manage.js molibot-plugi
 done
 
 mkdir -p "$OUTPUT_DIR/package"
-for plugin_package in external-subagent cloudflare-html; do
+# Keep this list in sync with BUILTIN_PACKAGES in src/lib/server/plugins/contract/builtinBootstrap.ts.
+# scripts/runtime/release-bundle.test.mjs fails when the two lists drift apart.
+for plugin_package in external-subagent trace-viewer cloudflare-html; do
   if [[ -d "$ROOT_DIR/package/$plugin_package" ]]; then
     cp -R "$ROOT_DIR/package/$plugin_package" "$OUTPUT_DIR/package/$plugin_package"
   fi

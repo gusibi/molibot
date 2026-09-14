@@ -4,6 +4,7 @@ import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { isValidPluginId, pluginPackageDir } from "$lib/server/plugins/contract/paths.js";
 import { readMolibotPluginManifest } from "$lib/server/plugins/contract/manifest.js";
 import { getPluginConfigStore } from "$lib/server/plugins/contract/configStore.js";
+import { isBuiltinPackageId } from "$lib/server/plugins/contract/builtinBootstrap.js";
 import type { ValidatedPluginManifest, MolibotPluginManifest } from "$lib/server/plugins/contract/types.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 
@@ -80,7 +81,8 @@ export class PluginContractCatalog {
 
       const entrySettings = entries[pluginId];
       const enabled = entrySettings?.enabled ?? false;
-      const source = entrySettings?.source ?? { kind: "directory", label: "packages" };
+      const source = entrySettings?.source
+        ?? (isBuiltinPackageId(pluginId) ? { kind: "builtin" as const } : { kind: "directory", label: "packages" });
 
       const validated = readMolibotPluginManifest(packageDir, pluginId);
       if (!validated.ok) {
@@ -136,7 +138,8 @@ export class PluginContractCatalog {
     const validated = readMolibotPluginManifest(packageDir, pluginId);
     const entrySettings = settings?.plugins?.entries?.[pluginId];
     const enabled = entrySettings?.enabled ?? false;
-    const source = entrySettings?.source ?? { kind: "directory", label: "packages" };
+    const source = entrySettings?.source
+      ?? (isBuiltinPackageId(pluginId) ? { kind: "builtin" as const } : { kind: "directory", label: "packages" });
 
     const configStore = getPluginConfigStore();
     const configDir = path.join(storagePaths.pluginsConfigDir, pluginId);

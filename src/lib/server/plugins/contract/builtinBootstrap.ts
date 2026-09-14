@@ -14,6 +14,10 @@ const BUILTIN_PACKAGES: Array<{ id: string; sourceRelative: string }> = [
   { id: "cloudflare-html", sourceRelative: "package/cloudflare-html" }
 ];
 
+export function isBuiltinPackageId(pluginId: string): boolean {
+  return BUILTIN_PACKAGES.some((item) => item.id === pluginId);
+}
+
 function readVersion(packageJsonPath: string): string | null {
   try {
     const raw = fs.readFileSync(packageJsonPath, "utf8");
@@ -35,7 +39,15 @@ export function ensureBuiltinPlugins(): void {
     const sourceDir = path.join(appRoot, item.sourceRelative);
     const targetDir = path.join(packagesRoot, item.id);
 
-    if (!fs.existsSync(sourceDir)) continue;
+    if (!fs.existsSync(sourceDir)) {
+      // A missing bundled package means the release bundle was built from a
+      // stale plugin list (see scripts/runtime/release-bundle.test.mjs); say so
+      // instead of silently dropping the plugin from the catalog.
+      console.warn(
+        `[plugins] Built-in plugin "${item.id}" source package not found at ${item.sourceRelative} under the app root; skipped staging.`
+      );
+      continue;
+    }
 
     const sourceVersion = readVersion(path.join(sourceDir, "package.json"));
     const targetVersion = fs.existsSync(targetDir)

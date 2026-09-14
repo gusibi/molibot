@@ -33,6 +33,11 @@ COPY --from=build /app/.env.example ./.env.example
 COPY --from=build /app/bin ./bin
 COPY --from=build /app/assets/test-images ./assets/test-images
 COPY --from=build /app/src/lib/server/agent/prompts ./src/lib/server/agent/prompts
+# Built-in plugin packages staged at boot by builtinBootstrap.ts — keep in sync
+# with BUILTIN_PACKAGES (guarded by scripts/runtime/release-bundle.test.mjs).
+COPY --from=build /app/package/external-subagent ./package/external-subagent
+COPY --from=build /app/package/trace-viewer ./package/trace-viewer
+COPY --from=build /app/package/cloudflare-html ./package/cloudflare-html
 
 EXPOSE 3040
 CMD ["node", "build"]

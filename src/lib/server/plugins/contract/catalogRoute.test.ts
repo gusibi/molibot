@@ -168,3 +168,54 @@ test("structural guard: generic catalog and paths code contains no hardcoded plu
     assert.equal(src.includes("cloudflare-html"), false, "Found hardcoded cloudflare-html in generic contract module");
   }
 });
+
+test("staged built-in packages default to builtin source; others stay directory", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-catalog-source-"));
+  const originals = { ...storagePaths };
+  try {
+    storagePaths.pluginsPackagesDir = path.join(root, "packages");
+    storagePaths.pluginsConfigDir = path.join(root, "config");
+    storagePaths.pluginsDataDir = path.join(root, "data");
+    storagePaths.pluginsCacheDir = path.join(root, "cache");
+    resetPluginConfigStoreForTests();
+    fs.mkdirSync(storagePaths.pluginsPackagesDir, { recursive: true });
+
+    const writeManifest = (id: string) => {
+      const dir = path.join(storagePaths.pluginsPackagesDir, id);
+      fs.mkdirSync(dir);
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({
+          name: id,
+          version: "1.0.0",
+          molibot: {
+            plugin: {
+              manifestVersion: 1,
+              id,
+              name: id,
+              version: "1.0.0",
+              engines: { molibot: ">=2.0.0" },
+              config: { schemaVersion: 1 }
+            }
+          }
+        })
+      );
+    };
+    writeManifest("trace-viewer");
+    writeManifest("third-party-plugin");
+
+    const settings = {
+      ...defaultRuntimeSettings,
+      plugins: { ...defaultRuntimeSettings.plugins, entries: {} }
+    };
+    const items = new PluginContractCatalog().listPlugins(settings);
+    const builtinItem = items.find((i) => i.id === "trace-viewer");
+    const directoryItem = items.find((i) => i.id === "third-party-plugin");
+    assert.equal(builtinItem?.source.kind, "builtin", "bundled built-in package must surface as builtin");
+    assert.equal(directoryItem?.source.kind, "directory");
+  } finally {
+    resetPluginConfigStoreForTests();
+    Object.assign(storagePaths, originals);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
