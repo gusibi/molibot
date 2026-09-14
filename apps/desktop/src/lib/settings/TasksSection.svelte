@@ -628,7 +628,7 @@
         {:else if tasksStore.taskSession.messages.length === 0}
           <p>{session.text.tasksSessionCleaned}</p>
         {:else}
-          <ConversationTranscript messages={tasksStore.taskSession.messages} copy={session.text} formatTime={formatSessionTime} />
+          <ConversationTranscript messages={tasksStore.taskSession.messages} copy={session.text} formatTime={formatSessionTime} endpoint={session.endpoint ?? ""} />
         {/if}
       </div>
     </Dialog>

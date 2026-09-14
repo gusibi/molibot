@@ -1043,6 +1043,7 @@
     attachmentActions={transcriptAttachmentActions}
     onOpenActivityPath={requestArtifactPathOpen}
     onOpenTurnFiles={requestArtifactTurnOpen}
+    endpoint={view.endpoint}
     {searchMatchIds}
     {activeMatchId}
     attentionElement={approvalElement}
