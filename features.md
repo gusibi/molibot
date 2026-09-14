@@ -1,3 +1,23 @@
+### feishu 主题对齐真实飞书（2026-09-14，已交付）
+
+- 基准（owner 提供真实飞书运行 Molibot 的明暗截图）：中性炭黑分层、暗色下聊天画布比侧栏更暗、选中会话用柔和蓝底、bot 消息保持白色卡片。
+- 变更（`themes/feishu.css`）：① 删除选中会话行的实心强调色覆盖（solid 蓝 + 白字是 iMessage 式，不是飞书），回落共享的 `accent-soft` 软底、保留行内文字原色；② 暗色聊天画布加深为 `#191919`（低于 `#1F1F1F` chrome）并去掉顶部提亮渐变，对齐真实飞书的层次；③ 暗色 assistant 气泡改为白色卡片 + 深色正文（飞书 bot 卡片签名样式），卡内富内容同步翻转：行内代码/引用/表格边框/hr 用浅色值，fenced 代码块保持深色（与飞书亮色卡片一致），diff 标签走浅色可读值（`--d2h-*` 卡片作用域覆盖）。
+- 验证：chat-ui 249/249（含主题结构守卫）、desktop `svelte-check` 0/0、`vite build` 通过；视觉效果由 owner 重启 App 后在明暗两种外观下确认。
+
+### 修复：主题给侧栏「对话/项目」分节标题加了默认背景（2026-09-14，已修复）
+
+- 症状（owner 走查）：多款主题下，工作区侧栏的「对话」「项目」分节标题默认带强调色药丸背景，看起来像选中态；预期是静止时透明、悬浮才有背景。
+- 根因：主题家族的区域适配层（`data-theme-region="session-list"`）在 23 个主题文件里给 `.sidebar-section-head` 无条件写了 `background`（QQ 还有暗色变体单独写了一份），超出「适配形态」的边界、改变了交互件的静止语义。
+- 根修：按 DESIGN.md Region adaptation 新规范（分节标题/列表行静止保持透明，背景只出现在 `:hover`/`.active`）一次性改齐 23 个主题：静止背景移入 `:hover` 规则（保留各主题自己的强调色强度），布局属性（min-height/margin/padding/border-radius）原样保留。
+- 守卫与验证：`chat-ui.test.mjs` 新增「分节标题禁止静止背景」守卫（回放旧写法可复现失败，并要求已塑形的主题保留 hover 背景）；该测试 249/249 通过，desktop `svelte-check` 0 错 0 警、`vite build` 通过。视觉走查由 owner 重启 App 后在多主题下确认。
+
+### 修复：Project 会话与任务会话缺少调用链入口（2026-09-14，已修复）
+
+- 症状（owner 走查）：Web 会话消息上有「查看调用链」按钮，Project 会话没有。
+- 排查结论：后端完全共用同一链路——所有会话走同一 runner + `TraceRecorderHook`，每轮无条件分配 runId；消息投影是同一共享投影器，`traceRunIds` 数据完整（实测 talkshow 项目某会话 8/8 条消息均带 runId）。缺口纯在前端：trace 按钮只在 `ConversationTranscript` 渲染，且需要 `endpoint` prop 非空才会查询插件启用状态；`ChatView` 本地会话分支传了 endpoint，`ProjectChat` 与 `TasksSection`（任务会话详情）漏传，`traceEnabled` 恒为 false，按钮不渲染。
+- 修复：`ProjectChat.svelte` 的 `ChatMessagesPane` 补传 `endpoint={view.endpoint}`；`TasksSection.svelte` 的 `ConversationTranscript` 补传 `endpoint={session.endpoint ?? ""}`。
+- 验证：desktop `svelte-check` 0 错 0 警、`vite build` 通过、chat-ui/project-sidebar/reactive-statement-guard 结构守卫 250/250、projectsStore 8/8。冷启动走查未做（用户实例使用中，未重启桌面端）；重启 App 后 Project 会话消息上应出现「查看调用链」按钮。
+
 ### 修复：内置插件 trace-viewer 未进发布包，其它机器没有 Call Trace（2026-09-14，已修复）
 
 - 症状（owner 走查）：发布新版本后，其它电脑的插件设置页没有「Call Trace / 调用链」，开发机正常。
