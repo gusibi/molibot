@@ -2,6 +2,7 @@
   "bundle": {
     "active": true,
     "targets": ["dmg"],
+    "createUpdaterArtifacts": true,
     "icon": ["icons/icon.png", "icons/icon.icns"],
     "resources": {
       "binaries/molibot-node-aarch64-apple-darwin": "molibot-node",

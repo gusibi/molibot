@@ -11,11 +11,13 @@
   import { transcriptCompletedTurnSections, transcriptRenderBlocks } from "./transcript";
   import StreamingChatMarkdown from "./StreamingChatMarkdown.svelte";
   import TurnProcess from "./TurnProcess.svelte";
+  import BeamRing from "./BeamRing.svelte";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
   export let formatTime: (value: string) => string;
   export let assistantName: string = copy.appName;
+  export let agentName = "";
   export let sending = false;
   export let streamingText = "";
   export let streamingThinking = "";
@@ -75,22 +77,22 @@
     {/if}
   </div>
 {/if}
-<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} {onOpenTurnFiles} {endpoint} />
+<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {agentName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} {onOpenTurnFiles} {endpoint} />
 {#if sending}
   <article class="message-row assistant streaming-message">
     <div class="assistant-layout">
-      <img class="assistant-avatar" src="/molibot-icon.png" alt="" width="24" height="24" />
       <div class="message-stack">
-        <div class="assistant-identity"><strong>{assistantName}</strong><span>{copy.agents}</span></div>
+        <div class="assistant-identity"><img class="assistant-avatar" src="/molibot-icon.png" alt="" width="22" height="22" /><strong>{assistantName}</strong>{#if agentName}<span>{agentName}</span>{/if}</div>
         <!-- The pre-card phase hint. It only covers the void between sending
              and the first streamed content: the moment thinking or an
              activity arrives, the process card below is the running
              indicator and this pill would just restate it one line above
              (it held a literal "Thinking..." over the streaming thinking
-             text). Deliberately carries no icon for the same reason — the
-             wave is the card's mark. -->
+             text). The border beam is the pill's own running mark; it keeps
+             the text row intact instead of animating a separate element. -->
         {#if !liveSections.process.length}
-          <div class="message-status" role="status">
+          <div class="message-status beam" role="status">
+            <BeamRing />
             <span class="message-status-text">{activity || copy.working}</span>
           </div>
         {/if}

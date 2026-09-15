@@ -1,9 +1,7 @@
 <script lang="ts">
-  import CaretRight from "reicon-svelte/icons/CaretRight";
-  import Plus from "reicon-svelte/icons/Plus";
+  import ChatPlus from "reicon-svelte/icons/ChatPlus";
   import { CHANNEL_ICONS, CHANNEL_LOGOS } from "./activityIcons";
   import ConversationRow from "./ConversationRow.svelte";
-  import BotAvatar from "./BotAvatar.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
   import { sessionRuntimeKey } from "./sessionStatusDot.js";
@@ -110,18 +108,9 @@
         title={labels.newChat}
         onclick={onNewSession}
       >
-        <Plus size={14} aria-hidden="true" />
+        <ChatPlus size={14} aria-hidden="true" />
       </button>
     {/if}
-    <button
-      type="button"
-      class="channel-caret-button"
-      aria-label={channel.name}
-      aria-expanded={expanded}
-      onclick={onToggle}
-    >
-      <i class={expanded ? "chevron open" : "chevron"} aria-hidden="true"><CaretRight size={12} /></i>
-    </button>
   </div>
 
   {#if expanded}
@@ -175,7 +164,7 @@
 </section>
 
 <style>
-  .channel-accordion { margin-top: 2px; padding-left: 8px; }
+  .channel-accordion { margin-top: 2px; }
   .channel-accordion:first-child { margin-top: 0; }
   .channel-accordion-head {
     display: flex;
@@ -203,8 +192,7 @@
   .channel-accordion-header i:first-child { font-size: var(--icon-md); color: var(--label-secondary); }
   .channel-logo { display: block; flex: none; width: var(--icon-md); height: var(--icon-md); object-fit: contain; }
   .channel-accordion-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .channel-new-session,
-  .channel-caret-button {
+  .channel-new-session {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -223,26 +211,20 @@
     transition: width var(--duration-fast) var(--ease-standard), opacity var(--duration-instant) var(--ease-standard), background var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard);
   }
   .channel-accordion-head:hover .channel-new-session,
-  .channel-accordion-head:hover .channel-caret-button,
-  .channel-accordion-head:focus-within .channel-new-session,
-  .channel-accordion-head:focus-within .channel-caret-button { width: 26px; opacity: 1; pointer-events: auto; }
-  .channel-new-session:hover,
-  .channel-caret-button:hover { background: var(--fill-hover); color: var(--label-primary); }
-  .channel-new-session:focus-visible,
-  .channel-caret-button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); color: var(--label-primary); }
+  .channel-accordion-head:focus-within .channel-new-session { width: 26px; opacity: 1; pointer-events: auto; }
+  .channel-new-session:hover { background: var(--fill-hover); color: var(--label-primary); }
+  .channel-new-session:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); color: var(--label-primary); }
   .channel-new-session :global(svg) { width: var(--icon-sm); height: var(--icon-sm); }
-  .chevron { flex: none; font-size: var(--icon-xs); color: inherit; transition: transform var(--duration-instant) var(--ease-standard); }
-  .chevron.open { transform: rotate(90deg); }
   .channel-accordion-body { padding: 1px 0 4px; }
   .channel-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
-  .channel-state { padding: 8px; font-size: var(--fs-label); color: var(--label-tertiary, #8f8f8f); margin: 0; }
+  .channel-state { padding: 8px 8px 8px 32px; font-size: var(--fs-label); color: var(--label-tertiary, #8f8f8f); margin: 0; }
   .channel-configure, .channel-more {
     border: none;
     background: transparent;
     color: var(--accent, #006bff);
     cursor: pointer;
     font-size: var(--fs-label);
-    padding: 6px 8px;
+    padding: 6px 8px 6px 32px;
     width: 100%;
     text-align: left;
   }

@@ -208,8 +208,14 @@ export class ChatSessionStore {
       this.registry.setActive(profileId, created.id);
       this.draftMode = false;
       this.draftStore.clear(NEW_CONVERSATION_KEY);
-      await entry.controller.send({ message: content, files });
+      // Surface the new conversation in the sidebar the instant it exists, not
+      // after the first (possibly long) turn settles. Previously this fired only
+      // once `controller.send` resolved, so a running first turn — whose title
+      // summarizer may not return, or fail entirely — left the sidebar showing
+      // only older sessions. The host reconciles the placeholder title on the
+      // next refresh (title summarizer event / turn complete).
       deps.onSessionCreated?.(profileId, created.id);
+      await entry.controller.send({ message: content, files });
       return;
     }
     await this.registry.active.controller.send({ message: content, files });

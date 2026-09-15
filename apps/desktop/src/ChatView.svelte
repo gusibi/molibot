@@ -139,6 +139,7 @@
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
   import ConversationBrowserDialog from "./lib/chat/ConversationBrowserDialog.svelte";
+  import { checkForUpdates, initUpdater } from "./lib/stores/updater.svelte";
   import BotMention from "./lib/chat/BotMention.svelte";
   import { ChatSessionStore } from "./lib/chat/chatSessionStore.svelte";
   import { projectChatStore } from "./lib/projects/projectChatStore.svelte";
@@ -499,7 +500,6 @@
   let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || SIDEBAR_DEFAULT);
   let lastExpandedSidebarWidth = sidebarWidth >= SIDEBAR_MIN ? sidebarWidth : SIDEBAR_DEFAULT;
   let sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
-  let autoCollapsedByWindow = false;
   let previousViewportWidth = viewportWidth;
   let resizingSidebar = false;
   let sidebarGestureId = "";
@@ -513,14 +513,12 @@
         if (!sidebarCollapsed) {
           sidebarCollapsed = true;
           sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
-          autoCollapsedByWindow = false;
           localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
         }
         resizingSidebar = false;
       } else {
         if (sidebarCollapsed) {
           sidebarCollapsed = false;
-          autoCollapsedByWindow = false;
           localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "false");
         }
         sidebarWidth = clampSidebarWidth(snapshot.position);
@@ -533,13 +531,11 @@
       if (target < SIDEBAR_COLLAPSE_THRESHOLD) {
         sidebarCollapsed = true;
         sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
-        autoCollapsedByWindow = false;
         localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
       } else {
         sidebarCollapsed = false;
         sidebarWidth = clampSidebarWidth(target);
         lastExpandedSidebarWidth = sidebarWidth;
-        autoCollapsedByWindow = false;
         localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
         localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "false");
       }
@@ -553,7 +549,6 @@
   }
   function toggleSidebarCollapse(): void {
     sidebarCollapsed = !sidebarCollapsed;
-    autoCollapsedByWindow = false;
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
     if (!sidebarCollapsed && sidebarWidth < SIDEBAR_MIN) {
       sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
@@ -589,7 +584,6 @@
     if (event.key === "ArrowLeft") {
       if (sidebarWidth <= SIDEBAR_MIN) {
         sidebarCollapsed = true;
-        autoCollapsedByWindow = false;
         localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
         return;
       }
@@ -597,7 +591,6 @@
     } else if (event.key === "ArrowRight") {
       if (sidebarCollapsed) {
         sidebarCollapsed = false;
-        autoCollapsedByWindow = false;
         localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "false");
         return;
       }
@@ -612,8 +605,7 @@
   const FILES_WIDTH_KEY = "molibot-desktop-files-width";
   const FILES_DEFAULT = 280;
   const FILES_MIN = 240;
-  const FILES_MAX = 720;
-  let filesMaxWidth = FILES_MAX;
+  let filesMaxWidth = Number.POSITIVE_INFINITY;
   let filesWidth = clampFilesWidth(Number(localStorage.getItem(FILES_WIDTH_KEY) || 0) || FILES_DEFAULT);
   let resizingFiles = false;
   let filesGestureId = "";
@@ -622,7 +614,7 @@
   // Feeding the manipulation negated clientX inverts the axis without forking it.
   const filesManipulation = new DirectManipulation({
     min: FILES_MIN,
-    max: FILES_MAX,
+    max: Number.POSITIVE_INFINITY,
     mode: "continuous",
     onUpdate(snapshot) {
       filesWidth = clampFilesWidth(snapshot.position);
@@ -696,32 +688,35 @@
   $: durablePanelVisible = durablePanelOpen && serviceState === "ready" && Boolean(connectedEndpoint);
   $: inspectorVisible = artifactPanelVisible || durablePanelVisible || inspector?.kind === "session-plan";
   $: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH;
-  // Below NARROW_WIDTH the sidebar is hidden and only two tracks share the
-  // window, so the budget drops the sidebar term and uses the lower floor the
-  // narrow tier gives the transcript.
-  $: filesMaxWidth = !inspectorVisible
-    ? FILES_MAX
-    : Math.max(FILES_MIN, Math.min(FILES_MAX, threeColumn
-      ? viewportWidth - sidebarWidth - CHAT_MIN
-      : viewportWidth - CHAT_MIN_NARROW));
-  $: sidebarMaxWidth = threeColumn
-    ? Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, viewportWidth - Math.min(filesWidth, filesMaxWidth) - CHAT_MIN))
-    : SIDEBAR_MAX;
-  // The stored widths stay the user's preference; only what the grid gets is
-  // capped, so widening the window restores the panel the user asked for.
+  // The panel has no width ceiling of its own; the only bound is the transcript
+  // floor it may not steal. The sidebar stays in the grid at every width (it is
+  // never hidden for the panel), so its width is reserved here too.
+  function filesCap(windowWidth: number, sidebar: number): number {
+    return Math.max(FILES_MIN, windowWidth > NARROW_WIDTH
+      ? windowWidth - sidebar - CHAT_MIN
+      : windowWidth - sidebar - CHAT_MIN_NARROW);
+  }
+  $: filesMaxWidth = inspectorVisible ? filesCap(viewportWidth, sidebarWidth) : Number.POSITIVE_INFINITY;
+  $: sidebarMaxWidth = !inspectorVisible
+    ? SIDEBAR_MAX
+    : Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, viewportWidth - Math.min(filesWidth, filesMaxWidth) - (threeColumn ? CHAT_MIN : CHAT_MIN_NARROW)));
+  // The stored width is the user's preference; only what the grid gets is capped,
+  // so shrinking the window never destroys the panel width they asked for.
   $: effectiveFilesWidth = Math.min(filesWidth, filesMaxWidth);
   $: effectiveSidebarWidth = sidebarCollapsed ? 0 : Math.min(sidebarWidth, sidebarMaxWidth);
 
+  // The nav never collapses on its own: only the collapse button or dragging the
+  // divider past the threshold may change `sidebarCollapsed`. A narrow window
+  // just narrows the sidebar through the responsive tier; it must not fold it.
   $: if (viewportWidth !== previousViewportWidth) {
-    const isNarrow = viewportWidth <= 820;
-    const wasNarrow = previousViewportWidth <= 820;
+    const delta = viewportWidth - previousViewportWidth;
     previousViewportWidth = viewportWidth;
-    if (isNarrow && !wasNarrow && !sidebarCollapsed) {
-      sidebarCollapsed = true;
-      autoCollapsedByWindow = true;
-    } else if (!isNarrow && wasNarrow && sidebarCollapsed && autoCollapsedByWindow) {
-      sidebarCollapsed = false;
-      autoCollapsedByWindow = false;
+    // With the Inspector open the panel absorbs a window resize: the sidebar and
+    // the transcript keep their width, so dragging the window's right edge wider
+    // enlarges the panel — the file you opened — instead of the chat. With no
+    // Inspector the transcript keeps absorbing the growth as before.
+    if (inspectorVisible && delta !== 0) {
+      filesWidth = Math.min(filesCap(viewportWidth, sidebarWidth), Math.max(FILES_MIN, Math.round(filesWidth + delta)));
     }
   }
 
@@ -1034,6 +1029,17 @@
   $: activeHeaderChannel = viewMode === "external" ? activeExternalChannel : (activeSessionItem?.channel ?? "web");
   $: activeHeaderSourceLabel = sidebarChannels.find((channel) => channel.id === activeHeaderChannel)?.name ?? activeHeaderChannel;
   $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (activeSessionItem?.title || copy.chat);
+  // Assistant identity shows the thing you are talking to (Web Profile / channel
+  // Bot / app name) plus the Agent it runs as. A channel with no explicit Agent
+  // binding inherits the default one. Instance ids repeat across channels, so the
+  // lookup is scoped to the active channel's group.
+  $: agentNameById = new Map(onboardingAgents.map((agent) => [agent.id, agent.name]));
+  $: activeExternalAgentId = channelSummary
+    ? (channelSummary.groups
+        .find((group) => group.channel === activeHeaderChannel)?.instances
+        .find((instance) => instance.id === activeExternalSessionItem?.botId)?.agentId ?? "")
+    : "";
+  $: activeExternalAgentName = activeExternalAgentId ? (agentNameById.get(activeExternalAgentId) ?? activeExternalAgentId) : copy.agentStudioGlobalName;
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: linkedPlanExecutionIds = new Set(messages.map((message) => message.plan?.durableExecutionId).filter((id): id is string => Boolean(id)));
   $: sessionDurableExecution = viewMode === "local" && activeSessionId
@@ -2687,6 +2693,9 @@
       case "app.open-settings":
         openSettings();
         return;
+      case "app.check-update":
+        void checkForUpdates(true);
+        return;
       case "diagnostics.open":
         openSettings("diagnostics");
         return;
@@ -2738,11 +2747,18 @@
     onSystemThemeChange = () => (resolvedTheme = readResolvedTheme());
     systemThemeQuery?.addEventListener("change", onSystemThemeChange);
     if (!isTauriRuntime()) return;
+    void initUpdater();
+    const updateCheckTimer = setTimeout(() => {
+      void checkForUpdates(false);
+    }, 4000);
     void listen<string>(NATIVE_COMMAND_EVENT, (event) => {
       void runSystemCommand(event.payload);
     }).then((unlisten) => {
       nativeCommandUnlisten = unlisten;
     });
+    return () => {
+      clearTimeout(updateCheckTimer);
+    };
   });
 
   async function toggleCommandPalette(): Promise<void> {
@@ -3152,6 +3168,7 @@
   class:sidebar-collapsed={sidebarCollapsed}
   class:with-files={inspectorVisible}
   class:resizing={resizingSidebar || resizingFiles}
+  class:resizing-sidebar={resizingSidebar}
   style={`--sidebar-w:${effectiveSidebarWidth}px; --files-w:${effectiveFilesWidth}px`}
 >
   <WindowDragMask />
@@ -3416,7 +3433,7 @@
                 <h2>{copy.noExternalSessions}</h2>
               </div>
             {/if}
-            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
+            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} agentName={activeExternalAgentName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
           {/if}
         </div>
         {#if externalTranscript && !externalTranscriptLoading && !externalTranscriptError}
@@ -3436,7 +3453,8 @@
         {messages}
         {copy}
         formatTime={formatSessionTime}
-        assistantName={activeAgentName}
+        assistantName={activeBotName}
+        agentName={activeAgentName}
         stickKey={activeSessionId}
         {sending}
         {streamingText}

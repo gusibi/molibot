@@ -18,6 +18,8 @@
   export let copy: Translation;
   export let formatTime: (value: string) => string;
   export let assistantName: string = copy.appName;
+  /** Agent bound to this conversation's channel; empty hides the label (e.g. Projects). */
+  export let agentName = "";
   export let stickKey = "";
   export let loading = false;
   export let loadingLabel = "";
@@ -111,6 +113,7 @@
         {copy}
         {formatTime}
         {assistantName}
+        {agentName}
         {sending}
         {streamingText}
         {streamingThinking}
@@ -140,6 +143,7 @@
     <TranscriptDock
       scrollElement={messagesElement ?? null}
       label={copy.scrollToLatest}
+      running={sending}
       {attentionElement}
       {attentionLabel}
       {attentionAction}

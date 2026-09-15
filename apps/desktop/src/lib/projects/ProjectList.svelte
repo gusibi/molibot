@@ -146,14 +146,7 @@
         {#if isActiveProject}
           {#each projectsStore.sessions as session (session.conversationId)}
             <ConversationRow
-              item={{
-                title: session.title,
-                updatedAt: session.updatedAt,
-                readOnly: false,
-                botId: project.id,
-                botName: project.name,
-                botDeleted: false
-              }}
+              item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false }}
               active={session.conversationId === projectsStore.selectedSessionId}
               formatTime={formatSessionTime}
               labels={rowLabels}

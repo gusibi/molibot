@@ -680,14 +680,27 @@ test("macOS semantic palette keeps dark workspace surfaces distinct from pure bl
 test("Chat keeps native sidebar material outside the opaque transcript canvas and hidden project actions do not steal title width", () => {
   assert.match(styles, /\.chat-layout\s*\{[^}]*background:\s*transparent/s);
   assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
-  assert.match(styles, /\.conv-group-action,\s*\.conv-caret-button\s*\{[^}]*width:\s*0/s);
-  assert.match(styles, /\.conv-group-head:hover \.conv-group-action,[\s\S]*\.conv-group-head:focus-within \.conv-caret-button\s*\{[^}]*width:\s*26px/s);
+  // The group row's trailing actions stay hover-revealed; the collapse arrow is
+  // gone — the whole row toggles, so no second control may reserve its width.
+  assert.match(styles, /\.conv-group-action\s*\{[^}]*width:\s*0/s);
+  assert.match(styles, /\.conv-group-head:hover \.conv-group-action,[\s\S]*\.conv-group-head:focus-within \.conv-group-action\s*\{[^}]*width:\s*26px/s);
+  assert.doesNotMatch(styles, /conv-caret/);
 });
 
 test("sidebars remove floating depth and keep a stable glass divider", () => {
   const sharedSidebarRule = styles.match(/\.chat-sidebar, \.settings-sidebar\s*\{[^}]*\}/s)?.[0] ?? "";
   assert.match(sharedSidebarRule, /border:\s*0/);
-  assert.match(sharedSidebarRule, /border-right:\s*0\.5px solid var\(--sidebar-material-border\)/);
+  // The nav divider is the same quiet separator the file panel uses, so the two
+  // pane splits read as one system instead of the nav edge out-shining the panel.
+  assert.match(styles, /--sidebar-material-border:\s*var\(--separator\)/);
+  // It must ride the material layer, not an element `border-right`: an element
+  // border paints over the raw window material showing through the 1px strip and
+  // reads brighter than the file panel's border over that panel's opaque surface.
+  assert.doesNotMatch(sharedSidebarRule, /border-right:/);
+  assert.match(styles, /\.chat-sidebar::before, \.settings-sidebar::before\s*\{[^}]*border-right:\s*1px solid var\(--sidebar-material-border\)/s);
+  // It steps up only while the sidebar itself is dragged — not on hover, and not
+  // when the file-panel resizer moves.
+  assert.match(styles, /\.chat-layout\.resizing-sidebar \.chat-sidebar::before\s*\{[^}]*border-right-color:\s*var\(--control-border-strong\)/s);
   assert.match(sharedSidebarRule, /box-shadow:\s*none/);
   assert.doesNotMatch(styles, /--floating-sidebar-/);
   assert.doesNotMatch(styles, /\.chat-sidebar:hover,[\s\S]*\.settings-sidebar:focus-within\s*\{/);
@@ -746,6 +759,11 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and exp
   assert.match(view, /aria-label=\{copy\.expandSidebar\}/);
   assert.match(view, /toggleSidebarCollapse\(\)/);
   assert.match(view, /SIDEBAR_COLLAPSE_THRESHOLD = 160/);
+  // The nav never folds on its own: no window-width auto-collapse, only the
+  // collapse button or dragging the divider past the threshold. The window-resize
+  // block adjusts the Inspector's width and must not touch `sidebarCollapsed`.
+  assert.doesNotMatch(view, /autoCollapsedByWindow/);
+  assert.doesNotMatch(view, /\$: if \(viewportWidth !== previousViewportWidth\) \{[\s\S]*?sidebarCollapsed = true/s);
   assert.match(view, /event\.key\.toLowerCase\(\) === "b"/);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed\s*\{\s*grid-template-columns:\s*0px minmax\(0, 1fr\);/);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-sidebar\s*\{[\s\S]*transform:\s*translateX\(-100%\);/);
@@ -985,9 +1003,26 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   assert.match(transcript, /copy\.appName/);
   // All rows share one centered reading column matching the composer width.
   assert.match(styles, /\.message-row\s*\{[^}]*max-width:\s*var\(--message-content-width\)[^}]*margin:[^}]*auto/s);
-  // The Agent avatar sits to the LEFT of the message, not stacked above it.
-  assert.match(transcript, /class="assistant-avatar"/);
+  // The avatar is inline at the head of the identity row, not in a left gutter:
+  // a gutter indented the whole reply by the avatar's width, so the message body
+  // stopped lining up with the composer's left edge.
+  assert.match(transcript, /class="assistant-identity">\s*<img class="assistant-avatar"/);
+  assert.match(styles, /\.assistant-avatar\s*\{[^}]*width:\s*22px/s);
   assert.match(styles, /\.assistant-layout\s*\{[^}]*display:\s*flex/s);
+  // The Agent label is the channel's binding, not a static role word. A channel
+  // that selects an Agent shows it beside the Bot; a Project passes none.
+  assert.match(transcript, /export let agentName = ""/);
+  assert.match(transcript, /\{#if agentName\}<span>\{agentName\}<\/span>\{\/if\}/);
+  assert.doesNotMatch(transcript, /copy\.agentRole/);
+  assert.match(view, /agentName=\{activeAgentName\}/);
+  assert.match(view, /agentName=\{activeExternalAgentName\}/);
+  assert.match(chatMessagesPane, /export let agentName = ""/);
+  assert.doesNotMatch(projectChat, /agentName=/);
+  // A completed turn is a quiet double-check, not a text badge that restates the
+  // turn summary one line below.
+  assert.match(transcript, /assistantStatus === "complete"[\s\S]*?class="assistant-status-check"[\s\S]*?copy\.assistantStatusComplete/);
+  assert.match(styles, /\.assistant-status-check \{[^}]*color: var\(--online\)/);
+  assert.doesNotMatch(styles, /\.assistant-status\.complete/);
   // The composer content column still caps at the 720px reading width, but the
   // wrap carries the same horizontal inset as .messages so it never sits flush
   // against the pane edges on narrower surfaces (e.g. project chat).
@@ -999,6 +1034,10 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   // surfaces — the toolbar the transcript scrolls under and the composer it
   // scrolls behind — so both ends read a budget rather than a fixed gutter.
   assert.match(styles, /\.messages \{[^}]*padding: calc\(var\(--chat-header-h\) \+ 24px\) clamp\(20px, 5%, 56px\) calc\(var\(--composer-h\) \+ 24px\)/);
+  // The transcript scrolls and the composer does not, so a right-only scrollbar
+  // would shift every message left of the input. A symmetric gutter keeps the
+  // reading column and the composer on one center.
+  assert.match(styles, /\.messages \{[^}]*scrollbar-gutter:\s*stable both-edges/);
   assert.doesNotMatch(styles, /\.(messages|composer-wrap|chat-title-name) \{[^}]*\dvw/);
   assert.match(styles, /\.composer textarea\s*\{[^}]*min-height:\s*42px;[^}]*max-height:\s*180px/s);
   assert.match(transcript, /humanizeModelOption\(message\.model, message\.model\)\.label/);
@@ -1212,10 +1251,11 @@ test("Glass materializes on entry and degrades to opaque, never to a wash", () =
   // Reduced motion is a gentler equivalent, not no feedback: the wave holds a
   // still crest so the running state stays legible without the oscillation.
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.timeline-wave-bar \{ transform: scaleY\(\.8\); opacity: \.85; \}/);
-  // One live indicator, one rhythm: the running pill shimmers instead of
-  // pairing its own pulse with the process card's wave.
-  assert.match(styles, /\.message-status::after \{[\s\S]*?animation: message-status-sheen/);
-  assert.doesNotMatch(styles, /message-status-pulse/);
+  // One live indicator, one rhythm: the running pill wears the border beam
+  // instead of pairing its own pulse with the process card's wave.
+  assert.match(conversationLiveView, /class="message-status beam"/);
+  assert.match(conversationLiveView, /<BeamRing \/>/);
+  assert.doesNotMatch(styles, /message-status-sheen|message-status-pulse/);
 });
 
 test("Desktop Settings uses a secondary canvas with quiet primary-surface cards", () => {
@@ -1573,6 +1613,15 @@ test("every rendered-Markdown surface shares one click handler", () => {
   assert.match(markdownInteractions, /openImageLightbox/);
   assert.match(imageLightbox, /document\.body\.appendChild/);
   assert.match(styles, /\.image-lightbox\s*\{[^}]*position:\s*fixed/s);
+  // The close control renders the duotone close-circle, pulled from the generated
+  // duotone set (one source), not a hand-rolled path.
+  assert.match(read("./lib/reiconSvg.ts"), /'close-circle': DUOTONE_ICON_BODIES\.CloseCircle/);
+  assert.match(imageLightbox, /icon\("close-circle"/);
+  assert.match(read("./lib/icons/duotone/components/CloseCircle.svelte"), /DUOTONE_ICON_BODIES\["CloseCircle"\]/);
+  // The glyph is a filled disc, so it fills the button's disc instead of reading
+  // as a small circle inside a big one.
+  assert.match(styles, /\.image-lightbox-close > \.reicon \{ width: 100%; height: 100%; \}/);
+  assert.match(styles, /\.markdown-artifact-close > \.reicon \{ width: 100%; height: 100%; \}/);
 });
 
 // A streaming reply used to call `renderMarkdown(streamingText)` on every frame
@@ -1631,7 +1680,7 @@ test("a streaming reply renders as keyed per-block fragments, not one swapped tr
 // reasoning arrives as thinking_delta, so a "Thinking..."/"_→ label_" frame
 // could only ever duplicate the card.
 test("the status pill yields to the process card and the turn stream ships no status frames", () => {
-  assert.match(conversationLiveView, /\{#if !liveSections\.process\.length\}[\s\S]*?class="message-status"/);
+  assert.match(conversationLiveView, /\{#if !liveSections\.process\.length\}[\s\S]*?class="message-status[\s"]/);
   assert.doesNotMatch(conversationTurnSource, /"status"/);
   assert.doesNotMatch(streamRouteSource, /writeEvent\(controller, encoder, "status"/);
 });
@@ -1791,20 +1840,87 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
   assert.match(design, /label-13:\s*[\s\S]*?fontSize:\s*13px[\s\S]*?lineHeight:\s*16px/);
   assert.match(design, /button-small:\s*[\s\S]*?height:\s*32px/);
-  assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*32px[^}]*padding:\s*4px 8px/s);
+  assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*32px[^}]*padding:\s*4px 8px 4px 24px/s);
   // A session row's title is UI text (the `label` rank) and its timestamp is
   // supporting data (`meta`). They were both 12px, which is why a row read as
   // one flat band; ranking them is what the type scale is for.
   assert.match(row, /\.row-title\s*\{[^}]*font-size:\s*var\(--fs-label\)[^}]*line-height:\s*var\(--lh-label\)/s);
   assert.match(row, /\.row-time\s*\{[^}]*font-size:\s*var\(--fs-meta\)[^}]*line-height:\s*var\(--lh-meta\)/s);
+  // Rows are avatar-free: the reserved 24px gutter only carries the run-status
+  // dot or the fork marker, and titles sit on the header text's 32px grid line
+  // (shared 8px row margin + 24px inset).
+  assert.doesNotMatch(row, /BotAvatar|row-avatar/);
+  assert.match(row, /class="status-dot"/);
+  assert.match(row, /class="row-branch"/);
+  assert.doesNotMatch(channelAccordion, /\.channel-accordion\s*\{[^}]*padding-left/s);
+});
+
+test("a running session shows the animated orb; other states keep the flat dot", () => {
+  const orb = read("./lib/chat/RunningOrb.svelte");
+  // The row swaps the flat dot for the orb only while running.
+  assert.match(row, /import RunningOrb from "\.\/RunningOrb\.svelte"/);
+  assert.match(row, /\{#if statusDot\.color === "running"\}\s*<RunningOrb \/>\s*\{\/if\}/);
+  // The orb slot keeps the static dot's center (0.5 + 16/2 === 4 + 9/2) and
+  // drops the dot's own fill/ring so the particles read unboxed; the pulse ring
+  // is gone because the orb is now the running affordance.
+  assert.match(
+    row,
+    /\.status-dot\[data-color="running"\]\s*\{[^}]*left:\s*0\.5px;[^}]*width:\s*16px;[^}]*height:\s*16px;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/s
+  );
+  assert.doesNotMatch(row, /bot-status-pulse/);
+
+  // A real 3D point-sphere: fibonacci dots projected by perspective +
+  // preserve-3d, spinning, with a representative still pose so the frozen
+  // reduced-motion orb stays round instead of collapsing to a smear.
+  assert.match(orb, /perspective:\s*60px/);
+  assert.match(orb, /transform-style:\s*preserve-3d/);
+  assert.match(orb, /@keyframes running-orb-spin/);
+  assert.match(orb, /transform:\s*rotateX\(-14deg\) rotateY\(26deg\)/);
+  assert.match(orb, /background:\s*currentColor/);
+
+  // Both degradation tiers stop the spin (styles.css owns the global overrides).
+  assert.match(styles, /\.timeline-wave-bar, \.running-orb-sphere, /);
+  assert.match(
+    styles,
+    /:root\[data-performance="low"\] \.running-orb-sphere,\s*:root\[data-performance="low"\] \.agent-studio-spinner \{/
+  );
+});
+
+test("running affordances wear the rotating border beam", () => {
+  const beam = read("./lib/chat/BeamRing.svelte");
+  // The ring is masked to its outer 2px, so the rotating conic gradient can
+  // travel around the border without ever covering the host's content and the
+  // host needs no overflow clipping.
+  assert.match(beam, /padding:\s*2px/);
+  assert.match(beam, /mask-composite:\s*exclude/);
+  assert.match(beam, /conic-gradient\(/);
+  assert.match(beam, /animation:\s*beam-spin 2\.8s linear infinite/);
+  assert.match(beam, /@keyframes beam-spin/);
+
+  // Three running surfaces: the pre-card pill, the jump-to-latest dock, and the
+  // composer stop button (never the idle send button).
+  assert.match(conversationLiveView, /class="message-status beam"[\s\S]*?<BeamRing \/>/);
+  assert.match(chatMessagesPane, /running=\{sending\}/);
+  assert.match(transcriptDock, /class:beam=\{running\}/);
+  assert.match(transcriptDock, /\{#if running\}<BeamRing \/>\{\/if\}/);
+  assert.match(chatComposerShell, /class="send-button beam"[\s\S]*?<BeamRing \/>/);
+
+  // The old pill sheen is replaced by the beam, and the beam degrades with the
+  // rest of the running loops.
+  assert.doesNotMatch(styles, /message-status-sheen/);
+  assert.match(styles, /prefers-reduced-motion: reduce\)[\s\S]*?\.beam-ring::before[\s\S]*?animation: none !important/);
+  assert.match(styles, /:root\[data-performance="low"\] \.beam-ring::before,/);
 });
 
 test("only the Web channel exposes a new Session shortcut", () => {
   assert.match(chatSidebar, /onNewSession=\{channel\.id === "web" \? onNewConversation : null\}/);
   assert.match(channelAccordion, /\{#if onNewSession\}[\s\S]*class="channel-new-session"[\s\S]*aria-label=\{labels\.newChat\}[\s\S]*onclick=\{onNewSession\}/);
-  assert.match(channelAccordion, /class="channel-new-session"[\s\S]*class="channel-caret-button"/);
-  assert.match(channelAccordion, /\.channel-new-session,[\s\S]*\.channel-caret-button\s*\{[^}]*width:\s*0[^}]*opacity:\s*0[^}]*pointer-events:\s*none/s);
-  assert.match(channelAccordion, /\.channel-accordion-head:hover \.channel-new-session,[\s\S]*\.channel-accordion-head:focus-within \.channel-caret-button\s*\{[^}]*width:\s*26px[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/s);
+  // The create-session affordance is the chat-plus glyph; the collapse arrow is
+  // gone — the header itself toggles, so nothing else may reserve trailing width.
+  assert.match(channelAccordion, /ChatPlus/);
+  assert.doesNotMatch(channelAccordion, /channel-caret-button|CaretRight/);
+  assert.match(channelAccordion, /\.channel-new-session\s*\{[^}]*width:\s*0[^}]*opacity:\s*0[^}]*pointer-events:\s*none/s);
+  assert.match(channelAccordion, /\.channel-accordion-head:hover \.channel-new-session,[\s\S]*\.channel-accordion-head:focus-within \.channel-new-session\s*\{[^}]*width:\s*26px[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/s);
 });
 
 test("composer Bot identity is initial-only and uses restrained distinct menu colours", () => {
@@ -2662,6 +2778,10 @@ test("long conversations share one user-turn navigator and preserve reader scrol
   // reduced-motion / low-performance (chat motion spec, DESIGN.md §Motion).
   assert.match(stickToBottom, /velocity = \(DAMPING \* velocity \+ STIFFNESS \* distance\) \/ MASS/);
   assert.match(stickToBottom, /node\.scrollTop \+= velocity \* dt/);
+  // The scroll container must not re-introduce CSS smooth-scroll: it would
+  // animate `stickToBottom`'s instant writes (session switch, idle reload) into
+  // the visible top→tail glide this design rejects.
+  assert.doesNotMatch(styles, /\.messages\s*\{[^}]*scroll-behavior:\s*smooth/);
   assert.match(stickToBottom, /addEventListener\("wheel", onWheel, \{ passive: true \}\)/);
   assert.match(stickToBottom, /deltaY < 0/);
   // Scrolling up from the bottom must release ownership for good: any upward
@@ -2882,18 +3002,19 @@ test("project file panel exposes live files, Git changes, and session attachment
     assert.match(styles, new RegExp(`--d2h-${nameOfVar}: var\\(--(diff|surface|separator)`), `light --d2h-${nameOfVar} must be remapped`);
     assert.match(styles, new RegExp(`--d2h-dark-${nameOfVar}: var\\(--(diff|surface|separator)`), `dark --d2h-${nameOfVar} must be remapped`);
   }
-  // Narrow windows drop the SIDEBAR, never the panel's place in the grid. An
-  // overlaid panel needs a z-index; that z-index makes it a stacking context,
-  // which traps its own head (z-index 31, deliberately above the drag mask)
-  // under the mask at z-index 30 and kills its close/refresh buttons — while
-  // the chat header's action row, still laid out full-width underneath, paints
-  // through the panel head.
-  assert.match(styles, /@media \(max-width: 1000px\)[\s\S]*?\.chat-layout\.with-files \.chat-sidebar,\s*\.chat-layout\.with-files \.sidebar-resizer \{ display: none/);
+  // Narrow windows keep the SIDEBAR in the grid: the nav is never hidden to make
+  // room for the panel, it folds only when the reader asks. The panel likewise
+  // never leaves the flow — an overlaid panel needs a z-index, that z-index makes
+  // it a stacking context, which traps its own head (z-index 31, deliberately
+  // above the drag mask) under the mask at z-index 30 and kills its close/refresh
+  // buttons, while the chat header action row paints through the panel head.
+  assert.doesNotMatch(styles, /\.chat-layout\.with-files \.chat-sidebar\s*,\s*\n?\s*\.chat-layout\.with-files \.sidebar-resizer \{ display: none/);
+  assert.match(styles, /@media \(max-width: 1000px\)[\s\S]*?\.chat-layout\.with-files \{\s*grid-template-columns: minmax\(var\(--sidebar-nav-w-narrow\)[^}]*minmax\(0, 1fr\)[^}]*minmax\(var\(--files-min-w\)/);
   assert.doesNotMatch(styles, /\.chat-layout\.with-files \.file-panel \{[^}]*position: fixed/);
-  // Exactly one tier may own the narrow `with-files` split; a second full
-  // re-declaration is what previously left an empty panel track behind an
-  // out-of-flow panel.
-  assert.equal(styles.match(/\.chat-layout\.with-files \.chat-sidebar/g)?.length, 1);
+  // Exactly one tier may own the narrow `with-files` split (base + 1000px); a
+  // second full re-declaration is what previously left an empty panel track
+  // behind an out-of-flow panel.
+  assert.equal(styles.match(/\.chat-layout\.with-files \{/g)?.length, 2);
 });
 
 test("project file tree expands in place and keeps its expansion state", () => {
@@ -3435,8 +3556,20 @@ test("project file panel follows file changes live and stays resizable", () => {
   // ChatView clamps the STORED widths to the same budget so the absolutely
   // positioned drag handles stay on the real track edges.
   assert.match(styles, /\.chat-layout\.with-files \{[^}]*minmax\(var\(--chat-min-w\), 1fr\)[^}]*minmax\(var\(--files-min-w\)/s);
-  assert.match(view, /\$: filesMaxWidth =[\s\S]*viewportWidth - sidebarWidth - CHAT_MIN[\s\S]*viewportWidth - CHAT_MIN_NARROW/);
+  // The panel has no width ceiling of its own — only the transcript floor it may
+  // not steal — so the old 720px cap is gone.
+  assert.doesNotMatch(view, /FILES_MAX/);
+  // The filesCap reserves the sidebar in BOTH tiers (the nav is never hidden for
+  // the panel), so dragging the panel can never steal the nav's width.
+  assert.match(view, /function filesCap\(windowWidth: number, sidebar: number\)[\s\S]*windowWidth - sidebar - CHAT_MIN[\s\S]*windowWidth - sidebar - CHAT_MIN_NARROW/);
+  // Dragging the panel touches ONLY the panel: its manipulation updates
+  // `filesWidth` (and the resizing flag), never the nav.
+  assert.match(view, /const filesManipulation = new DirectManipulation\(\{[\s\S]*?onUpdate\(snapshot\) \{\s*filesWidth = clampFilesWidth\(snapshot\.position\);\s*resizingFiles = [^}]*\}/s);
+  assert.match(view, /\$: filesMaxWidth = inspectorVisible \? filesCap\(viewportWidth, sidebarWidth\) : Number\.POSITIVE_INFINITY/);
   assert.match(view, /\$: effectiveFilesWidth = Math\.min\(filesWidth, filesMaxWidth\)/);
+  // With the Inspector open the panel absorbs a window resize: the sidebar and
+  // transcript keep their width, so widening the window widens the panel.
+  assert.match(view, /\$: if \(viewportWidth !== previousViewportWidth\) \{[\s\S]*?if \(inspectorVisible && delta !== 0\) \{\s*filesWidth = Math\.min\(filesCap\(viewportWidth, sidebarWidth\), Math\.max\(FILES_MIN, Math\.round\(filesWidth \+ delta\)\)\)/s);
   assert.match(view, /--sidebar-w:\$\{effectiveSidebarWidth\}px; --files-w:\$\{effectiveFilesWidth\}px/);
   assert.match(view, /bind:innerWidth=\{viewportWidth\}/);
 });
@@ -3494,7 +3627,15 @@ test("shared icon boundaries use Reicon subpath imports and typed semantic maps"
   assert.match(emptyState, /const EMPTY_STATE_ICONS = \{/);
   assert.match(emptyState, /export let icon: EmptyStateIcon/);
   assert.match(groupHeader, /const GROUP_ICONS = \{ folder: Folder, notebook: Notebook \}/);
-  assert.match(groupHeader, /export let icon: keyof typeof GROUP_ICONS/);
+  // GroupHeader is a runes component: the dynamic <GroupIcon> mount only swaps
+  // when the icon reference is a $derived signal (a legacy `$:` mutable source
+  // kept rendering the collapsed folder after `open` flipped).
+  assert.match(groupHeader, /icon\?: keyof typeof GROUP_ICONS/);
+  assert.match(groupHeader, /const GroupIcon = \$derived\(/);
+  // Folder groups mirror their expansion state in the glyph — folder-open while
+  // expanded, plain folder collapsed — and the collapse arrow stays removed.
+  assert.match(groupHeader, /icon === "folder" && open \? FolderOpen : GROUP_ICONS\[icon\]/);
+  assert.doesNotMatch(groupHeader, /conv-caret|AngleDown/);
 });
 
 test("project session delete uses Chat's shared row menu", () => {
@@ -3780,7 +3921,8 @@ test("Geist CSS references only defined variables and keyframes", () => {
   const runtimeVariables = new Set([
     "--sidebar-w", "--detail-drag", "--kpi-accent", "--dot", "--c", "--badge-color",
     "--file-color", "--agent-city-height", "--size", "--conversation-row-overlay",
-    "--bits-select-anchor-width", "--bits-select-content-transform-origin"
+    "--bits-select-anchor-width", "--bits-select-content-transform-origin",
+    "--orb-size", "--orb-dot", "--orb-speed"
   ]);
   const undefinedVariables = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi)]
     .map((match) => match[1])
@@ -4214,7 +4356,7 @@ test("Chat mounts one shared inspector host for artifact, durable, and session P
   // a second panel must never introduce a fourth column.
   assert.match(view, /class:with-files=\{inspectorVisible\}/);
   assert.match(view, /\$: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH/);
-  assert.match(view, /\$: filesMaxWidth = !inspectorVisible/);
+  assert.match(view, /\$: filesMaxWidth = inspectorVisible \? filesCap\(viewportWidth, sidebarWidth\) : Number\.POSITIVE_INFINITY/);
   assert.match(view, /\{#if inspectorVisible\}[\s\S]{0,400}class="files-resizer"/);
   // ChatView mounts exactly one Artifact Panel plus the Durable Execution adapter;
   // both render inside the shared inspector host. MiniAppPanel and ProjectFilePanel
@@ -5035,6 +5177,28 @@ test("a service reconnect restores the viewed conversation instead of re-running
   // A session created by sending from the draft never passed through
   // openSession — it must still become the restore anchor.
   assert.match(view, /onSessionCreated: \(profileId, sessionId\) => \{[\s\S]*?persistSelected\(profileId, sessionId\);/s);
+});
+
+test("a new draft conversation reaches the sidebar before its first turn settles", () => {
+  // Root fix for "the new conversation is running but the sidebar still lists
+  // only older sessions": the session-created notification used to fire only
+  // after `controller.send` resolved the entire first turn, so a still-running
+  // turn — whose title summarizer may not return, or may fail outright — left
+  // the row missing. It must fire as soon as the session exists.
+  const draftBranch = chatSessionStore.slice(
+    chatSessionStore.indexOf("if (this.draftMode || !this.registry.active)"),
+    chatSessionStore.indexOf("await this.registry.active.controller.send")
+  );
+  assert.ok(draftBranch.length > 0, "the draft-create branch must exist");
+  assert.ok(
+    draftBranch.includes("deps.onSessionCreated?.(profileId, created.id)"),
+    "the sidebar notification must live in the draft-create branch"
+  );
+  assert.ok(
+    draftBranch.indexOf("deps.onSessionCreated?.(profileId, created.id)") <
+      draftBranch.indexOf("await entry.controller.send({ message: content, files })"),
+    "the new session must be announced before the first turn is awaited"
+  );
 });
 
 test("an approval card stays until the server confirms and cannot double-submit", () => {

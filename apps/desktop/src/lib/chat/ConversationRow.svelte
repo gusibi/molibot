@@ -5,11 +5,11 @@
   import Trash from "../icons/duotone/components/Trash.svelte";
   import { tick } from "svelte";
   import { Portal } from "bits-ui";
-  import BotAvatar from "./BotAvatar.svelte";
+  import RunningOrb from "./RunningOrb.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
 
-  type ConversationRowItem = Pick<DesktopConversationItem, "title" | "updatedAt" | "readOnly" | "botId" | "botName" | "botDeleted" | "parentSessionId">;
+  type ConversationRowItem = Pick<DesktopConversationItem, "title" | "updatedAt" | "readOnly" | "parentSessionId">;
 
   let {
     item,
@@ -201,21 +201,21 @@
     />
   {:else}
     <button type="button" class="row-open" title={item.title} onclick={onRowClick}>
-      <span class="row-avatar">
-        {#if item.parentSessionId}
-          <span class="row-branch" aria-label={labels.forkedConversation} title={labels.forkedConversation}>↳</span>
-        {/if}
-        <BotAvatar botId={item.botId} name={item.botDeleted ? "" : item.botName} size={24} readOnly={item.readOnly} />
-        {#if statusDot}
-          <span
-            class="status-dot"
-            data-color={statusDot.color}
-            role="status"
-            aria-label={labels[statusDot.labelKey]}
-            title={labels[statusDot.labelKey]}
-          ></span>
-        {/if}
-      </span>
+      {#if statusDot}
+        <span
+          class="status-dot"
+          data-color={statusDot.color}
+          role="status"
+          aria-label={labels[statusDot.labelKey]}
+          title={labels[statusDot.labelKey]}
+        >
+          {#if statusDot.color === "running"}
+            <RunningOrb />
+          {/if}
+        </span>
+      {:else if item.parentSessionId}
+        <span class="row-branch" aria-label={labels.forkedConversation} title={labels.forkedConversation}>↳</span>
+      {/if}
       <span class="row-title">{item.title}</span>
       <span class="row-time">{formatTime(item.updatedAt)}</span>
     </button>
@@ -284,7 +284,10 @@
     max-width: 100%;
     min-width: 0;
     min-height: 32px;
-    padding: 4px 8px;
+    /* The 24px left inset plus the shared 8px row margin puts the title on the
+       same 32px grid line as the channel/project header text it nests under;
+       the gutter stays reserved for the status dot or fork marker. */
+    padding: 4px 8px 4px 24px;
     border: none;
     background: transparent;
     border-radius: var(--rounded-sm, 6px);
@@ -293,10 +296,11 @@
     color: inherit;
     transition: background var(--duration-instant) var(--ease-standard);
   }
-  .conversation-row.forked { padding-left: 16px; }
   .row-branch {
     position: absolute;
-    left: 3px;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
     color: var(--label-tertiary, #8f8f8f);
     font-size: var(--fs-meta);
     line-height: 1;
@@ -340,13 +344,19 @@
     cursor: default;
   }
 
-  /* Avatar carries the status dot as a corner badge, so it never eats into the
-     title's horizontal space. */
-  .row-avatar {
-    position: relative;
-    flex: 0 0 auto;
-    display: inline-flex;
-    line-height: 0;
+  /* The status dot lives in the reserved gutter (avatar removed); it lines up
+     with the header icon column above it and never eats into the title. A
+     running session swaps the flat dot for the animated orb. */
+  .status-dot {
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 9px;
+    height: 9px;
+    border-radius: 9999px;
+    /* ring separates the dot from the row surface */
+    box-shadow: 0 0 0 2px var(--sidebar-bg, #fafafa);
   }
   .row-title {
     flex: 1 1 auto;
@@ -381,31 +391,20 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
   }
-  .status-dot {
-    position: absolute;
-    right: -1px;
-    bottom: -1px;
-    width: 9px;
-    height: 9px;
-    border-radius: 9999px;
-    /* ring separates the dot from the avatar; matches the sidebar surface */
-    box-shadow: 0 0 0 2px var(--sidebar-bg, #fafafa);
-  }
+  /* Running: a 16px orb replaces the 9px dot. The slot keeps the same 8.5px
+     center as the static dot (left 0.5px + 16/2), so every state sits on one
+     axis; the orb is monochrome and inherits the running accent. */
   .status-dot[data-color="running"] {
-    background: var(--accent, #006bff);
-    animation: bot-status-pulse 1.6s infinite;
+    left: 0.5px;
+    width: 16px;
+    height: 16px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--accent, #006bff);
   }
   .status-dot[data-color="waiting"] { background: var(--warning, #ffae00); }
   .status-dot[data-color="completed"] { background: var(--online); }
   .status-dot[data-color="failed"] { background: var(--danger); }
-  @keyframes bot-status-pulse {
-    0% { box-shadow: 0 0 0 2px var(--sidebar-bg, #fafafa), 0 0 0 0 color-mix(in srgb, var(--accent, #006bff) 50%, transparent); }
-    70% { box-shadow: 0 0 0 2px var(--sidebar-bg, #fafafa), 0 0 0 5px transparent; }
-    100% { box-shadow: 0 0 0 2px var(--sidebar-bg, #fafafa), 0 0 0 0 transparent; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .status-dot[data-color="running"] { animation: none; }
-  }
 
   .row-menu-backdrop {
     position: fixed;

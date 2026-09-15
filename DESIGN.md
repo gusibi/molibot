@@ -658,7 +658,7 @@ with content moving behind it reads as depth.
   official same-concept duotone (for example `Timer` → `stopwatch-duotone`,
   `Grid` → `squares-duotone`) and that mapping is a reviewed, explicit entry.
   A few chat chrome slots use owner-picked duotone glyphs that replace the
-  literal-outline concept entirely — skills → `reorder2-duotone`, agent →
+  literal-outline concept entirely — skills → `ruler-pen-duotone`, agent →
   `vacuum2-duotone`, the settings entry → `tuning-square2-duotone`, send →
   `plane2-duotone`, plan mode → `circle-arrows-down-duotone`, manual mode →
   `handshake-duotone`, the all-mini-apps CTA → `list-duotone` — so matching an
@@ -667,7 +667,9 @@ with content moving behind it reads as depth.
   small functional and status glyphs: spinners, done/failed/warning markers,
   read receipts, activity tool-type icons, and the bare `Check` / `X` / `Plus` /
   `Minus` / chevrons that have no duotone counterpart; `XCircle` stays Outline
-  so the search-clear affordance stays identical across chat and settings.
+  so the search-clear affordance stays identical across chat and settings. The
+  sidebar's create-session affordance joins this outline list by owner choice:
+  channel and project rows use `ChatPlus` Outline instead of the bare `Plus`.
   Duotone layers paint with `currentColor` and a baked 50% secondary layer, so
   the icons inherit theme colors across brightness and family — never restyle
   the layers individually.
@@ -917,7 +919,13 @@ so an imported theme is always product tier and never a bold family.
   the native material with the opaque sidebar token and disable the WebView blur;
   increased contrast also uses a stronger divider. Sidebar resize handles align to the
   divider at the grid track edge and remain visually transparent: do not draw a second
-  divider.
+  divider. That divider is the shared `--separator` hairline — the same weight and
+  colour as the file panel's, so both pane splits read as one system — and it steps up
+  to the stronger control border only while the sidebar is being dragged, never at rest
+  or on hover. It is painted on the sidebar's material layer, not as an element
+  `border-right`: an element border sits on the raw window material showing through the
+  1px strip and reads brighter than the file panel's border over that panel's opaque
+  surface.
   Chat's exposed canvas follows the transcript surface.
   Settings keeps its secondary canvas. Hidden sidebar actions
   collapse out of layout and consume title width only on hover or keyboard focus. An empty
@@ -967,12 +975,20 @@ so an imported theme is always product tier and never a bold family.
 - Chat uses the shared 228px baseline resizable sidebar; persisted widths below that
   baseline clamp to it. Flat assistant messages have Agent identity, hover/focus
   actions, and one compact auto-growing composer.
+- Assistant identity is one inline row anchored to the reading column's left edge:
+  the avatar, the Bot / Web Profile / app name, and — only for a channel that binds
+  one — the Agent it runs as. The avatar is not a left gutter, so the reply body
+  spans the same width as the composer. A completed turn closes with a quiet
+  double-check; error and interruption keep their labelled badge.
 - The Chat transcript never scrolls horizontally or grows beyond its bounded reading
   column. Ordinary prose, paths, links, and inline code wrap within the message;
   intrinsically wide structures that must preserve layout (code blocks, tables,
   rendered math, diagrams, and diffs) own a local horizontal scroller capped to
   `100%`. Every flex/grid item between the transcript and those structures keeps
   `min-width: 0`; opening the Project/File Inspector must not change this contract.
+  The transcript scrolls while the composer does not, so it reserves a symmetric
+  scrollbar gutter (`stable both-edges`) — otherwise a right-only scrollbar shifts
+  every message a few pixels left of the composer it is supposed to line up with.
 - Rendered Mermaid blocks expose one compact, persistent Preview / Source segmented
   control. Source remains selectable and has an explicit copy action; Preview keeps
   its local horizontal scroller and offers an expand action through the shared image
@@ -1008,6 +1024,18 @@ so an imported theme is always product tier and never a bold family.
   between the primary destinations and the conversation tree. Their content begins
   below the full 60px native title-bar drag zone so traffic lights and drag capture
   never overlap the first destination's pointer target.
+- The session tree is one left-aligned grid. Section heads (对话 / 项目), channel
+  headers, and project folder rows share a single 8px content inset — no per-level
+  re-indent — and session titles sit on the header text's 32px grid line (8px row
+  inset + 16px icon + 8px gap). Rows are avatar-free: the reserved 24px gutter only
+  ever carries a run-status dot or the fork marker, never a per-bot avatar. A running
+  session replaces the flat dot with the animated `RunningOrb` (a perspective-projected
+  point-sphere, 16px, centered on the same axis as the static 9px dot); every terminal
+  state keeps the flat dot. Channel
+  and project rows have no trailing collapse chevron — the whole row toggles, and
+  only the section-level 对话 / 项目 heads keep a hover caret. Project folder rows
+  mirror expansion in the glyph: `folder-open` duotone while expanded, plain
+  `folder` duotone collapsed.
 - The complete 60px Chat header is a native window drag region. Header actions sit
   above that region and remain clickable; empty chrome and passive source/title text
   drag the window consistently across the full row.
@@ -1015,9 +1043,16 @@ so an imported theme is always product tier and never a bold family.
   Mini App Inspector are two adapters of one seam: they share the grid track, the
   stored width, the resize handle, the minimum width, and the narrow-screen rules.
   Opening one closes the other; a second Inspector kind must never introduce a fourth
-  column. Both are laid out in flow — a narrow window drops the sidebar and keeps the
-  Inspector in the grid rather than turning it into a `position: fixed` overlay above
-  Chat or the composer.
+  column. Both are laid out in flow — a narrow window narrows the sidebar and keeps
+  every column in the grid rather than turning the Inspector into a `position: fixed`
+  overlay above Chat or the composer. The nav is never hidden to make room for the
+  panel: it folds only when the reader asks. The Inspector has no width ceiling of its
+  own: its only bound is the transcript floor it must not steal, so it can be widened
+  to read a file. While it is open, resizing the window transfers the width delta into
+  the Inspector — the sidebar and transcript keep their width and the panel absorbs the
+  change — so enlarging the window enlarges the file you opened instead of the chat.
+  Dragging the panel's own handle likewise only changes the panel: the sidebar keeps
+  the width the reader set and the transcript takes what is left.
 - The File / Artifact Inspector is the app's GitHub/Primer-inspired repository
   workspace: a neutral repository canvas, an inset source tree, and an opaque
   editor/preview surface. Keep the browser/preview split in flow and resizable;
@@ -1273,7 +1308,19 @@ bubble, the streaming row - keep their fade.
 Every new animation is added to the `prefers-reduced-motion: reduce`
 overrides in `styles.css` (and the `data-performance="low"` list, where it
 applies) in the same change; both degrade all of the above, the spring
-included, to the instant equivalent.
+included, to the instant equivalent. Running-state loops are the exception to
+the sub-300ms rule — they indicate an ongoing state, not a transition — and
+they degrade to a still equivalent: the sidebar `RunningOrb` freezes at a
+representative pose, the running-turn wave holds a still crest, and the
+`BeamRing` border beam stops rotating with its glow still visible on the edge.
+
+**Border beam.** While a turn runs, the affordances that belong to it — the
+pre-card status pill, the jump-to-latest dock pill, and the composer's stop
+button — wear a `BeamRing`: a conic gradient on a ring masked to the host's
+outer 2px, rotating once every 2.8s. It is theme-accent coloured, never a fixed
+rainbow, so it stays legible across every theme family; the host only has to be
+a positioned, rounded box and needs no `overflow` clipping because the mask
+keeps the glow on the border.
 
 # Geist
 

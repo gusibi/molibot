@@ -122,6 +122,7 @@
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
-    "notification:default"
+    "notification:default",
+    "updater:default"
   ]
 }

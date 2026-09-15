@@ -46,6 +46,8 @@ jobs:
 
     env:
       TAURI_BUILD_TARGET: ${{ matrix.target }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -91,6 +93,7 @@ jobs:
         id: artifacts
         run: |
           bundle_dir="apps/desktop/src-tauri/target/${TAURI_BUILD_TARGET}/release/bundle/dmg"
+          macos_dir="apps/desktop/src-tauri/target/${TAURI_BUILD_TARGET}/release/bundle/macos"
           dmg_path="$(find "$bundle_dir" -type f -name '*.dmg' | head -n 1)"
           if [[ -z "$dmg_path" ]]; then
             echo "::error::No DMG produced under $bundle_dir"
@@ -101,10 +104,17 @@ jobs:
             echo "::error::Checksum sidecar missing: $sha_path"
             exit 1
           fi
+          tar_path="$(find "$macos_dir" -type f -name '*.app.tar.gz' 2>/dev/null | head -n 1)"
+          sig_path="$(find "$macos_dir" -type f -name '*.app.tar.gz.sig' 2>/dev/null | head -n 1)"
+          platform_path="$(find "$macos_dir" -type f -name 'updater-platform-*.json' 2>/dev/null | head -n 1)"
           echo "dmg_path=$dmg_path" >> "$GITHUB_OUTPUT"
           echo "sha_path=$sha_path" >> "$GITHUB_OUTPUT"
           echo "bundle_dir=$bundle_dir" >> "$GITHUB_OUTPUT"
+          echo "tar_path=${tar_path:-}" >> "$GITHUB_OUTPUT"
+          echo "sig_path=${sig_path:-}" >> "$GITHUB_OUTPUT"
+          echo "platform_path=${platform_path:-}" >> "$GITHUB_OUTPUT"
           ls -la "$bundle_dir"
+          if [[ -d "$macos_dir" ]]; then ls -la "$macos_dir"; fi
 
       - name: Write build-info manifest
         id: manifest
@@ -137,12 +147,15 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: molibot-desktop-dmg-${{ matrix.arch }}
+          name: molibot-desktop-${{ matrix.arch }}
           if-no-files-found: error
           path: |
             ${{ steps.artifacts.outputs.dmg_path }}
             ${{ steps.artifacts.outputs.sha_path }}
             ${{ steps.manifest.outputs.manifest_path }}
+            ${{ steps.artifacts.outputs.tar_path }}
+            ${{ steps.artifacts.outputs.sig_path }}
+            ${{ steps.artifacts.outputs.platform_path }}
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -151,8 +164,41 @@ jobs:
           name: ${{ github.ref_name }}
           prerelease: true
           generate_release_notes: true
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
           files: |
             ${{ steps.artifacts.outputs.dmg_path }}
             ${{ steps.artifacts.outputs.sha_path }}
             ${{ steps.manifest.outputs.manifest_path }}
+            ${{ steps.artifacts.outputs.tar_path }}
+            ${{ steps.artifacts.outputs.sig_path }}
+
+  manifest:
+    name: Generate & Publish Updater Manifest (latest.json)
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate latest.json
+        run: |
+          node scripts/generate-desktop-latest-json.mjs --artifacts artifacts --out latest.json
+          cat latest.json
+
+      - name: Publish latest.json to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          prerelease: true
+          files: latest.json

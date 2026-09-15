@@ -1,3 +1,141 @@
+### 修复：中文「**标签：**正文」加粗渲染成原始星号（2026-09-16，已交付）
+
+- 症状（owner 走查）：聊天回复里 `**特点：**典型秋高气爽` 这类加粗没有生效，星号原样显示；同一消息里 `**华北平原、西北大部**和…` 却正常。
+- 根因（CommonMark 规范缺陷，commonmark-spec#650）：加粗的闭合 `**` 若紧跟在全角标点（如 `：`）之后、且后面直接跟 CJK 汉字，按 flanking 规则不算合法闭合定界符 → 无法闭合。该规则为英文空格分词设计，中文无空格导致「标点收尾的加粗标签」高频命中。
+- 修复（共享层）：`apps/desktop/src/lib/markdown.ts` 接入 `marked-cjk-friendly`（同维护者 cjk-friendly 系列，peer `marked >= 15`，ESM）。聊天记录、流式视图、Artifact Markdown 预览等所有渲染面都汇入 `renderMarkdown`，一处修复全覆盖；仅影响紧邻 CJK 字符的强调解析，Latin 行为不变。
+- 机器守卫：`markdown.test.ts` 新增 4 个回归——截图里的真实失败形态（`**特点：**`、`**华南沿海（…）：**仍偏闷热`）、开口侧/常规 CJK 加粗、非 CJK 行为不变（Latin intraword、空格星号保持字面、代码 span 不解析）、以及 spaced/unmatched 星号不被误解析。
+- 验证：`markdown.test.ts` + `streamingMarkdown.test.ts` 30/30、`svelte-check` 0 错 0 警、`vite build` 通过。真实桌面冷启动走查未执行（避免打扰 owner 正在使用的实例；重载前端即可目测原会话消息）。
+
+### Desktop：运行中的三个入口加上「发光边缘转圈」border beam（2026-09-15，已交付）
+
+- 需求（owner）：运行中的「正在执行…」胶囊、聊天区的「回到最新」按钮、以及输入框里的暂停/停止按钮，都换成一个发光的边缘转圈动画；效果参考 https://libraries.dev/beam。
+- 方案：新增共享组件 `apps/desktop/src/lib/chat/BeamRing.svelte`。用 conic-gradient 做一条彗星状渐变，挂在一个被 mask 到宿主**外沿 2px** 的环形层上，`::before` 每 2.8s 转一圈；因为 mask 已经限定了发光区域，宿主不需要 `overflow: hidden`，渐变也不会盖住内容。颜色用主题 `--accent`（不是固定彩虹），23 套主题、明暗外观下都成立。
+- 接线：
+  - `ConversationLiveView` 的 `.message-status` 胶囊加 `beam` 类并渲染 `<BeamRing />`；同时删掉旧的横向 shimmer（`.message-status::after` / `message-status-sheen`），避免同一个运行态出现两种动效。
+  - `TranscriptDock` 新增 `running` prop，由 `ChatMessagesPane` 传 `sending`；运行中且上滑脱离底部时，「回到最新」按钮 `class:beam` 并渲染 `<BeamRing />`。
+  - `ChatComposerShell` 只在 `sending`（停止按钮分支）时渲染 `<BeamRing />`；`.send-button` 补 `position: relative` 作为定位上下文，空闲的发送按钮不受影响。
+- 退化：`prefers-reduced-motion` 与 `data-performance="low"` 都停转（`styles.css` 全局覆盖 `.beam-ring::before`），冻结时发光仍停在边缘，不是「无反馈」。
+- 验证：headless Chrome 挂载真实组件（Vite 构建 `ChatComposerShell` + `TranscriptDock`，并导入真实 `styles.css`/主题）截图确认停止按钮与「回到最新」胶囊的 beam 正常渲染；`chat-ui.test.mjs` 252/252（新增守卫：BeamRing 的 mask/2px/conic/关键帧、三处 running 接线、旧 shimmer 移除、两个退化层；更新原 shimmer 与 `.message-status` 断言），桌面 mjs 264/264、`svelte-check` 0 错 0 警、`vite build` 通过。真实桌面冷启动走查未执行（避免打扰 owner 正在运行的实例）。
+- 文档：`DESIGN.md` Motion 章节新增 Border beam 条目。
+
+### Desktop：执行中的会话行显示旋转粒子球（2026-09-15，已交付）
+
+- 需求（owner）：左侧会话列表里，会话正在执行时不要再是一个静止/泛光的圆点，要有一个「正在执行」的动画；执行完成后的绿色点保持不变；动效参考 https://libraries.dev/orbs 的 thinking orb。
+- 方案：新增共享组件 `apps/desktop/src/lib/chat/RunningOrb.svelte` —— 用 CSS 3D（`perspective` + `transform-style: preserve-3d`）把一组按 fibonacci 球面均匀分布的粒子点放在一个旋转的球体上，靠透视自然产生近大远小的深度感，零 canvas/WebGL、零第三方依赖，侧栏同时有多个会话在跑也不会各自开一个渲染上下文。
+- 接线：`ConversationRow` 在 `statusDot.color === "running"` 时渲染 `<RunningOrb />`，其余状态（waiting/completed/failed）继续用原来的扁平圆点；运行槽位 16px、中心与 9px 静态点同轴（left 0.5 + 16/2 = 4 + 9/2），并把旧的 `bot-status-pulse` 泛光圈删除。
+- 退化：`prefers-reduced-motion` 与 `data-performance="low"` 都停掉旋转（`styles.css` 全局覆盖，与既有动画同一条规则）；球体带一个代表性初始姿态，冻结时仍是一个圆的静态球而不是竖条。颜色用 `currentColor` 继承运行态的 `--accent`，明暗主题、选中/非选中行都自适应。
+- 验证：headless Chrome 挂载真实组件（Vite 构建 `ConversationRow`）截图确认 running 显示球体、completed/waiting/failed 显示扁平点、明暗背景与 reduced-motion 冻结态均正常；`chat-ui.test.mjs` 251/251（新增守卫：仅 running 渲染 orb、槽位中心对齐、旧 pulse 移除、orb 的 perspective/preserve-3d/keyframes/冻结姿态、两个退化层），桌面 mjs 263/263、`svelte-check` 0 错 0 警、`vite build` 通过。真实桌面冷启动走查未执行（避免打扰 owner 正在运行的实例）。
+- 文档：`DESIGN.md` 会话树条目与 Motion 章节补充 running orb 及其退化规则。
+
+### 修复：新对话在首轮执行期间不出现在侧栏会话列表（2026-09-15，已修复）
+
+- 症状（owner 走查）：从「新对话」发出第一条消息后，聊天区已经在「正在执行…」，但左侧「Web」会话列表仍然只有旧会话，新会话整轮都看不到。
+- 根因（异步时序 / 生命周期顺序）：`ChatSessionStore.send()` 的 draft 分支在 `await entry.controller.send(...)`（整轮 SSE 结束）之后才调用 `deps.onSessionCreated?.(profileId, created.id)`，而侧栏刷新（`loadChannel("web")`）只挂在这个回调上。首轮运行期间唯一的刷新机会是标题摘要器返回后发出的 `session_title_updated` 事件——它可能超时/失败，且即使返回也会被 `loadChannel` 的「已有请求在飞」守卫静默丢弃。因此第一条消息运行中的整段时间里，新会话不在列表里，只有等整轮结束才补上。
+- 修复（共享层生命周期，不在调用方打补丁）：把 `onSessionCreated` 的调用移到 `entry.controller.send(...)` **之前**、`setActive`/清空 draft 之后，让会话一存在就通知宿主刷新侧栏；同时让 `persistSelected` 在首轮开始前就落好恢复锚点（首轮异常也不会丢）。占位标题由后续的标题摘要事件 / 轮次结束刷新收敛。修正后的顺序与 Web 端 `POST /api/sessions → loadSessions()` 的即时刷新行为一致。
+- 机器守卫：`chat-ui.test.mjs` 新增「a new draft conversation reaches the sidebar before its first turn settles」——断言 `onSessionCreated` 必须位于 draft 分支内、且在 `entry.controller.send` 之前，防止再次把它挪到轮次之后。
+- 验证：`chat-ui.test.mjs` 250/250、`svelte-check` 0 错 0 警。真实桌面冷启动走查未执行（避免打扰 owner 正在运行的实例；前端重载后即可目测）。
+
+### 修复：项目文件夹展开态图标不切换（2026-09-15，已修复）
+
+- 症状（owner 走查）：项目展开/折叠后文件夹图标始终是闭合形态；展开态的 `folder-open` 没有生效。
+- 根因（浏览器实测定位）：`GroupHeader` 是 legacy 语法组件（`export let` + `$:`），`$: GroupIcon = ...` 在 Svelte 5 下编译为 `mutable_source` + `legacy_pre_effect`，而动态组件 `<GroupIcon>` 的挂载**只保留首次渲染的组件**——prop 变化时 `aria-expanded`、`class:open` 等兄弟绑定都正常更新，唯独图标不换，因此 markup 检查和 SSR 单帧渲染都发现不了。用 vite dev server 上挂载真实组件、点击切换并断言 SVG path 的方式复现：`open=true` 时 DOM 里仍是闭合文件夹的 path。
+- 修复：`GroupHeader` 整体迁移到 Svelte 5 runes（`$props` + `$derived`），动态组件随派生信号切换。修复后同一浏览器实测：`open=false` → folder path，点击后 → folder-open path，截图确认外观。
+- 机器守卫（同类首次出现即沉淀）：`reactive-statement-guard.test.mjs` 新增断言——禁止 legacy `$:` 派生的变量被挂载为动态组件；存量 `ComposerPermissionMenu`（TriggerIcon）、`ProcessActivityItem`（ToolIcon）命中同模式，已在守卫白名单登记并记入 `prd.md` 技术债（权限模式 `value` 变化时触发器图标同样可能不换，暂无用户可见故障）。`CLAUDE.md` pitfall #2 增补该附则。
+- 验证：桌面 mjs 260/260、`svelte-check` 0 错 0 警、`vite build` 通过；修复前后均以真实浏览器（dev server 挂载 + 点击 + DOM path 断言 + 截图）验证。owner 的 app 窗口需重新加载前端后生效。
+
+### Desktop：macOS 应用内自动更新（2026-09-15，已交付）
+
+- 需求（owner）：实现 macOS 桌面客户端自动下载新版本并重启更新，解决此前每次发版必须手动前往 GitHub Releases 下载并覆盖安装的问题；背景：无苹果开发者账号。
+- 原理与方案：
+  - 利用 Tauri 官方 `tauri-plugin-updater` 机制与 Ed25519 (Minisign) 非对称密钥签名替代苹果公证（Notarization），解决无开发者账号下的防篡改校验。
+  - 应用内通过标准 HTTP 下载更新包不会被 macOS 附带 `com.apple.quarantine` 隔离标志，用户首次授权后后续自动更新无需再过 Gatekeeper 拦截。
+  - 在重启更新前由 Supervisor 优雅停止底层 `molibot-node` 伴生服务并释放端口/SQLite 数据库锁，杜绝进程残留与锁冲突。
+  - 防御 App Translocation（易位隔离执行）：更新前检测如果用户未将应用拖入 `/Applications`，提示移入后再更新。
+- 变更：
+  - 后端与原生（`apps/desktop/src-tauri`）：引入 `tauri-plugin-updater` 插件；新增 `check_app_translocation` 与 `relaunch_desktop_for_update` 原生命令；Mac 系统菜单（`Molibot` 菜单）与托盘菜单（Tray）添加「检查更新…」项并接入 Native Command 事件流；配置 `tauri.conf.json` 与 `tauri.bundle.conf.json`（updater 端点与 Ed25519 公钥，`createUpdaterArtifacts: true`）。
+  - 前端（`apps/desktop`）：引入 `@tauri-apps/plugin-updater`；新增 `updaterStore`（Svelte 5 runes 状态机，管理检查中/发现更新/下载进度/重启就绪等状态）；新增 `UpdateDialog.svelte` 更新弹窗（自适应明暗主题与中英多语言，展示版本号、更新日志、下载百分比与 MB 进度条）；通用设置（General）添加「软件更新」区块；ChatView 启动时调度静默检查并在快捷命令面板注册「检查更新…」。
+  - 发布流水线与打包（`.github/workflows/desktop-release.yml`、`scripts/finalize-desktop-release.mjs`、`scripts/generate-desktop-latest-json.mjs`）：矩阵构建 Apple Silicon 与 Intel 架构更新包（`.app.tar.gz` 与 `.sig`）；新增 `manifest` job 自动聚合多架构签名生成 `latest.json` 并发布到 GitHub Releases。
+- 验证：`desktop:check`（`svelte-check` 0 错 0 警）、`desktop:test`（260 项桌面前端测试 + 70 项 Rust 单元测试全部通过）、`test:desktop-release`（6 项打包与 manifest 测试全部通过）。
+
+### Desktop：技能导航图标换成 ruler-pen（2026-09-15，已交付）
+
+- 需求（owner）：侧边栏「技能」图标换成 reicon `ruler-pen` duotone（原为 owner 早期选的 `reorder2`）。
+- 变更：`RulerPen` 加入 duotone 生成清单并重新生成；`ChatSidebar` 技能项换用 `RulerPen`；`Reorder2` 无其他消费方，从生成清单删除（75 个体）；`DESIGN.md` owner-picked 清单同步为 `skills → ruler-pen-duotone`。
+- 验证：桌面 mjs 测试、`svelte-check`、`vite build` 通过。
+
+### Desktop：会话树左对齐网格 + 会话行去头像 + 文件夹开合图标（2026-09-15，已交付）
+
+- 需求（owner）：① 渠道区块（Web/Telegram/飞书/QQ/微信）与项目区块全部左对齐，去掉现有缩进；② 会话行去掉前面的 bot 头像，保留缩进让文字与 Web/Telegram/项目名的文字对齐；③ 项目文件夹图标随展开状态切换（展开=打开的文件夹、折叠=普通文件夹）；④ 渠道行与项目行的「新建会话」加号换成 reicon `chat-plus`（Outline）；⑤ 去掉渠道行与项目行最右侧的折叠/展开箭头。
+- 变更：
+  - `ConversationRow`：删除 `BotAvatar`（会话行不再渲染 bot 头像）；运行状态点（运行/待审批/完成/失败）与 fork 标记 `↳` 移入保留的 24px 缩进槽（两者同时存在时状态点优先）；标题基线 = 共享 8px 行边距 + 24px 内缩，与头部文字落在同一条 32px 网格线。`item` 契约收窄为 `title/updatedAt/readOnly/parentSessionId`，`ProjectTree`/`ProjectList` 调用方同步去掉 bot 字段。
+  - `ChannelAccordion`：去掉容器 `padding-left: 8px`；删除 `channel-caret-button`（整行头部即折叠开关，`aria-expanded` 保留在头部按钮上）；`Plus` → `ChatPlus`（Outline）；空态/「更多对话」/「去设置」左缩进对齐到 32px 网格线。
+  - `GroupHeader`：文件夹图标随展开切换（`folder-open` / `folder` duotone，本地生成集已含两者；notebook 图标不受影响）；`Plus` → `ChatPlus`；删除 `conv-caret-button` / `conv-caret`。项目页 `ProjectList` 共用该组件，一并生效。
+  - `styles.css`：`.sidebar-section-head` / `.sidebar-section-toggle` 统一 8px 内容起点——「对话」「项目」区块头、nav 项、渠道头、项目行共用同一左原点；`.conv-group-head` 去掉 4px 边距、tile 18px→16px（`--icon-md`），保证项目名与会话文字对齐。
+- 验证：`chat-ui.test.mjs` 250/250（新增守卫：行内不得再出现 `BotAvatar`/`row-avatar`、状态点与 fork 标记渲染、`channel-accordion` 不得有 `padding-left`、GroupHeader 开合图标推导、不得再有 `conv-caret`/`AngleDown`；更新 caret 相关断言与行 padding 断言）；`project-sidebar.test.mjs` 通过；`svelte-check` 0 错（`UpdateDialog` 1 个未使用选择器警告来自工作区既有改动）；`vite build` 通过；另用 `ChatSidebar` 全量 SSR 冒烟验证渠道+会话+状态点+fork 的真实渲染 DOM。真实桌面冷启动走查未执行（避免打扰 owner 正在使用的实例，owner 下次打开应用时可直接目测验证）。
+- 备注：owner 提到的折叠态图标链接是 `folder-add`（带加号的文件夹），按「表现为一个普通文件夹」的描述采用了普通 `folder` 图标；若确实要 `folder-add`，改 `GroupHeader.svelte` 的 `GROUP_ICONS` 一行即可。
+
+### Desktop：消息内容与输入框对齐 + 全屏预览关闭按钮图标（2026-09-15，已修复）
+
+- 症状（owner 走查）：聊天正文 / 图片没有和下方输入框对齐，整体看起来左偏几像素；全屏图片预览右上角的关闭按钮只有一个圆形背景、看不到图标。
+- 根因 1（对齐）：`.messages` 是可滚动容器（`overflow-y: auto` + 6px 自定义滚动条），而输入框不在滚动容器里。右边多出 6px 滚动条后，居中的 720px 阅读列相对输入框左移约 3px，于是「内容左偏、右侧显得内缩」。
+- 根因 2（关闭按钮）：关闭按钮只渲染了内联的 outline `x` 路径，视觉上几乎看不见；用户指定改用 reicon 的 duotone `close-circle`。
+- 修复：
+  - `.messages` 增加 `scrollbar-gutter: stable both-edges`，让内容盒左右对称、居中不随滚动条出现而漂移（与设置 / 工作区滚动容器同一条 DESIGN 规则）。
+  - 把 `CloseCircle` 加入 duotone 生成清单（`scripts/generate-duotone-icons.mjs`）并重新生成，得到 `icons/duotone/components/CloseCircle.svelte` 与 body；`reiconSvg.ts` 的 `close-circle` 直接引用生成的 body，`imageLightbox` 关闭按钮改用它；`MarkdownArtifactOverlay` 关闭按钮同步换成同一 duotone 组件，两个全屏预览保持一致。
+  - 关闭按钮图标从 `--icon-md`(16px) 改为填满按钮（`width/height: 100%`，按钮 32px；`close-circle` 自身的内圆约占字形 83%，因此内圆约占按钮 80%+），不再「大背景里一个小圈」；按钮补 `padding: 0` 让图标精确填满。两个全屏预览的关闭按钮统一处理。
+- 验证：`chat-ui.test.mjs` 全量通过（249 项；新增守卫：`.image-lightbox-close > .reicon` 与 `.markdown-artifact-close > .reicon` 必须 `width/height: 100%`，issue 13 对齐、图片 gallery、icon 来源用例通过）；`svelte-check` 0 错 0 警、`vite build` 通过。
+
+### Desktop：文件面板打开时保留左侧 nav、拖面板只改面板（2026-09-15，已交付）
+
+- 需求（owner）：A) 打开 / 拖动右侧文件面板时不要自动隐藏左侧 nav；B) 拖动右侧文件面板时只改面板宽度，nav 和 chat 不要跟着变。
+- 根因（A）：`@media (max-width: 1000px) { .chat-layout.with-files .chat-sidebar { display: none } }`——窗口 `<= 1000px` 且有文件面板时用 CSS 直接把侧栏整个隐藏（并给 chat header 补 84px 避让交通灯）。这就是「移动文件面板时 nav 自动消失」的来源。
+- 修复：
+  - **A**：删除该隐藏规则与 header 的 84px 避让；`<= 1000px` 的 `with-files` 改为三列 `minmax(--sidebar-nav-w-narrow, --sidebar-w) / minmax(0, 1fr) / minmax(--files-min-w, --files-w)`，nav 只收窄不隐藏；820px tier 不再重复声明 `with-files` 轨道（保持「一个 tier 拥有该 split」）。`ChatView` 的 `filesCap` 在窄屏档也扣除侧栏宽度（`W - sidebar - CHAT_MIN_NARROW`），`sidebarMaxWidth` 在窄屏档同样按 `CHAT_MIN_NARROW` 预留。
+  - **B**：文件面板拖动只改 `filesWidth`（`filesManipulation.onUpdate` 只写 `filesWidth` / `resizingFiles`）；`filesCap` 始终以当前侧栏宽度为基准，所以拖面板永远不会侵占 nav 宽度；聊天区吸收剩余空间（窗口固定时几何上必然如此）。
+- 验证：`chat-ui.test.mjs` 更新 / 新增守卫（不再隐藏侧栏、`<= 1000px` 三列 split、拖动只改面板、`filesCap` 两档都扣侧栏），桌面 mjs 260/260、`svelte-check` 0 错 0 警、`vite build` 通过。`DESIGN.md` 已同步。真实窗口拖拽走查未执行（脚本无辅助功能权限，未打扰 owner 实例）。
+
+### 修复：左侧 nav 不再随窗口宽度自动折叠（2026-09-15，已修复）
+
+- 症状（owner 走查）：左侧 nav 会自己折叠，很突兀；期望只有「点击折叠按钮」或「把 nav 分割线拖过阈值」才折叠，其它情况不要自动折叠。
+- 根因：`ChatView` 里有一段按窗口宽度自动折叠的遗留逻辑——窗口进入 `<= 820px` 时把 `sidebarCollapsed` 置真并写入 localStorage（配一个 `autoCollapsedByWindow` 标记，本意是窗口变宽再自动展开；但该标记不持久化，重启后丢失，折起状态却留在 localStorage 里，表现就是「自己关掉且不再自己打开」）。
+- 修复：删除 `autoCollapsedByWindow` 变量与整段按宽度自动折叠/展开逻辑。`sidebarCollapsed` 现在只由折叠按钮、键盘快捷键（`b`）以及把分割线拖过 `SIDEBAR_COLLAPSE_THRESHOLD`(160) 改变；窄窗口仍通过响应式 tier 把侧栏收窄到 170px，但不再折叠。
+- 注意：owner 机器上 localStorage 里可能已残留 `sidebarCollapsed=true`（由旧逻辑写入），点一次展开按钮即可；此后不再被自动改写。
+- 验证：`chat-ui.test.mjs` 新增守卫（不得再出现 `autoCollapsedByWindow`、窗口 resize 块不得改 `sidebarCollapsed`），桌面 mjs 260/260、`svelte-check` 0 错 0 警、`vite build` 通过。
+
+### Desktop 右侧文件面板：去掉最大宽度、窗口缩放由面板吸收（2026-09-15，已交付）
+
+- 需求（owner）：① 右侧文件面板不应有最大宽度，只保留最小宽度；② 面板打开时拖动窗口最右侧边缘放大窗口，应保持左侧 nav 与 chat 宽度不变、只增大右侧面板（查看文件时想放大内容）。
+- 变更（`ChatView.svelte`，共享几何层）：
+  - 删除 `FILES_MAX = 720` 常量及它在 `filesWidth` / `DirectManipulation.max` 里的钳制；面板唯一边界改为「不侵占 chat 下限」的 `filesCap(windowWidth, sidebar)`（三列保留 `CHAT_MIN`、窄屏保留 `CHAT_MIN_NARROW`）。因此面板可一直拖宽到 chat 到达可读下限，不再有固定上限。`FILES_MIN` 保留。
+  - 窗口宽度变化时（`bind:innerWidth` 的 `$:` 块），若 Inspector 打开则把宽度增量转给面板（`filesWidth += delta`，再按 `filesCap` / `FILES_MIN` 钳制），nav 与 chat 宽度保持不变；无 Inspector 时仍由 chat 吸收增长。存储仍只在显式拖拽时写入用户偏好值。
+- 验证：`chat-ui.test.mjs` 更新守卫（无 `FILES_MAX`、`filesCap` 公式、窗口增量转面板）、桌面 mjs 260/260、desktop `svelte-check` 0 错 0 警、`vite build` 通过。`DESIGN.md` 已同步。窗口缩放的真实冷路径走查未执行（当前无法用脚本控制该窗口，未打扰 owner 正在使用的实例）。
+
+### 修复：切换会话时聊天记录从顶部滚动到底部（2026-09-15，已修复）
+
+- 症状（owner 走查）：切换 Chat / Project 会话时，内容先显示在顶部（第一条），随后快速滚动到底部；期望直接停在最底部。
+- 根因：`.messages { scroll-behavior: smooth }` 与 `stickToBottom.ts` 的设计冲突——action 用 rAF 弹簧自管跟随动效，并用「直接写 `scrollTop`」实现会话切换 / 空闲重载的瞬时落底；CSS smooth 会把每一次直接写 `scrollTop` 变成浏览器的平滑滚动动画，于是切换时的瞬时落底被渲染成可见的「从头滚到尾」。`DESIGN.md` §Motion 本就写明 follow-scroll「deliberately not CSS smooth-scroll」「Session switches land on the tail instantly」，即该 CSS 是遗留冲突项。
+- 修复：删除 `.messages` 的 `scroll-behavior: smooth`。reduced-motion / low-performance 的 `scroll-behavior: auto !important` 覆盖保留；提示词导航、大纲跳转仍各自显式传 `behavior: smooth`，不受影响。
+- 守卫与验证：`chat-ui.test.mjs` 新增「`.messages` 不得再引入 CSS smooth」守卫；桌面 mjs 守卫 260/260、`stickToBottom` 单测 4/4、desktop `svelte-check` 0 错 0 警、`vite build` 通过。冷启动走查未做（owner 桌面实例使用中，未重启）。
+
+### 修复：左侧导航与右侧内容的分割线偏亮（2026-09-15，已修复）
+
+- 症状（owner 走查，两次）：Chat / 设置页左侧导航与右侧内容之间的竖直分割线比右侧文件面板的分割线明显更亮；第一次只改 token 颜色后「还是很亮」。
+- 根因（两层）：
+  1. 颜色 token 不同：侧栏 `border-right` 用 `--sidebar-material-border`（默认 `color-mix(--control-border-strong 64%)`），文件面板用 `--separator`；另 0.5px vs 1px 线宽也不一致。
+  2. 更根本的一层（第一次没修掉的原因）：分割线画在**元素自身的 `border-right`** 上。侧栏 `background` 是 `transparent`，承载材质的 `::before` 用 `inset: 0` 只覆盖 padding box、**不覆盖 1px 边框条**，所以边框那一列直接叠在「原生侧栏材质（透出窗户背后壁纸的模糊）」上，而右侧文件面板的边框叠在它自己**不透明的面板底色**上——同一个 color token 在两处合成结果不同，侧栏边因此更亮。
+- 修复（共享层根修，不改布局）：`--sidebar-material-border` 默认改为 `var(--separator)`、线宽 0.5px→1px；并把分割线从元素边框移到材质层——`border-right` 画在 `.chat-sidebar::before / .settings-sidebar::before`（`box-sizing: border-box`）上，让它和其它侧栏像素一样叠在同一层 tint 上合成；新增 `class:resizing-sidebar`，仅拖动侧栏分割线时把边框色提到 `--control-border-strong`（`::before` 上），拖文件面板不误亮；增大对比度模式的更强分割线保持不变。
+- 证据（运行中实例像素采样，暗色主题）：修复前侧栏边 `(60,84,101)` vs 文件面板 `(40,50,63)`；修复后侧栏边 `(42,51,64)/(40,50,62)/(39,48,59)` 与文件面板 `(40,50,63)` 基本一致。
+- 验证：`chat-ui.test.mjs` 更新「分割线」守卫（token + 必须画在 `::before` + 拖拽态）、桌面 mjs 守卫 260/260、desktop `svelte-check` 0 错 0 警、`vite build` 通过。`DESIGN.md` 已同步。
+
+### Desktop 助手消息身份行对齐输入框、去掉冗余标签（2026-09-15，已交付）
+
+- 症状（owner 走查截图）：助手回复左侧留了独立的头像栏，头像所在列相对输入框有缩进，正文又被「头像宽 + 间隙」二次缩进，正文列比下方输入框窄；身份行同时挂「Agent」和「回答完成」两个标，其中「Agent」是静态角色词、没有信息量，「回答完成」又与下一行的「已完成工作」重复。
+- 变更：
+  - 头像内联到身份行首位（`ConversationTranscript` / `ConversationLiveView`，CSS 22px），移除独立头像栏；正文与头像都对齐阅读列左缘，正文宽度与输入框一致。
+  - 成功态从「回答完成」文字药丸改为绿色双勾（`CheckRead`，带 `aria-label`），错误 / 中断仍保留带文字的状态药丸。
+  - 静态「Agent」标签改为渠道绑定的 Agent 名：Web 会话显示「Web Profile 名 · Agent」，外部渠道显示「渠道 Bot 名 · Agent」，渠道未显式绑定 Agent 时回退默认 Agent（`Global`）；Project 会话不传 `agentName`，因此不显示 Agent。`copy.agentRole` 已删除。
+- 验证：`chat-ui.test.mjs` 等桌面 mjs 守卫 260/260（含新增身份行 / 对齐 / 双勾守卫）、desktop `svelte-check` 0 错 0 警、`vite build` 通过。`DESIGN.md` 已补「Assistant identity」条目。冷启动走查未做（owner 桌面实例使用中，未重启）；重启后应看到 Project 会话身份行为「头像 + Molibot + 绿勾」，Web / 外部渠道多一个 Agent 名。
+
 ### feishu 主题对齐真实飞书（2026-09-14，已交付）
 
 - 基准（owner 提供真实飞书运行 Molibot 的明暗截图）：中性炭黑分层、暗色下聊天画布比侧栏更暗、选中会话用柔和蓝底、bot 消息保持白色卡片。

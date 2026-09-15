@@ -23,10 +23,13 @@
   import Hand from "reicon-svelte/icons/Hand";
   import { onDestroy } from "svelte";
   import { SCROLL_PINNED_EVENT, resumeStickToBottom } from "./stickToBottom";
+  import BeamRing from "./BeamRing.svelte";
 
   let {
     scrollElement = null,
     label,
+    /** A live turn is running; the jump pill wears the border beam. */
+    running = false,
     /** The element whose off-screen-ness should raise the attention pill. */
     attentionElement = null,
     attentionLabel = "",
@@ -34,6 +37,7 @@
   }: {
     scrollElement?: HTMLElement | null;
     label: string;
+    running?: boolean;
     attentionElement?: HTMLElement | null;
     attentionLabel?: string;
     attentionAction?: string;
@@ -101,7 +105,8 @@
     <button type="button" class="transcript-dock-action" onclick={scrollToAttention}>{attentionAction}</button>
   </div>
 {:else if showJump}
-  <button type="button" class="transcript-dock transcript-dock-jump" aria-label={label} title={label} onclick={scrollToLatest}>
+  <button type="button" class="transcript-dock transcript-dock-jump" class:beam={running} aria-label={label} title={label} onclick={scrollToLatest}>
+    {#if running}<BeamRing />{/if}
     <ArrowDown size={14} aria-hidden="true" />
     <span class="transcript-dock-text">{label}</span>
   </button>

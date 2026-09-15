@@ -5,6 +5,7 @@
   import type { Translation } from "../i18n";
   import { segmentComposerValue } from "./composerSuggestions.svelte";
   import { clipboardImageFiles } from "./clipboardFiles";
+  import BeamRing from "./BeamRing.svelte";
   export let copy: Translation;
   export let value = "";
   export let sending = false;
@@ -95,7 +96,7 @@
     <slot name="selectors"><div class="composer-selectors"></div></slot>
     <slot name="action" />
     {#if sending && onStop}
-      <button class="send-button" type="button" aria-label={copy.stop} title={copy.stop} onclick={onStop}><Stop weight="Filled" size={16} aria-hidden="true" /></button>
+      <button class="send-button beam" type="button" aria-label={copy.stop} title={copy.stop} onclick={onStop}><BeamRing /><Stop weight="Filled" size={16} aria-hidden="true" /></button>
     {:else}
       <button class="send-button" type="button" aria-label={copy.send} title={copy.send} disabled={!canSend || disabled} onclick={onSend}><Plane2 size={16} aria-hidden="true" /></button>
     {/if}

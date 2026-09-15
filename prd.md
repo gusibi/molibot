@@ -1,3 +1,15 @@
+## 存量 legacy 动态组件图标的 runes 化（2026-09-15，技术债登记）
+
+- **背景**：`ComposerPermissionMenu.svelte`（`$: TriggerIcon = modeIcon(value)`）和 `ProcessActivityItem.svelte`（`$: ToolIcon = ACTIVITY_TOOL_ICONS[...]`）沿用 legacy `$:` 派生 + 动态组件挂载——Svelte 5 下该组合在 prop 变化后不会重建组件（GroupHeader 文件夹图标不切换 bug 的同类，见 CLAUDE.md pitfall #2 附则）。权限模式 `value` 变化时 composer 触发器图标同样可能不换。
+- **状态**：已在 `reactive-statement-guard.test.mjs` 显式登记为已知存量（新文件不得再犯）；**待办**：两个组件整体迁移到 runes `$props`/`$derived` 后从守卫白名单移除。
+- **优先级**：低（当前无用户可见故障报告；转换涉及 onMount/命令式逻辑，需组件级验证配合）。
+
+## 侧边栏会话行的 Agent 区分方式（2026-09-15，待 owner 拍板）
+
+- **背景 / 优先级**：会话行已去掉 bot 头像（2026-09-15 左对齐改版），同一渠道下不同 Bot → 不同 Agent 的会话在列表里暂无视觉区分；owner 提出两个候选：悬浮时显示、右键菜单里显示。优先级待定。
+- **候选方案（待核对）**：A. 行 hover 提示（title 增加 Agent 名）+ 右键菜单顶部显示所属 Agent（改动最小）；B. 非默认 Agent 的会话在标题后追加弱化 Agent 名后缀（常显、无需交互，但增加视觉噪声）；C. 会话行内以小徽标标注 Agent 色/名。
+- **验收口径**：能一眼或一次交互内说出任意会话属于哪个 Agent；不复活已删除的行首头像；中英文与明暗主题下可读。
+
 ## 调用链插件与小程序（2026-09-13）
 
 - 当前范围：内置插件、共享 trace 关联与查询、APP HTML 查看、Telegram/飞书工具入口、R2 公开快照。

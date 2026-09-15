@@ -6,7 +6,6 @@
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
   import Check from "reicon-svelte/icons/Check";
   import CheckRead from "reicon-svelte/icons/CheckRead";
-  import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Copy from "../icons/duotone/components/Copy.svelte";
   import Cpu from "reicon-svelte/icons/Cpu";
   import Database from "../icons/duotone/components/Database.svelte";
@@ -38,6 +37,8 @@
   export let copy: Translation;
   export let formatTime: (value: string) => string;
   export let assistantName: string = copy.appName;
+  /** Name of the Agent bound to this conversation's channel; empty hides the label. */
+  export let agentName = "";
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
   export let showReadReceipt = false;
@@ -270,12 +271,16 @@
       {/if}
     {:else}
       <div class="assistant-layout">
-        <img class="assistant-avatar" src="/molibot-icon.png" alt="" width="24" height="24" />
         <div class="message-stack">
         <div class="assistant-identity">
+          <img class="assistant-avatar" src="/molibot-icon.png" alt="" width="22" height="22" />
           <strong>{assistantName}</strong>
-          <span>{copy.agentRole}</span>
-          {#if assistantStatus}<span class={`assistant-status ${assistantStatus}`}>{#if assistantStatus === "error"}<TriangleWarning size={12} aria-hidden="true" />{:else if assistantStatus === "aborted"}<StopCircle size={12} aria-hidden="true" />{:else}<CheckCircle size={12} aria-hidden="true" />{/if}{assistantStatus === "error" ? copy.assistantStatusError : assistantStatus === "aborted" ? copy.assistantStatusAborted : copy.assistantStatusComplete}</span>{/if}
+          {#if agentName}<span>{agentName}</span>{/if}
+          {#if assistantStatus === "complete"}
+            <CheckRead class="assistant-status-check" size={14} role="img" aria-label={copy.assistantStatusComplete} title={copy.assistantStatusComplete} />
+          {:else if assistantStatus}
+            <span class={`assistant-status ${assistantStatus}`}>{#if assistantStatus === "error"}<TriangleWarning size={12} aria-hidden="true" />{:else}<StopCircle size={12} aria-hidden="true" />{/if}{assistantStatus === "error" ? copy.assistantStatusError : copy.assistantStatusAborted}</span>
+          {/if}
         </div>
         {#if turnSections.process.length}
           <TurnProcess

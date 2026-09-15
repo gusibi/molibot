@@ -5,7 +5,7 @@
   import Layers from "../icons/duotone/components/Layers.svelte";
   import Magnifier from "../icons/duotone/components/Magnifier.svelte";
   import Pen from "../icons/duotone/components/Pen.svelte";
-  import Reorder2 from "../icons/duotone/components/Reorder2.svelte";
+  import RulerPen from "../icons/duotone/components/RulerPen.svelte";
   import Sidebar from "../icons/duotone/components/Sidebar.svelte";
   import TuningSquare2 from "../icons/duotone/components/TuningSquare2.svelte";
   import Vacuum2 from "../icons/duotone/components/Vacuum2.svelte";
@@ -160,7 +160,7 @@
       {#if automationUnreadCount > 0}<span class="nav-notification" aria-label={`${automationUnreadCount} ${copy.tasksReminderUnread}`}>{automationUnreadCount > 99 ? "99+" : automationUnreadCount}</span>{/if}
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "skills"} aria-current={activeWorkspacePane === "skills" ? "page" : undefined} onclick={onOpenSkills}>
-      <Reorder2 size={16} aria-hidden="true" />
+      <RulerPen size={16} aria-hidden="true" />
       <span>{copy.skillsSquare}</span>
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "agents"} aria-current={activeWorkspacePane === "agents" ? "page" : undefined} onclick={onOpenAgents}>

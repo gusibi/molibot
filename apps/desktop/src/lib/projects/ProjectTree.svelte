@@ -268,7 +268,7 @@
           {:else}
             {#each visibleProjectSessions as session (session.conversationId)}
               <ConversationRow
-                item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false, botId: project.id, botName: project.name, botDeleted: false }}
+                item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false }}
                 active={activeSessionId === session.conversationId}
                 formatTime={formatTime}
                 labels={rowLabels}
@@ -331,7 +331,7 @@
 
 <style>
   .project-tree { min-width: 0; }
-  .project-tree-group { position: relative; padding-left: 8px; }
+  .project-tree-group { position: relative; }
   .project-row-menu { position: absolute; z-index: 20; top: 32px; right: 8px; display: grid; width: 148px; padding: 4px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); box-shadow: var(--popover-shadow); }
   .project-row-menu button { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
   .project-row-menu button:hover { background: var(--fill); }
@@ -340,7 +340,7 @@
   .sidebar-section-head:hover .project-tree-caret, .sidebar-section-head:hover .project-add, .sidebar-section-head:focus-within .project-tree-caret, .sidebar-section-head:focus-within .project-add { opacity: 1; pointer-events: auto; }
   .project-add { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; margin-right: 2px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
   .project-add:hover { background: var(--fill); color: var(--label-primary); }
-  .project-tree-state { margin: 0; padding: 6px 12px 6px 32px; color: var(--label-tertiary); font-size: 12px; }
+  .project-tree-state { margin: 0; padding: 6px 8px 6px 32px; color: var(--label-tertiary); font-size: 12px; }
   .project-more { width: 100%; height: 30px; padding: 0 8px 0 32px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--accent); font: inherit; font-size: var(--fs-label); text-align: left; cursor: pointer; }
   .project-more:hover { background: var(--fill); }
   .project-more:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }

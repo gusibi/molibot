@@ -27,6 +27,7 @@ export type SettingsDestination =
   | "runtimeEnv";
 
 export type CommandId =
+  | "app.check-update"
   | "app.open-chat"
   | "app.open-settings"
   | "app.open-web"
@@ -165,6 +166,13 @@ const recommendedRank = (context: CommandContext, command: CommandId): number =>
 };
 
 const definitions: CommandDefinition[] = [
+  {
+    id: "app.check-update",
+    label: (locale) => locale === "zh-CN" ? "检查更新…" : "Check for Updates…",
+    keywords: ["update", "upgrade", "version", "检查更新", "更新", "版本"],
+    scope: "application",
+    availability: desktopAvailability
+  },
   {
     id: "app.open-chat",
     label: (locale) => locale === "zh-CN" ? "打开 Molibot" : "Open Molibot",

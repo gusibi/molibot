@@ -369,6 +369,27 @@ fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn check_app_translocation() -> Result<bool, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    Ok(exe.to_string_lossy().contains("AppTranslocation"))
+}
+
+#[tauri::command]
+fn relaunch_desktop_for_update(
+    app: AppHandle,
+    state: tauri::State<'_, Mutex<DesktopState>>,
+) -> Result<(), String> {
+    let control = state
+        .lock()
+        .ok()
+        .and_then(|desktop| desktop.control.lock().ok().and_then(|c| c.clone()));
+    if let Some(control) = control {
+        supervisor::stop_sender_and_wait(control, Duration::from_secs(5));
+    }
+    app.restart();
+}
+
 fn close_to_hide_window_labels() -> [&'static str; 1] {
     ["chat"]
 }
@@ -410,6 +431,7 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(DesktopState::default()))
         .manage(audio::AudioState::default())
         .manage(audio::MeetingCaptureState::default())
@@ -473,6 +495,8 @@ pub fn run() {
             desktop_log_path,
             open_desktop_log,
             open_external_url,
+            check_app_translocation,
+            relaunch_desktop_for_update,
             audio::start_recording,
             audio::stop_recording,
             audio::cancel_recording,

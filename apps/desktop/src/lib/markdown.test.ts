@@ -91,3 +91,29 @@ test("heading ids stay namespaced by segment", () => {
   assert.match(output, /id="answer-0-1"/);
   assert.match(output, /data-answer-heading/);
 });
+
+test("bold closing after CJK punctuation followed directly by a CJK character still renders (commonmark-spec#650)", () => {
+  // Stock CommonMark refuses a closing `**` preceded by CJK punctuation and
+  // followed by a CJK character, so the "**标签：**正文" shape model replies
+  // are full of rendered literal asterisks. marked-cjk-friendly implements the
+  // proposed spec fix; these are the exact shapes seen in a real reply.
+  const output = render("o **特点：**典型秋高气爽。");
+  assert.match(output, /<strong>特点：<\/strong>典型秋高气爽/);
+
+  const nested = render("- **华南沿海（广东、海南、福建南部）：**仍偏闷热（30°C+）");
+  assert.match(nested, /<strong>华南沿海（广东、海南、福建南部）：<\/strong>仍偏闷热/);
+});
+
+test("opening-side and plain CJK emphasis still render", () => {
+  assert.match(render("特点：**秋高气爽**是常态。"), /特点：<strong>秋高气爽<\/strong>是常态/);
+  assert.match(render("**华北平原、西北大部**和东北南部。"), /<strong>华北平原、西北大部<\/strong>和东北南部/);
+});
+
+test("cjk-friendly does not change non-CJK emphasis behavior", () => {
+  assert.match(render("He said **\"no\"**, loudly."), /<strong>&quot;no&quot;<\/strong>, loudly/);
+  assert.match(render("foo**bar**baz"), /foo<strong>bar<\/strong>baz/);
+  // Spaced and unmatched asterisks stay literal.
+  assert.doesNotMatch(render("a * b * c"), /<em>/);
+  assert.ok(render("2 ** 3 = 8，** 不是粗体").includes("2 ** 3 = 8"));
+  assert.match(render("用 `**特点：**` 写法"), /<code>\*\*特点：\*\*<\/code>/);
+});

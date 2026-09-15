@@ -1,22 +1,37 @@
 <script lang="ts">
-  import AngleDown from "reicon-svelte/icons/AngleDown";
+  import ChatPlus from "reicon-svelte/icons/ChatPlus";
   import Folder from "../icons/duotone/components/Folder.svelte";
+  import FolderOpen from "../icons/duotone/components/FolderOpen.svelte";
   import More from "../icons/duotone/components/More.svelte";
   import Notebook from "../icons/duotone/components/Notebook.svelte";
-  import Plus from "reicon-svelte/icons/Plus";
 
   const GROUP_ICONS = { folder: Folder, notebook: Notebook } as const;
 
-  export let label: string;
-  export let icon: keyof typeof GROUP_ICONS = "folder";
-  export let open = false;
-  export let onToggle: () => void;
-  export let actionLabel = "";
-  export let onAction: (() => void) | null = null;
-  export let menuLabel = "";
-  export let onMenu: (() => void) | null = null;
+  let {
+    label,
+    icon = "folder",
+    open = false,
+    onToggle,
+    actionLabel = "",
+    onAction = null,
+    menuLabel = "",
+    onMenu = null
+  }: {
+    label: string;
+    icon?: keyof typeof GROUP_ICONS;
+    open?: boolean;
+    onToggle: () => void;
+    actionLabel?: string;
+    onAction?: (() => void) | null;
+    menuLabel?: string;
+    onMenu?: (() => void) | null;
+  } = $props();
 
-  $: GroupIcon = GROUP_ICONS[icon];
+  // A folder group mirrors its expansion state: open folder while expanded,
+  // plain folder while collapsed. Non-folder groups keep a single glyph.
+  // $derived (not legacy `$:`) — the dynamic <GroupIcon> mount below only
+  // swaps when the component reference is a runes-derived signal.
+  const GroupIcon = $derived(icon === "folder" && open ? FolderOpen : GROUP_ICONS[icon]);
 </script>
 
 <div class="conv-group-head" class:open>
@@ -32,7 +47,7 @@
       title={actionLabel}
       onclick={() => onAction?.()}
     >
-      <Plus size={14} aria-hidden="true" />
+      <ChatPlus size={14} aria-hidden="true" />
     </button>
   {/if}
   {#if onMenu}
@@ -47,7 +62,4 @@
       <More size={14} weight="Filled" aria-hidden="true" />
     </button>
   {/if}
-  <button class="conv-caret-button" type="button" aria-label={label} aria-expanded={open} onclick={onToggle}>
-    <AngleDown class={open ? "conv-caret open" : "conv-caret"} size={12} weight="Filled" aria-hidden="true" />
-  </button>
 </div>

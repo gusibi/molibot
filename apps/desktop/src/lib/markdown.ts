@@ -10,6 +10,7 @@ import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import { marked } from "marked";
+import markedCjkFriendly from "marked-cjk-friendly";
 import markedKatex from "marked-katex-extension";
 import { reiconSvg } from "./reiconSvg";
 
@@ -29,6 +30,12 @@ hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("html", xml);
 
 marked.use({ gfm: true, breaks: false });
+// CommonMark's flanking rules drop bold when a closing `**` sits right after
+// CJK punctuation and is followed directly by a CJK character — the "**标签：**
+// 正文" shape LLM replies are full of (see commonmark-spec#650). This extension
+// implements the proposed spec fix and only touches emphasis adjacent to CJK
+// characters, so Latin-language documents parse exactly as before.
+marked.use(markedCjkFriendly());
 // `nonStandard: false` is the library default and is load-bearing: with it on,
 // any two `$` on one line turn the text between them into math ("每月 $10，一年
 // $120" rendered as a formula, table cells included). The standard rule still

@@ -29,6 +29,7 @@ pub struct CommandMenuEntry {
 
 pub fn command_id(menu_id: &str) -> Option<&'static str> {
     match menu_id {
+        "app.check-update" => Some("app.check-update"),
         "app.open-chat" => Some("app.open-chat"),
         "app.open-settings" => Some("app.open-settings"),
         "app.open-web" => Some("app.open-web"),
@@ -90,9 +91,11 @@ pub fn install(app: &App) -> tauri::Result<()> {
     )?;
     let app_open_chat = item(app, "app.open-chat", "Open Molibot", None)?;
     let app_diagnostics = item(app, "diagnostics.open", "Diagnostics", None)?;
+    let app_check_update = item(app, "app.check-update", "Check for Updates…", None)?;
 
     let app_menu = SubmenuBuilder::new(app, "Molibot")
         .item(&PredefinedMenuItem::about(app, None, None)?)
+        .item(&app_check_update)
         .separator()
         .item(&app_settings)
         .separator()
@@ -134,13 +137,14 @@ pub fn install(app: &App) -> tauri::Result<()> {
     let tray_open_chat = item(app, "app.open-chat", "Open Molibot", None)?;
     let tray_open_web = item(app, "app.open-web", "Open Web", None)?;
     let tray_settings = item(app, "app.open-settings", "Open Settings", None)?;
+    let tray_check_update = item(app, "app.check-update", "Check for Updates…", None)?;
     let tray_restart = item(app, "service.restart", "Restart Service", None)?;
     let tray_diagnostics = item(app, "diagnostics.open", "Diagnostics", None)?;
     let tray_quit = item(app, "app.quit", "Quit Molibot", None)?;
     let tray_menu = MenuBuilder::new(app)
         .items(&[&tray_open_chat, &tray_open_web, &tray_settings])
         .separator()
-        .items(&[&tray_restart, &tray_diagnostics])
+        .items(&[&tray_check_update, &tray_restart, &tray_diagnostics])
         .separator()
         .item(&tray_quit)
         .build()?;
@@ -156,6 +160,7 @@ pub fn install(app: &App) -> tauri::Result<()> {
     register_items(
         app,
         &[
+            app_check_update,
             app_settings,
             app_window_settings,
             app_quit,
@@ -166,6 +171,7 @@ pub fn install(app: &App) -> tauri::Result<()> {
             tray_open_chat,
             tray_open_web,
             tray_settings,
+            tray_check_update,
             tray_restart,
             tray_diagnostics,
             tray_quit,
@@ -229,6 +235,11 @@ pub fn execute(app: &AppHandle, menu_id: &str) -> Result<(), String> {
             }
             supervisor::request_restart(&state.control);
         }
+        "app.check-update" => {
+            show_window(app, "chat");
+            app.emit_to("chat", COMMAND_EVENT, "app.check-update")
+                .map_err(|error| error.to_string())?;
+        }
         "app.quit" => app.exit(0),
         command => {
             if matches!(command, "chat.new" | "chat.search") {
@@ -250,6 +261,7 @@ mod tests {
 
     #[test]
     fn maps_only_stable_product_command_ids() {
+        assert_eq!(command_id("app.check-update"), Some("app.check-update"));
         assert_eq!(command_id("app.open-chat"), Some("app.open-chat"));
         assert_eq!(command_id("service.restart"), Some("service.restart"));
         assert_eq!(command_id("open"), None);

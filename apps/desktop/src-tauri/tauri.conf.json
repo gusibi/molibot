@@ -47,9 +47,18 @@
       "dmg"
     ],
     "category": "Productivity",
+    "createUpdaterArtifacts": true,
     "copyright": "Copyright © 2026 EZTOOLAB",
     "macOS": {
       "minimumSystemVersion": "13.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0NTdBNTRFQTg3NTJFQ0UKUldUT0xuV29UcVZYUkd2SUlGS3Z3SlFsOFlsYzM2aUtIdmJTUEJUR3VkOWc3bDhhMkx2NTZQWnkK",
+      "endpoints": [
+        "https://github.com/gusibi/molibot/releases/latest/download/latest.json"
+      ]
     }
   }
 }

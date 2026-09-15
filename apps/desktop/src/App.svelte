@@ -53,6 +53,13 @@
   import VideoGenerateSection from "./lib/settings/VideoGenerateSection.svelte";
   import TtsGenerateSection from "./lib/settings/TtsGenerateSection.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
+  import UpdateDialog from "./lib/components/UpdateDialog.svelte";
+  import {
+    updaterStore,
+    checkForUpdates,
+    downloadAndInstallUpdate,
+    relaunchApp
+  } from "./lib/stores/updater.svelte";
   import PageHeader from "./lib/components/ui/PageHeader.svelte";
   import SelectControl from "./lib/components/ui/SelectControl.svelte";
   import SettingGroup from "./lib/components/ui/SettingGroup.svelte";
@@ -1190,6 +1197,48 @@
           </SettingRow>
         </SettingGroup>
 
+        <SettingGroup title={text.softwareUpdate} description={text.softwareUpdateHint}>
+          <SettingRow
+            title={text.softwareUpdate}
+            description={updaterStore.available
+              ? `${text.updateAvailable}: v${updaterStore.newVersion}`
+              : updaterStore.readyToRestart
+                ? `${text.updateReady}: v${updaterStore.newVersion}`
+                : `${text.currentVersion}: v${appVersion ?? updaterStore.currentVersion ?? "..."}`}
+          >
+            {#if updaterStore.readyToRestart}
+              <button
+                class="primary-button"
+                type="button"
+                onclick={relaunchApp}
+              >
+                {text.restartToUpdate}
+              </button>
+            {:else if updaterStore.downloading}
+              <button class="secondary-button" type="button" disabled>
+                {updaterStore.downloadProgress}%
+              </button>
+            {:else if updaterStore.available}
+              <button
+                class="primary-button"
+                type="button"
+                onclick={downloadAndInstallUpdate}
+              >
+                {text.downloadAndInstall}
+              </button>
+            {:else}
+              <button
+                class="secondary-button"
+                type="button"
+                disabled={updaterStore.checking}
+                onclick={() => checkForUpdates(true)}
+              >
+                {updaterStore.checking ? text.checkingUpdates : text.checkUpdates}
+              </button>
+            {/if}
+          </SettingRow>
+        </SettingGroup>
+
         <SettingGroup title={text.theme} contentClass="appearance-card">
           <div class="appearance-block">
             <p class="appearance-label">{text.appearanceMode}</p>
@@ -1412,3 +1461,5 @@
   </main>
   </div>
 {/if}
+
+<UpdateDialog {locale} />

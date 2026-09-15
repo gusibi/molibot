@@ -63,7 +63,7 @@ export function openImageLightbox(items: LightboxItem[], startIndex: number, cop
   close.type = "button";
   close.className = "image-lightbox-close";
   close.setAttribute("aria-label", copy.closeImage || "Close");
-  close.innerHTML = icon("x", 16);
+  close.innerHTML = icon("close-circle", 16);
 
   const prev = document.createElement("button");
   prev.type = "button";

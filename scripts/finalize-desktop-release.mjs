@@ -28,6 +28,27 @@ export function defaultDmgDirectory(target = process.env.TAURI_BUILD_TARGET ?? "
   );
 }
 
+export function defaultMacosDirectory(target = process.env.TAURI_BUILD_TARGET ?? "") {
+  return path.join(
+    repositoryRoot,
+    "apps/desktop/src-tauri/target",
+    desktopBuildTarget(target),
+    "release/bundle/macos"
+  );
+}
+
+export function releaseUpdaterTarName(version, arch = desktopArchFromTarget()) {
+  return `Molibot_${version}_${arch}.app.tar.gz`;
+}
+
+export function releaseUpdaterSigName(version, arch = desktopArchFromTarget()) {
+  return `Molibot_${version}_${arch}.app.tar.gz.sig`;
+}
+
+export function releaseUpdaterPlatformName(arch = desktopArchFromTarget()) {
+  return `updater-platform-${arch}.json`;
+}
+
 export async function findDmgPath(directory = defaultDmgDirectory()) {
   const entries = await readdir(directory);
   const dmgFiles = entries.filter((entry) => entry.endsWith(".dmg")).sort();
@@ -75,7 +96,51 @@ export async function finalizeDesktopRelease(options = {}) {
   if (path.basename(originalPath) !== path.basename(finalPath)) {
     await rename(originalPath, finalPath);
   }
-  return { dmgPath: finalPath, ...(await writeDesktopReleaseChecksum(finalPath)) };
+  const dmgResult = { dmgPath: finalPath, ...(await writeDesktopReleaseChecksum(finalPath)) };
+
+  // Finalize updater artifacts if produced by tauri build
+  const macosDir = options.macosDirectory ?? defaultMacosDirectory(options.target);
+  let tarPath = null;
+  let sigPath = null;
+  let platformPath = null;
+
+  try {
+    const entries = await readdir(macosDir);
+    const tarFile = entries.find((e) => (e.endsWith(".app.tar.gz") || e.endsWith(".tar.gz")) && !e.includes(version));
+    if (tarFile) {
+      const srcTar = path.join(macosDir, tarFile);
+      const destTar = path.join(macosDir, releaseUpdaterTarName(version, arch));
+      if (srcTar !== destTar) {
+        await rename(srcTar, destTar);
+      }
+      tarPath = destTar;
+    }
+
+    const sigFile = entries.find((e) => e.endsWith(".tar.gz.sig") && !e.includes(version));
+    if (sigFile) {
+      const srcSig = path.join(macosDir, sigFile);
+      const destSig = path.join(macosDir, releaseUpdaterSigName(version, arch));
+      if (srcSig !== destSig) {
+        await rename(srcSig, destSig);
+      }
+      sigPath = destSig;
+
+      const signature = (await readFile(destSig, "utf8")).trim();
+      const platformInfo = {
+        version,
+        arch,
+        platform: arch === "aarch64" ? "darwin-aarch64" : "darwin-x86_64",
+        signature,
+        url: `https://github.com/gusibi/molibot/releases/download/v${version}/${path.basename(tarPath ?? releaseUpdaterTarName(version, arch))}`
+      };
+      platformPath = path.join(macosDir, releaseUpdaterPlatformName(arch));
+      await writeFile(platformPath, `${JSON.stringify(platformInfo, null, 2)}\n`, "utf8");
+    }
+  } catch {
+    // macosDir might not exist in unit tests or if updater artifacts weren't created
+  }
+
+  return { ...dmgResult, tarPath, sigPath, platformPath };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -83,4 +148,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   console.log(`Desktop DMG SHA-256: ${result.digest}`);
   console.log(`DMG file: ${path.relative(repositoryRoot, result.dmgPath)}`);
   console.log(`Checksum file: ${path.relative(repositoryRoot, result.checksumPath)}`);
+  if (result.tarPath) console.log(`Updater tarball: ${path.relative(repositoryRoot, result.tarPath)}`);
+  if (result.sigPath) console.log(`Updater signature: ${path.relative(repositoryRoot, result.sigPath)}`);
+  if (result.platformPath) console.log(`Updater platform manifest: ${path.relative(repositoryRoot, result.platformPath)}`);
 }

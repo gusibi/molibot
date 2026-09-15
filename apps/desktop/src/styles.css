@@ -124,7 +124,10 @@
   --sidebar-material-filter: blur(18px) saturate(160%);
   /* Opaque accessibility fallback for the native macOS sidebar material. */
   --sidebar-material-bg: var(--chrome-sidebar-bg);
-  --sidebar-material-border: color-mix(in srgb, var(--control-border-strong) 64%, transparent);
+  /* The sidebar divider is the same quiet `--separator` hairline as the file
+     panel's, so the two pane splits read as one system; it only steps up to the
+     stronger control border while the sidebar is being dragged. */
+  --sidebar-material-border: var(--separator);
   /* Sticky tree headings float on a masked glass veil. The tint is deliberately
      pale in Light mode; blur carries most of the separation. */
 
@@ -500,6 +503,11 @@ a:focus-visible {
 .chat-layout.resizing .chat-sidebar {
   transition: none !important;
 }
+/* The divider brightens only while the sidebar itself is being dragged; the
+   file-panel resizer must not light up the nav's edge. */
+.chat-layout.resizing-sidebar .chat-sidebar::before {
+  border-right-color: var(--control-border-strong);
+}
 .chat-layout.sidebar-collapsed .chat-sidebar {
   width: 0px !important;
   max-width: 0px !important;
@@ -509,7 +517,6 @@ a:focus-visible {
   opacity: 0;
   transform: translateX(-100%);
   pointer-events: none;
-  border-right-color: transparent;
 }
 .chat-layout.sidebar-collapsed .sidebar-resizer {
   display: none;
@@ -622,7 +629,6 @@ a:focus-visible {
   padding: 42px 12px 8px;
   overflow: hidden;
   border: 0;
-  border-right: 0.5px solid var(--sidebar-material-border);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -633,13 +639,22 @@ a:focus-visible {
    carrying backdrop-filter is the containing block for fixed-position
    descendants, so the session row's fixed .row-menu was trapped inside this
    overflow: hidden box and clipped at the sidebar's edge instead of floating
-   above the whole window. */
+   above the whole window.
+
+   The divider lives on this layer too, not as an element `border-right`. An
+   element border paints on the raw window material that shows through the 1px
+   strip (the ::before only covers the padding box), so it read visibly brighter
+   than the file panel's border — which composites over that panel's opaque
+   background. Drawing it here composites over the same tint every other sidebar
+   pixel sits on, so the two pane splits match. */
 .chat-sidebar::before, .settings-sidebar::before {
   content: "";
   position: absolute;
   inset: 0;
+  box-sizing: border-box;
   z-index: -1;
   pointer-events: none;
+  border-right: 1px solid var(--sidebar-material-border);
   background: var(--sidebar-material-tint);
   backdrop-filter: var(--sidebar-material-filter);
   -webkit-backdrop-filter: var(--sidebar-material-filter);
@@ -660,7 +675,7 @@ a:focus-visible {
   align-items: center;
   width: 100%;
   min-height: 32px;
-  padding: 0 4px;
+  padding: 0;
   background: transparent;
 }
 .sidebar-section-toggle {
@@ -670,7 +685,9 @@ a:focus-visible {
   flex: 1;
   min-width: 0;
   height: 32px;
-  padding: 0 4px;
+  /* One shared left origin (8px) for section heads, nav items, channel headers
+     and project rows — the session tree is a single left-aligned grid. */
+  padding: 0 8px;
   border: 0;
   background: transparent;
   color: var(--label-secondary);
@@ -680,7 +697,6 @@ a:focus-visible {
   text-align: left;
   cursor: pointer;
 }
-.sidebar-section-head.sidebar-section-toggle { padding-inline: 8px; }
 .sidebar-section-toggle:hover { color: var(--label-primary); }
 .sidebar-section-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); border-radius: var(--rounded-sm); }
 .sidebar-section-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -882,7 +898,7 @@ a:focus-visible {
   display: flex;
   align-items: center;
   height: 34px;
-  margin: 0 4px;
+  margin: 0;
   border: 0;
   border-radius: var(--rounded-sm);
   background: transparent;
@@ -897,14 +913,15 @@ a:focus-visible {
   min-width: 0;
   flex: 1;
   height: 100%;
-  padding: 0 4px;
+  /* Same 8px left origin as every other sidebar row; icon 16px + 8px gap put
+     the project label on the 32px grid line shared with session titles. */
+  padding: 0 8px;
   border: 0;
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
 }
-.conv-caret-button,
 .conv-group-action {
   display: flex;
   align-items: center;
@@ -919,24 +936,17 @@ a:focus-visible {
   color: var(--label-tertiary);
   cursor: pointer;
 }
-.conv-group-action:hover,
-.conv-caret-button:hover { background: var(--fill-hover); color: var(--label-secondary); }
-.conv-group-action,
-.conv-caret-button { width: 0; overflow: hidden; opacity: 0; pointer-events: none; transition: width var(--duration-fast) var(--ease-standard), opacity var(--duration-instant) var(--ease-standard), background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+.conv-group-action:hover { background: var(--fill-hover); color: var(--label-secondary); }
+.conv-group-action { width: 0; overflow: hidden; opacity: 0; pointer-events: none; transition: width var(--duration-fast) var(--ease-standard), opacity var(--duration-instant) var(--ease-standard), background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
 .conv-group-head:hover .conv-group-action,
-.conv-group-head:hover .conv-caret-button,
-.conv-group-head:focus-within .conv-group-action,
-.conv-group-head:focus-within .conv-caret-button { width: 26px; opacity: 1; pointer-events: auto; }
-.conv-caret { flex: none; width: var(--icon-xs); height: var(--icon-xs); color: inherit; transition: transform var(--duration-fast) var(--ease-standard); }
-.conv-caret { transform: rotate(-90deg); }
-.conv-caret.open { transform: rotate(0deg); }
+.conv-group-head:focus-within .conv-group-action { width: 26px; opacity: 1; pointer-events: auto; }
 .conv-group-tile {
   display: flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md, 16px);
+  height: var(--icon-md, 16px);
   color: var(--label-tertiary);
 }
 .conv-group-icon { color: inherit; opacity: .7; }
@@ -2331,25 +2341,20 @@ a:focus-visible {
 .project-file-panel .file-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .project-file-panel .file-empty .reicon { width: 24px; height: 24px; color: var(--label-tertiary); }
 
-/* Below this the three columns cannot all hold their floor, so the SIDEBAR
-   yields and the panel stays in flow. It must not become a fixed overlay: an
-   overlaid panel needs a z-index, that z-index makes the panel a stacking
-   context, and its head (z-index 31, deliberately above the window drag mask)
-   gets trapped underneath that mask at z-index 30 — the panel's close and
-   refresh buttons stop responding. The chat header's own action row, still
-   laid out at the full width underneath, also paints straight through the
-   panel's head. Keeping the panel in flow means nothing overlaps and the
-   header title compresses inside its own narrower column. */
+/* Below this the three columns can all hold a floor only if the sidebar drops to
+   its compact tier, so it narrows while every column stays in flow. The panel
+   must never be lifted into a fixed overlay: an overlaid panel needs a z-index,
+   that z-index makes the panel a stacking context, and its head (z-index 31,
+   deliberately above the window drag mask) gets trapped underneath the mask at
+   z-index 30 — the panel's close and refresh buttons stop responding. The nav is
+   never hidden to make room for the panel: it folds only when the reader asks. */
 @media (max-width: 1000px) {
-  .chat-layout.with-files,
-  .chat-layout.sidebar-collapsed.with-files {
-    grid-template-columns: minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px));
+  .chat-layout.with-files {
+    grid-template-columns: minmax(var(--sidebar-nav-w-narrow), var(--sidebar-w, var(--sidebar-nav-w))) minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px));
   }
-  .chat-layout.with-files .chat-sidebar,
-  .chat-layout.with-files .sidebar-resizer { display: none; }
-  /* With the sidebar gone the header starts at the window edge, so it has to
-     reserve the traffic lights itself. */
-  .chat-layout.with-files .chat-header { padding-left: 84px; }
+  .chat-layout.sidebar-collapsed.with-files {
+    grid-template-columns: 0px minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px));
+  }
 }
 
 .preview-overlay {
@@ -2437,8 +2442,17 @@ a:focus-visible {
    `.chat-content` so content genuinely travels under the toolbar and behind the
    composer, and these paddings are what keep the first and last message
    reachable. `stickToBottom` measures `scrollHeight`, which includes padding, so
-   the bottom reservation keeps the "am I at the bottom" math correct. */
-.messages { flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: calc(var(--chat-header-h) + 24px) clamp(20px, 5%, 56px) calc(var(--composer-h) + 24px); scroll-behavior: smooth; }
+   the bottom reservation keeps the "am I at the bottom" math correct.
+   `scrollbar-gutter: stable both-edges` keeps the centered message column
+   aligned with the composer: the transcript scrolls and the composer does not,
+   so a right-only scrollbar would shift every message ~3px left of the input.
+   Reserving the gutter on both edges makes the content box symmetric, so the
+   reading column and the composer share one center.
+   Deliberately no `scroll-behavior: smooth`: `stickToBottom` writes `scrollTop`
+   directly (a session switch must land on the tail instantly) and owns its own
+   rAF spring for the live follow, so CSS smooth here would animate every instant
+   jump into a visible glide — most obviously when opening a transcript. */
+.messages { flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: calc(var(--chat-header-h) + 24px) clamp(20px, 5%, 56px) calc(var(--composer-h) + 24px); }
 .chat-messages-frame.has-prompt-navigator .messages { padding-inline: clamp(44px, 6%, 72px); }
 .conversation-prompt-navigator {
   position: absolute;
@@ -2607,24 +2621,21 @@ a:focus-visible {
 .message-row.mine { justify-items: end; }
 .message-row.mine .message-bubble { max-width: 88%; }
 .message-row.assistant { display: block; width: 100%; }
-/* Avatar sits to the LEFT of the assistant message; the stack takes the rest. */
-/* Fills its row rather than sizing to content. A block-level flex container
-   whose width is left to `auto` shrink-to-fits here, so the moment the
-   transcript gained a block wider than the column — a code block that
-   scrolls instead of reflowing — the whole assistant row grew past the
-   720px message column and the transcript scrolled sideways (pitfall #16:
-   the column is not the viewport). */
+/* Avatar sits inline at the head of the message, on the reading column's left
+   edge, rather than in a left gutter. A gutter indented the whole reply by the
+   avatar's width, so the message body no longer lined up with the composer. */
 .assistant-layout { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-width: 0; container: assistant-message / inline-size; }
-.assistant-avatar { flex: none; width: 28px; height: 28px; margin-top: 1px; border-radius: var(--radius-full); object-fit: cover; }
+.assistant-avatar { flex: none; width: 22px; height: 22px; border-radius: var(--radius-full); object-fit: cover; }
 .assistant-layout .message-stack { display: flex; flex: 1; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; }
 .message-row.assistant .message-bubble { max-width: 100%; }
 .assistant-identity { display: flex; align-items: center; gap: 7px; min-height: 24px; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-.assistant-identity img { width: 22px; height: 22px; border-radius: var(--radius-full); object-fit: cover; }
 .assistant-identity strong { color: var(--label-primary); font-size: var(--fs-meta); font-weight: 600; }
 .assistant-identity span::before { content: "·"; margin-right: 7px; }
 .assistant-identity .assistant-status { display: inline-flex; align-items: center; gap: 4px; min-height: 18px; padding: 0 6px; border-radius: var(--radius-full); font-size: var(--fs-meta); font-weight: 600; }
 .assistant-identity .assistant-status::before { content: none; }
-.assistant-status.complete { color: var(--online); background: color-mix(in srgb, var(--online) 10%, transparent); }
+/* A completed turn is the default, so it earns a quiet double-check, not a text
+   badge restating the "已完成工作" summary one line below. */
+.assistant-status-check { flex: none; color: var(--online); }
 .assistant-status.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .assistant-status.aborted { color: var(--warning-text); background: color-mix(in srgb, var(--warning-text) 10%, transparent); }
 .message-row.message-error .message-bubble { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--danger) 22%, var(--separator)); border-radius: var(--radius-control); background: color-mix(in srgb, var(--danger) 5%, var(--card-bg)); }
@@ -2737,19 +2748,6 @@ a:focus-visible {
   line-height: var(--lh-meta);
 }
 .message-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The Apple Intelligence shimmer: one soft band crossing the pill while the
-   turn runs. Transform-only, so it stays off the paint path — a
-   `background-position` sweep would repaint the whole chip every frame. */
-.message-status::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg, transparent 32%, color-mix(in srgb, var(--label-primary) 10%, transparent) 50%, transparent 68%);
-  transform: translateX(-100%);
-  animation: message-status-sheen 2.4s var(--ease-standard) infinite;
-  pointer-events: none;
-}
-@keyframes message-status-sheen { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(100%); } }
 .message-actions {
   display: inline-flex;
   align-items: center;
@@ -3018,6 +3016,7 @@ a:focus-visible {
   place-items: center;
   width: 32px;
   height: 32px;
+  padding: 0;
   border: 0;
   border-radius: var(--rounded-full);
   background: color-mix(in srgb, #000 55%, transparent);
@@ -3026,6 +3025,9 @@ a:focus-visible {
   cursor: pointer;
   backdrop-filter: blur(8px);
 }
+/* Same treatment as the image lightbox close: the close-circle glyph fills the
+   button instead of being a small circle inside a bigger one. */
+.markdown-artifact-close > .reicon { width: 100%; height: 100%; }
 .markdown-artifact-close:hover { background: color-mix(in srgb, #000 72%, transparent); }
 .markdown-artifact-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 @keyframes artifact-stage-in { from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); } }
@@ -3096,6 +3098,7 @@ a:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   border: 0;
   border-radius: var(--rounded-full);
   background: color-mix(in srgb, #fff 16%, transparent);
@@ -3106,7 +3109,9 @@ a:focus-visible {
 .image-lightbox-nav:hover,
 .image-lightbox-download:hover { background: color-mix(in srgb, #fff 28%, transparent); }
 .image-lightbox-close { top: 16px; right: 16px; width: 32px; height: 32px; }
-.image-lightbox-close > .reicon { width: var(--icon-md); height: var(--icon-md); }
+/* The close-circle glyph is itself a filled disc, so it fills the button's own
+   disc instead of sitting as a small circle inside a big one. */
+.image-lightbox-close > .reicon { width: 100%; height: 100%; }
 .image-lightbox-nav { top: 50%; width: 40px; height: 40px; transform: translateY(-50%); }
 .image-lightbox-nav > .reicon { width: var(--icon-lg); height: var(--icon-lg); }
 .image-lightbox-nav.is-prev { left: 16px; }
@@ -3903,7 +3908,7 @@ a:focus-visible {
 .pending-chip[data-kind="video"] { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pending-chip[data-kind="audio"] { max-width: 320px; border-radius: var(--rounded-md); border-color: color-mix(in srgb, var(--chart-purple) 40%, transparent); }
 .pending-audio { height: 30px; max-width: 220px; }
-.send-button { display: flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: var(--label-primary); color: var(--composer-bg); cursor: pointer; }
+.send-button { position: relative; display: flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: var(--label-primary); color: var(--composer-bg); cursor: pointer; }
 .send-button > .reicon { width: var(--icon-sm); height: var(--icon-sm); }
 .send-button:hover:not(:disabled) { background: var(--label-secondary); }
 .send-button:disabled { cursor: default; opacity: .4; }
@@ -5696,7 +5701,7 @@ select.provider-input { padding-right: 6px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
-  .recording-indicator, .run-activity .spin, .transcript-media-loading > .reicon, .service-starting-spinner span, .message-status::after, .timeline-wave-bar, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .composer-model-popover, .slash-suggestions, .miniapps-quick-menu, .chat-action-toast, .row-menu, .mention-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble, .image-lightbox, .markdown-artifact-overlay, .markdown-artifact-dialog, .transcript-dock, .automation-spinner, .project-panel-loading .reicon, .project-transcript-loading > .reicon, .provider-modal-form .spin, .memory-trace-state > .reicon, .provider-auth-pulse, .miniapps-launchpad-cell { animation: none !important; }
+  .recording-indicator, .run-activity .spin, .transcript-media-loading > .reicon, .service-starting-spinner span, .beam-ring::before, .timeline-wave-bar, .running-orb-sphere, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .composer-model-popover, .slash-suggestions, .miniapps-quick-menu, .chat-action-toast, .row-menu, .mention-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble, .image-lightbox, .markdown-artifact-overlay, .markdown-artifact-dialog, .transcript-dock, .automation-spinner, .project-panel-loading .reicon, .project-transcript-loading > .reicon, .provider-modal-form .spin, .memory-trace-state > .reicon, .provider-auth-pulse, .miniapps-launchpad-cell { animation: none !important; }
   /* "A gentler equivalent, not no feedback" (apple-design §14). Killing the
      wave animation leaves the bars at their natural scale, which happens to
      read fine — but that is an accident of the base rule, not a decision, so
@@ -5748,10 +5753,11 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   transition: none !important;
 }
 :root[data-performance="low"] .recording-indicator,
-:root[data-performance="low"] .message-status::after,
+:root[data-performance="low"] .beam-ring::before,
 :root[data-performance="low"] .run-activity .spin,
 :root[data-performance="low"] .transcript-media-loading .reicon,
 :root[data-performance="low"] .service-starting-spinner span,
+:root[data-performance="low"] .running-orb-sphere,
 :root[data-performance="low"] .agent-studio-spinner {
   animation: none !important;
 }
@@ -5759,14 +5765,11 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 @media (max-width: 820px) {
   .chat-layout { grid-template-columns: var(--sidebar-nav-w-narrow) minmax(0, 1fr); }
   .chat-layout .sidebar-resizer { left: var(--sidebar-nav-w-narrow); }
-  /* Sidebar hiding and the two-column split are owned by the 1000px tier; this
-     tier only tightens the floors. Re-declaring the whole `with-files` grid
-     here is what previously fought that tier and left an empty panel track. */
-  .chat-layout.with-files,
-  .chat-layout.sidebar-collapsed.with-files { grid-template-columns: minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px)); }
+  /* The with-files split is owned by the 1000px tier; this tier only tightens the
+     floors, so it must not re-declare the whole `with-files` grid (doing that
+     previously fought the higher tier and left an empty panel track). */
   .settings-layout { grid-template-columns: var(--sidebar-nav-w-narrow) 1fr; }
   .chat-header, .page-header { padding-inline: 18px; }
-  .chat-layout.with-files .chat-header { padding-left: 84px; }
   .settings-search { margin-inline: 10px; }
   .settings-nav-list { padding-inline: 7px; }
   .settings-card { margin-inline: 18px; }
