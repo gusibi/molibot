@@ -9,6 +9,7 @@ import {
   defaultDmgDirectory,
   finalizeDesktopRelease,
   releaseDmgName,
+  releaseTagFromEnv,
   writeDesktopReleaseChecksum
 } from "./finalize-desktop-release.mjs";
 
@@ -98,6 +99,69 @@ test("finalizes updater tarball, signature, and platform manifest when present",
     assert.equal(platformJson.signature, "fake-signature-base64");
     assert.match(platformJson.url, /Molibot_2\.5\.0_aarch64\.app\.tar\.gz$/);
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("updater download URL uses the real release tag from GITHUB_REF, not the app version", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "molibot-desktop-release-"));
+  const previousRef = process.env.GITHUB_REF;
+  process.env.GITHUB_REF = "refs/tags/v2.9.56";
+  try {
+    const dmgPath = path.join(directory, "Molibot_test.dmg");
+    await writeFile(dmgPath, "molibot-dmg-test", "utf8");
+
+    const macosDir = path.join(directory, "macos");
+    await mkdir(macosDir, { recursive: true });
+    await writeFile(path.join(macosDir, "Molibot.app.tar.gz"), "fake-tar-content", "utf8");
+    await writeFile(path.join(macosDir, "Molibot.app.tar.gz.sig"), "fake-signature-base64", "utf8");
+
+    const result = await finalizeDesktopRelease({
+      dmgPath,
+      version: "0.9.56",
+      target: "aarch64-apple-darwin",
+      macosDirectory: macosDir
+    });
+
+    const platformJson = JSON.parse(await readFile(result.platformPath, "utf8"));
+    assert.match(platformJson.url, /\/download\/v2\.9\.56\//);
+    assert.doesNotMatch(platformJson.url, /\/download\/v0\.9\.56\//);
+    assert.match(platformJson.url, /Molibot_0\.9\.56_aarch64\.app\.tar\.gz$/);
+  } finally {
+    if (previousRef === undefined) delete process.env.GITHUB_REF;
+    else process.env.GITHUB_REF = previousRef;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("updater download URL falls back to the app-version tag outside a tag build", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "molibot-desktop-release-"));
+  const previousRef = process.env.GITHUB_REF;
+  delete process.env.GITHUB_REF;
+  try {
+    assert.equal(releaseTagFromEnv(), "");
+    assert.equal(releaseTagFromEnv({ GITHUB_REF: "refs/heads/master" }), "");
+
+    const dmgPath = path.join(directory, "Molibot_test.dmg");
+    await writeFile(dmgPath, "molibot-dmg-test", "utf8");
+
+    const macosDir = path.join(directory, "macos");
+    await mkdir(macosDir, { recursive: true });
+    await writeFile(path.join(macosDir, "Molibot.app.tar.gz"), "fake-tar-content", "utf8");
+    await writeFile(path.join(macosDir, "Molibot.app.tar.gz.sig"), "fake-signature-base64", "utf8");
+
+    const result = await finalizeDesktopRelease({
+      dmgPath,
+      version: "0.9.56",
+      target: "aarch64-apple-darwin",
+      macosDirectory: macosDir
+    });
+
+    const platformJson = JSON.parse(await readFile(result.platformPath, "utf8"));
+    assert.match(platformJson.url, /\/download\/v0\.9\.56\//);
+  } finally {
+    if (previousRef === undefined) delete process.env.GITHUB_REF;
+    else process.env.GITHUB_REF = previousRef;
     await rm(directory, { recursive: true, force: true });
   }
 });

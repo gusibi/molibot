@@ -157,12 +157,15 @@ jobs:
             ${{ steps.artifacts.outputs.sig_path }}
             ${{ steps.artifacts.outputs.platform_path }}
 
+      # prerelease MUST stay false: the Tauri updater endpoint
+      # .../releases/latest/download/latest.json only resolves full releases,
+      # so a prerelease would make every installed client fail update checks.
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
@@ -176,7 +179,10 @@ jobs:
     name: Generate & Publish Updater Manifest (latest.json)
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # The Intel leg is allowed to fail without blocking the release; publish
+    # the manifest for whichever archs produced updater artifacts. Skipped only
+    # when the run itself was cancelled.
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'failure') && startsWith(github.ref, 'refs/tags/') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -193,6 +199,11 @@ jobs:
 
       - name: Generate latest.json
         run: |
+          platform_count="$(find artifacts -name 'updater-platform-*.json' | wc -l | tr -d ' ')"
+          if [[ "$platform_count" -eq 0 ]]; then
+            echo "::error::No updater-platform-*.json in artifacts; refusing to publish an empty latest.json"
+            exit 1
+          fi
           node scripts/generate-desktop-latest-json.mjs --artifacts artifacts --out latest.json
           cat latest.json
 
@@ -200,5 +211,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
-          prerelease: true
+          prerelease: false
           files: latest.json

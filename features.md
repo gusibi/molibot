@@ -1,3 +1,19 @@
+### 修复：桌面自动更新发布管线——"Could not fetch a valid release JSON"（2026-09-16，已交付）
+
+- 症状（owner 走查）：桌面端「检查更新」报「Could not fetch a valid release JSON from the remote」。
+- 根因（三处叠加）：
+  1. `desktop-release.yml` 两处发布步骤写死 `prerelease: true`，而更新端点 `releases/latest/download/latest.json` 只解析正式 release（GitHub 跳过 pre-release/draft）→ "latest" 落到唯一正式且无资产的 v2.9.51 → 404。
+  2. `manifest` job 用默认 `needs: build` 条件，Intel 构建失败/被取消时整个 job 被跳过 → 即使 Apple Silicon 成功发布，`latest.json` 也不会上传。
+  3. `finalize-desktop-release.mjs` 拼更新包下载 URL 时假设 release tag 等于 `v<App版本>`（即 v0.9.x），而真实 tag 是 v2.9.x → 即使 manifest 上传成功，下载更新包也会 404。
+- 修复：
+  1. workflow 两处 `prerelease: false`（附注释说明更新端点约束）；manifest job 条件改为 `!cancelled() && (build success || failure)`；Generate 步骤新增守卫——找不到任何 `updater-platform-*.json` 时报错退出。
+  2. `finalize-desktop-release.mjs` 新增 `releaseTagFromEnv()`：优先取 `GITHUB_REF`（仅接受 `refs/tags/` 前缀，避免 branch/dispatch 构建污染 URL），本地构建回退 `v<App版本>`。
+  3. 存量矫正：v2.9.56 已由 owner 手工转为正式 release 并上传全部资产（DMG / tar.gz / sig），助手用仓库生成器补齐 `latest.json`（URL 指向真实 tag，签名取自已上传的 `.sig`）并上传；取消排队中的旧 workflow 运行（它会用旧逻辑把 release 翻回 pre-release 并写入错误 URL，冲掉修复）。
+- 机器守卫：`finalize-desktop-release.test.mjs` 新增 2 个回归——GITHUB_REF tag 构建 URL 必须含真实 tag 且不含 `v<App版本>`；非 tag 构建回退到 `v<App版本>`。回归测试当场抓到 `??` 对空串不跳兜底的实现错误（改为 `||`）。
+- 验证：`finalize-desktop-release.test.mjs` 8/8；生成器干跑（正常/空目录输入）结构符合 Tauri v2 更新器 schema；核对 tauri-plugin-updater 2.11.0（`updater.rs:1520`）确认 manifest version 的 `v` 前缀会被 trim 后比较；线上 `releases/latest/download/latest.json` 返回 200 且为合法 manifest；manifest 内 tar.gz 下载 URL 返回 200。
+- 边界：`generate-desktop-latest-json.mjs` 对缺失架构天然宽容，无需改动；Intel (macos-13) 构建本身仍会失败，owner 已确认暂不修，仅要求不阻塞发布。版本比较不受 v2.9.x ↔ 0.9.x 双轨影响（比较只发生在 `apps/desktop/package.json` 与 `tauri.conf.json` 之间，由 `sync:version` 同步）。
+- 遗留：更新弹窗显示的新版本号是 0.9.x 而 GitHub 发布页是 v2.9.x，属展示层小疑惑，功能无害；未处理。
+
 ### 修复：中文「**标签：**正文」加粗渲染成原始星号（2026-09-16，已交付）
 
 - 症状（owner 走查）：聊天回复里 `**特点：**典型秋高气爽` 这类加粗没有生效，星号原样显示；同一消息里 `**华北平原、西北大部**和…` 却正常。

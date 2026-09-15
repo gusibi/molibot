@@ -49,6 +49,16 @@ export function releaseUpdaterPlatformName(arch = desktopArchFromTarget()) {
   return `updater-platform-${arch}.json`;
 }
 
+// The GitHub release tag (v2.9.x) differs from the Desktop app version (0.9.x),
+// so the updater download URL must reference the tag the assets are attached to,
+// not the app version. Actions exposes GITHUB_REF on every step; only trust it
+// when it points at a tag so branch/dispatch builds never leak into the URL.
+export function releaseTagFromEnv(env = process.env) {
+  const ref = String(env.GITHUB_REF ?? "").trim();
+  const prefix = "refs/tags/";
+  return ref.startsWith(prefix) ? ref.slice(prefix.length) : "";
+}
+
 export async function findDmgPath(directory = defaultDmgDirectory()) {
   const entries = await readdir(directory);
   const dmgFiles = entries.filter((entry) => entry.endsWith(".dmg")).sort();
@@ -126,12 +136,13 @@ export async function finalizeDesktopRelease(options = {}) {
       sigPath = destSig;
 
       const signature = (await readFile(destSig, "utf8")).trim();
+      const releaseTag = options.releaseTag || releaseTagFromEnv() || `v${version}`;
       const platformInfo = {
         version,
         arch,
         platform: arch === "aarch64" ? "darwin-aarch64" : "darwin-x86_64",
         signature,
-        url: `https://github.com/gusibi/molibot/releases/download/v${version}/${path.basename(tarPath ?? releaseUpdaterTarName(version, arch))}`
+        url: `https://github.com/gusibi/molibot/releases/download/${releaseTag}/${path.basename(tarPath ?? releaseUpdaterTarName(version, arch))}`
       };
       platformPath = path.join(macosDir, releaseUpdaterPlatformName(arch));
       await writeFile(platformPath, `${JSON.stringify(platformInfo, null, 2)}\n`, "utf8");
