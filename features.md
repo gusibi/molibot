@@ -11,6 +11,7 @@
   3. 存量矫正：v2.9.56 已由 owner 手工转为正式 release 并上传全部资产（DMG / tar.gz / sig），助手用仓库生成器补齐 `latest.json`（URL 指向真实 tag，签名取自已上传的 `.sig`）并上传；取消排队中的旧 workflow 运行（它会用旧逻辑把 release 翻回 pre-release 并写入错误 URL，冲掉修复）。
 - 机器守卫：`finalize-desktop-release.test.mjs` 新增 2 个回归——GITHUB_REF tag 构建 URL 必须含真实 tag 且不含 `v<App版本>`；非 tag 构建回退到 `v<App版本>`。回归测试当场抓到 `??` 对空串不跳兜底的实现错误（改为 `||`）。
 - 验证：`finalize-desktop-release.test.mjs` 8/8；生成器干跑（正常/空目录输入）结构符合 Tauri v2 更新器 schema；核对 tauri-plugin-updater 2.11.0（`updater.rs:1520`）确认 manifest version 的 `v` 前缀会被 trim 后比较；线上 `releases/latest/download/latest.json` 返回 200 且为合法 manifest；manifest 内 tar.gz 下载 URL 返回 200。
+- 端到端验证（v2.9.57，2026-09-16）：修复提交后发布 v2.9.57（root 2.9.57 / desktop 0.9.57，tag `v2.9.57`）。CI aarch64 腿首次全自动跑通新流程——platform json 的 URL 由 `releaseTagFromEnv()` 正确生成指向 `v2.9.57`（生产环境确认脚本修复生效）；release 保持正式发布、资产齐全（dmg/tar.gz/sig/latest.json）。因 Intel 腿排队导致 manifest job 迟滞，从已完成的 aarch64 artifact 手工生成并提前上传 `latest.json` 打通链路（Intel 落定后 manifest job 会用相同内容覆盖，无冲突）。
 - 边界：`generate-desktop-latest-json.mjs` 对缺失架构天然宽容，无需改动；Intel (macos-13) 构建本身仍会失败，owner 已确认暂不修，仅要求不阻塞发布。版本比较不受 v2.9.x ↔ 0.9.x 双轨影响（比较只发生在 `apps/desktop/package.json` 与 `tauri.conf.json` 之间，由 `sync:version` 同步）。
 - 遗留：更新弹窗显示的新版本号是 0.9.x 而 GitHub 发布页是 v2.9.x，属展示层小疑惑，功能无害；未处理。
 
