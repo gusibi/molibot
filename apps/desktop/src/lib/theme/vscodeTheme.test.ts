@@ -157,22 +157,76 @@ test("hydrating an unusable stored theme yields null instead of throwing", () =>
   assert.equal(hydrateImportedTheme({ id: "x-1", importedAt: "t", raw: "not a theme" }), null);
 });
 
+const SOLARIZED_LIGHT = JSON.stringify({
+  name: "Solarized (light)",
+  type: "light",
+  colors: {
+    "editor.background": "#fdf6e3",
+    "editor.foreground": "#657b83",
+    "sideBar.background": "#eee8d5",
+    "button.background": "#ac9d57",
+    "titleBar.activeBackground": "#eee8d5",
+    "tab.inactiveForeground": "#586e75",
+    "descriptionForeground": "#93a1a1",
+    "list.hoverBackground": "#dfca8844",
+    "list.activeSelectionBackground": "#dfca88",
+    "list.inactiveSelectionBackground": "#d1cbb8"
+  },
+  tokenColors: [{ scope: "comment", settings: { fontStyle: "italic", foreground: "#93a1a1" } }]
+});
+
 test("floors faint theme text to a readable contrast", () => {
   // Solarized Light's own foreground is ~3.6:1 on its canvas; the label must be
   // pushed to at least WCAG AA, and the header must share the canvas token so
   // the composer's scroll-edge fade stays invisible.
-  const solarized = JSON.stringify({
-    name: "Solarized (light)",
-    type: "light",
-    colors: {
-      "editor.background": "#fdf6e3",
-      "editor.foreground": "#657b83",
-      "button.background": "#ac9d57",
-      "titleBar.activeBackground": "#eee8d5"
-    }
-  });
-  const tokens = buildThemeTokens(parseVscodeTheme(solarized));
+  const tokens = buildThemeTokens(parseVscodeTheme(SOLARIZED_LIGHT));
   assert.equal(tokens["--header-bg"], tokens["--content-bg"]);
   assert.equal(tokens["--header-bg"], "#fdf6e3");
   assert.notEqual(tokens["--on-accent"], "#ffffff", "white is unreadable on the olive accent");
+});
+
+test("takes recessed text and fills from the theme's own UI colours", () => {
+  const tokens = buildThemeTokens(parseVscodeTheme(SOLARIZED_LIGHT));
+  // base01 is the theme's designed secondary, not a fade of the primary label.
+  assert.equal(tokens["--label-secondary"], "#586e75");
+  // base1 is the theme's designed tertiary; it also happens to be its comment
+  // colour, which is what a source theme reaches for when text must recede.
+  assert.equal(tokens["--label-tertiary"], "#93a1a1");
+  // Hover and selection ride the gold the theme uses for list interaction
+  // instead of the slate it writes in (a cold wash on a warm surface).
+  assert.equal(tokens["--fill"], "rgba(223, 202, 136, 0.05)");
+  assert.equal(tokens["--fill-hover"], "rgba(223, 202, 136, 0.08)");
+  // The remaining list colours keep their own roles.
+  assert.equal(tokens["--mac-unemphasized-selection"], "#d1cbb8");
+});
+
+test("keeps the glass top rim a highlight instead of a label tint", () => {
+  // `--glass-edge` paints `--glass-border-light` as an inset rim along the top of
+  // every raised surface. Tinting it with the label colour flipped its sign, so a
+  // light theme got a dark line across the composer's top edge while the other
+  // three sides kept the 1px hairline.
+  for (const source of [SOLARIZED_LIGHT, DARK_THEME]) {
+    const tokens = buildThemeTokens(parseVscodeTheme(source));
+    assert.match(
+      tokens["--glass-border-light"],
+      /^rgba\(255, 255, 255, /,
+      `${source.slice(0, 20)}… must keep a white rim`
+    );
+  }
+});
+
+test("paints imported chrome flat instead of through the shared glass", () => {
+  // The shared sidebar is a translucent veil over the native macOS window
+  // material, so an imported sidebar colour would be composited with a material
+  // the theme never chose. An import owns its material instead: opaque tint, no
+  // blur, and opaque chrome, so the theme's own surfaces reach the screen.
+  for (const [source, sidebar] of [
+    [SOLARIZED_LIGHT, "#eee8d5"],
+    [DARK_THEME, "#21252b"]
+  ] as const) {
+    const tokens = buildThemeTokens(parseVscodeTheme(source));
+    assert.equal(tokens["--sidebar-material-tint"], sidebar);
+    assert.equal(tokens["--sidebar-material-filter"], "none");
+    assert.equal(tokens["--glass-chrome-opacity"], "100%");
+  }
 });

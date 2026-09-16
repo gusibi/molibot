@@ -26,6 +26,7 @@
   let loadedEndpoint = $state("");
   let query = $state("");
   let selectedCategory = $state<SkillCategory>("all");
+  let selectedSkillId = $state<string | null>(null);
   let expandedIds = $state(new Set<string>());
   let inspectedSkill = $state<DesktopSkillItem | null>(null);
 
@@ -92,6 +93,21 @@
     expandedIds = next;
   }
 
+  // Clicking the card surface toggles selection; clicks on the controls the
+  // card hosts (switch, expand, detail, update) keep their own semantics.
+  function toggleSkillSelection(skillId: string, event: MouseEvent): void {
+    if ((event.target as HTMLElement | null)?.closest("button, label, input, a")) return;
+    selectedSkillId = selectedSkillId === skillId ? null : skillId;
+  }
+
+  function skillSelectionKeydown(skillId: string, event: KeyboardEvent): void {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectedSkillId = selectedSkillId === skillId ? null : skillId;
+    }
+  }
+
   function getSkillVisual(skill: DesktopSkillItem): {
     icon: typeof Code;
     tone: "code" | "doc" | "design" | "agent" | "default";
@@ -135,6 +151,7 @@
         <button
           type="button"
           role="tab"
+          class="automation-category-tab"
           aria-selected={selectedCategory === category}
           class:active={selectedCategory === category}
           onclick={() => (selectedCategory = category as SkillCategory)}
@@ -171,7 +188,18 @@
         {@const visual = getSkillVisual(skill)}
         {@const Icon = visual.icon}
         {@const builtinState = builtinMap.get(skill.id)}
-        <article class="installed-skill-card" class:disabled={!skill.enabled}>
+        <!-- Selection is a click/Enter surface, not a control: the card hosts
+             real buttons (switch, detail), so role="button" would be the actual
+             nesting violation. Keyboard toggles via the keydown handler. -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+        <article
+          class="installed-skill-card"
+          class:disabled={!skill.enabled}
+          class:selected={selectedSkillId === skill.id}
+          tabindex="0"
+          onclick={(event) => toggleSkillSelection(skill.id, event)}
+          onkeydown={(event) => skillSelectionKeydown(skill.id, event)}
+        >
           <div class="installed-skill-header">
             <div class="installed-skill-icon" data-tone={visual.tone} aria-hidden="true">
               <Icon weight="Filled" size={18} />

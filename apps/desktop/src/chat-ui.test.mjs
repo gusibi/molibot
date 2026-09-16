@@ -7,7 +7,7 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 // the concatenation so a rule can move between the shared sheet and a family
 // file without rewriting every assertion; the guard test below also pins the
 // split itself (every family has a file, every file is imported).
-const THEME_FAMILIES = ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"];
+const THEME_FAMILIES = ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "raft", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"];
 const baseStyles = read("./styles.css");
 const themeStyles = THEME_FAMILIES.map((family) => read(`./themes/${family}.css`)).join("\n");
 const themesIndex = read("./themes/index.css");
@@ -284,8 +284,8 @@ test("Desktop MCP settings distinguish configured enablement from live connectio
 test("entity settings editors use the shared dialog shell with a dedicated scrolling body", () => {
   assert.match(dialog, /portalTo\s*=\s*"body"/);
   assert.match(dialog, /<BitsDialog\.Portal\s+to=\{portalTo\}>/);
-  assert.match(styles, /\.desktop-dialog-overlay\s*\{[^}]*position:\s*fixed[^}]*inset:\s*0/s);
-  assert.match(styles, /\.desktop-dialog-content\s*\{[^}]*position:\s*fixed[^}]*left:\s*50%[^}]*top:\s*50%[^}]*transform:\s*translate\(-50%,\s*-50%\)/s);
+  assert.match(styles, /:where\(\.desktop-dialog-overlay\)\s*\{[^}]*position:\s*fixed[^}]*inset:\s*0/s);
+  assert.match(styles, /:where\(\.desktop-dialog-content\)\s*\{[^}]*position:\s*fixed[^}]*left:\s*50%[^}]*top:\s*50%[^}]*transform:\s*translate\(-50%,\s*-50%\)/s);
   for (const [name, section] of Object.entries({
     Agent: sections.agents,
     Profile: sections.profiles,
@@ -297,12 +297,27 @@ test("entity settings editors use the shared dialog shell with a dedicated scrol
   }
   assert.match(styles, /\.entity-editor-form\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*overflow:\s*hidden/s);
   assert.match(styles, /\.entity-editor-body\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
-  // The 720px/86vh override must win the cascade over the base .desktop-dialog-content
-  // (560px/80vh). Both classes sit on the same element, so the override needs higher
-  // specificity than a single class - a bare .entity-editor-dialog loses to the later
-  // base rule and the editor renders cramped at 560px. The compound selector is immune
-  // to source-order regressions.
-  assert.match(styles, /\.desktop-dialog-content\.entity-editor-dialog\s*\{[^}]*width:\s*min\(720px/s);
+  // The 720px/86vh override rides the same zero-specificity base as every other
+  // dialog variant, so it needs no compound selector.
+  assert.match(styles, /\.entity-editor-dialog\s*\{[^}]*width:\s*min\(720px/s);
+});
+
+test("the dialog base defaults stay zero-specificity so contentClass variants win the cascade", () => {
+  // The shared base rules sit near the bottom of styles.css, after most dialog
+  // variants. As single-class selectors they tie on specificity, so declared last
+  // they silently clamped every earlier variant to the 560px default. `:where()`
+  // drops the base to zero specificity, so a bare `.variant` always wins regardless
+  // of source order. A sized single-class base rule reintroduced here fails the guard.
+  assert.match(baseStyles, /:where\(\.desktop-dialog-overlay\)\s*\{/);
+  assert.match(baseStyles, /:where\(\.desktop-dialog-content\)\s*\{/);
+  const bareSizedBase = [...baseStyles.matchAll(/(?:^|\})\s*\.desktop-dialog-content\s*\{([^}]*)\}/g)]
+    .map((match) => match[1])
+    .filter((body) => /(?:^|;)\s*(?:width|max-height|height)\s*:/.test(body));
+  assert.equal(bareSizedBase.length, 0, "a sized single-class .desktop-dialog-content rule clamps every variant declared above it");
+  // Variants that lost the cascade keep their authored sizes (they were clamped to 560px).
+  assert.match(baseStyles, /\.mermaid-zoom-dialog\s*\{[^}]*width:\s*calc\(100vw - 48px\)/);
+  assert.match(baseStyles, /\.task-history-modal\s*\{[^}]*width:\s*min\(820px/);
+  assert.match(baseStyles, /\.confirm-dialog\s*\{[^}]*width:\s*min\(360px/);
 });
 
 test("Skill search configuration is a collapsed disclosure until the user opens it", () => {
@@ -447,7 +462,7 @@ test("appearance and theme family remain independent persisted controls", () => 
   assert.match(app, /function changeThemeFamily\(value: DesktopThemeFamily\)/);
   assert.match(app, /appearance-segmented/);
   assert.match(app, /theme-family-grid/);
-  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"]) {
+  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "raft", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"]) {
     assert.match(app, new RegExp(`value: "${family}"`));
   }
   for (const appearance of ["light", "dark", "system"]) {
@@ -499,7 +514,7 @@ test("theme families live in their own files, are imported, and each ships paire
       }
       // Bold families rewrite the control language too; product families keep
       // the shared macOS geometry and vary colour only.
-      if (["win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk", "qq", "candy", "cartoon", "android", "discord", "google"].includes(family)) {
+      if (["win98", "terminal", "brutalism", "raft", "blueprint", "system6", "cyberpunk", "qq", "candy", "cartoon", "android", "discord", "google"].includes(family)) {
         assert.match(match[1], /font-family:/, `${family} ${appearance} must pin a family font`);
         assert.match(match[1], /--radius-control:/, `${family} ${appearance} must pin a corner radius`);
       }
@@ -1460,8 +1475,8 @@ test("@ trigger lists Mini Apps and every invocation surface knows the miniapp k
   assert.match(styles, /\.composer-token\[data-kind="file"\]/);
   // Pitfall 4: an undefined var() fails silently, so both invocation hues must
   // exist as real tokens in the light AND dark declarations of every family.
-  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 49);
-  assert.equal(styles.match(/--skill-accent:/g)?.length, 49);
+  assert.equal(styles.match(/--miniapp-accent:/g)?.length, 51);
+  assert.equal(styles.match(/--skill-accent:/g)?.length, 51);
   assert.doesNotMatch(styles, /--purple-700/);
   // Pitfall 12: the catalog now carries Mini Apps, so every catalog mutation
   // must invalidate the composer's cache or `@` keeps advertising a stale set.
@@ -2182,7 +2197,7 @@ test("Agent City chrome themes through tokens, not a data-attribute-only overrid
   assert.match(agentStudio, /attributeFilter: \["data-resolved-appearance", "data-theme-family"\]/);
   const baseRoot = source.match(/^:root \{([\s\S]*?)\n\}/)?.[1] ?? "";
   assert.match(baseRoot, /--agent-city-sky:\s*var\(--header-bg\)/, "base :root must carry the family-canvas sky");
-  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"]) {
+  for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "raft", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"]) {
     for (const appearance of ["light", "dark"]) {
       if (family === "macos" && appearance === "light") continue; // base :root owns macOS light
       const selector = `:root[data-theme-family="${family}"][data-resolved-appearance="${appearance}"]`;
@@ -2195,9 +2210,9 @@ test("Agent City chrome themes through tokens, not a data-attribute-only overrid
       );
     }
   }
-  // 47 family blocks + base :root + the system-dark macOS mirror = 49.
+  // 49 family blocks + base :root + the system-dark macOS mirror = 51.
   const skyDeclarations = [...source.matchAll(/--agent-city-sky\s*:/g)];
-  assert.equal(skyDeclarations.length, 49, "--agent-city-sky must cover every family and resolved variant");
+  assert.equal(skyDeclarations.length, 51, "--agent-city-sky must cover every family and resolved variant");
   // Imported themes have no family file; their mapper points the sky at their canvas.
   assert.match(read("./lib/theme/vscodeTheme.ts"), /set\("--agent-city-sky", hex\(surface\)\)/);
 });
@@ -2466,6 +2481,71 @@ test("automation workspace separates user, Project, one-shot, and system tasks w
   assert.match(sections.tasks, /item\.category === activeTaskView/);
   assert.match(styles, /\.automation-category-tabs\s*\{/s);
   assert.match(styles, /\.automation-category-tab\.active\s*\{/s);
+  // The skills pane hosts the same segmented control. Its buttons must carry the
+  // shared segment class — without it the `.active` rule never fires and the
+  // selected tab renders identically to the rest (skills shipped this way for
+  // weeks because only the container class was copied over).
+  assert.match(sections.skills, /class="automation-category-tab"/);
+});
+
+// Strong selection (a picked card/row) is a shared semantic, not a per-page
+// colour: it resolves through --selection-bg / --on-selection, defaults to the
+// accent pair, and a family may remap it — Raft paints its pairing pink.
+test("strong selection resolves through tokens; Raft maps it to the pairing pink", () => {
+  assert.match(styles, /--selection-bg:\s*var\(--accent\)/);
+  assert.match(styles, /--on-selection:\s*var\(--on-accent\)/);
+  const selectedRule = styles.match(/\.installed-skill-card\.selected[^{]*\{[^}]*\}/)?.[0] ?? "";
+  assert.match(selectedRule, /var\(--selection-bg\)/);
+  assert.match(
+    styles,
+    /\.installed-skill-card\.selected \.installed-skill-title strong \{ color: var\(--on-selection\); \}/,
+    "selected-card labels must flip to the on-selection ramp, not stay canvas-colored"
+  );
+  assert.doesNotMatch(styles, /\.installed-skill-card\.selected[^{]*\{[^}]*#[0-9a-f]{3,8}/i);
+  const raft = read("./themes/raft.css");
+  const raftVariants = raft.match(/:root\[data-theme-family="raft"\]\[data-resolved-appearance="(?:light|dark)"\]\s*\{[\s\S]*?\n\}/g) ?? [];
+  assert.equal(raftVariants.length, 2, "raft.css must own both variants");
+  for (const block of raftVariants) {
+    assert.match(block, /--selection-bg:\s*#fe7da8/);
+    assert.match(block, /--on-selection:\s*#1/);
+  }
+  // The sidebar's selected row rides the same pair, so one "selected" semantic
+  // spans the app instead of the region layer hardcoding the accent.
+  assert.match(raft, /conversation-row\.active \{\s*\n?\s*background:\s*var\(--selection-bg\)/);
+  // The active tab's count borrows the pair: solid fill + on-color number stays
+  // legible where accent-on-accent-soft washed out (Raft's yellow on white).
+  assert.match(styles, /\.automation-category-tabs button\.active small \{ background: var\(--selection-bg\); color: var\(--on-selection\); \}/);
+  // Raft's active nav item is the view you are in: primary hue, not a wash.
+  assert.match(raft, /\[data-theme-region="sidebar"\] \.nav-item\.active \{\s*\n?\s*background:\s*var\(--accent\)/);
+});
+
+// The composer's opaque glass layer sits at inset:-1px, exactly over the
+// element's border ring, so a family that just sets border-color ships a
+// borderless composer (raft shipped this way; brutalism/win98/system6 shared
+// the defect). The edge must ride the glass layer as an inset ring.
+test("opaque bold families draw the composer edge on the glass layer", () => {
+  for (const family of ["brutalism", "win98", "system6", "raft"]) {
+    const source = read(`./themes/${family}.css`);
+    const rule = source.match(new RegExp(`\\[data-theme-region="composer"\\] \\.composer::before \\{[^}]*\\}`))?.[0] ?? "";
+    assert.match(rule, /var\(--float-shadow\)/, `${family}.css must keep the offset shadow on the glass layer`);
+    assert.match(rule, /inset 0 0 0 1px var\(--control-border-strong\)/, `${family}.css must draw the edge ring on the glass layer`);
+  }
+});
+
+// The file panel once layered its own "GitHub underline tab" language over the
+// product tokens; the owner called it inconsistent with the category tabs. The
+// panel navigation and the media filter now use the shared segmented language
+// (fill track, active card lift), and the active count rides the strong-
+// selection pair like every other count badge on an active tab.
+test("file panel navigation and filters use the shared segmented language", () => {
+  const tabActive = styles.match(/\.artifact-panel \.project-file-tabs button\.active \{[^}]*\}/)?.[0] ?? "";
+  assert.match(tabActive, /background: var\(--card-bg\)/);
+  assert.match(tabActive, /box-shadow: var\(--soft-shadow\)/);
+  assert.doesNotMatch(styles, /\.artifact-panel \.project-file-tabs button \{[^}]*border-bottom: 2px solid transparent/, "the underline-tab layer must stay retired");
+  const activeBadge = styles.match(/\.artifact-panel \.project-file-tabs button\.active \.project-tab-badge \{[^}]*\}/)?.[0] ?? "";
+  assert.match(activeBadge, /var\(--selection-bg\)/);
+  const filterActive = styles.match(/\.artifact-panel \.file-filters button\.active \{[^}]*\}/)?.[0] ?? "";
+  assert.match(filterActive, /background: var\(--card-bg\)/);
 });
 
 test("Project settings reuses the automation workspace behind a locked Project tab", () => {

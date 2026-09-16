@@ -2983,6 +2983,7 @@ export type DesktopThemeFamily =
   | "win98"
   | "terminal"
   | "brutalism"
+  | "raft"
   | "blueprint"
   | "system6"
   | "cyberpunk"
@@ -3010,6 +3011,7 @@ const DESKTOP_THEME_FAMILIES: readonly DesktopThemeFamily[] = [
   "win98",
   "terminal",
   "brutalism",
+  "raft",
   "blueprint",
   "system6",
   "cyberpunk",

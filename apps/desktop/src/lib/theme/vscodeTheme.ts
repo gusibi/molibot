@@ -50,6 +50,7 @@ export class ThemeImportError extends Error {
 }
 
 const BLACK: Rgb = { r: 0, g: 0, b: 0 };
+const WHITE: Rgb = { r: 255, g: 255, b: 255 };
 const DARK_SURFACE: Rgb = { r: 30, g: 30, b: 30 };
 const LIGHT_SURFACE: Rgb = { r: 255, g: 255, b: 255 };
 const DARK_TEXT: Rgb = { r: 212, g: 212, b: 212 };
@@ -248,27 +249,35 @@ function resolveScope(rules: TokenColorRule[], queries: string[], fallback: Rgb)
   return fallback;
 }
 
+// The colour a theme paints its lowest-emphasis text in. It doubles as the seed
+// for the tertiary label: a source theme designs `comment` to be readable but
+// recessive, which is exactly the tertiary label's job.
+const COMMENT_SCOPES = ["comment.block.documentation", "comment.block", "comment.line", "comment"];
+
 const SYNTAX_SCOPES: { token: string; queries: string[] }[] = [
   { token: "keyword", queries: ["keyword.control", "keyword.operator", "keyword", "storage.type", "storage.modifier", "storage"] },
   { token: "string", queries: ["string.quoted", "string.template", "string", "constant.other.symbol"] },
   { token: "title", queries: ["entity.name.function", "entity.name.type", "entity.name.class", "support.class", "entity.name.tag", "markup.heading", "entity.name"] },
   { token: "number", queries: ["constant.numeric", "constant.language", "constant.character"] },
-  { token: "comment", queries: ["comment.block.documentation", "comment.block", "comment.line", "comment"] },
+  { token: "comment", queries: COMMENT_SCOPES },
   { token: "variable", queries: ["variable.parameter", "variable.other.property", "variable.other", "variable"] },
   { token: "attr", queries: ["entity.other.attribute-name", "support.type.property-name", "meta.object-literal.key"] },
   { token: "built-in", queries: ["support.function", "support.type", "support.constant", "entity.name.type.class"] }
 ];
 
-// Every token a family variant block owns in the built-in themes. The mapper
-// must emit all of them, or a missing token would silently fall back to the
-// light macOS ramp under a dark imported theme.
+// Every token an imported theme has to own end to end. Most are the tokens a
+// built-in family variant block declares; the three chrome-material tokens are
+// here because an import pins its own material rather than inheriting the shared
+// macOS glass. A missing token falls back to the shared value — the light ramp
+// under a dark theme, or a translucent veil over the native window material
+// under a theme whose own sidebar is a flat colour. A unit test pins the list.
 const VARIANT_TOKENS = [
   "--mac-window-background", "--mac-control-background", "--mac-grouped-background",
   "--mac-elevated-background", "--mac-label", "--mac-secondary-label", "--mac-tertiary-label",
   "--mac-separator", "--mac-unemphasized-selection",
   "--diff-add-line", "--diff-add-num", "--diff-add-word",
   "--diff-del-line", "--diff-del-num", "--diff-del-word", "--diff-add-label", "--diff-del-label",
-  "--sidebar-material-tint",
+  "--sidebar-material-tint", "--sidebar-material-filter", "--glass-chrome-opacity",
   "--gray-100", "--gray-200", "--gray-300", "--gray-400", "--gray-500",
   "--gray-600", "--gray-700", "--gray-800", "--gray-900", "--gray-1000",
   "--gray-alpha-100", "--gray-alpha-200", "--gray-alpha-300",
@@ -335,13 +344,38 @@ export function buildThemeTokens(theme: ParsedVscodeTheme): Record<string, strin
     (dark ? { r: 188, g: 140, b: 255 } : { r: 130, g: 80, b: 223 });
   const cyan = pickColor(colors, ["terminal.ansiCyan", "terminal.ansiBrightCyan"]) ??
     (dark ? { r: 57, g: 197, b: 207 } : { r: 27, g: 124, b: 131 });
-  // Secondary/tertiary are derived from the already-floored primary and then
-  // floored again, rather than trusting `descriptionForeground`: VSCode themes
-  // routinely set that faint enough to be unreadable as product chrome.
-  const secondary = ensureContrast(mix(text, surface, dark ? 0.32 : 0.4), surface, 3.2);
-  const tertiary = ensureContrast(mix(text, surface, dark ? 0.55 : 0.62), surface, 2.2);
+  // Secondary/tertiary take the colour the theme sets *for* low-emphasis chrome
+  // instead of fading the primary label toward the canvas. A theme that ships a
+  // designed pair (Solarized's base01/base1) keeps its own hierarchy; the old
+  // derivation always produced a grey lighter than the theme intended, which is
+  // what left the nav's section heads and project names washed out. Both are
+  // still floored, and `descriptionForeground` stays untrusted: VSCode themes
+  // routinely set it faint enough to be unreadable as product chrome.
+  const secondary = ensureContrast(
+    pickColor(colors, ["tab.inactiveForeground", "sideBarTitle.foreground", "statusBar.foreground"]) ??
+      mix(text, surface, dark ? 0.32 : 0.4),
+    surface,
+    3.2
+  );
+  const tertiary = ensureContrast(
+    pickColor(colors, ["editorLineNumber.foreground"]) ??
+      resolveScope(theme.tokenColors, COMMENT_SCOPES, mix(text, surface, dark ? 0.55 : 0.62)),
+    surface,
+    2.2
+  );
   const border = separator ?? mix(text, surface, dark ? 0.82 : 0.86);
   const hairline = rgba(text, dark ? 0.08 : 0.06);
+  // Hover and selection fills take the theme's own list hue. Fading the *label*
+  // hue instead tints every hover with the text colour, which reads as a cold
+  // grey wash on a warm theme — Solarized hovers its lists in gold and writes in
+  // slate, so the two hues fight everywhere the nav is touched.
+  const fillSeed =
+    pickColor(colors, [
+      "list.hoverBackground",
+      "list.activeSelectionBackground",
+      "list.inactiveSelectionBackground",
+      "list.inactiveFocusBackground"
+    ]) ?? text;
 
   const set = (token: string, value: string): void => {
     tokens[token] = value;
@@ -368,11 +402,21 @@ export function buildThemeTokens(theme: ParsedVscodeTheme): Record<string, strin
   set("--composer-bg", hex(widget));
   set("--mac-grouped-background", hex(grouped));
   set("--surface-secondary", hex(grouped));
-  set("--sidebar-surface", rgba(text, dark ? 0.07 : 0.045));
-  set("--sidebar-surface-hover", rgba(text, dark ? 0.11 : 0.07));
-  set("--fill", rgba(text, dark ? 0.07 : 0.05));
-  set("--fill-hover", rgba(text, dark ? 0.11 : 0.08));
-  set("--sidebar-material-tint", rgba(sidebar, dark ? 0.68 : 0.62));
+  set("--sidebar-surface", rgba(fillSeed, dark ? 0.07 : 0.045));
+  set("--sidebar-surface-hover", rgba(fillSeed, dark ? 0.11 : 0.07));
+  set("--fill", rgba(fillSeed, dark ? 0.07 : 0.05));
+  set("--fill-hover", rgba(fillSeed, dark ? 0.11 : 0.08));
+  // An import paints its chrome flat instead of through the shared glass. The
+  // shared tint is a translucent veil over the native macOS sidebar material,
+  // so the theme's sidebar colour would be composited with a material it never
+  // chose and land on an off-hue grey. Opaque keeps the source theme's own
+  // surface — and keeps it stable regardless of what is behind the window and
+  // of the window's activation state. `--glass-chrome-opacity` does the same for
+  // the composer and header, which otherwise dilute the theme's fill to within a
+  // few percent of the canvas and leave the 1px border as the only edge.
+  set("--sidebar-material-tint", hex(sidebar));
+  set("--sidebar-material-filter", "none");
+  set("--glass-chrome-opacity", "100%");
   set("--panel-blur", "none");
 
   // Labels.
@@ -390,8 +434,16 @@ export function buildThemeTokens(theme: ParsedVscodeTheme): Record<string, strin
   set("--separator", hex(border));
   set("--hairline", hairline);
   set("--glass-border", hex(border));
+  // `--glass-edge` is `inset 0 1px 0 var(--glass-border-light)`: a *highlight*
+  // along the top rim of every raised surface (composer, popovers, header). Both
+  // rim tokens are absolute roles rather than label tints — every built-in family
+  // declares `-light` as white at 42-72% (18-25% in dark) — so tinting it with the
+  // label colour flipped its sign. Solarized Light got a dark slate line across
+  // the top of the composer at 1.7:1 while the other three sides kept the 1px
+  // hairline at 1.2:1, which is the "top edge obvious, sides missing" the owner
+  // saw. `-dark` is a recessed rim and a label tint is already correct for it.
   set("--glass-border-dark", rgba(text, dark ? 0.22 : 0.14));
-  set("--glass-border-light", rgba(text, dark ? 0.25 : 0.42));
+  set("--glass-border-light", rgba(WHITE, dark ? 0.18 : 0.6));
   set("--mac-unemphasized-selection", hex(pickColor(colors, ["list.inactiveSelectionBackground"]) ?? mix(text, surface, 0.86)));
   set("--control-border", hex(pickColor(colors, ["input.border"]) ?? border));
   set("--control-border-strong", hex(pickColor(colors, ["focusBorder"]) ?? mix(text, surface, dark ? 0.68 : 0.7)));

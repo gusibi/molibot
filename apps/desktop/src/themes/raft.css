@@ -1,0 +1,221 @@
+/* Raft — Cream (light) and Ink (dark). The raft.build landing language: a warm
+   cream canvas, near-black warm ink, the signal-yellow focal accent paired with
+   the pink selection hue, and hard offset shadows with no blur. */
+
+/* Raft — Cream. The raft.build body: #fffaef canvas, #141111 ink, #ffd440 as
+   the single focal hue and a `4px 4px` hard ink shadow so every floating
+   surface reads as a pasted slip. Corners are square — the site draws
+   everything at right angles. */
+:root[data-theme-family="raft"][data-resolved-appearance="light"] {
+  color: #141111;
+  color-scheme: light;
+  font-family: "Space Grotesk", "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Space Grotesk", "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Space Grotesk", "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Space Mono", "SF Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #fffaef;
+  --mac-control-background: #ffffff;
+  --mac-grouped-background: #f7f0dc;
+  --mac-elevated-background: #ffffff;
+  --mac-label: #141111;
+  --mac-secondary-label: #645d4f;
+  --mac-tertiary-label: #8d8571;
+  --mac-separator: #141111;
+  --mac-unemphasized-selection: #ffdf70;
+  --sidebar-material-tint: #fffaef;
+  --sidebar-material-filter: none;
+  --gray-100: #fffaef; --gray-200: #f7f0dc; --gray-300: #ede4c9; --gray-400: #ddd0ab;
+  --gray-500: #b3a888; --gray-600: #8d8571; --gray-700: #645d4f; --gray-800: #3a352c;
+  --gray-900: #201c17; --gray-1000: #141111;
+  --gray-alpha-100: rgb(20 17 17 / 8%); --gray-alpha-200: rgb(20 17 17 / 14%);
+  --gray-alpha-300: rgb(20 17 17 / 20%); --gray-alpha-400: rgb(20 17 17 / 24%);
+  --gray-alpha-500: rgb(20 17 17 / 40%); --gray-alpha-600: rgb(20 17 17 / 52%);
+  --blue-700: #ffd440; --blue-800: #f0c422;
+  --accent: #ffd440; --accent-hover: #f0c422; --accent-soft: rgb(255 212 64 / 18%);
+  --on-accent: #141111;
+  --selection-bg: #fe7da8; --on-selection: #141111;
+  --online: #17a34a; --danger: #ef5340; --warning: #f8a16f; --warning-text: #9a4b12;
+  --agent-city-sky: var(--header-bg);
+  --skill-accent: #8b6fd6; --miniapp-accent: #0da5cd;
+  --verify-passed-fg: #128a3e; --verify-failed-fg: #d43a26;
+  --message-bubble-border: #141111;
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #141111; --hairline: #141111;
+  --glass-border: #141111; --glass-border-dark: #141111; --glass-border-light: #141111;
+  --fill: rgb(20 17 17 / 6%); --fill-hover: rgb(20 17 17 / 10%);
+  --panel-bg: #fffaef; --sidebar-bg: #fffaef;
+  --sidebar-surface: rgb(20 17 17 / 5%); --sidebar-surface-hover: rgb(255 212 64 / 32%);
+  --content-bg: #fffaef; --header-bg: #fffaef; --card-bg: #ffffff;
+  --surface-secondary: #f7f0dc; --bubble-bg: #ffffff; --composer-bg: #ffffff;
+  --footbar-bg: #fffaef; --window-bg: #fffaef;
+  --soft-shadow: 2px 2px 0 0 #141111;
+  --float-shadow: 4px 4px 0 0 #141111;
+  --popover-shadow: 4px 4px 0 0 #141111;
+  --glass-shadow: 5px 5px 0 0 #141111;
+  --drawer-shadow: -6px 0 0 0 #141111;
+  --modal-scrim: rgb(0 0 0 / 62%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 4px 4px 0 0 #141111; --glass-chip-shadow: 3px 3px 0 0 #141111;
+  --glass-surface-bg: #ffffff; --glass-popover-bg: #ffffff;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #ffffff; --control-bg-hover: #ffdf70;
+  --control-border: #141111; --control-border-strong: #141111; --control-shadow: none;
+  --chart-blue: #27ccf3; --chart-teal: #2ab3a6; --chart-green: #7bb043;
+  --chart-purple: #9f86e8; --chart-orange: #f8a16f; --chart-red: #f97264; --chart-indigo: #7c6bd6;
+  --chart-track: rgb(20 17 17 / 14%); --chart-grid: rgb(20 17 17 / 12%);
+  --code-bg: #141111; --code-text: #f6f0e3;
+  --syntax-code-bg: #141111; --syntax-code-gutter: #201c17; --syntax-code-border: #3a352c;
+  --syntax-code-fg: #f6f0e3; --syntax-code-keyword: #fe7da8; --syntax-code-string: #a9d877;
+  --syntax-code-title: #ffd440; --syntax-code-number: #f8a16f; --syntax-code-comment: #8d8571;
+  --syntax-code-variable: #f6f0e3; --syntax-code-attr: #27ccf3; --syntax-code-built-in: #bbafe6;
+  --diff-add-line: #e7f4d2; --diff-add-num: #d8ecb8; --diff-add-word: #c3e09a;
+  --diff-del-line: #fde2dd; --diff-del-num: #fbcfc7; --diff-del-word: #f5b3a7;
+  --diff-add-label: #17a34a; --diff-del-label: #ef5340;
+  --wallpaper: #fffaef; --panel-blur: none;
+}
+
+
+/* Raft — Ink. The shadow ink becomes the canvas: warm near-black stock, cream
+   rules and a hard cream offset shadow, with the signal yellow kept as the one
+   focal hue so the family reads as the same poster after dark. */
+:root[data-theme-family="raft"][data-resolved-appearance="dark"] {
+  color: #f6f0e3;
+  color-scheme: dark;
+  font-family: "Space Grotesk", "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Space Grotesk", "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Space Grotesk", "Avenir Next", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Space Mono", "SF Mono", ui-monospace, monospace;
+  --radius-small: 0; --radius-control: 0; --radius-panel: 0; --radius-full: 0;
+  --mac-window-background: #161311;
+  --mac-control-background: #211d1a;
+  --mac-grouped-background: #1b1816;
+  --mac-elevated-background: #211d1a;
+  --mac-label: #f6f0e3;
+  --mac-secondary-label: #c6bcae;
+  --mac-tertiary-label: #948b7c;
+  --mac-separator: #f0e9d8;
+  --mac-unemphasized-selection: #3a352c;
+  --sidebar-material-tint: #161311;
+  --sidebar-material-filter: none;
+  --gray-100: #161311; --gray-200: #1b1816; --gray-300: #211d1a; --gray-400: #2c2723;
+  --gray-500: #3a352c; --gray-600: #5c554a; --gray-700: #948b7c; --gray-800: #c6bcae;
+  --gray-900: #e6ddc9; --gray-1000: #f6f0e3;
+  --gray-alpha-100: rgb(246 240 227 / 7%); --gray-alpha-200: rgb(246 240 227 / 11%);
+  --gray-alpha-300: rgb(246 240 227 / 16%); --gray-alpha-400: rgb(246 240 227 / 20%);
+  --gray-alpha-500: rgb(246 240 227 / 30%); --gray-alpha-600: rgb(246 240 227 / 40%);
+  --blue-700: #ffd440; --blue-800: #ffdd66;
+  --accent: #ffd440; --accent-hover: #ffdd66; --accent-soft: rgb(255 212 64 / 16%);
+  --on-accent: #161311;
+  --selection-bg: #fe7da8; --on-selection: #161311;
+  --online: #4ade80; --danger: #ff6b5c; --warning: #f8a16f; --warning-text: #f8a16f;
+  --agent-city-sky: var(--header-bg);
+  --skill-accent: #c9b4ff; --miniapp-accent: #4dd6e8;
+  --verify-passed-fg: #7ee2a8; --verify-failed-fg: #ff9a8d;
+  --message-bubble-border: #f0e9d8;
+  --text-primary: var(--mac-label); --label-primary: var(--mac-label);
+  --text-secondary: var(--mac-secondary-label); --label-secondary: var(--mac-secondary-label);
+  --label-tertiary: var(--mac-tertiary-label);
+  --separator: #f0e9d8; --hairline: #f0e9d8;
+  --glass-border: #f0e9d8; --glass-border-dark: #f0e9d8; --glass-border-light: #f0e9d8;
+  --fill: rgb(246 240 227 / 8%); --fill-hover: rgb(246 240 227 / 14%);
+  --panel-bg: #161311; --sidebar-bg: #161311;
+  --sidebar-surface: rgb(246 240 227 / 6%); --sidebar-surface-hover: rgb(255 212 64 / 24%);
+  --content-bg: #161311; --header-bg: #161311; --card-bg: #211d1a;
+  --surface-secondary: #1b1816; --bubble-bg: #211d1a; --composer-bg: #211d1a;
+  --footbar-bg: #161311; --window-bg: #161311;
+  --soft-shadow: 2px 2px 0 0 #f0e9d8;
+  --float-shadow: 4px 4px 0 0 #f0e9d8;
+  --popover-shadow: 4px 4px 0 0 #f0e9d8;
+  --glass-shadow: 5px 5px 0 0 #f0e9d8;
+  --drawer-shadow: -6px 0 0 0 #f0e9d8;
+  --modal-scrim: rgb(0 0 0 / 68%);
+  --glass-inset: 0 0 #0000;
+  --glass-surface-shadow: 4px 4px 0 0 #f0e9d8; --glass-chip-shadow: 3px 3px 0 0 #f0e9d8;
+  --glass-surface-bg: #211d1a; --glass-popover-bg: #211d1a;
+  --glass-surface-filter: none; --glass-popover-filter: none; --glass-modal-filter: none;
+  --glass-chrome-opacity: 100%; --glass-edge: inset 0 0 #0000;
+  --control-bg: #211d1a; --control-bg-hover: #2c2723;
+  --control-border: #f0e9d8; --control-border-strong: #f0e9d8; --control-shadow: none;
+  --chart-blue: #4dd6e8; --chart-teal: #38c9b0; --chart-green: #4ade80;
+  --chart-purple: #c9b4ff; --chart-orange: #f8a16f; --chart-red: #ff6b5c; --chart-indigo: #9aa8ff;
+  --chart-track: rgb(246 240 227 / 14%); --chart-grid: rgb(246 240 227 / 11%);
+  --code-bg: #0e0c0a; --code-text: #f6f0e3;
+  --syntax-code-bg: #12100e; --syntax-code-gutter: #1b1816; --syntax-code-border: #f0e9d8;
+  --syntax-code-fg: #f6f0e3; --syntax-code-keyword: #fe7da8; --syntax-code-string: #a9d877;
+  --syntax-code-title: #ffd440; --syntax-code-number: #f8a16f; --syntax-code-comment: #948b7c;
+  --syntax-code-variable: #f6f0e3; --syntax-code-attr: #4dd6e8; --syntax-code-built-in: #c9b4ff;
+  --diff-add-line: rgb(74 222 128 / 16%); --diff-add-num: rgb(74 222 128 / 30%); --diff-add-word: rgb(74 222 128 / 42%);
+  --diff-del-line: rgb(255 107 92 / 16%); --diff-del-num: rgb(255 107 92 / 30%); --diff-del-word: rgb(255 107 92 / 42%);
+  --diff-add-label: #4ade80; --diff-del-label: #ff6b5c;
+  --wallpaper: #161311; --panel-blur: none;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Region adaptation — Raft — flat cream stock, ink rules; the accent is the
+   selection, not a wash. Scoped to the documented [data-theme-region] hooks;
+   never changes layout. */
+
+:root[data-theme-family="raft"] [data-theme-region="header"] {
+  background: linear-gradient(180deg, var(--card-bg), var(--header-bg));
+  border-bottom: 1px solid var(--separator);
+}
+:root[data-theme-family="raft"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-family="raft"] [data-theme-region="sidebar"]::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 18%, var(--sidebar-bg)), var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* The active nav item is the view you are in: the primary hue, not a wash —
+   mirroring the site where yellow marks the primary action and pink the
+   selection. The unread badge inverts so it stays visible on the yellow row. */
+:root[data-theme-family="raft"] [data-theme-region="sidebar"] .nav-item.active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+:root[data-theme-family="raft"] [data-theme-region="sidebar"] .nav-item.active svg {
+  color: var(--on-accent);
+}
+:root[data-theme-family="raft"] [data-theme-region="sidebar"] .nav-item.active .nav-notification {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+:root[data-theme-family="raft"] [data-theme-region="session-list"] .conversation-row.active {
+  background: var(--selection-bg);
+}
+:root[data-theme-family="raft"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--on-selection);
+}
+:root[data-theme-family="raft"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: color-mix(in srgb, var(--on-selection) 78%, transparent);
+}
+:root[data-theme-family="raft"] [data-theme-region="chat"] .messages {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 24%, transparent) 0%, transparent 40%);
+}
+:root[data-theme-family="raft"] [data-theme-region="composer"] .composer {
+  border-color: var(--control-border-strong);
+}
+/* The composer's own 1px border is painted over by its opaque ::before (it sits
+   at inset:-1px, exactly over the border ring), so the ring is drawn on that
+   layer instead — all four sides get their thin ink line, the offset shadow
+   rides the same layer once instead of stacking with the element's own. */
+:root[data-theme-family="raft"] [data-theme-region="composer"] .composer::before {
+  box-shadow: var(--float-shadow), inset 0 0 0 1px var(--control-border-strong);
+}
+
+
+.theme-swatch[data-theme-family-preview="raft"][data-theme-preview-appearance="light"] .tp-side { background: #f7f0dc; }
+.theme-swatch[data-theme-family-preview="raft"][data-theme-preview-appearance="light"] .tp-body { background: linear-gradient(135deg, #ffffff, #fffaef); }
+.theme-swatch[data-theme-family-preview="raft"][data-theme-preview-appearance="dark"] .tp-side { background: #1b1816; }
+.theme-swatch[data-theme-family-preview="raft"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #211d1a, #161311); }
+.theme-swatch[data-theme-family-preview="raft"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #f7f0dc 0 50%, #1b1816 50%); }
+.theme-swatch[data-theme-family-preview="raft"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #ffffff 0 50%, #211d1a 50%); }

@@ -417,6 +417,7 @@
       | "themeFamilyWin98"
       | "themeFamilyTerminal"
       | "themeFamilyBrutalism"
+      | "themeFamilyRaft"
       | "themeFamilyBlueprint"
       | "themeFamilySystem6"
       | "themeFamilyCyberpunk"
@@ -442,6 +443,7 @@
       | "themeVariantWin98Classic"
       | "themeVariantTerminalPaper"
       | "themeVariantBrutalismPoster"
+      | "themeVariantRaftCream"
       | "themeVariantBlueprintVellum"
       | "themeVariantSystem6White"
       | "themeVariantCyberpunkDaylight"
@@ -467,6 +469,7 @@
       | "themeVariantWin98Midnight"
       | "themeVariantTerminalPhosphor"
       | "themeVariantBrutalismNight"
+      | "themeVariantRaftInk"
       | "themeVariantBlueprintDiazotype"
       | "themeVariantSystem6Black"
       | "themeVariantCyberpunkMidnight"
@@ -492,6 +495,7 @@
     { value: "win98", labelKey: "themeFamilyWin98", lightVariantKey: "themeVariantWin98Classic", darkVariantKey: "themeVariantWin98Midnight" },
     { value: "terminal", labelKey: "themeFamilyTerminal", lightVariantKey: "themeVariantTerminalPaper", darkVariantKey: "themeVariantTerminalPhosphor" },
     { value: "brutalism", labelKey: "themeFamilyBrutalism", lightVariantKey: "themeVariantBrutalismPoster", darkVariantKey: "themeVariantBrutalismNight" },
+    { value: "raft", labelKey: "themeFamilyRaft", lightVariantKey: "themeVariantRaftCream", darkVariantKey: "themeVariantRaftInk" },
     { value: "blueprint", labelKey: "themeFamilyBlueprint", lightVariantKey: "themeVariantBlueprintVellum", darkVariantKey: "themeVariantBlueprintDiazotype" },
     { value: "system6", labelKey: "themeFamilySystem6", lightVariantKey: "themeVariantSystem6White", darkVariantKey: "themeVariantSystem6Black" },
     { value: "cyberpunk", labelKey: "themeFamilyCyberpunk", lightVariantKey: "themeVariantCyberpunkDaylight", darkVariantKey: "themeVariantCyberpunkMidnight" },

@@ -51,6 +51,12 @@
      accent is blue in light and dark); a token so a future light-accent theme
      can flip it without sweeping call sites. */
   --on-accent: #fff;
+  /* Strong selection (selected list rows, selectable cards). Defaults to the
+     accent pair, matching macOS solid-accent selection; a family may remap the
+     pair — Raft paints it its pairing pink with ink text. Active *tabs* stay on
+     the accent: "the view I am in" and "the item I picked" are different roles. */
+  --selection-bg: var(--accent);
+  --on-selection: var(--on-accent);
   /* Destructive hover/depress - darkens danger by 12%. Derived from --danger,
      so it follows the theme automatically; defined once in :root. */
   --danger-hover: color-mix(in srgb, var(--danger) 88%, #000);
@@ -1240,8 +1246,20 @@ a:focus-visible {
 .installed-skills-summary strong { color: var(--label-primary); font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
 .installed-skills-categories { display: flex; width: var(--workspace-col); margin: 0 auto 14px; }
 .installed-skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; width: var(--workspace-col); margin: 0 auto; }
-.installed-skill-card { display: flex; flex-direction: column; align-self: start; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.installed-skill-card { display: flex; flex-direction: column; align-self: start; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02); cursor: pointer; transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
 .installed-skill-card:hover { border-color: color-mix(in srgb, var(--separator) 40%, var(--label-tertiary) 60%); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04); }
+/* Selected card paints the strong-selection pair; inner labels flip to the
+   on-selection ramp so they stay readable on the saturated fill. Controls
+   (switch, detail button) keep the shared rest state. */
+.installed-skill-card.selected,
+.installed-skill-card.selected:hover { background: var(--selection-bg); border-color: var(--separator); box-shadow: var(--soft-shadow); }
+.installed-skill-card.selected .installed-skill-icon { background: color-mix(in srgb, var(--on-selection) 14%, transparent); color: var(--on-selection); }
+.installed-skill-card.selected .installed-skill-title strong { color: var(--on-selection); }
+.installed-skill-card.selected .installed-skill-copy p { color: color-mix(in srgb, var(--on-selection) 78%, transparent); }
+.installed-skill-card.selected .installed-skill-meta-pill { background: color-mix(in srgb, var(--on-selection) 14%, transparent); color: var(--on-selection); }
+.installed-skill-card.selected .installed-skill-expand { color: var(--on-selection); }
+.installed-skill-card.selected .installed-skill-foot { border-top-color: color-mix(in srgb, var(--on-selection) 30%, transparent); }
+.installed-skill-card.selected .installed-skill-id-badge { color: color-mix(in srgb, var(--on-selection) 72%, transparent); }
 .installed-skill-header { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; }
 .installed-skill-header-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 auto; }
 .installed-skill-header-controls { display: flex; align-items: center; flex: 0 0 auto; margin-left: auto; padding-top: 2px; }
@@ -1291,7 +1309,10 @@ a:focus-visible {
 .automation-category-tabs button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
 .automation-category-tabs button small { min-width: 18px; padding: 1px 6px; border-radius: var(--rounded-sm); background: var(--gray-alpha-200); color: var(--label-tertiary); font: var(--fs-meta)/var(--lh-meta) var(--font-mono); transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
 .automation-category-tab.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); }
-.automation-category-tabs button.active small { background: var(--accent-soft); color: var(--accent); }
+/* The active tab's count rides the strong-selection pair: a solid fill with its
+   on-color number stays legible on every accent, where accent-on-accent-soft
+   washed out (unreadable on light accents like Raft's signal yellow). */
+.automation-category-tabs button.active small { background: var(--selection-bg); color: var(--on-selection); }
 .system-task-mark { display: grid; place-items: center; color: var(--label-tertiary); }
 .system-task-mark > .reicon { width: var(--icon-sm); height: var(--icon-sm); }
 .automation-workspace { width: var(--automation-col); min-height: 0; margin: 0 auto; container-type: inline-size; }
@@ -2982,12 +3003,9 @@ a:focus-visible {
 /* Artifact lightbox. HTML/SVG and CSV previews open with the same full-bleed
    presentation as the image viewer: a dark scrim over the app and one floating
    near-fullscreen stage, with the format tag and the close control floating
-   above the content instead of a title bar. Selectors pair with the base
-   dialog classes because `.desktop-dialog-*` is declared later in this file
-   and would otherwise win the equal-specificity cascade (pitfall: the old
-   900px dialog silently collapsed to the 560px default width). */
-.desktop-dialog-overlay.markdown-artifact-overlay { background: color-mix(in srgb, #000 78%, transparent); animation: lightbox-in var(--duration-normal) var(--ease-standard); }
-.desktop-dialog-content.markdown-artifact-dialog { width: calc(100vw - 48px); height: calc(100vh - 48px); max-height: none; padding: 0; border-radius: var(--rounded-md); animation: artifact-stage-in var(--duration-panel) var(--ease-spring); }
+   above the content instead of a title bar. */
+.markdown-artifact-overlay { background: color-mix(in srgb, #000 78%, transparent); animation: lightbox-in var(--duration-normal) var(--ease-standard); }
+.markdown-artifact-dialog { width: calc(100vw - 48px); height: calc(100vh - 48px); max-height: none; padding: 0; border-radius: var(--rounded-md); animation: artifact-stage-in var(--duration-panel) var(--ease-spring); }
 .markdown-artifact-stage { position: absolute; inset: 0; }
 .markdown-artifact-stage iframe { width: 100%; height: 100%; border: 0; background: #fff; }
 .markdown-artifact-stage .csv-table-wrap { position: absolute; inset: 0; }
@@ -3052,7 +3070,7 @@ a:focus-visible {
 .mermaid-viewer-failed pre { width: max-content; min-width: 100%; margin: 0; padding: 14px 16px; font: var(--fs-meta)/1.6 var(--font-mono); white-space: pre; user-select: text; }
 .mermaid-viewer-failed > p { margin: 0; padding: 10px 14px; border-bottom: 1px solid color-mix(in srgb, var(--danger) 28%, transparent); background: color-mix(in srgb, var(--danger) 10%, var(--code-bg)); color: color-mix(in srgb, var(--danger) 72%, white); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 .mermaid-viewer-pending { display: flex; align-items: center; gap: 6px; padding: 16px; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-.mermaid-zoom-dialog { display: flex; flex-direction: column; width: min(1100px, calc(100vw - 32px)); height: min(800px, calc(100vh - 32px)); padding: 0; overflow: hidden; }
+.mermaid-zoom-dialog { display: flex; flex-direction: column; width: calc(100vw - 48px); height: calc(100vh - 48px); max-height: none; padding: 0; overflow: hidden; }
 .mermaid-zoom-head { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; min-height: 44px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--separator); }
 .mermaid-zoom-head strong { font-size: var(--fs-label); line-height: var(--lh-label); }
 .mermaid-zoom-head button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); cursor: pointer; }
@@ -4370,10 +4388,10 @@ a:focus-visible {
 .danger-action { color: var(--danger); }
 .row-input { min-width: 0; max-width: 260px; height: var(--control-h); padding: 0 9px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: inherit; font: inherit; font-size: var(--fs-label); }
 .provider-editor { overflow: hidden; }
-.desktop-dialog-content.entity-editor-dialog { width: min(720px, calc(100vw - 48px)); max-height: min(86vh, 820px); }
+.entity-editor-dialog { width: min(720px, calc(100vw - 48px)); max-height: min(86vh, 820px); }
 /* Session-management preview modal: reuses the full chat transcript renderer,
  * so it gets a chat-proportioned stage rather than the narrow editor width. */
-.desktop-dialog-content.session-preview-dialog { width: min(860px, calc(100vw - 96px)); max-height: min(86vh, 900px); }
+.session-preview-dialog { width: min(860px, calc(100vw - 96px)); max-height: min(86vh, 900px); }
 .session-preview-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
 .session-preview-messages { flex: none; width: 100%; }
 .session-preview-extraction { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 0.5px solid var(--separator); border-radius: var(--rounded-sm); background: var(--surface-secondary, transparent); color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
@@ -5257,8 +5275,14 @@ select.provider-input { padding-right: 6px; }
 .settings-footbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .settings-footbar-notice { justify-content: flex-end; }
 .modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--modal-scrim); }
-.desktop-dialog-overlay { position: fixed; inset: 0; z-index: 50; background: var(--modal-scrim); backdrop-filter: var(--glass-modal-filter); -webkit-backdrop-filter: var(--glass-modal-filter); }
-.desktop-dialog-content { position: fixed; z-index: 51; left: 50%; top: 50%; width: min(560px, calc(100vw - 48px)); max-height: min(80vh, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 0.5px solid var(--glass-border); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--glass-shadow), var(--glass-inset); transform: translate(-50%, -50%); outline: none; }
+/* Dialog primitives. The shared defaults carry zero specificity (`:where()`), so a
+   dialog's `contentClass` / `overlayClass` always overrides them no matter where it
+   is declared. Written as plain single-class rules they tied with the variant classes
+   and, declared last in this file, silently clamped every earlier variant back to the
+   560px default. Size a dialog only through its own variant class; the cascade guard
+   in chat-ui.test.mjs fails if a sized single-class base rule is reintroduced. */
+:where(.desktop-dialog-overlay) { position: fixed; inset: 0; z-index: 50; background: var(--modal-scrim); backdrop-filter: var(--glass-modal-filter); -webkit-backdrop-filter: var(--glass-modal-filter); }
+:where(.desktop-dialog-content) { position: fixed; z-index: 51; left: 50%; top: 50%; width: min(560px, calc(100vw - 48px)); max-height: min(80vh, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 0.5px solid var(--glass-border); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--glass-shadow), var(--glass-inset); transform: translate(-50%, -50%); outline: none; }
 .conversation-browser-dialog { top: 8vh; width: min(640px, calc(100vw - 48px)); transform: translateX(-50%); max-height: 78vh; }
 .browser-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--separator); }
 .browser-search { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; border: 1px solid var(--control-border); background: var(--fill); border-radius: var(--radius-control); padding: 4px 8px; }
@@ -6460,37 +6484,47 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   color: var(--artifact-fg);
 }
 
-/* Repository navigation: flat tabs with a GitHub-like active underline, not a
-   floating macOS segmented pill. */
+/* Panel navigation uses the same segmented language as the skills and
+   automations category tabs — segments on the fill track, the active one lifts
+   as a card — so every inspector control reads like the rest of the app. */
 .artifact-panel .project-file-tabs {
   display: flex;
   align-items: stretch;
-  gap: 0;
-  min-height: 40px;
-  margin: 0;
-  padding: 0 8px;
+  gap: 2px;
+  min-height: 0;
+  margin: 10px 12px 8px;
+  padding: 2px;
   border: 0;
-  border-bottom: 1px solid var(--artifact-border);
-  border-radius: 0;
-  background: var(--artifact-canvas);
+  border-radius: var(--rounded-sm);
+  background: var(--fill);
 }
 .artifact-panel .project-file-tabs button {
-  position: relative;
-  flex: 0 0 auto;
-  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  gap: 4px;
   min-width: 0;
-  padding: 0 10px;
+  height: 26px;
+  padding: 0 8px;
   border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
+  border-radius: var(--rounded-sm);
   background: transparent;
-  color: var(--artifact-fg-muted);
-  font: 500 12px/18px var(--font-ui);
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  color: var(--label-secondary);
+  font: 500 var(--fs-meta)/var(--lh-meta) var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
-.artifact-panel .project-file-tabs button:hover:not(.active) { background: var(--artifact-hover); color: var(--artifact-fg); }
-.artifact-panel .project-file-tabs button.active { border-bottom-color: var(--artifact-accent); background: transparent; color: var(--artifact-fg); font-weight: 600; }
-.artifact-panel .project-tab-badge { background: var(--artifact-accent-muted); color: var(--artifact-accent); font: 600 11px/16px var(--font-mono); }
+.artifact-panel .project-file-tabs button:hover:not(.active) { background: var(--fill-hover); color: var(--label-primary); }
+.artifact-panel .project-file-tabs button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); font-weight: 600; }
+/* The active tab's count borrows the strong-selection pair, matching the
+   category tabs: legible on every accent. */
+.artifact-panel .project-file-tabs button.active .project-tab-badge { background: var(--selection-bg); color: var(--on-selection); }
+.artifact-panel .project-tab-badge { background: var(--gray-alpha-200); color: var(--label-tertiary); font: 600 11px/16px var(--font-mono); }
+/* This rule sits after `.project-tab-badge.is-session` in the cascade, so the
+   turn-count warning tint must be re-asserted here to survive. */
+.artifact-panel .project-tab-badge.is-session { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning-text); }
 .artifact-panel .project-change-scope {
   display: flex;
   gap: 0;
@@ -6710,9 +6744,11 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .artifact-panel .file-search-line code { color: var(--artifact-code-fg); font-size: var(--fs-label); line-height: var(--lh-label); font-family: var(--font-mono); }
 .artifact-panel .file-search-line mark { background: color-mix(in srgb, var(--artifact-attention) 35%, transparent); }
 .artifact-panel .file-filters { background: var(--artifact-canvas); border-bottom: 1px solid var(--artifact-border); }
-.artifact-panel .file-filters button { border-color: var(--artifact-border); border-radius: var(--radius-small); background: var(--artifact-surface); color: var(--artifact-fg-muted); }
-.artifact-panel .file-filters button:hover { background: var(--artifact-hover); color: var(--artifact-fg); }
-.artifact-panel .file-filters button.active { border-color: color-mix(in srgb, var(--artifact-accent) 42%, transparent); background: var(--artifact-accent-muted); color: var(--artifact-accent); }
+/* Same segmented language as the category tabs: fill segments, the active one
+   lifts as a card. */
+.artifact-panel .file-filters button { border: 0; border-radius: var(--rounded-sm); background: var(--fill); color: var(--label-secondary); font-weight: 500; }
+.artifact-panel .file-filters button:hover { background: var(--fill-hover); color: var(--label-primary); }
+.artifact-panel .file-filters button.active { background: var(--card-bg); color: var(--label-primary); box-shadow: var(--soft-shadow); font-weight: 600; }
 .artifact-panel .project-entry-list { padding-inline: 6px; }
 .artifact-panel .turn-file-list { padding: 6px; background: var(--artifact-canvas); }
 .artifact-panel .turn-file-row { color: var(--artifact-fg-muted); }

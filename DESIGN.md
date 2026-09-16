@@ -542,6 +542,18 @@ family inherits the material without per-family values.
   behind the sheet blurs into a quiet wash so the sheet separates from its
   context, while the sheet itself stays a plain opaque surface. The token
   degrades to `none` under reduced transparency like the rest of the family.
+  The shared `desktop-dialog-*` defaults are declared with `:where()`, so they
+  carry zero specificity: a dialog's `contentClass` / `overlayClass` always
+  overrides the default sheet size no matter where it sits in the stylesheet.
+  Size a dialog only through its own variant class; the default is a fallback,
+  never a ceiling to fight.
+- **Content you "enlarge" opens near-fullscreen, not as a modest dialog.** The
+  surfaces whose whole job is to read one artifact closely — the image lightbox,
+  the HTML/CSV artifact lightbox, and the Mermaid/D2 diagram zoom — all fill the
+  viewport over a dark scrim instead of living in an inline card or the default
+  dialog sheet. The image and artifact lightboxes float their controls over the
+  content with no chrome; the diagram zoom keeps a title bar and its zoom
+  toolbar, and the stage takes the rest.
 - **No refraction displacement.** An SVG `feDisplacementMap` ("liquid glass")
   was tried on the material layer and removed: `filter` warps everything the
   layer paints *including its own edges*, so every straight panel edge rendered
@@ -692,7 +704,7 @@ variant. Two tiers ship side by side:
   a region-adaptation layer (below) so its window chrome reads as the product.
   `Minimal (macOS)` alone stays chrome-neutral and ships no adaptation section:
   it is the product default.
-- **Bold families** — `Windows 98`, `Terminal`, `Brutalism`, `Blueprint`,
+- **Bold families** — `Windows 98`, `Terminal`, `Brutalism`, `Raft`, `Blueprint`,
   `System 6`, `Cyberpunk`, `Android`, `Discord`, `QQ`, `Candy`, `Cartoon`, `Google`.
   These are deliberately expressive and rewrite the control language as well as
   the palette: the token block sets `--font-ui` / `--font-display` / `--font-mono`,
@@ -744,6 +756,14 @@ may add a background to `:hover`/`.active` states but never as a rest-state fill
 family file must be a token block, a preview swatch, a `data-theme-region` rule,
 or the Windows 98 bevel; and every region hook used must be in the table above.
 Families without such a section fall back to the shared chrome.
+
+One cross-family convention: the composer's opaque glass layer (`::before`) sits
+at `inset:-1px`, exactly over the element's border ring, so in a family with
+`--glass-chrome-opacity: 100%` that ring is invisible — the composer reads
+borderless on its top/left edges. Opaque bold families (Brutalism, Raft,
+System 6, Windows 98) therefore draw the edge on the glass layer itself:
+`.composer::before { box-shadow: var(--float-shadow), inset 0 0 0 1px var(--control-border-strong); }`,
+keeping the offset shadow on the same single layer.
 
 ### Theme file layout
 
@@ -807,6 +827,7 @@ block, status color, and sidebar tint must resolve through the same family block
 | Windows 98 | Classic | Midnight | grey 3D desktop, navy selection, square corners |
 | Terminal | Paper | Phosphor | monospace TUI, phosphor green on near-black |
 | Brutalism | Poster | Night | cobalt/yellow, black rules, hard offset shadows |
+| Raft | Cream | Ink | raft.build cream canvas, signal-yellow focal hue, pairing-pink selection, warm ink rules, hard offset shadows, square corners |
 | Blueprint | Vellum | Diazotype | drafting blue + cyan line work, technical mono |
 | System 6 | 1-bit White | 1-bit Black | pure monochrome, pixel corners, hard rules |
 | Cyberpunk | Daylight | Midnight | violet night, magenta/cyan neon, glow |
@@ -835,6 +856,18 @@ block, status color, and sidebar tint must resolve through the same family block
   text into a bubble by filling `--bubble-assistant-bg` / `-border` /
   `-padding` / `-radius`; tool and thinking cards sit outside `.message-bubble`,
   so the process trace stays unboxed in every family.
+- Strong selection — the item the user picked, as opposed to the view they are
+  in — resolves through `--selection-bg` / `--on-selection`. The base ramp
+  defaults the pair to the accent pair (macOS solid-accent selection); a family
+  may remap it, and Raft paints it its pairing pink `#fe7da8` with ink text.
+  Active *tabs* stay on the accent: "the tab I opened" and "the item I picked"
+  are different roles, and the pairing hues split them (yellow = action/view,
+  pink = selection). The active tab's count badge is the one deliberate
+  exception that borrows the selection pair — a solid fill with its on-color
+  number stays legible on light accents where accent-on-accent-soft washed out.
+  Anything selected (selectable cards, list rows styled
+  through a family's region layer) must read from this pair so one selection
+  semantic spans the app.
 - Structural dark surfaces must never use `#000000` or near-black `#0A0A0A`.
   Pure black is reserved for media/code content that intentionally needs it.
 - Chat's transcript workspace and headers use the window role, and the sidebar
@@ -861,20 +894,44 @@ An imported theme is a color-only, single-variant family produced at runtime. Th
 desktop app parses a VSCode color theme JSON (`colors` + `tokenColors`), maps the
 workbench palette onto the product token set, derives the rest from the base colors,
 and injects the result as one `:root[data-theme-family="imported-<id>"]` rule.
-Geometry — fonts, radii, shadows, motion, glass blur — stays the shared macOS system,
-so an imported theme is always product tier and never a bold family.
+Geometry — fonts, radii, shadows, motion, layout — stays the shared macOS system,
+so an imported theme is always product tier and never a bold family. Its chrome is
+the one exception, and in the direction of less rather than more: an import paints
+the sidebar, header, and composer flat and opaque instead of through the shared
+glass. The shared sidebar is a translucent tint over the native macOS window
+material, and the composer mixes its fill toward transparent, so a source theme's
+own surface colors would otherwise be composited with a material the theme never
+chose (an off-hue grey nav) or diluted to within a few percent of the canvas (a
+composer whose only edge is its 1px border). An import owns its material — opaque
+tint, no blur, `--glass-chrome-opacity: 100%` — which is also what makes it render
+the same regardless of the window's activation state and of what is behind it.
 
 - Brightness belongs to the theme, not the user control: an imported dark theme keeps
   its own dark ramp even when the brightness preference is Light, and it drives the
   native window appearance. Built-in light/dark families are unaffected.
-- The mapper must emit every token a family variant block owns (`VARIANT_TOKENS` in
-  `lib/theme/vscodeTheme.ts`), or a missing token would fall back to the light macOS
-  ramp under a dark theme. A unit test pins the list.
+- The mapper must emit every token an import owns end to end (`VARIANT_TOKENS` in
+  `lib/theme/vscodeTheme.ts`): the tokens a family variant block declares, plus the
+  three chrome-material tokens above, or a missing token falls back to the shared
+  value — the light macOS ramp under a dark theme, or translucent glass under a theme
+  whose own chrome is flat. A unit test pins the list.
 - Labels are floored to WCAG AA against the canvas (`ensureContrast`), since a source
   theme's own text color can be faint (Solarized Light sits near 3.6:1). The canvas
   invariant `--header-bg === --content-bg` must hold too: the chat canvas paints
   `--header-bg` while the composer's scroll-edge fade blends into `--content-bg`, so
   splitting them leaves a visible band above the composer.
+- Recessed text and interaction fills come from the keys a theme sets *for* those
+  roles — secondary from `tab.inactiveForeground` / `sideBarTitle.foreground` /
+  `statusBar.foreground`, tertiary from the syntax `comment` color, hover and
+  selection from the `list.*Background` family — never from fading the primary label
+  toward the canvas. Fading it always yields a grey lighter than the theme intended
+  (which is what washed out the nav's section heads and project names), and tinting
+  hovers with the label hue lays a cold wash on a warm surface (Solarized hovers its
+  lists in gold and writes in slate).
+- The rim tokens are absolute roles, not label tints: `--glass-border-light` is the
+  white top highlight `--glass-edge` paints on every raised surface, `--glass-border-dark`
+  the recessed rim below. An import keeps `-light` white (60% light / 18% dark), since
+  tinting it with the label color flips its sign and puts a dark line across the top of
+  the composer while the other three sides keep the 1px hairline.
 - Imported themes persist as one JSON file per theme under the app data directory's
   `themes/` folder; ids are filename-safe slugs validated before touching disk. Only
   normalized colors produced by the importer reach the injected stylesheet — the raw

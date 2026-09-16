@@ -250,7 +250,13 @@
 }
 :root[data-theme-family="win98"] [data-theme-region="composer"] .composer {
   border-color: var(--control-border-strong);
-  box-shadow: var(--float-shadow);
+}
+/* The composer's own 1px border is painted over by its opaque ::before (it sits
+   at inset:-1px, exactly over the border ring), so the ring and the raised
+   bevel ride that layer — all four sides keep their rule and the bevel is
+   actually visible instead of hidden under the element's own shadow layer. */
+:root[data-theme-family="win98"] [data-theme-region="composer"] .composer::before {
+  box-shadow: var(--float-shadow), inset 0 0 0 1px var(--control-border-strong);
 }
 :root[data-theme-family="win98"] [data-theme-region="file-panel"] .file-panel-head {
   background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
