@@ -1,3 +1,37 @@
+### Changed: 文件面板 tab 与筛选器统一为分段控件风格（2026-09-16）
+
+文件面板（右侧检查器）顶部的「本轮文件 / 文件」tab 和「全部 / 图片 / 视频 / 音频 / 文档」筛选器此前各自沿用一套下划线 tab 与描边方块的风格，与技能、自动任务页的分段控件不一致，激活态也不明显。现在统一为同一套分段控件语言：轨道底色、激活段以卡片浮起、计数徽章走强选中配色（Raft 下粉底墨字）；亮暗与全部主题自动适配。
+
+### Fixed: 弹窗尺寸层叠根修与 D2/Mermaid 放大弹窗近全屏（2026-09-16）
+
+D2 图表与 Mermaid 图表的放大弹窗此前被静默压到 560px 的默认宽度，内容即使放大也看不清；根因是共享的弹窗基础样式与各弹窗变体同为单类选择器，而基础样式声明在文件更靠后，按声明顺序反过来盖住了更早声明的变体。现在基础样式改为零特异性默认，任何弹窗变体无论声明位置都能生效——D2/Mermaid 放大弹窗与表格、HTML 一致铺满窗口（保留标题栏与缩放工具栏），同时一并恢复了一批被同一问题压小的弹窗（任务历史、任务会话、服务日志详情、模型发现、小程序安装、Provider 授权、已安装 Skill、预览卡、确认框）的原本尺寸。新增机器守卫防止这类层叠回归再次发生。
+
+### Fixed: Raft 主题细节修正（2026-09-16）
+
+左侧导航的选中项改为信号黄实色（黄=主、粉=选中的原站配色分工），行内未读徽章反色保持可见；激活 tab 的计数徽章换成强选中配色（Raft 下粉底墨字），修掉了浅色强调色主题里数字看不清的问题，自动任务页同步受益；输入框补回四边细描边——之前上、左两条边被不透明的玻璃底层盖住，只有右下角看得到阴影线，现在四边都有细线且阴影恢复单层。同样的输入框描边修复也应用到了野兽派、Windows 98 和 System 6 三个主题（Win98 的凸起浮雕也因此真实可见）；其余主题不受影响。
+
+### Changed: Momo 更温暖自然的朋友型助手（2026-09-16）
+
+默认 Momo 人设升级至 1.1.1：保留办事可靠、有判断的特点，也能自然闲聊、回应情绪、适度开玩笑，并结合用户的处境、兴趣与目标自然关心，不限于作息和身体状态。提醒不过度重复，不擅自发送定时问候；已有用户可通过内置 Agent 更新入口应用新模板。
+
+### Fixed: 技能页 Type 切换选中态与新的强选中语义（2026-09-16）
+
+技能页的 Type 切换（全部 / 内置 Skill / 工作区 / Agent）此前选中后几乎看不出变化——共用样式要求按钮带一个 class，技能页复制这段界面时把它弄丢了，选中规则从未生效；现在与自动任务页观感一致。同时引入了全局的「强选中」语义：点选的卡片/列表项走一对新的主题 token（默认取强调色，Raft 主题下是它的配对粉红色，黄色留给主动作和 tab）。技能页点击卡片即选中（支持键盘），Raft 主题下侧栏选中的会话行也统一为粉色；其余主题行为不变。
+
+### Fixed: 提示词规则冲突与项目上下文误拦截（2026-09-16）
+
+统一指令优先级和工具选择顺序，减少重复提示与固定子代理流程；项目文档不再因为包含攻击示例、特定语言关键词或零宽字符而整篇被丢弃。执行权限与审批机制保持不变。
+
+历史条目：[2026 Q3 归档](docs/archive/changelog-2026-Q3.md)。
+
+### Added: 新增 Raft 主题（2026-09-16）
+
+设置 → 外观 → 主题家族新增「Raft」，复刻 raft.build 的视觉语言：奶油色画布、暖墨色文字与描边、信号黄作为唯一焦点色，配合无模糊的硬偏移阴影和全站直角，亮色「奶油」与暗色「墨黑」双变体独立于明暗模式生效。代码块沿用该站的糖果色语法高亮（粉/青柠/黄/橙/薰衣草），图表配色同源。
+
+### Fixed: 导入的编辑器主题不再被应用自己的玻璃层冲淡（2026-09-16）
+
+导入 VSCode 主题后，左侧导航发灰、输入框像一个被冲淡的空盒——因为侧栏和输入框一直是应用自己的半透明玻璃层（叠在 macOS 原生窗口材质上），主题真正的颜色根本到不了屏幕。现在导入主题自绘平面界面：侧栏、顶栏、输入框都是主题的真实颜色，不再随窗口是否激活、窗口后面是什么而变灰；导航的悬停/选中改用主题自己的高亮色，次级文字直接取自主题为低强调文本设计的颜色，而不是把正文色往背景里淡。输入框四边边框也恢复一致：之前顶边被一条深色高光线压着、其余三边只有极细的描边，看起来像只有上边有边框。内置的 24 款主题外观完全不变。
+
 ### Fixed: 自动更新检查失败的发布管线修复（2026-09-16）
 
 「检查更新」此前一直报错，共三个叠加原因：GitHub 的 latest release 解析会跳过 pre-release，而发布流程把每个版本都标成了 pre-release；Intel 构建失败会连带跳过更新清单 latest.json 的生成与上传；更新包下载地址错误地用 App 版本号（v0.9.x）拼 release tag（实际为 v2.9.x）。现在版本发布改为正式 release，Intel 构建失败不再阻塞更新清单发布，下载地址改用真实 release tag，并已为 v2.9.56 补齐更新清单——已安装客户端的「检查更新」即刻恢复可用，后续版本自动走新流程。
@@ -1786,119 +1820,3 @@ Four connected additions from `docs/requirements/miniapp-platform-extension-road
 - Verification: Mini App server + route suites 187/187 (including new deep-link 10, card 10, bridge v2 10, attach 7, badge 4), desktop unit 145/145 + structural 173/173 + Rust 52/52, `svelte-check` 0 errors / 0 warnings, root and desktop `vite build` clean. Two real defects were caught by the new guards and fixed before delivery: the `..`-normalization cross-app routing bug above, and an undefined `--radius-medium` token (pitfall #5) flagged by the existing CSS variable guard.
 
 ---
-## 2026-08-06
-
-### Added: Mini Apps can exchange messages, drafts, attachments and host AI capabilities
-
-- Mini Apps can contribute deterministic message/selection/attachment actions, fill (but never send) the active Desktop composer through a strict versioned bridge, and call host-routed text generation/transcription without receiving Provider credentials.
-- Added controlled per-route binary uploads, App-scoped limits/rate limiting, stable sanitized AI errors, fine-grained model settings and 30-day App usage summaries. Third-party AI Apps install disabled until explicitly enabled.
-- Todo now ships a “Save as Todo” message action. A new opt-in Meeting Notes built-in retains minute-long audio segments, survives failures/restarts, and can regenerate or permanently delete a meeting.
-- Updated the Mini App creator contract and templates to 1.3.0. Synchronized server 2.9.8 and Desktop 0.9.5 only; no tag or GitHub Release was created.
-- Automated contract/runtime/build checks passed. This slice originally lacked live microphone evidence; the product owner later confirmed the microphone works in the real app on 2026-08-09, so denial/device-loss automation is test hardening rather than a release gate.
-
-### Added: built-in Mini Apps are now an offer with their own tab — install, update, uninstall
-
-Built-ins were invisible as a *class*: the manager only ever listed what was installed, so an app the owner uninstalled disappeared from the product with no way back (the removal tombstone kept the next start from restoring it, correctly), and an app this build shipped but had never installed could not be discovered at all. Only the reference Todo app existed, and it arrived unasked.
-
-- **A Built-in tab in Manage Mini Apps** (`小程序 › 安装小应用 › 内置应用`), first of the four install sources. Each row answers the two questions the owner actually has — *do I have it?* and *is there a newer one?* — with the bundled name, description, icon, version and tool list read from the copy in the build, so a row exists whether or not anything is on disk. States: `Not installed` / `Uninstalled` (removed by the owner) / `Up to date` / `v1.2.0 available`.
-- **Install, update, uninstall from that row.** Install and update are one host operation (`installBuiltin`) — they differ only in whether something was there before — with the same suspend / drain / dispose / replace ordering as uninstall, because an installed app may hold an open SQLite handle inside the directory being replaced. Code only: the app's data directory is never touched, and enablement is preserved (an app switched off gets the new code, still switched off). Installing clears the removal tombstone, or the next start would delete what the owner just asked for.
-- **`Note` ships as a built-in**, and new built-ins are opt-in: `autoInstall` is per app, `todo` keeps it (an empty workspace still starts with the reference app, unchanged), everything else is listed as an offer. An upgrade never plants a new app in someone's workspace.
-- The built-in id list is derived from the bundle (`builtinMiniAppIds()`) instead of a second hand-written array in `registry.ts` — pitfall #22's shape: a shipped-but-unlabelled app would get no update, no bundled reinstall, and a `directory` provenance it never had.
-- Every Mini App route now answers with **both** catalogs (`{ items, builtin }`) through one shared `buildDesktopMiniAppsPayload()`, and the store assigns them together: an install, update or uninstall changes both lists, so a route returning one would leave the other showing the state before the click. A desktop build talking to an older service degrades to "no built-ins on offer" rather than throwing.
-- New route `GET/POST /api/desktop/miniapps/builtin`. It is not `/install`: there is no owner-supplied source to trust, so the third-party trust warning is not repeated on that tab (repeating it on a build's own apps only teaches people to click past it).
-- Guards: built-in catalog / opt-in bootstrap / tombstone round-trip / stale-copy update / id-derivation cases in `src/lib/server/miniapps/bootstrap.test.ts`, the both-catalogs projection in `src/lib/server/app/desktopMiniApps.test.ts`, and the tab + `applyCatalogs` structural assertions in `apps/desktop/src/chat-ui.test.mjs`. A generic case installs and smoke-tests **every** built-in the bundle ships, so adding one cannot ship a catalog row that fails to load.
-- Also: the Todo app icon was redrawn to match Note's style (24×24, no background plate, one hue in three flat tones).
-- Verification: Mini App bootstrap 17/17, Mini App host/install/manifest 48/48, Mini App projection 5/5, desktop UI 168/168 + unit 143/143 + Rust 52/52, `svelte-check` 0 errors / 0 warnings, `vite build` + desktop `vite build` clean. Walked the real HTTP surface against a service on a throwaway data dir: offer → install (`note` appears, loads) → uninstall (tombstone written) → reinstall (tombstone cleared) → restart with a downgraded installed copy (`updateAvailable: true`) → update (back to the shipped version).
-
-### Release: v2.9.7 / Desktop v0.9.4
-- Synchronized the root and Desktop package versions for the new release.
-
-### Fixed: opening a Mini App and then switching conversations lost the app, and the panel's Files side was empty in a chat
-
-Reported together, and they turned out to be one seam plus its consequence.
-
-- **A Mini App did not survive a session switch.** `ArtifactTabsStore.connect()` cleared *every* tab whenever the panel's context changed (endpoint / project / profile / session), so selecting another conversation destroyed the running app's iframe and dropped the panel back to the file surface. A Mini App is a workspace of its own, not an artifact of the conversation it happened to be opened beside: its tabs, the active one, and the mode showing them are now carried across `connect()`, while file/diff tabs (which do belong to the old context) are still cleared. The `{#each}` keys are unchanged, so the surviving tab keeps its DOM and the iframe's document stays alive.
-- **Switching the panel back to Files inside a chat showed nothing.** In Session scope the panel only ever rendered open file tabs, with an "no artifacts yet" empty state behind them - the session's artifact list lived in a *separate* right-hand aside in `ChatView`, which the host rendered only when no Mini App was open. So the moment an app was open, the list was unreachable, and the Files side was blank by construction. The list now lives inside the panel (media filter, count/size footer, click-to-open into the viewer, download), the legacy aside is gone, and Chat mounts exactly one inspector in every scope.
-- Two things the fold uncovered: the panel read its attachments with a hard-coded `"personal"` profile, which returns an empty list with no error for a conversation owned by another bot - it now takes the host's `profileId`, resolved the same way the transcript's own preview/download actions resolve it. And `.project-panel-body.browser-collapsed > .project-browser` had stopped matching when the `.artifact-file-surface` wrapper was introduced, so the collapse button silently did nothing; the rules are now written against the wrapper.
-- Panel visibility is derived from the live pane (`projectPaneActive`) instead of the open-time `inspector.scope`, so the visibility test can no longer disagree with the props the panel is actually given.
-- Guards: `connect()` keeps-Mini-Apps / mode-preservation, the Session artifact-list surface, no-`artifactEmpty`, close-last-tab-does-not-close-the-panel, one-inspector (`inspectorVisible = artifactPanelVisible`, no `sessionFilesAsideVisible`, no `file-list`) and the collapse-selector assertions in `apps/desktop/src/chat-ui.test.mjs`.
-- Verification: desktop UI tests 167/167 + unit 143/143 + Rust 52/52, `svelte-check` 0 errors / 0 warnings, `vite build` clean. Walked the real UI against a running service: open Mini App → switch session (app stays) → switch to Files (session artifacts listed) → open a file (viewer splits below the list) → close the tab (list remains) → switch to a Project session (tree, Changes, Attachments intact, Mini App tab still there) → collapse/expand the browser.
-
-### Fixed: Artifact Panel could not preview CSV or images, .gitignore opened as a system card, and Markdown source had no line numbers (issue #31)
-
-Four right-hand panel bugs that shipped with the unified Artifact Panel, each a different root cause. Reported against the project file panel: CSV and images showed blank / loading-forever, `.gitignore` showed a system-open card instead of its contents, and the Markdown source view had no line numbers.
-
-- **CSV blanked on any repeated value.** `CsvTable` keyed its `{#each}` blocks by cell/row/header *value* (`row.join("\0")`, `cell`, `header`). Svelte 5 throws `each_key_duplicate` in **production**, not only dev, so a row like `yes,yes,yes,yes`, two identical rows, or a repeated column name threw during render and left the tab blank - a very common shape in data CSVs. Keys are now row/column indexes, which are safe for a static list (appending rows only adds new indices; a reload updates each index in place). The `row.join` also embedded a raw NUL byte that made git treat `CsvTable.svelte` as binary; both are gone.
-- **Images were CSP-blocked.** `app.security.csp` allowed `http://127.0.0.1:*` in `media-src` (so `<video>`/`<audio>` streamed) but **not** in `img-src`, so `<img src={serviceUrl}>` was blocked while video and audio worked - which is exactly why only images were reported broken. `img-src` now matches `media-src`. The same fix unblocks streamed SVG rendering and session-scope attachment images.
-- **`.gitignore` opened as a system card.** `classifyFilePreview` returned `"binary"` for dotfiles (`extensionOf` treats `.gitignore` as the extension), so `matchViewer` routed to `"system"` and the panel showed reveal / open-externally / download instead of the file. A `TEXT_DOTFILES` set now classifies common config dotfiles (`.gitignore`, `.gitattributes`, `.gitmodules`, `.dockerignore`, `.editorconfig`, `.npmrc`, `.nvmrc`, `.prettierrc`, `.eslintrc`, `.babelrc`, ...) as `"text"`; the server already read them as text via `detectTextEncoding`, so they open in CodeViewer. `.DS_Store` and other binary dotfiles stay on the system card.
-- **Markdown / CSV / SVG source views had no line numbers.** Each rendered a bare `<pre>`; they now reuse the shared `CodeViewer`, so the source view carries line numbers, find and wrap like every other text file. `MarkdownPreview` and `CsvTable` gained a `name` prop for CodeViewer's path-based highlighter.
-- Machine guards: CsvTable index-key / no-raw-NUL / source-view-uses-CodeViewer / `name`-prop / CSP `img-src` loopback assertions in `apps/desktop/src/chat-ui.test.mjs`; `.gitignore` -> `code` in `viewerRegistry.test.ts`; dotfile classification in the new `src/lib/shared/filePreview.test.ts` (wired into `test:projects`).
-- Verification: desktop UI tests 166/166 + unit 143/143 + Rust 52/52, `test:projects` 68/68, `svelte-check` 0/0, `vite build` clean. The CSP change is baked into the Tauri build, so it needs a Rust rebuild (pitfall #18) - a WebView reload alone will not pick it up.
-
-### Release: v2.9.6 / Desktop v0.9.3
-- Synchronized the root and Desktop package versions for the new release.
-
-### Fixed: one MCP tool result could blow the context window, and compaction could never recover from it
-
-Reported as a provider 400: a request carrying ~2.88M tokens of text input against a 1M-token endpoint. That is not gradual growth — it is ~11 MB arriving in a single tool step — and it exposed two gaps that only look like one bug.
-
-- **MCP results were inlined verbatim.** `read` and `bash` truncate their own output to `DEFAULT_MAX_BYTES`/`DEFAULT_MAX_LINES` and spill the rest to disk, but `normalizeToolContent` pushed `item.text`, `resource.text` and `structuredContent` (pretty-printed, so *larger* than the wire payload) straight into the context with no limit. An MCP server is third-party code; how big its answer is was never our decision to leave to it. Results now go through `capMcpToolContent`, which applies the same shared budget across *all* text parts of one result — a server that splits a payload into 50 parts is bounded exactly like one that returns a single blob — spills the full text next to bash's, and passes image parts through untouched.
-- **Compaction could not repair the result.** `findFirstKeptIndex` seeds the kept slice with the newest message unconditionally (dropping the message the model just produced or consumed would corrupt the turn), so when *one* message is bigger than the whole window, every compaction returned `changed: false` or shrank to something still oversized, the post-overflow retry gave up, and the session was permanently unable to run — the offending message was inherited by every later turn. `capOversizedMessages` now rewrites any single message above the keep-recent budget, and because the compacted list is what `appendCompaction` persists, the blob leaves the live context for good instead of being re-truncated forever.
-- Two details that would each have made the fix look like it worked while doing nothing: `truncateHead` never splits a line, so a minified-JSON payload (one enormous line) came back **empty** — both paths fall back to a byte-safe `sliceToBytes` that steps over UTF-8 continuation bytes rather than cutting a character in half. And the compaction byte budget is 2 bytes per token, which stays under the estimator's real cost for CJK (1 token per 3-byte character) as well as ASCII (pitfall 8).
-- The spill path was already written out four times across `bash.ts` and `hostToolExec.ts`; rather than adding a fifth, both now delegate to `outputSpill.ts`, whose write never throws — a read-only scratch directory must degrade to "truncated, no pointer", not fail the tool call (pitfall 7).
-- Guards: oversized-single-message, no-history-to-summarize, tool-call-block-untouched and CJK-budget cases in `src/lib/server/agent/session/compaction.test.ts`; pass-through, shared-budget, single-line-payload, image-survival and spill round-trip cases in `src/lib/server/agent/tools/mcp.test.ts`.
-- Verification: `compaction.test.ts` + `compactionFileOps.test.ts` + `bash-output.test.ts` + `read.test.ts` + `runnerHelpers.test.ts` 64/64, `mcp.test.ts` 9/9, `tools/index|path|sandbox` + `hostBashExecContext` + `hostBash/approval` 31/31, `tsc --noEmit` clean on every touched file.
-- **Resolved later on 2026-08-09**: the pre-flight size gate now budgets the assembled system prompt, tools, history, and current message, compacts/caps before dispatch, and performs a final fail-closed check at the Provider boundary.
-
-### Changed: files and Mini Apps are two surfaces in the Artifact Panel, not one mixed tab strip
-
-Reported after using the shipped build: "点击文件后会回到文件窗口，小程序就丢失了". Two problems behind it, and only one was the tab strip.
-
-- **The mixed strip was the wrong model.** Slice 0 made "a Mini App is just another tab kind" a headline decision. In use, one strip listing `AGENTS.md` next to a running expense tracker made "go read a file" and "leave my app" read as the same gesture. The panel head now carries a Files / Mini Apps segmented control, each side owns its tab strip, and each keeps its own selection so switching returns you to where you were. Multiple Mini Apps still coexist as tabs among themselves.
-- **The switch is a quiet menu in the head, not a control of its own.** The panel is ~380px wide, so space is the scarce resource in both axes: a row of its own pushed the content down while repeating the app name the tab strip already showed, and a two-button segmented pill then spent the head's width restating the choice on every frame. Switching surfaces is rare next to the reading you do inside one, so the affordance now names the current surface and adds a caret — click it for a two-item menu. The two heads collapsed into one: the trigger takes the flexible slack where the title used to be (shrinking label-first so the action buttons keep their natural width, pitfall 16a), file actions appear only in Files mode, and with no Mini App open the head keeps its plain title.
-- It reuses `OverflowMenu` — extended with an optional `trigger` slot and an `inline` variant — rather than growing a bespoke popover, because dismiss, Escape and arrow-key handling would otherwise be forked (pitfall 7). The popover opens left-aligned under the trigger; no ancestor clips it, and the head's existing `z-index: 31` keeps both above the window-drag mask.
-- Two things the head swap broke and this fixes: the action buttons had been pushed right by the title's `flex: 1`, and a content-sized trigger left nothing to absorb the slack, so they bunched against it on the left — the trigger now carries `margin-right: auto`, keeping it label-sized (a quiet control should not own a header-wide hover target) while the actions stay pinned right. And `.file-panel-head strong` was a *descendant* selector, so it also captured the menu's own `<strong>` label, overriding its type rank with a raw 13px and making it grow inside its trigger; it is now a direct-child selector, which is what it always meant.
-- Removed `.miniapp-panel-head` / `-title` / `-close` and `.miniapp-icon-panel` as dead CSS. The drag-mask guard that had been asserting `.miniapp-panel-head`'s `z-index: 31` now asserts it on `.file-panel-head` — the head that actually exists. A guard pointed at a dead rule protects nothing, and this one covers pitfall 18, whose failure mode is buttons that go dead with nothing in the console.
-- **The real data loss was a lifecycle bug.** `{#if miniAppActive}` and the file branch were siblings, so activating a file tab destroyed every `MiniAppPanel` and its iframe: the app reloaded to its start screen and anything half-typed was gone. Every open Mini App is now mounted at all times and hidden with `display: none`, which keeps an iframe's document alive; the file surface is hidden the same way so its scroll position survives a round trip. Separating the strips alone would **not** have fixed this — the app would still have been torn down on every switch.
-- Consequences handled: the `MAX_OPEN_TABS` cap now applies per kind, so browsing a dozen files cannot silently evict a Mini App the user has open in the other mode; `closeTab` falls back within the closed tab's own kind rather than jumping across; `closeAllTabs` closes only the mode on screen and revokes just that subset.
-- What survives from Slice 0 is the part that was right: one panel, one inspector column, one resizer, one width budget, one viewer registry. The mount seam is still single — only the tab model split.
-- Guards: the old "co-hosts files and Mini Apps" assertion is replaced by a separation guard (two tab lists, two selections, no strip iterating the merged `store.tabs`, per-kind cap and per-kind close fallback) and a persistence guard (`class:is-hidden` on all three slots, exactly one `MiniAppPanel` mount, the `display: none` rule present). Confirmed the persistence guard fails when the hide is removed.
-- Verification: desktop UI tests 163/163 + unit 142/142 + Rust 52/52, `test:projects` 62/62, `svelte-check` 0/0, both builds clean.
-
-### Fixed: the artifact tab cap evicted tabs without releasing their blob URLs
-
-Writing PRD §3.38's test seam #5 — "closing a tab revokes its blob URL" — found the one removal path that did not. `closeTab`, `closeAllTabs`, `connect` and `dispose` all revoked correctly, but the `MAX_OPEN_TABS` cap was applied inline as `next.slice(next.length - MAX_OPEN_TABS)` in three separate open paths, and each silently dropped the oldest tab without releasing it. Opening a 13th session attachment leaked the first one's bytes for the life of the WebView, with nothing in any console.
-
-- Eviction is a close, so all three open paths now commit through one `#commitTabs` helper that revokes whatever falls off the front. `MAX_OPEN_TABS` is referenced only by its declaration and that helper.
-- Guarded in `apps/desktop/src/chat-ui.test.mjs`: exactly one `createObjectURL`, a revoke on each of the five removal paths, no inline capping, and the cap referenced nowhere outside the helper. Confirmed the guard fails against the pre-fix code and passes after.
-
-### Fixed: a Session HTML preview rendered as a bare skeleton, and its tab had one action
-
-Two gaps found by auditing PRD §3.38 against the code after Slices 2/3 landed.
-
-- **Relative assets did not resolve in Session scope.** The artifact route accepted only `scope === "project"`, so a chat-attachment HTML preview fell back to `URL.createObjectURL(blob)`. A blob URL has no path: every relative `css/`, `img/` and `../assets/` reference in the page resolved to nothing, and a multi-file page rendered as a skeleton with no error anywhere. Session previews now go through the same root-scoped transport as Project previews, rooted at the Session workspace, with the identical `..`/symlink fail-closed check. The blob remains only where the route declines to serve — an external-channel transcript, whose workspace holds files sent by other people; rendering those is a stronger capability than streaming their bytes, so it stays out.
-- **The Session token is one shared codec.** A Session has no single id (profile + session + optional project), so the three pack into one opaque base64url URL segment carrying ids only, never a host path. It lives in `src/lib/shared/artifactToken.ts` and is imported by both the WebView and the service — a client-side re-implementation is exactly how an encoder and its decoder drift into a silent 404 that reads as "relative assets are broken again".
-- **The Session action bar had only Download.** It now carries copy-path, reveal-in-Finder and open-with-system alongside it, through a new `POST /api/web/files/reveal` that mirrors the Project inspection reveal — same shared spawn helper (`shell: false`, argument array), absolute path resolved service-side behind the root check and never returned. The same actions reached `SystemOpenCard`, so a `.docx` attachment can finally be opened rather than only downloaded.
-- `resolveAuthorizedConversation` moved out of `/api/web/files/+server.ts` into `src/lib/server/web/sessionWorkspace.ts`; the byte route, the preview route and the reveal route now share one answer to "which workspace does this Session own, and may this caller reach it" (pitfall 7).
-- A session tab's `path` is now the attachment's workspace-relative path instead of empty, so one path string means one thing in every action that reads it (pitfall 6 corollary).
-- **Still open, deliberately**: insert-as-`@`-reference in Session scope. The composer bridge is Project-only, and more fundamentally the shared Runtime validates `@[name](path)` against a registered Project root (§3.35) — an ordinary Session has no equivalent, so the button would insert a reference the Runtime fails closed on. It needs a Session-attachment reference model in the Runtime first, not a UI wire-up.
-- Guards: token round-trip / ids-only / malformed-refused and the Session workspace escape cases in `artifactRoute.test.ts`; client↔service token parity incl. CJK ids in `apps/desktop/src/lib/api.test.ts`; and in `chat-ui.test.mjs` — route-before-blob ordering, no client-side token re-implementation, session tab path, and the Session action set including the deliberate absence of `mentionInChat`.
-- Verification: desktop UI tests 160/160 + unit tests 142/142 + Rust 52/52, `test:projects` 62/62, `svelte-check` 0/0, both builds clean. The cold-start smoke walk remains outstanding (see below).
-
-### Added: the Artifact Panel renders Markdown, JSON, SVG and mermaid, and no file is a dead end
-
-PRD §3.38 Slices 2 and 3, completing the unified right-hand panel. Slice 0 (one tab container + viewer registry, Mini Apps as a tab) and Slice 1 (sandboxed HTML preview, chat attachments routed into the panel, CSV tables) were already in the working tree; this finishes the viewer set.
-
-- **Markdown** renders through the transcript's own `renderMarkdown` — the same marked + highlight.js + DOMPurify pipeline, not a second one — so an agent-written report reads in the panel exactly as it does in chat. The click behaviour that makes external links and code-block copy buttons work was duplicated-in-waiting, so it moved to one shared `lib/markdownInteractions.ts` that the transcript and the panel both use (pitfall 7); the panel mounts it as an action rather than a `<div onclick>`, so the wrapper needs no invented ARIA role.
-- **Mermaid** diagrams render inside Markdown, loaded with a dynamic `import()` gated on the document actually containing a diagram — the library is ~590 kB and stays a separate chunk, out of the initial bundle. `securityLevel: "strict"`, because diagram text is agent-generated content. A render failure shows that diagram's source; it never blanks the tab. Re-renders on theme change, since mermaid bakes its palette into the SVG rather than reading CSS.
-- **JSON** opens as a collapsible tree, containers deeper than two levels collapsed. Both failure modes are visible and fall back to source: invalid JSON reports the parser's message, and a document over the 1 MB ceiling says so. The ceiling counts UTF-8 bytes, not characters — a character count under-reports CJK by ~3x (pitfall 8).
-- **SVG** gets its own viewer ahead of the media check, so the graphic renders with its source one toggle away in both scopes. It renders through `<img src=…>`, never inlined markup: an `<img>` document cannot run scripts or fetch external resources.
-- **Audio** was already covered by `MediaViewer`; it now reaches the Session scope too, through the same registry dispatch.
-- **Unsupported formats** (Office, unknown binaries, oversized text) get a real card — icon, name, size, reason, and Open-with-system / Reveal-in-Finder / Download. Office deliberately gets no embedded preview: the conversion chain is heavy and the payoff small, so the product answer is the system app. Reveal and open are omitted in Session scope, where an attachment has no host path; download always applies.
-- The rendered/source toggle is now a registry fact (`hasSourceToggle`) read by both scope toolbars, and which viewers need decoded bytes is `needsTextContent`, read by the session loader instead of its own hand-maintained exclusion list. Adding a viewer is one branch in `viewerRegistry.ts`; nothing else has a list to forget to update.
-- Removed the now-orphaned `isRenderableTextName` from `src/lib/shared/filePreview.ts` (the registry owns that decision).
-- Guards: registry dispatch, `needsTextContent` / `hasSourceToggle`, and empty-MIME fallback in `viewerRegistry.test.ts`; flattening, collapse-by-prefix (a `/ab` sibling is not hidden by a collapsed `/a`), both failure modes and the UTF-8 ceiling in `jsonTree.test.ts`; fence handling incl. unterminated, longer-fence and tilde cases in `mermaidBlocks.test.ts`; and in `chat-ui.test.mjs` — every viewer reachable from **both** scopes (the assertion that catches a Project-only wiring), system-card actions with download non-optional, the single-source toggle, mermaid lazy + strict + generation-guarded, no second markdown pipeline, SVG never `{@html}`, and both-locale copy keys.
-- Verification: desktop UI tests 157/157 + unit tests 142/142 + Rust 52/52, `test:projects` 58/58, `svelte-check` 0 errors / 0 warnings, service and desktop `vite build` both clean. **Not done: the cold-start smoke walk** (pitfall 10) — it needs the packaged Tauri window, which this environment cannot drive; the HTML preview and Mini App tabs in particular resolve through custom protocols that only exist there.
-
-### Release: v2.9.5 / Desktop v0.9.2
-- Synchronized the root and Desktop package versions for the new release.
