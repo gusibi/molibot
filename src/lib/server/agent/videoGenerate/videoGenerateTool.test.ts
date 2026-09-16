@@ -706,3 +706,12 @@ test("videoGenerate tool logs failed provider response body with redacted reques
     } catch {}
   }
 });
+
+test("video guidance keeps submission details on the tool and allows independent requested work", () => {
+  const tool = createVideoGenerateTool(getTestContext());
+  assert.match(tool.description, /taskId and engine/);
+  assert.match(tool.description, /Continue any independent requested work/);
+  assert.match(tool.description, /Do not loop or call this tool repeatedly/);
+  assert.match(tool.description, /Never pass Base64, data URLs, local file paths/);
+  assert.doesNotMatch(tool.description, /must immediately.*end your turn/i);
+});

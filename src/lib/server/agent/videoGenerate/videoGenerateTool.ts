@@ -74,7 +74,7 @@ function buildVideoGenerateDescription(settings: RuntimeSettings): string {
     "Usage guidelines:",
     "- Use when the user asks to generate a video, animate reference pictures, create a movie clip, or query the status of a running video task.",
     "- If you have reference images, pass public HTTP(S) Remote URLs in the `images` array. If the image came from `imageGenerate`, use its `Remote URL`, not its local path. Never pass Base64, data URLs, local file paths, or `Absolute path` values.",
-    "- When submitting a task, you will receive a taskId. You must immediately inform the user of this taskId and end your turn.",
+    "- After submission, report the returned taskId and engine. Continue any independent requested work; end the turn when nothing else remains.",
     "- Do not loop or call this tool repeatedly in the same turn. Wait for the user to ask for progress before querying again."
   ].join("\n");
 }
