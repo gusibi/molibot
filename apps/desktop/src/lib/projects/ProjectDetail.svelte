@@ -29,16 +29,12 @@
     copy,
     onOpenFiles = () => {},
     onOpenMiniApp = () => {},
-    onOpenMiniApps = () => {},
-    sidebarCollapsed = false,
-    onToggleSidebar = () => {}
+    onOpenMiniApps = () => {}
   }: {
     copy: Translation;
     onOpenFiles?: () => void;
     onOpenMiniApp?: (appId: string) => void;
     onOpenMiniApps?: () => void;
-    sidebarCollapsed?: boolean;
-    onToggleSidebar?: () => void;
   } = $props();
   const project = $derived(projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId));
   const session = $derived(projectsStore.sessions.find((item) => item.conversationId === projectsStore.selectedSessionId));
@@ -115,14 +111,14 @@
 </script>
 
 {#if project}
-  <section class="chat-content" bind:this={contentElement}>
+  <!-- Same transcript canvas as the chat dimension, so it carries the same
+       region hook: the project pane was the one surface where a family's canvas
+       treatment never reached. -->
+  <section class="chat-content" data-theme-region="chat" bind:this={contentElement}>
     <ChatHeader
       title={headerTitle}
       sourceLabel={project.name}
       searching={searchOpen}
-      {sidebarCollapsed}
-      {onToggleSidebar}
-      expandLabel={copy.expandSidebar}
     >
       <svelte:fragment slot="actions">
         <TranscriptSearch

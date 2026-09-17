@@ -527,19 +527,34 @@ a:focus-visible {
 .chat-layout.sidebar-collapsed .sidebar-resizer {
   display: none;
 }
+/* Collapsed panes start at the window's left edge, so their titles must clear
+   the traffic lights AND the title-bar control cluster (84px origin + two 28px
+   buttons + gap + 8px breath = 150px). The workspace header keeps its padding
+   symmetric so the centered title column stays centered on W/2. */
 .chat-layout.sidebar-collapsed .chat-header {
-  padding-left: 84px;
+  padding-left: 150px;
 }
-/* While the sidebar is collapsed the traffic lights overlay the header row.
-   Symmetric padding keeps the title column centered on W/2 (still aligned with
-   the content columns) at capped-column widths while clearing the lights. */
 .chat-layout.sidebar-collapsed .settings-page-header.is-workspace {
-  padding-left: 84px;
-  padding-right: 84px;
+  padding-left: 150px;
+  padding-right: 150px;
 }
-.sidebar-expand-btn {
-  position: relative;
-  z-index: 33;
+/* The title-bar control cluster is one window-level layer anchored next to the
+   traffic lights (DESIGN.md: title-bar control cluster). Collapsing swaps the
+   second slot's action but never moves the buttons. It carries the sidebar's
+   theme region, so the theme families that dress `.sidebar-titlebar-btn` keep
+   working with the buttons living outside the sidebar element. */
+.titlebar-cluster {
+  position: absolute;
+  top: 0;
+  left: 84px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  z-index: 32;
+  pointer-events: none;
+}
+.sidebar-titlebar-btn {
   pointer-events: auto;
   display: inline-flex;
   align-items: center;
@@ -553,14 +568,16 @@ a:focus-visible {
   background: transparent;
   color: var(--label-secondary);
   cursor: pointer;
-  margin-right: 4px;
   transition: background var(--duration-fast, 150ms) var(--ease-standard), color var(--duration-fast, 150ms) var(--ease-standard);
 }
-.sidebar-expand-btn:hover {
+.sidebar-titlebar-btn:hover {
   background: var(--fill);
   color: var(--label-primary);
 }
-.sidebar-expand-btn > .reicon { width: var(--icon-md, 18px); height: var(--icon-md, 18px); }
+.sidebar-titlebar-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
 .files-resizer {
   position: absolute;
   top: 0;
@@ -794,8 +811,10 @@ a:focus-visible {
   flex: 0 0 auto;
   margin-top: auto;
   padding: 0 14px;
+  /* No rule above the avatar/settings footer: the row it separates is an
+     action, not another nav section. Where a footer shares a block with
+     `.sidebar-return`, that row's own rule is what groups the block. */
   border: 0;
-  border-top: 0.5px solid var(--glass-border-dark);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -1232,7 +1251,6 @@ a:focus-visible {
 /* The workspace PageHeader is the positioned ancestor. While the sidebar is
    collapsed the top-left is occupied by the traffic lights and the centered
    title, so the restore control lives at the header's right column edge. */
-.sidebar-expand-btn.workspace-header-expand { position: absolute; top: 24px; right: 28px; margin-right: 0; }
 /* Symmetric gutter keeps the centered content columns aligned with the page
    header, which has no scrollbar gutter of its own. */
 .workspace-scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px 0 40px; scrollbar-gutter: stable both-edges; }
@@ -1997,7 +2015,6 @@ a:focus-visible {
 .project-inline-media { display: flex; align-items: center; justify-content: center; padding: 12px; }
 .project-inline-media img, .project-inline-media video { max-width: 100%; max-height: 336px; border-radius: var(--rounded-sm); object-fit: contain; }
 .project-inline-media audio { width: 100%; max-width: 360px; }
-.project-panel-scope { margin: 0; padding: 0 12px 8px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: 16px; }
 .project-truncated-note { margin: 0 8px 8px; padding: 7px 9px; border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--warning) 10%, transparent); color: var(--label-secondary); font-size: var(--fs-meta); line-height: 16px; }
 .project-change-list .project-entry-button { grid-template-columns: auto minmax(0, 1fr) auto; }
 /* The hover action floats over the row's right edge so it costs the path no
@@ -6491,7 +6508,16 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   display: flex;
   align-items: stretch;
   gap: 2px;
-  min-height: 0;
+  /* Fixed chrome, not a flexible pane. This row is a flex sibling of
+     `.project-browser`, whose flex base size is the FULL height of the file
+     tree / change list; a long list therefore creates a huge negative free
+     space, and with `min-height: 0` this row loses its automatic min-content
+     floor and collapses (measured: 46px → 6px on a 207-entry change list) while
+     its 26px buttons keep their size and spill out — the pane then paints over
+     them, so "全部改动" appeared to cover the 文件/变更/附件 strip. Every other
+     chrome row in this panel already says `flex: 0 0 auto` (`.file-filters`,
+     `.project-viewer-tabs`); this one must too. */
+  flex: 0 0 auto;
   margin: 10px 12px 8px;
   padding: 2px;
   border: 0;
@@ -6775,7 +6801,6 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .artifact-panel .project-inline-preview { border: 1px solid var(--artifact-border); border-radius: var(--radius-small); background: var(--artifact-inset); }
 .artifact-panel .project-inline-preview > p { color: var(--artifact-fg-muted); }
 .artifact-panel .project-inline-preview pre { color: var(--artifact-code-fg); }
-.artifact-panel .project-panel-scope,
 .artifact-panel .project-truncated-note,
 .artifact-panel .file-empty { color: var(--artifact-fg-muted); }
 .artifact-panel .project-preview-label,

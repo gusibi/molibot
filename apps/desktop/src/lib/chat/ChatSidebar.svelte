@@ -3,10 +3,8 @@
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import Grid from "../icons/duotone/components/Grid.svelte";
   import Layers from "../icons/duotone/components/Layers.svelte";
-  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
   import Pen from "../icons/duotone/components/Pen.svelte";
   import RulerPen from "../icons/duotone/components/RulerPen.svelte";
-  import Sidebar from "../icons/duotone/components/Sidebar.svelte";
   import TuningSquare2 from "../icons/duotone/components/TuningSquare2.svelte";
   import Vacuum2 from "../icons/duotone/components/Vacuum2.svelte";
   import ChannelAccordion, { type ChannelDescriptor } from "./ChannelAccordion.svelte";
@@ -50,9 +48,7 @@
     onCopySessionPath,
     onRevealSessionInFinder,
     onActivateProjectSession,
-    onOpenMiniApps,
-    onOpenConversationSearch,
-    onToggleCollapse
+    onOpenMiniApps
   }: {
     copy: Translation;
     channels: ChannelDescriptor[];
@@ -88,8 +84,6 @@
     onRevealSessionInFinder?: (item: DesktopConversationItem) => void | Promise<void>;
     onActivateProjectSession: () => void;
     onOpenMiniApps: () => void;
-    onOpenConversationSearch: () => void;
-    onToggleCollapse?: () => void;
   } = $props();
 
   const accordionLabels = $derived({
@@ -123,32 +117,8 @@
 </script>
 
 <aside class="chat-sidebar" data-theme-region="sidebar">
-  <div class="sidebar-top-bar" data-tauri-drag-region>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true" onmousedown={startWindowDrag}></div>
-    <div class="sidebar-top-actions">
-      <button
-        type="button"
-        class="sidebar-titlebar-btn sidebar-search-btn"
-        aria-label={copy.searchConversations}
-        title={copy.searchConversations}
-        onclick={onOpenConversationSearch}
-      >
-        <Magnifier size={16} aria-hidden="true" />
-      </button>
-      {#if onToggleCollapse}
-        <button
-          type="button"
-          class="sidebar-titlebar-btn sidebar-collapse-btn"
-          aria-label={copy.collapseSidebar}
-          title={copy.collapseSidebar}
-          onclick={onToggleCollapse}
-        >
-          <Sidebar size={16} aria-hidden="true" />
-        </button>
-      {/if}
-    </div>
-  </div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true" onmousedown={startWindowDrag}></div>
   <nav class="sidebar-nav" aria-label={copy.newChat}>
     <button type="button" class="nav-item" onclick={onNewConversation}>
       <Pen size={16} aria-hidden="true" />
@@ -213,11 +183,20 @@
     </section>
   </div>
 
-  <button type="button" class="sidebar-footer" onclick={onOpenSettings} title={copy.goToSettings}>
+  <!-- The avatar's status dot already carries the service state visually, so the
+       redundant 在线/离线 line is gone; its text stays as the button's
+       accessible name so status never depends on colour alone. -->
+  <button
+    type="button"
+    class="sidebar-footer"
+    aria-label={`${copy.appName} · ${serviceState === "ready" ? copy.statusOnline : copy.statusOffline}`}
+    onclick={onOpenSettings}
+    title={copy.goToSettings}
+  >
     <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
       <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
     </span>
-    <span class="sidebar-footer-copy"><strong>{copy.appName}</strong><small>{serviceState === "ready" ? copy.statusOnline : copy.statusOffline}</small></span>
+    <span class="sidebar-footer-copy"><strong>{copy.appName}</strong></span>
     <TuningSquare2 class="sidebar-footer-gear" size={16} aria-hidden="true" />
   </button>
 </aside>
@@ -227,51 +206,6 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-  }
-  .sidebar-top-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 42px;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 0 12px;
-    z-index: 32;
-    pointer-events: none;
-  }
-  .sidebar-top-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    pointer-events: auto;
-  }
-  .sidebar-titlebar-btn {
-    position: relative;
-    z-index: 33;
-    pointer-events: auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: 0;
-    border-radius: var(--rounded-sm, 6px);
-    background: transparent;
-    color: var(--label-secondary, #666);
-    cursor: pointer;
-    transition: background var(--duration-fast, 150ms) var(--ease-standard), color var(--duration-fast, 150ms) var(--ease-standard);
-  }
-  .sidebar-titlebar-btn:hover {
-    background: var(--fill, rgba(0, 0, 0, 0.05));
-    color: var(--label-primary, #171717);
-  }
-  .sidebar-titlebar-btn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 2px var(--accent);
   }
   .sidebar-nav {
     display: flex;
@@ -325,7 +259,6 @@
     margin: auto -12px -8px;
     padding: 0 20px;
     border: none;
-    border-top: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
     background: transparent;
     cursor: pointer;
     color: inherit;
@@ -362,6 +295,8 @@
   }
   .sidebar-footer-copy { display: grid; flex: 1 1 auto; gap: 1px; min-width: 0; }
   .sidebar-footer-copy strong { overflow: hidden; font-weight: 600; font-size: var(--fs-label); text-overflow: ellipsis; white-space: nowrap; }
-  .sidebar-footer-copy small { color: var(--label-secondary, #666); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-  .sidebar-footer :global(.sidebar-footer-gear) { opacity: 0.6; }
+  /* The gear is a control, not metadata: it reads at the secondary label rank at
+     full strength so it stops disappearing into the footer. */
+  .sidebar-footer :global(.sidebar-footer-gear) { color: var(--label-secondary, #666); opacity: 1; }
+  .sidebar-footer:hover :global(.sidebar-footer-gear) { color: var(--label-primary, #171717); }
 </style>

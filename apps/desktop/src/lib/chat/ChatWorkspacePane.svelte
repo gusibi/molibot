@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Sidebar from "../icons/duotone/components/Sidebar.svelte";
   import type { Component } from "svelte";
   import type { Translation } from "../i18n";
   import PageHeader from "../components/ui/PageHeader.svelte";
@@ -20,8 +19,6 @@
   export let onOpenMiniApp: (appId: string) => void = () => {};
   /** Opens Settings at the Mini App AI section; the pane only signposts it. */
   export let onOpenMiniAppAiSettings: () => void = () => {};
-  export let sidebarCollapsed = false;
-  export let onToggleSidebar: () => void = () => {};
   export let formatTime: (iso: string) => string = (iso) => iso;
   export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
 
@@ -48,21 +45,7 @@
   $: workspaceDescription = pane === "automations" ? copy.autoTasksHint : pane === "skills" ? copy.skillsSquareHint : pane === "miniapps" ? copy.miniAppsHint : pane === "plans" ? copy.planBoardHint : copy.agentStudioHint;
 </script>
 
-<PageHeader title={workspaceTitle} description={workspaceDescription} workspace>
-  <div slot="actions">
-    {#if sidebarCollapsed}
-      <button
-        type="button"
-        class="icon-button sidebar-expand-btn workspace-header-expand"
-        aria-label={copy.expandSidebar}
-        title={copy.expandSidebar}
-        onclick={onToggleSidebar}
-      >
-        <Sidebar size={16} aria-hidden="true" />
-      </button>
-    {/if}
-  </div>
-</PageHeader>
+<PageHeader title={workspaceTitle} description={workspaceDescription} workspace />
 
 <div class="workspace-scroll" data-workspace-pane={pane}>
   {#if !serviceReady}

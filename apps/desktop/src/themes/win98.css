@@ -46,7 +46,7 @@
   --fill: rgb(0 0 0 / 6%); --fill-hover: rgb(0 0 0 / 10%);
   --panel-bg: #c0c0c0; --sidebar-bg: #c0c0c0;
   --sidebar-surface: rgb(0 0 0 / 6%); --sidebar-surface-hover: rgb(0 0 0 / 10%);
-  --content-bg: #c0c0c0; --header-bg: #c0c0c0; --card-bg: #c0c0c0;
+  --content-bg: #ffffff; --header-bg: #ffffff; --card-bg: #c0c0c0;
   --surface-secondary: #d4d0c8; --bubble-bg: #ffffff; --composer-bg: #c0c0c0;
   --footbar-bg: #c0c0c0; --window-bg: #c0c0c0;
   --soft-shadow: inset -1px -1px #808080, inset 1px 1px #ffffff;
@@ -96,7 +96,7 @@
   --mac-tertiary-label: #7a7a7a;
   --mac-separator: #555555;
   --mac-unemphasized-selection: #4a4a4a;
-  --sidebar-material-tint: #2b2b2b;
+  --sidebar-material-tint: #232323;
   --sidebar-material-filter: none;
   --gray-100: #1e1e1e; --gray-200: #2b2b2b; --gray-300: #333333; --gray-400: #383838;
   --gray-500: #4a4a4a; --gray-600: #6a6a6a; --gray-700: #8a8a8a; --gray-800: #b0b0b0;
@@ -118,7 +118,7 @@
   --separator: #555555; --hairline: rgb(255 255 255 / 10%);
   --glass-border: #555555; --glass-border-dark: #101010; --glass-border-light: #6a6a6a;
   --fill: rgb(255 255 255 / 8%); --fill-hover: rgb(255 255 255 / 13%);
-  --panel-bg: #2b2b2b; --sidebar-bg: #2b2b2b;
+  --panel-bg: #2b2b2b; --sidebar-bg: #232323;
   --sidebar-surface: rgb(255 255 255 / 6%); --sidebar-surface-hover: rgb(255 255 255 / 11%);
   --content-bg: #2b2b2b; --header-bg: #2b2b2b; --card-bg: #333333;
   --surface-secondary: #383838; --bubble-bg: #1e1e1e; --composer-bg: #2b2b2b;
@@ -213,7 +213,7 @@
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
 :root[data-theme-family="win98"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, var(--card-bg), var(--header-bg));
+  background: var(--card-bg);
   border-bottom: 1px solid var(--separator);
 }
 :root[data-theme-family="win98"] [data-theme-region="header"]::before {
@@ -227,6 +227,87 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+/* The current view is the navy selection; it takes the composer's rule offset
+   and a hairline ring so a selected row reads as a raised control. */
+:root[data-theme-family="win98"] [data-theme-region="sidebar"] .nav-item.active {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="win98"] [data-theme-region="sidebar"] .nav-item.active svg {
+  color: var(--on-accent);
+}
+:root[data-theme-family="win98"] [data-theme-region="sidebar"] .nav-item.active .nav-notification {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+/* The toolbar controls carry the selection hue instead of hiding it. */
+:root[data-theme-family="win98"] [data-theme-region="header"] .icon-button,
+:root[data-theme-family="win98"] [data-theme-region="sidebar"] .sidebar-titlebar-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="win98"] [data-theme-region="header"] .icon-button:hover,
+:root[data-theme-family="win98"] [data-theme-region="sidebar"] .sidebar-titlebar-btn:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+:root[data-theme-family="win98"] [data-theme-region="header"] .icon-button[aria-pressed="true"],
+:root[data-theme-family="win98"] [data-theme-region="header"] .icon-button[aria-expanded="true"] {
+  background: var(--on-accent);
+  color: var(--accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--accent);
+}
+
+/* The accent chip paints on the same `box-shadow` the shared focus ring uses, so
+   focus would silently vanish on the control the keyboard user is actually on.
+   Focus keeps the app's own ring — a canvas gap then an accent ring — plus the
+   chip's hairline. The conversation row itself is not focusable (its inner
+   button is), so it needs no override. */
+:root[data-theme-family="win98"] :is(
+  [data-theme-region="header"] .icon-button,
+  [data-theme-region="sidebar"] .sidebar-titlebar-btn,
+  [data-theme-region="sidebar"] .nav-item.active
+):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent), 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+
+/* The footer's settings gear wears the same accent chip as the titlebar buttons,
+   so the sidebar carries the family hue at both ends. The chip is drawn at the
+   titlebar's 28px size around the 16px glyph, and the negative margin keeps the
+   chip's layout footprint at 16px so the footer text does not move — a family
+   may repaint form, never re-flow the shared tree. */
+:root[data-theme-family="win98"] [data-theme-region="sidebar"] .sidebar-footer-gear {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  margin: -6px;
+  padding: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="win98"] [data-theme-region="sidebar"] .sidebar-footer:hover .sidebar-footer-gear {
+  background: var(--accent-hover);
+}
+
+/* The count badge is a separate object sitting on the toolbar chip, so it always
+   takes the chip's opposite tone instead of filling itself with the same colour
+   and merging into the chip it rides on — the same inversion the nav's unread
+   badge uses. Both chip states are covered: the resting accent chip gets an ink
+   badge, and the pressed chip (which is ink) gets an accent badge, so the pair
+   can never converge. */
+:root[data-theme-family="win98"] [data-theme-region="header"] .icon-button .icon-badge {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+:root[data-theme-family="win98"] [data-theme-region="header"] .icon-button[aria-pressed="true"] .icon-badge,
+:root[data-theme-family="win98"] [data-theme-region="header"] .icon-button[aria-expanded="true"] .icon-badge {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 :root[data-theme-family="win98"] [data-theme-region="session-list"] .sidebar-section-head {
   min-height: 26px;
   margin: 2px 6px;
@@ -238,6 +319,7 @@
 }
 :root[data-theme-family="win98"] [data-theme-region="session-list"] .conversation-row.active {
   background: var(--accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
 }
 :root[data-theme-family="win98"] [data-theme-region="session-list"] .conversation-row.active .row-title {
   color: var(--on-accent);

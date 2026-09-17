@@ -555,6 +555,12 @@
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
     }
   }
+  // The collapsed title-bar cluster's new-chat slot: a fresh draft only reads as
+  // feedback if the session list is visible, so the sidebar expands with it.
+  function newChatFromCollapsedSidebar(): void {
+    if (sidebarCollapsed) toggleSidebarCollapse();
+    newConversation();
+  }
   function startSidebarResize(event: PointerEvent): void {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -3172,6 +3178,30 @@
   style={`--sidebar-w:${effectiveSidebarWidth}px; --files-w:${effectiveFilesWidth}px`}
 >
   <WindowDragMask />
+  <!-- One window-level title-bar control cluster anchored next to the traffic
+       lights (DESIGN.md: title-bar control cluster). Collapsing swaps the
+       second slot's action but never moves the buttons, so the cluster carries
+       the sidebar's theme region for the theme families that dress its buttons. -->
+  <div class="titlebar-cluster" data-theme-region="sidebar" data-tauri-drag-region>
+    <button
+      type="button"
+      class="sidebar-titlebar-btn"
+      aria-label={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
+      title={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
+      onclick={toggleSidebarCollapse}
+    >
+      <Sidebar size={16} aria-hidden="true" />
+    </button>
+    {#if sidebarCollapsed}
+      <button type="button" class="sidebar-titlebar-btn" aria-label={copy.newChat} title={copy.newChat} onclick={newChatFromCollapsedSidebar}>
+        <Pen size={16} aria-hidden="true" />
+      </button>
+    {:else}
+      <button type="button" class="sidebar-titlebar-btn" aria-label={copy.searchConversations} title={copy.searchConversations} onclick={openBrowser}>
+        <Magnifier size={16} aria-hidden="true" />
+      </button>
+    {/if}
+  </div>
   {#if commandOpen}
     <div class="command-palette-layer" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeCommandPalette(); }}>
       <div class="command-palette" role="dialog" aria-modal="false" aria-label={copy.commandPalette} tabindex="-1" bind:this={commandElement} onkeydown={onCommandKeydown}>
@@ -3249,8 +3279,6 @@
       activeProjectSessionId = projectsStore.selectedSessionId;
     }}
     onOpenMiniApps={() => openWorkspacePane("miniapps")}
-    onOpenConversationSearch={openBrowser}
-    onToggleCollapse={toggleSidebarCollapse}
   />
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
@@ -3278,8 +3306,6 @@
       onOpenFiles={toggleFilesInspector}
       onOpenMiniApp={openMiniAppInspector}
       onOpenMiniApps={() => openWorkspacePane("miniapps")}
-      {sidebarCollapsed}
-      onToggleSidebar={toggleSidebarCollapse}
     />
   {:else}
   <section class="chat-content" data-theme-region="chat">
@@ -3297,22 +3323,9 @@
         onOpenMiniAppAiSettings={() => openSettings("models")}
         formatTime={formatListTime}
         onContinuePlan={continuePlan}
-        {sidebarCollapsed}
-        onToggleSidebar={toggleSidebarCollapse}
       />
     {:else}
     <header class:searching={searchOpen} class="chat-header" data-theme-region="header" data-tauri-drag-region>
-      {#if sidebarCollapsed}
-        <button
-          type="button"
-          class="icon-button sidebar-expand-btn"
-          aria-label={copy.expandSidebar}
-          title={copy.expandSidebar}
-          onclick={toggleSidebarCollapse}
-        >
-          <Sidebar size={16} aria-hidden="true" />
-        </button>
-      {/if}
       <div class="chat-title-block" data-tauri-drag-region>
         <div class="chat-title-text" data-tauri-drag-region>
           <div class="chat-title-name" data-tauri-drag-region>{activeHeaderTitle}</div>

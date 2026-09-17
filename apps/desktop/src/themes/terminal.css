@@ -44,7 +44,7 @@
   --fill: rgb(51 255 102 / 7%); --fill-hover: rgb(51 255 102 / 12%);
   --panel-bg: #050805; --sidebar-bg: #050805;
   --sidebar-surface: rgb(51 255 102 / 6%); --sidebar-surface-hover: rgb(51 255 102 / 11%);
-  --content-bg: #050805; --header-bg: #050805; --card-bg: #0c140c;
+  --content-bg: #0a120a; --header-bg: #0a120a; --card-bg: #0c140c;
   --surface-secondary: #122012; --bubble-bg: #0c140c; --composer-bg: #0c140c;
   --footbar-bg: #050805; --window-bg: #050805;
   --soft-shadow: none; --float-shadow: none;
@@ -93,7 +93,7 @@
   --mac-tertiary-label: #7a9482;
   --mac-separator: rgb(22 51 31 / 18%);
   --mac-unemphasized-selection: #cfe0cd;
-  --sidebar-material-tint: #eef3ea;
+  --sidebar-material-tint: #e2ebe0;
   --sidebar-material-filter: none;
   --gray-100: #eef3ea; --gray-200: #e2ebe0; --gray-300: #d5e0d2; --gray-400: #cfe0cd;
   --gray-500: #a9bfa5; --gray-600: #86a082; --gray-700: #6b8a6a; --gray-800: #4a6b52;
@@ -115,7 +115,7 @@
   --separator: var(--mac-separator); --hairline: rgb(22 51 31 / 10%);
   --glass-border: var(--mac-separator); --glass-border-dark: rgb(22 51 31 / 22%); --glass-border-light: rgb(255 255 255 / 60%);
   --fill: rgb(22 51 31 / 6%); --fill-hover: rgb(22 51 31 / 10%);
-  --panel-bg: #eef3ea; --sidebar-bg: #eef3ea;
+  --panel-bg: #eef3ea; --sidebar-bg: #e2ebe0;
   --sidebar-surface: rgb(22 51 31 / 5%); --sidebar-surface-hover: rgb(22 51 31 / 9%);
   --content-bg: #eef3ea; --header-bg: #eef3ea; --card-bg: #f7faf5;
   --surface-secondary: #e2ebe0; --bubble-bg: #ffffff; --composer-bg: #f7faf5;
@@ -166,6 +166,87 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+/* The current view is the accent block; it takes the composer's rule offset and
+   a counter-tone hairline ring so selection still reads as a raised row. */
+:root[data-theme-family="terminal"] [data-theme-region="sidebar"] .nav-item.active {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="sidebar"] .nav-item.active svg {
+  color: var(--on-accent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="sidebar"] .nav-item.active .nav-notification {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+/* The toolbar controls carry the phosphor accent instead of hiding it. */
+:root[data-theme-family="terminal"] [data-theme-region="header"] .icon-button,
+:root[data-theme-family="terminal"] [data-theme-region="sidebar"] .sidebar-titlebar-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="header"] .icon-button:hover,
+:root[data-theme-family="terminal"] [data-theme-region="sidebar"] .sidebar-titlebar-btn:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="header"] .icon-button[aria-pressed="true"],
+:root[data-theme-family="terminal"] [data-theme-region="header"] .icon-button[aria-expanded="true"] {
+  background: var(--on-accent);
+  color: var(--accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--accent);
+}
+
+/* The accent chip paints on the same `box-shadow` the shared focus ring uses, so
+   focus would silently vanish on the control the keyboard user is actually on.
+   Focus keeps the app's own ring — a canvas gap then an accent ring — plus the
+   chip's hairline. The conversation row itself is not focusable (its inner
+   button is), so it needs no override. */
+:root[data-theme-family="terminal"] :is(
+  [data-theme-region="header"] .icon-button,
+  [data-theme-region="sidebar"] .sidebar-titlebar-btn,
+  [data-theme-region="sidebar"] .nav-item.active
+):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent), 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+
+/* The footer's settings gear wears the same accent chip as the titlebar buttons,
+   so the sidebar carries the family hue at both ends. The chip is drawn at the
+   titlebar's 28px size around the 16px glyph, and the negative margin keeps the
+   chip's layout footprint at 16px so the footer text does not move — a family
+   may repaint form, never re-flow the shared tree. */
+:root[data-theme-family="terminal"] [data-theme-region="sidebar"] .sidebar-footer-gear {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  margin: -6px;
+  padding: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="sidebar"] .sidebar-footer:hover .sidebar-footer-gear {
+  background: var(--accent-hover);
+}
+
+/* The count badge is a separate object sitting on the toolbar chip, so it always
+   takes the chip's opposite tone instead of filling itself with the same colour
+   and merging into the chip it rides on — the same inversion the nav's unread
+   badge uses. Both chip states are covered: the resting accent chip gets an ink
+   badge, and the pressed chip (which is ink) gets an accent badge, so the pair
+   can never converge. */
+:root[data-theme-family="terminal"] [data-theme-region="header"] .icon-button .icon-badge {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+:root[data-theme-family="terminal"] [data-theme-region="header"] .icon-button[aria-pressed="true"] .icon-badge,
+:root[data-theme-family="terminal"] [data-theme-region="header"] .icon-button[aria-expanded="true"] .icon-badge {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 :root[data-theme-family="terminal"] [data-theme-region="session-list"] .sidebar-section-head {
   min-height: 26px;
   margin: 2px 6px;
@@ -177,6 +258,7 @@
 }
 :root[data-theme-family="terminal"] [data-theme-region="session-list"] .conversation-row.active {
   background: var(--accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
 }
 :root[data-theme-family="terminal"] [data-theme-region="session-list"] .conversation-row.active .row-title {
   color: var(--on-accent);

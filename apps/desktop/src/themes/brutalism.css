@@ -45,7 +45,7 @@
   --fill: rgb(0 0 0 / 7%); --fill-hover: rgb(0 0 0 / 12%);
   --panel-bg: #faf6ec; --sidebar-bg: #faf6ec;
   --sidebar-surface: #ffffff; --sidebar-surface-hover: #ffe066;
-  --content-bg: #faf6ec; --header-bg: #faf6ec; --card-bg: #ffffff;
+  --content-bg: #ffffff; --header-bg: #ffffff; --card-bg: #ffffff;
   --surface-secondary: #efe9d8; --bubble-bg: #ffffff; --composer-bg: #ffffff;
   --footbar-bg: #faf6ec; --window-bg: #faf6ec;
   --soft-shadow: 3px 3px 0 0 #000000;
@@ -120,7 +120,7 @@
   --fill: rgb(245 240 230 / 8%); --fill-hover: rgb(245 240 230 / 14%);
   --panel-bg: #111111; --sidebar-bg: #111111;
   --sidebar-surface: #1b1b1b; --sidebar-surface-hover: #ffd23f;
-  --content-bg: #111111; --header-bg: #111111; --card-bg: #1b1b1b;
+  --content-bg: #161616; --header-bg: #161616; --card-bg: #1b1b1b;
   --surface-secondary: #161616; --bubble-bg: #1b1b1b; --composer-bg: #1b1b1b;
   --footbar-bg: #111111; --window-bg: #111111;
   --soft-shadow: 3px 3px 0 0 #e8e0d0;
@@ -170,6 +170,87 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+/* The current view is the accent slip; it gets the composer's pasted-paper edge
+   (rule offset + hairline ring) instead of a flat wash. */
+:root[data-theme-family="brutalism"] [data-theme-region="sidebar"] .nav-item.active {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--soft-shadow), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="brutalism"] [data-theme-region="sidebar"] .nav-item.active svg {
+  color: var(--on-accent);
+}
+:root[data-theme-family="brutalism"] [data-theme-region="sidebar"] .nav-item.active .nav-notification {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+/* The toolbar controls carry the focal hue instead of hiding it. */
+:root[data-theme-family="brutalism"] [data-theme-region="header"] .icon-button,
+:root[data-theme-family="brutalism"] [data-theme-region="sidebar"] .sidebar-titlebar-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--soft-shadow), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="brutalism"] [data-theme-region="header"] .icon-button:hover,
+:root[data-theme-family="brutalism"] [data-theme-region="sidebar"] .sidebar-titlebar-btn:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+:root[data-theme-family="brutalism"] [data-theme-region="header"] .icon-button[aria-pressed="true"],
+:root[data-theme-family="brutalism"] [data-theme-region="header"] .icon-button[aria-expanded="true"] {
+  background: var(--on-accent);
+  color: var(--accent);
+  box-shadow: var(--soft-shadow), inset 0 0 0 1px var(--accent);
+}
+
+/* The accent chip paints on the same `box-shadow` the shared focus ring uses, so
+   focus would silently vanish on the control the keyboard user is actually on.
+   Focus keeps the app's own ring — a canvas gap then an accent ring — plus the
+   chip's hairline. The conversation row itself is not focusable (its inner
+   button is), so it needs no override. */
+:root[data-theme-family="brutalism"] :is(
+  [data-theme-region="header"] .icon-button,
+  [data-theme-region="sidebar"] .sidebar-titlebar-btn,
+  [data-theme-region="sidebar"] .nav-item.active
+):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent), var(--soft-shadow), inset 0 0 0 1px var(--on-accent);
+}
+
+/* The footer's settings gear wears the same accent chip as the titlebar buttons,
+   so the sidebar carries the family hue at both ends. The chip is drawn at the
+   titlebar's 28px size around the 16px glyph, and the negative margin keeps the
+   chip's layout footprint at 16px so the footer text does not move — a family
+   may repaint form, never re-flow the shared tree. */
+:root[data-theme-family="brutalism"] [data-theme-region="sidebar"] .sidebar-footer-gear {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  margin: -6px;
+  padding: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--soft-shadow), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="brutalism"] [data-theme-region="sidebar"] .sidebar-footer:hover .sidebar-footer-gear {
+  background: var(--accent-hover);
+}
+
+/* The count badge is a separate object sitting on the toolbar chip, so it always
+   takes the chip's opposite tone instead of filling itself with the same colour
+   and merging into the chip it rides on — the same inversion the nav's unread
+   badge uses. Both chip states are covered: the resting accent chip gets an ink
+   badge, and the pressed chip (which is ink) gets an accent badge, so the pair
+   can never converge. */
+:root[data-theme-family="brutalism"] [data-theme-region="header"] .icon-button .icon-badge {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+:root[data-theme-family="brutalism"] [data-theme-region="header"] .icon-button[aria-pressed="true"] .icon-badge,
+:root[data-theme-family="brutalism"] [data-theme-region="header"] .icon-button[aria-expanded="true"] .icon-badge {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 :root[data-theme-family="brutalism"] [data-theme-region="session-list"] .sidebar-section-head {
   min-height: 26px;
   margin: 2px 6px;
@@ -181,6 +262,7 @@
 }
 :root[data-theme-family="brutalism"] [data-theme-region="session-list"] .conversation-row.active {
   background: var(--accent);
+  box-shadow: var(--soft-shadow), inset 0 0 0 1px var(--on-accent);
 }
 :root[data-theme-family="brutalism"] [data-theme-region="session-list"] .conversation-row.active .row-title {
   color: var(--on-accent);

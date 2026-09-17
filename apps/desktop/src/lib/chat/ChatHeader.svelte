@@ -1,26 +1,15 @@
 <script lang="ts">
-  import Sidebar from "../icons/duotone/components/Sidebar.svelte";
   export let sourceLabel = "";
   export let title: string;
   export let subtitle = "";
   export let searching = false;
-  export let sidebarCollapsed = false;
-  export let onToggleSidebar: () => void = () => {};
-  export let expandLabel = "";
 </script>
 
-<header class:searching class="chat-header" data-tauri-drag-region>
-  {#if sidebarCollapsed}
-    <button
-      type="button"
-      class="icon-button sidebar-expand-btn"
-      aria-label={expandLabel || "展开侧边栏"}
-      title={expandLabel || "展开侧边栏"}
-      onclick={onToggleSidebar}
-    >
-      <Sidebar size={16} aria-hidden="true" />
-    </button>
-  {/if}
+<!-- The project dimension reuses this header instead of ChatView's inline one, so
+     it must carry the same region hook or every family's header adaptation
+     (accent chips, header rule, canvas seam) silently stops at the project pane.
+     `.chat-header` is the element the DESIGN.md `header` hook names. -->
+<header class:searching class="chat-header" data-theme-region="header" data-tauri-drag-region>
   <div class="chat-title-block" data-tauri-drag-region>
     <div class="chat-title-text" data-tauri-drag-region>
       <div class="chat-title-name" data-tauri-drag-region>{title}</div>

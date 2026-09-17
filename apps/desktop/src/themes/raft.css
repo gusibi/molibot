@@ -48,7 +48,7 @@
   --fill: rgb(20 17 17 / 6%); --fill-hover: rgb(20 17 17 / 10%);
   --panel-bg: #fffaef; --sidebar-bg: #fffaef;
   --sidebar-surface: rgb(20 17 17 / 5%); --sidebar-surface-hover: rgb(255 212 64 / 32%);
-  --content-bg: #fffaef; --header-bg: #fffaef; --card-bg: #ffffff;
+  --content-bg: #ffffff; --header-bg: #ffffff; --card-bg: #ffffff;
   --surface-secondary: #f7f0dc; --bubble-bg: #ffffff; --composer-bg: #ffffff;
   --footbar-bg: #fffaef; --window-bg: #fffaef;
   --soft-shadow: 2px 2px 0 0 #141111;
@@ -99,7 +99,7 @@
   --mac-tertiary-label: #948b7c;
   --mac-separator: #f0e9d8;
   --mac-unemphasized-selection: #3a352c;
-  --sidebar-material-tint: #161311;
+  --sidebar-material-tint: #100e0c;
   --sidebar-material-filter: none;
   --gray-100: #161311; --gray-200: #1b1816; --gray-300: #211d1a; --gray-400: #2c2723;
   --gray-500: #3a352c; --gray-600: #5c554a; --gray-700: #948b7c; --gray-800: #c6bcae;
@@ -122,7 +122,7 @@
   --separator: #f0e9d8; --hairline: #f0e9d8;
   --glass-border: #f0e9d8; --glass-border-dark: #f0e9d8; --glass-border-light: #f0e9d8;
   --fill: rgb(246 240 227 / 8%); --fill-hover: rgb(246 240 227 / 14%);
-  --panel-bg: #161311; --sidebar-bg: #161311;
+  --panel-bg: #161311; --sidebar-bg: #100e0c;
   --sidebar-surface: rgb(246 240 227 / 6%); --sidebar-surface-hover: rgb(255 212 64 / 24%);
   --content-bg: #161311; --header-bg: #161311; --card-bg: #211d1a;
   --surface-secondary: #1b1816; --bubble-bg: #211d1a; --composer-bg: #211d1a;
@@ -177,10 +177,13 @@
 }
 /* The active nav item is the view you are in: the primary hue, not a wash —
    mirroring the site where yellow marks the primary action and pink the
-   selection. The unread badge inverts so it stays visible on the yellow row. */
+   selection. It lifts off the cream stock with the same pasted-slip edge as the
+   composer (ink offset + hairline ring) so "selected" reads as a physical slip,
+   and the unread badge inverts so it stays visible on the yellow row. */
 :root[data-theme-family="raft"] [data-theme-region="sidebar"] .nav-item.active {
   background: var(--accent);
   color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
 }
 :root[data-theme-family="raft"] [data-theme-region="sidebar"] .nav-item.active svg {
   color: var(--on-accent);
@@ -189,8 +192,77 @@
   background: var(--on-accent);
   color: var(--accent);
 }
+/* The toolbar controls carry the signal hue instead of hiding it: solid yellow
+   chips with the ink rule, pressed inverting to an ink chip with yellow glyph. */
+:root[data-theme-family="raft"] [data-theme-region="header"] .icon-button,
+:root[data-theme-family="raft"] [data-theme-region="sidebar"] .sidebar-titlebar-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="raft"] [data-theme-region="header"] .icon-button:hover,
+:root[data-theme-family="raft"] [data-theme-region="sidebar"] .sidebar-titlebar-btn:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+:root[data-theme-family="raft"] [data-theme-region="header"] .icon-button[aria-pressed="true"],
+:root[data-theme-family="raft"] [data-theme-region="header"] .icon-button[aria-expanded="true"] {
+  background: var(--on-accent);
+  color: var(--accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--accent);
+}
+
+/* The accent chip paints on the same `box-shadow` the shared focus ring uses, so
+   focus would silently vanish on the control the keyboard user is actually on.
+   Focus keeps the app's own ring — a canvas gap then an accent ring — plus the
+   chip's hairline. The conversation row itself is not focusable (its inner
+   button is), so it needs no override. */
+:root[data-theme-family="raft"] :is(
+  [data-theme-region="header"] .icon-button,
+  [data-theme-region="sidebar"] .sidebar-titlebar-btn,
+  [data-theme-region="sidebar"] .nav-item.active
+):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent), 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+
+/* The footer's settings gear wears the same accent chip as the titlebar buttons,
+   so the sidebar carries the family hue at both ends. The chip is drawn at the
+   titlebar's 28px size around the 16px glyph, and the negative margin keeps the
+   chip's layout footprint at 16px so the footer text does not move — a family
+   may repaint form, never re-flow the shared tree. */
+:root[data-theme-family="raft"] [data-theme-region="sidebar"] .sidebar-footer-gear {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  margin: -6px;
+  padding: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-accent);
+}
+:root[data-theme-family="raft"] [data-theme-region="sidebar"] .sidebar-footer:hover .sidebar-footer-gear {
+  background: var(--accent-hover);
+}
+
+/* The count badge is a separate object sitting on the toolbar chip, so it always
+   takes the chip's opposite tone instead of filling itself with the same colour
+   and merging into the chip it rides on — the same inversion the nav's unread
+   badge uses. Both chip states are covered: the resting accent chip gets an ink
+   badge, and the pressed chip (which is ink) gets an accent badge, so the pair
+   can never converge. */
+:root[data-theme-family="raft"] [data-theme-region="header"] .icon-button .icon-badge {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+:root[data-theme-family="raft"] [data-theme-region="header"] .icon-button[aria-pressed="true"] .icon-badge,
+:root[data-theme-family="raft"] [data-theme-region="header"] .icon-button[aria-expanded="true"] .icon-badge {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 :root[data-theme-family="raft"] [data-theme-region="session-list"] .conversation-row.active {
   background: var(--selection-bg);
+  box-shadow: 2px 2px 0 0 var(--control-border-strong), inset 0 0 0 1px var(--on-selection);
 }
 :root[data-theme-family="raft"] [data-theme-region="session-list"] .conversation-row.active .row-title {
   color: var(--on-selection);

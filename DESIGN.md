@@ -827,7 +827,7 @@ block, status color, and sidebar tint must resolve through the same family block
 | Windows 98 | Classic | Midnight | grey 3D desktop, navy selection, square corners |
 | Terminal | Paper | Phosphor | monospace TUI, phosphor green on near-black |
 | Brutalism | Poster | Night | cobalt/yellow, black rules, hard offset shadows |
-| Raft | Cream | Ink | raft.build cream canvas, signal-yellow focal hue, pairing-pink selection, warm ink rules, hard offset shadows, square corners |
+| Raft | Cream | Ink | raft.build cream canvas, signal-yellow focal hue, pairing-pink selection, warm ink rules, hard offset shadows, square corners, white transcript canvas against the cream nav |
 | Blueprint | Vellum | Diazotype | drafting blue + cyan line work, technical mono |
 | System 6 | 1-bit White | 1-bit Black | pure monochrome, pixel corners, hard rules |
 | Cyberpunk | Daylight | Midnight | violet night, magenta/cyan neon, glow |
@@ -874,7 +874,19 @@ block, status color, and sidebar tint must resolve through the same family block
   shares that same window base so nav and content read as one plane (no seam).
   Settings groups sit as elevated cards on that base. Cards, popovers, composers,
   and neutral controls use elevated/control roles; keep the base and the card layer
-  distinct (one elevation step), but do not tint the nav a third shade.
+  distinct (one elevation step), but do not tint the nav a third shade. A bold
+  family may split the nav and the canvas into two elevation steps instead — one
+  step apart, still two planes (see the bold-family convention below).
+- A bold poster family puts its focal hue where it is actually seen. The accent
+  fills the toolbar controls (the header icon buttons and the sidebar's titlebar
+  buttons) and the active nav item, and a selected row lifts off the sheet with
+  the composer's own edge — a hard offset in the family's rule colour plus a
+  one-pixel on-color ring — rather than a flat wash. The elevated planes are
+  separated along with it: the nav and the transcript canvas no longer share one
+  exact colour, because "same colour" was how these families ended up with a
+  palette that only ever surfaced on a hover. A family whose identity forbids a
+  second structural shade (System 6) keeps one surface and documents the
+  exception. Guarded in `chat-ui.test.mjs`.
 - Use label and separator alpha roles as defined. Do not turn separator colors into
   text colors or replace semantic status colors with arbitrary brand shades.
 - The independent brightness choice must update both WebView tokens and the native
@@ -1081,6 +1093,13 @@ the same regardless of the window's activation state and of what is behind it.
   between the primary destinations and the conversation tree. Their content begins
   below the full 60px native title-bar drag zone so traffic lights and drag capture
   never overlap the first destination's pointer target.
+- The title-bar control cluster is one window-level layer, anchored next to the
+  traffic lights (left 84px inside the 42px title-bar band) and identical in both
+  sidebar states. Slot one is always the sidebar toggle; slot two is conversation
+  search while the sidebar is expanded and new-chat while it is collapsed — new-chat
+  also expands the sidebar. The cluster never moves and never rides the sidebar's
+  collapse animation; collapsed pane headers reserve left padding that clears the
+  cluster, and per-pane expand buttons are forbidden.
 - The session tree is one left-aligned grid. Section heads (对话 / 项目), channel
   headers, and project folder rows share a single 8px content inset — no per-level
   re-indent — and session titles sit on the header text's 32px grid line (8px row

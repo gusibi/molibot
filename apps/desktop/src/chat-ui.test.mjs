@@ -765,13 +765,18 @@ test("sidebar resizing uses shared pointer manipulation and writes only on compl
   assert.doesNotMatch(view, /addEventListener\("mousemove"/);
 });
 
-test("sidebar supports collapsing with smooth animation, threshold snap, and expand button", () => {
-  assert.match(chatSidebar, /class="sidebar-top-bar"/);
-  assert.match(chatSidebar, /class="sidebar-titlebar-btn sidebar-collapse-btn"/);
-  assert.match(chatSidebar, /aria-label=\{copy\.collapseSidebar\}/);
+test("sidebar supports collapsing with smooth animation, threshold snap, and a fixed title-bar cluster", () => {
+  // The cluster is window-level chrome in ChatView (DESIGN.md: title-bar
+  // control cluster). The sidebar owns no title-bar buttons and no pane renders
+  // its own expand copy, so toggling can never move the buttons.
+  assert.doesNotMatch(chatSidebar, /sidebar-top-bar|sidebar-top-actions|sidebar-collapse-btn/);
+  assert.match(view, /class="titlebar-cluster" data-theme-region="sidebar"/);
+  assert.match(view, /aria-label=\{sidebarCollapsed \? copy\.expandSidebar : copy\.collapseSidebar\}/);
+  assert.match(view, /onclick=\{toggleSidebarCollapse\}/);
+  assert.ok(listSvelteSources().every((source) => !source.includes("sidebar-expand-btn")));
+  assert.doesNotMatch(styles, /\.sidebar-expand-btn/);
+  assert.match(design, /title-bar control cluster/);
   assert.match(view, /class:sidebar-collapsed=\{sidebarCollapsed\}/);
-  assert.match(view, /class="icon-button sidebar-expand-btn"/);
-  assert.match(view, /aria-label=\{copy\.expandSidebar\}/);
   assert.match(view, /toggleSidebarCollapse\(\)/);
   assert.match(view, /SIDEBAR_COLLAPSE_THRESHOLD = 160/);
   // The nav never folds on its own: no window-width auto-collapse, only the
@@ -782,13 +787,19 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and exp
   assert.match(view, /event\.key\.toLowerCase\(\) === "b"/);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed\s*\{\s*grid-template-columns:\s*0px minmax\(0, 1fr\);/);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-sidebar\s*\{[\s\S]*transform:\s*translateX\(-100%\);/);
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header\s*\{\s*padding-left:\s*84px;/);
+  // Collapsed titles must clear the traffic lights AND the cluster (84px + 28px
+  // + 2px + 28px + 8px breath).
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header\s*\{\s*padding-left:\s*150px;/);
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.settings-page-header\.is-workspace\s*\{\s*padding-left:\s*150px;\s*padding-right:\s*150px;/);
 });
 
-test("sidebar search is independent from incremental ten-conversation pagination", () => {
-  assert.match(chatSidebar, /class="sidebar-titlebar-btn sidebar-search-btn"/);
-  assert.match(chatSidebar, /onclick=\{onOpenConversationSearch\}/);
-  assert.match(view, /onOpenConversationSearch=\{openBrowser\}/);
+test("title-bar cluster swaps search for new-chat while collapsed; search stays independent from pagination", () => {
+  assert.match(view, /class="sidebar-titlebar-btn" aria-label=\{copy\.searchConversations\}/);
+  assert.match(view, /onclick=\{openBrowser\}/);
+  assert.match(view, /onclick=\{newChatFromCollapsedSidebar\}/);
+  // The collapsed new-chat slot expands the sidebar with it, so the fresh
+  // session appears in a visible list instead of a bare title change.
+  assert.match(view, /function newChatFromCollapsedSidebar\(\): void \{\s*if \(sidebarCollapsed\) toggleSidebarCollapse\(\);\s*newConversation\(\);\s*\}/);
   assert.match(view, /onMoreChannel=\{\(channel\) => void loadMoreChannel\(channel as DesktopConversationChannel\)\}/);
   assert.match(view, /listDesktopConversations\(connectedEndpoint, \{ channel, limit: 10, cursor \}\)/);
   assert.match(view, /new Set\(existing\.map\(\(item\) => item\.sessionId\)\)/);
@@ -1006,7 +1017,7 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.match(styles, /\.row-outcome\.outcome-failed[^{]*\{[^}]*var\(--danger\)/s);
   // Workspace destinations share the settings PageHeader (title + description)
   // centered on the wider workspace column, replacing the old bare title bar.
-  assert.match(chatWorkspace, /<PageHeader title=\{workspaceTitle\} description=\{workspaceDescription\} workspace>/);
+  assert.match(chatWorkspace, /<PageHeader title=\{workspaceTitle\} description=\{workspaceDescription\} workspace \/>/);
   assert.match(styles, /\.settings-page-header\.is-workspace > div:not\(\.page-header-actions\)\s*\{[^}]*width:\s*var\(--workspace-col\)/s);
   assert.match(styles, /\.automation-workspace-toolbar \.search-field\s*\{[^}]*height:\s*32px/s);
   assert.match(styles, /\.automation-category-tabs button\s*\{[^}]*white-space:\s*nowrap/s);
@@ -2253,6 +2264,16 @@ test("theme families adapt existing chrome only through the documented region ho
   assert.match(chatInputArea, /class="composer-wrap"[\s\S]{0,80}data-theme-region="composer"/);
   const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
   assert.match(artifactPanel, /class="file-panel project-file-panel artifact-panel"\s+data-theme-region="file-panel"/);
+  // Every surface that reuses a region element must mount the hook itself. The
+  // project dimension renders the shared ChatHeader and its own `.chat-content`
+  // instead of ChatView's inline ones, and both were missing their hook — so
+  // every family's header and canvas treatment stopped at the project pane (the
+  // toolbar chips vanished there). A shared component is the one place the
+  // "one attribute per region" rule can be lost without a second mount.
+  const chatHeader = read("./lib/chat/ChatHeader.svelte");
+  assert.match(chatHeader, /class="chat-header" data-theme-region="header"/);
+  const projectDetail = read("./lib/projects/ProjectDetail.svelte");
+  assert.match(projectDetail, /class="chat-content" data-theme-region="chat"/);
 });
 
 test("sidebar conversation rows expose a right-click context menu with rename, delete, copy path and reveal", () => {
@@ -2305,6 +2326,24 @@ test("chat header is single-line and service status lives on the sidebar logo", 
   assert.match(chatSidebar, /data-state=\{serviceState\}/);
 });
 
+// The sidebar footer is a control, not a status panel: the avatar's dot already
+// carries the service state, so the 在线 line, the divider over it and the faded
+// gear are gone. Status stays the button's accessible name so it never depends
+// on colour alone.
+test("sidebar footer drops the divider and status line but keeps status accessible", () => {
+  const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
+  assert.doesNotMatch(chatSidebar, /class="sidebar-footer-copy"><strong>\{copy\.appName\}<\/strong><small>/, "the redundant status line must stay removed");
+  assert.match(chatSidebar, /aria-label=\{`\$\{copy\.appName\} · /, "the footer button must expose app + status as its accessible name");
+  assert.match(chatSidebar, /copy\.statusOffline\}`\}/);
+  const footerRule = chatSidebar.match(/\.sidebar-footer \{([^}]*)\}/)?.[1] ?? "";
+  assert.doesNotMatch(footerRule, /border-top:/, "the footer divider must stay removed");
+  // The projects sidebar shares the base rule, so the concept lives once in the
+  // shared sheet rather than as a per-panel special case.
+  const sharedFooterRule = styles.match(/\.sidebar-footer \{([^}]*)\}/)?.[1] ?? "";
+  assert.doesNotMatch(sharedFooterRule, /border-top:/, "the shared footer rule must stay divider-free");
+  assert.match(chatSidebar, /\.sidebar-footer :global\(\.sidebar-footer-gear\) \{ color: var\(--label-secondary/, "the settings gear must read at the secondary label rank");
+});
+
 test("external transcripts merge source and read-only status into the footer", () => {
   assert.doesNotMatch(view, /copy\.externalSessionDivider/);
   assert.match(view, /copy\.externalSessionReadOnly\.replace\("\{channel\}", activeHeaderSourceLabel\)/);
@@ -2344,7 +2383,7 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   const pageHeader = read("./lib/components/ui/PageHeader.svelte");
   assert.match(pageHeader, /class="page-header settings-page-header" data-tauri-drag-region/);
   // Workspace destinations reuse the shared draggable PageHeader for their chrome.
-  assert.match(workspacePane, /<PageHeader title=\{workspaceTitle\} description=\{workspaceDescription\} workspace>/);
+  assert.match(workspacePane, /<PageHeader title=\{workspaceTitle\} description=\{workspaceDescription\} workspace \/>/);
   assert.match(styles, /\.header-actions\s*\{[^}]*z-index:\s*31;/s);
   // The stretched action row sits above the drag mask, so its empty space must
   // stay transparent to pointer events or the toolbar stops dragging the window.
@@ -2517,6 +2556,98 @@ test("strong selection resolves through tokens; Raft maps it to the pairing pink
   assert.match(styles, /\.automation-category-tabs button\.active small \{ background: var\(--selection-bg\); color: var\(--on-selection\); \}/);
   // Raft's active nav item is the view you are in: primary hue, not a wash.
   assert.match(raft, /\[data-theme-region="sidebar"\] \.nav-item\.active \{\s*\n?\s*background:\s*var\(--accent\)/);
+});
+
+// A family whose whole page is one flat sheet wastes its own palette: the nav
+// and the transcript read as a single plane, and the focal hue only ever shows
+// up on a hover. These poster families paint the toolbar controls with the
+// accent and lift the selected row with the composer's hard edge instead of a
+// flat wash. Guarded as one concept so a future palette tweak cannot quietly
+// drop the accent back out of the chrome.
+test("bold poster families keep the accent on the chrome and lift selections off the sheet", () => {
+  for (const family of ["raft", "brutalism", "blueprint", "terminal", "win98", "system6"]) {
+    const source = read(`./themes/${family}.css`);
+    const toolbarRule = source.match(new RegExp(`\\[data-theme-region="header"\\] \\.icon-button,[\\s\\S]{0,160}?\\[data-theme-region="sidebar"\\] \\.sidebar-titlebar-btn \\{([^}]*)\\}`))?.[1] ?? "";
+    assert.match(toolbarRule, /background:\s*var\(--accent\)/, `${family}.css must paint the toolbar controls with the accent`);
+    assert.match(toolbarRule, /color:\s*var\(--on-accent\)/, `${family}.css toolbar controls must use the on-accent glyph`);
+    // The chip is a pasted slip like the composer and the selected row: the
+    // accent fill rides a hard offset edge in the family's rule colour, not a
+    // borderless block.
+    assert.match(
+      toolbarRule,
+      /box-shadow:[^;]*(?:var\(--soft-shadow\)|2px 2px 0 0 var\(--control-border-strong\))[^;]*inset 0 0 0 1px var\(--on-accent\)/,
+      `${family}.css toolbar controls must keep the offset slip edge`
+    );
+    for (const [region, rowClass] of [["sidebar", "nav-item"], ["session-list", "conversation-row"]]) {
+      const rule = source.match(new RegExp(`\\[data-theme-region="${region}"\\] \\.${rowClass}\\.active \\{([^}]*)\\}`))?.[1] ?? "";
+      assert.match(rule, /background:\s*var\(--(?:accent|selection-bg)\)/, `${family}.css ${rowClass}.active must keep its accent/selection fill`);
+      assert.match(rule, /box-shadow:[^;]*inset 0 0 0 1px/, `${family}.css ${rowClass}.active must keep its lift ring`);
+    }
+    // Painting the chip on `box-shadow` must not eat the shared focus ring it
+    // would otherwise inherit from `button:focus-visible` (same property, higher
+    // specificity wins). The row is exempt: its focusable node is the inner
+    // button, whose ring is never overridden.
+    assert.match(
+      source,
+      new RegExp(`:root\\[data-theme-family="${family}"\\] :is\\([\\s\\S]*?\\):focus-visible \\{[^}]*box-shadow:[^;]*0 0 0 4px var\\(--accent\\)`),
+      `${family}.css must restore the shared focus ring on its accent chips`
+    );
+    // The footer's settings gear wears the same chip, so the sidebar reads as
+    // accent at both ends.
+    const gearRule = source.match(new RegExp(`\\[data-theme-region="sidebar"\\] \\.sidebar-footer-gear \\{([^}]*)\\}`))?.[1] ?? "";
+    assert.match(gearRule, /background:\s*var\(--accent\)/, `${family}.css must paint the footer settings gear as an accent chip`);
+    assert.match(gearRule, /box-shadow:[^;]*inset 0 0 0 1px var\(--on-accent\)/, `${family}.css must keep the footer gear's hairline`);
+    // The count badge rides the accent chip, so it takes the chip's opposite
+    // tone in both states instead of merging into the chip.
+    const badgeRule = source.match(new RegExp(`\\[data-theme-region="header"\\] \\.icon-button \\.icon-badge \\{([^}]*)\\}`))?.[1] ?? "";
+    assert.match(badgeRule, /background:\s*var\(--on-accent\)/, `${family}.css must invert the count badge on the resting accent chip`);
+    const pressedBadgeRule = source.match(new RegExp(`\\[data-theme-region="header"\\] \\.icon-button\\[aria-pressed="true"\\] \\.icon-badge[^{]*\\{([^}]*)\\}`))?.[1] ?? "";
+    assert.match(pressedBadgeRule, /background:\s*var\(--accent\)/, `${family}.css must flip the count badge on the pressed (ink) chip`);
+  }
+});
+
+// The nav plane and the transcript canvas must be distinguishable, not one flat
+// sheet: the canvas sits one step away from the chrome so the two panes read as
+// two panes. System 6 is the documented exception — a 1-bit family owns no
+// second structural shade, so its planes stay one #000000/#ffffff sheet with the
+// hard rule as the only divider.
+test("poster families separate the nav plane from the chat canvas", () => {
+  for (const family of ["raft", "brutalism", "blueprint", "terminal", "win98", "system6"]) {
+    const source = read(`./themes/${family}.css`);
+    for (const appearance of ["light", "dark"]) {
+      const block = source.match(new RegExp(`:root\\[data-theme-family="${family}"\\]\\[data-resolved-appearance="${appearance}"\\]\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1] ?? "";
+      const token = (name) => block.match(new RegExp(`--${name}:\\s*([^;]+)`))?.[1]?.trim() ?? "";
+      const content = token("content-bg");
+      const sidebar = token("sidebar-bg");
+      assert.ok(content && sidebar, `${family} ${appearance} must declare both the canvas and the sidebar plane`);
+      if (family === "system6") {
+        assert.equal(content, sidebar, "1-bit System 6 keeps a single #000000/#ffffff surface");
+      } else {
+        assert.notEqual(content, sidebar, `${family} ${appearance} must not paint the nav the exact canvas colour`);
+      }
+    }
+  }
+});
+
+// A fixed-height chrome row must never be a shrinkable flex item next to a
+// scroll pane. `.project-browser`'s flex base size is the FULL height of the
+// file tree / change list, so a long list hands the flex line a huge negative
+// free space; a row carrying an explicit `min-height: 0` loses its automatic
+// min-content floor and is crushed (measured in a browser: 46px → 6px on a
+// 207-entry change list) while its 26px buttons keep their size and spill out —
+// the pane then paints over them, which is why "全部改动" appeared to cover the
+// 文件/变更/附件 strip. Chrome rows are `flex: 0 0 auto`, like the panel's other
+// chrome rows already are.
+test("artifact panel chrome rows keep their height above a long scroll pane", () => {
+  // Strip comments: the rules below explain the failure mode by naming the very
+  // declaration they must not carry.
+  const declarations = styles.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const selector of [".artifact-panel .project-file-tabs", ".artifact-panel .project-viewer-tabs", ".artifact-panel .file-filters"]) {
+    const rule = declarations.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+    assert.ok(rule, `${selector} must keep a rule`);
+    assert.doesNotMatch(rule, /min-height:\s*0/, `${selector} must not zero its min-content floor`);
+  }
+  assert.match(declarations, /\.artifact-panel \.project-file-tabs \{[^}]*flex:\s*0 0 auto/, "the file/change/attachment tab strip is fixed chrome, not a flexible pane");
 });
 
 // The composer's opaque glass layer sits at inset:-1px, exactly over the
@@ -5358,4 +5489,26 @@ test("thinking stops retain their positioning class and selected-state styling",
   assert.match(stop, /aria-checked=\{level === thinkingLevel\}/);
   assert.match(styles, /\.composer-level-stop \{[^}]*position: absolute/);
   assert.match(styles, /\.composer-level-stop\[aria-checked="true"\]::after/);
+});
+
+test("file panel scope hints live inside centered empty states, not standalone corner paragraphs", () => {
+  // The 项目文件 panel communicates scope limits (session-only changes /
+  // conversation-only attachments) through the centered `file-empty` state —
+  // icon + primary line + small secondary line — never through a left-aligned
+  // `.project-panel-scope` paragraph pinned above the list (owner walkthrough:
+  // corner hints read as clutter next to the segmented controls).
+  const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
+  assert.ok(listSvelteSources().every((source) => !source.includes("project-panel-scope")));
+  assert.doesNotMatch(styles, /\.project-panel-scope/);
+  for (const [emptyKey, hintKey] of [
+    ["projectChangesSessionEmpty", "projectChangesSessionHint"],
+    ["projectChangesEmpty", "projectChangesHint"],
+    ["projectAttachmentsEmpty", "projectAttachmentsHint"],
+  ]) {
+    assert.match(
+      artifactPanel,
+      new RegExp(`${emptyKey}\\}</span><small>\\{copy\\.${hintKey}\\}</small></p>`),
+      `${hintKey} must render as the secondary line of the centered empty state`,
+    );
+  }
 });

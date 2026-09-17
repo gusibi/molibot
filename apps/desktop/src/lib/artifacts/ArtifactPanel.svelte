@@ -1113,9 +1113,6 @@
                   onclick={() => (changeScope = "all")}
                 >{copy.projectChangesAll} ({gitEntries.length})</button>
               </div>
-              <p class="project-panel-scope">
-                {changeScope === "session" ? copy.projectChangesSessionHint : copy.projectChangesHint}
-              </p>
               {#if store.git?.status === "ok" && store.git.truncated}<p class="project-truncated-note">{copy.projectInspectionTruncated}</p>{/if}
               {#if visibleEntries.length}
                 <ul class="project-entry-list project-change-list">
@@ -1150,13 +1147,12 @@
                   {/each}
                 </ul>
               {:else}
-                <p class="file-empty"><DuotoneIcon name="CodeFile" size={20} aria-hidden="true" /><span>{copy.projectChangesSessionEmpty}</span></p>
+                <p class="file-empty"><DuotoneIcon name="CodeFile" size={20} aria-hidden="true" /><span>{copy.projectChangesSessionEmpty}</span><small>{copy.projectChangesSessionHint}</small></p>
               {/if}
             {:else if !store.gitLoading}
-                <p class="file-empty"><DuotoneIcon name="CodeFile" size={20} aria-hidden="true" /><span>{copy.projectChangesEmpty}</span></p>
+                <p class="file-empty"><DuotoneIcon name="CodeFile" size={20} aria-hidden="true" /><span>{copy.projectChangesEmpty}</span><small>{copy.projectChangesHint}</small></p>
             {/if}
           {:else}
-            <p class="project-panel-scope">{copy.projectAttachmentsHint}</p>
             {#if attachmentsError}<div class="project-panel-error" role="alert">{attachmentsError}</div>{/if}
             {#if attachments.length}
               <ul class="project-entry-list project-attachment-list">
@@ -1188,7 +1184,7 @@
                 {/each}
               </ul>
             {:else if !attachmentsLoading}
-              <p class="file-empty"><DuotoneIcon name="Paperclip" size={20} aria-hidden="true" /><span>{copy.projectAttachmentsEmpty}</span></p>
+              <p class="file-empty"><DuotoneIcon name="Paperclip" size={20} aria-hidden="true" /><span>{copy.projectAttachmentsEmpty}</span><small>{copy.projectAttachmentsHint}</small></p>
             {/if}
           {/if}
         </div>
