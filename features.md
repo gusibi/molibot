@@ -1,3 +1,72 @@
+### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
+
+- 背景（owner 走查）：「变更 → 本次会话」「附件」tab 在列表上方各有一条左上角对齐的范围说明（"只显示本次会话中 Agent 写入过的文件。" / "仅显示当前会话消息中的附件。"），与下方居中的空状态并排显得杂乱；owner 期望统一为「icon + 居中主文案 + 居中次要说明」的样式（即 Git 不可用空状态已有的样式）。
+- 根修（共享层）：删除两条独立的 `.project-panel-scope` 提示段落，把提示文案降级为对应 `.file-empty` 空状态的 `<small>` 次要行——「本次会话」空态（icon + 本次会话还没有修改任何文件 + 会话范围说明）、「全部改动」空态（icon + 当前项目没有 Git 变更 + 全局状态说明）、「附件」空态（icon + 当前会话还没有附件 + 附件范围说明）。列表有内容时提示随段落一起消失，范围语义由分段控件标签（"本次会话 (0)" / "全部改动 (37)"）承载。
+- 清理（不留兼容层）：删除 `ArtifactPanel.svelte` 两处 `.project-panel-scope` 段落与 `styles.css` 中该类的两条规则（含 artifact-panel 作用域选择器）。
+- 机器守卫（`chat-ui.test.mjs` 新增 1 条）：所有 Svelte 源与样式表不得再出现 `project-panel-scope`；三条空状态必须以 `</span><small>{copy.…Hint}</small></p>` 结构携带各自的范围提示，拦住「左上角散落提示」整类回归。
+- 验证：`chat-ui.test.mjs` 261/261、`svelte-check` 0 错 0 警、`vite build` 通过；隔离 Vite 预览实例（`VITE_MOLIBOT_PREVIEW=1`，1430 端口，未触碰运行中的 1420 dev 服务与 3040 正式服务）浏览器冷路径走查真实组件树：项目会话面板「变更 → 本次会话 (0)」与「附件」空态均为 icon + 居中文案 + 居中次要说明，「变更 → 全部改动 (37)」直接显示列表、无任何角落提示，截图确认与 owner 指定的 Git 不可用空态同款样式。
+
+### 修复：发布管线根修——Intel 打包不再阻塞 latest.json，v2.9.58 更新清单补齐（2026-09-17，已交付）
+
+- 症状（owner 反馈）：升级打包时 Intel 构建一卡住，latest.json 就发布不出来，客户端自动检测更新失败。
+- 根因（上一次守卫为什么没拦住）：2026-09-16 的修复把 manifest job 的条件放宽到「`build` 失败也发布」，但 `needs: build` 指向的是 matrix 整体——只要任何一条腿还在跑/排队，`build.result` 就是 pending，manifest 只能干等。而 GitHub 已退役 `macos-13`（最后一个免费 Intel macOS runner 镜像），Intel 腿永远排不上机器：`gh run` 实测 v2.9.55/9.57 两条 run 均挂满 24 小时后被 cancelled，manifest 最终 skipped。守卫只覆盖了「失败（failure）」这一种结局，没覆盖「卡住（queued→cancelled）」。
+- 修法（`.github/workflows/desktop-release.yml` 重构）：
+  - matrix 拆成 `build-arm64`（`macos-15`，arm64 标准镜像）与 `build-x64`（`macos-15-intel`，现役免费 Intel 镜像）两个独立 job——只有拆开才能让 manifest 只依赖其中一条腿；顺带把 arm64 从已有退役公告的 `macos-14` 升到 `macos-15`，消除同类隐患。
+  - `manifest` job `needs: [build-arm64]` 且 `if: !cancelled() && needs.build-arm64.result == 'success'`：Apple Silicon 构建一完成就生成并发布 latest.json，Intel 无论排队、失败还是取消都碰不到它。
+  - 新增 `manifest-intel` job（`needs: [build-arm64, build-x64]`，按 `build-x64` 成功触发）：Intel 也成功后从本次全部 updater 产物重新生成含双平台的 latest.json 并覆盖发布（内容恒为 manifest 的超集，写入时序上必然后落盘）；arm64 万一失败时它仍会发布 x86_64 单平台清单兜底。
+  - 构建产物的 release 上传列表补上 `updater-platform-*.json`，发布物可自查、事后补清单不再需要重新构造签名。
+- 机器守卫（`scripts/generate-desktop-latest-json.mjs` + 测试）：CLI 在写盘前校验平台数——找不到任何有效 `updater-platform-*.json`（零文件或全部损坏/缺字段）时 `exit 1` 且不落盘，杜绝把空/坏 latest.json 覆盖到 release 上；单个文件解析失败仅告警跳过、不扩散。`finalize-desktop-release.test.mjs` 新增 2 条回归：损坏/缺字段文件被跳过且好文件照常合并；CLI 对全坏输入拒绝写出。
+- 线上补救：v2.9.58 的 run 当时 11 秒即被取消、release 上缺 latest.json（`releases/latest/download/latest.json` 404，自动检测失败中）。已从 release 上现存的 `.sig` 构造 platform json、用同一生成脚本产出 latest.json 并 `--clobber` 上传，更新器端点实测已返回 v0.9.58 双字段正确清单。
+- 验证：`finalize-desktop-release.test.mjs` 10/10 通过；actionlint 0 错（含顺手修掉两处原有 SC2129）；YAML 解析通过；本地模拟「一个好平台 + 一个坏平台文件」生成成功且坏文件只告警。
+- 遗留风险：`macos-15-intel` 是 GitHub 免费档最后的 Intel macOS 镜像（官方只承诺维护最近两个 macOS 版本），未来退役时 Intel 腿会再次排队挂死——但按本次结构，它届时只会拖长自己的构建，latest.json 与 arm64 发布不再受影响；到时再决定 Intel 是去是留（例如 arm64 runner 上交叉编译 x86_64）。
+
+### 修复：project 维度的主题区域钩子漏挂（右上角没有黄色芯片）（2026-09-17，已交付）
+
+- 症状（owner 走查 Raft）：对话维度右上角是黄芯片，切到 project 维度后同一排按钮变回中性、没有主题色。
+- 根因（不是样式问题，是钩子漏挂）：project 维度不复用 ChatView 的内联 header，而是共享组件 `ChatHeader.svelte` 渲染 `.chat-header`，该元素上没有 `data-theme-region="header"`（只有 ChatView 那份有）；于是所有主题的 header 适配——含 6 个硬边家族的 accent 芯片——到 project 维度就断掉。同一处 `ProjectDetail.svelte` 自己的 `.chat-content` 也漏了 `data-theme-region="chat"`，画布适配同样失效。
+- 现状守卫为什么没拦住：`chat-ui.test.mjs` 的区域钩子测试只断言了 ChatView / ChatSidebar / ChatInputArea / ArtifactPanel 里的挂载点。共享组件是「一个区域一个挂载点」这条规则唯一会在没有第二份副本的情况下被破坏的地方，而它恰好不在断言里。
+- 根修（共享层）：`ChatHeader.svelte` 的 `.chat-header` 补 `data-theme-region="header"`；`ProjectDetail.svelte` 的 `.chat-content` 补 `data-theme-region="chat"`。没有新增区域、没有 per-panel 特判。
+- 机器守卫：区域钩子测试扩展为同时断言 `ChatHeader.svelte` 的 header 挂载与 `ProjectDetail.svelte` 的 chat 挂载，并在注释里写明「复用区域元素必须自己挂钩子」。
+- 已评估并否决（owner 决定保留现状）：把黄色芯片上的图标从墨色改成白色。实测对比度——墨色 `#161311` 压 `#ffd440` = **12.99:1**；纯白 = **1.42:1**（图标会发虚）；白字要达到非文本图形 3:1 门槛需把芯片加深到 `#a67c00` 左右，那就不再是 raft.build 的信号黄。结论：保持墨色图标。
+- 验证：`chat-ui.test.mjs` 260/260、`project-sidebar` + 全部 `.mjs` 守卫 261/261、桌面 `svelte-check` 0 错 0 警、`vite build` 通过。未做真机走查（本次只加两个属性 + 两条断言，无新代码路径）。
+
+### 修复：文件面板 tab 条被长列表压扁（内容盖住 tab）+ 工具按钮计数徽章与按钮粘连（2026-09-17，已交付）
+
+- 症状（owner 走查）：① 文件面板「变更 → 全部改动」时下方列表上移、盖住「文件/变更/附件」这一行；② 切到「文件」tab 同样；③ 工具按钮右下角的计数徽章和黄色按钮粘成一块。
+- 根因 1（真 bug，CLAUDE.md pitfall 16(c) 同族：一个 flex item 的尺寸会静默塌成 0）：`.artifact-panel .project-file-tabs` 是 `.file-panel`（flex column）里**唯一**显式写了 `min-height: 0` 的固定高度 chrome 行。它的 flex 兄弟 `.project-browser` 是滚动面板，flex base size 等于整棵文件树 / 整个变更列表的**完整内容高度**；内容一长就给 flex line 一个巨大的负剩余空间，而 `min-height: 0` 恰好去掉了这一行的 automatic min-content 下限，于是它被按比例压扁，内部 26px 按钮保持原高溢出到盒外，随后的 `.project-panel-body`（后一个兄弟）直接绘制其上——即「内容盖住 tab」。同行的 `.project-change-scope` 之所以没事，正因为没人给它写 `min-height: 0`，它靠自动 min-content（34px）自保。
+- 证据（真实 `styles.css` + 真实面板 DOM，浏览器实测）：同一 DOM，`min-height: 0` 时 tab 条 46px → **7px**（207 条变更）/ **11px**（80 行文件树）且按钮溢出；改 `flex: 0 0 auto` 后三种内容量都稳定 **30px**、无溢出。
+- 根修（共享层）：`.artifact-panel .project-file-tabs` 的 `min-height: 0` 改为 `flex: 0 0 auto`。它本来就是固定 chrome，和面板里另两行 chrome（`.file-filters`、`.project-viewer-tabs`）已有写法一致，不是新增约定。
+- 根因 2（徽章粘连）：`.icon-badge` 与工具芯片同为 `--accent` 底，Raft 下黄底黄标（且全直角）视觉上合成一块。
+- 修法（6 个硬边家族 region 层）：徽章取**芯片反色**——静止（accent 芯片）时 `--on-accent` 底 + accent 字；按下/展开（芯片已反色为 `--on-accent` 底）时翻成 `--accent` 底 + on-accent 字。两态都覆盖，杜绝「按下后徽章又和芯片同色」的二次粘连；与各家族已有的「选中 nav 行里的未读徽章反色」同一套语言。
+- 机器守卫（chat-ui.test.mjs 新增 1 条 + 扩展 1 条）：① 「文件面板 chrome 行不得被长滚动面板压扁」——断言 `.project-file-tabs` / `.project-viewer-tabs` / `.file-filters` 三条规则都不得出现 `min-height: 0`，且 tab 条必须是 `flex: 0 0 auto`（断言前先剥离注释，否则规则自己的说明文字会命中）；② poster 家族测试扩展：徽章必须有静止/按下两套反色。
+- 验证：`chat-ui.test.mjs` 260/260、全部 `.mjs` 守卫 272/272、`vscodeTheme.test.ts` 15/15、桌面 `svelte-check` 0 错 0 警、`vite build` 通过。未在 Tauri 真机复跑（本次只改 CSS 声明，无新代码路径）。
+- 环境备注：本次发现工作区里同时存在另一条并行会话的未提交改动（titlebar 控制簇重构，涉及 `ChatView.svelte` / `ChatHeader.svelte` / `ChatWorkspacePane.svelte` / `ProjectDetail.svelte` / `styles.css` / 发布脚本）。本次只在共享 `styles.css` 内新增/修改与面板和 footer 相关的块，未触碰该会话的改动。
+
+### 调整：标题栏控制簇根修——折叠按钮固定红绿灯右侧，折叠态搜索换新建（2026-09-17，已交付）
+
+- 背景（owner 走查）：折叠按钮在展开态位于侧栏右上角，点击折叠后按钮跳到窗口右上角（工作台页），位置跳变不合理；期望按钮固定在红绿灯右侧不动，折叠态隐藏搜索、换成新建对话。
+- 根因：折叠/搜索按钮原本住在 `ChatSidebar` 顶栏内部且右对齐，而折叠是把整个侧栏压到 0 宽隐藏——按钮随侧栏一起消失，于是对话页 / 各工作台页 / 项目页各自渲染了一份展开按钮副本，位置各不相同（对话页在左、工作台页在右上），这就是「按钮跑到右边」的来源。
+- 根修（共享层）：标题栏控制簇提升为 ChatView 里的窗口级固定层（`left: 84px`，对齐 Tauri 红绿灯偏移 + 现有 84px 约定；本项目为纯 macOS 应用，偏移可写死）。簇两个槽位按状态切换、坐标不动：展开 = `[折叠][搜索会话]`，折叠 = `[折叠][新对话]`；折叠态点新对话会顺带展开侧边栏（owner 确认的方案），让新会话出现在可见列表里。展开态搜索按钮随折叠按钮一起靠左成组（owner 确认），侧栏右上角变纯拖拽区。
+- 清理（不留兼容层）：删除 ChatHeader / ChatWorkspacePane / ChatView inline header 三处面板级展开按钮副本及 `sidebarCollapsed`/`onToggleSidebar`/`onOpenConversationSearch`/`onToggleCollapse` 传递链，删除全局 `.sidebar-expand-btn` 与 `.workspace-header-expand` 死样式；按钮样式上移为共享层 `.titlebar-cluster` + `.sidebar-titlebar-btn`。簇容器带 `data-theme-region="sidebar"`，6 个硬边主题家族对 `.sidebar-titlebar-btn` 的 accent 芯片规则零改动继续生效。
+- 折叠态标题避让：`.chat-header` 折叠态 `padding-left` 84→150px（红绿灯 + 两按钮 + 间隙 + 呼吸位），工作台 PageHeader 同步 150/150 对称保持标题列居中；窄侧栏轨道 170px > 簇末端 142px，无重叠。
+- 机器守卫（chat-ui.test.mjs 重写 2 条）：① 侧栏不得再有顶栏按钮、所有 Svelte 源不得再出现 `sidebar-expand-btn`、样式表不得再有该类（拦住「面板级副本重新长出来」整类回归）+ DESIGN.md 规范条目钉住；② 簇的搜索/新建槽位切换与 `newChatFromCollapsedSidebar`（先展开后新建）钉住。
+- 规范先行：DESIGN.md 新增「title-bar control cluster」条目（窗口级、红绿灯右侧锚定、槽位切换语义、禁止面板级按钮），本次在同一 slice 内对所有受影响面板统一应用。
+- 验证：`chat-ui.test.mjs` 259/259、桌面全部测试 313+271+7 全绿、`svelte-check` 0 错 0 警、`vite build` 通过；隔离 Vite 实例冷路径走查（浏览器渲染真实组件树，未触碰运行中的桌面实例）：展开态簇在红绿灯右侧 → 折叠后簇原地不动、搜索换新建 → 折叠态点新建顺带展开侧边栏 → Agent 工作台折叠态标题从簇后开始、右上无孤儿按钮 → Blueprint 主题 accent 芯片正确落在簇按钮上。真机红绿灯下的最终目视确认待 owner 在桌面端完成。
+
+### 调整：Raft 同族硬边主题的 nav/画布分面、主色上控件、选中浮起；侧栏底部去分割线（2026-09-17，已交付）
+
+- 背景（owner 走查 Raft）：① 左侧 nav 选中项只有底色，没有像输入框那样的浮起描边；② 顶部工具按钮没有主色，信号黄「隐身」；③ 浅色下 chat 画布偏黄、nav 与 chat 同色没有区分度；④ nav 底部头像/设置区有分割线，齿轮看不清，「在线」两字多余。owner 确认范围：Raft 为主，同一套处理推广到同为硬阴影/poster 语言的 Brutalism、Blueprint、System 6、Terminal、Win98；底部区域改到全局所有主题。
+- 分面（各主题 light/dark token 块）：画布与导航不再同色。Raft 亮 = 奶油导航 `#fffaef` + 白画布 `#ffffff`；Raft 暗 = 导航压深 `#100e0c`、画布保持 `#161311`；Brutalism 亮白画布 / 暗画布抬到 `#161616`；Blueprint 亮白画布 / 暗画布 `#0f365c`；Terminal 亮导航压到 `#e2ebe0` / 暗画布 `#0a120a`；Win98 亮白文档画布（header region 由灰→白渐变改为平铺灰工具栏）/ 暗导航 `#232323`。System 6 是文档化例外：1-bit 家族只有 `#000000` / `#ffffff` 两个结构色，给不出第二级面，保持单面 + 硬分隔线。
+- 主色上控件（各主题 region 层）：`[data-theme-region="header"] .icon-button` 与 `[data-theme-region="sidebar"] .sidebar-titlebar-btn` 铺 `--accent` 底 + `--on-accent` 图标 + 1px on-accent 描边 + 下/右硬偏移边（Brutalism 用 `--soft-shadow` 3px，其余 `2px 2px 0 0 var(--control-border-strong)`，与各自选中行一致）；hover 走 `--accent-hover`，按下/展开反色（`--on-accent` 底 + accent 图标）并保留同一条偏移边，形成「贴纸」而不是无边的色块。
+- 已评估并否决：把整条 header 铺成黄色。三个硬理由：① 折叠态 `.chat-header` 背景仍铺满窗口宽度（`inset: 0 0 auto`，`padding-left: 84px` 只推内容），黄带会压到左上红绿灯，macOS 最小化黄点 `#ffbd2e` 与 `#ffd440` 对比度仅 1.17:1，等于消失；② header 里的会话标题/来源标签必须整体翻色（奶油/墨字压在黄底是 1.25–1.37:1，墨黑变体下 `--label-secondary` 只有 1.32:1），等于再造一层「黄底语义」；③ 大面积黄把黄色从「信号」降级成「环境色」，而原站黄色永远是小块 CTA。结论：保留黄色芯片，只补硬偏移边。
+- 选中项浮起（各主题 region 层）：`.nav-item.active` 补 `--accent` 实底 + 硬偏移 + `inset 0 0 0 1px` on-accent 细环；`.conversation-row.active`（Raft 保持 `--selection-bg` 粉）加同款边。偏移取各家族自己的硬边 token——Brutalism 用 `--soft-shadow`（3px 黑/奶油），其余用 `--control-border-strong`（Raft 墨/奶油、System 6 黑白、Win98 深灰）——所以是各家族用各自的硬边语言，不是照抄 Raft 的 2px。
+- 焦点环（自查发现的回归）：accent 芯片和选中行的浮起都画在 `box-shadow` 上，而共享 `button:focus-visible` 的键盘焦点环用的也是 `box-shadow`——主题 region 规则特异性更高会把焦点环整条吃掉。修法：每个家族补一条 `:is(.icon-button, .sidebar-titlebar-btn, .nav-item.active):focus-visible`，写回应用自带的焦点语言（`0 0 0 2px var(--card-bg)` 间隙 + `0 0 0 4px var(--accent)` 环）并保留芯片自己的细边。会话行不需要覆写——`.conversation-row` 是不可聚焦的 div，焦点落在它的内层 `.row-open` 按钮上，那条规则不会被覆盖。
+- 侧栏底部的设置齿轮（6 个家族）：底部的设置齿轮穿上和顶部栏按钮同一件 accent 芯片——28px 黄块 + 下/右硬偏移边 + 1px on-accent 细环，hover 走 `--accent-hover`，让侧栏上下两端都有家族主色。芯片用 16px 图标盒 + `padding: 6px` 画到 28px，再用 `margin: -6px` 把布局占位压回 16px——region 层只改形态、不让 footer 文字重排。芯片不遮盖键盘焦点：焦点环画在 footer 那个 `<button>` 上，和齿轮是两个元素。
+- 侧栏底部（全局所有主题）：`ChatSidebar.svelte` 删掉 footer 自己声明的分割线；共享层 `styles.css` 的基础 `.sidebar-footer` 也去掉 `border-top`（项目侧栏的同一排头像/设置行受益，「对话/项目」列表下方的动作块仍由 `.sidebar-return` 自己的线分组），所以「头像/设置行上方没有分割线」是一条统一规则而不是逐面板特判。齿轮从 `--label-tertiary` × 0.6 透明度改到 `--label-secondary` 满强度、hover `--label-primary`（其余 19 个主题保持这个中性可读档位，只有上述 6 个硬边家族升为黄芯片）；「在线/离线」一行移除——头像上的状态点已表达状态，文案保留为按钮 `aria-label`，状态不靠颜色单独表达。
+- 机器守卫（chat-ui.test.mjs 新增 2 条主题守卫 + 1 条侧栏底部守卫）：① poster 家族必须在工具控件上保留 accent 实底 + on-accent 字 + 硬偏移边，必须有 `:is(...):focus-visible` 写回共享焦点环（拦住「画在 box-shadow 上吃掉焦点环」整类），且底部设置齿轮也必须是 accent 芯片 + 细环；② poster 家族选中行必须保留实底 + `inset 0 0 0 1px` 细环；③ poster 家族 nav 与画布不得同色（仅 System 6 断言两者必须相同）；④ 侧栏底部无分割线、无冗余状态行、齿轮走二级标签色、状态文案仍在 `aria-label`。
+- 验证：`chat-ui.test.mjs` 259/259、全部 `.mjs` 守卫 271/271、桌面 `svelte-check` 0 错 0 警、`vite build` 通过。未做 Tauri 壳内真机截图走查（本次只改 region/token/ChatSidebar 标记，无新代码路径），冷启动目视确认待 owner 在桌面端完成。
+- 遗留风险（未修，owner 选择保持现状）：黄色工具芯片与它右下角的计数徽章都是 `--accent` 底，徽章会和芯片粘成一块，"有 N 个文件"的提示被削弱。若要修，方向是徽章改走 `--selection-bg` 粉底墨字（Raft 的选中色对）。
+
 ### 调整：文件面板 tab 与筛选器统一到分段控件语言（2026-09-16，已交付）
 
 - 背景（owner 走查）：文件面板（右侧检查器）顶部的「本轮文件/文件」tab 是 GitHub 式下划线 tab，媒体筛选（全部/图片/视频/音频/文档）是描边小方块，与技能页/自动任务页已统一的分段控件明显不一致，且激活态（黄色下划线、黄味色块）在 Raft 下很不明显。
