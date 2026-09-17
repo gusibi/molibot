@@ -204,3 +204,55 @@ test("generateLatestJson combines multi-architecture updater platform files", as
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("generateLatestJson skips corrupt or incomplete updater platform files", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "molibot-latest-json-"));
+  try {
+    const goodFile = path.join(directory, "updater-platform-aarch64.json");
+    const corruptFile = path.join(directory, "updater-platform-x86_64.json");
+    const incompleteFile = path.join(directory, "updater-platform-broken.json");
+
+    await writeFile(goodFile, JSON.stringify({
+      platform: "darwin-aarch64",
+      signature: "sig-arm",
+      url: "https://example.com/arm.tar.gz"
+    }), "utf8");
+    await writeFile(corruptFile, "{not valid json", "utf8");
+    await writeFile(incompleteFile, JSON.stringify({ platform: "darwin-x86_64" }), "utf8");
+
+    const { generateLatestJson } = await import("./generate-desktop-latest-json.mjs");
+    const manifest = await generateLatestJson({
+      platformFiles: [goodFile, corruptFile, incompleteFile]
+    });
+
+    assert.deepEqual(Object.keys(manifest.platforms), ["darwin-aarch64"]);
+    assert.equal(manifest.platforms["darwin-aarch64"].signature, "sig-arm");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("generate-desktop-latest-json CLI refuses to write a manifest with no valid platforms", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "molibot-latest-json-"));
+  try {
+    // All inputs unusable (corrupt + missing signature/url): the CLI must exit
+    // non-zero and leave no latest.json behind, so a release step can never
+    // overwrite a good published manifest with an empty one.
+    await writeFile(path.join(directory, "updater-platform-aarch64.json"), "{broken", "utf8");
+    await writeFile(path.join(directory, "updater-platform-x86_64.json"), JSON.stringify({ platform: "darwin-x86_64" }), "utf8");
+
+    const outPath = path.join(directory, "latest.json");
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const run = promisify(execFile);
+    const script = new URL("./generate-desktop-latest-json.mjs", import.meta.url);
+
+    await assert.rejects(
+      run(process.execPath, [script.href, "--artifacts", directory, "--out", outPath]),
+      (error) => error.code === 1
+    );
+    await assert.rejects(readFile(outPath, "utf8"), { code: "ENOENT" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

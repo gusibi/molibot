@@ -85,13 +85,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
 
+  // Never overwrite a (possibly good) published manifest with an empty one:
+  // zero files or every file corrupt/missing fields must fail the release step
+  // loudly instead of silently breaking all installed clients' update checks.
   const manifest = await generateLatestJson({
     artifactsDir: artifactsDir || undefined,
-    outputPath,
     version: version || undefined,
     notes: notes || undefined
   });
 
+  if (Object.keys(manifest.platforms).length === 0) {
+    console.error(`Refusing to write ${outputPath}: no valid updater-platform-*.json inputs found`);
+    process.exit(1);
+  }
+
+  await writeFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   console.log(`Generated ${outputPath}:`);
   console.log(JSON.stringify(manifest, null, 2));
 }

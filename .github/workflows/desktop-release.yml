@@ -3,6 +3,17 @@ name: Desktop Release
 # Reproducible unsigned-beta builds per docs/requirements/molibot-macos-app-plan.md §16.1 / Phase 5.
 # Produces Apple Silicon and Intel Molibot DMGs, SHA-256 checksums, and build-info manifests.
 # The DMG is unsigned (no Developer ID / notarization) — Gatekeeper install is the user's responsibility.
+#
+# latest.json is NEVER gated on the Intel leg:
+# - build-arm64 / build-x64 are separate jobs (a matrix job cannot be partially
+#   depended on — `needs` would wait for every leg, which is how a stuck Intel
+#   runner once blocked the manifest for a full day).
+# - `manifest` depends on build-arm64 ONLY and publishes latest.json the moment
+#   the Apple Silicon build finishes.
+# - `manifest-intel` re-publishes latest.json with the darwin-x86_64 entry once
+#   the Intel build also succeeds (it merges every updater artifact of the run).
+# - macos-13 is retired by GitHub; jobs on it queue for 24h and die. Intel now
+#   builds on the supported macos-15-intel image, arm64 on macos-15.
 
 on:
   push:
@@ -25,27 +36,13 @@ env:
   MACOSX_DEPLOYMENT_TARGET: "13.0"
 
 jobs:
-  build:
-    name: Build unsigned DMG (${{ matrix.label }})
-    runs-on: ${{ matrix.runner }}
+  build-arm64:
+    name: Build unsigned DMG (Apple Silicon)
+    runs-on: macos-15
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: Apple Silicon
-            arch: aarch64
-            target: aarch64-apple-darwin
-            runner: macos-14
-            node_sidecar: darwin-arm64
-          - label: Intel
-            arch: x86_64
-            target: x86_64-apple-darwin
-            runner: macos-13
-            node_sidecar: darwin-x64
 
     env:
-      TAURI_BUILD_TARGET: ${{ matrix.target }}
+      TAURI_BUILD_TARGET: aarch64-apple-darwin
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
@@ -79,9 +76,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             apps/desktop/src-tauri/target
-          key: desktop-cargo-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          key: desktop-cargo-${{ runner.os }}-aarch64-apple-darwin-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
           restore-keys: |
-            desktop-cargo-${{ runner.os }}-${{ matrix.target }}-
+            desktop-cargo-${{ runner.os }}-aarch64-apple-darwin-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -107,24 +104,26 @@ jobs:
           tar_path="$(find "$macos_dir" -type f -name '*.app.tar.gz' 2>/dev/null | head -n 1)"
           sig_path="$(find "$macos_dir" -type f -name '*.app.tar.gz.sig' 2>/dev/null | head -n 1)"
           platform_path="$(find "$macos_dir" -type f -name 'updater-platform-*.json' 2>/dev/null | head -n 1)"
-          echo "dmg_path=$dmg_path" >> "$GITHUB_OUTPUT"
-          echo "sha_path=$sha_path" >> "$GITHUB_OUTPUT"
-          echo "bundle_dir=$bundle_dir" >> "$GITHUB_OUTPUT"
-          echo "tar_path=${tar_path:-}" >> "$GITHUB_OUTPUT"
-          echo "sig_path=${sig_path:-}" >> "$GITHUB_OUTPUT"
-          echo "platform_path=${platform_path:-}" >> "$GITHUB_OUTPUT"
+          {
+            echo "dmg_path=$dmg_path"
+            echo "sha_path=$sha_path"
+            echo "bundle_dir=$bundle_dir"
+            echo "tar_path=${tar_path:-}"
+            echo "sig_path=${sig_path:-}"
+            echo "platform_path=${platform_path:-}"
+          } >> "$GITHUB_OUTPUT"
           ls -la "$bundle_dir"
           if [[ -d "$macos_dir" ]]; then ls -la "$macos_dir"; fi
 
       - name: Write build-info manifest
         id: manifest
         run: |
-          out="$(mktemp -d)/BUILD-INFO-${{ matrix.arch }}.txt"
+          out="$(mktemp -d)/BUILD-INFO-aarch64.txt"
           {
             echo "Molibot Desktop — Unsigned Beta Build"
             echo "======================================"
             echo "version: $(node -p "require('./apps/desktop/package.json').version")"
-            echo "arch: ${{ matrix.arch }}"
+            echo "arch: aarch64"
             echo "tauri_build_target: ${TAURI_BUILD_TARGET}"
             echo "git_commit: $(git rev-parse HEAD)"
             echo "git_ref: $(git describe --tags --always 2>/dev/null || echo unknown)"
@@ -135,9 +134,9 @@ jobs:
             echo "rustc: $(rustc --version)"
             echo "cargo: $(cargo --version)"
             echo "macos_deployment_target: ${MACOSX_DEPLOYMENT_TARGET}"
-            echo "bundled_node_sidecar: 22.23.1 (${{ matrix.node_sidecar }})"
+            echo "bundled_node_sidecar: 22.23.1 (darwin-arm64)"
             echo ""
-            echo "Intended platform: ${{ matrix.label }}, macOS 13+"
+            echo "Intended platform: Apple Silicon, macOS 13+"
             echo "Signature: unsigned (no Developer ID, no notarization)"
             echo "Install: drag Molibot.app to Applications; Gatekeeper may require an explicit override."
           } > "$out"
@@ -147,7 +146,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: molibot-desktop-${{ matrix.arch }}
+          name: molibot-desktop-aarch64
           if-no-files-found: error
           path: |
             ${{ steps.artifacts.outputs.dmg_path }}
@@ -174,15 +173,155 @@ jobs:
             ${{ steps.manifest.outputs.manifest_path }}
             ${{ steps.artifacts.outputs.tar_path }}
             ${{ steps.artifacts.outputs.sig_path }}
+            ${{ steps.artifacts.outputs.platform_path }}
 
+  build-x64:
+    name: Build unsigned DMG (Intel)
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+
+    env:
+      TAURI_BUILD_TARGET: x86_64-apple-darwin
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # corepack must enable pnpm BEFORE setup-node, otherwise `cache: pnpm`
+      # cannot resolve the pnpm binary to compute the store path and the step fails.
+      - name: Enable pnpm (corepack)
+        run: corepack enable
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust target
+        run: rustup target add "$TAURI_BUILD_TARGET"
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: desktop-cargo-${{ runner.os }}-x86_64-apple-darwin-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            desktop-cargo-${{ runner.os }}-x86_64-apple-darwin-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare runtime + build Tauri DMG + checksum
+        run: pnpm run desktop:build
+
+      - name: Locate release artifacts
+        id: artifacts
+        run: |
+          bundle_dir="apps/desktop/src-tauri/target/${TAURI_BUILD_TARGET}/release/bundle/dmg"
+          macos_dir="apps/desktop/src-tauri/target/${TAURI_BUILD_TARGET}/release/bundle/macos"
+          dmg_path="$(find "$bundle_dir" -type f -name '*.dmg' | head -n 1)"
+          if [[ -z "$dmg_path" ]]; then
+            echo "::error::No DMG produced under $bundle_dir"
+            exit 1
+          fi
+          sha_path="${dmg_path}.sha256"
+          if [[ ! -f "$sha_path" ]]; then
+            echo "::error::Checksum sidecar missing: $sha_path"
+            exit 1
+          fi
+          tar_path="$(find "$macos_dir" -type f -name '*.app.tar.gz' 2>/dev/null | head -n 1)"
+          sig_path="$(find "$macos_dir" -type f -name '*.app.tar.gz.sig' 2>/dev/null | head -n 1)"
+          platform_path="$(find "$macos_dir" -type f -name 'updater-platform-*.json' 2>/dev/null | head -n 1)"
+          {
+            echo "dmg_path=$dmg_path"
+            echo "sha_path=$sha_path"
+            echo "bundle_dir=$bundle_dir"
+            echo "tar_path=${tar_path:-}"
+            echo "sig_path=${sig_path:-}"
+            echo "platform_path=${platform_path:-}"
+          } >> "$GITHUB_OUTPUT"
+          ls -la "$bundle_dir"
+          if [[ -d "$macos_dir" ]]; then ls -la "$macos_dir"; fi
+
+      - name: Write build-info manifest
+        id: manifest
+        run: |
+          out="$(mktemp -d)/BUILD-INFO-x86_64.txt"
+          {
+            echo "Molibot Desktop — Unsigned Beta Build"
+            echo "======================================"
+            echo "version: $(node -p "require('./apps/desktop/package.json').version")"
+            echo "arch: x86_64"
+            echo "tauri_build_target: ${TAURI_BUILD_TARGET}"
+            echo "git_commit: $(git rev-parse HEAD)"
+            echo "git_ref: $(git describe --tags --always 2>/dev/null || echo unknown)"
+            echo "built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner_os: ${{ runner.os }}"
+            echo "runner_arch: ${{ runner.arch }}"
+            echo "node: $(node --version)"
+            echo "rustc: $(rustc --version)"
+            echo "cargo: $(cargo --version)"
+            echo "macos_deployment_target: ${MACOSX_DEPLOYMENT_TARGET}"
+            echo "bundled_node_sidecar: 22.23.1 (darwin-x64)"
+            echo ""
+            echo "Intended platform: Intel, macOS 13+"
+            echo "Signature: unsigned (no Developer ID, no notarization)"
+            echo "Install: drag Molibot.app to Applications; Gatekeeper may require an explicit override."
+          } > "$out"
+          cat "$out"
+          echo "manifest_path=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: molibot-desktop-x86_64
+          if-no-files-found: error
+          path: |
+            ${{ steps.artifacts.outputs.dmg_path }}
+            ${{ steps.artifacts.outputs.sha_path }}
+            ${{ steps.manifest.outputs.manifest_path }}
+            ${{ steps.artifacts.outputs.tar_path }}
+            ${{ steps.artifacts.outputs.sig_path }}
+            ${{ steps.artifacts.outputs.platform_path }}
+
+      # prerelease MUST stay false: the Tauri updater endpoint
+      # .../releases/latest/download/latest.json only resolves full releases,
+      # so a prerelease would make every installed client fail update checks.
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            ${{ steps.artifacts.outputs.dmg_path }}
+            ${{ steps.artifacts.outputs.sha_path }}
+            ${{ steps.manifest.outputs.manifest_path }}
+            ${{ steps.artifacts.outputs.tar_path }}
+            ${{ steps.artifacts.outputs.sig_path }}
+            ${{ steps.artifacts.outputs.platform_path }}
+
+  # Publishes latest.json as soon as the Apple Silicon build is done.
+  # Deliberately does NOT need build-x64: a stuck/queued Intel leg must never
+  # delay or skip the updater manifest again (that is exactly the v2.9.57 incident).
   manifest:
     name: Generate & Publish Updater Manifest (latest.json)
-    needs: build
+    needs: [build-arm64]
+    if: ${{ !cancelled() && needs.build-arm64.result == 'success' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
-    # The Intel leg is allowed to fail without blocking the release; publish
-    # the manifest for whichever archs produced updater artifacts. Skipped only
-    # when the run itself was cancelled.
-    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'failure') && startsWith(github.ref, 'refs/tags/') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -199,11 +338,43 @@ jobs:
 
       - name: Generate latest.json
         run: |
-          platform_count="$(find artifacts -name 'updater-platform-*.json' | wc -l | tr -d ' ')"
-          if [[ "$platform_count" -eq 0 ]]; then
-            echo "::error::No updater-platform-*.json in artifacts; refusing to publish an empty latest.json"
-            exit 1
-          fi
+          find artifacts -name 'updater-platform-*.json' -print
+          node scripts/generate-desktop-latest-json.mjs --artifacts artifacts --out latest.json
+          cat latest.json
+
+      - name: Publish latest.json to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          prerelease: false
+          files: latest.json
+
+  # Once the Intel build has also succeeded, regenerate latest.json from every
+  # updater artifact of this run (arm64 + x86_64) and overwrite the release
+  # asset, so Intel clients get update offers too. Runs even when the arm64
+  # build failed — a working Intel-only manifest beats no manifest at all.
+  manifest-intel:
+    name: Refresh latest.json with Intel platform
+    needs: [build-arm64, build-x64]
+    if: ${{ !cancelled() && needs.build-x64.result == 'success' && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate latest.json
+        run: |
+          find artifacts -name 'updater-platform-*.json' -print
           node scripts/generate-desktop-latest-json.mjs --artifacts artifacts --out latest.json
           cat latest.json
 
