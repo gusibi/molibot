@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "molibot-desktop"
-version = "0.9.58"
+version = "0.9.59"
 dependencies = [
  "base64 0.22.1",
  "block2",
