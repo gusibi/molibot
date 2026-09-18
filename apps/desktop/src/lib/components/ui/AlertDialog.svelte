@@ -52,9 +52,10 @@
 
 <BitsAlertDialog.Root bind:open={getOpen, setOpen}>
   <BitsAlertDialog.Portal>
-    <BitsAlertDialog.Overlay class="desktop-dialog-overlay" />
+    <BitsAlertDialog.Overlay class="desktop-dialog-overlay" data-motion="dialog-scrim" />
     <BitsAlertDialog.Content
       class={`desktop-dialog-content ${contentClass}`}
+      data-motion="dialog-sheet"
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       onEscapeKeydown={handleEscape}

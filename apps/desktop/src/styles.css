@@ -6864,3 +6864,231 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .trace-report-body iframe { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 8px; background: var(--card-bg); }
 .trace-report-error, .trace-report-url { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-meta); }
 .trace-report-error { color: var(--label-secondary); }
+
+/* Desktop structural motion system ---------------------------------------------
+   Stable shell, moving content: structural changes get a short bridge while
+   high-frequency keyboard/hover paths remain immediate. Durations/easing come
+   exclusively from the shared Motion tokens; these rules use compositor-friendly
+   opacity/translate/scale only. */
+.settings-overlay {
+  animation: motion-scrim-in var(--duration-fast) var(--ease-standard) both;
+}
+.settings-layout {
+  animation: motion-settings-shell-in var(--duration-normal) var(--ease-spring) both;
+}
+.settings-overlay.closing {
+  animation: motion-scrim-out var(--duration-normal) var(--ease-standard) both;
+  pointer-events: none;
+}
+.settings-layout.closing {
+  animation: motion-settings-shell-out var(--duration-normal) var(--ease-standard) both;
+}
+.settings-motion-stage,
+.workspace-motion-stage {
+  min-width: 0;
+  min-height: 0;
+  animation: motion-surface-in var(--duration-normal) var(--ease-standard) both;
+}
+.settings-motion-stage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.workspace-motion-stage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+}
+.workspace-motion-stage > .workspace-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Shared Bits UI dialogs use explicit motion hooks. starting-style gives an
+   entrance even if presence metadata changes; data-state keeps close presence
+   animated where Bits UI retains the node for its outro. Individual translate
+   and scale properties preserve variant transforms such as translateX(-50%). */
+:where([data-motion="dialog-scrim"]) {
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+:where([data-motion="dialog-sheet"]) {
+  transition:
+    opacity var(--duration-normal) var(--ease-standard),
+    translate var(--duration-normal) var(--ease-spring),
+    scale var(--duration-normal) var(--ease-spring);
+}
+@starting-style {
+  :where([data-motion="dialog-scrim"]) { opacity: 0; }
+  :where([data-motion="dialog-sheet"]) { opacity: 0; translate: 0 8px; scale: .985; }
+}
+:where([data-motion="dialog-scrim"][data-state="open"]) {
+  animation: motion-scrim-in var(--duration-fast) var(--ease-standard) both;
+}
+:where([data-motion="dialog-scrim"][data-state="closed"]) {
+  animation: motion-scrim-out var(--duration-fast) var(--ease-standard) both;
+}
+:where([data-motion="dialog-sheet"][data-state="open"]) {
+  animation: motion-dialog-in var(--duration-normal) var(--ease-spring) both;
+}
+:where([data-motion="dialog-sheet"][data-state="closed"]) {
+  animation: motion-dialog-out var(--duration-fast) var(--ease-standard) both;
+}
+
+/* Right-side inspectors share one spatial language: they arrive from the edge
+   they are attached to. MemoryTraceDrawer keeps its richer drag/close contract. */
+.artifact-panel,
+.durable-inspector,
+.session-plan-inspector {
+  animation: motion-inspector-in var(--duration-panel) var(--ease-spring) both;
+}
+
+/* Tactile press feedback is intentionally tiny. It applies only to shared,
+   high-confidence controls; list hover and keyboard-driven menus do not move. */
+:is(
+  .primary-button,
+  .secondary-button,
+  .tertiary-button,
+  .error-button,
+  .icon-button,
+  .settings-back,
+  .settings-nav,
+  .nav-item,
+  .sidebar-titlebar-btn,
+  .new-chat,
+  .row-icon-btn,
+  .sidebar-footer,
+  .sidebar-return,
+  .send-button
+) {
+  transition-property: background, background-color, border-color, color, opacity, scale, box-shadow;
+  transition-duration: var(--duration-instant);
+  transition-timing-function: var(--ease-standard);
+}
+:is(
+  .primary-button,
+  .secondary-button,
+  .tertiary-button,
+  .error-button,
+  .icon-button,
+  .settings-back,
+  .settings-nav,
+  .nav-item,
+  .sidebar-titlebar-btn,
+  .new-chat,
+  .row-icon-btn,
+  .sidebar-footer,
+  .sidebar-return,
+  .send-button
+):active:not(:disabled) {
+  scale: .975;
+}
+
+@keyframes motion-surface-in {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-settings-shell-in {
+  from { opacity: 0; translate: 10px 0; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-settings-shell-out {
+  from { opacity: 1; translate: 0 0; }
+  to { opacity: 0; translate: 10px 0; }
+}
+@keyframes motion-inspector-in {
+  from { opacity: 0; translate: 12px 0; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-dialog-in {
+  from { opacity: 0; translate: 0 8px; scale: .985; }
+  to { opacity: 1; translate: 0 0; scale: 1; }
+}
+@keyframes motion-dialog-out {
+  from { opacity: 1; translate: 0 0; scale: 1; }
+  to { opacity: 0; translate: 0 8px; scale: .985; }
+}
+@keyframes motion-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes motion-scrim-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Accessibility/performance are part of the motion contract, not optional
+   polish: structural motion collapses to the final state instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-overlay,
+  .settings-layout,
+  .settings-motion-stage,
+  .workspace-motion-stage,
+  .artifact-panel,
+  .durable-inspector,
+  .session-plan-inspector,
+  [data-motion="dialog-scrim"],
+  [data-motion="dialog-sheet"] {
+    animation: none !important;
+    transition: none !important;
+    translate: 0 0 !important;
+    scale: 1 !important;
+    opacity: 1 !important;
+  }
+  :is(
+    .primary-button,
+    .secondary-button,
+    .tertiary-button,
+    .error-button,
+    .icon-button,
+    .settings-back,
+    .settings-nav,
+    .nav-item,
+    .sidebar-titlebar-btn,
+    .new-chat,
+    .row-icon-btn,
+    .sidebar-footer,
+    .sidebar-return,
+    .send-button
+  ) {
+    transition: none !important;
+    scale: 1 !important;
+  }
+}
+:root[data-performance="low"] :is(
+  .settings-overlay,
+  .settings-layout,
+  .settings-motion-stage,
+  .workspace-motion-stage,
+  .artifact-panel,
+  .durable-inspector,
+  .session-plan-inspector,
+  [data-motion="dialog-scrim"],
+  [data-motion="dialog-sheet"]
+) {
+  animation: none !important;
+  transition: none !important;
+  translate: 0 0 !important;
+  scale: 1 !important;
+  opacity: 1 !important;
+}
+:root[data-performance="low"] :is(
+  .primary-button,
+  .secondary-button,
+  .tertiary-button,
+  .error-button,
+  .icon-button,
+  .settings-back,
+  .settings-nav,
+  .nav-item,
+  .sidebar-titlebar-btn,
+  .new-chat,
+  .row-icon-btn,
+  .sidebar-footer,
+  .sidebar-return,
+  .send-button
+) {
+  scale: 1 !important;
+}
