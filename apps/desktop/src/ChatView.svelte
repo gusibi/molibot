@@ -1675,7 +1675,7 @@
   }
 
   function newConversationWithBot(botId: string): void {
-    if (!connectedEndpoint || !botId) return;
+    if (!connectedEndpoint) return;
     workspacePane = "chat";
     viewMode = "local";
     projectPaneActive = false;
@@ -1683,7 +1683,7 @@
     conversationsExpanded = true;
     expandedChannels = { ...expandedChannels, web: true };
     persistSidebarTree();
-    localStorage.setItem(LAST_BOT_KEY, botId);
+    if (botId) localStorage.setItem(LAST_BOT_KEY, botId);
     chatStore.newConversationDraft(botId);
     // A fresh draft starts on the global default; a pick here is held in
     // draftModelKey until the session is created.
