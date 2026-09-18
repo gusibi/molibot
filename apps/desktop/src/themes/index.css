@@ -34,4 +34,7 @@
 @import "./cartoon.css";
 @import "./facebook.css";
 @import "./google.css";
-@import "./feishu.css";\n\n/* Component grammar wins after every family palette. */\n@import "./recipes/index.css";
+@import "./feishu.css";
+
+/* Component grammar wins after every family palette. */
+@import "./recipes/index.css";
