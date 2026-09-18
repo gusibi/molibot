@@ -181,6 +181,8 @@ const COAT_COLOR_DISABLED = 0x9b9388;
 /** Pug ears fold forward at rest; upright cones read as a cat. */
 const EAR_REST_PITCH = 1.05;
 const CAMERA_TWEEN_MS = 620;
+/** Full runtime data is retained; only the scene applies an animated-worker LOD. */
+const SUBAGENT_RENDER_LIMIT = 12;
 
 export function selectAgentCityQuality(capabilities: AgentCityCapabilities): AgentCityQuality {
   if (!capabilities.webgl2) return "fallback";
@@ -213,8 +215,8 @@ export function agentCityFloorSignature(floor: AgentCityFloor, variant: number, 
     floor.floorIndex,
     variant,
     theme,
-    floor.subagents.visible.length,
-    floor.subagents.overflowCount > 0 ? "overflow" : "solo",
+    Math.min(floor.subagents.instances.length, SUBAGENT_RENDER_LIMIT),
+    floor.subagents.instances.length > SUBAGENT_RENDER_LIMIT ? "pool" : "solo",
     floor.route ? "route" : "noroute"
   ].join("|");
 }
@@ -700,18 +702,37 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   function createOwnerCenter(dark: boolean): THREE.Group {
     const group = new THREE.Group();
-    const surface = dark ? 0x26333b : 0xf0eadf;
-    addBox(group, [4.5, 0.22, 3.3], dark ? 0x33434c : 0xd8cdbb, [0, 0.08, 0]);
-    addBox(group, [2.4, 0.18, 0.84], 0x806b58, [0, 0.78, 0]);
-    addBox(group, [0.14, 0.72, 0.14], 0x5f554c, [-0.92, 0.39, 0]);
-    addBox(group, [0.14, 0.72, 0.14], 0x5f554c, [0.92, 0.39, 0]);
-    addBox(group, [0.85, 0.62, 0.11], 0x171717, [0, 1.18, -0.1]);
-    const consoleSurface = addBox(group, [0.68, 0.46, 0.04], 0x006bff, [0, 1.18, -0.035]);
-    (consoleSurface.material as THREE.MeshStandardMaterial).emissive.setHex(0x006bff);
-    (consoleSurface.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.5;
-    addBox(group, [0.95, 0.14, 0.95], surface, [0, 0.16, 1.02]);
-    const chair = addBox(group, [0.72, 0.78, 0.2], dark ? 0x657680 : 0x9caab0, [0, 0.65, 0.92]);
-    chair.rotation.x = -0.08;
+    const base = material(dark ? 0x33434c : 0xd8e2df, 0.72);
+    const platform = mesh(new THREE.CylinderGeometry(2.15, 2.35, 0.24, 40), base, 0, 0.08, 0);
+    group.add(platform);
+
+    const coreMaterial = new THREE.MeshStandardMaterial({
+      color: dark ? 0x17324c : 0xd9edff,
+      emissive: 0x006bff,
+      emissiveIntensity: 0.55,
+      roughness: 0.3,
+      metalness: 0.08
+    });
+    group.add(mesh(new THREE.CylinderGeometry(0.42, 0.62, 1.35, 24), coreMaterial, 0, 0.78, 0));
+    group.add(mesh(new THREE.SphereGeometry(0.28, 20, 14), coreMaterial, 0, 1.52, 0));
+
+    const ringMaterial = new THREE.MeshStandardMaterial({
+      color: 0x8bc7ff,
+      emissive: 0x006bff,
+      emissiveIntensity: 0.4,
+      roughness: 0.35
+    });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.055, 10, 48), ringMaterial);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.25;
+    group.add(ring);
+
+    for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+      const x = Math.cos(angle) * 1.5;
+      const z = Math.sin(angle) * 1.5;
+      const terminal = addBox(group, [0.46, 0.12, 0.34], dark ? 0x657680 : 0x9caab0, [x, 0.28, z]);
+      terminal.rotation.y = -angle;
+    }
     return group;
   }
 
@@ -786,19 +807,21 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     };
 
     if (isGlobal) {
+      // The default Agent is the community's hero building rather than a remote
+      // "global" room. Extra width/depth leaves room for a temporary worker camp.
       const base = dark ? 0x27323d : 0xe9edf0;
-      shell(addBox(group, [6.2, 0.28, 3.9], dark ? 0x3d4d58 : 0xcad3d8, [0, 0.1, 0]));
-      shell(addBox(group, [5.5, 2.8, 0.2], base, [0, 1.58, -1.75]));
-      shell(addBox(group, [0.22, 2.8, 3.7], base, [-2.65, 1.58, 0]));
-      shell(addBox(group, [0.22, 2.8, 3.7], base, [2.65, 1.58, 0]));
-      addBox(group, [5.7, 0.18, 3.9], dark ? 0x3d4d58 : 0xcad3d8, [0, 3, 0]);
+      shell(addBox(group, [7.6, 0.3, 5], dark ? 0x3d4d58 : 0xcad3d8, [0, 0.1, 0]));
+      shell(addBox(group, [6.9, 3.05, 0.2], base, [0, 1.7, -2.28]));
+      shell(addBox(group, [0.22, 3.05, 4.8], base, [-3.35, 1.7, 0]));
+      shell(addBox(group, [0.22, 3.05, 4.8], base, [3.35, 1.7, 0]));
+      addBox(group, [7.05, 0.18, 5], dark ? 0x3d4d58 : 0xcad3d8, [0, 3.25, 0]);
       statusMaterial = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, emissive: 0x7d7d7d, emissiveIntensity: 0.18, roughness: 0.4 });
-      group.add(mesh(new THREE.CylinderGeometry(0.42, 0.62, 1.45, 20), statusMaterial, 0, 0.88, -0.52));
-      perimeterSize = [5.7, 0.18, 3.9];
-      perimeterHeight = 3.08;
-      targetSize = [5.7, 3.08, 3.9];
-      anchorY = 3.34;
-      windows = createWindowPanes(3, 1.5, [1, 0.9], 1.72, -1.63);
+      group.add(mesh(new THREE.CylinderGeometry(0.5, 0.72, 1.6, 24), statusMaterial, 0, 0.95, -0.72));
+      perimeterSize = [7.05, 0.18, 5];
+      perimeterHeight = 3.34;
+      targetSize = [7.05, 3.34, 5];
+      anchorY = 3.62;
+      windows = createWindowPanes(4, 1.45, [1, 0.95], 1.82, -2.16);
     } else {
       shell(addBox(group, [3.8, 0.16, 2.35], palette.trim, [0, 0.02, 0]));
       shell(addBox(group, [3.8, 1.9, 0.16], palette.wall, [0, 1.02, -1.1]));
@@ -818,7 +841,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     // Desk against the right wall, seat side facing -x: the working pug ends up
     // in profile to the camera, so the paws on the keyboard stay visible.
     const workstation = createWorkstation(accent);
-    workstation.group.position.set(isGlobal ? 2.05 : 1.35, 0, isGlobal ? 0.1 : 0.05);
+    workstation.group.position.set(isGlobal ? 2.62 : 1.35, 0, isGlobal ? 0.22 : 0.05);
     workstation.group.rotation.y = -Math.PI / 2;
     group.add(workstation.group);
     const deskScreen = workstation.screen;
@@ -833,32 +856,48 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
     const mainPug = createPug();
     mainPug.seed = pugSeed(floor.agent.id);
-    if (isGlobal) mainPug.root.scale.setScalar(0.9);
+    if (isGlobal) mainPug.root.scale.setScalar(1.08);
     group.add(mainPug.root);
     const pugs = [mainPug];
 
     const seatPosition = isGlobal
-      ? new THREE.Vector3(1.32, 0.14, 0.1)
+      ? new THREE.Vector3(1.82, 0.14, 0.22)
       : new THREE.Vector3(0.74, 0.1, 0.05);
-    const loungePosition = isGlobal ? new THREE.Vector3(-1.18, 0.14, 0.5) : new THREE.Vector3(-0.78, 0.1, 0.46);
+    const loungePosition = isGlobal ? new THREE.Vector3(-2.05, 0.14, 0.9) : new THREE.Vector3(-0.78, 0.1, 0.46);
 
-    floor.subagents.visible.forEach((subagent, index) => {
+    const renderedWorkers = floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT);
+    const workerColumns = isGlobal ? 5 : 3;
+    const workerSpacingX = isGlobal ? 0.7 : 0.62;
+    const workerSpacingZ = isGlobal ? 0.68 : 0.56;
+    const workerCenterX = isGlobal ? -0.9 : -0.8;
+    const workerCenterZ = isGlobal ? -0.25 : -0.42;
+    renderedWorkers.forEach((subagent, index) => {
+      const row = Math.floor(index / workerColumns);
+      const column = index % workerColumns;
+      const rowCount = Math.min(workerColumns, renderedWorkers.length - row * workerColumns);
+      const x = workerCenterX + (column - (rowCount - 1) / 2) * workerSpacingX;
+      const z = workerCenterZ + row * workerSpacingZ;
       const assistant = createPug(true);
-      assistant.seed = pugSeed(`${floor.agent.id}:${subagent.name}:${index}`);
-      assistant.root.scale.setScalar(0.5);
-      assistant.root.position.set(-1.12 + index * 0.68, 0.1, -0.52);
-      assistant.root.rotation.y = 0.15;
+      assistant.seed = pugSeed(`${floor.agent.id}:${subagent.id}`);
+      assistant.root.scale.setScalar(isGlobal ? 0.47 : 0.43);
+      assistant.root.position.set(x, 0.1, z);
+      assistant.root.rotation.y = 0.12;
       group.add(assistant.root);
       pugs.push(assistant);
-      addBox(group, [0.56, 0.06, 0.42], 0x7c746c, [-1.12 + index * 0.68, 0.31, -0.72]);
+      addBox(group, [0.52, 0.055, 0.38], 0x7c746c, [x, 0.29, z - 0.19]);
     });
 
     let overflowStudio: THREE.Object3D | null = null;
-    if (floor.subagents.overflowCount > 0) {
-      overflowStudio = addBox(group, [0.62, 0.42, 0.38], accent, [-1.37, 0.34, 0.48]);
+    if (floor.subagents.instances.length > SUBAGENT_RENDER_LIMIT) {
+      overflowStudio = addBox(
+        group,
+        isGlobal ? [1.15, 0.34, 0.58] : [0.72, 0.36, 0.44],
+        accent,
+        isGlobal ? [-2.55, 0.3, 1.35] : [-1.35, 0.32, 0.52]
+      );
       const surface = (overflowStudio as THREE.Mesh).material as THREE.MeshStandardMaterial;
       surface.emissive.setHex(accent);
-      surface.emissiveIntensity = 0.12;
+      surface.emissiveIntensity = 0.18;
     }
 
     const beaconMaterial = new THREE.MeshStandardMaterial({ color: 0xea001d, emissive: 0xea001d, emissiveIntensity: 0.8 });
@@ -944,7 +983,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     node.mainPug.root.position.copy(seat);
     node.mainPug.root.rotation.y = working ? Math.PI / 2 : 0.35;
     setPugStatus(node.mainPug, floor.state);
-    floor.subagents.visible.forEach((subagent, index) => {
+    floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT).forEach((subagent, index) => {
       const rig = node.pugs[index + 1];
       if (rig) setPugStatus(rig, subagent.status);
     });
