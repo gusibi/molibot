@@ -959,7 +959,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       const template = await loadMomoAssetTemplate();
       if (disposed) return;
       momoTemplate = template;
-      for (const node of floorNodes.values()) attachMomoAsset(node.mainPug);
+      for (const node of floorNodes.values()) {
+        for (const rig of node.pugs) attachMomoAsset(rig);
+      }
     } catch {
       // Asset loading must never blank Agent Community: procedural Momo remains
       // the permanent fallback for offline/dev/broken-package scenarios.
