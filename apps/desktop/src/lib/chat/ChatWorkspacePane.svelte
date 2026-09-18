@@ -45,25 +45,29 @@
   $: workspaceDescription = pane === "automations" ? copy.autoTasksHint : pane === "skills" ? copy.skillsSquareHint : pane === "miniapps" ? copy.miniAppsHint : pane === "plans" ? copy.planBoardHint : copy.agentStudioHint;
 </script>
 
-<PageHeader title={workspaceTitle} description={workspaceDescription} workspace />
-
-<div class="workspace-scroll" data-workspace-pane={pane}>
-  {#if !serviceReady}
-    <div class="workspace-empty" role={serviceError ? "alert" : undefined}>
-      <p>{serviceError ? copy.workspaceLoadFailed : copy.loading}</p>
-      {#if serviceError}<small>{serviceError}</small><button class="secondary-button" type="button" onclick={onRetryService}>{copy.retryLoading}</button>{/if}
-    </div>
-  {:else if pane === "automations"}
-    <TasksSection presentation="workspace" onUnreadChange={onAutomationUnreadChange} />
-  {:else if pane === "skills"}
-    <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
-  {:else if pane === "miniapps"}
-    <MiniAppsLaunchpad onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
-  {:else if pane === "plans"}
-    <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} />
-  {:else if AgentStudioComponent}
-    <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} />
-  {:else}
-    <div class="workspace-empty"><p>{copy.loading}</p></div>
-  {/if}
-</div>
+{#key pane}
+  <div class="workspace-motion-stage" data-motion-surface="workspace">
+  <PageHeader title={workspaceTitle} description={workspaceDescription} workspace />
+  
+  <div class="workspace-scroll" data-workspace-pane={pane}>
+    {#if !serviceReady}
+      <div class="workspace-empty" role={serviceError ? "alert" : undefined}>
+        <p>{serviceError ? copy.workspaceLoadFailed : copy.loading}</p>
+        {#if serviceError}<small>{serviceError}</small><button class="secondary-button" type="button" onclick={onRetryService}>{copy.retryLoading}</button>{/if}
+      </div>
+    {:else if pane === "automations"}
+      <TasksSection presentation="workspace" onUnreadChange={onAutomationUnreadChange} />
+    {:else if pane === "skills"}
+      <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
+    {:else if pane === "miniapps"}
+      <MiniAppsLaunchpad onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
+    {:else if pane === "plans"}
+      <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} />
+    {:else if AgentStudioComponent}
+      <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} />
+    {:else}
+      <div class="workspace-empty"><p>{copy.loading}</p></div>
+    {/if}
+  </div>
+  </div>
+{/key}
