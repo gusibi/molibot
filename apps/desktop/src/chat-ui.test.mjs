@@ -2081,6 +2081,9 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /createRoomDecor/);
   assert.match(agentCityScene, /createWorkerStation/);
   assert.match(agentCityScene, /createPug\(true, subagent\.name\)/);
+  assert.match(agentCityScene, /attachMomoAsset\(assistant\)/);
+  assert.match(agentCityScene, /RoundedBoxGeometry/);
+  assert.match(agentCityScene, /assetWindowMaterials/);
   assert.match(agentCityScene, /node\.celebration\.rotation\.y/);
   assert.match(agentCityScene, /clipsForStatus\(rig\.status, rig\.role\)/);
   assert.match(agentCityScene, /loadMomoAssetTemplate\(\)/);
@@ -2093,7 +2096,8 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityMomoAsset, /catch\(\(\) => loader\.loadAsync\(MOMO_PROTOTYPE_URL\)\)/);
   assert.match(agentCityScene, /hydrateCommunityAssets\(\)/);
   assert.match(agentCityScene, /cloneCommunityComponent\(communityKit/);
-  assert.match(agentCityCommunityAssets, /COMMUNITY_KIT_URL = "\/agent-community\/community-kit\.gltf"/);
+  assert.match(agentCityCommunityAssets, /COMMUNITY_KIT_URL = "\/agent-community\/community-kit\.glb"/);
+  assert.match(agentCityCommunityAssets, /COMMUNITY_KIT_FALLBACK_URL = "\/agent-community\/community-kit\.gltf"/);
   assert.match(agentCityCommunityAssets, /StudioArchitecture/);
   assert.match(agentCityCommunityAssets, /HQArchitecture/);
   assert.match(agentCityCommunityAssets, /CommunityHub/);
