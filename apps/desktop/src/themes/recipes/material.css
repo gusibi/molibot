@@ -1,0 +1,150 @@
+/* Material recipe — tonal hierarchy, rounded state layers and conversation
+ * bubbles. Palette stays family-owned (Android / Google); this file only defines
+ * component grammar and never packages a font.
+ */
+
+:root[data-theme-recipe="material"] {
+  --recipe-message-max: 78%;
+  --recipe-assistant-max: 82%;
+}
+
+:root[data-theme-recipe="material"] [data-theme-region="header"] {
+  background: color-mix(in srgb, var(--accent) 6%, var(--header-bg));
+  border-bottom-color: transparent;
+  box-shadow: inset 0 -1px color-mix(in srgb, var(--label-primary) 7%, transparent);
+}
+:root[data-theme-recipe="material"] [data-theme-region="header"]::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="header"] .icon-button,
+:root[data-theme-recipe="material"] [data-theme-region="sidebar"] .sidebar-titlebar-btn {
+  border-radius: var(--radius-full);
+}
+:root[data-theme-recipe="material"] [data-theme-region="header"] .icon-button:hover,
+:root[data-theme-recipe="material"] [data-theme-region="sidebar"] .sidebar-titlebar-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root[data-theme-recipe="material"] [data-theme-region="header"] .icon-button[aria-pressed="true"],
+:root[data-theme-recipe="material"] [data-theme-region="header"] .icon-button[aria-expanded="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+:root[data-theme-recipe="material"] [data-theme-region="sidebar"]::before {
+  background: color-mix(in srgb, var(--accent) 5%, var(--sidebar-bg));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="sidebar"] .nav-item {
+  border-radius: var(--radius-full);
+}
+:root[data-theme-recipe="material"] [data-theme-region="sidebar"] .nav-item.active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--sidebar-bg));
+  color: var(--label-primary);
+  box-shadow: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="sidebar"] .nav-item.active > .reicon {
+  color: var(--accent);
+}
+
+:root[data-theme-recipe="material"] [data-theme-region="session-list"] .conversation-row {
+  border-radius: var(--radius-control);
+}
+:root[data-theme-recipe="material"] [data-theme-region="session-list"] .conversation-row.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--sidebar-bg));
+  box-shadow: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="session-list"] .conversation-row.active::before {
+  content: "";
+  position: absolute;
+  inset: 7px auto 7px 2px;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+:root[data-theme-recipe="material"] [data-theme-region="session-list"] .conversation-row.active .row-title {
+  color: var(--label-primary);
+}
+:root[data-theme-recipe="material"] [data-theme-region="session-list"] .conversation-row.active .row-time {
+  color: var(--label-secondary);
+}
+
+:root[data-theme-recipe="material"] [data-theme-region="chat"] .messages {
+  background: var(--content-bg);
+}
+:root[data-theme-recipe="material"] [data-theme-region="chat"] .assistant-avatar {
+  width: 24px;
+  height: 24px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+:root[data-theme-recipe="material"] [data-theme-region="chat"] .message-row.mine .message-bubble {
+  max-width: var(--recipe-message-max);
+  border-radius: 24px 24px 8px 24px;
+  box-shadow: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="chat"] .message-row.assistant .message-bubble {
+  width: fit-content;
+  max-width: var(--recipe-assistant-max);
+  border-radius: 24px 24px 24px 8px;
+  box-shadow: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="chat"] .assistant-identity .assistant-status {
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer {
+  border-color: color-mix(in srgb, var(--label-primary) 16%, transparent);
+  border-radius: 28px;
+  box-shadow: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer::before {
+  background: var(--composer-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-tool,
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-permission-trigger {
+  border-radius: var(--radius-full);
+}
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-tool:hover:not(:disabled),
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-permission-trigger:hover,
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-permission-menu[open] .composer-permission-trigger {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .send-button {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .send-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+:root[data-theme-recipe="material"] [data-theme-region="file-panel"] .file-panel-head {
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel-bg));
+  border-bottom-color: transparent;
+  box-shadow: inset 0 -1px color-mix(in srgb, var(--label-primary) 7%, transparent);
+}
+:root[data-theme-recipe="material"] [data-theme-region="file-panel"] .file-panel-close {
+  border-radius: var(--radius-full);
+}
+
+:root[data-theme-recipe="material"] .settings-card {
+  border-color: transparent;
+  border-radius: 20px;
+  background: var(--surface-secondary);
+}
+:root[data-theme-recipe="material"] .select-control-trigger {
+  border-color: transparent;
+  border-radius: var(--radius-full);
+  background: var(--card-bg);
+}
