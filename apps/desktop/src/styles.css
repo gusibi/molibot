@@ -1194,7 +1194,7 @@ a:focus-visible {
   /* Anchored to the header button that opens it: the material grows out of its
      trigger, not out of the menu's own centre (apple-design §7). */
   transform-origin: top right;
-  animation: popover-in 140ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 .miniapps-quick-search {
   display: flex;
@@ -1465,7 +1465,7 @@ a:focus-visible {
   color: var(--label-primary);
   font-size: var(--fs-label);
   line-height: var(--lh-label);
-  animation: popover-in 140ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 /* A card is read, not glanced at, so it gets room to breathe. */
 .chat-action-toast.has-card { gap: 8px; }
@@ -3633,7 +3633,7 @@ a:focus-visible {
   -webkit-backdrop-filter: var(--glass-popover-filter);
   box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   transform-origin: bottom right;
-  animation: popover-in 160ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 .composer-model-popover button { color: var(--label-primary); font: inherit; }
 .composer-model-popover > button,
@@ -3765,7 +3765,7 @@ a:focus-visible {
 .composer-wrap.is-floating .recording-bar { background: color-mix(in srgb, var(--danger) 8%, var(--glass-surface-bg)); }
 .composer-wrap.is-floating .composer-edit-banner { background: color-mix(in srgb, var(--accent) 10%, var(--glass-surface-bg)); }
 
-.slash-suggestions { position: absolute; z-index: 40; inset: auto 0 calc(100% + 8px); max-height: min(420px, 52vh); padding: 7px; overflow: auto; border: 1px solid var(--control-border); border-radius: var(--rounded-md); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: bottom center; animation: popover-in 160ms var(--ease-spring); }
+.slash-suggestions { position: absolute; z-index: 40; inset: auto 0 calc(100% + 8px); max-height: min(420px, 52vh); padding: 7px; overflow: auto; border: 1px solid var(--control-border); border-radius: var(--rounded-md); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: bottom center; animation: popover-in var(--duration-fast) var(--ease-spring); }
 .slash-suggestion-group + .slash-suggestion-group { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--separator); }
 .slash-suggestion-heading { padding: 4px 8px 5px; color: var(--label-tertiary); font-size: var(--fs-meta); font-weight: 600; letter-spacing: var(--tracking-caps); }
 .slash-suggestion { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
@@ -4064,7 +4064,7 @@ a:focus-visible {
   color: var(--label-primary);
   box-shadow: var(--popover-shadow);
   transform-origin: var(--bits-select-content-transform-origin);
-  animation: popover-in 160ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 .select-control-viewport { max-height: min(296px, 44vh); padding: 4px; overflow-y: auto; overscroll-behavior: contain; }
 .select-control-group + .select-control-group,
@@ -5495,7 +5495,7 @@ select.provider-input { padding-right: 6px; }
 .overflow-menu > summary::-webkit-details-marker { display: none; }
 .overflow-menu > summary:hover { background: var(--fill); color: var(--label-primary); }
 .overflow-menu[open] > summary { background: var(--fill); color: var(--label-primary); }
-.overflow-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: top right; animation: popover-in 120ms var(--ease-spring); }
+.overflow-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: top right; animation: popover-in var(--duration-fast) var(--ease-spring); }
 .overflow-menu-up .overflow-menu-popover { top: auto; bottom: calc(100% + 6px); transform-origin: bottom right; }
 .overflow-menu-inline.overflow-menu-up .overflow-menu-popover { right: auto; left: 0; transform-origin: bottom left; }
 .overflow-menu-popover button { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 9px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
@@ -5503,7 +5503,7 @@ select.provider-input { padding-right: 6px; }
 .overflow-menu-popover button.danger-action { color: var(--danger); }
 .overflow-menu-popover button:disabled { opacity: .45; cursor: default; }
 .command-palette-layer { position: fixed; z-index: 90; inset: 0; pointer-events: auto; }
-.command-palette { position: absolute; top: 64px; left: 50%; display: grid; width: min(360px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--chrome-border); border-radius: var(--radius-panel); background: color-mix(in srgb, var(--chrome-popover-bg) var(--glass-chrome-opacity), transparent); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-surface-shadow), var(--glass-edge); transform: translateX(-50%); transform-origin: top center; animation: command-palette-in 120ms var(--ease-spring); }
+.command-palette { position: absolute; top: 64px; left: 50%; display: grid; width: min(360px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--chrome-border); border-radius: var(--radius-panel); background: color-mix(in srgb, var(--chrome-popover-bg) var(--glass-chrome-opacity), transparent); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-surface-shadow), var(--glass-edge); transform: translateX(-50%); transform-origin: top center; animation: command-palette-in var(--duration-fast) var(--ease-spring); }
 .command-palette header { display: flex; align-items: center; justify-content: space-between; min-height: 34px; padding: 0 8px 5px; color: var(--label-secondary); font-size: var(--fs-meta); }
 .command-palette-input { width: 100%; height: 32px; margin-bottom: 6px; padding: 0 9px; border: 1px solid var(--control-border); border-radius: var(--radius-control); background: var(--fill); color: var(--label-primary); font: inherit; font-size: var(--fs-label); outline: none; }
 .command-palette-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
@@ -5793,6 +5793,13 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   scroll-behavior: auto !important;
   transition: none !important;
 }
+:root[data-performance="low"] .overflow-menu-popover,
+:root[data-performance="low"] .row-menu,
+:root[data-performance="low"] .mention-menu,
+:root[data-performance="low"] .command-palette,
+:root[data-performance="low"] .composer-model-popover,
+:root[data-performance="low"] .miniapps-quick-menu,
+:root[data-performance="low"] .chat-action-toast,
 :root[data-performance="low"] .recording-indicator,
 :root[data-performance="low"] .beam-ring::before,
 :root[data-performance="low"] .run-activity .spin,
@@ -6864,3 +6871,493 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .trace-report-body iframe { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 8px; background: var(--card-bg); }
 .trace-report-error, .trace-report-url { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-meta); }
 .trace-report-error { color: var(--label-secondary); }
+
+/* Desktop structural motion system ---------------------------------------------
+   Stable shell, moving content: structural changes get a short bridge while
+   high-frequency keyboard/hover paths remain immediate. Durations/easing come
+   exclusively from the shared Motion tokens; these rules use compositor-friendly
+   opacity/translate/scale only. */
+.settings-overlay {
+  animation: motion-scrim-in var(--duration-fast) var(--ease-standard) both;
+}
+.settings-layout {
+  animation: motion-settings-shell-in var(--duration-normal) var(--ease-spring) both;
+}
+.settings-overlay.closing {
+  animation: motion-scrim-out var(--duration-normal) var(--ease-standard) both;
+  pointer-events: none;
+}
+.settings-layout.closing {
+  animation: motion-settings-shell-out var(--duration-normal) var(--ease-standard) both;
+}
+.settings-motion-stage,
+.workspace-motion-stage {
+  min-width: 0;
+  min-height: 0;
+  animation: motion-surface-in var(--duration-normal) var(--ease-standard) both;
+}
+.settings-motion-stage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.workspace-motion-stage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+}
+.workspace-motion-stage > .workspace-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Shared Bits UI dialogs use explicit motion hooks. starting-style gives an
+   entrance even if presence metadata changes; data-state keeps close presence
+   animated where Bits UI retains the node for its outro. Individual translate
+   and scale properties preserve variant transforms such as translateX(-50%). */
+:where([data-motion="dialog-scrim"]) {
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+:where([data-motion="dialog-sheet"]) {
+  transition:
+    opacity var(--duration-normal) var(--ease-standard),
+    translate var(--duration-normal) var(--ease-spring),
+    scale var(--duration-normal) var(--ease-spring);
+}
+@starting-style {
+  :where([data-motion="dialog-scrim"]) { opacity: 0; }
+  :where([data-motion="dialog-sheet"]) { opacity: 0; translate: 0 8px; scale: .985; }
+}
+:where([data-motion="dialog-scrim"][data-state="open"]) {
+  animation: motion-scrim-in var(--duration-fast) var(--ease-standard) both;
+}
+:where([data-motion="dialog-scrim"][data-state="closed"]) {
+  animation: motion-scrim-out var(--duration-fast) var(--ease-standard) both;
+}
+:where([data-motion="dialog-sheet"][data-state="open"]) {
+  animation: motion-dialog-in var(--duration-normal) var(--ease-spring) both;
+}
+:where([data-motion="dialog-sheet"][data-state="closed"]) {
+  animation: motion-dialog-out var(--duration-fast) var(--ease-standard) both;
+}
+
+/* Right-side inspectors share one spatial language: they arrive from the edge
+   they are attached to. MemoryTraceDrawer keeps its richer drag/close contract. */
+.artifact-panel,
+.durable-inspector,
+.session-plan-inspector {
+  animation: motion-inspector-in var(--duration-panel) var(--ease-spring) both;
+}
+.artifact-panel.motion-closing,
+.durable-inspector.motion-closing,
+.session-plan-inspector.motion-closing {
+  animation: motion-inspector-out var(--duration-fast) var(--ease-standard) both;
+  pointer-events: none;
+}
+.files-resizer.motion-closing {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+/* Loading/error/content handoffs stay local to the workspace body. The outer
+   destination surface has the 240ms navigation motion; this shorter state fade
+   only prevents async content from snapping in after that navigation settles. */
+.workspace-scroll.motion-state-loading {
+  animation: motion-state-loading-in var(--duration-fast) var(--ease-standard) both;
+}
+.workspace-scroll.motion-state-error {
+  animation: motion-state-error-in var(--duration-fast) var(--ease-standard) both;
+}
+.workspace-scroll.motion-state-ready {
+  animation: motion-state-ready-in var(--duration-fast) var(--ease-standard) both;
+}
+
+/* Tactile press feedback is intentionally tiny. It applies only to shared,
+   high-confidence controls; list hover and keyboard-driven menus do not move. */
+:is(
+  .primary-button,
+  .secondary-button,
+  .tertiary-button,
+  .error-button,
+  .icon-button,
+  .settings-back,
+  .settings-nav,
+  .nav-item,
+  .sidebar-titlebar-btn,
+  .new-chat,
+  .row-icon-btn,
+  .sidebar-footer,
+  .sidebar-return,
+  .send-button
+) {
+  transition-property: background, background-color, border-color, color, opacity, scale, box-shadow;
+  transition-duration: var(--duration-instant);
+  transition-timing-function: var(--ease-standard);
+}
+:is(
+  .primary-button,
+  .secondary-button,
+  .tertiary-button,
+  .error-button,
+  .icon-button,
+  .settings-back,
+  .settings-nav,
+  .nav-item,
+  .sidebar-titlebar-btn,
+  .new-chat,
+  .row-icon-btn,
+  .sidebar-footer,
+  .sidebar-return,
+  .send-button
+):active:not(:disabled) {
+  scale: .975;
+}
+
+@keyframes motion-surface-in {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-settings-shell-in {
+  from { opacity: 0; translate: 10px 0; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-settings-shell-out {
+  from { opacity: 1; translate: 0 0; }
+  to { opacity: 0; translate: 10px 0; }
+}
+@keyframes motion-inspector-in {
+  from { opacity: 0; translate: 12px 0; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-inspector-out {
+  from { opacity: 1; translate: 0 0; }
+  to { opacity: 0; translate: 12px 0; }
+}
+@keyframes motion-state-loading-in {
+  from { opacity: .72; }
+  to { opacity: 1; }
+}
+@keyframes motion-state-error-in {
+  from { opacity: 0; translate: 0 4px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-state-ready-in {
+  from { opacity: .72; }
+  to { opacity: 1; }
+}
+@keyframes motion-dialog-in {
+  from { opacity: 0; translate: 0 8px; scale: .985; }
+  to { opacity: 1; translate: 0 0; scale: 1; }
+}
+@keyframes motion-dialog-out {
+  from { opacity: 1; translate: 0 0; scale: 1; }
+  to { opacity: 0; translate: 0 8px; scale: .985; }
+}
+@keyframes motion-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes motion-scrim-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Accessibility/performance are part of the motion contract, not optional
+   polish: structural motion collapses to the final state instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-overlay,
+  .settings-layout,
+  .settings-motion-stage,
+  .workspace-motion-stage,
+  .workspace-scroll.motion-state-loading,
+  .workspace-scroll.motion-state-error,
+  .workspace-scroll.motion-state-ready,
+  .artifact-panel,
+  .durable-inspector,
+  .session-plan-inspector,
+  [data-motion="dialog-scrim"],
+  [data-motion="dialog-sheet"] {
+    animation: none !important;
+    transition: none !important;
+    translate: 0 0 !important;
+    scale: 1 !important;
+    opacity: 1 !important;
+  }
+  :is(
+    .primary-button,
+    .secondary-button,
+    .tertiary-button,
+    .error-button,
+    .icon-button,
+    .settings-back,
+    .settings-nav,
+    .nav-item,
+    .sidebar-titlebar-btn,
+    .new-chat,
+    .row-icon-btn,
+    .sidebar-footer,
+    .sidebar-return,
+    .send-button
+  ) {
+    transition: none !important;
+    scale: 1 !important;
+  }
+}
+:root[data-performance="low"] :is(
+  .settings-overlay,
+  .settings-layout,
+  .settings-motion-stage,
+  .workspace-motion-stage,
+  .workspace-scroll.motion-state-loading,
+  .workspace-scroll.motion-state-error,
+  .workspace-scroll.motion-state-ready,
+  .artifact-panel,
+  .durable-inspector,
+  .session-plan-inspector,
+  [data-motion="dialog-scrim"],
+  [data-motion="dialog-sheet"]
+) {
+  animation: none !important;
+  transition: none !important;
+  translate: 0 0 !important;
+  scale: 1 !important;
+  opacity: 1 !important;
+}
+:root[data-performance="low"] :is(
+  .primary-button,
+  .secondary-button,
+  .tertiary-button,
+  .error-button,
+  .icon-button,
+  .settings-back,
+  .settings-nav,
+  .nav-item,
+  .sidebar-titlebar-btn,
+  .new-chat,
+  .row-icon-btn,
+  .sidebar-footer,
+  .sidebar-return,
+  .send-button
+) {
+  scale: 1 !important;
+}
+
+/* Desktop motion completion layer ------------------------------------------------
+   Final UI polish only. Agent Studio / Agent City / Three.js selectors are
+   intentionally excluded: scene motion is owned by the 3D experience, not the
+   desktop UI motion system. */
+
+/* Switches already move their thumb; add tactile compression without changing
+   the checked translation. Individual scale preserves the thumb transform. */
+.ios-switch-track {
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    scale var(--duration-instant) var(--ease-standard);
+}
+.ios-switch-track::before {
+  transition:
+    transform var(--duration-fast) var(--ease-spring),
+    scale var(--duration-instant) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+.ios-switch:active:not(:has(input:disabled)) .ios-switch-track { scale: .98; }
+.ios-switch:active:not(:has(input:disabled)) .ios-switch-track::before { scale: .92; }
+
+/* Selected segmented/tab controls settle instead of changing fill in a single
+   frame. This is state feedback, not spatial navigation. */
+:is(
+  .appearance-segmented button.active,
+  .segmented-item.active,
+  .automation-category-tab.active,
+  .provider-rail-tab.active,
+  .provider-rail-sort.active,
+  .provider-discovery-tab.active,
+  .project-file-tabs button.active,
+  .project-viewer-tab.active,
+  .file-search-modes button.active,
+  .project-change-scope button.active,
+  .miniapps-install-tabs button.active,
+  .mermaid-viewer-tabs button.active,
+  .observatory-tabs button.active,
+  .task-schedule-tabs button.active,
+  .browser-scope-bar button.active,
+  .browser-channel-scopes button.active,
+  .project-settings-tabs button.active,
+  .view-tab.active,
+  .onboarding-model-tags button.active,
+  .memory-center-tabs button.active,
+  .execution-mode-card.active,
+  .model-chip.active
+) {
+  animation: motion-selection-settle var(--duration-fast) var(--ease-standard) both;
+}
+
+/* Details/disclosures keep layout changes immediate; only their newly revealed
+   content receives a small opacity/translate cue. No height/grid animation. */
+.tool-engine-card[open] > .tool-engine-body,
+.skills-search-config[open] > :not(summary),
+.provider-advanced[open] > :not(summary),
+.observatory-advanced-filters[open] > :not(summary),
+.settings-advanced-group[open] > :not(summary),
+.connector-config-panel[open] > :not(summary),
+.imported-theme-help[open] > :not(summary),
+.technical-detail[open] > :not(summary) {
+  animation: motion-disclosure-in var(--duration-fast) var(--ease-standard) both;
+}
+
+/* Shared async/feedback surfaces. The real content can replace a skeleton or
+   empty state without snapping, but the bridge remains local and short. */
+.section-empty,
+.skeleton-rows,
+.settings-action-message,
+.settings-card[role="alert"],
+.error-message,
+.miniapps-grid,
+.installed-skills-grid,
+.automation-workspace-layout {
+  animation: motion-content-handoff var(--duration-fast) var(--ease-standard) both;
+}
+
+.status-badge {
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+.status-symbol {
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    scale var(--duration-fast) var(--ease-standard);
+}
+.status-badge:has(.status-symbol) .status-symbol { scale: 1; }
+
+.settings-action-message {
+  will-change: opacity, translate;
+}
+
+@keyframes motion-selection-settle {
+  from { opacity: .78; scale: .975; }
+  to { opacity: 1; scale: 1; }
+}
+@keyframes motion-disclosure-in {
+  from { opacity: 0; translate: 0 -4px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-content-handoff {
+  from { opacity: .72; translate: 0 4px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+.motion-success {
+  animation: motion-success-pulse var(--duration-fast) var(--ease-spring) both;
+}
+@keyframes motion-success-pulse {
+  0% { opacity: .82; scale: .94; }
+  100% { opacity: 1; scale: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-switch-track,
+  .ios-switch-track::before,
+  :is(
+    .appearance-segmented button.active,
+    .segmented-item.active,
+    .automation-category-tab.active,
+    .provider-rail-tab.active,
+    .provider-rail-sort.active,
+    .provider-discovery-tab.active,
+    .project-file-tabs button.active,
+    .project-viewer-tab.active,
+    .file-search-modes button.active,
+    .project-change-scope button.active,
+    .miniapps-install-tabs button.active,
+    .mermaid-viewer-tabs button.active,
+    .observatory-tabs button.active,
+    .task-schedule-tabs button.active,
+    .browser-scope-bar button.active,
+    .browser-channel-scopes button.active,
+    .project-settings-tabs button.active,
+    .view-tab.active,
+    .onboarding-model-tags button.active,
+    .memory-center-tabs button.active,
+    .execution-mode-card.active,
+    .model-chip.active
+  ),
+  .tool-engine-card[open] > .tool-engine-body,
+  .skills-search-config[open] > :not(summary),
+  .provider-advanced[open] > :not(summary),
+  .observatory-advanced-filters[open] > :not(summary),
+  .settings-advanced-group[open] > :not(summary),
+  .connector-config-panel[open] > :not(summary),
+  .imported-theme-help[open] > :not(summary),
+  .technical-detail[open] > :not(summary),
+  .section-empty,
+  .skeleton-rows,
+  .settings-action-message,
+  .settings-card[role="alert"],
+  .error-message,
+  .miniapps-grid,
+  .installed-skills-grid,
+  .automation-workspace-layout,
+  .status-badge,
+  .status-symbol,
+  .motion-success {
+    animation: none !important;
+    transition: none !important;
+    translate: 0 0 !important;
+    scale: 1 !important;
+  }
+}
+
+:root[data-performance="low"] :is(
+  .appearance-segmented button.active,
+  .segmented-item.active,
+  .automation-category-tab.active,
+  .provider-rail-tab.active,
+  .provider-rail-sort.active,
+  .provider-discovery-tab.active,
+  .project-file-tabs button.active,
+  .project-viewer-tab.active,
+  .file-search-modes button.active,
+  .project-change-scope button.active,
+  .miniapps-install-tabs button.active,
+  .mermaid-viewer-tabs button.active,
+  .observatory-tabs button.active,
+  .task-schedule-tabs button.active,
+  .browser-scope-bar button.active,
+  .browser-channel-scopes button.active,
+  .project-settings-tabs button.active,
+  .view-tab.active,
+  .onboarding-model-tags button.active,
+  .memory-center-tabs button.active,
+  .execution-mode-card.active,
+  .model-chip.active,
+  .tool-engine-card[open] > .tool-engine-body,
+  .skills-search-config[open] > :not(summary),
+  .provider-advanced[open] > :not(summary),
+  .section-empty,
+  .skeleton-rows,
+  .settings-action-message,
+  .settings-card[role="alert"],
+  .error-message,
+  .miniapps-grid,
+  .installed-skills-grid,
+  .automation-workspace-layout
+) {
+  animation: none !important;
+  translate: 0 0 !important;
+  scale: 1 !important;
+}
+:root[data-performance="low"] .ios-switch-track,
+:root[data-performance="low"] .ios-switch-track::before,
+:root[data-performance="low"] .status-badge,
+:root[data-performance="low"] .status-symbol,
+:root[data-performance="low"] .motion-success {
+  transition: none !important;
+  scale: 1 !important;
+}
+
