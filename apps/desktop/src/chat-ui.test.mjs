@@ -2082,6 +2082,9 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /createWorkerStation/);
   assert.match(agentCityScene, /createPug\(true, subagent\.name\)/);
   assert.match(agentCityScene, /attachMomoAsset\(assistant\)/);
+  assert.match(agentCityScene, /quality === "low" && rig\.isWorker/);
+  assert.match(agentCityScene, /detachMomoAsset\(rig\)/);
+  assert.match(agentCityScene, /assetHead\.add\(rig\.headAccessory\)/);
   assert.match(agentCityScene, /RoundedBoxGeometry/);
   assert.match(agentCityScene, /assetWindowMaterials/);
   assert.match(agentCityScene, /node\.celebration\.rotation\.y/);
