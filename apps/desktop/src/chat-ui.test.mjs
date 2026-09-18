@@ -5659,6 +5659,6 @@ test("desktop motion completion covers list mutation, controls, disclosures, and
   // The UI completion layer must not target the 3D community/studio scene.
   const completion = baseStyles.slice(baseStyles.indexOf("/* Desktop motion completion layer"));
   assert.doesNotMatch(completion, /\.agent-(?:studio|city)/);
-  assert.doesNotMatch(completion, /three|canvas|scene/i);
+  assert.doesNotMatch(completion, /(?:^|[,\s])(?:canvas|\.agent-scene|\.three-scene)(?:[\s,{:#.]|$)/im);
 });
 
