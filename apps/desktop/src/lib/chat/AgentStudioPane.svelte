@@ -109,6 +109,10 @@
   $: searchResults = searchFloors(cityFloors, searchQuery);
   $: if (searchIndex >= searchResults.length) searchIndex = 0;
   $: enabledCount = visibleAgents.filter((agent) => agent.enabled).length;
+  $: activeWorkerCount = cityFloors.reduce(
+    (total, floor) => total + floor.subagents.instances.filter((subagent) => subagent.status === "working").length,
+    0
+  );
   $: cityHeight = agentCityViewportHeight(projection.sceneFloors, cityWidth);
 
   async function refresh(): Promise<void> {
@@ -144,6 +148,12 @@
     if (status === "error") return copy.agentStudioFailed;
     if (status === "disabled") return copy.agentStudioOffDuty;
     return copy.agentStudioAvailable;
+  }
+
+  function subagentSummary(floor: AgentCityFloor): string {
+    return floor.subagents.groups
+      .map((group) => `${group.role} ×${group.total}`)
+      .join(" · ");
   }
 
   function handleFallback(): void {
@@ -297,6 +307,7 @@
     <span><strong>{visibleAgents.length}</strong>{copy.agentStudioResidents}</span>
     <span><strong>{enabledCount}</strong>{copy.agentStudioOnDuty}</span>
     <span><strong>{projection.workingCount}</strong>{copy.agentStudioWorkingCount}</span>
+    <span><strong>{activeWorkerCount}</strong>{copy.agentStudioWorkers}</span>
   </div>
 
   {#if !serviceReady}
@@ -384,8 +395,8 @@
               <p>{selectedFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
             {/if}
             <em>{selectedFloor.agent.modelOverrides > 0 ? `${selectedFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
-            {#if selectedFloor.subagents.visible.length || selectedFloor.subagents.overflowCount}
-              <small>{selectedFloor.subagents.visible.map((subagent) => `${subagent.name} · ${statusLabel(subagent.status)}`).join(" · ")}{selectedFloor.subagents.overflowCount ? ` · +${selectedFloor.subagents.overflowCount}` : ""}</small>
+            {#if selectedFloor.subagents.instances.length}
+              <small>{selectedFloor.subagents.instances.length} {copy.agentStudioSubagents} · {subagentSummary(selectedFloor)}</small>
             {/if}
             <div class="agent-city-detail-actions">
               <button type="button" onclick={() => selectedFloorKey && cityCanvas?.focusFloor(selectedFloorKey)}>{copy.agentCityFocusFloor}</button>
@@ -403,14 +414,15 @@
               <p>{hoveredFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
             {/if}
             <em>{hoveredFloor.agent.modelOverrides > 0 ? `${hoveredFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
-            {#if hoveredFloor.subagents.visible.length || hoveredFloor.subagents.overflowCount}
-              <small>{hoveredFloor.subagents.visible.map((subagent) => `${subagent.name} · ${statusLabel(subagent.status)}`).join(" · ")}{hoveredFloor.subagents.overflowCount ? ` · +${hoveredFloor.subagents.overflowCount}` : ""}</small>
+            {#if hoveredFloor.subagents.instances.length}
+              <small>{hoveredFloor.subagents.instances.length} {copy.agentStudioSubagents} · {subagentSummary(hoveredFloor)}</small>
             {/if}
           </div>
         {/if}
         <div class="sr-only">
           <p>{copy.agentStudioSummary}</p>
           <p>{projection.workingCount} {copy.agentStudioWorkingCount}</p>
+          <p>{activeWorkerCount} {copy.agentStudioWorkers}</p>
           <ul>
             <li>{projection.globalFloor.agent.name}: {statusLabel(projection.globalFloor.state)}</li>
             {#each projection.buildings as building (building.index)}
