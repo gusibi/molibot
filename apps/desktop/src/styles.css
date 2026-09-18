@@ -5794,6 +5794,8 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   transition: none !important;
 }
 :root[data-performance="low"] .overflow-menu-popover,
+:root[data-performance="low"] .row-menu,
+:root[data-performance="low"] .mention-menu,
 :root[data-performance="low"] .command-palette,
 :root[data-performance="low"] .composer-model-popover,
 :root[data-performance="low"] .miniapps-quick-menu,
