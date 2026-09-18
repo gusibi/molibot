@@ -986,6 +986,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       const template = await loadCommunityKit();
       if (disposed) return;
       communityKit = template;
+      buildStaticScenery();
       for (const floor of agentCityFloors(projection)) {
         const node = floorNodes.get(floor.key);
         if (!node) continue;
@@ -1048,7 +1049,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       addRoad(primary.x, primary.z, building.position.x, building.position.z);
     }
 
-    const owner = createOwnerCenter(theme === "dark");
+    const owner = communityKit
+      ? cloneCommunityComponent(communityKit, "CommunityHub", theme === "dark", 0x006bff) ?? createOwnerCenter(theme === "dark")
+      : createOwnerCenter(theme === "dark");
     owner.position.set(projection.owner.position.x, projection.owner.position.y, projection.owner.position.z);
     staticRoot.add(owner);
   }
