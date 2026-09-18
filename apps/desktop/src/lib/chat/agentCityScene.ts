@@ -120,6 +120,7 @@ interface PugRig {
   tailPivot: THREE.Group;
   propAnchor: THREE.Group;
   roleAccessory: THREE.Group;
+  headAccessory: THREE.Group;
   propObjects: Record<Exclude<PugProp, "none">, THREE.Object3D>;
   bookPage: THREE.Group;
   screenMaterials: THREE.MeshStandardMaterial[];
@@ -373,6 +374,7 @@ function createPug(assistant = false, role: string | null = null): PugRig {
   const root = new THREE.Group();
   const pose = new THREE.Group();
   const roleAccessory = new THREE.Group();
+  const headAccessory = new THREE.Group();
   const contactShadow = new THREE.Mesh(
     new THREE.CircleGeometry(0.34, 24),
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.13, depthWrite: false })
@@ -393,6 +395,7 @@ function createPug(assistant = false, role: string | null = null): PugRig {
   const head = new THREE.Group();
   head.position.set(0, 0.74, 0.05);
   pose.add(head);
+  head.add(headAccessory);
   const skull = mesh(new THREE.SphereGeometry(0.34, 18, 12), material(0xd8b88e), 0, 0.1, 0.08);
   skull.scale.set(1.02, 0.94, 0.9);
   head.add(skull);
@@ -449,7 +452,7 @@ function createPug(assistant = false, role: string | null = null): PugRig {
     roleAccessory.add(mesh(new THREE.BoxGeometry(0.13, 0.11, 0.025), material(0xfafafa), 0.18, 0.55, 0.38));
     const normalized = role?.toLowerCase() ?? "";
     if (/scan|search|research|crawl|discover|inspect/.test(normalized)) {
-      const visor = addBox(roleAccessory, [0.34, 0.08, 0.05], 0x46d7ff, [0, 1.01, 0.43]);
+      const visor = addBox(headAccessory, [0.34, 0.08, 0.05], 0x46d7ff, [0, 0.17, 0.36]);
       const visorSurface = visor.material as THREE.MeshStandardMaterial;
       visorSurface.emissive.setHex(0x46d7ff);
       visorSurface.emissiveIntensity = 0.5;
@@ -488,6 +491,7 @@ function createPug(assistant = false, role: string | null = null): PugRig {
     tailPivot,
     propAnchor,
     roleAccessory,
+    headAccessory,
     propObjects: { phone, book: book.object, pen, mug, scanner, clipboard },
     bookPage: book.page,
     screenMaterials: [
@@ -955,6 +959,12 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const instance = createMomoAssetInstance(momoTemplate);
     instance.root.scale.setScalar(0.96);
     rig.root.add(instance.root);
+    const assetHead = instance.root.getObjectByName("HeadPivot");
+    if (assetHead) {
+      rig.head.remove(rig.headAccessory);
+      assetHead.add(rig.headAccessory);
+      rig.headAccessory.position.set(0, 0, 0);
+    }
     // Keep the lightweight Three.js prop layer so Phone/Reading/Coffee remain
     // readable even though the procedural body is replaced by the GLTF hero.
     rig.pose.remove(rig.propAnchor);
@@ -1455,6 +1465,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     for (const rig of node.pugs) {
       if (rig.asset) {
         stopMomoAssetInstance(rig.asset);
+        rig.asset.root.remove(rig.headAccessory);
+        rig.root.add(rig.headAccessory);
         rig.root.remove(rig.asset.root);
         rig.asset = null;
       }
