@@ -33,7 +33,15 @@ async function copyCodeFromClick(event: MouseEvent, copy: MarkdownClickCopy): Pr
   try {
     await navigator.clipboard.writeText(code);
     button.textContent = copy.copied;
-    window.setTimeout(() => { if (button.isConnected) button.textContent = copy.copyCode; }, 1200);
+    button.classList.remove("motion-success");
+    // Restart the same lightweight success pulse when a block is copied twice.
+    void button.offsetWidth;
+    button.classList.add("motion-success");
+    window.setTimeout(() => {
+      if (!button.isConnected) return;
+      button.textContent = copy.copyCode;
+      button.classList.remove("motion-success");
+    }, 1200);
   } catch { /* clipboard unavailable */ }
 }
 
