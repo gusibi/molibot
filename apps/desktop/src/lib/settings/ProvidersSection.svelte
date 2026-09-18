@@ -54,6 +54,7 @@
   import { humanizeProviderName } from "../presentation";
   import { session } from "../stores/session.svelte";
   import { tablist } from "../a11y/tablist";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { trackUnsaved } from "../unsavedGuard";
   import {
     beginProviderAuth,
@@ -727,6 +728,9 @@
             <button
               type="button"
               class="provider-rail-row"
+              in:listIn={{ disabled: Boolean(providerSearch.trim()) }}
+              out:listOut={{ disabled: Boolean(providerSearch.trim()) }}
+              animate:listFlip={{ disabled: Boolean(providerSearch.trim()) }}
               class:selected={selectedProvider?.provider.id === provider.id}
               onclick={() => selectProvider(provider.id)}
             >
@@ -917,7 +921,7 @@
                       <div class="provider-model-rows">
                         {#each group.items as item (item.index)}
                           {@const model = item.model}
-                          <div class="provider-model-row" class:off={!model.enabled}>
+                          <div class="provider-model-row" class:off={!model.enabled} in:listIn={{ disabled: Boolean(modelSearch.trim()) }} out:listOut={{ disabled: Boolean(modelSearch.trim()) }} animate:listFlip={{ disabled: Boolean(modelSearch.trim()) }}>
                             <span class="provider-model-name">
                               {model.alias || model.id || session.text.providerModelId}
                               {#if model.alias}<small class="provider-model-alias-id" title={model.id}>{model.id}</small>{/if}
@@ -1110,7 +1114,7 @@
                   {#each group.ids as id (id)}
                     {@const added = editModelIds.has(id)}
                     {@const info = providersStore.discoveredItems[id]}
-                    <div class="provider-model-row" class:added>
+                    <div class="provider-model-row" class:added in:listIn={{ disabled: Boolean(modelDiscoveryQuery.trim()) }} out:listOut={{ disabled: Boolean(modelDiscoveryQuery.trim()) }} animate:listFlip={{ disabled: Boolean(modelDiscoveryQuery.trim()) }}>
                       <span class="provider-model-name">
                         {info?.alias || id}
                         {#if info?.alias}<small class="provider-model-alias-id" title={id}>{id}</small>{/if}
