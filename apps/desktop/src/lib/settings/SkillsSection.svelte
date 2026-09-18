@@ -7,6 +7,7 @@
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { trackUnsaved } from "../unsavedGuard";
   import { skillsStore, discardSkillsSearch, loadSkills, saveSkillsSearch, toggleSkill, updateBuiltinSkill } from "../stores/skills.svelte";
 
@@ -34,7 +35,7 @@
   {#if skillsStore.skills.builtins.length > 0}
     <SettingGroup title={session.text.skillBuiltins} description={session.text.skillBuiltinsHint}>
       {#each skillsStore.skills.builtins as builtin (builtin.id)}
-        <div class="settings-row">
+        <div class="settings-row" in:listIn out:listOut animate:listFlip>
           <div class="profile-info">
             <strong>{builtin.id}</strong>
             <p>
@@ -101,7 +102,7 @@
   {:else}
     <SettingGroup ariaLabel={session.text.skillsTotal}>
       {#each skillsStore.skills.items as skill (skill.id)}
-        <div class="settings-row">
+        <div class="settings-row" in:listIn out:listOut animate:listFlip>
           <div class="profile-info">
             <strong>{skill.name}</strong>
             {#if skill.description}<p>{skill.description}</p>{/if}

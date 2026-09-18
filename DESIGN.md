@@ -1353,6 +1353,8 @@ Nothing exceeds 300ms; longer reads as waiting, not communicating.
 
 **Motion polish contract:** a right-edge inspector closes by reversing its spatial direction before the state is released; async workspace loading/error/ready handoffs use a local 160ms opacity bridge instead of replaying the full page transition. Popovers, contextual menus, command palette, and compact action toasts all use `--duration-fast` + `--ease-spring`; do not invent 120/140/150ms one-off timings. Reduced-motion and low-performance modes disable these transitions rather than shortening them into a different motion language.
 
+**Motion completion contract:** mutable data lists may use token-driven enter/exit + FLIP reordering, but live text filtering must remain immediate. Switches get tactile compression, selected tabs/segments get a short settle, disclosures animate only the revealed content (never height), and transient success/copy feedback uses a single lightweight pulse. Agent Studio / Agent City / Three.js scene motion is explicitly outside the desktop UI motion system and must not be changed by UI-motion work.
+
 **Allowed properties:** `opacity` and `transform` only. Never animate
 `width`, `height`, or grid tracks - per-frame reflow is jank, and the
 file-panel grid animation was explicitly rejected in the motion audit.

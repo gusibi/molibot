@@ -7145,3 +7145,219 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 ) {
   scale: 1 !important;
 }
+
+/* Desktop motion completion layer ------------------------------------------------
+   Final UI polish only. Agent Studio / Agent City / Three.js selectors are
+   intentionally excluded: scene motion is owned by the 3D experience, not the
+   desktop UI motion system. */
+
+/* Switches already move their thumb; add tactile compression without changing
+   the checked translation. Individual scale preserves the thumb transform. */
+.ios-switch-track {
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    scale var(--duration-instant) var(--ease-standard);
+}
+.ios-switch-track::before {
+  transition:
+    transform var(--duration-fast) var(--ease-spring),
+    scale var(--duration-instant) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+.ios-switch:active:not(:has(input:disabled)) .ios-switch-track { scale: .98; }
+.ios-switch:active:not(:has(input:disabled)) .ios-switch-track::before { scale: .92; }
+
+/* Selected segmented/tab controls settle instead of changing fill in a single
+   frame. This is state feedback, not spatial navigation. */
+:is(
+  .appearance-segmented button.active,
+  .segmented-item.active,
+  .automation-category-tab.active,
+  .provider-rail-tab.active,
+  .provider-rail-sort.active,
+  .provider-discovery-tab.active,
+  .project-file-tabs button.active,
+  .project-viewer-tab.active,
+  .file-search-modes button.active,
+  .project-change-scope button.active,
+  .miniapps-install-tabs button.active,
+  .mermaid-viewer-tabs button.active,
+  .observatory-tabs button.active,
+  .task-schedule-tabs button.active,
+  .browser-scope-bar button.active,
+  .browser-channel-scopes button.active,
+  .project-settings-tabs button.active,
+  .view-tab.active,
+  .onboarding-model-tags button.active,
+  .memory-center-tabs button.active,
+  .execution-mode-card.active,
+  .model-chip.active
+) {
+  animation: motion-selection-settle var(--duration-fast) var(--ease-standard) both;
+}
+
+/* Details/disclosures keep layout changes immediate; only their newly revealed
+   content receives a small opacity/translate cue. No height/grid animation. */
+.tool-engine-card[open] > .tool-engine-body,
+.skills-search-config[open] > :not(summary),
+.provider-advanced[open] > :not(summary),
+.observatory-advanced-filters[open] > :not(summary),
+.settings-advanced-group[open] > :not(summary),
+.connector-config-panel[open] > :not(summary),
+.imported-theme-help[open] > :not(summary),
+.technical-detail[open] > :not(summary) {
+  animation: motion-disclosure-in var(--duration-fast) var(--ease-standard) both;
+}
+
+/* Shared async/feedback surfaces. The real content can replace a skeleton or
+   empty state without snapping, but the bridge remains local and short. */
+.section-empty,
+.skeleton-rows,
+.settings-action-message,
+.settings-card[role="alert"],
+.error-message,
+.miniapps-grid,
+.installed-skills-grid,
+.automation-workspace-layout {
+  animation: motion-content-handoff var(--duration-fast) var(--ease-standard) both;
+}
+
+.status-badge {
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+.status-symbol {
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    scale var(--duration-fast) var(--ease-standard);
+}
+.status-badge:has(.status-symbol) .status-symbol { scale: 1; }
+
+.settings-action-message {
+  will-change: opacity, translate;
+}
+
+@keyframes motion-selection-settle {
+  from { opacity: .78; scale: .975; }
+  to { opacity: 1; scale: 1; }
+}
+@keyframes motion-disclosure-in {
+  from { opacity: 0; translate: 0 -4px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-content-handoff {
+  from { opacity: .72; translate: 0 4px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+.motion-success {
+  animation: motion-success-pulse var(--duration-fast) var(--ease-spring) both;
+}
+@keyframes motion-success-pulse {
+  0% { opacity: .82; scale: .94; }
+  100% { opacity: 1; scale: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-switch-track,
+  .ios-switch-track::before,
+  :is(
+    .appearance-segmented button.active,
+    .segmented-item.active,
+    .automation-category-tab.active,
+    .provider-rail-tab.active,
+    .provider-rail-sort.active,
+    .provider-discovery-tab.active,
+    .project-file-tabs button.active,
+    .project-viewer-tab.active,
+    .file-search-modes button.active,
+    .project-change-scope button.active,
+    .miniapps-install-tabs button.active,
+    .mermaid-viewer-tabs button.active,
+    .observatory-tabs button.active,
+    .task-schedule-tabs button.active,
+    .browser-scope-bar button.active,
+    .browser-channel-scopes button.active,
+    .project-settings-tabs button.active,
+    .view-tab.active,
+    .onboarding-model-tags button.active,
+    .memory-center-tabs button.active,
+    .execution-mode-card.active,
+    .model-chip.active
+  ),
+  .tool-engine-card[open] > .tool-engine-body,
+  .skills-search-config[open] > :not(summary),
+  .provider-advanced[open] > :not(summary),
+  .observatory-advanced-filters[open] > :not(summary),
+  .settings-advanced-group[open] > :not(summary),
+  .connector-config-panel[open] > :not(summary),
+  .imported-theme-help[open] > :not(summary),
+  .technical-detail[open] > :not(summary),
+  .section-empty,
+  .skeleton-rows,
+  .settings-action-message,
+  .settings-card[role="alert"],
+  .error-message,
+  .miniapps-grid,
+  .installed-skills-grid,
+  .automation-workspace-layout,
+  .status-badge,
+  .status-symbol,
+  .motion-success {
+    animation: none !important;
+    transition: none !important;
+    translate: 0 0 !important;
+    scale: 1 !important;
+  }
+}
+
+:root[data-performance="low"] :is(
+  .appearance-segmented button.active,
+  .segmented-item.active,
+  .automation-category-tab.active,
+  .provider-rail-tab.active,
+  .provider-rail-sort.active,
+  .provider-discovery-tab.active,
+  .project-file-tabs button.active,
+  .project-viewer-tab.active,
+  .file-search-modes button.active,
+  .project-change-scope button.active,
+  .miniapps-install-tabs button.active,
+  .mermaid-viewer-tabs button.active,
+  .observatory-tabs button.active,
+  .task-schedule-tabs button.active,
+  .browser-scope-bar button.active,
+  .browser-channel-scopes button.active,
+  .project-settings-tabs button.active,
+  .view-tab.active,
+  .onboarding-model-tags button.active,
+  .memory-center-tabs button.active,
+  .execution-mode-card.active,
+  .model-chip.active,
+  .tool-engine-card[open] > .tool-engine-body,
+  .skills-search-config[open] > :not(summary),
+  .provider-advanced[open] > :not(summary),
+  .section-empty,
+  .skeleton-rows,
+  .settings-action-message,
+  .settings-card[role="alert"],
+  .error-message,
+  .miniapps-grid,
+  .installed-skills-grid,
+  .automation-workspace-layout
+) {
+  animation: none !important;
+  translate: 0 0 !important;
+  scale: 1 !important;
+}
+:root[data-performance="low"] .ios-switch-track,
+:root[data-performance="low"] .ios-switch-track::before,
+:root[data-performance="low"] .status-badge,
+:root[data-performance="low"] .status-symbol,
+:root[data-performance="low"] .motion-success {
+  transition: none !important;
+  scale: 1 !important;
+}
+

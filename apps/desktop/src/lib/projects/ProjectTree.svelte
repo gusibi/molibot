@@ -12,6 +12,7 @@
   import GroupHeader from "../chat/GroupHeader.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import {
     addProject,
     newProjectSession,
@@ -248,7 +249,7 @@
     {#each projectsStore.projects as project (project.id)}
       {@const projectSessions = projectsStore.sessionsByProject[project.id] ?? []}
       {@const visibleProjectSessions = projectSessions.slice(0, visibleSessionLimits[project.id] ?? SESSION_PAGE_SIZE)}
-      <div class="project-tree-group">
+      <div class="project-tree-group" in:listIn out:listOut animate:listFlip>
         <GroupHeader label={project.name} icon="folder" open={Boolean(expandedProjects[project.id])} actionLabel={copy.newChat} onAction={() => void createSession(project.id)} menuLabel={copy.conversationMenu} onMenu={() => (menuProjectId = menuProjectId === project.id ? "" : project.id)} onToggle={() => toggleProject(project.id)} />
         {#if menuProjectId === project.id}
           <div class="project-row-menu" role="menu">
@@ -267,6 +268,7 @@
             <p class="project-tree-state">{copy.projectNoSessions}</p>
           {:else}
             {#each visibleProjectSessions as session (session.conversationId)}
+              <div class="project-session-motion" in:listIn out:listOut animate:listFlip>
               <ConversationRow
                 item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false }}
                 active={activeSessionId === session.conversationId}
@@ -278,6 +280,7 @@
                 onCopyPath={() => void copySessionPath(session.conversationId, project.id)}
                 onRevealInFinder={() => void revealSessionInFinder(session.conversationId, project.id)}
               />
+              </div>
             {/each}
             {#if projectSessions.length > visibleProjectSessions.length}
               <button type="button" class="project-more" onclick={() => showMoreSessions(project.id)}>{copy.more}</button>
@@ -344,4 +347,5 @@
   .project-more { width: 100%; height: 30px; padding: 0 8px 0 32px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--accent); font: inherit; font-size: var(--fs-label); text-align: left; cursor: pointer; }
   .project-more:hover { background: var(--fill); }
   .project-more:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+  .project-session-motion { min-width: 0; }
 </style>

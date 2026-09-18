@@ -36,6 +36,7 @@
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import { formatNaturalDateTime, formatNaturalSchedule } from "../presentation";
   import { tablist } from "../a11y/tablist";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { DirectManipulation, type ManipulationSnapshot } from "../native/directManipulation";
   import { ActivityScheduler, documentActivityVisibility, interactiveActivityPolicy } from "../native/activityScheduler";
   import {
@@ -424,7 +425,7 @@
       <div class:detail-open={Boolean(selectedTask)} class="automation-workspace-layout">
         <div class="automation-workspace-list">
           {#each displayTaskItems as task (task.id)}
-            <div role="button" tabindex="0" class:active={selectedTask?.id === task.id} class:running={isTaskRunning(task.id)} class:paused={!task.enabled} class:unread={task.reminderUnread} class="automation-task-row" data-status={task.status} onclick={() => (selectedTaskId = task.id)} onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectedTaskId = task.id; } }}>
+            <div role="button" tabindex="0" class:active={selectedTask?.id === task.id} class:running={isTaskRunning(task.id)} class:paused={!task.enabled} class:unread={task.reminderUnread} class="automation-task-row" data-status={task.status} in:listIn={{ disabled: Boolean(tasksStore.query.trim()) }} out:listOut={{ disabled: Boolean(tasksStore.query.trim()) }} animate:listFlip={{ disabled: Boolean(tasksStore.query.trim()) }} onclick={() => (selectedTaskId = task.id)} onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectedTaskId = task.id; } }}>
               <div class="automation-task-card-top">
                 {#if isTaskRunning(task.id) || task.type === "one-shot"}
                   <span class="automation-task-row-mark" aria-hidden="true">

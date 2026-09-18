@@ -18,6 +18,7 @@
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import StatusBadge from "../components/ui/StatusBadge.svelte";
   import { session } from "../stores/session.svelte";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import MiniAppIcon from "./MiniAppIcon.svelte";
   import {
     miniAppsStore,
@@ -240,7 +241,7 @@
   {:else}
     <div class="miniapps-grid">
       {#each filteredApps as app (app.id)}
-        <article class="miniapp-card" class:disabled={!app.enabled || app.status !== "active"} class:has-error={app.status === "error"}>
+        <article class="miniapp-card" in:listIn={{ disabled: Boolean(normalizedQuery) }} out:listOut={{ disabled: Boolean(normalizedQuery) }} animate:listFlip={{ disabled: Boolean(normalizedQuery) }} class:disabled={!app.enabled || app.status !== "active"} class:has-error={app.status === "error"}>
           <div class="miniapp-card-head">
             <MiniAppIcon src={app.iconDataUri} label={app.name} />
 
@@ -383,7 +384,7 @@
           {:else}
             <ul class="miniapps-builtin-list">
               {#each miniAppsStore.builtin as app (app.id)}
-                <li class="miniapps-builtin-row">
+                <li class="miniapps-builtin-row" in:listIn out:listOut animate:listFlip>
                   <MiniAppIcon src={app.iconDataUri} label={app.name} />
 
                   <div class="miniapps-settings-info">

@@ -112,7 +112,7 @@
     </div>
 
     {#if mode === "source"}
-      <button type="button" class="mermaid-viewer-action" onclick={() => void copySource()}>
+      <button type="button" class="mermaid-viewer-action" class:motion-success={copied} onclick={() => void copySource()}>
         {#if copied}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
         <span>{copied ? copy.copied : copy.copyCode}</span>
       </button>

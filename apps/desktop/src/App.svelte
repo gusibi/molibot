@@ -1499,7 +1499,7 @@
             <StatusBadge label={serviceStateLabel(status?.service.state, text)} state={status?.service.state ?? "disconnected"} />
           </SettingRow>
           <SettingRow title={text.copyDiagnostics} description={diagnosticsCopied ? text.copied : ""}>
-            <button class="secondary-button" type="button" onclick={copyDiagnostics}>
+            <button class="secondary-button" class:motion-success={diagnosticsCopied} type="button" onclick={copyDiagnostics}>
               {diagnosticsCopied ? text.copied : text.copyDiagnostics}
             </button>
           </SettingRow>

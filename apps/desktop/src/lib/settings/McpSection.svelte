@@ -8,6 +8,7 @@
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import {
     mcpStore,
     beginMcpEdit,
@@ -64,7 +65,7 @@
       <EmptyState title={session.text.mcpEmpty} description={session.text.mcpHint} icon="plugs-connected" />
     {:else}
       {#each mcpStore.mcp.items as server (server.id)}
-        <div class="settings-row">
+        <div class="settings-row" in:listIn out:listOut animate:listFlip>
           <div class="profile-info">
             <strong>{server.name}</strong>
             {#if server.transport === "stdio"}

@@ -10,6 +10,7 @@
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { agentsStore, loadAgents } from "../stores/agents.svelte";
   import { PROFILE_FILE_NAMES } from "./profileFiles";
   import {
@@ -60,7 +61,7 @@
       <EmptyState title={session.text.profilesEmpty} description={session.text.profilesHint} icon="user" />
     {:else}
       {#each profilesStore.webProfiles as profile (profile.id)}
-        <div class="settings-row">
+        <div class="settings-row" in:listIn out:listOut animate:listFlip>
           <div class="profile-info">
             <strong>{profile.name}</strong>
             <p>{profile.agentName ? `${session.text.linkedAgent}: ${profile.agentName}` : session.text.noLinkedAgent}</p>
