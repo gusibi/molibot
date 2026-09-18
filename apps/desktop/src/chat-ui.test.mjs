@@ -8,9 +8,12 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 // file without rewriting every assertion; the guard test below also pins the
 // split itself (every family has a file, every file is imported).
 const THEME_FAMILIES = ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "raft", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"];
+const THEME_RECIPES = ["material", "messenger", "retro"];
 const baseStyles = read("./styles.css");
 const themeStyles = THEME_FAMILIES.map((family) => read(`./themes/${family}.css`)).join("\n");
+const recipeStyles = THEME_RECIPES.map((recipe) => read(`./themes/recipes/${recipe}.css`)).join("\n");
 const themesIndex = read("./themes/index.css");
+const recipesIndex = read("./themes/recipes/index.css");
 const mainEntry = read("./main.ts");
 const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
   const url = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
@@ -20,7 +23,7 @@ const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(
 const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
 const i18n = read("./lib/i18n.ts");
-const styles = baseStyles + "\n" + themeStyles;
+const styles = baseStyles + "\n" + themeStyles + "\n" + recipeStyles;
 
 test("compact numeric settings do not shrink inside auto-sized control wrappers", () => {
   const rule = styles.match(/\.model-number-input\s*\{([^}]+)\}/)?.[1] ?? "";
@@ -468,6 +471,22 @@ test("appearance and theme family remain independent persisted controls", () => 
   for (const appearance of ["light", "dark", "system"]) {
     assert.match(app, new RegExp(`value: "${appearance}"`));
   }
+});
+
+test("theme visual recipes decouple component grammar from family palettes", () => {
+  assert.match(themesIndex, /@import "\.\/recipes\/index\.css";/);
+  for (const recipe of THEME_RECIPES) {
+    assert.match(recipesIndex, new RegExp(`@import "./${recipe}\\.css";`), `${recipe}.css is missing from recipes/index.css`);
+  }
+  assert.match(app, /root\.dataset\.themeRecipe = THEME_RECIPE_BY_FAMILY\[family\]/);
+  assert.match(app, /delete root\.dataset\.themeRecipe/);
+  for (const family of THEME_FAMILIES) {
+    assert.match(app, new RegExp(`"${family}": "(?:native|material|messenger|retro|editorial|technical|product|expressive)"`), `${family} is missing a visual recipe assignment`);
+  }
+  assert.match(recipeStyles, /data-theme-recipe="material"[\\s\\S]*message-row\.assistant \.message-bubble/);
+  assert.match(recipeStyles, /data-theme-recipe="messenger"[\\s\\S]*background-image:\s*radial-gradient/);
+  assert.match(recipeStyles, /data-theme-recipe="retro"[\\s\\S]*border-radius:\s*0/);
+  assert.doesNotMatch(recipeStyles, /font-family:/, "visual recipes must not pull typography into the component-grammar layer");
 });
 
 test("theme families live in their own files, are imported, and each ships paired variants", () => {
