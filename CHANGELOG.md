@@ -1,10 +1,13 @@
-### Changed: Agent 社区以 Momo 为中心并支持并行 Worker 团队（2026-09-18）
+### Changed: Agent Community 完成 Momo 与模块化建筑资产化（2026-09-18）
 
-Agent 模型也开始从 procedural geometry 迁移到真正的资产管线：持久 Agent 会异步加载 GLTF Momo，并通过 Three.js `AnimationMixer` 播放 Idle、Walk、Typing、Thinking、Scan、Reading、Reviewing、Phone、Sleep、Celebrate、Error、Wave、Coffee 13 个动作；资源加载失败时自动继续使用旧 procedural 模型。运行时优先寻找 Blender 导出的 `momo.glb`，仓库里的动画 `momo.gltf` 只是可运行的原型 fallback；同时补上 Blender 导出脚本和模型/动作 contract，后续替换最终美术资产不需要再碰 Agent Activity 或 Worker Swarm 逻辑。
+Agent 页这一轮把前两版「结构已经对，但看起来还像积木」的问题继续做完。Default Agent 现在是社区中央的 Momo HQ，Sub-agent 是可重复派生的 Worker Swarm；`scan ×10` 这样的并行团队保留完整 runtime 实例，只在 Three.js 渲染层做 LOD。
 
-这一版继续补齐了之前只改布局、视觉变化不够明显的问题：Momo HQ 与普通 Studio 现在有书架、植物、休息区、落地灯、任务板等真正的室内陈设；Worker Camp 改为独立临时工位与角色色屏幕。Momo/Worker 新增 coffee、thinking、scan、reviewing、pace 等动作，空闲 Agent 会短距离巡视，同名 scan Worker 会拿扫描器并佩戴 visor，reviewer 会拿 clipboard；Working/Completed/Error 也会驱动整个房间的任务板、屏幕和庆祝/告警效果，而不再只改变一条边框。
+角色层正式切到生产 GLB：仓库直接提交新的圆润 Momo `momo.glb`，主 Agent 和 Worker 都通过 `GLTFLoader + AnimationMixer` 使用同一个角色资产，带 Idle / Walk / Typing / Thinking / Scan / Reading / Reviewing / Phone / Sleep / Celebrate / Error / Wave / Coffee 13 个动作。旧验证模型的方块比例已重做为大头、短鼻、黑面罩、眼白高光、短腿和卷尾的 mascot 轮廓；scan / planner / reviewer 的配件继续由 runtime 叠加，visor 会跟随 GLTF HeadPivot。低画质时临时 Worker 自动降回轻量 rig，避免多人并行把帧率拖垮。
 
-Agent 页不再把最常工作的 Default Agent 放在城市最后方：Default 现在以 **Momo HQ** 的形式位于社区中央，前方是独立任务调度 Hub，普通 Agent 工作室围绕两侧展开。Sub-agent 也不再被固定成「最多 3 个工位」——运行时的每个 Sub-agent 实例都会完整保留，同名角色会聚合成 `scan ×10`、`reviewer ×2` 这样的临时 Worker Team；Three.js 只在视觉层做 LOD，每个父 Agent 最多显示 12 个动画 Worker，更多实例汇总为 Worker Pool。详情、hover、顶部概览与 2D fallback 都会显示 Worker 数量与角色分组。
+建筑层也不再只靠 BoxGeometry：新增并提交 `community-kit.glb`，Momo HQ、普通 Studio、室内静态陈设和 Community Hub 都从模块化 GLB kit hydrate；失败时才退回 procedural fallback。GLTF 窗户仍接入 Working / Idle / Error 实时亮度，任务板、Worker Camp、显示器、路线、庆祝/告警等实时 UI 保持 Three.js 驱动。有 Worker 时休息区会自动收起，临时工位与 Camp 改为圆角几何；社区中央补上 plaza、树、长椅和路灯，渲染加入 ACES filmic tone mapping、软阴影和克制 rim light。
+
+同时补齐可重建的 Blender source pipeline：`scripts/blender/build_agent_community_assets.py` 可生成 Momo 与 Agent Community Kit 的可编辑 `.blend` 源并导出 runtime GLB，严格的 `export_momo.py` 继续校验 MomoRoot / MomoRig 与动作 contract。测试会直接检查两个 GLB 二进制、fallback 资产组件与全部动作，防止资产文件缺失或重新退回占位模型。
+
 
 ### Fixed: 文件面板提示统一为居中空状态（2026-09-17）
 
