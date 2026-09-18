@@ -88,6 +88,7 @@ const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
 const agentCityCanvas = read("./lib/chat/AgentCityCanvas.svelte");
 const agentCityFallback = read("./lib/chat/AgentCityFallback.svelte");
 const agentCityScene = read("./lib/chat/agentCityScene.ts");
+const agentCityMomoAsset = read("./lib/chat/agentCityMomoAsset.ts");
 const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
 const channelAccordion = read("./lib/chat/ChannelAccordion.svelte");
 const activityIcons = read("./lib/chat/activityIcons.ts");
@@ -2085,6 +2086,10 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /createMomoAssetInstance\(momoTemplate\)/);
   assert.match(agentCityScene, /rig\.pose\.visible = false/);
   assert.match(agentCityScene, /playMomoAnimation\(rig\.asset, momoAnimationName\(motion\.clip\)/);
+  assert.match(agentCityMomoAsset, /GLTFLoader/);
+  assert.match(agentCityMomoAsset, /new THREE\.AnimationMixer/);
+  assert.match(agentCityMomoAsset, /MOMO_GLTF_URL = "\/agent-community\/momo\.glb"/);
+  assert.match(agentCityMomoAsset, /catch\(\(\) => loader\.loadAsync\(MOMO_PROTOTYPE_URL\)\)/);
   assert.match(agentCityScene, /new THREE\.LineDashedMaterial/);
   assert.match(agentCityScene, /marqueeLine\.computeLineDistances\(\)/);
   assert.match(agentCityScene, /function moveMarquee/);
