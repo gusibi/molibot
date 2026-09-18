@@ -1,3 +1,12 @@
+### 调整：Agent City 升级为以 Momo 为中心的社区 + 可无限派生 Worker 团队（2026-09-18，待验收）
+
+- Default Agent 不再躲在城市最后方：保持内部 `id=default` 与现有 Activity/API 契约不变，但视觉上改为社区中央的 **Momo HQ**，扩大总部空间与 Momo 主角比例；任务调度中心独立成前方 Community Hub，普通 Agent 工作室分布在两侧/后方社区。
+- Sub-agent 从「最多显示 3 个临时工位」改为真正的运行实例集合：Projection 保留全部 `DesktopSubagentActivityItem`，按角色聚合成 `scan ×10` / `reviewer ×2` 等 Worker Team，并统计 working/completed/error；同名 worker 依靠 runtime `id` 保持实例级身份。
+- Three.js 只在渲染层做 LOD：每个父 Agent 最多绘制 12 个带动画的临时 Momo Worker，超过部分以 Worker Pool 汇总，不再在数据层截断；Momo HQ 的 Worker Camp 使用多行展开布局，普通 Agent 也可并行派生自己的临时团队。
+- 社区空间从规则网格改为 Hub → Momo HQ → Agent Studio 的连接路径；2D fallback、hover/detail 与顶部概览同步显示临时 Worker 总数和角色分组，确保 WebGL 降级时信息等价。
+- 机器守卫：Projection 测试覆盖 10 个同名 scan + reviewer 的完整保留与分组统计；Scene 测试覆盖 Worker Camp 几何 LOD；`chat-ui.test.mjs` 钉住完整实例投影和 12-worker 渲染上限。
+- 说明：本轮完成社区结构、并行 Worker 表达与 Three.js 场景重构；正式 Blender/GLB 角色与模块化建筑资产仍是独立的资产替换阶段，不把程序化几何冒充为 Blender 交付。
+
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
 
 - 背景（owner 走查）：「变更 → 本次会话」「附件」tab 在列表上方各有一条左上角对齐的范围说明（"只显示本次会话中 Agent 写入过的文件。" / "仅显示当前会话消息中的附件。"），与下方居中的空状态并排显得杂乱；owner 期望统一为「icon + 居中主文案 + 居中次要说明」的样式（即 Git 不可用空状态已有的样式）。
