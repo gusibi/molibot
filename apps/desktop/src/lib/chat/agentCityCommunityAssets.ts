@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
-export const COMMUNITY_KIT_URL = "/agent-community/community-kit.gltf";
+export const COMMUNITY_KIT_URL = "/agent-community/community-kit.glb";
+export const COMMUNITY_KIT_FALLBACK_URL = "/agent-community/community-kit.gltf";
 
 export type CommunityKitComponent =
   | "StudioArchitecture"
@@ -20,7 +21,9 @@ let templatePromise: Promise<CommunityKitTemplate> | null = null;
 export function loadCommunityKit(): Promise<CommunityKitTemplate> {
   if (templatePromise) return templatePromise;
   const loader = new GLTFLoader();
-  templatePromise = loader.loadAsync(COMMUNITY_KIT_URL).then((gltf) => ({ scene: gltf.scene }));
+  templatePromise = loader.loadAsync(COMMUNITY_KIT_URL)
+    .catch(() => loader.loadAsync(COMMUNITY_KIT_FALLBACK_URL))
+    .then((gltf) => ({ scene: gltf.scene }));
   return templatePromise;
 }
 
