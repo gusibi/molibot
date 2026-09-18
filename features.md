@@ -1,4 +1,4 @@
-### 调整：Agent City 升级为以 Momo 为中心的社区 + Phase 3/4 资产化（2026-09-18，待验收）
+### 调整：Agent City 升级为以 Momo 为中心的社区 + Phase 3/4/5 完成（2026-09-19，待验收）
 
 - Default Agent 继续保留内部 `id=default`，产品层改为社区中央 **Momo HQ**；任务调度 Community Hub 独立在前方，普通 Agent Studio 分布在两侧/后方，社区道路改为 Hub → Momo HQ → Studio 的关系路径。
 - Sub-agent 不再截断为 3 个固定工位：Projection 保留完整实例并按 role 聚合，可直接表达 `scan ×10` / `reviewer ×2`；Three.js 只负责视觉 LOD，每个父 Agent 最多显示 12 个 Worker，更多实例进入 Worker Pool。
@@ -11,6 +11,9 @@
 - Worker Camp 与房间细节完成：有 Worker 时 GLTF lounge 自动收起避免穿模；临时桌面/键盘/显示器改为圆角几何，Camp 基座圆角化；社区增加中央 plaza、树、长椅、路灯，房间与人物不再像孤立积木。
 - 完整 Blender 可重建管线：新增 `scripts/blender/build_agent_community_assets.py`，可生成可编辑的 `Momo.blend` / `AgentCommunityKit.blend` 并导出两个 runtime GLB；`export_momo.py` 继续负责艺术家修改后的严格 clip contract 校验与导出。
 - 机器守卫扩展：测试直接校验两个生产 GLB 的 magic/version、文本 fallback 的完整组件/13 clip、GLB-first URL、Worker GLTF LOD、HeadPivot 附件、模块化房间 hydration 与状态窗户材质，避免再次退回「只有架构、没有资产」的假完成状态。
+- Phase 5 Agent Inspector 完成：点击 3D 房间或 2D fallback 都打开同一套右侧 Inspector；概览 / Worker / 运行信息三页实时跟随 2.5s activity poll，展示当前任务、来源 Bot/Channel、模型路由、权限、Run ID、起止时间、完整 Worker role 分组与每个实例状态，不再用底部小卡片塞信息。
+- Inspector 直接提供「与这个 Agent 对话 / 镜头对准 / Agent 设置」动作；对话动作会解析绑定该 Agent 的 Web Profile 并直接创建对应 Bot 的新会话草稿，Default/Momo 会优先使用未绑定专属 Agent 的默认 Web Profile；没有可用 Profile 时跳到 Profiles 设置，不生成错误绑定的会话。
+- Live Community UX 同步补齐：Agent 搜索现在不只搜名字/描述，也搜 Worker role、Bot 名称与任务摘要；Inspector 打开时宽屏搜索面板自动让位，窄屏改为临时覆盖；Escape 关闭 Inspector、2D fallback 也可进入 Inspector，旧 `.agent-city-detail` 卡片和死样式已删除。
 
 
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
