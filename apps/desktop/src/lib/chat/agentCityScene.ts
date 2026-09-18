@@ -108,6 +108,9 @@ interface PugRig {
   screenMaterials: THREE.MeshStandardMaterial[];
   coatMaterials: THREE.MeshStandardMaterial[];
   seed: number;
+  role: string | null;
+  baseScale: number;
+  spawnEpochMs: number | null;
   status: AgentCityStatus;
   currentProp: PugProp;
   oneShot: { clip: PugClip; startedAt: number } | null;
@@ -155,6 +158,8 @@ interface FloorNode {
   loungePosition: THREE.Vector3;
   windowMaterial: THREE.MeshStandardMaterial;
   roomMaterials: THREE.MeshStandardMaterial[];
+  activityMaterials: THREE.MeshStandardMaterial[];
+  celebration: THREE.Group | null;
   windowBase: number;
   windowFlicker: number;
   glowPhase: number;
@@ -288,11 +293,56 @@ function createPenProp(): THREE.Object3D {
   return group;
 }
 
+function createMugProp(): THREE.Object3D {
+  const group = new THREE.Group();
+  group.add(mesh(new THREE.CylinderGeometry(0.09, 0.08, 0.16, 14), material(0xf0c66b, 0.6), 0, 0, 0));
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.018, 6, 12, Math.PI * 1.55), material(0xf0c66b, 0.6));
+  handle.rotation.y = Math.PI / 2;
+  handle.position.set(0.09, 0, 0);
+  group.add(handle);
+  return group;
+}
+
+function createScannerProp(): THREE.Object3D {
+  const group = new THREE.Group();
+  const shell = mesh(new THREE.BoxGeometry(0.24, 0.16, 0.08), material(0x203646, 0.42));
+  group.add(shell);
+  const screenMaterial = new THREE.MeshStandardMaterial({
+    color: 0xbdefff,
+    emissive: 0x46d7ff,
+    emissiveIntensity: 1.1,
+    roughness: 0.24
+  });
+  group.add(mesh(new THREE.BoxGeometry(0.19, 0.11, 0.014), screenMaterial, 0, 0, 0.048));
+  group.userData.screenMaterial = screenMaterial;
+  return group;
+}
+
+function createClipboardProp(): THREE.Object3D {
+  const group = new THREE.Group();
+  group.add(mesh(new THREE.BoxGeometry(0.25, 0.035, 0.34), material(0xd5c6aa, 0.8), 0, 0, 0));
+  group.add(mesh(new THREE.BoxGeometry(0.09, 0.025, 0.045), material(0x657680, 0.45), 0, 0.035, -0.13));
+  for (let index = 0; index < 3; index += 1) {
+    group.add(mesh(new THREE.BoxGeometry(0.16, 0.012, 0.014), material(0x6f7c85, 0.9), 0, 0.03, -0.045 + index * 0.065));
+  }
+  return group;
+}
+
+function roleColor(role: string | null): number {
+  const normalized = role?.trim().toLowerCase() ?? "";
+  if (/scan|search|research|crawl|discover|inspect/.test(normalized)) return 0x36bfe8;
+  if (/plan|architect|design|strategy/.test(normalized)) return 0x9b7be8;
+  if (/review|test|audit|check|verify|qa/.test(normalized)) return 0xe7a34b;
+  if (!normalized) return COAT_COLOR;
+  const palette = [0x00ac96, 0x4f8bd8, 0xd06c8d, 0x72a85f];
+  return palette[pugSeed(normalized) % palette.length];
+}
+
 /**
  * Low-poly pug with named pivots. The rig keeps front paws (the original model
  * had none), which is what makes typing / phone-scrolling / waving readable.
  */
-function createPug(assistant = false): PugRig {
+function createPug(assistant = false, role: string | null = null): PugRig {
   const root = new THREE.Group();
   const pose = new THREE.Group();
   root.add(pose);
@@ -347,15 +397,29 @@ function createPug(assistant = false): PugRig {
 
   const vest = mesh(
     new THREE.CylinderGeometry(0.36, 0.34, 0.34, 16, 1, true),
-    material(assistant ? 0x00ac96 : COAT_COLOR),
+    material(assistant ? roleColor(role) : COAT_COLOR),
     0,
     0.48,
     0
   );
   vest.scale.set(1.02, 1, 1.12);
   pose.add(vest);
-  if (assistant) pose.add(mesh(new THREE.BoxGeometry(0.13, 0.11, 0.025), material(0xfafafa), 0.18, 0.55, 0.38));
-  else coatMaterials.push(vest.material as THREE.MeshStandardMaterial);
+  if (assistant) {
+    pose.add(mesh(new THREE.BoxGeometry(0.13, 0.11, 0.025), material(0xfafafa), 0.18, 0.55, 0.38));
+    const normalized = role?.toLowerCase() ?? "";
+    if (/scan|search|research|crawl|discover|inspect/.test(normalized)) {
+      const visor = addBox(head, [0.34, 0.08, 0.05], 0x46d7ff, [0, 0.17, 0.36]);
+      const visorSurface = visor.material as THREE.MeshStandardMaterial;
+      visorSurface.emissive.setHex(0x46d7ff);
+      visorSurface.emissiveIntensity = 0.5;
+    } else if (/plan|architect|design|strategy/.test(normalized)) {
+      const badge = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.026, 12), material(0xd9c9ff), -0.19, 0.57, 0.37);
+      badge.rotation.x = Math.PI / 2;
+      pose.add(badge);
+    } else if (/review|test|audit|check|verify|qa/.test(normalized)) {
+      pose.add(mesh(new THREE.BoxGeometry(0.16, 0.12, 0.025), material(0xffe0ad), -0.18, 0.55, 0.38));
+    }
+  } else coatMaterials.push(vest.material as THREE.MeshStandardMaterial);
 
   const propAnchor = new THREE.Group();
   propAnchor.position.set(0, 0.56, 0.44);
@@ -363,7 +427,10 @@ function createPug(assistant = false): PugRig {
   const phone = createPhoneProp();
   const book = createBookProp();
   const pen = createPenProp();
-  for (const prop of [phone, book.object, pen]) {
+  const mug = createMugProp();
+  const scanner = createScannerProp();
+  const clipboard = createClipboardProp();
+  for (const prop of [phone, book.object, pen, mug, scanner, clipboard]) {
     prop.visible = false;
     propAnchor.add(prop);
   }
@@ -379,11 +446,17 @@ function createPug(assistant = false): PugRig {
     earRight: earRight as THREE.Mesh,
     tailPivot,
     propAnchor,
-    propObjects: { phone, book: book.object, pen },
+    propObjects: { phone, book: book.object, pen, mug, scanner, clipboard },
     bookPage: book.page,
-    screenMaterials: [phone.userData.screenMaterial as THREE.MeshStandardMaterial],
+    screenMaterials: [
+      phone.userData.screenMaterial as THREE.MeshStandardMaterial,
+      scanner.userData.screenMaterial as THREE.MeshStandardMaterial
+    ],
     coatMaterials,
     seed: 0,
+    role,
+    baseScale: 0.82,
+    spawnEpochMs: null,
     status: "idle",
     currentProp: "none",
     oneShot: null,
@@ -410,7 +483,7 @@ function applyPugPose(rig: PugRig, pose: PugPose, baseYaw: number, detailed: boo
     rig.currentProp = prop;
   }
   if (prop === "book") rig.bookPage.rotation.z = -pose.propSpin;
-  if (prop === "phone") rig.propAnchor.rotation.z = pose.propSpin;
+  if (prop === "phone" || prop === "mug" || prop === "scanner" || prop === "clipboard") rig.propAnchor.rotation.z = pose.propSpin;
   if (prop === "pen") rig.propAnchor.rotation.z = pose.propSpin * 0.4;
   for (const surface of rig.screenMaterials) surface.emissiveIntensity = 0.35 + pose.screenGlow * 0.9;
 }
@@ -419,6 +492,11 @@ function setPugStatus(rig: PugRig, status: AgentCityStatus): void {
   rig.status = status;
   const color = status === "disabled" ? COAT_COLOR_DISABLED : COAT_COLOR;
   for (const surface of rig.coatMaterials) surface.color.setHex(color);
+}
+
+function setRigScale(rig: PugRig, scalar: number): void {
+  rig.baseScale = scalar;
+  rig.root.scale.setScalar(scalar);
 }
 
 /**
