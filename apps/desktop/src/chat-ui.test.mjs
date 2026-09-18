@@ -5539,6 +5539,9 @@ test("desktop structural motion bridges navigation, dialogs, inspectors, and pre
   const alertDialog = read("./lib/components/ui/AlertDialog.svelte");
 
   assert.match(app, /\{#key activeSection\}[\s\S]*settings-motion-stage/);
+  assert.match(app, /settingsClosing = true/);
+  assert.match(app, /class:closing=\{settingsClosing\}/);
+  assert.match(app, /motion-settings-shell-out/);
   assert.match(workspace, /\{#key pane\}[\s\S]*workspace-motion-stage/);
   assert.match(dialog, /data-motion="dialog-scrim"/);
   assert.match(dialog, /data-motion="dialog-sheet"/);
