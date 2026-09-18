@@ -111,21 +111,33 @@ test("projectAgentCity emits exclusive states and an exact owner-to-floor route"
   assert.equal(route?.phase, "returning");
 });
 
-test("projectAgentCity caps visible Sub-agents at three and never invents tool intent", () => {
+test("projectAgentCity retains every Sub-agent instance and groups repeated worker roles", () => {
   const parentActivity = activity("agent-1");
   parentActivity.taskPreview = "Search, code, approve, and generate an image";
-  parentActivity.subagents = Array.from({ length: 5 }, (_, index) => ({
-    id: `sub-${index}`,
-    name: `Sub ${index}`,
-    status: index === 0 ? "completed" : "working",
-    startedAt: "2026-07-14T12:00:00.000Z",
-    finishedAt: index === 0 ? "2026-07-14T12:00:05.000Z" : ""
-  }));
+  parentActivity.subagents = [
+    ...Array.from({ length: 10 }, (_, index) => ({
+      id: `scan-${index}`,
+      name: "scan",
+      status: index < 2 ? "completed" as const : "working" as const,
+      startedAt: "2026-07-14T12:00:00.000Z",
+      finishedAt: index < 2 ? "2026-07-14T12:00:05.000Z" : ""
+    })),
+    {
+      id: "review-1",
+      name: "reviewer",
+      status: "error" as const,
+      startedAt: "2026-07-14T12:00:00.000Z",
+      finishedAt: "2026-07-14T12:00:08.000Z"
+    }
+  ];
 
   const projection = projectAgentCity({ agents: [agent("agent-1")], activities: [parentActivity], slots: {} });
   const floor = projection.buildings[0]?.floors[0];
-  assert.equal(floor?.subagents.visible.length, 3);
-  assert.equal(floor?.subagents.overflowCount, 2);
+  assert.equal(floor?.subagents.instances.length, 11);
+  assert.deepEqual(
+    floor?.subagents.groups.map((group) => [group.role, group.total, group.working, group.completed, group.error]),
+    [["scan", 10, 8, 2, 0], ["reviewer", 1, 0, 0, 1]]
+  );
   assert.equal(floor?.animation, "working");
   assert.equal(floor?.activity?.taskPreview, parentActivity.taskPreview);
   assert.equal("toolAction" in (floor ?? {}), false);
