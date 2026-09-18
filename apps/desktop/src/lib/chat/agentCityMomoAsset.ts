@@ -3,7 +3,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { PugClip } from "./agentCityPugAnimation";
 
-export const MOMO_ASSET_URL = "/agent-community/momo.gltf";
+export const MOMO_GLTF_URL = "/agent-community/momo.glb";
+export const MOMO_PROTOTYPE_URL = "/agent-community/momo.gltf";
 
 export interface MomoAssetTemplate {
   scene: THREE.Object3D;
@@ -39,10 +40,12 @@ export function momoAnimationName(clip: PugClip): string {
 export function loadMomoAssetTemplate(): Promise<MomoAssetTemplate> {
   if (templatePromise) return templatePromise;
   const loader = new GLTFLoader();
-  templatePromise = loader.loadAsync(MOMO_ASSET_URL).then((gltf) => ({
-    scene: gltf.scene,
-    clips: gltf.animations
-  }));
+  templatePromise = loader.loadAsync(MOMO_GLTF_URL)
+    .catch(() => loader.loadAsync(MOMO_PROTOTYPE_URL))
+    .then((gltf) => ({
+      scene: gltf.scene,
+      clips: gltf.animations
+    }));
   return templatePromise;
 }
 
