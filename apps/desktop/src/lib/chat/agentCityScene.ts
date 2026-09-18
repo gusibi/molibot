@@ -874,8 +874,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     powerPreference: options.quality === "full" ? "high-performance" : "low-power"
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = options.theme === "dark" ? 1.08 : 1.0;
   renderer.shadowMap.enabled = options.quality === "full";
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, options.quality === "full" ? 2 : 1.25));
 
   const scene = new THREE.Scene();
@@ -955,6 +957,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   sun.shadow.camera.top = 24;
   sun.shadow.camera.bottom = -24;
   scene.add(sun);
+  const rim = new THREE.DirectionalLight(theme === "dark" ? 0x79b8ff : 0xffe1b8, theme === "dark" ? 0.75 : 0.55);
+  rim.position.set(14, 10, -16);
+  rim.castShadow = false;
+  scene.add(rim);
 
   function attachMomoAsset(rig: PugRig): void {
     if (!rig.assetEligible || rig.asset || !momoTemplate) return;
@@ -1079,6 +1085,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     ambient.intensity = theme === "dark" ? 1.45 : 1.8;
     sun.color.setHex(theme === "dark" ? 0x9fc6ff : 0xfff4df);
     sun.intensity = theme === "dark" ? 2.2 : 3.4;
+    rim.color.setHex(theme === "dark" ? 0x79b8ff : 0xffe1b8);
+    rim.intensity = theme === "dark" ? 0.75 : 0.55;
+    renderer.toneMappingExposure = theme === "dark" ? 1.08 : 1.0;
   }
 
   function buildStaticScenery(): void {
