@@ -31,6 +31,10 @@
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
   }
+
+  function subagentSummary(floor: AgentCityFloor): string {
+    return floor.subagents.groups.map((group) => `${group.role} ×${group.total}`).join(" · ");
+  }
 </script>
 
 <div class="agent-city-fallback" aria-label={copy.agentCityFallbackLabel}>
@@ -48,6 +52,9 @@
         <span>{projection.globalFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</span>
       {/if}
       <em>{projection.globalFloor.agent.modelOverrides > 0 ? `${projection.globalFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
+      {#if projection.globalFloor.subagents.instances.length}
+        <span>{projection.globalFloor.subagents.instances.length} {copy.agentStudioSubagents} · {subagentSummary(projection.globalFloor)}</span>
+      {/if}
     </span>
   </button>
 
@@ -60,8 +67,8 @@
             <button class="agent-city-fallback-floor" data-status={floor.state} title={floorTitle(floor)} type="button" aria-describedby={`agent-city-fallback-details-${building.index}-${floor.floorIndex}`}>
               <span class="agent-city-fallback-pug" aria-hidden="true"><i></i><b></b></span>
               <span><strong>{floor.agent.name}</strong><small>{statusLabel(floor.state)}</small></span>
-              {#if floor.subagents.visible.length || floor.subagents.overflowCount}
-                <em>{floor.subagents.visible.length + floor.subagents.overflowCount} {copy.agentStudioSubagents}</em>
+              {#if floor.subagents.instances.length}
+                <em>{floor.subagents.instances.length} {copy.agentStudioSubagents}</em>
               {/if}
               <span class="agent-city-fallback-details" id={`agent-city-fallback-details-${building.index}-${floor.floorIndex}`} role="tooltip">
                 <strong>{floor.agent.description || copy.agentStudioNoDescription}</strong>
@@ -70,8 +77,8 @@
                   <span>{floor.activity.taskPreview || copy.agentStudioTaskUnavailable}</span>
                 {/if}
                 <em>{floor.agent.modelOverrides > 0 ? `${floor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
-                {#if floor.subagents.visible.length || floor.subagents.overflowCount}
-                  <span>{floor.subagents.visible.map((subagent) => `${subagent.name} · ${statusLabel(subagent.status)}`).join(" · ")}{floor.subagents.overflowCount ? ` · +${floor.subagents.overflowCount}` : ""}</span>
+                {#if floor.subagents.instances.length}
+                  <span>{subagentSummary(floor)}</span>
                 {/if}
               </span>
             </button>
