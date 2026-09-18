@@ -5562,3 +5562,133 @@ test("file panel scope hints live inside centered empty states, not standalone c
     );
   }
 });
+
+test("desktop structural motion bridges navigation, dialogs, inspectors, and press feedback", () => {
+  const workspace = read("./lib/chat/ChatWorkspacePane.svelte");
+  const dialog = read("./lib/components/ui/Dialog.svelte");
+  const alertDialog = read("./lib/components/ui/AlertDialog.svelte");
+
+  assert.match(app, /\{#key activeSection\}[\s\S]*settings-motion-stage/);
+  assert.match(app, /settingsClosing = true/);
+  assert.match(app, /class:closing=\{settingsClosing\}/);
+  assert.match(app, /motion-settings-shell-out/);
+  assert.match(workspace, /\{#key pane\}[\s\S]*workspace-motion-stage/);
+  assert.match(dialog, /data-motion="dialog-scrim"/);
+  assert.match(dialog, /data-motion="dialog-sheet"/);
+  assert.match(alertDialog, /data-motion="dialog-scrim"/);
+  assert.match(alertDialog, /data-motion="dialog-sheet"/);
+
+  assert.match(baseStyles, /\.settings-motion-stage,[\s\S]*\.workspace-motion-stage[\s\S]*motion-surface-in/);
+  assert.match(baseStyles, /\.artifact-panel,[\s\S]*\.durable-inspector,[\s\S]*\.session-plan-inspector[\s\S]*motion-inspector-in/);
+  assert.match(baseStyles, /\[data-motion="dialog-sheet"\]\[data-state="open"\][\s\S]*motion-dialog-in/);
+  assert.match(baseStyles, /\[data-motion="dialog-sheet"\]\[data-state="closed"\][\s\S]*motion-dialog-out/);
+  assert.match(baseStyles, /:active:not\(:disabled\)\s*\{\s*scale:\s*\.975/);
+
+  const reduced = baseStyles.slice(baseStyles.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
+  assert.match(reduced, /\.settings-motion-stage/);
+  assert.match(reduced, /\.workspace-motion-stage/);
+  assert.match(reduced, /\[data-motion="dialog-sheet"\]/);
+  assert.match(baseStyles, /:root\[data-performance="low"\][\s\S]*\.settings-motion-stage[\s\S]*\.workspace-motion-stage/);
+});
+
+test("desktop motion polish keeps inspector exits and popover timing coherent", () => {
+  const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
+  const durableInspector = read("./lib/chat/DurableExecutionInspector.svelte");
+  const planInspector = read("./lib/chat/SessionPlanInspector.svelte");
+  const workspace = read("./lib/chat/ChatWorkspacePane.svelte");
+  const conversationRow = read("./lib/chat/ConversationRow.svelte");
+  const botMention = read("./lib/chat/BotMention.svelte");
+
+  assert.match(view, /let inspectorClosing = false/);
+  assert.match(view, /function closeInspector\(immediate = false\)/);
+  assert.match(view, /inspectorClosing = true/);
+  assert.match(view, /function finishInspectorClose\(event: AnimationEvent\)/);
+  assert.match(view, /event\.animationName !== "motion-inspector-out"/);
+  assert.match(view, /motionClosing=\{inspectorClosing\}/);
+  assert.match(view, /onMotionEnd=\{finishInspectorClose\}/);
+
+  for (const source of [artifactPanel, durableInspector, planInspector]) {
+    assert.match(source, /motionClosing/);
+    assert.match(source, /motion-closing/);
+    assert.match(source, /onMotionEnd/);
+    assert.match(source, /onanimationend=\{onMotionEnd\}/);
+  }
+
+  assert.match(baseStyles, /@keyframes motion-inspector-out/);
+  assert.match(baseStyles, /\.artifact-panel\.motion-closing,[\s\S]*motion-inspector-out var\(--duration-fast\)/);
+  assert.match(baseStyles, /\.files-resizer\.motion-closing[\s\S]*opacity:\s*0/);
+
+  assert.match(workspace, /class:motion-state-ready=\{serviceReady\}/);
+  assert.match(workspace, /class:motion-state-error=\{!serviceReady && !!serviceError\}/);
+  assert.match(workspace, /class:motion-state-loading=\{!serviceReady && !serviceError\}/);
+  assert.match(baseStyles, /workspace-scroll\.motion-state-ready[\s\S]*motion-state-ready-in var\(--duration-fast\)/);
+
+  assert.doesNotMatch(baseStyles, /animation:\s*popover-in\s+(?:120ms|140ms|160ms)/);
+  assert.doesNotMatch(baseStyles, /animation:\s*command-palette-in\s+120ms/);
+  assert.match(conversationRow, /animation:\s*popover-in var\(--duration-fast\) var\(--ease-spring\)/);
+  assert.match(botMention, /animation:\s*mention-pop var\(--duration-fast\) var\(--ease-spring\)/);
+
+  assert.match(baseStyles, /:root\[data-performance="low"\] \.overflow-menu-popover,[\s\S]*\.row-menu,[\s\S]*\.mention-menu,[\s\S]*\.command-palette/);
+  assert.match(baseStyles, /:root\[data-performance="low"\] :is\([\s\S]*workspace-scroll\.motion-state-ready/);
+});
+
+test("desktop motion completion covers list mutation, controls, disclosures, and feedback without touching Agent City", () => {
+  const listMotion = read("./lib/motion/listMotion.ts");
+  const installedSkills = read("./lib/chat/InstalledSkillsPane.svelte");
+  const miniApps = read("./lib/miniapps/MiniAppsManager.svelte");
+  const channelAccordion = read("./lib/chat/ChannelAccordion.svelte");
+  const projectTree = read("./lib/projects/ProjectTree.svelte");
+  const agents = read("./lib/settings/AgentsSection.svelte");
+  const profiles = read("./lib/settings/ProfilesSection.svelte");
+  const channels = read("./lib/settings/ChannelsSection.svelte");
+  const mcp = read("./lib/settings/McpSection.svelte");
+  const skills = read("./lib/settings/SkillsSection.svelte");
+  const tasks = read("./lib/settings/TasksSection.svelte");
+  const providers = read("./lib/settings/ProvidersSection.svelte");
+  const d2 = read("./lib/artifacts/D2Diagram.svelte");
+  const mermaid = read("./lib/artifacts/MermaidDiagram.svelte");
+  const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
+  const fileTree = read("./lib/projects/FileTreeNode.svelte");
+  const markdownInteractions = read("./lib/markdownInteractions.ts");
+
+  assert.match(listMotion, /--duration-fast/);
+  assert.match(listMotion, /--duration-normal/);
+  assert.match(listMotion, /prefers-reduced-motion: reduce/);
+  assert.match(listMotion, /dataset\.performance === "low"/);
+  assert.match(listMotion, /export function listIn/);
+  assert.match(listMotion, /export function listOut/);
+  assert.match(listMotion, /export function listFlip/);
+
+  for (const source of [agents, profiles, channels, mcp, skills, channelAccordion, projectTree]) {
+    assert.match(source, /in:listIn/);
+    assert.match(source, /out:listOut/);
+    assert.match(source, /animate:listFlip/);
+  }
+  for (const source of [installedSkills, miniApps, tasks, providers]) {
+    assert.match(source, /in:listIn=\{\{ disabled:/);
+    assert.match(source, /out:listOut=\{\{ disabled:/);
+    assert.match(source, /animate:listFlip=\{\{ disabled:/);
+  }
+
+  assert.match(baseStyles, /motion-selection-settle/);
+  assert.match(baseStyles, /motion-disclosure-in/);
+  assert.match(baseStyles, /motion-content-handoff/);
+  assert.match(baseStyles, /motion-success-pulse/);
+  assert.match(baseStyles, /\.ios-switch:active:not\(:has\(input:disabled\)\)/);
+  assert.match(baseStyles, /\.observatory-advanced-filters\[open\]/);
+  assert.match(baseStyles, /\.connector-config-panel\[open\]/);
+  assert.match(baseStyles, /\.technical-detail\[open\]/);
+
+  assert.match(app, /class:motion-success=\{diagnosticsCopied\}/);
+  assert.match(d2, /class:motion-success=\{copied\}/);
+  assert.match(mermaid, /class:motion-success=\{copied\}/);
+  assert.match(artifactPanel, /class:motion-success=\{copiedPath === activeTab\.path\}/);
+  assert.match(fileTree, /class:motion-success=\{copiedPath === entry\.path\}/);
+  assert.match(markdownInteractions, /classList\.add\("motion-success"\)/);
+
+  // The UI completion layer must not target the 3D community/studio scene.
+  const completion = baseStyles.slice(baseStyles.indexOf("/* Desktop motion completion layer"));
+  assert.doesNotMatch(completion, /\.agent-(?:studio|city)/);
+  assert.doesNotMatch(completion, /(?:^|[,\s])(?:canvas|\.agent-scene|\.three-scene)(?:[\s,{:#.]|$)/im);
+});
+
