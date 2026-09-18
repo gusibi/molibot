@@ -352,6 +352,7 @@
           {projection}
           {theme}
           {sky}
+          selectedKey={selectedFloorKey}
           onQuality={(value) => { quality = value; }}
           onFallback={handleFallback}
           onHover={handleHover}
