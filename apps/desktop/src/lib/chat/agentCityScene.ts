@@ -1240,9 +1240,23 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
     const working = floor.state === "working";
     node.deskScreen.color.setHex(working ? node.deskAccent : 0x52616b);
-    node.deskScreen.emissiveIntensity = working ? 0.6 : 0;
+    node.deskScreen.emissiveIntensity = working ? 0.75 : 0;
     if (node.perimeter) node.perimeter.group.visible = floor.animation === "working";
     if (node.beacon) node.beacon.visible = floor.state === "error";
+    if (node.celebration) node.celebration.visible = floor.state === "completed";
+    const roomAccent =
+      floor.state === "working" ? node.deskAccent :
+      floor.state === "completed" ? STATUS_COLORS.completed :
+      floor.state === "error" ? STATUS_COLORS.error :
+      0xffc96b;
+    for (const surface of node.activityMaterials) {
+      surface.emissive.setHex(roomAccent);
+      surface.emissiveIntensity =
+        floor.state === "working" ? 0.48 :
+        floor.state === "completed" ? 0.36 :
+        floor.state === "error" ? 0.62 :
+        floor.state === "disabled" ? 0.02 : 0.12;
+    }
     applyWindowGlow(node, floor.state);
 
     const seat = working ? node.seatPosition : node.loungePosition;
@@ -1252,6 +1266,16 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT).forEach((subagent, index) => {
       const rig = node.pugs[index + 1];
       if (rig) setPugStatus(rig, subagent.status);
+      const screen = node.workerScreens[index];
+      if (screen) {
+        const color =
+          subagent.status === "working" ? roleColor(subagent.name) :
+          subagent.status === "completed" ? STATUS_COLORS.completed :
+          STATUS_COLORS.error;
+        screen.color.setHex(color);
+        screen.emissive.setHex(color);
+        screen.emissiveIntensity = subagent.status === "working" ? 0.9 : 0.48;
+      }
     });
 
     if (node.route && floor.route) {
@@ -1421,7 +1445,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       if (elapsed < duration) return { pose: pugPose(rig.oneShot.clip, elapsed / 1000, rig.seed), oneShot: true };
       rig.oneShot = null;
     }
-    const clips = clipsForStatus(rig.status);
+    const clips = clipsForStatus(rig.status, rig.role);
     const scheduled = scheduledClip(clips, rig.seed, timeMs, clipDurationForStatus(rig.status));
     return { pose: pugPose(scheduled.clip, scheduled.localTime, rig.seed), oneShot: false };
   }
@@ -1429,9 +1453,18 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   function animatePugs(timeMs: number, detailed: boolean): void {
     camera.getWorldPosition(cameraWorldPosition);
     for (const node of floorNodes.values()) {
+      const showProps = detailed || node.key === "global" || focusedKey === node.key;
       for (const rig of node.pugs) {
+        if (rig.spawnEpochMs !== null) {
+          const elapsed = performance.timeOrigin + timeMs - rig.spawnEpochMs;
+          const progress = Math.min(1, Math.max(0, elapsed / 720));
+          const eased = reducedMotion ? 1 : 1 - (1 - progress) ** 3;
+          rig.root.scale.setScalar(rig.baseScale * Math.max(0.08, eased));
+        } else {
+          rig.root.scale.setScalar(rig.baseScale);
+        }
         if (reducedMotion && !rig.oneShot) {
-          applyPugPose(rig, staticPoseFor(rig), 0, detailed);
+          applyPugPose(rig, staticPoseFor(rig), 0, showProps);
           continue;
         }
         const { pose, oneShot } = poseFor(rig, timeMs);
@@ -1446,13 +1479,13 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
             rig.root.rotation.y;
           yaw = desired * rig.faceCamera;
         }
-        applyPugPose(rig, pose, yaw, detailed);
+        applyPugPose(rig, pose, yaw, showProps);
       }
     }
   }
 
   function staticPoseFor(rig: PugRig): PugPose {
-    const clips = clipsForStatus(rig.status);
+    const clips = clipsForStatus(rig.status, rig.role);
     const scheduled = scheduledClip(clips, rig.seed, 0, clipDurationForStatus(rig.status));
     const pose = pugPose(scheduled.clip, 0.35, rig.seed);
     pose.tailWag = 0;
@@ -1509,6 +1542,14 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
           perimeter.material.opacity = 0.38 + pulse * 0.16;
           moveMarquee(perimeter, -((time * 0.006 + perimeter.phase) % perimeter.length));
           perimeter.emissive.emissiveIntensity = 0.72 + pulse * 0.28;
+        }
+        if (node.celebration?.visible) {
+          node.celebration.rotation.y = time * 0.0014 + node.glowPhase;
+          node.celebration.position.y = 0.08 + Math.sin(time * 0.004 + node.glowPhase) * 0.08;
+          for (let index = 0; index < node.celebration.children.length; index += 1) {
+            node.celebration.children[index].position.y =
+              0.9 + (index % 2) * 0.3 + Math.sin(time * 0.006 + index) * 0.14;
+          }
         }
       }
     } else {
