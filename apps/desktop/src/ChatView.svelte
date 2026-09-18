@@ -776,11 +776,13 @@
     executionId: string;
   } | { kind: "session-plan" } | null;
   let inspector: ChatInspector = null;
-  $: if ($sessionPlanInspector) {
+  let inspectorClosing = false;
+  $: if ($sessionPlanInspector && !inspectorClosing) {
     // A durable-linked plan has one progress surface (the Durable inspector);
     // the legacy Session-plan inspector is only for plans that still execute
     // inside the chat turn.
     const linkedExecutionId = $sessionPlanInspector.plan.durableExecutionId;
+    inspectorClosing = false;
     inspector = linkedExecutionId
       ? { kind: "durable-execution", executionId: linkedExecutionId }
       : { kind: "session-plan" };
@@ -959,7 +961,7 @@
       : `chat:${inspectorProfileId}:${inspectorSessionId}`;
     if (key !== inspectorContextKey) {
       inspectorContextKey = key;
-      if (inspector?.kind === "session-plan") closeInspector();
+      if (inspector?.kind === "session-plan") closeInspector(true);
       if (inspector?.kind === "artifact") {
         inspector = {
           ...inspector,
@@ -1672,8 +1674,8 @@
     persistSidebarTree();
   }
 
-  function newConversation(): void {
-    if (!connectedEndpoint) return;
+  function newConversationWithBot(botId: string): void {
+    if (!connectedEndpoint || !botId) return;
     workspacePane = "chat";
     viewMode = "local";
     projectPaneActive = false;
@@ -1681,13 +1683,30 @@
     conversationsExpanded = true;
     expandedChannels = { ...expandedChannels, web: true };
     persistSidebarTree();
-    chatStore.newConversationDraft(defaultBot());
+    localStorage.setItem(LAST_BOT_KEY, botId);
+    chatStore.newConversationDraft(botId);
     // A fresh draft starts on the global default; a pick here is held in
     // draftModelKey until the session is created.
     draftModelKey = "";
     appliedModelSessionId = "";
     activeModelKey = globalModelKey;
     void refreshFiles("", "");
+    focusComposerAtEnd();
+  }
+
+  function newConversation(): void {
+    newConversationWithBot(defaultBot());
+  }
+
+  function openAgentChat(agentId: string): void {
+    const profile = agentId === "default"
+      ? profiles.find((item) => !item.agentId || item.agentId === "default") ?? profiles[0]
+      : profiles.find((item) => item.agentId === agentId);
+    if (!profile) {
+      openSettings("profiles");
+      return;
+    }
+    newConversationWithBot(profile.id);
   }
 
   function openSession(item: DesktopConversationItem): void {
@@ -2864,7 +2883,12 @@
   // other. Toggling the same target closes it; re-selecting the Mini App
   // already shown is a no-op, which keeps its iframe (and its state) alive.
   function toggleFilesInspector(): void {
-    inspector = inspector?.kind === "artifact" ? null : { kind: "artifact" };
+    if (inspector?.kind === "artifact") {
+      closeInspector();
+      return;
+    }
+    inspectorClosing = false;
+    inspector = { kind: "artifact" };
   }
 
   /**
@@ -2878,6 +2902,7 @@
    */
   function openActivityPath(path: string, mutates: boolean): void {
     workspacePane = "chat";
+    inspectorClosing = false;
     inspector = {
       kind: "artifact",
       openPath: path,
@@ -2895,6 +2920,7 @@
   function openTurnFiles(files: TurnFileItem[], selectedKey?: string): void {
     if (!files.length) return;
     workspacePane = "chat";
+    inspectorClosing = false;
     inspector = {
       kind: "artifact",
       turnFiles: files,
@@ -2919,6 +2945,7 @@
     sessionPlanInspector.set(null);
     workspacePane = "chat";
     searchOpen = false;
+    inspectorClosing = false;
     inspector = { kind: "durable-execution", executionId };
     durableExecutionScheduler?.wake("manual");
   }
@@ -2930,6 +2957,7 @@
     // Opening an app panel returns to Chat: the panel is an inspector beside a
     // conversation, not something to show next to the manager.
     workspacePane = "chat";
+    inspectorClosing = false;
     inspector = {
       kind: "artifact",
       miniApp: appId,
@@ -2938,9 +2966,29 @@
     };
   }
 
-  function closeInspector(): void {
+  function inspectorMotionDisabled(): boolean {
+    return document.documentElement.dataset.performance === "low"
+      || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function clearInspector(): void {
     sessionPlanInspector.set(null);
     inspector = null;
+    inspectorClosing = false;
+  }
+
+  function closeInspector(immediate = false): void {
+    if (!inspector || inspectorClosing) return;
+    if (immediate || inspectorMotionDisabled()) {
+      clearInspector();
+      return;
+    }
+    inspectorClosing = true;
+  }
+
+  function finishInspectorClose(event: AnimationEvent): void {
+    if (!inspectorClosing || event.animationName !== "motion-inspector-out") return;
+    clearInspector();
   }
 
   function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
@@ -2949,7 +2997,7 @@
     projectPaneActive = next.projectPaneActive;
     searchOpen = next.searchOpen;
     // Leaving Chat closes whichever Inspector was open, not just Files.
-    if (!next.filePanelOpen) inspector = null;
+    if (!next.filePanelOpen) clearInspector();
     if (!connectionReady && !loading && serviceState === "ready" && serviceEndpoint) {
       void connect(serviceEndpoint);
     }
@@ -3318,6 +3366,7 @@
         serviceError={error}
         onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
         onOpenAgentSettings={() => openSettings("agents")}
+        onOpenAgentChat={openAgentChat}
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
         onOpenMiniAppAiSettings={() => openSettings("models")}
@@ -3630,6 +3679,7 @@
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
     <div
       class="files-resizer"
+      class:motion-closing={inspectorClosing}
       role="separator"
       aria-orientation="vertical"
       aria-label={copy.projectResizePanel}
@@ -3669,6 +3719,8 @@
       theme={resolvedTheme}
       {copy}
       onClose={closeInspector}
+      motionClosing={inspectorClosing}
+      onMotionEnd={finishInspectorClose}
     />
   {/if}
   {#if durablePanelVisible && inspector?.kind === "durable-execution"}
@@ -3677,13 +3729,20 @@
       executionId={inspector.executionId}
       {copy}
       onClose={closeInspector}
+      motionClosing={inspectorClosing}
+      onMotionEnd={finishInspectorClose}
       onRequestFeedback={() => { closeInspector(); focusComposerAtEnd(); }}
       onChanged={() => { void refreshDurableExecutions(); void chatStore.reloadActive(); void projectChatStore.reloadActive(); }}
     />
   {/if}
 
   {#if inspector?.kind === "session-plan"}
-    <SessionPlanInspector {copy} onClose={closeInspector} />
+    <SessionPlanInspector
+      {copy}
+      onClose={closeInspector}
+      motionClosing={inspectorClosing}
+      onMotionEnd={finishInspectorClose}
+    />
   {/if}
 
   <ConversationBrowserDialog
