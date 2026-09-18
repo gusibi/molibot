@@ -1186,6 +1186,8 @@
       </div>
     </aside>
     <section class="settings-content">
+      {#key activeSection}
+        <div class="settings-motion-stage" data-motion-surface="settings">
       <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "memory"} scrolled={settingsScrolled} />
 
       <div class="settings-scroll" data-section={activeSection} onscroll={(event) => (settingsScrolled = event.currentTarget.scrollTop > 2)}>
@@ -1492,6 +1494,8 @@
         </footer>
       {/if}
       </div>
+        </div>
+      {/key}
     </section>
   </main>
   </div>
