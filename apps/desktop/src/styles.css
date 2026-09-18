@@ -3633,7 +3633,7 @@ a:focus-visible {
   -webkit-backdrop-filter: var(--glass-popover-filter);
   box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   transform-origin: bottom right;
-  animation: popover-in 160ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 .composer-model-popover button { color: var(--label-primary); font: inherit; }
 .composer-model-popover > button,
@@ -3765,7 +3765,7 @@ a:focus-visible {
 .composer-wrap.is-floating .recording-bar { background: color-mix(in srgb, var(--danger) 8%, var(--glass-surface-bg)); }
 .composer-wrap.is-floating .composer-edit-banner { background: color-mix(in srgb, var(--accent) 10%, var(--glass-surface-bg)); }
 
-.slash-suggestions { position: absolute; z-index: 40; inset: auto 0 calc(100% + 8px); max-height: min(420px, 52vh); padding: 7px; overflow: auto; border: 1px solid var(--control-border); border-radius: var(--rounded-md); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: bottom center; animation: popover-in 160ms var(--ease-spring); }
+.slash-suggestions { position: absolute; z-index: 40; inset: auto 0 calc(100% + 8px); max-height: min(420px, 52vh); padding: 7px; overflow: auto; border: 1px solid var(--control-border); border-radius: var(--rounded-md); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: bottom center; animation: popover-in var(--duration-fast) var(--ease-spring); }
 .slash-suggestion-group + .slash-suggestion-group { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--separator); }
 .slash-suggestion-heading { padding: 4px 8px 5px; color: var(--label-tertiary); font-size: var(--fs-meta); font-weight: 600; letter-spacing: var(--tracking-caps); }
 .slash-suggestion { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
@@ -4064,7 +4064,7 @@ a:focus-visible {
   color: var(--label-primary);
   box-shadow: var(--popover-shadow);
   transform-origin: var(--bits-select-content-transform-origin);
-  animation: popover-in 160ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 .select-control-viewport { max-height: min(296px, 44vh); padding: 4px; overflow-y: auto; overscroll-behavior: contain; }
 .select-control-group + .select-control-group,
@@ -5793,6 +5793,11 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   scroll-behavior: auto !important;
   transition: none !important;
 }
+:root[data-performance="low"] .overflow-menu-popover,
+:root[data-performance="low"] .command-palette,
+:root[data-performance="low"] .composer-model-popover,
+:root[data-performance="low"] .miniapps-quick-menu,
+:root[data-performance="low"] .chat-action-toast,
 :root[data-performance="low"] .recording-indicator,
 :root[data-performance="low"] .beam-ring::before,
 :root[data-performance="low"] .run-activity .spin,
@@ -7105,6 +7110,9 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .settings-layout,
   .settings-motion-stage,
   .workspace-motion-stage,
+  .workspace-scroll.motion-state-loading,
+  .workspace-scroll.motion-state-error,
+  .workspace-scroll.motion-state-ready,
   .artifact-panel,
   .durable-inspector,
   .session-plan-inspector,
