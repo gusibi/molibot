@@ -7,7 +7,6 @@
   import Plug from "reicon-svelte/icons/Plug";
   import Plus from "reicon-svelte/icons/Plus";
   import Video from "../icons/duotone/components/Video.svelte";
-  import X from "reicon-svelte/icons/X";
   import { onDestroy, onMount } from "svelte";
   import { ActivityScheduler, agentActivityPolicy, documentActivityVisibility } from "../native/activityScheduler";
   import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
@@ -15,6 +14,7 @@
   import type { Translation } from "../i18n";
   import AgentCityCanvas from "./AgentCityCanvas.svelte";
   import AgentCityFallback from "./AgentCityFallback.svelte";
+  import AgentCityInspector from "./AgentCityInspector.svelte";
   import {
     agentCityViewportHeight,
     type AgentCityQuality,
@@ -33,6 +33,7 @@
   export let serviceEndpoint: string | null;
   export let serviceReady: boolean;
   export let onOpenAgentSettings: () => void;
+  export let onOpenAgentChat: (agentId: string) => void = () => {};
 
   const SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1";
   let agents: DesktopAgentItem[] = [];
@@ -174,7 +175,10 @@
     const matches = needle
       ? floors.filter((floor) =>
           floor.agent.name.toLowerCase().includes(needle) ||
-          floor.agent.description.toLowerCase().includes(needle))
+          floor.agent.description.toLowerCase().includes(needle) ||
+          floor.subagents.groups.some((group) => group.role.toLowerCase().includes(needle)) ||
+          floor.activity?.botName.toLowerCase().includes(needle) ||
+          floor.activity?.taskPreview.toLowerCase().includes(needle))
       : floors;
     return [...matches]
       .sort((left, right) => Number(right.state === "working") - Number(left.state === "working"))
@@ -356,7 +360,7 @@
           onView={handleView}
         />
         {#if searchOpen}
-          <div class="agent-city-search">
+          <div class="agent-city-search" class:agent-city-search--with-inspector={Boolean(selectedFloor)}>
             <input
               bind:this={searchInput}
               bind:value={searchQuery}
@@ -381,28 +385,17 @@
         {/if}
         <p class="agent-city-hint">{copy.agentCityInteractionHint}</p>
         {#if selectedFloor}
-          <aside class="agent-city-detail" aria-label={selectedFloor.agent.name}>
-            <header>
-              <strong>{selectedFloor.agent.name}</strong>
-              <span data-status={selectedFloor.state}>{statusLabel(selectedFloor.state)}</span>
-              <button type="button" title={copy.agentCityCloseDetail} aria-label={copy.agentCityCloseDetail} onclick={closeSelection}>
-                <X size={14} aria-hidden="true" />
-              </button>
-            </header>
-            <p>{selectedFloor.agent.description || copy.agentStudioNoDescription}</p>
-            {#if selectedFloor.activity}
-              <small>{shortBotName(selectedFloor.activity.botName)} · {channelLabel(selectedFloor.activity.channel)} · {activityTime(selectedFloor.activity.startedAt)}</small>
-              <p>{selectedFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
-            {/if}
-            <em>{selectedFloor.agent.modelOverrides > 0 ? `${selectedFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
-            {#if selectedFloor.subagents.instances.length}
-              <small>{selectedFloor.subagents.instances.length} {copy.agentStudioSubagents} · {subagentSummary(selectedFloor)}</small>
-            {/if}
-            <div class="agent-city-detail-actions">
-              <button type="button" onclick={() => selectedFloorKey && cityCanvas?.focusFloor(selectedFloorKey)}>{copy.agentCityFocusFloor}</button>
-              <button type="button" onclick={onOpenAgentSettings}>{copy.agentCityOpenAgentSettings}</button>
-            </div>
-          </aside>
+          <AgentCityInspector
+            floor={selectedFloor}
+            {copy}
+            {statusLabel}
+            {channelLabel}
+            {activityTime}
+            onClose={closeSelection}
+            onFocus={() => selectedFloorKey && cityCanvas?.focusFloor(selectedFloorKey)}
+            onOpenChat={onOpenAgentChat}
+            onOpenSettings={onOpenAgentSettings}
+          />
         {/if}
         {#if hoveredFloor && hoveredFloor.key !== selectedFloorKey}
           <div class="agent-city-hover-card" style={hoverCardStyle()}>
