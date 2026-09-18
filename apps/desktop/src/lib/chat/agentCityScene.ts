@@ -1530,6 +1530,20 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
           node.windowMaterial.emissiveIntensity =
             node.windowBase + Math.sin(time * 0.0026 + node.glowPhase) * node.windowFlicker;
         }
+        if (node.status === "working") {
+          const roomPulse = 0.42 + (Math.sin(time * 0.004 + node.glowPhase) + 1) * 0.11;
+          for (const surface of node.activityMaterials) surface.emissiveIntensity = roomPulse;
+          node.deskScreen.emissiveIntensity = 0.7 + (Math.sin(time * 0.007 + node.glowPhase) + 1) * 0.12;
+        } else if (node.status === "error") {
+          const alertPulse = 0.34 + Math.abs(Math.sin(time * 0.009 + node.glowPhase)) * 0.5;
+          for (const surface of node.activityMaterials) surface.emissiveIntensity = alertPulse;
+        }
+        node.workerScreens.forEach((surface, index) => {
+          const rig = node.pugs[index + 1];
+          if (!rig) return;
+          if (rig.status === "working") surface.emissiveIntensity = 0.72 + (Math.sin(time * 0.01 + rig.seed) + 1) * 0.14;
+          else if (rig.status === "error") surface.emissiveIntensity = 0.45 + Math.abs(Math.sin(time * 0.012 + rig.seed)) * 0.42;
+        });
         const route = node.route;
         if (route && route.group.visible) {
           const direction = route.phase === "returning" ? -1 : 1;
