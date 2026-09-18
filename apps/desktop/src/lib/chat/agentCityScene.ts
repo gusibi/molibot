@@ -981,8 +981,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   function detachMomoAsset(rig: PugRig): void {
     if (!rig.asset) return;
     stopMomoAssetInstance(rig.asset);
-    rig.asset.root.remove(rig.headAccessory);
-    rig.root.add(rig.headAccessory);
+    rig.headAccessory.parent?.remove(rig.headAccessory);
+    rig.head.add(rig.headAccessory);
     rig.root.remove(rig.asset.root);
     rig.asset = null;
     rig.pose.visible = true;
