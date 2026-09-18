@@ -345,7 +345,7 @@
       </div>
 
       {#if fallback}
-        <AgentCityFallback {projection} {copy} {statusLabel} {onOpenAgentSettings} />
+        <AgentCityFallback {projection} {copy} {statusLabel} {onOpenAgentSettings} onSelect={handleSelect} />
       {:else}
         <AgentCityCanvas
           bind:this={cityCanvas}
@@ -384,19 +384,6 @@
           </div>
         {/if}
         <p class="agent-city-hint">{copy.agentCityInteractionHint}</p>
-        {#if selectedFloor}
-          <AgentCityInspector
-            floor={selectedFloor}
-            {copy}
-            {statusLabel}
-            {channelLabel}
-            {activityTime}
-            onClose={closeSelection}
-            onFocus={() => selectedFloorKey && cityCanvas?.focusFloor(selectedFloorKey)}
-            onOpenChat={onOpenAgentChat}
-            onOpenSettings={onOpenAgentSettings}
-          />
-        {/if}
         {#if hoveredFloor && hoveredFloor.key !== selectedFloorKey}
           <div class="agent-city-hover-card" style={hoverCardStyle()}>
             <strong>{hoveredFloor.agent.name}</strong>
@@ -425,6 +412,21 @@
             {/each}
           </ul>
         </div>
+      {/if}
+
+      {#if selectedFloor}
+        <AgentCityInspector
+          floor={selectedFloor}
+          {copy}
+          {statusLabel}
+          {channelLabel}
+          {activityTime}
+          onClose={closeSelection}
+          onFocus={() => selectedFloorKey && cityCanvas?.focusFloor(selectedFloorKey)}
+          canFocus={!fallback}
+          onOpenChat={onOpenAgentChat}
+          onOpenSettings={onOpenAgentSettings}
+        />
       {/if}
 
       {#if projection.hiddenAgentCount > 0}
