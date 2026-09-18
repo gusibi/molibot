@@ -18,6 +18,8 @@
   export let executionId: string;
   export let copy: Translation;
   export let onClose: () => void;
+  export let motionClosing = false;
+  export let onMotionEnd: (event: AnimationEvent) => void = () => {};
   export let onChanged: () => void = () => {};
   export let onRequestFeedback: () => void = () => {};
 
@@ -219,7 +221,7 @@
   }
 </script>
 
-<aside class="durable-inspector" aria-label={copy.durableExecution}>
+<aside class="durable-inspector" class:motion-closing={motionClosing} aria-label={copy.durableExecution} onanimationend={onMotionEnd}>
   <header class="durable-inspector-head">
     <div>
       <p class="durable-inspector-eyebrow">{copy.durableExecution} · {detail?.execution.shortHandle ?? "…"}</p>
