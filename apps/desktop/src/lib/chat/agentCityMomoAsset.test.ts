@@ -38,3 +38,11 @@ test("bundled Momo fallback is the rounded mascot asset with the full clip set",
     ["Idle", "Walk", "Typing", "Thinking", "Scan", "Reading", "Reviewing", "Phone", "Sleep", "Celebrate", "Error", "Wave", "Coffee"]
   );
 });
+
+
+test("production Momo GLB is bundled and structurally valid", () => {
+  const bytes = readFileSync(new URL("../../../public/agent-community/momo.glb", import.meta.url));
+  assert.equal(bytes.toString("ascii", 0, 4), "glTF");
+  assert.equal(bytes.readUInt32LE(4), 2);
+  assert.ok(bytes.length > 10_000);
+});
