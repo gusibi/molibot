@@ -131,6 +131,7 @@ interface PugRig {
   homePosition: THREE.Vector3;
   homeYaw: number;
   spawnEpochMs: number | null;
+  isWorker: boolean;
   assetEligible: boolean;
   asset: MomoAssetInstance | null;
   status: AgentCityStatus;
@@ -505,6 +506,7 @@ function createPug(assistant = false, role: string | null = null): PugRig {
     homePosition: new THREE.Vector3(),
     homeYaw: 0,
     spawnEpochMs: null,
+    isWorker: assistant,
     assetEligible: true,
     asset: null,
     status: "idle",
@@ -956,6 +958,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   function attachMomoAsset(rig: PugRig): void {
     if (!rig.assetEligible || rig.asset || !momoTemplate) return;
+    if (quality === "low" && rig.isWorker) return;
     const instance = createMomoAssetInstance(momoTemplate);
     instance.root.scale.setScalar(0.96);
     rig.root.add(instance.root);
@@ -973,6 +976,21 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     rig.pose.visible = false;
     rig.asset = instance;
     playMomoAnimation(instance, "Idle", 0);
+  }
+
+  function detachMomoAsset(rig: PugRig): void {
+    if (!rig.asset) return;
+    stopMomoAssetInstance(rig.asset);
+    rig.asset.root.remove(rig.headAccessory);
+    rig.root.add(rig.headAccessory);
+    rig.root.remove(rig.asset.root);
+    rig.asset = null;
+    rig.pose.visible = true;
+    if (rig.propAnchor.parent !== rig.pose) {
+      rig.root.remove(rig.propAnchor);
+      rig.pose.add(rig.propAnchor);
+      rig.propAnchor.position.set(0, 0.56, 0.44);
+    }
   }
 
   async function hydrateMomoAssets(): Promise<void> {
@@ -1462,15 +1480,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   }
 
   function disposeFloorNode(node: FloorNode): void {
-    for (const rig of node.pugs) {
-      if (rig.asset) {
-        stopMomoAssetInstance(rig.asset);
-        rig.asset.root.remove(rig.headAccessory);
-        rig.root.add(rig.headAccessory);
-        rig.root.remove(rig.asset.root);
-        rig.asset = null;
-      }
-    }
+    for (const rig of node.pugs) detachMomoAsset(rig);
     for (const child of [...node.assetVisual.children]) {
       node.assetVisual.remove(child);
       disposeCommunityComponent(child);
@@ -1894,6 +1904,15 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       if (quality === nextQuality) return;
       quality = nextQuality;
       frameSamples = [];
+      if (quality === "low") {
+        for (const node of floorNodes.values()) {
+          for (const rig of node.pugs) if (rig.isWorker) detachMomoAsset(rig);
+        }
+      } else if (momoTemplate) {
+        for (const node of floorNodes.values()) {
+          for (const rig of node.pugs) attachMomoAsset(rig);
+        }
+      }
       applyQuality();
       renderer.render(scene, camera);
     },
