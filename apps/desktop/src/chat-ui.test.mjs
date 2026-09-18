@@ -2076,6 +2076,11 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /new THREE\.LineSegments/);
   assert.match(agentCityScene, /SUBAGENT_RENDER_LIMIT = 12/);
   assert.match(agentCityScene, /floor\.subagents\.instances\.slice\(0, SUBAGENT_RENDER_LIMIT\)/);
+  assert.match(agentCityScene, /createRoomDecor/);
+  assert.match(agentCityScene, /createWorkerStation/);
+  assert.match(agentCityScene, /createPug\(true, subagent\.name\)/);
+  assert.match(agentCityScene, /node\.celebration\.rotation\.y/);
+  assert.match(agentCityScene, /clipsForStatus\(rig\.status, rig\.role\)/);
   assert.match(agentCityScene, /new THREE\.LineDashedMaterial/);
   assert.match(agentCityScene, /marqueeLine\.computeLineDistances\(\)/);
   assert.match(agentCityScene, /function moveMarquee/);
