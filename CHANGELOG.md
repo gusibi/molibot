@@ -1,5 +1,7 @@
 ### Changed: Agent 社区以 Momo 为中心并支持并行 Worker 团队（2026-09-18）
 
+这一版继续补齐了之前只改布局、视觉变化不够明显的问题：Momo HQ 与普通 Studio 现在有书架、植物、休息区、落地灯、任务板等真正的室内陈设；Worker Camp 改为独立临时工位与角色色屏幕。Momo/Worker 新增 coffee、thinking、scan、reviewing、pace 等动作，空闲 Agent 会短距离巡视，同名 scan Worker 会拿扫描器并佩戴 visor，reviewer 会拿 clipboard；Working/Completed/Error 也会驱动整个房间的任务板、屏幕和庆祝/告警效果，而不再只改变一条边框。
+
 Agent 页不再把最常工作的 Default Agent 放在城市最后方：Default 现在以 **Momo HQ** 的形式位于社区中央，前方是独立任务调度 Hub，普通 Agent 工作室围绕两侧展开。Sub-agent 也不再被固定成「最多 3 个工位」——运行时的每个 Sub-agent 实例都会完整保留，同名角色会聚合成 `scan ×10`、`reviewer ×2` 这样的临时 Worker Team；Three.js 只在视觉层做 LOD，每个父 Agent 最多显示 12 个动画 Worker，更多实例汇总为 Worker Pool。详情、hover、顶部概览与 2D fallback 都会显示 Worker 数量与角色分组。
 
 ### Fixed: 文件面板提示统一为居中空状态（2026-09-17）
