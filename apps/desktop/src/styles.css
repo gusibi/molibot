@@ -5840,7 +5840,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 
 /* Agent City — a fixed isometric desktop miniature with DOM-first status labels. */
 .agent-studio { width: min(1200px, calc(100% - 48px)); margin: 0 auto; padding: 12px 0 40px; }
-.agent-studio-summary { display: flex; flex: none; width: fit-content; gap: 16px; margin: 0 0 12px auto; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--soft-shadow); color: var(--label-tertiary); font-size: var(--fs-meta); }
+.agent-studio-summary { display: flex; flex: none; width: fit-content; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; margin: 0 0 12px auto; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--soft-shadow); color: var(--label-tertiary); font-size: var(--fs-meta); }
 .agent-studio-summary span { white-space: nowrap; }
 .agent-studio-summary strong { margin-right: 4px; color: var(--label-primary); font: 600 16px/20px var(--font-mono); font-variant-numeric: tabular-nums; }
 .agent-studio-state { display: grid; place-items: center; align-content: center; min-height: 440px; padding: 40px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); color: var(--label-secondary); text-align: center; }
@@ -5917,7 +5917,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .agent-city-fallback-landmark div { display: grid; gap: 2px; }
 .agent-city-fallback-landmark strong { font-size: var(--fs-meta); }
 .agent-city-fallback-landmark span { color: var(--label-tertiary); font-size: var(--fs-meta); }
-.agent-city-fallback-global { flex-wrap: wrap; margin-bottom: 24px; }
+.agent-city-fallback-global { flex-wrap: wrap; margin-bottom: 24px; border-color: color-mix(in srgb, var(--accent) 38%, var(--separator)); background: color-mix(in srgb, var(--accent) 7%, var(--agent-city-surface)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent), var(--soft-shadow); }
 .agent-city-fallback-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: end; }
 .agent-city-fallback-building { min-width: 0; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-md) var(--rounded-md) var(--rounded-sm) var(--rounded-sm); background: var(--agent-city-surface); box-shadow: var(--soft-shadow); color: var(--label-primary); }
 .agent-city-fallback-building header { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 32px; padding: 0 9px; background: color-mix(in srgb, var(--label-primary) 10%, transparent); color: var(--label-primary); }
