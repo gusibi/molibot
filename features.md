@@ -1,21 +1,17 @@
-### 调整：Agent City 升级为以 Momo 为中心的社区 + 可无限派生 Worker 团队（2026-09-18，待验收）
-- 第二轮视觉实现：普通 Studio 与 Momo HQ 增加地毯、书架/书籍、休息垫、植物、落地灯、状态任务板等室内层次；有 Sub-agent 时休息区自动让位给 Worker Camp，临时工位由「小方块」升级成带桌面、键盘与角色色屏幕的独立 pod。
-- 动作系统扩展：新增 coffee、thinking、scan、reviewing、pace；空闲 Agent 会在房间内短距离巡视，工作动作轮换由 9s 缩短到 6.5s，Momo HQ 在社区总览也保留手持道具，不再因为远景 LOD 看不到动作。
-- Worker 角色视觉：scan/search/research 类使用青色 visor + scanner，planner/design 类使用紫色标识并偏 thinking/writing，review/test/audit 类使用橙色标识 + clipboard；未知自定义 role 继续稳定回退到通用 Worker，不要求写死角色列表。
-- 环境状态变成房间级反馈：Working 时任务板/Worker 屏幕/主工作屏呼吸发光；Completed 出现环绕庆祝粒子；Error 房间活动面板与 Worker 屏幕告警闪动；新派生 Worker 有短暂 scale-in 入场动画。
-- 第三轮 Hero Asset：新增独立 `agentCityMomoAsset` 资产边界，持久 Agent（含 default/Momo）异步加载 GLTF 后切换到 `AnimationMixer` 动画；加载失败、离线或资源缺失时无缝保留 procedural Momo，不让 Agent 页空白。
-- 运行时优先加载未来 Blender 产物 `/agent-community/momo.glb`，仓库内提供一个轻量带 13 个动画 clip 的 `momo.gltf` 原型作为可运行 fallback；Blender GLB 只要遵守同一 clip contract 即可零业务改动替换。
-- GLTF Momo 保留独立 Three.js 道具层，所以 Phone / Reading / Coffee 等行为在模型替换后仍有可读的手机、书、杯子；状态/角色/Worker 数据层不感知具体资产格式。
-- 新增 `scripts/blender/export_momo.py` 与 `docs/agent-community/momo-blender-contract.md`：固定 `MomoRoot` / `MomoRig`、13 个动作命名、尺寸/朝向、三角面预算和 GLB 导出位置，为真正 Blender 精模留出明确交付接口。
+### 调整：Agent City 升级为以 Momo 为中心的社区 + Phase 3/4 资产化（2026-09-18，待验收）
 
+- Default Agent 继续保留内部 `id=default`，产品层改为社区中央 **Momo HQ**；任务调度 Community Hub 独立在前方，普通 Agent Studio 分布在两侧/后方，社区道路改为 Hub → Momo HQ → Studio 的关系路径。
+- Sub-agent 不再截断为 3 个固定工位：Projection 保留完整实例并按 role 聚合，可直接表达 `scan ×10` / `reviewer ×2`；Three.js 只负责视觉 LOD，每个父 Agent 最多显示 12 个 Worker，更多实例进入 Worker Pool。
+- Phase 3 Momo 资产完成：仓库直接提交 `momo.glb`，文本 `momo.gltf` 作为 fallback；原先方块感强的验证模型替换为圆润 mascot 比例（大头、短鼻、黑面罩、眼白/高光、短腿、卷尾），加入软接触阴影、ACES filmic tone mapping 与 rim light。
+- 主 Agent 与 Sub-agent Worker 全部走同一个 `GLTFLoader → AnimationMixer` 角色管线，13 个 clip 为 Idle / Walk / Typing / Thinking / Scan / Reading / Reviewing / Phone / Sleep / Celebrate / Error / Wave / Coffee；Worker 状态变化也会触发 Celebrate / Error one-shot。
+- Worker role 仍是无限开放的：scan/search/research 使用青色 visor + scanner，planner/design 使用紫色标记 + thinking/writing，review/test/audit 使用橙色标记 + clipboard；自定义 role 用稳定 hash 配色回退。头部附件会挂到 GLTF `HeadPivot`，不再出现小狗转头而 visor 留在原地的问题。
+- 性能 LOD：Momo 实例共享 immutable GLTF geometry/material，每个实例只维护自己的 node transform / AnimationMixer；低画质自动把临时 Worker 降回轻量 procedural rig，主 Agent 仍保留 GLTF，切回 full 会自动恢复。
+- Phase 4 模块化建筑资产完成：仓库提交 `community-kit.glb` + 文本 fallback，包含 `StudioArchitecture` / `HQArchitecture` / `StudioDecor` / `HQDecor` / `CommunityHub`；加载后自动替换旧 procedural shell/decor，加载失败才回退旧几何。
+- GLTF 房间仍保持实时状态：Asset kit 的 `GlassTint` 会被提取到 live state 层，Working / Idle / Error 的窗户亮度与闪烁继续生效；任务板、主屏幕、Worker 屏幕、Worker Camp、路线、庆祝粒子、错误 beacon 保持 Three.js runtime-owned，避免把实时 UI 烘焙进静态模型。
+- Worker Camp 与房间细节完成：有 Worker 时 GLTF lounge 自动收起避免穿模；临时桌面/键盘/显示器改为圆角几何，Camp 基座圆角化；社区增加中央 plaza、树、长椅、路灯，房间与人物不再像孤立积木。
+- 完整 Blender 可重建管线：新增 `scripts/blender/build_agent_community_assets.py`，可生成可编辑的 `Momo.blend` / `AgentCommunityKit.blend` 并导出两个 runtime GLB；`export_momo.py` 继续负责艺术家修改后的严格 clip contract 校验与导出。
+- 机器守卫扩展：测试直接校验两个生产 GLB 的 magic/version、文本 fallback 的完整组件/13 clip、GLB-first URL、Worker GLTF LOD、HeadPivot 附件、模块化房间 hydration 与状态窗户材质，避免再次退回「只有架构、没有资产」的假完成状态。
 
-
-- Default Agent 不再躲在城市最后方：保持内部 `id=default` 与现有 Activity/API 契约不变，但视觉上改为社区中央的 **Momo HQ**，扩大总部空间与 Momo 主角比例；任务调度中心独立成前方 Community Hub，普通 Agent 工作室分布在两侧/后方社区。
-- Sub-agent 从「最多显示 3 个临时工位」改为真正的运行实例集合：Projection 保留全部 `DesktopSubagentActivityItem`，按角色聚合成 `scan ×10` / `reviewer ×2` 等 Worker Team，并统计 working/completed/error；同名 worker 依靠 runtime `id` 保持实例级身份。
-- Three.js 只在渲染层做 LOD：每个父 Agent 最多绘制 12 个带动画的临时 Momo Worker，超过部分以 Worker Pool 汇总，不再在数据层截断；Momo HQ 的 Worker Camp 使用多行展开布局，普通 Agent 也可并行派生自己的临时团队。
-- 社区空间从规则网格改为 Hub → Momo HQ → Agent Studio 的连接路径；2D fallback、hover/detail 与顶部概览同步显示临时 Worker 总数和角色分组，确保 WebGL 降级时信息等价。
-- 机器守卫：Projection 测试覆盖 10 个同名 scan + reviewer 的完整保留与分组统计；Scene 测试覆盖 Worker Camp 几何 LOD；`chat-ui.test.mjs` 钉住完整实例投影和 12-worker 渲染上限。
-- 说明：本轮完成社区结构、并行 Worker 表达与 Three.js 场景重构；正式 Blender/GLB 角色与模块化建筑资产仍是独立的资产替换阶段，不把程序化几何冒充为 Blender 交付。
 
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
 
