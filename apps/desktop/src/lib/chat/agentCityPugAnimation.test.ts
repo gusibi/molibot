@@ -84,7 +84,7 @@ test("transitionClip only reacts to a real status change", () => {
 
 test("every clip stays finite and inside sane pose limits", () => {
   const clips: PugClip[] = [
-    "off", "phone", "coffee", "roll", "sleep", "stretch", "lookAround",
+    "off", "phone", "coffee", "roll", "sleep", "stretch", "lookAround", "pace",
     "typing", "reading", "writing", "thinking", "scan", "reviewing", "cheer", "panic", "greet"
   ];
   for (const clip of clips) {
