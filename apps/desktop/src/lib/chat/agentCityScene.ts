@@ -118,6 +118,7 @@ interface PugRig {
   earRight: THREE.Mesh;
   tailPivot: THREE.Group;
   propAnchor: THREE.Group;
+  roleAccessory: THREE.Group;
   propObjects: Record<Exclude<PugProp, "none">, THREE.Object3D>;
   bookPage: THREE.Group;
   screenMaterials: THREE.MeshStandardMaterial[];
@@ -368,7 +369,8 @@ function roleColor(role: string | null): number {
 function createPug(assistant = false, role: string | null = null): PugRig {
   const root = new THREE.Group();
   const pose = new THREE.Group();
-  root.add(pose);
+  const roleAccessory = new THREE.Group();
+  root.add(pose, roleAccessory);
 
   const coat = material(COAT_COLOR);
   const coatMaterials = [coat];
@@ -428,19 +430,24 @@ function createPug(assistant = false, role: string | null = null): PugRig {
   vest.scale.set(1.02, 1, 1.12);
   pose.add(vest);
   if (assistant) {
-    pose.add(mesh(new THREE.BoxGeometry(0.13, 0.11, 0.025), material(0xfafafa), 0.18, 0.55, 0.38));
+    const roleAccent = roleColor(role);
+    const collar = mesh(new THREE.TorusGeometry(0.28, 0.025, 8, 20), material(roleAccent, 0.5));
+    collar.rotation.x = Math.PI / 2;
+    collar.position.set(0, 0.66, 0.02);
+    roleAccessory.add(collar);
+    roleAccessory.add(mesh(new THREE.BoxGeometry(0.13, 0.11, 0.025), material(0xfafafa), 0.18, 0.55, 0.38));
     const normalized = role?.toLowerCase() ?? "";
     if (/scan|search|research|crawl|discover|inspect/.test(normalized)) {
-      const visor = addBox(head, [0.34, 0.08, 0.05], 0x46d7ff, [0, 0.17, 0.36]);
+      const visor = addBox(roleAccessory, [0.34, 0.08, 0.05], 0x46d7ff, [0, 1.01, 0.43]);
       const visorSurface = visor.material as THREE.MeshStandardMaterial;
       visorSurface.emissive.setHex(0x46d7ff);
       visorSurface.emissiveIntensity = 0.5;
     } else if (/plan|architect|design|strategy/.test(normalized)) {
       const badge = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.026, 12), material(0xd9c9ff), -0.19, 0.57, 0.37);
       badge.rotation.x = Math.PI / 2;
-      pose.add(badge);
+      roleAccessory.add(badge);
     } else if (/review|test|audit|check|verify|qa/.test(normalized)) {
-      pose.add(mesh(new THREE.BoxGeometry(0.16, 0.12, 0.025), material(0xffe0ad), -0.18, 0.55, 0.38));
+      roleAccessory.add(mesh(new THREE.BoxGeometry(0.16, 0.12, 0.025), material(0xffe0ad), -0.18, 0.55, 0.38));
     }
   } else coatMaterials.push(vest.material as THREE.MeshStandardMaterial);
 
@@ -469,6 +476,7 @@ function createPug(assistant = false, role: string | null = null): PugRig {
     earRight: earRight as THREE.Mesh,
     tailPivot,
     propAnchor,
+    roleAccessory,
     propObjects: { phone, book: book.object, pen, mug, scanner, clipboard },
     bookPage: book.page,
     screenMaterials: [
@@ -482,7 +490,7 @@ function createPug(assistant = false, role: string | null = null): PugRig {
     homePosition: new THREE.Vector3(),
     homeYaw: 0,
     spawnEpochMs: null,
-    assetEligible: !assistant,
+    assetEligible: true,
     asset: null,
     status: "idle",
     currentProp: "none",
@@ -1255,6 +1263,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       assistant.spawnEpochMs = Number.isNaN(startedAt) ? null : startedAt;
       setRigHome(assistant, new THREE.Vector3(x, isGlobal ? 0.22 : 0.1, z + 0.08), 0.08);
       group.add(assistant.root);
+      attachMomoAsset(assistant);
       pugs.push(assistant);
 
       const station = createWorkerStation(accent, subagent.name);
