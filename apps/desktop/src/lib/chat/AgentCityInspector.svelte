@@ -57,16 +57,16 @@
     </button>
   </header>
 
-  <nav class="agent-city-inspector-tabs" aria-label={copy.agentCityInspectorTitle}>
-    <button type="button" class:active={tab === "overview"} aria-pressed={tab === "overview"} onclick={() => (tab = "overview")}>{copy.agentCityInspectorOverview}</button>
-    <button type="button" class:active={tab === "workers"} aria-pressed={tab === "workers"} onclick={() => (tab = "workers")}>
+  <nav class="agent-city-inspector-tabs" role="tablist" aria-label={copy.agentCityInspectorTitle}>
+    <button type="button" role="tab" class:active={tab === "overview"} aria-selected={tab === "overview"} onclick={() => (tab = "overview")}>{copy.agentCityInspectorOverview}</button>
+    <button type="button" role="tab" class:active={tab === "workers"} aria-selected={tab === "workers"} onclick={() => (tab = "workers")}>
       {copy.agentCityInspectorWorkers}
       {#if floor.subagents.instances.length}<span>{floor.subagents.instances.length}</span>{/if}
     </button>
-    <button type="button" class:active={tab === "runtime"} aria-pressed={tab === "runtime"} onclick={() => (tab = "runtime")}>{copy.agentCityInspectorRuntime}</button>
+    <button type="button" role="tab" class:active={tab === "runtime"} aria-selected={tab === "runtime"} onclick={() => (tab = "runtime")}>{copy.agentCityInspectorRuntime}</button>
   </nav>
 
-  <div class="agent-city-inspector-body">
+  <div class="agent-city-inspector-body" role="tabpanel" aria-live="polite">
     {#if tab === "overview"}
       <section class="agent-city-inspector-section">
         <p class="agent-city-inspector-description">{floor.agent.description || copy.agentStudioNoDescription}</p>
@@ -181,7 +181,6 @@
     background: var(--agent-city-surface-strong);
     box-shadow: var(--float-shadow);
     color: var(--label-primary);
-    backdrop-filter: blur(18px);
     animation: agent-city-inspector-in var(--duration-normal) var(--ease-spring) both;
   }
   .agent-city-inspector-head { display: grid; grid-template-columns: minmax(0, 1fr) auto 28px; align-items: center; gap: 8px; min-height: 58px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--separator); }
