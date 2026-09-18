@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { momoAnimationName } from "./agentCityMomoAsset";
+import { MOMO_GLTF_URL, MOMO_PROTOTYPE_URL, momoAnimationName } from "./agentCityMomoAsset";
+
+test("Momo loads the production GLB first and keeps a text GLTF fallback", () => {
+  assert.equal(MOMO_GLTF_URL, "/agent-community/momo.glb");
+  assert.equal(MOMO_PROTOTYPE_URL, "/agent-community/momo.gltf");
+});
 
 test("momo asset clip mapping preserves the Agent behavior contract", () => {
   assert.equal(momoAnimationName("pace"), "Walk");
