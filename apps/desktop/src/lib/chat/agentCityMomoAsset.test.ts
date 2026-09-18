@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { MOMO_GLTF_URL, MOMO_PROTOTYPE_URL, momoAnimationName } from "./agentCityMomoAsset";
 
@@ -21,4 +22,19 @@ test("momo asset clip mapping preserves the Agent behavior contract", () => {
   assert.equal(momoAnimationName("greet"), "Wave");
   assert.equal(momoAnimationName("coffee"), "Coffee");
   assert.equal(momoAnimationName("lookAround"), "Idle");
+});
+
+
+test("bundled Momo fallback is the rounded mascot asset with the full clip set", () => {
+  const source = JSON.parse(
+    readFileSync(new URL("../../../public/agent-community/momo.gltf", import.meta.url), "utf8")
+  );
+  assert.equal(source.asset?.generator, "Molibot refined Momo mascot asset");
+  assert.equal(source.nodes.some((node: { name?: string }) => node.name === "EyeHighlightL"), true);
+  assert.equal(source.nodes.some((node: { name?: string }) => node.name === "EyeHighlightR"), true);
+  assert.equal(source.materials.length >= 8, true);
+  assert.deepEqual(
+    source.animations.map((animation: { name: string }) => animation.name),
+    ["Idle", "Walk", "Typing", "Thinking", "Scan", "Reading", "Reviewing", "Phone", "Sleep", "Celebrate", "Error", "Wave", "Coffee"]
+  );
 });
