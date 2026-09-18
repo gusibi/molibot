@@ -8,6 +8,7 @@ export type PugClip =
   | "sleep"
   | "stretch"
   | "lookAround"
+  | "pace"
   | "typing"
   | "reading"
   | "writing"
@@ -28,6 +29,9 @@ export type PugProp = "none" | "phone" | "book" | "pen" | "mug" | "scanner" | "c
  */
 export interface PugPose {
   bodyOffsetY: number;
+  travelX: number;
+  travelZ: number;
+  travelYaw: number;
   bodyTiltX: number;
   bodyRollZ: number;
   bodyTurnY: number;
@@ -47,15 +51,15 @@ export interface PugPose {
 }
 
 export const OFF_CLIPS: readonly PugClip[] = ["off"];
-export const IDLE_CLIPS: readonly PugClip[] = ["phone", "coffee", "roll", "sleep", "stretch", "lookAround"];
+export const IDLE_CLIPS: readonly PugClip[] = ["phone", "coffee", "roll", "sleep", "stretch", "lookAround", "pace"];
 export const WORK_CLIPS: readonly PugClip[] = ["typing", "reading", "writing", "thinking"];
 export const SCAN_WORK_CLIPS: readonly PugClip[] = ["scan", "typing"];
 export const PLAN_WORK_CLIPS: readonly PugClip[] = ["thinking", "writing"];
 export const REVIEW_WORK_CLIPS: readonly PugClip[] = ["reviewing", "reading"];
 export const ALERT_CLIPS: readonly PugClip[] = ["panic"];
 
-export const IDLE_CLIP_DURATION_MS = 11_000;
-export const WORK_CLIP_DURATION_MS = 9_000;
+export const IDLE_CLIP_DURATION_MS = 8_500;
+export const WORK_CLIP_DURATION_MS = 6_500;
 
 export const ONE_SHOT_CLIP_DURATION_MS: Record<"cheer" | "panic" | "greet", number> = {
   cheer: 2200,
@@ -65,6 +69,9 @@ export const ONE_SHOT_CLIP_DURATION_MS: Record<"cheer" | "panic" | "greet", numb
 
 const NEUTRAL_POSE: PugPose = {
   bodyOffsetY: 0,
+  travelX: 0,
+  travelZ: 0,
+  travelYaw: 0,
   bodyTiltX: 0,
   bodyRollZ: 0,
   bodyTurnY: 0,
@@ -297,6 +304,25 @@ export function pugPose(clip: PugClip, localTime: number, seed = 0): PugPose {
       pose.headRoll = Math.sin(time * 1.3) * 0.22;
       pose.tailWag = Math.sin(time * 4.6) * 0.45;
       pose.earFlop = Math.sin(time * 2.1) * 0.2;
+      return pose;
+    }
+
+    case "pace": {
+      // Short patrol around the lounge area. Root travel makes an idle room
+      // visibly alive even from the community overview.
+      const phase = time * 0.72 + drift * Math.PI * 2;
+      const velocity = Math.cos(phase);
+      pose.travelX = Math.sin(phase) * 0.52;
+      pose.travelZ = Math.sin(phase * 0.5) * 0.12;
+      pose.travelYaw = Math.atan2(velocity, 0.22);
+      pose.bodyOffsetY = Math.abs(Math.sin(time * 5.8)) * 0.055;
+      pose.bodyTiltX = -0.06;
+      pose.frontPawLeft = -0.35 + Math.sin(time * 5.8) * 0.42;
+      pose.frontPawRight = -0.35 + Math.sin(time * 5.8 + Math.PI) * 0.42;
+      pose.headPitch = -0.04;
+      pose.headYaw = Math.sin(time * 1.25) * 0.2;
+      pose.tailWag = Math.sin(time * 8.5) * 0.62;
+      pose.earFlop = Math.sin(time * 5.8) * 0.1;
       return pose;
     }
 
