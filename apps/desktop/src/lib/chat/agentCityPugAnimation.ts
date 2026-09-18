@@ -3,6 +3,7 @@ import type { AgentCityStatus } from "./agentCityProjection";
 export type PugClip =
   | "off"
   | "phone"
+  | "coffee"
   | "roll"
   | "sleep"
   | "stretch"
@@ -10,11 +11,14 @@ export type PugClip =
   | "typing"
   | "reading"
   | "writing"
+  | "thinking"
+  | "scan"
+  | "reviewing"
   | "cheer"
   | "panic"
   | "greet";
 
-export type PugProp = "none" | "phone" | "book" | "pen";
+export type PugProp = "none" | "phone" | "book" | "pen" | "mug" | "scanner" | "clipboard";
 
 /**
  * A frame of animation expressed as plain numbers so the clips stay testable
@@ -43,8 +47,11 @@ export interface PugPose {
 }
 
 export const OFF_CLIPS: readonly PugClip[] = ["off"];
-export const IDLE_CLIPS: readonly PugClip[] = ["phone", "roll", "sleep", "stretch", "lookAround"];
-export const WORK_CLIPS: readonly PugClip[] = ["typing", "reading", "writing"];
+export const IDLE_CLIPS: readonly PugClip[] = ["phone", "coffee", "roll", "sleep", "stretch", "lookAround"];
+export const WORK_CLIPS: readonly PugClip[] = ["typing", "reading", "writing", "thinking"];
+export const SCAN_WORK_CLIPS: readonly PugClip[] = ["scan", "typing"];
+export const PLAN_WORK_CLIPS: readonly PugClip[] = ["thinking", "writing"];
+export const REVIEW_WORK_CLIPS: readonly PugClip[] = ["reviewing", "reading"];
 export const ALERT_CLIPS: readonly PugClip[] = ["panic"];
 
 export const IDLE_CLIP_DURATION_MS = 11_000;
@@ -137,9 +144,17 @@ export function scheduledClip(
   };
 }
 
-export function clipsForStatus(status: AgentCityStatus): readonly PugClip[] {
+export function workClipsForRole(role?: string | null): readonly PugClip[] {
+  const normalized = role?.trim().toLowerCase() ?? "";
+  if (/scan|search|research|crawl|discover|inspect/.test(normalized)) return SCAN_WORK_CLIPS;
+  if (/plan|architect|design|strategy/.test(normalized)) return PLAN_WORK_CLIPS;
+  if (/review|test|audit|check|verify|qa/.test(normalized)) return REVIEW_WORK_CLIPS;
+  return WORK_CLIPS;
+}
+
+export function clipsForStatus(status: AgentCityStatus, role?: string | null): readonly PugClip[] {
   if (status === "disabled") return OFF_CLIPS;
-  if (status === "working") return WORK_CLIPS;
+  if (status === "working") return workClipsForRole(role);
   if (status === "error") return ALERT_CLIPS;
   return IDLE_CLIPS;
 }
@@ -210,6 +225,23 @@ export function pugPose(clip: PugClip, localTime: number, seed = 0): PugPose {
       pose.squash = 1 + laugh * 0.14;
       pose.bodyOffsetY += laugh * 0.06;
       pose.headPitch -= laugh * 0.35;
+      return pose;
+    }
+
+    case "coffee": {
+      // A very readable idle beat: sit upright, hug a mug, sip, then relax.
+      const sip = pulse(sawtooth(time + drift, 3.6) * 1.45);
+      pose.bodyOffsetY = -0.04 + sip * 0.035;
+      pose.bodyTiltX = -0.08 - sip * 0.1;
+      pose.frontPawLeft = -1.28 - sip * 0.24;
+      pose.frontPawRight = -1.2 - sip * 0.2;
+      pose.pawSpreadLeft = 0.2;
+      pose.pawSpreadRight = -0.2;
+      pose.headPitch = 0.08 + sip * 0.42;
+      pose.headRoll = Math.sin(time * 0.7 + drift) * 0.08;
+      pose.tailWag = Math.sin(time * 2.4) * 0.18;
+      pose.prop = "mug";
+      pose.propSpin = sip * 0.12;
       return pose;
     }
 
@@ -315,6 +347,57 @@ export function pugPose(clip: PugClip, localTime: number, seed = 0): PugPose {
       pose.prop = "pen";
       pose.propSpin = Math.sin(stroke) * 0.4;
       pose.bodyOffsetY = Math.sin(stroke * 0.5) * 0.015;
+      return pose;
+    }
+
+    case "thinking": {
+      // Stop hammering the keyboard: lean back, paw to chin, eyes scanning.
+      const idea = pulse(sawtooth(time + drift, 4.2) * 1.4);
+      pose.bodyOffsetY = 0.02 + idea * 0.08;
+      pose.bodyTiltX = 0.08;
+      pose.bodyTurnY = Math.sin(time * 0.42 + drift) * 0.22;
+      pose.frontPawLeft = -0.38;
+      pose.frontPawRight = -2.02 + idea * -0.25;
+      pose.pawSpreadRight = -0.5;
+      pose.headPitch = -0.08 - idea * 0.18;
+      pose.headYaw = Math.sin(time * 0.72) * 0.55;
+      pose.headRoll = 0.14 + Math.sin(time * 0.5) * 0.08;
+      pose.tailWag = Math.sin(time * 2) * 0.16;
+      pose.earFlop = -idea * 0.16;
+      pose.screenGlow = 0.25 + idea * 0.35;
+      return pose;
+    }
+
+    case "scan": {
+      // Scanner in one paw; head and device sweep opposite directions.
+      const sweep = Math.sin(time * 1.8 + drift);
+      pose.bodyTiltX = -0.08;
+      pose.bodyTurnY = sweep * 0.34;
+      pose.frontPawLeft = -0.72;
+      pose.frontPawRight = -1.85;
+      pose.pawSpreadRight = -0.42;
+      pose.headPitch = 0.12;
+      pose.headYaw = -sweep * 0.82;
+      pose.headRoll = Math.sin(time * 3.6) * 0.05;
+      pose.tailWag = Math.sin(time * 5.4) * 0.42;
+      pose.prop = "scanner";
+      pose.propSpin = sweep * 0.24;
+      pose.screenGlow = 0.72 + Math.sin(time * 7.4) * 0.22;
+      return pose;
+    }
+
+    case "reviewing": {
+      const tick = sawtooth(time + drift, 1.25);
+      pose.bodyTiltX = -0.14;
+      pose.frontPawLeft = -1.3;
+      pose.frontPawRight = -0.95 - pulse(tick) * 0.42;
+      pose.pawSpreadLeft = 0.24;
+      pose.pawSpreadRight = -0.28;
+      pose.headPitch = 0.38;
+      pose.headYaw = Math.sin(time * 1.5) * 0.18;
+      pose.tailWag = Math.sin(time * 2.8) * 0.16;
+      pose.prop = "clipboard";
+      pose.propSpin = pulse(tick) * 0.18;
       return pose;
     }
 
