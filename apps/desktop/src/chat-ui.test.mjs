@@ -2197,7 +2197,7 @@ test("Agent City pugs are rigged and clip-driven, and clicking one greets back",
   assert.match(agentCityCanvas, /function movedTooFar/);
   assert.match(agentCityCanvas, /controller\?\.greetAt/);
   assert.match(agentCityCanvas, /ondblclick=\{handleDoubleClick\}/);
-  assert.match(agentStudio, /class="agent-city-detail"/);
+  assert.match(agentStudio, /<AgentCityInspector/);
   assert.match(agentStudio, /function handleWindowKeydown/);
 });
 
