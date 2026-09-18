@@ -3,6 +3,11 @@
 - 动作系统扩展：新增 coffee、thinking、scan、reviewing、pace；空闲 Agent 会在房间内短距离巡视，工作动作轮换由 9s 缩短到 6.5s，Momo HQ 在社区总览也保留手持道具，不再因为远景 LOD 看不到动作。
 - Worker 角色视觉：scan/search/research 类使用青色 visor + scanner，planner/design 类使用紫色标识并偏 thinking/writing，review/test/audit 类使用橙色标识 + clipboard；未知自定义 role 继续稳定回退到通用 Worker，不要求写死角色列表。
 - 环境状态变成房间级反馈：Working 时任务板/Worker 屏幕/主工作屏呼吸发光；Completed 出现环绕庆祝粒子；Error 房间活动面板与 Worker 屏幕告警闪动；新派生 Worker 有短暂 scale-in 入场动画。
+- 第三轮 Hero Asset：新增独立 `agentCityMomoAsset` 资产边界，持久 Agent（含 default/Momo）异步加载 GLTF 后切换到 `AnimationMixer` 动画；加载失败、离线或资源缺失时无缝保留 procedural Momo，不让 Agent 页空白。
+- 运行时优先加载未来 Blender 产物 `/agent-community/momo.glb`，仓库内提供一个轻量带 13 个动画 clip 的 `momo.gltf` 原型作为可运行 fallback；Blender GLB 只要遵守同一 clip contract 即可零业务改动替换。
+- GLTF Momo 保留独立 Three.js 道具层，所以 Phone / Reading / Coffee 等行为在模型替换后仍有可读的手机、书、杯子；状态/角色/Worker 数据层不感知具体资产格式。
+- 新增 `scripts/blender/export_momo.py` 与 `docs/agent-community/momo-blender-contract.md`：固定 `MomoRoot` / `MomoRig`、13 个动作命名、尺寸/朝向、三角面预算和 GLB 导出位置，为真正 Blender 精模留出明确交付接口。
+
 
 
 - Default Agent 不再躲在城市最后方：保持内部 `id=default` 与现有 Activity/API 契约不变，但视觉上改为社区中央的 **Momo HQ**，扩大总部空间与 Momo 主角比例；任务调度中心独立成前方 Community Hub，普通 Agent 工作室分布在两侧/后方社区。
