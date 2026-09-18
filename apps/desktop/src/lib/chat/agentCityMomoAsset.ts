@@ -49,18 +49,13 @@ export function loadMomoAssetTemplate(): Promise<MomoAssetTemplate> {
   return templatePromise;
 }
 
-function cloneMaterial(material: THREE.Material): THREE.Material {
-  return material.clone();
-}
-
 export function createMomoAssetInstance(template: MomoAssetTemplate): MomoAssetInstance {
   const root = cloneSkeleton(template.scene);
+  // Geometry and materials are immutable character assets and intentionally
+  // shared across instances. Only node transforms/AnimationMixers are per Momo,
+  // keeping large Sub-agent swarms affordable.
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
-    object.geometry = object.geometry.clone();
-    object.material = Array.isArray(object.material)
-      ? object.material.map(cloneMaterial)
-      : cloneMaterial(object.material);
     object.castShadow = true;
     object.receiveShadow = true;
   });
