@@ -18,6 +18,7 @@
   export let onQuality: (quality: AgentCityQuality) => void;
   export let onFallback: () => void;
   export let onHover: (hover: AgentCityHover | null) => void;
+  export let selectedKey: string | null = null;
   export let onSelect: (key: string | null) => void = () => {};
   export let onFocus: (key: string) => void = () => {};
   export let onView: (view: AgentCityViewState) => void = () => {};
@@ -177,6 +178,9 @@
   }
   $: if (mounted && controller) {
     controller.setSky(sky);
+  }
+  $: if (mounted && controller) {
+    controller.setSelectedFloor(selectedKey);
   }
 
   onDestroy(() => {
