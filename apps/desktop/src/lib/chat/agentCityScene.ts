@@ -690,10 +690,20 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const ground = mesh(new THREE.BoxGeometry(34, 0.28, 22), material(groundColor), 0, -0.2, 0);
     ground.receiveShadow = true;
     staticRoot.add(ground);
-    for (let index = -2; index <= 2; index += 1) {
-      addBox(staticRoot, [0.36, 0.035, 20], theme === "dark" ? 0x33434c : 0xcbd8d5, [index * 5.6, -0.02, 0]);
+    const roadColor = theme === "dark" ? 0x33434c : 0xcbd8d5;
+    const addRoad = (fromX: number, fromZ: number, toX: number, toZ: number, width = 0.3): void => {
+      const dx = toX - fromX;
+      const dz = toZ - fromZ;
+      const length = Math.hypot(dx, dz);
+      if (length < 0.01) return;
+      const road = addBox(staticRoot, [width, 0.035, length], roadColor, [(fromX + toX) / 2, -0.02, (fromZ + toZ) / 2]);
+      road.rotation.y = Math.atan2(dx, dz);
+    };
+    const primary = projection.globalFloor.position;
+    addRoad(projection.owner.position.x, projection.owner.position.z, primary.x, primary.z, 0.46);
+    for (const building of projection.buildings) {
+      addRoad(primary.x, primary.z, building.position.x, building.position.z);
     }
-    addBox(staticRoot, [33, 0.035, 0.42], theme === "dark" ? 0x33434c : 0xcbd8d5, [0, -0.01, 0]);
 
     const owner = createOwnerCenter(theme === "dark");
     owner.position.set(projection.owner.position.x, projection.owner.position.y, projection.owner.position.z);
