@@ -2037,7 +2037,7 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /class="agent-city-hover-card"/);
   assert.doesNotMatch(agentStudio, /agent-city-label-layer|agent-city-agent-label|agent-city-status-dot|agent-city-tooltip|agent-city-working-frame/);
   assert.match(agentStudio, /hoveredFloor\.activity\.taskPreview/);
-  assert.match(agentStudio, /hoveredFloor\.subagents\.visible/);
+  assert.match(agentStudio, /hoveredFloor\.subagents\.instances/);
   assert.match(agentStudio, /<AgentCityFallback/);
   assert.match(agentStudio, /projection\.hiddenAgentCount/);
   assert.match(agentStudio, /documentActivityVisibility/);
@@ -2048,7 +2048,7 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentCityFallback, /floor\.activity\.startedAt/);
   assert.match(agentCityFallback, /floor\.activity\.taskPreview/);
   assert.match(agentCityFallback, /floor\.agent\.modelOverrides/);
-  assert.match(agentCityFallback, /floor\.subagents\.visible/);
+  assert.match(agentCityFallback, /floor\.subagents\.instances/);
   assert.doesNotMatch(agentCityFallback, /agent-city-fallback-working-frame/);
   assert.match(agentCityFallback, /role="tooltip"/);
   assert.match(agentCityFallback, /aria-describedby/);
@@ -2074,6 +2074,8 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /raycaster\.intersectObjects\(targets, false\)/);
   assert.match(agentCityScene, /hitTest\(clientX, clientY\)/);
   assert.match(agentCityScene, /new THREE\.LineSegments/);
+  assert.match(agentCityScene, /SUBAGENT_RENDER_LIMIT = 12/);
+  assert.match(agentCityScene, /floor\.subagents\.instances\.slice\(0, SUBAGENT_RENDER_LIMIT\)/);
   assert.match(agentCityScene, /new THREE\.LineDashedMaterial/);
   assert.match(agentCityScene, /marqueeLine\.computeLineDistances\(\)/);
   assert.match(agentCityScene, /function moveMarquee/);
