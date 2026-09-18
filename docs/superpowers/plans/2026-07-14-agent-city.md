@@ -6,6 +6,8 @@
 
 > **2026-09-18 community evolution:** the internal `globalFloor` compatibility seam still represents `id=default`, but the product no longer presents it as a remote Global headquarters. It is the central **Momo HQ / primary Agent**. Sub-agent data is no longer truncated to three items; projection keeps all runtime instances and role groups, while Three.js owns a bounded visual LOD / Worker Pool.
 
+> **2026-09-19 Phase 5 evolution:** Agent City is now an operational workbench, not only a visualization. Selection opens one live Inspector in both 3D and 2D fallback; Overview / Workers / Runtime project the current Agent Activity, model routing and complete Worker groups. The Inspector owns quick actions to start a Web chat with the selected Agent, focus its room, or open Agent settings. Search also indexes Worker roles, Bot names and task summaries.
+
 **Architecture:** Keep Svelte responsible for polling, localization, DOM labels, tooltips, accessibility, and fallbacks. Add a pure `agentCityProjection` boundary that reconciles persistent Agent-to-slot assignments and produces deterministic buildings/floors/state intents; feed that projection into a lifecycle-owned Three.js renderer with no data fetching or ownership logic. Keep Global headquarters and the owner dispatch center outside the 100 regular-Agent slots, and retain the current Activity API unchanged.
 
 **Tech Stack:** Svelte 5, TypeScript, Three.js 0.185.1, CSS semantic classes/Geist tokens, Node test runner, Vite.
