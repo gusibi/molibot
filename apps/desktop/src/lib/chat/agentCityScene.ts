@@ -40,6 +40,12 @@ import {
   type MomoAssetInstance,
   type MomoAssetTemplate
 } from "./agentCityMomoAsset";
+import {
+  cloneCommunityComponent,
+  disposeCommunityComponent,
+  loadCommunityKit,
+  type CommunityKitTemplate
+} from "./agentCityCommunityAssets";
 
 export type AgentCityQuality = "full" | "low" | "fallback";
 export type AgentCityTheme = "light" | "dark";
@@ -174,6 +180,9 @@ interface FloorNode {
   activityMaterials: THREE.MeshStandardMaterial[];
   workerScreens: THREE.MeshStandardMaterial[];
   celebration: THREE.Group | null;
+  proceduralShell: THREE.Group;
+  proceduralDecor: THREE.Group;
+  assetVisual: THREE.Group;
   windowBase: number;
   windowFlicker: number;
   glowPhase: number;
@@ -886,6 +895,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   let lastSceneFloors = -1;
   let momoTemplate: MomoAssetTemplate | null = null;
   let momoAssetLoadFailed = false;
+  let communityKit: CommunityKitTemplate | null = null;
+  let communityKitLoadFailed = false;
 
   const floorNodes = new Map<string, FloorNode>();
   const staticRoot = new THREE.Group();
@@ -945,6 +956,36 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       // Asset loading must never blank Agent Community: procedural Momo remains
       // the permanent fallback for offline/dev/broken-package scenarios.
       momoAssetLoadFailed = true;
+    }
+  }
+
+  function attachCommunityKit(node: FloorNode, isGlobal: boolean, dark: boolean, accent: number): void {
+    if (!communityKit || node.assetVisual.children.length > 0) return;
+    const architecture = cloneCommunityComponent(communityKit, isGlobal ? "HQArchitecture" : "StudioArchitecture", dark, accent);
+    const decor = cloneCommunityComponent(communityKit, isGlobal ? "HQDecor" : "StudioDecor", dark, accent);
+    if (architecture) node.assetVisual.add(architecture);
+    if (decor) node.assetVisual.add(decor);
+    if (!architecture && !decor) return;
+    node.proceduralShell.visible = false;
+    node.proceduralDecor.visible = false;
+  }
+
+  async function hydrateCommunityAssets(): Promise<void> {
+    if (communityKit || communityKitLoadFailed) return;
+    try {
+      const template = await loadCommunityKit();
+      if (disposed) return;
+      communityKit = template;
+      for (const floor of agentCityFloors(projection)) {
+        const node = floorNodes.get(floor.key);
+        if (!node) continue;
+        const dark = theme === "dark";
+        const variant = typeof floor.buildingIndex === "number" ? floor.buildingIndex : 0;
+        const accent = floor.kind === "global" ? 0x006bff : floorPalette(variant, dark).accent;
+        attachCommunityKit(node, floor.kind === "global", dark, accent);
+      }
+    } catch {
+      communityKitLoadFailed = true;
     }
   }
 
@@ -1089,6 +1130,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   function buildFloorNode(floor: AgentCityFloor, variant: number, signature: string): FloorNode {
     const group = new THREE.Group();
+    const proceduralShell = new THREE.Group();
+    const proceduralDecor = new THREE.Group();
+    const assetVisual = new THREE.Group();
+    group.add(proceduralShell, proceduralDecor, assetVisual);
     const dark = theme === "dark";
     const isGlobal = floor.kind === "global";
     const palette = floorPalette(variant, dark);
@@ -1112,11 +1157,11 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       // The default Agent is the community's hero building rather than a remote
       // "global" room. Extra width/depth leaves room for a temporary worker camp.
       const base = dark ? 0x27323d : 0xe9edf0;
-      shell(addBox(group, [7.6, 0.3, 5], dark ? 0x3d4d58 : 0xcad3d8, [0, 0.1, 0]));
-      shell(addBox(group, [6.9, 3.05, 0.2], base, [0, 1.7, -2.28]));
-      shell(addBox(group, [0.22, 3.05, 4.8], base, [-3.35, 1.7, 0]));
-      shell(addBox(group, [0.22, 3.05, 4.8], base, [3.35, 1.7, 0]));
-      addBox(group, [7.05, 0.18, 5], dark ? 0x3d4d58 : 0xcad3d8, [0, 3.25, 0]);
+      shell(addBox(proceduralShell, [7.6, 0.3, 5], dark ? 0x3d4d58 : 0xcad3d8, [0, 0.1, 0]));
+      shell(addBox(proceduralShell, [6.9, 3.05, 0.2], base, [0, 1.7, -2.28]));
+      shell(addBox(proceduralShell, [0.22, 3.05, 4.8], base, [-3.35, 1.7, 0]));
+      shell(addBox(proceduralShell, [0.22, 3.05, 4.8], base, [3.35, 1.7, 0]));
+      addBox(proceduralShell, [7.05, 0.18, 5], dark ? 0x3d4d58 : 0xcad3d8, [0, 3.25, 0]);
       statusMaterial = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, emissive: 0x7d7d7d, emissiveIntensity: 0.18, roughness: 0.4 });
       group.add(mesh(new THREE.CylinderGeometry(0.5, 0.72, 1.6, 24), statusMaterial, 0, 0.95, -0.72));
       perimeterSize = [7.05, 0.18, 5];
@@ -1125,11 +1170,11 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       anchorY = 3.62;
       windows = createWindowPanes(4, 1.45, [1, 0.95], 1.82, -2.16);
     } else {
-      shell(addBox(group, [3.8, 0.16, 2.35], palette.trim, [0, 0.02, 0]));
-      shell(addBox(group, [3.8, 1.9, 0.16], palette.wall, [0, 1.02, -1.1]));
-      shell(addBox(group, [0.16, 1.9, 2.35], palette.wall, [-1.82, 1.02, 0]));
-      shell(addBox(group, [0.16, 1.9, 2.35], palette.wall, [1.82, 1.02, 0]));
-      addBox(group, [3.85, 0.12, 2.4], palette.trim, [0, 1.98, 0]);
+      shell(addBox(proceduralShell, [3.8, 0.16, 2.35], palette.trim, [0, 0.02, 0]));
+      shell(addBox(proceduralShell, [3.8, 1.9, 0.16], palette.wall, [0, 1.02, -1.1]));
+      shell(addBox(proceduralShell, [0.16, 1.9, 2.35], palette.wall, [-1.82, 1.02, 0]));
+      shell(addBox(proceduralShell, [0.16, 1.9, 2.35], palette.wall, [1.82, 1.02, 0]));
+      addBox(proceduralShell, [3.85, 0.12, 2.4], palette.trim, [0, 1.98, 0]);
       statusMaterial = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, emissive: 0x7d7d7d, emissiveIntensity: 0.05, roughness: 0.55 });
       group.add(mesh(new THREE.BoxGeometry(2.8, 0.055, 0.08), statusMaterial, 0, 0.1, 1.16));
       perimeterSize = [3.85, 0.12, 2.4];
@@ -1138,10 +1183,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       anchorY = 2.32;
       windows = createWindowPanes(2, 1.1, [0.8, 0.62], 1.18, -1.0);
     }
-    group.add(windows.group);
+    proceduralShell.add(windows.group);
 
     const renderedWorkers = floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT);
-    const decor = createRoomDecor(group, isGlobal, dark, accent, variant, renderedWorkers.length > 0);
+    const decor = createRoomDecor(proceduralDecor, isGlobal, dark, accent, variant, renderedWorkers.length > 0);
     const activityMaterials = decor.activityMaterials;
     const celebration = decor.celebration;
     const workerScreens: THREE.MeshStandardMaterial[] = [];
@@ -1263,6 +1308,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       activityMaterials,
       workerScreens,
       celebration,
+      proceduralShell,
+      proceduralDecor,
+      assetVisual,
       windowBase: 0,
       windowFlicker: 0,
       glowPhase: (pugSeed(floor.key) % 628) / 100
@@ -1365,6 +1413,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         rig.asset = null;
       }
     }
+    for (const child of [...node.assetVisual.children]) {
+      node.assetVisual.remove(child);
+      disposeCommunityComponent(child);
+    }
     cityRoot.remove(node.group);
     disposeObject(node.group);
     if (node.route) {
@@ -1399,6 +1451,11 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       if (!node) {
         node = buildFloorNode(floor, variant, signature);
         floorNodes.set(floor.key, node);
+        if (communityKit) {
+          const dark = theme === "dark";
+          const accent = floor.kind === "global" ? 0x006bff : floorPalette(variant, dark).accent;
+          attachCommunityKit(node, floor.kind === "global", dark, accent);
+        }
       }
       applyFloorState(node, floor);
     }
@@ -1710,6 +1767,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   buildStaticScenery();
   syncProjection();
   void hydrateMomoAssets();
+  void hydrateCommunityAssets();
   applyOverview(true);
   lastSceneFloors = projection.sceneFloors;
   publishView();
@@ -1719,6 +1777,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     update(nextProjection) {
       projection = nextProjection;
       syncProjection();
+      void hydrateCommunityAssets();
     },
     resize(nextWidth, nextHeight) {
       width = Math.max(1, nextWidth);
