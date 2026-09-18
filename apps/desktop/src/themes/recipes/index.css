@@ -1,0 +1,9 @@
+/* Shared visual recipes.
+ *
+ * Theme family files own palette/token identity. Recipes own the component
+ * grammar that makes a family feel materially different without moving the
+ * product's major regions or information architecture.
+ */
+@import "./material.css";
+@import "./messenger.css";
+@import "./retro.css";

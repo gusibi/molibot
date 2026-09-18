@@ -1,0 +1,99 @@
+/* Retro recipe — hard edges, explicit frames and physical button states.
+ * Win98 / System 6 / Terminal retain their own palettes and any family-specific
+ * bevel details while sharing this stricter component grammar.
+ */
+
+:root[data-theme-recipe="retro"] [data-theme-region="header"] {
+  border-bottom: 1px solid var(--control-border-strong);
+  box-shadow: none;
+}
+:root[data-theme-recipe="retro"] [data-theme-region="header"]::before,
+:root[data-theme-recipe="retro"] [data-theme-region="sidebar"]::before {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme-recipe="retro"] [data-theme-region="header"] .icon-button,
+:root[data-theme-recipe="retro"] [data-theme-region="sidebar"] .sidebar-titlebar-btn {
+  border-radius: 0;
+}
+:root[data-theme-recipe="retro"] [data-theme-region="header"] .icon-button:hover,
+:root[data-theme-recipe="retro"] [data-theme-region="sidebar"] .sidebar-titlebar-btn:hover {
+  box-shadow: inset 0 0 0 1px var(--control-border-strong);
+}
+
+:root[data-theme-recipe="retro"] [data-theme-region="sidebar"] .nav-item,
+:root[data-theme-recipe="retro"] [data-theme-region="session-list"] .conversation-row,
+:root[data-theme-recipe="retro"] [data-theme-region="session-list"] .sidebar-section-head {
+  border-radius: 0;
+}
+
+:root[data-theme-recipe="retro"] [data-theme-region="chat"] .messages {
+  background-image: linear-gradient(color-mix(in srgb, var(--separator) 10%, transparent) 1px, transparent 1px);
+  background-size: 100% 24px;
+}
+:root[data-theme-recipe="retro"] [data-theme-region="chat"] .message-row.mine .message-bubble,
+:root[data-theme-recipe="retro"] [data-theme-region="chat"] .message-row.assistant .message-bubble {
+  border-radius: 0;
+  border-color: var(--control-border);
+  box-shadow: var(--soft-shadow);
+}
+:root[data-theme-recipe="retro"] [data-theme-region="chat"] .message-row.assistant .message-bubble {
+  width: fit-content;
+  max-width: 86%;
+}
+:root[data-theme-recipe="retro"] [data-theme-region="chat"] .assistant-avatar {
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px var(--control-border-strong);
+}
+:root[data-theme-recipe="retro"] [data-theme-region="chat"] .assistant-identity .assistant-status {
+  border-radius: 0;
+  border: 1px solid var(--control-border);
+  background: var(--surface-secondary);
+}
+
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .composer {
+  border-radius: 0;
+  border-color: var(--control-border-strong);
+  box-shadow: none;
+}
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .composer::before {
+  border-radius: 0;
+  background: var(--composer-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--float-shadow);
+}
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .composer-tool,
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .composer-permission-trigger,
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .send-button {
+  border-radius: 0;
+}
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .composer-tool,
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .composer-permission-trigger {
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+:root[data-theme-recipe="retro"] [data-theme-region="composer"] .send-button {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--soft-shadow);
+}
+
+:root[data-theme-recipe="retro"] [data-theme-region="file-panel"] .file-panel-head {
+  border-bottom: 1px solid var(--control-border-strong);
+  box-shadow: inset 0 -1px var(--control-border);
+}
+:root[data-theme-recipe="retro"] [data-theme-region="file-panel"] .file-panel-close {
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+
+:root[data-theme-recipe="retro"] .settings-card,
+:root[data-theme-recipe="retro"] .select-control-trigger {
+  border-radius: 0;
+  border-color: var(--control-border-strong);
+  box-shadow: var(--soft-shadow);
+}

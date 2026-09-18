@@ -1505,3 +1505,22 @@ Copy is part of the design; keep it precise and free of filler.
 同一用户轮次只呈现一个回答容器；模型或运行时产生的补充终止片段合并到该回答，过程轨迹仍按原顺序保留。思考与工具过程使用无边框、透明背景的可折叠披露，避免在正文前再制造一张高权重卡片。
 
 审批续跑沿用普通对话的结构化工具过程与最终回答。进度提示不独立成为回答；等待结束以服务端运行状态为准，不以消息条数判断。续跑耗时排除之前的用户轮次和审批等待。
+
+
+## Theme visual recipes
+
+Theme families no longer have to express their identity as palette changes alone. The desktop root exposes both `data-theme-family` and `data-theme-recipe`:
+
+- **Family** owns color, semantic tokens, light/dark variants and brand-specific exceptions.
+- **Recipe** owns reusable component grammar: bubble geometry, state layers, control shape, surface treatment, selection language and lightweight decoration.
+- **Product layout remains stable.** Sidebar / Chat / Inspector placement, header placement, composer placement and information hierarchy do not move when a theme changes. A recipe may reshape a component, but it must not relocate product regions or hide product capabilities.
+
+The first shared recipes are:
+
+- `material`: Android and Google — tonal state layers, rounded controls, filled conversation bubbles and a Material-style composer.
+- `messenger`: QQ, WeChat, Telegram, WhatsApp, Facebook, Discord and Feishu — conversation-first selection, compact asymmetric bubbles, chat wallpaper and IM-style composer chrome.
+- `retro`: Win98, System 6 and Terminal — hard edges, explicit frames, physical button states and non-glass surfaces.
+
+`native`, `editorial`, `technical`, `product` and `expressive` are already assigned at the root so later recipe work can deepen those families without changing persistence or family ids.
+
+Typography is deliberately **not** a recipe axis in this phase. Recipe styles must not add font packages. Theme typography should prefer macOS/system font stacks; any bundled font decision is a separate, late-stage size/quality trade-off.
