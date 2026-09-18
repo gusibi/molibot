@@ -10,6 +10,7 @@
   export let activityTime: (value: string) => string;
   export let onClose: () => void;
   export let onFocus: () => void;
+  export let canFocus = true;
   export let onOpenChat: (agentId: string) => void;
   export let onOpenSettings: () => void;
 
@@ -159,8 +160,8 @@
 
   <footer class="agent-city-inspector-actions">
     <button type="button" class="primary" onclick={() => onOpenChat(floor.agent.id)}>{copy.agentCityInspectorOpenChat}</button>
-    <button type="button" onclick={onFocus}>{copy.agentCityFocusFloor}</button>
-    <button type="button" onclick={onOpenSettings}>{copy.agentCityOpenAgentSettings}</button>
+    {#if canFocus}<button type="button" onclick={onFocus}>{copy.agentCityFocusFloor}</button>{/if}
+    <button type="button" class:wide={!canFocus} onclick={onOpenSettings}>{copy.agentCityOpenAgentSettings}</button>
   </footer>
 </aside>
 
@@ -237,6 +238,7 @@
   .agent-city-inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px; border-top: 1px solid var(--separator); background: color-mix(in srgb, var(--card-bg) 90%, transparent); }
   .agent-city-inspector-actions button { height: 30px; padding: 0 9px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: var(--fs-meta); cursor: pointer; }
   .agent-city-inspector-actions button:hover { background: var(--fill); }
+  .agent-city-inspector-actions button.wide { grid-column: 1 / -1; }
   .agent-city-inspector-actions button.primary { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--accent) 55%, var(--separator)); background: var(--accent); color: var(--on-accent); font-weight: 600; }
   .agent-city-inspector-actions button:focus-visible, .agent-city-inspector-tabs button:focus-visible, .agent-city-inspector-head > button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
 
