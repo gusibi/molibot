@@ -1,10 +1,10 @@
 /* Theme families.
  *
- * styles.css holds the shared product system: the base :root token ramp, the
- * brightness-keyed glass depth, and every component rule. Each family below
- * owns its full token ramp (light + dark), its system-dark sidebar override and
- * its appearance-picker thumbnail, so a family can be added or edited without
- * touching a shared file.
+ * styles.css holds the shared product system. Each family below owns palette,
+ * semantic tokens, brightness variants and its appearance-picker thumbnail.
+ * The recipes/ layer is imported last and owns reusable component grammar
+ * (Material, Messenger, Retro) so a theme can feel structurally distinct
+ * without moving Molibot's major regions or duplicating the same overrides.
  *
  * Adding a family: create <family>.css here, add its import below, then extend
  * the family list in lib/api.ts, the labels in lib/i18n.ts and the previews in
@@ -34,4 +34,4 @@
 @import "./cartoon.css";
 @import "./facebook.css";
 @import "./google.css";
-@import "./feishu.css";
+@import "./feishu.css";\n\n/* Component grammar wins after every family palette. */\n@import "./recipes/index.css";
