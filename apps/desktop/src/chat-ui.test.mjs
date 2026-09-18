@@ -5532,3 +5532,28 @@ test("file panel scope hints live inside centered empty states, not standalone c
     );
   }
 });
+
+test("desktop structural motion bridges navigation, dialogs, inspectors, and press feedback", () => {
+  const workspace = read("./lib/chat/ChatWorkspacePane.svelte");
+  const dialog = read("./lib/components/ui/Dialog.svelte");
+  const alertDialog = read("./lib/components/ui/AlertDialog.svelte");
+
+  assert.match(app, /\{#key activeSection\}[\s\S]*settings-motion-stage/);
+  assert.match(workspace, /\{#key pane\}[\s\S]*workspace-motion-stage/);
+  assert.match(dialog, /data-motion="dialog-scrim"/);
+  assert.match(dialog, /data-motion="dialog-sheet"/);
+  assert.match(alertDialog, /data-motion="dialog-scrim"/);
+  assert.match(alertDialog, /data-motion="dialog-sheet"/);
+
+  assert.match(baseStyles, /\.settings-motion-stage,[\s\S]*\.workspace-motion-stage[\s\S]*motion-surface-in/);
+  assert.match(baseStyles, /\.artifact-panel,[\s\S]*\.durable-inspector,[\s\S]*\.session-plan-inspector[\s\S]*motion-inspector-in/);
+  assert.match(baseStyles, /\[data-motion="dialog-sheet"\]\[data-state="open"\][\s\S]*motion-dialog-in/);
+  assert.match(baseStyles, /\[data-motion="dialog-sheet"\]\[data-state="closed"\][\s\S]*motion-dialog-out/);
+  assert.match(baseStyles, /:active:not\(:disabled\)\s*\{\s*scale:\s*\.975/);
+
+  const reduced = baseStyles.slice(baseStyles.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
+  assert.match(reduced, /\.settings-motion-stage/);
+  assert.match(reduced, /\.workspace-motion-stage/);
+  assert.match(reduced, /\[data-motion="dialog-sheet"\]/);
+  assert.match(baseStyles, /:root\[data-performance="low"\][\s\S]*\.settings-motion-stage[\s\S]*\.workspace-motion-stage/);
+});
