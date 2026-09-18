@@ -1009,12 +1009,16 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     }
   }
 
-  function attachCommunityKit(node: FloorNode, isGlobal: boolean, dark: boolean, accent: number): void {
+  function attachCommunityKit(node: FloorNode, isGlobal: boolean, dark: boolean, accent: number, hasWorkers: boolean): void {
     if (!communityKit || node.assetVisual.children.length > 0) return;
     const architecture = cloneCommunityComponent(communityKit, isGlobal ? "HQArchitecture" : "StudioArchitecture", dark, accent);
     const decor = cloneCommunityComponent(communityKit, isGlobal ? "HQDecor" : "StudioDecor", dark, accent);
     if (architecture) node.assetVisual.add(architecture);
-    if (decor) node.assetVisual.add(decor);
+    if (decor) {
+      const lounge = decor.getObjectByName("Lounge");
+      if (lounge) lounge.visible = !hasWorkers;
+      node.assetVisual.add(decor);
+    }
     if (!architecture && !decor) return;
     node.assetWindowMaterials = [];
     node.assetVisual.traverse((object) => {
@@ -1043,7 +1047,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         const dark = theme === "dark";
         const variant = typeof floor.buildingIndex === "number" ? floor.buildingIndex : 0;
         const accent = floor.kind === "global" ? 0x006bff : floorPalette(variant, dark).accent;
-        attachCommunityKit(node, floor.kind === "global", dark, accent);
+        attachCommunityKit(node, floor.kind === "global", dark, accent, floor.subagents.instances.length > 0);
       }
     } catch {
       communityKitLoadFailed = true;
@@ -1522,7 +1526,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         if (communityKit) {
           const dark = theme === "dark";
           const accent = floor.kind === "global" ? 0x006bff : floorPalette(variant, dark).accent;
-          attachCommunityKit(node, floor.kind === "global", dark, accent);
+          attachCommunityKit(node, floor.kind === "global", dark, accent, floor.subagents.instances.length > 0);
         }
       }
       applyFloorState(node, floor);
