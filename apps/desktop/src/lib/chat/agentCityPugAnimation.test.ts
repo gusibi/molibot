@@ -14,6 +14,7 @@ import {
   pugSeed,
   scheduledClip,
   transitionClip,
+  workClipsForRole,
   type PugClip
 } from "./agentCityPugAnimation";
 
@@ -83,8 +84,8 @@ test("transitionClip only reacts to a real status change", () => {
 
 test("every clip stays finite and inside sane pose limits", () => {
   const clips: PugClip[] = [
-    "off", "phone", "roll", "sleep", "stretch", "lookAround",
-    "typing", "reading", "writing", "cheer", "panic", "greet"
+    "off", "phone", "coffee", "roll", "sleep", "stretch", "lookAround",
+    "typing", "reading", "writing", "thinking", "scan", "reviewing", "cheer", "panic", "greet"
   ];
   for (const clip of clips) {
     for (let step = 0; step <= 40; step += 1) {
@@ -101,12 +102,25 @@ test("every clip stays finite and inside sane pose limits", () => {
   }
 });
 
-test("work clips carry the props that make the activity readable", () => {
+test("work and ambient clips carry props that make the activity readable", () => {
   assert.equal(pugPose("reading", 0.4).prop, "book");
   assert.equal(pugPose("writing", 0.4).prop, "pen");
   assert.equal(pugPose("phone", 0.4).prop, "phone");
+  assert.equal(pugPose("coffee", 0.4).prop, "mug");
+  assert.equal(pugPose("scan", 0.4).prop, "scanner");
+  assert.equal(pugPose("reviewing", 0.4).prop, "clipboard");
   assert.equal(pugPose("typing", 0.4).prop, "none");
+  assert.equal(pugPose("thinking", 0.4).prop, "none");
   assert.equal(pugPose("off", 0.4).prop, "none");
+});
+
+test("repeated workers get role-specific work behavior without hard-coding identities", () => {
+  assert.deepEqual([...workClipsForRole("scan")], ["scan", "typing"]);
+  assert.deepEqual([...workClipsForRole("repository research")], ["scan", "typing"]);
+  assert.deepEqual([...workClipsForRole("planner")], ["thinking", "writing"]);
+  assert.deepEqual([...workClipsForRole("reviewer")], ["reviewing", "reading"]);
+  assert.deepEqual([...workClipsForRole("custom-worker")], [...WORK_CLIPS]);
+  assert.deepEqual([...clipsForStatus("working", "scan")], ["scan", "typing"]);
 });
 
 test("typing and phone light their screens, resting clips do not", () => {
