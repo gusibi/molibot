@@ -1,6 +1,6 @@
 # Momo Blender / GLB asset contract
 
-Agent Community now treats the character model as a replaceable asset boundary. The desktop runtime first loads `/agent-community/momo.glb` and falls back to the bundled `momo.gltf` prototype, so a Blender-authored asset can replace the prototype without changing Agent/Activity code.
+Agent Community treats the character model as a replaceable asset boundary. The desktop runtime loads the shipped `/agent-community/momo.glb` first and keeps `momo.gltf` as a readable fallback. Both persistent Agents and temporary Sub-agent Workers use this same Momo asset; role identity stays in lightweight runtime accessories and props.
 
 ## Scene contract
 
@@ -38,15 +38,27 @@ Clips should loop cleanly except the semantic one-shots `Celebrate` and `Wave`; 
 
 ## Performance budget
 
-Target the hero Momo asset at roughly 8k–20k triangles and keep texture use optional. There can be up to 11 persistent Agent Momo instances on screen, so geometry/material sharing matters more than cinematic detail. Temporary Sub-agent workers remain on the procedural lightweight rig for now.
+Target the hero Momo asset at roughly 8k–20k triangles and keep texture use optional. A community can render the persistent Agents plus up to 12 animated Workers per active parent, so geometry/material sharing matters more than cinematic detail. Runtime clones share immutable GLTF geometry/materials while keeping independent AnimationMixers and role accessories.
 
 ## Export
 
-Run:
+The repository has two Blender paths.
+
+To rebuild both Phase 3 and Phase 4 art sources from scratch:
+
+```bash
+blender --background --python scripts/blender/build_agent_community_assets.py -- \
+  --out-dir apps/desktop/public/agent-community \
+  --source-dir .art/agent-community
+```
+
+This creates editable `Momo.blend` and `AgentCommunityKit.blend` source files and exports `momo.glb` plus `community-kit.glb`.
+
+For an artist-edited `Momo.blend`, use the stricter validator/exporter:
 
 ```bash
 blender Momo.blend --background --python scripts/blender/export_momo.py -- \
   --output apps/desktop/public/agent-community/momo.glb
 ```
 
-The exporter validates the required root, armature, and clip names before writing the GLB. The committed `momo.gltf` is a lightweight animated prototype/fallback and should not be treated as the final Blender art asset.
+The runtime GLBs are committed, so the desktop app does not require Blender to run. The text `.gltf` files remain deterministic fallbacks/debug assets.
