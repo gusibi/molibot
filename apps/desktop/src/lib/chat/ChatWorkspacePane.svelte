@@ -49,7 +49,13 @@
   <div class="workspace-motion-stage" data-motion-surface="workspace">
   <PageHeader title={workspaceTitle} description={workspaceDescription} workspace />
   
-  <div class="workspace-scroll" data-workspace-pane={pane}>
+  <div
+    class="workspace-scroll"
+    class:motion-state-ready={serviceReady}
+    class:motion-state-error={!serviceReady && !!serviceError}
+    class:motion-state-loading={!serviceReady && !serviceError}
+    data-workspace-pane={pane}
+  >
     {#if !serviceReady}
       <div class="workspace-empty" role={serviceError ? "alert" : undefined}>
         <p>{serviceError ? copy.workspaceLoadFailed : copy.loading}</p>

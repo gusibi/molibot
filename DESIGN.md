@@ -1351,6 +1351,8 @@ Nothing exceeds 300ms; longer reads as waiting, not communicating.
 
 **Structural surface contract:** keep the shell stable and move only the content whose context changed. Settings-section and primary workspace swaps use the 240ms surface entrance (opacity + 6px vertical travel); Settings itself arrives as a 240ms shell transition; right-edge inspectors use the 300ms spatial arrival (opacity + 12px horizontal travel); shared dialogs use the same 240ms spring sheet plus a 160ms scrim. Shared high-confidence buttons get only a 100ms press scale. Sidebar-row hover, slash suggestions, prompt navigation, streaming text, and direct typing never gain spatial motion.
 
+**Motion polish contract:** a right-edge inspector closes by reversing its spatial direction before the state is released; async workspace loading/error/ready handoffs use a local 160ms opacity bridge instead of replaying the full page transition. Popovers, contextual menus, command palette, and compact action toasts all use `--duration-fast` + `--ease-spring`; do not invent 120/140/150ms one-off timings. Reduced-motion and low-performance modes disable these transitions rather than shortening them into a different motion language.
+
 **Allowed properties:** `opacity` and `transform` only. Never animate
 `width`, `height`, or grid tracks - per-frame reflow is jank, and the
 file-panel grid animation was explicitly rejected in the motion audit.

@@ -112,7 +112,9 @@
     locale,
     theme,
     copy,
-    onClose
+    onClose,
+    motionClosing = false,
+    onMotionEnd = () => {}
   }: {
     endpoint: string;
     projectId: string;
@@ -150,6 +152,8 @@
     theme: "light" | "dark";
     copy: Translation;
     onClose: () => void;
+    motionClosing?: boolean;
+    onMotionEnd?: (event: AnimationEvent) => void;
   } = $props();
 
   const store = new ArtifactTabsStore();
@@ -878,6 +882,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <aside
   class="file-panel project-file-panel artifact-panel"
+  class:motion-closing={motionClosing}
   data-theme-region="file-panel"
   class:miniapp-active={miniAppActive}
   class:splitting
@@ -885,6 +890,7 @@
   bind:this={panelElement}
   style={`--file-split:${splitPercent}%`}
   onkeydown={onPanelKeydown}
+  onanimationend={onMotionEnd}
 >
   <!--
     One head for both surfaces. The Files/Mini Apps switch lives here rather

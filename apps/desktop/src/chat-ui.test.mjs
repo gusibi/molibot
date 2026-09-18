@@ -5560,3 +5560,45 @@ test("desktop structural motion bridges navigation, dialogs, inspectors, and pre
   assert.match(reduced, /\[data-motion="dialog-sheet"\]/);
   assert.match(baseStyles, /:root\[data-performance="low"\][\s\S]*\.settings-motion-stage[\s\S]*\.workspace-motion-stage/);
 });
+
+test("desktop motion polish keeps inspector exits and popover timing coherent", () => {
+  const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
+  const durableInspector = read("./lib/chat/DurableExecutionInspector.svelte");
+  const planInspector = read("./lib/chat/SessionPlanInspector.svelte");
+  const workspace = read("./lib/chat/ChatWorkspacePane.svelte");
+  const conversationRow = read("./lib/chat/ConversationRow.svelte");
+  const botMention = read("./lib/chat/BotMention.svelte");
+
+  assert.match(view, /let inspectorClosing = false/);
+  assert.match(view, /function closeInspector\(immediate = false\)/);
+  assert.match(view, /inspectorClosing = true/);
+  assert.match(view, /function finishInspectorClose\(event: AnimationEvent\)/);
+  assert.match(view, /event\.animationName !== "motion-inspector-out"/);
+  assert.match(view, /motionClosing=\{inspectorClosing\}/);
+  assert.match(view, /onMotionEnd=\{finishInspectorClose\}/);
+
+  for (const source of [artifactPanel, durableInspector, planInspector]) {
+    assert.match(source, /motionClosing/);
+    assert.match(source, /motion-closing/);
+    assert.match(source, /onMotionEnd/);
+    assert.match(source, /onanimationend=\{onMotionEnd\}/);
+  }
+
+  assert.match(baseStyles, /@keyframes motion-inspector-out/);
+  assert.match(baseStyles, /\.artifact-panel\.motion-closing,[\s\S]*motion-inspector-out var\(--duration-fast\)/);
+  assert.match(baseStyles, /\.files-resizer\.motion-closing[\s\S]*opacity:\s*0/);
+
+  assert.match(workspace, /class:motion-state-ready=\{serviceReady\}/);
+  assert.match(workspace, /class:motion-state-error=\{!serviceReady && !!serviceError\}/);
+  assert.match(workspace, /class:motion-state-loading=\{!serviceReady && !serviceError\}/);
+  assert.match(baseStyles, /workspace-scroll\.motion-state-ready[\s\S]*motion-state-ready-in var\(--duration-fast\)/);
+
+  assert.doesNotMatch(baseStyles, /animation:\s*popover-in\s+(?:120ms|140ms|160ms)/);
+  assert.doesNotMatch(baseStyles, /animation:\s*command-palette-in\s+120ms/);
+  assert.match(conversationRow, /animation:\s*popover-in var\(--duration-fast\) var\(--ease-spring\)/);
+  assert.match(botMention, /animation:\s*mention-pop var\(--duration-fast\) var\(--ease-spring\)/);
+
+  assert.match(baseStyles, /:root\[data-performance="low"\] \.overflow-menu-popover,[\s\S]*\.row-menu,[\s\S]*\.mention-menu,[\s\S]*\.command-palette/);
+  assert.match(baseStyles, /:root\[data-performance="low"\] :is\([\s\S]*workspace-scroll\.motion-state-ready/);
+});
+

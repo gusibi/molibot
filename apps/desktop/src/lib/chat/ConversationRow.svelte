@@ -425,7 +425,7 @@
     -webkit-backdrop-filter: var(--glass-popover-filter, blur(24px) saturate(180%));
     box-shadow: var(--glass-chip-shadow, var(--popover-shadow)), var(--glass-edge, 0 0 #0000);
     transform-origin: top right;
-    animation: popover-in 120ms var(--ease-spring);
+    animation: popover-in var(--duration-fast) var(--ease-spring);
   }
   .row-menu-separator {
     height: 1px;

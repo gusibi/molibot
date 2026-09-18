@@ -1194,7 +1194,7 @@ a:focus-visible {
   /* Anchored to the header button that opens it: the material grows out of its
      trigger, not out of the menu's own centre (apple-design §7). */
   transform-origin: top right;
-  animation: popover-in 140ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 .miniapps-quick-search {
   display: flex;
@@ -1465,7 +1465,7 @@ a:focus-visible {
   color: var(--label-primary);
   font-size: var(--fs-label);
   line-height: var(--lh-label);
-  animation: popover-in 140ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 /* A card is read, not glanced at, so it gets room to breathe. */
 .chat-action-toast.has-card { gap: 8px; }
@@ -3633,7 +3633,7 @@ a:focus-visible {
   -webkit-backdrop-filter: var(--glass-popover-filter);
   box-shadow: var(--glass-chip-shadow), var(--glass-edge);
   transform-origin: bottom right;
-  animation: popover-in 160ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 .composer-model-popover button { color: var(--label-primary); font: inherit; }
 .composer-model-popover > button,
@@ -3765,7 +3765,7 @@ a:focus-visible {
 .composer-wrap.is-floating .recording-bar { background: color-mix(in srgb, var(--danger) 8%, var(--glass-surface-bg)); }
 .composer-wrap.is-floating .composer-edit-banner { background: color-mix(in srgb, var(--accent) 10%, var(--glass-surface-bg)); }
 
-.slash-suggestions { position: absolute; z-index: 40; inset: auto 0 calc(100% + 8px); max-height: min(420px, 52vh); padding: 7px; overflow: auto; border: 1px solid var(--control-border); border-radius: var(--rounded-md); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: bottom center; animation: popover-in 160ms var(--ease-spring); }
+.slash-suggestions { position: absolute; z-index: 40; inset: auto 0 calc(100% + 8px); max-height: min(420px, 52vh); padding: 7px; overflow: auto; border: 1px solid var(--control-border); border-radius: var(--rounded-md); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: bottom center; animation: popover-in var(--duration-fast) var(--ease-spring); }
 .slash-suggestion-group + .slash-suggestion-group { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--separator); }
 .slash-suggestion-heading { padding: 4px 8px 5px; color: var(--label-tertiary); font-size: var(--fs-meta); font-weight: 600; letter-spacing: var(--tracking-caps); }
 .slash-suggestion { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
@@ -4064,7 +4064,7 @@ a:focus-visible {
   color: var(--label-primary);
   box-shadow: var(--popover-shadow);
   transform-origin: var(--bits-select-content-transform-origin);
-  animation: popover-in 160ms var(--ease-spring);
+  animation: popover-in var(--duration-fast) var(--ease-spring);
 }
 .select-control-viewport { max-height: min(296px, 44vh); padding: 4px; overflow-y: auto; overscroll-behavior: contain; }
 .select-control-group + .select-control-group,
@@ -5495,7 +5495,7 @@ select.provider-input { padding-right: 6px; }
 .overflow-menu > summary::-webkit-details-marker { display: none; }
 .overflow-menu > summary:hover { background: var(--fill); color: var(--label-primary); }
 .overflow-menu[open] > summary { background: var(--fill); color: var(--label-primary); }
-.overflow-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: top right; animation: popover-in 120ms var(--ease-spring); }
+.overflow-menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--glass-popover-bg); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-chip-shadow), var(--glass-edge); transform-origin: top right; animation: popover-in var(--duration-fast) var(--ease-spring); }
 .overflow-menu-up .overflow-menu-popover { top: auto; bottom: calc(100% + 6px); transform-origin: bottom right; }
 .overflow-menu-inline.overflow-menu-up .overflow-menu-popover { right: auto; left: 0; transform-origin: bottom left; }
 .overflow-menu-popover button { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 9px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--label-primary); text-align: left; cursor: pointer; }
@@ -5503,7 +5503,7 @@ select.provider-input { padding-right: 6px; }
 .overflow-menu-popover button.danger-action { color: var(--danger); }
 .overflow-menu-popover button:disabled { opacity: .45; cursor: default; }
 .command-palette-layer { position: fixed; z-index: 90; inset: 0; pointer-events: auto; }
-.command-palette { position: absolute; top: 64px; left: 50%; display: grid; width: min(360px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--chrome-border); border-radius: var(--radius-panel); background: color-mix(in srgb, var(--chrome-popover-bg) var(--glass-chrome-opacity), transparent); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-surface-shadow), var(--glass-edge); transform: translateX(-50%); transform-origin: top center; animation: command-palette-in 120ms var(--ease-spring); }
+.command-palette { position: absolute; top: 64px; left: 50%; display: grid; width: min(360px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--chrome-border); border-radius: var(--radius-panel); background: color-mix(in srgb, var(--chrome-popover-bg) var(--glass-chrome-opacity), transparent); backdrop-filter: var(--glass-popover-filter); -webkit-backdrop-filter: var(--glass-popover-filter); box-shadow: var(--glass-surface-shadow), var(--glass-edge); transform: translateX(-50%); transform-origin: top center; animation: command-palette-in var(--duration-fast) var(--ease-spring); }
 .command-palette header { display: flex; align-items: center; justify-content: space-between; min-height: 34px; padding: 0 8px 5px; color: var(--label-secondary); font-size: var(--fs-meta); }
 .command-palette-input { width: 100%; height: 32px; margin-bottom: 6px; padding: 0 9px; border: 1px solid var(--control-border); border-radius: var(--radius-control); background: var(--fill); color: var(--label-primary); font: inherit; font-size: var(--fs-label); outline: none; }
 .command-palette-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
@@ -5793,6 +5793,13 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   scroll-behavior: auto !important;
   transition: none !important;
 }
+:root[data-performance="low"] .overflow-menu-popover,
+:root[data-performance="low"] .row-menu,
+:root[data-performance="low"] .mention-menu,
+:root[data-performance="low"] .command-palette,
+:root[data-performance="low"] .composer-model-popover,
+:root[data-performance="low"] .miniapps-quick-menu,
+:root[data-performance="low"] .chat-action-toast,
 :root[data-performance="low"] .recording-indicator,
 :root[data-performance="low"] .beam-ring::before,
 :root[data-performance="low"] .run-activity .spin,
@@ -6944,6 +6951,30 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .session-plan-inspector {
   animation: motion-inspector-in var(--duration-panel) var(--ease-spring) both;
 }
+.artifact-panel.motion-closing,
+.durable-inspector.motion-closing,
+.session-plan-inspector.motion-closing {
+  animation: motion-inspector-out var(--duration-fast) var(--ease-standard) both;
+  pointer-events: none;
+}
+.files-resizer.motion-closing {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+/* Loading/error/content handoffs stay local to the workspace body. The outer
+   destination surface has the 240ms navigation motion; this shorter state fade
+   only prevents async content from snapping in after that navigation settles. */
+.workspace-scroll.motion-state-loading {
+  animation: motion-state-loading-in var(--duration-fast) var(--ease-standard) both;
+}
+.workspace-scroll.motion-state-error {
+  animation: motion-state-error-in var(--duration-fast) var(--ease-standard) both;
+}
+.workspace-scroll.motion-state-ready {
+  animation: motion-state-ready-in var(--duration-fast) var(--ease-standard) both;
+}
 
 /* Tactile press feedback is intentionally tiny. It applies only to shared,
    high-confidence controls; list hover and keyboard-driven menus do not move. */
@@ -7002,6 +7033,22 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   from { opacity: 0; translate: 12px 0; }
   to { opacity: 1; translate: 0 0; }
 }
+@keyframes motion-inspector-out {
+  from { opacity: 1; translate: 0 0; }
+  to { opacity: 0; translate: 12px 0; }
+}
+@keyframes motion-state-loading-in {
+  from { opacity: .72; }
+  to { opacity: 1; }
+}
+@keyframes motion-state-error-in {
+  from { opacity: 0; translate: 0 4px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes motion-state-ready-in {
+  from { opacity: .72; }
+  to { opacity: 1; }
+}
 @keyframes motion-dialog-in {
   from { opacity: 0; translate: 0 8px; scale: .985; }
   to { opacity: 1; translate: 0 0; scale: 1; }
@@ -7026,6 +7073,9 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .settings-layout,
   .settings-motion-stage,
   .workspace-motion-stage,
+  .workspace-scroll.motion-state-loading,
+  .workspace-scroll.motion-state-error,
+  .workspace-scroll.motion-state-ready,
   .artifact-panel,
   .durable-inspector,
   .session-plan-inspector,
@@ -7062,6 +7112,9 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .settings-layout,
   .settings-motion-stage,
   .workspace-motion-stage,
+  .workspace-scroll.motion-state-loading,
+  .workspace-scroll.motion-state-error,
+  .workspace-scroll.motion-state-ready,
   .artifact-panel,
   .durable-inspector,
   .session-plan-inspector,
