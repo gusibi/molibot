@@ -1,3 +1,12 @@
+### Changed: Agent Community Phase 5 — Live Inspector 与快速对话（2026-09-19）
+
+Agent City 现在从“可看”进入“可操作”的工作台阶段。点击任意 Agent 房间会从右侧打开 Live Inspector，分为概览、Worker、运行信息三页：当前任务、Bot/Channel 来源、模型/权限、Run ID、开始/结束时间、Worker role 聚合与完整实例状态都会随着 Agent Activity 轮询实时刷新。相同 Inspector 同时支持 3D WebGL 与 2D fallback，不再让节能模式退化成只有 tooltip 的只读视图。
+
+Inspector 底部加入三个实际动作：直接与该 Agent 开启 Web 对话、镜头对准房间、进入 Agent 设置。新建对话会选择绑定该 Agent 的 Web Profile；Momo/default 会优先使用默认 Profile；找不到绑定关系时转到 Profiles 设置，避免静默用错 Bot。Agent 搜索也扩展到 Worker role、Bot 名称和当前任务摘要，能直接搜索“scan”“reviewer”或任务关键词定位正在工作的团队。
+
+旧的左下角 `.agent-city-detail` 小卡片已删除，宽屏搜索框会在 Inspector 打开时自动让位，窄屏保持可覆盖操作；Escape 仍统一退出当前选择。机器守卫覆盖 Inspector 三个 tab、Worker/runtime 数据、2D fallback 选择、ChatView 的 Agent→Profile→draft 链路以及旧 detail 样式不得回归。
+
+
 ### Changed: Agent Community 完成 Momo 与模块化建筑资产化（2026-09-18）
 
 Agent 页这一轮把前两版「结构已经对，但看起来还像积木」的问题继续做完。Default Agent 现在是社区中央的 Momo HQ，Sub-agent 是可重复派生的 Worker Swarm；`scan ×10` 这样的并行团队保留完整 runtime 实例，只在 Three.js 渲染层做 LOD。
