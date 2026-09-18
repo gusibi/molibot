@@ -1349,6 +1349,8 @@ interaction classes:
 
 Nothing exceeds 300ms; longer reads as waiting, not communicating.
 
+**Structural surface contract:** keep the shell stable and move only the content whose context changed. Settings-section and primary workspace swaps use the 240ms surface entrance (opacity + 6px vertical travel); Settings itself arrives as a 240ms shell transition; right-edge inspectors use the 300ms spatial arrival (opacity + 12px horizontal travel); shared dialogs use the same 240ms spring sheet plus a 160ms scrim. Shared high-confidence buttons get only a 100ms press scale. Sidebar-row hover, slash suggestions, prompt navigation, streaming text, and direct typing never gain spatial motion.
+
 **Allowed properties:** `opacity` and `transform` only. Never animate
 `width`, `height`, or grid tracks - per-frame reflow is jank, and the
 file-panel grid animation was explicitly rejected in the motion audit.
