@@ -683,6 +683,7 @@
   // (ChatView stays mounted), so opening settings never tears down the
   // conversation. There is no longer a dedicated settings window.
   let settingsOpen = false;
+  let settingsClosing = false;
 
   function serviceStateLabel(state: "disconnected" | "ready" | "incompatible" | "error" | undefined, copy: typeof text): string {
     if (state === "ready") return copy.diagStateReady;
@@ -1011,11 +1012,28 @@
 
   function openSettings(section?: string): void {
     if (section) activeSection = section as SettingsSection;
+    settingsClosing = false;
     settingsOpen = true;
   }
 
+  function settingsMotionDisabled(): boolean {
+    return document.documentElement.dataset.performance === "low"
+      || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
   function closeSettings(): void {
+    if (!settingsOpen || settingsClosing) return;
+    if (settingsMotionDisabled()) {
+      settingsOpen = false;
+      return;
+    }
+    settingsClosing = true;
+  }
+
+  function finishSettingsClose(event: AnimationEvent): void {
+    if (!settingsClosing || event.target !== event.currentTarget || event.animationName !== "motion-settings-shell-out") return;
     settingsOpen = false;
+    settingsClosing = false;
   }
 
   function onWindowKeydown(event: KeyboardEvent): void {
@@ -1065,6 +1083,7 @@
       const custom = event as CustomEvent<{ section?: SettingsSection }>;
       if (custom.detail?.section) {
         selectSettingsSection(custom.detail.section);
+        settingsClosing = false;
         settingsOpen = true;
       }
     };
@@ -1149,8 +1168,8 @@
 </div>
 
 {#if settingsOpen}
-  <div class="settings-overlay" role="dialog" aria-modal="true" aria-label={text.settings}>
-  <main class="settings-layout">
+  <div class="settings-overlay" class:closing={settingsClosing} role="dialog" aria-modal="true" aria-label={text.settings}>
+  <main class="settings-layout" class:closing={settingsClosing} onanimationend={finishSettingsClose}>
     <WindowDragMask />
     <aside class="settings-sidebar">
       <div class="settings-titlebar-space" data-tauri-drag-region aria-hidden="true"></div>
