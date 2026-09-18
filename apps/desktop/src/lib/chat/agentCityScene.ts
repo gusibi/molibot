@@ -31,6 +31,15 @@ import {
   type PugPose,
   type PugProp
 } from "./agentCityPugAnimation";
+import {
+  createMomoAssetInstance,
+  loadMomoAssetTemplate,
+  momoAnimationName,
+  playMomoAnimation,
+  stopMomoAssetInstance,
+  type MomoAssetInstance,
+  type MomoAssetTemplate
+} from "./agentCityMomoAsset";
 
 export type AgentCityQuality = "full" | "low" | "fallback";
 export type AgentCityTheme = "light" | "dark";
@@ -113,6 +122,8 @@ interface PugRig {
   homePosition: THREE.Vector3;
   homeYaw: number;
   spawnEpochMs: number | null;
+  assetEligible: boolean;
+  asset: MomoAssetInstance | null;
   status: AgentCityStatus;
   currentProp: PugProp;
   oneShot: { clip: PugClip; startedAt: number } | null;
@@ -462,6 +473,8 @@ function createPug(assistant = false, role: string | null = null): PugRig {
     homePosition: new THREE.Vector3(),
     homeYaw: 0,
     spawnEpochMs: null,
+    assetEligible: !assistant,
+    asset: null,
     status: "idle",
     currentProp: "none",
     oneShot: null,
@@ -469,13 +482,17 @@ function createPug(assistant = false, role: string | null = null): PugRig {
   };
 }
 
-function applyPugPose(rig: PugRig, pose: PugPose, baseYaw: number, detailed: boolean): void {
+function applyRigTravel(rig: PugRig, pose: PugPose, extraYaw = 0): void {
   rig.root.position.set(
     rig.homePosition.x + pose.travelX,
     rig.homePosition.y,
     rig.homePosition.z + pose.travelZ
   );
-  rig.root.rotation.y = rig.homeYaw + pose.travelYaw;
+  rig.root.rotation.y = rig.homeYaw + pose.travelYaw + extraYaw;
+}
+
+function applyPugPose(rig: PugRig, pose: PugPose, baseYaw: number, detailed: boolean): void {
+  applyRigTravel(rig, pose);
   rig.pose.position.y = pose.bodyOffsetY;
   rig.pose.rotation.set(pose.bodyTiltX, baseYaw + pose.bodyTurnY, pose.bodyRollZ);
   const lateral = 1 / Math.sqrt(Math.max(0.2, pose.squash));
@@ -864,6 +881,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   let followWorking = false;
   let followKey: string | null = null;
   let lastSceneFloors = -1;
+  let momoTemplate: MomoAssetTemplate | null = null;
+  let momoAssetLoadFailed = false;
 
   const floorNodes = new Map<string, FloorNode>();
   const staticRoot = new THREE.Group();
@@ -896,6 +915,30 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   sun.shadow.camera.top = 24;
   sun.shadow.camera.bottom = -24;
   scene.add(sun);
+
+  function attachMomoAsset(rig: PugRig): void {
+    if (!rig.assetEligible || rig.asset || !momoTemplate) return;
+    const instance = createMomoAssetInstance(momoTemplate);
+    instance.root.scale.setScalar(0.96);
+    rig.root.add(instance.root);
+    rig.pose.visible = false;
+    rig.asset = instance;
+    playMomoAnimation(instance, "Idle", 0);
+  }
+
+  async function hydrateMomoAssets(): Promise<void> {
+    if (momoTemplate || momoAssetLoadFailed) return;
+    try {
+      const template = await loadMomoAssetTemplate();
+      if (disposed) return;
+      momoTemplate = template;
+      for (const node of floorNodes.values()) attachMomoAsset(node.mainPug);
+    } catch {
+      // Asset loading must never blank Agent Community: procedural Momo remains
+      // the permanent fallback for offline/dev/broken-package scenarios.
+      momoAssetLoadFailed = true;
+    }
+  }
 
   function publishView(): void {
     options.onViewChange?.({
@@ -1133,6 +1176,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     mainPug.seed = pugSeed(floor.agent.id);
     if (isGlobal) setRigScale(mainPug, 1.08);
     group.add(mainPug.root);
+    attachMomoAsset(mainPug);
     const pugs = [mainPug];
 
     const seatPosition = isGlobal
@@ -1307,6 +1351,12 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   }
 
   function disposeFloorNode(node: FloorNode): void {
+    for (const rig of node.pugs) {
+      if (rig.asset) {
+        stopMomoAssetInstance(rig.asset);
+        rig.asset = null;
+      }
+    }
     cityRoot.remove(node.group);
     disposeObject(node.group);
     if (node.route) {
@@ -1453,19 +1503,29 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     camera.updateProjectionMatrix();
   }
 
-  function poseFor(rig: PugRig, timeMs: number): { pose: PugPose; oneShot: boolean } {
+  function motionFor(rig: PugRig, timeMs: number): { clip: PugClip; pose: PugPose; oneShot: boolean } {
     if (rig.oneShot) {
       const duration = ONE_SHOT_CLIP_DURATION_MS[rig.oneShot.clip as "cheer" | "panic" | "greet"] ?? 1600;
       const elapsed = timeMs - rig.oneShot.startedAt;
-      if (elapsed < duration) return { pose: pugPose(rig.oneShot.clip, elapsed / 1000, rig.seed), oneShot: true };
+      if (elapsed < duration) {
+        return {
+          clip: rig.oneShot.clip,
+          pose: pugPose(rig.oneShot.clip, elapsed / 1000, rig.seed),
+          oneShot: true
+        };
+      }
       rig.oneShot = null;
     }
     const clips = clipsForStatus(rig.status, rig.role);
     const scheduled = scheduledClip(clips, rig.seed, timeMs, clipDurationForStatus(rig.status));
-    return { pose: pugPose(scheduled.clip, scheduled.localTime, rig.seed), oneShot: false };
+    return {
+      clip: scheduled.clip,
+      pose: pugPose(scheduled.clip, scheduled.localTime, rig.seed),
+      oneShot: false
+    };
   }
 
-  function animatePugs(timeMs: number, detailed: boolean): void {
+  function animatePugs(timeMs: number, detailed: boolean, deltaSeconds: number): void {
     camera.getWorldPosition(cameraWorldPosition);
     for (const node of floorNodes.values()) {
       const showProps = detailed || node.key === "global" || focusedKey === node.key;
@@ -1478,13 +1538,11 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         } else {
           rig.root.scale.setScalar(rig.baseScale);
         }
-        if (reducedMotion && !rig.oneShot) {
-          applyPugPose(rig, staticPoseFor(rig), 0, showProps);
-          continue;
-        }
-        const { pose, oneShot } = poseFor(rig, timeMs);
+        const motion = reducedMotion && !rig.oneShot
+          ? { clip: clipsForStatus(rig.status, rig.role)[0] ?? "off" as PugClip, pose: staticPoseFor(rig), oneShot: false }
+          : motionFor(rig, timeMs);
         // While greeting, the pug turns to look straight at the viewer.
-        const greeting = oneShot && rig.oneShot?.clip === "greet";
+        const greeting = motion.oneShot && rig.oneShot?.clip === "greet";
         rig.faceCamera += ((greeting ? 1 : 0) - rig.faceCamera) * 0.18;
         let yaw = 0;
         if (rig.faceCamera > 0.01) {
@@ -1494,7 +1552,16 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
             rig.root.rotation.y;
           yaw = desired * rig.faceCamera;
         }
-        applyPugPose(rig, pose, yaw, showProps);
+
+        if (rig.asset) {
+          applyRigTravel(rig, motion.pose, yaw);
+          playMomoAnimation(rig.asset, momoAnimationName(motion.clip), reducedMotion ? 0 : 0.16);
+          if (rig.asset.currentAction) rig.asset.currentAction.paused = reducedMotion;
+          if (reducedMotion && rig.asset.currentAction) rig.asset.currentAction.time = 0.28;
+          else rig.asset.mixer.update(deltaSeconds);
+          continue;
+        }
+        applyPugPose(rig, motion.pose, yaw, showProps);
       }
     }
   }
@@ -1537,7 +1604,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const distance = camera.position.distanceTo(controls.target);
     const detailed = distance <= AGENT_CITY_DETAIL_DISTANCE;
 
-    animatePugs(time, detailed);
+    animatePugs(time, detailed, delta / 1000);
 
     if (!reducedMotion) {
       for (const node of floorNodes.values()) {
@@ -1633,6 +1700,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   applyTheme();
   buildStaticScenery();
   syncProjection();
+  void hydrateMomoAssets();
   applyOverview(true);
   lastSceneFloors = projection.sceneFloors;
   publishView();
