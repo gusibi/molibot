@@ -73,7 +73,13 @@
 }
 
 :root[data-theme-recipe="material"] [data-theme-region="chat"] .messages {
-  background: var(--content-bg);
+  background:
+    radial-gradient(circle at 82% 14%, color-mix(in srgb, var(--accent) 9%, transparent) 0 84px, transparent 85px),
+    radial-gradient(circle at 18% 72%, color-mix(in srgb, var(--accent) 5%, transparent) 0 120px, transparent 121px),
+    var(--content-bg);
+}
+:root[data-theme-recipe="material"] [data-theme-region="chat"] .message-row {
+  margin-bottom: 22px;
 }
 :root[data-theme-recipe="material"] [data-theme-region="chat"] .assistant-avatar {
   width: 24px;
@@ -82,13 +88,19 @@
 }
 :root[data-theme-recipe="material"] [data-theme-region="chat"] .message-row.mine .message-bubble {
   max-width: var(--recipe-message-max);
+  padding: 12px 16px;
+  border-color: transparent;
   border-radius: 24px 24px 8px 24px;
+  background: color-mix(in srgb, var(--accent) 22%, var(--card-bg));
   box-shadow: none;
 }
 :root[data-theme-recipe="material"] [data-theme-region="chat"] .message-row.assistant .message-bubble {
   width: fit-content;
   max-width: var(--recipe-assistant-max);
+  padding: 12px 16px;
+  border-color: transparent;
   border-radius: 24px 24px 24px 8px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--card-bg));
   box-shadow: none;
 }
 :root[data-theme-recipe="material"] [data-theme-region="chat"] .assistant-identity .assistant-status {
@@ -97,8 +109,10 @@
 }
 
 :root[data-theme-recipe="material"] [data-theme-region="composer"] .composer {
-  border-color: color-mix(in srgb, var(--label-primary) 16%, transparent);
-  border-radius: 28px;
+  gap: 10px;
+  padding: 16px;
+  border-color: transparent;
+  border-radius: 30px;
   box-shadow: none;
 }
 :root[data-theme-recipe="material"] [data-theme-region="composer"] .composer::before {
@@ -111,9 +125,16 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+:root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-bar {
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--label-primary) 8%, transparent);
+}
 :root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-tool,
 :root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-permission-trigger {
   border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 :root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-tool:hover:not(:disabled),
 :root[data-theme-recipe="material"] [data-theme-region="composer"] .composer-permission-trigger:hover,
@@ -121,9 +142,11 @@
   background: color-mix(in srgb, var(--accent) 11%, transparent);
 }
 :root[data-theme-recipe="material"] [data-theme-region="composer"] .send-button {
+  width: 36px;
+  height: 36px;
   background: var(--accent);
   color: var(--on-accent);
-  box-shadow: none;
+  box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 :root[data-theme-recipe="material"] [data-theme-region="composer"] .send-button:hover:not(:disabled) {
   background: var(--accent-hover);
@@ -140,8 +163,9 @@
 
 :root[data-theme-recipe="material"] .settings-card {
   border-color: transparent;
-  border-radius: 20px;
-  background: var(--surface-secondary);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface-secondary));
+  box-shadow: none;
 }
 :root[data-theme-recipe="material"] .select-control-trigger {
   border-color: transparent;
