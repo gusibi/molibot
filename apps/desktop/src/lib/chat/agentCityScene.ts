@@ -184,6 +184,7 @@ interface FloorNode {
   proceduralShell: THREE.Group;
   proceduralDecor: THREE.Group;
   assetVisual: THREE.Group;
+  assetWindowMaterials: THREE.MeshStandardMaterial[];
   windowBase: number;
   windowFlicker: number;
   glowPhase: number;
@@ -641,6 +642,7 @@ function createWorkerStation(accent: number, role: string): { group: THREE.Group
 
 function createRoomDecor(
   group: THREE.Group,
+  dynamicGroup: THREE.Group,
   isGlobal: boolean,
   dark: boolean,
   accent: number,
@@ -717,7 +719,7 @@ function createRoomDecor(
     isGlobal ? 0.9 : 0.64,
     isGlobal ? -2.14 : -1.0
   );
-  group.add(board);
+  dynamicGroup.add(board);
   activityMaterials.push(boardMaterial);
   const cellCount = isGlobal ? 5 : 3;
   for (let index = 0; index < cellCount; index += 1) {
@@ -728,7 +730,7 @@ function createRoomDecor(
       roughness: 0.4
     });
     const spacing = isGlobal ? 0.37 : 0.26;
-    group.add(mesh(
+    dynamicGroup.add(mesh(
       new THREE.BoxGeometry(isGlobal ? 0.24 : 0.16, 0.08, 0.025),
       cellMaterial,
       (isGlobal ? 0.25 : -0.25) + (index - (cellCount - 1) / 2) * spacing,
@@ -761,7 +763,7 @@ function createRoomDecor(
     celebration.add(bit);
   }
   celebration.visible = false;
-  group.add(celebration);
+  dynamicGroup.add(celebration);
 
   return { activityMaterials, celebration };
 }
@@ -976,8 +978,18 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     if (architecture) node.assetVisual.add(architecture);
     if (decor) node.assetVisual.add(decor);
     if (!architecture && !decor) return;
+    node.assetWindowMaterials = [];
+    node.assetVisual.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const surfaces = Array.isArray(object.material) ? object.material : [object.material];
+      for (const surface of surfaces) {
+        if (!(surface instanceof THREE.MeshStandardMaterial)) continue;
+        if (surface.name.toLowerCase().includes("glasstint")) node.assetWindowMaterials.push(surface);
+      }
+    });
     node.proceduralShell.visible = false;
     node.proceduralDecor.visible = false;
+    if (node.status) applyWindowGlow(node, node.status);
   }
 
   async function hydrateCommunityAssets(): Promise<void> {
@@ -1199,7 +1211,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     proceduralShell.add(windows.group);
 
     const renderedWorkers = floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT);
-    const decor = createRoomDecor(proceduralDecor, isGlobal, dark, accent, variant, renderedWorkers.length > 0);
+    const decor = createRoomDecor(proceduralDecor, group, isGlobal, dark, accent, variant, renderedWorkers.length > 0);
     const activityMaterials = decor.activityMaterials;
     const celebration = decor.celebration;
     const workerScreens: THREE.MeshStandardMaterial[] = [];
@@ -1325,6 +1337,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       proceduralShell,
       proceduralDecor,
       assetVisual,
+      assetWindowMaterials: [],
       windowBase: 0,
       windowFlicker: 0,
       glowPhase: (pugSeed(floor.key) % 628) / 100
@@ -1354,6 +1367,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const tint = status === "error" ? 0xff9a86 : 0xffd79a;
     node.windowMaterial.emissive.setHex(tint);
     node.windowMaterial.emissiveIntensity = node.windowBase;
+    for (const surface of node.assetWindowMaterials) {
+      surface.emissive.setHex(tint);
+      surface.emissiveIntensity = node.windowBase;
+    }
     for (const surface of node.roomMaterials) {
       surface.emissive.setHex(tint);
       surface.emissiveIntensity = node.windowBase * (night ? 0.22 : 0.05);
@@ -1689,8 +1706,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     if (!reducedMotion) {
       for (const node of floorNodes.values()) {
         if (node.windowFlicker > 0) {
-          node.windowMaterial.emissiveIntensity =
-            node.windowBase + Math.sin(time * 0.0026 + node.glowPhase) * node.windowFlicker;
+          const windowGlow = node.windowBase + Math.sin(time * 0.0026 + node.glowPhase) * node.windowFlicker;
+          node.windowMaterial.emissiveIntensity = windowGlow;
+          for (const surface of node.assetWindowMaterials) surface.emissiveIntensity = windowGlow;
         }
         if (node.status === "working") {
           const roomPulse = 0.42 + (Math.sin(time * 0.004 + node.glowPhase) + 1) * 0.11;
@@ -1731,6 +1749,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     } else {
       for (const node of floorNodes.values()) {
         node.windowMaterial.emissiveIntensity = node.windowBase;
+        for (const surface of node.assetWindowMaterials) surface.emissiveIntensity = node.windowBase;
         const perimeter = node.perimeter;
         if (!perimeter || !perimeter.group.visible) continue;
         perimeter.material.opacity = 0.62;
