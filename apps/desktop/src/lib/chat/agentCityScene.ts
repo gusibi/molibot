@@ -491,6 +491,18 @@ function applyRigTravel(rig: PugRig, pose: PugPose, extraYaw = 0): void {
   rig.root.rotation.y = rig.homeYaw + pose.travelYaw + extraYaw;
 }
 
+function applyPugProp(rig: PugRig, pose: PugPose, detailed: boolean): void {
+  const prop: PugProp = detailed ? pose.prop : "none";
+  if (prop !== rig.currentProp) {
+    for (const [name, object] of Object.entries(rig.propObjects)) object.visible = name === prop;
+    rig.currentProp = prop;
+  }
+  if (prop === "book") rig.bookPage.rotation.z = -pose.propSpin;
+  if (prop === "phone" || prop === "mug" || prop === "scanner" || prop === "clipboard") rig.propAnchor.rotation.z = pose.propSpin;
+  if (prop === "pen") rig.propAnchor.rotation.z = pose.propSpin * 0.4;
+  for (const surface of rig.screenMaterials) surface.emissiveIntensity = 0.35 + pose.screenGlow * 0.9;
+}
+
 function applyPugPose(rig: PugRig, pose: PugPose, baseYaw: number, detailed: boolean): void {
   applyRigTravel(rig, pose);
   rig.pose.position.y = pose.bodyOffsetY;
@@ -504,16 +516,7 @@ function applyPugPose(rig: PugRig, pose: PugPose, baseYaw: number, detailed: boo
   rig.tailPivot.rotation.y = pose.tailWag;
   rig.earLeft.rotation.x = EAR_REST_PITCH + pose.earFlop;
   rig.earRight.rotation.x = EAR_REST_PITCH + pose.earFlop;
-
-  const prop: PugProp = detailed ? pose.prop : "none";
-  if (prop !== rig.currentProp) {
-    for (const [name, object] of Object.entries(rig.propObjects)) object.visible = name === prop;
-    rig.currentProp = prop;
-  }
-  if (prop === "book") rig.bookPage.rotation.z = -pose.propSpin;
-  if (prop === "phone" || prop === "mug" || prop === "scanner" || prop === "clipboard") rig.propAnchor.rotation.z = pose.propSpin;
-  if (prop === "pen") rig.propAnchor.rotation.z = pose.propSpin * 0.4;
-  for (const surface of rig.screenMaterials) surface.emissiveIntensity = 0.35 + pose.screenGlow * 0.9;
+  applyPugProp(rig, pose, detailed);
 }
 
 function setPugStatus(rig: PugRig, status: AgentCityStatus): void {
@@ -921,6 +924,11 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const instance = createMomoAssetInstance(momoTemplate);
     instance.root.scale.setScalar(0.96);
     rig.root.add(instance.root);
+    // Keep the lightweight Three.js prop layer so Phone/Reading/Coffee remain
+    // readable even though the procedural body is replaced by the GLTF hero.
+    rig.pose.remove(rig.propAnchor);
+    rig.root.add(rig.propAnchor);
+    rig.propAnchor.position.set(0, 0.63, 0.45);
     rig.pose.visible = false;
     rig.asset = instance;
     playMomoAnimation(instance, "Idle", 0);
@@ -1555,6 +1563,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
         if (rig.asset) {
           applyRigTravel(rig, motion.pose, yaw);
+          applyPugProp(rig, motion.pose, showProps);
           playMomoAnimation(rig.asset, momoAnimationName(motion.clip), reducedMotion ? 0 : 0.16);
           if (rig.asset.currentAction) rig.asset.currentAction.paused = reducedMotion;
           if (reducedMotion && rig.asset.currentAction) rig.asset.currentAction.time = 0.28;
