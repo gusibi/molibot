@@ -159,7 +159,7 @@
     background: var(--card-bg);
     box-shadow: var(--popover-shadow);
     transform-origin: bottom left;
-    animation: mention-pop 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: mention-pop var(--duration-fast) var(--ease-spring);
   }
   @keyframes mention-pop {
     from {
