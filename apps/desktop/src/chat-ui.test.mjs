@@ -2081,6 +2081,10 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /createPug\(true, subagent\.name\)/);
   assert.match(agentCityScene, /node\.celebration\.rotation\.y/);
   assert.match(agentCityScene, /clipsForStatus\(rig\.status, rig\.role\)/);
+  assert.match(agentCityScene, /loadMomoAssetTemplate\(\)/);
+  assert.match(agentCityScene, /createMomoAssetInstance\(momoTemplate\)/);
+  assert.match(agentCityScene, /rig\.pose\.visible = false/);
+  assert.match(agentCityScene, /playMomoAnimation\(rig\.asset, momoAnimationName\(motion\.clip\)/);
   assert.match(agentCityScene, /new THREE\.LineDashedMaterial/);
   assert.match(agentCityScene, /marqueeLine\.computeLineDistances\(\)/);
   assert.match(agentCityScene, /function moveMarquee/);
