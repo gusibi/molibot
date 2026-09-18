@@ -1,4 +1,9 @@
 ### 调整：Agent City 升级为以 Momo 为中心的社区 + 可无限派生 Worker 团队（2026-09-18，待验收）
+- 第二轮视觉实现：普通 Studio 与 Momo HQ 增加地毯、书架/书籍、休息垫、植物、落地灯、状态任务板等室内层次；有 Sub-agent 时休息区自动让位给 Worker Camp，临时工位由「小方块」升级成带桌面、键盘与角色色屏幕的独立 pod。
+- 动作系统扩展：新增 coffee、thinking、scan、reviewing、pace；空闲 Agent 会在房间内短距离巡视，工作动作轮换由 9s 缩短到 6.5s，Momo HQ 在社区总览也保留手持道具，不再因为远景 LOD 看不到动作。
+- Worker 角色视觉：scan/search/research 类使用青色 visor + scanner，planner/design 类使用紫色标识并偏 thinking/writing，review/test/audit 类使用橙色标识 + clipboard；未知自定义 role 继续稳定回退到通用 Worker，不要求写死角色列表。
+- 环境状态变成房间级反馈：Working 时任务板/Worker 屏幕/主工作屏呼吸发光；Completed 出现环绕庆祝粒子；Error 房间活动面板与 Worker 屏幕告警闪动；新派生 Worker 有短暂 scale-in 入场动画。
+
 
 - Default Agent 不再躲在城市最后方：保持内部 `id=default` 与现有 Activity/API 契约不变，但视觉上改为社区中央的 **Momo HQ**，扩大总部空间与 Momo 主角比例；任务调度中心独立成前方 Community Hub，普通 Agent 工作室分布在两侧/后方社区。
 - Sub-agent 从「最多显示 3 个临时工位」改为真正的运行实例集合：Projection 保留全部 `DesktopSubagentActivityItem`，按角色聚合成 `scan ×10` / `reviewer ×2` 等 Worker Team，并统计 working/completed/error；同名 worker 依靠 runtime `id` 保持实例级身份。
