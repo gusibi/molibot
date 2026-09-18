@@ -1441,6 +1441,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     for (const rig of node.pugs) {
       if (rig.asset) {
         stopMomoAssetInstance(rig.asset);
+        rig.root.remove(rig.asset.root);
         rig.asset = null;
       }
     }
