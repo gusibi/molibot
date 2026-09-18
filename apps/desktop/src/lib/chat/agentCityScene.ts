@@ -566,6 +566,147 @@ function createWindowPanes(
   return { group, material };
 }
 
+
+function createWorkerStation(accent: number, role: string): { group: THREE.Group; screen: THREE.MeshStandardMaterial } {
+  const group = new THREE.Group();
+  const roleAccent = roleColor(role);
+  addBox(group, [0.5, 0.055, 0.34], 0x756b62, [0, 0.27, 0]);
+  addBox(group, [0.045, 0.26, 0.045], 0x57514b, [-0.19, 0.13, 0]);
+  addBox(group, [0.045, 0.26, 0.045], 0x57514b, [0.19, 0.13, 0]);
+  const screen = new THREE.MeshStandardMaterial({
+    color: 0x33424c,
+    emissive: roleAccent || accent,
+    emissiveIntensity: 0.55,
+    roughness: 0.32
+  });
+  group.add(mesh(new THREE.BoxGeometry(0.3, 0.22, 0.035), screen, 0, 0.48, -0.04));
+  addBox(group, [0.22, 0.018, 0.09], 0x3e474e, [0, 0.32, 0.11]);
+  return { group, screen };
+}
+
+function createRoomDecor(
+  group: THREE.Group,
+  isGlobal: boolean,
+  dark: boolean,
+  accent: number,
+  variant: number
+): { activityMaterials: THREE.MeshStandardMaterial[]; celebration: THREE.Group } {
+  const activityMaterials: THREE.MeshStandardMaterial[] = [];
+  const wood = dark ? 0x6f5d4f : 0x9a8068;
+  const soft = dark ? 0x48545d : 0xc7d1d6;
+  const fabric = dark ? 0x384957 : 0xaec1ce;
+  const rug = dark ? 0x293942 : 0xd7e0dc;
+
+  // A soft floor plane makes the rooms feel inhabited instead of like empty boxes.
+  addBox(
+    group,
+    isGlobal ? [4.9, 0.035, 3.25] : [2.45, 0.03, 1.48],
+    rug,
+    isGlobal ? [-0.2, 0.18, 0.28] : [-0.2, 0.105, 0.28]
+  );
+
+  // Bookshelf + books.
+  const shelfX = isGlobal ? -2.85 : -1.48;
+  const shelfZ = isGlobal ? -1.88 : -0.92;
+  const shelfHeight = isGlobal ? 1.72 : 1.16;
+  addBox(group, [0.64, shelfHeight, 0.16], wood, [shelfX, shelfHeight / 2 + 0.15, shelfZ]);
+  for (let level = 0; level < (isGlobal ? 4 : 3); level += 1) {
+    addBox(group, [0.7, 0.045, 0.24], dark ? 0x806b58 : 0x9b8069, [shelfX, 0.34 + level * 0.39, shelfZ + 0.02]);
+    for (let book = 0; book < 4; book += 1) {
+      const colors = [0xd06c8d, 0x4f8bd8, 0xe7a34b, 0x72a85f];
+      addBox(group, [0.08, 0.22 + ((book + variant) % 2) * 0.05, 0.08], colors[(book + variant) % colors.length], [
+        shelfX - 0.22 + book * 0.14,
+        0.48 + level * 0.39,
+        shelfZ + 0.13
+      ]);
+    }
+  }
+
+  // Lounge corner. The main pug's idle position sits on/near this cushion.
+  const loungeX = isGlobal ? -2.05 : -0.78;
+  const loungeZ = isGlobal ? 0.9 : 0.46;
+  const cushion = mesh(new THREE.CylinderGeometry(isGlobal ? 0.64 : 0.46, isGlobal ? 0.68 : 0.49, 0.16, 22), material(fabric, 0.92), loungeX, 0.23, loungeZ);
+  group.add(cushion);
+  addBox(group, isGlobal ? [1.42, 0.12, 0.72] : [0.96, 0.1, 0.54], soft, [
+    loungeX,
+    isGlobal ? 0.19 : 0.16,
+    loungeZ + (isGlobal ? 0.18 : 0.14)
+  ]);
+
+  // Plant in the far corner.
+  const plantX = isGlobal ? 2.95 : -1.48;
+  const plantZ = isGlobal ? 1.78 : 0.82;
+  group.add(mesh(new THREE.CylinderGeometry(0.18, 0.23, 0.34, 12), material(dark ? 0x735945 : 0xb88563), plantX, 0.33, plantZ));
+  for (const [dx, dz, scale] of [[-0.1, 0, 1], [0.1, 0.03, 0.9], [0, -0.09, 1.08]] as const) {
+    const leaf = mesh(new THREE.SphereGeometry(0.18, 10, 7), material(dark ? 0x4d7a5b : 0x70a87d), plantX + dx, 0.68, plantZ + dz);
+    leaf.scale.set(0.7, scale, 0.5);
+    group.add(leaf);
+  }
+
+  // Task board: this is the room's strongest state surface and changes with the Agent.
+  const boardMaterial = new THREE.MeshStandardMaterial({
+    color: dark ? 0x24323d : 0xe6eef2,
+    emissive: accent,
+    emissiveIntensity: 0.08,
+    roughness: 0.36,
+    metalness: 0.04
+  });
+  const board = mesh(
+    new THREE.BoxGeometry(isGlobal ? 2.15 : 1.05, isGlobal ? 0.72 : 0.48, 0.055),
+    boardMaterial,
+    isGlobal ? 0.25 : -0.25,
+    isGlobal ? 0.9 : 0.64,
+    isGlobal ? -2.14 : -1.0
+  );
+  group.add(board);
+  activityMaterials.push(boardMaterial);
+  const cellCount = isGlobal ? 5 : 3;
+  for (let index = 0; index < cellCount; index += 1) {
+    const cellMaterial = new THREE.MeshStandardMaterial({
+      color: accent,
+      emissive: accent,
+      emissiveIntensity: 0.08,
+      roughness: 0.4
+    });
+    const spacing = isGlobal ? 0.37 : 0.26;
+    group.add(mesh(
+      new THREE.BoxGeometry(isGlobal ? 0.24 : 0.16, 0.08, 0.025),
+      cellMaterial,
+      (isGlobal ? 0.25 : -0.25) + (index - (cellCount - 1) / 2) * spacing,
+      isGlobal ? 0.9 : 0.64,
+      isGlobal ? -2.105 : -0.968
+    ));
+    activityMaterials.push(cellMaterial);
+  }
+
+  // Standing lamp; the glow remains subtle so it reads as interior light, not a beacon.
+  const lampX = isGlobal ? 2.65 : -1.35;
+  const lampZ = isGlobal ? 1.58 : 0.66;
+  addBox(group, [0.055, isGlobal ? 1.08 : 0.72, 0.055], dark ? 0x58656d : 0x71808a, [lampX, isGlobal ? 0.72 : 0.5, lampZ]);
+  const lampMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffe7b0,
+    emissive: 0xffc96b,
+    emissiveIntensity: dark ? 0.42 : 0.12,
+    roughness: 0.55
+  });
+  group.add(mesh(new THREE.ConeGeometry(isGlobal ? 0.28 : 0.2, isGlobal ? 0.34 : 0.25, 16, 1, true), lampMaterial, lampX, isGlobal ? 1.32 : 0.9, lampZ));
+  activityMaterials.push(lampMaterial);
+
+  // Celebration satellites: hidden unless a task just completed / remains completed.
+  const celebration = new THREE.Group();
+  const confettiColors = [0xffc543, 0x48aeff, 0x82eb8d, 0xc979ff, 0xff7d9d, 0xffffff];
+  for (let index = 0; index < confettiColors.length; index += 1) {
+    const bit = mesh(new THREE.SphereGeometry(isGlobal ? 0.075 : 0.05, 8, 6), material(confettiColors[index], 0.45));
+    const angle = (index / confettiColors.length) * Math.PI * 2;
+    bit.position.set(Math.cos(angle) * (isGlobal ? 1.2 : 0.72), 0.9 + (index % 2) * 0.3, Math.sin(angle) * (isGlobal ? 0.78 : 0.46));
+    celebration.add(bit);
+  }
+  celebration.visible = false;
+  group.add(celebration);
+
+  return { activityMaterials, celebration };
+}
+
 function createWorkingFloorPerimeter(
   size: [number, number, number],
   height: number,
