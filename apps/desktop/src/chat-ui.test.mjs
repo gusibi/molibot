@@ -474,7 +474,7 @@ test("appearance and theme family remain independent persisted controls", () => 
 });
 
 test("theme visual recipes decouple component grammar from family palettes", () => {
-  assert.doesNotMatch(themesIndex, /\\\\n/, "theme imports must contain real newlines, not escaped \\n text");
+  assert.doesNotMatch(themesIndex, /\\n/, "theme imports must contain real newlines, not escaped \\n text");
   assert.match(themesIndex, /@import "\.\/recipes\/index\.css";/);
   for (const recipe of THEME_RECIPES) {
     assert.match(recipesIndex, new RegExp(`@import "./${recipe}\\.css";`), `${recipe}.css is missing from recipes/index.css`);
