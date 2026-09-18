@@ -19,3 +19,11 @@ test("bundled community kit contains the Phase 4 architecture and decor componen
   }
   assert.equal(source.materials.some((material: { name?: string }) => material.name === "GlassTint"), true);
 });
+
+
+test("production Agent Community GLB is bundled and structurally valid", () => {
+  const bytes = readFileSync(new URL("../../../public/agent-community/community-kit.glb", import.meta.url));
+  assert.equal(bytes.toString("ascii", 0, 4), "glTF");
+  assert.equal(bytes.readUInt32LE(4), 2);
+  assert.ok(bytes.length > 5_000);
+});
