@@ -7233,6 +7233,14 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   to { opacity: 1; translate: 0 0; }
 }
 
+.motion-success {
+  animation: motion-success-pulse var(--duration-fast) var(--ease-spring) both;
+}
+@keyframes motion-success-pulse {
+  0% { opacity: .82; scale: .94; }
+  100% { opacity: 1; scale: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ios-switch-track,
   .ios-switch-track::before,
@@ -7258,7 +7266,8 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .installed-skills-grid,
   .automation-workspace-layout,
   .status-badge,
-  .status-symbol {
+  .status-symbol,
+  .motion-success {
     animation: none !important;
     transition: none !important;
     translate: 0 0 !important;
@@ -7294,7 +7303,8 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 :root[data-performance="low"] .ios-switch-track,
 :root[data-performance="low"] .ios-switch-track::before,
 :root[data-performance="low"] .status-badge,
-:root[data-performance="low"] .status-symbol {
+:root[data-performance="low"] .status-symbol,
+:root[data-performance="low"] .motion-success {
   transition: none !important;
   scale: 1 !important;
 }
