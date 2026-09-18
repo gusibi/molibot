@@ -8,6 +8,7 @@
   export let copy: Translation;
   export let statusLabel: (status: AgentCityStatus) => string;
   export let onOpenAgentSettings: () => void;
+  export let onSelect: (key: string) => void = () => {};
 
   function floorTitle(floor: AgentCityFloor): string {
     return `${floor.agent.name} · ${statusLabel(floor.state)}`;
@@ -42,7 +43,7 @@
     <i aria-hidden="true"><TerminalSquare size={17} /></i>
     <div><strong>{copy.agentStudioOwner}</strong><span>{projection.owner.active ? copy.agentStudioCollaborating : copy.agentStudioOwnerIdle}</span></div>
   </div>
-  <button class="agent-city-fallback-landmark agent-city-fallback-global" data-status={projection.globalFloor.state} type="button" aria-label={floorTitle(projection.globalFloor)} aria-describedby="agent-city-fallback-global-details">
+  <button class="agent-city-fallback-landmark agent-city-fallback-global" data-status={projection.globalFloor.state} type="button" aria-label={floorTitle(projection.globalFloor)} aria-describedby="agent-city-fallback-global-details" onclick={() => onSelect(projection.globalFloor.key)}>
     <i aria-hidden="true"><Buildings size={17} /></i>
     <div><strong>{projection.globalFloor.agent.name}</strong><span>{statusLabel(projection.globalFloor.state)}</span></div>
     <span class="agent-city-fallback-details" id="agent-city-fallback-global-details" role="tooltip">
@@ -64,7 +65,7 @@
         <header><span>{String(building.index + 1).padStart(2, "0")}</span><small>{building.floors.length} {copy.agentCityFloors}</small></header>
         <div class="agent-city-fallback-floors">
           {#each [...building.floors].reverse() as floor (floor.key)}
-            <button class="agent-city-fallback-floor" data-status={floor.state} title={floorTitle(floor)} type="button" aria-describedby={`agent-city-fallback-details-${building.index}-${floor.floorIndex}`}>
+            <button class="agent-city-fallback-floor" data-status={floor.state} title={floorTitle(floor)} type="button" aria-describedby={`agent-city-fallback-details-${building.index}-${floor.floorIndex}`} onclick={() => onSelect(floor.key)}>
               <span class="agent-city-fallback-pug" aria-hidden="true"><i></i><b></b></span>
               <span><strong>{floor.agent.name}</strong><small>{statusLabel(floor.state)}</small></span>
               {#if floor.subagents.instances.length}
