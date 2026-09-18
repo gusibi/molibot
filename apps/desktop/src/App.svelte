@@ -96,6 +96,35 @@
   type CloseBehavior = "background" | "quit";
   type NotificationPreference = "off" | "enabled";
   type HapticPreference = "off" | "system";
+  type ThemeRecipe = "native" | "material" | "messenger" | "retro" | "editorial" | "technical" | "product" | "expressive";
+
+  const THEME_RECIPE_BY_FAMILY: Record<DesktopThemeFamily, ThemeRecipe> = {
+    "macos": "native",
+    "rose-pine": "native",
+    "catppuccin": "native",
+    "midnight": "native",
+    "ios": "native",
+    "android": "material",
+    "google": "material",
+    "qq": "messenger",
+    "wechat": "messenger",
+    "telegram": "messenger",
+    "whatsapp": "messenger",
+    "facebook": "messenger",
+    "discord": "messenger",
+    "feishu": "messenger",
+    "win98": "retro",
+    "system6": "retro",
+    "terminal": "retro",
+    "raft": "editorial",
+    "brutalism": "editorial",
+    "blueprint": "technical",
+    "cyberpunk": "technical",
+    "office": "product",
+    "wps": "product",
+    "candy": "expressive",
+    "cartoon": "expressive"
+  };
 
   type DesktopStatus = {
     service: {
@@ -234,12 +263,14 @@
       // A single-variant import owns its own light/dark state, so brightness
       // resolves to the theme's declared variant instead of the user control.
       root.dataset.themeFamily = `imported-${imported.id}`;
+      delete root.dataset.themeRecipe;
       root.dataset.resolvedAppearance = imported.variant;
       applyImportedThemeStyle(document, imported);
       return;
     }
     clearImportedThemeStyle(document);
     root.dataset.themeFamily = family;
+    root.dataset.themeRecipe = THEME_RECIPE_BY_FAMILY[family];
     root.dataset.resolvedAppearance = resolvedAppearance(value);
   }
 
