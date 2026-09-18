@@ -159,6 +159,7 @@ interface FloorNode {
   windowMaterial: THREE.MeshStandardMaterial;
   roomMaterials: THREE.MeshStandardMaterial[];
   activityMaterials: THREE.MeshStandardMaterial[];
+  workerScreens: THREE.MeshStandardMaterial[];
   celebration: THREE.Group | null;
   windowBase: number;
   windowFlicker: number;
@@ -589,7 +590,8 @@ function createRoomDecor(
   isGlobal: boolean,
   dark: boolean,
   accent: number,
-  variant: number
+  variant: number,
+  hasWorkers: boolean
 ): { activityMaterials: THREE.MeshStandardMaterial[]; celebration: THREE.Group } {
   const activityMaterials: THREE.MeshStandardMaterial[] = [];
   const wood = dark ? 0x6f5d4f : 0x9a8068;
@@ -622,16 +624,19 @@ function createRoomDecor(
     }
   }
 
-  // Lounge corner. The main pug's idle position sits on/near this cushion.
-  const loungeX = isGlobal ? -2.05 : -0.78;
-  const loungeZ = isGlobal ? 0.9 : 0.46;
-  const cushion = mesh(new THREE.CylinderGeometry(isGlobal ? 0.64 : 0.46, isGlobal ? 0.68 : 0.49, 0.16, 22), material(fabric, 0.92), loungeX, 0.23, loungeZ);
-  group.add(cushion);
-  addBox(group, isGlobal ? [1.42, 0.12, 0.72] : [0.96, 0.1, 0.54], soft, [
-    loungeX,
-    isGlobal ? 0.19 : 0.16,
-    loungeZ + (isGlobal ? 0.18 : 0.14)
-  ]);
+  // Lounge corner. It retracts while a temporary worker camp is deployed so
+  // the team gets a visually distinct collaboration zone instead of clipping furniture.
+  if (!hasWorkers) {
+    const loungeX = isGlobal ? -2.05 : -0.78;
+    const loungeZ = isGlobal ? 0.9 : 0.46;
+    const cushion = mesh(new THREE.CylinderGeometry(isGlobal ? 0.64 : 0.46, isGlobal ? 0.68 : 0.49, 0.16, 22), material(fabric, 0.92), loungeX, 0.23, loungeZ);
+    group.add(cushion);
+    addBox(group, isGlobal ? [1.42, 0.12, 0.72] : [0.96, 0.1, 0.54], soft, [
+      loungeX,
+      isGlobal ? 0.19 : 0.16,
+      loungeZ + (isGlobal ? 0.18 : 0.14)
+    ]);
+  }
 
   // Plant in the far corner.
   const plantX = isGlobal ? 2.95 : -1.48;
@@ -1067,6 +1072,30 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     }
     group.add(windows.group);
 
+    const renderedWorkers = floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT);
+    const decor = createRoomDecor(group, isGlobal, dark, accent, variant, renderedWorkers.length > 0);
+    const activityMaterials = decor.activityMaterials;
+    const celebration = decor.celebration;
+    const workerScreens: THREE.MeshStandardMaterial[] = [];
+
+    if (renderedWorkers.length > 0) {
+      const campSurface = new THREE.MeshStandardMaterial({
+        color: dark ? 0x26343d : 0xdbe5e8,
+        emissive: accent,
+        emissiveIntensity: 0.08,
+        roughness: 0.68
+      });
+      const camp = mesh(
+        new THREE.BoxGeometry(isGlobal ? 4.35 : 2.05, 0.055, isGlobal ? 2.55 : 1.62),
+        campSurface,
+        isGlobal ? -0.85 : -0.82,
+        0.205,
+        isGlobal ? 0.35 : 0.06
+      );
+      group.add(camp);
+      activityMaterials.push(campSurface);
+    }
+
     // Desk against the right wall, seat side facing -x: the working pug ends up
     // in profile to the camera, so the paws on the keyboard stay visible.
     const workstation = createWorkstation(accent);
@@ -1083,9 +1112,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     perimeter.group.visible = false;
     group.add(perimeter.group);
 
-    const mainPug = createPug();
+    const mainPug = createPug(false, null);
     mainPug.seed = pugSeed(floor.agent.id);
-    if (isGlobal) mainPug.root.scale.setScalar(1.08);
+    if (isGlobal) setRigScale(mainPug, 1.08);
     group.add(mainPug.root);
     const pugs = [mainPug];
 
@@ -1094,26 +1123,31 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       : new THREE.Vector3(0.74, 0.1, 0.05);
     const loungePosition = isGlobal ? new THREE.Vector3(-2.05, 0.14, 0.9) : new THREE.Vector3(-0.78, 0.1, 0.46);
 
-    const renderedWorkers = floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT);
     const workerColumns = isGlobal ? 5 : 3;
-    const workerSpacingX = isGlobal ? 0.7 : 0.62;
-    const workerSpacingZ = isGlobal ? 0.68 : 0.56;
-    const workerCenterX = isGlobal ? -0.9 : -0.8;
-    const workerCenterZ = isGlobal ? -0.25 : -0.42;
+    const workerSpacingX = isGlobal ? 0.7 : 0.5;
+    const workerSpacingZ = isGlobal ? 0.62 : 0.43;
+    const workerCenterX = isGlobal ? -0.9 : -0.82;
+    const workerCenterZ = isGlobal ? -0.28 : -0.58;
     renderedWorkers.forEach((subagent, index) => {
       const row = Math.floor(index / workerColumns);
       const column = index % workerColumns;
       const rowCount = Math.min(workerColumns, renderedWorkers.length - row * workerColumns);
       const x = workerCenterX + (column - (rowCount - 1) / 2) * workerSpacingX;
       const z = workerCenterZ + row * workerSpacingZ;
-      const assistant = createPug(true);
+      const assistant = createPug(true, subagent.name);
       assistant.seed = pugSeed(`${floor.agent.id}:${subagent.id}`);
-      assistant.root.scale.setScalar(isGlobal ? 0.47 : 0.43);
-      assistant.root.position.set(x, 0.1, z);
-      assistant.root.rotation.y = 0.12;
+      setRigScale(assistant, isGlobal ? 0.47 : 0.39);
+      const startedAt = Date.parse(subagent.startedAt);
+      assistant.spawnEpochMs = Number.isNaN(startedAt) ? null : startedAt;
+      assistant.root.position.set(x, 0.1, z + 0.08);
+      assistant.root.rotation.y = 0.08;
       group.add(assistant.root);
       pugs.push(assistant);
-      addBox(group, [0.52, 0.055, 0.38], 0x7c746c, [x, 0.29, z - 0.19]);
+
+      const station = createWorkerStation(accent, subagent.name);
+      station.group.position.set(x, 0, z - (isGlobal ? 0.27 : 0.21));
+      group.add(station.group);
+      workerScreens.push(station.screen);
     });
 
     let overflowStudio: THREE.Object3D | null = null;
@@ -1158,6 +1192,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       loungePosition,
       windowMaterial: windows.material,
       roomMaterials,
+      activityMaterials,
+      workerScreens,
+      celebration,
       windowBase: 0,
       windowFlicker: 0,
       glowPhase: (pugSeed(floor.key) % 628) / 100
