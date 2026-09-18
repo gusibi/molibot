@@ -11,6 +11,7 @@
   import type { DesktopModelRoute } from "../api";
   import { session } from "../stores/session.svelte";
   import { modelsStore, loadModels } from "../stores/models.svelte";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import {
     agentsStore,
     AGENT_FILE_NAMES,
@@ -54,7 +55,7 @@
   {#if !agentsStore.agentEdit && agentsStore.templates.length > 0}
     <SettingGroup title={session.text.agentTemplates} description={session.text.agentTemplatesHint}>
       {#each agentsStore.templates as template (template.id)}
-        <div class="settings-row">
+        <div class="settings-row" in:listIn out:listOut animate:listFlip>
           <div class="profile-info">
             <strong>{template.name}</strong>
             {#if template.description}<p>{template.description}</p>{/if}
@@ -109,7 +110,7 @@
       <EmptyState title={session.text.agentsEmpty} description={session.text.agentsHint} icon="robot" />
     {:else}
       {#each agentsStore.agents.items as agent (agent.id)}
-        <div class="settings-row">
+        <div class="settings-row" in:listIn out:listOut animate:listFlip>
           <div class="profile-info">
             <strong>{agent.name}</strong>
             {#if agent.description}<p>{agent.description}</p>{/if}

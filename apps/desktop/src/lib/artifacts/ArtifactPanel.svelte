@@ -112,7 +112,9 @@
     locale,
     theme,
     copy,
-    onClose
+    onClose,
+    motionClosing = false,
+    onMotionEnd = () => {}
   }: {
     endpoint: string;
     projectId: string;
@@ -150,6 +152,8 @@
     theme: "light" | "dark";
     copy: Translation;
     onClose: () => void;
+    motionClosing?: boolean;
+    onMotionEnd?: (event: AnimationEvent) => void;
   } = $props();
 
   const store = new ArtifactTabsStore();
@@ -878,6 +882,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <aside
   class="file-panel project-file-panel artifact-panel"
+  class:motion-closing={motionClosing}
   data-theme-region="file-panel"
   class:miniapp-active={miniAppActive}
   class:splitting
@@ -885,6 +890,7 @@
   bind:this={panelElement}
   style={`--file-split:${splitPercent}%`}
   onkeydown={onPanelKeydown}
+  onanimationend={onMotionEnd}
 >
   <!--
     One head for both surfaces. The Files/Mini Apps switch lives here rather
@@ -1393,7 +1399,7 @@
                   <button type="button" class="code-viewer-toggle" aria-label={copy.projectMentionInChat} title={copy.projectMentionInChat} onclick={() => mentionInChat(activeTab.path)}>
                     <At size={16} aria-hidden="true" />
                   </button>
-                  <button type="button" class="code-viewer-toggle" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
+                  <button type="button" class="code-viewer-toggle" class:motion-success={copiedPath === activeTab.path} aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
                     {#if copiedPath === activeTab.path}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
                   </button>
                   <button type="button" class="code-viewer-toggle" aria-label={copy.artifactDownload} title={copy.artifactDownload} onclick={() => void downloadProjectFile(activeTab.path)}>
@@ -1410,7 +1416,7 @@
                        an ordinary Session has no Project root for the Runtime to
                        validate a file reference against (PRD §3.35). -->
                   {#if activeTab.path}
-                    <button type="button" class="code-viewer-toggle" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
+                    <button type="button" class="code-viewer-toggle" class:motion-success={copiedPath === activeTab.path} aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(activeTab.path)}>
                       {#if copiedPath === activeTab.path}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
                     </button>
                   {/if}

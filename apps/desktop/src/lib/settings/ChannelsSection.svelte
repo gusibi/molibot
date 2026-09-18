@@ -8,6 +8,7 @@
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { agentsStore, loadAgents } from "../stores/agents.svelte";
   import { PROFILE_FILE_NAMES } from "./profileFiles";
   import {
@@ -69,7 +70,7 @@
         <EmptyState title={session.text.channelsEmpty} icon="chat-circle-dots" />
       {:else}
         {#each group.instances as inst (inst.id)}
-          <div class="settings-row">
+          <div class="settings-row" in:listIn out:listOut animate:listFlip>
             <div class="profile-info">
               <strong>{inst.name}</strong>
               <p>{inst.agentId ? `${session.text.channelLinkedAgent}: ${inst.agentId}` : session.text.noLinkedAgent} · {session.text.channelAllowedChats}: {inst.allowedChatCount} · {session.text.channelPermissionMode}: {inst.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[inst.permissionMode]}</p>

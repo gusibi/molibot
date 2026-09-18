@@ -13,6 +13,7 @@
   import Dialog from "../components/ui/Dialog.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { skillsStore, loadSkills, toggleSkill, updateBuiltinSkill } from "../stores/skills.svelte";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import type { DesktopSkillItem } from "@molibot/desktop-contract";
 
   let { copy, serviceEndpoint, serviceReady }: {
@@ -194,6 +195,9 @@
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
         <article
           class="installed-skill-card"
+          in:listIn={{ disabled: Boolean(normalizedQuery) }}
+          out:listOut={{ disabled: Boolean(normalizedQuery) }}
+          animate:listFlip={{ disabled: Boolean(normalizedQuery) }}
           class:disabled={!skill.enabled}
           class:selected={selectedSkillId === skill.id}
           tabindex="0"

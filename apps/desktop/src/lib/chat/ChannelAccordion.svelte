@@ -5,6 +5,7 @@
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
   import { sessionRuntimeKey } from "./sessionStatusDot.js";
+  import { listFlip, listIn, listOut } from "../motion/listMotion";
 
   export interface ChannelDescriptor {
     id: "web" | "telegram" | "feishu" | "qq" | "weixin";
@@ -125,7 +126,7 @@
       {:else}
         <ul class="channel-items">
           {#each items as item (item.sessionId)}
-            <li>
+            <li in:listIn out:listOut animate:listFlip>
               <ConversationRow
                 {item}
                 active={item.sessionId === activeSessionId}

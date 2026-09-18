@@ -109,6 +109,7 @@
             <button
               type="button"
               class="file-tree-action"
+              class:motion-success={copiedPath === entry.path}
               aria-label={copy.projectCopyPath}
               title={copy.projectCopyPath}
               onclick={() => onCopyPath(entry.path)}
