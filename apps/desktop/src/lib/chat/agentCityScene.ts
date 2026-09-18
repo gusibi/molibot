@@ -104,6 +104,7 @@ export interface AgentCitySceneController {
   /** Auto-frames whichever agent is working; re-frames only when that changes. */
   setFollowWorking(enabled: boolean): void;
   clearFocus(): void;
+  setSelectedFloor(key: string | null): void;
   zoom(direction: "in" | "out"): void;
   resetView(): void;
   dispose(): void;
@@ -188,6 +189,8 @@ interface FloorNode {
   proceduralDecor: THREE.Group;
   assetVisual: THREE.Group;
   assetWindowMaterials: THREE.MeshStandardMaterial[];
+  selection: THREE.LineSegments;
+  selectionMaterial: THREE.LineBasicMaterial;
   windowBase: number;
   windowFlicker: number;
   glowPhase: number;
@@ -918,6 +921,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   let frameSamples: number[] = [];
   let userAdjusted = false;
   let focusedKey: string | null = null;
+  let selectedKey: string | null = null;
   let followWorking = false;
   let followKey: string | null = null;
   let lastSceneFloors = -1;
@@ -1391,6 +1395,20 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     group.add(beacon);
 
     const { target, anchor } = attachFloorTarget(group, targetSize, anchorY, floor.key);
+    const selectionMaterial = new THREE.LineBasicMaterial({
+      color: accent,
+      transparent: true,
+      opacity: 0.82,
+      depthTest: false
+    });
+    const selection = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(targetSize[0] + 0.18, 0.08, targetSize[2] + 0.18)),
+      selectionMaterial
+    );
+    selection.position.y = 0.12;
+    selection.visible = selectedKey === floor.key;
+    selection.renderOrder = 5;
+    group.add(selection);
     group.position.set(floor.position.x, isGlobal ? 0 : floor.floorIndex * FLOOR_HEIGHT, floor.position.z);
     cityRoot.add(group);
 
@@ -1421,6 +1439,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       proceduralDecor,
       assetVisual,
       assetWindowMaterials: [],
+      selection,
+      selectionMaterial,
       windowBase: 0,
       windowFlicker: 0,
       glowPhase: (pugSeed(floor.key) % 628) / 100
@@ -1578,6 +1598,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       disposeFloorNode(node);
       floorNodes.delete(key);
       if (focusedKey === key) focusedKey = null;
+      if (selectedKey === key) selectedKey = null;
     }
 
     bounds = agentCityBounds(projection.sceneFloors);
@@ -1819,6 +1840,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
           moveMarquee(perimeter, -((time * 0.006 + perimeter.phase) % perimeter.length));
           perimeter.emissive.emissiveIntensity = 0.72 + pulse * 0.28;
         }
+        if (node.selection.visible) {
+          node.selectionMaterial.opacity = 0.68 + (Math.sin(time * 0.006 + node.glowPhase) + 1) * 0.12;
+        }
         if (node.celebration?.visible) {
           node.celebration.rotation.y = time * 0.0014 + node.glowPhase;
           node.celebration.position.y = 0.08 + Math.sin(time * 0.004 + node.glowPhase) * 0.08;
@@ -1987,6 +2011,15 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       if (!focusedKey) return;
       focusedKey = null;
       publishView();
+    },
+    setSelectedFloor(key) {
+      if (selectedKey === key) return;
+      selectedKey = key;
+      for (const node of floorNodes.values()) {
+        node.selection.visible = node.key === selectedKey;
+        if (reducedMotion && node.selection.visible) node.selectionMaterial.opacity = 0.82;
+      }
+      renderer.render(scene, camera);
     },
     zoom(direction) {
       const current = camera.position.distanceTo(controls.target);
