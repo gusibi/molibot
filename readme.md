@@ -102,7 +102,7 @@ If the connection fails, test it in the provider settings and check account auth
 
 ### Run from source
 
-Requires Git, Node.js 22.19 or newer, and Corepack. These commands use the pnpm version specified by the repository:
+Requires Git, Node.js 22.19 or newer, and Corepack. These commands use the pnpm version specified by the repository (`pnpm@11.7.0`):
 
 ```bash
 git clone https://github.com/gusibi/molibot.git
