@@ -50,8 +50,13 @@
 
 :root[data-theme-recipe="messenger"] [data-theme-region="chat"] .messages {
   background-color: var(--content-bg);
-  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 7%, transparent) 1px, transparent 0);
-  background-size: 20px 20px;
+  background-image:
+    radial-gradient(circle at 2px 2px, color-mix(in srgb, var(--accent) 10%, transparent) 1.2px, transparent 1.3px),
+    radial-gradient(circle at 14px 14px, color-mix(in srgb, var(--accent) 5%, transparent) 1px, transparent 1.1px);
+  background-size: 28px 28px;
+}
+:root[data-theme-recipe="messenger"] [data-theme-region="chat"] .message-row {
+  margin-bottom: 16px;
 }
 :root[data-theme-recipe="messenger"] [data-theme-region="chat"] .assistant-layout {
   gap: 8px;
@@ -62,24 +67,57 @@
   box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 :root[data-theme-recipe="messenger"] [data-theme-region="chat"] .message-row.mine .message-bubble {
+  position: relative;
   max-width: var(--recipe-message-max);
+  padding: 10px 14px;
+  border-color: transparent;
   border-radius: 18px 6px 18px 18px;
-  box-shadow: none;
+  background: var(--bubble-mine-bg);
+  box-shadow: 0 2px 8px -7px color-mix(in srgb, var(--label-primary) 45%, transparent);
+}
+:root[data-theme-recipe="messenger"] [data-theme-region="chat"] .message-row.mine .message-bubble::after {
+  content: "";
+  position: absolute;
+  right: -5px;
+  bottom: 0;
+  width: 10px;
+  height: 12px;
+  background: inherit;
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
 }
 :root[data-theme-recipe="messenger"] [data-theme-region="chat"] .message-row.assistant .message-bubble {
+  position: relative;
   width: fit-content;
   max-width: var(--recipe-message-max);
+  padding: 10px 14px;
+  border-color: transparent;
   border-radius: 6px 18px 18px 18px;
-  box-shadow: none;
+  background: var(--bubble-assistant-bg);
+  box-shadow: 0 2px 8px -7px color-mix(in srgb, var(--label-primary) 45%, transparent);
+}
+:root[data-theme-recipe="messenger"] [data-theme-region="chat"] .message-row.assistant .message-bubble::after {
+  content: "";
+  position: absolute;
+  left: -5px;
+  bottom: 0;
+  width: 10px;
+  height: 12px;
+  background: inherit;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
 }
 :root[data-theme-recipe="messenger"] [data-theme-region="chat"] .assistant-identity {
   min-height: 20px;
   color: var(--label-secondary);
 }
 
+:root[data-theme-recipe="messenger"] [data-theme-region="composer"] {
+  padding-bottom: 10px;
+}
 :root[data-theme-recipe="messenger"] [data-theme-region="composer"] .composer {
-  border-color: transparent;
-  border-radius: 14px;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--separator));
+  border-radius: 12px;
   box-shadow: none;
 }
 :root[data-theme-recipe="messenger"] [data-theme-region="composer"] .composer::before {
@@ -92,8 +130,12 @@
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
+:root[data-theme-recipe="messenger"] [data-theme-region="composer"] .composer-bar {
+  gap: 4px;
+}
 :root[data-theme-recipe="messenger"] [data-theme-region="composer"] .composer-tool {
   border-radius: 8px;
+  background: var(--fill);
 }
 :root[data-theme-recipe="messenger"] [data-theme-region="composer"] .composer-tool:hover:not(:disabled) {
   background: var(--accent-soft);
@@ -103,6 +145,9 @@
   border-radius: 8px;
 }
 :root[data-theme-recipe="messenger"] [data-theme-region="composer"] .send-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   background: var(--accent);
   color: var(--on-accent);
   box-shadow: none;
