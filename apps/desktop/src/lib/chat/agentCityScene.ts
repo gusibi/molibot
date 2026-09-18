@@ -1112,6 +1112,38 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       addRoad(primary.x, primary.z, building.position.x, building.position.z);
     }
 
+    // A small shared plaza and restrained landscaping make the scene read as a
+    // community rather than isolated dollhouses. These remain runtime-owned so
+    // they can follow light/dark themes without baking another asset variant.
+    const plazaMaterial = material(theme === "dark" ? 0x2a373e : 0xd5dfdc, 0.86);
+    const plaza = mesh(new RoundedBoxGeometry(9.2, 0.06, 7.0, 5, 0.12), plazaMaterial, primary.x, -0.01, primary.z + 0.25);
+    plaza.receiveShadow = true;
+    staticRoot.add(plaza);
+
+    const leafMaterial = material(theme === "dark" ? 0x416b52 : 0x6f9f78, 0.92);
+    const trunkMaterial = material(theme === "dark" ? 0x645244 : 0x8b6a52, 0.9);
+    const lampMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffe7b0,
+      emissive: 0xffc96b,
+      emissiveIntensity: theme === "dark" ? 0.7 : 0.12,
+      roughness: 0.55
+    });
+    for (const [x, z] of [[-3.8, -0.5], [3.8, -0.5], [-3.6, 4.7], [3.6, 4.7]] as const) {
+      staticRoot.add(mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.75, 12), trunkMaterial, x, 0.34, z + primary.z));
+      const crown = mesh(new THREE.SphereGeometry(0.48, 14, 10), leafMaterial, x, 1.02, z + primary.z);
+      crown.scale.set(0.82, 1.12, 0.82);
+      staticRoot.add(crown);
+    }
+    for (const x of [-2.2, 2.2]) {
+      addBox(staticRoot, [0.9, 0.11, 0.34], theme === "dark" ? 0x665748 : 0x927761, [x, 0.25, primary.z + 3.0], 0.05);
+      addBox(staticRoot, [0.055, 0.34, 0.055], theme === "dark" ? 0x59666d : 0x75838b, [x - 0.31, 0.12, primary.z + 3.0], 0.02);
+      addBox(staticRoot, [0.055, 0.34, 0.055], theme === "dark" ? 0x59666d : 0x75838b, [x + 0.31, 0.12, primary.z + 3.0], 0.02);
+    }
+    for (const x of [-1.7, 1.7]) {
+      addBox(staticRoot, [0.055, 1.05, 0.055], theme === "dark" ? 0x59666d : 0x75838b, [x, 0.5, primary.z + 5.1], 0.018);
+      staticRoot.add(mesh(new THREE.SphereGeometry(0.12, 12, 8), lampMaterial, x, 1.05, primary.z + 5.1));
+    }
+
     const owner = communityKit
       ? cloneCommunityComponent(communityKit, "CommunityHub", theme === "dark", 0x006bff) ?? createOwnerCenter(theme === "dark")
       : createOwnerCenter(theme === "dark");
