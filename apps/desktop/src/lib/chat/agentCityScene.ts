@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import {
   agentCityFloors,
   selectFollowFloorKey,
@@ -270,8 +271,9 @@ function addBox(
   position: [number, number, number],
   radius = 0
 ): THREE.Mesh {
+  const maxRadius = Math.max(0.001, Math.min(size[0], size[1], size[2]) * 0.45);
   const geometry = radius > 0
-    ? new THREE.BoxGeometry(size[0], size[1], size[2], 2, 2, 2)
+    ? new RoundedBoxGeometry(size[0], size[1], size[2], 4, Math.min(radius, maxRadius))
     : new THREE.BoxGeometry(...size);
   const value = mesh(geometry, material(color), ...position);
   parent.add(value);
@@ -371,7 +373,15 @@ function createPug(assistant = false, role: string | null = null): PugRig {
   const root = new THREE.Group();
   const pose = new THREE.Group();
   const roleAccessory = new THREE.Group();
-  root.add(pose, roleAccessory);
+  const contactShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.34, 24),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.13, depthWrite: false })
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.scale.set(1.15, 0.78, 1);
+  contactShadow.position.y = 0.012;
+  contactShadow.renderOrder = 1;
+  root.add(contactShadow, pose, roleAccessory);
 
   const coat = material(COAT_COLOR);
   const coatMaterials = [coat];
@@ -562,7 +572,7 @@ function setRigHome(rig: PugRig, position: THREE.Vector3, yaw: number): void {
  */
 function createWorkstation(accent: number): { group: THREE.Group; screen: THREE.MeshStandardMaterial } {
   const group = new THREE.Group();
-  addBox(group, [1.25, 0.11, 0.58], 0x8d755f, [0, 0.48, 0]);
+  addBox(group, [1.25, 0.11, 0.58], 0x8d755f, [0, 0.48, 0], 0.055);
   addBox(group, [0.1, 0.48, 0.1], 0x5f554c, [-0.48, 0.23, 0]);
   addBox(group, [0.1, 0.48, 0.1], 0x5f554c, [0.46, 0.23, 0]);
   const screen = new THREE.MeshStandardMaterial({
@@ -574,7 +584,7 @@ function createWorkstation(accent: number): { group: THREE.Group; screen: THREE.
   group.add(mesh(new THREE.BoxGeometry(0.56, 0.4, 0.08), screen, 0, 0.83, 0));
   addBox(group, [0.07, 0.28, 0.07], 0x525252, [0, 0.61, 0]);
   // Keyboard, so the typing clip has something to hit.
-  addBox(group, [0.42, 0.03, 0.16], 0x3f4750, [0, 0.55, 0.24]);
+  addBox(group, [0.42, 0.03, 0.16], 0x3f4750, [0, 0.55, 0.24], 0.02);
   return { group, screen };
 }
 
@@ -626,7 +636,7 @@ function createWindowPanes(
 function createWorkerStation(accent: number, role: string): { group: THREE.Group; screen: THREE.MeshStandardMaterial } {
   const group = new THREE.Group();
   const roleAccent = roleColor(role);
-  addBox(group, [0.5, 0.055, 0.34], 0x756b62, [0, 0.27, 0]);
+  addBox(group, [0.5, 0.055, 0.34], 0x756b62, [0, 0.27, 0], 0.035);
   addBox(group, [0.045, 0.26, 0.045], 0x57514b, [-0.19, 0.13, 0]);
   addBox(group, [0.045, 0.26, 0.045], 0x57514b, [0.19, 0.13, 0]);
   const screen = new THREE.MeshStandardMaterial({
@@ -636,7 +646,7 @@ function createWorkerStation(accent: number, role: string): { group: THREE.Group
     roughness: 0.32
   });
   group.add(mesh(new THREE.BoxGeometry(0.3, 0.22, 0.035), screen, 0, 0.48, -0.04));
-  addBox(group, [0.22, 0.018, 0.09], 0x3e474e, [0, 0.32, 0.11]);
+  addBox(group, [0.22, 0.018, 0.09], 0x3e474e, [0, 0.32, 0.11], 0.012);
   return { group, screen };
 }
 
@@ -1224,7 +1234,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         roughness: 0.68
       });
       const camp = mesh(
-        new THREE.BoxGeometry(isGlobal ? 4.35 : 2.05, 0.055, isGlobal ? 2.55 : 1.62),
+        new RoundedBoxGeometry(isGlobal ? 4.35 : 2.05, 0.055, isGlobal ? 2.55 : 1.62, 4, 0.025),
         campSurface,
         isGlobal ? -0.85 : -0.82,
         isGlobal ? 0.285 : 0.13,
