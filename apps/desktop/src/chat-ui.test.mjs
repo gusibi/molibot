@@ -2090,6 +2090,13 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityCanvas, /prefers-reduced-motion: reduce/);
   assert.match(agentCityCanvas, /controller\?\.setQuality\("low"\)/);
   assert.match(agentCityCanvas, /controller\?\.dispose\(\)/);
+  assert.match(agentCityCanvas, /selectedKey: string \| null/);
+  assert.match(agentCityCanvas, /controller\.setSelectedFloor\(selectedKey\)/);
+  assert.match(agentStudio, /selectedKey=\{selectedFloorKey\}/);
+  assert.match(agentCityScene, /setSelectedFloor\(key: string \| null\): void/);
+  assert.match(agentCityScene, /selection: THREE\.LineSegments/);
+  assert.match(agentCityScene, /new THREE\.EdgesGeometry/);
+  assert.match(agentCityScene, /node\.selection\.visible = node\.key === selectedKey/);
   assert.match(agentCityScene, /new THREE\.PerspectiveCamera/);
   assert.match(agentCityScene, /new THREE\.Raycaster\(\)/);
   assert.match(agentCityScene, /function attachFloorTarget/);
