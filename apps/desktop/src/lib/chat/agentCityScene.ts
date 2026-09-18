@@ -1421,7 +1421,11 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     setPugStatus(node.mainPug, floor.state);
     floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT).forEach((subagent, index) => {
       const rig = node.pugs[index + 1];
-      if (rig) setPugStatus(rig, subagent.status);
+      if (rig) {
+        const workerReaction = transitionClip(rig.status, subagent.status);
+        if (workerReaction) rig.oneShot = { clip: workerReaction, startedAt: performance.now() };
+        setPugStatus(rig, subagent.status);
+      }
       const screen = node.workerScreens[index];
       if (screen) {
         const color =
