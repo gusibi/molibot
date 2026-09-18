@@ -110,6 +110,8 @@ interface PugRig {
   seed: number;
   role: string | null;
   baseScale: number;
+  homePosition: THREE.Vector3;
+  homeYaw: number;
   spawnEpochMs: number | null;
   status: AgentCityStatus;
   currentProp: PugProp;
@@ -457,6 +459,8 @@ function createPug(assistant = false, role: string | null = null): PugRig {
     seed: 0,
     role,
     baseScale: 0.82,
+    homePosition: new THREE.Vector3(),
+    homeYaw: 0,
     spawnEpochMs: null,
     status: "idle",
     currentProp: "none",
@@ -466,6 +470,12 @@ function createPug(assistant = false, role: string | null = null): PugRig {
 }
 
 function applyPugPose(rig: PugRig, pose: PugPose, baseYaw: number, detailed: boolean): void {
+  rig.root.position.set(
+    rig.homePosition.x + pose.travelX,
+    rig.homePosition.y,
+    rig.homePosition.z + pose.travelZ
+  );
+  rig.root.rotation.y = rig.homeYaw + pose.travelYaw;
   rig.pose.position.y = pose.bodyOffsetY;
   rig.pose.rotation.set(pose.bodyTiltX, baseYaw + pose.bodyTurnY, pose.bodyRollZ);
   const lateral = 1 / Math.sqrt(Math.max(0.2, pose.squash));
@@ -498,6 +508,13 @@ function setPugStatus(rig: PugRig, status: AgentCityStatus): void {
 function setRigScale(rig: PugRig, scalar: number): void {
   rig.baseScale = scalar;
   rig.root.scale.setScalar(scalar);
+}
+
+function setRigHome(rig: PugRig, position: THREE.Vector3, yaw: number): void {
+  rig.homePosition.copy(position);
+  rig.homeYaw = yaw;
+  rig.root.position.copy(position);
+  rig.root.rotation.y = yaw;
 }
 
 /**
@@ -1139,8 +1156,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       setRigScale(assistant, isGlobal ? 0.47 : 0.39);
       const startedAt = Date.parse(subagent.startedAt);
       assistant.spawnEpochMs = Number.isNaN(startedAt) ? null : startedAt;
-      assistant.root.position.set(x, 0.1, z + 0.08);
-      assistant.root.rotation.y = 0.08;
+      setRigHome(assistant, new THREE.Vector3(x, 0.1, z + 0.08), 0.08);
       group.add(assistant.root);
       pugs.push(assistant);
 
@@ -1260,8 +1276,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     applyWindowGlow(node, floor.state);
 
     const seat = working ? node.seatPosition : node.loungePosition;
-    node.mainPug.root.position.copy(seat);
-    node.mainPug.root.rotation.y = working ? Math.PI / 2 : 0.35;
+    setRigHome(node.mainPug, seat, working ? Math.PI / 2 : 0.35);
     setPugStatus(node.mainPug, floor.state);
     floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT).forEach((subagent, index) => {
       const rig = node.pugs[index + 1];
