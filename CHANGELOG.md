@@ -1,3 +1,9 @@
+### Fixed: Agent Community 跟随主题家族，近景房间不再持续闪烁（2026-09-19）
+
+Agent Community 之前虽然会跟随明暗模式和天空背景，但 Three.js 房屋、道路、plaza、Community Hub 与状态灯仍大量使用固定颜色，所以切换 Raft、Cyberpunk、Windows 98、Candy 等主题时 3D 社区看起来几乎还是同一套。现在 WebGL 场景会读取当前主题家族/recipe 的真实 CSS token，并解析嵌套 `var(...)` / `color-mix(...)`：房间墙面与 trim、GLTF kit、HQ、Worker Camp、Hub、地面/道路/绿化、Working 路线与状态色都随主题变化；不同 recipe 还会改变粗糙度、金属感、发光、fog 与曝光，而不只是简单换 accent。导入的 VS Code 主题同样走这条 token 管线。
+
+房间放大时的“持续闪”也根修了。原来的城市总览为了让 Working/Error 状态远距离可见，会让整片窗户、任务板、屏幕、外围线框不断做 emissive pulse；GLTF 房间放大后这些大面积发光面把微动画变成了明显闪屏。现在远景只保留幅度更小、速度更慢的呼吸，进入 detail distance 或聚焦房间后直接固定亮度，窗户、任务板、Worker 屏、Working perimeter 与选中框都不再持续闪烁。
+
 ### Changed: Agent Community Phase 5 — Live Inspector 与快速对话（2026-09-19）
 
 Agent City 现在从“可看”进入“可操作”的工作台阶段。点击任意 Agent 房间会从右侧打开 Live Inspector，分为概览、Worker、运行信息三页：当前任务、Bot/Channel 来源、模型/权限、Run ID、开始/结束时间、Worker role 聚合与完整实例状态都会随着 Agent Activity 轮询实时刷新。相同 Inspector 同时支持 3D WebGL 与 2D fallback，不再让节能模式退化成只有 tooltip 的只读视图。
