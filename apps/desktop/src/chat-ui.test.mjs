@@ -2046,6 +2046,17 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /<AgentCityInspector/);
   assert.match(agentStudio, /onOpenChat=\{onOpenAgentChat\}/);
   assert.match(agentStudio, /canFocus=\{!fallback\}/);
+  // Data/theme syncs must re-validate the hover instead of blanking it, or the
+  // card blinks on every 2.5s poll while the pointer rests on a room.
+  assert.match(agentCityCanvas, /function refreshHover\(\): void/);
+  assert.match(agentCityCanvas, /let lastPointer: \{ x: number; y: number \} \| null = null/);
+  assert.doesNotMatch(agentCityCanvas, /controller\.update\(projection\);\s*\r?\n\s*clearHover\(\);/);
+  assert.doesNotMatch(agentCityCanvas, /controller\.setTheme\(theme\);\s*\r?\n\s*clearHover\(\);/);
+  assert.match(agentCityCanvas, /onpointerleave=\{clearHover\}/);
+  // Zero-bias shadow maps made the GLTF rooms self-shadow into black roofs and
+  // the per-frame shadow re-render crawl like flicker; bias is not optional.
+  assert.match(agentCityScene, /sun\.shadow\.bias = -0\.0004/);
+  assert.match(agentCityScene, /sun\.shadow\.normalBias = 0\.35/);
   assert.match(agentStudio, /floor\.subagents\.groups\.some/);
   assert.match(agentStudio, /floor\.activity\?\.taskPreview/);
   assert.match(agentCityFallback, /onSelect: \(key: string\) => void/);

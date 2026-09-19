@@ -1011,6 +1011,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   sun.position.set(-12, 24, 18);
   sun.castShadow = options.quality === "full";
   sun.shadow.mapSize.set(options.quality === "full" ? 2048 : 512, options.quality === "full" ? 2048 : 512);
+  // Without bias the GLTF rooms self-shadow wholesale (black walls/roofs) and
+  // the per-frame shadow re-render makes the acne crawl — read as flicker.
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.35;
   sun.shadow.camera.left = -24;
   sun.shadow.camera.right = 24;
   sun.shadow.camera.top = 24;
