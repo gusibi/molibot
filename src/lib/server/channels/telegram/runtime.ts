@@ -33,7 +33,6 @@ import { TELEGRAM_MENU_COMMANDS, TELEGRAM_SHARED_COMMANDS } from "$lib/server/ch
 import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "$lib/server/channels/telegram/mentions.js";
 import { buildTelegramMemoryReviewKeyboard, parseTelegramMemoryReviewCallback } from "$lib/server/channels/telegram/memoryReview.js";
-import { buildTelegramQueuedControlKeyboard, parseTelegramQueuedControlCallback } from "$lib/server/channels/telegram/queuedControl.js";
 import {
   buildTelegramInputKeyboard,
   buildTelegramInteractionKeyboard,
@@ -681,49 +680,6 @@ export class TelegramManager extends BaseChannelRuntime {
       }
     });
 
-    bot.callbackQuery(/^qctl:/, async (ctx) => {
-      const parsed = parseTelegramQueuedControlCallback(ctx.callbackQuery.data);
-      const callbackMessage = ctx.callbackQuery.message;
-      const chatId = String(callbackMessage?.chat.id ?? "");
-      const messageId = callbackMessage?.message_id;
-      const messageThreadId = callbackMessage && "message_thread_id" in callbackMessage && Number.isFinite(callbackMessage.message_thread_id)
-        ? Number(callbackMessage.message_thread_id)
-        : undefined;
-      const scopeId = this.buildChatScopeId(chatId, messageThreadId);
-      const answer = async (text: string): Promise<void> => {
-        try {
-          await ctx.answerCallbackQuery({ text });
-        } catch (error) {
-          momWarn("telegram", "queued_control_callback_answer_failed", {
-            chatId,
-            scopeId,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-      };
-      if (!parsed || !chatId || !messageId || (allowed.size > 0 && !allowed.has(chatId))) {
-        await answer("这条排队消息操作无效。");
-        return;
-      }
-      await answer("正在处理…");
-      const result = await this.commandService.handleQueuedControlAction(scopeId, parsed.queueId, parsed.action);
-      try {
-        await editTelegramMessage(bot, chatId, messageId, result.message, {
-          ...this.buildTelegramSendOptions(messageThreadId),
-          reply_markup: undefined
-        });
-      } catch (error) {
-        momWarn("telegram", "queued_control_edit_failed", {
-          chatId,
-          scopeId,
-          queueId: parsed.queueId,
-          action: parsed.action,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        await sendTelegramText(bot, chatId, result.message, this.buildTelegramSendOptions(messageThreadId));
-      }
-    });
-
     bot.on("message", async (ctx) => {
       const chatId = String(ctx.chat.id);
       const messageThreadId = Number.isFinite(ctx.msg?.message_thread_id) ? Number(ctx.msg.message_thread_id) : undefined;
@@ -920,9 +876,15 @@ export class TelegramManager extends BaseChannelRuntime {
           scopeId: eventScopeId,
           queueId
         });
-        await ctx.reply(this.buildQueuedBusyNotice(queueId), {
-          reply_markup: buildTelegramQueuedControlKeyboard(queueId)
-        });
+        const interactionContext = this.buildTelegramInteractionContext(ctx);
+        if (interactionContext) {
+          const view = this.interactionService.queuedControlView(interactionContext, queueId);
+          await ctx.reply(formatTelegramInteractionView(view), {
+            reply_markup: buildTelegramInteractionKeyboard(view)
+          });
+        } else {
+          await ctx.reply(this.buildQueuedBusyNotice(queueId));
+        }
       }
     });
 
