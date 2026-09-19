@@ -305,6 +305,10 @@ export class SharedInteractionService<TTarget> {
         const result = await this.options.commands.createInteractionSession(context);
         return { kind: "notice", message: result.message, view: await this.sessionsView(context, 0) };
       }
+      case "session.compact": {
+        const result = await this.options.commands.compactInteractionSession(context);
+        return { kind: "notice", message: result.message, view: await this.statusView(context) };
+      }
       case "session.switch": {
         const result = await this.options.commands.switchInteractionSession(context, action.id);
         return { kind: "notice", message: result.message, view: await this.sessionsView(context, 0) };
@@ -709,10 +713,22 @@ export class SharedInteractionService<TTarget> {
           { label: this.options.commands.interactionText("Model", "模型"), detail: state.modelKey || "-" },
           { label: this.options.commands.interactionText("Thinking", "思考"), detail: state.thinkingEffective },
           { label: this.options.commands.interactionText("Queue", "队列"), detail: String(state.queueSize) },
-          { label: this.options.commands.interactionText("Runtime", "运行状态"), detail: state.running ? this.options.commands.interactionText("running", "运行中") : this.options.commands.interactionText("idle", "空闲") }
+          { label: this.options.commands.interactionText("Runtime", "运行状态"), detail: state.running ? this.options.commands.interactionText("running", "运行中") : this.options.commands.interactionText("idle", "空闲") },
+          ...(state.contextTokens !== null && state.contextWindow !== null
+            ? [{
+                label: this.options.commands.interactionText("Context", "上下文"),
+                detail: `${state.contextTokens.toLocaleString()} / ${state.contextWindow.toLocaleString()}${state.compactionThreshold ? ` · threshold ${state.compactionThreshold.toLocaleString()}` : ""}`
+              }]
+            : [])
         ]
       }],
       actions: [
+        ...(state.compactRecommended
+          ? [
+              this.button(context, this.options.commands.interactionText("Compact", "压缩上下文"), { type: "session.compact" }, "primary"),
+              this.button(context, this.options.commands.interactionText("New session", "新建会话"), { type: "session.new" })
+            ]
+          : []),
         ...actions,
         this.button(context, this.options.commands.interactionText("Refresh", "刷新"), { type: "status.open" }, "default", { oneShot: false }),
         this.button(context, this.options.commands.interactionText("Menu", "菜单"), { type: "menu.open" }, "default", { oneShot: false })
