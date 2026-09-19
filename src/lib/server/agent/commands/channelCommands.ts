@@ -562,6 +562,7 @@ export class SharedRuntimeCommandService<TTarget> {
   }
 
   private activeInteractionRunId(scopeId: string): string | null {
+    if (!this.options.isRunning(scopeId)) return null;
     const projectSession = this.options.getActiveProject?.(scopeId)
       ? this.options.getActiveProjectSession?.(scopeId) ?? null
       : null;
@@ -576,13 +577,9 @@ export class SharedRuntimeCommandService<TTarget> {
       try {
         for (const sessionId of candidates) {
           const row = db.prepare(
-            "SELECT id, started_at FROM runs WHERE session_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1"
-          ).get(sessionId) as { id: string; started_at: string } | undefined;
-          if (!row?.id) continue;
-          const startedAt = Date.parse(row.started_at);
-          if (Number.isFinite(startedAt) && Date.now() - startedAt < 10 * 60 * 1000) {
-            return row.id;
-          }
+            "SELECT id FROM runs WHERE session_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1"
+          ).get(sessionId) as { id: string } | undefined;
+          if (row?.id) return row.id;
         }
       } finally {
         db.close();
