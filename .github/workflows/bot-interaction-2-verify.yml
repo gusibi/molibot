@@ -26,9 +26,12 @@ jobs:
         run: >
           node --import ./scripts/register-loader.js --import tsx --test
           src/lib/server/agent/interactions/service.test.ts
+          src/lib/server/agent/commands/channelCommands.test.ts
           src/lib/server/channels/telegram/interaction.test.ts
           src/lib/server/channels/feishu/interaction.test.ts
           src/lib/server/channels/telegram/runtime.test.ts
           src/lib/server/channels/feishu/messaging.test.ts
+          src/lib/server/channels/feishu/runtime.test.ts
+          src/lib/server/channels/feishu/message-intake.test.ts
       - name: Production build
         run: pnpm run build
