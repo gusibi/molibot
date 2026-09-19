@@ -671,8 +671,8 @@ export class SharedRuntimeCommandService<TTarget> {
       return {
         ok: true,
         message: this.text(
-          `Model switched to ${selected.alias?.trim() || selected.label}. Applies to all bots linked to agent ${boundAgentId} on the next request.`,
-          `模型已切换为 ${selected.alias?.trim() || selected.label}。从下一次请求开始，对绑定 agent ${boundAgentId} 的 Bot 生效。`
+          `Model switched to ${selected.alias?.trim() || selected.label} for agent (${boundAgentId}). Applies to all linked bots on the next request.`,
+          `模型已切换为 ${selected.alias?.trim() || selected.label}，作用于 agent（${boundAgentId}）；从下一次请求开始对其绑定 Bot 生效。`
         )
       };
     }
@@ -723,7 +723,7 @@ export class SharedRuntimeCommandService<TTarget> {
         : agent
     );
     this.options.updateSettings({ agents });
-    return { ok: true, message: this.text("Text model reset to follow the global setting.", "文本模型已恢复跟随全局设置。") };
+    return { ok: true, message: this.text(`Model reset to global for agent (${boundAgentId}).`, `agent（${boundAgentId}）的模型已恢复跟随全局设置。`) };
   }
 
   getInteractionSessions(scopeId: string): InteractionSessionState {
@@ -865,7 +865,13 @@ export class SharedRuntimeCommandService<TTarget> {
     const project = this.options.listProjects().find((item) => item.id === projectId);
     if (!project) return { ok: false, message: this.text("That Project is no longer available. Refresh the list.", "该 Project 已不可用，请刷新列表。") };
     const selected = this.options.setActiveProject(input.scopeId, project.id);
-    return { ok: true, message: this.text(`Switched to Project: ${selected?.name ?? project.name}`, `已切换到 Project：${selected?.name ?? project.name}`) };
+    return {
+      ok: true,
+      message: this.text(
+        `Switched to Project mode: ${selected?.name ?? project.name}. Subsequent messages will work in this Project.`,
+        `已切换到 Project 模式：${selected?.name ?? project.name}。后续消息会在该项目中执行。`
+      )
+    };
   }
 
   getInteractionThinking(scopeId: string): InteractionThinkingState {
@@ -967,7 +973,7 @@ export class SharedRuntimeCommandService<TTarget> {
       platformThreadId: input.platformThreadId
     }, text);
     return id
-      ? { ok: true, message: this.text(`Added a new task at the front of the queue (#${id}). Existing items were not reordered.`, `已新增任务到队首（#${id}）；现有任务没有被重新排序。`) }
+      ? { ok: true, message: this.text(`Inserted at front of queue. Queue ID: ${id}. Existing queue items were not reordered.`, `已插入队列最前方。队列 ID：${id}；现有任务没有被重新排序。`) }
       : { ok: false, message: this.text("Failed to add the task to the queue.", "新增排队任务失败。") };
   }
 
