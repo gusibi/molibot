@@ -78,6 +78,23 @@ export class SharedInteractionService<TTarget> {
     return null;
   }
 
+  queuedControlView(context: InteractionContext<TTarget>, queueId: number): InteractionView {
+    const binding = this.state(context.scopeId);
+    return {
+      surface: "queue",
+      title: this.options.commands.interactionText("Message queued", "消息已排队"),
+      body: this.options.commands.interactionText(
+        `Queued as #${queueId}. You can stop the current run or inject this exact queued message into it.`,
+        `这条消息已排队为 #${queueId}。你可以停止当前任务，或把这条排队消息插入当前任务。`
+      ),
+      actions: [
+        this.button(context, this.options.commands.interactionText("Stop", "停止"), { type: "queued.stop", queueId }, "danger", { binding }),
+        this.button(context, this.options.commands.interactionText("Steer", "插入"), { type: "queued.steer", queueId }, "primary", { binding }),
+        this.button(context, this.options.commands.interactionText("Queue", "队列"), { type: "queue.open" }, "default", { oneShot: false })
+      ]
+    };
+  }
+
   async open(surface: InteractionSurface, context: InteractionContext<TTarget>, page = 0): Promise<InteractionView> {
     this.cleanup();
     switch (surface) {
@@ -332,6 +349,14 @@ export class SharedInteractionService<TTarget> {
       }
       case "queue.front":
         return { kind: "input", input: this.beginInput(context, "queue.front") };
+      case "queued.stop": {
+        const result = await this.options.commands.handleQueuedControlAction(context.scopeId, action.queueId, "stop");
+        return { kind: "notice", message: result.message, view: await this.statusView(context) };
+      }
+      case "queued.steer": {
+        const result = await this.options.commands.handleQueuedControlAction(context.scopeId, action.queueId, "steer");
+        return { kind: "notice", message: result.message, view: await this.queueView(context, 0) };
+      }
       case "run.stop": {
         if (!binding.runId) return { kind: "notice", message: this.options.commands.interactionText("There is no stable running task to stop.", "当前没有可确认身份的运行任务。"), view: await this.statusView(context) };
         const queue = await this.options.commands.getInteractionQueue(context.scopeId);
