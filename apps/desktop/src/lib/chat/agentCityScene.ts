@@ -47,6 +47,11 @@ import {
   loadCommunityKit,
   type CommunityKitTemplate
 } from "./agentCityCommunityAssets";
+import {
+  agentCityRecipeProfile,
+  agentCityVisualThemeSignature,
+  type AgentCityVisualTheme
+} from "./agentCityTheme";
 
 export type AgentCityQuality = "full" | "low" | "fallback";
 export type AgentCityTheme = "light" | "dark";
@@ -82,6 +87,7 @@ export interface AgentCitySceneOptions {
    * a seam at the panel edge.
    */
   sky: string;
+  visualTheme: AgentCityVisualTheme;
   reducedMotion: boolean;
   quality: Exclude<AgentCityQuality, "fallback">;
   onPerformanceFallback: () => void;
@@ -95,6 +101,7 @@ export interface AgentCitySceneController {
   setVisible(visible: boolean): void;
   setTheme(theme: AgentCityTheme): void;
   setSky(sky: string): void;
+  setVisualTheme(theme: AgentCityVisualTheme): void;
   setReducedMotion(reducedMotion: boolean): void;
   setQuality(quality: Exclude<AgentCityQuality, "fallback">): void;
   hitTest(clientX: number, clientY: number): AgentCityHover | null;
@@ -216,6 +223,30 @@ const STATUS_COLORS: Record<AgentCityStatus, number> = {
   completed: 0x28a948,
   error: 0xea001d
 };
+
+function cssColorHex(value: string, fallback: number): number {
+  if (!value.trim()) return fallback;
+  const parsed = new THREE.Color();
+  try {
+    parsed.setStyle(value.trim());
+    return parsed.getHex();
+  } catch {
+    return fallback;
+  }
+}
+
+function mixHex(left: number, right: number, amount: number): number {
+  const color = new THREE.Color(left);
+  color.lerp(new THREE.Color(right), Math.min(1, Math.max(0, amount)));
+  return color.getHex();
+}
+
+function themedStatusColor(status: AgentCityStatus, visual: AgentCityVisualTheme): number {
+  if (status === "working") return cssColorHex(visual.accent, STATUS_COLORS.working);
+  if (status === "completed") return cssColorHex(visual.online, STATUS_COLORS.completed);
+  if (status === "error") return cssColorHex(visual.danger, STATUS_COLORS.error);
+  return STATUS_COLORS[status];
+}
 const COAT_COLOR = 0xcaa678;
 const COAT_COLOR_DISABLED = 0x9b9388;
 /** Pug ears fold forward at rest; upright cones read as a cat. */
@@ -605,21 +636,22 @@ function createWorkstation(accent: number): { group: THREE.Group; screen: THREE.
   return { group, screen };
 }
 
-function floorPalette(index: number, dark: boolean): { wall: number; trim: number; accent: number } {
-  const palettes = dark
-    ? [
-        { wall: 0x26333b, trim: 0x3b4b54, accent: 0x48aeff },
-        { wall: 0x2e3038, trim: 0x484a54, accent: 0x82eb8d },
-        { wall: 0x332f3b, trim: 0x4c4658, accent: 0xc979ff },
-        { wall: 0x38332c, trim: 0x514a40, accent: 0xffc543 }
-      ]
-    : [
-        { wall: 0xf5eee4, trim: 0xd9c7ae, accent: 0x006bff },
-        { wall: 0xe8f1e9, trim: 0xb9d0bc, accent: 0x28a948 },
-        { wall: 0xeee9f4, trim: 0xcfc2df, accent: 0x8500d1 },
-        { wall: 0xf4eee0, trim: 0xd8c59c, accent: 0xaa4d00 }
-      ];
-  return palettes[index % palettes.length];
+function floorPalette(index: number, dark: boolean, visual: AgentCityVisualTheme): { wall: number; trim: number; accent: number } {
+  const profile = agentCityRecipeProfile(visual.recipe);
+  const surface = cssColorHex(visual.card, dark ? 0x26333b : 0xf5eee4);
+  const panel = cssColorHex(visual.panel, dark ? 0x3b4b54 : 0xd9c7ae);
+  const accents = [
+    cssColorHex(visual.accent, dark ? 0x48aeff : 0x006bff),
+    cssColorHex(visual.online, dark ? 0x82eb8d : 0x28a948),
+    cssColorHex(visual.skillAccent, dark ? 0xc979ff : 0x8500d1),
+    cssColorHex(visual.warning, dark ? 0xffc543 : 0xaa4d00)
+  ];
+  const accent = accents[index % accents.length];
+  return {
+    wall: mixHex(surface, accent, profile.roomAccentMix * (dark ? 0.62 : 0.48)),
+    trim: mixHex(panel, accent, profile.roomAccentMix * (dark ? 0.9 : 0.7)),
+    accent
+  };
 }
 
 /**
@@ -916,6 +948,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   let projection = options.projection;
   let theme = options.theme;
+  let visualTheme = options.visualTheme;
+  let visualThemeSignature = agentCityVisualThemeSignature(visualTheme);
   let skyColor = new THREE.Color(options.sky);
   let quality = options.quality;
   let reducedMotion = options.reducedMotion;
