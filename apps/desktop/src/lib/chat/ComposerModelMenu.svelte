@@ -74,25 +74,145 @@
     available[event.key === "ArrowUp" ? available.length - 1 : 0]?.focus();
   }
 
-  function onMenuKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
+  function focusTrackStop(track: HTMLElement, index: number): void {
+    track.querySelectorAll<HTMLButtonElement>("button")[index]?.focus();
+  }
+
+  /** Nearest stop index for a pointer position, using the same 11px inset as the stop/knob layout. */
+  function levelIndexFromClientX(track: HTMLElement, clientX: number): number {
+    const rect = track.getBoundingClientRect();
+    const span = rect.width - 22;
+    if (span <= 0) return Math.floor(thinkingLevelOptions.length / 2);
+    const frac = Math.min(Math.max(clientX - rect.left - 11, 0), span) / span;
+    return Math.round(frac * (thinkingLevelOptions.length - 1));
+  }
+
+  /**
+   * Direct (non-delegated) listeners for the whole popover. Svelte 5 routes
+   * `onclick` through the app-root delegation table, which silently dies when a
+   * long-lived dev webview survives broken HMR updates — the thinking stops then
+   * stop responding while `toggle` (attached directly) keeps working. Direct
+   * listeners keep this menu's interactions alive through that class of state
+   * corruption, and give the level track its drag behaviour.
+   */
+  function popoverInteraction(popover: HTMLElement) {
+    let draggingLevel = false;
+    let dragTrack: HTMLElement | null = null;
+
+    const onPopoverClick = (event: MouseEvent) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-menu-action]");
+      if (!target || !popover.contains(target)) return;
+      if ((target as HTMLButtonElement).disabled) return;
+      switch (target.dataset.menuAction) {
+        case "open-model":
+          void showPage("model", true);
+          break;
+        case "back":
+          void showPage("overview", true);
+          break;
+        case "select-model":
+          selectModel(target.dataset.value ?? "");
+          break;
+      }
+    };
+
+    const onPopoverKeydown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowLeft" && page !== "overview") {
+        event.preventDefault();
+        void showPage("overview", true);
+        return;
+      }
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const available = buttons();
+      const current = available.indexOf(document.activeElement as HTMLButtonElement);
+      if (current < 0) return;
       event.preventDefault();
-      if (page === "overview") close(true);
-      else void showPage("overview", true);
-      return;
-    }
-    if (event.key === "ArrowLeft" && page !== "overview") {
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      available[(current + delta + available.length) % available.length]?.focus();
+    };
+
+    const selectLevelAt = (clientX: number): void => {
+      const index = levelIndexFromClientX(popover.querySelector<HTMLElement>(".composer-level-track") ?? popover, clientX);
+      const level = thinkingLevelOptions[Math.min(Math.max(index, 0), thinkingLevelOptions.length - 1)];
+      if (level) selectThinking(level);
+    };
+
+    const onTrackPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const track = (event.target as HTMLElement | null)?.closest<HTMLElement>(".composer-level-track");
+      if (!track || !popover.contains(track)) return;
       event.preventDefault();
-      void showPage("overview", true);
-      return;
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const available = buttons();
-    const current = available.indexOf(document.activeElement as HTMLButtonElement);
-    if (current < 0) return;
-    event.preventDefault();
-    const delta = event.key === "ArrowDown" ? 1 : -1;
-    available[(current + delta + available.length) % available.length]?.focus();
+      draggingLevel = true;
+      dragTrack = track;
+      try {
+        track.setPointerCapture(event.pointerId);
+      } catch {
+        // Capture is a nicety; selection already happened.
+      }
+      selectLevelAt(event.clientX);
+    };
+
+    const onTrackPointerMove = (event: PointerEvent) => {
+      if (!draggingLevel) return;
+      selectLevelAt(event.clientX);
+    };
+
+    const onTrackPointerEnd = (event: PointerEvent) => {
+      if (!draggingLevel) return;
+      draggingLevel = false;
+      if (dragTrack?.hasPointerCapture(event.pointerId)) dragTrack.releasePointerCapture(event.pointerId);
+      dragTrack = null;
+    };
+
+    const onTrackKeydown = (event: KeyboardEvent) => {
+      const stop = event.target as HTMLElement;
+      if (!stop.classList?.contains("composer-level-stop")) return;
+      const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (!delta) return;
+      event.preventDefault();
+      const current = Number(stop.dataset.levelIndex ?? "0");
+      const next = Math.max(0, Math.min(thinkingLevelOptions.length - 1, current + delta));
+      selectThinking(thinkingLevelOptions[next]);
+      focusTrackStop(popover.querySelector<HTMLElement>(".composer-level-track") ?? popover, next);
+    };
+
+    popover.addEventListener("click", onPopoverClick);
+    popover.addEventListener("keydown", onPopoverKeydown);
+    popover.addEventListener("pointerdown", onTrackPointerDown);
+    popover.addEventListener("pointermove", onTrackPointerMove);
+    popover.addEventListener("pointerup", onTrackPointerEnd);
+    popover.addEventListener("pointercancel", onTrackPointerEnd);
+    popover.addEventListener("keydown", onTrackKeydown);
+    return {
+      destroy() {
+        popover.removeEventListener("click", onPopoverClick);
+        popover.removeEventListener("keydown", onPopoverKeydown);
+        popover.removeEventListener("pointerdown", onTrackPointerDown);
+        popover.removeEventListener("pointermove", onTrackPointerMove);
+        popover.removeEventListener("pointerup", onTrackPointerEnd);
+        popover.removeEventListener("pointercancel", onTrackPointerEnd);
+        popover.removeEventListener("keydown", onTrackKeydown);
+      }
+    };
+  }
+
+  /** Direct listeners for the trigger as well: the disabled guard and the
+   * arrow-key open must not depend on the delegation table either. */
+  function triggerInteraction(node: HTMLElement) {
+    const onClick = (event: MouseEvent) => {
+      if (disabled) event.preventDefault();
+    };
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") void onTriggerKeydown(event);
+    };
+    node.addEventListener("click", onClick);
+    node.addEventListener("keydown", onKeydown);
+    return {
+      destroy() {
+        node.removeEventListener("click", onClick);
+        node.removeEventListener("keydown", onKeydown);
+      }
+    };
   }
 
   function selectModel(value: string): void {
@@ -109,8 +229,20 @@
     const handlePointerDown = (event: PointerEvent) => {
       if (open && !root.contains(event.target as Node)) close();
     };
+    // Escape lives on the document: with the menu opened by mouse, focus stays
+    // on the summary and the keydown never passes through the popover.
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (!open || event.key !== "Escape") return;
+      event.preventDefault();
+      if (page === "overview") close(true);
+      else void showPage("overview", true);
+    };
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeydown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeydown);
+    };
   });
 </script>
 
@@ -124,8 +256,7 @@
     aria-label={`${copy.model}: ${modelLabel}, ${copy.thinkingLevel}: ${levelLabel}`}
     title={activeModelTitle || modelLabel}
     aria-disabled={disabled}
-    onkeydown={onTriggerKeydown}
-    onclick={(event) => disabled && event.preventDefault()}
+    use:triggerInteraction
   >
     <Cpu size={16} aria-hidden="true" />
     <span class="composer-model-label"><span class="composer-model-label-text">{modelLabel}</span></span>
@@ -134,9 +265,9 @@
   </summary>
 
   {#if open}
-    <div class="composer-model-popover" role="menu" tabindex="-1" aria-label={copy.model} onkeydown={onMenuKeydown}>
+    <div class="composer-model-popover" role="menu" tabindex="-1" aria-label={copy.model} use:popoverInteraction>
       {#if page === "overview"}
-        <button type="button" role="menuitem" disabled={changingModel || modelOptions.length === 0} onclick={() => showPage("model", true)}>
+        <button type="button" role="menuitem" disabled={changingModel || modelOptions.length === 0} data-menu-action="open-model">
           <span class="composer-menu-copy"><strong>{copy.model}</strong><small title={activeModelTitle || modelLabel}>{modelLabel}</small></span>
           <AngleRight size={14} aria-hidden="true" />
         </button>
@@ -147,6 +278,7 @@
               <strong><Lightning size={14} aria-hidden="true" />{levelLabel}</strong>
             </div>
             <div class="composer-level-track">
+              <div class="composer-level-fill" style={`width: ${levelIndex > 0 ? `calc(11px + (100% - 22px) * ${levelFrac})` : "0px"}`} aria-hidden="true"></div>
               <div class="composer-level-knob" style={`left: calc(11px + (100% - 22px) * ${levelFrac})`} aria-hidden="true"></div>
               {#each thinkingLevelOptions as level, i (level)}
                 <button
@@ -156,17 +288,9 @@
                   aria-checked={level === thinkingLevel}
                   aria-label={thinkingOptionLabel(level)}
                   title={thinkingOptionLabel(level)}
+                  data-level-index={i}
+                  data-filled={i < levelIndex}
                   style={`left: calc(11px + (100% - 22px) * ${thinkingLevelOptions.length > 1 ? i / (thinkingLevelOptions.length - 1) : 0.5})`}
-                  onkeydown={(event) => {
-                    const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-                    if (!delta) return;
-                    event.preventDefault();
-                    const next = Math.max(0, Math.min(thinkingLevelOptions.length - 1, i + delta));
-                    selectThinking(thinkingLevelOptions[next]);
-                    const track = event.currentTarget.parentElement;
-                    track?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
-                  }}
-                  onclick={() => selectThinking(level)}
                 ></button>
               {/each}
             </div>
@@ -178,7 +302,7 @@
         {/if}
       {:else}
         <div class="composer-menu-heading">
-          <button type="button" class="composer-menu-back" aria-label={copy.cancelAction} onclick={() => showPage("overview", true)}><AngleLeft size={14} aria-hidden="true" /></button>
+          <button type="button" class="composer-menu-back" aria-label={copy.cancelAction} data-menu-action="back"><AngleLeft size={14} aria-hidden="true" /></button>
           <strong>{copy.model}</strong>
         </div>
         <div class="composer-menu-options">
@@ -186,7 +310,7 @@
             <div class="composer-model-option-group" role="group" aria-label={group.provider}>
               <div class="composer-model-option-provider">{group.provider}</div>
               {#each group.options as item (item.option.key)}
-                <button type="button" role="menuitemradio" aria-checked={item.option.key === activeModelKey} title={item.option.label} onclick={() => selectModel(item.option.key)}>
+                <button type="button" role="menuitemradio" aria-checked={item.option.key === activeModelKey} title={item.option.label} data-menu-action="select-model" data-value={item.option.key}>
                   <span class="composer-model-option-name">{item.name}</span>
                   {#if item.option.key === activeModelKey}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
                 </button>

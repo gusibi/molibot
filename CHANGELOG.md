@@ -40,6 +40,10 @@ Inspector 底部加入三个实际动作：直接与该 Agent 开启 Web 对话�
 旧的左下角 `.agent-city-detail` 小卡片已删除，宽屏搜索框会在 Inspector 打开时自动让位，窄屏保持可覆盖操作；Escape 仍统一退出当前选择。机器守卫覆盖 Inspector 三个 tab、Worker/runtime 数据、2D fallback 选择、ChatView 的 Agent→Profile→draft 链路以及旧 detail 样式不得回归。
 
 
+### Fixed: 思考档位刻度点击无反应的加固、支持拖拽并改为进度条样式（2026-09-18）
+
+输入框模型菜单里的「思考档位」刻度在一份长时间运行的桌面实例里出现点击和拖拽都毫无反应的情况——菜单能打开（`toggle` 事件是直连监听器），但刻度按钮的 `onclick` 走 Svelte 5 挂在应用根上的委托事件表，长寿命 webview 在热更新链路损坏后委托表会整体静默失效，直连监听器却仍存活。现在整个菜单的交互不再依赖委托通道：弹层内点击、键盘导航、禁用保护全部改为 `addEventListener` 直连监听器，机器守卫禁止该组件再出现委托式 `onclick`；顺手把档位刻度补成完整滑块交互——点击轨道任意位置选最近档位、按住左右拖动实时跟随、释放即定格，触控与防误选一并处理。选中态也从「孤零零一个高亮点」改为参考主流实现的进度条语言：轨道从起点到滑块填充主题主色，已选区间的点反色显示，滑块（knob）落在填充末端，`关闭` 档无填充；全部主题（含 Raft 信号黄）自动适配。Chromium 与 WebKit 双引擎、亮暗两套外观 + Raft 主题实测：点击、轨道点选、拖到两端、模型子页导航、Escape/点击外部关闭全部正常；桌面 `svelte-check` 0 错 0 警、`chat-ui.test.mjs` 274/274。（该提交 09-19 00:01 曾随 master reset 移出主线，当日已从 `backup/master-composer-slider` 补回。）补修：按住/拖动时被按压的刻度点会下坠约 11px——全局按钮按压规则 `transform: scale(.98)` 在 `:active` 期间替换了刻度按钮用 `transform` 做的居中定位；刻度定位改用独立的 `translate` 属性后按压不再掉位（真实浏览器实测旧写法按压 +11px、新写法 0），守卫测试已拦该类回归。
+
 ### Changed: Agent Community 完成 Momo 与模块化建筑资产化（2026-09-18）
 
 Agent 页这一轮把前两版「结构已经对，但看起来还像积木」的问题继续做完。Default Agent 现在是社区中央的 Momo HQ，Sub-agent 是可重复派生的 Worker Swarm；`scan ×10` 这样的并行团队保留完整 runtime 实例，只在 Three.js 渲染层做 LOD。

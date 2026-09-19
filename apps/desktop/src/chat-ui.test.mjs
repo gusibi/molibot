@@ -5645,8 +5645,36 @@ test("thinking stops retain their positioning class and selected-state styling",
   const stop = composerModelMenu.match(/<button\s+type="button"\s+class="composer-level-stop"[\s\S]*?<\/button>/)?.[0];
   assert.ok(stop, "Every generated stop must opt into the positioned track styles");
   assert.match(stop, /aria-checked=\{level === thinkingLevel\}/);
+  assert.match(stop, /data-filled=\{i < levelIndex\}/);
   assert.match(styles, /\.composer-level-stop \{[^}]*position: absolute/);
-  assert.match(styles, /\.composer-level-stop\[aria-checked="true"\]::after/);
+  assert.match(styles, /\.composer-level-stop\[aria-checked="true"\]::after \{[^}]*visibility: hidden/);
+  // Selected state reads as an accent progress fill to the knob (owner ref:
+  // LLM-strength slider), not a lone highlighted dot; filled-side dots invert.
+  assert.match(composerModelMenu, /class="composer-level-fill"/);
+  assert.match(styles, /\.composer-level-fill \{[^}]*background: var\(--accent\)/);
+  assert.match(styles, /\.composer-level-stop\[data-filled="true"\]::after \{[^}]*--on-accent/);
+  // Centering must use the standalone `translate` property, never `transform`:
+  // the global press rule `button:active:not(:disabled) { transform: scale(.98) }`
+  // replaces any transform, so a transform-positioned stop loses its -50%/-50%
+  // offset while pressed and the dot drops ~11px for the whole press/drag.
+  const stopRule = styles.match(/\.composer-level-stop \{[^}]*\}/)?.[0] ?? "";
+  assert.match(stopRule, /translate: -50% -50%/, "stop centering must use the standalone translate property");
+  assert.doesNotMatch(stopRule, /transform:/, "transform on the stop belongs to the global press language, not positioning");
+});
+
+test("composer model menu wires interactions through direct listeners, not delegated onclick", () => {
+  // 长寿命 dev webview 在一次损坏的 HMR 更新后，Svelte 5 挂在应用根上的委托事件表会整体失效，
+  // 而直连监听器仍存活——症状正是“思考档位点了没反应”但菜单还能打开（toggle 是直连的）。
+  // 因此弹层内所有交互必须走 use:popoverInteraction 的 addEventListener 直连通道。
+  assert.doesNotMatch(composerModelMenu, /\sonclick=/, "popover buttons must not rely on the delegated onclick path");
+  assert.doesNotMatch(composerModelMenu, /\son:pointerdown=/, "track pointer handling must be a direct listener, not delegated");
+  assert.match(composerModelMenu, /use:popoverInteraction/);
+  assert.match(composerModelMenu, /addEventListener\("click"/);
+  assert.match(composerModelMenu, /addEventListener\("pointerdown"/);
+  assert.match(composerModelMenu, /addEventListener\("pointermove"/);
+  // Drag support: the track must select on pointerdown and follow pointer moves.
+  assert.match(composerModelMenu, /setPointerCapture/);
+  assert.match(styles, /\.composer-level-track \{[^}]*touch-action: none/);
 });
 
 test("file panel scope hints live inside centered empty states, not standalone corner paragraphs", () => {

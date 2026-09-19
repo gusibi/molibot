@@ -97,6 +97,23 @@
 - 主题 recipe 不只换一层 tint：native/material/messenger/retro/editorial/technical/product/expressive/imported 分别控制房间与 plaza 的强调色混合、粗糙度/金属感、状态发光强度、fog/exposure；Momo HQ、普通 Studio、Community Hub、Worker Camp、道路/plaza/树/长椅/路灯、Working 路线/边框、窗户和错误/完成语义色都会跟当前主题联动。
 - 修复房间放大后持续闪烁：根因是城市总览用的 emissive pulse 在近景 GLTF 大窗/任务板上被视觉放大，Working 窗口原来最高有 ±0.22 的连续闪动，Error 更高。现在 overview 只保留慢速极弱呼吸；进入 detail distance 或聚焦房间后，窗户、任务板、主屏、Worker 屏、Working perimeter、选中边框全部切为稳定亮度，放大不再整间房闪。
 
+### 修复：思考档位刻度点击无反应 + 升级为可拖拽进度条滑块（2026-09-18，已交付）
+
+- 症状（owner 反馈 + 截图）：模型菜单里的「思考档位」刻度点击没有任何反应，拖动也没有反应；菜单本身能打开，渲染（7 档点位、knob 位置、选中态）完全正常。
+- 排查证据链（对抗式复现，全部真实环境实测）：
+  - 组件单独挂载（Chromium）、完整 ChatView + 隔离服务实例（Chromium）、完整集成 + Playwright WebKit 引擎——点击刻度全部正常生效；
+  - 杀掉 dev server 留下陈旧页面再点击——依然正常，排除「死 vite」假设；
+  - owner 实例的关键差异：`target/debug/molibot-desktop` 自 2026-09-17 23:23 起持续存活（横跨发布前夜几十次代码热更新），且其 dev server 已死。菜单能打开说明直连的 `toggle` 监听器存活，而刻度 `onclick` 走 Svelte 5 应用根上的**委托事件表**——长寿命 webview 在热更新链路损坏后委托表会整体静默失效。所有证据吻合：委托通道死了、直连通道活着、渲染不依赖事件通道。
+- 根修（共享层，`ComposerModelMenu.svelte`，主聊天与项目聊天共用）：弹层全部交互改为 `addEventListener` 直连监听器（`use:popoverInteraction` / `use:triggerInteraction` 两个 action）——弹层内点击用 `data-menu-action` 手工分发（模型子页/返回/选模型）、键盘导航（Escape/方向键）、触发键的禁用保护与方向键打开全部直连。Escape 关闭挪到 document 级监听器，顺带修了一个原有缺陷：鼠标打开菜单后焦点在 summary 上，原来弹层内的 keydown 根本收不到 Escape。
+- 新增交互（owner 尝试拖动说明这是期望行为）：刻度条补成完整滑块——点击轨道任意位置选最近档位、`setPointerCapture` 按住拖动实时跟随、释放定格；轨道加 `touch-action: none`/`user-select: none`/pointer 光标。
+- 选中态视觉重做（owner 二次反馈：原「高亮点悬在 knob 里」像点跳位，要求参考 LLM 强度滑杆的进度条效果）：新增 `.composer-level-fill`，从轨道起点填充 `--accent` 到 knob 中心（与 knob 同步过渡），`关闭` 档宽度为 0 无填充；填充区间内的刻度点反色为 `color-mix(in srgb, var(--on-accent) 72%, transparent)` 保持可见，选中档自身的点隐藏（knob 即指示器），右侧未选点保持中性色。该语言与 DESIGN.md 既有「accent 填充 + 中性轨道」进度语义一致；`--on-accent` 根样式 + 全部 24 个主题家族均有定义，暗色/亮色/Raft 信号黄实测对比清晰。
+- 机器守卫（`chat-ui.test.mjs` 新增 2 条）：该组件禁止出现委托式 `onclick` / `on:pointerdown`，必须存在 click/pointerdown/pointermove 直连监听与 `setPointerCapture`，样式表轨道必须带 `touch-action: none`——拦住「交互静默依赖委托表」整类回归；同时断言 fill 元素与样式存在、`data-filled` 反色规则与选中点隐藏规则在位——拦住「选中态退化回孤立高亮点」整类回归。
+- 验证：Playwright 双引擎（Chromium + WebKit）对完整应用实测——点击「高」生效、点轨道边缘选「关闭」、从最左拖到最右定格「最大」、模型子页导航、Escape 关闭（含模型子页先返回再关闭的两段语义）、点击外部关闭，全部通过且无页面错误；填充视觉在暗色默认主题、亮色默认主题、Raft 亮色三套下截图目检，与参考实现的进度条形态一致；`关闭` 档实测 `fillWidth: 0px`，拖拽后 `data-filled` 点数随档位正确增减；`svelte-check` 0 错 0 警；`chat-ui.test.mjs` 等桌面 `.mjs` 守卫 274/274；相关 tsx 单测 50/50。隔离实例（临时 `DATA_DIR` + `MOLIBOT_DISABLE_EXTERNAL_CHANNELS=1`）全程未触碰运行中的服务与真实数据。
+- 遗留说明：owner 当前那份已损坏的实例需要重启桌面 App（或刷新 webview）加载修复后的代码；损坏机制本身（HMR 半途失效）无法在代码层杜绝，但本菜单的交互通道对它免疫。
+- 落盘经过（2026-09-19 补记）：该修复 2026-09-18 晚在本地 master 提交后，`pull --rebase` 重新落位；2026-09-19 00:01 本地 master 被 reset 到 origin/master 时该提交被移出主线，仅存于 `backup/master-composer-slider` 备份分支。2026-09-19 由该分支经三文件补丁（`ComposerModelMenu.svelte` / `styles.css` / `chat-ui.test.mjs`）+ 文档条目重新落回 master，代码内容与 `cafa11c2` 一致。
+- 追加修复（2026-09-19，owner 实机反馈）：按住/拖动档位时被按压的刻度点会下坠约 11px——全局按压规则 `button:active:not(:disabled) { transform: scale(.98) }`（specificity 0,2,1）在 `:active` 期间整体替换了 `.composer-level-stop`（0,1,0）用 `transform: translate(-50%,-50%)` 做的定位居中，按钮失去 -50%/-50% 偏移；拖拽期间按压不释放，`:active` 持续，点全程趴在底部。根类是「用 `transform` 做定位的按钮撞上用 `transform` 做按压反馈的全局语言」。修法：`.composer-level-stop` 的居中改用独立的 `translate: -50% -50%` 属性（代码库既有惯例，如 `scale: .975` 按钮组），`translate` 与 `transform` 两个属性按规范叠加而非互相替换，按压缩放照常生效但不再动定位；全局按压规则处已加不变量注释（transform 定位的按钮必须改用 translate/scale 属性定位），守卫测试新增断言：stop 规则必须含 `translate: -50% -50%` 且不得出现 `transform:`。验证：真实浏览器加载真实 `styles.css` 的最小复现实测——旧写法按压 drop +11px、新写法按压 drop 0（rest/press/release 三态）；`chat-ui.test.mjs` 267/267、`svelte-check` 0 错、`vite build` 通过。
+- 同类未修风险（登记待办，非本次范围）：`.project-entry-action`（变更列表/会话文件列表悬浮按钮）、`.file-tree-action`（文件树悬浮按钮）、`.image-lightbox-nav`（灯箱导航箭头）、`.transcript-dock`（回到底部悬浮按钮，`translateX(-50%)` 且入场动画 keyframes 也用 transform，需配套改写）均为「button + transform 定位」，快速点击时有同机制的短暂下坠闪动；因可见性低、且 transcript-dock 涉及动画协同改写，未随本次顺手改，修复时套用同一「translate 属性定位」模式并扩守卫即可。
+
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
 
 - 背景（owner 走查）：「变更 → 本次会话」「附件」tab 在列表上方各有一条左上角对齐的范围说明（"只显示本次会话中 Agent 写入过的文件。" / "仅显示当前会话消息中的附件。"），与下方居中的空状态并排显得杂乱；owner 期望统一为「icon + 居中主文案 + 居中次要说明」的样式（即 Git 不可用空状态已有的样式）。
