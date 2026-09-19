@@ -18,6 +18,7 @@ export type InteractionAction =
   | { type: "model.reset" }
   | { type: "sessions.open"; page?: number }
   | { type: "session.new" }
+  | { type: "session.compact" }
   | { type: "session.switch"; id: string }
   | { type: "session.delete"; id: string }
   | { type: "session.delete.confirm"; id: string }
@@ -179,4 +180,8 @@ export interface InteractionStatusState {
   queueSize: number;
   running: boolean;
   runId: string | null;
+  contextTokens: number | null;
+  contextWindow: number | null;
+  compactionThreshold: number | null;
+  compactRecommended: boolean;
 }
