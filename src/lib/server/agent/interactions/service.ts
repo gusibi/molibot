@@ -864,7 +864,7 @@ export class SharedInteractionService<TTarget> {
       return { handled: true, terminal: true, message: result.message };
     }
     if (input.kind === "run.followup") {
-      if (!input.binding.runId) return { handled: true, message: this.options.commands.interactionText("The running task already ended.", "当前运行任务已经结束。") };
+      if (!input.binding.runId) return { handled: true, terminal: true, message: this.options.commands.interactionText("The running task already ended.", "当前运行任务已经结束。") };
       const result = this.options.commands.followUpInteractionRun(context, input.binding.runId, text);
       return { handled: true, terminal: true, message: result.message };
     }
