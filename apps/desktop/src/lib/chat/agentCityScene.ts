@@ -1063,8 +1063,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   function attachCommunityKit(node: FloorNode, isGlobal: boolean, dark: boolean, accent: number, hasWorkers: boolean): void {
     if (!communityKit || node.assetVisual.children.length > 0) return;
-    const architecture = cloneCommunityComponent(communityKit, isGlobal ? "HQArchitecture" : "StudioArchitecture", dark, accent);
-    const decor = cloneCommunityComponent(communityKit, isGlobal ? "HQDecor" : "StudioDecor", dark, accent);
+    const architecture = cloneCommunityComponent(communityKit, isGlobal ? "HQArchitecture" : "StudioArchitecture", dark, accent, visualTheme);
+    const decor = cloneCommunityComponent(communityKit, isGlobal ? "HQDecor" : "StudioDecor", dark, accent, visualTheme);
     if (architecture) node.assetVisual.add(architecture);
     if (decor) {
       const lounge = decor.getObjectByName("Lounge");
@@ -1211,7 +1211,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     }
 
     const owner = communityKit
-      ? cloneCommunityComponent(communityKit, "CommunityHub", theme === "dark", accent) ?? createOwnerCenter(theme === "dark", accent)
+      ? cloneCommunityComponent(communityKit, "CommunityHub", theme === "dark", accent, visualTheme) ?? createOwnerCenter(theme === "dark", accent)
       : createOwnerCenter(theme === "dark", accent);
     owner.position.set(projection.owner.position.x, projection.owner.position.y, projection.owner.position.z);
     staticRoot.add(owner);
@@ -1312,8 +1312,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     group.add(proceduralShell, proceduralDecor, assetVisual);
     const dark = theme === "dark";
     const isGlobal = floor.kind === "global";
-    const palette = floorPalette(variant, dark);
-    const accent = isGlobal ? 0x006bff : palette.accent;
+    const palette = floorPalette(variant, dark, visualTheme);
+    const accent = isGlobal ? cssColorHex(visualTheme.accent, 0x006bff) : palette.accent;
 
     let statusMaterial: THREE.MeshStandardMaterial;
     let perimeterSize: [number, number, number];
@@ -1668,7 +1668,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         floorNodes.set(floor.key, node);
         if (communityKit) {
           const dark = theme === "dark";
-          const accent = floor.kind === "global" ? 0x006bff : floorPalette(variant, dark).accent;
+          const accent = floor.kind === "global" ? 0x006bff : floorPalette(variant, dark, visualTheme).accent;
           attachCommunityKit(node, floor.kind === "global", dark, accent, floor.subagents.instances.length > 0);
         }
       }
