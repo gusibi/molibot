@@ -35,6 +35,7 @@
   let mounted = false;
   let visible = true;
   let hoveredKey: string | null = null;
+  let lastPointer: { x: number; y: number } | null = null;
   let pressOrigin: { x: number; y: number } | null = null;
 
   /** Distinguishes a click from the tail of an orbit/pan drag. */
@@ -60,8 +61,8 @@
     controller?.clearFocus();
   }
 
-  function updateHover(event: PointerEvent): void {
-    const hover = controller?.hitTest(event.clientX, event.clientY) ?? null;
+  function hoverAt(clientX: number, clientY: number): void {
+    const hover = controller?.hitTest(clientX, clientY) ?? null;
     if (hover?.key === hoveredKey) {
       if (hover) onHover(hover);
       return;
@@ -70,7 +71,23 @@
     onHover(hover);
   }
 
+  function updateHover(event: PointerEvent): void {
+    lastPointer = { x: event.clientX, y: event.clientY };
+    hoverAt(event.clientX, event.clientY);
+  }
+
+  /**
+   * After a poll or theme flip the scene rebuilds room targets, so the hover is
+   * re-validated by ray-casting the last pointer position. Blanking it here
+   * would blink the card every 2.5s while the pointer still rests on a room.
+   */
+  function refreshHover(): void {
+    if (!lastPointer) return;
+    hoverAt(lastPointer.x, lastPointer.y);
+  }
+
   function clearHover(): void {
+    lastPointer = null;
     if (!hoveredKey) return;
     hoveredKey = null;
     onHover(null);
@@ -173,11 +190,11 @@
 
   $: if (mounted && controller) {
     controller.update(projection);
-    clearHover();
+    refreshHover();
   }
   $: if (mounted && controller) {
     controller.setTheme(theme);
-    clearHover();
+    refreshHover();
   }
   $: if (mounted && controller) {
     controller.setSky(sky);

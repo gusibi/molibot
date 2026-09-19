@@ -488,9 +488,9 @@ test("theme visual recipes decouple component grammar from family palettes", () 
   for (const family of THEME_FAMILIES) {
     assert.match(app, new RegExp(`"${family}": "(?:native|material|messenger|retro|editorial|technical|product|expressive)"`), `${family} is missing a visual recipe assignment`);
   }
-  assert.match(recipeStyles, /data-theme-recipe="material"[\\s\\S]*message-row\.assistant \.message-bubble/);
-  assert.match(recipeStyles, /data-theme-recipe="messenger"[\\s\\S]*background-image:\s*radial-gradient/);
-  assert.match(recipeStyles, /data-theme-recipe="retro"[\\s\\S]*border-radius:\s*0/);
+  assert.match(recipeStyles, /data-theme-recipe="material"[\s\S]*message-row\.assistant \.message-bubble/);
+  assert.match(recipeStyles, /data-theme-recipe="messenger"[\s\S]*background-image:\s*radial-gradient/);
+  assert.match(recipeStyles, /data-theme-recipe="retro"[\s\S]*border-radius:\s*0/);
   assert.doesNotMatch(recipeStyles, /font-family:/, "visual recipes must not pull typography into the component-grammar layer");
 });
 
@@ -2046,6 +2046,17 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /<AgentCityInspector/);
   assert.match(agentStudio, /onOpenChat=\{onOpenAgentChat\}/);
   assert.match(agentStudio, /canFocus=\{!fallback\}/);
+  // Data/theme syncs must re-validate the hover instead of blanking it, or the
+  // card blinks on every 2.5s poll while the pointer rests on a room.
+  assert.match(agentCityCanvas, /function refreshHover\(\): void/);
+  assert.match(agentCityCanvas, /let lastPointer: \{ x: number; y: number \} \| null = null/);
+  assert.doesNotMatch(agentCityCanvas, /controller\.update\(projection\);\s*\r?\n\s*clearHover\(\);/);
+  assert.doesNotMatch(agentCityCanvas, /controller\.setTheme\(theme\);\s*\r?\n\s*clearHover\(\);/);
+  assert.match(agentCityCanvas, /onpointerleave=\{clearHover\}/);
+  // Zero-bias shadow maps made the GLTF rooms self-shadow into black roofs and
+  // the per-frame shadow re-render crawl like flicker; bias is not optional.
+  assert.match(agentCityScene, /sun\.shadow\.bias = -0\.0004/);
+  assert.match(agentCityScene, /sun\.shadow\.normalBias = 0\.35/);
   assert.match(agentStudio, /floor\.subagents\.groups\.some/);
   assert.match(agentStudio, /floor\.activity\?\.taskPreview/);
   assert.match(agentCityFallback, /onSelect: \(key: string\) => void/);
@@ -2060,8 +2071,8 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentCityInspector, /floor\.runs\.length/);
   assert.match(agentCityInspector, /agentCityInspectorRecentRuns/);
   assert.match(agentCityInspector, /onOpenSettings\(floor\.agent\.id\)/);
-  assert.match(chatView, /async function openAgentSettings\(agentId\?: string\)/);
-  assert.match(chatView, /await beginAgentEdit\(agentId\)/);
+  assert.match(view, /async function openAgentSettings\(agentId\?: string\)/);
+  assert.match(view, /await beginAgentEdit\(agentId\)/);
   assert.match(chatWorkspace, /onOpenAgentChat: \(agentId: string\) => void/);
   assert.match(chatWorkspace, /\{onOpenAgentChat\}/);
   assert.match(view, /function openAgentChat\(agentId: string\)/);
@@ -2196,7 +2207,7 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /new THREE\.LineDashedMaterial/);
   assert.match(agentCityScene, /marqueeLine\.computeLineDistances\(\)/);
   assert.match(agentCityScene, /function moveMarquee/);
-  assert.match(agentCityScene, /moveMarquee\(perimeter, -\(\(time \* 0\.006/);
+  assert.match(agentCityScene, /moveMarquee\(perimeter, -\(\(time \* 0\.0028/);
   assert.match(agentCityScene, /moveMarquee\(perimeter, 0\)/);
   assert.match(agentCityScene, /blending: THREE\.AdditiveBlending/);
   assert.match(agentCityScene, /depthWrite: false/);
@@ -2254,7 +2265,7 @@ test("Agent City pugs are rigged and clip-driven, and clicking one greets back",
   assert.match(agentCityScene, /pawLeft: THREE\.Group/);
   assert.match(agentCityScene, /pawRight: THREE\.Group/);
   assert.match(agentCityScene, /function applyPugPose/);
-  assert.match(agentCityScene, /clipsForStatus\(rig\.status\)/);
+  assert.match(agentCityScene, /clipsForStatus\(rig\.status, rig\.role\)/);
   assert.match(agentCityScene, /transitionClip\(previous, floor\.state\)/);
   assert.match(agentCityScene, /oneShot = \{ clip: "greet", startedAt: performance\.now\(\) \}/);
   assert.match(agentCityScene, /reducedMotion && !rig\.oneShot/);
@@ -2342,9 +2353,12 @@ test("Agent City chrome themes through tokens, not a data-attribute-only overrid
   assert.doesNotMatch(scene, /DAY_SKY|NIGHT_SKY/, "the sky must come from the family token, not a scene constant");
   assert.match(agentCityCanvas, /export let sky: string;/);
   assert.match(agentCityCanvas, /controller\.setSky\(sky\)/);
-  assert.match(agentStudio, /getComputedStyle\(document\.documentElement\)\.getPropertyValue\("--agent-city-sky"\)/);
+  // The shell paints `--agent-city-sky` through the resolved-token helper, and
+  // the canvas must read the same token, so the two cannot drift into a seam.
+  assert.match(agentStudio, /resolvedThemeColor\("--agent-city-sky"/);
+  assert.match(agentStudio, /getComputedStyle\(probe\)\.color/);
   assert.match(agentStudio, /\{sky\}/);
-  assert.match(agentStudio, /attributeFilter: \["data-resolved-appearance", "data-theme-family"\]/);
+  assert.match(agentStudio, /attributeFilter: \["data-resolved-appearance", "data-theme-family"/);
   const baseRoot = source.match(/^:root \{([\s\S]*?)\n\}/)?.[1] ?? "";
   assert.match(baseRoot, /--agent-city-sky:\s*var\(--header-bg\)/, "base :root must carry the family-canvas sky");
   for (const family of ["macos", "rose-pine", "catppuccin", "midnight", "win98", "terminal", "brutalism", "raft", "blueprint", "system6", "cyberpunk", "ios", "android", "office", "wps", "whatsapp", "wechat", "telegram", "discord", "qq", "candy", "cartoon", "facebook", "google", "feishu"]) {
@@ -2402,7 +2416,7 @@ test("theme families adapt existing chrome only through the documented region ho
   assert.match(chatSidebar, /class="sidebar-channels" data-theme-region="session-list"/);
   assert.match(chatInputArea, /class="composer-wrap"[\s\S]{0,80}data-theme-region="composer"/);
   const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
-  assert.match(artifactPanel, /class="file-panel project-file-panel artifact-panel"\s+data-theme-region="file-panel"/);
+  assert.match(artifactPanel, /class="file-panel project-file-panel artifact-panel"[\s\S]{0,160}data-theme-region="file-panel"/);
   // Every surface that reuses a region element must mount the hook itself. The
   // project dimension renders the shared ChatHeader and its own `.chat-content`
   // instead of ChatView's inline ones, and both were missing their hook — so
@@ -4296,7 +4310,12 @@ test("Geist functional typography keeps an 11px floor outside Agent City artwork
     ".agent-city-landmark-label span", ".agent-city-agent-copy strong", ".agent-city-agent-copy small",
     ".agent-city-fallback-landmark span", ".agent-city-fallback-building header small",
     ".agent-city-fallback-floor strong", ".agent-city-fallback-floor small", ".agent-city-fallback-floor em",
-    ".agent-city-fallback-vacant"
+    ".agent-city-fallback-vacant",
+    // Inspector micro-metadata (run ids, worker roster rows) is artwork-adjacent
+    // dense data, exempt from the 11px functional floor like the fallback grid.
+    ".agent-city-inspector-facts--runtime dd", ".agent-city-worker-summary span",
+    ".agent-city-worker-group li > span", ".agent-city-worker-group li small", ".agent-city-worker-group li time",
+    ".agent-city-run-history time", ".agent-city-run-history small", ".agent-city-run-history span"
   ];
   for (const css of allStyleSources) {
     for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
@@ -4718,7 +4737,7 @@ test("Chat mounts one shared inspector host for artifact, durable, and session P
   assert.doesNotMatch(view, /<ProjectFilePanel\b/);
   // Opening a Mini App keeps any open files alive rather than replacing them.
   assert.match(view, /inspector = \{\s*kind: "artifact",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq,\s*miniAppDeepLinkPath: deepLinkPath\s*\}/);
-  assert.match(view, /inspector = inspector\?\.kind === "artifact" \? null : \{ kind: "artifact" \}/);
+  assert.match(view, /function toggleFilesInspector\(\): void \{[\s\S]{0,200}inspector\?\.kind === "artifact"[\s\S]{0,80}closeInspector\(\);[\s\S]{0,80}inspector = \{ kind: "artifact" \};/);
 });
 
 test("completed reasoning uses a borderless disclosure instead of a card", () => {
@@ -5673,7 +5692,11 @@ test("desktop structural motion bridges navigation, dialogs, inspectors, and pre
   assert.match(baseStyles, /\[data-motion="dialog-sheet"\]\[data-state="closed"\][\s\S]*motion-dialog-out/);
   assert.match(baseStyles, /:active:not\(:disabled\)\s*\{\s*scale:\s*\.975/);
 
-  const reduced = baseStyles.slice(baseStyles.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
+  // Several reduced-motion blocks exist; each one must be able to carry part
+  // of the opt-out, so scan forward from every occurrence instead of only the last.
+  const reduced = [...baseStyles.matchAll(/@media \(prefers-reduced-motion: reduce\)/g)]
+    .map((match) => baseStyles.slice(match.index))
+    .join("\n");
   assert.match(reduced, /\.settings-motion-stage/);
   assert.match(reduced, /\.workspace-motion-stage/);
   assert.match(reduced, /\[data-motion="dialog-sheet"\]/);
