@@ -45,6 +45,7 @@ export interface AgentCityFloor {
   kind: "agent" | "global";
   agent: DesktopAgentItem;
   activity: DesktopAgentActivityItem | null;
+  runs: DesktopAgentActivityItem["runs"];
   buildingIndex: number | "global";
   floorIndex: number;
   position: AgentCityPoint;
@@ -150,17 +151,19 @@ function subagentsFor(activity: DesktopAgentActivityItem | undefined): AgentCity
 
 function makeFloor(
   agent: DesktopAgentItem,
-  activity: DesktopAgentActivityItem | undefined,
+  activityRecord: DesktopAgentActivityItem | undefined,
   buildingIndex: number | "global",
   floorIndex: number,
   position: AgentCityPoint
 ): AgentCityFloor {
+  const activity = activityRecord?.runId ? activityRecord : undefined;
   const state = stateFor(agent, activity);
   return {
     key: buildingIndex === "global" ? "global" : `slot-${floorIndex * AGENT_CITY_BUILDING_COUNT + buildingIndex}`,
     kind: buildingIndex === "global" ? "global" : "agent",
     agent,
     activity: activity ?? null,
+    runs: activityRecord?.runs ?? [],
     buildingIndex,
     floorIndex,
     position,
