@@ -26,7 +26,18 @@ function activity(agentId: string, status: DesktopAgentActivityItem["status"] = 
     taskPreview: "Inspect the repository without inventing tool actions",
     startedAt: "2026-07-14T12:00:00.000Z",
     finishedAt: status === "working" ? "" : "2026-07-14T12:00:10.000Z",
-    subagents: []
+    subagents: [],
+    runs: [{
+      status: status === "idle" ? "completed" : status,
+      runId: `run-${agentId}`,
+      channel: "web",
+      botId: `bot-${agentId}`,
+      botName: `Bot ${agentId}`,
+      taskPreview: "Inspect the repository without inventing tool actions",
+      startedAt: "2026-07-14T12:00:00.000Z",
+      finishedAt: status === "working" ? "" : "2026-07-14T12:00:10.000Z",
+      subagents: []
+    }]
   };
 }
 
