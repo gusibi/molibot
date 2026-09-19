@@ -1473,7 +1473,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       surface.emissiveIntensity = 0.18;
     }
 
-    const beaconMaterial = new THREE.MeshStandardMaterial({ color: 0xea001d, emissive: 0xea001d, emissiveIntensity: 0.8 });
+    const beaconColor = themedStatusColor("error", visualTheme);
+    const beaconMaterial = new THREE.MeshStandardMaterial({ color: beaconColor, emissive: beaconColor, emissiveIntensity: 0.72 });
     const beacon = mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.22, 12), beaconMaterial, isGlobal ? -2.3 : -1.45, isGlobal ? 2.6 : 1.72, -0.92);
     beacon.visible = false;
     group.add(beacon);
@@ -1542,16 +1543,18 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       node.windowBase = night ? 0 : 0.02;
       node.windowFlicker = 0;
     } else if (status === "working") {
-      node.windowBase = night ? 0.95 : 0.16;
-      node.windowFlicker = night ? 0.22 : 0.04;
+      node.windowBase = night ? 0.88 : 0.14;
+      node.windowFlicker = night ? 0.045 : 0.012;
     } else if (status === "error") {
-      node.windowBase = night ? 0.5 : 0.1;
-      node.windowFlicker = night ? 0.35 : 0;
+      node.windowBase = night ? 0.48 : 0.1;
+      node.windowFlicker = night ? 0.1 : 0.018;
     } else {
-      node.windowBase = night ? 0.3 : 0.05;
-      node.windowFlicker = night ? 0.05 : 0;
+      node.windowBase = night ? 0.28 : 0.05;
+      node.windowFlicker = night ? 0.012 : 0;
     }
-    const tint = status === "error" ? 0xff9a86 : 0xffd79a;
+    const tint = status === "error"
+      ? mixHex(cssColorHex(visualTheme.danger, 0xff9a86), 0xffffff, 0.32)
+      : mixHex(cssColorHex(visualTheme.warning, 0xffc96b), 0xffffff, 0.46);
     node.windowMaterial.emissive.setHex(tint);
     node.windowMaterial.emissiveIntensity = node.windowBase;
     for (const surface of node.assetWindowMaterials) {
@@ -1566,7 +1569,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   function applyFloorState(node: FloorNode, floor: AgentCityFloor): void {
     const previous = node.status;
-    const statusColor = STATUS_COLORS[floor.state];
+    const statusColor = themedStatusColor(floor.state, visualTheme);
     node.statusMaterial.color.setHex(statusColor);
     node.statusMaterial.emissive.setHex(statusColor);
     node.statusMaterial.emissiveIntensity =
@@ -1580,9 +1583,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     if (node.celebration) node.celebration.visible = floor.state === "completed";
     const roomAccent =
       floor.state === "working" ? node.deskAccent :
-      floor.state === "completed" ? STATUS_COLORS.completed :
-      floor.state === "error" ? STATUS_COLORS.error :
-      0xffc96b;
+      floor.state === "completed" ? themedStatusColor("completed", visualTheme) :
+      floor.state === "error" ? themedStatusColor("error", visualTheme) :
+      cssColorHex(visualTheme.warning, 0xffc96b);
     for (const surface of node.activityMaterials) {
       surface.emissive.setHex(roomAccent);
       surface.emissiveIntensity =
@@ -1614,8 +1617,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       if (screen) {
         const color =
           subagent.status === "working" ? roleColor(subagent.name) :
-          subagent.status === "completed" ? STATUS_COLORS.completed :
-          STATUS_COLORS.error;
+          subagent.status === "completed" ? themedStatusColor("completed", visualTheme) :
+          themedStatusColor("error", visualTheme);
         screen.color.setHex(color);
         screen.emissive.setHex(color);
         screen.emissiveIntensity = subagent.status === "working" ? 0.9 : 0.48;
@@ -1623,7 +1626,11 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     });
 
     if (node.route && floor.route) {
-      const color = floor.route.phase === "failed" ? 0xea001d : floor.route.phase === "returning" ? 0x28a948 : 0x006bff;
+      const color = floor.route.phase === "failed"
+        ? themedStatusColor("error", visualTheme)
+        : floor.route.phase === "returning"
+          ? themedStatusColor("completed", visualTheme)
+          : themedStatusColor("working", visualTheme);
       node.route.phase = floor.route.phase;
       node.route.tubeMaterial.color.setHex(color);
       node.route.tubeMaterial.emissive.setHex(color);
