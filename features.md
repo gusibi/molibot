@@ -14,6 +14,7 @@
 - Phase 5 Agent Inspector 完成：点击 3D 房间或 2D fallback 都打开同一套右侧 Inspector；概览 / Worker / 运行信息三页实时跟随 2.5s activity poll，展示当前任务、来源 Bot/Channel、模型路由、权限、Run ID、起止时间、完整 Worker role 分组与每个实例状态，不再用底部小卡片塞信息。
 - Inspector 直接提供「与这个 Agent 对话 / 镜头对准 / Agent 设置」动作；对话动作会解析绑定该 Agent 的 Web Profile 并直接创建对应 Bot 的新会话草稿，Default/Momo 会优先使用未绑定专属 Agent 的默认 Web Profile；没有可用 Profile 时跳到 Profiles 设置，不生成错误绑定的会话。
 - Live Community UX 同步补齐：Agent 搜索现在不只搜名字/描述，也搜 Worker role、Bot 名称与任务摘要；Inspector 打开时宽屏搜索面板自动让位，窄屏改为临时覆盖；Escape 关闭 Inspector、2D fallback 也可进入 Inspector，旧 `.agent-city-detail` 卡片和死样式已删除。
+- Phase 5 可访问性收口：Inspector 三个 tab 完成标准 roving tabindex + ArrowLeft/ArrowRight/Home/End 键盘导航，tabpanel 与 tab 用 aria-controls/aria-labelledby 绑定；状态徽章补可读状态标签，键盘用户可以完整使用与鼠标相同的工作台能力。
 
 
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
