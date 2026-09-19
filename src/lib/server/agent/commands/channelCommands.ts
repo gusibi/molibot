@@ -959,16 +959,60 @@ export class SharedRuntimeCommandService<TTarget> {
   getInteractionStatus(scopeId: string): InteractionStatusState {
     const project = this.options.getActiveProject?.(scopeId) ?? null;
     const thinking = this.getInteractionThinking(scopeId);
+    const settings = this.options.getSettings();
+    const model = resolveModel(this.effectiveModelSettings(settings), "text");
+    const contextWindow = Number(model.contextWindow || settings.compaction.defaultContextWindow || 0);
+    const percentLimit = Math.max(0, Math.floor(contextWindow * settings.compaction.thresholdPercent / 100));
+    const reserveLimit = Math.max(0, contextWindow - settings.compaction.reserveTokens);
+    const compactionThreshold = contextWindow > 0 ? Math.min(percentLimit, reserveLimit) : 0;
+    const sessionId = this.getInteractionState(scopeId).sessionId;
+    const contextTokens = project
+      ? null
+      : this.options.store.getSessionStatusSnapshot(scopeId, sessionId).estimatedContextTokens;
     return {
-      sessionId: this.getInteractionState(scopeId).sessionId,
+      sessionId,
       projectId: project?.id ?? null,
       projectName: project?.name ?? null,
       modelKey: this.getInteractionModels().activeKey,
       thinkingEffective: thinking.effective,
       queueSize: this.options.getQueueSize?.(scopeId) ?? 0,
       running: this.options.isRunning(scopeId),
-      runId: this.activeInteractionRunId(scopeId)
+      runId: this.activeInteractionRunId(scopeId),
+      contextTokens,
+      contextWindow: contextWindow > 0 ? contextWindow : null,
+      compactionThreshold: compactionThreshold > 0 ? compactionThreshold : null,
+      compactRecommended: !project
+        && !this.options.isRunning(scopeId)
+        && contextTokens !== null
+        && compactionThreshold > 0
+        && contextTokens >= compactionThreshold
     };
+  }
+
+  async compactInteractionSession(
+    input: InteractionContext<TTarget>
+  ): Promise<{ ok: boolean; message: string }> {
+    if (this.options.isRunning(input.scopeId)) {
+      return { ok: false, message: this.text("Already working. Stop the current task before compacting.", "已有任务正在运行，请先停止当前任务，再压缩上下文。") };
+    }
+    if (this.options.getActiveProject?.(input.scopeId)) {
+      return { ok: false, message: this.text("Project-session compaction is not exposed by this interaction surface.", "当前交互界面不提供 Project 会话压缩。") };
+    }
+    const sessionId = this.options.store.getActiveSession(input.scopeId);
+    try {
+      const result = await this.options.runners.compact(input.scopeId, sessionId, { reason: "manual" });
+      return result.changed
+        ? {
+            ok: true,
+            message: this.text(
+              `Conversation compacted: ≈${result.beforeTokens} → ≈${result.afterTokens} tokens.`,
+              `会话上下文已压缩：≈${result.beforeTokens} → ≈${result.afterTokens} tokens。`
+            )
+          }
+        : { ok: false, message: this.text("Nothing to compact yet.", "当前没有需要压缩的内容。") };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   async stopInteractionRun(
