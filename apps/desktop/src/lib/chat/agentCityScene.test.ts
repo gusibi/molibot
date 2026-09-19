@@ -34,6 +34,7 @@ function floorFixture(overrides: Partial<AgentCityFloor> = {}): AgentCityFloor {
       modelRouting: { textModelKey: "", sttModelKey: "" }
     },
     activity: null,
+    runs: [],
     buildingIndex: 3,
     floorIndex: 0,
     position: { x: 5.6, y: 0.35, z: -3.6 },
