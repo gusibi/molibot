@@ -1021,11 +1021,35 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   rim.castShadow = false;
   scene.add(rim);
 
+  function applyMomoTheme(root: THREE.Object3D): void {
+    const profile = agentCityRecipeProfile(visualTheme.recipe);
+    const accent = cssColorHex(visualTheme.accent, 0x4a9a94);
+    const panel = cssColorHex(visualTheme.panel, theme === "dark" ? 0x2d3940 : 0xe9edf0);
+    const separator = cssColorHex(visualTheme.separator, theme === "dark" ? 0x56616a : 0x9aa3aa);
+    root.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const surfaces = Array.isArray(object.material) ? object.material : [object.material];
+      for (const surface of surfaces) {
+        if (!(surface instanceof THREE.MeshStandardMaterial)) continue;
+        const name = surface.name.toLowerCase();
+        if (name.includes("vesttrim")) {
+          surface.color.setHex(mixHex(separator, accent, 0.28));
+          surface.roughness = profile.roughness;
+        } else if (name.includes("momovest") || name === "vest") {
+          surface.color.setHex(accent);
+          surface.roughness = profile.roughness;
+          surface.metalness = profile.metalness;
+        }
+      }
+    });
+  }
+
   function attachMomoAsset(rig: PugRig): void {
     if (!rig.assetEligible || rig.asset || !momoTemplate) return;
     if (quality === "low" && rig.isWorker) return;
     const instance = createMomoAssetInstance(momoTemplate);
     instance.root.scale.setScalar(0.96);
+    applyMomoTheme(instance.root);
     rig.root.add(instance.root);
     const assetHead = instance.root.getObjectByName("HeadPivot");
     if (assetHead) {
@@ -1654,8 +1678,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     setPugStatus(node.mainPug, floor.state);
     floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT).forEach((subagent, index) => {
       const rig = node.pugs[index + 1];
+      const previousWorkerStatus = rig?.status ?? null;
+      const workerStatusChanged = previousWorkerStatus !== subagent.status;
       if (rig) {
-        const previousWorkerStatus = rig.status;
         const workerReaction = transitionClip(previousWorkerStatus, subagent.status);
         if (workerReaction) rig.oneShot = { clip: workerReaction, startedAt: performance.now() };
         if (previousWorkerStatus === "working" && subagent.status !== "working" && rig.workerExitStartedAt === null) {
@@ -1674,7 +1699,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
           themedStatusColor("error", visualTheme);
         screen.color.setHex(color);
         screen.emissive.setHex(color);
-        if (!rig || rig.status !== subagent.status || stateChanged) {
+        if (workerStatusChanged || stateChanged) {
           screen.emissiveIntensity = subagent.status === "working" ? 0.9 : 0.48;
         }
       }
@@ -2187,6 +2212,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       if (nextSignature === visualThemeSignature) return;
       visualTheme = nextVisualTheme;
       visualThemeSignature = nextSignature;
+      if (momoTemplate) applyMomoTheme(momoTemplate.scene);
       applyTheme();
       buildStaticScenery();
       // Family colours are baked into room/GLTF material clones. Rebuild only
