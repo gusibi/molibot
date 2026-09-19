@@ -62,6 +62,8 @@ export interface SharedRuntimeCommandContext<TTarget> {
   scopeId: string;
   text: string;
   target: TTarget;
+  platformMessageId?: string;
+  platformThreadId?: string;
 }
 
 export interface SharedRuntimeCommandOptions<TTarget> {
