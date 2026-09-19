@@ -38,6 +38,7 @@
     type DesktopWebProfile
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
+  import { beginAgentEdit, loadAgents as loadAgentsSettings } from "./lib/stores/agents.svelte";
   import IosSwitch from "./lib/components/ui/IosSwitch.svelte";
   import SelectControl from "./lib/components/ui/SelectControl.svelte";
   import {
@@ -1696,6 +1697,13 @@
 
   function newConversation(): void {
     newConversationWithBot(defaultBot());
+  }
+
+  async function openAgentSettings(agentId?: string): Promise<void> {
+    openSettings("agents");
+    if (!agentId || !connectedEndpoint) return;
+    await loadAgentsSettings(connectedEndpoint);
+    await beginAgentEdit(agentId);
   }
 
   function openAgentChat(agentId: string): void {
@@ -3365,7 +3373,7 @@
         serviceReady={connectionReady}
         serviceError={error}
         onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
-        onOpenAgentSettings={() => openSettings("agents")}
+        onOpenAgentSettings={(agentId) => { void openAgentSettings(agentId); }}
         onOpenAgentChat={openAgentChat}
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
