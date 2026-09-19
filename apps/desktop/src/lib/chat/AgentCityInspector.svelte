@@ -12,7 +12,7 @@
   export let onFocus: () => void;
   export let canFocus = true;
   export let onOpenChat: (agentId: string) => void;
-  export let onOpenSettings: () => void;
+  export let onOpenSettings: (agentId: string) => void;
 
   type InspectorTab = "overview" | "workers" | "runs" | "runtime";
   const tabs: InspectorTab[] = ["overview", "workers", "runs", "runtime"];
@@ -261,7 +261,7 @@
   <footer class="agent-city-inspector-actions">
     <button type="button" class="primary" onclick={() => onOpenChat(floor.agent.id)}>{copy.agentCityInspectorOpenChat}</button>
     {#if canFocus}<button type="button" onclick={onFocus}>{copy.agentCityFocusFloor}</button>{/if}
-    <button type="button" class:wide={!canFocus} onclick={onOpenSettings}>{copy.agentCityOpenAgentSettings}</button>
+    <button type="button" class:wide={!canFocus} onclick={() => onOpenSettings(floor.agent.id)}>{copy.agentCityOpenAgentSettings}</button>
   </footer>
 </aside>
 
