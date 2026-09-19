@@ -2977,6 +2977,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
     // Common commands surfaced in the Telegram "/" menu and used day-to-day.
     const essentialRows: CommandTableRow[] = [
+      { label: "/menu", value: d("open the native interaction menu", "打开原生操作菜单") },
       { label: "/new", value: d("create and switch to a new session", "创建并切换到新会话") },
       { label: "/clear", value: d("clear context of current session", "清除当前会话上下文") },
       { label: "/stop", value: d("stop current running task", "停止当前运行中的任务") },
