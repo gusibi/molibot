@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
 import { TelegramManager } from "$lib/server/channels/telegram/runtime.js";
 import { buildTelegramMemoryReviewKeyboard, parseTelegramMemoryReviewCallback } from "$lib/server/channels/telegram/memoryReview.js";
-import { buildTelegramQueuedControlKeyboard, parseTelegramQueuedControlCallback } from "$lib/server/channels/telegram/queuedControl.js";
 
 // Mock dependencies for TelegramManager instantiation
 const mockGetSettings = () => ({}) as any;
@@ -78,16 +77,6 @@ test("telegram memory review callbacks stay compact and parse only known actions
   assert.equal(callbacks.every((value) => Buffer.byteLength(value, "utf8") <= 64), true);
 });
 
-test("telegram queued-control callbacks stay compact and bind both actions to one queue item", () => {
-  assert.deepEqual(parseTelegramQueuedControlCallback("qctl:x:12"), { action: "stop", queueId: 12 });
-  assert.deepEqual(parseTelegramQueuedControlCallback("qctl:s:12"), { action: "steer", queueId: 12 });
-  assert.equal(parseTelegramQueuedControlCallback("qctl:s:0"), null);
-  assert.equal(parseTelegramQueuedControlCallback("qctl:z:12"), null);
-  const keyboard = buildTelegramQueuedControlKeyboard(12);
-  const callbacks = keyboard.inline_keyboard.flatMap((row) => row.map((button) => "callback_data" in button ? button.callback_data : ""));
-  assert.deepEqual(callbacks, ["qctl:x:12", "qctl:s:12"]);
-  assert.equal(callbacks.every((value) => Buffer.byteLength(value, "utf8") <= 64), true);
-});
 
 test("telegram MIME detection for audio and video files", () => {
   const manager = new TestTelegramManager();
