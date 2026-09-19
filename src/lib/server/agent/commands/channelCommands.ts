@@ -933,7 +933,7 @@ export class SharedRuntimeCommandService<TTarget> {
     if (!this.options.deleteQueued) return { ok: false, message: this.text("Queue cancellation is unavailable.", "当前无法取消排队任务。") };
     const result = await this.options.deleteQueued(input.scopeId, id);
     return result === "deleted"
-      ? { ok: true, message: this.text(`Cancelled queued task #${id}.`, `已取消排队任务 #${id}。`) }
+      ? { ok: true, message: this.text(`Deleted queued task ${id}.`, `已删除排队任务 ${id}。`) }
       : result === "running"
         ? { ok: false, message: this.text(`Task #${id} has already started and was not stopped.`, `任务 #${id} 已经开始运行，没有自动停止。`) }
         : { ok: false, message: this.text(`Queue item #${id} no longer exists.`, `队列任务 #${id} 已不存在。`) };
