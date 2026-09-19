@@ -4,6 +4,10 @@ Agent Community 之前虽然会跟随明暗模式和天空背景，但 Three.js 
 
 房间放大时的“持续闪”也根修了。原来的城市总览为了让 Working/Error 状态远距离可见，会让整片窗户、任务板、屏幕、外围线框不断做 emissive pulse；GLTF 房间放大后这些大面积发光面把微动画变成了明显闪屏。现在远景只保留幅度更小、速度更慢的呼吸，进入 detail distance 或聚焦房间后直接固定亮度，窗户、任务板、Worker 屏、Working perimeter 与选中框都不再持续闪烁。
 
+### Fixed: Agent Community 主题联动与聚焦房间闪烁（2026-09-19)
+
+Agent Community 不再只是统一配色的 3D 场景：它会读取当前主题 family/recipe 和真实 CSS token，把建筑、家具、道路、广场、植被、灯具以及 Momo 背心一起换成对应主题语言；Blueprint/Cyberpunk 等 Technical 主题带 drafting grid，Win98/System 6/Terminal 等 Retro 主题使用更硬的线条和材质，Raft/Brutalism 的 Editorial 语言更扁平，Candy/Cartoon 的 Expressive 主题更强调柔和 accent。与此同时修掉房间放大后每 2.5 秒闪一次的问题：Activity poll 不再重复重置 emissive animation，聚焦视图保持稳定亮度，只在真实状态变化时更新。
+
 ### Changed: Agent Community Phase 5 — Live Inspector 与快速对话（2026-09-19）
 
 Agent City 现在从“可看”进入“可操作”的工作台阶段。点击任意 Agent 房间会从右侧打开 Live Inspector，分为概览、Worker、运行信息三页：当前任务、Bot/Channel 来源、模型/权限、Run ID、开始/结束时间、Worker role 聚合与完整实例状态都会随着 Agent Activity 轮询实时刷新。相同 Inspector 同时支持 3D WebGL 与 2D fallback，不再让节能模式退化成只有 tooltip 的只读视图。
