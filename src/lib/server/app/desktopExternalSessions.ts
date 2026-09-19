@@ -86,8 +86,12 @@ export interface ExternalSessionEntry {
   conversation: Conversation;
   channel: Channel;
   externalUserId: string;
-  /** Short last-message text for the sidebar preview / search (plan §12.2). */
-  preview: string;
+  /**
+   * Short last-message text for the sidebar preview / search (plan §12.2).
+   * Absent on ordinary list entries, which only read Session metadata; present
+   * on search/reflection flows that parse the transcript.
+   */
+  preview?: string;
 }
 
 /**

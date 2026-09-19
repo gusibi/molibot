@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
+import { rebuildExternalSessionMetadata } from "$lib/server/app/externalSessionsFromContexts.js";
 import {
   buildBotNameResolver,
   buildExternalItems,
@@ -13,11 +14,13 @@ import {
   clampLimit,
   decodeCursor,
   encodeCursor,
+  listDesktopConversations,
   parseWebProfileId,
   queryConversationSearchGroup,
   queryConversations,
   sortItems,
-  type BotNameResolver
+  type BotNameResolver,
+  type DesktopConversationQueryContext
 } from "./desktopConversations.js";
 import type {
   DesktopConversationChannel,
@@ -314,8 +317,7 @@ test("buildBotNameResolver resolves web/external names and detects deleted bots"
   assert.deepEqual(resolver.externalName("telegram", ""), { name: "", deleted: false });
 });
 
-test("SessionStore.listAllWebConversations aggregates across profiles with a preview", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "molibot-desktop-convs-"));
+test("SessionStore.listAllWebConversations aggregates across profiles with a preview", () => {  const root = mkdtempSync(path.join(tmpdir(), "molibot-desktop-convs-"));
   const original = {
     webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
@@ -359,4 +361,175 @@ test("SessionStore.listAllWebConversations aggregates across profiles with a pre
     storagePaths.sessionsIndexFile = original.sessionsIndexFile;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+function querySettings(): RuntimeSettings {
+  return {
+    agents: [],
+    channels: {
+      web: {
+        instances: [
+          { id: "personal", name: "Personal", enabled: true, agentId: "", credentials: {}, allowedChatIds: [] }
+        ]
+      },
+      telegram: {
+        instances: [
+          { id: "mybot", name: "My Bot", enabled: true, agentId: "", credentials: {}, allowedChatIds: [] }
+        ]
+      }
+    }
+  } as unknown as RuntimeSettings;
+}
+
+function withTempStorage<T>(run: (root: string) => T): T {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-desktop-list-"));
+  const original = {
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile,
+    projectsDir: storagePaths.projectsDir
+  };
+  storagePaths.webWorkspaceDir = path.join(root, "web");
+  storagePaths.sessionsDir = path.join(root, "legacy");
+  storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+  storagePaths.projectsDir = path.join(root, "projects");
+  try {
+    return run(root);
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function seedExternalSession(
+  root: string,
+  chatId: string,
+  sessionId: string,
+  entries: Array<{ role: "user" | "assistant"; content: string; timestamp: string }>,
+  createdAt: string
+): string {
+  const dir = path.join(root, "moli-t", "bots", "mybot", chatId, "contexts");
+  mkdirSync(dir, { recursive: true });
+  const lines = [JSON.stringify({ type: "session", version: 1, id: sessionId, timestamp: createdAt })];
+  let prev: string | null = null;
+  entries.forEach((entry, index) => {
+    const id = `e${index}`;
+    lines.push(JSON.stringify({
+      type: "message",
+      id,
+      parentId: prev,
+      timestamp: entry.timestamp,
+      message: { role: entry.role, content: entry.content }
+    }));
+    prev = id;
+  });
+  const file = path.join(dir, `${sessionId}.jsonl`);
+  writeFileSync(file, `${lines.join("\n")}\n`, "utf8");
+  writeFileSync(path.join(dir, `${sessionId}.json`), "[]\n", "utf8");
+  return file;
+}
+
+test("ordinary web list reads metadata only, omits preview, and search keeps previews", () => {
+  withTempStorage((root) => {
+    const store = new SessionStore();
+    const conversation = store.createWebConversation("web:personal:web-anonymous");
+    store.appendMessage(conversation.id, "user", "hello world");
+
+    let projections = 0;
+    store.setMessageProjector((id) => {
+      projections += 1;
+      return store.listMessageMetadata(id).map((message) => ({ ...message, content: message.content ?? "" }));
+    });
+
+    const ctx: DesktopConversationQueryContext = {
+      sessions: store,
+      settings: querySettings(),
+      dataRoot: root,
+      isActive: () => true
+    };
+
+    const ordinary = listDesktopConversations({ channel: "web", limit: 10 }, ctx);
+    assert.equal(ordinary.items.length, 1);
+    assert.equal(projections, 0, "plain enumeration must not load Agent transcripts");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(ordinary.items[0], "latestMessagePreview"),
+      false,
+      "ordinary list omits the preview field instead of sending an empty string"
+    );
+
+    const searched = listDesktopConversations({ channel: "web", query: "hello" }, ctx);
+    assert.equal(searched.items.length, 1);
+    assert.ok(projections > 0, "an explicit query keeps preview-backed matching");
+    assert.equal(searched.items[0].latestMessagePreview, "hello world");
+  });
+});
+
+test("ordinary external list reads metadata only and survives a corrupt transcript", () => {
+  withTempStorage((root) => {
+    const legacyFile = seedExternalSession(root, "111", "s-legacy", [
+      { role: "user", content: "Metadata only please", timestamp: "2026-07-01T00:00:00.000Z" }
+    ], "2026-07-01T00:00:00.000Z");
+    rebuildExternalSessionMetadata(root);
+
+    // Failure probe at the Agent Context body boundary: the metadata list must
+    // not parse this file, so its contents are irrelevant to the result.
+    writeFileSync(legacyFile, "corrupt-not-json\n", "utf8");
+
+    const ctx: DesktopConversationQueryContext = {
+      sessions: {} as DesktopConversationQueryContext["sessions"],
+      settings: querySettings(),
+      dataRoot: root,
+      isActive: () => true
+    };
+    const result = listDesktopConversations({ channel: "telegram", limit: 10 }, ctx);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].title, "Metadata only please");
+    assert.equal(result.items[0].updatedAt, "2026-07-01T00:00:00.000Z");
+    assert.equal(Object.prototype.hasOwnProperty.call(result.items[0], "latestMessagePreview"), false);
+  });
+});
+
+test("external list orders newest-first and paginates with a stable cursor", () => {
+  withTempStorage((root) => {
+    for (let i = 1; i <= 12; i += 1) {
+      const stamp = `2026-07-${String(i).padStart(2, "0")}T00:00:00.000Z`;
+      seedExternalSession(root, "111", `s-${String(i).padStart(2, "0")}`, [
+        { role: "user", content: `message ${i}`, timestamp: stamp }
+      ], stamp);
+    }
+    rebuildExternalSessionMetadata(root);
+
+    const ctx: DesktopConversationQueryContext = {
+      sessions: {} as DesktopConversationQueryContext["sessions"],
+      settings: querySettings(),
+      dataRoot: root,
+      isActive: () => true
+    };
+    const page1 = listDesktopConversations({ channel: "telegram", limit: 10 }, ctx);
+    assert.equal(page1.items.length, 10);
+    assert.equal(page1.hasMore, true);
+    assert.ok(page1.nextCursor);
+    assert.equal(page1.items[0].updatedAt, "2026-07-12T00:00:00.000Z");
+
+    const page2 = listDesktopConversations({ channel: "telegram", limit: 10, cursor: page1.nextCursor }, ctx);
+    assert.equal(page2.items.length, 2);
+    assert.equal(page2.hasMore, false);
+    assert.deepEqual(page2.items.map((item) => item.updatedAt), [
+      "2026-07-02T00:00:00.000Z",
+      "2026-07-01T00:00:00.000Z"
+    ]);
+  });
+});
+
+test("project conversation lists expose metadata without projecting messages", () => {
+  withTempStorage(() => {
+    const store = new SessionStore();
+    const conversation = store.createProjectConversation("p-1", "web:personal:web-anonymous");
+    store.setMessageProjector(() => {
+      throw new Error("project list must not load Agent transcripts");
+    });
+    const list = store.listProjectConversations("p-1");
+    assert.equal(list.length, 1);
+    assert.equal(list[0].id, conversation.id);
+  });
 });

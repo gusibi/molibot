@@ -41,6 +41,13 @@ import {
   resolveWorkspaceRelativeFromWorkspacePath
 } from "$lib/server/agent/session/workspace.js";
 import { estimateContextTokens } from "$lib/server/agent/session/compaction.js";
+import {
+  deriveSessionDisplayMetadata,
+  readSessionOriginMetadata,
+  writeSessionDisplayMetadata,
+  writeSessionOriginMetadata
+} from "$lib/server/agent/session/metadata.js";
+import type { SessionOriginMetadata } from "$lib/server/agent/session/metadata.js";
 import { createRuntimeSessionId, isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import type { TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
 import { PERMISSION_MODES, type PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
@@ -85,14 +92,7 @@ export interface SessionContextCheckpoint {
   bodyEntryCount: number;
 }
 
-export interface SessionOriginMetadata {
-  origin?: "automation" | "chat";
-  taskId?: string;
-  runId?: string;
-  archiveMode?: "shared";
-  returnSessionId?: string;
-  createdAt?: string;
-}
+export type { SessionOriginMetadata } from "$lib/server/agent/session/metadata.js";
 
 export function taskArchiveSessionId(taskId: string): string | undefined {
   const stableTaskId = String(taskId ?? "").trim();
@@ -244,6 +244,26 @@ export class MomRuntimeStore {
     return dir;
   }
 
+  /** Contexts path without directory creation, for read/diff-only helpers. */
+  private contextsDirPath(chatId: string): string {
+    return join(this.workspaceDir, chatId, "contexts");
+  }
+
+  /**
+   * Keeps the `<sessionId>.meta.json` display fields in step with the log.
+   * The App list layer reads this sidecar instead of parsing the transcript, so
+   * every log mutation must refresh it.
+   */
+  private touchSessionDisplayMetadata(chatId: string, sessionId: string, entries: SessionFileEntry[]): void {
+    const id = this.sanitizeSessionId(sessionId);
+    try {
+      writeSessionDisplayMetadata(this.contextsDirPath(chatId), id, deriveSessionDisplayMetadata(entries));
+    } catch {
+      // Metadata is a listing optimization; a write failure must never block
+      // the actual Session mutation.
+    }
+  }
+
   private getActiveSessionFile(chatId: string): string {
     return join(this.getChatDir(chatId), "active_session.txt");
   }
@@ -339,6 +359,7 @@ export class MomRuntimeStore {
         prevId = entry.id;
       }
       writeFileSync(entriesFile, serializeSessionEntries(migratedEntries), "utf8");
+      this.touchSessionDisplayMetadata(chatId, id, migratedEntries);
     } catch {
       // ignore migration failures and keep legacy context fallback
     }
@@ -357,6 +378,9 @@ export class MomRuntimeStore {
     }
     const header = createSessionHeader(id);
     writeFileSync(file, serializeSessionEntries([header]), "utf8");
+    // The log was unreadable/empty; reset list metadata so a stale sidecar
+    // cannot keep listing a Session whose messages are gone.
+    this.touchSessionDisplayMetadata(chatId, id, [header]);
     return [header];
   }
 
@@ -364,6 +388,7 @@ export class MomRuntimeStore {
     const id = this.sanitizeSessionId(sessionId);
     const file = this.ensureSessionEntriesFile(chatId, id);
     writeFileSync(file, serializeSessionEntries(entries), "utf8");
+    this.touchSessionDisplayMetadata(chatId, id, entries);
   }
 
   private readSessionHeader(chatId: string, sessionId: string): SessionHeaderEntry {
@@ -403,6 +428,7 @@ export class MomRuntimeStore {
       timestamp: entry.timestamp || new Date().toISOString()
     };
     appendFileSync(this.ensureSessionEntriesFile(chatId, id), `${JSON.stringify(next)}\n`, "utf8");
+    this.touchSessionDisplayMetadata(chatId, id, [...entries, next]);
   }
 
   listSessions(chatId: string): string[] {
@@ -426,23 +452,13 @@ export class MomRuntimeStore {
 
   readSessionOrigin(chatId: string, sessionId: string): SessionOriginMetadata | null {
     const id = this.sanitizeSessionId(sessionId);
-    const file = this.getSessionMetadataFile(chatId, id);
-    if (!existsSync(file)) return null;
-    try {
-      const parsed = JSON.parse(readFileSync(file, "utf8")) as SessionOriginMetadata;
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch {
-      return null;
-    }
+    return readSessionOriginMetadata(this.getContextsDir(chatId), id);
   }
 
   markSessionOrigin(chatId: string, sessionId: string, metadata: SessionOriginMetadata): void {
     const id = this.sanitizeSessionId(sessionId);
     this.ensureSessionEntriesFile(chatId, id);
-    writeFileSync(this.getSessionMetadataFile(chatId, id), `${JSON.stringify({
-      ...metadata,
-      createdAt: metadata.createdAt ?? new Date().toISOString()
-    }, null, 2)}\n`, "utf8");
+    writeSessionOriginMetadata(this.getContextsDir(chatId), id, metadata);
   }
 
   listVisibleSessions(chatId: string): string[] {

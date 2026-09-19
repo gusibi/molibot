@@ -6,7 +6,7 @@ import { getRuntime } from "$lib/server/app/runtime.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { resolveDesktopWebProfiles } from "$lib/server/app/desktopProfiles.js";
 import { buildDesktopChannelsSummary } from "$lib/server/app/desktopChannels.js";
-import { listExternalSessionsFromContexts, decodeExternalSessionId } from "$lib/server/app/externalSessionsFromContexts.js";
+import { listExternalSessionsFromContexts, listExternalSessionMetaFromContexts, decodeExternalSessionId } from "$lib/server/app/externalSessionsFromContexts.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import { revealAbsolutePath, revealSupported } from "$lib/server/web/revealFile.js";
 import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
@@ -17,6 +17,7 @@ import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleS
 import { getProjectStore } from "$lib/server/projects/store.js";
 import { retentionCapabilities, type TurnRetentionPolicy } from "$lib/server/sessions/retentionPolicy.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
 import type {
   DesktopConversationChannel,
   DesktopConversationItem,
@@ -35,6 +36,12 @@ import type {
  * resolves Bot identity/names (including deleted Bots), and provides stable
  * cursor pagination + title/bot/preview search. Pagination, aggregation and
  * filtering live here — never in a Channel implementation (plan §12.3).
+ *
+ * Ordinary enumeration reads Session metadata only: Web conversations through
+ * `listAllWebConversationMeta` and external conversations through the Session
+ * metadata sidecar. Message previews (and the Agent Context parses they need)
+ * are collected only for explicit search, so opening a list never loads chat
+ * transcripts.
  */
 
 const PREVIEW_MAX = 300;
@@ -43,6 +50,34 @@ const SEARCH_SOURCES: DesktopConversationSearchSource[] = ["web", "project", "te
 const EXTERNAL_SEARCH_SOURCES: DesktopConversationSearchSource[] = ["telegram", "feishu", "qq", "weixin"];
 
 export type DesktopConversationLimit = number;
+
+/** Session access needed by the list/search paths, injected so tests use a real store. */
+export type DesktopConversationSessions = Pick<
+  SessionStore,
+  "listAllWebConversations" | "listAllWebConversationMeta" | "listProjectConversations" | "listMessages"
+>;
+
+/**
+ * Data sources for one query. Production builds it from the live runtime;
+ * tests pass a temp-backed store and data root so the read boundary can be
+ * probed without replacing the collection logic itself.
+ */
+export interface DesktopConversationQueryContext {
+  sessions: DesktopConversationSessions;
+  settings: RuntimeSettings;
+  dataRoot: string;
+  isActive: (conversationId: string) => boolean;
+}
+
+function runtimeQueryContext(): DesktopConversationQueryContext {
+  const runtime = getRuntime();
+  return {
+    sessions: runtime.sessions,
+    settings: runtime.getSettings(),
+    dataRoot: resolve(config.dataDir),
+    isActive: isActiveLifecycleSession
+  };
+}
 
 /** Caps a caller-supplied limit to the supported range (plan §5.3: 10/page). */
 export function clampLimit(raw: number | undefined | null, fallback = 10): number {
@@ -107,7 +142,7 @@ export function buildBotNameResolver(settings: RuntimeSettings): BotNameResolver
 }
 
 export function buildWebItems(
-  entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string; origin?: string; parentSessionId?: string }; externalUserId: string; lastMessageText: string }>,
+  entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string; origin?: string; parentSessionId?: string }; externalUserId: string; lastMessageText?: string }>,
   resolver: BotNameResolver
 ): DesktopConversationItem[] {
   return entries.map((entry) => {
@@ -124,7 +159,8 @@ export function buildWebItems(
       channel: "web",
       purpose,
       readOnly: false,
-      latestMessagePreview: entry.lastMessageText || undefined,
+      // Ordinary lists omit the field entirely; only search collects a preview.
+      ...(entry.lastMessageText ? { latestMessagePreview: entry.lastMessageText } : {}),
       ...(entry.conversation.parentSessionId
         ? { parentSessionId: entry.conversation.parentSessionId }
         : {})
@@ -158,7 +194,7 @@ export function buildExternalItems(
       channel,
       purpose: "conversation",
       readOnly: true,
-      latestMessagePreview: entry.preview || undefined
+      ...(entry.preview ? { latestMessagePreview: entry.preview } : {})
     };
   });
 }
@@ -303,20 +339,24 @@ export function isActiveLifecycleSession(conversationId: string): boolean {
   }
 }
 
-/** Collects the raw item set for a channel using live runtime data. */
+/** Collects the raw item set for a channel; previews only when actually searching. */
 function collectItems(
+  ctx: DesktopConversationQueryContext,
   channel: DesktopConversationChannel,
-  resolver: BotNameResolver,
-  isActive: (conversationId: string) => boolean = isActiveLifecycleSession
+  withPreview: boolean
 ): DesktopConversationItem[] {
+  const resolver = buildBotNameResolver(ctx.settings);
   let items: DesktopConversationItem[];
   if (channel === "web") {
-    const entries = getRuntime().sessions.listAllWebConversations();
+    const entries = withPreview
+      ? ctx.sessions.listAllWebConversations()
+      : ctx.sessions.listAllWebConversationMeta();
     items = buildWebItems(entries, resolver);
   } else {
-    const entries = listExternalSessionsFromContexts(resolve(config.dataDir)).filter(
-      (entry) => entry.channel === channel
-    );
+    const entries = (withPreview
+      ? listExternalSessionsFromContexts(ctx.dataRoot)
+      : listExternalSessionMetaFromContexts(ctx.dataRoot)
+    ).filter((entry) => entry.channel === channel);
     items = buildExternalItems(entries, resolver);
   }
   // The sidebar / browser only show ordinary conversations (plan §7/§16):
@@ -324,14 +364,14 @@ function collectItems(
   // the shared query layer, rather than duplicated into channels or UI.
   // Session management archiving is enforced at the same layer: only active
   // sessions appear in daily lists.
-  return items.filter((item) => item.purpose === "conversation" && isActive(item.sessionId));
+  return items.filter((item) => item.purpose === "conversation" && ctx.isActive(item.sessionId));
 }
 
 function channelSearchItems(
-  source: DesktopConversationChannel,
-  resolver: BotNameResolver
+  ctx: DesktopConversationQueryContext,
+  source: DesktopConversationChannel
 ): DesktopConversationSearchItem[] {
-  return collectItems(source, resolver).map((item) => ({
+  return collectItems(ctx, source, true).map((item) => ({
     source,
     sessionId: item.sessionId,
     title: item.title,
@@ -354,18 +394,15 @@ function latestConversationPreview(messages: ReadonlyArray<{ role: string; conte
   return preview || undefined;
 }
 
-function projectSearchItems(
-  isActive: (conversationId: string) => boolean = isActiveLifecycleSession
-): DesktopConversationSearchItem[] {
-  const sessions = getRuntime().sessions;
+function projectSearchItems(ctx: DesktopConversationQueryContext): DesktopConversationSearchItem[] {
+  const sessions = ctx.sessions;
   const items: DesktopConversationSearchItem[] = [];
   for (const project of getProjectStore().list()) {
     const conversations = sessions.listProjectConversations(project.id)
       .filter((conversation) => conversation.origin !== "automation" && !conversation.origin?.startsWith("internal:"))
-      .filter((conversation) => isActive(conversation.id));
+      .filter((conversation) => ctx.isActive(conversation.id));
     for (const conversation of conversations) {
       const channel = SEARCH_SOURCES.includes(conversation.channel as DesktopConversationSearchSource)
-        && conversation.channel !== "project"
         ? conversation.channel as DesktopConversationChannel
         : "web";
       items.push({
@@ -387,36 +424,47 @@ function projectSearchItems(
 }
 
 /** Owner-level Desktop search across ordinary Web, Project and external conversations. */
-export function searchDesktopConversations(input: {
-  scope?: DesktopConversationSearchScope;
-  query?: string;
-  limit?: number;
-  cursor?: string | null;
-  isActive?: (conversationId: string) => boolean;
-}): { scope: DesktopConversationSearchScope; groups: DesktopConversationSearchGroup[] } {
+export function searchDesktopConversations(
+  input: {
+    scope?: DesktopConversationSearchScope;
+    query?: string;
+    limit?: number;
+    cursor?: string | null;
+    isActive?: (conversationId: string) => boolean;
+  },
+  ctx: DesktopConversationQueryContext = runtimeQueryContext()
+): { scope: DesktopConversationSearchScope; groups: DesktopConversationSearchGroup[] } {
   const scope = input.scope ?? "all";
-  const isActive = input.isActive ?? isActiveLifecycleSession;
-  const resolver = buildBotNameResolver(getRuntime().getSettings());
+  const effective = input.isActive ? { ...ctx, isActive: input.isActive } : ctx;
+  // Search always pays for previews: matching must keep working against the
+  // last message, and the dialog renders the preview line.
   const groups = searchSourcesForScope(scope).map((source) => queryConversationSearchGroup(
     source,
     source === "project"
-      ? projectSearchItems(isActive)
-      : channelSearchItems(source, resolver).filter((item) => isActive(item.sessionId)),
+      ? projectSearchItems(effective)
+      : channelSearchItems(effective, source),
     { query: input.query, limit: input.limit, cursor: input.cursor }
   )).filter((group) => group.total > 0);
   return { scope, groups };
 }
 
-export function listDesktopConversations(input: {
-  channel: DesktopConversationChannel;
-  limit?: number;
-  cursor?: string | null;
-  query?: string;
-  botId?: string;
-  isActive?: (conversationId: string) => boolean;
-}): { items: DesktopConversationItem[]; nextCursor: string | null; hasMore: boolean } {
-  const resolver = buildBotNameResolver(getRuntime().getSettings());
-  const items = collectItems(input.channel, resolver, input.isActive ?? isActiveLifecycleSession);
+export function listDesktopConversations(
+  input: {
+    channel: DesktopConversationChannel;
+    limit?: number;
+    cursor?: string | null;
+    query?: string;
+    botId?: string;
+    isActive?: (conversationId: string) => boolean;
+  },
+  ctx: DesktopConversationQueryContext = runtimeQueryContext()
+): { items: DesktopConversationItem[]; nextCursor: string | null; hasMore: boolean } {
+  const effective = input.isActive ? { ...ctx, isActive: input.isActive } : ctx;
+  // Plain enumeration stays metadata-only. A caller that still passes a query
+  // here is searching, so it keeps the preview-backed path rather than silently
+  // degrading to title-only matching.
+  const hasQuery = Boolean(input.query && input.query.trim());
+  const items = collectItems(effective, input.channel, hasQuery);
   return queryConversations(items, {
     limit: input.limit,
     cursor: input.cursor,

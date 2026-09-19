@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import {
   decodeExternalSessionId,
-  listExternalSessionsFromContexts
+  listExternalSessionMetaFromContexts
 } from "$lib/server/app/externalSessionsFromContexts.js";
 import { snapshotAllRuntimeRuns } from "$lib/server/agent/core/runnerPool.js";
 import { getDurableExecutionStore } from "$lib/server/agent/durable/store.js";
@@ -36,7 +36,9 @@ import {
 
 /** Read-only external projection reused for managed listing (US2). */
 export function listManagedExternalCandidates(dataRoot: string = resolve(config.dataDir)): ExternalManagedCandidate[] {
-  return listExternalSessionsFromContexts(dataRoot).map((entry) => ({
+  // Managed listing only needs identity/display metadata, so it uses the
+  // metadata sidecar projection instead of parsing every Agent Context.
+  return listExternalSessionMetaFromContexts(dataRoot).map((entry) => ({
     conversation: entry.conversation,
     botId: decodeExternalSessionId(entry.conversation.id)?.botId ?? "",
     channel: entry.channel

@@ -1,3 +1,18 @@
+### 新增：App 会话列表改为只读 Session 元数据（2026-09-19，已交付）
+
+- 症状（owner 实机）：展开 Web 会话列表要等约一秒，侧栏只显示标题/时间/状态，却为每个会话加载聊天正文并计算消息预览。
+- 根因：共享列表层 `listDesktopConversations`/搜索收集统一走 `listAllWebConversations` 与 `listExternalSessionsFromContexts`，两者都会读取 Agent Context 正文（运行时还叠加聊天正文投影、memory trace、计划状态读取），只为取最后一条可搜索消息的前 300 字预览；外部渠道更是逐个解析 `.jsonl`。
+- 修法（共享层，不在 Channel/UI 打补丁）：
+  - Web 普通枚举改用既有 `listAllWebConversationMeta`；仅在调用方显式传 `query` 或走搜索弹窗时收集预览。
+  - Agent 存储在 `<sessionId>.meta.json` 增加 `display`（title/createdAt/updatedAt/hasMessages/eventPrompt），由 `MomRuntimeStore` 的追加与全量重写两条写入口随会话变化刷新；新增 `listExternalSessionMetaFromContexts` 只读 sidecar，`listExternalSessionsFromContexts` 保留给搜索/反思/会话检索等需要正文的流程。
+  - 历史会话的派生索引由启动时的 `rebuildExternalSessionMetadata` 一次性建立（移出请求路径），列表读取不隐式回退全文扫描。
+  - 会话管理 `listManagedExternalCandidates` 同样改用 metadata 投影；Project 列表本就只读 UI 元数据，仅补回归。
+  - 普通列表响应省略 `latestMessagePreview`（不是空串占位），搜索路径继续提供。
+- 机器守卫：`desktopConversations.test.ts` 用可注入 query context + 抛错/计数投影器证明普通列表零正文读取、省略 preview、cursor 翻页、搜索仍带 preview；`externalSessionMetadata.test.ts` 用损坏 `.jsonl` 失败探针证明 metadata 列表不解析正文，覆盖 backfill 幂等、origin 保留、automation/Event/空会话排除、会话管理候选复用。
+- 实测（隔离数据，`scripts/bench-session-list-latency.ts`，12 次中位数）：Web 60×120 会话 23.7ms → 4.5ms；外部 40×120 会话 14.7ms → 0.8ms；带 query 搜索保持原开销。
+- 验证：全量 server 测试 2183/2185 通过（1 项既有失败、1 项 skip）；`test:desktop-chat`、`test:projects`、`test:service-bootstrap`、`test:evals` 全通过；desktop `svelte-check` 0 error；`pnpm run build` 通过；隔离 DATA_DIR 冷启动冒烟（重启→首次打开→翻页→搜索预览）通过。
+- 未完成：真实浏览器“展开到绘制”端到端耗时与服务中断恢复的 UI 走查未执行；实测为合成数据，未含 memory trace / durable plan 读取，真实降幅只会更大。
+
 ### 修复：飞书卡片正文的 Markdown 表格泄漏为源码（2026-09-19，待验证）
 
 - 症状（owner 实机走查）：`/menu → 帮助` 卡片把帮助内容里的 Markdown 表格原样显示成 `| 项目 | 值 |`、`| --- | --- |` 源码。

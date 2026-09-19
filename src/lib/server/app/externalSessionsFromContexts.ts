@@ -4,6 +4,15 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { parseSessionEntries } from "$lib/server/agent/session/session.js";
 import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import type { SessionFileEntry, SessionMessageEntry } from "$lib/server/agent/session/session.js";
+import {
+  contentText,
+  deriveSessionDisplayMetadata,
+  isEventPromptSession,
+  messageContent,
+  readSessionMetadataFile,
+  writeSessionDisplayMetadata,
+  type SessionDisplayMetadata
+} from "$lib/server/agent/session/metadata.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import type { ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
 import type { Channel, Conversation, ConversationMessage, ConversationAttachment } from "$lib/shared/types/message.js";
@@ -28,44 +37,11 @@ import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
  * `contexts/` — no writes, mirroring `desktopRunHistory` / `conversationThinking`.
  */
 
-const DEFAULT_SESSION_TITLE = "New Session";
-const TITLE_MAX = 40;
-const EMPTY_TIMESTAMP = new Date(0).toISOString();
-
 export interface ExternalSessionRef {
   channel: Channel;
   botId: string;
   chatId: string;
   sessionId: string;
-}
-
-/**
- * Extracts plain display text from an `AgentMessage.content` value, which may be
- * a raw string or an array of content blocks. Only `type:"text"` blocks survive;
- * tool_call / tool_result / thinking blocks are dropped. Mirrors the pattern in
- * `conversationThinking.ts`.
- */
-/** Reads `content` off an `AgentMessage` variant that may or may not declare it. */
-function messageContent(message: AgentMessage): unknown {
-  return (message as { content?: unknown }).content;
-}
-
-function contentText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .flatMap((part) => {
-      if (!part || typeof part !== "object") return [];
-      const item = part as { type?: unknown; text?: unknown };
-      return item.type === "text" && typeof item.text === "string" ? [item.text] : [];
-    })
-    .join("\n");
-}
-
-function summarizeTitle(text: string): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (!clean) return DEFAULT_SESSION_TITLE;
-  return clean.length > TITLE_MAX ? `${clean.slice(0, TITLE_MAX)}...` : clean;
 }
 
 /** Path segments are decoded from an opaque id, so guard against traversal. */
@@ -140,13 +116,6 @@ function isAutomationSession(contextsDir: string, sessionId: string): boolean {
   }
 }
 
-/** Path segments are decoded from an opaque id, so guard against traversal. */
-function isEventPromptSession(entries: SessionFileEntry[]): boolean {
-  const firstUser = messageEntriesOf(entries).find((entry) => entry.message.role === "user");
-  if (!firstUser) return false;
-  return contentText(messageContent(firstUser.message)).trimStart().startsWith("[EVENT:");
-}
-
 function readEntries(contextsDir: string, sessionId: string, tailBytesCap?: number): SessionFileEntry[] {
   const file = join(contextsDir, `${sessionId}.jsonl`);
   if (!existsSync(file)) return [];
@@ -179,19 +148,19 @@ function messageEntriesOf(entries: SessionFileEntry[]): SessionMessageEntry[] {
 }
 
 function buildConversation(ref: ExternalSessionRef, entries: SessionFileEntry[]): Conversation {
-  const messageEntries = messageEntriesOf(entries);
-  const header = entries.find((entry) => entry.type === "session");
-  const firstUser = messageEntries.find((entry) => entry.message.role === "user");
-  const lastMessage = messageEntries[messageEntries.length - 1];
-  const createdAt = header?.timestamp ?? messageEntries[0]?.timestamp ?? EMPTY_TIMESTAMP;
-  const updatedAt = lastMessage?.timestamp ?? createdAt;
+  const display = deriveSessionDisplayMetadata(entries);
+  return conversationFromDisplay(ref, display);
+}
+
+/** Builds the list-facing Conversation from already-derived display metadata. */
+function conversationFromDisplay(ref: ExternalSessionRef, display: SessionDisplayMetadata): Conversation {
   return {
     id: encodeExternalSessionId(ref),
     channel: ref.channel,
     externalUserId: sessionKey(ref),
-    title: summarizeTitle(firstUser ? contentText(messageContent(firstUser.message)) : ""),
-    createdAt,
-    updatedAt
+    title: display.title,
+    createdAt: display.createdAt,
+    updatedAt: display.updatedAt
   };
 }
 
@@ -340,19 +309,17 @@ function buildMessages(ref: ExternalSessionRef, entries: SessionFileEntry[], wor
   return messages;
 }
 
-/**
- * Enumerates every visible external-channel Agent session across all channel
- * workspaces and projects each into the `ExternalSessionEntry` shape consumed by
- * `buildDesktopExternalSessionsSummary`. Sessions with no user/assistant message
- * entries (e.g. an unused `default` session) are skipped so the list matches the
- * prior "conversations that actually happened" behavior.
- */
-export function listExternalSessionsFromContexts(
-  dataRoot: string,
-  authorizedSources?: AuthorizedConversationSource[]
-): ExternalSessionEntry[] {
-  const root = resolve(dataRoot);
-  const out: ExternalSessionEntry[] = [];
+interface ContextSessionRef {
+  channel: Channel;
+  botId: string;
+  chatId: string;
+  contextsDir: string;
+  sessionId: string;
+}
+
+/** Enumerates every session file present under the channel bot workspaces. */
+function listContextSessions(root: string): ContextSessionRef[] {
+  const out: ContextSessionRef[] = [];
   for (const { channel, dir } of TASK_CHANNEL_ROOTS) {
     const botsRoot = join(root, dir, "bots");
     if (!existsSync(botsRoot)) continue;
@@ -363,32 +330,116 @@ export function listExternalSessionsFromContexts(
         if (!chat.isDirectory() || chat.name === "skills") continue;
         const contextsDir = join(botDir, chat.name, "contexts");
         for (const sessionId of listContextSessionIds(contextsDir)) {
-          if (isAutomationSession(contextsDir, sessionId)) continue;
-          const entries = readEntries(contextsDir, sessionId);
-          if (isEventPromptSession(entries)) continue;
-          const messageEntries = messageEntriesOf(entries);
-          if (messageEntries.length === 0) continue;
-          const ref: ExternalSessionRef = { channel, botId: bot.name, chatId: chat.name, sessionId };
-          if (authorizedSources && !authorizedSources.some((source) => isAuthorizedConversationSource(source, {
-            botId: ref.botId,
-            channel: ref.channel,
-            chatId: ref.chatId,
-            purpose: "chat"
-          }))) continue;
-          const conversation = buildConversation(ref, entries);
-          const lastMessage = [...messageEntries].reverse().find((entry) =>
-            (entry.message.role === "user" || entry.message.role === "assistant")
-            && retentionCapabilities(entry.retention).searchable
-          );
-          const preview = lastMessage
-            ? contentText(messageContent(lastMessage.message)).replace(/\s+/g, " ").trim().slice(0, 300)
-            : "";
-          out.push({ conversation, channel, externalUserId: conversation.externalUserId, preview });
+          out.push({ channel, botId: bot.name, chatId: chat.name, contextsDir, sessionId });
         }
       }
     }
   }
   return out;
+}
+
+function authorizedForContext(
+  ref: Pick<ContextSessionRef, "channel" | "botId" | "chatId">,
+  authorizedSources?: AuthorizedConversationSource[]
+): boolean {
+  if (!authorizedSources) return true;
+  return authorizedSources.some((source) => isAuthorizedConversationSource(source, {
+    botId: ref.botId,
+    channel: ref.channel,
+    chatId: ref.chatId,
+    purpose: "chat"
+  }));
+}
+
+/**
+ * Content-reading enumeration of external sessions. Parses each transcript to
+ * derive the title/timestamps and the searchable preview, so it is reserved for
+ * flows that genuinely need message text (search, reflection, transcript
+ * import). Ordinary lists must use {@link listExternalSessionMetaFromContexts}.
+ */
+export function listExternalSessionsFromContexts(
+  dataRoot: string,
+  authorizedSources?: AuthorizedConversationSource[]
+): ExternalSessionEntry[] {
+  const root = resolve(dataRoot);
+  const out: ExternalSessionEntry[] = [];
+  for (const entry of listContextSessions(root)) {
+    if (isAutomationSession(entry.contextsDir, entry.sessionId)) continue;
+    const entries = readEntries(entry.contextsDir, entry.sessionId);
+    if (isEventPromptSession(entries)) continue;
+    const messageEntries = messageEntriesOf(entries);
+    if (messageEntries.length === 0) continue;
+    if (!authorizedForContext(entry, authorizedSources)) continue;
+    const ref: ExternalSessionRef = {
+      channel: entry.channel,
+      botId: entry.botId,
+      chatId: entry.chatId,
+      sessionId: entry.sessionId
+    };
+    const conversation = buildConversation(ref, entries);
+    const lastMessage = [...messageEntries].reverse().find((message) =>
+      (message.message.role === "user" || message.message.role === "assistant")
+      && retentionCapabilities(message.retention).searchable
+    );
+    const preview = lastMessage
+      ? contentText(messageContent(lastMessage.message)).replace(/\s+/g, " ").trim().slice(0, 300)
+      : "";
+    out.push({ conversation, channel: entry.channel, externalUserId: conversation.externalUserId, preview });
+  }
+  return out;
+}
+
+/**
+ * Lightweight enumeration for the ordinary App lists: reads only the Session
+ * metadata sidecar per Session, never the Agent Context transcript. Sessions
+ * with no derived metadata are omitted here — the explicit
+ * {@link rebuildExternalSessionMetadata} backfill is what materializes metadata
+ * for Sessions that predate it, so listing never silently falls back to a full
+ * transcript scan.
+ */
+export function listExternalSessionMetaFromContexts(
+  dataRoot: string,
+  authorizedSources?: AuthorizedConversationSource[]
+): ExternalSessionEntry[] {
+  const root = resolve(dataRoot);
+  const out: ExternalSessionEntry[] = [];
+  for (const entry of listContextSessions(root)) {
+    if (isTaskSessionId(entry.sessionId)) continue;
+    const metadata = readSessionMetadataFile(entry.contextsDir, entry.sessionId);
+    if (metadata?.origin === "automation") continue;
+    const display = metadata?.display;
+    if (!display?.hasMessages || display.eventPrompt) continue;
+    if (!authorizedForContext(entry, authorizedSources)) continue;
+    const ref: ExternalSessionRef = {
+      channel: entry.channel,
+      botId: entry.botId,
+      chatId: entry.chatId,
+      sessionId: entry.sessionId
+    };
+    const conversation = conversationFromDisplay(ref, display);
+    out.push({ conversation, channel: entry.channel, externalUserId: conversation.externalUserId });
+  }
+  return out;
+}
+
+/**
+ * One-time derived-index build: parses Sessions that have no display metadata
+ * yet and writes it into their sidecar. Meant to run outside list requests
+ * (startup maintenance), so the ordinary list query stays metadata-only. The
+ * Session log writer keeps metadata current from then on.
+ */
+export function rebuildExternalSessionMetadata(dataRoot: string): { scanned: number; rebuilt: number } {
+  const root = resolve(dataRoot);
+  let scanned = 0;
+  let rebuilt = 0;
+  for (const entry of listContextSessions(root)) {
+    scanned += 1;
+    if (readSessionMetadataFile(entry.contextsDir, entry.sessionId)?.display) continue;
+    const entries = readEntries(entry.contextsDir, entry.sessionId);
+    writeSessionDisplayMetadata(entry.contextsDir, entry.sessionId, deriveSessionDisplayMetadata(entries));
+    rebuilt += 1;
+  }
+  return { scanned, rebuilt };
 }
 
 /**

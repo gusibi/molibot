@@ -24,6 +24,7 @@ import { SessionAutoArchiveStore } from "$lib/server/sessions/sessionAutoArchive
 import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchiveService.js";
 import { SessionTrashCleanupService } from "$lib/server/sessions/sessionTrashCleanup.js";
 import { buildProductionSessionLifecycle, buildSessionTrashCleanup } from "$lib/server/app/sessionMaintenance.js";
+import { rebuildExternalSessionMetadata } from "$lib/server/app/externalSessionsFromContexts.js";
 import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
 import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
 import { SessionExtractionStore } from "$lib/server/sessions/sessionExtractionStore.js";
@@ -694,6 +695,21 @@ function initializeRuntime(): RuntimeState {
     // channel websockets, scheduler, or keep-alive interval — so the process
     // can exit cleanly instead of hanging on a retrying Feishu/Telegram client.
     if (!liveServicesDisabled()) {
+      // One-time derived-index build for external Session lists. The ordinary
+      // list query reads only the metadata sidecar, so Sessions created before
+      // that sidecar existed must be indexed once, outside any list request.
+      setTimeout(() => {
+        try {
+          const backfilled = rebuildExternalSessionMetadata(config.dataDir);
+          if (backfilled.rebuilt > 0) {
+            console.log(
+              `${runtimeLabel("runtime")} session_metadata_backfill scanned=${color(String(backfilled.scanned), ANSI_CYAN)} rebuilt=${color(String(backfilled.rebuilt), ANSI_GREEN)}`
+            );
+          }
+        } catch (error) {
+          console.error(`${runtimeLabel("runtime")} session_metadata_backfill_failed`, error);
+        }
+      }, 0);
       void reconcileMcpServers(effectiveMcpServers(state.settings), {
         workspaceDir: config.webWorkspaceDir,
         connectEnabled: true
