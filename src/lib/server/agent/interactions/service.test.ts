@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SharedInteractionService } from "$lib/server/agent/interactions/service.js";
+import { SqliteInteractionPromptStore, type InteractionPromptStore } from "$lib/server/agent/interactions/promptStore.js";
 import type { InteractionContext, InteractionStateBinding } from "$lib/server/agent/interactions/types.js";
 
-function fixture() {
+function fixture(options: { promptStore?: InteractionPromptStore; ttlMs?: number } = {}) {
   let binding: InteractionStateBinding = { sessionId: "session-1", projectId: null, runId: "run-1" };
   let selected = 0;
   const commands = {
@@ -84,7 +88,8 @@ function fixture() {
     channel: "telegram",
     instanceId: "bot-1",
     commands,
-    ttlMs: 60_000
+    ttlMs: options.ttlMs ?? 60_000,
+    promptStore: options.promptStore
   });
   const context: InteractionContext<string> = {
     chatId: "chat-1",
@@ -94,6 +99,7 @@ function fixture() {
   };
   return {
     service,
+    commands,
     context,
     get selected() { return selected; },
     setBinding(next: InteractionStateBinding) { binding = next; }
@@ -226,4 +232,141 @@ test("skill input becomes a normal explicit-skill agent message only after exact
   assert.equal(duplicate.handled, true);
   assert.equal(duplicate.agentText, undefined);
   assert.match(duplicate.message ?? "", /already submitted/i);
+});
+
+async function openBoundInput(service: SharedInteractionService<string>, context: InteractionContext<string>, messageId: string) {
+  const view = await service.open("queue", context);
+  const front = buttonToken(view, "Add to front");
+  const outcome = await service.handleToken(front, {
+    actorId: context.actorId,
+    chatId: context.chatId,
+    scopeId: context.scopeId,
+    target: context.target
+  });
+  assert.equal(outcome.kind, "input");
+  if (outcome.kind !== "input") throw new Error("expected an input prompt");
+  service.bindInputPrompt(outcome.input.requestId, messageId);
+  return outcome.input;
+}
+
+test("a reply to a cancelled input prompt is rejected instead of falling through", async () => {
+  const fx = fixture();
+  const prompt = await openBoundInput(fx.service, fx.context, "prompt-cancel");
+
+  await fx.service.handleToken(prompt.cancelToken, {
+    actorId: "user-1",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    target: "chat-1"
+  });
+
+  const first = await fx.service.consumeInputReply(fx.context, "prompt-cancel", "run this task");
+  assert.equal(first.handled, true);
+  assert.equal(first.terminal, true);
+  assert.equal(first.agentText, undefined);
+  assert.match(first.message ?? "", /cancelled/i);
+
+  const second = await fx.service.consumeInputReply(fx.context, "prompt-cancel", "run this task again");
+  assert.equal(second.handled, true);
+  assert.equal(second.agentText, undefined);
+});
+
+test("an expired input prompt keeps rejecting late replies", async () => {
+  const fx = fixture({ ttlMs: 50 });
+  await openBoundInput(fx.service, fx.context, "prompt-expired");
+  await new Promise((resolve) => setTimeout(resolve, 70));
+
+  const first = await fx.service.consumeInputReply(fx.context, "prompt-expired", "late task");
+  assert.equal(first.handled, true);
+  assert.equal(first.terminal, true);
+  assert.equal(first.agentText, undefined);
+
+  const second = await fx.service.consumeInputReply(fx.context, "prompt-expired", "late task again");
+  assert.equal(second.handled, true);
+  assert.equal(second.agentText, undefined);
+});
+
+test("a completed input stays a tombstone for repeated platform deliveries", async () => {
+  const fx = fixture();
+  await openBoundInput(fx.service, fx.context, "prompt-done");
+  const first = await fx.service.consumeInputReply(fx.context, "prompt-done", "queued work");
+  assert.equal(first.handled, true);
+  assert.equal(first.agentText, undefined);
+  assert.equal(first.terminal, true);
+
+  const second = await fx.service.consumeInputReply(fx.context, "prompt-done", "queued work");
+  assert.equal(second.handled, true);
+  assert.equal(second.agentText, undefined);
+
+  const third = await fx.service.consumeInputReply(fx.context, "prompt-done", "queued work");
+  assert.equal(third.handled, true);
+  assert.equal(third.agentText, undefined);
+});
+
+test("a reply to a prompt from a previous process is rejected after restart", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-interaction-store-"));
+  const dbFile = join(dir, "interaction-prompts.sqlite");
+  const firstStore = new SqliteInteractionPromptStore({ channel: "telegram", instanceId: "bot-1", dbFile });
+  try {
+    const first = fixture({ promptStore: firstStore });
+    await openBoundInput(first.service, first.context, "prompt-restart");
+
+    const reopened = new SqliteInteractionPromptStore({ channel: "telegram", instanceId: "bot-1", dbFile });
+    const restarted = new SharedInteractionService<string>({
+      channel: "telegram",
+      instanceId: "bot-1",
+      commands: first.commands as any,
+      promptStore: reopened,
+      ttlMs: 60_000
+    });
+    const reply = await restarted.consumeInputReply(first.context, "prompt-restart", "run after restart");
+    assert.equal(reply.handled, true);
+    assert.equal(reply.terminal, true);
+    assert.equal(reply.agentText, undefined);
+    reopened.close();
+  } finally {
+    firstStore.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an unbounded reply to a prompt still leaves ordinary messages normal", async () => {
+  const fx = fixture();
+  const ordinary = await fx.service.consumeInputReply(fx.context, "not-a-prompt", "hello there");
+  assert.equal(ordinary.handled, false);
+});
+
+test("clear pending confirms the exact set and fails stale when it moved", async () => {
+  const fx = fixture();
+  (fx.commands as any).getInteractionQueue = async () => [
+    { id: 5, status: "pending", preview: "confirmed", createdAt: "" },
+    { id: 6, status: "pending", preview: "confirmed", createdAt: "" }
+  ];
+  const view = await fx.service.open("queue", fx.context);
+  const clearToken = buttonToken(view, "Clear pending");
+  const confirm = await fx.service.handleToken(clearToken, {
+    actorId: "user-1",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    target: "chat-1"
+  });
+  assert.equal(confirm.kind, "view");
+  if (confirm.kind !== "view") return;
+
+  let confirmedIds: number[] = [];
+  (fx.commands as any).clearInteractionQueue = async (_context: unknown, ids: number[]) => {
+    confirmedIds = [...ids].sort((a, b) => a - b);
+    return { ok: false, stale: true, message: "The pending queue changed." };
+  };
+
+  const confirmToken = buttonToken(confirm.view, "Clear");
+  const outcome = await fx.service.handleToken(confirmToken, {
+    actorId: "user-1",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    target: "chat-1"
+  });
+  assert.deepEqual(confirmedIds, [5, 6]);
+  assert.equal(outcome.kind, "view");
+  assert.equal(outcome.kind === "view" ? outcome.view.surface : "", "result");
 });

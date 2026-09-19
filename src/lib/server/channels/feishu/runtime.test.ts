@@ -312,6 +312,49 @@ test("Feishu interaction input cards are registered as bot messages for unmentio
   });
 });
 
+test("a reply to a cancelled Feishu input prompt never becomes an Agent task", async () => {
+  const { manager } = createFeishuManagerTestHarness();
+  (manager as any).wsClient = {};
+  const service = (manager as any).interactionService;
+  const context = {
+    chatId: "oc_chat",
+    scopeId: "oc_chat",
+    actorId: "ou_user",
+    target: "oc_chat"
+  };
+  const actor = { actorId: "ou_user", chatId: "oc_chat", scopeId: "oc_chat", target: "oc_chat" };
+
+  const view = await service.open("queue", context);
+  const front = view.actions.find((button: any) => button.label === "Add to front");
+  assert.ok(front?.token);
+  const outcome = await service.handleToken(front.token, actor);
+  assert.equal(outcome.kind, "input");
+  if (outcome.kind !== "input") return;
+
+  const promptMessageId = await (manager as any).sendFeishuInteractionInput(context, outcome.input, "om_source");
+  assert.ok(promptMessageId);
+  await service.handleToken(outcome.input.cancelToken, actor);
+
+  let enqueued = 0;
+  (manager as any).inboundTasks.enqueue = () => {
+    enqueued += 1;
+    return 1;
+  };
+
+  await (manager as any).handleIncomingMessage({
+    chat_id: "oc_chat",
+    chat_type: "p2p",
+    message_id: "om_late_reply",
+    parent_id: promptMessageId,
+    message_type: "text",
+    content: JSON.stringify({ text: "run this cancelled task" }),
+    create_time: "1710000000123",
+    mentions: []
+  }, { sender_id: { open_id: "ou_user", union_id: "on_user" } }, new Set());
+
+  assert.equal(enqueued, 0);
+});
+
 test("Feishu queue-front synthetic tasks preserve the real chat and thread route", async () => {
   const { manager } = createFeishuManagerTestHarness();
   const captured: any[] = [];

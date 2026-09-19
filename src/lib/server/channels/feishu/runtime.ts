@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { basename, extname, join } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
@@ -8,6 +8,7 @@ import { isDirectEventDelivery, resolveEventSessionMode, type MomEvent, type Eve
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
 import { SharedInteractionService } from "$lib/server/agent/interactions/service.js";
+import { SqliteInteractionPromptStore } from "$lib/server/agent/interactions/promptStore.js";
 import type { InteractionContext, InteractionOutcome, InteractionView } from "$lib/server/agent/interactions/types.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
@@ -206,7 +207,12 @@ export class FeishuManager extends BaseChannelRuntime {
         this.interactionService = new SharedInteractionService<string>({
             channel: "feishu",
             instanceId: this.instanceId,
-            commands: this.commandService
+            commands: this.commandService,
+            promptStore: new SqliteInteractionPromptStore({
+                channel: "feishu",
+                instanceId: this.instanceId,
+                dbFile: join(this.workspaceDir, "interaction-prompts.sqlite")
+            })
         });
         this.outbox = new SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>({
             channel: "feishu",

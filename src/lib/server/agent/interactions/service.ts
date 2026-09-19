@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
+import type { InteractionPromptStore, PersistedInteractionPrompt } from "$lib/server/agent/interactions/promptStore.js";
 import type {
   InteractionAction,
   InteractionButton,
@@ -32,6 +33,7 @@ interface PendingInput<TTarget> {
   promptMessageId?: string;
   expiresAt: number;
   expired?: boolean;
+  cancelled?: boolean;
   inFlight?: Promise<InteractionInputConsumeResult>;
   completed?: InteractionInputConsumeResult;
 }
@@ -42,6 +44,7 @@ export interface SharedInteractionServiceOptions<TTarget> {
   commands: SharedRuntimeCommandService<TTarget>;
   ttlMs?: number;
   maxTokens?: number;
+  promptStore?: InteractionPromptStore;
 }
 
 const PAGE_SIZE = 6;
@@ -56,12 +59,15 @@ function sameNumberSet(a: number[], b: number[]): boolean {
 export class SharedInteractionService<TTarget> {
   private readonly ttlMs: number;
   private readonly maxTokens: number;
+  private readonly promptStore: InteractionPromptStore | undefined;
   private readonly tokens = new Map<string, TokenRecord<TTarget>>();
   private readonly inputs = new Map<string, PendingInput<TTarget>>();
 
   constructor(private readonly options: SharedInteractionServiceOptions<TTarget>) {
     this.ttlMs = options.ttlMs ?? 10 * 60 * 1000;
     this.maxTokens = options.maxTokens ?? 512;
+    this.promptStore = options.promptStore;
+    this.restorePersistedPrompts();
   }
 
   commandSurface(text: string): InteractionSurface | null {
@@ -134,13 +140,15 @@ export class SharedInteractionService<TTarget> {
     for (const [id, row] of this.inputs) {
       if (row.expiresAt > now) continue;
       // Keep a bound prompt as a short-lived tombstone so an explicit reply to
-      // an expired prompt is rejected instead of falling through as a normal
-      // Agent message. The tombstone is removed after one extra TTL window.
+      // a cancelled/expired/completed prompt is rejected instead of falling
+      // through as a normal Agent message. The tombstone is removed after one
+      // extra TTL window.
       if (row.promptMessageId && row.expiresAt + this.ttlMs > now) {
         row.expired = true;
         continue;
       }
       this.inputs.delete(id);
+      this.promptStore?.remove(id);
     }
     while (this.tokens.size > this.maxTokens) {
       const oldest = this.tokens.keys().next().value;
@@ -151,7 +159,52 @@ export class SharedInteractionService<TTarget> {
       const oldest = this.inputs.keys().next().value;
       if (!oldest) break;
       this.inputs.delete(oldest);
+      this.promptStore?.remove(oldest);
     }
+  }
+
+  private restorePersistedPrompts(): void {
+    if (!this.promptStore) return;
+    const now = Date.now();
+    for (const record of this.promptStore.list()) {
+      if (!record.promptMessageId || record.expiresAt + this.ttlMs <= now) {
+        this.promptStore.remove(record.id);
+        continue;
+      }
+      // Anything loaded from disk belongs to an earlier process. Restart
+      // invalidates the live prompt, so it is restored as a terminal tombstone:
+      // a late reply is rejected, never executed or delivered to the Agent.
+      this.inputs.set(record.id, {
+        id: record.id,
+        kind: record.kind,
+        context: {
+          chatId: record.chatId,
+          scopeId: record.scopeId,
+          actorId: record.actorId,
+          target: undefined as unknown as TTarget
+        },
+        binding: record.binding,
+        skillName: record.skillName,
+        promptMessageId: record.promptMessageId,
+        expiresAt: record.expiresAt,
+        expired: true
+      });
+    }
+  }
+
+  private persistInput(input: PendingInput<TTarget>): void {
+    if (!this.promptStore || !input.promptMessageId) return;
+    this.promptStore.save({
+      id: input.id,
+      kind: input.kind,
+      scopeId: input.context.scopeId,
+      chatId: input.context.chatId,
+      actorId: input.context.actorId,
+      binding: input.binding,
+      skillName: input.skillName,
+      promptMessageId: input.promptMessageId,
+      expiresAt: input.expiresAt
+    });
   }
 
   private register(
@@ -376,12 +429,10 @@ export class SharedInteractionService<TTarget> {
         };
       }
       case "queue.clear.confirm": {
-        const queue = await this.options.commands.getInteractionQueue(context.scopeId);
-        const nowIds = queue.filter((row) => row.status === "pending").map((row) => row.id);
-        if (!sameNumberSet(action.ids, nowIds)) {
-          return { kind: "view", view: this.staleView(this.options.commands.interactionText("The pending queue changed. Review it and confirm again.", "待执行队列已经变化，请重新查看并确认。"), context) };
+        const result = await this.options.commands.clearInteractionQueue(context, action.ids);
+        if (result.stale) {
+          return { kind: "view", view: this.staleView(result.message, context) };
         }
-        const result = await this.options.commands.clearInteractionQueue(context);
         return { kind: "notice", message: result.message, view: await this.queueView(context, 0) };
       }
       case "queue.front":
@@ -451,7 +502,11 @@ export class SharedInteractionService<TTarget> {
       case "input.cancel": {
         const input = this.inputs.get(action.requestId);
         if (input && input.context.actorId === context.actorId && input.context.scopeId === context.scopeId) {
-          this.inputs.delete(action.requestId);
+          // Retire the prompt but keep a tombstone so a late reply to it is
+          // rejected instead of becoming a normal Agent task.
+          input.cancelled = true;
+          input.expiresAt = Date.now() + this.ttlMs;
+          this.persistInput(input);
         }
         const message = this.options.commands.interactionText("Input cancelled.", "已取消输入。");
         return {
@@ -794,6 +849,7 @@ export class SharedInteractionService<TTarget> {
     const input = this.inputs.get(requestId);
     if (!input || input.expiresAt <= Date.now()) return false;
     input.promptMessageId = String(messageId);
+    this.persistInput(input);
     return true;
   }
 
@@ -813,8 +869,16 @@ export class SharedInteractionService<TTarget> {
     );
     if (!input) return { handled: false };
 
+    if (input.cancelled) {
+      return {
+        handled: true,
+        terminal: true,
+        message: this.options.commands.interactionText("This input request was cancelled. Open the action again.", "这次输入请求已取消，请重新发起操作。")
+      };
+    }
+
     if (input.expired || input.expiresAt <= Date.now()) {
-      this.inputs.delete(input.id);
+      input.expired = true;
       return {
         handled: true,
         terminal: true,
@@ -831,7 +895,7 @@ export class SharedInteractionService<TTarget> {
       };
     }
     if (!this.bindingMatches(input.binding, this.state(context.scopeId))) {
-      this.inputs.delete(input.id);
+      input.expired = true;
       return {
         handled: true,
         terminal: true,
@@ -862,6 +926,7 @@ export class SharedInteractionService<TTarget> {
       // Keep the completed prompt as an idempotency tombstone. A duplicate
       // platform delivery must never fall through as a fresh Agent message.
       input.expiresAt = Date.now() + this.ttlMs;
+      this.persistInput(input);
       return result;
     } finally {
       input.inFlight = undefined;
