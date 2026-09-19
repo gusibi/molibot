@@ -147,6 +147,11 @@ export class SharedInteractionService<TTarget> {
       if (!oldest) break;
       this.tokens.delete(oldest);
     }
+    while (this.inputs.size > this.maxTokens) {
+      const oldest = this.inputs.keys().next().value;
+      if (!oldest) break;
+      this.inputs.delete(oldest);
+    }
   }
 
   private register(
@@ -358,10 +363,11 @@ export class SharedInteractionService<TTarget> {
       }
       case "queue.front":
         return { kind: "input", input: this.beginInput(context, "queue.front") };
-      case "queued.stop": {
-        const result = await this.options.commands.handleQueuedControlAction(context.scopeId, action.queueId, "stop");
-        return { kind: "notice", message: result.message, view: await this.statusView(context) };
-      }
+      case "queued.stop":
+        // A queued notice proves pending work exists. Stop therefore enters the
+        // same confirmation flow as Status/Menu so the user sees that /stop
+        // will clear the entire pending queue, not only this one item.
+        return this.execute({ type: "run.stop" }, context, binding);
       case "queued.steer": {
         const result = await this.options.commands.handleQueuedControlAction(context.scopeId, action.queueId, "steer");
         return { kind: "notice", message: result.message, view: await this.queueView(context, 0) };
