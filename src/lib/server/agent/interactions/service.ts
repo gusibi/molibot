@@ -807,15 +807,30 @@ export class SharedInteractionService<TTarget> {
         message: this.options.commands.interactionText("The target session, Project, or run changed. This input request expired.", "目标会话、Project 或运行任务已经变化，这次输入请求已失效。")
       };
     }
-    if (input.completed) return input.completed;
-    if (input.inFlight) return input.inFlight;
+    if (input.completed) {
+      return {
+        handled: true,
+        terminal: true,
+        message: this.options.commands.interactionText("This input was already submitted.", "这次输入已经提交过了。")
+      };
+    }
+    if (input.inFlight) {
+      await input.inFlight;
+      return {
+        handled: true,
+        terminal: true,
+        message: this.options.commands.interactionText("This input is already being processed.", "这次输入已经在处理中。")
+      };
+    }
 
     const pending = this.executeInput(input, context, normalized);
     input.inFlight = pending;
     try {
       const result = await pending;
       input.completed = result;
-      this.inputs.delete(input.id);
+      // Keep the completed prompt as an idempotency tombstone. A duplicate
+      // platform delivery must never fall through as a fresh Agent message.
+      input.expiresAt = Date.now() + this.ttlMs;
       return result;
     } finally {
       input.inFlight = undefined;
