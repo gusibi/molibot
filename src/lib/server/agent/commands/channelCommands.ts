@@ -557,6 +557,10 @@ export class SharedRuntimeCommandService<TTarget> {
     return this.text(english, chinese);
   }
 
+  interactionHelpText(): string {
+    return this.helpText();
+  }
+
   private activeInteractionRunId(scopeId: string): string | null {
     const projectSession = this.options.getActiveProject?.(scopeId)
       ? this.options.getActiveProjectSession?.(scopeId) ?? null
