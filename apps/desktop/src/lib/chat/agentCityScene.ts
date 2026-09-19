@@ -132,6 +132,10 @@ interface PugRig {
   homePosition: THREE.Vector3;
   homeYaw: number;
   spawnEpochMs: number | null;
+  portalPosition: THREE.Vector3 | null;
+  workerExitStartedAt: number | null;
+  travelOffset: THREE.Vector3;
+  ambientTarget: THREE.Vector3 | null;
   isWorker: boolean;
   assetEligible: boolean;
   asset: MomoAssetInstance | null;
@@ -509,6 +513,10 @@ function createPug(assistant = false, role: string | null = null): PugRig {
     homePosition: new THREE.Vector3(),
     homeYaw: 0,
     spawnEpochMs: null,
+    portalPosition: null,
+    workerExitStartedAt: null,
+    travelOffset: new THREE.Vector3(),
+    ambientTarget: null,
     isWorker: assistant,
     assetEligible: true,
     asset: null,
@@ -521,9 +529,9 @@ function createPug(assistant = false, role: string | null = null): PugRig {
 
 function applyRigTravel(rig: PugRig, pose: PugPose, extraYaw = 0): void {
   rig.root.position.set(
-    rig.homePosition.x + pose.travelX,
-    rig.homePosition.y,
-    rig.homePosition.z + pose.travelZ
+    rig.homePosition.x + rig.travelOffset.x + pose.travelX,
+    rig.homePosition.y + rig.travelOffset.y,
+    rig.homePosition.z + rig.travelOffset.z + pose.travelZ
   );
   rig.root.rotation.y = rig.homeYaw + pose.travelYaw + extraYaw;
 }
@@ -1343,6 +1351,17 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     group.add(mainPug.root);
     attachMomoAsset(mainPug);
     const pugs = [mainPug];
+    if (isGlobal) {
+      mainPug.ambientTarget = new THREE.Vector3(0, 0.14, 2.75);
+    } else if (floor.floorIndex === 0) {
+      const meetupWorldX = floor.position.x < 0 ? -3.2 : 3.2;
+      const meetupWorldZ = 3.8 + (Number(floor.buildingIndex) % 2) * 0.75;
+      mainPug.ambientTarget = new THREE.Vector3(
+        meetupWorldX - floor.position.x,
+        0.1,
+        meetupWorldZ - floor.position.z
+      );
+    }
 
     const seatPosition = isGlobal
       ? new THREE.Vector3(1.82, 0.14, 0.22)
@@ -1363,8 +1382,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       const assistant = createPug(true, subagent.name);
       assistant.seed = pugSeed(`${floor.agent.id}:${subagent.id}`);
       setRigScale(assistant, isGlobal ? 0.47 : 0.39);
-      const startedAt = Date.parse(subagent.startedAt);
-      assistant.spawnEpochMs = Number.isNaN(startedAt) ? null : startedAt;
+      assistant.spawnEpochMs = performance.timeOrigin + performance.now();
+      assistant.portalPosition = new THREE.Vector3(0, isGlobal ? 0.22 : 0.1, isGlobal ? 2.05 : 1.12);
       setRigHome(assistant, new THREE.Vector3(x, isGlobal ? 0.22 : 0.1, z + 0.08), 0.08);
       group.add(assistant.root);
       attachMomoAsset(assistant);
@@ -1515,8 +1534,15 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT).forEach((subagent, index) => {
       const rig = node.pugs[index + 1];
       if (rig) {
-        const workerReaction = transitionClip(rig.status, subagent.status);
+        const previousWorkerStatus = rig.status;
+        const workerReaction = transitionClip(previousWorkerStatus, subagent.status);
         if (workerReaction) rig.oneShot = { clip: workerReaction, startedAt: performance.now() };
+        if (previousWorkerStatus === "working" && subagent.status !== "working" && rig.workerExitStartedAt === null) {
+          rig.workerExitStartedAt = performance.now() + 900;
+        } else if (subagent.status === "working") {
+          rig.workerExitStartedAt = null;
+          rig.root.visible = true;
+        }
         setPugStatus(rig, subagent.status);
       }
       const screen = node.workerScreens[index];
@@ -1729,6 +1755,57 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     for (const node of floorNodes.values()) {
       const showProps = detailed || node.key === "global" || focusedKey === node.key;
       for (const rig of node.pugs) {
+        rig.travelOffset.set(0, 0, 0);
+        rig.root.visible = true;
+
+        // Temporary Workers enter through the room portal, walk to their pod,
+        // react to completion/error, then visibly leave instead of teleporting.
+        let lifecycleClip: PugClip | null = null;
+        if (rig.isWorker && rig.portalPosition) {
+          const portalDelta = rig.portalPosition.clone().sub(rig.homePosition);
+          if (rig.spawnEpochMs !== null) {
+            const elapsed = performance.timeOrigin + timeMs - rig.spawnEpochMs;
+            const progress = Math.min(1, Math.max(0, elapsed / 1100));
+            if (progress < 1 && !reducedMotion) {
+              const eased = 1 - (1 - progress) ** 3;
+              rig.travelOffset.copy(portalDelta).multiplyScalar(1 - eased);
+              lifecycleClip = "pace";
+            }
+          }
+          if (rig.workerExitStartedAt !== null && timeMs >= rig.workerExitStartedAt) {
+            const progress = Math.min(1, (timeMs - rig.workerExitStartedAt) / 1350);
+            if (reducedMotion) {
+              rig.root.visible = false;
+            } else {
+              const eased = progress * progress * (3 - 2 * progress);
+              rig.travelOffset.copy(portalDelta).multiplyScalar(eased);
+              lifecycleClip = "pace";
+              if (progress >= 1) rig.root.visible = false;
+            }
+          }
+        }
+
+        // Idle ground-floor residents periodically leave their Studio for a
+        // shared plaza meetup. Two deterministic meetup points make Agents
+        // visibly cross rooms and briefly socialize without inventing task data.
+        let ambientClip: PugClip | null = null;
+        if (!rig.isWorker && rig.status === "idle" && rig.ambientTarget && !reducedMotion) {
+          const cycle = 36_000;
+          const phase = (timeMs + (rig.seed % 12) * 2300) % cycle;
+          const targetDelta = rig.ambientTarget.clone().sub(rig.homePosition);
+          if (phase < 4000) {
+            const p = phase / 4000;
+            rig.travelOffset.copy(targetDelta).multiplyScalar(p * p * (3 - 2 * p));
+            ambientClip = "pace";
+          } else if (phase < 8000) {
+            rig.travelOffset.copy(targetDelta);
+            ambientClip = phase < 6100 ? "lookAround" : "greet";
+          } else if (phase < 12_000) {
+            const p = (phase - 8000) / 4000;
+            rig.travelOffset.copy(targetDelta).multiplyScalar(1 - p * p * (3 - 2 * p));
+            ambientClip = "pace";
+          }
+        }
         if (rig.spawnEpochMs !== null) {
           const elapsed = performance.timeOrigin + timeMs - rig.spawnEpochMs;
           const progress = Math.min(1, Math.max(0, elapsed / 720));
@@ -1740,6 +1817,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         const motion = reducedMotion && !rig.oneShot
           ? { clip: clipsForStatus(rig.status, rig.role)[0] ?? "off" as PugClip, pose: staticPoseFor(rig), oneShot: false }
           : motionFor(rig, timeMs);
+        if (lifecycleClip || ambientClip) {
+          motion.clip = lifecycleClip ?? ambientClip ?? motion.clip;
+          motion.pose = pugPose(motion.clip, timeMs / 1000, rig.seed);
+        }
         // While greeting, the pug turns to look straight at the viewer.
         const greeting = motion.oneShot && rig.oneShot?.clip === "greet";
         rig.faceCamera += ((greeting ? 1 : 0) - rig.faceCamera) * 0.18;
