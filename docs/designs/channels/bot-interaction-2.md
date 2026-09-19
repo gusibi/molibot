@@ -103,6 +103,8 @@ The Feishu renderer emits non-forwardable cards with token-only values:
 
 Reusable navigation may return the next card directly. One-shot actions use the existing card-action coordinator: the callback returns Processing promptly, the action completes once, and the source card is updated asynchronously. If source-card editing fails after a successful mutation, a result card is sent instead; the mutation is not replayed.
 
+The WebSocket long connection delivers the new callback (`card.action.trigger`), whose response body nests the card as `{ card: { type: "raw", data } }`. A bare card is the legacy callback's response shape and is ignored by the client, so returning one makes a navigation click appear to do nothing.
+
 Input prompts reply to the source card. When the interaction scope is a thread, `reply_in_thread` preserves that scope, allowing the later reply to satisfy the same server-side binding.
 
 Approval and Memory Review remain separate card protocols because their authorization and durability differ from menu controls.

@@ -1,3 +1,12 @@
+### 修复：飞书交互卡片按钮点击无反应（2026-09-19，待验证）
+
+- 症状（owner 实机走查）：Telegram / 飞书 `/menu` 卡片正常渲染，但点击任何按钮都没有反应；owner 怀疑飞书没收到点击动作。
+- 根因：飞书长连接推送的是新版卡片回调 `card.action.trigger`，它的响应体必须把卡片嵌在 `{ card: { type: "raw", data } }` 里；而 `handleWsCardAction` 直接返回裸卡片（那是旧版回调的响应结构），客户端会判为响应体格式错误并忽略。一次性动作因为有“后台按 `open_message_id` 更新源卡片”的补偿，视觉上还能更新；纯导航动作（会话/模型/项目/思考/技能/状态/队列）只依赖回调查询结果，于是整片菜单看起来完全没反应。回调其实到达并执行了，只是响应被丢弃。
+- 修法（共享渠道层）：`handleWsCardAction` 统一返回 `{ card: { type: "raw", data } }`，旧版 HTTP 回调路径保持不变；回调日志补上 `transport: "websocket" | "http"`，让“回调没到 / 动作失败 / 回执失败”可区分。
+- 机器守卫（`feishu/runtime.test.ts` 新增 1 条）：用真实的 `card.action.trigger` 解析后结构驱动 `handleWsCardAction`，断言导航动作返回 `{ card: { type: "raw", data } }` 且 `data` 是对应视图卡片。
+- 验证：`feishu/runtime.test.ts`、`cardkit.test.ts`、`messaging.test.ts` 共 33 项通过；`tsc --noEmit` 无新增错误；production build 通过。真实飞书点击走查仍需 owner 复测确认，能力状态保持“待验证”。
+- 后续核查：若复测仍无反应，需检查飞书开发者后台「事件与回调 → 回调配置」的订阅方式是否为“使用长连接接收回调”，且已订阅“卡片回传交互（card.action.trigger）”；旧版回调（`card.action.trigger_v1`）不支持长连接，只支持回调地址。
+
 ### 修复：Interaction 输入终态与 Stop 目标一致性（2026-09-19，待验证）
 
 - 症状（PR #58 审查确定性复现）：

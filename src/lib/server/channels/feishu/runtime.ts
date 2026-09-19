@@ -60,6 +60,18 @@ interface FeishuCardActionOutcome {
     card: lark.InteractiveCard;
 }
 
+/**
+ * Response body for the new card callback (`card.action.trigger`), which is the
+ * event Feishu delivers over the WebSocket long connection. Unlike the legacy
+ * callback it does not accept a bare card: the card must be nested under
+ * `card: { type: "raw", data }`, otherwise Feishu rejects the response body and
+ * the click appears to do nothing.
+ */
+interface FeishuCardActionResponse {
+    toast?: { type: "info" | "success" | "error" | "warning"; content: string };
+    card?: { type: "raw"; data: lark.InteractiveCard };
+}
+
 interface FeishuApprovalActionResult {
     ok: boolean;
     message: string;
@@ -608,8 +620,8 @@ export class FeishuManager extends BaseChannelRuntime {
         return outcome?.card;
     }
 
-    private async handleWsCardAction(raw: unknown, allowed: Set<string>): Promise<lark.InteractiveCard | undefined> {
-        momLog("feishu", "card_action_received");
+    private async handleWsCardAction(raw: unknown, allowed: Set<string>): Promise<FeishuCardActionResponse | undefined> {
+        momLog("feishu", "card_action_received", { transport: "websocket" });
         const normalized = normalizeFeishuWsCardActionEvent(raw);
         if (!normalized) {
             momWarn("feishu", "card_action_ignored_invalid_payload");
@@ -621,7 +633,8 @@ export class FeishuManager extends BaseChannelRuntime {
         }
 
         const outcome = await this.resolveCardAction(normalized.event, normalized.chatId);
-        return outcome?.card;
+        if (!outcome) return undefined;
+        return { card: { type: "raw", data: outcome.card } };
     }
 
     private resolveGenericApprovalAction(requestId: string, action: string): FeishuApprovalActionResult {

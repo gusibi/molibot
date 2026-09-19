@@ -355,6 +355,32 @@ test("a reply to a cancelled Feishu input prompt never becomes an Agent task", a
   assert.equal(enqueued, 0);
 });
 
+test("Feishu WS card action returns the new-callback card envelope", async () => {
+  const { manager } = createFeishuManagerTestHarness();
+  (manager as any).wsClient = {};
+  const service = (manager as any).interactionService;
+  const context = {
+    chatId: "oc_chat",
+    scopeId: "oc_chat",
+    actorId: "ou_user",
+    target: "oc_chat"
+  };
+  const queue = await service.open("queue", context);
+  const refresh = queue.actions.find((button: any) => button.label.startsWith("Refresh"));
+  assert.ok(refresh?.token);
+
+  const response = await (manager as any).handleWsCardAction({
+    schema: "2.0",
+    event_type: "card.action.trigger",
+    operator: { open_id: "ou_user" },
+    action: { value: { kind: "interaction", token: refresh.token }, tag: "button" },
+    context: { open_message_id: "om_queue", open_chat_id: "oc_chat" }
+  }, new Set(["oc_chat"]));
+
+  assert.equal(response?.card?.type, "raw");
+  assert.equal((response?.card?.data as any)?.header?.title?.content, "Queue");
+});
+
 test("Feishu queue-front synthetic tasks preserve the real chat and thread route", async () => {
   const { manager } = createFeishuManagerTestHarness();
   const captured: any[] = [];
