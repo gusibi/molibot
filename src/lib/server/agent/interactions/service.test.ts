@@ -67,8 +67,13 @@ function fixture() {
       thinkingEffective: "medium",
       queueSize: 0,
       running: Boolean(binding.runId),
-      runId: binding.runId
+      runId: binding.runId,
+      contextTokens: 1200,
+      contextWindow: 200000,
+      compactionThreshold: 150000,
+      compactRecommended: false
     }),
+    compactInteractionSession: async () => ({ ok: true, message: "compacted" }),
     stopInteractionRun: async () => ({ ok: true, message: "stopped" }),
     steerInteractionRun: () => ({ ok: true, message: "steered" }),
     followUpInteractionRun: () => ({ ok: true, message: "followed" }),
