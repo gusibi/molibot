@@ -2124,6 +2124,8 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /new THREE\.EdgesGeometry/);
   assert.match(agentCityScene, /node\.selection\.visible = node\.key === selectedKey/);
   assert.match(agentStudio, /root\.dataset\.themeFamily/);
+  assert.match(agentStudio, /function resolvedThemeColor\(/);
+  assert.match(agentStudio, /color:var\(\$\{name\}, \$\{fallback\}\)/);
   assert.match(agentStudio, /root\.dataset\.themeRecipe/);
   assert.match(agentStudio, /--accent/);
   assert.match(agentStudio, /--skill-accent/);
