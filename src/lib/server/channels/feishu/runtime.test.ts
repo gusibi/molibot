@@ -285,6 +285,58 @@ test("Feishu run archive notice stays in the originating topic", async () => {
   assert.equal(archiveReply.data.reply_in_thread, true);
 });
 
+test("Feishu interaction input cards are registered as bot messages for unmentioned group replies", async () => {
+  const { manager } = createFeishuManagerTestHarness();
+  const messageId = await (manager as any).sendFeishuInteractionInput({
+    chatId: "oc_chat",
+    scopeId: "oc_chat__thread_omt_thread",
+    actorId: "ou_user",
+    target: "oc_chat",
+    platformThreadId: "omt_thread"
+  }, {
+    requestId: "input_1",
+    kind: "skill.run",
+    title: "Use skill",
+    body: "Reply to this prompt.",
+    cancelToken: "cancel_1",
+    expiresAt: Date.now() + 60_000
+  }, "om_source");
+
+  assert.equal(messageId, "om_reply_1");
+  assert.deepEqual((manager as any).threadRegistry.match({
+    chatId: "oc_chat",
+    parentMessageId: "om_reply_1"
+  }), {
+    allowed: true,
+    reason: "parent_bot_message"
+  });
+});
+
+test("Feishu queue-front synthetic tasks preserve the real chat and thread route", async () => {
+  const { manager } = createFeishuManagerTestHarness();
+  const captured: any[] = [];
+  (manager as any).inboundTasks.enqueue = (scopeId: string, payload: any, options: any) => {
+    captured.push({ scopeId, payload, options });
+    return 77;
+  };
+
+  const id = await (manager as any).enqueueSyntheticTask({
+    chatId: "oc_chat",
+    scopeId: "oc_chat__thread_omt_thread",
+    platformMessageId: "om_reply_task",
+    platformThreadId: "omt_thread"
+  }, "urgent follow-up", true);
+
+  assert.equal(id, 77);
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].scopeId, "oc_chat__thread_omt_thread");
+  assert.equal(captured[0].payload.chatId, "oc_chat");
+  assert.equal(captured[0].payload.scopeId, "oc_chat__thread_omt_thread");
+  assert.equal(captured[0].payload.platformMessageId, "om_reply_task");
+  assert.equal(captured[0].payload.platformThreadId, "omt_thread");
+  assert.equal(captured[0].options.front, true);
+});
+
 test("resolveFeishuUploadFilename preserves the real extension over a label title", () => {
   const filePath = "/scratch/2026/06/16/runway_model_video.mp4";
 
