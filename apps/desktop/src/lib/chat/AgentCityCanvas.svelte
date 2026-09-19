@@ -11,10 +11,12 @@
     type AgentCityTheme,
     type AgentCityViewState
   } from "./agentCityScene";
+  import type { AgentCityVisualTheme } from "./agentCityTheme";
 
   export let projection: AgentCityProjection;
   export let theme: AgentCityTheme;
   export let sky: string;
+  export let visualTheme: AgentCityVisualTheme;
   export let onQuality: (quality: AgentCityQuality) => void;
   export let onFallback: () => void;
   export let onHover: (hover: AgentCityHover | null) => void;
@@ -125,6 +127,7 @@
       projection,
       theme,
       sky,
+      visualTheme,
       reducedMotion,
       quality,
       onPerformanceFallback: () => {
@@ -178,6 +181,9 @@
   }
   $: if (mounted && controller) {
     controller.setSky(sky);
+  }
+  $: if (mounted && controller) {
+    controller.setVisualTheme(visualTheme);
   }
   $: if (mounted && controller) {
     controller.setSelectedFloor(selectedKey);
