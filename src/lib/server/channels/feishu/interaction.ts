@@ -8,7 +8,7 @@ function buttonType(style: InteractionButton["style"]): "default" | "primary" | 
   return "default";
 }
 
-function actionElement(buttons: InteractionButton[]): Record<string, unknown> | null {
+function actionElement(buttons: InteractionButton[]): any | null {
   const actions = buttons
     .filter((button) => button.token && !button.disabledReason)
     .map((button) => ({
@@ -21,7 +21,7 @@ function actionElement(buttons: InteractionButton[]): Record<string, unknown> | 
 }
 
 export function buildFeishuInteractionCard(view: InteractionView): lark.InteractiveCard {
-  const elements: Record<string, unknown>[] = [];
+  const elements: any[] = [];
   if (view.body) elements.push({ tag: "markdown", content: markdownToFeishuMarkdown(view.body) });
   for (const section of view.sections ?? []) {
     if (section.title) elements.push({ tag: "markdown", content: `**${section.title}**` });
