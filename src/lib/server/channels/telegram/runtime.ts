@@ -718,12 +718,29 @@ export class TelegramManager extends BaseChannelRuntime {
             rawText
           );
           if (inputResult.handled) {
+            if (inputResult.terminal) {
+              const settledText = inputResult.message
+                || this.commandService.interactionText("Input completed.", "输入已处理。");
+              try {
+                await editTelegramMessage(bot, chatId, replyToMessageId, settledText, {
+                  ...this.buildTelegramSendOptions(messageThreadId),
+                  reply_markup: undefined
+                });
+              } catch (error) {
+                momWarn("telegram", "interaction_input_prompt_settle_failed", {
+                  chatId,
+                  scopeId,
+                  promptMessageId: replyToMessageId,
+                  error: error instanceof Error ? error.message : String(error)
+                });
+                await sendTelegramText(bot, chatId, settledText, this.buildTelegramSendOptions(messageThreadId));
+              }
+            } else if (inputResult.message) {
+              await sendTelegramText(bot, chatId, inputResult.message, this.buildTelegramSendOptions(messageThreadId));
+            }
             if (inputResult.agentText) {
               interactionAgentText = inputResult.agentText;
             } else {
-              if (inputResult.message) {
-                await sendTelegramText(bot, chatId, inputResult.message, this.buildTelegramSendOptions(messageThreadId));
-              }
               return;
             }
           }
