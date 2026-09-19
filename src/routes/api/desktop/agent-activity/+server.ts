@@ -12,7 +12,7 @@ export const GET: RequestHandler = async () => {
     const payload: DesktopAgentActivityResponse = {
       ok: true,
       generatedAt: new Date().toISOString(),
-      items: buildDesktopAgentActivity(runtime.getSettings(), store.listRecentFacts(500))
+      items: buildDesktopAgentActivity(runtime.getSettings(), store.listRecentFacts(1500))
     };
     return json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
