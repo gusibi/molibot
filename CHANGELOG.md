@@ -1,3 +1,11 @@
+### Fixed: Agent City hover 卡片不再周期闪烁、房间阴影不再自遮挡，master 测试套件恢复绿灯（2026-09-19）
+
+Agent City 面板在指针停在一个房间上时，信息卡会大约每 2.5 秒闪一下。原因是活动轮询和主题切换都会重建房间的拾取目标，而画布每次都先把 hover 清空再重新命中，卡片被迫消失又出现。现在画布记住指针位置，重建后重新做一次命中检测，指针不动时卡片保持稳定。
+
+另外修掉了房间放大的阴影异常：太阳阴影贴图此前没有 set bias，GLTF 房间会整体自遮挡成黑墙黑顶，逐帧重算的阴影 acne 还会缓慢爬动，看起来像持续闪烁；现在补上 `bias` 与 `normalBias`，墙面和屋顶恢复正常的明暗过渡。
+
+同时把 `master` 上因上一轮主题家族重构而失效的 9 条测试断言对齐到当前实现（拾取频率、Worker 角色参数、天空色读取方式、区域钩子、排版例外等），测试套件重新全绿。
+
 ### Fixed: Agent Community 跟随主题家族，近景房间不再持续闪烁（2026-09-19）
 
 Agent Community 之前虽然会跟随明暗模式和天空背景，但 Three.js 房屋、道路、plaza、Community Hub 与状态灯仍大量使用固定颜色，所以切换 Raft、Cyberpunk、Windows 98、Candy 等主题时 3D 社区看起来几乎还是同一套。现在 WebGL 场景会读取当前主题家族/recipe 的真实 CSS token，并解析嵌套 `var(...)` / `color-mix(...)`：房间墙面与 trim、GLTF kit、HQ、Worker Camp、Hub、地面/道路/绿化、Working 路线与状态色都随主题变化；不同 recipe 还会改变粗糙度、金属感、发光、fog 与曝光，而不只是简单换 accent。导入的 VS Code 主题同样走这条 token 管线。
