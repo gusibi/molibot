@@ -15,8 +15,37 @@
   export let onOpenSettings: () => void;
 
   type InspectorTab = "overview" | "workers" | "runtime";
+  const tabs: InspectorTab[] = ["overview", "workers", "runtime"];
   let tab: InspectorTab = "overview";
   let floorKey = "";
+
+  function tabId(value: InspectorTab): string {
+    return `agent-city-inspector-tab-${value}`;
+  }
+
+  function panelId(value: InspectorTab): string {
+    return `agent-city-inspector-panel-${value}`;
+  }
+
+  function selectTab(next: InspectorTab): void {
+    tab = next;
+    queueMicrotask(() => {
+      const element = document.getElementById(tabId(next));
+      if (element instanceof HTMLButtonElement) element.focus();
+    });
+  }
+
+  function handleTabKeydown(event: KeyboardEvent): void {
+    const index = tabs.indexOf(tab);
+    let next: InspectorTab | null = null;
+    if (event.key === "ArrowRight") next = tabs[(index + 1) % tabs.length];
+    else if (event.key === "ArrowLeft") next = tabs[(index - 1 + tabs.length) % tabs.length];
+    else if (event.key === "Home") next = tabs[0];
+    else if (event.key === "End") next = tabs[tabs.length - 1];
+    if (!next) return;
+    event.preventDefault();
+    selectTab(next);
+  }
 
   $: if (floor.key !== floorKey) {
     floorKey = floor.key;
@@ -51,22 +80,56 @@
       <span class="agent-city-inspector-kicker">{floor.kind === "global" ? copy.agentCityHeadquarters : copy.agentCityBuilding}</span>
       <strong>{floor.agent.name}</strong>
     </div>
-    <span class="agent-city-inspector-status" data-status={floor.state}>{statusLabel(floor.state)}</span>
+    <span class="agent-city-inspector-status" data-status={floor.state} aria-label={`${copy.agentStudioActivityStatus}: ${statusLabel(floor.state)}`}>{statusLabel(floor.state)}</span>
     <button type="button" aria-label={copy.agentCityCloseDetail} title={copy.agentCityCloseDetail} onclick={onClose}>
       <X size={15} aria-hidden="true" />
     </button>
   </header>
 
-  <nav class="agent-city-inspector-tabs" role="tablist" aria-label={copy.agentCityInspectorTitle}>
-    <button type="button" role="tab" class:active={tab === "overview"} aria-selected={tab === "overview"} onclick={() => (tab = "overview")}>{copy.agentCityInspectorOverview}</button>
-    <button type="button" role="tab" class:active={tab === "workers"} aria-selected={tab === "workers"} onclick={() => (tab = "workers")}>
+  <nav class="agent-city-inspector-tabs" role="tablist" aria-label={copy.agentCityInspectorTitle} onkeydown={handleTabKeydown}>
+    <button
+      id={tabId("overview")}
+      type="button"
+      role="tab"
+      class:active={tab === "overview"}
+      aria-selected={tab === "overview"}
+      aria-controls={panelId("overview")}
+      tabindex={tab === "overview" ? 0 : -1}
+      onclick={() => (tab = "overview")}
+    >{copy.agentCityInspectorOverview}</button>
+    <button
+      id={tabId("workers")}
+      type="button"
+      role="tab"
+      class:active={tab === "workers"}
+      aria-selected={tab === "workers"}
+      aria-controls={panelId("workers")}
+      tabindex={tab === "workers" ? 0 : -1}
+      onclick={() => (tab = "workers")}
+    >
       {copy.agentCityInspectorWorkers}
       {#if floor.subagents.instances.length}<span>{floor.subagents.instances.length}</span>{/if}
     </button>
-    <button type="button" role="tab" class:active={tab === "runtime"} aria-selected={tab === "runtime"} onclick={() => (tab = "runtime")}>{copy.agentCityInspectorRuntime}</button>
+    <button
+      id={tabId("runtime")}
+      type="button"
+      role="tab"
+      class:active={tab === "runtime"}
+      aria-selected={tab === "runtime"}
+      aria-controls={panelId("runtime")}
+      tabindex={tab === "runtime" ? 0 : -1}
+      onclick={() => (tab = "runtime")}
+    >{copy.agentCityInspectorRuntime}</button>
   </nav>
 
-  <div class="agent-city-inspector-body" role="tabpanel" aria-live="polite">
+  <div
+    id={panelId(tab)}
+    class="agent-city-inspector-body"
+    role="tabpanel"
+    aria-labelledby={tabId(tab)}
+    aria-live="polite"
+    tabindex="0"
+  >
     {#if tab === "overview"}
       <section class="agent-city-inspector-section">
         <p class="agent-city-inspector-description">{floor.agent.description || copy.agentStudioNoDescription}</p>
