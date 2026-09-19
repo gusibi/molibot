@@ -2057,6 +2057,11 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentCityInspector, /floor\.activity\.runId/);
   assert.match(agentCityInspector, /floor\.agent\.modelRouting\.textModelKey/);
   assert.match(agentCityInspector, /onOpenChat\(floor\.agent\.id\)/);
+  assert.match(agentCityInspector, /floor\.runs\.length/);
+  assert.match(agentCityInspector, /agentCityInspectorRecentRuns/);
+  assert.match(agentCityInspector, /onOpenSettings\(floor\.agent\.id\)/);
+  assert.match(chatView, /async function openAgentSettings\(agentId\?: string\)/);
+  assert.match(chatView, /await beginAgentEdit\(agentId\)/);
   assert.match(chatWorkspace, /onOpenAgentChat: \(agentId: string\) => void/);
   assert.match(chatWorkspace, /\{onOpenAgentChat\}/);
   assert.match(view, /function openAgentChat\(agentId: string\)/);
@@ -2086,7 +2091,7 @@ test("Agent City Inspector is a live, keyboard-operable workbench", () => {
   assert.match(agentStudio, /onOpenSettings=\{onOpenAgentSettings\}/);
   assert.match(agentStudio, /floor\.subagents\.groups\.some/);
   assert.match(agentStudio, /floor\.activity\?\.taskPreview/);
-  assert.match(agentCityInspector, /type InspectorTab = "overview" \| "workers" \| "runtime"/);
+  assert.match(agentCityInspector, /type InspectorTab = "overview" \| "workers" \| "runs" \| "runtime"/);
   assert.match(agentCityInspector, /role="tablist"/);
   assert.match(agentCityInspector, /aria-controls=\{panelId\("overview"\)\}/);
   assert.match(agentCityInspector, /aria-labelledby=\{tabId\(tab\)\}/);
@@ -2118,6 +2123,11 @@ test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () =>
   assert.match(agentCityScene, /selection: THREE\.LineSegments/);
   assert.match(agentCityScene, /new THREE\.EdgesGeometry/);
   assert.match(agentCityScene, /node\.selection\.visible = node\.key === selectedKey/);
+  assert.match(agentCityScene, /portalPosition: THREE\.Vector3 \| null/);
+  assert.match(agentCityScene, /workerExitStartedAt/);
+  assert.match(agentCityScene, /Temporary Workers enter through the room portal/);
+  assert.match(agentCityScene, /shared plaza meetup/);
+  assert.match(agentCityScene, /ambientTarget/);
   assert.match(agentCityScene, /new THREE\.PerspectiveCamera/);
   assert.match(agentCityScene, /new THREE\.Raycaster\(\)/);
   assert.match(agentCityScene, /function attachFloorTarget/);
