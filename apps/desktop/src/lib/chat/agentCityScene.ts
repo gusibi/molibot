@@ -1961,24 +1961,33 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
     if (!reducedMotion) {
       for (const node of floorNodes.values()) {
+        // At overview distance a very small pulse makes activity legible. In a
+        // close-up it reads as the whole room flashing, especially on large
+        // emissive GLTF windows, so detailed/focused views become steady.
+        const steadyCloseUp = detailed || focusedKey === node.key;
         if (node.windowFlicker > 0) {
-          const windowGlow = node.windowBase + Math.sin(time * 0.0026 + node.glowPhase) * node.windowFlicker;
+          const windowGlow = steadyCloseUp
+            ? node.windowBase
+            : node.windowBase + Math.sin(time * 0.0018 + node.glowPhase) * node.windowFlicker;
           node.windowMaterial.emissiveIntensity = windowGlow;
           for (const surface of node.assetWindowMaterials) surface.emissiveIntensity = windowGlow;
         }
         if (node.status === "working") {
-          const roomPulse = 0.42 + (Math.sin(time * 0.004 + node.glowPhase) + 1) * 0.11;
+          const roomPulse = steadyCloseUp ? 0.48 : 0.46 + Math.sin(time * 0.0022 + node.glowPhase) * 0.035;
           for (const surface of node.activityMaterials) surface.emissiveIntensity = roomPulse;
-          node.deskScreen.emissiveIntensity = 0.7 + (Math.sin(time * 0.007 + node.glowPhase) + 1) * 0.12;
+          node.deskScreen.emissiveIntensity = steadyCloseUp ? 0.76 : 0.76 + Math.sin(time * 0.003 + node.glowPhase) * 0.045;
         } else if (node.status === "error") {
-          const alertPulse = 0.34 + Math.abs(Math.sin(time * 0.009 + node.glowPhase)) * 0.5;
+          const alertPulse = steadyCloseUp ? 0.58 : 0.54 + Math.sin(time * 0.0035 + node.glowPhase) * 0.08;
           for (const surface of node.activityMaterials) surface.emissiveIntensity = alertPulse;
         }
         node.workerScreens.forEach((surface, index) => {
           const rig = node.pugs[index + 1];
           if (!rig) return;
-          if (rig.status === "working") surface.emissiveIntensity = 0.72 + (Math.sin(time * 0.01 + rig.seed) + 1) * 0.14;
-          else if (rig.status === "error") surface.emissiveIntensity = 0.45 + Math.abs(Math.sin(time * 0.012 + rig.seed)) * 0.42;
+          if (rig.status === "working") {
+            surface.emissiveIntensity = steadyCloseUp ? 0.82 : 0.82 + Math.sin(time * 0.0032 + rig.seed) * 0.06;
+          } else if (rig.status === "error") {
+            surface.emissiveIntensity = steadyCloseUp ? 0.62 : 0.62 + Math.sin(time * 0.004 + rig.seed) * 0.09;
+          }
         });
         const route = node.route;
         if (route && route.group.visible) {
@@ -1988,13 +1997,21 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         }
         const perimeter = node.perimeter;
         if (perimeter && perimeter.group.visible) {
-          const pulse = 0.7 + Math.sin(time * 0.006 + perimeter.phase) * 0.16;
-          perimeter.material.opacity = 0.38 + pulse * 0.16;
-          moveMarquee(perimeter, -((time * 0.006 + perimeter.phase) % perimeter.length));
-          perimeter.emissive.emissiveIntensity = 0.72 + pulse * 0.28;
+          if (steadyCloseUp) {
+            perimeter.material.opacity = 0.54;
+            moveMarquee(perimeter, 0);
+            perimeter.emissive.emissiveIntensity = 0.86;
+          } else {
+            const pulse = 0.7 + Math.sin(time * 0.003 + perimeter.phase) * 0.1;
+            perimeter.material.opacity = 0.4 + pulse * 0.1;
+            moveMarquee(perimeter, -((time * 0.0028 + perimeter.phase) % perimeter.length));
+            perimeter.emissive.emissiveIntensity = 0.72 + pulse * 0.2;
+          }
         }
         if (node.selection.visible) {
-          node.selectionMaterial.opacity = 0.68 + (Math.sin(time * 0.006 + node.glowPhase) + 1) * 0.12;
+          node.selectionMaterial.opacity = steadyCloseUp
+            ? 0.78
+            : 0.72 + Math.sin(time * 0.0025 + node.glowPhase) * 0.05;
         }
         if (node.celebration?.visible) {
           node.celebration.rotation.y = time * 0.0014 + node.glowPhase;
