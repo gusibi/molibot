@@ -1098,7 +1098,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         if (!node) continue;
         const dark = theme === "dark";
         const variant = typeof floor.buildingIndex === "number" ? floor.buildingIndex : 0;
-        const accent = floor.kind === "global" ? 0x006bff : floorPalette(variant, dark).accent;
+        const accent = floor.kind === "global"
+          ? cssColorHex(visualTheme.accent, 0x006bff)
+          : floorPalette(variant, dark, visualTheme).accent;
         attachCommunityKit(node, floor.kind === "global", dark, accent, floor.subagents.instances.length > 0);
       }
     } catch {
@@ -1126,24 +1128,38 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   }
 
   function applyTheme(): void {
+    const profile = agentCityRecipeProfile(visualTheme.recipe);
+    const accent = cssColorHex(visualTheme.accent, theme === "dark" ? 0x79b8ff : 0x006bff);
+    const warning = cssColorHex(visualTheme.warning, 0xffc96b);
     scene.background = skyColor;
-    scene.fog = new THREE.Fog(skyColor, 42, 130);
-    ambient.intensity = theme === "dark" ? 1.45 : 1.8;
-    sun.color.setHex(theme === "dark" ? 0x9fc6ff : 0xfff4df);
-    sun.intensity = theme === "dark" ? 2.2 : 3.4;
-    rim.color.setHex(theme === "dark" ? 0x79b8ff : 0xffe1b8);
-    rim.intensity = theme === "dark" ? 0.75 : 0.55;
-    renderer.toneMappingExposure = theme === "dark" ? 1.08 : 1.0;
+    scene.fog = new THREE.Fog(skyColor, visualTheme.recipe === "technical" ? 34 : 42, visualTheme.recipe === "retro" ? 105 : 130);
+    ambient.intensity = (theme === "dark" ? 1.45 : 1.8) * (visualTheme.recipe === "retro" ? 0.92 : 1);
+    sun.color.setHex(theme === "dark" ? mixHex(accent, 0xffffff, 0.48) : mixHex(warning, 0xffffff, 0.78));
+    sun.intensity = theme === "dark" ? 2.15 : 3.3;
+    rim.color.setHex(accent);
+    rim.intensity = (theme === "dark" ? 0.72 : 0.5) * profile.emissiveScale;
+    renderer.toneMappingExposure =
+      visualTheme.recipe === "technical" ? (theme === "dark" ? 1.14 : 1.02) :
+      visualTheme.recipe === "retro" ? (theme === "dark" ? 0.98 : 0.94) :
+      theme === "dark" ? 1.06 : 1.0;
   }
 
   function buildStaticScenery(): void {
     disposeObject(staticRoot);
     staticRoot.clear();
-    const groundColor = theme === "dark" ? 0x1d282f : 0xdfe7e5;
-    const ground = mesh(new THREE.BoxGeometry(34, 0.28, 22), material(groundColor), 0, -0.2, 0);
+    const profile = agentCityRecipeProfile(visualTheme.recipe);
+    const accent = cssColorHex(visualTheme.accent, theme === "dark" ? 0x48aeff : 0x006bff);
+    const surface = cssColorHex(visualTheme.surface, theme === "dark" ? 0x1d282f : 0xdfe7e5);
+    const panel = cssColorHex(visualTheme.panel, theme === "dark" ? 0x2a373e : 0xd5dfdc);
+    const card = cssColorHex(visualTheme.card, theme === "dark" ? 0x26333b : 0xf5eee4);
+    const separator = cssColorHex(visualTheme.separator, theme === "dark" ? 0x4a5962 : 0xb9c4c8);
+    const online = cssColorHex(visualTheme.online, theme === "dark" ? 0x5ebc78 : 0x4f8c61);
+    const warning = cssColorHex(visualTheme.warning, theme === "dark" ? 0xd9a34f : 0xa97842);
+    const groundColor = mixHex(surface, panel, theme === "dark" ? 0.18 : 0.26);
+    const ground = mesh(new THREE.BoxGeometry(34, 0.28, 22), material(groundColor, profile.roughness, profile.metalness), 0, -0.2, 0);
     ground.receiveShadow = true;
     staticRoot.add(ground);
-    const roadColor = theme === "dark" ? 0x33434c : 0xcbd8d5;
+    const roadColor = mixHex(panel, separator, visualTheme.recipe === "retro" ? 0.72 : 0.48);
     const addRoad = (fromX: number, fromZ: number, toX: number, toZ: number, width = 0.3): void => {
       const dx = toX - fromX;
       const dz = toZ - fromZ;
@@ -1161,18 +1177,22 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     // A small shared plaza and restrained landscaping make the scene read as a
     // community rather than isolated dollhouses. These remain runtime-owned so
     // they can follow light/dark themes without baking another asset variant.
-    const plazaMaterial = material(theme === "dark" ? 0x2a373e : 0xd5dfdc, 0.86);
+    const plazaMaterial = material(
+      mixHex(card, accent, profile.sceneryAccentMix),
+      profile.roughness,
+      profile.metalness
+    );
     const plaza = mesh(new RoundedBoxGeometry(9.2, 0.06, 7.0, 5, 0.12), plazaMaterial, primary.x, -0.01, primary.z + 0.25);
     plaza.receiveShadow = true;
     staticRoot.add(plaza);
 
-    const leafMaterial = material(theme === "dark" ? 0x416b52 : 0x6f9f78, 0.92);
-    const trunkMaterial = material(theme === "dark" ? 0x645244 : 0x8b6a52, 0.9);
+    const leafMaterial = material(mixHex(online, card, theme === "dark" ? 0.24 : 0.38), 0.92);
+    const trunkMaterial = material(mixHex(warning, panel, 0.58), 0.9);
     const lampMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffe7b0,
-      emissive: 0xffc96b,
-      emissiveIntensity: theme === "dark" ? 0.7 : 0.12,
-      roughness: 0.55
+      color: mixHex(warning, 0xffffff, theme === "dark" ? 0.56 : 0.74),
+      emissive: warning,
+      emissiveIntensity: (theme === "dark" ? 0.62 : 0.1) * profile.emissiveScale,
+      roughness: profile.roughness
     });
     for (const [x, z] of [[-3.8, -0.5], [3.8, -0.5], [-3.6, 4.7], [3.6, 4.7]] as const) {
       staticRoot.add(mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.75, 12), trunkMaterial, x, 0.34, z + primary.z));
@@ -1181,43 +1201,45 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       staticRoot.add(crown);
     }
     for (const x of [-2.2, 2.2]) {
-      addBox(staticRoot, [0.9, 0.11, 0.34], theme === "dark" ? 0x665748 : 0x927761, [x, 0.25, primary.z + 3.0], 0.05);
-      addBox(staticRoot, [0.055, 0.34, 0.055], theme === "dark" ? 0x59666d : 0x75838b, [x - 0.31, 0.12, primary.z + 3.0], 0.02);
-      addBox(staticRoot, [0.055, 0.34, 0.055], theme === "dark" ? 0x59666d : 0x75838b, [x + 0.31, 0.12, primary.z + 3.0], 0.02);
+      addBox(staticRoot, [0.9, 0.11, 0.34], mixHex(warning, panel, 0.5), [x, 0.25, primary.z + 3.0], visualTheme.recipe === "retro" ? 0.005 : 0.05);
+      addBox(staticRoot, [0.055, 0.34, 0.055], mixHex(separator, panel, 0.3), [x - 0.31, 0.12, primary.z + 3.0], 0.02);
+      addBox(staticRoot, [0.055, 0.34, 0.055], mixHex(separator, panel, 0.3), [x + 0.31, 0.12, primary.z + 3.0], 0.02);
     }
     for (const x of [-1.7, 1.7]) {
-      addBox(staticRoot, [0.055, 1.05, 0.055], theme === "dark" ? 0x59666d : 0x75838b, [x, 0.5, primary.z + 5.1], 0.018);
+      addBox(staticRoot, [0.055, 1.05, 0.055], mixHex(separator, panel, 0.3), [x, 0.5, primary.z + 5.1], 0.018);
       staticRoot.add(mesh(new THREE.SphereGeometry(0.12, 12, 8), lampMaterial, x, 1.05, primary.z + 5.1));
     }
 
     const owner = communityKit
-      ? cloneCommunityComponent(communityKit, "CommunityHub", theme === "dark", 0x006bff) ?? createOwnerCenter(theme === "dark")
-      : createOwnerCenter(theme === "dark");
+      ? cloneCommunityComponent(communityKit, "CommunityHub", theme === "dark", accent) ?? createOwnerCenter(theme === "dark", accent)
+      : createOwnerCenter(theme === "dark", accent);
     owner.position.set(projection.owner.position.x, projection.owner.position.y, projection.owner.position.z);
     staticRoot.add(owner);
   }
 
-  function createOwnerCenter(dark: boolean): THREE.Group {
+  function createOwnerCenter(dark: boolean, accent: number): THREE.Group {
     const group = new THREE.Group();
-    const base = material(dark ? 0x33434c : 0xd8e2df, 0.72);
+    const profile = agentCityRecipeProfile(visualTheme.recipe);
+    const baseColor = mixHex(cssColorHex(visualTheme.panel, dark ? 0x33434c : 0xd8e2df), accent, profile.sceneryAccentMix * 0.55);
+    const base = material(baseColor, profile.roughness, profile.metalness);
     const platform = mesh(new THREE.CylinderGeometry(2.15, 2.35, 0.24, 40), base, 0, 0.08, 0);
     group.add(platform);
 
     const coreMaterial = new THREE.MeshStandardMaterial({
-      color: dark ? 0x17324c : 0xd9edff,
-      emissive: 0x006bff,
-      emissiveIntensity: 0.55,
-      roughness: 0.3,
-      metalness: 0.08
+      color: mixHex(cssColorHex(visualTheme.card, dark ? 0x17324c : 0xd9edff), accent, 0.28),
+      emissive: accent,
+      emissiveIntensity: 0.48 * profile.emissiveScale,
+      roughness: Math.max(0.28, profile.roughness - 0.3),
+      metalness: profile.metalness
     });
     group.add(mesh(new THREE.CylinderGeometry(0.42, 0.62, 1.35, 24), coreMaterial, 0, 0.78, 0));
     group.add(mesh(new THREE.SphereGeometry(0.28, 20, 14), coreMaterial, 0, 1.52, 0));
 
     const ringMaterial = new THREE.MeshStandardMaterial({
-      color: 0x8bc7ff,
-      emissive: 0x006bff,
-      emissiveIntensity: 0.4,
-      roughness: 0.35
+      color: mixHex(accent, 0xffffff, 0.42),
+      emissive: accent,
+      emissiveIntensity: 0.36 * profile.emissiveScale,
+      roughness: Math.max(0.3, profile.roughness - 0.25)
     });
     const ring = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.055, 10, 48), ringMaterial);
     ring.rotation.x = Math.PI / 2;
@@ -1227,7 +1249,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
       const x = Math.cos(angle) * 1.5;
       const z = Math.sin(angle) * 1.5;
-      const terminal = addBox(group, [0.46, 0.12, 0.34], dark ? 0x657680 : 0x9caab0, [x, 0.28, z]);
+      const terminal = addBox(group, [0.46, 0.12, 0.34], mixHex(cssColorHex(visualTheme.separator, dark ? 0x657680 : 0x9caab0), accent, 0.12), [x, 0.28, z]);
       terminal.rotation.y = -angle;
     }
     return group;
