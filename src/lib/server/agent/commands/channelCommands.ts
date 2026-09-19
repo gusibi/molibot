@@ -173,15 +173,16 @@ export class SharedRuntimeCommandService<TTarget> {
   async handleQueuedControlAction(
     scopeId: string,
     queueId: number,
-    action: QueuedControlAction
+    action: QueuedControlAction,
+    expectedRunId?: string | null
   ): Promise<QueuedControlActionResult> {
-    const key = `${scopeId}:${queueId}`;
+    const key = `${scopeId}:${queueId}:${action}:${expectedRunId ?? ""}`;
     const completed = this.queuedControlResults.get(key);
     if (completed) return completed;
     const existing = this.queuedControlActions.get(key);
     if (existing) return existing;
 
-    const pending = this.executeQueuedControlAction(scopeId, queueId, action);
+    const pending = this.executeQueuedControlAction(scopeId, queueId, action, expectedRunId);
     this.queuedControlActions.set(key, pending);
     try {
       const result = await pending;
@@ -200,7 +201,8 @@ export class SharedRuntimeCommandService<TTarget> {
   private async executeQueuedControlAction(
     scopeId: string,
     queueId: number,
-    action: QueuedControlAction
+    action: QueuedControlAction,
+    expectedRunId?: string | null
   ): Promise<QueuedControlActionResult> {
     if (!Number.isSafeInteger(queueId) || queueId <= 0 || !this.options.getQueuedPreview) {
       return { status: "stale", message: this.text("This queued-message action is no longer available.", "这条排队消息操作已失效。") };
@@ -225,6 +227,15 @@ export class SharedRuntimeCommandService<TTarget> {
     const preview = String(queued.preview ?? "").trim();
     if (!preview || !this.options.steerRun || !this.options.deleteQueued) {
       return { status: "failed", message: this.text("This queued message cannot be injected.", "这条排队消息无法插入当前任务。") };
+    }
+    if (expectedRunId && this.activeInteractionRunId(scopeId) !== expectedRunId) {
+      return {
+        status: "not_running",
+        message: this.text(
+          "The bound run already finished or changed; the queued message remains pending.",
+          "绑定的运行任务已经结束或变化；这条消息会继续留在队列中。"
+        )
+      };
     }
     const steered = this.options.steerRun(scopeId, preview);
     if (!steered.queued) {
@@ -951,7 +962,9 @@ export class SharedRuntimeCommandService<TTarget> {
       chatId: input.chatId,
       scopeId: input.scopeId,
       text: "",
-      target: input.target
+      target: input.target,
+      platformMessageId: input.platformMessageId,
+      platformThreadId: input.platformThreadId
     }, text);
     return id
       ? { ok: true, message: this.text(`Added a new task at the front of the queue (#${id}). Existing items were not reordered.`, `已新增任务到队首（#${id}）；现有任务没有被重新排序。`) }
