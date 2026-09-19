@@ -1224,13 +1224,9 @@ export class SharedRuntimeCommandService<TTarget> {
         ].join("\n\n"));
         return true;
       }
-      if (this.options.isRunning(input.scopeId)) {
-        await this.options.sendText(input.target, this.text("Already working. Send /stop before switching Project mode.", "已有任务正在运行，请先发送 /stop，再切换 Project 模式。"));
-        return true;
-      }
       if (["off", "chat", "exit", "none", "关闭", "退出"].includes(selector.toLowerCase())) {
-        this.options.setActiveProject(input.scopeId, null);
-        await this.options.sendText(input.target, this.text("Switched to normal Chat mode.", "已切换到普通聊天模式。"));
+        const result = this.selectInteractionProject(this.commandInteractionContext(input), null);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
       const index = Number.parseInt(selector, 10);
@@ -1243,47 +1239,14 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(input.target, this.text(`Project not found: ${selector}. Send /project to list available Projects.`, `未找到 Project：${selector}。发送 /project 查看可用项目。`));
         return true;
       }
-      const project = this.options.setActiveProject(input.scopeId, selected.id);
-      await this.options.sendText(input.target, this.text(
-        `Switched to Project mode: ${project?.name ?? selected.name}. Subsequent messages will work in this Project.`,
-        `已切换到 Project 模式：${project?.name ?? selected.name}。后续消息会在该项目中执行。`
-      ));
+      const result = this.selectInteractionProject(this.commandInteractionContext(input), selected.id);
+      await this.options.sendText(input.target, result.message);
       return true;
     }
 
     if (cmd === "/new") {
-      if (this.options.isRunning(input.scopeId)) {
-        await this.options.sendText(input.target, this.text("Already working. Send /stop first, then /new.", "已有任务正在运行，请先发送 /stop，再发送 /new。"));
-        return true;
-      }
-      const project = this.options.getActiveProject?.(input.scopeId) ?? null;
-      if (project && this.options.createProjectSession && this.options.setActiveProjectSession) {
-        const created = this.options.createProjectSession(input.scopeId);
-        this.options.setActiveProjectSession(input.scopeId, created.id);
-        await this.options.sendText(input.target, this.text(
-          `Created and switched to new Project session: ${created.title} (${created.id})`,
-          `已创建并切换到新的项目会话：${created.title}（${created.id}）`
-        ));
-        await this.options.onSessionMutation?.(input.scopeId);
-        momLog(this.options.channel, "project_session_new", {
-          chatId: input.chatId,
-          scopeId: input.scopeId,
-          projectId: project.id,
-          conversationId: created.id,
-          instanceId: this.options.instanceId
-        });
-        return true;
-      }
-      const sessionId = this.options.store.createSession(input.scopeId);
-      this.options.runners.reset(input.scopeId, sessionId);
-      await this.options.sendText(input.target, this.text(`Created and switched to new session: ${sessionId}`, `已创建并切换到新会话：${sessionId}`));
-      await this.options.onSessionMutation?.(input.scopeId);
-      momLog(this.options.channel, "session_new", {
-        chatId: input.chatId,
-        scopeId: input.scopeId,
-        sessionId,
-        instanceId: this.options.instanceId
-      });
+      const result = await this.createInteractionSession(this.commandInteractionContext(input));
+      await this.options.sendText(input.target, result.message);
       return true;
     }
 
@@ -1307,10 +1270,6 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     if (cmd === "/sessions") {
-      if (this.options.isRunning(input.scopeId)) {
-        await this.options.sendText(input.target, this.text("Already working. Send /stop first, then switch sessions.", "已有任务正在运行，请先发送 /stop，再切换会话。"));
-        return true;
-      }
       const project = this.options.getActiveProject?.(input.scopeId) ?? null;
       const projectSessions = project && this.options.listProjectSessions
         ? this.options.listProjectSessions(input.scopeId)
@@ -1322,20 +1281,8 @@ export class SharedRuntimeCommandService<TTarget> {
             await this.options.sendText(input.target, this.text("Invalid session selector. Use /sessions to list Project sessions.", "无效的会话选择器。使用 /sessions 查看项目会话。"));
             return true;
           }
-          this.options.setActiveProjectSession(input.scopeId, picked.id);
-          await this.options.sendText(input.target, this.text(
-            `Project · ${project.name}: switched to session ${picked.title} (${picked.id})`,
-            `项目「${project.name}」已切换会话：${picked.title}（${picked.id}）`
-          ));
-          await this.options.onSessionMutation?.(input.scopeId);
-          momLog(this.options.channel, "project_session_switch", {
-            chatId: input.chatId,
-            scopeId: input.scopeId,
-            projectId: project.id,
-            conversationId: picked.id,
-            selector: rawArg,
-            instanceId: this.options.instanceId
-          });
+          const result = await this.switchInteractionSession(this.commandInteractionContext(input), picked.id);
+          await this.options.sendText(input.target, result.message);
           return true;
         }
         await this.options.sendText(input.target, this.formatProjectSessionsOverview(input.scopeId, project, projectSessions));
@@ -1347,16 +1294,8 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(input.target, this.text("Invalid session selector. Use /sessions to list available sessions.", "无效的会话选择器。使用 /sessions 查看可用会话。"));
           return true;
         }
-        this.options.store.setActiveSession(input.scopeId, picked);
-        await this.options.sendText(input.target, this.text(`Switched to session: ${picked}`, `已切换到会话：${picked}`));
-        await this.options.onSessionMutation?.(input.scopeId);
-        momLog(this.options.channel, "session_switch", {
-          chatId: input.chatId,
-          scopeId: input.scopeId,
-          sessionId: picked,
-          selector: rawArg,
-          instanceId: this.options.instanceId
-        });
+        const result = await this.switchInteractionSession(this.commandInteractionContext(input), picked);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
       await this.options.sendText(input.target, this.formatSessionsOverview(input.scopeId));
@@ -1391,29 +1330,8 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(input.target, this.text("Invalid session selector. Use /delete_sessions to list available sessions.", "无效的会话选择器。使用 /delete_sessions 查看可删除会话。"));
         return true;
       }
-      try {
-        const result = this.options.store.deleteSession(input.scopeId, picked);
-        this.options.runners.reset(input.scopeId, result.deleted);
-        await this.options.onSessionMutation?.(input.scopeId);
-        await this.options.sendText(
-          input.target,
-          this.renderMarkdownBulletList(this.text("Session deleted", "会话已删除"), [
-            { label: this.text("Deleted", "已删除"), value: this.code(result.deleted) },
-            { label: this.text("Current", "当前会话"), value: this.code(result.active) },
-            { label: this.text("Remaining", "剩余会话"), value: String(result.remaining.length) }
-          ])
-        );
-        momLog(this.options.channel, "session_deleted", {
-          chatId: input.chatId,
-          scopeId: input.scopeId,
-          deleted: result.deleted,
-          active: result.active,
-          remaining: result.remaining.length,
-          instanceId: this.options.instanceId
-        });
-      } catch (error) {
-        await this.options.sendText(input.target, error instanceof Error ? error.message : String(error));
-      }
+      const result = await this.deleteInteractionSession(this.commandInteractionContext(input), picked);
+      await this.options.sendText(input.target, result.message);
       return true;
     }
 
