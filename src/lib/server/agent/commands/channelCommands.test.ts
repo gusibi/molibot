@@ -1572,7 +1572,7 @@ test("queued control button steers the referenced message exactly once under dup
   assert.deepEqual(duplicate, first);
   assert.deepEqual(steeredTexts, ["please correct the scope"]);
   assert.deepEqual(deletedIds, [12]);
-  assert.deepEqual(await service.handleQueuedControlAction("chat-1", 12, "stop"), first);
+  assert.equal((await service.handleQueuedControlAction("chat-1", 12, "stop")).status, "stale");
   assert.deepEqual(steeredTexts, ["please correct the scope"]);
   assert.deepEqual(deletedIds, [12]);
 });
@@ -1633,6 +1633,37 @@ test("stale queued-control buttons cannot affect another run", async () => {
   assert.equal((await service.handleQueuedControlAction("forged-chat", 12, "steer")).status, "stale");
   assert.equal(stops, 0);
   assert.equal(steers, 0);
+});
+
+test("queued steer rechecks the original run after the async queue lookup", async () => {
+  let activeRunId = "run-1";
+  let steers = 0;
+  let deletes = 0;
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => true,
+    stopRun: () => ({ aborted: false }),
+    steerRun: () => { steers += 1; return { queued: true }; },
+    getQueuedPreview: async () => {
+      activeRunId = "run-2";
+      return { status: "pending", preview: "must stay queued" };
+    },
+    deleteQueued: async () => { deletes += 1; return "deleted"; },
+    cancelQueuedPending: async () => 0,
+    sendText: async () => {}
+  });
+  (service as any).activeInteractionRunId = () => activeRunId;
+
+  const result = await service.handleQueuedControlAction("chat-1", 12, "steer", "run-1");
+  assert.equal(result.status, "not_running");
+  assert.equal(steers, 0);
+  assert.equal(deletes, 0);
 });
 
 test("queue commands list, front insert, and delete pending tasks", async () => {
