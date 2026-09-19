@@ -31,7 +31,7 @@ import {
     sendFeishuFile,
     sendFeishuText
 } from "$lib/server/channels/feishu/messaging.js";
-import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
+import { isFeishuGroupMessageTriggered, parseFeishuThreadScopeId, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
 import { FeishuThreadRegistry } from "$lib/server/channels/feishu/threadRegistry.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
@@ -174,7 +174,12 @@ export class FeishuManager extends BaseChannelRuntime {
                     // Do not rethrow — the error is already logged and the user notified.
                 }
             },
-            enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTask(input.scopeId, text, true)
+            enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTask({
+                chatId: input.chatId,
+                scopeId: input.scopeId,
+                platformMessageId: input.platformMessageId,
+                platformThreadId: input.platformThreadId
+            }, text, true)
         });
         this.commandService = this.createSharedCommandService<string>({
             authScopePrefix: "feishu",
@@ -462,7 +467,7 @@ export class FeishuManager extends BaseChannelRuntime {
     }
 
     private buildFeishuInteractionContext(
-        event: Pick<ChannelInboundMessage, "chatId" | "scopeId">,
+        event: Pick<ChannelInboundMessage, "chatId" | "scopeId" | "platformMessageId" | "platformThreadId">,
         actorId: string
     ): InteractionContext<string> {
         const scopeId = event.scopeId || event.chatId;
@@ -470,7 +475,9 @@ export class FeishuManager extends BaseChannelRuntime {
             chatId: event.chatId,
             scopeId,
             actorId,
-            target: event.chatId
+            target: event.chatId,
+            platformMessageId: event.platformMessageId,
+            platformThreadId: event.platformThreadId
         };
     }
 
@@ -513,6 +520,11 @@ export class FeishuManager extends BaseChannelRuntime {
                 : {}
         );
         if (sent?.message_id) {
+            this.threadRegistry.recordBotMessage({
+                messageId: sent.message_id,
+                chatId: context.chatId,
+                threadId: context.platformThreadId
+            });
             this.interactionService.bindInputPrompt(input.requestId, sent.message_id);
             return sent.message_id;
         }
@@ -1316,21 +1328,39 @@ export class FeishuManager extends BaseChannelRuntime {
         };
     }
 
-    private async enqueueSyntheticTask(chatId: string, text: string, front: boolean): Promise<number | null> {
+    private async enqueueSyntheticTask(
+        route: {
+            chatId: string;
+            scopeId: string;
+            platformMessageId?: string;
+            platformThreadId?: string;
+        },
+        text: string,
+        front: boolean
+    ): Promise<number | null> {
         const normalized = String(text ?? "").trim();
         if (!normalized) return null;
-        return this.inboundTasks.enqueue(chatId, {
+        const chatId = String(route.chatId ?? "").trim();
+        const scopeId = String(route.scopeId ?? "").trim() || chatId;
+        if (!chatId) return null;
+        const platformThreadId = String(
+            route.platformThreadId ?? parseFeishuThreadScopeId(chatId, scopeId) ?? ""
+        ).trim() || undefined;
+        const now = Date.now();
+        return this.inboundTasks.enqueue(scopeId, {
             chatId,
-            scopeId: chatId,
-            chatType: "private",
-            messageId: Date.now(),
+            scopeId,
+            chatType: scopeId === chatId ? "private" : "group",
+            messageId: now,
+            platformMessageId: String(route.platformMessageId ?? "").trim() || undefined,
+            platformThreadId,
             userId: "QUEUE",
             userName: "QUEUE",
             text: normalized,
-            ts: `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, "0")}`,
+            ts: `${Math.floor(now / 1000)}.${String(now % 1000).padStart(3, "0")}`,
             attachments: [],
             imageContents: [],
-            sessionId: this.store.getActiveSession(chatId)
+            sessionId: this.store.getActiveSession(scopeId)
         }, { front, preview: normalized });
     }
 
