@@ -290,9 +290,8 @@ export interface DesktopSubagentActivityItem {
   finishedAt: string;
 }
 
-export interface DesktopAgentActivityItem {
-  agentId: string;
-  status: DesktopAgentActivityStatus;
+export interface DesktopAgentActivityRunItem {
+  status: Exclude<DesktopAgentActivityStatus, "idle">;
   runId: string;
   channel: string;
   botId: string;
@@ -301,6 +300,22 @@ export interface DesktopAgentActivityItem {
   startedAt: string;
   finishedAt: string;
   subagents: DesktopSubagentActivityItem[];
+}
+
+export interface DesktopAgentActivityItem {
+  agentId: string;
+  status: DesktopAgentActivityStatus;
+  /** Empty when the Agent is idle and this record only carries recent run history. */
+  runId: string;
+  channel: string;
+  botId: string;
+  botName: string;
+  taskPreview: string;
+  startedAt: string;
+  finishedAt: string;
+  subagents: DesktopSubagentActivityItem[];
+  /** Newest first; includes concurrent active runs and recent terminal runs. */
+  runs: DesktopAgentActivityRunItem[];
 }
 
 export interface DesktopAgentActivityResponse {
