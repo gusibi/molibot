@@ -50,6 +50,8 @@ export interface InteractionContext<TTarget> {
   scopeId: string;
   actorId: string;
   target: TTarget;
+  platformMessageId?: string;
+  platformThreadId?: string;
 }
 
 export interface InteractionStateBinding {
