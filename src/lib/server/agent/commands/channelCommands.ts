@@ -1153,13 +1153,8 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue front usage", "队列插队用法"), ["/queue front <text>"]));
           return true;
         }
-        const queueId = await this.options.enqueueFront(input, queueArg);
-        await this.options.sendText(
-          input.target,
-          queueId
-            ? this.text(`Inserted at front of queue. Queue ID: ${queueId}`, `已插入队列最前方。队列 ID：${queueId}`)
-            : this.text("Failed to insert queued task.", "插入排队任务失败。")
-        );
+        const result = await this.enqueueInteractionFront(this.commandInteractionContext(input), queueArg);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
 
@@ -1173,15 +1168,8 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue delete usage", "队列删除用法"), ["/queue delete <queueId>"]));
           return true;
         }
-        const result = await this.options.deleteQueued(input.scopeId, id);
-        await this.options.sendText(
-          input.target,
-          result === "deleted"
-            ? this.text(`Deleted queued task ${id}.`, `已删除排队任务 ${id}。`)
-            : result === "running"
-              ? this.text(`Task ${id} is currently running. Use /stop to stop the current task first.`, `任务 ${id} 正在运行，请先使用 /stop 停止当前任务。`)
-              : this.text(`Queue item ${id} was not found.`, `未找到队列任务 ${id}。`)
-        );
+        const result = await this.cancelInteractionQueueItem(this.commandInteractionContext(input), id);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
 
@@ -1195,18 +1183,8 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue retry usage", "队列重试用法"), ["/queue retry <queueId>"]));
           return true;
         }
-        const result = await this.options.retryQueued(input.scopeId, id);
-        await this.options.sendText(
-          input.target,
-          result === "retried"
-            ? this.text(
-                `Recovery task ${id} was explicitly re-queued. Completed side effects from its interrupted attempt may already exist.`,
-                `恢复任务 ${id} 已由你明确重新入队；中断前已完成的副作用可能仍然存在。`
-              )
-            : result === "running"
-              ? this.text(`Task ${id} is currently running.`, `任务 ${id} 正在运行。`)
-              : this.text(`Recovery task ${id} was not found.`, `未找到待恢复任务 ${id}。`)
-        );
+        const result = await this.retryInteractionQueueItem(this.commandInteractionContext(input), id);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
 
