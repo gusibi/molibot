@@ -1,3 +1,13 @@
+### 新增：Telegram / 飞书 Interaction-first Agent 控制（2026-09-19，待验证）
+
+- Telegram 与飞书新增统一 `/menu`，Model / Session / Project / Thinking / Skills / Queue / Status 使用平台原生按钮或卡片；Slash Command 保留，并与按钮复用共享业务动作。
+- `SharedInteractionService` 只承载控制面：短 token、操作者/chat/topic/session/project/run 绑定、过期/容量清理、确认快照和回复绑定输入。普通自然语言仍走原 Agent 消息路径，Approval / Memory Review 保留独立授权生命周期。
+- Steer / Follow-up / Queue front / Skill Run 不再要求手写参数：系统发送专用输入提示，只消费对该提示的明确回复；重复投递只提交一次，目标切换或运行结束后旧输入失败关闭。
+- Stop 保持“停止当前 run + 清除 pending queue”语义；存在 pending 时先显示影响范围并确认。Queue cancel 只取消指定 pending，Clear pending 不停止当前 run，恢复任务保留重复副作用警告。
+- Busy Queue 通知已迁移到共享 Interaction token，移除 Telegram `qctl:*` 与飞书旧 `queued_control` 双轨；Status 在普通 Session 达到现有 compaction 阈值时提供 Compact / New Session。
+- Telegram callback 仅发送 `ix:<token>`；飞书卡片仅发送 token，并对一次性动作先返回 Processing、后台单次执行后更新原卡片，更新失败只补发结果、不重放业务。
+- 需求与安全约束见 `docs/requirements/bot-interaction-2.md`，共享架构见 `docs/designs/channels/bot-interaction-2.md`。机器测试与 production build 作为 PR 门禁；真实 Telegram / 飞书首次打开、topic/thread、重启失效和中断恢复走查完成前，能力状态保持“待验证”。
+
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
 
 - 背景（owner 走查）：「变更 → 本次会话」「附件」tab 在列表上方各有一条左上角对齐的范围说明（"只显示本次会话中 Agent 写入过的文件。" / "仅显示当前会话消息中的附件。"），与下方居中的空状态并排显得杂乱；owner 期望统一为「icon + 居中主文案 + 居中次要说明」的样式（即 Git 不可用空状态已有的样式）。
