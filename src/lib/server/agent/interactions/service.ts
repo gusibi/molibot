@@ -31,6 +31,7 @@ interface PendingInput<TTarget> {
   skillName?: string;
   promptMessageId?: string;
   expiresAt: number;
+  expired?: boolean;
   inFlight?: Promise<InteractionInputConsumeResult>;
   completed?: InteractionInputConsumeResult;
 }
@@ -131,7 +132,15 @@ export class SharedInteractionService<TTarget> {
       if (row.expiresAt <= now) this.tokens.delete(token);
     }
     for (const [id, row] of this.inputs) {
-      if (row.expiresAt <= now) this.inputs.delete(id);
+      if (row.expiresAt > now) continue;
+      // Keep a bound prompt as a short-lived tombstone so an explicit reply to
+      // an expired prompt is rejected instead of falling through as a normal
+      // Agent message. The tombstone is removed after one extra TTL window.
+      if (row.promptMessageId && row.expiresAt + this.ttlMs > now) {
+        row.expired = true;
+        continue;
+      }
+      this.inputs.delete(id);
     }
     while (this.tokens.size > this.maxTokens) {
       const oldest = this.tokens.keys().next().value;
@@ -400,7 +409,15 @@ export class SharedInteractionService<TTarget> {
         if (input && input.context.actorId === context.actorId && input.context.scopeId === context.scopeId) {
           this.inputs.delete(action.requestId);
         }
-        return { kind: "notice", message: this.options.commands.interactionText("Input cancelled.", "已取消输入。") };
+        const message = this.options.commands.interactionText("Input cancelled.", "已取消输入。");
+        return {
+          kind: "view",
+          view: {
+            surface: "result",
+            title: this.options.commands.interactionText("Input cancelled", "输入已取消"),
+            body: message
+          }
+        };
       }
     }
   }
@@ -717,11 +734,30 @@ export class SharedInteractionService<TTarget> {
     );
     if (!input) return { handled: false };
 
+    if (input.expired || input.expiresAt <= Date.now()) {
+      this.inputs.delete(input.id);
+      return {
+        handled: true,
+        terminal: true,
+        message: this.options.commands.interactionText("This input request expired. Open the action again.", "这次输入请求已过期，请重新发起操作。")
+      };
+    }
+
     const normalized = String(text ?? "").trim();
-    if (!normalized) return { handled: true, message: this.options.commands.interactionText("Input cannot be empty.", "输入不能为空。") };
+    if (!normalized) {
+      return {
+        handled: true,
+        terminal: false,
+        message: this.options.commands.interactionText("Input cannot be empty. Reply to the same prompt again.", "输入不能为空，请重新回复同一条提示。")
+      };
+    }
     if (!this.bindingMatches(input.binding, this.state(context.scopeId))) {
       this.inputs.delete(input.id);
-      return { handled: true, message: this.options.commands.interactionText("The target session, Project, or run changed. This input request expired.", "目标会话、Project 或运行任务已经变化，这次输入请求已失效。") };
+      return {
+        handled: true,
+        terminal: true,
+        message: this.options.commands.interactionText("The target session, Project, or run changed. This input request expired.", "目标会话、Project 或运行任务已经变化，这次输入请求已失效。")
+      };
     }
     if (input.completed) return input.completed;
     if (input.inFlight) return input.inFlight;
@@ -746,20 +782,28 @@ export class SharedInteractionService<TTarget> {
     if (input.kind === "run.steer") {
       if (!input.binding.runId) return { handled: true, message: this.options.commands.interactionText("The running task already ended.", "当前运行任务已经结束。") };
       const result = this.options.commands.steerInteractionRun(context, input.binding.runId, text);
-      return { handled: true, message: result.message };
+      return { handled: true, terminal: true, message: result.message };
     }
     if (input.kind === "run.followup") {
       if (!input.binding.runId) return { handled: true, message: this.options.commands.interactionText("The running task already ended.", "当前运行任务已经结束。") };
       const result = this.options.commands.followUpInteractionRun(context, input.binding.runId, text);
-      return { handled: true, message: result.message };
+      return { handled: true, terminal: true, message: result.message };
     }
     if (input.kind === "queue.front") {
       const result = await this.options.commands.enqueueInteractionFront(context, text);
-      return { handled: true, message: result.message };
+      return { handled: true, terminal: true, message: result.message };
     }
     const skill = this.options.commands.getInteractionSkills(context.scopeId).find((row) => row.name === input.skillName);
-    if (!skill) return { handled: true, message: this.options.commands.interactionText("This skill is no longer available.", "这个技能已不可用。") };
+    if (!skill) return { handled: true, terminal: true, message: this.options.commands.interactionText("This skill is no longer available.", "这个技能已不可用。") };
     const selector = skill.aliases[0] || skill.name;
-    return { handled: true, agentText: `/${selector} ${text}` };
+    return {
+      handled: true,
+      terminal: true,
+      message: this.options.commands.interactionText(
+        `Skill task accepted: ${skill.name}.`,
+        `技能任务已接收：${skill.name}。`
+      ),
+      agentText: `/${selector} ${text}`
+    };
   }
 }
