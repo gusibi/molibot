@@ -14,8 +14,8 @@
   export let onOpenChat: (agentId: string) => void;
   export let onOpenSettings: () => void;
 
-  type InspectorTab = "overview" | "workers" | "runtime";
-  const tabs: InspectorTab[] = ["overview", "workers", "runtime"];
+  type InspectorTab = "overview" | "workers" | "runs" | "runtime";
+  const tabs: InspectorTab[] = ["overview", "workers", "runs", "runtime"];
   let tab: InspectorTab = "overview";
   let floorKey = "";
 
@@ -111,6 +111,19 @@
       {#if floor.subagents.instances.length}<span>{floor.subagents.instances.length}</span>{/if}
     </button>
     <button
+      id={tabId("runs")}
+      type="button"
+      role="tab"
+      class:active={tab === "runs"}
+      aria-selected={tab === "runs"}
+      aria-controls={panelId("runs")}
+      tabindex={tab === "runs" ? 0 : -1}
+      onclick={() => (tab = "runs")}
+    >
+      {copy.agentCityInspectorRuns}
+      {#if floor.runs.length}<span>{floor.runs.length}</span>{/if}
+    </button>
+    <button
       id={tabId("runtime")}
       type="button"
       role="tab"
@@ -200,6 +213,30 @@
           <p class="agent-city-inspector-empty">{copy.agentCityInspectorNoWorkers}</p>
         {/if}
       </section>
+    {:else if tab === "runs"}
+      <section class="agent-city-inspector-section">
+        <h3>{copy.agentCityInspectorRecentRuns}</h3>
+        {#if floor.runs.length}
+          <ol class="agent-city-run-history">
+            {#each floor.runs as run (run.runId)}
+              <li data-status={run.status}>
+                <div>
+                  <i data-status={run.status}></i>
+                  <strong>{statusLabel(run.status)}</strong>
+                  <time>{activityTime(run.startedAt)}</time>
+                </div>
+                <p>{run.taskPreview || copy.agentStudioTaskUnavailable}</p>
+                <small>{run.botName} · {channelLabel(run.channel)} · {shortRunId(run.runId)}</small>
+                {#if run.subagents.length}
+                  <span>{run.subagents.length} {copy.agentStudioSubagents}</span>
+                {/if}
+              </li>
+            {/each}
+          </ol>
+        {:else}
+          <p class="agent-city-inspector-empty">{copy.agentCityInspectorNoRuns}</p>
+        {/if}
+      </section>
     {:else}
       <section class="agent-city-inspector-section">
         <h3>{copy.agentCityInspectorRuntime}</h3>
@@ -256,7 +293,7 @@
   :is(.agent-city-inspector-status, .agent-city-runtime-status)[data-status="working"] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
   :is(.agent-city-inspector-status, .agent-city-runtime-status)[data-status="completed"] { background: color-mix(in srgb, var(--online) 16%, transparent); color: var(--online); }
   :is(.agent-city-inspector-status, .agent-city-runtime-status)[data-status="error"] { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
-  .agent-city-inspector-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 6px; border-bottom: 1px solid var(--separator); }
+  .agent-city-inspector-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 6px; border-bottom: 1px solid var(--separator); }
   .agent-city-inspector-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); font-size: var(--fs-meta); cursor: pointer; }
   .agent-city-inspector-tabs button:hover { background: var(--fill); color: var(--label-primary); }
   .agent-city-inspector-tabs button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
@@ -297,6 +334,17 @@
   .agent-city-worker-group li i[data-status="error"] { background: var(--danger); }
   .agent-city-worker-group li > span { overflow: hidden; font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
   .agent-city-worker-group li small, .agent-city-worker-group li time { color: var(--label-tertiary); font-size: 10px; white-space: nowrap; }
+  .agent-city-run-history { display: grid; margin: 0; padding: 0; gap: 8px; list-style: none; }
+  .agent-city-run-history li { display: grid; gap: 5px; padding: 9px 10px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: color-mix(in srgb, var(--card-bg) 78%, transparent); }
+  .agent-city-run-history li > div { display: grid; grid-template-columns: 8px auto 1fr; align-items: center; gap: 7px; }
+  .agent-city-run-history i { width: 6px; height: 6px; border-radius: 50%; background: var(--label-tertiary); }
+  .agent-city-run-history i[data-status="working"] { background: var(--accent); }
+  .agent-city-run-history i[data-status="completed"] { background: var(--online); }
+  .agent-city-run-history i[data-status="error"] { background: var(--danger); }
+  .agent-city-run-history strong { font-size: var(--fs-meta); }
+  .agent-city-run-history time { justify-self: end; color: var(--label-tertiary); font-size: 10px; }
+  .agent-city-run-history p { margin: 0; color: var(--label-primary); font-size: var(--fs-meta); line-height: 1.4; }
+  .agent-city-run-history small, .agent-city-run-history span { color: var(--label-tertiary); font-size: 10px; }
   .agent-city-inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px; border-top: 1px solid var(--separator); background: color-mix(in srgb, var(--card-bg) 90%, transparent); }
   .agent-city-inspector-actions button { height: 30px; padding: 0 9px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: var(--fs-meta); cursor: pointer; }
   .agent-city-inspector-actions button:hover { background: var(--fill); }
