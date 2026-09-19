@@ -1,6 +1,6 @@
 # Personal Assistant Capability Matrix
 
-Last verified: 2026-09-13
+Last verified: 2026-09-19
 
 This file is the single current-status source for Molibot's work/life assistant capabilities. `prd.md` sections below the current-status banner are design and delivery history: their old status wording must not be used to create new work. `features.md` and `CHANGELOG.md` remain delivery logs, not backlogs.
 
@@ -30,7 +30,7 @@ This file is the single current-status source for Molibot's work/life assistant 
 | Output | DOCX/XLSX/PDF deliverable export | 已交付 | `documentExport` re-reads and verifies files before atomic publication or attachment. |
 | Output | PPTX generation | 未开始 | Deliberately deferred. Existing PPTX support is read-only preview, not presentation generation. Do not infer this task from the delivered document formats. |
 | Tasks | Runtime Todo, one-shot reminders, and periodic automation CRUD | 已交付 | Stable-id create/list/get/update/delete exists. Unscheduled Todo never triggers. Optional Mini App Todo remains a separate data model. |
-| Notifications | Restart catch-up, expiry, offline honesty, and duplicate suppression | 已交付 | Desktop/Web, Telegram, and Feishu live chains passed create/update/trigger/completed receipt/delete. Unit guards cover short restart catch-up, expiry, offline failure, and stable-slot suppression. External delivery remains at-least-once in the crash-after-send/before-local-ack window. |
+| Channels | Telegram / Feishu interaction-first controls | 待验证 | Shared native menu, Model/Session/Project/Thinking/Skills/Queue/Status controls, reply-bound input, stable run targeting, confirmation snapshots, token lifecycle and channel renderers are implemented in PR #58 with targeted tests/build gate. Real Telegram/Feishu topic/thread, restart-stale-button and service-interruption walkthroughs are still required before marking 已交付. |\n| Notifications | Restart catch-up, expiry, offline honesty, and duplicate suppression | 已交付 | Desktop/Web, Telegram, and Feishu live chains passed create/update/trigger/completed receipt/delete. Unit guards cover short restart catch-up, expiry, offline failure, and stable-slot suppression. External delivery remains at-least-once in the crash-after-send/before-local-ack window. |
 | Mini Apps | Agent creation/install H2 | 已交付 | Final live H2 passed 1/1 in 280 seconds with installed manifest, validate/install/inspect receipts, and continued service activity after install. |
 | Mini Apps | Mini App/Pi extension fault isolation | 已交付 | Untrusted runtimes execute in bounded child processes; exit, loop, timeout, cancellation, and reconstruction have regression coverage. This is fault isolation, not a permission sandbox. |
 | Mini Apps | Microphone recording and transcription path | 已交付 | Product owner confirmed the Mini App microphone works in the real app on 2026-08-09. Raw upload, recording segmentation, transcription, retry, and persistence machinery were already delivered. Denial/device-loss automation remains test hardening, not a capability blocker. |
