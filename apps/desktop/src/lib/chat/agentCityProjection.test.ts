@@ -70,6 +70,24 @@ test("projectAgentCity keeps the city deterministic at zero and one regular Agen
   assert.deepEqual(single.slotState.slots, { "agent-1": 0 });
 });
 
+test("projectAgentCity keeps run history without turning an idle Agent into an active floor", () => {
+  const historical = activity("agent-1", "idle");
+  historical.runId = "";
+  historical.channel = "";
+  historical.botId = "";
+  historical.botName = "";
+  historical.taskPreview = "";
+  historical.startedAt = "";
+  historical.finishedAt = "";
+  historical.subagents = [];
+  const projection = projectAgentCity({ agents: [agent("agent-1")], activities: [historical], slots: {} });
+  const floor = projection.buildings[0]?.floors[0];
+  assert.equal(floor?.state, "idle");
+  assert.equal(floor?.activity, null);
+  assert.equal(floor?.route, null);
+  assert.equal(floor?.runs.length, 1);
+});
+
 test("projectAgentCity keeps Global and owner separate from regular Agent capacity", () => {
   const projection = projectAgentCity({
     agents: [agent("default"), ...regularAgents(101)],
