@@ -911,10 +911,26 @@ export class FeishuManager extends BaseChannelRuntime {
             event.text
         );
         if (inputResult.handled) {
+            if (inputResult.terminal) {
+                const settledText = inputResult.message
+                    || this.commandService.interactionText("Input completed.", "输入已处理。");
+                const promptMessageId = String(message.parent_id ?? "").trim();
+                const settledCard = buildFeishuInteractionCard({
+                    surface: "result",
+                    title: this.commandService.interactionText("Input completed", "输入已处理"),
+                    body: settledText
+                });
+                const edited = promptMessageId
+                    ? await editFeishuCard(this.client, promptMessageId, settledCard)
+                    : null;
+                if (!edited) await this.sendText(chatId, settledText);
+            } else if (inputResult.message) {
+                await this.sendText(chatId, inputResult.message);
+            }
+
             if (inputResult.agentText) {
                 event.text = inputResult.agentText;
             } else {
-                if (inputResult.message) await this.sendText(chatId, inputResult.message);
                 return;
             }
         }
