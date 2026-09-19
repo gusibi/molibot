@@ -12,6 +12,7 @@ export type InteractionActionStyle = "default" | "primary" | "danger";
 
 export type InteractionAction =
   | { type: "menu.open" }
+  | { type: "help.open" }
   | { type: "models.open"; page?: number }
   | { type: "model.select"; key: string }
   | { type: "model.reset" }
