@@ -216,4 +216,9 @@ test("skill input becomes a normal explicit-skill agent message only after exact
   const result = await fx.service.consumeInputReply(fx.context, 42, "find current release notes");
   assert.equal(result.handled, true);
   assert.equal(result.agentText, "/web-search find current release notes");
+
+  const duplicate = await fx.service.consumeInputReply(fx.context, 42, "find current release notes");
+  assert.equal(duplicate.handled, true);
+  assert.equal(duplicate.agentText, undefined);
+  assert.match(duplicate.message ?? "", /already submitted/i);
 });
