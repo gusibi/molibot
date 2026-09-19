@@ -1864,3 +1864,8 @@ Four connected additions from `docs/requirements/miniapp-platform-extension-road
 - Verification: Mini App server + route suites 187/187 (including new deep-link 10, card 10, bridge v2 10, attach 7, badge 4), desktop unit 145/145 + structural 173/173 + Rust 52/52, `svelte-check` 0 errors / 0 warnings, root and desktop `vite build` clean. Two real defects were caught by the new guards and fixed before delivery: the `..`-normalization cross-app routing bug above, and an undefined `--radius-medium` token (pitfall #5) flagged by the existing CSS variable guard.
 
 ---
+
+
+### Changed: Agent Community Phase 5 完整工作台（2026-09-19）
+
+Agent Inspector 现在补齐最近运行时间线与同 Agent 并发 run，可查看近 24 小时最多 8 条运行记录；打开 Agent 设置会直接进入当前选中 Agent 的编辑器。临时 Worker 不再瞬移到工位，而是从房间入口进入 Worker Camp，完成/失败后离场。空闲的 Momo 与地面层 Agent 会错峰前往社区 plaza 短暂停留并互动，再返回各自工作室；低动态模式会关闭这些空间移动。
