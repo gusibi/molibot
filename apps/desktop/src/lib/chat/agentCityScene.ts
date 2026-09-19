@@ -618,11 +618,14 @@ function setRigHome(rig: PugRig, position: THREE.Vector3, yaw: number): void {
  * turn it against a side wall. Facing the back wall would put the working pug's
  * back to the camera and hide the whole typing animation.
  */
-function createWorkstation(accent: number): { group: THREE.Group; screen: THREE.MeshStandardMaterial } {
+function createWorkstation(accent: number, visual: AgentCityVisualTheme): { group: THREE.Group; screen: THREE.MeshStandardMaterial } {
   const group = new THREE.Group();
-  addBox(group, [1.25, 0.11, 0.58], 0x8d755f, [0, 0.48, 0], 0.055);
-  addBox(group, [0.1, 0.48, 0.1], 0x5f554c, [-0.48, 0.23, 0]);
-  addBox(group, [0.1, 0.48, 0.1], 0x5f554c, [0.46, 0.23, 0]);
+  const profile = agentCityRecipeProfile(visual.recipe);
+  const desk = mixHex(cssColorHex(visual.panel, 0x8d755f), accent, profile.roomAccentMix * 0.34);
+  const frame = mixHex(cssColorHex(visual.separator, 0x5f554c), desk, 0.34);
+  addBox(group, [1.25, 0.11, 0.58], desk, [0, 0.48, 0], visual.recipe === "retro" || visual.recipe === "editorial" ? 0.01 : 0.055);
+  addBox(group, [0.1, 0.48, 0.1], frame, [-0.48, 0.23, 0]);
+  addBox(group, [0.1, 0.48, 0.1], frame, [0.46, 0.23, 0]);
   const screen = new THREE.MeshStandardMaterial({
     color: 0x52616b,
     emissive: accent,
@@ -630,9 +633,9 @@ function createWorkstation(accent: number): { group: THREE.Group; screen: THREE.
     roughness: 0.42
   });
   group.add(mesh(new THREE.BoxGeometry(0.56, 0.4, 0.08), screen, 0, 0.83, 0));
-  addBox(group, [0.07, 0.28, 0.07], 0x525252, [0, 0.61, 0]);
+  addBox(group, [0.07, 0.28, 0.07], frame, [0, 0.61, 0]);
   // Keyboard, so the typing clip has something to hit.
-  addBox(group, [0.42, 0.03, 0.16], 0x3f4750, [0, 0.55, 0.24], 0.02);
+  addBox(group, [0.42, 0.03, 0.16], mixHex(frame, accent, 0.12), [0, 0.55, 0.24], visual.recipe === "retro" ? 0.005 : 0.02);
   return { group, screen };
 }
 
@@ -682,12 +685,15 @@ function createWindowPanes(
 }
 
 
-function createWorkerStation(accent: number, role: string): { group: THREE.Group; screen: THREE.MeshStandardMaterial } {
+function createWorkerStation(accent: number, role: string, visual: AgentCityVisualTheme): { group: THREE.Group; screen: THREE.MeshStandardMaterial } {
   const group = new THREE.Group();
   const roleAccent = roleColor(role);
-  addBox(group, [0.5, 0.055, 0.34], 0x756b62, [0, 0.27, 0], 0.035);
-  addBox(group, [0.045, 0.26, 0.045], 0x57514b, [-0.19, 0.13, 0]);
-  addBox(group, [0.045, 0.26, 0.045], 0x57514b, [0.19, 0.13, 0]);
+  const profile = agentCityRecipeProfile(visual.recipe);
+  const desk = mixHex(cssColorHex(visual.panel, 0x756b62), accent, profile.roomAccentMix * 0.28);
+  const frame = mixHex(cssColorHex(visual.separator, 0x57514b), desk, 0.3);
+  addBox(group, [0.5, 0.055, 0.34], desk, [0, 0.27, 0], visual.recipe === "retro" || visual.recipe === "editorial" ? 0.008 : 0.035);
+  addBox(group, [0.045, 0.26, 0.045], frame, [-0.19, 0.13, 0]);
+  addBox(group, [0.045, 0.26, 0.045], frame, [0.19, 0.13, 0]);
   const screen = new THREE.MeshStandardMaterial({
     color: 0x33424c,
     emissive: roleAccent || accent,
@@ -695,7 +701,7 @@ function createWorkerStation(accent: number, role: string): { group: THREE.Group
     roughness: 0.32
   });
   group.add(mesh(new THREE.BoxGeometry(0.3, 0.22, 0.035), screen, 0, 0.48, -0.04));
-  addBox(group, [0.22, 0.018, 0.09], 0x3e474e, [0, 0.32, 0.11], 0.012);
+  addBox(group, [0.22, 0.018, 0.09], mixHex(frame, roleAccent, 0.12), [0, 0.32, 0.11], visual.recipe === "retro" ? 0.004 : 0.012);
   return { group, screen };
 }
 
@@ -706,13 +712,18 @@ function createRoomDecor(
   dark: boolean,
   accent: number,
   variant: number,
-  hasWorkers: boolean
+  hasWorkers: boolean,
+  visual: AgentCityVisualTheme
 ): { activityMaterials: THREE.MeshStandardMaterial[]; celebration: THREE.Group } {
   const activityMaterials: THREE.MeshStandardMaterial[] = [];
-  const wood = dark ? 0x6f5d4f : 0x9a8068;
-  const soft = dark ? 0x48545d : 0xc7d1d6;
-  const fabric = dark ? 0x384957 : 0xaec1ce;
-  const rug = dark ? 0x293942 : 0xd7e0dc;
+  const profile = agentCityRecipeProfile(visual.recipe);
+  const card = cssColorHex(visual.card, dark ? 0x293942 : 0xd7e0dc);
+  const panel = cssColorHex(visual.panel, dark ? 0x48545d : 0xc7d1d6);
+  const separator = cssColorHex(visual.separator, dark ? 0x6f5d4f : 0x9a8068);
+  const wood = mixHex(separator, cssColorHex(visual.warning, 0x9a8068), visual.recipe === "product" ? 0.18 : 0.34);
+  const soft = mixHex(panel, accent, profile.roomAccentMix * 0.46);
+  const fabric = mixHex(card, accent, profile.roomAccentMix * 0.7);
+  const rug = mixHex(card, accent, profile.roomAccentMix * 0.4);
 
   // A soft floor plane makes the rooms feel inhabited instead of like empty boxes.
   addBox(
@@ -1188,6 +1199,35 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     plaza.receiveShadow = true;
     staticRoot.add(plaza);
 
+    // Theme families alter the community language, not only its RGB values.
+    // Technical themes get drafting-grid linework; retro/editorial themes get
+    // hard poster/desktop tiles; expressive themes get softer accent islands.
+    if (visualTheme.recipe === "technical") {
+      const gridColor = mixHex(accent, separator, 0.36);
+      const grid = new THREE.GridHelper(30, 30, gridColor, mixHex(gridColor, surface, 0.48));
+      grid.position.y = -0.045;
+      (grid.material as THREE.Material).transparent = true;
+      (grid.material as THREE.Material).opacity = theme === "dark" ? 0.34 : 0.2;
+      staticRoot.add(grid);
+    } else if (visualTheme.recipe === "retro" || visualTheme.recipe === "editorial") {
+      const rule = mixHex(separator, accent, visualTheme.recipe === "editorial" ? 0.34 : 0.12);
+      for (const z of [-5.6, -1.9, 1.8, 5.5]) {
+        addBox(staticRoot, [30, 0.018, visualTheme.recipe === "retro" ? 0.055 : 0.035], rule, [0, -0.035, z], 0.001);
+      }
+      for (const x of [-10, -5, 0, 5, 10]) {
+        addBox(staticRoot, [visualTheme.recipe === "retro" ? 0.055 : 0.035, 0.018, 18], rule, [x, -0.035, 0], 0.001);
+      }
+    } else if (visualTheme.recipe === "expressive") {
+      for (const [x, z, scale] of [[-5.2, 2.5, 1.0], [5.0, 3.2, 0.82], [0, -3.0, 0.72]] as const) {
+        const island = mesh(
+          new THREE.CylinderGeometry(1.25 * scale, 1.25 * scale, 0.025, 32),
+          material(mixHex(card, accent, 0.24), 0.9),
+          x, -0.025, z
+        );
+        staticRoot.add(island);
+      }
+    }
+
     const leafMaterial = material(mixHex(online, card, theme === "dark" ? 0.24 : 0.38), 0.92);
     const trunkMaterial = material(mixHex(warning, panel, 0.58), 0.9);
     const lampMaterial = new THREE.MeshStandardMaterial({
@@ -1379,7 +1419,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     proceduralShell.add(windows.group);
 
     const renderedWorkers = floor.subagents.instances.slice(0, SUBAGENT_RENDER_LIMIT);
-    const decor = createRoomDecor(proceduralDecor, group, isGlobal, dark, accent, variant, renderedWorkers.length > 0);
+    const decor = createRoomDecor(proceduralDecor, group, isGlobal, dark, accent, variant, renderedWorkers.length > 0, visualTheme);
     const activityMaterials = decor.activityMaterials;
     const celebration = decor.celebration;
     const workerScreens: THREE.MeshStandardMaterial[] = [];
@@ -1404,7 +1444,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
     // Desk against the right wall, seat side facing -x: the working pug ends up
     // in profile to the camera, so the paws on the keyboard stay visible.
-    const workstation = createWorkstation(accent);
+    const workstation = createWorkstation(accent, visualTheme);
     workstation.group.position.set(isGlobal ? 2.62 : 1.35, 0, isGlobal ? 0.22 : 0.05);
     workstation.group.rotation.y = -Math.PI / 2;
     group.add(workstation.group);
@@ -1464,7 +1504,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       attachMomoAsset(assistant);
       pugs.push(assistant);
 
-      const station = createWorkerStation(accent, subagent.name);
+      const station = createWorkerStation(accent, subagent.name, visualTheme);
       station.group.position.set(x, isGlobal ? 0.14 : 0.03, z - (isGlobal ? 0.27 : 0.21));
       group.add(station.group);
       workerScreens.push(station.screen);
@@ -1579,6 +1619,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
   function applyFloorState(node: FloorNode, floor: AgentCityFloor): void {
     const previous = node.status;
+    const stateChanged = previous !== floor.state;
     const statusColor = themedStatusColor(floor.state, visualTheme);
     node.statusMaterial.color.setHex(statusColor);
     node.statusMaterial.emissive.setHex(statusColor);
@@ -1587,7 +1628,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
     const working = floor.state === "working";
     node.deskScreen.color.setHex(working ? node.deskAccent : 0x52616b);
-    node.deskScreen.emissiveIntensity = working ? 0.75 : 0;
+    if (stateChanged) node.deskScreen.emissiveIntensity = working ? 0.75 : 0;
     if (node.perimeter) node.perimeter.group.visible = floor.animation === "working";
     if (node.beacon) node.beacon.visible = floor.state === "error";
     if (node.celebration) node.celebration.visible = floor.state === "completed";
@@ -1598,13 +1639,15 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       cssColorHex(visualTheme.warning, 0xffc96b);
     for (const surface of node.activityMaterials) {
       surface.emissive.setHex(roomAccent);
-      surface.emissiveIntensity =
-        floor.state === "working" ? 0.48 :
-        floor.state === "completed" ? 0.36 :
-        floor.state === "error" ? 0.62 :
-        floor.state === "disabled" ? 0.02 : 0.12;
+      if (stateChanged) {
+        surface.emissiveIntensity =
+          floor.state === "working" ? 0.48 :
+          floor.state === "completed" ? 0.36 :
+          floor.state === "error" ? 0.62 :
+          floor.state === "disabled" ? 0.02 : 0.12;
+      }
     }
-    applyWindowGlow(node, floor.state);
+    if (stateChanged) applyWindowGlow(node, floor.state);
 
     const seat = working ? node.seatPosition : node.loungePosition;
     setRigHome(node.mainPug, seat, working ? Math.PI / 2 : 0.35);
@@ -1631,7 +1674,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
           themedStatusColor("error", visualTheme);
         screen.color.setHex(color);
         screen.emissive.setHex(color);
-        screen.emissiveIntensity = subagent.status === "working" ? 0.9 : 0.48;
+        if (!rig || rig.status !== subagent.status || stateChanged) {
+          screen.emissiveIntensity = subagent.status === "working" ? 0.9 : 0.48;
+        }
       }
     });
 
