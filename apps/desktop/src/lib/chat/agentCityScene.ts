@@ -831,7 +831,9 @@ function createWorkingFloorPerimeter(
   size: [number, number, number],
   height: number,
   emissive: THREE.MeshStandardMaterial,
-  phase: number
+  phase: number,
+  workingColor: number,
+  highlightColor: number
 ): AnimatedFloorPerimeter {
   const group = new THREE.Group();
   const [width, , depth] = size;
@@ -856,7 +858,7 @@ function createWorkingFloorPerimeter(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(points, 3));
   const perimeterMaterial = new THREE.LineBasicMaterial({
-    color: STATUS_COLORS.working,
+    color: workingColor,
     transparent: true,
     opacity: 0.42,
     blending: THREE.AdditiveBlending,
@@ -878,7 +880,7 @@ function createWorkingFloorPerimeter(
   marqueeGeometry.setAttribute("position", new THREE.BufferAttribute(marqueePoints, 3));
   const marqueeLength = width * 2 + depth * 2 + (topY - baseY) * 2;
   const marquee = new THREE.LineDashedMaterial({
-    color: 0xd8f0ff,
+    color: highlightColor,
     dashSize: marqueeLength * 0.24,
     gapSize: marqueeLength * 0.76,
     transparent: true,
@@ -1260,17 +1262,22 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const group = new THREE.Group();
     const points = floor.route.points.map((point) => new THREE.Vector3(point.x, point.y + 0.11, point.z));
     const curve = new THREE.CatmullRomCurve3(points);
+    const routeAccent = cssColorHex(visualTheme.accent, 0x006bff);
     const tubeMaterial = new THREE.MeshStandardMaterial({
-      color: 0x006bff,
-      emissive: 0x006bff,
-      emissiveIntensity: 0.65,
+      color: routeAccent,
+      emissive: routeAccent,
+      emissiveIntensity: 0.58 * agentCityRecipeProfile(visualTheme.recipe).emissiveScale,
       transparent: true,
-      opacity: 0.78
+      opacity: visualTheme.recipe === "retro" ? 0.58 : 0.78
     });
     const tube = mesh(new THREE.TubeGeometry(curve, 42, 0.045, 8, false), tubeMaterial);
     tube.castShadow = false;
     group.add(tube);
-    const capsuleMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x006bff, emissiveIntensity: 1.2 });
+    const capsuleMaterial = new THREE.MeshStandardMaterial({
+      color: mixHex(routeAccent, 0xffffff, 0.82),
+      emissive: routeAccent,
+      emissiveIntensity: 1.05 * agentCityRecipeProfile(visualTheme.recipe).emissiveScale
+    });
     const capsule = mesh(new THREE.SphereGeometry(0.13, 10, 8), capsuleMaterial);
     group.add(capsule);
     cityRoot.add(group);
@@ -1396,7 +1403,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       perimeterSize,
       perimeterHeight,
       statusMaterial,
-      floor.floorIndex * 0.71 + variant
+      floor.floorIndex * 0.71 + variant,
+      cssColorHex(visualTheme.accent, STATUS_COLORS.working),
+      mixHex(cssColorHex(visualTheme.accent, STATUS_COLORS.working), 0xffffff, 0.7)
     );
     perimeter.group.visible = false;
     group.add(perimeter.group);
