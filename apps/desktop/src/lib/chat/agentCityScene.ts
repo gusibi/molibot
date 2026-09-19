@@ -1339,12 +1339,22 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     if (isGlobal) {
       // The default Agent is the community's hero building rather than a remote
       // "global" room. Extra width/depth leaves room for a temporary worker camp.
-      const base = dark ? 0x27323d : 0xe9edf0;
-      shell(addBox(proceduralShell, [7.6, 0.3, 5], dark ? 0x3d4d58 : 0xcad3d8, [0, 0.1, 0]));
-      shell(addBox(proceduralShell, [6.9, 3.05, 0.2], base, [0, 1.7, -2.28]));
-      shell(addBox(proceduralShell, [0.22, 3.05, 4.8], base, [-3.35, 1.7, 0]));
-      shell(addBox(proceduralShell, [0.22, 3.05, 4.8], base, [3.35, 1.7, 0]));
-      addBox(proceduralShell, [7.05, 0.18, 5], dark ? 0x3d4d58 : 0xcad3d8, [0, 3.25, 0]);
+      const hqProfile = agentCityRecipeProfile(visualTheme.recipe);
+      const hqBase = mixHex(
+        cssColorHex(visualTheme.card, dark ? 0x27323d : 0xe9edf0),
+        accent,
+        hqProfile.roomAccentMix * 0.42
+      );
+      const hqTrim = mixHex(
+        cssColorHex(visualTheme.panel, dark ? 0x3d4d58 : 0xcad3d8),
+        accent,
+        hqProfile.roomAccentMix * 0.7
+      );
+      shell(addBox(proceduralShell, [7.6, 0.3, 5], hqTrim, [0, 0.1, 0]));
+      shell(addBox(proceduralShell, [6.9, 3.05, 0.2], hqBase, [0, 1.7, -2.28]));
+      shell(addBox(proceduralShell, [0.22, 3.05, 4.8], hqBase, [-3.35, 1.7, 0]));
+      shell(addBox(proceduralShell, [0.22, 3.05, 4.8], hqBase, [3.35, 1.7, 0]));
+      addBox(proceduralShell, [7.05, 0.18, 5], hqTrim, [0, 3.25, 0]);
       statusMaterial = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, emissive: 0x7d7d7d, emissiveIntensity: 0.18, roughness: 0.4 });
       group.add(mesh(new THREE.CylinderGeometry(0.5, 0.72, 1.6, 24), statusMaterial, 0, 0.95, -0.72));
       perimeterSize = [7.05, 0.18, 5];
@@ -1376,7 +1386,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
     if (renderedWorkers.length > 0) {
       const campSurface = new THREE.MeshStandardMaterial({
-        color: dark ? 0x26343d : 0xdbe5e8,
+        color: mixHex(cssColorHex(visualTheme.panel, dark ? 0x26343d : 0xdbe5e8), accent, agentCityRecipeProfile(visualTheme.recipe).roomAccentMix * 0.55),
         emissive: accent,
         emissiveIntensity: 0.08,
         roughness: 0.68
@@ -1684,7 +1694,9 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         floorNodes.set(floor.key, node);
         if (communityKit) {
           const dark = theme === "dark";
-          const accent = floor.kind === "global" ? 0x006bff : floorPalette(variant, dark, visualTheme).accent;
+          const accent = floor.kind === "global"
+            ? cssColorHex(visualTheme.accent, 0x006bff)
+            : floorPalette(variant, dark, visualTheme).accent;
           attachCommunityKit(node, floor.kind === "global", dark, accent, floor.subagents.instances.length > 0);
         }
       }
