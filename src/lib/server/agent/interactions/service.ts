@@ -15,7 +15,7 @@ import type {
 
 interface TokenRecord<TTarget> {
   action: InteractionAction;
-  context: Omit<InteractionContext<TTarget>, "target">;
+  context: InteractionContext<TTarget>;
   binding: InteractionStateBinding;
   expiresAt: number;
   oneShot: boolean;
@@ -132,11 +132,7 @@ export class SharedInteractionService<TTarget> {
     const token = this.token();
     this.tokens.set(token, {
       action,
-      context: {
-        chatId: context.chatId,
-        scopeId: context.scopeId,
-        actorId: context.actorId
-      },
+      context: { ...context },
       binding: options.binding ?? this.state(context.scopeId),
       expiresAt: Date.now() + this.ttlMs,
       oneShot: options.oneShot ?? !this.isNavigationAction(action)
@@ -175,21 +171,18 @@ export class SharedInteractionService<TTarget> {
 
   async handleToken(
     token: string,
-    actual: { actorId: string; chatId?: string; scopeId?: string; target: TTarget }
+    actual: { actorId: string; chatId?: string; scopeId?: string; target?: TTarget }
   ): Promise<InteractionOutcome> {
     this.cleanup();
     const record = this.tokens.get(String(token ?? ""));
     if (!record) {
-      const fallbackContext: InteractionContext<TTarget> = {
-        chatId: actual.chatId ?? "",
-        scopeId: actual.scopeId ?? actual.chatId ?? "",
-        actorId: actual.actorId,
-        target: actual.target
-      };
-      return { kind: "view", view: this.staleView(this.options.commands.interactionText("This button is no longer available. Open the menu again.", "这个按钮已失效，请重新打开菜单。"), fallbackContext) };
+      return { kind: "notice", message: this.options.commands.interactionText("This button is no longer available. Open the menu again.", "这个按钮已失效，请重新打开菜单。") };
     }
 
-    const context: InteractionContext<TTarget> = { ...record.context, target: actual.target };
+    const context: InteractionContext<TTarget> = {
+      ...record.context,
+      target: actual.target ?? record.context.target
+    };
     if (record.context.actorId !== actual.actorId) {
       return { kind: "notice", message: this.options.commands.interactionText("This panel belongs to another user. Open your own /menu.", "这个面板属于其他用户，请自行打开 /menu。") };
     }
