@@ -1,5 +1,6 @@
 import {
   PersistentTaskQueue,
+  type CancelPendingResult,
   type PersistentTaskListItem,
   type PersistentTaskPreviewResult,
   type PersistentTaskQueueOptions
@@ -50,8 +51,8 @@ export class InboundTaskCoordinator<TPayload, TTarget> {
     return this.queue.peek(scopeId, id);
   }
 
-  cancelPending(scopeId: string): number {
-    return this.queue.cancelPending(scopeId);
+  cancelPending(scopeId: string, expectedIds?: number[]): CancelPendingResult {
+    return this.queue.cancelPending(scopeId, expectedIds);
   }
 
   retryRecovery(scopeId: string, id: number): "retried" | "running" | "not_found" {
@@ -72,7 +73,7 @@ export class InboundTaskCoordinator<TPayload, TTarget> {
       deleteQueued: async (scopeId, id) => this.delete(scopeId, id),
       retryQueued: async (scopeId, id) => this.retryRecovery(scopeId, id),
       getQueuedPreview: async (scopeId, id) => this.peek(scopeId, id),
-      cancelQueuedPending: async (scopeId) => this.cancelPending(scopeId),
+      cancelQueuedPending: async (scopeId, expectedIds) => this.cancelPending(scopeId, expectedIds),
       enqueueFront: this.enqueueFrontFromCommandFn
         ? async (input, text) => this.enqueueFrontFromCommandFn?.(input, text) ?? null
         : undefined

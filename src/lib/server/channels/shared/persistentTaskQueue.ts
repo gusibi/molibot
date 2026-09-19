@@ -19,6 +19,12 @@ export interface PersistentTaskPreviewResult {
   preview?: string;
 }
 
+export interface CancelPendingResult {
+  cleared: number;
+  /** True when an expected ID set was supplied and the live pending set no longer matches it. */
+  stale: boolean;
+}
+
 interface QueueRow {
   id: number;
   payload_json: string;
@@ -233,15 +239,53 @@ export class PersistentTaskQueue<TPayload> {
     };
   }
 
-  cancelPending(scopeId: string): number {
-    const result = this.db.prepare(`
-      DELETE FROM inbound_tasks
-      WHERE channel = ?
-        AND instance_id = ?
-        AND scope_id = ?
-        AND status = 'pending'
-    `).run(this.channel, this.instanceId, scopeId);
-    return Number(result.changes ?? 0);
+  cancelPending(scopeId: string, expectedIds?: number[]): CancelPendingResult {
+    if (expectedIds === undefined) {
+      const result = this.db.prepare(`
+        DELETE FROM inbound_tasks
+        WHERE channel = ?
+          AND instance_id = ?
+          AND scope_id = ?
+          AND status = 'pending'
+      `).run(this.channel, this.instanceId, scopeId);
+      return { cleared: Number(result.changes ?? 0), stale: false };
+    }
+
+    const expected = [...new Set(expectedIds)].sort((a, b) => a - b);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.db.prepare(`
+        SELECT id
+        FROM inbound_tasks
+        WHERE channel = ?
+          AND instance_id = ?
+          AND scope_id = ?
+          AND status = 'pending'
+      `).all(this.channel, this.instanceId, scopeId) as Array<{ id: number }>;
+      const current = rows.map((row) => Number(row.id)).sort((a, b) => a - b);
+      if (current.length !== expected.length || current.some((id, index) => id !== expected[index])) {
+        this.db.exec("COMMIT");
+        return { cleared: 0, stale: true };
+      }
+      if (expected.length === 0) {
+        this.db.exec("COMMIT");
+        return { cleared: 0, stale: false };
+      }
+      const placeholders = expected.map(() => "?").join(",");
+      const result = this.db.prepare(`
+        DELETE FROM inbound_tasks
+        WHERE channel = ?
+          AND instance_id = ?
+          AND scope_id = ?
+          AND status = 'pending'
+          AND id IN (${placeholders})
+      `).run(this.channel, this.instanceId, scopeId, ...expected);
+      this.db.exec("COMMIT");
+      return { cleared: Number(result.changes ?? 0), stale: false };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   retryRecovery(scopeId: string, id: number): "retried" | "running" | "not_found" {

@@ -98,7 +98,10 @@ export interface SharedRuntimeCommandOptions<TTarget> {
     scopeId: string,
     id: number
   ) => Promise<{ status: "pending" | "running" | "recovery_required" | "not_found"; preview?: string }>;
-  cancelQueuedPending?: (scopeId: string) => Promise<number>;
+  cancelQueuedPending?: (
+    scopeId: string,
+    expectedIds?: number[]
+  ) => Promise<{ cleared: number; stale: boolean }>;
   enqueueFront?: (input: SharedRuntimeCommandContext<TTarget>, text: string) => Promise<number | null>;
   getStatusExtras?: (scopeId: string, target: TTarget) => string[];
   helpLines?: readonly string[];
@@ -214,7 +217,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
     if (action === "stop") {
       const stopped = this.options.stopRun(scopeId);
-      const cancelled = (await this.options.cancelQueuedPending?.(scopeId)) ?? 0;
+      const cancelled = (await this.options.cancelQueuedPending?.(scopeId))?.cleared ?? 0;
       if (stopped.aborted || stopped.clearedStale || cancelled > 0) {
         const clearedText = cancelled > 0
           ? this.text(` Cleared ${cancelled} queued task(s).`, `并清除 ${cancelled} 条排队消息。`)
@@ -953,10 +956,21 @@ export class SharedRuntimeCommandService<TTarget> {
   }
 
   async clearInteractionQueue(
-    input: InteractionContext<TTarget>
-  ): Promise<{ ok: boolean; message: string }> {
-    const cleared = (await this.options.cancelQueuedPending?.(input.scopeId)) ?? 0;
-    return { ok: true, message: this.text(`Cleared ${cleared} pending task(s). The current run was not stopped.`, `已清除 ${cleared} 个待执行任务；当前运行任务未停止。`) };
+    input: InteractionContext<TTarget>,
+    expectedIds: number[]
+  ): Promise<{ ok: boolean; stale?: boolean; message: string }> {
+    const result = await this.options.cancelQueuedPending?.(input.scopeId, expectedIds);
+    if (!result) {
+      return { ok: false, message: this.text("Queue clearing is unavailable.", "当前无法清空排队任务。") };
+    }
+    if (result.stale) {
+      return {
+        ok: false,
+        stale: true,
+        message: this.text("The pending queue changed. Review it and confirm again.", "待执行队列已经变化，请重新查看并确认。")
+      };
+    }
+    return { ok: true, message: this.text(`Cleared ${result.cleared} pending task(s). The current run was not stopped.`, `已清除 ${result.cleared} 个待执行任务；当前运行任务未停止。`) };
   }
 
   async enqueueInteractionFront(
@@ -1041,8 +1055,9 @@ export class SharedRuntimeCommandService<TTarget> {
     expectedRunId: string,
     expectedQueueIds: number[]
   ): Promise<{ ok: boolean; message: string }> {
+    const targetChanged = () => this.text("The target run already changed or finished. Nothing was stopped.", "目标运行已经变化或结束，没有停止新的任务。");
     if (!expectedRunId || this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
-      return { ok: false, message: this.text("The target run already changed or finished. Nothing was stopped.", "目标运行已经变化或结束，没有停止新的任务。") };
+      return { ok: false, message: targetChanged() };
     }
     const queue = await this.getInteractionQueue(input.scopeId);
     const currentQueueIds = queue.filter((row) => row.status === "pending").map((row) => row.id).sort((a, b) => a - b);
@@ -1050,8 +1065,35 @@ export class SharedRuntimeCommandService<TTarget> {
     if (currentQueueIds.length !== expected.length || currentQueueIds.some((id, index) => id !== expected[index])) {
       return { ok: false, message: this.text("The pending queue changed. Review status and confirm again.", "待执行队列已经变化，请重新查看状态并确认。") };
     }
+    // The awaited queue read is the last yield before mutation. Revalidate the
+    // bound run so a replacement run started meanwhile is never the target.
+    if (this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
+      return { ok: false, message: targetChanged() };
+    }
+
+    // Clear only the confirmed IDs, atomically. If the live pending set moved
+    // since the confirmation, fail stale instead of cancelling unseen work.
+    const cancellation = this.options.cancelQueuedPending
+      ? await this.options.cancelQueuedPending(input.scopeId, expectedQueueIds)
+      : null;
+    if (cancellation?.stale) {
+      return { ok: false, message: this.text("The pending queue changed. Review status and confirm again.", "待执行队列已经变化，请重新查看状态并确认。") };
+    }
+    const cleared = cancellation?.cleared ?? 0;
+
+    // The awaited clear is the final yield before stopping; revalidate once more
+    // so the bound run identity is still the one we are about to stop.
+    if (this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
+      return {
+        ok: false,
+        message: this.text(
+          "The target run already changed or finished; the confirmed pending tasks were cleared and nothing new was stopped.",
+          "目标运行已经变化或结束；已确认的待执行任务已清除，没有停止新的任务。"
+        )
+      };
+    }
+
     const stopped = this.options.stopRun(input.scopeId);
-    const cleared = (await this.options.cancelQueuedPending?.(input.scopeId)) ?? 0;
     if (stopped.aborted || stopped.clearedStale || cleared > 0) {
       return { ok: true, message: this.text(`Stopped the current task and cleared ${cleared} pending task(s).`, `已停止当前任务，并清除 ${cleared} 个待执行任务。`) };
     }
@@ -1129,7 +1171,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
     if (cmd === "/stop") {
       const result = this.options.stopRun(input.scopeId);
-      const cancelledQueued = (await this.options.cancelQueuedPending?.(input.scopeId)) ?? 0;
+      const cancelledQueued = (await this.options.cancelQueuedPending?.(input.scopeId))?.cleared ?? 0;
       if (result.aborted) {
         await this.options.sendText(
           input.target,

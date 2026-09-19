@@ -15,6 +15,7 @@ import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common
 import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "$lib/server/agent/subagentProgress.js";
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
 import { SharedInteractionService } from "$lib/server/agent/interactions/service.js";
+import { SqliteInteractionPromptStore } from "$lib/server/agent/interactions/promptStore.js";
 import type { InteractionContext, InteractionOutcome, InteractionView } from "$lib/server/agent/interactions/types.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
 import type { ChannelInboundMessage, MomContext } from "$lib/server/agent/core/types.js";
@@ -201,7 +202,12 @@ export class TelegramManager extends BaseChannelRuntime {
     this.interactionService = new SharedInteractionService<TelegramCommandTarget>({
       channel: "telegram",
       instanceId: this.instanceId,
-      commands: this.commandService
+      commands: this.commandService,
+      promptStore: new SqliteInteractionPromptStore({
+        channel: "telegram",
+        instanceId: this.instanceId,
+        dbFile: join(this.workspaceDir, "interaction-prompts.sqlite")
+      })
     });
   }
 
@@ -862,7 +868,7 @@ export class TelegramManager extends BaseChannelRuntime {
       const lowered = event.text.trim().toLowerCase();
       if (lowered === "stop" || lowered === "/stop") {
         const result = this.stopChatWork(eventScopeId);
-        const cancelledQueued = this.inboundTasks.cancelPending(eventScopeId);
+        const cancelledQueued = this.inboundTasks.cancelPending(eventScopeId).cleared;
         momLog("telegram", "stop_text_requested", { runId, chatId, scopeId: eventScopeId, aborted: result.aborted });
         if (result.aborted) {
           await ctx.reply(

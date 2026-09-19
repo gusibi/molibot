@@ -149,7 +149,7 @@ test("PersistentTaskQueue cancelPending keeps running task and clears only backl
   queue.enqueue("chat-1", { text: "beta" }, { preview: "beta" });
   await delay(0);
 
-  assert.equal(queue.cancelPending("chat-1"), 2);
+  assert.deepEqual(queue.cancelPending("chat-1"), { cleared: 2, stale: false });
   assert.deepEqual(queue.list("chat-1").map((item) => item.id), [currentId]);
   assert.equal(queue.size("chat-1"), 1);
   assert.equal(countRows(dbFile), 1);
@@ -157,6 +157,41 @@ test("PersistentTaskQueue cancelPending keeps running task and clears only backl
   if (releaseCurrent) {
     releaseCurrent();
   }
+  await delay(10);
+  queue.close();
+  assert.equal(countRows(dbFile), 0);
+  cleanup();
+});
+
+test("PersistentTaskQueue cancelPending with expected ids is atomic and fails stale when the set moved", async () => {
+  const { dbFile, cleanup } = createTempQueueDb();
+  let releaseCurrent: () => void = () => {};
+  const queue = new PersistentTaskQueue<{ text: string }>({
+    channel: "test",
+    instanceId: "bot-cancel-ids",
+    dbFile,
+    process: async (payload) => {
+      if (payload.text === "current") {
+        await new Promise<void>((resolve) => {
+          releaseCurrent = resolve;
+        });
+      }
+    }
+  });
+
+  const currentId = queue.enqueue("chat-1", { text: "current" }, { preview: "current" });
+  const alphaId = queue.enqueue("chat-1", { text: "alpha" }, { preview: "alpha" });
+  const betaId = queue.enqueue("chat-1", { text: "beta" }, { preview: "beta" });
+  await delay(0);
+
+  // The confirmed snapshot only named alpha; the live set has grown to alpha+beta.
+  assert.deepEqual(queue.cancelPending("chat-1", [alphaId]), { cleared: 0, stale: true });
+  assert.deepEqual(queue.list("chat-1").map((item) => item.id), [currentId, alphaId, betaId]);
+
+  assert.deepEqual(queue.cancelPending("chat-1", [alphaId, betaId]), { cleared: 2, stale: false });
+  assert.deepEqual(queue.list("chat-1").map((item) => item.id), [currentId]);
+
+  releaseCurrent();
   await delay(10);
   queue.close();
   assert.equal(countRows(dbFile), 0);
