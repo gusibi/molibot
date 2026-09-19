@@ -14,7 +14,7 @@
   export let serviceReady: boolean;
   export let serviceError: string;
   export let onRetryService: () => void;
-  export let onOpenAgentSettings: () => void;
+  export let onOpenAgentSettings: (agentId?: string) => void;
   export let onOpenAgentChat: (agentId: string) => void = () => {};
   export let onAutomationUnreadChange: (count: number) => void = () => {};
   export let onOpenMiniApp: (appId: string) => void = () => {};
@@ -27,7 +27,7 @@
     copy: Translation;
     serviceEndpoint: string | null;
     serviceReady: boolean;
-    onOpenAgentSettings: () => void;
+    onOpenAgentSettings: (agentId?: string) => void;
     onOpenAgentChat: (agentId: string) => void;
   }
 
