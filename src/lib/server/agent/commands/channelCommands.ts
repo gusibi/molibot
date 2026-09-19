@@ -1022,6 +1022,15 @@ export class SharedRuntimeCommandService<TTarget> {
       : { ok: false, message: this.text("The target run already finished.", "目标运行已经结束。") };
   }
 
+  private commandInteractionContext(input: SharedRuntimeCommandContext<TTarget>): InteractionContext<TTarget> {
+    return {
+      chatId: input.chatId,
+      scopeId: input.scopeId,
+      actorId: "slash-command",
+      target: input.target
+    };
+  }
+
   async handle(input: SharedRuntimeCommandContext<TTarget>): Promise<boolean> {
     const text = String(input.text ?? "").trim();
     if (!text.startsWith("/")) {
