@@ -11,6 +11,8 @@ import {
     type QueuedControlAction,
     type QueuedControlActionResult
 } from "$lib/server/agent/commands/channelCommands.js";
+import { SharedInteractionService } from "$lib/server/agent/interactions/service.js";
+import type { InteractionContext, InteractionOutcome, InteractionView } from "$lib/server/agent/interactions/types.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
 import type { ChannelInboundMessage, MomContext, RunResult } from "$lib/server/agent/core/types.js";
@@ -41,6 +43,10 @@ import { FeishuThreadRegistry } from "$lib/server/channels/feishu/threadRegistry
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { FeishuCardActionCoordinator, normalizeFeishuWsCardActionEvent } from "$lib/server/channels/feishu/cardAction.js";
+import {
+    buildFeishuInteractionCard,
+    buildFeishuInteractionInputCard
+} from "$lib/server/channels/feishu/interaction.js";
 import { FeishuStreamingSession } from "$lib/server/channels/feishu/streamingSession.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
@@ -86,6 +92,7 @@ export function resolveFeishuUploadFilename(filePath: string, title?: string, fa
 // Leaf concerns like queueing, message send/edit, and intake parsing live in sibling files.
 export class FeishuManager extends BaseChannelRuntime {
     private readonly commandService: SharedRuntimeCommandService<string>;
+    private readonly interactionService: SharedInteractionService<string>;
     private readonly outbox: SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>;
     private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, string>;
     private readonly memoryReview: MemoryCandidateReview;
@@ -197,6 +204,11 @@ export class FeishuManager extends BaseChannelRuntime {
                 void this.writePromptPreview([scopeId]);
             },
             ...this.inboundTasks.toCommandOptions()
+        });
+        this.interactionService = new SharedInteractionService<string>({
+            channel: "feishu",
+            instanceId: this.instanceId,
+            commands: this.commandService
         });
         this.outbox = new SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>({
             channel: "feishu",
@@ -456,6 +468,57 @@ export class FeishuManager extends BaseChannelRuntime {
         this.recordFeishuBotMessage(event, sent?.message_id);
     }
 
+    private buildFeishuInteractionContext(
+        event: Pick<ChannelInboundMessage, "chatId" | "scopeId">,
+        actorId: string
+    ): InteractionContext<string> {
+        const scopeId = event.scopeId || event.chatId;
+        return {
+            chatId: event.chatId,
+            scopeId,
+            actorId,
+            target: event.chatId
+        };
+    }
+
+    private interactionViewWithNotice(view: InteractionView, message?: string): InteractionView {
+        if (!message) return view;
+        return {
+            ...view,
+            body: view.body ? `${message}\n\n${view.body}` : message
+        };
+    }
+
+    private async sendFeishuInteractionView(
+        context: InteractionContext<string>,
+        view: InteractionView,
+        event?: ChannelInboundMessage
+    ): Promise<string | null> {
+        const sent = await sendFeishuCard(
+            this.client,
+            context.chatId,
+            buildFeishuInteractionCard(view),
+            event ? this.replyOptionsForEvent(event) : {}
+        );
+        return sent?.message_id ?? null;
+    }
+
+    private async sendFeishuInteractionInput(
+        context: InteractionContext<string>,
+        input: Extract<InteractionOutcome, { kind: "input" }>["input"]
+    ): Promise<string | null> {
+        const sent = await sendFeishuCard(
+            this.client,
+            context.chatId,
+            buildFeishuInteractionInputCard(input)
+        );
+        if (sent?.message_id) {
+            this.interactionService.bindInputPrompt(input.requestId, sent.message_id);
+            return sent.message_id;
+        }
+        return null;
+    }
+
     private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
         const normalized = String(text ?? "").trim();
         if (!normalized) return null;
@@ -579,6 +642,64 @@ export class FeishuManager extends BaseChannelRuntime {
     private async resolveCardAction(event: lark.InteractiveCardActionEvent, verifiedChatId?: string): Promise<FeishuCardActionOutcome | undefined> {
         const rawValue = event.action?.value;
         const value = rawValue && typeof rawValue === "object" ? rawValue as Record<string, unknown> : {};
+        if (String(value.kind ?? "").trim() === "interaction") {
+            const token = String(value.token ?? "").trim();
+            const actorId = String(event.open_id ?? "").trim();
+            if (!token || !actorId) return undefined;
+            const tokenContext = this.interactionService.resolveTokenContext(token, actorId);
+            if (!tokenContext) {
+                return {
+                    chatId: verifiedChatId ?? "",
+                    message: this.commandService.interactionText("This button is no longer available. Open /menu again.", "这个按钮已失效，请重新打开 /menu。"),
+                    card: buildFeishuInteractionCard({
+                        surface: "result",
+                        title: this.commandService.interactionText("Interaction expired", "操作已失效"),
+                        body: this.commandService.interactionText("This button is no longer available. Open /menu again.", "这个按钮已失效，请重新打开 /menu。")
+                    })
+                };
+            }
+            if (verifiedChatId && tokenContext.chatId !== verifiedChatId) return undefined;
+
+            const outcome = await this.interactionService.handleToken(token, {
+                actorId,
+                chatId: verifiedChatId,
+                target: verifiedChatId || undefined
+            });
+            if (outcome.kind === "input") {
+                const messageId = await this.sendFeishuInteractionInput(tokenContext, outcome.input);
+                const message = messageId
+                    ? this.commandService.interactionText("Input requested. Reply directly to the new prompt.", "已发送输入提示，请直接回复新提示消息。")
+                    : this.commandService.interactionText("Could not send the input prompt. Try again.", "未能发送输入提示，请重试。");
+                return {
+                    chatId: tokenContext.chatId,
+                    message,
+                    card: buildFeishuInteractionCard({
+                        surface: "result",
+                        title: this.commandService.interactionText("Input requested", "等待输入"),
+                        body: message
+                    })
+                };
+            }
+            if (outcome.kind === "notice" && !outcome.view) {
+                return {
+                    chatId: tokenContext.chatId,
+                    message: outcome.message,
+                    card: buildFeishuInteractionCard({
+                        surface: "result",
+                        title: this.commandService.interactionText("Result", "操作结果"),
+                        body: outcome.message
+                    })
+                };
+            }
+            const view = outcome.kind === "view"
+                ? outcome.view
+                : this.interactionViewWithNotice(outcome.view!, outcome.message);
+            return {
+                chatId: tokenContext.chatId,
+                message: outcome.kind === "notice" ? outcome.message : view.title,
+                card: buildFeishuInteractionCard(view)
+            };
+        }
         if (String(value.kind ?? "").trim() === "queued_control") {
             if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
             const chatId = String(value.chatId ?? "").trim();
@@ -856,9 +977,30 @@ export class FeishuManager extends BaseChannelRuntime {
         }
 
         const scopeId = event.scopeId || chatId;
-        const lowered = event.text.trim().toLowerCase();
+        const interactionContext = this.buildFeishuInteractionContext(event, userId);
+        const inputResult = await this.interactionService.consumeInputReply(
+            interactionContext,
+            message.parent_id,
+            event.text
+        );
+        if (inputResult.handled) {
+            if (inputResult.agentText) {
+                event.text = inputResult.agentText;
+            } else {
+                if (inputResult.message) await this.sendText(chatId, inputResult.message);
+                return;
+            }
+        }
 
+        const lowered = event.text.trim().toLowerCase();
         const commandText = lowered === "stop" ? "/stop" : event.text;
+        const surface = this.interactionService.commandSurface(commandText);
+        if (surface) {
+            const view = await this.interactionService.open(surface, interactionContext);
+            await this.sendFeishuInteractionView(interactionContext, view, event);
+            return;
+        }
+
         const isCommand = await this.handleCommand(scopeId, chatId, commandText);
         if (isCommand) {
             return;
