@@ -392,7 +392,22 @@ export class SharedInteractionService<TTarget> {
         // will clear the entire pending queue, not only this one item.
         return this.execute({ type: "run.stop" }, context, binding);
       case "queued.steer": {
-        const result = await this.options.commands.handleQueuedControlAction(context.scopeId, action.queueId, "steer");
+        if (!binding.runId) {
+          return {
+            kind: "notice",
+            message: this.options.commands.interactionText(
+              "The bound run already finished; the queued message remains pending.",
+              "绑定的运行任务已经结束；这条消息会继续留在队列中。"
+            ),
+            view: await this.queueView(context, 0)
+          };
+        }
+        const result = await this.options.commands.handleQueuedControlAction(
+          context.scopeId,
+          action.queueId,
+          "steer",
+          binding.runId
+        );
         return { kind: "notice", message: result.message, view: await this.queueView(context, 0) };
       }
       case "run.stop": {
