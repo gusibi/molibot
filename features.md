@@ -1,3 +1,22 @@
+### 修复：Interaction 输入终态与 Stop 目标一致性（2026-09-19，待验证）
+
+- 症状（PR #58 审查确定性复现）：
+  - 取消输入请求后回复原提示，`SharedInteractionService.consumeInputReply` 返回 `handled:false`；Telegram / 飞书都把这条迟到回复当普通消息，可能变成新的 Agent 任务。
+  - `stopInteractionRun` 在 `await` 队列查询之后不再校验绑定 run：查询期间 run 从 A 换成 B 时会停掉 B；`cancelQueuedPending(scopeId)` 按 scope 全清，确认后新入队、用户没见过的任务也会被清除。
+- 根修（共享层，不在各渠道加判断）：
+  - `stopInteractionRun` 在每一次异步等待（队列读取、确认集清除）之后、真正 `stopRun` 之前重新校验绑定 run identity；确认集 stale 时整单失败，不停止也不清除。
+  - `PersistentTaskQueue.cancelPending(scopeId, expectedIds?)` 改为事务内比对实时 pending 集合：只有与确认快照完全一致才删除这些 ID，否则返回 `stale` 且不删除任何行；`/stop` 保持“清空该 scope 全部 pending”的既有语义。
+  - `clearInteractionQueue` 改为携带确认 ID 集合，stale 时返回确认失效并要求重新确认（`queue.clear.confirm` 据此显示失效视图）。
+  - 取消不再直接删除输入记录，而是留下终态 tombstone；过期、目标变化、重复投递同样保留，`consumeInputReply` 永不因一次拒绝就删除内存记录，因此第二次、第三次迟到回复仍被明确拒绝。
+  - 新增 `SqliteInteractionPromptStore`（每个 bot workspace 一个 `interaction-prompts.sqlite`，按 channel+instance 分区）：输入提示在绑定平台消息 ID 时落盘。重启后旧提示按“已失效”恢复为终态 tombstone，回复旧提示得到明确拒绝，而不是静默变成新任务；旧按钮仍按设计失败关闭。
+- 机器守卫：
+  - `persistentTaskQueue.test.ts`：确认集原子清除 + stale 不误删。
+  - `channelCommands.test.ts`：Stop 期间 run 变化（不得停 B）、pending 集合变化（stale、不停止）、只清确认 ID、原子 stale 时零变更。
+  - `service.test.ts`：取消/过期/重复/重启后迟到回复均 `handled:true` 且无 `agentText`；普通消息仍 `handled:false`。
+  - `feishu/runtime.test.ts`：真实飞书消息入口（`handleIncomingMessage`）——取消后回复旧输入卡片不会 enqueue Agent 任务。
+- 上一轮只给 `handleQueuedControlAction(steer)` 的“异步查询后重校验 run”配了回归；Stop 走独立的 `stopInteractionRun`，只在方法开头校验一次，同类异步竞态因此没有被既有守卫拦住，本次补齐该路径回归（根因类别：异步竞态 / 目标身份在 await 后失效）。
+- 验证：PR 门禁定向测试 97 项全通过（含本次新增），`persistentTaskQueue` / `inboundCoordinator` 9 项共享层测试通过；`tsc --noEmit` 无新增错误（315 项均为仓库既有）；`pnpm run build` production build 通过。真实 Telegram / 飞书首次打开、topic/thread、重启失效、离线输入与服务中断恢复走查仍未完成，能力矩阵中该能力保持“待验证”。
+
 ### 新增：Telegram / 飞书 Interaction-first Agent 控制（2026-09-19，待验证）
 
 - Telegram 与飞书新增统一 `/menu`，Model / Session / Project / Thinking / Skills / Queue / Status 使用平台原生按钮或卡片；Slash Command 保留，并与按钮复用共享业务动作。

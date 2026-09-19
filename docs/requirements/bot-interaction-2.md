@@ -1,6 +1,6 @@
 # Bot Interaction 2.0 Requirements
 
-Status: **implemented in PR #58; live Telegram / Feishu walkthrough pending**
+Status: **implemented in PR #58; review follow-up fixes merged to the same branch; live Telegram / Feishu walkthrough pending**
 
 Owner source: GitHub issue #57. This document owns the durable product requirements; the issue remains the review discussion.
 
@@ -49,7 +49,7 @@ A submission is accepted only when all of these still match the server-side requ
 - original prompt message;
 - TTL.
 
-Only an explicit reply to the prompt is consumed. Unrelated messages remain normal Agent messages. Cancellation, expiry, duplicate delivery, stale target state, and successful submission retire the prompt. Completed prompts remain short-lived idempotency tombstones so a platform retry cannot become a second Agent request.
+Only an explicit reply to the prompt is consumed. Unrelated messages remain normal Agent messages. Cancellation, expiry, duplicate delivery, stale target state, and successful submission retire the prompt. Every retired prompt keeps a terminal tombstone, so a late reply is rejected with an explicit result instead of falling through as an ordinary message. Completed prompts stay as short-lived idempotency tombstones so a platform retry cannot become a second Agent request. The prompt record is persisted per bot instance; after a service restart a reply to an old prompt is still recognised and rejected as expired, never silently executed as a fresh task.
 
 ## Callback and confirmation safety
 
@@ -59,7 +59,7 @@ Only an explicit reply to the prompt is consumed. Unrelated messages remain norm
 - Old Stop / Steer / Follow-up actions cannot target a newer run.
 - Destructive confirmation binds the exact affected set. If the run, Session, Project, or pending queue changes, the confirmation expires and must be regenerated.
 - Read-only navigation/refresh actions may be reused; mutating actions are one-shot.
-- Service restart intentionally invalidates the in-memory registry and old buttons fail closed with a reopen-menu instruction.
+- Service restart intentionally invalidates the in-memory button registry and old buttons fail closed with a reopen-menu instruction. Bound input prompts are persisted per bot instance, so a restart also fails closed for replies to prompts issued before the restart rather than treating them as ordinary Agent messages.
 - Business completion and message-update completion are separate: a failed edit may send a result message, but never retries the business mutation.
 
 Approval and Memory Review retain their existing specialized authorization and persistence; they are not converted to menu-token lifecycle.
@@ -90,7 +90,7 @@ Delivered state-backed entrances are:
 - Status: Compact / New Session when the current ordinary Session reaches the existing compaction threshold derived from the active model context window and compaction settings.
 - Model / Session / Project / Skill discovery views: actions bind stable IDs returned by their existing stores.
 
-No generic model-authored action schema is introduced.
+No generic model-authored action schema is introduced. These entrances are emitted from the shared menu/Status views and the busy-queue notice; no Agent tool result attaches executable buttons in this slice, and closing that gap would require a new result protocol that is explicitly out of scope here.
 
 ## Explicit exclusions
 

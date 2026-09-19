@@ -69,7 +69,9 @@ An input request is stored separately from button tokens and contains its exact 
 
 The channel consumes a user message as control input only when it is a reply to that prompt and actor/chat/scope all match. Session/Project/run state is then revalidated.
 
-A successful submission becomes a short-lived completed tombstone. This prevents duplicate platform deliveries from falling through as ordinary chat messages or triggering a second Agent request. Expired bound prompts also remain briefly as expired tombstones so an explicit late reply is rejected rather than entering conversation history.
+A successful submission becomes a short-lived completed tombstone. This prevents duplicate platform deliveries from falling through as ordinary chat messages or triggering a second Agent request. Cancellation, expiry, and stale-target retirement keep the same kind of terminal tombstone rather than deleting the record, so a first, second, or later late reply is rejected with an explicit result instead of entering the normal Agent path. Tombstones are dropped after one extra TTL window.
+
+Each bound prompt is also persisted in a small per-instance SQLite store keyed by channel, bot instance, and prompt message ID. The in-memory registry still drops on restart, but the persisted record lets a restarted process recognise a reply to a pre-restart prompt and fail closed (expired) instead of silently starting a fresh Agent run.
 
 Input prompts do not acquire the Agent run lock.
 
@@ -81,7 +83,7 @@ Destructive or broad mutations do not infer their target set again after confirm
 - Clear-pending stores the exact pending queue IDs.
 - Stop stores the run ID plus exact pending queue IDs when pending work exists.
 
-If the snapshot no longer matches, the confirmation returns stale and the user must refresh. This prevents a confirmation from expanding to work that appeared after the user saw the prompt.
+If the snapshot no longer matches, the confirmation returns stale and the user must refresh. This prevents a confirmation from expanding to work that appeared after the user saw the prompt. Queue clearing is atomic on the confirmed ID set: in one transaction the shared queue compares the live pending set with the snapshot and either deletes exactly those IDs or changes nothing and reports stale, so a task queued after the confirmation is never discarded.
 
 ## Telegram adapter
 
@@ -127,6 +129,6 @@ When the Session is idle and its estimated context has reached that threshold, S
 - Duplicate one-shot callback: one business execution.
 - Duplicate input delivery: no second task.
 - Renderer/edit failure after business success: send fallback only.
-- service restart: old menu/input state is intentionally unavailable.
+- service restart: old menu buttons are intentionally unavailable and fail closed; replies to pre-restart input prompts are rejected as expired from the persisted prompt record rather than re-entering the Agent path.
 
 These rules are the stable compatibility boundary for future channel renderers; future platforms may reuse the actions without forcing Telegram/Feishu protocol details into the shared layer.
