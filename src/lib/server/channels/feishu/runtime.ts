@@ -498,18 +498,66 @@ export class FeishuManager extends BaseChannelRuntime {
 
     private async sendFeishuInteractionInput(
         context: InteractionContext<string>,
-        input: Extract<InteractionOutcome, { kind: "input" }>["input"]
+        input: Extract<InteractionOutcome, { kind: "input" }>["input"],
+        sourceMessageId?: string
     ): Promise<string | null> {
         const sent = await sendFeishuCard(
             this.client,
             context.chatId,
-            buildFeishuInteractionInputCard(input)
+            buildFeishuInteractionInputCard(input),
+            sourceMessageId
+                ? {
+                    replyToMessageId: sourceMessageId,
+                    replyInThread: context.scopeId !== context.chatId
+                }
+                : {}
         );
         if (sent?.message_id) {
             this.interactionService.bindInputPrompt(input.requestId, sent.message_id);
             return sent.message_id;
         }
         return null;
+    }
+
+    private async materializeFeishuInteractionOutcome(
+        context: InteractionContext<string>,
+        outcome: InteractionOutcome,
+        sourceMessageId?: string
+    ): Promise<FeishuCardActionOutcome> {
+        if (outcome.kind === "input") {
+            const messageId = await this.sendFeishuInteractionInput(context, outcome.input, sourceMessageId);
+            const message = messageId
+                ? this.commandService.interactionText("Input requested. Reply directly to the new prompt.", "已发送输入提示，请直接回复新提示消息。")
+                : this.commandService.interactionText("Could not send the input prompt. Try again.", "未能发送输入提示，请重试。");
+            return {
+                chatId: context.chatId,
+                message,
+                card: buildFeishuInteractionCard({
+                    surface: "result",
+                    title: this.commandService.interactionText("Input requested", "等待输入"),
+                    body: message
+                })
+            };
+        }
+        if (outcome.kind === "notice" && !outcome.view) {
+            return {
+                chatId: context.chatId,
+                message: outcome.message,
+                card: buildFeishuInteractionCard({
+                    surface: "result",
+                    title: this.commandService.interactionText("Result", "操作结果"),
+                    body: outcome.message
+                })
+            };
+        }
+        const view = outcome.kind === "view"
+            ? outcome.view
+            : this.interactionViewWithNotice(outcome.view!, outcome.message);
+        return {
+            chatId: context.chatId,
+            message: outcome.kind === "notice" ? outcome.message : view.title,
+            card: buildFeishuInteractionCard(view)
+        };
     }
 
     private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
@@ -640,7 +688,8 @@ export class FeishuManager extends BaseChannelRuntime {
             const actorId = String(event.open_id ?? "").trim();
             if (!token || !actorId) return undefined;
             const tokenContext = this.interactionService.resolveTokenContext(token, actorId);
-            if (!tokenContext) {
+            const oneShot = this.interactionService.tokenIsOneShot(token, actorId);
+            if (!tokenContext || oneShot === null) {
                 return {
                     chatId: verifiedChatId ?? "",
                     message: this.commandService.interactionText("This button is no longer available. Open /menu again.", "这个按钮已失效，请重新打开 /menu。"),
@@ -653,44 +702,58 @@ export class FeishuManager extends BaseChannelRuntime {
             }
             if (verifiedChatId && tokenContext.chatId !== verifiedChatId) return undefined;
 
-            const outcome = await this.interactionService.handleToken(token, {
-                actorId,
-                chatId: verifiedChatId,
-                target: verifiedChatId || undefined
+            const execute = async (): Promise<FeishuCardActionOutcome> => {
+                const outcome = await this.interactionService.handleToken(token, {
+                    actorId,
+                    chatId: verifiedChatId,
+                    target: verifiedChatId || undefined
+                });
+                return this.materializeFeishuInteractionOutcome(
+                    tokenContext,
+                    outcome,
+                    String(event.open_message_id ?? "").trim() || undefined
+                );
+            };
+
+            // Read-only navigation/refresh actions are deliberately reusable and
+            // cheap, so return their next card directly. One-shot actions may
+            // mutate state or create an input prompt; acknowledge those
+            // immediately and finish exactly once in the background.
+            if (!oneShot) return execute();
+
+            const sourceMessageId = String(event.open_message_id ?? "").trim();
+            const key = `interaction:${sourceMessageId || tokenContext.chatId}:${token}`;
+            const state = this.cardActions.start(key, async () => {
+                const outcome = await execute();
+                await waitForFeishuCardCallbackResponse();
+                if (sourceMessageId) {
+                    const edited = await editFeishuCard(this.client, sourceMessageId, outcome.card);
+                    if (!edited) {
+                        await sendFeishuCard(this.client, tokenContext.chatId, outcome.card);
+                    }
+                } else {
+                    await sendFeishuCard(this.client, tokenContext.chatId, outcome.card);
+                }
+                return outcome;
             });
-            if (outcome.kind === "input") {
-                const messageId = await this.sendFeishuInteractionInput(tokenContext, outcome.input);
-                const message = messageId
-                    ? this.commandService.interactionText("Input requested. Reply directly to the new prompt.", "已发送输入提示，请直接回复新提示消息。")
-                    : this.commandService.interactionText("Could not send the input prompt. Try again.", "未能发送输入提示，请重试。");
-                return {
+            if (state.status === "completed") return state.value;
+            void state.promise.catch((error) => {
+                momWarn("feishu", "interaction_action_background_failed", {
+                    botId: this.instanceId,
                     chatId: tokenContext.chatId,
-                    message,
-                    card: buildFeishuInteractionCard({
-                        surface: "result",
-                        title: this.commandService.interactionText("Input requested", "等待输入"),
-                        body: message
-                    })
-                };
-            }
-            if (outcome.kind === "notice" && !outcome.view) {
-                return {
-                    chatId: tokenContext.chatId,
-                    message: outcome.message,
-                    card: buildFeishuInteractionCard({
-                        surface: "result",
-                        title: this.commandService.interactionText("Result", "操作结果"),
-                        body: outcome.message
-                    })
-                };
-            }
-            const view = outcome.kind === "view"
-                ? outcome.view
-                : this.interactionViewWithNotice(outcome.view!, outcome.message);
+                    scopeId: tokenContext.scopeId,
+                    sourceMessageId,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            });
             return {
                 chatId: tokenContext.chatId,
-                message: outcome.kind === "notice" ? outcome.message : view.title,
-                card: buildFeishuInteractionCard(view)
+                message: "processing",
+                card: buildFeishuInteractionCard({
+                    surface: "result",
+                    title: this.commandService.interactionText("Processing", "处理中"),
+                    body: this.commandService.interactionText("The action was received and is being processed.", "已收到操作，正在处理。")
+                })
             };
         }
         if (String(value.kind ?? "").trim() === "memory_review") {
