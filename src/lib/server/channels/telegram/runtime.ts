@@ -252,7 +252,7 @@ export class TelegramManager extends BaseChannelRuntime {
   }
 
   private buildTelegramInteractionContext(
-    ctx: { chat?: { id?: string | number }; from?: { id?: string | number }; msg?: { message_thread_id?: number } }
+    ctx: { chat: { id: string | number }; from?: { id?: string | number }; msg?: { message_thread_id?: number } }
   ): InteractionContext<TelegramCommandTarget> | null {
     const target = this.buildTelegramCommandTarget(ctx);
     const actorId = String(ctx.from?.id ?? "").trim();
