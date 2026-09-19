@@ -285,6 +285,127 @@ test("Feishu run archive notice stays in the originating topic", async () => {
   assert.equal(archiveReply.data.reply_in_thread, true);
 });
 
+test("Feishu interaction input cards are registered as bot messages for unmentioned group replies", async () => {
+  const { manager } = createFeishuManagerTestHarness();
+  const messageId = await (manager as any).sendFeishuInteractionInput({
+    chatId: "oc_chat",
+    scopeId: "oc_chat__thread_omt_thread",
+    actorId: "ou_user",
+    target: "oc_chat",
+    platformThreadId: "omt_thread"
+  }, {
+    requestId: "input_1",
+    kind: "skill.run",
+    title: "Use skill",
+    body: "Reply to this prompt.",
+    cancelToken: "cancel_1",
+    expiresAt: Date.now() + 60_000
+  }, "om_source");
+
+  assert.equal(messageId, "om_reply_1");
+  assert.deepEqual((manager as any).threadRegistry.match({
+    chatId: "oc_chat",
+    parentMessageId: "om_reply_1"
+  }), {
+    allowed: true,
+    reason: "parent_bot_message"
+  });
+});
+
+test("a reply to a cancelled Feishu input prompt never becomes an Agent task", async () => {
+  const { manager } = createFeishuManagerTestHarness();
+  (manager as any).wsClient = {};
+  const service = (manager as any).interactionService;
+  const context = {
+    chatId: "oc_chat",
+    scopeId: "oc_chat",
+    actorId: "ou_user",
+    target: "oc_chat"
+  };
+  const actor = { actorId: "ou_user", chatId: "oc_chat", scopeId: "oc_chat", target: "oc_chat" };
+
+  const view = await service.open("queue", context);
+  const front = view.actions.find((button: any) => button.label === "Add to front");
+  assert.ok(front?.token);
+  const outcome = await service.handleToken(front.token, actor);
+  assert.equal(outcome.kind, "input");
+  if (outcome.kind !== "input") return;
+
+  const promptMessageId = await (manager as any).sendFeishuInteractionInput(context, outcome.input, "om_source");
+  assert.ok(promptMessageId);
+  await service.handleToken(outcome.input.cancelToken, actor);
+
+  let enqueued = 0;
+  (manager as any).inboundTasks.enqueue = () => {
+    enqueued += 1;
+    return 1;
+  };
+
+  await (manager as any).handleIncomingMessage({
+    chat_id: "oc_chat",
+    chat_type: "p2p",
+    message_id: "om_late_reply",
+    parent_id: promptMessageId,
+    message_type: "text",
+    content: JSON.stringify({ text: "run this cancelled task" }),
+    create_time: "1710000000123",
+    mentions: []
+  }, { sender_id: { open_id: "ou_user", union_id: "on_user" } }, new Set());
+
+  assert.equal(enqueued, 0);
+});
+
+test("Feishu WS card action returns the new-callback card envelope", async () => {
+  const { manager } = createFeishuManagerTestHarness();
+  (manager as any).wsClient = {};
+  const service = (manager as any).interactionService;
+  const context = {
+    chatId: "oc_chat",
+    scopeId: "oc_chat",
+    actorId: "ou_user",
+    target: "oc_chat"
+  };
+  const queue = await service.open("queue", context);
+  const refresh = queue.actions.find((button: any) => button.label.startsWith("Refresh"));
+  assert.ok(refresh?.token);
+
+  const response = await (manager as any).handleWsCardAction({
+    schema: "2.0",
+    event_type: "card.action.trigger",
+    operator: { open_id: "ou_user" },
+    action: { value: { kind: "interaction", token: refresh.token }, tag: "button" },
+    context: { open_message_id: "om_queue", open_chat_id: "oc_chat" }
+  }, new Set(["oc_chat"]));
+
+  assert.equal(response?.card?.type, "raw");
+  assert.equal((response?.card?.data as any)?.header?.title?.content, "Queue");
+});
+
+test("Feishu queue-front synthetic tasks preserve the real chat and thread route", async () => {
+  const { manager } = createFeishuManagerTestHarness();
+  const captured: any[] = [];
+  (manager as any).inboundTasks.enqueue = (scopeId: string, payload: any, options: any) => {
+    captured.push({ scopeId, payload, options });
+    return 77;
+  };
+
+  const id = await (manager as any).enqueueSyntheticTask({
+    chatId: "oc_chat",
+    scopeId: "oc_chat__thread_omt_thread",
+    platformMessageId: "om_reply_task",
+    platformThreadId: "omt_thread"
+  }, "urgent follow-up", true);
+
+  assert.equal(id, 77);
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].scopeId, "oc_chat__thread_omt_thread");
+  assert.equal(captured[0].payload.chatId, "oc_chat");
+  assert.equal(captured[0].payload.scopeId, "oc_chat__thread_omt_thread");
+  assert.equal(captured[0].payload.platformMessageId, "om_reply_task");
+  assert.equal(captured[0].payload.platformThreadId, "omt_thread");
+  assert.equal(captured[0].options.front, true);
+});
+
 test("resolveFeishuUploadFilename preserves the real extension over a label title", () => {
   const filePath = "/scratch/2026/06/16/runway_model_video.mp4";
 
@@ -334,68 +455,3 @@ test("Feishu restores memory review buttons when a decision fails", async () => 
   assert.equal(restored.elements.at(-1).actions.length, 2);
 });
 
-test("Feishu queued-control callback acknowledges immediately, updates the card, and rejects a different verified chat", async () => {
-  const { manager, patchCalls } = createFeishuManagerTestHarness();
-  const calls: unknown[] = [];
-  (manager as any).commandService.handleQueuedControlAction = async (scopeId: string, queueId: number, action: string) => {
-    calls.push({ scopeId, queueId, action });
-    return { status: "steered", message: "已将这条消息插入当前任务。" };
-  };
-  const event = {
-    open_message_id: "om_queue",
-    action: {
-      value: {
-        kind: "queued_control",
-        action: "steer",
-        botId: "test-bot",
-        chatId: "oc_chat",
-        scopeId: "oc_chat__thread_1",
-        queueId: 12
-      }
-    }
-  };
-
-  assert.equal(await (manager as any).resolveCardAction(event, "oc_other"), undefined);
-  const outcome = await (manager as any).resolveCardAction(event, "oc_chat");
-  assert.equal(outcome.message, "processing");
-  assert.equal(outcome.card.header.title.content, "操作处理中");
-  await new Promise((resolve) => setTimeout(resolve, 1_100));
-  assert.deepEqual(calls, [{ scopeId: "oc_chat__thread_1", queueId: 12, action: "steer" }]);
-  assert.equal(patchCalls.length, 1);
-  const updated = JSON.parse(patchCalls[0].data.content);
-  assert.equal(updated.header.title.content, "操作已完成");
-  assert.equal(updated.elements.some((element: any) => element.tag === "action"), false);
-  assert.match(updated.elements[0].content, /已将这条消息插入当前任务/);
-});
-
-test("Feishu queued-control callback sends a text receipt when the card update fails", async () => {
-  const { manager, client } = createFeishuManagerTestHarness();
-  const receipts: Array<{ chatId: string; text: string }> = [];
-  client.im.message.patch = async () => { throw new Error("card update unavailable"); };
-  (manager as any).sendText = async (chatId: string, text: string) => {
-    receipts.push({ chatId, text });
-    return { message_id: "om_receipt" };
-  };
-  (manager as any).commandService.handleQueuedControlAction = async () => ({
-    status: "stopped",
-    message: "已停止当前任务。"
-  });
-
-  const outcome = await (manager as any).resolveCardAction({
-    open_message_id: "om_queue_stop",
-    action: {
-      value: {
-        kind: "queued_control",
-        action: "stop",
-        botId: "test-bot",
-        chatId: "oc_chat",
-        scopeId: "oc_chat",
-        queueId: 13
-      }
-    }
-  }, "oc_chat");
-
-  assert.equal(outcome.card.header.title.content, "操作处理中");
-  await new Promise((resolve) => setTimeout(resolve, 1_100));
-  assert.deepEqual(receipts, [{ chatId: "oc_chat", text: "已停止当前任务。" }]);
-});

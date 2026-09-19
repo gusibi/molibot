@@ -43,6 +43,17 @@ import { listPiExtensionCommands, runPiExtensionCommand } from "$lib/server/plug
 import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import { formatMiniAppList } from "$lib/server/miniapps/invocation.js";
 import { DurableChannelCommandService } from "$lib/server/agent/durable/channelCommands.js";
+import type {
+  InteractionContext,
+  InteractionModelState,
+  InteractionProjectItem,
+  InteractionQueueItem,
+  InteractionSessionState,
+  InteractionSkillItem,
+  InteractionStateBinding,
+  InteractionStatusState,
+  InteractionThinkingState
+} from "$lib/server/agent/interactions/types.js";
 
 const ACP_DISABLED_MESSAGE = "ACP has been removed from the active runtime path. Use the normal Agent workflow instead.";
 
@@ -51,6 +62,8 @@ export interface SharedRuntimeCommandContext<TTarget> {
   scopeId: string;
   text: string;
   target: TTarget;
+  platformMessageId?: string;
+  platformThreadId?: string;
 }
 
 export interface SharedRuntimeCommandOptions<TTarget> {
@@ -85,7 +98,10 @@ export interface SharedRuntimeCommandOptions<TTarget> {
     scopeId: string,
     id: number
   ) => Promise<{ status: "pending" | "running" | "recovery_required" | "not_found"; preview?: string }>;
-  cancelQueuedPending?: (scopeId: string) => Promise<number>;
+  cancelQueuedPending?: (
+    scopeId: string,
+    expectedIds?: number[]
+  ) => Promise<{ cleared: number; stale: boolean }>;
   enqueueFront?: (input: SharedRuntimeCommandContext<TTarget>, text: string) => Promise<number | null>;
   getStatusExtras?: (scopeId: string, target: TTarget) => string[];
   helpLines?: readonly string[];
@@ -160,15 +176,16 @@ export class SharedRuntimeCommandService<TTarget> {
   async handleQueuedControlAction(
     scopeId: string,
     queueId: number,
-    action: QueuedControlAction
+    action: QueuedControlAction,
+    expectedRunId?: string | null
   ): Promise<QueuedControlActionResult> {
-    const key = `${scopeId}:${queueId}`;
+    const key = `${scopeId}:${queueId}:${action}:${expectedRunId ?? ""}`;
     const completed = this.queuedControlResults.get(key);
     if (completed) return completed;
     const existing = this.queuedControlActions.get(key);
     if (existing) return existing;
 
-    const pending = this.executeQueuedControlAction(scopeId, queueId, action);
+    const pending = this.executeQueuedControlAction(scopeId, queueId, action, expectedRunId);
     this.queuedControlActions.set(key, pending);
     try {
       const result = await pending;
@@ -187,7 +204,8 @@ export class SharedRuntimeCommandService<TTarget> {
   private async executeQueuedControlAction(
     scopeId: string,
     queueId: number,
-    action: QueuedControlAction
+    action: QueuedControlAction,
+    expectedRunId?: string | null
   ): Promise<QueuedControlActionResult> {
     if (!Number.isSafeInteger(queueId) || queueId <= 0 || !this.options.getQueuedPreview) {
       return { status: "stale", message: this.text("This queued-message action is no longer available.", "这条排队消息操作已失效。") };
@@ -199,7 +217,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
     if (action === "stop") {
       const stopped = this.options.stopRun(scopeId);
-      const cancelled = (await this.options.cancelQueuedPending?.(scopeId)) ?? 0;
+      const cancelled = (await this.options.cancelQueuedPending?.(scopeId))?.cleared ?? 0;
       if (stopped.aborted || stopped.clearedStale || cancelled > 0) {
         const clearedText = cancelled > 0
           ? this.text(` Cleared ${cancelled} queued task(s).`, `并清除 ${cancelled} 条排队消息。`)
@@ -212,6 +230,15 @@ export class SharedRuntimeCommandService<TTarget> {
     const preview = String(queued.preview ?? "").trim();
     if (!preview || !this.options.steerRun || !this.options.deleteQueued) {
       return { status: "failed", message: this.text("This queued message cannot be injected.", "这条排队消息无法插入当前任务。") };
+    }
+    if (expectedRunId && this.activeInteractionRunId(scopeId) !== expectedRunId) {
+      return {
+        status: "not_running",
+        message: this.text(
+          "The bound run already finished or changed; the queued message remains pending.",
+          "绑定的运行任务已经结束或变化；这条消息会继续留在队列中。"
+        )
+      };
     }
     const steered = this.options.steerRun(scopeId, preview);
     if (!steered.queued) {
@@ -541,6 +568,577 @@ export class SharedRuntimeCommandService<TTarget> {
     };
   }
 
+  /** Structured text helper used by the interaction layer without exposing locale internals. */
+  interactionText(english: string, chinese: string): string {
+    return this.text(english, chinese);
+  }
+
+  interactionHelpText(): string {
+    return this.helpText();
+  }
+
+  private activeInteractionRunId(scopeId: string): string | null {
+    if (!this.options.isRunning(scopeId)) return null;
+    const projectSession = this.options.getActiveProject?.(scopeId)
+      ? this.options.getActiveProjectSession?.(scopeId) ?? null
+      : null;
+    const candidates = Array.from(new Set([
+      projectSession,
+      this.options.store.getActiveSession(scopeId)
+    ].filter((value): value is string => Boolean(value))));
+    if (candidates.length === 0) return null;
+    try {
+      ensureSqliteParentDir(storagePaths.settingsDbFile);
+      const db = new DatabaseSync(storagePaths.settingsDbFile);
+      try {
+        for (const sessionId of candidates) {
+          const row = db.prepare(
+            "SELECT id FROM runs WHERE session_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1"
+          ).get(sessionId) as { id: string } | undefined;
+          if (row?.id) return row.id;
+        }
+      } finally {
+        db.close();
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  getInteractionState(scopeId: string): InteractionStateBinding {
+    const project = this.options.getActiveProject?.(scopeId) ?? null;
+    const sessionId = project
+      ? this.options.getActiveProjectSession?.(scopeId) ?? `project:${project.id}:auto`
+      : this.options.store.getActiveSession(scopeId);
+    return {
+      sessionId,
+      projectId: project?.id ?? null,
+      runId: this.activeInteractionRunId(scopeId)
+    };
+  }
+
+  getInteractionModels(): InteractionModelState {
+    const settings = this.options.getSettings();
+    const effective = this.effectiveModelSettings(settings);
+    const options = buildModelOptions(settings, "text");
+    const activeKey = currentModelKey(effective, "text");
+    const { source, agentId } = this.modelRouteSource(settings, "text");
+    return {
+      route: "text",
+      activeKey,
+      source,
+      agentId,
+      canReset: source === "agent",
+      items: options.map((option) => ({
+        key: option.key,
+        label: option.alias?.trim() || option.label,
+        selected: option.key === activeKey
+      }))
+    };
+  }
+
+  selectInteractionModel(
+    input: InteractionContext<TTarget>,
+    key: string
+  ): { ok: boolean; message: string } {
+    if (this.options.isRunning(input.scopeId)) {
+      return { ok: false, message: this.text("Already working. Stop the current task before switching models.", "已有任务正在运行，请先停止当前任务，再切换模型。") };
+    }
+    if (!this.options.updateSettings) {
+      return { ok: false, message: this.text("Model switching is unavailable in current runtime.", "当前运行时不支持模型切换。") };
+    }
+    const settings = this.options.getSettings();
+    const selected = buildModelOptions(settings, "text").find((option) => option.key === key);
+    if (!selected) {
+      return { ok: false, message: this.text("That model is no longer available. Refresh the model list.", "该模型已不可用，请刷新模型列表。") };
+    }
+
+    const overrideKey = this.agentOverrideRouteKey("text");
+    const boundAgentId = this.resolveBoundAgentId(settings);
+    if (overrideKey && boundAgentId) {
+      const nextAgents = settings.agents.map((agent) =>
+        agent.id === boundAgentId
+          ? { ...agent, modelRouting: { ...(agent.modelRouting ?? {}), [overrideKey]: selected.key } }
+          : agent
+      );
+      this.options.updateSettings({ agents: nextAgents });
+      momLog(this.options.channel, "model_switched_via_interaction", {
+        chatId: input.chatId,
+        scopeId: input.scopeId,
+        selectedKey: selected.key,
+        scope: "agent",
+        agentId: boundAgentId,
+        instanceId: this.options.instanceId
+      });
+      return {
+        ok: true,
+        message: this.text(
+          `Model switched to ${selected.alias?.trim() || selected.label} for agent (${boundAgentId}). Applies to all linked bots on the next request.`,
+          `模型已切换为 ${selected.alias?.trim() || selected.label}，作用于 agent（${boundAgentId}）；从下一次请求开始对其绑定 Bot 生效。`
+        )
+      };
+    }
+
+    const switched = switchModelSelection({
+      settings,
+      route: "text",
+      selector: selected.key,
+      updateSettings: this.options.updateSettings
+    });
+    if (!switched) {
+      return { ok: false, message: this.text("That model is no longer available. Refresh the model list.", "该模型已不可用，请刷新模型列表。") };
+    }
+    momLog(this.options.channel, "model_switched_via_interaction", {
+      chatId: input.chatId,
+      scopeId: input.scopeId,
+      selectedKey: selected.key,
+      scope: "global",
+      instanceId: this.options.instanceId
+    });
+    return {
+      ok: true,
+      message: this.text(
+        `Model switched to ${selected.alias?.trim() || selected.label}. It takes effect on the next request.`,
+        `模型已切换为 ${selected.alias?.trim() || selected.label}，从下一次请求开始生效。`
+      )
+    };
+  }
+
+  resetInteractionModel(
+    input: InteractionContext<TTarget>
+  ): { ok: boolean; message: string } {
+    if (this.options.isRunning(input.scopeId)) {
+      return { ok: false, message: this.text("Already working. Stop the current task before switching models.", "已有任务正在运行，请先停止当前任务，再切换模型。") };
+    }
+    if (!this.options.updateSettings) {
+      return { ok: false, message: this.text("Model switching is unavailable in current runtime.", "当前运行时不支持模型切换。") };
+    }
+    const settings = this.options.getSettings();
+    const overrideKey = this.agentOverrideRouteKey("text");
+    const boundAgentId = this.resolveBoundAgentId(settings);
+    if (!overrideKey || !boundAgentId || this.modelRouteSource(settings, "text").source !== "agent") {
+      return { ok: false, message: this.text("This bot is already following the global text model.", "当前 Bot 已经跟随全局文本模型。") };
+    }
+    const agents = settings.agents.map((agent) =>
+      agent.id === boundAgentId
+        ? { ...agent, modelRouting: this.clearedAgentRoute(agent.modelRouting, overrideKey) }
+        : agent
+    );
+    this.options.updateSettings({ agents });
+    return { ok: true, message: this.text(`Model reset to global for agent (${boundAgentId}).`, `agent（${boundAgentId}）的模型已恢复跟随全局设置。`) };
+  }
+
+  getInteractionSessions(scopeId: string): InteractionSessionState {
+    const project = this.options.getActiveProject?.(scopeId) ?? null;
+    if (project && this.options.listProjectSessions) {
+      const activeId = this.options.getActiveProjectSession?.(scopeId) ?? null;
+      const sessions = this.options.listProjectSessions(scopeId);
+      return {
+        mode: "project",
+        projectId: project.id,
+        projectName: project.name,
+        activeId,
+        items: sessions.map((session) => ({
+          id: session.id,
+          title: session.title?.trim() || session.id,
+          selected: session.id === activeId,
+          deletable: false
+        }))
+      };
+    }
+
+    const activeId = this.options.store.getActiveSession(scopeId);
+    return {
+      mode: "chat",
+      projectId: null,
+      projectName: null,
+      activeId,
+      items: this.options.store.listVisibleSessions(scopeId).map((id) => ({
+        id,
+        title: id,
+        selected: id === activeId,
+        deletable: true
+      }))
+    };
+  }
+
+  async createInteractionSession(
+    input: InteractionContext<TTarget>
+  ): Promise<{ ok: boolean; message: string }> {
+    if (this.options.isRunning(input.scopeId)) {
+      return { ok: false, message: this.text("Already working. Stop the current task before creating a session.", "已有任务正在运行，请先停止当前任务，再创建会话。") };
+    }
+    const project = this.options.getActiveProject?.(input.scopeId) ?? null;
+    if (project) {
+      if (!this.options.createProjectSession || !this.options.setActiveProjectSession) {
+        return { ok: false, message: this.text("Project session creation is unavailable.", "当前无法创建项目会话。") };
+      }
+      const created = this.options.createProjectSession(input.scopeId);
+      this.options.setActiveProjectSession(input.scopeId, created.id);
+      await this.options.onSessionMutation?.(input.scopeId);
+      return {
+        ok: true,
+        message: this.text(
+          `Created and switched to Project session: ${created.title} (${created.id})`,
+          `已创建并切换到项目会话：${created.title}（${created.id}）`
+        )
+      };
+    }
+    const sessionId = this.options.store.createSession(input.scopeId);
+    this.options.runners.reset(input.scopeId, sessionId);
+    await this.options.onSessionMutation?.(input.scopeId);
+    return { ok: true, message: this.text(`Created and switched to session: ${sessionId}`, `已创建并切换到会话：${sessionId}`) };
+  }
+
+  async switchInteractionSession(
+    input: InteractionContext<TTarget>,
+    id: string
+  ): Promise<{ ok: boolean; message: string }> {
+    if (this.options.isRunning(input.scopeId)) {
+      return { ok: false, message: this.text("Already working. Stop the current task before switching sessions.", "已有任务正在运行，请先停止当前任务，再切换会话。") };
+    }
+    const state = this.getInteractionSessions(input.scopeId);
+    const target = state.items.find((item) => item.id === id);
+    if (!target) return { ok: false, message: this.text("That session is no longer available. Refresh the list.", "该会话已不可用，请刷新列表。") };
+    if (state.mode === "project") {
+      if (!this.options.setActiveProjectSession) return { ok: false, message: this.text("Project session switching is unavailable.", "当前无法切换项目会话。") };
+      this.options.setActiveProjectSession(input.scopeId, target.id);
+    } else {
+      this.options.store.setActiveSession(input.scopeId, target.id);
+    }
+    await this.options.onSessionMutation?.(input.scopeId);
+    return { ok: true, message: this.text(`Switched to session: ${target.title}`, `已切换到会话：${target.title}`) };
+  }
+
+  async deleteInteractionSession(
+    input: InteractionContext<TTarget>,
+    id: string
+  ): Promise<{ ok: boolean; message: string }> {
+    if (this.options.isRunning(input.scopeId)) {
+      return { ok: false, message: this.text("Already working. Stop the current task before deleting sessions.", "已有任务正在运行，请先停止当前任务，再删除会话。") };
+    }
+    const state = this.getInteractionSessions(input.scopeId);
+    if (state.mode === "project") {
+      return { ok: false, message: this.text("Project sessions are managed from Desktop and cannot be deleted here.", "项目会话仍由 Desktop 管理，不能在这里删除。") };
+    }
+    if (!state.items.some((item) => item.id === id)) {
+      return { ok: false, message: this.text("That session is no longer available.", "该会话已不可用。") };
+    }
+    try {
+      const result = this.options.store.deleteSession(input.scopeId, id);
+      this.options.runners.reset(input.scopeId, result.deleted);
+      await this.options.onSessionMutation?.(input.scopeId);
+      return { ok: true, message: this.text(`Deleted session ${result.deleted}. Current: ${result.active}`, `已删除会话 ${result.deleted}。当前会话：${result.active}`) };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  getInteractionProjects(scopeId: string): {
+    active: ProjectRecord | null;
+    items: InteractionProjectItem[];
+  } {
+    const active = this.options.getActiveProject?.(scopeId) ?? null;
+    const projects = this.options.listProjects?.() ?? [];
+    return {
+      active,
+      items: projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        selected: project.id === active?.id
+      }))
+    };
+  }
+
+  selectInteractionProject(
+    input: InteractionContext<TTarget>,
+    projectId: string | null
+  ): { ok: boolean; message: string } {
+    if (!this.options.listProjects || !this.options.setActiveProject) {
+      return { ok: false, message: this.text("Project mode is unavailable in current runtime.", "当前运行时不支持 Project 模式。") };
+    }
+    if (this.options.isRunning(input.scopeId)) {
+      return { ok: false, message: this.text("Already working. Stop the current task before switching Project.", "已有任务正在运行，请先停止当前任务，再切换 Project。") };
+    }
+    if (projectId === null) {
+      this.options.setActiveProject(input.scopeId, null);
+      return { ok: true, message: this.text("Switched to normal Chat mode.", "已切换到普通聊天模式。") };
+    }
+    const project = this.options.listProjects().find((item) => item.id === projectId);
+    if (!project) return { ok: false, message: this.text("That Project is no longer available. Refresh the list.", "该 Project 已不可用，请刷新列表。") };
+    const selected = this.options.setActiveProject(input.scopeId, project.id);
+    return {
+      ok: true,
+      message: this.text(
+        `Switched to Project mode: ${selected?.name ?? project.name}. Subsequent messages will work in this Project.`,
+        `已切换到 Project 模式：${selected?.name ?? project.name}。后续消息会在该项目中执行。`
+      )
+    };
+  }
+
+  getInteractionThinking(scopeId: string): InteractionThinkingState {
+    const settings = this.options.getSettings();
+    const sessionId = this.options.store.getActiveSession(scopeId);
+    const override = this.options.store.getSessionThinkingLevelOverride(scopeId, sessionId);
+    const requested = override ?? settings.defaultThinkingLevel;
+    const model = resolveModel(this.effectiveModelSettings(settings), "text");
+    const supported = getModelThinkingLevels(model);
+    const effective = resolveModelThinkingLevel(model, requested);
+    return { sessionId, override, requested, effective, supported };
+  }
+
+  selectInteractionThinking(
+    input: InteractionContext<TTarget>,
+    level: string | null
+  ): { ok: boolean; message: string } {
+    const state = this.getInteractionThinking(input.scopeId);
+    if (level !== null && !state.supported.includes(level as RuntimeThinkingLevel)) {
+      return { ok: false, message: this.text("That thinking level is not supported by the current model. Refresh the options.", "当前模型不支持这个思考级别，请刷新选项。") };
+    }
+    const applied = this.options.store.setSessionThinkingLevelOverride(
+      input.scopeId,
+      state.sessionId,
+      level === null ? null : level as RuntimeThinkingLevel
+    );
+    const next = this.getInteractionThinking(input.scopeId);
+    return {
+      ok: true,
+      message: this.text(
+        `Thinking updated: ${applied ?? "default"}; effective next request: ${next.effective}.`,
+        `思考级别已更新：${applied ?? "default"}；下次请求实际生效：${next.effective}。`
+      )
+    };
+  }
+
+  getInteractionSkills(scopeId: string): InteractionSkillItem[] {
+    const { skills } = loadSkillsFromWorkspace(this.options.workspaceDir, scopeId, {
+      disabledSkillPaths: this.options.getSettings().disabledSkillPaths
+    });
+    return skills.map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      scope: skill.scope,
+      aliases: [...skill.aliases]
+    }));
+  }
+
+  async getInteractionQueue(scopeId: string): Promise<InteractionQueueItem[]> {
+    if (!this.options.listQueue) return [];
+    const rows = await this.options.listQueue(scopeId);
+    return rows.map((row) => ({ ...row }));
+  }
+
+  async cancelInteractionQueueItem(
+    input: InteractionContext<TTarget>,
+    id: number
+  ): Promise<{ ok: boolean; message: string }> {
+    if (!this.options.deleteQueued) return { ok: false, message: this.text("Queue cancellation is unavailable.", "当前无法取消排队任务。") };
+    const result = await this.options.deleteQueued(input.scopeId, id);
+    return result === "deleted"
+      ? { ok: true, message: this.text(`Deleted queued task ${id}.`, `已删除排队任务 ${id}。`) }
+      : result === "running"
+        ? { ok: false, message: this.text(`Task #${id} has already started and was not stopped.`, `任务 #${id} 已经开始运行，没有自动停止。`) }
+        : { ok: false, message: this.text(`Queue item #${id} no longer exists.`, `队列任务 #${id} 已不存在。`) };
+  }
+
+  async retryInteractionQueueItem(
+    input: InteractionContext<TTarget>,
+    id: number
+  ): Promise<{ ok: boolean; message: string }> {
+    if (!this.options.retryQueued) return { ok: false, message: this.text("Queue recovery is unavailable.", "当前无法恢复队列任务。") };
+    const result = await this.options.retryQueued(input.scopeId, id);
+    return result === "retried"
+      ? { ok: true, message: this.text(`Recovery task #${id} was explicitly re-queued. Prior side effects may already exist.`, `恢复任务 #${id} 已明确重新入队；此前副作用可能已经存在。`) }
+      : result === "running"
+        ? { ok: false, message: this.text(`Task #${id} is already running.`, `任务 #${id} 已经在运行。`) }
+        : { ok: false, message: this.text(`Recovery task #${id} no longer exists.`, `恢复任务 #${id} 已不存在。`) };
+  }
+
+  async clearInteractionQueue(
+    input: InteractionContext<TTarget>,
+    expectedIds: number[]
+  ): Promise<{ ok: boolean; stale?: boolean; message: string }> {
+    const result = await this.options.cancelQueuedPending?.(input.scopeId, expectedIds);
+    if (!result) {
+      return { ok: false, message: this.text("Queue clearing is unavailable.", "当前无法清空排队任务。") };
+    }
+    if (result.stale) {
+      return {
+        ok: false,
+        stale: true,
+        message: this.text("The pending queue changed. Review it and confirm again.", "待执行队列已经变化，请重新查看并确认。")
+      };
+    }
+    return { ok: true, message: this.text(`Cleared ${result.cleared} pending task(s). The current run was not stopped.`, `已清除 ${result.cleared} 个待执行任务；当前运行任务未停止。`) };
+  }
+
+  async enqueueInteractionFront(
+    input: InteractionContext<TTarget>,
+    text: string
+  ): Promise<{ ok: boolean; message: string }> {
+    if (!this.options.enqueueFront) return { ok: false, message: this.text("Queue front insertion is unavailable.", "当前无法插入队首。") };
+    const id = await this.options.enqueueFront({
+      chatId: input.chatId,
+      scopeId: input.scopeId,
+      text: "",
+      target: input.target,
+      platformMessageId: input.platformMessageId,
+      platformThreadId: input.platformThreadId
+    }, text);
+    return id
+      ? { ok: true, message: this.text(`Inserted at front of queue. Queue ID: ${id}. Existing queue items were not reordered.`, `已插入队列最前方。队列 ID：${id}；现有任务没有被重新排序。`) }
+      : { ok: false, message: this.text("Failed to add the task to the queue.", "新增排队任务失败。") };
+  }
+
+  getInteractionStatus(scopeId: string): InteractionStatusState {
+    const project = this.options.getActiveProject?.(scopeId) ?? null;
+    const thinking = this.getInteractionThinking(scopeId);
+    const settings = this.options.getSettings();
+    const model = resolveModel(this.effectiveModelSettings(settings), "text");
+    const contextWindow = Number(model.contextWindow || settings.compaction.defaultContextWindow || 0);
+    const percentLimit = Math.max(0, Math.floor(contextWindow * settings.compaction.thresholdPercent / 100));
+    const reserveLimit = Math.max(0, contextWindow - settings.compaction.reserveTokens);
+    const compactionThreshold = contextWindow > 0 ? Math.min(percentLimit, reserveLimit) : 0;
+    const sessionId = this.getInteractionState(scopeId).sessionId;
+    const contextTokens = project
+      ? null
+      : this.options.store.getSessionStatusSnapshot(scopeId, sessionId).estimatedContextTokens;
+    return {
+      sessionId,
+      projectId: project?.id ?? null,
+      projectName: project?.name ?? null,
+      modelKey: this.getInteractionModels().activeKey,
+      thinkingEffective: thinking.effective,
+      queueSize: this.options.getQueueSize?.(scopeId) ?? 0,
+      running: this.options.isRunning(scopeId),
+      runId: this.activeInteractionRunId(scopeId),
+      contextTokens,
+      contextWindow: contextWindow > 0 ? contextWindow : null,
+      compactionThreshold: compactionThreshold > 0 ? compactionThreshold : null,
+      compactRecommended: !project
+        && !this.options.isRunning(scopeId)
+        && contextTokens !== null
+        && compactionThreshold > 0
+        && contextTokens >= compactionThreshold
+    };
+  }
+
+  async compactInteractionSession(
+    input: InteractionContext<TTarget>
+  ): Promise<{ ok: boolean; message: string }> {
+    if (this.options.isRunning(input.scopeId)) {
+      return { ok: false, message: this.text("Already working. Stop the current task before compacting.", "已有任务正在运行，请先停止当前任务，再压缩上下文。") };
+    }
+    if (this.options.getActiveProject?.(input.scopeId)) {
+      return { ok: false, message: this.text("Project-session compaction is not exposed by this interaction surface.", "当前交互界面不提供 Project 会话压缩。") };
+    }
+    const sessionId = this.options.store.getActiveSession(input.scopeId);
+    try {
+      const result = await this.options.runners.compact(input.scopeId, sessionId, { reason: "manual" });
+      return result.changed
+        ? {
+            ok: true,
+            message: this.text(
+              `Conversation compacted: ≈${result.beforeTokens} → ≈${result.afterTokens} tokens.`,
+              `会话上下文已压缩：≈${result.beforeTokens} → ≈${result.afterTokens} tokens。`
+            )
+          }
+        : { ok: false, message: this.text("Nothing to compact yet.", "当前没有需要压缩的内容。") };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async stopInteractionRun(
+    input: InteractionContext<TTarget>,
+    expectedRunId: string,
+    expectedQueueIds: number[]
+  ): Promise<{ ok: boolean; message: string }> {
+    const targetChanged = () => this.text("The target run already changed or finished. Nothing was stopped.", "目标运行已经变化或结束，没有停止新的任务。");
+    if (!expectedRunId || this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
+      return { ok: false, message: targetChanged() };
+    }
+    const queue = await this.getInteractionQueue(input.scopeId);
+    const currentQueueIds = queue.filter((row) => row.status === "pending").map((row) => row.id).sort((a, b) => a - b);
+    const expected = [...expectedQueueIds].sort((a, b) => a - b);
+    if (currentQueueIds.length !== expected.length || currentQueueIds.some((id, index) => id !== expected[index])) {
+      return { ok: false, message: this.text("The pending queue changed. Review status and confirm again.", "待执行队列已经变化，请重新查看状态并确认。") };
+    }
+    // The awaited queue read is the last yield before mutation. Revalidate the
+    // bound run so a replacement run started meanwhile is never the target.
+    if (this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
+      return { ok: false, message: targetChanged() };
+    }
+
+    // Clear only the confirmed IDs, atomically. If the live pending set moved
+    // since the confirmation, fail stale instead of cancelling unseen work.
+    const cancellation = this.options.cancelQueuedPending
+      ? await this.options.cancelQueuedPending(input.scopeId, expectedQueueIds)
+      : null;
+    if (cancellation?.stale) {
+      return { ok: false, message: this.text("The pending queue changed. Review status and confirm again.", "待执行队列已经变化，请重新查看状态并确认。") };
+    }
+    const cleared = cancellation?.cleared ?? 0;
+
+    // The awaited clear is the final yield before stopping; revalidate once more
+    // so the bound run identity is still the one we are about to stop.
+    if (this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
+      return {
+        ok: false,
+        message: this.text(
+          "The target run already changed or finished; the confirmed pending tasks were cleared and nothing new was stopped.",
+          "目标运行已经变化或结束；已确认的待执行任务已清除，没有停止新的任务。"
+        )
+      };
+    }
+
+    const stopped = this.options.stopRun(input.scopeId);
+    if (stopped.aborted || stopped.clearedStale || cleared > 0) {
+      return { ok: true, message: this.text(`Stopped the current task and cleared ${cleared} pending task(s).`, `已停止当前任务，并清除 ${cleared} 个待执行任务。`) };
+    }
+    return { ok: false, message: this.text("The target run already finished.", "目标运行已经结束。") };
+  }
+
+  steerInteractionRun(
+    input: InteractionContext<TTarget>,
+    expectedRunId: string,
+    text: string
+  ): { ok: boolean; message: string } {
+    if (!expectedRunId || this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
+      return { ok: false, message: this.text("The target run already changed or finished. The instruction was not redirected to a newer run.", "目标运行已经变化或结束，这条调整没有转投到新的运行任务。") };
+    }
+    if (!this.options.steerRun) return { ok: false, message: this.text("Live steer is unavailable.", "当前不支持实时调整。") };
+    const result = this.options.steerRun(input.scopeId, text);
+    return result.queued
+      ? { ok: true, message: this.text("Steering instruction added to the current run.", "调整内容已注入当前运行任务。") }
+      : { ok: false, message: this.text("The target run already finished.", "目标运行已经结束。") };
+  }
+
+  followUpInteractionRun(
+    input: InteractionContext<TTarget>,
+    expectedRunId: string,
+    text: string
+  ): { ok: boolean; message: string } {
+    if (!expectedRunId || this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
+      return { ok: false, message: this.text("The target run already changed or finished. The follow-up was not attached to a newer run.", "目标运行已经变化或结束，这条后续任务没有转投到新的运行任务。") };
+    }
+    if (!this.options.followUpRun) return { ok: false, message: this.text("Live follow-up is unavailable.", "当前不支持追加任务。") };
+    const result = this.options.followUpRun(input.scopeId, text);
+    return result.queued
+      ? { ok: true, message: this.text("Follow-up queued after the current run.", "后续任务已安排在当前运行完成后执行。") }
+      : { ok: false, message: this.text("The target run already finished.", "目标运行已经结束。") };
+  }
+
+  private commandInteractionContext(input: SharedRuntimeCommandContext<TTarget>): InteractionContext<TTarget> {
+    return {
+      chatId: input.chatId,
+      scopeId: input.scopeId,
+      actorId: "slash-command",
+      target: input.target
+    };
+  }
+
   async handle(input: SharedRuntimeCommandContext<TTarget>): Promise<boolean> {
     const text = String(input.text ?? "").trim();
     if (!text.startsWith("/")) {
@@ -573,7 +1171,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
     if (cmd === "/stop") {
       const result = this.options.stopRun(input.scopeId);
-      const cancelledQueued = (await this.options.cancelQueuedPending?.(input.scopeId)) ?? 0;
+      const cancelledQueued = (await this.options.cancelQueuedPending?.(input.scopeId))?.cleared ?? 0;
       if (result.aborted) {
         await this.options.sendText(
           input.target,
@@ -663,13 +1261,8 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue front usage", "队列插队用法"), ["/queue front <text>"]));
           return true;
         }
-        const queueId = await this.options.enqueueFront(input, queueArg);
-        await this.options.sendText(
-          input.target,
-          queueId
-            ? this.text(`Inserted at front of queue. Queue ID: ${queueId}`, `已插入队列最前方。队列 ID：${queueId}`)
-            : this.text("Failed to insert queued task.", "插入排队任务失败。")
-        );
+        const result = await this.enqueueInteractionFront(this.commandInteractionContext(input), queueArg);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
 
@@ -683,15 +1276,8 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue delete usage", "队列删除用法"), ["/queue delete <queueId>"]));
           return true;
         }
-        const result = await this.options.deleteQueued(input.scopeId, id);
-        await this.options.sendText(
-          input.target,
-          result === "deleted"
-            ? this.text(`Deleted queued task ${id}.`, `已删除排队任务 ${id}。`)
-            : result === "running"
-              ? this.text(`Task ${id} is currently running. Use /stop to stop the current task first.`, `任务 ${id} 正在运行，请先使用 /stop 停止当前任务。`)
-              : this.text(`Queue item ${id} was not found.`, `未找到队列任务 ${id}。`)
-        );
+        const result = await this.cancelInteractionQueueItem(this.commandInteractionContext(input), id);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
 
@@ -705,18 +1291,8 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue retry usage", "队列重试用法"), ["/queue retry <queueId>"]));
           return true;
         }
-        const result = await this.options.retryQueued(input.scopeId, id);
-        await this.options.sendText(
-          input.target,
-          result === "retried"
-            ? this.text(
-                `Recovery task ${id} was explicitly re-queued. Completed side effects from its interrupted attempt may already exist.`,
-                `恢复任务 ${id} 已由你明确重新入队；中断前已完成的副作用可能仍然存在。`
-              )
-            : result === "running"
-              ? this.text(`Task ${id} is currently running.`, `任务 ${id} 正在运行。`)
-              : this.text(`Recovery task ${id} was not found.`, `未找到待恢复任务 ${id}。`)
-        );
+        const result = await this.retryInteractionQueueItem(this.commandInteractionContext(input), id);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
 
@@ -756,13 +1332,9 @@ export class SharedRuntimeCommandService<TTarget> {
         ].join("\n\n"));
         return true;
       }
-      if (this.options.isRunning(input.scopeId)) {
-        await this.options.sendText(input.target, this.text("Already working. Send /stop before switching Project mode.", "已有任务正在运行，请先发送 /stop，再切换 Project 模式。"));
-        return true;
-      }
       if (["off", "chat", "exit", "none", "关闭", "退出"].includes(selector.toLowerCase())) {
-        this.options.setActiveProject(input.scopeId, null);
-        await this.options.sendText(input.target, this.text("Switched to normal Chat mode.", "已切换到普通聊天模式。"));
+        const result = this.selectInteractionProject(this.commandInteractionContext(input), null);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
       const index = Number.parseInt(selector, 10);
@@ -775,47 +1347,14 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(input.target, this.text(`Project not found: ${selector}. Send /project to list available Projects.`, `未找到 Project：${selector}。发送 /project 查看可用项目。`));
         return true;
       }
-      const project = this.options.setActiveProject(input.scopeId, selected.id);
-      await this.options.sendText(input.target, this.text(
-        `Switched to Project mode: ${project?.name ?? selected.name}. Subsequent messages will work in this Project.`,
-        `已切换到 Project 模式：${project?.name ?? selected.name}。后续消息会在该项目中执行。`
-      ));
+      const result = this.selectInteractionProject(this.commandInteractionContext(input), selected.id);
+      await this.options.sendText(input.target, result.message);
       return true;
     }
 
     if (cmd === "/new") {
-      if (this.options.isRunning(input.scopeId)) {
-        await this.options.sendText(input.target, this.text("Already working. Send /stop first, then /new.", "已有任务正在运行，请先发送 /stop，再发送 /new。"));
-        return true;
-      }
-      const project = this.options.getActiveProject?.(input.scopeId) ?? null;
-      if (project && this.options.createProjectSession && this.options.setActiveProjectSession) {
-        const created = this.options.createProjectSession(input.scopeId);
-        this.options.setActiveProjectSession(input.scopeId, created.id);
-        await this.options.sendText(input.target, this.text(
-          `Created and switched to new Project session: ${created.title} (${created.id})`,
-          `已创建并切换到新的项目会话：${created.title}（${created.id}）`
-        ));
-        await this.options.onSessionMutation?.(input.scopeId);
-        momLog(this.options.channel, "project_session_new", {
-          chatId: input.chatId,
-          scopeId: input.scopeId,
-          projectId: project.id,
-          conversationId: created.id,
-          instanceId: this.options.instanceId
-        });
-        return true;
-      }
-      const sessionId = this.options.store.createSession(input.scopeId);
-      this.options.runners.reset(input.scopeId, sessionId);
-      await this.options.sendText(input.target, this.text(`Created and switched to new session: ${sessionId}`, `已创建并切换到新会话：${sessionId}`));
-      await this.options.onSessionMutation?.(input.scopeId);
-      momLog(this.options.channel, "session_new", {
-        chatId: input.chatId,
-        scopeId: input.scopeId,
-        sessionId,
-        instanceId: this.options.instanceId
-      });
+      const result = await this.createInteractionSession(this.commandInteractionContext(input));
+      await this.options.sendText(input.target, result.message);
       return true;
     }
 
@@ -839,10 +1378,6 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     if (cmd === "/sessions") {
-      if (this.options.isRunning(input.scopeId)) {
-        await this.options.sendText(input.target, this.text("Already working. Send /stop first, then switch sessions.", "已有任务正在运行，请先发送 /stop，再切换会话。"));
-        return true;
-      }
       const project = this.options.getActiveProject?.(input.scopeId) ?? null;
       const projectSessions = project && this.options.listProjectSessions
         ? this.options.listProjectSessions(input.scopeId)
@@ -854,20 +1389,8 @@ export class SharedRuntimeCommandService<TTarget> {
             await this.options.sendText(input.target, this.text("Invalid session selector. Use /sessions to list Project sessions.", "无效的会话选择器。使用 /sessions 查看项目会话。"));
             return true;
           }
-          this.options.setActiveProjectSession(input.scopeId, picked.id);
-          await this.options.sendText(input.target, this.text(
-            `Project · ${project.name}: switched to session ${picked.title} (${picked.id})`,
-            `项目「${project.name}」已切换会话：${picked.title}（${picked.id}）`
-          ));
-          await this.options.onSessionMutation?.(input.scopeId);
-          momLog(this.options.channel, "project_session_switch", {
-            chatId: input.chatId,
-            scopeId: input.scopeId,
-            projectId: project.id,
-            conversationId: picked.id,
-            selector: rawArg,
-            instanceId: this.options.instanceId
-          });
+          const result = await this.switchInteractionSession(this.commandInteractionContext(input), picked.id);
+          await this.options.sendText(input.target, result.message);
           return true;
         }
         await this.options.sendText(input.target, this.formatProjectSessionsOverview(input.scopeId, project, projectSessions));
@@ -879,16 +1402,8 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(input.target, this.text("Invalid session selector. Use /sessions to list available sessions.", "无效的会话选择器。使用 /sessions 查看可用会话。"));
           return true;
         }
-        this.options.store.setActiveSession(input.scopeId, picked);
-        await this.options.sendText(input.target, this.text(`Switched to session: ${picked}`, `已切换到会话：${picked}`));
-        await this.options.onSessionMutation?.(input.scopeId);
-        momLog(this.options.channel, "session_switch", {
-          chatId: input.chatId,
-          scopeId: input.scopeId,
-          sessionId: picked,
-          selector: rawArg,
-          instanceId: this.options.instanceId
-        });
+        const result = await this.switchInteractionSession(this.commandInteractionContext(input), picked);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
       await this.options.sendText(input.target, this.formatSessionsOverview(input.scopeId));
@@ -923,29 +1438,8 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(input.target, this.text("Invalid session selector. Use /delete_sessions to list available sessions.", "无效的会话选择器。使用 /delete_sessions 查看可删除会话。"));
         return true;
       }
-      try {
-        const result = this.options.store.deleteSession(input.scopeId, picked);
-        this.options.runners.reset(input.scopeId, result.deleted);
-        await this.options.onSessionMutation?.(input.scopeId);
-        await this.options.sendText(
-          input.target,
-          this.renderMarkdownBulletList(this.text("Session deleted", "会话已删除"), [
-            { label: this.text("Deleted", "已删除"), value: this.code(result.deleted) },
-            { label: this.text("Current", "当前会话"), value: this.code(result.active) },
-            { label: this.text("Remaining", "剩余会话"), value: String(result.remaining.length) }
-          ])
-        );
-        momLog(this.options.channel, "session_deleted", {
-          chatId: input.chatId,
-          scopeId: input.scopeId,
-          deleted: result.deleted,
-          active: result.active,
-          remaining: result.remaining.length,
-          instanceId: this.options.instanceId
-        });
-      } catch (error) {
-        await this.options.sendText(input.target, error instanceof Error ? error.message : String(error));
-      }
+      const result = await this.deleteInteractionSession(this.commandInteractionContext(input), picked);
+      await this.options.sendText(input.target, result.message);
       return true;
     }
 
@@ -973,6 +1467,29 @@ export class SharedRuntimeCommandService<TTarget> {
       const options = buildModelOptions(settings, route);
       if (!selector) {
         await this.options.sendText(input.target, this.modelsText(route));
+        return true;
+      }
+
+      // Text-model commands and native interaction buttons share the same
+      // structured mutation handler. Other routes keep their existing command
+      // path because Bot Interaction 2.0 only exposes text model selection.
+      if (route === "text") {
+        const normalizedSelector = selector.trim().toLowerCase();
+        if (normalizedSelector === "global" || normalizedSelector === "reset" || normalizedSelector === "default") {
+          const result = this.resetInteractionModel(this.commandInteractionContext(input));
+          await this.options.sendText(input.target, result.message);
+          return true;
+        }
+        const selected = resolveModelSelection(selector, options);
+        if (!selected) {
+          await this.options.sendText(
+            input.target,
+            `${this.renderMarkdownBulletList(this.text("Invalid model selector", "无效的模型选择器"), [{ label: this.text("Selector", "选择器"), value: this.code(selector) }])}\n\n${this.modelsText(route)}`
+          );
+          return true;
+        }
+        const result = this.selectInteractionModel(this.commandInteractionContext(input), selected.key);
+        await this.options.sendText(input.target, result.message);
         return true;
       }
 
@@ -2496,6 +3013,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
     // Common commands surfaced in the Telegram "/" menu and used day-to-day.
     const essentialRows: CommandTableRow[] = [
+      { label: "/menu", value: d("open the native interaction menu", "打开原生操作菜单") },
       { label: "/new", value: d("create and switch to a new session", "创建并切换到新会话") },
       { label: "/clear", value: d("clear context of current session", "清除当前会话上下文") },
       { label: "/stop", value: d("stop current running task", "停止当前运行中的任务") },

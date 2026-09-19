@@ -1239,7 +1239,7 @@ test("stop command aborts current run and clears queued pending tasks", async ()
     getSettings: () => defaultRuntimeSettings,
     isRunning: () => true,
     stopRun: () => ({ aborted: true }),
-    cancelQueuedPending: async () => 2,
+    cancelQueuedPending: async () => ({ cleared: 2, stale: false }),
     sendText: async (_target, text) => {
       sent.push(text);
     }
@@ -1286,7 +1286,7 @@ test("stop command clears queued tasks even when nothing is currently running", 
     getSettings: () => defaultRuntimeSettings,
     isRunning: () => false,
     stopRun: () => ({ aborted: false }),
-    cancelQueuedPending: async () => 3,
+    cancelQueuedPending: async () => ({ cleared: 3, stale: false }),
     sendText: async (_target, text) => {
       sent.push(text);
     }
@@ -1559,7 +1559,7 @@ test("queued control button steers the referenced message exactly once under dup
       deletedIds.push(id);
       return "deleted";
     },
-    cancelQueuedPending: async () => 0,
+    cancelQueuedPending: async () => ({ cleared: 0, stale: false }),
     sendText: async () => {}
   });
 
@@ -1572,7 +1572,7 @@ test("queued control button steers the referenced message exactly once under dup
   assert.deepEqual(duplicate, first);
   assert.deepEqual(steeredTexts, ["please correct the scope"]);
   assert.deepEqual(deletedIds, [12]);
-  assert.deepEqual(await service.handleQueuedControlAction("chat-1", 12, "stop"), first);
+  assert.equal((await service.handleQueuedControlAction("chat-1", 12, "stop")).status, "stale");
   assert.deepEqual(steeredTexts, ["please correct the scope"]);
   assert.deepEqual(deletedIds, [12]);
 });
@@ -1597,7 +1597,7 @@ test("queued Stop button aborts the active run and clears pending work", async (
     deleteQueued: async () => "deleted",
     cancelQueuedPending: async () => {
       cancelCalls += 1;
-      return 2;
+      return { cleared: 2, stale: false };
     },
     sendText: async () => {}
   });
@@ -1625,7 +1625,7 @@ test("stale queued-control buttons cannot affect another run", async () => {
     steerRun: () => { steers += 1; return { queued: true }; },
     getQueuedPreview: async () => ({ status: "not_found" }),
     deleteQueued: async () => "not_found",
-    cancelQueuedPending: async () => 0,
+    cancelQueuedPending: async () => ({ cleared: 0, stale: false }),
     sendText: async () => {}
   });
 
@@ -1633,6 +1633,190 @@ test("stale queued-control buttons cannot affect another run", async () => {
   assert.equal((await service.handleQueuedControlAction("forged-chat", 12, "steer")).status, "stale");
   assert.equal(stops, 0);
   assert.equal(steers, 0);
+});
+
+test("queued steer rechecks the original run after the async queue lookup", async () => {
+  let activeRunId = "run-1";
+  let steers = 0;
+  let deletes = 0;
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => true,
+    stopRun: () => ({ aborted: false }),
+    steerRun: () => { steers += 1; return { queued: true }; },
+    getQueuedPreview: async () => {
+      activeRunId = "run-2";
+      return { status: "pending", preview: "must stay queued" };
+    },
+    deleteQueued: async () => { deletes += 1; return "deleted"; },
+    cancelQueuedPending: async () => ({ cleared: 0, stale: false }),
+    sendText: async () => {}
+  });
+  (service as any).activeInteractionRunId = () => activeRunId;
+
+  const result = await service.handleQueuedControlAction("chat-1", 12, "steer", "run-1");
+  assert.equal(result.status, "not_running");
+  assert.equal(steers, 0);
+  assert.equal(deletes, 0);
+});
+
+test("stop rechecks the bound run after the async queue lookup and never stops a replacement run", async () => {
+  let activeRunId = "run-A";
+  const stoppedRuns: string[] = [];
+  let cancelledWith: number[] | undefined;
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => true,
+    stopRun: () => {
+      stoppedRuns.push(activeRunId);
+      return { aborted: true };
+    },
+    listQueue: async () => {
+      activeRunId = "run-B";
+      return [];
+    },
+    cancelQueuedPending: async (_scopeId, ids) => {
+      cancelledWith = ids;
+      return { cleared: 0, stale: false };
+    },
+    sendText: async () => {}
+  });
+  (service as any).activeInteractionRunId = () => activeRunId;
+
+  const result = await service.stopInteractionRun(
+    { chatId: "chat-1", scopeId: "chat-1", actorId: "user-1", target: "target-1" },
+    "run-A",
+    []
+  );
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(stoppedRuns, []);
+  assert.equal(cancelledWith, undefined);
+});
+
+test("stop fails stale when the confirmed pending set changed during the queue read", async () => {
+  let stopped = 0;
+  let cancelledWith: number[] | undefined;
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => true,
+    stopRun: () => {
+      stopped += 1;
+      return { aborted: true };
+    },
+    listQueue: async () => [
+      { id: 5, status: "pending", preview: "confirmed", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: 6, status: "pending", preview: "appeared later", createdAt: "2026-01-01T00:00:01.000Z" }
+    ],
+    cancelQueuedPending: async (_scopeId, ids) => {
+      cancelledWith = ids;
+      return { cleared: 0, stale: false };
+    },
+    sendText: async () => {}
+  });
+  (service as any).activeInteractionRunId = () => "run-A";
+
+  const result = await service.stopInteractionRun(
+    { chatId: "chat-1", scopeId: "chat-1", actorId: "user-1", target: "target-1" },
+    "run-A",
+    [5]
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.message, /pending queue changed/i);
+  assert.equal(stopped, 0);
+  assert.equal(cancelledWith, undefined);
+});
+
+test("stop clears only the confirmed pending ids and keeps the confirmed run", async () => {
+  const stoppedRuns: string[] = [];
+  let cancelledWith: number[] | undefined;
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => true,
+    stopRun: () => {
+      stoppedRuns.push("run-A");
+      return { aborted: true };
+    },
+    listQueue: async () => [
+      { id: 5, status: "pending", preview: "confirmed", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: 6, status: "pending", preview: "confirmed", createdAt: "2026-01-01T00:00:01.000Z" }
+    ],
+    cancelQueuedPending: async (_scopeId, ids) => {
+      cancelledWith = ids;
+      return { cleared: 2, stale: false };
+    },
+    sendText: async () => {}
+  });
+  (service as any).activeInteractionRunId = () => "run-A";
+
+  const result = await service.stopInteractionRun(
+    { chatId: "chat-1", scopeId: "chat-1", actorId: "user-1", target: "target-1" },
+    "run-A",
+    [6, 5]
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(cancelledWith, [6, 5]);
+  assert.deepEqual(stoppedRuns, ["run-A"]);
+});
+
+test("stop refuses to mutate when the confirmed set already moved atomically", async () => {
+  let stopped = 0;
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => true,
+    stopRun: () => {
+      stopped += 1;
+      return { aborted: true };
+    },
+    listQueue: async () => [
+      { id: 5, status: "pending", preview: "confirmed", createdAt: "2026-01-01T00:00:00.000Z" }
+    ],
+    cancelQueuedPending: async () => ({ cleared: 0, stale: true }),
+    sendText: async () => {}
+  });
+  (service as any).activeInteractionRunId = () => "run-A";
+
+  const result = await service.stopInteractionRun(
+    { chatId: "chat-1", scopeId: "chat-1", actorId: "user-1", target: "target-1" },
+    "run-A",
+    [5]
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.message, /pending queue changed/i);
+  assert.equal(stopped, 0);
 });
 
 test("queue commands list, front insert, and delete pending tasks", async () => {

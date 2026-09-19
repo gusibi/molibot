@@ -1,16 +1,15 @@
 import { readFileSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { basename, extname, join } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { isDirectEventDelivery, resolveEventSessionMode, type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
-import {
-    SharedRuntimeCommandService,
-    type QueuedControlAction,
-    type QueuedControlActionResult
-} from "$lib/server/agent/commands/channelCommands.js";
+import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
+import { SharedInteractionService } from "$lib/server/agent/interactions/service.js";
+import { SqliteInteractionPromptStore } from "$lib/server/agent/interactions/promptStore.js";
+import type { InteractionContext, InteractionOutcome, InteractionView } from "$lib/server/agent/interactions/types.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
 import type { ChannelInboundMessage, MomContext, RunResult } from "$lib/server/agent/core/types.js";
@@ -26,9 +25,6 @@ import {
     buildFeishuMemoryReviewCard,
     buildFeishuMemoryReviewProcessingCard,
     buildFeishuMemoryReviewResultCard,
-    buildFeishuQueuedControlCard,
-    buildFeishuQueuedControlProcessingCard,
-    buildFeishuQueuedControlResultCard,
     deleteFeishuMessage,
     editFeishuCard,
     editFeishuText,
@@ -36,11 +32,15 @@ import {
     sendFeishuFile,
     sendFeishuText
 } from "$lib/server/channels/feishu/messaging.js";
-import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
+import { isFeishuGroupMessageTriggered, parseFeishuThreadScopeId, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
 import { FeishuThreadRegistry } from "$lib/server/channels/feishu/threadRegistry.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { FeishuCardActionCoordinator, normalizeFeishuWsCardActionEvent } from "$lib/server/channels/feishu/cardAction.js";
+import {
+    buildFeishuInteractionCard,
+    buildFeishuInteractionInputCard
+} from "$lib/server/channels/feishu/interaction.js";
 import { FeishuStreamingSession } from "$lib/server/channels/feishu/streamingSession.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
@@ -58,6 +58,18 @@ interface FeishuCardActionOutcome {
     chatId: string;
     message: string;
     card: lark.InteractiveCard;
+}
+
+/**
+ * Response body for the new card callback (`card.action.trigger`), which is the
+ * event Feishu delivers over the WebSocket long connection. Unlike the legacy
+ * callback it does not accept a bare card: the card must be nested under
+ * `card: { type: "raw", data }`, otherwise Feishu rejects the response body and
+ * the click appears to do nothing.
+ */
+interface FeishuCardActionResponse {
+    toast?: { type: "info" | "success" | "error" | "warning"; content: string };
+    card?: { type: "raw"; data: lark.InteractiveCard };
 }
 
 interface FeishuApprovalActionResult {
@@ -86,6 +98,7 @@ export function resolveFeishuUploadFilename(filePath: string, title?: string, fa
 // Leaf concerns like queueing, message send/edit, and intake parsing live in sibling files.
 export class FeishuManager extends BaseChannelRuntime {
     private readonly commandService: SharedRuntimeCommandService<string>;
+    private readonly interactionService: SharedInteractionService<string>;
     private readonly outbox: SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>;
     private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, string>;
     private readonly memoryReview: MemoryCandidateReview;
@@ -174,7 +187,12 @@ export class FeishuManager extends BaseChannelRuntime {
                     // Do not rethrow — the error is already logged and the user notified.
                 }
             },
-            enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTask(input.scopeId, text, true)
+            enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTask({
+                chatId: input.chatId,
+                scopeId: input.scopeId,
+                platformMessageId: input.platformMessageId,
+                platformThreadId: input.platformThreadId
+            }, text, true)
         });
         this.commandService = this.createSharedCommandService<string>({
             authScopePrefix: "feishu",
@@ -197,6 +215,16 @@ export class FeishuManager extends BaseChannelRuntime {
                 void this.writePromptPreview([scopeId]);
             },
             ...this.inboundTasks.toCommandOptions()
+        });
+        this.interactionService = new SharedInteractionService<string>({
+            channel: "feishu",
+            instanceId: this.instanceId,
+            commands: this.commandService,
+            promptStore: new SqliteInteractionPromptStore({
+                channel: "feishu",
+                instanceId: this.instanceId,
+                dbFile: join(this.workspaceDir, "interaction-prompts.sqlite")
+            })
         });
         this.outbox = new SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>({
             channel: "feishu",
@@ -456,6 +484,112 @@ export class FeishuManager extends BaseChannelRuntime {
         this.recordFeishuBotMessage(event, sent?.message_id);
     }
 
+    private buildFeishuInteractionContext(
+        event: Pick<ChannelInboundMessage, "chatId" | "scopeId" | "platformMessageId" | "platformThreadId">,
+        actorId: string
+    ): InteractionContext<string> {
+        const scopeId = event.scopeId || event.chatId;
+        return {
+            chatId: event.chatId,
+            scopeId,
+            actorId,
+            target: event.chatId,
+            platformMessageId: event.platformMessageId,
+            platformThreadId: event.platformThreadId
+        };
+    }
+
+    private interactionViewWithNotice(view: InteractionView, message?: string): InteractionView {
+        if (!message) return view;
+        return {
+            ...view,
+            body: view.body ? `${message}\n\n${view.body}` : message
+        };
+    }
+
+    private async sendFeishuInteractionView(
+        context: InteractionContext<string>,
+        view: InteractionView,
+        event?: ChannelInboundMessage
+    ): Promise<string | null> {
+        const sent = await sendFeishuCard(
+            this.client,
+            context.chatId,
+            buildFeishuInteractionCard(view),
+            event ? this.replyOptionsForEvent(event) : {}
+        );
+        return sent?.message_id ?? null;
+    }
+
+    private async sendFeishuInteractionInput(
+        context: InteractionContext<string>,
+        input: Extract<InteractionOutcome, { kind: "input" }>["input"],
+        sourceMessageId?: string
+    ): Promise<string | null> {
+        const sent = await sendFeishuCard(
+            this.client,
+            context.chatId,
+            buildFeishuInteractionInputCard(input),
+            sourceMessageId
+                ? {
+                    replyToMessageId: sourceMessageId,
+                    replyInThread: context.scopeId !== context.chatId
+                }
+                : {}
+        );
+        if (sent?.message_id) {
+            this.threadRegistry.recordBotMessage({
+                messageId: sent.message_id,
+                chatId: context.chatId,
+                threadId: context.platformThreadId
+            });
+            this.interactionService.bindInputPrompt(input.requestId, sent.message_id);
+            return sent.message_id;
+        }
+        return null;
+    }
+
+    private async materializeFeishuInteractionOutcome(
+        context: InteractionContext<string>,
+        outcome: InteractionOutcome,
+        sourceMessageId?: string
+    ): Promise<FeishuCardActionOutcome> {
+        if (outcome.kind === "input") {
+            const messageId = await this.sendFeishuInteractionInput(context, outcome.input, sourceMessageId);
+            const message = messageId
+                ? this.commandService.interactionText("Input requested. Reply directly to the new prompt.", "已发送输入提示，请直接回复新提示消息。")
+                : this.commandService.interactionText("Could not send the input prompt. Try again.", "未能发送输入提示，请重试。");
+            return {
+                chatId: context.chatId,
+                message,
+                card: buildFeishuInteractionCard({
+                    surface: "result",
+                    title: this.commandService.interactionText("Input requested", "等待输入"),
+                    body: message
+                })
+            };
+        }
+        if (outcome.kind === "notice" && !outcome.view) {
+            return {
+                chatId: context.chatId,
+                message: outcome.message,
+                card: buildFeishuInteractionCard({
+                    surface: "result",
+                    title: this.commandService.interactionText("Result", "操作结果"),
+                    body: outcome.message
+                })
+            };
+        }
+        const view = outcome.kind === "view"
+            ? outcome.view
+            : this.interactionViewWithNotice(outcome.view!, outcome.message);
+        return {
+            chatId: context.chatId,
+            message: outcome.kind === "notice" ? outcome.message : view.title,
+            card: buildFeishuInteractionCard(view)
+        };
+    }
+
     private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
         const normalized = String(text ?? "").trim();
         if (!normalized) return null;
@@ -486,8 +620,8 @@ export class FeishuManager extends BaseChannelRuntime {
         return outcome?.card;
     }
 
-    private async handleWsCardAction(raw: unknown, allowed: Set<string>): Promise<lark.InteractiveCard | undefined> {
-        momLog("feishu", "card_action_received");
+    private async handleWsCardAction(raw: unknown, allowed: Set<string>): Promise<FeishuCardActionResponse | undefined> {
+        momLog("feishu", "card_action_received", { transport: "websocket" });
         const normalized = normalizeFeishuWsCardActionEvent(raw);
         if (!normalized) {
             momWarn("feishu", "card_action_ignored_invalid_payload");
@@ -499,7 +633,8 @@ export class FeishuManager extends BaseChannelRuntime {
         }
 
         const outcome = await this.resolveCardAction(normalized.event, normalized.chatId);
-        return outcome?.card;
+        if (!outcome) return undefined;
+        return { card: { type: "raw", data: outcome.card } };
     }
 
     private resolveGenericApprovalAction(requestId: string, action: string): FeishuApprovalActionResult {
@@ -579,70 +714,77 @@ export class FeishuManager extends BaseChannelRuntime {
     private async resolveCardAction(event: lark.InteractiveCardActionEvent, verifiedChatId?: string): Promise<FeishuCardActionOutcome | undefined> {
         const rawValue = event.action?.value;
         const value = rawValue && typeof rawValue === "object" ? rawValue as Record<string, unknown> : {};
-        if (String(value.kind ?? "").trim() === "queued_control") {
-            if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
-            const chatId = String(value.chatId ?? "").trim();
-            const scopeId = String(value.scopeId ?? chatId).trim() || chatId;
-            const queueId = Number(value.queueId);
-            const rawAction = String(value.action ?? "").trim();
-            const action: QueuedControlAction | null = rawAction === "stop" || rawAction === "steer" ? rawAction : null;
-            if (!chatId || !scopeId || !Number.isSafeInteger(queueId) || queueId <= 0 || !action) return undefined;
-            if (verifiedChatId && verifiedChatId !== chatId) return undefined;
-            const messageId = String(event.open_message_id ?? "").trim();
-            const key = `queued-control:${messageId || chatId}:${scopeId}:${queueId}`;
+        if (String(value.kind ?? "").trim() === "interaction") {
+            const token = String(value.token ?? "").trim();
+            const actorId = String(event.open_id ?? "").trim();
+            if (!token || !actorId) return undefined;
+            const tokenContext = this.interactionService.resolveTokenContext(token, actorId);
+            const oneShot = this.interactionService.tokenIsOneShot(token, actorId);
+            if (!tokenContext || oneShot === null) {
+                return {
+                    chatId: verifiedChatId ?? "",
+                    message: this.commandService.interactionText("This button is no longer available. Open /menu again.", "这个按钮已失效，请重新打开 /menu。"),
+                    card: buildFeishuInteractionCard({
+                        surface: "result",
+                        title: this.commandService.interactionText("Interaction expired", "操作已失效"),
+                        body: this.commandService.interactionText("This button is no longer available. Open /menu again.", "这个按钮已失效，请重新打开 /menu。")
+                    })
+                };
+            }
+            if (verifiedChatId && tokenContext.chatId !== verifiedChatId) return undefined;
+
+            const execute = async (): Promise<FeishuCardActionOutcome> => {
+                const outcome = await this.interactionService.handleToken(token, {
+                    actorId,
+                    chatId: verifiedChatId,
+                    target: verifiedChatId || undefined
+                });
+                return this.materializeFeishuInteractionOutcome(
+                    tokenContext,
+                    outcome,
+                    String(event.open_message_id ?? "").trim() || undefined
+                );
+            };
+
+            // Read-only navigation/refresh actions are deliberately reusable and
+            // cheap, so return their next card directly. One-shot actions may
+            // mutate state or create an input prompt; acknowledge those
+            // immediately and finish exactly once in the background.
+            if (!oneShot) return execute();
+
+            const sourceMessageId = String(event.open_message_id ?? "").trim();
+            const key = `interaction:${sourceMessageId || tokenContext.chatId}:${token}`;
             const state = this.cardActions.start(key, async () => {
-                let result: QueuedControlActionResult;
-                try {
-                    result = await this.commandService.handleQueuedControlAction(scopeId, queueId, action);
-                } catch (error) {
-                    result = {
-                        status: "failed",
-                        message: `操作失败：${error instanceof Error ? error.message : String(error)}`
-                    };
-                }
-                const card = buildFeishuQueuedControlResultCard(result);
+                const outcome = await execute();
                 await waitForFeishuCardCallbackResponse();
-                const edited = messageId ? await editFeishuCard(this.client, messageId, card) : null;
-                if (edited) {
-                    momLog("feishu", "queued_control_card_updated", {
-                        botId: this.instanceId,
-                        chatId,
-                        messageId: edited,
-                        scopeId,
-                        queueId,
-                        action,
-                        status: result.status
-                    });
+                if (sourceMessageId) {
+                    const edited = await editFeishuCard(this.client, sourceMessageId, outcome.card);
+                    if (!edited) {
+                        await sendFeishuCard(this.client, tokenContext.chatId, outcome.card);
+                    }
                 } else {
-                    await this.sendText(chatId, result.message);
-                    momWarn("feishu", "queued_control_card_update_fallback_text", {
-                        botId: this.instanceId,
-                        chatId,
-                        messageId,
-                        scopeId,
-                        queueId,
-                        action,
-                        status: result.status
-                    });
+                    await sendFeishuCard(this.client, tokenContext.chatId, outcome.card);
                 }
-                return { chatId, message: result.message, card };
+                return outcome;
             });
             if (state.status === "completed") return state.value;
             void state.promise.catch((error) => {
-                momWarn("feishu", "queued_control_background_failed", {
+                momWarn("feishu", "interaction_action_background_failed", {
                     botId: this.instanceId,
-                    chatId,
-                    messageId,
-                    scopeId,
-                    queueId,
-                    action,
+                    chatId: tokenContext.chatId,
+                    scopeId: tokenContext.scopeId,
+                    sourceMessageId,
                     error: error instanceof Error ? error.message : String(error)
                 });
             });
             return {
-                chatId,
+                chatId: tokenContext.chatId,
                 message: "processing",
-                card: buildFeishuQueuedControlProcessingCard()
+                card: buildFeishuInteractionCard({
+                    surface: "result",
+                    title: this.commandService.interactionText("Processing", "处理中"),
+                    body: this.commandService.interactionText("The action was received and is being processed.", "已收到操作，正在处理。")
+                })
             };
         }
         if (String(value.kind ?? "").trim() === "memory_review") {
@@ -856,9 +998,46 @@ export class FeishuManager extends BaseChannelRuntime {
         }
 
         const scopeId = event.scopeId || chatId;
-        const lowered = event.text.trim().toLowerCase();
+        const interactionContext = this.buildFeishuInteractionContext(event, userId);
+        const inputResult = await this.interactionService.consumeInputReply(
+            interactionContext,
+            message.parent_id,
+            event.text
+        );
+        if (inputResult.handled) {
+            if (inputResult.terminal) {
+                const settledText = inputResult.message
+                    || this.commandService.interactionText("Input completed.", "输入已处理。");
+                const promptMessageId = String(message.parent_id ?? "").trim();
+                const settledCard = buildFeishuInteractionCard({
+                    surface: "result",
+                    title: this.commandService.interactionText("Input completed", "输入已处理"),
+                    body: settledText
+                });
+                const edited = promptMessageId
+                    ? await editFeishuCard(this.client, promptMessageId, settledCard)
+                    : null;
+                if (!edited) await this.sendText(chatId, settledText);
+            } else if (inputResult.message) {
+                await this.sendText(chatId, inputResult.message);
+            }
 
+            if (inputResult.agentText) {
+                event.text = inputResult.agentText;
+            } else {
+                return;
+            }
+        }
+
+        const lowered = event.text.trim().toLowerCase();
         const commandText = lowered === "stop" ? "/stop" : event.text;
+        const surface = this.interactionService.commandSurface(commandText);
+        if (surface) {
+            const view = await this.interactionService.open(surface, interactionContext);
+            await this.sendFeishuInteractionView(interactionContext, view, event);
+            return;
+        }
+
         const isCommand = await this.handleCommand(scopeId, chatId, commandText);
         if (isCommand) {
             return;
@@ -893,12 +1072,19 @@ export class FeishuManager extends BaseChannelRuntime {
         const queueState = this.inboundTasks.peek(scopeId, queueId);
         if (queueState.status === "pending") {
             momLog("feishu", "message_queued_while_busy", { runId, chatId, scopeId, queueId });
-            await sendFeishuCard(this.client, chatId, buildFeishuQueuedControlCard({
-                botId: this.instanceId,
+            const interactionContext: InteractionContext<string> = {
                 chatId,
                 scopeId,
-                queueId
-            }), this.replyOptionsForEvent(event));
+                actorId: event.userId,
+                target: chatId
+            };
+            const view = this.interactionService.queuedControlView(interactionContext, queueId);
+            await sendFeishuCard(
+                this.client,
+                chatId,
+                buildFeishuInteractionCard(view),
+                this.replyOptionsForEvent(event)
+            );
         }
     }
 
@@ -1161,21 +1347,39 @@ export class FeishuManager extends BaseChannelRuntime {
         };
     }
 
-    private async enqueueSyntheticTask(chatId: string, text: string, front: boolean): Promise<number | null> {
+    private async enqueueSyntheticTask(
+        route: {
+            chatId: string;
+            scopeId: string;
+            platformMessageId?: string;
+            platformThreadId?: string;
+        },
+        text: string,
+        front: boolean
+    ): Promise<number | null> {
         const normalized = String(text ?? "").trim();
         if (!normalized) return null;
-        return this.inboundTasks.enqueue(chatId, {
+        const chatId = String(route.chatId ?? "").trim();
+        const scopeId = String(route.scopeId ?? "").trim() || chatId;
+        if (!chatId) return null;
+        const platformThreadId = String(
+            route.platformThreadId ?? parseFeishuThreadScopeId(chatId, scopeId) ?? ""
+        ).trim() || undefined;
+        const now = Date.now();
+        return this.inboundTasks.enqueue(scopeId, {
             chatId,
-            scopeId: chatId,
-            chatType: "private",
-            messageId: Date.now(),
+            scopeId,
+            chatType: scopeId === chatId ? "private" : "group",
+            messageId: now,
+            platformMessageId: String(route.platformMessageId ?? "").trim() || undefined,
+            platformThreadId,
             userId: "QUEUE",
             userName: "QUEUE",
             text: normalized,
-            ts: `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, "0")}`,
+            ts: `${Math.floor(now / 1000)}.${String(now % 1000).padStart(3, "0")}`,
             attachments: [],
             imageContents: [],
-            sessionId: this.store.getActiveSession(chatId)
+            sessionId: this.store.getActiveSession(scopeId)
         }, { front, preview: normalized });
     }
 

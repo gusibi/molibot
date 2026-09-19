@@ -7,8 +7,6 @@ import {
   buildFeishuMemoryReviewCard,
   buildFeishuMemoryReviewProcessingCard,
   buildFeishuMemoryReviewResultCard,
-  buildFeishuQueuedControlCard,
-  buildFeishuQueuedControlResultCard,
   buildFeishuPostContent,
   sendFeishuCard,
   sendFeishuFile,
@@ -316,14 +314,3 @@ test("Feishu memory review cards keep candidate actions private and remove butto
   assert.equal(result.header?.title.content, "记忆已处理");
 });
 
-test("Feishu queued-control card binds Stop and Steer to the exact queue scope", () => {
-  const card = buildFeishuQueuedControlCard({ botId: "bot-1", chatId: "oc_chat", scopeId: "oc_chat__thread_1", queueId: 12 });
-  assert.equal(card.config?.enable_forward, false);
-  const actionBlock = card.elements?.find((element) => element.tag === "action") as any;
-  assert.deepEqual(actionBlock.actions.map((action: any) => action.value), [
-    { kind: "queued_control", action: "stop", botId: "bot-1", chatId: "oc_chat", scopeId: "oc_chat__thread_1", queueId: 12 },
-    { kind: "queued_control", action: "steer", botId: "bot-1", chatId: "oc_chat", scopeId: "oc_chat__thread_1", queueId: 12 }
-  ]);
-  const result = buildFeishuQueuedControlResultCard({ status: "steered", message: "已注入当前任务。" });
-  assert.equal(result.elements?.some((element) => element.tag === "action"), false);
-});

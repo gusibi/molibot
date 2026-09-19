@@ -1,3 +1,50 @@
+### 修复：飞书卡片正文的 Markdown 表格泄漏为源码（2026-09-19，待验证）
+
+- 症状（owner 实机走查）：`/menu → 帮助` 卡片把帮助内容里的 Markdown 表格原样显示成 `| 项目 | 值 |`、`| --- | --- |` 源码。
+- 根因：飞书卡片的 `markdown` 元素只支持加粗、斜体、链接、代码等行内语法，不支持 Markdown 表格；表格必须用卡片 JSON 2.0 的 `table` 组件，而交互卡片目前是 1.0 结构。帮助文本由命令服务用两列表格渲染，直接进卡片就漏成了原始管道符。
+- 修法（渠道渲染层）：新增 `formatFeishuCardMarkdown`，先用既有的 `parseFeishuRichTextSegments` 识别表格段，再把每行摊平成 `- **列一**: 列二` 的键值列表（与 `/status` 已使用的列表形态一致），最后照常做 `markdownToFeishuMarkdown`。交互卡片的 body / section body 改走这个入口，正文里任何表格都不会再漏出源码。
+- 机器守卫：`feishu/interaction.test.ts` 新增 1 条，喂入含表格（含被转义管道符的单元格）的 view body，断言卡片 markdown 里没有 `| --- |` 且出现 `• **/menu**: …` 列表行；`formatting.test.ts` 覆盖解析器本身。
+- 验证：`feishu` 相关 `interaction` / `formatting` / `runtime` 测试 28 项通过；`tsc --noEmit` 无新增错误；production build 通过。真实飞书复测仍需 owner 确认。
+- 说明：若要在卡片里保留真正的表格布局，需要把交互卡片迁移到卡片 JSON 2.0 并使用 `table` 组件；本次先用列表形态在 1.0 卡片内解决，不改变卡片结构。
+
+### 修复：飞书交互卡片按钮点击无反应（2026-09-19，待验证）
+
+- 症状（owner 实机走查）：Telegram / 飞书 `/menu` 卡片正常渲染，但点击任何按钮都没有反应；owner 怀疑飞书没收到点击动作。
+- 根因：飞书长连接推送的是新版卡片回调 `card.action.trigger`，它的响应体必须把卡片嵌在 `{ card: { type: "raw", data } }` 里；而 `handleWsCardAction` 直接返回裸卡片（那是旧版回调的响应结构），客户端会判为响应体格式错误并忽略。一次性动作因为有“后台按 `open_message_id` 更新源卡片”的补偿，视觉上还能更新；纯导航动作（会话/模型/项目/思考/技能/状态/队列）只依赖回调查询结果，于是整片菜单看起来完全没反应。回调其实到达并执行了，只是响应被丢弃。
+- 修法（共享渠道层）：`handleWsCardAction` 统一返回 `{ card: { type: "raw", data } }`，旧版 HTTP 回调路径保持不变；回调日志补上 `transport: "websocket" | "http"`，让“回调没到 / 动作失败 / 回执失败”可区分。
+- 机器守卫（`feishu/runtime.test.ts` 新增 1 条）：用真实的 `card.action.trigger` 解析后结构驱动 `handleWsCardAction`，断言导航动作返回 `{ card: { type: "raw", data } }` 且 `data` 是对应视图卡片。
+- 验证：`feishu/runtime.test.ts`、`cardkit.test.ts`、`messaging.test.ts` 共 33 项通过；`tsc --noEmit` 无新增错误；production build 通过。真实飞书点击走查仍需 owner 复测确认，能力状态保持“待验证”。
+- 后续核查：若复测仍无反应，需检查飞书开发者后台「事件与回调 → 回调配置」的订阅方式是否为“使用长连接接收回调”，且已订阅“卡片回传交互（card.action.trigger）”；旧版回调（`card.action.trigger_v1`）不支持长连接，只支持回调地址。
+
+### 修复：Interaction 输入终态与 Stop 目标一致性（2026-09-19，待验证）
+
+- 症状（PR #58 审查确定性复现）：
+  - 取消输入请求后回复原提示，`SharedInteractionService.consumeInputReply` 返回 `handled:false`；Telegram / 飞书都把这条迟到回复当普通消息，可能变成新的 Agent 任务。
+  - `stopInteractionRun` 在 `await` 队列查询之后不再校验绑定 run：查询期间 run 从 A 换成 B 时会停掉 B；`cancelQueuedPending(scopeId)` 按 scope 全清，确认后新入队、用户没见过的任务也会被清除。
+- 根修（共享层，不在各渠道加判断）：
+  - `stopInteractionRun` 在每一次异步等待（队列读取、确认集清除）之后、真正 `stopRun` 之前重新校验绑定 run identity；确认集 stale 时整单失败，不停止也不清除。
+  - `PersistentTaskQueue.cancelPending(scopeId, expectedIds?)` 改为事务内比对实时 pending 集合：只有与确认快照完全一致才删除这些 ID，否则返回 `stale` 且不删除任何行；`/stop` 保持“清空该 scope 全部 pending”的既有语义。
+  - `clearInteractionQueue` 改为携带确认 ID 集合，stale 时返回确认失效并要求重新确认（`queue.clear.confirm` 据此显示失效视图）。
+  - 取消不再直接删除输入记录，而是留下终态 tombstone；过期、目标变化、重复投递同样保留，`consumeInputReply` 永不因一次拒绝就删除内存记录，因此第二次、第三次迟到回复仍被明确拒绝。
+  - 新增 `SqliteInteractionPromptStore`（每个 bot workspace 一个 `interaction-prompts.sqlite`，按 channel+instance 分区）：输入提示在绑定平台消息 ID 时落盘。重启后旧提示按“已失效”恢复为终态 tombstone，回复旧提示得到明确拒绝，而不是静默变成新任务；旧按钮仍按设计失败关闭。
+- 机器守卫：
+  - `persistentTaskQueue.test.ts`：确认集原子清除 + stale 不误删。
+  - `channelCommands.test.ts`：Stop 期间 run 变化（不得停 B）、pending 集合变化（stale、不停止）、只清确认 ID、原子 stale 时零变更。
+  - `service.test.ts`：取消/过期/重复/重启后迟到回复均 `handled:true` 且无 `agentText`；普通消息仍 `handled:false`。
+  - `feishu/runtime.test.ts`：真实飞书消息入口（`handleIncomingMessage`）——取消后回复旧输入卡片不会 enqueue Agent 任务。
+- 上一轮只给 `handleQueuedControlAction(steer)` 的“异步查询后重校验 run”配了回归；Stop 走独立的 `stopInteractionRun`，只在方法开头校验一次，同类异步竞态因此没有被既有守卫拦住，本次补齐该路径回归（根因类别：异步竞态 / 目标身份在 await 后失效）。
+- 验证：PR 门禁定向测试 97 项全通过（含本次新增），`persistentTaskQueue` / `inboundCoordinator` 9 项共享层测试通过；`tsc --noEmit` 无新增错误（315 项均为仓库既有）；`pnpm run build` production build 通过。真实 Telegram / 飞书首次打开、topic/thread、重启失效、离线输入与服务中断恢复走查仍未完成，能力矩阵中该能力保持“待验证”。
+
+### 新增：Telegram / 飞书 Interaction-first Agent 控制（2026-09-19，待验证）
+
+- Telegram 与飞书新增统一 `/menu`，Model / Session / Project / Thinking / Skills / Queue / Status 使用平台原生按钮或卡片；Slash Command 保留，并与按钮复用共享业务动作。
+- `SharedInteractionService` 只承载控制面：短 token、操作者/chat/topic/session/project/run 绑定、过期/容量清理、确认快照和回复绑定输入。普通自然语言仍走原 Agent 消息路径，Approval / Memory Review 保留独立授权生命周期。
+- Steer / Follow-up / Queue front / Skill Run 不再要求手写参数：系统发送专用输入提示，只消费对该提示的明确回复；重复投递只提交一次，目标切换或运行结束后旧输入失败关闭。
+- Stop 保持“停止当前 run + 清除 pending queue”语义；存在 pending 时先显示影响范围并确认。Queue cancel 只取消指定 pending，Clear pending 不停止当前 run，恢复任务保留重复副作用警告。
+- Busy Queue 通知已迁移到共享 Interaction token，移除 Telegram `qctl:*` 与飞书旧 `queued_control` 双轨；Status 在普通 Session 达到现有 compaction 阈值时提供 Compact / New Session。
+- Telegram callback 仅发送 `ix:<token>`；飞书卡片仅发送 token，并对一次性动作先返回 Processing、后台单次执行后更新原卡片，更新失败只补发结果、不重放业务。
+- 需求与安全约束见 `docs/requirements/bot-interaction-2.md`，共享架构见 `docs/designs/channels/bot-interaction-2.md`。机器测试与 production build 作为 PR 门禁；真实 Telegram / 飞书首次打开、topic/thread、重启失效和中断恢复走查完成前，能力状态保持“待验证”。
+
 ### 修复：Agent City hover 卡片闪烁 + 阴影自遮挡，并修复 master 上 9 个陈旧测试（2026-09-19，已交付）
 
 - 背景（owner 走查 + 复盘）：PR #52 合并进 master 后，`chat-ui.test.mjs` 有 9 条断言仍钉在 theme-family 重构前的旧代码上（`moveMarquee` 0.006 vs 0.0028、`clipsForStatus(status)` 少 role 参数、`getComputedStyle(...).getPropertyValue("--agent-city-sky")` 已被 `resolvedThemeColor` 取代、artifact panel 区域钩子与 typography 例外、`chatView` 未定义等），仓库只有一个 `desktop-release.yml` 发布 workflow、没有测试 CI，所以红灯一直没被发现。
@@ -34,7 +81,6 @@
 - 主题家族正式进入 WebGL 社区：不再只识别 light/dark。Agent Studio 从根节点读取当前 `data-theme-family` / `data-theme-recipe` 与 `--accent`、surface/panel/card/separator、online/danger/warning、Skill/Mini App accent 等真实 CSS token，并先通过浏览器 CSS 计算层解析嵌套 `var(...)` / `color-mix(...)` 后交给 Three.js；内置主题和导入 VS Code 主题都可实时换色。
 - 主题 recipe 不只换一层 tint：native/material/messenger/retro/editorial/technical/product/expressive/imported 分别控制房间与 plaza 的强调色混合、粗糙度/金属感、状态发光强度、fog/exposure；Momo HQ、普通 Studio、Community Hub、Worker Camp、道路/plaza/树/长椅/路灯、Working 路线/边框、窗户和错误/完成语义色都会跟当前主题联动。
 - 修复房间放大后持续闪烁：根因是城市总览用的 emissive pulse 在近景 GLTF 大窗/任务板上被视觉放大，Working 窗口原来最高有 ±0.22 的连续闪动，Error 更高。现在 overview 只保留慢速极弱呼吸；进入 detail distance 或聚焦房间后，窗户、任务板、主屏、Worker 屏、Working perimeter、选中边框全部切为稳定亮度，放大不再整间房闪。
-
 
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
 

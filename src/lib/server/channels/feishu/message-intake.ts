@@ -403,6 +403,19 @@ export function buildFeishuThreadScopeId(chatId: string, threadId?: string | nul
   return normalizedThreadId ? `${chatId}__thread_${encodeURIComponent(normalizedThreadId)}` : chatId;
 }
 
+export function parseFeishuThreadScopeId(chatId: string, scopeId?: string | null): string | undefined {
+  const prefix = `${String(chatId ?? "").trim()}__thread_`;
+  const normalizedScopeId = String(scopeId ?? "").trim();
+  if (!prefix || !normalizedScopeId.startsWith(prefix)) return undefined;
+  const encoded = normalizedScopeId.slice(prefix.length);
+  if (!encoded) return undefined;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
 function isFeishuBotMention(message: Record<string, any>, botOpenId?: string): boolean {
   const mentions = Array.isArray(message.mentions) ? message.mentions : [];
   const normalizedBotOpenId = String(botOpenId ?? "").trim();
