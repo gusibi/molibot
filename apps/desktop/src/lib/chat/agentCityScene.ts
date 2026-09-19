@@ -2133,10 +2133,24 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       const next = new THREE.Color(nextSky);
       if (next.equals(skyColor)) return;
       skyColor = next;
-      // Background and fog both read the same colour so the horizon dissolves
-      // into the shell instead of drawing a seam.
-      scene.background = skyColor;
-      scene.fog = new THREE.Fog(skyColor, 42, 130);
+      // applyTheme also keeps recipe-specific fog/exposure in sync.
+      applyTheme();
+      renderer.render(scene, camera);
+    },
+    setVisualTheme(nextVisualTheme) {
+      const nextSignature = agentCityVisualThemeSignature(nextVisualTheme);
+      if (nextSignature === visualThemeSignature) return;
+      visualTheme = nextVisualTheme;
+      visualThemeSignature = nextSignature;
+      applyTheme();
+      buildStaticScenery();
+      // Family colours are baked into room/GLTF material clones. Rebuild only
+      // on a theme-token change; ordinary activity polling remains incremental.
+      for (const [key, node] of [...floorNodes]) {
+        disposeFloorNode(node);
+        floorNodes.delete(key);
+      }
+      syncProjection();
       renderer.render(scene, camera);
     },
     setReducedMotion(nextReducedMotion) {
