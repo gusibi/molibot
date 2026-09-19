@@ -34,6 +34,8 @@ export type InteractionAction =
   | { type: "queue.clear" }
   | { type: "queue.clear.confirm"; ids: number[] }
   | { type: "queue.front" }
+  | { type: "queued.stop"; queueId: number }
+  | { type: "queued.steer"; queueId: number }
   | { type: "status.open" }
   | { type: "run.stop" }
   | { type: "run.stop.confirm"; runId: string; queueIds: number[] }
