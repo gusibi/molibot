@@ -104,6 +104,30 @@ export type FeishuRichTextSegment =
       rows: string[][];
     };
 
+/**
+ * Render Markdown for a Feishu card element.
+ *
+ * The card `markdown` element supports bold, italics, links, and code but not
+ * Markdown tables: sending `| a | b |` renders the raw pipe source. Table
+ * segments are therefore flattened into a key/value bullet list, the same shape
+ * the command service already uses for `/status`.
+ */
+export function formatFeishuCardMarkdown(text: string): string {
+  const segments = parseFeishuRichTextSegments(text);
+  if (segments.length === 0) return markdownToFeishuMarkdown(text ?? "");
+  const parts = segments.map((segment) => {
+    if (segment.type === "markdown") return markdownToFeishuMarkdown(segment.content);
+    return segment.rows
+      .map((row) => {
+        const [first = "", ...rest] = row;
+        const tail = rest.filter(Boolean).join(" · ");
+        return tail ? `- **${first}**: ${tail}` : `- **${first}**`;
+      })
+      .join("\n");
+  });
+  return markdownToFeishuMarkdown(parts.join("\n\n"));
+}
+
 function splitMarkdownTableRow(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
   const cells: string[] = [];

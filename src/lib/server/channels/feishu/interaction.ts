@@ -1,5 +1,5 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
-import { markdownToFeishuMarkdown } from "$lib/server/channels/feishu/formatting.js";
+import { formatFeishuCardMarkdown, markdownToFeishuMarkdown } from "$lib/server/channels/feishu/formatting.js";
 import type { InteractionButton, InteractionInputPrompt, InteractionView } from "$lib/server/agent/interactions/types.js";
 
 function buttonType(style: InteractionButton["style"]): "default" | "primary" | "danger" {
@@ -22,10 +22,10 @@ function actionElement(buttons: InteractionButton[]): any | null {
 
 export function buildFeishuInteractionCard(view: InteractionView): lark.InteractiveCard {
   const elements: any[] = [];
-  if (view.body) elements.push({ tag: "markdown", content: markdownToFeishuMarkdown(view.body) });
+  if (view.body) elements.push({ tag: "markdown", content: formatFeishuCardMarkdown(view.body) });
   for (const section of view.sections ?? []) {
     if (section.title) elements.push({ tag: "markdown", content: `**${section.title}**` });
-    if (section.body) elements.push({ tag: "markdown", content: markdownToFeishuMarkdown(section.body) });
+    if (section.body) elements.push({ tag: "markdown", content: formatFeishuCardMarkdown(section.body) });
     for (const row of section.rows ?? []) {
       const selected = row.selected ? "✅ " : "";
       const detail = row.detail ? `\n${row.detail}` : "";

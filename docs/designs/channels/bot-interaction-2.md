@@ -105,6 +105,8 @@ Reusable navigation may return the next card directly. One-shot actions use the 
 
 The WebSocket long connection delivers the new callback (`card.action.trigger`), whose response body nests the card as `{ card: { type: "raw", data } }`. A bare card is the legacy callback's response shape and is ignored by the client, so returning one makes a navigation click appear to do nothing.
 
+Card body Markdown is passed through `formatFeishuCardMarkdown`: card `markdown` elements support inline styling but not Markdown tables, so table segments are flattened into a key/value list (the same shape `/status` uses) instead of leaking raw pipe source. Real table layout would require migrating these cards to card JSON 2.0 and its `table` component.
+
 Input prompts reply to the source card. When the interaction scope is a thread, `reply_in_thread` preserves that scope, allowing the later reply to satisfy the same server-side binding.
 
 Approval and Memory Review remain separate card protocols because their authorization and durability differ from menu controls.

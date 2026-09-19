@@ -1,3 +1,12 @@
+### 修复：飞书卡片正文的 Markdown 表格泄漏为源码（2026-09-19，待验证）
+
+- 症状（owner 实机走查）：`/menu → 帮助` 卡片把帮助内容里的 Markdown 表格原样显示成 `| 项目 | 值 |`、`| --- | --- |` 源码。
+- 根因：飞书卡片的 `markdown` 元素只支持加粗、斜体、链接、代码等行内语法，不支持 Markdown 表格；表格必须用卡片 JSON 2.0 的 `table` 组件，而交互卡片目前是 1.0 结构。帮助文本由命令服务用两列表格渲染，直接进卡片就漏成了原始管道符。
+- 修法（渠道渲染层）：新增 `formatFeishuCardMarkdown`，先用既有的 `parseFeishuRichTextSegments` 识别表格段，再把每行摊平成 `- **列一**: 列二` 的键值列表（与 `/status` 已使用的列表形态一致），最后照常做 `markdownToFeishuMarkdown`。交互卡片的 body / section body 改走这个入口，正文里任何表格都不会再漏出源码。
+- 机器守卫：`feishu/interaction.test.ts` 新增 1 条，喂入含表格（含被转义管道符的单元格）的 view body，断言卡片 markdown 里没有 `| --- |` 且出现 `• **/menu**: …` 列表行；`formatting.test.ts` 覆盖解析器本身。
+- 验证：`feishu` 相关 `interaction` / `formatting` / `runtime` 测试 28 项通过；`tsc --noEmit` 无新增错误；production build 通过。真实飞书复测仍需 owner 确认。
+- 说明：若要在卡片里保留真正的表格布局，需要把交互卡片迁移到卡片 JSON 2.0 并使用 `table` 组件；本次先用列表形态在 1.0 卡片内解决，不改变卡片结构。
+
 ### 修复：飞书交互卡片按钮点击无反应（2026-09-19，待验证）
 
 - 症状（owner 实机走查）：Telegram / 飞书 `/menu` 卡片正常渲染，但点击任何按钮都没有反应；owner 怀疑飞书没收到点击动作。

@@ -37,6 +37,30 @@ test("feishu interaction cards disable forwarding and carry token-only action va
   assert.doesNotMatch(JSON.stringify(values), /sensitive-server-id/);
 });
 
+test("feishu interaction cards flatten markdown tables into list text", () => {
+  const view: InteractionView = {
+    surface: "result",
+    title: "帮助",
+    body: [
+      "**常用命令**",
+      "",
+      "| 项目 | 值 |",
+      "| --- | --- |",
+      "| /menu | 打开原生操作菜单 |",
+      "| /thinking [default\\|off\\|max] | 查看或修改思考级别 |"
+    ].join("\n")
+  };
+  const card = buildFeishuInteractionCard(view) as any;
+  const contents = (card.elements ?? [])
+    .filter((element: any) => element.tag === "markdown")
+    .map((element: any) => element.content)
+    .join("\n");
+
+  assert.doesNotMatch(contents, /\|\s*-{3,}\s*\|/);
+  assert.match(contents, /• \*\*\/menu\*\*: 打开原生操作菜单/);
+  assert.match(contents, /• \*\*\/thinking \[default\|off\|max\]\*\*: 查看或修改思考级别/);
+});
+
 test("feishu input card binds cancellation with an interaction token", () => {
   const input: InteractionInputPrompt = {
     requestId: "server-request",
