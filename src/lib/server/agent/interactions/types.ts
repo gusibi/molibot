@@ -107,6 +107,8 @@ export interface InteractionInputConsumeResult {
   handled: boolean;
   message?: string;
   agentText?: string;
+  /** True when the bound input prompt must be retired/updated and cannot accept another reply. */
+  terminal?: boolean;
 }
 
 export interface InteractionModelItem {
