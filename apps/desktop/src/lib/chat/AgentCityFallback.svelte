@@ -8,6 +8,7 @@
   export let copy: Translation;
   export let statusLabel: (status: AgentCityStatus) => string;
   export let onOpenAgentSettings: () => void;
+  export let onSelect: (key: string) => void = () => {};
 
   function floorTitle(floor: AgentCityFloor): string {
     return `${floor.agent.name} · ${statusLabel(floor.state)}`;
@@ -31,6 +32,10 @@
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
   }
+
+  function subagentSummary(floor: AgentCityFloor): string {
+    return floor.subagents.groups.map((group) => `${group.role} ×${group.total}`).join(" · ");
+  }
 </script>
 
 <div class="agent-city-fallback" aria-label={copy.agentCityFallbackLabel}>
@@ -38,7 +43,7 @@
     <i aria-hidden="true"><TerminalSquare size={17} /></i>
     <div><strong>{copy.agentStudioOwner}</strong><span>{projection.owner.active ? copy.agentStudioCollaborating : copy.agentStudioOwnerIdle}</span></div>
   </div>
-  <button class="agent-city-fallback-landmark agent-city-fallback-global" data-status={projection.globalFloor.state} type="button" aria-label={floorTitle(projection.globalFloor)} aria-describedby="agent-city-fallback-global-details">
+  <button class="agent-city-fallback-landmark agent-city-fallback-global" data-status={projection.globalFloor.state} type="button" aria-label={floorTitle(projection.globalFloor)} aria-describedby="agent-city-fallback-global-details" onclick={() => onSelect(projection.globalFloor.key)}>
     <i aria-hidden="true"><Buildings size={17} /></i>
     <div><strong>{projection.globalFloor.agent.name}</strong><span>{statusLabel(projection.globalFloor.state)}</span></div>
     <span class="agent-city-fallback-details" id="agent-city-fallback-global-details" role="tooltip">
@@ -48,6 +53,9 @@
         <span>{projection.globalFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</span>
       {/if}
       <em>{projection.globalFloor.agent.modelOverrides > 0 ? `${projection.globalFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
+      {#if projection.globalFloor.subagents.instances.length}
+        <span>{projection.globalFloor.subagents.instances.length} {copy.agentStudioSubagents} · {subagentSummary(projection.globalFloor)}</span>
+      {/if}
     </span>
   </button>
 
@@ -57,11 +65,11 @@
         <header><span>{String(building.index + 1).padStart(2, "0")}</span><small>{building.floors.length} {copy.agentCityFloors}</small></header>
         <div class="agent-city-fallback-floors">
           {#each [...building.floors].reverse() as floor (floor.key)}
-            <button class="agent-city-fallback-floor" data-status={floor.state} title={floorTitle(floor)} type="button" aria-describedby={`agent-city-fallback-details-${building.index}-${floor.floorIndex}`}>
+            <button class="agent-city-fallback-floor" data-status={floor.state} title={floorTitle(floor)} type="button" aria-describedby={`agent-city-fallback-details-${building.index}-${floor.floorIndex}`} onclick={() => onSelect(floor.key)}>
               <span class="agent-city-fallback-pug" aria-hidden="true"><i></i><b></b></span>
               <span><strong>{floor.agent.name}</strong><small>{statusLabel(floor.state)}</small></span>
-              {#if floor.subagents.visible.length || floor.subagents.overflowCount}
-                <em>{floor.subagents.visible.length + floor.subagents.overflowCount} {copy.agentStudioSubagents}</em>
+              {#if floor.subagents.instances.length}
+                <em>{floor.subagents.instances.length} {copy.agentStudioSubagents}</em>
               {/if}
               <span class="agent-city-fallback-details" id={`agent-city-fallback-details-${building.index}-${floor.floorIndex}`} role="tooltip">
                 <strong>{floor.agent.description || copy.agentStudioNoDescription}</strong>
@@ -70,8 +78,8 @@
                   <span>{floor.activity.taskPreview || copy.agentStudioTaskUnavailable}</span>
                 {/if}
                 <em>{floor.agent.modelOverrides > 0 ? `${floor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
-                {#if floor.subagents.visible.length || floor.subagents.overflowCount}
-                  <span>{floor.subagents.visible.map((subagent) => `${subagent.name} · ${statusLabel(subagent.status)}`).join(" · ")}{floor.subagents.overflowCount ? ` · +${floor.subagents.overflowCount}` : ""}</span>
+                {#if floor.subagents.instances.length}
+                  <span>{subagentSummary(floor)}</span>
                 {/if}
               </span>
             </button>

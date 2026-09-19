@@ -1,3 +1,31 @@
+### 调整：Agent City 升级为以 Momo 为中心的社区 + Phase 3/4/5 完成（2026-09-19，待验收）
+
+- Default Agent 继续保留内部 `id=default`，产品层改为社区中央 **Momo HQ**；任务调度 Community Hub 独立在前方，普通 Agent Studio 分布在两侧/后方，社区道路改为 Hub → Momo HQ → Studio 的关系路径。
+- Sub-agent 不再截断为 3 个固定工位：Projection 保留完整实例并按 role 聚合，可直接表达 `scan ×10` / `reviewer ×2`；Three.js 只负责视觉 LOD，每个父 Agent 最多显示 12 个 Worker，更多实例进入 Worker Pool。
+- Phase 3 Momo 资产完成：仓库直接提交 `momo.glb`，文本 `momo.gltf` 作为 fallback；原先方块感强的验证模型替换为圆润 mascot 比例（大头、短鼻、黑面罩、眼白/高光、短腿、卷尾），加入软接触阴影、ACES filmic tone mapping 与 rim light。
+- 主 Agent 与 Sub-agent Worker 全部走同一个 `GLTFLoader → AnimationMixer` 角色管线，13 个 clip 为 Idle / Walk / Typing / Thinking / Scan / Reading / Reviewing / Phone / Sleep / Celebrate / Error / Wave / Coffee；Worker 状态变化也会触发 Celebrate / Error one-shot。
+- Worker role 仍是无限开放的：scan/search/research 使用青色 visor + scanner，planner/design 使用紫色标记 + thinking/writing，review/test/audit 使用橙色标记 + clipboard；自定义 role 用稳定 hash 配色回退。头部附件会挂到 GLTF `HeadPivot`，不再出现小狗转头而 visor 留在原地的问题。
+- 性能 LOD：Momo 实例共享 immutable GLTF geometry/material，每个实例只维护自己的 node transform / AnimationMixer；低画质自动把临时 Worker 降回轻量 procedural rig，主 Agent 仍保留 GLTF，切回 full 会自动恢复。
+- Phase 4 模块化建筑资产完成：仓库提交 `community-kit.glb` + 文本 fallback，包含 `StudioArchitecture` / `HQArchitecture` / `StudioDecor` / `HQDecor` / `CommunityHub`；加载后自动替换旧 procedural shell/decor，加载失败才回退旧几何。
+- GLTF 房间仍保持实时状态：Asset kit 的 `GlassTint` 会被提取到 live state 层，Working / Idle / Error 的窗户亮度与闪烁继续生效；任务板、主屏幕、Worker 屏幕、Worker Camp、路线、庆祝粒子、错误 beacon 保持 Three.js runtime-owned，避免把实时 UI 烘焙进静态模型。
+- Worker Camp 与房间细节完成：有 Worker 时 GLTF lounge 自动收起避免穿模；临时桌面/键盘/显示器改为圆角几何，Camp 基座圆角化；社区增加中央 plaza、树、长椅、路灯，房间与人物不再像孤立积木。
+- 完整 Blender 可重建管线：新增 `scripts/blender/build_agent_community_assets.py`，可生成可编辑的 `Momo.blend` / `AgentCommunityKit.blend` 并导出两个 runtime GLB；`export_momo.py` 继续负责艺术家修改后的严格 clip contract 校验与导出。
+- 机器守卫扩展：测试直接校验两个生产 GLB 的 magic/version、文本 fallback 的完整组件/13 clip、GLB-first URL、Worker GLTF LOD、HeadPivot 附件、模块化房间 hydration 与状态窗户材质，避免再次退回「只有架构、没有资产」的假完成状态。
+- Phase 5 Agent Inspector 完成：点击 3D 房间或 2D fallback 都打开同一套右侧 Inspector；概览 / Worker / 运行信息三页实时跟随 2.5s activity poll，展示当前任务、来源 Bot/Channel、模型路由、权限、Run ID、起止时间、完整 Worker role 分组与每个实例状态，不再用底部小卡片塞信息。
+- Inspector 直接提供「与这个 Agent 对话 / 镜头对准 / Agent 设置」动作；对话动作会解析绑定该 Agent 的 Web Profile 并直接创建对应 Bot 的新会话草稿，Default/Momo 会优先使用未绑定专属 Agent 的默认 Web Profile；没有可用 Profile 时跳到 Profiles 设置，不生成错误绑定的会话。
+- Live Community UX 同步补齐：Agent 搜索现在不只搜名字/描述，也搜 Worker role、Bot 名称与任务摘要；Inspector 打开时宽屏搜索面板自动让位，窄屏改为临时覆盖；Escape 关闭 Inspector、2D fallback 也可进入 Inspector，旧 `.agent-city-detail` 卡片和死样式已删除。
+- Phase 5 可访问性收口：Inspector 三个 tab 完成标准 roving tabindex + ArrowLeft/ArrowRight/Home/End 键盘导航，tabpanel 与 tab 用 aria-controls/aria-labelledby 绑定；状态徽章补可读状态标签，键盘用户可以完整使用与鼠标相同的工作台能力。
+- Phase 5 最后一轮工作台收口：Inspector 增加「运行记录」页，Activity API 为每个 Agent 保留最多 8 条近 24 小时 run，并同时保留同一 Agent 的并发 active runs；历史 carrier 与当前 activity 分离，所以旧 run 不会让空闲房间错误显示 Working/Completed。Run timeline 展示状态、任务、Bot/Channel、Run ID、Worker 数量。
+- Inspector 的「Agent 设置」现在把具体 agentId 一路传回 ChatView，打开 Settings 后自动加载并直接进入该 Agent 编辑器，不再只落在 Agent 设置总页。
+- Worker 生命周期补齐为可见空间过程：Worker 从房间入口走入 Worker Camp、到达自己的临时工位，Completed/Error 后先播放反馈再离开入口并消失；reduced-motion 下保留状态结果但跳过移动。
+- 社区生活行为补齐：空闲的 Momo 与地面层 Agent 会按稳定错峰周期离开房间，走到共享 plaza meetup 点短暂停留/打招呼，再返回自己的 Studio；这是纯 ambient 行为，不从 task 文本推断任何业务动作。
+- Agent Community 主题联动补齐：3D 场景读取当前 `data-theme-family / data-theme-recipe` 与实际 CSS token，不再只区分明暗。房间墙体、trim、地毯、休息区、主/Worker 桌、Momo 背心、道路/plaza/植被/灯具都跟随主题；Technical 会出现 drafting grid，Retro/Editorial 使用硬线网格与低圆角，Expressive 增加柔和 accent islands，材质 roughness/metalness/emissive 也按 recipe 调整。
+- 修复聚焦房间周期闪烁：根因是 2.5s Activity poll 每次都把 window/task-board/desk/Worker screen 的 emissive intensity 重置到初始值，而 render loop 又立即改回动画值，放大后形成稳定的周期闪烁。现在只有状态真正变化时才重置这些强度；Focused/close-up 模式同时保持 window、room pulse、selection/perimeter 为稳定值。
+- 主题家族正式进入 WebGL 社区：不再只识别 light/dark。Agent Studio 从根节点读取当前 `data-theme-family` / `data-theme-recipe` 与 `--accent`、surface/panel/card/separator、online/danger/warning、Skill/Mini App accent 等真实 CSS token，并先通过浏览器 CSS 计算层解析嵌套 `var(...)` / `color-mix(...)` 后交给 Three.js；内置主题和导入 VS Code 主题都可实时换色。
+- 主题 recipe 不只换一层 tint：native/material/messenger/retro/editorial/technical/product/expressive/imported 分别控制房间与 plaza 的强调色混合、粗糙度/金属感、状态发光强度、fog/exposure；Momo HQ、普通 Studio、Community Hub、Worker Camp、道路/plaza/树/长椅/路灯、Working 路线/边框、窗户和错误/完成语义色都会跟当前主题联动。
+- 修复房间放大后持续闪烁：根因是城市总览用的 emissive pulse 在近景 GLTF 大窗/任务板上被视觉放大，Working 窗口原来最高有 ±0.22 的连续闪动，Error 更高。现在 overview 只保留慢速极弱呼吸；进入 detail distance 或聚焦房间后，窗户、任务板、主屏、Worker 屏、Working perimeter、选中边框全部切为稳定亮度，放大不再整间房闪。
+
+
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
 
 - 背景（owner 走查）：「变更 → 本次会话」「附件」tab 在列表上方各有一条左上角对齐的范围说明（"只显示本次会话中 Agent 写入过的文件。" / "仅显示当前会话消息中的附件。"），与下方居中的空状态并排显得杂乱；owner 期望统一为「icon + 居中主文案 + 居中次要说明」的样式（即 Git 不可用空状态已有的样式）。

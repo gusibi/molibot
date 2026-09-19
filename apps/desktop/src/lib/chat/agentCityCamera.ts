@@ -56,7 +56,7 @@ export function cityHeightFor(sceneFloors: number): number {
  */
 export function agentCityBounds(sceneFloors: number): AgentCityBounds {
   const height = cityHeightFor(sceneFloors);
-  return { minX: -15, maxX: 15, minY: 0, maxY: height + 3, minZ: -12, maxZ: 8 };
+  return { minX: -15, maxX: 15, minY: 0, maxY: height + 3, minZ: -12, maxZ: 10.5 };
 }
 
 export function clampCameraTarget(target: AgentCityPoint, bounds: AgentCityBounds): AgentCityPoint {
@@ -74,7 +74,7 @@ export function clampCameraDistance(distance: number): number {
 /** The default "whole city" shot, also used by the Reset view control. */
 export function overviewFraming(sceneFloors: number): AgentCityFraming {
   const height = cityHeightFor(sceneFloors);
-  const target: AgentCityPoint = { x: 0, y: height * 0.42, z: -0.6 };
+  const target: AgentCityPoint = { x: 0, y: height * 0.42, z: 1.2 };
   const distance = clampCameraDistance(36 + height * 1.35);
   return { target, position: offset(target, OVERVIEW_DIRECTION, distance), distance };
 }

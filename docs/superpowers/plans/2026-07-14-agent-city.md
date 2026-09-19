@@ -2,7 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the CSS Agent office with a production-quality Three.js isometric pug micro-city that faithfully projects the existing Desktop Agent Activity contract for 1–100 Agents and degrades accessibly when WebGL is unavailable or expensive.
+**Goal:** Replace the CSS Agent office with a production-quality Three.js isometric pug community that faithfully projects the existing Desktop Agent Activity contract for 1–100 persistent Agents plus dynamically spawned Sub-agent workers, and degrades accessibly when WebGL is unavailable or expensive.
+
+> **2026-09-18 community evolution:** the internal `globalFloor` compatibility seam still represents `id=default`, but the product no longer presents it as a remote Global headquarters. It is the central **Momo HQ / primary Agent**. Sub-agent data is no longer truncated to three items; projection keeps all runtime instances and role groups, while Three.js owns a bounded visual LOD / Worker Pool.
+
+> **2026-09-19 Phase 5 evolution:** Agent City is now an operational workbench, not only a visualization. Selection opens one live Inspector in both 3D and 2D fallback; Overview / Workers / Runtime project the current Agent Activity, model routing and complete Worker groups. The Inspector owns quick actions to start a Web chat with the selected Agent, focus its room, or open Agent settings. Search also indexes Worker roles, Bot names and task summaries.
 
 **Architecture:** Keep Svelte responsible for polling, localization, DOM labels, tooltips, accessibility, and fallbacks. Add a pure `agentCityProjection` boundary that reconciles persistent Agent-to-slot assignments and produces deterministic buildings/floors/state intents; feed that projection into a lifecycle-owned Three.js renderer with no data fetching or ownership logic. Keep Global headquarters and the owner dispatch center outside the 100 regular-Agent slots, and retain the current Activity API unchanged.
 
@@ -11,12 +15,12 @@
 ## Global Constraints
 
 - Fixed isometric orthographic camera; no rotate, zoom, building, or character controls.
-- Exactly 10 regular-Agent buildings, one Global headquarters, and one owner dispatch center.
+- Exactly 10 regular-Agent buildings, one central Momo HQ for the default/primary Agent, and one owner dispatch/community hub.
 - Regular Agents fill floors round-robin through 100 slots; Global never consumes a regular slot; Agent 101+ only increments an explicit hidden count.
 - Existing Agent Activity polling and contracts remain the only runtime source; never infer tool-specific actions from names or task text.
 - Svelte owns data fetching, DOM semantics, localization, errors, and fallback UI; Three.js owns only scene objects, lighting, animation, and hit projection.
 - Persist stable regular-Agent slot assignments locally; preserve existing assignments, remove deleted IDs, and assign new IDs to the lowest free slot.
-- Render at most 3 Sub-agents independently and aggregate the rest on the parent floor.
+- Preserve every Sub-agent runtime instance and role group in projection. Rendering may animate a bounded set independently and aggregate the remainder as a parent-local Worker Pool.
 - Full 3D, reduced-quality 3D, and polished 2D fallback are automatic; WebGL/context-loss/poor sustained frame rate must never produce a blank page.
 - Reduced motion disables ambient/random loops while retaining clear working/completed/error state changes.
 - Pause or reduce rendering while hidden/offscreen and release renderer, geometry, material, texture, observer, timer, and event resources on destroy.
@@ -52,7 +56,7 @@
 **Interfaces:**
 - Consumes: `DesktopAgentItem[]`, `DesktopAgentActivityItem[]`, and a stored `Record<string, number>` slot map.
 - Produces: `reconcileAgentCitySlots(agentIds, previous): AgentCitySlotState` and `projectAgentCity(input): AgentCityProjection`.
-- `AgentCityProjection` exposes `buildings`, `globalFloor`, `owner`, `hiddenAgentCount`, `sceneFloors`, `workingCount`, and per-floor `route`/`state`/`subagents` intents.
+- `AgentCityProjection` exposes `buildings`, the compatibility-named `globalFloor` (the default/Momo primary Agent), `owner`, `hiddenAgentCount`, `sceneFloors`, `workingCount`, and per-floor `route`/`state`/`subagents` intents.
 
 - [ ] Write tests for 0/1/10/11/40/41/100/101 regular Agents, independent Global/owner structures, round-robin floor positions, and hidden overflow.
 - [ ] Run `corepack pnpm exec tsx --test apps/desktop/src/lib/chat/agentCityProjection.test.ts` and verify it fails because the module is missing.

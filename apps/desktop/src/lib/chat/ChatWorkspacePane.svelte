@@ -14,7 +14,8 @@
   export let serviceReady: boolean;
   export let serviceError: string;
   export let onRetryService: () => void;
-  export let onOpenAgentSettings: () => void;
+  export let onOpenAgentSettings: (agentId?: string) => void;
+  export let onOpenAgentChat: (agentId: string) => void = () => {};
   export let onAutomationUnreadChange: (count: number) => void = () => {};
   export let onOpenMiniApp: (appId: string) => void = () => {};
   /** Opens Settings at the Mini App AI section; the pane only signposts it. */
@@ -26,7 +27,8 @@
     copy: Translation;
     serviceEndpoint: string | null;
     serviceReady: boolean;
-    onOpenAgentSettings: () => void;
+    onOpenAgentSettings: (agentId?: string) => void;
+    onOpenAgentChat: (agentId: string) => void;
   }
 
   let AgentStudioComponent: Component<AgentStudioProps> | null = null;
@@ -70,7 +72,7 @@
     {:else if pane === "plans"}
       <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} />
     {:else if AgentStudioComponent}
-      <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} />
+      <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} {onOpenAgentChat} />
     {:else}
       <div class="workspace-empty"><p>{copy.loading}</p></div>
     {/if}

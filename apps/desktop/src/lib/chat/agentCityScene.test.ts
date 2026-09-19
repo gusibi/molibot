@@ -34,13 +34,14 @@ function floorFixture(overrides: Partial<AgentCityFloor> = {}): AgentCityFloor {
       modelRouting: { textModelKey: "", sttModelKey: "" }
     },
     activity: null,
+    runs: [],
     buildingIndex: 3,
     floorIndex: 0,
     position: { x: 5.6, y: 0.35, z: -3.6 },
     state: "idle",
     animation: "resting",
     route: null,
-    subagents: { visible: [], overflowCount: 0 },
+    subagents: { instances: [], groups: [] },
     ...overrides
   };
 }
@@ -66,11 +67,18 @@ test("floor signature changes when the room geometry actually differs", () => {
     floorFixture({ kind: "global" }),
     floorFixture({
       subagents: {
-        visible: [{ name: "helper", status: "working" } as AgentCityFloor["subagents"]["visible"][number]],
-        overflowCount: 0
+        instances: [{ id: "helper-1", name: "helper", status: "working", startedAt: "", finishedAt: "" }],
+        groups: [{ role: "helper", total: 1, working: 1, completed: 0, error: 0, instances: [] }]
       }
     }),
-    floorFixture({ subagents: { visible: [], overflowCount: 2 } }),
+    floorFixture({
+      subagents: {
+        instances: Array.from({ length: 13 }, (_, index) => ({
+          id: `worker-${index}`, name: "worker", status: "working" as const, startedAt: "", finishedAt: ""
+        })),
+        groups: []
+      }
+    }),
     floorFixture({ route: { phase: "outbound", target: { buildingIndex: 3, floorIndex: 0 }, points: [] } })
   ];
   for (const floor of variations) {

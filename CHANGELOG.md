@@ -1,3 +1,33 @@
+### Fixed: Agent Community 跟随主题家族，近景房间不再持续闪烁（2026-09-19）
+
+Agent Community 之前虽然会跟随明暗模式和天空背景，但 Three.js 房屋、道路、plaza、Community Hub 与状态灯仍大量使用固定颜色，所以切换 Raft、Cyberpunk、Windows 98、Candy 等主题时 3D 社区看起来几乎还是同一套。现在 WebGL 场景会读取当前主题家族/recipe 的真实 CSS token，并解析嵌套 `var(...)` / `color-mix(...)`：房间墙面与 trim、GLTF kit、HQ、Worker Camp、Hub、地面/道路/绿化、Working 路线与状态色都随主题变化；不同 recipe 还会改变粗糙度、金属感、发光、fog 与曝光，而不只是简单换 accent。导入的 VS Code 主题同样走这条 token 管线。
+
+房间放大时的“持续闪”也根修了。原来的城市总览为了让 Working/Error 状态远距离可见，会让整片窗户、任务板、屏幕、外围线框不断做 emissive pulse；GLTF 房间放大后这些大面积发光面把微动画变成了明显闪屏。现在远景只保留幅度更小、速度更慢的呼吸，进入 detail distance 或聚焦房间后直接固定亮度，窗户、任务板、Worker 屏、Working perimeter 与选中框都不再持续闪烁。
+
+### Fixed: Agent Community 主题联动与聚焦房间闪烁（2026-09-19)
+
+Agent Community 不再只是统一配色的 3D 场景：它会读取当前主题 family/recipe 和真实 CSS token，把建筑、家具、道路、广场、植被、灯具以及 Momo 背心一起换成对应主题语言；Blueprint/Cyberpunk 等 Technical 主题带 drafting grid，Win98/System 6/Terminal 等 Retro 主题使用更硬的线条和材质，Raft/Brutalism 的 Editorial 语言更扁平，Candy/Cartoon 的 Expressive 主题更强调柔和 accent。与此同时修掉房间放大后每 2.5 秒闪一次的问题：Activity poll 不再重复重置 emissive animation，聚焦视图保持稳定亮度，只在真实状态变化时更新。
+
+### Changed: Agent Community Phase 5 — Live Inspector 与快速对话（2026-09-19）
+
+Agent City 现在从“可看”进入“可操作”的工作台阶段。点击任意 Agent 房间会从右侧打开 Live Inspector，分为概览、Worker、运行信息三页：当前任务、Bot/Channel 来源、模型/权限、Run ID、开始/结束时间、Worker role 聚合与完整实例状态都会随着 Agent Activity 轮询实时刷新。相同 Inspector 同时支持 3D WebGL 与 2D fallback，不再让节能模式退化成只有 tooltip 的只读视图。
+
+Inspector 底部加入三个实际动作：直接与该 Agent 开启 Web 对话、镜头对准房间、进入 Agent 设置。新建对话会选择绑定该 Agent 的 Web Profile；Momo/default 会优先使用默认 Profile；找不到绑定关系时转到 Profiles 设置，避免静默用错 Bot。Agent 搜索也扩展到 Worker role、Bot 名称和当前任务摘要，能直接搜索“scan”“reviewer”或任务关键词定位正在工作的团队。
+
+旧的左下角 `.agent-city-detail` 小卡片已删除，宽屏搜索框会在 Inspector 打开时自动让位，窄屏保持可覆盖操作；Escape 仍统一退出当前选择。机器守卫覆盖 Inspector 三个 tab、Worker/runtime 数据、2D fallback 选择、ChatView 的 Agent→Profile→draft 链路以及旧 detail 样式不得回归。
+
+
+### Changed: Agent Community 完成 Momo 与模块化建筑资产化（2026-09-18）
+
+Agent 页这一轮把前两版「结构已经对，但看起来还像积木」的问题继续做完。Default Agent 现在是社区中央的 Momo HQ，Sub-agent 是可重复派生的 Worker Swarm；`scan ×10` 这样的并行团队保留完整 runtime 实例，只在 Three.js 渲染层做 LOD。
+
+角色层正式切到生产 GLB：仓库直接提交新的圆润 Momo `momo.glb`，主 Agent 和 Worker 都通过 `GLTFLoader + AnimationMixer` 使用同一个角色资产，带 Idle / Walk / Typing / Thinking / Scan / Reading / Reviewing / Phone / Sleep / Celebrate / Error / Wave / Coffee 13 个动作。旧验证模型的方块比例已重做为大头、短鼻、黑面罩、眼白高光、短腿和卷尾的 mascot 轮廓；scan / planner / reviewer 的配件继续由 runtime 叠加，visor 会跟随 GLTF HeadPivot。低画质时临时 Worker 自动降回轻量 rig，避免多人并行把帧率拖垮。
+
+建筑层也不再只靠 BoxGeometry：新增并提交 `community-kit.glb`，Momo HQ、普通 Studio、室内静态陈设和 Community Hub 都从模块化 GLB kit hydrate；失败时才退回 procedural fallback。GLTF 窗户仍接入 Working / Idle / Error 实时亮度，任务板、Worker Camp、显示器、路线、庆祝/告警等实时 UI 保持 Three.js 驱动。有 Worker 时休息区会自动收起，临时工位与 Camp 改为圆角几何；社区中央补上 plaza、树、长椅和路灯，渲染加入 ACES filmic tone mapping、软阴影和克制 rim light。
+
+同时补齐可重建的 Blender source pipeline：`scripts/blender/build_agent_community_assets.py` 可生成 Momo 与 Agent Community Kit 的可编辑 `.blend` 源并导出 runtime GLB，严格的 `export_momo.py` 继续校验 MomoRoot / MomoRig 与动作 contract。测试会直接检查两个 GLB 二进制、fallback 资产组件与全部动作，防止资产文件缺失或重新退回占位模型。
+
+
 ### Fixed: 文件面板提示统一为居中空状态（2026-09-17）
 
 文件面板「变更 → 本次会话」和「附件」页此前在列表上方各有一条左上角对齐的说明文字，与下方居中的空状态并排显得杂乱。现在这些说明统一并入居中的空状态——图标、主文案、小字说明居中成一列，与「Git 不可用」空状态同一套样式；列表有内容时说明随提示一起消失，筛选范围由分段控件标签本身说明。
@@ -1844,3 +1874,8 @@ Four connected additions from `docs/requirements/miniapp-platform-extension-road
 - Verification: Mini App server + route suites 187/187 (including new deep-link 10, card 10, bridge v2 10, attach 7, badge 4), desktop unit 145/145 + structural 173/173 + Rust 52/52, `svelte-check` 0 errors / 0 warnings, root and desktop `vite build` clean. Two real defects were caught by the new guards and fixed before delivery: the `..`-normalization cross-app routing bug above, and an undefined `--radius-medium` token (pitfall #5) flagged by the existing CSS variable guard.
 
 ---
+
+
+### Changed: Agent Community Phase 5 完整工作台（2026-09-19）
+
+Agent Inspector 现在补齐最近运行时间线与同 Agent 并发 run，可查看近 24 小时最多 8 条运行记录；打开 Agent 设置会直接进入当前选中 Agent 的编辑器。临时 Worker 不再瞬移到工位，而是从房间入口进入 Worker Camp，完成/失败后离场。空闲的 Momo 与地面层 Agent 会错峰前往社区 plaza 短暂停留并互动，再返回各自工作室；低动态模式会关闭这些空间移动。

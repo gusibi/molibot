@@ -24,9 +24,20 @@ export interface AgentCityRoute {
   points: AgentCityPoint[];
 }
 
+export interface AgentCitySubagentGroup {
+  role: string;
+  total: number;
+  working: number;
+  completed: number;
+  error: number;
+  instances: DesktopSubagentActivityItem[];
+}
+
 export interface AgentCitySubagents {
-  visible: DesktopSubagentActivityItem[];
-  overflowCount: number;
+  /** Complete runtime instances. Never truncate here; rendering decides its own LOD. */
+  instances: DesktopSubagentActivityItem[];
+  /** Role-level view for repeated workers such as scan ×10. */
+  groups: AgentCitySubagentGroup[];
 }
 
 export interface AgentCityFloor {
@@ -34,6 +45,7 @@ export interface AgentCityFloor {
   kind: "agent" | "global";
   agent: DesktopAgentItem;
   activity: DesktopAgentActivityItem | null;
+  runs: DesktopAgentActivityItem["runs"];
   buildingIndex: number | "global";
   floorIndex: number;
   position: AgentCityPoint;
@@ -66,13 +78,21 @@ export interface AgentCityProjectionInput {
   slots: Record<string, number>;
 }
 
-const OWNER_POSITION: AgentCityPoint = { x: 0, y: 0, z: 0 };
-const GLOBAL_POSITION: AgentCityPoint = { x: 0, y: 0, z: -9 };
+// The community is staged from back to front: regular studios form the
+// neighbourhood, the primary/default Agent owns the central Momo HQ, and the
+// owner dispatch hub sits closest to the camera.
+const OWNER_POSITION: AgentCityPoint = { x: 0, y: 0, z: 8.2 };
+const GLOBAL_POSITION: AgentCityPoint = { x: 0, y: 0, z: 2.4 };
+
+const COMMUNITY_BUILDING_POSITIONS: ReadonlyArray<readonly [number, number]> = [
+  [-11, -4.8], [-5.6, -6], [5.6, -6], [11, -4.8],
+  [-13, 0.5], [-7.8, 1.8], [7.8, 1.8], [13, 0.5],
+  [-10.5, 6], [10.5, 6]
+];
 
 function buildingPosition(index: number): AgentCityPoint {
-  const row = Math.floor(index / 5);
-  const column = index % 5;
-  return { x: (column - 2) * 5.6, y: 0, z: row === 0 ? -3.6 : 4.2 };
+  const [x, z] = COMMUNITY_BUILDING_POSITIONS[index] ?? [0, -6];
+  return { x, y: 0, z };
 }
 
 function stateFor(agent: DesktopAgentItem, activity: DesktopAgentActivityItem | undefined): AgentCityStatus {
@@ -109,23 +129,41 @@ function routeFor(
 }
 
 function subagentsFor(activity: DesktopAgentActivityItem | undefined): AgentCitySubagents {
-  const subagents = activity?.subagents ?? [];
-  return { visible: subagents.slice(0, 3), overflowCount: Math.max(0, subagents.length - 3) };
+  const instances = activity?.subagents ?? [];
+  const byRole = new Map<string, AgentCitySubagentGroup>();
+
+  for (const subagent of instances) {
+    const role = subagent.name.trim() || "subagent";
+    let group = byRole.get(role);
+    if (!group) {
+      group = { role, total: 0, working: 0, completed: 0, error: 0, instances: [] };
+      byRole.set(role, group);
+    }
+    group.total += 1;
+    group.instances.push(subagent);
+    if (subagent.status === "working") group.working += 1;
+    else if (subagent.status === "completed") group.completed += 1;
+    else group.error += 1;
+  }
+
+  return { instances, groups: [...byRole.values()] };
 }
 
 function makeFloor(
   agent: DesktopAgentItem,
-  activity: DesktopAgentActivityItem | undefined,
+  activityRecord: DesktopAgentActivityItem | undefined,
   buildingIndex: number | "global",
   floorIndex: number,
   position: AgentCityPoint
 ): AgentCityFloor {
+  const activity = activityRecord?.runId ? activityRecord : undefined;
   const state = stateFor(agent, activity);
   return {
     key: buildingIndex === "global" ? "global" : `slot-${floorIndex * AGENT_CITY_BUILDING_COUNT + buildingIndex}`,
     kind: buildingIndex === "global" ? "global" : "agent",
     agent,
     activity: activity ?? null,
+    runs: activityRecord?.runs ?? [],
     buildingIndex,
     floorIndex,
     position,
@@ -192,7 +230,7 @@ export function selectFollowFloorKey(
 export function projectAgentCity(input: AgentCityProjectionInput): AgentCityProjection {
   const globalAgent = input.agents.find((item) => item.id === "default") ?? {
     id: "default",
-    name: "Global",
+    name: "Momo",
     description: "",
     enabled: true,
     permissionMode: null,

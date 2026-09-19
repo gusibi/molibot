@@ -26,7 +26,18 @@ function activity(agentId: string, status: DesktopAgentActivityItem["status"] = 
     taskPreview: "Inspect the repository without inventing tool actions",
     startedAt: "2026-07-14T12:00:00.000Z",
     finishedAt: status === "working" ? "" : "2026-07-14T12:00:10.000Z",
-    subagents: []
+    subagents: [],
+    runs: [{
+      status: status === "idle" ? "completed" : status,
+      runId: `run-${agentId}`,
+      channel: "web",
+      botId: `bot-${agentId}`,
+      botName: `Bot ${agentId}`,
+      taskPreview: "Inspect the repository without inventing tool actions",
+      startedAt: "2026-07-14T12:00:00.000Z",
+      finishedAt: status === "working" ? "" : "2026-07-14T12:00:10.000Z",
+      subagents: []
+    }]
   };
 }
 
@@ -57,6 +68,24 @@ test("projectAgentCity keeps the city deterministic at zero and one regular Agen
   assert.equal(single.buildings[0]?.floors[0]?.floorIndex, 0);
   assert.equal(single.buildings.slice(1).flatMap((building) => building.floors).length, 0);
   assert.deepEqual(single.slotState.slots, { "agent-1": 0 });
+});
+
+test("projectAgentCity keeps run history without turning an idle Agent into an active floor", () => {
+  const historical = activity("agent-1", "idle");
+  historical.runId = "";
+  historical.channel = "";
+  historical.botId = "";
+  historical.botName = "";
+  historical.taskPreview = "";
+  historical.startedAt = "";
+  historical.finishedAt = "";
+  historical.subagents = [];
+  const projection = projectAgentCity({ agents: [agent("agent-1")], activities: [historical], slots: {} });
+  const floor = projection.buildings[0]?.floors[0];
+  assert.equal(floor?.state, "idle");
+  assert.equal(floor?.activity, null);
+  assert.equal(floor?.route, null);
+  assert.equal(floor?.runs.length, 1);
 });
 
 test("projectAgentCity keeps Global and owner separate from regular Agent capacity", () => {
@@ -111,21 +140,33 @@ test("projectAgentCity emits exclusive states and an exact owner-to-floor route"
   assert.equal(route?.phase, "returning");
 });
 
-test("projectAgentCity caps visible Sub-agents at three and never invents tool intent", () => {
+test("projectAgentCity retains every Sub-agent instance and groups repeated worker roles", () => {
   const parentActivity = activity("agent-1");
   parentActivity.taskPreview = "Search, code, approve, and generate an image";
-  parentActivity.subagents = Array.from({ length: 5 }, (_, index) => ({
-    id: `sub-${index}`,
-    name: `Sub ${index}`,
-    status: index === 0 ? "completed" : "working",
-    startedAt: "2026-07-14T12:00:00.000Z",
-    finishedAt: index === 0 ? "2026-07-14T12:00:05.000Z" : ""
-  }));
+  parentActivity.subagents = [
+    ...Array.from({ length: 10 }, (_, index) => ({
+      id: `scan-${index}`,
+      name: "scan",
+      status: index < 2 ? "completed" as const : "working" as const,
+      startedAt: "2026-07-14T12:00:00.000Z",
+      finishedAt: index < 2 ? "2026-07-14T12:00:05.000Z" : ""
+    })),
+    {
+      id: "review-1",
+      name: "reviewer",
+      status: "error" as const,
+      startedAt: "2026-07-14T12:00:00.000Z",
+      finishedAt: "2026-07-14T12:00:08.000Z"
+    }
+  ];
 
   const projection = projectAgentCity({ agents: [agent("agent-1")], activities: [parentActivity], slots: {} });
   const floor = projection.buildings[0]?.floors[0];
-  assert.equal(floor?.subagents.visible.length, 3);
-  assert.equal(floor?.subagents.overflowCount, 2);
+  assert.equal(floor?.subagents.instances.length, 11);
+  assert.deepEqual(
+    floor?.subagents.groups.map((group) => [group.role, group.total, group.working, group.completed, group.error]),
+    [["scan", 10, 8, 2, 0], ["reviewer", 1, 0, 0, 1]]
+  );
   assert.equal(floor?.animation, "working");
   assert.equal(floor?.activity?.taskPreview, parentActivity.taskPreview);
   assert.equal("toolAction" in (floor ?? {}), false);

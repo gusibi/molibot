@@ -38,6 +38,7 @@
     type DesktopWebProfile
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
+  import { beginAgentEdit, loadAgents as loadAgentsSettings } from "./lib/stores/agents.svelte";
   import IosSwitch from "./lib/components/ui/IosSwitch.svelte";
   import SelectControl from "./lib/components/ui/SelectControl.svelte";
   import {
@@ -1674,7 +1675,7 @@
     persistSidebarTree();
   }
 
-  function newConversation(): void {
+  function newConversationWithBot(botId: string): void {
     if (!connectedEndpoint) return;
     workspacePane = "chat";
     viewMode = "local";
@@ -1683,13 +1684,37 @@
     conversationsExpanded = true;
     expandedChannels = { ...expandedChannels, web: true };
     persistSidebarTree();
-    chatStore.newConversationDraft(defaultBot());
+    if (botId) localStorage.setItem(LAST_BOT_KEY, botId);
+    chatStore.newConversationDraft(botId);
     // A fresh draft starts on the global default; a pick here is held in
     // draftModelKey until the session is created.
     draftModelKey = "";
     appliedModelSessionId = "";
     activeModelKey = globalModelKey;
     void refreshFiles("", "");
+    focusComposerAtEnd();
+  }
+
+  function newConversation(): void {
+    newConversationWithBot(defaultBot());
+  }
+
+  async function openAgentSettings(agentId?: string): Promise<void> {
+    openSettings("agents");
+    if (!agentId || !connectedEndpoint) return;
+    await loadAgentsSettings(connectedEndpoint);
+    await beginAgentEdit(agentId);
+  }
+
+  function openAgentChat(agentId: string): void {
+    const profile = agentId === "default"
+      ? profiles.find((item) => !item.agentId || item.agentId === "default") ?? profiles[0]
+      : profiles.find((item) => item.agentId === agentId);
+    if (!profile) {
+      openSettings("profiles");
+      return;
+    }
+    newConversationWithBot(profile.id);
   }
 
   function openSession(item: DesktopConversationItem): void {
@@ -3348,7 +3373,8 @@
         serviceReady={connectionReady}
         serviceError={error}
         onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
-        onOpenAgentSettings={() => openSettings("agents")}
+        onOpenAgentSettings={(agentId) => { void openAgentSettings(agentId); }}
+        onOpenAgentChat={openAgentChat}
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
         onOpenMiniAppAiSettings={() => openSettings("models")}

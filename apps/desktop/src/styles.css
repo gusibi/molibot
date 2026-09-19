@@ -5847,7 +5847,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 
 /* Agent City — a fixed isometric desktop miniature with DOM-first status labels. */
 .agent-studio { width: min(1200px, calc(100% - 48px)); margin: 0 auto; padding: 12px 0 40px; }
-.agent-studio-summary { display: flex; flex: none; width: fit-content; gap: 16px; margin: 0 0 12px auto; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--soft-shadow); color: var(--label-tertiary); font-size: var(--fs-meta); }
+.agent-studio-summary { display: flex; flex: none; width: fit-content; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; margin: 0 0 12px auto; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--soft-shadow); color: var(--label-tertiary); font-size: var(--fs-meta); }
 .agent-studio-summary span { white-space: nowrap; }
 .agent-studio-summary strong { margin-right: 4px; color: var(--label-primary); font: 600 16px/20px var(--font-mono); font-variant-numeric: tabular-nums; }
 .agent-studio-state { display: grid; place-items: center; align-content: center; min-height: 440px; padding: 40px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); color: var(--label-secondary); text-align: center; }
@@ -5883,6 +5883,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .agent-city-controls button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
 .agent-city-controls .agent-city-control-active { color: var(--accent); }
 .agent-city-search { position: absolute; z-index: 15; top: 56px; right: 16px; display: grid; gap: 6px; width: min(268px, calc(100% - 32px)); padding: 8px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-md); background: var(--agent-city-surface-strong); box-shadow: var(--float-shadow); }
+.agent-city-search--with-inspector { right: 392px; }
 .agent-city-search input { height: 28px; padding: 0 8px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: var(--fs-meta); }
 .agent-city-search input:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
 .agent-city-search ul { display: grid; max-height: 208px; margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; gap: 2px; list-style: none; }
@@ -5895,22 +5896,6 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .agent-city-search li button small[data-status="error"] { color: var(--danger); }
 .agent-city-search-empty { padding: 8px 7px; color: var(--label-tertiary); font-size: var(--fs-meta); }
 .agent-city-hint { position: absolute; z-index: 12; bottom: 14px; left: 50%; max-width: 92%; margin: 0; padding: 5px 10px; border-radius: var(--rounded-sm); background: var(--agent-city-surface); color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); pointer-events: none; transform: translateX(-50%); }
-.agent-city-detail { position: absolute; z-index: 14; bottom: 16px; left: 16px; display: grid; gap: 5px; width: min(300px, calc(100% - 32px)); padding: 12px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-md); background: var(--agent-city-surface-strong); box-shadow: var(--float-shadow); color: var(--label-primary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-.agent-city-detail header { display: flex; align-items: center; gap: 8px; }
-.agent-city-detail header strong { overflow: hidden; flex: 1 1 auto; min-width: 0; font-size: var(--fs-meta); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.agent-city-detail header span { flex: 0 0 auto; padding: 2px 6px; border-radius: var(--rounded-sm); background: var(--fill); color: var(--label-secondary); font-size: var(--fs-meta); }
-.agent-city-detail header span[data-status="working"] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-.agent-city-detail header span[data-status="completed"] { background: color-mix(in srgb, var(--online) 16%, transparent); color: var(--online); }
-.agent-city-detail header span[data-status="error"] { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
-.agent-city-detail header button { display: grid; flex: 0 0 auto; width: 22px; height: 22px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font-size: var(--fs-meta); cursor: pointer; place-items: center; }
-.agent-city-detail header button:hover { background: var(--fill); color: var(--label-primary); }
-.agent-city-detail p { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.agent-city-detail small { color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-.agent-city-detail em { color: var(--accent); font-size: var(--fs-meta); font-style: normal; }
-.agent-city-detail-actions { display: flex; gap: 6px; margin-top: 3px; }
-.agent-city-detail-actions button { height: 26px; padding: 0 10px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: var(--fs-meta); cursor: pointer; }
-.agent-city-detail-actions button:hover { background: var(--fill); }
-.agent-city-detail-actions button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
 .agent-city-hover-card { position: absolute; z-index: 13; display: grid; gap: 4px; width: min(280px, calc(100% - 32px)); max-height: 220px; overflow: hidden; padding: 10px 12px; border: 1px solid var(--chrome-border); border-radius: var(--rounded-sm); background: var(--agent-city-surface-strong); box-shadow: var(--float-shadow); color: var(--label-primary); font-size: var(--fs-meta); line-height: var(--lh-meta); pointer-events: none; transform: translate(-50%, calc(-100% - 12px)); }
 .agent-city-hover-card strong { overflow: hidden; font-size: var(--fs-meta); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .agent-city-hover-card > span, .agent-city-hover-card small { color: var(--label-secondary); font-size: var(--fs-meta); line-height: 14px; }
@@ -5924,7 +5909,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .agent-city-fallback-landmark div { display: grid; gap: 2px; }
 .agent-city-fallback-landmark strong { font-size: var(--fs-meta); }
 .agent-city-fallback-landmark span { color: var(--label-tertiary); font-size: var(--fs-meta); }
-.agent-city-fallback-global { flex-wrap: wrap; margin-bottom: 24px; }
+.agent-city-fallback-global { flex-wrap: wrap; margin-bottom: 24px; border-color: color-mix(in srgb, var(--accent) 38%, var(--separator)); background: color-mix(in srgb, var(--accent) 7%, var(--agent-city-surface)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent), var(--soft-shadow); }
 .agent-city-fallback-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: end; }
 .agent-city-fallback-building { min-width: 0; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-md) var(--rounded-md) var(--rounded-sm) var(--rounded-sm); background: var(--agent-city-surface); box-shadow: var(--soft-shadow); color: var(--label-primary); }
 .agent-city-fallback-building header { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 32px; padding: 0 9px; background: color-mix(in srgb, var(--label-primary) 10%, transparent); color: var(--label-primary); }
@@ -5957,6 +5942,9 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .agent-city-fallback-pug b { position: absolute; z-index: 3; left: 7px; top: 11px; width: 4px; height: 3px; border-radius: 50%; background: #211d1b; }
 .agent-city-fallback-vacant { display: grid; place-items: center; min-height: 74px; padding: 8px; color: var(--label-tertiary); font-size: var(--fs-meta); text-align: center; }
 @media (max-width: 1080px) and (min-width: 821px) { .agent-city-fallback-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  .agent-city-search--with-inspector { right: 16px; }
+}
 @media (max-width: 620px) {
   .logs-section-head { align-items: stretch; flex-direction: column; }
   .agent-studio { width: 100%; padding-inline: 14px; }

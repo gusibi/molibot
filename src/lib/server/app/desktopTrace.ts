@@ -1,6 +1,7 @@
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import type {
   DesktopAgentActivityItem,
+  DesktopAgentActivityRunItem,
   DesktopSubagentActivityItem,
   DesktopTraceEntityRow,
   DesktopTraceFact,
@@ -250,6 +251,8 @@ export function buildDesktopTraceSummary(timeZone: string, rawQuery: Partial<Des
 
 const TERMINAL_ACTIVITY_WINDOW_MS = 10_000;
 const ACTIVE_ACTIVITY_STALE_MS = 12 * 60_000;
+const RECENT_ACTIVITY_HISTORY_MS = 24 * 60 * 60_000;
+const RECENT_ACTIVITY_HISTORY_LIMIT = 8;
 
 export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: TraceFactRecord[], nowMs = Date.now()): DesktopAgentActivityItem[] {
   const botDetails = new Map<string, { agentId: string; name: string }>();
@@ -259,33 +262,50 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
       botDetails.set(`${channel}:${instance.id}`, { agentId, name: instance.name || instance.id });
     }
   }
-  const latestByAgent = new Map<string, DesktopAgentActivityItem>();
-  const runs = facts.filter((fact) => fact.factType === "run" && fact.botId).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-  for (const fact of runs) {
+
+  const subagentsByRun = new Map<string, DesktopSubagentActivityItem[]>();
+  for (const candidate of facts) {
+    if (candidate.factType !== "subagent_task" || !candidate.runId) continue;
+    const terminal = candidate.status !== "started" && candidate.status !== "waiting";
+    const finishedAt = candidate.finishedAt ?? candidate.updatedAt;
+    const item: DesktopSubagentActivityItem = {
+      id: candidate.factId,
+      name: candidate.name || "subagent",
+      status: candidate.status === "started" || candidate.status === "waiting"
+        ? "working"
+        : candidate.status === "success" ? "completed" : "error",
+      startedAt: candidate.startedAt ?? candidate.createdAt,
+      finishedAt: terminal ? finishedAt : ""
+    };
+    const existing = subagentsByRun.get(candidate.runId) ?? [];
+    existing.push(item);
+    subagentsByRun.set(candidate.runId, existing);
+  }
+
+  const latestUpdateByRun = new Map<string, number>();
+  for (const fact of facts) {
+    if (!fact.runId) continue;
+    const updated = Date.parse(fact.updatedAt);
+    if (!Number.isFinite(updated)) continue;
+    latestUpdateByRun.set(fact.runId, Math.max(latestUpdateByRun.get(fact.runId) ?? 0, updated));
+  }
+
+  const runsByAgent = new Map<string, DesktopAgentActivityRunItem[]>();
+  const runFacts = facts
+    .filter((fact) => fact.factType === "run" && fact.botId)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+  for (const fact of runFacts) {
     const bot = botDetails.get(`${fact.channel}:${fact.botId}`);
     const agentId = bot?.agentId ?? "default";
-    if (!agentId || latestByAgent.has(agentId)) continue;
     const terminal = fact.status !== "started" && fact.status !== "waiting";
     const finishedAt = fact.finishedAt ?? fact.updatedAt;
-    if (terminal && nowMs - Date.parse(finishedAt) > TERMINAL_ACTIVITY_WINDOW_MS) continue;
-    if (!terminal) {
-      const latestRunUpdate = facts.reduce((latest, candidate) => candidate.runId === fact.runId ? Math.max(latest, Date.parse(candidate.updatedAt)) : latest, Date.parse(fact.updatedAt));
-      if (!Number.isFinite(latestRunUpdate) || nowMs - latestRunUpdate > ACTIVE_ACTIVITY_STALE_MS) continue;
-    }
-    const subagents: DesktopSubagentActivityItem[] = facts.filter((candidate) => candidate.factType === "subagent_task" && candidate.runId === fact.runId).flatMap((candidate) => {
-      const subagentTerminal = candidate.status !== "started" && candidate.status !== "waiting";
-      const subagentFinishedAt = candidate.finishedAt ?? candidate.updatedAt;
-      if (subagentTerminal && nowMs - Date.parse(subagentFinishedAt) > TERMINAL_ACTIVITY_WINDOW_MS) return [];
-      return [{
-        id: candidate.factId,
-        name: candidate.name || "subagent",
-        status: candidate.status === "started" || candidate.status === "waiting" ? "working" as const : candidate.status === "success" ? "completed" as const : "error" as const,
-        startedAt: candidate.startedAt ?? candidate.createdAt,
-        finishedAt: subagentTerminal ? subagentFinishedAt : ""
-      }];
-    });
-    latestByAgent.set(agentId, {
-      agentId,
+    const referenceAt = terminal ? Date.parse(finishedAt) : latestUpdateByRun.get(fact.runId) ?? Date.parse(fact.updatedAt);
+    if (!Number.isFinite(referenceAt)) continue;
+    if (!terminal && nowMs - referenceAt > ACTIVE_ACTIVITY_STALE_MS) continue;
+    if (terminal && nowMs - referenceAt > RECENT_ACTIVITY_HISTORY_MS) continue;
+
+    const run: DesktopAgentActivityRunItem = {
       status: fact.status === "started" || fact.status === "waiting" ? "working" : fact.status === "success" ? "completed" : "error",
       runId: fact.runId,
       channel: fact.channel,
@@ -294,8 +314,43 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
       taskPreview: typeof fact.payload.taskPreview === "string" ? fact.payload.taskPreview : "",
       startedAt: fact.startedAt ?? fact.createdAt,
       finishedAt: terminal ? finishedAt : "",
-      subagents
+      subagents: (subagentsByRun.get(fact.runId) ?? []).sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))
+    };
+    const existing = runsByAgent.get(agentId) ?? [];
+    if (!existing.some((item) => item.runId === run.runId)) existing.push(run);
+    runsByAgent.set(agentId, existing);
+  }
+
+  const items: DesktopAgentActivityItem[] = [];
+  for (const [agentId, allRuns] of runsByAgent) {
+    const runs = allRuns
+      .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))
+      .slice(0, RECENT_ACTIVITY_HISTORY_LIMIT);
+    const current = runs.find((run) => run.status === "working")
+      ?? runs.find((run) => run.finishedAt && nowMs - Date.parse(run.finishedAt) <= TERMINAL_ACTIVITY_WINDOW_MS);
+
+    if (!current) {
+      items.push({
+        agentId,
+        status: "idle",
+        runId: "",
+        channel: "",
+        botId: "",
+        botName: "",
+        taskPreview: "",
+        startedAt: "",
+        finishedAt: "",
+        subagents: [],
+        runs
+      });
+      continue;
+    }
+
+    items.push({
+      agentId,
+      ...current,
+      runs
     });
   }
-  return [...latestByAgent.values()];
+  return items;
 }

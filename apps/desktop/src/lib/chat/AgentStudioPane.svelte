@@ -7,7 +7,6 @@
   import Plug from "reicon-svelte/icons/Plug";
   import Plus from "reicon-svelte/icons/Plus";
   import Video from "../icons/duotone/components/Video.svelte";
-  import X from "reicon-svelte/icons/X";
   import { onDestroy, onMount } from "svelte";
   import { ActivityScheduler, agentActivityPolicy, documentActivityVisibility } from "../native/activityScheduler";
   import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
@@ -15,12 +14,14 @@
   import type { Translation } from "../i18n";
   import AgentCityCanvas from "./AgentCityCanvas.svelte";
   import AgentCityFallback from "./AgentCityFallback.svelte";
+  import AgentCityInspector from "./AgentCityInspector.svelte";
   import {
     agentCityViewportHeight,
     type AgentCityQuality,
     type AgentCityTheme,
     type AgentCityViewState
   } from "./agentCityScene";
+  import type { AgentCityThemeRecipe, AgentCityVisualTheme } from "./agentCityTheme";
   import {
     projectAgentCity,
     reconcileAgentCitySlots,
@@ -32,7 +33,8 @@
   export let copy: Translation;
   export let serviceEndpoint: string | null;
   export let serviceReady: boolean;
-  export let onOpenAgentSettings: () => void;
+  export let onOpenAgentSettings: (agentId?: string) => void;
+  export let onOpenAgentChat: (agentId: string) => void = () => {};
 
   const SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1";
   let agents: DesktopAgentItem[] = [];
@@ -50,6 +52,7 @@
   let themeObserver: MutationObserver | null = null;
   let theme: AgentCityTheme = currentTheme();
   let sky = currentSky();
+  let visualTheme: AgentCityVisualTheme = currentVisualTheme();
   let hoveredFloorKey: string | null = null;
   let hoveredFloorAnchor: { x: number; y: number } | null = null;
   let selectedFloorKey: string | null = null;
@@ -77,12 +80,45 @@
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
 
+  function resolvedThemeColor(name: string, fallback: string): string {
+    // getPropertyValue() returns the custom property's token stream, so values
+    // such as `var(--header-bg)` stay unresolved. Let the browser resolve the
+    // variable/color-mix through a real CSS `color` declaration before Three.js
+    // sees it; otherwise several theme families collapse to the same fallback.
+    const probe = document.createElement("span");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText = `position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;color:var(${name}, ${fallback})`;
+    document.body.appendChild(probe);
+    const resolved = getComputedStyle(probe).color.trim();
+    probe.remove();
+    return resolved || fallback;
+  }
+
   // The shell paints `--agent-city-sky`; the WebGL canvas must use the exact
-  // same computed colour or a seam shows at the panel edge. Read it from the
-  // document instead of duplicating the family ramp in JS.
+  // same resolved colour or a seam shows at the panel edge.
   function currentSky(): string {
-    const value = getComputedStyle(document.documentElement).getPropertyValue("--agent-city-sky").trim();
-    return value || (currentTheme() === "dark" ? "#101820" : "#eaf3f5");
+    return resolvedThemeColor("--agent-city-sky", currentTheme() === "dark" ? "#101820" : "#eaf3f5");
+  }
+
+  function currentVisualTheme(): AgentCityVisualTheme {
+    const root = document.documentElement;
+    const token = (name: string, fallback: string): string => resolvedThemeColor(name, fallback);
+    const family = root.dataset.themeFamily || "macos";
+    const recipe = (root.dataset.themeRecipe || (family.startsWith("imported-") ? "imported" : "native")) as AgentCityThemeRecipe;
+    return {
+      family,
+      recipe,
+      accent: token("--accent", currentTheme() === "dark" ? "#48aeff" : "#006bff"),
+      surface: token("--mac-window-background", token("--content-bg", currentTheme() === "dark" ? "#151b20" : "#f4f5f6")),
+      panel: token("--panel-bg", token("--card-bg", currentTheme() === "dark" ? "#20282e" : "#ffffff")),
+      card: token("--card-bg", token("--panel-bg", currentTheme() === "dark" ? "#20282e" : "#ffffff")),
+      separator: token("--separator", currentTheme() === "dark" ? "#47515a" : "#c9d0d5"),
+      online: token("--online", "#28a948"),
+      danger: token("--danger", "#ea001d"),
+      warning: token("--warning", "#c26a00"),
+      skillAccent: token("--skill-accent", "#8b5cf6"),
+      miniappAccent: token("--miniapp-accent", "#0d9488")
+    };
   }
 
   $: globalAgent = {
@@ -109,6 +145,10 @@
   $: searchResults = searchFloors(cityFloors, searchQuery);
   $: if (searchIndex >= searchResults.length) searchIndex = 0;
   $: enabledCount = visibleAgents.filter((agent) => agent.enabled).length;
+  $: activeWorkerCount = cityFloors.reduce(
+    (total, floor) => total + floor.subagents.instances.filter((subagent) => subagent.status === "working").length,
+    0
+  );
   $: cityHeight = agentCityViewportHeight(projection.sceneFloors, cityWidth);
 
   async function refresh(): Promise<void> {
@@ -146,6 +186,12 @@
     return copy.agentStudioAvailable;
   }
 
+  function subagentSummary(floor: AgentCityFloor): string {
+    return floor.subagents.groups
+      .map((group) => `${group.role} ×${group.total}`)
+      .join(" · ");
+  }
+
   function handleFallback(): void {
     hoveredFloorKey = null;
     hoveredFloorAnchor = null;
@@ -164,7 +210,10 @@
     const matches = needle
       ? floors.filter((floor) =>
           floor.agent.name.toLowerCase().includes(needle) ||
-          floor.agent.description.toLowerCase().includes(needle))
+          floor.agent.description.toLowerCase().includes(needle) ||
+          floor.subagents.groups.some((group) => group.role.toLowerCase().includes(needle)) ||
+          floor.activity?.botName.toLowerCase().includes(needle) ||
+          floor.activity?.taskPreview.toLowerCase().includes(needle))
       : floors;
     return [...matches]
       .sort((left, right) => Number(right.state === "working") - Number(left.state === "working"))
@@ -268,11 +317,20 @@
       if (entry) cityWidth = entry.contentRect.width;
     });
     shellObserver.observe(cityShell);
-    themeObserver = new MutationObserver(() => { theme = currentTheme(); sky = currentSky(); });
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance", "data-theme-family"] });
+    themeObserver = new MutationObserver(() => {
+      theme = currentTheme();
+      sky = currentSky();
+      visualTheme = currentVisualTheme();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-resolved-appearance", "data-theme-family", "data-theme-recipe", "style"]
+    });
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
     const handleSystemTheme = (): void => {
       theme = currentTheme();
+      sky = currentSky();
+      visualTheme = currentVisualTheme();
     };
     systemTheme.addEventListener("change", handleSystemTheme);
     cleanupSystemTheme = () => systemTheme.removeEventListener("change", handleSystemTheme);
@@ -297,6 +355,7 @@
     <span><strong>{visibleAgents.length}</strong>{copy.agentStudioResidents}</span>
     <span><strong>{enabledCount}</strong>{copy.agentStudioOnDuty}</span>
     <span><strong>{projection.workingCount}</strong>{copy.agentStudioWorkingCount}</span>
+    <span><strong>{activeWorkerCount}</strong>{copy.agentStudioWorkers}</span>
   </div>
 
   {#if !serviceReady}
@@ -330,13 +389,15 @@
       </div>
 
       {#if fallback}
-        <AgentCityFallback {projection} {copy} {statusLabel} {onOpenAgentSettings} />
+        <AgentCityFallback {projection} {copy} {statusLabel} {onOpenAgentSettings} onSelect={handleSelect} />
       {:else}
         <AgentCityCanvas
           bind:this={cityCanvas}
           {projection}
           {theme}
           {sky}
+          {visualTheme}
+          selectedKey={selectedFloorKey}
           onQuality={(value) => { quality = value; }}
           onFallback={handleFallback}
           onHover={handleHover}
@@ -345,7 +406,7 @@
           onView={handleView}
         />
         {#if searchOpen}
-          <div class="agent-city-search">
+          <div class="agent-city-search" class:agent-city-search--with-inspector={Boolean(selectedFloor)}>
             <input
               bind:this={searchInput}
               bind:value={searchQuery}
@@ -369,30 +430,6 @@
           </div>
         {/if}
         <p class="agent-city-hint">{copy.agentCityInteractionHint}</p>
-        {#if selectedFloor}
-          <aside class="agent-city-detail" aria-label={selectedFloor.agent.name}>
-            <header>
-              <strong>{selectedFloor.agent.name}</strong>
-              <span data-status={selectedFloor.state}>{statusLabel(selectedFloor.state)}</span>
-              <button type="button" title={copy.agentCityCloseDetail} aria-label={copy.agentCityCloseDetail} onclick={closeSelection}>
-                <X size={14} aria-hidden="true" />
-              </button>
-            </header>
-            <p>{selectedFloor.agent.description || copy.agentStudioNoDescription}</p>
-            {#if selectedFloor.activity}
-              <small>{shortBotName(selectedFloor.activity.botName)} · {channelLabel(selectedFloor.activity.channel)} · {activityTime(selectedFloor.activity.startedAt)}</small>
-              <p>{selectedFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
-            {/if}
-            <em>{selectedFloor.agent.modelOverrides > 0 ? `${selectedFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
-            {#if selectedFloor.subagents.visible.length || selectedFloor.subagents.overflowCount}
-              <small>{selectedFloor.subagents.visible.map((subagent) => `${subagent.name} · ${statusLabel(subagent.status)}`).join(" · ")}{selectedFloor.subagents.overflowCount ? ` · +${selectedFloor.subagents.overflowCount}` : ""}</small>
-            {/if}
-            <div class="agent-city-detail-actions">
-              <button type="button" onclick={() => selectedFloorKey && cityCanvas?.focusFloor(selectedFloorKey)}>{copy.agentCityFocusFloor}</button>
-              <button type="button" onclick={onOpenAgentSettings}>{copy.agentCityOpenAgentSettings}</button>
-            </div>
-          </aside>
-        {/if}
         {#if hoveredFloor && hoveredFloor.key !== selectedFloorKey}
           <div class="agent-city-hover-card" style={hoverCardStyle()}>
             <strong>{hoveredFloor.agent.name}</strong>
@@ -403,14 +440,15 @@
               <p>{hoveredFloor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
             {/if}
             <em>{hoveredFloor.agent.modelOverrides > 0 ? `${hoveredFloor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</em>
-            {#if hoveredFloor.subagents.visible.length || hoveredFloor.subagents.overflowCount}
-              <small>{hoveredFloor.subagents.visible.map((subagent) => `${subagent.name} · ${statusLabel(subagent.status)}`).join(" · ")}{hoveredFloor.subagents.overflowCount ? ` · +${hoveredFloor.subagents.overflowCount}` : ""}</small>
+            {#if hoveredFloor.subagents.instances.length}
+              <small>{hoveredFloor.subagents.instances.length} {copy.agentStudioSubagents} · {subagentSummary(hoveredFloor)}</small>
             {/if}
           </div>
         {/if}
         <div class="sr-only">
           <p>{copy.agentStudioSummary}</p>
           <p>{projection.workingCount} {copy.agentStudioWorkingCount}</p>
+          <p>{activeWorkerCount} {copy.agentStudioWorkers}</p>
           <ul>
             <li>{projection.globalFloor.agent.name}: {statusLabel(projection.globalFloor.state)}</li>
             {#each projection.buildings as building (building.index)}
@@ -420,6 +458,21 @@
             {/each}
           </ul>
         </div>
+      {/if}
+
+      {#if selectedFloor}
+        <AgentCityInspector
+          floor={selectedFloor}
+          {copy}
+          {statusLabel}
+          {channelLabel}
+          {activityTime}
+          onClose={closeSelection}
+          onFocus={() => selectedFloorKey && cityCanvas?.focusFloor(selectedFloorKey)}
+          canFocus={!fallback}
+          onOpenChat={onOpenAgentChat}
+          onOpenSettings={onOpenAgentSettings}
+        />
       {/if}
 
       {#if projection.hiddenAgentCount > 0}
