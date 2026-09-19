@@ -80,18 +80,29 @@
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
 
+  function resolvedThemeColor(name: string, fallback: string): string {
+    // getPropertyValue() returns the custom property's token stream, so values
+    // such as `var(--header-bg)` stay unresolved. Let the browser resolve the
+    // variable/color-mix through a real CSS `color` declaration before Three.js
+    // sees it; otherwise several theme families collapse to the same fallback.
+    const probe = document.createElement("span");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText = `position:fixed;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;color:var(${name}, ${fallback})`;
+    document.body.appendChild(probe);
+    const resolved = getComputedStyle(probe).color.trim();
+    probe.remove();
+    return resolved || fallback;
+  }
+
   // The shell paints `--agent-city-sky`; the WebGL canvas must use the exact
-  // same computed colour or a seam shows at the panel edge. Read it from the
-  // document instead of duplicating the family ramp in JS.
+  // same resolved colour or a seam shows at the panel edge.
   function currentSky(): string {
-    const value = getComputedStyle(document.documentElement).getPropertyValue("--agent-city-sky").trim();
-    return value || (currentTheme() === "dark" ? "#101820" : "#eaf3f5");
+    return resolvedThemeColor("--agent-city-sky", currentTheme() === "dark" ? "#101820" : "#eaf3f5");
   }
 
   function currentVisualTheme(): AgentCityVisualTheme {
     const root = document.documentElement;
-    const style = getComputedStyle(root);
-    const token = (name: string, fallback: string): string => style.getPropertyValue(name).trim() || fallback;
+    const token = (name: string, fallback: string): string => resolvedThemeColor(name, fallback);
     const family = root.dataset.themeFamily || "macos";
     const recipe = (root.dataset.themeRecipe || (family.startsWith("imported-") ? "imported" : "native")) as AgentCityThemeRecipe;
     return {
