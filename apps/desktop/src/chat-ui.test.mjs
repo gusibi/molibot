@@ -91,6 +91,7 @@ const agentCityInspector = read("./lib/chat/AgentCityInspector.svelte");
 const agentCityScene = read("./lib/chat/agentCityScene.ts");
 const agentCityMomoAsset = read("./lib/chat/agentCityMomoAsset.ts");
 const agentCityCommunityAssets = read("./lib/chat/agentCityCommunityAssets.ts");
+const agentCityInspector = read("./lib/chat/AgentCityInspector.svelte");
 const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
 const channelAccordion = read("./lib/chat/ChannelAccordion.svelte");
 const activityIcons = read("./lib/chat/activityIcons.ts");
@@ -2077,6 +2078,26 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentCityFallback, /aria-describedby/);
   assert.match(styles, /\.agent-city-hover-card\s*\{[^}]*pointer-events:\s*none/s);
   assert.doesNotMatch(styles, /agent-city-agent-label|agent-city-status-dot|agent-city-tooltip|agent-city-working-frame|agent-city-working-marquee/);
+});
+
+test("Agent City Inspector is a live, keyboard-operable workbench", () => {
+  assert.match(agentStudio, /<AgentCityInspector/);
+  assert.match(agentStudio, /onOpenChat=\{onOpenAgentChat\}/);
+  assert.match(agentStudio, /onOpenSettings=\{onOpenAgentSettings\}/);
+  assert.match(agentStudio, /floor\.subagents\.groups\.some/);
+  assert.match(agentStudio, /floor\.activity\?\.taskPreview/);
+  assert.match(agentCityInspector, /type InspectorTab = "overview" \| "workers" \| "runtime"/);
+  assert.match(agentCityInspector, /role="tablist"/);
+  assert.match(agentCityInspector, /aria-controls=\{panelId\("overview"\)\}/);
+  assert.match(agentCityInspector, /aria-labelledby=\{tabId\(tab\)\}/);
+  assert.match(agentCityInspector, /event\.key === "ArrowRight"/);
+  assert.match(agentCityInspector, /event\.key === "ArrowLeft"/);
+  assert.match(agentCityInspector, /event\.key === "Home"/);
+  assert.match(agentCityInspector, /event\.key === "End"/);
+  assert.match(agentCityInspector, /floor\.subagents\.groups/);
+  assert.match(agentCityInspector, /floor\.activity\.runId/);
+  assert.match(agentCityInspector, /onOpenChat\(floor\.agent\.id\)/);
+  assert.doesNotMatch(styles, /\.agent-city-detail(?:\s|\{|,)/);
 });
 
 test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () => {
