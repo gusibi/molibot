@@ -6,11 +6,7 @@ import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { isDirectEventDelivery, resolveEventSessionMode, type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
-import {
-    SharedRuntimeCommandService,
-    type QueuedControlAction,
-    type QueuedControlActionResult
-} from "$lib/server/agent/commands/channelCommands.js";
+import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
 import { SharedInteractionService } from "$lib/server/agent/interactions/service.js";
 import type { InteractionContext, InteractionOutcome, InteractionView } from "$lib/server/agent/interactions/types.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
@@ -28,9 +24,6 @@ import {
     buildFeishuMemoryReviewCard,
     buildFeishuMemoryReviewProcessingCard,
     buildFeishuMemoryReviewResultCard,
-    buildFeishuQueuedControlCard,
-    buildFeishuQueuedControlProcessingCard,
-    buildFeishuQueuedControlResultCard,
     deleteFeishuMessage,
     editFeishuCard,
     editFeishuText,
@@ -700,72 +693,6 @@ export class FeishuManager extends BaseChannelRuntime {
                 card: buildFeishuInteractionCard(view)
             };
         }
-        if (String(value.kind ?? "").trim() === "queued_control") {
-            if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
-            const chatId = String(value.chatId ?? "").trim();
-            const scopeId = String(value.scopeId ?? chatId).trim() || chatId;
-            const queueId = Number(value.queueId);
-            const rawAction = String(value.action ?? "").trim();
-            const action: QueuedControlAction | null = rawAction === "stop" || rawAction === "steer" ? rawAction : null;
-            if (!chatId || !scopeId || !Number.isSafeInteger(queueId) || queueId <= 0 || !action) return undefined;
-            if (verifiedChatId && verifiedChatId !== chatId) return undefined;
-            const messageId = String(event.open_message_id ?? "").trim();
-            const key = `queued-control:${messageId || chatId}:${scopeId}:${queueId}`;
-            const state = this.cardActions.start(key, async () => {
-                let result: QueuedControlActionResult;
-                try {
-                    result = await this.commandService.handleQueuedControlAction(scopeId, queueId, action);
-                } catch (error) {
-                    result = {
-                        status: "failed",
-                        message: `操作失败：${error instanceof Error ? error.message : String(error)}`
-                    };
-                }
-                const card = buildFeishuQueuedControlResultCard(result);
-                await waitForFeishuCardCallbackResponse();
-                const edited = messageId ? await editFeishuCard(this.client, messageId, card) : null;
-                if (edited) {
-                    momLog("feishu", "queued_control_card_updated", {
-                        botId: this.instanceId,
-                        chatId,
-                        messageId: edited,
-                        scopeId,
-                        queueId,
-                        action,
-                        status: result.status
-                    });
-                } else {
-                    await this.sendText(chatId, result.message);
-                    momWarn("feishu", "queued_control_card_update_fallback_text", {
-                        botId: this.instanceId,
-                        chatId,
-                        messageId,
-                        scopeId,
-                        queueId,
-                        action,
-                        status: result.status
-                    });
-                }
-                return { chatId, message: result.message, card };
-            });
-            if (state.status === "completed") return state.value;
-            void state.promise.catch((error) => {
-                momWarn("feishu", "queued_control_background_failed", {
-                    botId: this.instanceId,
-                    chatId,
-                    messageId,
-                    scopeId,
-                    queueId,
-                    action,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-            });
-            return {
-                chatId,
-                message: "processing",
-                card: buildFeishuQueuedControlProcessingCard()
-            };
-        }
         if (String(value.kind ?? "").trim() === "memory_review") {
             const candidateId = String(value.candidateId ?? "").trim();
             const rawAction = String(value.action ?? "").trim();
@@ -1035,12 +962,19 @@ export class FeishuManager extends BaseChannelRuntime {
         const queueState = this.inboundTasks.peek(scopeId, queueId);
         if (queueState.status === "pending") {
             momLog("feishu", "message_queued_while_busy", { runId, chatId, scopeId, queueId });
-            await sendFeishuCard(this.client, chatId, buildFeishuQueuedControlCard({
-                botId: this.instanceId,
+            const interactionContext: InteractionContext<string> = {
                 chatId,
                 scopeId,
-                queueId
-            }), this.replyOptionsForEvent(event));
+                actorId: event.userId,
+                target: chatId
+            };
+            const view = this.interactionService.queuedControlView(interactionContext, queueId);
+            await sendFeishuCard(
+                this.client,
+                chatId,
+                buildFeishuInteractionCard(view),
+                this.replyOptionsForEvent(event)
+            );
         }
     }
 
