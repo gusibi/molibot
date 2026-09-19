@@ -15,6 +15,10 @@
 - Inspector 直接提供「与这个 Agent 对话 / 镜头对准 / Agent 设置」动作；对话动作会解析绑定该 Agent 的 Web Profile 并直接创建对应 Bot 的新会话草稿，Default/Momo 会优先使用未绑定专属 Agent 的默认 Web Profile；没有可用 Profile 时跳到 Profiles 设置，不生成错误绑定的会话。
 - Live Community UX 同步补齐：Agent 搜索现在不只搜名字/描述，也搜 Worker role、Bot 名称与任务摘要；Inspector 打开时宽屏搜索面板自动让位，窄屏改为临时覆盖；Escape 关闭 Inspector、2D fallback 也可进入 Inspector，旧 `.agent-city-detail` 卡片和死样式已删除。
 - Phase 5 可访问性收口：Inspector 三个 tab 完成标准 roving tabindex + ArrowLeft/ArrowRight/Home/End 键盘导航，tabpanel 与 tab 用 aria-controls/aria-labelledby 绑定；状态徽章补可读状态标签，键盘用户可以完整使用与鼠标相同的工作台能力。
+- Phase 5 最后一轮工作台收口：Inspector 增加「运行记录」页，Activity API 为每个 Agent 保留最多 8 条近 24 小时 run，并同时保留同一 Agent 的并发 active runs；历史 carrier 与当前 activity 分离，所以旧 run 不会让空闲房间错误显示 Working/Completed。Run timeline 展示状态、任务、Bot/Channel、Run ID、Worker 数量。
+- Inspector 的「Agent 设置」现在把具体 agentId 一路传回 ChatView，打开 Settings 后自动加载并直接进入该 Agent 编辑器，不再只落在 Agent 设置总页。
+- Worker 生命周期补齐为可见空间过程：Worker 从房间入口走入 Worker Camp、到达自己的临时工位，Completed/Error 后先播放反馈再离开入口并消失；reduced-motion 下保留状态结果但跳过移动。
+- 社区生活行为补齐：空闲的 Momo 与地面层 Agent 会按稳定错峰周期离开房间，走到共享 plaza meetup 点短暂停留/打招呼，再返回自己的 Studio；这是纯 ambient 行为，不从 task 文本推断任何业务动作。
 
 
 ### 调整：文件面板范围提示并入居中空状态，消灭左上角散落提示（2026-09-17，已交付）
