@@ -207,6 +207,13 @@ export class SharedInteractionService<TTarget> {
     return { ...record.context };
   }
 
+  tokenIsOneShot(token: string, actorId: string): boolean | null {
+    this.cleanup();
+    const record = this.tokens.get(String(token ?? ""));
+    if (!record || record.expiresAt <= Date.now() || record.context.actorId !== actorId) return null;
+    return record.oneShot;
+  }
+
   async handleToken(
     token: string,
     actual: { actorId: string; chatId?: string; scopeId?: string; target?: TTarget }
@@ -266,6 +273,18 @@ export class SharedInteractionService<TTarget> {
   ): Promise<InteractionOutcome> {
     switch (action.type) {
       case "menu.open": return { kind: "view", view: await this.menuView(context) };
+      case "help.open":
+        return {
+          kind: "view",
+          view: {
+            surface: "result",
+            title: this.options.commands.interactionText("Help", "帮助"),
+            body: this.options.commands.interactionHelpText(),
+            actions: [
+              this.button(context, this.options.commands.interactionText("Menu", "菜单"), { type: "menu.open" }, "default", { oneShot: false })
+            ]
+          }
+        };
       case "models.open": return { kind: "view", view: await this.modelsView(context, action.page ?? 0) };
       case "sessions.open": return { kind: "view", view: await this.sessionsView(context, action.page ?? 0) };
       case "projects.open": return { kind: "view", view: await this.projectsView(context, action.page ?? 0) };
@@ -430,22 +449,45 @@ export class SharedInteractionService<TTarget> {
 
   private async menuView(context: InteractionContext<TTarget>): Promise<InteractionView> {
     const state = this.options.commands.getInteractionStatus(context.scopeId);
-    const actions: InteractionButton[] = [
+    const conversationActions: InteractionButton[] = [
       this.button(context, this.options.commands.interactionText("New session", "新建会话"), { type: "session.new" }, "primary"),
-      this.button(context, this.options.commands.interactionText("Sessions", "会话"), { type: "sessions.open" }, "default", { oneShot: false }),
-      this.button(context, this.options.commands.interactionText("Model", "模型"), { type: "models.open" }, "default", { oneShot: false }),
-      this.button(context, this.options.commands.interactionText("Thinking", "思考"), { type: "thinking.open" }, "default", { oneShot: false }),
-      this.button(context, this.options.commands.interactionText("Skills", "技能"), { type: "skills.open" }, "default", { oneShot: false }),
-      this.button(context, this.options.commands.interactionText("Project", "项目"), { type: "projects.open" }, "default", { oneShot: false }),
-      this.button(context, this.options.commands.interactionText("Status", "状态"), { type: "status.open" }, "default", { oneShot: false }),
-      this.button(context, this.options.commands.interactionText("Queue", "队列"), { type: "queue.open" }, "default", { oneShot: false })
+      this.button(context, this.options.commands.interactionText("Sessions", "会话"), { type: "sessions.open" }, "default", { oneShot: false })
     ];
-    if (state.runId) actions.splice(2, 0, this.button(context, this.options.commands.interactionText("Stop", "停止"), { type: "run.stop" }, "danger"));
+    if (state.runId) {
+      conversationActions.push(this.button(context, this.options.commands.interactionText("Stop", "停止"), { type: "run.stop" }, "danger"));
+    }
     return {
       surface: "menu",
       title: "MoliBot",
       body: this.options.commands.interactionText("Choose an action. Slash commands remain available as shortcuts.", "选择要执行的操作。Slash Command 仍可作为快捷入口使用。"),
-      actions
+      sections: [
+        {
+          title: this.options.commands.interactionText("Conversation", "对话"),
+          actions: conversationActions
+        },
+        {
+          title: "Agent",
+          actions: [
+            this.button(context, this.options.commands.interactionText("Model", "模型"), { type: "models.open" }, "default", { oneShot: false }),
+            this.button(context, this.options.commands.interactionText("Thinking", "思考"), { type: "thinking.open" }, "default", { oneShot: false }),
+            this.button(context, this.options.commands.interactionText("Skills", "技能"), { type: "skills.open" }, "default", { oneShot: false })
+          ]
+        },
+        {
+          title: this.options.commands.interactionText("Workspace", "工作区"),
+          actions: [
+            this.button(context, "Project", { type: "projects.open" }, "default", { oneShot: false })
+          ]
+        },
+        {
+          title: this.options.commands.interactionText("Runtime", "运行"),
+          actions: [
+            this.button(context, this.options.commands.interactionText("Status", "状态"), { type: "status.open" }, "default", { oneShot: false }),
+            this.button(context, this.options.commands.interactionText("Queue", "队列"), { type: "queue.open" }, "default", { oneShot: false }),
+            this.button(context, this.options.commands.interactionText("Help", "帮助"), { type: "help.open" }, "default", { oneShot: false })
+          ]
+        }
+      ]
     };
   }
 
