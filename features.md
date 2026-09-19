@@ -19,6 +19,8 @@
 - Inspector 的「Agent 设置」现在把具体 agentId 一路传回 ChatView，打开 Settings 后自动加载并直接进入该 Agent 编辑器，不再只落在 Agent 设置总页。
 - Worker 生命周期补齐为可见空间过程：Worker 从房间入口走入 Worker Camp、到达自己的临时工位，Completed/Error 后先播放反馈再离开入口并消失；reduced-motion 下保留状态结果但跳过移动。
 - 社区生活行为补齐：空闲的 Momo 与地面层 Agent 会按稳定错峰周期离开房间，走到共享 plaza meetup 点短暂停留/打招呼，再返回自己的 Studio；这是纯 ambient 行为，不从 task 文本推断任何业务动作。
+- Agent Community 主题联动补齐：3D 场景读取当前 `data-theme-family / data-theme-recipe` 与实际 CSS token，不再只区分明暗。房间墙体、trim、地毯、休息区、主/Worker 桌、Momo 背心、道路/plaza/植被/灯具都跟随主题；Technical 会出现 drafting grid，Retro/Editorial 使用硬线网格与低圆角，Expressive 增加柔和 accent islands，材质 roughness/metalness/emissive 也按 recipe 调整。
+- 修复聚焦房间周期闪烁：根因是 2.5s Activity poll 每次都把 window/task-board/desk/Worker screen 的 emissive intensity 重置到初始值，而 render loop 又立即改回动画值，放大后形成稳定的周期闪烁。现在只有状态真正变化时才重置这些强度；Focused/close-up 模式同时保持 window、room pulse、selection/perimeter 为稳定值。
 - 主题家族正式进入 WebGL 社区：不再只识别 light/dark。Agent Studio 从根节点读取当前 `data-theme-family` / `data-theme-recipe` 与 `--accent`、surface/panel/card/separator、online/danger/warning、Skill/Mini App accent 等真实 CSS token，并先通过浏览器 CSS 计算层解析嵌套 `var(...)` / `color-mix(...)` 后交给 Three.js；内置主题和导入 VS Code 主题都可实时换色。
 - 主题 recipe 不只换一层 tint：native/material/messenger/retro/editorial/technical/product/expressive/imported 分别控制房间与 plaza 的强调色混合、粗糙度/金属感、状态发光强度、fog/exposure；Momo HQ、普通 Studio、Community Hub、Worker Camp、道路/plaza/树/长椅/路灯、Working 路线/边框、窗户和错误/完成语义色都会跟当前主题联动。
 - 修复房间放大后持续闪烁：根因是城市总览用的 emissive pulse 在近景 GLTF 大窗/任务板上被视觉放大，Working 窗口原来最高有 ±0.22 的连续闪动，Error 更高。现在 overview 只保留慢速极弱呼吸；进入 detail distance 或聚焦房间后，窗户、任务板、主屏、Worker 屏、Working perimeter、选中边框全部切为稳定亮度，放大不再整间房闪。
