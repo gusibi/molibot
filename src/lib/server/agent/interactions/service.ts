@@ -169,6 +169,13 @@ export class SharedInteractionService<TTarget> {
       && expected.runId === actual.runId;
   }
 
+  resolveTokenContext(token: string, actorId: string): InteractionContext<TTarget> | null {
+    this.cleanup();
+    const record = this.tokens.get(String(token ?? ""));
+    if (!record || record.expiresAt <= Date.now() || record.context.actorId !== actorId) return null;
+    return { ...record.context };
+  }
+
   async handleToken(
     token: string,
     actual: { actorId: string; chatId?: string; scopeId?: string; target?: TTarget }
