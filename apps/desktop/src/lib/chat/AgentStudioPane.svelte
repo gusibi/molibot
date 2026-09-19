@@ -21,6 +21,7 @@
     type AgentCityTheme,
     type AgentCityViewState
   } from "./agentCityScene";
+  import type { AgentCityThemeRecipe, AgentCityVisualTheme } from "./agentCityTheme";
   import {
     projectAgentCity,
     reconcileAgentCitySlots,
@@ -51,6 +52,7 @@
   let themeObserver: MutationObserver | null = null;
   let theme: AgentCityTheme = currentTheme();
   let sky = currentSky();
+  let visualTheme: AgentCityVisualTheme = currentVisualTheme();
   let hoveredFloorKey: string | null = null;
   let hoveredFloorAnchor: { x: number; y: number } | null = null;
   let selectedFloorKey: string | null = null;
@@ -84,6 +86,28 @@
   function currentSky(): string {
     const value = getComputedStyle(document.documentElement).getPropertyValue("--agent-city-sky").trim();
     return value || (currentTheme() === "dark" ? "#101820" : "#eaf3f5");
+  }
+
+  function currentVisualTheme(): AgentCityVisualTheme {
+    const root = document.documentElement;
+    const style = getComputedStyle(root);
+    const token = (name: string, fallback: string): string => style.getPropertyValue(name).trim() || fallback;
+    const family = root.dataset.themeFamily || "macos";
+    const recipe = (root.dataset.themeRecipe || (family.startsWith("imported-") ? "imported" : "native")) as AgentCityThemeRecipe;
+    return {
+      family,
+      recipe,
+      accent: token("--accent", currentTheme() === "dark" ? "#48aeff" : "#006bff"),
+      surface: token("--mac-window-background", token("--content-bg", currentTheme() === "dark" ? "#151b20" : "#f4f5f6")),
+      panel: token("--panel-bg", token("--card-bg", currentTheme() === "dark" ? "#20282e" : "#ffffff")),
+      card: token("--card-bg", token("--panel-bg", currentTheme() === "dark" ? "#20282e" : "#ffffff")),
+      separator: token("--separator", currentTheme() === "dark" ? "#47515a" : "#c9d0d5"),
+      online: token("--online", "#28a948"),
+      danger: token("--danger", "#ea001d"),
+      warning: token("--warning", "#c26a00"),
+      skillAccent: token("--skill-accent", "#8b5cf6"),
+      miniappAccent: token("--miniapp-accent", "#0d9488")
+    };
   }
 
   $: globalAgent = {
@@ -282,11 +306,20 @@
       if (entry) cityWidth = entry.contentRect.width;
     });
     shellObserver.observe(cityShell);
-    themeObserver = new MutationObserver(() => { theme = currentTheme(); sky = currentSky(); });
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance", "data-theme-family"] });
+    themeObserver = new MutationObserver(() => {
+      theme = currentTheme();
+      sky = currentSky();
+      visualTheme = currentVisualTheme();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-resolved-appearance", "data-theme-family", "data-theme-recipe", "style"]
+    });
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
     const handleSystemTheme = (): void => {
       theme = currentTheme();
+      sky = currentSky();
+      visualTheme = currentVisualTheme();
     };
     systemTheme.addEventListener("change", handleSystemTheme);
     cleanupSystemTheme = () => systemTheme.removeEventListener("change", handleSystemTheme);
@@ -352,6 +385,7 @@
           {projection}
           {theme}
           {sky}
+          {visualTheme}
           selectedKey={selectedFloorKey}
           onQuality={(value) => { quality = value; }}
           onFallback={handleFallback}
