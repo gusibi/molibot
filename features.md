@@ -1,3 +1,13 @@
+### 修复：Agent City hover 卡片闪烁 + 阴影自遮挡，并修复 master 上 9 个陈旧测试（2026-09-19，已交付）
+
+- 背景（owner 走查 + 复盘）：PR #52 合并进 master 后，`chat-ui.test.mjs` 有 9 条断言仍钉在 theme-family 重构前的旧代码上（`moveMarquee` 0.006 vs 0.0028、`clipsForStatus(status)` 少 role 参数、`getComputedStyle(...).getPropertyValue("--agent-city-sky")` 已被 `resolvedThemeColor` 取代、artifact panel 区域钩子与 typography 例外、`chatView` 未定义等），仓库只有一个 `desktop-release.yml` 发布 workflow、没有测试 CI，所以红灯一直没被发现。
+- 根修 1（测试陈旧断言）：把 9 条断言全部对齐当前代码契约——recipe 选择器去掉 `[\\s\\S]` 双重转义、断言 `clipsForStatus(status, role)` / `resolvedThemeColor("--agent-city-sky")` / 放宽后的 `attributeFilter` / `toggleFilesInspector` / 当前 marquee 频率、Inspector 微元数据加入 11px 例外、reduced-motion 扫描全部 media 块而非最后一块。
+- 根修 2（hover 卡片闪烁，owner 发现）：2.5s activity poll 与每次主题切换都会重建房间拾取目标，原来画布直接 `clearHover()`，指针还停在房间上时信息卡也会被清空再出现，表现为周期性闪烁。现在记录 `lastPointer`，重建后用 `refreshHover()` 重新 raycast 上次指针位置，不再清空。
+- 根修 3（阴影自遮挡，owner 发现）：太阳阴影贴图没有 bias，GLTF 房间整体自遮挡成黑墙黑顶，且每帧阴影重算让 acne 爬行，视觉上像闪。现在设 `sun.shadow.bias = -0.0004` / `normalBias = 0.35`。
+- 排除重复实现：owner 本地补丁里的 `--accent` 主题链路（`parseAgentCityAccent` / `setAccent` / accent 参与 floor signature）与 master 的 theme-family 重构重复，已由 `AgentCityVisualTheme.accent` + `themedStatusColor()` + `agentCityVisualThemeSignature()` 覆盖，未再合入；对应旧提交保留在 `feature/agent-community-worker-swarm`（`98978a8b`）备查。
+- 机器守卫（`chat-ui.test.mjs`）：断言 `refreshHover()` / `lastPointer` 存在、`controller.update(projection)` 与 `setTheme(theme)` 后不得再紧跟 `clearHover()`、`sun.shadow.bias` 与 `normalBias` 必须存在。
+- 验证：`chat-ui.test.mjs` 266/266、其余 mjs 守卫 12/12、`agentCityScene.test.ts` 6/6、`svelte-check` 0 错误（`AgentCityInspector.svelte` 1 条既有 a11y warning）、desktop `vite build` 通过。经 PR #59 合入 master（merge commit `093573da`）。
+
 ### 调整：Agent City 升级为以 Momo 为中心的社区 + Phase 3/4/5 完成（2026-09-19，待验收）
 
 - Default Agent 继续保留内部 `id=default`，产品层改为社区中央 **Momo HQ**；任务调度 Community Hub 独立在前方，普通 Agent Studio 分布在两侧/后方，社区道路改为 Hub → Momo HQ → Studio 的关系路径。
