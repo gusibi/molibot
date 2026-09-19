@@ -32,7 +32,7 @@
   export let copy: Translation;
   export let serviceEndpoint: string | null;
   export let serviceReady: boolean;
-  export let onOpenAgentSettings: () => void;
+  export let onOpenAgentSettings: (agentId?: string) => void;
   export let onOpenAgentChat: (agentId: string) => void = () => {};
 
   const SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1";
