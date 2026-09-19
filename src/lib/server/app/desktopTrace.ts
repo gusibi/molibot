@@ -1,6 +1,7 @@
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import type {
   DesktopAgentActivityItem,
+  DesktopAgentActivityRunItem,
   DesktopSubagentActivityItem,
   DesktopTraceEntityRow,
   DesktopTraceFact,
