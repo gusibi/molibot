@@ -144,6 +144,27 @@ test("buildDesktopAgentActivity maps Bot run facts to Agents and expires termina
   assert.equal(JSON.stringify(completed).includes("payload"), false);
 });
 
+test("buildDesktopAgentActivity preserves concurrent runs and 24h history without keeping the Agent visually busy", () => {
+  const settings = {
+    channels: { web: { instances: [{ id: "worker", name: "Worker", enabled: true, agentId: "agent-a" }] } }
+  } as RuntimeSettings;
+  const now = Date.parse("2026-07-12T12:00:20.000Z");
+  const items = buildDesktopAgentActivity(settings, [
+    fact({ id: "run-a", factType: "run", factId: "run-a", runId: "run-a", channel: "web", botId: "worker", status: "started", startedAt: "2026-07-12T12:00:10.000Z", updatedAt: "2026-07-12T12:00:10.000Z" }),
+    fact({ id: "run-b", factType: "run", factId: "run-b", runId: "run-b", channel: "web", botId: "worker", status: "started", startedAt: "2026-07-12T12:00:05.000Z", updatedAt: "2026-07-12T12:00:05.000Z" }),
+    fact({ id: "run-old", factType: "run", factId: "run-old", runId: "run-old", channel: "web", botId: "worker", status: "success", startedAt: "2026-07-12T10:00:00.000Z", finishedAt: "2026-07-12T10:02:00.000Z", updatedAt: "2026-07-12T10:02:00.000Z" })
+  ], now);
+  assert.equal(items[0]?.status, "working");
+  assert.deepEqual(items[0]?.runs.map((run) => run.runId), ["run-a", "run-b", "run-old"]);
+
+  const later = buildDesktopAgentActivity(settings, [
+    fact({ id: "run-old", factType: "run", factId: "run-old", runId: "run-old", channel: "web", botId: "worker", status: "success", startedAt: "2026-07-12T10:00:00.000Z", finishedAt: "2026-07-12T10:02:00.000Z", updatedAt: "2026-07-12T10:02:00.000Z" })
+  ], now);
+  assert.equal(later[0]?.status, "idle");
+  assert.equal(later[0]?.runId, "");
+  assert.equal(later[0]?.runs[0]?.runId, "run-old");
+});
+
 test("buildDesktopAgentActivity assigns unbound Bots to default and nests Subagents under the parent run", () => {
   const settings = {
     channels: { feishu: { instances: [{ id: "general", name: "General", enabled: true }] } }
