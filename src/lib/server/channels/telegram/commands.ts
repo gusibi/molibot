@@ -1,4 +1,5 @@
 export const TELEGRAM_SHARED_COMMANDS = [
+  "menu",
   "stop",
   "steer",
   "followup",
@@ -31,6 +32,7 @@ export const TELEGRAM_MENU_COMMANDS: ReadonlyArray<{
   en: string;
   zh: string;
 }> = [
+  { command: "menu", en: "Open control menu", zh: "打开操作菜单" },
   { command: "new", en: "Start a new session", zh: "创建新会话" },
   { command: "clear", en: "Clear current session context", zh: "清除当前会话上下文" },
   { command: "stop", en: "Stop the running task", zh: "停止当前任务" },
