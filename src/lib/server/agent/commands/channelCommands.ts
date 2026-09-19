@@ -1362,6 +1362,29 @@ export class SharedRuntimeCommandService<TTarget> {
         return true;
       }
 
+      // Text-model commands and native interaction buttons share the same
+      // structured mutation handler. Other routes keep their existing command
+      // path because Bot Interaction 2.0 only exposes text model selection.
+      if (route === "text") {
+        const normalizedSelector = selector.trim().toLowerCase();
+        if (normalizedSelector === "global" || normalizedSelector === "reset" || normalizedSelector === "default") {
+          const result = this.resetInteractionModel(this.commandInteractionContext(input));
+          await this.options.sendText(input.target, result.message);
+          return true;
+        }
+        const selected = resolveModelSelection(selector, options);
+        if (!selected) {
+          await this.options.sendText(
+            input.target,
+            `${this.renderMarkdownBulletList(this.text("Invalid model selector", "无效的模型选择器"), [{ label: this.text("Selector", "选择器"), value: this.code(selector) }])}\n\n${this.modelsText(route)}`
+          );
+          return true;
+        }
+        const result = this.selectInteractionModel(this.commandInteractionContext(input), selected.key);
+        await this.options.sendText(input.target, result.message);
+        return true;
+      }
+
       // For text/vision/stt on a bot bound to an agent, switching writes the
       // agent's dedicated model override (what actually takes effect for this
       // bot). Global-only routes (tts/subagent) and unbound bots keep writing
