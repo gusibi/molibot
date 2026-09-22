@@ -34,6 +34,7 @@
   import HostBashSection from "./lib/settings/HostBashSection.svelte";
   import RuntimeEnvSection from "./lib/settings/RuntimeEnvSection.svelte";
   import ModelsSection from "./lib/settings/ModelsSection.svelte";
+  import AdaptiveThinkingSection from "./lib/settings/AdaptiveThinkingSection.svelte";
   import AgentsSection from "./lib/settings/AgentsSection.svelte";
   import McpSection from "./lib/settings/McpSection.svelte";
   import OpenConnectorSection from "./lib/settings/OpenConnectorSection.svelte";
@@ -139,7 +140,7 @@
     hapticPreference: HapticPreference;
   };
 
-  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "general" | "models" | "adaptiveThinking" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -549,6 +550,7 @@
   const SETTINGS_NAV: { id: SettingsSection; icon: ReiconComponent }[] = [
     { id: "general", icon: Gear },
     { id: "models", icon: Cpu },
+    { id: "adaptiveThinking", icon: Cpu },
     { id: "providers", icon: Plug },
     { id: "agents", icon: Cpu },
     { id: "mcp", icon: PlugCircle },
@@ -573,9 +575,9 @@
     { id: "runtimeEnv", icon: Box }
   ];
 
-  const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "tools" | "channels" | "activity" | "system"; sections: SettingsSection[] }[] = [
+  const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "tools" | "channels" | "activity" | "system"; sections: SettingsSection[]; additionalSections?: SettingsSection[] }[] = [
     { id: "general", sections: ["general"] },
-    { id: "models", sections: ["models", "providers"] },
+    { id: "models", sections: ["models", "providers"], additionalSections: ["adaptiveThinking"] },
     { id: "assistant", sections: ["agents", "skills", "memory", "sessionManagement"] },
     { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
     { id: "channels", sections: ["profiles", "channels"] },
@@ -596,7 +598,7 @@
   $: localizedSettingsGroups = SETTINGS_GROUPS.map((group) => ({
     ...group,
     label: settingsGroupLabel(group.id, locale),
-    items: group.sections.map((section) => filteredSettingsNav.find((item) => item.id === section)).filter((item): item is (typeof localizedSettingsNav)[number] => Boolean(item))
+    items: [...group.sections, ...(group.additionalSections ?? [])].map((section) => filteredSettingsNav.find((item) => item.id === section)).filter((item): item is (typeof localizedSettingsNav)[number] => Boolean(item))
   })).filter((group) => group.items.length > 0);
 
   function settingsGroupLabel(group: (typeof SETTINGS_GROUPS)[number]["id"], currentLocale: Locale): string {
@@ -613,6 +615,7 @@
   function sectionLabel(section: SettingsSection, copy: typeof text): string {
     switch (section) {
       case "models": return copy.models;
+      case "adaptiveThinking": return copy.adaptiveThinking;
       case "providers": return copy.providers;
       case "agents": return copy.agents;
       case "mcp": return copy.mcp;
@@ -642,6 +645,7 @@
   function sectionDescription(section: SettingsSection, copy: typeof text): string {
     switch (section) {
       case "models": return copy.modelsHint;
+      case "adaptiveThinking": return copy.adaptiveThinkingHint;
       case "providers": return copy.providersHint;
       case "agents": return copy.agentsHint;
       case "mcp": return copy.mcpHint;
@@ -1439,6 +1443,8 @@
         {/if}
       {:else if activeSection === "models"}
         <ModelsSection />
+      {:else if activeSection === "adaptiveThinking"}
+        <AdaptiveThinkingSection />
       {:else if activeSection === "providers"}
         <ProvidersSection />
       {:else if activeSection === "profiles"}

@@ -8,6 +8,7 @@ import {
   sanitizeAgentModelRouting,
   resolveCustomProviderThinkingFormat,
   sanitizeRuntimeThinkingLevel,
+  RUNTIME_THINKING_LEVELS,
   type ProviderModelConfig,
   type ModelRole,
   type ModelCapabilityTag,
@@ -38,6 +39,7 @@ import {
   type CompactionSettings,
   type ModelFallbackSettings,
   type ModelRoutingConfig,
+  type AdaptiveThinkingSettings,
   type SessionAutoArchiveBotPolicy,
   type SessionAutoArchiveSettings,
   sanitizeHostToolSettings,
@@ -88,6 +90,7 @@ const VALID_ROUTED_MODEL_KEY = /^(?:pi|custom)\|[^|]+\|.+$/;
 const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
 const TTS_GENERATE_PROVIDERS: TtsGenerateProviderId[] = ["macos", "xiaomi"];
 const TTS_GENERATE_FORMATS: TtsGenerateAudioFormat[] = ["wav", "mp3", "aiff", "m4a", "caf"];
+const AUTO_THINKING_LEVELS = ["low", "medium", "high"] as const;
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
   chinese_general: "china",
@@ -101,6 +104,61 @@ function clampNumber(value: unknown, fallback: number, min: number, max?: number
   const lowerBound = Math.max(min, parsed);
   if (max === undefined) return lowerBound;
   return Math.min(max, lowerBound);
+}
+
+function thinkingLevelRank(level: string): number {
+  return RUNTIME_THINKING_LEVELS.indexOf(level as (typeof RUNTIME_THINKING_LEVELS)[number]);
+}
+
+function sanitizeAdaptiveBaseUrl(value: unknown, fallback: string): string {
+  const raw = String(value ?? fallback).trim();
+  try {
+    const parsed = new URL(raw);
+    if ((parsed.protocol !== "http:" && parsed.protocol !== "https:")
+      || parsed.username
+      || parsed.password
+      || parsed.search
+      || parsed.hash
+      || !parsed.hostname) {
+      return fallback;
+    }
+    let pathname = parsed.pathname.replace(/\/+$/, "");
+    if (pathname.endsWith("/v1/systemone")) pathname = pathname.slice(0, -"/v1/systemone".length).replace(/\/+$/, "");
+    return `${parsed.protocol}//${parsed.host}${pathname}`;
+  } catch {
+    return fallback;
+  }
+}
+
+export function sanitizeAdaptiveThinkingSettings(
+  input: unknown,
+  fallback: AdaptiveThinkingSettings = defaultRuntimeSettings.adaptiveThinking
+): AdaptiveThinkingSettings {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const rawMax = sanitizeRuntimeThinkingLevel(source.maxThinkingLevel, fallback.maxThinkingLevel);
+  const maxThinkingLevel = AUTO_THINKING_LEVELS.includes(rawMax as (typeof AUTO_THINKING_LEVELS)[number])
+    ? rawMax
+    : fallback.maxThinkingLevel;
+  const rawFallback = sanitizeRuntimeThinkingLevel(source.fallbackThinkingLevel, fallback.fallbackThinkingLevel);
+  const fallbackCandidate = AUTO_THINKING_LEVELS.includes(rawFallback as (typeof AUTO_THINKING_LEVELS)[number])
+    ? rawFallback
+    : fallback.fallbackThinkingLevel;
+  const fallbackThinkingLevel = thinkingLevelRank(fallbackCandidate) <= thinkingLevelRank(maxThinkingLevel)
+    ? fallbackCandidate
+    : maxThinkingLevel;
+  const thresholdRaw = Number(source.confidenceThreshold);
+  const timeoutRaw = Number(source.timeoutMs);
+  const baseUrl = sanitizeAdaptiveBaseUrl(source.baseUrl, fallback.baseUrl);
+  return {
+    enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
+    baseUrl,
+    apiKey: source.apiKey === undefined ? fallback.apiKey : String(source.apiKey ?? "").trim(),
+    defaultStrategy: String(source.defaultStrategy ?? fallback.defaultStrategy).trim().toLowerCase() === "auto" ? "auto" : "fixed",
+    maxThinkingLevel,
+    fallbackThinkingLevel,
+    confidenceThreshold: Number.isFinite(thresholdRaw) ? Math.max(0, Math.min(1, thresholdRaw)) : fallback.confidenceThreshold,
+    timeoutMs: Number.isFinite(timeoutRaw) ? Math.max(100, Math.min(5000, Math.round(timeoutRaw))) : fallback.timeoutMs
+  };
 }
 
 export function sanitizeSkillSearchSettings(
@@ -1431,6 +1489,10 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.defaultThinkingLevel = sanitizeRuntimeThinkingLevel(
     (next as { defaultThinkingLevel?: unknown }).defaultThinkingLevel,
     current.defaultThinkingLevel
+  );
+  next.adaptiveThinking = sanitizeAdaptiveThinkingSettings(
+    (next as { adaptiveThinking?: unknown }).adaptiveThinking,
+    current.adaptiveThinking
   );
   const compactionInput = next.compaction ?? current.compaction;
   const reserveTokensRaw = Number(compactionInput?.reserveTokens ?? current.compaction.reserveTokens);

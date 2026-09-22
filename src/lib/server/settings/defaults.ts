@@ -432,6 +432,16 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   piModelProvider: providerFromEnv("PI_MODEL_PROVIDER", "anthropic"),
   piModelName: process.env.PI_MODEL_NAME ?? "claude-sonnet-4-20250514",
   defaultThinkingLevel: sanitizeRuntimeThinkingLevel(process.env.MOLIBOT_DEFAULT_THINKING_LEVEL, "off"),
+  adaptiveThinking: {
+    enabled: String(process.env.MOLIBOT_ADAPTIVE_THINKING_ENABLED ?? "false").toLowerCase() === "true",
+    baseUrl: String(process.env.TYPESAFE_BASE_URL ?? "https://api.typesafe.ai").trim() || "https://api.typesafe.ai",
+    apiKey: String(process.env.TYPESAFE_API_KEY ?? "").trim(),
+    defaultStrategy: String(process.env.MOLIBOT_DEFAULT_THINKING_STRATEGY ?? "fixed").trim().toLowerCase() === "auto" ? "auto" : "fixed",
+    maxThinkingLevel: "high",
+    fallbackThinkingLevel: "medium",
+    confidenceThreshold: 0.6,
+    timeoutMs: 1000
+  },
   customProviders: defaultCustomProviders,
   defaultCustomProviderId: defaultCustomProviders[0]?.id ?? "",
   modelRouting: {

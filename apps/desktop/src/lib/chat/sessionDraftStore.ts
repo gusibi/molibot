@@ -1,4 +1,4 @@
-import type { DesktopThinkingLevel } from "@molibot/desktop-contract";
+import type { DesktopThinkingSelection } from "@molibot/desktop-contract";
 
 /**
  * Per-session composer draft store (plan §10). Each session keeps its own
@@ -32,7 +32,7 @@ export function composerDraftKey(activeSessionId: string, activeProfileId: strin
 export interface SessionDraft {
   text: string;
   files: File[];
-  thinkingLevel: DesktopThinkingLevel;
+  thinkingLevel: DesktopThinkingSelection;
   /**
    * Selected Bot for the new-conversation draft only (plan §6.1). Ignored for
    * existing sessions, whose Bot is fixed at first-message time (plan §6.3).
@@ -40,7 +40,7 @@ export interface SessionDraft {
   profileId?: string;
 }
 
-export function emptyDraft(thinkingLevel: DesktopThinkingLevel = "medium"): SessionDraft {
+export function emptyDraft(thinkingLevel: DesktopThinkingSelection = "medium"): SessionDraft {
   return { text: "", files: [], thinkingLevel };
 }
 
@@ -51,9 +51,9 @@ export function emptyDraft(thinkingLevel: DesktopThinkingLevel = "medium"): Sess
  */
 export class SessionDraftStore {
   private readonly drafts = new Map<string, SessionDraft>();
-  private readonly defaultThinking: DesktopThinkingLevel;
+  private readonly defaultThinking: DesktopThinkingSelection;
 
-  constructor(defaultThinking: DesktopThinkingLevel = "medium") {
+  constructor(defaultThinking: DesktopThinkingSelection = "medium") {
     this.defaultThinking = defaultThinking;
   }
 
@@ -85,7 +85,7 @@ export class SessionDraftStore {
     this.update(key, { files });
   }
 
-  setThinking(key: string, level: DesktopThinkingLevel): void {
+  setThinking(key: string, level: DesktopThinkingSelection): void {
     this.update(key, { thinkingLevel: level });
   }
 

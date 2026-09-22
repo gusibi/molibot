@@ -4,7 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathCompareKey } from "$lib/server/agent/tools/path.js";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
-import { RUNTIME_THINKING_LEVELS, type RuntimeThinkingLevel } from "$lib/server/settings/thinking.js";
+import { RUNTIME_THINKING_LEVELS, type RuntimeThinkingSelection } from "$lib/server/settings/thinking.js";
 
 /**
  * A user-defined composer command scoped to a Project. Typing `/name` in the
@@ -23,7 +23,7 @@ export interface ProjectRecord {
   rootPath: string;
   instructions?: string;
   modelKey?: string;
-  thinkingLevel?: RuntimeThinkingLevel;
+  thinkingLevel?: RuntimeThinkingSelection;
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
   runLogNotice?: boolean;
@@ -61,7 +61,7 @@ export interface CreateProjectInput {
   createDirectory?: boolean;
   instructions?: string;
   modelKey?: string;
-  thinkingLevel?: RuntimeThinkingLevel;
+  thinkingLevel?: RuntimeThinkingSelection;
 }
 
 interface ProjectRow {
@@ -153,8 +153,8 @@ function rowToProject(row: ProjectRow): ProjectRecord {
     rootPath: row.root_path,
     instructions: row.instructions || undefined,
     modelKey: row.model_key || undefined,
-    thinkingLevel: RUNTIME_THINKING_LEVELS.includes(row.thinking_level as RuntimeThinkingLevel)
-      ? row.thinking_level as RuntimeThinkingLevel
+    thinkingLevel: row.thinking_level === "auto" || RUNTIME_THINKING_LEVELS.includes(row.thinking_level as (typeof RUNTIME_THINKING_LEVELS)[number])
+      ? row.thinking_level as RuntimeThinkingSelection
       : undefined,
     toolProgress: (["off", "new", "all", "verbose"] as const).includes(row.tool_progress as never) ? row.tool_progress as ProjectRecord["toolProgress"] : undefined,
     showReasoning: (["off", "on", "stream", "new"] as const).includes(row.show_reasoning as never) ? row.show_reasoning as ProjectRecord["showReasoning"] : undefined,
@@ -380,7 +380,7 @@ export class ProjectStore {
     const customCommands = patch.customCommands === undefined
       ? existing.customCommands
       : sanitizeProjectCustomCommands(patch.customCommands ?? []);
-    if (thinkingLevel && !RUNTIME_THINKING_LEVELS.includes(thinkingLevel)) throw new Error("Invalid Project thinking level.");
+    if (thinkingLevel && thinkingLevel !== "auto" && !RUNTIME_THINKING_LEVELS.includes(thinkingLevel)) throw new Error("Invalid Project thinking level.");
     if (toolProgress && !["off", "new", "all", "verbose"].includes(toolProgress)) throw new Error("Invalid Project tool progress setting.");
     if (showReasoning && !["off", "on", "stream", "new"].includes(showReasoning)) throw new Error("Invalid Project reasoning setting.");
     const db = this.openDb();

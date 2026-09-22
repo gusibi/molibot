@@ -1121,6 +1121,7 @@ export class FeishuManager extends BaseChannelRuntime {
 
         const target = this.runners.resolveTarget(scopeId, activeSessionId);
         const selectedProject = target.project;
+        const sessionThinkingOverride = target.store.getSessionThinkingLevelOverride(target.chatId, target.sessionId);
         const projectConversation = selectedProject && target.conversationId
             ? { projectId: selectedProject.id, conversationId: target.conversationId }
             : undefined;
@@ -1172,7 +1173,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 scratchDir: target.store.getScratchDir(target.chatId)
             } : undefined,
             modelKeyOverride: selectedProject?.modelKey,
-            thinkingLevelOverride: selectedProject?.thinkingLevel,
+            thinkingLevelOverride: sessionThinkingOverride ?? selectedProject?.thinkingLevel,
             respond: async (text, shouldLog = true) => {
                 await streaming.respond(text, shouldLog);
             },

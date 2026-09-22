@@ -670,7 +670,7 @@ export class SharedInteractionService<TTarget> {
       actions: [
         ...state.supported.map((level) => this.button(
           context,
-          `${level}${state.override === level ? " ✓" : ""}`,
+          `${level === "auto" ? this.options.commands.interactionText("Auto", "自动") : level}${state.override === level ? " ✓" : ""}`,
           { type: "thinking.select", level },
           state.override === level ? "primary" : "default"
         )),

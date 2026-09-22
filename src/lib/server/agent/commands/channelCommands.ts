@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
-import type { RuntimeSettings, RuntimeThinkingLevel } from "$lib/server/settings/index.js";
+import type { RuntimeSettings, RuntimeThinkingLevel, RuntimeThinkingSelection } from "$lib/server/settings/index.js";
 import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/index.js";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashStore } from "$lib/server/hostBash/index.js";
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
@@ -34,6 +34,7 @@ import {
 import type { ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { getModelThinkingLevels, resolveModelThinkingLevel } from "$lib/server/providers/modelThinking.js";
+import { resolveAutoEffectiveThinkingLevel } from "$lib/server/agent/decision/adaptiveThinking.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 import { formatRunLogText } from "$lib/server/agent/session/runDetail.js";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n.js";
@@ -881,10 +882,25 @@ export class SharedRuntimeCommandService<TTarget> {
     const settings = this.options.getSettings();
     const sessionId = this.options.store.getActiveSession(scopeId);
     const override = this.options.store.getSessionThinkingLevelOverride(scopeId, sessionId);
-    const requested = override ?? settings.defaultThinkingLevel;
+    const requested: RuntimeThinkingSelection = override
+      ?? (settings.adaptiveThinking.defaultStrategy === "auto" ? "auto" : settings.defaultThinkingLevel);
     const model = resolveModel(this.effectiveModelSettings(settings), "text");
-    const supported = getModelThinkingLevels(model);
-    const effective = resolveModelThinkingLevel(model, requested);
+    const modelLevels = getModelThinkingLevels(model);
+    const autoAvailable = settings.adaptiveThinking.enabled
+      || settings.adaptiveThinking.defaultStrategy === "auto"
+      || override === "auto";
+    const supported: RuntimeThinkingSelection[] = [
+      ...(autoAvailable ? ["auto" as const] : []),
+      ...modelLevels
+    ];
+    const effective = requested === "auto"
+      ? resolveAutoEffectiveThinkingLevel({
+        requestedLevel: settings.adaptiveThinking.fallbackThinkingLevel,
+        fallbackLevel: settings.adaptiveThinking.fallbackThinkingLevel,
+        ceiling: settings.adaptiveThinking.maxThinkingLevel,
+        supportedLevels: modelLevels
+      }).level ?? resolveModelThinkingLevel(model, settings.adaptiveThinking.fallbackThinkingLevel)
+      : resolveModelThinkingLevel(model, requested);
     return { sessionId, override, requested, effective, supported };
   }
 
@@ -893,13 +909,18 @@ export class SharedRuntimeCommandService<TTarget> {
     level: string | null
   ): { ok: boolean; message: string } {
     const state = this.getInteractionThinking(input.scopeId);
-    if (level !== null && !state.supported.includes(level as RuntimeThinkingLevel)) {
+    const selection: RuntimeThinkingSelection | null = level === null
+      ? null
+      : level === "auto"
+        ? "auto"
+        : level as RuntimeThinkingLevel;
+    if (selection !== null && !state.supported.includes(selection)) {
       return { ok: false, message: this.text("That thinking level is not supported by the current model. Refresh the options.", "当前模型不支持这个思考级别，请刷新选项。") };
     }
     const applied = this.options.store.setSessionThinkingLevelOverride(
       input.scopeId,
       state.sessionId,
-      level === null ? null : level as RuntimeThinkingLevel
+      selection
     );
     const next = this.getInteractionThinking(input.scopeId);
     return {
@@ -1795,9 +1816,11 @@ export class SharedRuntimeCommandService<TTarget> {
         return true;
       }
 
-      let nextOverride: RuntimeThinkingLevel | null;
+      let nextOverride: RuntimeThinkingSelection | null;
       if (normalized === "default" || normalized === "reset" || normalized === "global") {
         nextOverride = null;
+      } else if (normalized === "auto") {
+        nextOverride = "auto";
       } else if (this.thinkingLevels.has(normalized)) {
         nextOverride = normalized as RuntimeThinkingLevel;
       } else {
@@ -2618,10 +2641,18 @@ export class SharedRuntimeCommandService<TTarget> {
     const settings = this.options.getSettings();
     const activeSessionId = sessionId ?? this.options.store.getActiveSession(scopeId);
     const sessionOverride = this.options.store.getSessionThinkingLevelOverride(scopeId, activeSessionId);
-    const requested = sessionOverride ?? settings.defaultThinkingLevel;
+    const requested = sessionOverride
+      ?? (settings.adaptiveThinking.defaultStrategy === "auto" ? "auto" : settings.defaultThinkingLevel);
     const model = resolveModel(this.effectiveModelSettings(settings), "text");
     const supportedLevels = getModelThinkingLevels(model);
-    const effective = resolveModelThinkingLevel(model, requested);
+    const effective = requested === "auto"
+      ? resolveAutoEffectiveThinkingLevel({
+        requestedLevel: settings.adaptiveThinking.fallbackThinkingLevel,
+        fallbackLevel: settings.adaptiveThinking.fallbackThinkingLevel,
+        ceiling: settings.adaptiveThinking.maxThinkingLevel,
+        supportedLevels
+      }).level ?? resolveModelThinkingLevel(model, settings.adaptiveThinking.fallbackThinkingLevel)
+      : resolveModelThinkingLevel(model, requested);
 
     return [
       this.text(`Global default: ${settings.defaultThinkingLevel}`, `全局默认：${settings.defaultThinkingLevel}`),
@@ -2647,6 +2678,7 @@ export class SharedRuntimeCommandService<TTarget> {
       ]),
       this.renderMarkdownCommandList(this.text("Set for current session", "为当前会话设置"), [
         "/thinking off",
+        "/thinking auto",
         "/thinking low",
         "/thinking medium",
         "/thinking high"
@@ -3040,7 +3072,7 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/compact [instructions]", value: d("summarize older context of current session", "压缩当前会话的较早上下文") },
       { label: "/skills <id>", value: d("show details for one loaded skill", "查看单个技能详情") },
       { label: "/skills-detail", value: d("show full details for all loaded skills", "查看所有已加载技能的完整详情") },
-      { label: "/thinking [default|off|minimal|low|medium|high|xhigh|max]", value: d("show or change thinking for current session only", "查看或仅修改当前会话的思考级别") },
+      { label: "/thinking [default|auto|off|minimal|low|medium|high|xhigh|max]", value: d("show or change thinking for current session only", "查看或仅修改当前会话的思考级别") },
       { label: "/models <route> [index|key]", value: d("show or switch model for a route (text|vision|stt|tts|subagent); for text/vision/stt on an agent-bound bot it sets the agent's model — use /models <route> global to follow global", "查看或切换指定路由的模型（text|vision|stt|tts|subagent）；绑定 agent 的 bot 切 text/vision/stt 时写入该 agent，/models <route> global 可恢复跟随全局") },
       { label: "/mode [scope] [plan|manual|accept_edits|auto|reset]", value: d("show or change the execution permission mode (session / bot / agent)", "查看或修改执行权限模式（会话 / 机器人 / Agent）") },
       { label: "/runlog [latest|<runId>|list]", value: d("show or list archived run logs", "查看或列出归档运行记录") },

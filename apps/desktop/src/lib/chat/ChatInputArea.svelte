@@ -8,7 +8,8 @@
     DESKTOP_THINKING_LEVELS,
     type DesktopModelOption,
     type DesktopSessionUsageSummary,
-    type DesktopThinkingLevel
+    type DesktopThinkingLevel,
+    type DesktopThinkingSelection
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import type { Locale } from "../i18n";
@@ -41,7 +42,7 @@
   export let activeModelLabel = "";
   export let activeModelTitle = "";
   export let changingModel = false;
-  export let thinkingLevel: DesktopThinkingLevel = "medium";
+  export let thinkingLevel: DesktopThinkingSelection = "medium";
   export let thinkingLevelOptions: readonly DesktopThinkingLevel[] = DESKTOP_THINKING_LEVELS;
   export let thinkingLevelLabel = "";
   export let error = "";
@@ -72,7 +73,7 @@
   export let onDismissRecordingError: () => void;
   export let onOpenSettings: () => void;
   export let onChangeModel: (value: string) => void;
-  export let onChangeThinking: (value: DesktopThinkingLevel) => void;
+  export let onChangeThinking: (value: DesktopThinkingSelection) => void;
   /**
    * Derived context-usage panel data from the host transcript; null renders
    * the panel's empty state ("usage appears after the first reply").

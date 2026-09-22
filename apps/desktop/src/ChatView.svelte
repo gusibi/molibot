@@ -14,6 +14,7 @@
     DESKTOP_THINKING_LEVELS,
     clampDesktopThinkingLevel,
     type DesktopThinkingLevel,
+    type DesktopThinkingSelection,
     type DesktopModelOption,
     type DesktopAgentItem,
     type DesktopChannelsSummary,
@@ -77,6 +78,10 @@
     summarizeOnboardingDiagnostics,
     loadDesktopSessionModel,
     saveDesktopSessionModel,
+    loadDesktopModelRouting,
+    loadDesktopAdaptiveThinking,
+    loadDesktopSessionThinking,
+    saveDesktopSessionThinking,
     loadDesktopExecutionDefault,
     loadDesktopSessionPermission,
     saveDesktopSessionPermission,
@@ -102,6 +107,7 @@
   // when the draft turns into a session.
   let draftPermissionMode: PermissionMode = "accept_edits";
   let draftPermissionModeTouched = false;
+  let draftThinkingTouched = false;
   let draftPermissionDefaultEndpoint = "";
   let lastDraftMode = false;
   const sessionPermissionModes = new Map<string, PermissionMode>();
@@ -230,9 +236,14 @@
   // per-session: `activeModelKey` reflects the current session's model, falling
   // back to `globalModelKey` when the session has no override.
   let globalModelKey = "";
+  let globalThinkingLevel: DesktopThinkingLevel = "medium";
+  let globalThinkingStrategy: "fixed" | "auto" = "fixed";
   // Local write-through cache of each session's persisted model (non-empty only;
   // empty = "follow global"). Mirrors the ProjectChat mechanism.
   const sessionModelOverrides = new Map<string, string>();
+  const sessionThinkingOverrides = new Map<string, DesktopThinkingSelection>();
+  const hydratedThinkingSessions = new Set<string>();
+  let thinkingHydrationSeq = 0;
   const hydratedModelSessions = new Set<string>();
   let modelHydrationSeq = 0;
   // Sessions with no persisted override whose model was inferred from the last
@@ -261,7 +272,8 @@
   let pendingFiles: File[] = [];
   let fileInput: HTMLInputElement;
   let chatInputArea: ChatInputArea;
-  let thinkingLevel: DesktopThinkingLevel = "medium";
+  let thinkingLevel: DesktopThinkingSelection = "medium";
+  let clampedThinkingLevel: DesktopThinkingSelection = "medium";
 
   // Edit-and-resend state. `editingMessageId` is set when the user clicked the
   // pencil on one of their own messages; the composer then shows an "editing"
@@ -987,6 +999,9 @@
     activeModelKey = override && modelOptions.some((option) => option.key === override) ? override : globalModelKey;
     void hydrateSessionModel(activeSessionId);
   }
+  $: if (viewMode === "local" && activeSessionId && activeProfileId && connectedEndpoint && !hydratedThinkingSessions.has(activeSessionId)) {
+    void hydrateSessionThinking(activeSessionId, activeProfileId);
+  }
   // With no explicit per-session pick, the composer follows the model that
   // actually answered last in this transcript (and updates as new replies land)
   // rather than showing whatever the global default is now.
@@ -1011,13 +1026,17 @@
   $: activeModelOption = modelOptions.find((model) => model.key === activeModelKey);
   $: activeModelFullLabel = activeModelOption?.label ?? copy.model;
   $: thinkingLevelOptions = activeModelOption?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
-  $: clampedThinkingLevel = clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
+  $: clampedThinkingLevel = thinkingLevel === "auto"
+    ? "auto"
+    : clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
   // The pill prefers the configured alias; otherwise it shows the bare model
   // name (last "/"-segment). The provider prefix like "[Custom] CliProxyAPI /"
   // is kept for the dropdown + tooltip.
   $: activeModelLabel = activeModelOption?.alias
     || (humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model);
-  $: thinkingLabel = {
+  function thinkingLabelFor(level: DesktopThinkingSelection): string {
+    if (level === "auto") return copy.providerThinkingAuto;
+    return {
     off: copy.thinkingOff,
     minimal: copy.thinkingMinimal,
     low: copy.thinkingLow,
@@ -1025,7 +1044,9 @@
     high: copy.thinkingHigh,
     xhigh: copy.thinkingXHigh,
     max: copy.thinkingMax
-  }[clampedThinkingLevel];
+    }[level as DesktopThinkingLevel];
+  }
+  $: thinkingLabel = thinkingLabelFor(clampedThinkingLevel);
   $: if (requestedWorkspacePane !== appliedRequestedWorkspacePane) {
     appliedRequestedWorkspacePane = requestedWorkspacePane;
     workspacePane = requestedWorkspacePane;
@@ -1287,6 +1308,11 @@
       chatStore.draftStore.update(key, { text: messageInput, files: pendingFiles, thinkingLevel });
     }
   }
+  $: if (!draftMode && chatState.activeSessionId && hydratedThinkingSessions.has(chatState.activeSessionId)) {
+    const persistedThinking = sessionThinkingOverrides.get(chatState.activeSessionId);
+    if (persistedThinking) thinkingLevel = persistedThinking;
+    else thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
+  }
   let pendingSettingsRefresh = false;
   let refreshingSettings = false;
 
@@ -1319,11 +1345,17 @@
         loadDesktopChannels(refreshEndpoint).catch(() => null),
         loadDesktopRuntimeEnv(refreshEndpoint).catch(() => null)
       ]);
+      const [nextAdaptiveThinking, nextRouting] = await Promise.all([
+        loadDesktopAdaptiveThinking(refreshEndpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const })),
+        loadDesktopModelRouting(refreshEndpoint).catch(() => null)
+      ]);
       if (refreshEndpoint !== connectedEndpoint || refreshGeneration !== connectionGeneration) return;
       
       profiles = nextProfiles;
       modelOptions = modelState.options;
       globalModelKey = modelState.currentKey;
+      if (nextRouting) globalThinkingLevel = nextRouting.defaultThinkingLevel;
+      globalThinkingStrategy = nextAdaptiveThinking.defaultStrategy;
       activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       onboardingProfiles = nextWebProfiles;
       if (nextAgents) onboardingAgents = nextAgents.items;
@@ -1364,10 +1396,16 @@
         loadDesktopChannels(endpoint).catch(() => null),
         loadDesktopRuntimeEnv(endpoint).catch(() => null)
       ]);
+      const [nextAdaptiveThinking, nextRouting] = await Promise.all([
+        loadDesktopAdaptiveThinking(endpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const })),
+        loadDesktopModelRouting(endpoint).catch(() => null)
+      ]);
       if (generation !== connectionGeneration) return;
       profiles = nextProfiles;
       modelOptions = modelState.options;
       globalModelKey = modelState.currentKey;
+      if (nextRouting) globalThinkingLevel = nextRouting.defaultThinkingLevel;
+      globalThinkingStrategy = nextAdaptiveThinking.defaultStrategy;
       activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       const rememberedProfile = localStorage.getItem(PROFILE_STORAGE_KEY) ?? "";
       onboardingProfiles = nextWebProfiles;
@@ -1409,6 +1447,12 @@
             appliedModelSessionId = sessionId;
             activeModelKey = key;
           }
+          if (draftThinkingTouched) {
+            const selected = thinkingLevel;
+            await saveDesktopSessionThinking(connectedEndpoint, _profileId, sessionId, selected);
+            sessionThinkingOverrides.set(sessionId, selected);
+            hydratedThinkingSessions.add(sessionId);
+          }
           // Only an explicit in-draft pick becomes an override; an untouched
           // draft lets the session inherit the resolved default, so changing
           // the global default mode still reaches new conversations.
@@ -1421,6 +1465,7 @@
             permissionModeSource = "global";
           }
           draftPermissionModeTouched = false;
+          draftThinkingTouched = false;
         },
         onSessionCreated: (profileId, sessionId) => {
           localStorage.setItem(LAST_BOT_KEY, profileId);
@@ -1472,6 +1517,9 @@
   }
 
   $: if (draftMode) permissionMode = draftPermissionMode;
+  $: if (draftMode && !draftThinkingTouched) {
+    thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
+  }
   // A fresh draft starts at the configured default (not a hardcoded mode), so
   // the menu never advertises something the runtime will not do. Every new
   // draft — and every settings change while a draft is open — refetches: an
@@ -1481,6 +1529,8 @@
     lastDraftMode = draftMode;
     if (entering) {
       draftPermissionModeTouched = false;
+      draftThinkingTouched = false;
+      thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
       draftPermissionDefaultEndpoint = "";
     }
   }
@@ -2622,6 +2672,24 @@
     }
   }
 
+  async function hydrateSessionThinking(sessionId: string, profileId: string): Promise<void> {
+    if (!connectedEndpoint || !sessionId || hydratedThinkingSessions.has(sessionId)) return;
+    const seq = ++thinkingHydrationSeq;
+    try {
+      const selection = await loadDesktopSessionThinking(connectedEndpoint, profileId, sessionId);
+      if (seq !== thinkingHydrationSeq || activeSessionId !== sessionId) return;
+      hydratedThinkingSessions.add(sessionId);
+      if (selection) {
+        sessionThinkingOverrides.set(sessionId, selection);
+        thinkingLevel = selection;
+      } else if (!sessionThinkingOverrides.has(sessionId)) {
+        thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
+      }
+    } catch {
+      // Keep the local selection if the optional persistence request is unavailable.
+    }
+  }
+
   // The chat model selector is per-session: it persists onto the active
   // conversation (or the draft, applied on creation) and never touches the
   // global routing that other channels share.
@@ -2653,8 +2721,23 @@
     }
   }
 
-  function changeThinking(value: DesktopThinkingLevel): void {
-    thinkingLevel = clampDesktopThinkingLevel(value, thinkingLevelOptions);
+  async function changeThinking(value: DesktopThinkingSelection): Promise<void> {
+    const next = value === "auto" ? "auto" : clampDesktopThinkingLevel(value, thinkingLevelOptions);
+    thinkingLevel = next;
+    if (draftMode || !activeSessionId || !connectedEndpoint || !activeProfileId) {
+      draftThinkingTouched = true;
+      return;
+    }
+    const previous = sessionThinkingOverrides.get(activeSessionId);
+    sessionThinkingOverrides.set(activeSessionId, next);
+    hydratedThinkingSessions.add(activeSessionId);
+    try {
+      await saveDesktopSessionThinking(connectedEndpoint, activeProfileId, activeSessionId, next);
+    } catch (cause) {
+      if (previous) sessionThinkingOverrides.set(activeSessionId, previous);
+      else sessionThinkingOverrides.delete(activeSessionId);
+      error = cause instanceof Error ? cause.message : String(cause);
+    }
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {

@@ -6,7 +6,7 @@
   import Cpu from "../icons/duotone/components/Cpu.svelte";
   import Lightning from "../icons/duotone/components/Lightning.svelte";
   import { onMount, tick } from "svelte";
-  import type { DesktopModelOption, DesktopThinkingLevel } from "@molibot/desktop-contract";
+  import type { DesktopModelOption, DesktopThinkingLevel, DesktopThinkingSelection } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import { groupModelOptions } from "../presentation";
 
@@ -16,12 +16,12 @@
   export let activeModelLabel = "";
   export let activeModelTitle = "";
   export let changingModel = false;
-  export let thinkingLevel: DesktopThinkingLevel;
+  export let thinkingLevel: DesktopThinkingSelection;
   export let thinkingLevelOptions: readonly DesktopThinkingLevel[] = [];
   export let thinkingLevelLabel = "";
   export let disabled = false;
   export let onChangeModel: (value: string) => void;
-  export let onChangeThinking: (value: DesktopThinkingLevel) => void;
+  export let onChangeThinking: (value: DesktopThinkingSelection) => void;
   let root: HTMLDetailsElement;
   let trigger: HTMLElement;
   let open = false;
@@ -30,10 +30,11 @@
   $: modelLabel = activeModelLabel || copy.model;
   $: levelLabel = thinkingLevelLabel || copy.thinkingLevel;
   $: modelGroups = groupModelOptions(modelOptions);
-  $: levelIndex = Math.max(0, thinkingLevelOptions.indexOf(thinkingLevel));
+  $: levelIndex = Math.max(0, thinkingLevel === "auto" ? 0 : thinkingLevelOptions.indexOf(thinkingLevel));
   $: levelFrac = thinkingLevelOptions.length > 1 ? levelIndex / (thinkingLevelOptions.length - 1) : 0.5;
 
-  function thinkingOptionLabel(level: DesktopThinkingLevel): string {
+  function thinkingOptionLabel(level: DesktopThinkingSelection): string {
+    if (level === "auto") return copy.providerThinkingAuto;
     return {
       off: copy.thinkingOff,
       minimal: copy.thinkingMinimal,
@@ -112,6 +113,9 @@
           break;
         case "select-model":
           selectModel(target.dataset.value ?? "");
+          break;
+        case "select-thinking":
+          selectThinking((target.dataset.value ?? "") as DesktopThinkingSelection);
           break;
       }
     };
@@ -221,7 +225,7 @@
     close(true);
   }
 
-  function selectThinking(value: DesktopThinkingLevel): void {
+  function selectThinking(value: DesktopThinkingSelection): void {
     if (value !== thinkingLevel) onChangeThinking(value);
   }
 
@@ -271,7 +275,11 @@
           <span class="composer-menu-copy"><strong>{copy.model}</strong><small title={activeModelTitle || modelLabel}>{modelLabel}</small></span>
           <AngleRight size={14} aria-hidden="true" />
         </button>
-        {#if thinkingLevelOptions.length > 1}
+        <button type="button" class="composer-thinking-auto" role="menuitemradio" aria-checked={thinkingLevel === "auto"} data-menu-action="select-thinking" data-value="auto">
+          <span class="composer-menu-copy"><strong>{copy.thinkingLevel}</strong><small>{copy.providerThinkingAuto}</small></span>
+          {#if thinkingLevel === "auto"}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
+        </button>
+        {#if thinkingLevel !== "auto" && thinkingLevelOptions.length > 1}
           <div class="composer-level-picker" role="group" aria-label={copy.thinkingLevel}>
             <div class="composer-level-head">
               <span>{copy.thinkingLevel}</span>

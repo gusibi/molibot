@@ -75,6 +75,23 @@ test("ProjectStore round-trips custom commands across a fresh store", () => {
   }
 });
 
+test("ProjectStore round-trips an Auto thinking default", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-project-thinking-"));
+  const dbFile = path.join(root, "settings.sqlite");
+  const projectRoot = path.join(root, "project");
+  fs.mkdirSync(projectRoot);
+  try {
+    const store = new ProjectStore(dbFile);
+    const project = store.create({ name: "Adaptive Project", rootPath: projectRoot, thinkingLevel: "auto" });
+    assert.equal(project.thinkingLevel, "auto");
+    assert.equal(new ProjectStore(dbFile).get(project.id)?.thinkingLevel, "auto");
+    store.update(project.id, { thinkingLevel: null });
+    assert.equal(new ProjectStore(dbFile).get(project.id)?.thinkingLevel, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("validateProjectRootPath rejects unsafe and invalid roots", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-project-validation-"));
   const originalDataDir = storagePaths.dataDir;

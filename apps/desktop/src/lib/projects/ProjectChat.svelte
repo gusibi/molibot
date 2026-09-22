@@ -8,6 +8,7 @@
     DESKTOP_THINKING_LEVELS,
     clampDesktopThinkingLevel,
     type DesktopThinkingLevel,
+    type DesktopThinkingSelection,
     type DesktopApprovalDecision,
     type DesktopApprovalOwner,
     type DesktopModelOption,
@@ -31,6 +32,9 @@
     loadDesktopModelRouting,
     loadDesktopSessionModel,
     saveDesktopSessionModel,
+    loadDesktopAdaptiveThinking,
+    loadDesktopSessionThinking,
+    saveDesktopSessionThinking,
     loadDesktopSessionPermission,
     saveDesktopSessionPermission,
     resolveDesktopPlan,
@@ -67,7 +71,8 @@
   let appliedMiniAppInsertionId = 0;
   let pendingFiles: File[] = [];
   let fileInput: HTMLInputElement;
-  let thinkingLevel: DesktopThinkingLevel = "medium";
+  let thinkingLevel: DesktopThinkingSelection = "medium";
+  let clampedThinkingLevel: DesktopThinkingSelection = "medium";
 
   // Edit-and-resend state (mirrors ChatView): the composer shows an "editing"
   // banner and sendMessage truncates the server transcript at the picked
@@ -86,6 +91,7 @@
   let activeModelKey = "";
   let globalModelKey = "";
   let globalThinkingLevel: DesktopThinkingLevel = "medium";
+  let globalThinkingStrategy: "fixed" | "auto" = "fixed";
   let changingModel = false;
   let appliedSessionId = "";
   let loadedModelEndpoint = "";
@@ -101,11 +107,13 @@
   // Bumped when a hydration settles, purely so the transcript-derived `$:` below
   // re-runs: `hydratedModelSessions` is a plain Set and tracks nothing.
   let modelHydrationMark = 0;
+  let thinkingHydrationSeq = 0;
+  const hydratedThinkingSessions = new Set<string>();
   // Sessions with no persisted override whose model we inferred from the last
   // assistant message (see `applyTranscriptModel`). Ranks below an explicit
   // override and above the project/global default.
   const transcriptModelKeys = new Map<string, string>();
-  const sessionThinkingOverrides = new Map<string, DesktopThinkingLevel>();
+  const sessionThinkingOverrides = new Map<string, DesktopThinkingSelection>();
 
   const formatTime = (value: string) => formatMessageTime(value, copy.groupYesterday);
 
@@ -115,8 +123,12 @@
   $: activeModelLabel = activeModelOption?.alias
     || (humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model);
   $: thinkingLevelOptions = modelOptions.find((model) => model.key === activeModelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
-  $: clampedThinkingLevel = clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
-  $: thinkingLabel = {
+  $: clampedThinkingLevel = thinkingLevel === "auto"
+    ? "auto"
+    : clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
+  function thinkingLabelFor(level: DesktopThinkingSelection): string {
+    if (level === "auto") return copy.providerThinkingAuto;
+    return {
     off: copy.thinkingOff,
     minimal: copy.thinkingMinimal,
     low: copy.thinkingLow,
@@ -124,7 +136,9 @@
     high: copy.thinkingHigh,
     xhigh: copy.thinkingXHigh,
     max: copy.thinkingMax
-  }[clampedThinkingLevel];
+    }[level as DesktopThinkingLevel];
+  }
+  $: thinkingLabel = thinkingLabelFor(clampedThinkingLevel);
 
   // Every `$:` below must read the projected `$projectsView`, NOT `projectsStore`
   // directly: a legacy reactive statement's body runs untracked, and the only
@@ -163,8 +177,11 @@
     appliedSessionId = view.selectedSessionId;
     const requestedModel = resolveSessionModel(appliedSessionId);
     activeModelKey = modelOptions.some((option) => option.key === requestedModel) ? requestedModel : globalModelKey;
-    thinkingLevel = sessionThinkingOverrides.get(appliedSessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
+    thinkingLevel = sessionThinkingOverrides.get(appliedSessionId)
+      ?? currentProject?.thinkingLevel
+      ?? (globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel);
     void hydrateSessionModel(appliedSessionId);
+    if (view.endpoint) void hydrateSessionThinking(appliedSessionId);
   }
   $: if (view.endpoint && view.selectedSessionId && view.selectedSessionId !== permissionHydrationSession) {
     permissionHydrationSession = view.selectedSessionId;
@@ -204,13 +221,17 @@
     transcriptModelKeys.set(sessionId, key);
     activeModelKey = key;
   }
-  $: if (appliedSessionId && view.selectedSessionId === appliedSessionId) sessionThinkingOverrides.set(appliedSessionId, clampedThinkingLevel);
   async function loadModelOptions(endpoint: string): Promise<void> {
     try {
-      const [state, routing] = await Promise.all([loadDesktopModels(endpoint), loadDesktopModelRouting(endpoint)]);
+      const [state, routing, adaptive] = await Promise.all([
+        loadDesktopModels(endpoint),
+        loadDesktopModelRouting(endpoint),
+        loadDesktopAdaptiveThinking(endpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const }))
+      ]);
       modelOptions = state.options;
       globalModelKey = state.currentKey;
       globalThinkingLevel = routing.defaultThinkingLevel;
+      globalThinkingStrategy = adaptive.defaultStrategy;
       // Keep the Session's own model: reloading the option list (service
       // restart, provider edit) must not silently re-point the composer at the
       // global default.
@@ -246,6 +267,25 @@
     }
   }
 
+  async function hydrateSessionThinking(sessionId: string): Promise<void> {
+    if (!projectsStore.endpoint || !sessionId || hydratedThinkingSessions.has(sessionId)) return;
+    const seq = ++thinkingHydrationSeq;
+    try {
+      const selection = await loadDesktopSessionThinking(projectsStore.endpoint, "personal", sessionId);
+      if (seq !== thinkingHydrationSeq || projectsStore.selectedSessionId !== sessionId) return;
+      hydratedThinkingSessions.add(sessionId);
+      if (selection) {
+        sessionThinkingOverrides.set(sessionId, selection);
+        thinkingLevel = selection;
+      } else if (!sessionThinkingOverrides.has(sessionId)) {
+        const inherited = globalThinkingStrategy === "auto" ? "auto" : currentProject?.thinkingLevel ?? globalThinkingLevel;
+        thinkingLevel = inherited;
+      }
+    } catch {
+      // Keep the inherited/local selection if the persistence request is unavailable.
+    }
+  }
+
   async function changeModel(value: string): Promise<void> {
     if (!projectsStore.endpoint || changingModel) return;
     const sessionId = projectsStore.selectedSessionId;
@@ -269,13 +309,21 @@
     }
   }
 
-  function changeThinking(value: DesktopThinkingLevel): void {
-    thinkingLevel = clampDesktopThinkingLevel(
-      value,
-      thinkingLevelOptions
-    );
+  async function changeThinking(value: DesktopThinkingSelection): Promise<void> {
+    const next = value === "auto" ? "auto" : clampDesktopThinkingLevel(value, thinkingLevelOptions);
+    thinkingLevel = next;
     const sessionId = projectsStore.selectedSessionId;
-    if (sessionId) sessionThinkingOverrides.set(sessionId, thinkingLevel);
+    if (!sessionId || !projectsStore.endpoint) return;
+    const previous = sessionThinkingOverrides.get(sessionId);
+    sessionThinkingOverrides.set(sessionId, next);
+    hydratedThinkingSessions.add(sessionId);
+    try {
+      await saveDesktopSessionThinking(projectsStore.endpoint, "personal", sessionId, next);
+    } catch (cause) {
+      if (previous) sessionThinkingOverrides.set(sessionId, previous);
+      else sessionThinkingOverrides.delete(sessionId);
+      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    }
   }
 
   // Per-session resolvers the pinned controllers read at send time. Model /
@@ -289,11 +337,13 @@
       globalModelKey
     );
   }
-  function resolveSessionThinking(sessionId: string): DesktopThinkingLevel {
-    const requested = sessionThinkingOverrides.get(sessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
+  function resolveSessionThinking(sessionId: string): DesktopThinkingSelection {
+    const requested = sessionThinkingOverrides.get(sessionId)
+      ?? currentProject?.thinkingLevel
+      ?? (globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel);
     const modelKey = resolveSessionModel(sessionId);
     const levels = modelOptions.find((model) => model.key === modelKey)?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
-    return clampDesktopThinkingLevel(requested, levels);
+    return requested === "auto" ? "auto" : clampDesktopThinkingLevel(requested, levels);
   }
 
   // The project surface shares the main chat's per-session runtime registry

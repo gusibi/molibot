@@ -39,7 +39,8 @@ import {
   sanitizePiExtensionSettings,
   sanitizePluginEntries,
   sanitizeSessionAutoArchiveSettings,
-  sanitizeTtsGenerateSettings
+  sanitizeTtsGenerateSettings,
+  sanitizeAdaptiveThinkingSettings
 } from "$lib/server/settings/sanitize.js";
 import {
   resolveCustomProviderThinkingFormat,
@@ -77,6 +78,7 @@ interface RawSettings {
   piModelProvider?: string;
   piModelName?: string;
   defaultThinkingLevel?: string;
+  adaptiveThinking?: unknown;
   customProviders?: unknown;
   defaultCustomProviderId?: string;
   modelRouting?: {
@@ -1234,6 +1236,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       raw.defaultThinkingLevel,
       defaultRuntimeSettings.defaultThinkingLevel
     ),
+    adaptiveThinking: sanitizeAdaptiveThinkingSettings(
+      raw.adaptiveThinking,
+      defaultRuntimeSettings.adaptiveThinking
+    ),
     customProviders,
     defaultCustomProviderId,
     modelRouting: {
@@ -2015,6 +2021,7 @@ export class SettingsStore {
       piModelProvider: settings.piModelProvider,
       piModelName: settings.piModelName,
       defaultThinkingLevel: settings.defaultThinkingLevel,
+      adaptiveThinking: settings.adaptiveThinking,
       defaultCustomProviderId: settings.defaultCustomProviderId,
       modelRouting: {
         textModelKey: settings.modelRouting.textModelKey,

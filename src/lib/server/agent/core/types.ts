@@ -1,6 +1,6 @@
 import type { SessionPlanProgress } from "../tools/updatePlan.js";
 import type { AssistantMessageEvent, ImageContent } from "@earendil-works/pi-ai";
-import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
+import type { RuntimeThinkingSelection, RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";
 import type { ToolApprovalRequest, ToolExecutionContext, ToolResult, ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
@@ -116,6 +116,8 @@ export type RunnerUiEvent =
       type: "thinking_config";
       requestedThinkingLevel: RuntimeThinkingLevel;
       effectiveThinkingLevel: RuntimeThinkingLevel;
+      thinkingStrategy?: "fixed" | "auto";
+      adaptiveFallbackReason?: string;
       provider: string;
       model: string;
       reasoningSupported: boolean;
@@ -127,6 +129,8 @@ export type RunnerUiEvent =
       api: string;
       requestedThinkingLevel: RuntimeThinkingLevel;
       effectiveThinkingLevel: RuntimeThinkingLevel;
+      thinkingStrategy?: "fixed" | "auto";
+      adaptiveFallbackReason?: string;
       summary: string;
     }
   | {
@@ -216,7 +220,7 @@ export interface MomContext {
     showReasoning?: "off" | "on" | "stream" | "new";
     runLogNotice?: boolean;
   };
-  thinkingLevelOverride?: RuntimeThinkingLevel;
+  thinkingLevelOverride?: RuntimeThinkingSelection;
   modelKeyOverride?: string;
   respond: (text: string, shouldLog?: boolean) => Promise<void>;
   replaceMessage: (text: string) => Promise<void>;

@@ -15,7 +15,7 @@ import {
   type SessionRuntimeKey,
   type SessionStatusDot
 } from "./sessionStatusDot";
-import type { DesktopMessageAttachment, DesktopSessionUsageSummary, DesktopThinkingLevel } from "@molibot/desktop-contract";
+import type { DesktopMessageAttachment, DesktopSessionUsageSummary, DesktopThinkingSelection } from "@molibot/desktop-contract";
 
 /**
  * Per-session runtime registry (plan §7.3 / §13). Replaces the old single
@@ -59,7 +59,7 @@ export interface SessionRuntimeDeps {
    */
   projectId?(profileId: string, sessionId: string): string | undefined;
   modelKey?(profileId: string, sessionId: string): string | undefined;
-  thinkingLevel?(profileId: string, sessionId: string): DesktopThinkingLevel;
+  thinkingLevel?(profileId: string, sessionId: string): DesktopThinkingSelection;
 }
 
 export interface SessionRuntimeEntry {

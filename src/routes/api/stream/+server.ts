@@ -8,7 +8,7 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
 import type { ChannelInboundMessage, FileAttachment, RunnerUiEvent } from "$lib/server/agent/core/types";
-import { sanitizeOptionalRuntimeThinkingLevel } from "$lib/server/settings";
+import { sanitizeOptionalRuntimeThinkingSelection } from "$lib/server/settings";
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
@@ -94,6 +94,8 @@ function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
     return [
       `thinking_requested=${event.requestedThinkingLevel}`,
       `thinking_effective=${event.effectiveThinkingLevel}`,
+      ...(event.thinkingStrategy ? [`thinking_strategy=${event.thinkingStrategy}`] : []),
+      ...(event.adaptiveFallbackReason ? [`adaptive_fallback=${event.adaptiveFallbackReason}`] : []),
       `reasoning_supported=${String(event.reasoningSupported)}`,
       `provider=${event.provider}`,
       `model=${event.model}`
@@ -104,6 +106,8 @@ function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
       `payload_provider=${event.provider}`,
       `payload_model=${event.model}`,
       `payload_api=${event.api}`,
+      ...(event.thinkingStrategy ? [`thinking_strategy=${event.thinkingStrategy}`] : []),
+      ...(event.adaptiveFallbackReason ? [`adaptive_fallback=${event.adaptiveFallbackReason}`] : []),
       event.summary
     ].join(", ");
   }
@@ -144,7 +148,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const message = String(body.message ?? "").trim();
   const resumePlanId = String(body.resumePlanId ?? "").trim();
   const conversationId = String(body.conversationId ?? "").trim() || undefined;
-  const thinkingLevel = sanitizeOptionalRuntimeThinkingLevel(body.thinkingLevel);
+  const thinkingLevel = sanitizeOptionalRuntimeThinkingSelection(body.thinkingLevel);
   const projectResult = resolveProjectContext(body.projectId);
   if (!projectResult.ok) {
     return new Response(JSON.stringify({ ok: false, error: projectResult.error }), {
@@ -179,6 +183,8 @@ export const POST: RequestHandler = async ({ request }) => {
   // Web owner) so the turn reopens the exact agent context that wrote this
   // session's history instead of forking a caller-keyed copy.
   const runnerChatId = resolveRunnerChatId(conversation.id, externalUserId);
+  const sessionThinkingOverride = store.getSessionThinkingLevelOverride(runnerChatId, conversation.id);
+  const resolvedThinkingLevel = thinkingLevel ?? sessionThinkingOverride ?? project?.thinkingLevel;
   const runner = pool.get(runnerChatId, conversation.id);
   if (runner.isRunning()) {
     return new Response(
@@ -382,7 +388,7 @@ export const POST: RequestHandler = async ({ request }) => {
             channel: "web",
             workspaceDir: store.getWorkspaceDir(),
             chatDir: store.getChatDir(runnerChatId),
-            thinkingLevelOverride: thinkingLevel,
+            thinkingLevelOverride: resolvedThinkingLevel,
             // Per-session model resolution: an explicit per-turn `modelKey` (the
             // live composer selection) wins; otherwise fall back to the session's
             // persisted `conversation.modelKey`, then the project default, then

@@ -14,7 +14,7 @@ import type {
   DesktopApprovalPrompt,
   DesktopConversationStep,
   DesktopSessionUsageSummary,
-  DesktopThinkingLevel
+  DesktopThinkingSelection
 } from "@molibot/desktop-contract";
 import { loadDesktopProjectSession, type DesktopActivityEntry } from "../api";
 import {
@@ -58,7 +58,7 @@ export interface ProjectChatStoreDeps {
    *  project default → global default; owned by ProjectChat). */
   resolveModel(sessionId: string): string | undefined;
   /** Thinking level a turn on this session should run with. */
-  resolveThinking(sessionId: string): DesktopThinkingLevel;
+  resolveThinking(sessionId: string): DesktopThinkingSelection;
 }
 
 export interface ProjectChatState {

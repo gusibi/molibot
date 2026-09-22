@@ -1353,6 +1353,7 @@ export class TelegramManager extends BaseChannelRuntime {
     this.ensureChatEventsWatcher(scopeId);
     const sessionId = event.sessionId || this.resolveInboundSessionId(scopeId, event);
     const sessionThinkingLevelOverride = this.store.getSessionThinkingLevelOverride(scopeId, sessionId);
+    const selectedProject = this.runners.resolveTarget(scopeId, sessionId).project;
     const runner = this.runners.get(scopeId, sessionId);
     const runId = (event as ChannelInboundMessage & { runId?: string }).runId ?? createRunId(scopeId, event.messageId);
     const streamOutputEnabled = this.isStreamingOutputEnabled();
@@ -1826,7 +1827,7 @@ export class TelegramManager extends BaseChannelRuntime {
       message: event,
       workspaceDir: this.workspaceDir,
       chatDir: this.store.getChatDir(scopeId),
-      thinkingLevelOverride: sessionThinkingLevelOverride ?? undefined,
+      thinkingLevelOverride: sessionThinkingLevelOverride ?? selectedProject?.thinkingLevel,
       respond: async (text, shouldLog = true) => {
         if (shouldLog) {
           formatter.feedTextDelta(text);
@@ -2137,6 +2138,8 @@ export class TelegramManager extends BaseChannelRuntime {
             model: runnerEvent.model,
             requestedThinkingLevel: runnerEvent.requestedThinkingLevel,
             effectiveThinkingLevel: runnerEvent.effectiveThinkingLevel,
+            thinkingStrategy: runnerEvent.thinkingStrategy,
+            adaptiveFallbackReason: runnerEvent.adaptiveFallbackReason,
             reasoningSupported: runnerEvent.reasoningSupported
           });
           return;
@@ -2151,6 +2154,8 @@ export class TelegramManager extends BaseChannelRuntime {
             model: runnerEvent.model,
             requestedThinkingLevel: runnerEvent.requestedThinkingLevel,
             effectiveThinkingLevel: runnerEvent.effectiveThinkingLevel,
+            thinkingStrategy: runnerEvent.thinkingStrategy,
+            adaptiveFallbackReason: runnerEvent.adaptiveFallbackReason,
             summary: runnerEvent.summary
           });
           return;

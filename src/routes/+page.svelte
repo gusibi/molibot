@@ -1311,6 +1311,8 @@
             [
               `thinking_requested=${String(payload.requestedThinkingLevel ?? "off")}`,
               `thinking_effective=${String(payload.effectiveThinkingLevel ?? "off")}`,
+              ...(payload.thinkingStrategy ? [`thinking_strategy=${String(payload.thinkingStrategy)}`] : []),
+              ...(payload.adaptiveFallbackReason ? [`adaptive_fallback=${String(payload.adaptiveFallbackReason)}`] : []),
               `reasoning_supported=${String(payload.reasoningSupported ?? false)}`,
               `provider=${String(payload.provider ?? "")}`,
               `model=${String(payload.model ?? "")}`
@@ -1324,6 +1326,8 @@
             [
               `payload_provider=${String(payload.provider ?? "")}`,
               `payload_model=${String(payload.model ?? "")}`,
+              ...(payload.thinkingStrategy ? [`thinking_strategy=${String(payload.thinkingStrategy)}`] : []),
+              ...(payload.adaptiveFallbackReason ? [`adaptive_fallback=${String(payload.adaptiveFallbackReason)}`] : []),
               `payload_api=${String(payload.api ?? "")}`,
               String(payload.summary ?? "")
             ].join(", ")

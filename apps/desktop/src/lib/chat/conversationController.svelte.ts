@@ -21,7 +21,7 @@ import type {
   DesktopConversationMessage,
   DesktopConversationPlan,
   DesktopConversationStep,
-  DesktopThinkingLevel
+  DesktopThinkingSelection
 } from "@molibot/desktop-contract";
 
 /** A transcript message plus the optional collapsed reasoning trace. */
@@ -84,7 +84,7 @@ export interface ConversationHost {
   sessionId(): string;
   projectId?(): string | undefined;
   modelKey?(): string | undefined;
-  thinkingLevel(): DesktopThinkingLevel;
+  thinkingLevel(): DesktopThinkingSelection;
   /** Guard for readiness (e.g. a configured model); a turn is skipped when false. */
   canSend?(): boolean;
   labels(): ConversationLabels;
@@ -281,7 +281,7 @@ export class ConversationController {
     profileId: string;
     projectId: string | undefined;
     modelKey: string | undefined;
-    thinkingLevel: DesktopThinkingLevel;
+    thinkingLevel: DesktopThinkingSelection;
   } | null = null;
 
   constructor(private readonly host: ConversationHost) {}

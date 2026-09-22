@@ -6,7 +6,7 @@
   import {
     DESKTOP_THINKING_LEVELS,
     type DesktopModelOption,
-    type DesktopThinkingLevel
+    type DesktopThinkingSelection
   } from "@molibot/desktop-contract";
   import type { DesktopProject, DesktopProjectCustomCommand } from "../api";
   import type { Translation } from "../i18n";
@@ -26,7 +26,7 @@
   let name = project.name;
   let instructions = project.instructions ?? "";
   let modelKey = project.modelKey ?? "";
-  let thinkingLevel: "" | DesktopThinkingLevel = project.thinkingLevel ?? "";
+  let thinkingLevel: "" | DesktopThinkingSelection = project.thinkingLevel ?? "";
   let toolProgress = project.toolProgress ?? "";
   let showReasoning = project.showReasoning ?? "";
   let runLogNotice = project.runLogNotice === undefined ? "" : project.runLogNotice ? "on" : "off";
@@ -70,7 +70,8 @@
     return /[.…。]$/.test(value.trim()) ? value : `${value}…`;
   }
 
-  function thinkingLabel(level: DesktopThinkingLevel): string {
+  function thinkingLabel(level: DesktopThinkingSelection): string {
+    if (level === "auto") return copy.providerThinkingAuto;
     return {
       off: copy.thinkingOff,
       minimal: copy.thinkingMinimal,
@@ -132,7 +133,7 @@
         <label class="settings-field"><span>{copy.projectPath}</span><input value={project.rootPath} autocomplete="off" spellcheck="false" readonly /></label>
         <label class="settings-field settings-field-wide"><span>{copy.projectInstructions}</span><textarea rows="5" bind:value={instructions} placeholder={withEllipsis(copy.projectInstructionsHint)}></textarea></label>
         <label class="settings-field"><span>{copy.projectDefaultModel}</span><SelectControl value={modelKey} ariaLabel={copy.projectDefaultModel} options={[{ value: "", label: copy.projectFollowGlobal }, ...modelOptions.map((model) => ({ value: model.key, label: modelOptionCopy(model).name }))]} onChange={(value) => modelKey = value} /></label>
-        <label class="settings-field"><span>{copy.projectDefaultThinking}</span><SelectControl value={thinkingLevel} ariaLabel={copy.projectDefaultThinking} options={[{ value: "", label: copy.projectFollowGlobal }, ...thinkingLevelOptions.map((level) => ({ value: level, label: thinkingLabel(level) }))]} onChange={(value) => thinkingLevel = value as "" | DesktopThinkingLevel} /></label>
+        <label class="settings-field"><span>{copy.projectDefaultThinking}</span><SelectControl value={thinkingLevel} ariaLabel={copy.projectDefaultThinking} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "auto", label: copy.providerThinkingAuto }, ...thinkingLevelOptions.map((level) => ({ value: level, label: thinkingLabel(level) }))]} onChange={(value) => thinkingLevel = value as "" | DesktopThinkingSelection} /></label>
         <label class="settings-field"><span>{copy.projectToolProgress}</span><SelectControl value={toolProgress} ariaLabel={copy.projectToolProgress} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "new", label: copy.projectDisplayNew }, { value: "all", label: copy.projectDisplayAll }, { value: "verbose", label: copy.projectDisplayVerbose }]} onChange={(value) => toolProgress = value as typeof toolProgress} /></label>
         <label class="settings-field"><span>{copy.projectReasoning}</span><SelectControl value={showReasoning} ariaLabel={copy.projectReasoning} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "on", label: copy.projectDisplayOn }, { value: "stream", label: copy.projectDisplayStream }, { value: "new", label: copy.projectDisplayNew }]} onChange={(value) => showReasoning = value as typeof showReasoning} /></label>
         <label class="settings-field"><span>{copy.projectRunlogNotice}</span><SelectControl value={runLogNotice} ariaLabel={copy.projectRunlogNotice} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "on", label: copy.projectDisplayOn }, { value: "off", label: copy.projectDisplayOff }]} onChange={(value) => runLogNotice = value} /></label>

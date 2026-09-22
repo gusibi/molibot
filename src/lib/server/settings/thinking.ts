@@ -9,6 +9,15 @@ export const RUNTIME_THINKING_LEVELS = [
 ] as const;
 export type RuntimeThinkingLevel = (typeof RUNTIME_THINKING_LEVELS)[number];
 
+/** A user-facing selection. `auto` is resolved before a provider request. */
+export type ThinkingStrategy = "fixed" | "auto";
+
+export type ThinkingSelection =
+  | { strategy: "fixed"; level: RuntimeThinkingLevel }
+  | { strategy: "auto" };
+
+export type RuntimeThinkingSelection = RuntimeThinkingLevel | "auto";
+
 export const CUSTOM_PROVIDER_THINKING_FORMATS = [
   "openai",
   "openrouter",
@@ -53,6 +62,16 @@ export function sanitizeOptionalRuntimeThinkingLevel(
   value: unknown
 ): RuntimeThinkingLevel | undefined {
   const normalized = String(value ?? "").trim().toLowerCase();
+  return THINKING_LEVEL_SET.has(normalized)
+    ? normalized as RuntimeThinkingLevel
+    : undefined;
+}
+
+export function sanitizeOptionalRuntimeThinkingSelection(
+  value: unknown
+): RuntimeThinkingSelection | undefined {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "auto") return "auto";
   return THINKING_LEVEL_SET.has(normalized)
     ? normalized as RuntimeThinkingLevel
     : undefined;

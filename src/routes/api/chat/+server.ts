@@ -31,7 +31,7 @@ import {
   resolveRuntimeContext,
   resolveWebConversationIdentity
 } from "$lib/server/web/runtimeContext";
-import { sanitizeOptionalRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
+import { sanitizeOptionalRuntimeThinkingSelection, type RuntimeThinkingSelection } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationAttachment, ConversationPlan } from "$lib/shared/types/message";
 import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
@@ -86,7 +86,7 @@ interface ParsedWebChatRequest {
   conversationId?: string;
   profileId: string;
   files: File[];
-  thinkingLevel?: RuntimeThinkingLevel;
+  thinkingLevel?: RuntimeThinkingSelection;
   projectId?: string;
   modelKey?: string;
   durableMode?: DurableRequestMode;
@@ -631,7 +631,7 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
       conversationId: conversationRaw || undefined,
       profileId,
       files,
-      thinkingLevel: sanitizeOptionalRuntimeThinkingLevel(form.get("thinkingLevel")),
+      thinkingLevel: sanitizeOptionalRuntimeThinkingSelection(form.get("thinkingLevel")),
       projectId: String(form.get("projectId") ?? "").trim() || undefined,
       modelKey: String(form.get("modelKey") ?? "").trim() || undefined,
       durableMode: parseDurableRequestMode(form.get("durableMode"))
@@ -645,7 +645,7 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
     conversationId: String(body.conversationId ?? "").trim() || undefined,
     profileId: sanitizeWebProfileId(body.profileId),
     files: [],
-    thinkingLevel: sanitizeOptionalRuntimeThinkingLevel(body.thinkingLevel),
+    thinkingLevel: sanitizeOptionalRuntimeThinkingSelection(body.thinkingLevel),
     projectId: String(body.projectId ?? "").trim() || undefined,
     modelKey: String(body.modelKey ?? "").trim() || undefined,
     durableMode: parseDurableRequestMode(body.durableMode)
@@ -726,6 +726,8 @@ export const POST: RequestHandler = async ({ request }) => {
   // Web owner) so the turn reopens the exact agent context that wrote this
   // session's history instead of forking a caller-keyed copy.
   const runnerChatId = resolveRunnerChatId(conversation.id, externalUserId);
+  const sessionThinkingOverride = store.getSessionThinkingLevelOverride(runnerChatId, conversation.id);
+  const resolvedThinkingLevel = parsed.thinkingLevel ?? sessionThinkingOverride ?? project?.thinkingLevel;
   const ts = `${Date.now() / 1000}`;
   const messageId = Date.now();
   const attachments: FileAttachment[] = [];
@@ -830,6 +832,8 @@ export const POST: RequestHandler = async ({ request }) => {
         [
           `thinking_requested=${event.requestedThinkingLevel}`,
           `thinking_effective=${event.effectiveThinkingLevel}`,
+          ...(event.thinkingStrategy ? [`thinking_strategy=${event.thinkingStrategy}`] : []),
+          ...(event.adaptiveFallbackReason ? [`adaptive_fallback=${event.adaptiveFallbackReason}`] : []),
           `reasoning_supported=${String(event.reasoningSupported)}`,
           `provider=${event.provider}`,
           `model=${event.model}`
@@ -844,6 +848,8 @@ export const POST: RequestHandler = async ({ request }) => {
           `payload_provider=${event.provider}`,
           `payload_model=${event.model}`,
           `payload_api=${event.api}`,
+          ...(event.thinkingStrategy ? [`thinking_strategy=${event.thinkingStrategy}`] : []),
+          ...(event.adaptiveFallbackReason ? [`adaptive_fallback=${event.adaptiveFallbackReason}`] : []),
           event.summary
         ].join(", ")
       );
@@ -878,7 +884,7 @@ export const POST: RequestHandler = async ({ request }) => {
     channel: "web",
     workspaceDir: store.getWorkspaceDir(),
     chatDir: store.getChatDir(runnerChatId),
-    thinkingLevelOverride: parsed.thinkingLevel,
+    thinkingLevelOverride: resolvedThinkingLevel,
     modelKeyOverride: parsed.modelKey ?? project?.modelKey,
     project: buildRunnerProjectContext(project, store.getScratchDir(runnerChatId)),
     message: {

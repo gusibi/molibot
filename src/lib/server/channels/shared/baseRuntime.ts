@@ -708,6 +708,7 @@ export abstract class BaseChannelRuntime {
       throw new Error("Explicit Project runtime target is unavailable.");
     }
     const selectedProject = target.project;
+    const sessionThinkingOverride = target.store.getSessionThinkingLevelOverride(target.chatId, target.sessionId);
     if (event.runId && target.conversationId) {
       getEventExecutionLeaseStore().attachSessionByRunId(event.runId, target.conversationId);
     }
@@ -796,7 +797,7 @@ export abstract class BaseChannelRuntime {
       activeSessionId,
       project: buildRunnerProjectContext(selectedProject, target.store.getScratchDir(target.chatId)),
       modelKeyOverride: selectedProject?.modelKey,
-      thinkingLevelOverride: selectedProject?.thinkingLevel,
+      thinkingLevelOverride: sessionThinkingOverride ?? selectedProject?.thinkingLevel,
       projectConversation: selectedProject && target.conversationId
         ? { projectId: selectedProject.id, conversationId: target.conversationId }
         : undefined,

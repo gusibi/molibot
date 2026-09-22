@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
-import { RUNTIME_THINKING_LEVELS, sanitizeRuntimeThinkingLevel } from "$lib/server/settings/index.js";
+import { RUNTIME_THINKING_LEVELS, sanitizeRuntimeThinkingLevel, type RuntimeThinkingSelection } from "$lib/server/settings/index.js";
 import type { FileAttachment, LoggedMessage } from "$lib/server/agent/core/types.js";
 import { parseRunDetailEntries, type RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import {
@@ -1165,11 +1165,12 @@ export class MomRuntimeStore {
     return false;
   }
 
-  getSessionThinkingLevelOverride(chatId: string, sessionId?: string): RuntimeThinkingLevel | null {
+  getSessionThinkingLevelOverride(chatId: string, sessionId?: string): RuntimeThinkingSelection | null {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const raw = this.readSessionHeader(chatId, id).preferences?.thinkingLevelOverride;
     const normalized = String(raw ?? "").trim().toLowerCase();
     if (!normalized) return null;
+    if (normalized === "auto") return "auto";
     if (!this.thinkingLevels.has(normalized)) return null;
     return sanitizeRuntimeThinkingLevel(normalized, "off");
   }
@@ -1177,10 +1178,14 @@ export class MomRuntimeStore {
   setSessionThinkingLevelOverride(
     chatId: string,
     sessionId: string,
-    value: RuntimeThinkingLevel | null
-  ): RuntimeThinkingLevel | null {
+    value: RuntimeThinkingSelection | null
+  ): RuntimeThinkingSelection | null {
     const id = this.sanitizeSessionId(sessionId);
-    const normalized = value == null ? null : sanitizeRuntimeThinkingLevel(value, "off");
+    const normalized: RuntimeThinkingSelection | null = value == null
+      ? null
+      : value === "auto"
+        ? "auto"
+        : sanitizeRuntimeThinkingLevel(value, "off");
     this.updateSessionHeader(chatId, id, (current) => {
       const nextPreferences = { ...(current.preferences ?? {}) };
       if (normalized == null) {

@@ -13,6 +13,7 @@
       overview: "总览",
       aiEngine: "AI 引擎",
       routingPrompt: "路由与提示词",
+      adaptiveThinking: "自适应思考",
       providersModels: "模型与提供方",
       usageStats: "用量统计",
       traceStats: "Trace 分析",
@@ -55,6 +56,7 @@
       overview: "Overview",
       aiEngine: "AI Engine",
       routingPrompt: "Routing & Prompt",
+      adaptiveThinking: "Adaptive Thinking",
       providersModels: "Providers & Models",
       usageStats: "Usage Stats",
       traceStats: "Trace Analytics",
@@ -118,6 +120,7 @@
     { key: "general", icon: "🏠", title: t("general"), links: [{ href: "/settings", label: t("overview"), exact: true }] },
     { key: "ai", icon: "🤖", title: t("aiEngine"), links: [
         { href: "/settings/ai/routing", label: t("routingPrompt"), exact: true },
+        { href: "/settings/ai/adaptive-thinking", label: t("adaptiveThinking"), exact: true },
         { href: "/settings/ai/providers", label: t("providersModels"), exact: true },
         { href: "/settings/ai/usage", label: t("usageStats"), exact: true },
         { href: "/settings/ai/trace", label: t("traceStats"), exact: true },

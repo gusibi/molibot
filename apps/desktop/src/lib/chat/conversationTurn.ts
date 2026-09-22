@@ -6,7 +6,7 @@ import {
   streamDesktopChat,
   type DesktopActivityEntry
 } from "../api";
-import type { DesktopApprovalPrompt, DesktopConversationActivity, DesktopConversationPlan, DesktopThinkingLevel } from "@molibot/desktop-contract";
+import type { DesktopApprovalPrompt, DesktopConversationActivity, DesktopConversationPlan, DesktopThinkingSelection } from "@molibot/desktop-contract";
 import { classifyComposerSuggestion } from "./composerSuggestionCatalog";
 
 export interface ConversationTurnHandlers {
@@ -29,7 +29,7 @@ export async function runDesktopConversationTurn(input: {
   projectId?: string;
   modelKey?: string;
   message: string;
-  thinkingLevel: DesktopThinkingLevel;
+  thinkingLevel: DesktopThinkingSelection;
   files?: File[];
   signal?: AbortSignal;
   resumePlanId?: string;

@@ -1178,6 +1178,18 @@ export interface DesktopSessionModelUpdateRequest {
   modelKey: string;
 }
 
+/** Per-session Thinking strategy override. Null means inherit the defaults. */
+export interface DesktopSessionThinkingResponse {
+  ok: true;
+  thinkingLevel: DesktopThinkingSelection | null;
+}
+
+export interface DesktopSessionThinkingUpdateRequest {
+  profileId?: string;
+  conversationId: string;
+  thinkingLevel: DesktopThinkingSelection | null;
+}
+
 export interface DesktopSessionPermissionResponse {
   ok: true;
   mode: "plan" | "manual" | "accept_edits" | "auto";
@@ -1216,6 +1228,7 @@ export interface DesktopSessionFilesResponse {
 }
 
 export type DesktopThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type DesktopThinkingSelection = DesktopThinkingLevel | "auto";
 
 export const DESKTOP_THINKING_LEVELS: readonly DesktopThinkingLevel[] = [
   "off",

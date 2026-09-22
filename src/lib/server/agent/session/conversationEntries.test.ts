@@ -38,6 +38,21 @@ test("conversation projection entries stay stable across appends", () => {
   }
 });
 
+test("session Thinking strategy persists as Auto and can be cleared", () => {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-agent-session-thinking-"));
+  try {
+    const chatId = "web:default:web-anonymous";
+    const store = new MomRuntimeStore(dir);
+    assert.equal(store.getSessionThinkingLevelOverride(chatId, "session"), null);
+    store.setSessionThinkingLevelOverride(chatId, "session", "auto");
+    assert.equal(new MomRuntimeStore(dir).getSessionThinkingLevelOverride(chatId, "session"), "auto");
+    store.setSessionThinkingLevelOverride(chatId, "session", null);
+    assert.equal(new MomRuntimeStore(dir).getSessionThinkingLevelOverride(chatId, "session"), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("forkSessionBeforeEntry copies through the fork point and inherits preferences without session approval", () => {
   const dir = mkdtempSync(join(tmpdir(), "molibot-agent-session-fork-"));
   try {

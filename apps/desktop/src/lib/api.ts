@@ -103,6 +103,7 @@ import type {
   DesktopModelRoutingSettings,
   DesktopModelRoutingUpdateRequest,
   DesktopSessionModelResponse,
+  DesktopSessionThinkingResponse,
   DesktopProfileSummary,
   DesktopProvidersResponse,
   DesktopProvidersSummary,
@@ -154,6 +155,7 @@ import type {
   DesktopPlanListItem,
   DesktopPlanListResponse,
   DesktopThinkingLevel,
+  DesktopThinkingSelection,
   DesktopTraceFactType,
   DesktopTraceRange,
   DesktopTraceResponse,
@@ -226,7 +228,7 @@ export interface DesktopProject {
   rootPath: string;
   instructions?: string;
   modelKey?: string;
-  thinkingLevel?: DesktopThinkingLevel;
+  thinkingLevel?: DesktopThinkingSelection;
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
   runLogNotice?: boolean;
@@ -351,7 +353,7 @@ export async function createDesktopProject(endpoint: string, input: { name: stri
   })).project;
 }
 
-export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: DesktopThinkingLevel | null; toolProgress?: DesktopProject["toolProgress"] | null; showReasoning?: DesktopProject["showReasoning"] | null; runLogNotice?: boolean | null; customCommands?: DesktopProjectCustomCommand[] | null }): Promise<DesktopProject> {
+export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: DesktopThinkingSelection | null; toolProgress?: DesktopProject["toolProgress"] | null; showReasoning?: DesktopProject["showReasoning"] | null; runLogNotice?: boolean | null; customCommands?: DesktopProjectCustomCommand[] | null }): Promise<DesktopProject> {
   return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
   })).project;
@@ -565,6 +567,88 @@ export async function saveDesktopSessionModel(
     body: JSON.stringify({ conversationId, modelKey })
   });
   return payload.modelKey;
+}
+
+export interface DesktopAdaptiveThinkingConfig {
+  enabled: boolean;
+  defaultStrategy: "fixed" | "auto";
+}
+
+export interface DesktopAdaptiveThinkingSettings extends DesktopAdaptiveThinkingConfig {
+  baseUrl: string;
+  hasApiKey: boolean;
+  maxThinkingLevel: "low" | "medium" | "high";
+  fallbackThinkingLevel: "low" | "medium" | "high";
+  confidenceThreshold: number;
+  timeoutMs: number;
+}
+
+/** Reads the redacted global Adaptive Thinking strategy used by the composer. */
+export async function loadDesktopAdaptiveThinking(endpoint: string): Promise<DesktopAdaptiveThinkingConfig> {
+  const payload = await requestJson<DesktopAdaptiveThinkingConfig & { ok: true }>(endpoint, "/api/settings/adaptive-thinking");
+  return { enabled: Boolean(payload.enabled), defaultStrategy: payload.defaultStrategy === "auto" ? "auto" : "fixed" };
+}
+
+/** Reads the redacted Adaptive Thinking settings for the desktop Settings panel. */
+export async function loadDesktopAdaptiveThinkingSettings(endpoint: string): Promise<DesktopAdaptiveThinkingSettings> {
+  return requestJson<DesktopAdaptiveThinkingSettings & { ok: true }>(endpoint, "/api/settings/adaptive-thinking");
+}
+
+/** Saves Adaptive Thinking settings; the API key is sent only when replacing it. */
+export async function saveDesktopAdaptiveThinkingSettings(
+  endpoint: string,
+  settings: Omit<DesktopAdaptiveThinkingSettings, "hasApiKey">,
+  apiKey?: string,
+  clearApiKey = false
+): Promise<DesktopAdaptiveThinkingSettings> {
+  return requestJson<DesktopAdaptiveThinkingSettings & { ok: true }>(endpoint, "/api/settings/adaptive-thinking", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...settings, apiKey: apiKey || undefined, clearApiKey })
+  });
+}
+
+/** Tests an unsaved Jev host/key pair with a synthetic Choice request. */
+export async function testDesktopAdaptiveThinkingConnection(
+  endpoint: string,
+  baseUrl: string,
+  apiKey: string,
+  timeoutMs: number
+): Promise<{ provider?: string; model?: string }> {
+  return requestJson<{ ok: true; provider?: string; model?: string }>(endpoint, "/api/settings/adaptive-thinking/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ baseUrl, apiKey, timeoutMs })
+  });
+}
+
+/** Reads a session's persisted Thinking strategy override (null = inherit). */
+export async function loadDesktopSessionThinking(
+  endpoint: string,
+  profileId: string,
+  conversationId: string
+): Promise<DesktopThinkingSelection | null> {
+  const query = new URLSearchParams({ profileId, conversationId });
+  const payload = await requestJson<DesktopSessionThinkingResponse>(
+    endpoint,
+    `/api/desktop/session-thinking?${query.toString()}`
+  );
+  return payload.thinkingLevel;
+}
+
+/** Persists a session's Thinking strategy override (null clears it). */
+export async function saveDesktopSessionThinking(
+  endpoint: string,
+  profileId: string,
+  conversationId: string,
+  thinkingLevel: DesktopThinkingSelection | null
+): Promise<DesktopThinkingSelection | null> {
+  const payload = await requestJson<DesktopSessionThinkingResponse>(endpoint, "/api/desktop/session-thinking", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profileId, conversationId, thinkingLevel })
+  });
+  return payload.thinkingLevel;
 }
 
 export interface DesktopContractPluginItem {
@@ -3236,7 +3320,7 @@ export async function streamDesktopChat(
     profileId: string;
     sessionId: string;
     message: string;
-    thinkingLevel: DesktopThinkingLevel;
+    thinkingLevel: DesktopThinkingSelection;
     projectId?: string;
     modelKey?: string;
     files?: File[];
@@ -3400,7 +3484,7 @@ export async function sendDesktopChatWithFiles(
     profileId: string;
     sessionId: string;
     message: string;
-    thinkingLevel: DesktopThinkingLevel;
+    thinkingLevel: DesktopThinkingSelection;
     files: File[];
     projectId?: string;
     modelKey?: string;

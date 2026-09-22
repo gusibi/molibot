@@ -1,7 +1,8 @@
 import type { KnownProvider } from "@earendil-works/pi-ai";
 import type {
   CustomProviderThinkingFormat,
-  RuntimeThinkingLevel
+  RuntimeThinkingLevel,
+  ThinkingStrategy
 } from "$lib/server/settings/thinking.js";
 import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 import { getPiProviders, isPiProvider } from "$lib/server/providers/piRegistry.js";
@@ -53,6 +54,25 @@ export interface CompactionSettings {
   reserveTokens: number;
   keepRecentTokens: number;
   defaultContextWindow: number;
+}
+
+export interface AdaptiveThinkingSettings {
+  /** Enables Jev calls for Auto selections. Off is the safe installation default. */
+  enabled: boolean;
+  /** TypeSafe API origin/base URL. The adapter appends `/v1/systemone`. */
+  baseUrl: string;
+  /** Server-owned credential; never include this in client projections. */
+  apiKey: string;
+  /** Global default strategy for scopes without an explicit override. */
+  defaultStrategy: ThinkingStrategy;
+  /** Highest concrete level Auto may execute. */
+  maxThinkingLevel: RuntimeThinkingLevel;
+  /** Concrete level used when Auto cannot produce an accepted decision. */
+  fallbackThinkingLevel: RuntimeThinkingLevel;
+  /** Jev confidence floor for accepting a Choice answer. */
+  confidenceThreshold: number;
+  /** Complete decision deadline, including transport and SDK work. */
+  timeoutMs: number;
 }
 
 export type ModelFallbackMode = "off" | "same-provider" | "any-enabled";
@@ -681,6 +701,7 @@ export interface RuntimeSettings {
   piModelProvider: KnownProvider;
   piModelName: string;
   defaultThinkingLevel: RuntimeThinkingLevel;
+  adaptiveThinking: AdaptiveThinkingSettings;
   customProviders: CustomProviderConfig[];
   defaultCustomProviderId: string;
   modelRouting: ModelRoutingConfig;

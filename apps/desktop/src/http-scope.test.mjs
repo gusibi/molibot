@@ -19,6 +19,13 @@ test("desktop HTTP scope allows reading and saving the shared system settings", 
   assert.match(appSource, /payload\.serverPort/);
 });
 
+test("desktop HTTP scope allows the Adaptive Thinking settings and test routes", () => {
+  for (const host of ["127.0.0.1", "localhost"]) {
+    assert.ok(allowedUrls.has(`http://${host}:*/api/settings/adaptive-thinking`));
+    assert.ok(allowedUrls.has(`http://${host}:*/api/settings/adaptive-thinking/test`));
+  }
+});
+
 test("desktop HTTP scope allows project registry and session routes", () => {
   assert.ok(allowedUrls.has("http://127.0.0.1:*/api/settings/projects*"));
   assert.ok(allowedUrls.has("http://localhost:*/api/settings/projects*"));

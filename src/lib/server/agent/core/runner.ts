@@ -2,7 +2,7 @@ import { basename, dirname } from "node:path";
 import { Agent, type AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai";
-import { type RuntimeSettings } from "$lib/server/settings/index.js";
+import { RUNTIME_THINKING_LEVELS, type RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { NOOP_HOOK_MANAGER, type HookContext, type HookManager } from "$lib/server/agent/hooks/index.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
@@ -57,7 +57,7 @@ import type { MomContext, RunResult, RunnerLike, ChannelInboundMessage } from "$
 import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "$lib/server/agent/tools/toolDisplay.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
-import { resolveModelThinkingLevel } from "$lib/server/providers/modelThinking.js";
+import { getModelThinkingLevels, resolveModelThinkingLevel } from "$lib/server/providers/modelThinking.js";
 import { hasPiProviderAuth, streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
 import { createPiTelemetryContext } from "$lib/server/providers/piTelemetry.js";
 import {
@@ -117,6 +117,13 @@ import {
 } from "$lib/server/agent/durable/preflight.js";
 import type { DurablePrefixEntry } from "$lib/server/agent/durable/types.js";
 import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
+import {
+  ADAPTIVE_THINKING_RUBRIC_VERSION,
+  buildAdaptiveThinkingContext,
+  resolveAdaptiveThinking,
+  resolveAutoEffectiveThinkingLevel,
+  TypeSafeJevProvider
+} from "$lib/server/agent/decision/adaptiveThinking.js";
 
 // Imported helpers from extracted runnerHelpers.ts and runnerInputEnricher.ts
 import {
@@ -205,6 +212,7 @@ export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
   private abortRequested = false;
+  private activeDecisionAbortController: AbortController | null = null;
   private selectedMcpServerIds = new Set<string>();
   private promptRefreshKey = "";
   private systemPromptReady = false;
@@ -266,6 +274,8 @@ export class MomRunner implements RunnerLike {
         api: string;
         requestedThinkingLevel: RuntimeSettings["defaultThinkingLevel"];
         effectiveThinkingLevel: RuntimeSettings["defaultThinkingLevel"];
+        thinkingStrategy?: "fixed" | "auto";
+        adaptiveFallbackReason?: string;
       }
     | undefined;
 
@@ -381,6 +391,8 @@ export class MomRunner implements RunnerLike {
             api: this.activePayloadContext.api,
             requestedThinkingLevel: this.activePayloadContext.requestedThinkingLevel,
             effectiveThinkingLevel: this.activePayloadContext.effectiveThinkingLevel,
+            thinkingStrategy: this.activePayloadContext.thinkingStrategy,
+            adaptiveFallbackReason: this.activePayloadContext.adaptiveFallbackReason,
             summary: formatPayloadReasoningSummary(payload)
           });
         }
@@ -729,6 +741,7 @@ export class MomRunner implements RunnerLike {
 
   abort(): void {
     this.abortRequested = true;
+    this.activeDecisionAbortController?.abort();
     this.agent.clearAllQueues();
     momLog("runner", "abort_requested", {
       chatId: this.chatId,
@@ -1025,6 +1038,7 @@ export class MomRunner implements RunnerLike {
     this.activeDurablePrefix = [];
     this.running = true;
     this.abortRequested = false;
+    this.activeDecisionAbortController = null;
     this.activeApprovalSuspension = null;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
     this.activePayloadContext = undefined;
@@ -1978,6 +1992,94 @@ export class MomRunner implements RunnerLike {
       currentModelPromptMessage = userMessage;
       currentPersistedPromptMessage = promptInput.persistedMessage;
 
+      const requestedSelection = ctx.thinkingLevelOverride;
+      const thinkingStrategy = requestedSelection === "auto"
+        ? "auto"
+        : requestedSelection
+          ? "fixed"
+          : settings.adaptiveThinking.defaultStrategy;
+      const fixedThinkingLevel = requestedSelection && requestedSelection !== "auto"
+        ? requestedSelection
+        : settings.defaultThinkingLevel;
+      let resolvedThinkingLevel = fixedThinkingLevel;
+      let adaptiveResolution: Awaited<ReturnType<typeof resolveAdaptiveThinking>> | undefined;
+      if (thinkingStrategy === "auto") {
+        const decisionContext = buildAdaptiveThinkingContext(
+          effectiveInputText,
+          (this.agent.state.messages as AgentMessage[]).slice(-4),
+          {
+            attachmentCount: ctx.message.attachments.length,
+            imageCount: ctx.message.imageContents.length,
+            project: ctx.project?.name ?? "",
+            modelUseCase
+          }
+        );
+        const hasSemanticChoice = modelCandidates.some((candidate) => {
+          const permitted = getModelThinkingLevels(candidate.model)
+            .filter((level, index, values) => values.indexOf(level) === index)
+            .filter((level) => RUNTIME_THINKING_LEVELS.indexOf(level) <= RUNTIME_THINKING_LEVELS.indexOf(settings.adaptiveThinking.maxThinkingLevel));
+          return permitted.length > 1;
+        });
+        if (!settings.adaptiveThinking.enabled || !settings.adaptiveThinking.apiKey) {
+          adaptiveResolution = await resolveAdaptiveThinking({
+            strategy: "auto",
+            fixedLevel: fixedThinkingLevel,
+            settings: settings.adaptiveThinking,
+            context: decisionContext,
+            provider: new TypeSafeJevProvider(),
+            signal: new AbortController().signal
+          });
+        } else if (!hasSemanticChoice) {
+          adaptiveResolution = {
+            strategy: "auto",
+            requestedLevel: settings.adaptiveThinking.fallbackThinkingLevel,
+            fallbackReason: "no_effective_choice",
+            latencyMs: 0
+          };
+        } else {
+          const controller = new AbortController();
+          this.activeDecisionAbortController = controller;
+          try {
+            adaptiveResolution = await resolveAdaptiveThinking({
+              strategy: "auto",
+              fixedLevel: fixedThinkingLevel,
+              settings: settings.adaptiveThinking,
+              context: decisionContext,
+              provider: new TypeSafeJevProvider(),
+              signal: controller.signal
+            });
+          } catch (error) {
+            if (this.abortRequested || controller.signal.aborted) {
+              stopReason = "aborted";
+              await ctx.setWorking(false);
+              return { runId, stopReason: "aborted" };
+            }
+            throw error;
+          } finally {
+            if (this.activeDecisionAbortController === controller) this.activeDecisionAbortController = null;
+          }
+        }
+        resolvedThinkingLevel = adaptiveResolution.requestedLevel;
+        logRunDetail({
+          type: "info",
+          summary: JSON.stringify({
+            kind: "adaptive_thinking",
+            strategy: "auto",
+            requestedLevel: adaptiveResolution.requestedLevel,
+            confidence: adaptiveResolution.confidence,
+            probabilities: adaptiveResolution.probabilities,
+            fallbackReason: adaptiveResolution.fallbackReason,
+            provider: adaptiveResolution.provider,
+            model: adaptiveResolution.model,
+            latencyMs: adaptiveResolution.latencyMs,
+            rubricVersion: ADAPTIVE_THINKING_RUBRIC_VERSION,
+            contextTokens: decisionContext.estimatedTokens,
+            contextBytes: decisionContext.serializedBytes,
+            contextTruncated: decisionContext.truncated
+          })
+        });
+      }
+
       let finalText = "";
       let finalSupplements: string[] = [];
       let finalAttemptCount = 0;
@@ -2078,21 +2180,45 @@ export class MomRunner implements RunnerLike {
         }
 
         this.agent.state.model = selectedModel;
-        const requestedThinkingLevel = ctx.thinkingLevelOverride ?? settings.defaultThinkingLevel;
-        const effectiveThinkingLevel = resolveModelThinkingLevel(selectedModel, requestedThinkingLevel);
+        const requestedThinkingLevel = resolvedThinkingLevel;
+        const effectiveThinkingLevel = thinkingStrategy === "auto"
+          ? resolveAutoEffectiveThinkingLevel({
+            requestedLevel: requestedThinkingLevel,
+            fallbackLevel: settings.adaptiveThinking.fallbackThinkingLevel,
+            ceiling: settings.adaptiveThinking.maxThinkingLevel,
+            supportedLevels: getModelThinkingLevels(selectedModel)
+          }).level
+          : resolveModelThinkingLevel(selectedModel, requestedThinkingLevel);
+        if (!effectiveThinkingLevel) {
+          const incompatible = toModelAttemptFailure(
+            selection,
+            "The selected model has no Thinking level within the Auto ceiling.",
+            "request_error"
+          );
+          modelFailures.push(incompatible);
+          if (candidateIndex === modelCandidates.length - 1) {
+            stopReason = "error";
+            errorMessage = incompatible.message;
+          }
+          continue;
+        }
         this.agent.state.thinkingLevel = effectiveThinkingLevel;
         this.activePayloadContext = {
           provider: selectedModel.provider,
           model: selectedModel.id,
           api: selectedModel.api,
           requestedThinkingLevel,
-          effectiveThinkingLevel
+          effectiveThinkingLevel,
+          thinkingStrategy,
+          adaptiveFallbackReason: adaptiveResolution?.fallbackReason
         };
         if (ctx.onRunnerEvent) {
           await ctx.onRunnerEvent({
             type: "thinking_config",
             requestedThinkingLevel,
             effectiveThinkingLevel,
+            thinkingStrategy,
+            adaptiveFallbackReason: adaptiveResolution?.fallbackReason,
             provider: selectedModel.provider,
             model: selectedModel.id,
             reasoningSupported: selectedModel.reasoning

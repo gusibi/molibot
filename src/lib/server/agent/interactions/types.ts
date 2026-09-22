@@ -1,3 +1,5 @@
+import type { RuntimeThinkingLevel, RuntimeThinkingSelection } from "$lib/server/settings/index.js";
+
 export type InteractionSurface =
   | "menu"
   | "models"
@@ -153,10 +155,10 @@ export interface InteractionProjectItem {
 
 export interface InteractionThinkingState {
   sessionId: string;
-  override: string | null;
-  requested: string;
-  effective: string;
-  supported: string[];
+  override: RuntimeThinkingSelection | null;
+  requested: RuntimeThinkingSelection;
+  effective: RuntimeThinkingLevel;
+  supported: RuntimeThinkingSelection[];
 }
 
 export interface InteractionSkillItem {
