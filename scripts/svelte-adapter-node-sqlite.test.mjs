@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { handlerReplacements, publishBuild } from "./svelte-adapter-node-sqlite.js";
@@ -42,4 +43,39 @@ test("publishing a rebuild keeps chunks required by the running server", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a running manifest can lazy-load its chunk after publishing the next build", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-adapter-lazy-import-"));
+  const output = path.join(root, "build");
+  const staged = path.join(root, "staged");
+  const oldChunk = "_server.ts-CzmUZn8-.js";
+
+  try {
+    writeFileSync(path.join(root, "package.json"), JSON.stringify({ type: "module" }));
+    mkdirSync(path.join(output, "server/chunks"), { recursive: true });
+    writeFileSync(path.join(output, `server/chunks/${oldChunk}`), 'export const route = "old";');
+    writeFileSync(
+      path.join(output, "server/manifest.js"),
+      `export const loadRoute = () => import("./chunks/${oldChunk}");`
+    );
+
+    const runningManifest = await import(pathToFileURL(path.join(output, "server/manifest.js")).href);
+
+    mkdirSync(path.join(staged, "server/chunks"), { recursive: true });
+    writeFileSync(path.join(staged, "server/chunks/new-route.js"), 'export const route = "new";');
+    writeFileSync(path.join(staged, "server/manifest.js"), 'export const loadRoute = () => import("./chunks/new-route.js");');
+
+    publishBuild(staged, output);
+
+    assert.equal((await runningManifest.loadRoute()).route, "old");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the production build does not delete the live output before adapter publication", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.doesNotMatch(packageJson.scripts.build, /rmSync\(['"]build['"]|rm\s+-rf\s+[^&]*\bbuild\b/);
 });

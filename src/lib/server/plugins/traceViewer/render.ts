@@ -6,12 +6,20 @@ const escape = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char 
 export function renderTraceReport(report: TraceReport, language: "zh" | "en" = "zh", theme: "auto" | "light" | "dark" = "auto"): string {
   const zh = language === "zh";
   const text = zh ? {
-    title: "调用链", duration: "总耗时", models: "模型调用", tools: "工具调用", missing: "未记录", partial: "部分用量", snapshot: "快照生成于", input: "输入", output: "输出", read: "缓存读取", write: "缓存写入", args: "参数摘要", result: "结果摘要", error: "错误摘要", started: "开始", finished: "结束", attempt: "重试索引", candidate: "模型候选索引", hint: "点击步骤展开详情。横条表示实际时间范围；缩进表示因果关系，不表示时间包含。未结束的步骤仅在执行进行中显示已持续时间。未记录内部步骤的外部调用仅显示外层。", status: "状态"
+    title: "调用链", duration: "总耗时", models: "主模型调用", tools: "工具调用", missing: "未记录", partial: "部分用量", snapshot: "快照生成于", input: "输入", output: "输出", read: "缓存读取", write: "缓存写入", args: "参数摘要", result: "结果摘要", error: "错误摘要", started: "开始", finished: "结束", attempt: "重试索引", candidate: "模型候选索引", hint: "点击步骤展开详情。决策模型单独显示为运行事件，不计入主模型调用次数。横条表示实际时间范围；缩进表示因果关系，不表示时间包含。未结束的步骤仅在执行进行中显示已持续时间。未记录内部步骤的外部调用仅显示外层。", status: "状态"
   } : {
-    title: "Call trace", duration: "Elapsed", models: "Model calls", tools: "Tool calls", missing: "Not recorded", partial: "Partial usage", snapshot: "Snapshot generated", input: "Input", output: "Output", read: "Cache read", write: "Cache write", args: "Arguments preview", result: "Result preview", error: "Error preview", started: "Started", finished: "Finished", attempt: "Retry index", candidate: "Model candidate index", hint: "Expand a step for details. Bars show elapsed time; indentation shows causal relationships, not time containment. Unfinished steps only show elapsed time while the run is active. External calls only show internal steps when recorded.", status: "Status"
+    title: "Call trace", duration: "Elapsed", models: "Main model calls", tools: "Tool calls", missing: "Not recorded", partial: "Partial usage", snapshot: "Snapshot generated", input: "Input", output: "Output", read: "Cache read", write: "Cache write", args: "Arguments preview", result: "Result preview", error: "Error preview", started: "Started", finished: "Finished", attempt: "Retry index", candidate: "Model candidate index", hint: "Expand a step for details. Decision models appear as separate runtime events and are not counted as main model calls. Bars show elapsed time; indentation shows causal relationships, not time containment. Unfinished steps only show elapsed time while the run is active. External calls only show internal steps when recorded.", status: "Status"
   };
   const labels: Record<string, string> = zh ? { run: "本轮执行", model_call: "模型", tool_call: "工具", subagent_task: "子 Agent", approval: "审批", input_enrichment: "输入处理", runtime_notice: "运行事件", skill_usage: "技能", started: "进行中", waiting: "等待中", success: "成功", error: "失败", aborted: "已中断", blocked: "已阻止", info: "信息", warning: "警告" } : {};
   const label = (value: string) => labels[value] ?? value.replaceAll("_", " ");
+  const thinkingLevel = (value?: string) => value ? (zh ? { off: "关", low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高" }[value] ?? value : value) : undefined;
+  const decisionReason = (value?: string) => value ? (zh ? ({
+    fixed_strategy: "使用固定强度", disabled: "决策模型未启用", missing_model: "未选择决策模型",
+    missing_credential: "决策模型凭据缺失", invalid_configuration: "决策模型配置错误",
+    timeout: "决策超时", network_error: "决策请求失败", malformed_response: "决策结果格式错误",
+    invalid_confidence: "决策置信度无效", low_confidence: "决策置信度不足",
+    insufficient_context: "决策上下文不足"
+  } as Record<string, string>)[value] ?? value : value.replaceAll("_", " ")) : undefined;
   const duration = (value?: number) => value === undefined ? text.missing : `${(value / 1000).toFixed(2)} s`;
   const base = Date.parse(report.startedAt ?? report.generatedAt);
   const span = Math.max(report.durationMs ?? 0, 1);
@@ -34,8 +42,15 @@ export function renderTraceReport(report: TraceReport, language: "zh" | "en" = "
     const known = Number.isFinite(start) && Number.isFinite(end);
     const offset = known ? Math.min(100, Math.max(0, (start - base) / span * 100)) : 0;
     const width = known ? Math.min(100 - offset, Math.max(.3, (end - start) / span * 100)) : 0;
-    const fields = [[text.started, node.startedAt], [text.finished, node.finishedAt], [text.input, node.inputTokens], [text.output, node.outputTokens], [text.read, node.cacheReadTokens], [text.write, node.cacheWriteTokens], [text.attempt, node.attemptIndex], [text.candidate, node.candidateIndex], ["Provider", node.provider]];
-    return `<details><summary><span class="name" style="padding-inline-start:${Math.min(depth, 8) * 12}px"><small>${escape(label(node.factType))}</small><strong>${escape(node.factType === "run" ? label("run") : node.name ?? label(node.factType))}</strong></span><span class="track"><i class="${escape(node.factType)}" style="margin-left:${offset}%;width:${width}%"></i></span><span class="metric">${escape(duration(node.durationMs ?? (known ? end - start : undefined)))}<small>${escape(label(node.status))}</small></span></summary><section><dl>${fields.filter(([, value]) => value !== undefined).map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}${node.factType === "model_call" ? `<div><dt>Tokens</dt><dd>${escape(node.totalTokens ?? text.missing)}</dd></div>` : ""}</dl>${[[text.args, node.argsPreview], [text.result, node.resultPreview], [text.error, node.errorPreview]].filter(([, value]) => value).map(([key, value]) => `<h3>${escape(key)}</h3><pre>${escape(value)}</pre>`).join("")}</section></details>`;
+    const isDecision = node.factType === "runtime_notice" && node.name === "decision_model.thinking_level";
+    const decisionLabel = zh ? "决策模型" : "Decision model";
+    const name = isDecision
+      ? `${decisionLabel} · ${node.decisionStatus === "skipped" ? (zh ? "已跳过" : "Skipped") : thinkingLevel(node.thinkingLevel) ?? text.missing}`
+      : node.factType === "model_call" && node.thinkingLevel
+        ? `${node.name ?? label(node.factType)} · ${thinkingLevel(node.thinkingLevel)}`
+        : node.factType === "run" ? label("run") : node.name ?? label(node.factType);
+    const fields = [[text.started, node.startedAt], [text.finished, node.finishedAt], [text.input, node.inputTokens], [text.output, node.outputTokens], [text.read, node.cacheReadTokens], [text.write, node.cacheWriteTokens], [text.attempt, node.attemptIndex], [text.candidate, node.candidateIndex], ["Provider", node.provider], ...(isDecision ? [[zh ? "决策模型" : "Decision model", node.decisionModel], [zh ? "决策结果" : "Decision result", thinkingLevel(node.thinkingLevel)], [zh ? "原因" : "Reason", decisionReason(node.fallbackReason)]] : [])];
+    return `<details><summary><span class="name" style="padding-inline-start:${Math.min(depth, 8) * 12}px"><small>${escape(isDecision ? decisionLabel : label(node.factType))}</small><strong>${escape(name)}</strong></span><span class="track"><i class="${escape(node.factType)}" style="margin-left:${offset}%;width:${width}%"></i></span><span class="metric">${escape(duration(node.durationMs ?? (known ? end - start : undefined)))}<small>${escape(label(node.status))}</small></span></summary><section><dl>${fields.filter(([, value]) => value !== undefined).map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}${node.factType === "model_call" ? `<div><dt>Tokens</dt><dd>${escape(node.totalTokens ?? text.missing)}</dd></div>` : ""}</dl>${[[text.args, node.argsPreview], [text.result, node.resultPreview], [text.error, node.errorPreview]].filter(([, value]) => value).map(([key, value]) => `<h3>${escape(key)}</h3><pre>${escape(value)}</pre>`).join("")}</section></details>`;
   }).join("");
   return `<!doctype html><html lang="${language}" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${text.title}</title><style>
 :root{color-scheme:light;

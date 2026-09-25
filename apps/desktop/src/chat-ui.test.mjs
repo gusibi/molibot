@@ -118,6 +118,7 @@ const pageHeader = read("./lib/components/ui/PageHeader.svelte");
 const overflowMenu = read("./lib/components/ui/OverflowMenu.svelte");
 const dialog = read("./lib/components/ui/Dialog.svelte");
 const settingGroup = read("./lib/components/ui/SettingGroup.svelte");
+const decisionModelsSection = read("./lib/settings/DecisionModelsSection.svelte");
 const recordingBar = read("./lib/chat/RecordingBar.svelte");
 const projectChat = read("./lib/projects/ProjectChat.svelte");
 const projectChatStoreSource = read("./lib/projects/projectChatStore.svelte.ts");
@@ -995,6 +996,20 @@ test("issue 13 settings pages share a title and product description header", () 
   assert.match(app, /<PageHeader[^>]*description=\{sectionDescription\(activeSection, text\)\}/);
   assert.match(pageHeader, /class="toolbar-edge"/);
   assert.match(app, /settings-sidebar-footer-copy[\s\S]*serviceStateLabel/);
+});
+
+test("decision model settings keep provider integrations separate from use-case selection", () => {
+  assert.match(decisionModelsSection, /#each edit\.decisionModels as model/);
+  assert.match(decisionModelsSection, /addableProviders/);
+  assert.match(decisionModelsSection, /model\.provider === "jev"/);
+  assert.match(decisionModelsSection, /model\.provider === "cloudflare"/);
+  assert.match(decisionModelsSection, /hasSavedToken = model\.hasApiToken/);
+  assert.match(decisionModelsSection, /decisionModelsCloudflareAccountId/);
+  assert.match(decisionModelsSection, /decisionModelsApiToken/);
+  assert.match(decisionModelsSection, /decisionModelsLlmModel/);
+  assert.match(decisionModelsSection, /selectedDecisionModelId/);
+  assert.match(decisionModelsSection, /edit\.decisionModels\.map\(\(model\) => \(\{ value: model\.id/);
+  assert.match(decisionModelsSection, /availableDecisionModelIds\.includes\(model\.id\)/);
 });
 
 test("issue 13 target pages expose user-facing controls and secondary technical detail", () => {
@@ -5662,6 +5677,26 @@ test("thinking stops retain their positioning class and selected-state styling",
   assert.doesNotMatch(stopRule, /transform:/, "transform on the stop belongs to the global press language, not positioning");
 });
 
+test("fixed thinking levels remain selectable while Auto is selected", () => {
+  const autoItemEnd = composerModelMenu.indexOf('</button>', composerModelMenu.indexOf('data-value="auto">'));
+  const pickerStart = composerModelMenu.indexOf('{#if thinkingLevelOptions.length > 1}');
+  assert.ok(autoItemEnd >= 0 && pickerStart > autoItemEnd, "Auto and fixed-level controls must both be present in the menu");
+  assert.equal(composerModelMenu.slice(autoItemEnd + '</button>'.length, pickerStart).trim(), "", "fixed-level controls must not be hidden when Auto is selected");
+
+  const picker = composerModelMenu.slice(pickerStart).match(/^\{#if thinkingLevelOptions\.length > 1\}([\s\S]*?)\{:else if thinkingLevelOptions\.length === 1\}/)?.[1] ?? "";
+  assert.match(picker, /class="composer-level-picker"/);
+  assert.match(picker, /\{#each thinkingLevelOptions as level/);
+  assert.match(picker, /aria-checked=\{level === thinkingLevel\}/);
+  assert.match(composerModelMenu, /\{:else if thinkingLevelOptions\.length === 1\}\s*<button[\s\S]*?data-value=\{thinkingLevelOptions\[0\]\}/);
+});
+
+test("the first turn inherits the new-conversation thinking selection before sending", () => {
+  const selected = chatSessionStore.indexOf("const selectedThinking = this.draftStore.get(NEW_CONVERSATION_KEY).thinkingLevel");
+  const carried = chatSessionStore.indexOf("this.draftStore.setThinking(sessionDraftKey(profileId, created.id), selectedThinking)");
+  const sent = chatSessionStore.indexOf("await entry.controller.send({ message: content, files })");
+  assert.ok(selected >= 0 && selected < carried && carried < sent);
+});
+
 test("composer model menu wires interactions through direct listeners, not delegated onclick", () => {
   // 长寿命 dev webview 在一次损坏的 HMR 更新后，Svelte 5 挂在应用根上的委托事件表会整体失效，
   // 而直连监听器仍存活——症状正是“思考档位点了没反应”但菜单还能打开（toggle 是直连的）。
@@ -5831,4 +5866,3 @@ test("desktop motion completion covers list mutation, controls, disclosures, and
   assert.doesNotMatch(completion, /\.agent-(?:studio|city)/);
   assert.doesNotMatch(completion, /(?:^|[,\s])(?:canvas|\.agent-scene|\.three-scene)(?:[\s,{:#.]|$)/im);
 });
-

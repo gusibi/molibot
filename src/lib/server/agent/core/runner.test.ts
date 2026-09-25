@@ -1462,6 +1462,17 @@ test("runner hook bridge emits model call pairing fields", async () => {
   assert.notEqual(after[0]?.payload.modelAttemptId, after[1]?.payload.modelAttemptId);
   assert.deepEqual(after[0]?.payload.usage, { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 });
   assert.deepEqual(after[1]?.payload.usage, { input: 5, output: 6, cacheRead: 7, cacheWrite: 8, totalTokens: 26 });
+  assert.equal(after[0]?.payload.effectiveThinkingLevel, "off");
+});
+
+test("Auto routing reaches the selected decision model before the main model attempt", () => {
+  const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
+  const autoBranch = source.slice(source.indexOf('if (thinkingStrategy === "auto")'), source.indexOf('let finalText = ""'));
+  assert.match(autoBranch, /createAdaptiveThinkingProvider\(/);
+  assert.match(autoBranch, /resolveAdaptiveThinking\(/);
+  assert.match(autoBranch, /decision_model\.thinking_level/);
+  assert.match(autoBranch, /hasSemanticThinkingChoice/);
+  assert.match(autoBranch, /no_effective_choice/);
 });
 
 test("runner emits skill.selected without treating workspace scan as skill.loaded", async () => {

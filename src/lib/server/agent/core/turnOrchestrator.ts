@@ -4,6 +4,8 @@ import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { AdaptiveThinkingSettings, RuntimeThinkingLevel, ThinkingStrategy } from "$lib/server/settings/index.js";
+import type { AdaptiveResolution } from "$lib/server/agent/decision/adaptiveThinking.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { MemoryScope } from "$lib/server/memory/types.js";
@@ -36,6 +38,23 @@ export interface RunningTurnRecord {
   status: string;
   startedAt: string;
   lastHeartbeat?: string | null;
+}
+
+export interface TurnDecisionPolicy {
+  strategy: ThinkingStrategy;
+  fixedLevel: RuntimeThinkingLevel;
+  enabled: boolean;
+  selectedDecisionModelId: string;
+  maxThinkingLevel: AdaptiveThinkingSettings["maxThinkingLevel"];
+  fallbackThinkingLevel: AdaptiveThinkingSettings["fallbackThinkingLevel"];
+  confidenceThreshold: number;
+  timeoutMs: number;
+}
+
+export interface TurnDecisionRecord {
+  state: "pending" | "dispatched" | "resolved";
+  policy: TurnDecisionPolicy;
+  resolution?: AdaptiveResolution;
 }
 
 // Rows written before the heartbeat column existed (or by external writers)
@@ -111,7 +130,7 @@ export class TurnOrchestrator {
   private readonly approvalBroker?: ApprovalBroker;
   private db: DatabaseSync | null = null;
 
-  constructor(approvalBroker?: ApprovalBroker) {
+  constructor(approvalBroker?: ApprovalBroker, private readonly dbPath = storagePaths.settingsDbFile) {
     this.approvalBroker = approvalBroker;
   }
 
@@ -119,8 +138,8 @@ export class TurnOrchestrator {
   // an open/DDL/close cycle on every turn operation in the hot path.
   private getDb(): DatabaseSync {
     if (this.db) return this.db;
-    ensureSqliteParentDir(storagePaths.settingsDbFile);
-    const db = new DatabaseSync(storagePaths.settingsDbFile);
+    ensureSqliteParentDir(this.dbPath);
+    const db = new DatabaseSync(this.dbPath);
     db.exec(`
       CREATE TABLE IF NOT EXISTS workspaces (
         id TEXT PRIMARY KEY,
@@ -147,10 +166,43 @@ export class TurnOrchestrator {
       );
       CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
       CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);
+      CREATE TABLE IF NOT EXISTS turn_decisions (
+        run_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        policy_json TEXT NOT NULL,
+        resolution_json TEXT
+      );
     `);
     ensureRunsHeartbeatColumn(db);
     this.db = db;
     return db;
+  }
+
+  getTurnDecision(runId: string): TurnDecisionRecord | undefined {
+    const row = this.getDb().prepare("SELECT state, policy_json, resolution_json FROM turn_decisions WHERE run_id = ?")
+      .get(runId) as { state: TurnDecisionRecord["state"]; policy_json: string; resolution_json: string | null } | undefined;
+    if (!row) return undefined;
+    return {
+      state: row.state,
+      policy: JSON.parse(row.policy_json) as TurnDecisionPolicy,
+      ...(row.resolution_json ? { resolution: JSON.parse(row.resolution_json) as AdaptiveResolution } : {})
+    };
+  }
+
+  beginTurnDecision(runId: string, policy: TurnDecisionPolicy): TurnDecisionRecord {
+    this.getDb().prepare("INSERT OR IGNORE INTO turn_decisions (run_id, state, policy_json) VALUES (?, 'pending', ?)")
+      .run(runId, JSON.stringify(policy));
+    return this.getTurnDecision(runId)!;
+  }
+
+  markTurnDecisionDispatched(runId: string): void {
+    this.getDb().prepare("UPDATE turn_decisions SET state = 'dispatched' WHERE run_id = ? AND state = 'pending'")
+      .run(runId);
+  }
+
+  commitTurnDecision(runId: string, resolution: AdaptiveResolution): void {
+    this.getDb().prepare("UPDATE turn_decisions SET state = 'resolved', resolution_json = ? WHERE run_id = ? AND state != 'resolved'")
+      .run(JSON.stringify(resolution), runId);
   }
 
   close(): void {

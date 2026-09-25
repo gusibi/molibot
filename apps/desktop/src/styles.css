@@ -4391,6 +4391,31 @@ a:focus-visible {
 .settings-content > .error-message { margin: 18px 28px; }
 .settings-section-actions { display: flex; justify-content: flex-end; width: var(--settings-col); margin: 0 auto 12px; }
 .settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; padding: 16px; }
+.decision-model-entry { padding: 16px; }
+.decision-model-entry + .decision-model-entry { border-top: 0.5px solid var(--gray-alpha-100); }
+.decision-model-entry-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; color: var(--label-primary); font-size: var(--fs-body); }
+.decision-model-entry-trigger { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; padding: 4px 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.decision-model-entry-trigger > svg, .decision-model-test-result-trigger > svg { flex: none; color: var(--label-secondary); transition: transform 160ms ease; }
+.decision-model-entry-trigger[aria-expanded="false"] > svg, .decision-model-test-result-trigger[aria-expanded="false"] > svg { transform: rotate(-90deg); }
+.decision-model-entry-labels { display: grid; gap: 3px; min-width: 0; }
+.decision-model-entry-labels strong { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-weight: 600; }
+.decision-model-entry-labels small { overflow: hidden; color: var(--label-secondary); font-size: var(--fs-meta); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.decision-model-selected { padding: 2px 6px; border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: var(--fs-meta); font-weight: 500; }
+.decision-model-entry-trigger:focus-visible, .decision-model-test-result-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--rounded-sm); }
+.decision-model-entry .settings-form { padding: 12px 0 0; }
+.decision-model-tests { display: grid; gap: 10px; padding-top: 14px; }
+.decision-model-tests > .settings-section-hint { width: auto; margin: 0; }
+.decision-model-tests .settings-row-actions { justify-content: flex-start; }
+.decision-model-tests .settings-action-message { margin: 0; }
+.decision-model-test-result { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--gray-alpha-200); border-radius: var(--rounded-sm); color: var(--label-primary); font-size: var(--fs-meta); }
+.decision-model-test-result-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.decision-model-test-result-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decision-model-test-result > span { color: var(--label-secondary); font-weight: 600; }
+.decision-model-test-result pre { max-height: 240px; margin: 0; padding: 10px; overflow: auto; border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); font: 12px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.decision-model-add { border-top: 0.5px solid var(--gray-alpha-100); }
+.decision-model-add-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.decision-model-provider > .settings-section-hint { width: auto; margin: 0 16px 16px; }
+.decision-model-provider > .settings-row .settings-section-hint { width: auto; margin: 0; }
 .settings-field { display: grid; gap: 5px; min-width: 0; color: var(--label-secondary); font-size: var(--fs-label); font-weight: 600; }
 .settings-field input { min-width: 0; height: var(--control-h); padding: 0 9px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); font: inherit; font-weight: 400; font-size: var(--fs-label); }
 /* Form inputs and popup buttons use the standardized macOS control token (--control-h)
@@ -5856,6 +5881,28 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .agent-studio { padding-inline: 18px; }
   .agent-city-fallback-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .message-row { max-width: 90%; }
+}
+
+@media (max-width: 600px) {
+  .settings-layout { grid-template-columns: 128px minmax(0, 1fr); }
+  .settings-back { margin-inline: 6px; padding-inline: 6px; }
+  .settings-search { margin-inline: 6px; }
+  .settings-nav-list { padding-inline: 4px; }
+  .settings-nav-group-label { margin-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .settings-nav { gap: 6px; padding-inline: 6px; }
+  .settings-sidebar-footer { gap: 6px; padding-inline: 8px; }
+  .settings-footer-avatar { width: 24px; height: 24px; }
+  .settings-page-header { padding-inline: 18px; }
+  .decision-model-provider > .settings-row,
+  .decision-model-policy > .settings-row { align-items: stretch; flex-direction: column; gap: 8px; }
+  .decision-model-provider > .settings-row .setting-row-control,
+  .decision-model-policy > .settings-row .setting-row-control { justify-content: flex-start; }
+  .decision-model-policy > .settings-row .setting-row-control > .select-control,
+  .decision-model-policy > .settings-row .setting-row-control > .select-control .select-control-trigger { width: 100%; max-width: 100%; }
+  .decision-model-entry { padding: 14px; }
+  .decision-model-add { padding: 14px; }
+  .decision-model-add-row { grid-template-columns: 1fr; }
+  .decision-model-add-row > .secondary-button { width: 100%; }
 }
 
 /* Agent City — a fixed isometric desktop miniature with DOM-first status labels. */
@@ -7361,4 +7408,3 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   transition: none !important;
   scale: 1 !important;
 }
-

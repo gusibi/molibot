@@ -6,6 +6,7 @@ import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
 import { getRuntime } from "$lib/server/app/runtime.js";
 import { buildDesktopModelState } from "$lib/server/app/desktopModels.js";
+import { readAdaptiveThinkingAvailability } from "$lib/server/settings/handlers/adaptiveThinking.js";
 
 export const GET: RequestHandler = ({ params }) => {
   const project = getProjectStore().get(params.id);
@@ -19,6 +20,10 @@ export const GET: RequestHandler = ({ params }) => {
 export const PATCH: RequestHandler = async ({ params, request }) => {
   try {
     const body = await request.json() as Parameters<ReturnType<typeof getProjectStore>["update"]>[1];
+    const existing = getProjectStore().get(params.id);
+    if (body.thinkingLevel === "auto" && existing?.thinkingLevel !== "auto" && !await readAdaptiveThinkingAvailability(getRuntime())) {
+      return json({ ok: false, error: "Configure and enable a decision model before selecting Auto." }, { status: 400 });
+    }
     if (body.modelKey && !buildDesktopModelState(getRuntime().getSettings(), "text").options.some((option) => option.key === body.modelKey)) {
       return json({ ok: false, error: "Unknown Project model." }, { status: 400 });
     }

@@ -34,7 +34,10 @@ import {
 import type { ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { getModelThinkingLevels, resolveModelThinkingLevel } from "$lib/server/providers/modelThinking.js";
-import { resolveAutoEffectiveThinkingLevel } from "$lib/server/agent/decision/adaptiveThinking.js";
+import {
+  hasConfiguredAdaptiveThinkingProvider,
+  resolveAutoEffectiveThinkingLevel
+} from "$lib/server/agent/decision/adaptiveThinking.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 import { formatRunLogText } from "$lib/server/agent/session/runDetail.js";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n.js";
@@ -886,9 +889,7 @@ export class SharedRuntimeCommandService<TTarget> {
       ?? (settings.adaptiveThinking.defaultStrategy === "auto" ? "auto" : settings.defaultThinkingLevel);
     const model = resolveModel(this.effectiveModelSettings(settings), "text");
     const modelLevels = getModelThinkingLevels(model);
-    const autoAvailable = settings.adaptiveThinking.enabled
-      || settings.adaptiveThinking.defaultStrategy === "auto"
-      || override === "auto";
+    const autoAvailable = hasConfiguredAdaptiveThinkingProvider(settings);
     const supported: RuntimeThinkingSelection[] = [
       ...(autoAvailable ? ["auto" as const] : []),
       ...modelLevels

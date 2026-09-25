@@ -295,13 +295,19 @@ export class TraceRecorderHook implements RuntimeHook {
     if (event.stage === "runtime.notice") {
       const code = stringField(payload, "code") ?? event.timestamp;
       const severity = stringField(payload, "severity") ?? "info";
+      const decisionStatus = code === "decision_model.thinking_level" ? stringField(payload, "decisionStatus") : undefined;
+      const decisionLatency = decisionStatus ? numberField(payload, "latencyMs") : undefined;
       this.recordGenericFact(
         event,
         payload,
         "runtime_notice",
         code,
         code,
-        severity === "error" ? "error" : severity === "warn" || severity === "warning" ? "warning" : "info"
+        decisionStatus === "success" ? "success" : severity === "error" ? "error" : severity === "warn" || severity === "warning" ? "warning" : "info",
+        decisionLatency !== undefined ? {
+          startedAt: new Date(Date.parse(event.timestamp) - decisionLatency).toISOString(),
+          durationMs: decisionLatency
+        } : {}
       );
     }
   }

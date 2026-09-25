@@ -19,6 +19,7 @@
   export let thinkingLevel: DesktopThinkingSelection;
   export let thinkingLevelOptions: readonly DesktopThinkingLevel[] = [];
   export let thinkingLevelLabel = "";
+  export let autoAvailable = false;
   export let disabled = false;
   export let onChangeModel: (value: string) => void;
   export let onChangeThinking: (value: DesktopThinkingSelection) => void;
@@ -30,8 +31,10 @@
   $: modelLabel = activeModelLabel || copy.model;
   $: levelLabel = thinkingLevelLabel || copy.thinkingLevel;
   $: modelGroups = groupModelOptions(modelOptions);
-  $: levelIndex = Math.max(0, thinkingLevel === "auto" ? 0 : thinkingLevelOptions.indexOf(thinkingLevel));
-  $: levelFrac = thinkingLevelOptions.length > 1 ? levelIndex / (thinkingLevelOptions.length - 1) : 0.5;
+  $: levelIndex = thinkingLevel === "auto" ? -1 : Math.max(0, thinkingLevelOptions.indexOf(thinkingLevel));
+  $: levelFrac = thinkingLevel === "auto" || thinkingLevelOptions.length < 2
+    ? 0.5
+    : levelIndex / (thinkingLevelOptions.length - 1);
 
   function thinkingOptionLabel(level: DesktopThinkingSelection): string {
     if (level === "auto") return copy.providerThinkingAuto;
@@ -275,11 +278,11 @@
           <span class="composer-menu-copy"><strong>{copy.model}</strong><small title={activeModelTitle || modelLabel}>{modelLabel}</small></span>
           <AngleRight size={14} aria-hidden="true" />
         </button>
-        <button type="button" class="composer-thinking-auto" role="menuitemradio" aria-checked={thinkingLevel === "auto"} data-menu-action="select-thinking" data-value="auto">
-          <span class="composer-menu-copy"><strong>{copy.thinkingLevel}</strong><small>{copy.providerThinkingAuto}</small></span>
+        <button type="button" class="composer-thinking-auto" role="menuitemradio" aria-checked={thinkingLevel === "auto"} disabled={!autoAvailable} data-menu-action="select-thinking" data-value="auto">
+          <span class="composer-menu-copy"><strong>{copy.thinkingLevel}</strong><small>{autoAvailable ? copy.providerThinkingAuto : copy.providerThinkingAutoUnavailable}</small></span>
           {#if thinkingLevel === "auto"}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
         </button>
-        {#if thinkingLevel !== "auto" && thinkingLevelOptions.length > 1}
+        {#if thinkingLevelOptions.length > 1}
           <div class="composer-level-picker" role="group" aria-label={copy.thinkingLevel}>
             <div class="composer-level-head">
               <span>{copy.thinkingLevel}</span>
@@ -287,7 +290,7 @@
             </div>
             <div class="composer-level-track">
               <div class="composer-level-fill" style={`width: ${levelIndex > 0 ? `calc(11px + (100% - 22px) * ${levelFrac})` : "0px"}`} aria-hidden="true"></div>
-              <div class="composer-level-knob" style={`left: calc(11px + (100% - 22px) * ${levelFrac})`} aria-hidden="true"></div>
+              {#if thinkingLevel !== "auto"}<div class="composer-level-knob" style={`left: calc(11px + (100% - 22px) * ${levelFrac})`} aria-hidden="true"></div>{/if}
               {#each thinkingLevelOptions as level, i (level)}
                 <button
                   type="button"
@@ -307,6 +310,17 @@
               <span>{thinkingOptionLabel(thinkingLevelOptions[thinkingLevelOptions.length - 1])}</span>
             </div>
           </div>
+        {:else if thinkingLevelOptions.length === 1}
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={thinkingLevel === thinkingLevelOptions[0]}
+            data-menu-action="select-thinking"
+            data-value={thinkingLevelOptions[0]}
+          >
+            <span class="composer-menu-copy"><strong>{copy.thinkingLevel}</strong><small>{thinkingOptionLabel(thinkingLevelOptions[0])}</small></span>
+            {#if thinkingLevel === thinkingLevelOptions[0]}<Check class="composer-menu-check" weight="Filled" size={14} aria-hidden="true" />{/if}
+          </button>
         {/if}
       {:else}
         <div class="composer-menu-heading">

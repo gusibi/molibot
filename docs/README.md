@@ -45,6 +45,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Artifact Panel PRD](requirements/artifact-panel-prd.md) — shared artifact registry and inspection
 - [Plugin-owned Settings PRD](requirements/plugin-owned-settings-prd.md) — plugin contract reference migration
 - [Mini App Platform Roadmap](requirements/miniapp-platform-extension-roadmap.md) — platform extension direction
+- [Multi-Agent Room Spec](requirements/multi-agent-room-spec.md) — long-lived Desktop conversations with configured Agent participants
 - [OpenConnector plan](requirements/openconnector-cloudflare-and-molibot-plan.md) — third-party integration gateway
 - [Realtime avatar conversation plan](requirements/realtime-avatar-conversation-plan.md) — draft proposal, not scheduled
 

@@ -27,11 +27,13 @@
   // bug. Template reads elsewhere (e.g. ProjectList's `{#each}`) stay reactive.
   let {
     copy,
+    autoAvailable = false,
     onOpenFiles = () => {},
     onOpenMiniApp = () => {},
     onOpenMiniApps = () => {}
   }: {
     copy: Translation;
+    autoAvailable?: boolean;
     onOpenFiles?: () => void;
     onOpenMiniApp?: (appId: string) => void;
     onOpenMiniApps?: () => void;
@@ -155,7 +157,7 @@
     </ChatHeader>
     <div class="project-body">{#if projectsStore.selectedSessionId}<ProjectChat {copy} {searchMatchIds} {activeMatchId} />{:else}<div class="project-empty"><strong>{copy.projectNoSessions}</strong><button class="primary-button" type="button" onclick={() => void newProjectSession()}>{copy.newChat}</button></div>{/if}</div>
   </section>
-  {#if settingsOpen}<ProjectSettingsDialog {project} {copy} {modelOptions} onClose={() => (settingsOpen = false)} />{/if}
+  {#if settingsOpen}<ProjectSettingsDialog {project} {copy} {modelOptions} {autoAvailable} onClose={() => (settingsOpen = false)} />{/if}
 {:else}
   <section class="project-welcome"><DuotoneIcon name="Folder" size={28} aria-hidden="true" /><h1>{copy.projectWelcome}</h1><p>{copy.projectWelcomeHint}</p></section>
 {/if}

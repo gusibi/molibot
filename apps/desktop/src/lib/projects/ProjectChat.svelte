@@ -92,6 +92,7 @@
   let globalModelKey = "";
   let globalThinkingLevel: DesktopThinkingLevel = "medium";
   let globalThinkingStrategy: "fixed" | "auto" = "fixed";
+  let globalAutoAvailable = false;
   let changingModel = false;
   let appliedSessionId = "";
   let loadedModelEndpoint = "";
@@ -226,12 +227,13 @@
       const [state, routing, adaptive] = await Promise.all([
         loadDesktopModels(endpoint),
         loadDesktopModelRouting(endpoint),
-        loadDesktopAdaptiveThinking(endpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const }))
+        loadDesktopAdaptiveThinking(endpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const, autoAvailable: false }))
       ]);
       modelOptions = state.options;
       globalModelKey = state.currentKey;
       globalThinkingLevel = routing.defaultThinkingLevel;
       globalThinkingStrategy = adaptive.defaultStrategy;
+      globalAutoAvailable = adaptive.autoAvailable;
       // Keep the Session's own model: reloading the option list (service
       // restart, provider edit) must not silently re-point the composer at the
       // global default.
@@ -1140,6 +1142,7 @@
   <ChatInputArea
     bind:value={message}
     thinkingLevel={clampedThinkingLevel}
+    autoAvailable={globalAutoAvailable}
     {thinkingLevelOptions}
     endpoint={projectsStore.endpoint}
     projectId={projectsStore.selectedProjectId}

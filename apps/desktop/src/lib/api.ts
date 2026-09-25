@@ -572,53 +572,97 @@ export async function saveDesktopSessionModel(
 export interface DesktopAdaptiveThinkingConfig {
   enabled: boolean;
   defaultStrategy: "fixed" | "auto";
+  autoAvailable: boolean;
 }
 
+export type DesktopDecisionModelSettings =
+  | { id: "jev"; provider: "jev"; enabled?: boolean; baseUrl: string; hasApiKey: boolean }
+  | { id: "cloudflare-jev"; provider: "cloudflare"; enabled?: boolean; accountId: string; hasApiToken: boolean }
+  | { id: string; provider: "siliconflow"; enabled?: boolean; baseUrl: string; modelId: string; hasApiKey: boolean }
+  | { id: string; provider: "custom-jev"; enabled?: boolean; name: string; baseUrl: string; modelId: string; hasApiKey: boolean }
+  | { id: "llm"; provider: "llm"; enabled?: boolean; llmModelKey: string };
+
 export interface DesktopAdaptiveThinkingSettings extends DesktopAdaptiveThinkingConfig {
-  baseUrl: string;
-  hasApiKey: boolean;
+  decisionModels: DesktopDecisionModelSettings[];
+  selectedDecisionModelId: string;
+  availableDecisionModelIds: string[];
   maxThinkingLevel: "low" | "medium" | "high";
   fallbackThinkingLevel: "low" | "medium" | "high";
   confidenceThreshold: number;
   timeoutMs: number;
 }
 
-/** Reads the redacted global Adaptive Thinking strategy used by the composer. */
+/** Reads the decision-provider readiness and thinking strategy used by the composer. */
 export async function loadDesktopAdaptiveThinking(endpoint: string): Promise<DesktopAdaptiveThinkingConfig> {
   const payload = await requestJson<DesktopAdaptiveThinkingConfig & { ok: true }>(endpoint, "/api/settings/adaptive-thinking");
-  return { enabled: Boolean(payload.enabled), defaultStrategy: payload.defaultStrategy === "auto" ? "auto" : "fixed" };
+  return {
+    enabled: Boolean(payload.enabled),
+    defaultStrategy: payload.defaultStrategy === "auto" ? "auto" : "fixed",
+    autoAvailable: Boolean(payload.autoAvailable)
+  };
 }
 
-/** Reads the redacted Adaptive Thinking settings for the desktop Settings panel. */
+/** Reads the redacted decision model and automatic thinking strategy settings. */
 export async function loadDesktopAdaptiveThinkingSettings(endpoint: string): Promise<DesktopAdaptiveThinkingSettings> {
   return requestJson<DesktopAdaptiveThinkingSettings & { ok: true }>(endpoint, "/api/settings/adaptive-thinking");
 }
 
-/** Saves Adaptive Thinking settings; the API key is sent only when replacing it. */
+/** Saves decision model settings; provider credentials are sent only when replacing them. */
 export async function saveDesktopAdaptiveThinkingSettings(
   endpoint: string,
-  settings: Omit<DesktopAdaptiveThinkingSettings, "hasApiKey">,
-  apiKey?: string,
-  clearApiKey = false
+  settings: DesktopAdaptiveThinkingSettings,
+  apiKeys: Record<string, string> = {},
+  clearApiKeys: string[] = []
 ): Promise<DesktopAdaptiveThinkingSettings> {
+  const { autoAvailable: _autoAvailable, availableDecisionModelIds: _availableDecisionModelIds, ...config } = settings;
+  const decisionModels = config.decisionModels.map((model) => {
+    if (model.provider === "jev") {
+      const { hasApiKey: _hasApiKey, ...safe } = model;
+      return safe;
+    }
+    if (model.provider === "cloudflare") {
+      const { hasApiToken: _hasApiToken, ...safe } = model;
+      return safe;
+    }
+    if (model.provider === "siliconflow" || model.provider === "custom-jev") {
+      const { hasApiKey: _hasApiKey, ...safe } = model;
+      return safe;
+    }
+    return model;
+  });
   return requestJson<DesktopAdaptiveThinkingSettings & { ok: true }>(endpoint, "/api/settings/adaptive-thinking", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...settings, apiKey: apiKey || undefined, clearApiKey })
+    body: JSON.stringify({ ...config, decisionModels, apiKeys, clearApiKeys })
   });
 }
 
-/** Tests an unsaved Jev host/key pair with a synthetic Choice request. */
-export async function testDesktopAdaptiveThinkingConnection(
+export type DecisionTestMode = "noul" | "choice" | "score";
+export interface DecisionTestResult {
+  provider: string;
+  model: string;
+  testCase: { id: DecisionTestMode; state: unknown; questions: Record<string, unknown> };
+  answers: Record<string, unknown>;
+}
+
+/** Runs the same Jev evaluation case through the selected decision model. */
+export async function testDesktopDecisionModelCase(
   endpoint: string,
-  baseUrl: string,
-  apiKey: string,
-  timeoutMs: number
-): Promise<{ provider?: string; model?: string }> {
-  return requestJson<{ ok: true; provider?: string; model?: string }>(endpoint, "/api/settings/adaptive-thinking/test", {
+  input: {
+    provider: "jev" | "llm" | "cloudflare" | "siliconflow" | "custom-jev";
+    baseUrl?: string;
+    apiKey?: string;
+    accountId?: string;
+    llmModelKey?: string;
+    modelId?: string;
+    decisionModelId?: string;
+    testCaseId: DecisionTestMode;
+  }
+): Promise<DecisionTestResult> {
+  return requestJson<DecisionTestResult & { ok: true }>(endpoint, "/api/settings/adaptive-thinking/test", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ baseUrl, apiKey, timeoutMs })
+    body: JSON.stringify(input)
   });
 }
 

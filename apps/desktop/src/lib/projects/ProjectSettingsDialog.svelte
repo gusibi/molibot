@@ -21,6 +21,7 @@
   export let project: DesktopProject;
   export let copy: Translation;
   export let modelOptions: DesktopModelOption[] = [];
+  export let autoAvailable = false;
   export let onClose: () => void;
 
   let name = project.name;
@@ -133,7 +134,7 @@
         <label class="settings-field"><span>{copy.projectPath}</span><input value={project.rootPath} autocomplete="off" spellcheck="false" readonly /></label>
         <label class="settings-field settings-field-wide"><span>{copy.projectInstructions}</span><textarea rows="5" bind:value={instructions} placeholder={withEllipsis(copy.projectInstructionsHint)}></textarea></label>
         <label class="settings-field"><span>{copy.projectDefaultModel}</span><SelectControl value={modelKey} ariaLabel={copy.projectDefaultModel} options={[{ value: "", label: copy.projectFollowGlobal }, ...modelOptions.map((model) => ({ value: model.key, label: modelOptionCopy(model).name }))]} onChange={(value) => modelKey = value} /></label>
-        <label class="settings-field"><span>{copy.projectDefaultThinking}</span><SelectControl value={thinkingLevel} ariaLabel={copy.projectDefaultThinking} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "auto", label: copy.providerThinkingAuto }, ...thinkingLevelOptions.map((level) => ({ value: level, label: thinkingLabel(level) }))]} onChange={(value) => thinkingLevel = value as "" | DesktopThinkingSelection} /></label>
+        <label class="settings-field"><span>{copy.projectDefaultThinking}</span><SelectControl value={thinkingLevel} ariaLabel={copy.projectDefaultThinking} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "auto", label: autoAvailable ? copy.providerThinkingAuto : copy.providerThinkingAutoUnavailable, disabled: !autoAvailable }, ...thinkingLevelOptions.map((level) => ({ value: level, label: thinkingLabel(level) }))]} onChange={(value) => thinkingLevel = value as "" | DesktopThinkingSelection} /></label>
         <label class="settings-field"><span>{copy.projectToolProgress}</span><SelectControl value={toolProgress} ariaLabel={copy.projectToolProgress} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "new", label: copy.projectDisplayNew }, { value: "all", label: copy.projectDisplayAll }, { value: "verbose", label: copy.projectDisplayVerbose }]} onChange={(value) => toolProgress = value as typeof toolProgress} /></label>
         <label class="settings-field"><span>{copy.projectReasoning}</span><SelectControl value={showReasoning} ariaLabel={copy.projectReasoning} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "on", label: copy.projectDisplayOn }, { value: "stream", label: copy.projectDisplayStream }, { value: "new", label: copy.projectDisplayNew }]} onChange={(value) => showReasoning = value as typeof showReasoning} /></label>
         <label class="settings-field"><span>{copy.projectRunlogNotice}</span><SelectControl value={runLogNotice} ariaLabel={copy.projectRunlogNotice} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "on", label: copy.projectDisplayOn }, { value: "off", label: copy.projectDisplayOff }]} onChange={(value) => runLogNotice = value} /></label>

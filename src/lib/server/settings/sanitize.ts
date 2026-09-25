@@ -148,11 +148,106 @@ export function sanitizeAdaptiveThinkingSettings(
     : maxThinkingLevel;
   const thresholdRaw = Number(source.confidenceThreshold);
   const timeoutRaw = Number(source.timeoutMs);
-  const baseUrl = sanitizeAdaptiveBaseUrl(source.baseUrl, fallback.baseUrl);
+  const rawDecisionModels = Array.isArray(source.decisionModels) ? source.decisionModels : fallback.decisionModels;
+  const fallbackModels = new Map(fallback.decisionModels.map((model) => [model.id, model]));
+  const seenProviders = new Set<string>();
+  const decisionModels: AdaptiveThinkingSettings["decisionModels"] = [];
+  for (const rawModel of rawDecisionModels) {
+    if (!rawModel || typeof rawModel !== "object") continue;
+    const model = rawModel as Record<string, unknown>;
+    if (model.provider === "jev" && !seenProviders.has("jev")) {
+      const saved = fallbackModels.get("jev");
+      const savedJev = saved?.provider === "jev" ? saved : undefined;
+      decisionModels.push({
+        id: "jev",
+        provider: "jev",
+        enabled: model.enabled === undefined ? true : Boolean(model.enabled),
+        baseUrl: sanitizeAdaptiveBaseUrl(model.baseUrl, savedJev?.baseUrl ?? "https://api.typesafe.ai"),
+        apiKey: String(model.apiKey ?? savedJev?.apiKey ?? "").trim()
+      });
+      seenProviders.add("jev");
+    } else if (model.provider === "llm" && !seenProviders.has("llm")) {
+      const saved = fallbackModels.get("llm");
+      const savedLlm = saved?.provider === "llm" ? saved : undefined;
+      decisionModels.push({
+        id: "llm",
+        provider: "llm",
+        enabled: model.enabled === undefined ? true : Boolean(model.enabled),
+        llmModelKey: String(model.llmModelKey ?? savedLlm?.llmModelKey ?? "").trim()
+      });
+      seenProviders.add("llm");
+    } else if (model.provider === "cloudflare" && !seenProviders.has("cloudflare")) {
+      const saved = fallbackModels.get("cloudflare-jev");
+      const savedCloudflare = saved?.provider === "cloudflare" ? saved : undefined;
+      decisionModels.push({
+        id: "cloudflare-jev",
+        provider: "cloudflare",
+        enabled: model.enabled === undefined ? true : Boolean(model.enabled),
+        accountId: String(model.accountId ?? savedCloudflare?.accountId ?? "").trim(),
+        apiToken: String(model.apiToken ?? savedCloudflare?.apiToken ?? "").trim()
+      });
+      seenProviders.add("cloudflare");
+    } else if (model.provider === "siliconflow") {
+      const id = String(model.id ?? "").trim();
+      if (!/^siliconflow(?:-[1-9]\d*)?$/.test(id) || seenProviders.has(id)) continue;
+      const saved = fallbackModels.get(id);
+      const savedSiliconFlow = saved?.provider === "siliconflow" ? saved : undefined;
+      const baseUrl = sanitizeAdaptiveBaseUrl(
+        model.baseUrl,
+        savedSiliconFlow?.baseUrl ?? "https://api.siliconflow.cn"
+      ).replace(/\/v1$/, "");
+      decisionModels.push({
+        id,
+        provider: "siliconflow",
+        enabled: model.enabled === undefined ? true : Boolean(model.enabled),
+        baseUrl,
+        modelId: String(model.modelId ?? savedSiliconFlow?.modelId ?? "").trim(),
+        apiKey: String(model.apiKey ?? savedSiliconFlow?.apiKey ?? "").trim()
+      });
+      seenProviders.add(id);
+    } else if (model.provider === "custom-jev") {
+      const id = String(model.id ?? "").trim();
+      if (!/^custom-jev-[1-9]\d*$/.test(id) || seenProviders.has(id)) continue;
+      const saved = fallbackModels.get(id);
+      const savedCustom = saved?.provider === "custom-jev" ? saved : undefined;
+      decisionModels.push({
+        id,
+        provider: "custom-jev",
+        enabled: model.enabled === undefined ? true : Boolean(model.enabled),
+        name: String(model.name ?? savedCustom?.name ?? "").trim(),
+        baseUrl: sanitizeAdaptiveBaseUrl(model.baseUrl, savedCustom?.baseUrl ?? "").replace(/\/v1$/, ""),
+        modelId: String(model.modelId ?? savedCustom?.modelId ?? "").trim(),
+        apiKey: String(model.apiKey ?? savedCustom?.apiKey ?? "").trim()
+      });
+      seenProviders.add(id);
+    }
+  }
+  const siliconFlowEntries = decisionModels.filter((model) => model.provider === "siliconflow");
+  const canonicalSiliconFlow = siliconFlowEntries.find((model) => model.id === "siliconflow");
+  const savedFirstSiliconFlow = siliconFlowEntries.find((model) => model.id === "siliconflow-1");
+  const builtInSiliconFlow = canonicalSiliconFlow && (canonicalSiliconFlow.modelId || canonicalSiliconFlow.apiKey)
+    ? canonicalSiliconFlow
+    : savedFirstSiliconFlow && (savedFirstSiliconFlow.modelId || savedFirstSiliconFlow.apiKey)
+      ? savedFirstSiliconFlow
+      : canonicalSiliconFlow ?? savedFirstSiliconFlow ?? siliconFlowEntries[0]
+    ?? { id: "siliconflow", provider: "siliconflow" as const, enabled: false, baseUrl: "https://api.siliconflow.cn", modelId: "", apiKey: "" };
+  const builtIns: AdaptiveThinkingSettings["decisionModels"] = [
+    decisionModels.find((model) => model.id === "jev") ?? { id: "jev", provider: "jev", enabled: false, baseUrl: "https://api.typesafe.ai", apiKey: "" },
+    decisionModels.find((model) => model.id === "llm") ?? { id: "llm", provider: "llm", enabled: false, llmModelKey: "" },
+    builtInSiliconFlow
+  ];
+  const orderedModels = [...builtIns, ...decisionModels.filter((model) =>
+    !["jev", "llm", builtInSiliconFlow.id].includes(model.id)
+    && !(model.id === "siliconflow" && builtInSiliconFlow.id !== "siliconflow" && model.provider === "siliconflow" && !model.modelId && !model.apiKey)
+  )];
+  const selectedDecisionModelId = String(source.selectedDecisionModelId ?? fallback.selectedDecisionModelId).trim();
   return {
     enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
-    baseUrl,
-    apiKey: source.apiKey === undefined ? fallback.apiKey : String(source.apiKey ?? "").trim(),
+    decisionModels: orderedModels,
+    selectedDecisionModelId: orderedModels.some((model) => model.id === selectedDecisionModelId)
+      ? selectedDecisionModelId
+      : selectedDecisionModelId === "siliconflow" && builtInSiliconFlow.id !== "siliconflow" ? builtInSiliconFlow.id
+      : "",
     defaultStrategy: String(source.defaultStrategy ?? fallback.defaultStrategy).trim().toLowerCase() === "auto" ? "auto" : "fixed",
     maxThinkingLevel,
     fallbackThinkingLevel,

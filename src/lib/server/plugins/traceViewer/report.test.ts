@@ -136,6 +136,27 @@ test("the report follows an explicit theme and falls back to auto", () => {
   } finally { store.close(); }
 });
 
+test("decision outcomes and the actual thinking level appear in the call trace", () => {
+  const store = new SqliteTraceStore(":memory:");
+  try {
+    const hook = new TraceRecorderHook(store);
+    const context = { runId: "decision-run", channel: "web", chatId: "chat", sessionId: "session" };
+    const emit = (stage: any, seconds: number, payload: Record<string, unknown>) => hook.handle({ stage, context, timestamp: new Date(100000 + seconds * 1000).toISOString(), payload } as any);
+    emit("run.started", 0, {});
+    emit("runtime.notice", 0, { code: "decision_model.thinking_level", decisionStatus: "fallback", attempted: true, decisionModel: "jev", thinkingLevel: "medium", fallbackReason: "timeout", severity: "warning" });
+    emit("model.call.before", 0, { modelAttemptId: "main", model: "gpt-6-luna", effectiveThinkingLevel: "medium" });
+    emit("model.call.after", 1, { modelAttemptId: "main", model: "gpt-6-luna", effectiveThinkingLevel: "medium", usage: { totalTokens: 10 } });
+    emit("run.finished", 1, { status: "success" });
+    const report = queryTraceReport(store, { runId: "decision-run" }, context);
+    assert.equal(report.nodes.find(node => node.name === "decision_model.thinking_level")?.fallbackReason, "timeout");
+    const html = renderTraceReport(report, "zh");
+    assert.match(html, /决策模型 · 中/);
+    assert.match(html, /gpt-6-luna · 中/);
+    assert.match(html, /决策超时/);
+    assert.doesNotMatch(html, /决策模型 · Auto/);
+  } finally { store.close(); }
+});
+
 test("a resolved approval closes its waiting span and stays terminal", () => {
   const store = new SqliteTraceStore(":memory:");
   try {

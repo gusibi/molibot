@@ -12,6 +12,10 @@ export interface TraceNode {
   name?: string;
   provider?: string;
   model?: string;
+  thinkingLevel?: string;
+  decisionStatus?: string;
+  decisionModel?: string;
+  fallbackReason?: string;
   status: TraceFactRecord["status"];
   startedAt?: string;
   finishedAt?: string;
@@ -74,6 +78,10 @@ export function queryTraceReport(store: SqliteTraceStore, target: TraceTarget, s
     nodes: facts.map(f => ({
       id: nodeId(f), parentId: f.factType === "run" ? undefined : f.parentFactId ? `${f.runId}:${f.parentFactId}` : nodeId(root),
       factId: f.factId, factType: f.factType, name: f.name, provider: f.provider, model: f.model,
+      thinkingLevel: typeof f.payload.effectiveThinkingLevel === "string" ? f.payload.effectiveThinkingLevel : typeof f.payload.thinkingLevel === "string" ? f.payload.thinkingLevel : undefined,
+      decisionStatus: typeof f.payload.decisionStatus === "string" ? f.payload.decisionStatus : undefined,
+      decisionModel: typeof f.payload.decisionModel === "string" ? f.payload.decisionModel : undefined,
+      fallbackReason: typeof f.payload.fallbackReason === "string" ? f.payload.fallbackReason : undefined,
       status: f.status, startedAt: f.startedAt, finishedAt: f.finishedAt, durationMs: f.durationMs,
       inputTokens: f.inputTokens, outputTokens: f.outputTokens, cacheReadTokens: f.cacheReadTokens, cacheWriteTokens: f.cacheWriteTokens, totalTokens: f.totalTokens,
       argsPreview: f.argsPreview, resultPreview: f.resultPreview, errorPreview: f.errorPreview,
@@ -97,6 +105,10 @@ export function publicTraceReport(report: TraceReport): TraceReport {
       name: node.factType === "run" ? undefined : node.name,
       provider: node.provider,
       model: node.model,
+      thinkingLevel: node.thinkingLevel,
+      decisionStatus: node.decisionStatus,
+      decisionModel: node.decisionModel,
+      fallbackReason: node.fallbackReason,
       status: node.status,
       startedAt: node.startedAt,
       finishedAt: node.finishedAt,

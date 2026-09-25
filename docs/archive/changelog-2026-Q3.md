@@ -1,5 +1,7 @@
 # Molibot ChangeLog Archive - 2026 Q3
 
+Archived: 2026-09-23
+
 ## 2026-08-06
 
 ### Added: Mini Apps can exchange messages, drafts, attachments and host AI capabilities
@@ -2020,3 +2022,362 @@ Follow-up to the entry above, after the platform shipped with no visible way in.
 
 ### macOS Settings dropdown polish
 - Replaced the inconsistent mix of custom-triangle and raw native `<select>` controls on the Desktop Settings pages with a single macOS-style popup button: soft surface, faint depth shadow, a clean stroked double-chevron (light/dark variants), and hover / accent-focus / disabled states. Added shared `--control-*` tokens, matched form-grid selects to adjacent input height, and gave settings rows a bit more breathing room for a calmer, more system-native rhythm.
+
+## 2026-08-09
+
+### Improved: a streaming reply renders block-by-block and keeps your selection
+
+- A reply being generated used to call `renderMarkdown(streamingText)` on every frame and swap the whole `{@html}` tree. That was O(whole source) per frame (parse + sanitize + DOM replace), and because the entire `innerHTML` was replaced each frame it blew away any text the reader had selected - copy-while-generating was impossible. An unclosed code fence mid-stream also let marked swallow everything after it into the code block, so the picture lurched until the fence closed.
+- The reply is now split into top-level blocks - blank-line boundaries, fence-aware so a blank line inside a code block does not split - and rendered as a keyed `{#each}` of one `{@html}` per block inside a `.md-stream-block` wrapper. Sealed blocks (everything before the final boundary, immutable for the rest of the stream) are parsed once and their html cached; only the still-growing last block is re-parsed per frame, so per-frame cost drops from O(whole source) to O(active block).
+- Selection survives because Svelte 5's `{@html}` runtime guards `value === (value = get_value())` and skips the `innerHTML` write when the value is unchanged (`svelte/src/runtime/client/dom/blocks/html.js`); a sealed block hands back the same cached html string each frame, so its DOM node is never touched. An open code fence at the end of the stream is synthetically closed before parsing, so the lines that follow are not swallowed while the fence is still open.
+- The cache holds the html *string*, not the wrapper object: Svelte's `{#each}` treats every object item as changed (`safe_not_equal` returns true for any object), so caching the object would buy nothing and mislead readers into thinking reference identity is the mechanism. The wrapper object is fresh each frame; only its html value is pinned.
+- Verification: `streamingMarkdown` 15/15, `chat-ui` structural guards 183/183, `svelte-check` 0 errors / 0 warnings, production build passed. The selection-preservation mechanism is verified from the Svelte 5 runtime source (the `{@html}` value guard plus keyed-`{#each}` index reuse of the wrapper div, confirmed by compiling the exact template); a cold-start smoke walk - stream a multi-block reply, select text in an early block and confirm it survives, and confirm an unclosed fence does not swallow - is the remaining runtime gate (CLAUDE.md pitfall #10).
+
+### Improved: several images in one turn render as a gallery, not a vertical stack
+
+- A turn that produced six pictures rendered six full-width cards stacked vertically, pushing the rest of the conversation off screen. Consecutive image attachments now collapse into one grid whose height stops growing with the number of results.
+- The column count is a real layout switch rather than an auto-fit that happens to land on three: one image keeps its full-width card (shrinking a lone result to a thumbnail loses the thing the turn was about), two split the width side by side, three or more use a three-column grid with square `cover` thumbnails — with `contain`, a portrait and a landscape result produce two different heights and the row reads as broken.
+- Clicking any image opens a full-screen gallery with ←/→ arrows and keys, a wrap-around position readout, Escape and backdrop dismissal, and a download button. Images inside rendered Markdown open the same viewer, paging across every image in that block, so the two surfaces cannot drift apart.
+- Grouping is by *consecutive* run, so a file between two images never causes the attachments to be reordered; only images that have finished loading enter the viewer, so the arrows can never page onto a blank slide.
+- Fixed, in the same change, two independent reasons an attachment could stay a name-only chip forever. (a) The `{#each}` iterates groups derived from `attachments` alone, so resolving a file through a bare helper called from a `{@const}` read `actions` where the compiler could not see it and the cells never re-rendered when the record and blob URL arrived — the maps are populated *after* first render, so this was not subtle staleness but a permanently blank gallery (CLAUDE.md pitfall #2). Resolution now happens in a `$:` that names `actions` explicitly. (b) Nothing refetched the Session file list after a turn, so a file the run had just produced had no record until the next session switch; `ChatView` now implements the `afterMutate` hook the shared controller already calls.
+- Verification: Desktop UI 184/184, `attachmentGroups` 6/6, `svelte-check` clean, production build passed. Exercised in a live render (dark and light): 1/2/3/6-image galleries plus mixed runs, arrow and keyboard navigation, wrap-around, single-image control hiding, Markdown-image paging, and — starting from empty maps, which is the real order of events — the chip → loading → image transition as records and then bytes arrive.
+
+### Fixed: a turn blocked on an approval is now visible from anywhere in the transcript
+
+- The Host Bash approval card renders at the end of the transcript, while `stickToBottom` deliberately hands scroll ownership to a reader who has paged up. Together those two correct behaviours produced a run that hung with the decision off screen and nothing anywhere saying so.
+- Added a shared transcript dock: a jump-to-latest button whenever following is suspended, and an assertive "an approval is waiting for you / Review" pill whenever the blocked card is off screen. The dock is handed an element, never an approval-shaped flag, so the next blocking card (a Plan proposal) reuses it unchanged.
+- The approval card now states how long it has been waiting, so a blocked run never reads as a dead service, and its window-level digit/⌘⏎ shortcuts only fire while the card is actually on screen.
+- Both chat surfaces (Chat and Project Chat) are wired, not just the one the dock was written against.
+
+### Improved: tool activity renders per payload instead of one grey `<pre>`
+
+- Every tool used to print into the same `<pre>`, so a patch, a file, a shell transcript and an MCP payload were indistinguishable. Activity bodies now dispatch through a tested pure classifier: unified diffs render through diff2html, file contents and JSON through `CodeViewer`, shell output as a terminal block that keeps its columns.
+- `edit` now also emits a real unified patch (`generateUnifiedPatch`) alongside pi's display diff, carried to the transcript on a new capped `ConversationActivity.diff`; the activity also records its own `tool` id rather than leaving surfaces to parse it back out of the dedup key.
+- The collapsed head names a step ("Step 3 of 5 · npm test") instead of only counting them, preferring a failed step over the merely latest.
+- The `paths`/`mutates` the runtime has always recorded are finally surfaced: a "N files changed / read" chip row that opens the file's diff or contents in the Artifact Panel, raised through the existing composer bridge so the generic component stays free of scope conditionals.
+
+### Fixed: code and wide tables scroll inside the chat column instead of being destroyed
+
+- Code blocks no longer force `pre-wrap`, which broke the indentation carrying their structure; they scroll horizontally inside a box clamped to the column, with a per-block wrap toggle for prose-shaped output. Markdown tables lost `table-layout: fixed`, which split a wide table into stacks of one character per column, in favour of a scrolling wrapper.
+- Fixed the layout regression this exposed: `.assistant-layout` was a block-level flex container with `width: auto`, so it shrink-to-fit to its content — the first block wider than the column made the whole assistant row exceed the 720px message column and the transcript scrolled sideways.
+- Images in rendered Markdown open in a lightbox attached to `<body>`, so it is never clipped by the transcript's overflow or a panel's stacking context.
+- Removed the streaming bubble's private copy-code handler; every rendered-Markdown surface now shares one delegated handler, so the wrap toggle and lightbox work on the reply being generated too.
+- Verification: Desktop UI 180/180, `activityView` 12/12, `test:projects` 71/71, edit/runner/projection 54/54, `svelte-check` clean, production build passed, and all three behaviours exercised in a live render (dark and light) — approval pill, per-tool renderers, wrap toggle, lightbox, and zero transcript overflow.
+
+### Release: v2.9.13 / Desktop v0.9.10
+- Synchronized the root and Desktop package versions for the new release.
+
+### Added: Durable Execution foundation for multi-day work
+
+- Added the shared Agent-layer Durable Execution foundation: dedicated SQLite state, versioned plans and leases, watched-event continuation, fresh automation attempts, side-effect intent/receipt records, verifier-gated completion, budgets, quotas, queue projection, and Desktop task surfaces/notifications.
+- This is a partial foundation release. Tiered structured model preflight now promotes ordinary Runs lazily, absorbs their executed prefix and side-effect receipts, and stops the current tool before its handler when the Durable handoff is committed. External probes/evidence reading, full approval/channel adapters, cross-channel commands, and restart-level Chat API acceptance remain pending. Durable one-shot events now use the shared catch-up window and move to explicit `recovery_required` when the window is missed.
+
+### Improved: Chat and Settings navigation now share one width baseline
+
+- Desktop Chat and Settings now use the Settings navigation rail as their shared `228px` desktop baseline, with the same `170px` narrow-window width.
+- Chat remains resizable and keeps saved widths at or above the baseline; stale narrower saved widths are clamped to `228px`, removing the runtime width drift between the two shells.
+- Verification: Desktop UI 177/177, full Desktop tests 160 + 181 + 55, `svelte-check` clean, and production build passed.
+
+### Maintained: one current assistant capability matrix and a clean data root
+
+- Added one four-state capability matrix as the only current status source. Historical PRD sections and delivery logs no longer override it or regenerate already-completed work; H2, `add_content`, document export, Runtime Todo, and the owner-verified Mini App microphone are recorded as delivered.
+- Applied the safe-only data cleanup after a fresh scan: 11 superseded items were removed and 326MB reclaimed. The follow-up scan reports no safe items. Raw response dumps, settings backups, `event.log`, and the Skill backup remain review-only and untouched.
+
+### Added: verified DOCX, XLSX, and PDF deliverable export
+
+- Added deferred `documentExport` for bounded Markdown-to-DOCX/PDF and typed multi-sheet XLSX generation inside Project or Session scratch. PPTX export and browser automation remain intentionally out of scope.
+- Every output is read back from disk and format-parsed before the temporary file is atomically renamed or attached: Mammoth verifies DOCX text, `pdf-parse` verifies PDF text, and SheetJS verifies sheet names and typed cell values. Chinese PDFs embed packaged Noto Sans SC subsets.
+- Added path/extension/content/cell limits and regression coverage for all three formats. Targeted document/tool/prompt/event tests pass and the production build succeeds.
+
+### Fixed: reminders recover honestly and pass three live delivery chains
+
+- One-shot reminders missed by a short restart now catch up once within the configured window; older reminders are explicitly skipped. Stable trigger slots and completed leases suppress repeated dispatch.
+- Telegram and Feishu now fail closed when their bot/client is offline. Explicit `delivery=text` consistently means direct delivery for periodic/manual triggers across Web, Telegram, Feishu, QQ, and Weixin instead of accidentally invoking the Agent.
+- Added a repeatable real-environment probe. Desktop/Web, Telegram, and Feishu each passed watched-event creation, CRUD update round-trip, scheduled trigger, completed execution receipt, and cleanup. A stale Telegram group id failed visibly rather than being reported as delivered.
+
+### Verified: Mini App H2 final live install
+
+- `node evals/run.mjs --id H2 --keep-data-dir` passed 1/1 in 280 seconds. The retained isolated data contains the installed manifest/server/UI; `miniAppManage` validate/install/inspect all returned receipts, and the service continued through the final model response after installation.
+- Evidence: `evals/results/2026-08-09T07-49-11-671Z.json` and its matching service log.
+
+### Fixed: Artifact Inspector now previews PPTX presentations
+
+- `.pptx` files and the PowerPoint MIME type now route to a lazy `PptxPreview` in both Project and Session scopes instead of stopping at the unsupported-format card.
+- The MIT-licensed `@silurus/ooxml` Canvas/WASM viewer renders a bounded, continuously scrollable slide desk with text selection, read-only status, and the shared download/external-open actions. External hyperlinks and Google Fonts are disabled; malformed or over-budget OOXML enters a retryable error state. Legacy `.ppt` and unknown binaries retain the system-open fallback.
+- Verification: PPTX/registry tests 19/19, Desktop UI 176/176, `svelte-check` 0/0, and production build passed; the PPTX parser and WASM remain separate lazy chunks.
+
+### Fixed: three P0 reliability gaps before expanding assistant breadth
+
+- Published-content memory can no longer silently absorb personal facts: `add_content` requires explicit `world_knowledge`, rejects missing or conversational-memory types, and directs the Agent to `add`.
+- Added a pre-provider context gate over the final system prompt, serialized tools, history, and current message. Oversized turns compact first, cap only the model-facing prompt if necessary, preserve the raw transcript, and fail before provider dispatch if the final context still cannot fit.
+- Missing Web request thinking levels now remain absent instead of overriding the Runtime default with `off`; custom Subagents inherit developer-role compatibility from each configured model.
+- The eval transport now gives long Agent work a 15-minute headers/body budget. Full baseline evidence is 24/31 with no Provider-chain errors; the corrected affected set C1/C4/D1/D2/H2 is 5/5, including a 429-second H2 with the service still alive.
+- Calendar, contacts, email, and browser capabilities were intentionally not added. Calendar/contact/email remain external Skill/MCP/Connector integrations; browser work remains P1.
+- Verification: final memory/context/compaction/thinking/Subagent suite 62/62, eval client/harness/cleanup suite 25/25, affected live eval 5/5, and production build passed.
+
+### Fixed: Artifact Inspector now previews DOCX documents
+
+- `.docx` files and the Word MIME type now route to a lazy `DocxPreview` in both Project and Session scopes instead of stopping at the unsupported-format card.
+- Mammoth converts the authorized bytes to Markdown, then the existing sanitized Markdown renderer owns the final read-only surface. External file access and embedded image resource loads are disabled; conversion warnings are non-blocking and malformed documents can be retried. Legacy `.ppt` and unknown binaries keep the system-open fallback while PPTX uses its slide viewer.
+- Verification: DOCX/registry tests 18/18, Desktop UI 175/175, `svelte-check` 0/0, and production build passed (existing chunk-size warnings only).
+
+### Fixed: Artifact Inspector now previews XLS/XLSX workbooks as tables
+
+- `.xls` / `.xlsx` files no longer stop at the unsupported-format card. The shared viewer registry routes spreadsheet extensions and Excel MIME types to a lazy SheetJS-backed read-only table viewer in both Project and Session scopes.
+- Workbooks expose sheet tabs, sticky headers, row numbers, horizontal overflow, and a 5,000-row-per-sheet DOM cap with a visible truncation state. Parse failures are retryable; formulas are never executed, and legacy `.ppt`/unknown binaries keep the system-open fallback while DOCX/PPTX use dedicated viewers.
+- Verification: spreadsheet/registry tests 18/18, Desktop UI 174/174, `svelte-check` 0/0, and production build passed (existing chunk-size warnings only).
+
+### Improved: Git Changes rows show impact and diff gutters scroll with code
+
+- Project Changes rows now include GitHub-style `+additions` and `−deletions` counts sourced from `git diff HEAD --numstat -z`, including staged, unstaged, deleted, renamed, and untracked text files. Binary and unavailable counts are explicit instead of misleading.
+- Anchored diff2html's absolute line-number gutter to the rendered diff surface so vertical scrolling keeps each line number beside its code row in both diff layouts.
+- Verification: project inspection 13/13, Desktop UI 173/173, with the existing Artifact Inspector `svelte-check` and production build gates retained.
+
+### Added: route-driven image analysis and PDF OCR
+
+- Added deferred `imageAnalyze(path, prompt?)` for on-demand OCR, screenshot inspection, invoice/chart reading, and general workspace-image understanding. It always follows the current Agent/global `visionModelKey`; arbitrary per-call model selection is intentionally unavailable.
+- Consolidated inbound image fallback and tool-driven image analysis behind one shared vision module using the existing pi/custom provider runtime. Channels remain responsible only for receiving, persisting, and normalizing attachments.
+- Extended `docExtract` with `auto`, `force`, and `never` PDF OCR policies. Auto mode only rasterizes low-text pages that contain embedded images; every OCR call is sequential and capped at 20 pages. Image and OCR output use the shared context budget/full-output spill and remain labeled as untrusted evidence.
+- Added a two-turn live eval proving an Agent can rediscover a persisted attachment, load `imageAnalyze`, dispatch it through the configured vision route, and return the observed color without a new inbound image.
+
+### Added: first-party PDF, DOCX, and XLSX document extraction
+
+- Added deferred `docExtract(path)` for contracts, invoices, reports, papers, and Office attachments. PDF content streams are parsed with `pdf-parse`; DOCX semantic HTML is produced by Mammoth with external-file access disabled and converted through the shared HTML-to-Markdown cleaner; XLSX sheets are rendered as labeled CSV sections through the packaged SheetJS 0.20.3 dependency.
+- Kept basic `read` small and explicit: supported binary documents now point the Agent to `docExtract`. Inputs and resolved symlink targets remain workspace-scoped and capped at 50 MiB; Office archives have unpacked-size/entry-count limits; extraction calls are serialized to avoid concurrent memory spikes; extracted text uses the shared line/byte budget, UTF-8-safe single-line fallback, and full-output spill path. Scanned/image-only PDFs can now use the configured vision route for OCR.
+- Replaced B2's easy plaintext PDF with a valid FlateDecode fixture whose answer is absent from the raw bytes, and require a recorded `docExtract` call. Unit/integration coverage passes and the isolated live-Agent B2 eval completes successfully.
+
+### Added: Runtime Task CRUD without Mini App Todo coupling
+
+- Replaced the create-only Agent `createEvent` surface with deferred `runtimeTask` CRUD for unscheduled todos, reminders (`one-shot`), and automations (`periodic`). Stable task ids now support list/get/update/delete without manual event-file edits; plain todos are retained but never dispatched.
+- Clarified the runtime model: Task owns user CRUD, Event is trigger/execution state, and Notification is a delivery outcome. Immediate events and Molibot-managed internal jobs are excluded from user task mutation.
+- Extended Desktop's opaque task-id management path to one-shot reminders, while keeping the optional Todo Mini App's storage and business rules fully isolated from Agent Runtime Tasks.
+- Added ADR 0003 plus regression coverage for CRUD, task-type validation, internal/immediate exclusion, and reminder path resolution.
+
+### Added: third-party runtime process fault isolation
+
+- Mini App server modules now run one process per App, with bounded IPC for tools/HTTP and explicit AI, badge, and log bridges. Exit, infinite loop, V8 heap exhaustion, timeout, and cancellation terminate only that App runtime; the next call recreates it.
+- Agent-side scratch validation now uses the same child-process boundary; a candidate module can no longer re-enter the service through the Host's test-only import seam.
+- Installed Pi extensions now load and execute outside the Molibot service process. Tools, runtime events, and commands cross a serializable IPC boundary, so extension process failure no longer takes down channels or active service work.
+- The shared tool runtime now has a final execution deadline and propagates abort to process-backed handlers, preventing an asynchronous tool that ignores cancellation from holding a run forever.
+- These are crash-containment boundaries, not OS permission sandboxes; installed Mini Apps and extensions still require trust.
+
+### Fixed: Mini App install approval no longer masquerades as a service crash
+
+- H2's five-minute `fetch failed` was a pending ApprovalBroker request, not an unhandled service crash: Desktop rendered a shared approval card but its endpoint could only resolve Host Bash records. The eval client then timed out and stopped its own service, explaining the absent crash report.
+- Desktop pending approvals now merge Host Bash and Broker requests for the exact Session, and the same endpoint resolves Broker once/session/persistent/reject decisions without crossing Session boundaries.
+- H2 opts into one-time approval explicitly and exercises that production API; normal critical-tool policy is unchanged. Deterministic tests cover the concurrent wait/approve path. Later the same day, Provider override/role compatibility and the eval transport timeout were corrected; live H2 passed twice, including a 429-second run with the service still alive.
+
+### Improved: Artifact Inspector file icons now carry language and media identity
+
+- Restored per-type Phosphor glyph colours across the project tree, search results, open tabs, Session attachments, and the system open card. TypeScript/JavaScript/Python/Rust/Go/Vue/Svelte/CSS/Markdown/JSON/YAML/SQL, media, archives, and Office files now read at a glance.
+- Added special-name resolution for README, Dockerfile, `.gitignore`, `.env`, `package.json`, and lock files. Unknown extensions remain neutral, while directory glyphs use a stable folder accent.
+- Kept file-type colour separate from selection, dirty, touched, warning, and failure semantics; focused selected rows no longer flatten their file glyphs to grey.
+- Reused the existing `@phosphor-icons/web` dependency after reviewing Iconify/VSCode Icons and older file-icon font packages, avoiding a remote icon API and a second icon runtime.
+- Verification: `fileIcons.test.ts` 3/3; existing Desktop UI/artifact suites, Svelte check, build, and diff check remain green.
+
+### Fixed: JSON artifacts now open as source first instead of freezing the Inspector
+
+- Opening a JSON tab now shows the original file through the shared highlighted `CodeViewer`; tree parsing is an explicit “Parse as tree” action, and “View source” returns to the exact source view.
+- Project previews that are still partial disable tree parsing until the remaining bytes are loaded. Invalid JSON, oversized files, deep recursion, and a 5,000-row tree budget all fall back to readable source with a localized explanation.
+- Escaped JSON Pointer paths prevent duplicate tree keys for object names containing `/`, and visible-row projection is linear so collapsed trees do not rescan every ancestor for every row.
+- Verification: `jsonTree.test.ts` 13/13, `chat-ui.test.mjs` 173/173, `svelte-check` 0/0, `vite build` passed (existing chunk-size warnings only).
+
+### Improved: Project file rows stay single-line and use filename status color
+
+- Removed the standalone agent-touched dot from Project file rows. It was a fifth grid child in a four-column layout, which pushed sizes such as `5.5 KB` into an implicit second row.
+- File sizes now remain `nowrap`; touched filenames use the semantic warning/attention color, matching Git's modified-file language. The Changes tab remains the place for detailed update review.
+- Verification: Desktop UI structural tests, `svelte-check` 0/0, and production build pass.
+
+### Fixed: memory namespaces and private-turn retention now share one contract
+
+New personal facts and preferences now default to the owner namespace (or the current project namespace) instead of a channel chat namespace, so an acknowledged memory remains reachable from ordinary authorized conversations. Published-content and Agent-self namespaces remain isolated by purpose.
+
+Turns now persist one policy across transcript metadata and Agent entries. “Do not remember” blocks memory writes and reflection; “not searchable” additionally excludes conversation indexing; “this turn only” additionally excludes future Agent Context while preserving the visible audit transcript. The same rules cover user and assistant entries, external-channel search reconciliation, automatic memory flush, daily reflection, and run-derived memory artifacts. Delete remains an explicit target operation with existing search tombstones for message/session removal.
+
+### Added: first-party `webFetch` for reading public webpages
+
+Agents can now fetch a user-provided public HTTP(S) URL, extract readable Markdown, and inspect it against an explicit prompt. The deferred built-in tool complements `webSearch`: search finds a page; fetch reads its body.
+
+The fetch boundary rejects credentialed, local, private, link-local, multicast, and documentation-only network targets; revalidates DNS and redirects; surfaces cross-host redirects for an explicit second call; rejects binary documents; and caps time, bytes, redirect hops, cache size, and context output. A narrow DNS-only exception keeps public hostnames working behind Clash/TUN fake-IP proxies while direct access to that synthetic range remains blocked. HTML scripts/styles and page chrome are removed, fetched text is labeled as untrusted evidence, and oversized or single-line content uses the existing shared UTF-8-safe tool-output budget.
+
+### Fixed: memory saved in conversation could not be recalled in a later one
+
+An unstructured `memory add` — the shape the agent uses for almost every "remember this", since it carries neither `type` nor `subject` — was written where an ordinary later turn does not read. The `memory` tool answered "Added memory: mem-…" and the next session answered "记忆里没有记录", both truthfully. Found by the new `evals/` C group (0/4 in a clean environment) and confirmed against the stored rows.
+
+Two defaults were wrong, both in `buildMoryWritePlan`, and both are fixed:
+- **Type** defaulted to `task`, which the `chat` retrieval intent (a normal turn's default) excludes from its `memoryTypes` SQL filter, and which the injected profile only files under the time-windowed `currentFocus` bucket. The new `defaultMemoryTypeForLayer` makes it `user_fact` (long-term) / `event` (daily), both of which an ordinary turn reads, and the path prefix now derives from the same type so the two filters agree.
+- **Namespace** defaulted to the per-channel-per-user `chat:` namespace, which changes key whenever the session or channel does. It now resolves through `namespaceForDomain` to `owner:owner`, the owner-wide namespace shared across every surface — the right default for a single-owner personal assistant.
+
+Guarded deterministically (no live model) by `moryCore.plan.test.ts`. The remaining `add_content` seam is now closed at the tool boundary: it accepts only explicit published-content `world_knowledge` and rejects personal-memory routing. Existing fragmented rows in a real database are intentionally not migrated.
+
+### Added: `evals/` golden set — a measured answer to "can it actually do the work"
+
+Thirty-one real tasks with known-good outcomes, run against a throwaway service, producing one number. Until now every suite verified that a function returns the right value for a given input; none of them could say whether the Agent got a job done, so a model swap or a prompt change could only be judged by feel.
+
+- Tasks are graded on outcome and evidence, never on route: state assertions (`file_exists`, `file_contains`, `sqlite`) rank above trace assertions (`tool_used`, `tool_not_used`), which rank above reply text. A `judge` assertion with no judge model configured reports **unproven** and is counted separately from both pass and fail.
+- Schema validation runs before any model call, so an unknown assertion key, a task with no assertions, or a malformed regex fails the load — otherwise a typo would make a task assert nothing and report a pass.
+- Each task records a `baseline` prediction and a `why`; the report flags every result that disagrees with its prediction in either direction, so a closed gap and a regression are equally visible.
+- Each run gets a fresh `DATA_DIR` and starts the service through `scripts/start-server.mjs`, never `node build/index.js` (prd.md §3.41). Provider configuration is seeded from `~/.molibot`, which necessarily copies channel credentials, so `MOLIBOT_DISABLE_EXTERNAL_CHANNELS=1` is set and asserted before the process starts.
+- PDF, PNG and CSV fixtures are generated by visible code rather than committed as binaries.
+- Verification: `evals/harness.test.mjs` 17/17, `clean-data-dir.test.mjs` 5/5, and a full baseline run against the live runtime.
+
+**First baseline: 23/30 (77%)** — A 5/6 · B 4/5 · C 1/4 · D 3/3 · E 1/2 · F 6/6 · G 2/2 · H 1/2. Two P0 findings came out of it, both filed in `prd.md`:
+
+- **§3.49 — memory does not survive a new session.** The C group is red in a clean environment. C3 has the full evidence chain: the corrected fact *is* written (`memory_nodes` holds "常用的笔记工具是 Obsidian（已弃用 Notion）") but under `user_id = content:personal`, while the run's `MemoryScope.externalUserId` is `web:personal:eval-c3`. The live database shows the same fragmentation: 1229 rows across **11** different `user_id` shapes.
+- **§3.48 — installing a Mini App appeared to kill the service.** The log stopped at `tool_start … tool=miniAppManage` because a critical Broker approval could be displayed but not resolved by Desktop. After five minutes the eval HTTP client timed out and its cleanup stopped the service; no service crash had occurred.
+- **§3.48 fixed both exposed seams.** Desktop now resolves Broker approvals through the shared card endpoint, H2 explicitly approves once through that endpoint, and scratch candidate validation uses the normal per-App child runtime. Regressions cover approval Session isolation and a top-level candidate `process.exit(73)`.
+
+F 6/6 is the encouraging half: the failure posture — refusing to fabricate a file's contents, admitting it cannot post to Weibo, reporting an unwritable path instead of claiming success, keeping tool syntax out of prose, and taking no side effects on a plain question — held on every check.
+
+### Fixed: plain-HTTP same-origin uploads were rejected as cross-site form submissions
+
+`adapter-node` derives the service's own origin from request headers and **defaults the scheme to `https`** when nothing says otherwise, so the server believed it was `https://127.0.0.1:<port>` while a browser on `http://localhost:3000` sent an `http` origin. The two never matched and every same-origin multipart POST — any Web attachment send — was refused with "Cross-site POST form submissions are forbidden".
+
+This is the third surface of the same failure (CLAUDE.md pitfall 25) and it hid behind the previous two: `tauri://localhost` is on the trusted-origin list, so the packaged desktop app worked and only the plain Web surface was broken. The fix is not another trusted origin — the origin was legitimate and same-site. `start-server.mjs` now declares the real origin via `resolveServiceOrigin()`, and leaves it alone when the operator has set `ORIGIN` or `PROTOCOL_HEADER`, or when the bind is not loopback.
+
+### Fixed: the launcher erased the environment layer that `DATA_DIR` isolation depends on
+
+`dataDirScope.ts` drops a `DB_DIR` that came only from the repository `.env` when `DATA_DIR` was set in the OS environment — that layer distinction is the whole guard (prd.md §3.41). But `scripts/start-server.mjs` must read the repository `.env` before it can resolve `DATA_DIR` and take the lease, and that merge happens *before* `env.ts` snapshots `process.env`, so the repository's value was indistinguishable from an operator's export. A source install started with a scoped `DATA_DIR` refused to boot instead of dropping the override. The launcher now publishes the true OS key set in `MOLIBOT_OS_ENV_KEYS` before its first `dotenv.config()`, and a source-order test keeps the two statements in that order.
+
+### Added: `MOLIBOT_DISABLE_EXTERNAL_CHANNELS` kill switch for outward channels
+
+The ownership gate asks whether this process owns its data directory, which is the right question for an orphaned duplicate and the wrong one for a throwaway run: an eval instance seeded from a real data directory holds real bot tokens *and* legitimately owns its own temporary directory. The switch outranks ownership for every plugin that does not declare `requiresServiceOwnership: false`, and drives teardown through the existing reconcile loop rather than a second shutdown path. Web and CLI keep running.
+
+### Fixed: superseded desktop runtime generations are now reclaimed
+
+Every upgrade extracts a new ~300 MB `runtime/desktop-runtime-<version>` directory and nothing ever removed the old ones — an install updated a few times was carrying gigabytes of unreachable service code (a v2.6.3 generation was still present on a v2.9.12 install). The supervisor now prunes on both the cached and the freshly-extracted path, keeping the current generation plus one, since an adopted sidecar from the previous build may still be lazy-loading its chunks. Abandoned `desktop-runtime-<uuid>` extraction directories, which can never be in use, are always removed. Best-effort: a directory that will not delete costs disk space, never a failed start.
+
+### Improved: one source for the runtime and tooling directory layout, and a data-directory cleanup tool
+
+`<dataDir>/runtime` (service-owned: lock, state, logs, crashes, generations — mode 0700) and `<dataDir>/tooling` (Agent-owned: Python venv and caches, GOPATH/GOCACHE) had their paths written independently in four places. They are now declared once per language — `storagePaths`, `scripts/runtime/runtime-paths.mjs`, and the Rust supervisor — and a test asserts the two trees stay disjoint in both directions, because folding the Agent's writable working directory into the supervisor's private tree would put the running service's own code one `rm -rf "$TMPDIR/../.."` away from a Skill.
+
+Go tool isolation no longer depends on `MOLIBOT_TOOLING_DIR` being set: the default install used to let `go install` write into the owner's `~/go`, the exact pollution the tooling directory exists to prevent. Settings provider-test artifacts moved from three top-level directories into `cache/settings-tests/`. `node scripts/maintenance/clean-data-dir.mjs` reports superseded and leftover files with sizes and reasons and deletes nothing without `--apply`; a relocated database is only ever proposed once its migrated copy exists in `db/`.
+
+### Improved: Artifact Inspector now uses a GitHub / Primer code-workspace language
+
+- Reworked the right-side File / Artifact Inspector as a three-plane repository workspace: canvas, source tree, and editor/preview surface. Existing file tabs, search, Git changes, session attachments, diff, download, source toggles, and resizable split remain intact.
+- Replaced floating macOS-style file controls with flat repository tabs, accent underlines, a path/action header, and border-led selection states. Human-readable names use the UI font; paths, identifiers, line numbers, tables, and code use Mono.
+- Applied scoped Primer light/dark semantic tokens and GitHub-like syntax, Markdown, JSON, CSV, diff, SVG, and media-preview colors. Dirty/modified/added/deleted states retain semantic emphasis without recoloring the rest of Desktop.
+- Verification: `svelte-check` 0/0, `vite build` passed (existing chunk-size warnings only), `chat-ui.test.mjs` 173/173, Artifact viewer tests 43/43, and `git diff --check` passed.
+
+## 2026-08-08
+
+### Release: v2.9.12 / Desktop v0.9.9
+- Synchronized the root and Desktop package versions for the new release.
+
+### Improved: Desktop Artifact Inspector now follows DESIGN.md
+
+The right-side File / Artifact Inspector now uses system UI typography for human-readable file names, monochrome file glyphs, and semantic colors only for dirty, touched, warning, and failure states. Project tabs, change scope, search modes, and attachment filters share compact macOS segmented-control geometry with tonal and border selection instead of elevation shadows; attachment filters expose their pressed state to assistive technology, and the narrow layout honors the shared 300px Inspector floor.
+
+### Added: Mini App installs and updates activate immediately
+
+Installing or replacing a Mini App now makes its new server code callable in the current Molibot runtime—no App or service restart. The shared Host drains active calls, disposes the previous Runtime process, refreshes discovery, and eagerly activates a content-addressed bundle of the complete server module graph in a fresh child process. This invalidates Node's cache for changed child modules and same-version replacements while preserving app data and enablement. Desktop and Agent install paths now share that lifecycle, and the obsolete restart-required response/UI state is gone.
+
+### Improved: Telegram and Feishu queued messages now have Stop and Steer buttons
+
+When another message arrives while an Agent task is running, its queue notice now includes one-click Stop and Steer actions instead of requiring `/stop` or `/steer <queueId>`. Steer injects that exact queued message into the active task; Stop aborts the task and clears pending work. Shared scope and queue-state validation prevents stale, forwarded, duplicate, or opposite clicks from affecting another run, and these runtime controls never enter conversation history or model context.
+
+Feishu now acknowledges those clicks with an immediate processing card and then explicitly updates the original card to the final Stop/Steer result. If the card update API fails, Molibot sends the same result as a text receipt, so a successful, stale, or failed action is never left without visible feedback. HTTP and WebSocket card callbacks are both observable in service logs.
+
+Accepted Steer messages now survive whole-attempt model retries. If a provider times out after the Agent has consumed the injected text, the shared Runner restores that runtime-only message before the next attempt instead of silently reverting to the original prompt; replay remains exactly once per attempt and does not create a normal Session turn.
+
+### Added: Review daily memory candidates from Telegram and Feishu
+
+Daily Memory Reflection now keeps its aggregate completion notice and follows it with individually numbered candidates in the configured private Telegram or Feishu chat. Each candidate can be kept or rejected with one button click. Review batches, delivery identity, numbering, and decisions survive restarts and remain idempotent; group targets receive no candidate content, Skill draft suggestions stay App-only, and channel callbacks never enter Agent conversation history. Telegram edits the source message after a decision, while Feishu uses a prompt processing response and asynchronous card update with retry buttons restored after transient failures.
+
+### Fixed: MCP dynamic loading reports the requested server's real outcome
+
+MCP save and enable still reconcile immediately without restarting Molibot, but explicit Reconnect now fails when its target remains unavailable instead of returning a false success. Agent `loadMcp` now consumes workspace-scoped per-server states and validates the requested server id, so an already connected MCP can no longer hide another MCP's connection failure. Failed selections remain active for a direct retry on the next turn; existing disconnect recovery and cross-Session isolation are unchanged.
+
+### Release: v2.9.11 / Desktop v0.9.8
+- Synchronized the root and Desktop package versions for the new release.
+
+---
+## 2026-08-07
+
+### Changed: Mini App AI settings moved to Settings › Models; Settings › Plugins drops its Mini App manager
+
+Settings › Plugins carried a full second copy of the Mini App management surface (install tabs, built-in offers, the installed list) plus the Mini App AI model selectors. Neither belonged there: browsing and installing apps already has a home in the sidebar's Mini Apps destination, and the AI selectors are a *model route* like every other one on the Models page.
+- **Removed** `MiniAppsSettingsGroup.svelte` and its `.miniapps-card` wrapper; Plugins now renders only memory backend + feature plugins. `MiniAppsManager` is mounted from exactly one place (`ChatWorkspacePane`), asserted across every Settings section.
+- **Moved** `MiniAppsAiSettings` into `ModelsSection`, and re-rendered it with that page's own `SettingGroup` / `SettingRow` / `SelectControl` primitives (bespoke `settings-card` + `settings-form` markup removed) so it reads as part of the screen instead of a transplant. Both selectors gained the page's `technicalId` disclosure; the cost note and 30-day usage block were re-inset to match `SettingRow`'s 16px gutter.
+- **Rewired** the Mini Apps page signpost from `openSettings("plugins")` to `openSettings("models")`.
+- The controls still commit immediately through their own route, and the Models page has no `<form>` — a change here can neither be swept into the advanced-routing save nor block it (guarded).
+- Verification: `chat-ui.test.mjs` 173/173, `svelte-check` 0 errors / 0 warnings, `vite build` OK.
+
+### Improved: Unified Todo/Note header layout and tightened sizes
+
+Both Mini Apps now share one header pattern: app icon, a dropdown trigger, and the search box in a single row. Todo's dropdown opens the task-list picker (the redundant hamburger button is gone); Note's dropdown opens the Notes/Archive view switcher, so the old tab bar moved into the dropdown and the manual refresh button was replaced with auto-refresh on panel focus. Sized the header to DESIGN.md's compact toolbar tier: 32px search/trigger controls, 14px body text, 16px titles (Todo's title dropped from 22px), and a 40px collapsed composer. Drift guard stays green (4/4).
+- **Note cards without a title** no longer reserve an empty title row: the action buttons float to the top-right and the content starts at the card's top padding instead of below a blank header.
+
+### Improved: Built-in Mini Apps restyled to the macOS / Geist design system
+
+The Todo and Note Mini Apps shipped a Material Design 3 baseline (Google Blue, Google Sans, M3 ripples/elevation tints, Google Keep palette) that read as a different product from the macOS/Geist desktop app. Repointed the shared `--md-*` baseline in all four style sheets (todo, note, meeting-notes, miniapp-creator template) to the Molibot macOS product layer from DESIGN.md: accent `#007aff`, `-apple-system` font, AppKit semantic surfaces/labels/separators, 6/8/12/999 radii, and shadows reserved for floating overlays (cards stay flat on a separator border). The `--md-*` namespace is kept (pinned by `uiDesignBaseline.test.ts`); only the values change, so the drift guard stays green.
+- **Todo**: removed M3 ripple pseudo-elements, refocused composer/search on border + accent focus rings instead of elevation shadows, and made list/move dropdowns white popovers.
+- **Note**: retuned the seven card colors from Keep-saturated to soft Geist-scale tints, and dropped ripples for subtle hover/focus states. The Note lightbulb icon was left as-is.
+- **Versions**: Todo 1.5.0 -> 1.6.0, Note 1.2.0 -> 1.3.0, Meeting Notes 1.1.0 -> 1.2.0 (baseline mirror) so on-disk installs update.
+- Verification: `uiDesignBaseline.test.ts` 4/4, `bootstrap.test.ts` 17/17.
+
+### Release: v2.9.10 / Desktop v0.9.7
+- Synchronized the root and Desktop package versions for the new release.
+
+### Improved: Added icon for Note "Insert into composer" menu and brought the feature to Todo
+
+- **Note Mini App**: Added the missing SVG icon for the "Insert into composer" item in the note dropdown menu, aligning its visual appearance with Archive and Delete actions.
+- **Todo Mini App**: Added the "Insert into composer" action button to Todo item action rows using the `composer.insert` bridge protocol, allowing users to instantly push task titles into the chat draft area.
+
+### Improved: Todo Mini App UI redesigned for crisp Material 3 elegance
+
+Redesigned the Todo Mini App interface to resolve layout clutter and visual noise while strictly preserving the Material Design 3 design baseline (`uiDesignBaseline.test.ts` 4/4 passing):
+- **De-cluttered item rows**: Removed the redundant normal-priority ring indicator that previously appeared beside every check circle (which gave every row two side-by-side circles). High and low priority tasks now use clean colored rings, while normal tasks show only the clean check circle.
+- **Card boundaries and inner dividers**: Enclosed task groups in M3 container cards (`surface-container-low`) with subtle `outline-variant` row dividers.
+- **Header & list dropdown**: Added a subtle chevron with animated 180° rotation on dropdown open; list title is now an interactive trigger for the list picker dropdown.
+- **Search & Composer elevation**: Added smooth focus state layers, `elev-2` shadow transitions, and styled date/time inputs.
+- **Illustration Empty State**: Replaced raw text empty states with an M3 SVG check illustration and friendly task status messaging.
+
+### Fixed: Mini App schema upgrades no longer block app startup
+
+`assertSchemaVersion` in `host.ts` threw `load_failed` when `_host.json` recorded a different `schemaVersion` than the manifest declared — which meant any Mini App that bumped its schema (e.g. Todo v3 adding `due_at`/`remind_at` columns) could never start after an update, even though the app's own `openDatabase()` ran defensive `ALTER TABLE` migrations. The host now logs the version change and lets the app start; `writeHostState` records the new version after successful runtime creation. If the app's migration fails, the error propagates and the recorded version stays unchanged.
+
+### Changed: Mini App version bumps — Note v1.1.0 → v1.2.0, Todo v1.4.0 → v1.5.0
+
+Version bumps to trigger update-available detection in the Mini Apps Manager for the new Note menu icon fix and Todo "Insert into composer" feature & UI overhaul.
+
+
+
+### Changed: the three built-in Mini Apps now share one Material 3 design baseline
+
+The panel looked like three different products. Note was Google Keep, Todo was iOS (`-apple-system`, `#007aff`, 14px radii, SF-style separators), and Meeting Notes was a single minified line of generic grey-and-blue with its own third palette — three type scales, three shadow systems, three ideas of what a button is. All three now render from one Material Design 3 token set: Google Blue primary, the full neutral surface-container ramp, a type scale declared as size/line-height **pairs**, the 4/8/12/16/28/full shape scale, M3 easing curves, and elevation expressed as container tint plus a soft shadow.
+
+- **The baseline is duplicated on purpose, and guarded.** Each App is served from its own origin under `default-src 'self'` (`httpRoute.ts`), so there is no stylesheet the three could import — the `--md-*` block has to be copied into all three plus `skills/miniapp-creator/template`. Nothing errors when one copy drifts; it just makes the panel look like three products again. New `uiDesignBaseline.test.ts` parses the token declarations out of all four sheets and fails on any difference, on a missing `[hidden]` guard, and on a raw `font-size: Npx` anywhere (the drift mechanism from pitfall 24). Confirmed to fail on an induced drift, not only to pass.
+- **Interaction is now a state layer**, not a background swap: `color-mix(in srgb, currentColor 8%/12%, transparent)` for hover/press, a CSS-only ripple on menus and icon buttons, and `:focus-visible` rings everywhere. Filled buttons express hover through elevation and brightness, since `background-color` is already spent.
+- **App-level expressive colour stays app-level**, layered over the baseline: Note keeps a note palette (refreshed to Keep's current tones, with Keep's real dark set), Todo keeps priority colours. Note's swatches no longer carry inline hexes — both palettes are driven by the same `[data-color]` rules that paint the surfaces, so a swatch cannot disagree with the note it represents in either theme, and swatch selection now shows a checkmark rather than colour alone.
+- **Icons**: the three app icons were three visual languages (a 64-unit blue tile, two 24-unit glyphs); all three are now Google-palette two-tone 24-unit glyphs. In-app SVGs moved to Material Symbols geometry at the M3 icon sizes — Todo's action row was drawing 13px icons.
+- **Three real defects surfaced while doing this and are fixed.** (a) Todo's Completed section was rendered but permanently invisible: `index.html` carried an inline `style="display:none"` that beat the `.done-section.visible { display: block }` rule meant to reveal it — the same family as the documented `[hidden]` failure, with an inline style instead of an author `display`, and equally silent. (b) Todo's static shell (search placeholder, "New To-Do", "Add", "New List", "No to-dos", the priority label) was never translated, so a zh locale showed English chrome around Chinese content — most of what read as "messy". It now runs the same `data-i18n` pass the other two Apps use. (c) Todo's per-list accent came from the iOS system palette in a single set, so the same tone was used as text colour on both light and dark surfaces; it is now the Google label palette with a per-theme set.
+- Meeting Notes also gained localized status chips (its statuses were raw English enum values in both locales) and its recording banner moved off `error-container` — recording is a state, not an error, and a full-width red band read as a failure in dark theme. The alert tone is now spent only on the pulsing dot and the Stop button.
+- No version bump, no behaviour change to any App's data, tools, or API surface.
+- Verification: Mini App server + route suites 127/127 including the new baseline guard 4/4; desktop unit 145/145, structural 177/177, Rust 52/52. Rendered verification rather than by eye — all three UIs were served through a stub-API harness and checked in light and dark, at the real DOM the shipped `app.js` produces: Note's grid/composer/palette, Todo's list/picker/composer/completed section, Meeting Notes' two-pane detail, segments, and recording banner.
+
+### Fixed: one WeChat question got five answers — the runtime now owns its data directory, and `DATA_DIR` really isolates
+
+Five `node build/index.js` processes left over from smoke and upgrade-probe runs on 2026-07-26 and 08-05 had been long-polling the production WeChat bot for twelve days. One message received five replies, each reporting a different session list (`s-20260807-xpjk` / `kaoh` / `bsxv`) that existed nowhere in `~/.molibot`, so the owner could neither find the sessions nor identify the responders. The processes served no HTTP port, held no lease, and appeared in no UI — only `ps` could see them. Two independent defects had to line up for this, and each is now closed.
+
+- **Ownership moved from the launcher into the runtime.** `acquireServiceLease()` lived only in `scripts/start-server.mjs`, so `node build/index.js` skipped the lease, the signal handlers and the forced exit in one step — and its long-poll loop then kept the event loop alive indefinitely. `serviceOwnership.ts` now adopts the launcher's lease when the published `MOLIBOT_SERVICE_OWNER_ID` matches the lock, otherwise acquires one itself, and **fails closed on conflict and on any lock it cannot evaluate** — an unreadable lock is not evidence of ownership. `applyChannelPlugins` is the single gate: an unowned process gets an empty instance list for every plugin that does not declare `requiresServiceOwnership: false`, so teardown runs through the existing reconcile loop instead of a second shutdown path. Only the local `web` plugin is exempt; the default is "required", so a third-party channel cannot opt out by omission. Acquiring once is not enough — a 30s unref'd watchdog re-reads the lock and re-runs the same apply path when ownership is lost (a swept `/tmp` data dir, a takeover). A runtime-acquired lease releases on `exit`, `SIGTERM` and `SIGINT`, since a process that bypassed the launcher has no other handler.
+- **`DATA_DIR` now isolates the whole tree.** `DB_DIR` resolved independently of `DATA_DIR` and the repo `.env` pinned it to `~/.molibot/db`; because `dotenv` merges that in before any path is resolved, `DATA_DIR=/tmp/molibot-smoke` sent sessions and workspaces to `/tmp` while `settings.sqlite` — holding the live WeChat token — was opened **read-write** on the real data directory. `dataDirScope.ts` makes the configuration layer decide: an override present only in the cwd `.env` is dropped when `DATA_DIR` came from the OS environment, and a non-default `DATA_DIR` whose data still escapes it refuses to boot unless `MOLIBOT_ALLOW_EXTERNAL_DATA_PATHS=1`. Applied to `DB_DIR`, `SETTINGS_FILE`, `SETTINGS_DB_FILE`, `WEB_WORKSPACE_DIR`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE` and `PI_CODING_AGENT_DIR`. The dropped override is announced on stderr — a silently relocated database is the whole failure.
+- **Behaviour change worth knowing**: a live orphan holding the lease now blocks the desktop sidecar (`start-server.mjs` exits 73) rather than silently double-answering. That is the intended trade, but today it surfaces only as a restart loop in the service log; a user-facing state for it is filed in prd.md §3.41.
+- Recorded as prd.md §3.41 and CLAUDE.md pitfall 30. The third finding — smoke harnesses must launch through `start-server.mjs` and reap the pid on exit — is a working rule with no code change.
+- Verification: new `dataDirScope.test.ts` (8) and `serviceOwnership.test.ts` (6) wired into `test:service-bootstrap`, 36 pass; `test:projects` 68/68; `test:desktop-chat` 249/250 with one pre-existing `SessionStore` failure reproduced on clean `master`; desktop `svelte-check` 0 errors / 0 warnings over 1545 files; production build clean. Cold path exercised against the real build (pitfall 10): the incident's own invocation now opens `/tmp/.../db/settings.sqlite` instead of the production database and logs the dropped `DB_DIR`; a foreign live lock produces `channel_plugins_suppressed` with telegram/feishu/qq/weixin at 0 instances and `web` still at 1; an unowned directory is claimed by the runtime's own pid; a stale lock from a dead pid is reclaimed; `SIGTERM` releases the lock and exits; `DATA_DIR=~/.molibot` and an unset `DATA_DIR` both still resolve to the production database unchanged.
+
+### Added: Mini Apps can show a result card, link back into themselves, badge the sidebar, and attach files to the composer
+
+Four connected additions from `docs/requirements/miniapp-platform-extension-roadmap.md` §2.2–§2.5. Together they close the loop the earlier slices opened: an App could already receive a message and call host models, but everything it produced came back as one line of plain text with no way to point at what it made.
+
+- **Composer bridge v2** (`composer.attach`, `chat.openSession`). `composer.attach` is the return leg of the attachment path Phase 2 delivered — an App that edited an image or exported a summary can put the file back in the chat draft. The `path` is relative to the App's own data directory; the host resolves it, proves containment after following symlinks, and answers with a basename plus bytes, so the WebView never learns a host path. **v1 apps are unaffected**: both versions stay supported and each version's action set is frozen, so a v1 message asking for a v2 action gets `unsupported_action` rather than being silently upgraded. The bridge still carries UI intent only — no action can send a message or start an Agent turn, and there is a structural guard asserting that stays true.
+- **Result cards.** A tool result may carry a `card` (title, subtitle, up to 6 label/value fields, a Phosphor icon, one deep link) rendered beside the message-action feedback in both Chat and Project Chat. Deviates deliberately from the roadmap's "reuse the iframe/CSP boundary" sketch: an iframe per card means unbounded live documents in a scrolling transcript, and — more decisive — an iframe can do anything, which contradicts the same paragraph's own rule that a card is display-only. A fixed declarative shape makes that rule hold by construction. `content` remains the authoritative text: it is what the model reads and all any non-desktop surface shows.
+- **Deep links** (`molibot://miniapp/<id>/<path>`). Parsed into an intent and routed in-process — never handed to the WebView to navigate, and the card's affordance is a `<button>`, not an `<a>`. The locator reaches the App as a `?path=` startup hint beside `locale`/`theme`; its meaning belongs entirely to the App. Parsing deliberately avoids `new URL()`: the URL parser normalizes `..` before anything can inspect it, so `molibot://miniapp/notes/../../etc/passwd` would arrive already rewritten to app `etc` — a link claiming one App silently opening another. OS-level scheme registration is **not** included; every consumer today is in-app, and adding it later only needs the same parser wired to a system entry point.
+- **Sidebar badges** (`ctx.badge`). A count (capped at 99) or an unlabelled dot on the App's sidebar row; `count <= 0` clears rather than rendering a "0" chip. Deliberately quiet — no system notification, no interrupting popup. In-memory only: after a restart no App can still be doing the work a badge described, so restoring one would be a claim nothing backs (pitfall #23a/#23d). The App's server code is the only writer — the desktop route can only *clear* — and opening the panel is what retires it, applying the server's returned catalog instead of guessing locally. Disabled and failed Apps stop advertising a badge.
+- Creator template and `reference.md` updated with all four contracts, including the `ctx.badge?.` optional-call note for older hosts; template `engines.molibot` raised to `>=2.9.9`. The template was loaded through the real host to confirm the card sanitizes, the badge lands in the catalog, and the deep link stays scoped to the declaring App.
+- Also fixed: `apps/desktop/src/lib/miniapps/messageActions.test.ts` was never listed in the desktop `test` script, so this slice's own desktop test had never run in the gate.
+- Versions: server 2.9.9, Desktop 0.9.6. No tag, push, or GitHub Release.
+- Verification: Mini App server + route suites 187/187 (including new deep-link 10, card 10, bridge v2 10, attach 7, badge 4), desktop unit 145/145 + structural 173/173 + Rust 52/52, `svelte-check` 0 errors / 0 warnings, root and desktop `vite build` clean. Two real defects were caught by the new guards and fixed before delivery: the `..`-normalization cross-app routing bug above, and an undefined `--radius-medium` token (pitfall #5) flagged by the existing CSS variable guard.
+
+---

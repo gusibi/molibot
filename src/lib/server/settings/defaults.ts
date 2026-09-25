@@ -434,8 +434,18 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   defaultThinkingLevel: sanitizeRuntimeThinkingLevel(process.env.MOLIBOT_DEFAULT_THINKING_LEVEL, "off"),
   adaptiveThinking: {
     enabled: String(process.env.MOLIBOT_ADAPTIVE_THINKING_ENABLED ?? "false").toLowerCase() === "true",
-    baseUrl: String(process.env.TYPESAFE_BASE_URL ?? "https://api.typesafe.ai").trim() || "https://api.typesafe.ai",
-    apiKey: String(process.env.TYPESAFE_API_KEY ?? "").trim(),
+    decisionModels: [
+      {
+        id: "jev",
+        provider: "jev",
+        enabled: Boolean(String(process.env.TYPESAFE_API_KEY ?? "").trim()),
+        baseUrl: String(process.env.TYPESAFE_BASE_URL ?? "https://api.typesafe.ai").trim() || "https://api.typesafe.ai",
+        apiKey: String(process.env.TYPESAFE_API_KEY ?? "").trim()
+      },
+      { id: "llm", provider: "llm", enabled: false, llmModelKey: "" },
+      { id: "siliconflow", provider: "siliconflow", enabled: false, baseUrl: "https://api.siliconflow.cn", modelId: "", apiKey: "" }
+    ],
+    selectedDecisionModelId: String(process.env.TYPESAFE_API_KEY ?? "").trim() ? "jev" : "",
     defaultStrategy: String(process.env.MOLIBOT_DEFAULT_THINKING_STRATEGY ?? "fixed").trim().toLowerCase() === "auto" ? "auto" : "fixed",
     maxThinkingLevel: "high",
     fallbackThinkingLevel: "medium",

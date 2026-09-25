@@ -1,6 +1,6 @@
 # Bot Interaction 2.0 Requirements
 
-Status: **implemented in PR #58; review follow-up fixes merged to the same branch; live Telegram / Feishu walkthrough pending**
+Status: **implemented in PR #58; review follow-up fixes merged; live Telegram / Feishu walkthrough completed by the owner on 2026-09-23**
 
 Owner source: GitHub issue #57. This document owns the durable product requirements; the issue remains the review discussion.
 
@@ -107,4 +107,4 @@ No generic model-authored action schema is introduced. These entrances are emitt
 
 Machine acceptance requires targeted coverage for token lifecycle, actor/scope/state rejection, duplicate submission, input binding, channel renderers, existing channel tests, and a production build.
 
-Live acceptance still requires real Telegram and Feishu walkthroughs covering first open, model/session/project/thinking/skill flows, run controls, thread/topic binding, service restart stale buttons, and result fallback behavior. Until those live checks are recorded, the capability matrix status is **待验证**, not **已交付**.
+Live acceptance was completed by the owner on 2026-09-23 across real Telegram and Feishu, covering first open, model/session/project/thinking/skill flows, run controls, thread/topic binding, service restart stale buttons, and result fallback behavior. The capability matrix status is therefore **已交付**.

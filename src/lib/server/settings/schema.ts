@@ -56,20 +56,72 @@ export interface CompactionSettings {
   defaultContextWindow: number;
 }
 
-export interface AdaptiveThinkingSettings {
-  /** Enables Jev calls for Auto selections. Off is the safe installation default. */
-  enabled: boolean;
-  /** TypeSafe API origin/base URL. The adapter appends `/v1/systemone`. */
+export interface JevDecisionModelSettings {
+  id: "jev";
+  provider: "jev";
+  enabled?: boolean;
+  /** TypeSafe API origin/base URL. The Jev adapter appends `/v1/systemone`. */
   baseUrl: string;
-  /** Server-owned credential; never include this in client projections. */
+  /** Server-owned Jev credential; never include this in client projections. */
   apiKey: string;
+}
+
+export interface LlmDecisionModelSettings {
+  id: "llm";
+  provider: "llm";
+  enabled?: boolean;
+  /** Key of the configured text model used by this decision model. */
+  llmModelKey: string;
+}
+
+export interface CloudflareDecisionModelSettings {
+  id: "cloudflare-jev";
+  provider: "cloudflare";
+  enabled?: boolean;
+  accountId: string;
+  /** Server-owned Cloudflare API token; never include it in client projections. */
+  apiToken: string;
+}
+
+export interface SiliconFlowDecisionModelSettings {
+  id: string;
+  provider: "siliconflow";
+  enabled?: boolean;
+  /** TypeSafe System One API host; the SDK appends /v1/systemone. */
+  baseUrl: string;
+  /** SiliconFlow System One model ID, such as diffusiongemma, Kev-4b, or SemIf. */
+  modelId: string;
+  /** Server-owned SiliconFlow API key; never include this in client projections. */
+  apiKey: string;
+}
+
+export interface CustomJevDecisionModelSettings {
+  id: string;
+  provider: "custom-jev";
+  enabled?: boolean;
+  name: string;
+  baseUrl: string;
+  modelId: string;
+  /** Server-owned API key; never include it in client projections. */
+  apiKey: string;
+}
+
+export type DecisionModelSettings = JevDecisionModelSettings | LlmDecisionModelSettings | CloudflareDecisionModelSettings | SiliconFlowDecisionModelSettings | CustomJevDecisionModelSettings;
+
+export interface AdaptiveThinkingSettings {
+  /** Enables decision-model use for Auto selections. Off is the safe installation default. */
+  enabled: boolean;
+  /** Provider-specific decision-model connections configured by the user. */
+  decisionModels: DecisionModelSettings[];
+  /** Configured decision model used for the current Auto policy. */
+  selectedDecisionModelId: string;
   /** Global default strategy for scopes without an explicit override. */
   defaultStrategy: ThinkingStrategy;
   /** Highest concrete level Auto may execute. */
   maxThinkingLevel: RuntimeThinkingLevel;
   /** Concrete level used when Auto cannot produce an accepted decision. */
   fallbackThinkingLevel: RuntimeThinkingLevel;
-  /** Jev confidence floor for accepting a Choice answer. */
+  /** Confidence floor for accepting a decision from either provider. */
   confidenceThreshold: number;
   /** Complete decision deadline, including transport and SDK work. */
   timeoutMs: number;

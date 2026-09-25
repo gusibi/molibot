@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { testAdaptiveThinkingConnection } from "$lib/server/settings/handlers/adaptiveThinking.js";
+import { getRuntime } from "$lib/server/app/runtime.js";
+import { testDecisionModelCase } from "$lib/server/settings/handlers/adaptiveThinking.js";
 
 export const POST: RequestHandler = async ({ request }) => {
   let body: Record<string, unknown>;
@@ -10,10 +11,10 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
   try {
-    const result = await testAdaptiveThinkingConnection(body);
+    const result = await testDecisionModelCase(getRuntime(), body);
     return json({ ok: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return json({ ok: false, error: message }, { status: /required|Host|key|URL|configuration/i.test(message) ? 400 : 502 });
+    return json({ ok: false, error: message }, { status: /required|select|model|Host|key|URL|configuration/i.test(message) ? 400 : 502 });
   }
 };

@@ -120,10 +120,12 @@ import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassi
 import {
   ADAPTIVE_THINKING_RUBRIC_VERSION,
   buildAdaptiveThinkingContext,
+  createAdaptiveThinkingProvider,
   resolveAdaptiveThinking,
   resolveAutoEffectiveThinkingLevel,
-  TypeSafeJevProvider
-} from "$lib/server/agent/decision/adaptiveThinking.js";
+  fallbackAdaptiveThinking,
+  hasSemanticThinkingChoice,
+} from "$lib/server/agent/decision/index.js";
 
 // Imported helpers from extracted runnerHelpers.ts and runnerInputEnricher.ts
 import {
@@ -1993,16 +1995,31 @@ export class MomRunner implements RunnerLike {
       currentPersistedPromptMessage = promptInput.persistedMessage;
 
       const requestedSelection = ctx.thinkingLevelOverride;
-      const thinkingStrategy = requestedSelection === "auto"
+      const selectedStrategy = requestedSelection === "auto"
         ? "auto"
         : requestedSelection
           ? "fixed"
           : settings.adaptiveThinking.defaultStrategy;
-      const fixedThinkingLevel = requestedSelection && requestedSelection !== "auto"
+      const selectedFixedLevel = requestedSelection && requestedSelection !== "auto"
         ? requestedSelection
         : settings.defaultThinkingLevel;
+      const orchestrator = getTurnOrchestrator();
+      const turnDecision = orchestrator.beginTurnDecision(runId, {
+        strategy: selectedStrategy,
+        fixedLevel: selectedFixedLevel,
+        enabled: settings.adaptiveThinking.enabled,
+        selectedDecisionModelId: settings.adaptiveThinking.selectedDecisionModelId,
+        maxThinkingLevel: settings.adaptiveThinking.maxThinkingLevel,
+        fallbackThinkingLevel: settings.adaptiveThinking.fallbackThinkingLevel,
+        confidenceThreshold: settings.adaptiveThinking.confidenceThreshold,
+        timeoutMs: settings.adaptiveThinking.timeoutMs
+      });
+      const thinkingStrategy = turnDecision.policy.strategy;
+      const fixedThinkingLevel = turnDecision.policy.fixedLevel;
+      const adaptiveSettings = { ...settings.adaptiveThinking, ...turnDecision.policy };
       let resolvedThinkingLevel = fixedThinkingLevel;
       let adaptiveResolution: Awaited<ReturnType<typeof resolveAdaptiveThinking>> | undefined;
+      let decisionAttempted = false;
       if (thinkingStrategy === "auto") {
         const decisionContext = buildAdaptiveThinkingContext(
           effectiveInputText,
@@ -2014,40 +2031,47 @@ export class MomRunner implements RunnerLike {
             modelUseCase
           }
         );
-        const hasSemanticChoice = modelCandidates.some((candidate) => {
-          const permitted = getModelThinkingLevels(candidate.model)
-            .filter((level, index, values) => values.indexOf(level) === index)
-            .filter((level) => RUNTIME_THINKING_LEVELS.indexOf(level) <= RUNTIME_THINKING_LEVELS.indexOf(settings.adaptiveThinking.maxThinkingLevel));
-          return permitted.length > 1;
-        });
-        if (!settings.adaptiveThinking.enabled || !settings.adaptiveThinking.apiKey) {
-          adaptiveResolution = await resolveAdaptiveThinking({
-            strategy: "auto",
-            fixedLevel: fixedThinkingLevel,
-            settings: settings.adaptiveThinking,
-            context: decisionContext,
-            provider: new TypeSafeJevProvider(),
-            signal: new AbortController().signal
-          });
-        } else if (!hasSemanticChoice) {
-          adaptiveResolution = {
-            strategy: "auto",
-            requestedLevel: settings.adaptiveThinking.fallbackThinkingLevel,
-            fallbackReason: "no_effective_choice",
-            latencyMs: 0
-          };
+        if (turnDecision.state === "resolved" && turnDecision.resolution) {
+          adaptiveResolution = turnDecision.resolution;
+          decisionAttempted = Boolean(adaptiveResolution.attempted);
+        } else if (turnDecision.state === "dispatched") {
+          decisionAttempted = true;
+          adaptiveResolution = fallbackAdaptiveThinking("recovery_unresolved", adaptiveSettings);
+          adaptiveResolution.attempted = true;
+          orchestrator.commitTurnDecision(runId, adaptiveResolution);
+        } else if (adaptiveSettings.enabled && !hasSemanticThinkingChoice(
+          modelCandidates.map((candidate) => getModelThinkingLevels(candidate.model)),
+          adaptiveSettings.maxThinkingLevel
+        )) {
+          adaptiveResolution = fallbackAdaptiveThinking("no_effective_choice", adaptiveSettings);
+          adaptiveResolution.attempted = false;
+          orchestrator.commitTurnDecision(runId, adaptiveResolution);
         } else {
           const controller = new AbortController();
           this.activeDecisionAbortController = controller;
           try {
+            let provider: Awaited<ReturnType<typeof createAdaptiveThinkingProvider>> = null;
+            let providerInitFailed = false;
+            try {
+              provider = await createAdaptiveThinkingProvider({ ...settings, adaptiveThinking: adaptiveSettings });
+            } catch {
+              providerInitFailed = true;
+            }
+            decisionAttempted = Boolean(provider && adaptiveSettings.enabled && decisionContext.state.trim());
+            if (decisionAttempted) orchestrator.markTurnDecisionDispatched(runId);
             adaptiveResolution = await resolveAdaptiveThinking({
               strategy: "auto",
               fixedLevel: fixedThinkingLevel,
-              settings: settings.adaptiveThinking,
+              settings: adaptiveSettings,
               context: decisionContext,
-              provider: new TypeSafeJevProvider(),
+              provider,
               signal: controller.signal
             });
+            if (providerInitFailed) {
+              adaptiveResolution = fallbackAdaptiveThinking("invalid_configuration", adaptiveSettings);
+            }
+            adaptiveResolution.attempted = decisionAttempted;
+            orchestrator.commitTurnDecision(runId, adaptiveResolution);
           } catch (error) {
             if (this.abortRequested || controller.signal.aborted) {
               stopReason = "aborted";
@@ -2060,24 +2084,58 @@ export class MomRunner implements RunnerLike {
           }
         }
         resolvedThinkingLevel = adaptiveResolution.requestedLevel;
+        const selectedDecisionModel = settings.adaptiveThinking.decisionModels.find((model) => model.id === adaptiveSettings.selectedDecisionModelId);
+        const decisionStatus = adaptiveResolution.fallbackReason
+          ? decisionAttempted || adaptiveResolution.fallbackReason === "invalid_configuration" ? "fallback" : "skipped"
+          : "success";
+        const decisionDetail = {
+          kind: "decision_model",
+          useCase: "thinking_level",
+          status: decisionStatus,
+          attempted: decisionAttempted,
+          selectedDecisionModelId: selectedDecisionModel?.id,
+          selectedProvider: selectedDecisionModel?.provider,
+          strategy: "auto",
+          requestedLevel: adaptiveResolution.requestedLevel,
+          confidence: adaptiveResolution.confidence,
+          probabilities: adaptiveResolution.probabilities,
+          fallbackReason: adaptiveResolution.fallbackReason,
+          provider: adaptiveResolution.provider,
+          model: adaptiveResolution.model,
+          latencyMs: adaptiveResolution.latencyMs,
+          rubricVersion: ADAPTIVE_THINKING_RUBRIC_VERSION,
+          contextTokens: decisionContext.estimatedTokens,
+          contextBytes: decisionContext.serializedBytes,
+          contextTruncated: decisionContext.truncated
+        };
         logRunDetail({
           type: "info",
-          summary: JSON.stringify({
-            kind: "adaptive_thinking",
-            strategy: "auto",
-            requestedLevel: adaptiveResolution.requestedLevel,
-            confidence: adaptiveResolution.confidence,
-            probabilities: adaptiveResolution.probabilities,
-            fallbackReason: adaptiveResolution.fallbackReason,
-            provider: adaptiveResolution.provider,
-            model: adaptiveResolution.model,
-            latencyMs: adaptiveResolution.latencyMs,
-            rubricVersion: ADAPTIVE_THINKING_RUBRIC_VERSION,
-            contextTokens: decisionContext.estimatedTokens,
-            contextBytes: decisionContext.serializedBytes,
-            contextTruncated: decisionContext.truncated
-          })
+          summary: JSON.stringify(decisionDetail)
         });
+        if (this.activeHookContext) {
+          this.hookManager.emit("runtime.notice", this.activeHookContext, {
+            code: "decision_model.thinking_level",
+            severity: decisionStatus === "fallback" ? "warning" : "info",
+            decisionStatus,
+            attempted: decisionAttempted,
+            decisionModel: adaptiveResolution.model ?? selectedDecisionModel?.id,
+            selectedProvider: adaptiveResolution.provider ?? selectedDecisionModel?.provider,
+            thinkingLevel: adaptiveResolution.requestedLevel,
+            fallbackReason: adaptiveResolution.fallbackReason,
+            latencyMs: adaptiveResolution.latencyMs
+          });
+        }
+      } else {
+        logRunDetail({ type: "info", summary: JSON.stringify({
+          kind: "decision_model", useCase: "thinking_level", status: "skipped", attempted: false,
+          fallbackReason: "fixed_strategy", requestedLevel: fixedThinkingLevel
+        }) });
+        if (this.activeHookContext) {
+          this.hookManager.emit("runtime.notice", this.activeHookContext, {
+            code: "decision_model.thinking_level", severity: "info", decisionStatus: "skipped",
+            attempted: false, thinkingLevel: fixedThinkingLevel, fallbackReason: "fixed_strategy"
+          });
+        }
       }
 
       let finalText = "";
@@ -2184,8 +2242,8 @@ export class MomRunner implements RunnerLike {
         const effectiveThinkingLevel = thinkingStrategy === "auto"
           ? resolveAutoEffectiveThinkingLevel({
             requestedLevel: requestedThinkingLevel,
-            fallbackLevel: settings.adaptiveThinking.fallbackThinkingLevel,
-            ceiling: settings.adaptiveThinking.maxThinkingLevel,
+            fallbackLevel: adaptiveSettings.fallbackThinkingLevel,
+            ceiling: adaptiveSettings.maxThinkingLevel,
             supportedLevels: getModelThinkingLevels(selectedModel)
           }).level
           : resolveModelThinkingLevel(selectedModel, requestedThinkingLevel);
@@ -3817,6 +3875,7 @@ export class MomRunner implements RunnerLike {
       provider: this.activePayloadContext.provider,
       model: this.activePayloadContext.model,
       api: this.activePayloadContext.api,
+      effectiveThinkingLevel: this.activePayloadContext.effectiveThinkingLevel,
       usage,
       stopReason,
       ...diagnostics

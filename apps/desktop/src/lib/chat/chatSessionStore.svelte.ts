@@ -7,7 +7,8 @@ import {
 } from "./sessionRuntimeRegistry.svelte";
 import {
   SessionDraftStore,
-  NEW_CONVERSATION_KEY
+  NEW_CONVERSATION_KEY,
+  sessionDraftKey
 } from "./sessionDraftStore";
 import type { ConversationLabels, UiMessage } from "./conversationController.svelte";
 import type { SessionStatusDot } from "./sessionStatusDot";
@@ -200,6 +201,8 @@ export class ChatSessionStore {
       const profileId = this.draftProfileId;
       if (!profileId) return;
       const created = await createDesktopSession(endpoint, profileId);
+      const selectedThinking = this.draftStore.get(NEW_CONVERSATION_KEY).thinkingLevel;
+      this.draftStore.setThinking(sessionDraftKey(profileId, created.id), selectedThinking);
       const entry = this.registry.getOrCreate(profileId, created.id);
       // Persist draft-scoped routing before activating/sending. If this fails,
       // the caller keeps the draft text and can retry instead of creating a

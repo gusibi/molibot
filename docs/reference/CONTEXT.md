@@ -13,6 +13,26 @@ _Avoid_: User session, users data
 The model-facing continuation state of a conversation, including model and tool history.
 _Avoid_: UI history, Session UI data
 
+**Agent**:
+A configured, reusable assistant identity that can participate in multiple conversations. Its identity is distinct from the conversation context of any one room.
+_Avoid_: Room-local role, individual Run, Bot instance
+
+**Agent Room**:
+A long-lived, user-visible conversation with multiple configured Agents, each with its own room-specific Agent Context. The term describes the conversation, not a shared model history.
+_Avoid_: Shared Agent Context, Subagent invocation
+
+**Room Participant**:
+A configured Agent participating in an Agent Room. The same Agent can be a participant in multiple rooms without sharing their conversation contexts.
+_Avoid_: Temporary worker, room-local Agent definition
+
+**Room Workspace**:
+The working directory used by an Agent Room's participants; multiple rooms may use the same directory and files. Writable execution is coordinated within each room, without excluding concurrent writes from other rooms.
+_Avoid_: Isolated working copy, Agent private context, project-wide write lock
+
+**Primary Agent**:
+The explicitly selected default participant in an Agent Room, addressed when a user message neither names target Agents nor replies to a participant's message. Addressing another participant does not change the Primary Agent.
+_Avoid_: Last speaker, coordinator, parent Agent
+
 **Reply Usage**:
 The cumulative model-token usage attributed to one user turn, including the model calls before and after its tool results. It belongs beneath that turn's reply.
 _Avoid_: Session usage, reply length, context size

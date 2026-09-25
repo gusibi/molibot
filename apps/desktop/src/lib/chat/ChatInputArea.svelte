@@ -45,6 +45,7 @@
   export let thinkingLevel: DesktopThinkingSelection = "medium";
   export let thinkingLevelOptions: readonly DesktopThinkingLevel[] = DESKTOP_THINKING_LEVELS;
   export let thinkingLevelLabel = "";
+  export let autoAvailable = false;
   export let error = "";
   export let recordingError = "";
   export let queuedMessages: string[] = [];
@@ -347,6 +348,7 @@
         {thinkingLevel}
         {thinkingLevelOptions}
         {thinkingLevelLabel}
+        {autoAvailable}
         disabled={sending || modelOptions.length === 0}
         {onChangeModel}
         {onChangeThinking}

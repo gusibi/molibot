@@ -81,6 +81,7 @@ import {
   saveDesktopVideoGenerate,
   truncateDesktopMessages,
   saveDesktopTts,
+  saveDesktopAdaptiveThinkingSettings,
   stopDesktopActiveRun,
   testDesktopWebSearchSettings,
   testDesktopImageGenerateSettings,
@@ -114,6 +115,43 @@ import {
   saveDesktopSessionAutoArchiveBot,
   deleteDesktopSessionAutoArchiveBot
 } from "./api";
+
+test("decision credentials are submitted separately from the redacted settings projection", async () => {
+  const original = globalThis.fetch;
+  let body: Record<string, unknown> | undefined;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    await saveDesktopAdaptiveThinkingSettings("http://127.0.0.1:3000", {
+      enabled: true,
+      defaultStrategy: "fixed",
+      autoAvailable: false,
+      decisionModels: [
+        { id: "cloudflare-jev", provider: "cloudflare", enabled: true, accountId: "cf-account", hasApiToken: false },
+        { id: "custom-jev-1", provider: "custom-jev", enabled: false, name: "My Jev", baseUrl: "https://jev.example.test", modelId: "my-model", hasApiKey: false }
+      ],
+      selectedDecisionModelId: "cloudflare-jev",
+      availableDecisionModelIds: [],
+      maxThinkingLevel: "high",
+      fallbackThinkingLevel: "medium",
+      confidenceThreshold: 0.6,
+      timeoutMs: 1000
+    }, { "cloudflare-jev": "private-token", "custom-jev-1": "custom-secret" });
+  } finally {
+    globalThis.fetch = original;
+  }
+
+  assert.deepEqual(body?.decisionModels, [
+    { id: "cloudflare-jev", provider: "cloudflare", enabled: true, accountId: "cf-account" },
+    { id: "custom-jev-1", provider: "custom-jev", enabled: false, name: "My Jev", baseUrl: "https://jev.example.test", modelId: "my-model" }
+  ]);
+  assert.deepEqual(body?.apiKeys, { "cloudflare-jev": "private-token", "custom-jev-1": "custom-secret" });
+  assert.equal(JSON.stringify(body?.decisionModels).includes("private-token"), false);
+  assert.equal(JSON.stringify(body?.decisionModels).includes("hasApiToken"), false);
+  assert.equal(JSON.stringify(body?.decisionModels).includes("hasApiKey"), false);
+});
 
 test("desktop D2 rendering posts the source and resolved appearance to the service", async () => {
   const original = globalThis.fetch;

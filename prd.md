@@ -1,3 +1,14 @@
+# 决策模型配置与自动思考策略（2026-09-23）
+
+- **优先级 / 状态**：P1 / 已交付。
+- **范围**：决策模型作为可配置列表管理。TypeSafe Jev、已有文本模型（LLM）和硅基流动 System One 固定显示，以各自开关启用；Cloudflare Workers AI Jev、额外的硅基流动实例和自定义 Jev 可手动添加。自定义 Jev 可逐个配置名称、Host、模型 ID 和 API Key。各接入使用自己的表单。
+- **使用场景**：思考力度自动选择策略单独选择一个已配置的决策模型。TypeSafe Jev 使用 Host/API Key；Cloudflare Jev 调用 `typesafe/jev` 并使用 Account ID/API Token；LLM 绑定一个已有文本模型并复用其凭据。仅当功能启用且所选模型已就绪时，Auto 才能新选；固定思考等级与确定性回退始终可用。
+- **验收**：三个内置项始终显示，不能移除；逐项关闭后不参与 Auto，打开时必须完成该项配置；可新增、命名及移除自定义 Jev，配置 Host、模型 ID、API Key 后可测试并供 Auto 选择。每轮只调用选中的一个模型；凭据安全保留；设置保存后重启可恢复；中英、明暗主题和窄屏设置页可用。
+- **运行契约（2026-09-25，已实现）**：同一逻辑 Turn 的策略快照和决策结果按 run ID 复用；已发出但未提交的决策在恢复时确定性回退；没有可区分的 Auto 档位时跳过请求；所有回退使用配置档位并受最终上限约束。
+- **案例测试（2026-09-24，已交付）**：三种接入都能分别运行 Jev 的 Noul、Choice、Score 模式。每种模式使用同一份真实业务场景 `state + questions`，文本模型也接收完全相同的参数；响应按 Jev 的 `answers` 结构校验，并在设置页展示输入和输出。不同模型的判断数值允许不同，但字段、取值范围与选项必须符合相同协议。
+- **配置页呈现（2026-09-25，已交付）**：已配置模型以紧凑列表显示，默认展开策略选中的模型；一次只展开一个模型，选择策略模型时同步切换展开项。测试结果先显示摘要，完整输入与输出按需展开。
+- **增补需求（2026-09-25，SiliconFlow System One 已接通）**：官方 TypeSafe JavaScript SDK 支持 `baseURL`，SiliconFlow 的 `diffusiongemma`、`Kev-4b`、`SemIf` 通过 `/v1/systemone` 提供 Noul、Choice、Score 决策。设置项逐个保存 Host、模型 ID 与 API Key，复用同一 TypeSafe SDK 和 Jev 协议。用户提到文章中的具体模型仍以其原文为准，若超出官方文档列出的模型范围再补充核对。
+
 ## 存量 legacy 动态组件图标的 runes 化（2026-09-15，技术债登记）
 
 - **背景**：`ComposerPermissionMenu.svelte`（`$: TriggerIcon = modeIcon(value)`）和 `ProcessActivityItem.svelte`（`$: ToolIcon = ACTIVITY_TOOL_ICONS[...]`）沿用 legacy `$:` 派生 + 动态组件挂载——Svelte 5 下该组合在 prop 变化后不会重建组件（GroupHeader 文件夹图标不切换 bug 的同类，见 CLAUDE.md pitfall #2 附则）。权限模式 `value` 变化时 composer 触发器图标同样可能不换。

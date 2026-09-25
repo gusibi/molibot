@@ -954,6 +954,9 @@ the same regardless of the window's activation state and of what is behind it.
 
 - Settings use a stable sidebar, one shared PageHeader with title and description,
   centered SettingGroups, and a fixed `.settings-footbar` whenever changes can be saved.
+  At widths up to 600px, the settings rail narrows to 128px while keeping labeled,
+  accessible destinations; setting rows stack their controls so text and selectors
+  retain usable width.
 - When one settings concept is available globally and inside an entity inspector
   (for example Project automations), both entries reuse the same list, editor,
   schedule builder, history, status, and confirmation components. The entity entry

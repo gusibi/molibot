@@ -238,6 +238,7 @@
   let globalModelKey = "";
   let globalThinkingLevel: DesktopThinkingLevel = "medium";
   let globalThinkingStrategy: "fixed" | "auto" = "fixed";
+  let globalAutoAvailable = false;
   // Local write-through cache of each session's persisted model (non-empty only;
   // empty = "follow global"). Mirrors the ProjectChat mechanism.
   const sessionModelOverrides = new Map<string, string>();
@@ -1346,7 +1347,7 @@
         loadDesktopRuntimeEnv(refreshEndpoint).catch(() => null)
       ]);
       const [nextAdaptiveThinking, nextRouting] = await Promise.all([
-        loadDesktopAdaptiveThinking(refreshEndpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const })),
+        loadDesktopAdaptiveThinking(refreshEndpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const, autoAvailable: false })),
         loadDesktopModelRouting(refreshEndpoint).catch(() => null)
       ]);
       if (refreshEndpoint !== connectedEndpoint || refreshGeneration !== connectionGeneration) return;
@@ -1356,6 +1357,7 @@
       globalModelKey = modelState.currentKey;
       if (nextRouting) globalThinkingLevel = nextRouting.defaultThinkingLevel;
       globalThinkingStrategy = nextAdaptiveThinking.defaultStrategy;
+      globalAutoAvailable = nextAdaptiveThinking.autoAvailable;
       activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       onboardingProfiles = nextWebProfiles;
       if (nextAgents) onboardingAgents = nextAgents.items;
@@ -1397,7 +1399,7 @@
         loadDesktopRuntimeEnv(endpoint).catch(() => null)
       ]);
       const [nextAdaptiveThinking, nextRouting] = await Promise.all([
-        loadDesktopAdaptiveThinking(endpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const })),
+        loadDesktopAdaptiveThinking(endpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const, autoAvailable: false })),
         loadDesktopModelRouting(endpoint).catch(() => null)
       ]);
       if (generation !== connectionGeneration) return;
@@ -1406,6 +1408,7 @@
       globalModelKey = modelState.currentKey;
       if (nextRouting) globalThinkingLevel = nextRouting.defaultThinkingLevel;
       globalThinkingStrategy = nextAdaptiveThinking.defaultStrategy;
+      globalAutoAvailable = nextAdaptiveThinking.autoAvailable;
       activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       const rememberedProfile = localStorage.getItem(PROFILE_STORAGE_KEY) ?? "";
       onboardingProfiles = nextWebProfiles;
@@ -3442,6 +3445,7 @@
   {#if projectPaneActive}
     <ProjectDetail
       {copy}
+      autoAvailable={globalAutoAvailable}
       onOpenFiles={toggleFilesInspector}
       onOpenMiniApp={openMiniAppInspector}
       onOpenMiniApps={() => openWorkspacePane("miniapps")}
@@ -3682,6 +3686,7 @@
         bind:value={messageInput}
         floating
         thinkingLevel={clampedThinkingLevel}
+        autoAvailable={globalAutoAvailable}
         {thinkingLevelOptions}
         endpoint={connectedEndpoint}
         {copy}

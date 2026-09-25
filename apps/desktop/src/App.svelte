@@ -34,7 +34,7 @@
   import HostBashSection from "./lib/settings/HostBashSection.svelte";
   import RuntimeEnvSection from "./lib/settings/RuntimeEnvSection.svelte";
   import ModelsSection from "./lib/settings/ModelsSection.svelte";
-  import AdaptiveThinkingSection from "./lib/settings/AdaptiveThinkingSection.svelte";
+  import DecisionModelsSection from "./lib/settings/DecisionModelsSection.svelte";
   import AgentsSection from "./lib/settings/AgentsSection.svelte";
   import McpSection from "./lib/settings/McpSection.svelte";
   import OpenConnectorSection from "./lib/settings/OpenConnectorSection.svelte";
@@ -140,7 +140,7 @@
     hapticPreference: HapticPreference;
   };
 
-  type SettingsSection = "general" | "models" | "adaptiveThinking" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "general" | "models" | "decisionModels" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -550,7 +550,7 @@
   const SETTINGS_NAV: { id: SettingsSection; icon: ReiconComponent }[] = [
     { id: "general", icon: Gear },
     { id: "models", icon: Cpu },
-    { id: "adaptiveThinking", icon: Cpu },
+    { id: "decisionModels", icon: Cpu },
     { id: "providers", icon: Plug },
     { id: "agents", icon: Cpu },
     { id: "mcp", icon: PlugCircle },
@@ -577,7 +577,7 @@
 
   const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "tools" | "channels" | "activity" | "system"; sections: SettingsSection[]; additionalSections?: SettingsSection[] }[] = [
     { id: "general", sections: ["general"] },
-    { id: "models", sections: ["models", "providers"], additionalSections: ["adaptiveThinking"] },
+    { id: "models", sections: ["models", "providers"], additionalSections: ["decisionModels"] },
     { id: "assistant", sections: ["agents", "skills", "memory", "sessionManagement"] },
     { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
     { id: "channels", sections: ["profiles", "channels"] },
@@ -615,7 +615,7 @@
   function sectionLabel(section: SettingsSection, copy: typeof text): string {
     switch (section) {
       case "models": return copy.models;
-      case "adaptiveThinking": return copy.adaptiveThinking;
+      case "decisionModels": return copy.decisionModels;
       case "providers": return copy.providers;
       case "agents": return copy.agents;
       case "mcp": return copy.mcp;
@@ -645,7 +645,7 @@
   function sectionDescription(section: SettingsSection, copy: typeof text): string {
     switch (section) {
       case "models": return copy.modelsHint;
-      case "adaptiveThinking": return copy.adaptiveThinkingHint;
+      case "decisionModels": return copy.decisionModelsHint;
       case "providers": return copy.providersHint;
       case "agents": return copy.agentsHint;
       case "mcp": return copy.mcpHint;
@@ -1193,7 +1193,7 @@
           <p class="settings-nav-group-label">{group.label}</p>
           {#each group.items as item (item.id)}
             {@const NavIcon = item.icon}
-            <button class:active={activeSection === item.id} class="settings-nav" type="button" onclick={() => selectSettingsSection(item.id)}>
+            <button class:active={activeSection === item.id} class="settings-nav" type="button" aria-label={item.label} title={item.label} onclick={() => selectSettingsSection(item.id)}>
               <span class="nav-tile" aria-hidden="true"><NavIcon size={16} weight="Filled" /></span>
               <span class="nav-label">{item.label}</span>
             </button>
@@ -1443,8 +1443,8 @@
         {/if}
       {:else if activeSection === "models"}
         <ModelsSection />
-      {:else if activeSection === "adaptiveThinking"}
-        <AdaptiveThinkingSection />
+      {:else if activeSection === "decisionModels"}
+        <DecisionModelsSection />
       {:else if activeSection === "providers"}
         <ProvidersSection />
       {:else if activeSection === "profiles"}

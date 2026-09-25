@@ -7,19 +7,20 @@ function compact(value: string, max = 120): string {
 }
 
 export function formatTelegramInteractionView(view: InteractionView): string {
-  const lines: string[] = [`*${view.title}*`];
-  if (view.body) lines.push("", view.body);
+  const blocks: string[] = [`*${view.title}*`];
+  if (view.body) blocks.push(view.body);
   for (const section of view.sections ?? []) {
-    if (section.title) lines.push("", `*${section.title}*`);
-    if (section.body) lines.push(section.body);
-    for (const row of section.rows ?? []) {
+    if (section.title) blocks.push(`*${section.title}*`);
+    if (section.body) blocks.push(section.body);
+    const rows = (section.rows ?? []).map((row) => {
       const mark = row.selected ? "✓ " : "";
       const detail = row.detail ? ` — ${compact(row.detail)}` : "";
-      lines.push(`• ${mark}${row.label}${detail}`);
-    }
+      return `- ${mark}${row.label}${detail}`;
+    });
+    if (rows.length) blocks.push(rows.join("\n"));
   }
-  if (view.note) lines.push("", `_${view.note}_`);
-  return lines.join("\n");
+  if (view.note) blocks.push(`_${view.note}_`);
+  return blocks.join("\n\n");
 }
 
 function addButtons(keyboard: InlineKeyboard, buttons: NonNullable<InteractionView["actions"]>): void {

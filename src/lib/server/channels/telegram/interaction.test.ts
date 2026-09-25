@@ -30,6 +30,25 @@ test("telegram interaction renderer emits only short interaction callback tokens
   assert.doesNotMatch(JSON.stringify(keyboard.inline_keyboard), /provider\/model-b/);
 });
 
+test("telegram interaction renderer emits GFM list rows so rich messages keep line breaks", () => {
+  const view: InteractionView = {
+    surface: "models",
+    title: "Models",
+    body: "Current: model-a",
+    sections: [{
+      title: "Available",
+      rows: [
+        { label: "Model A", actions: [{ label: "Select", token: "a", style: "primary" }] },
+        { label: "Model B", actions: [{ label: "Select", token: "b", style: "primary" }] }
+      ]
+    }],
+    note: "Takes effect on the next request."
+  };
+  const text = formatTelegramInteractionView(view);
+  assert.match(text, /\n\n- Model A\n- Model B\n\n/);
+  assert.doesNotMatch(text, /Model A.*Model B/);
+});
+
 test("telegram input prompt exposes cancel token without serializing task state", () => {
   const input: InteractionInputPrompt = {
     requestId: "request-secret-server-side",

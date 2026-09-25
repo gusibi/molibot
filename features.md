@@ -1,3 +1,86 @@
+### 修复：已有硅基流动配置不再显示“移除”（2026-09-25，已修复）
+
+- 旧配置的首个硅基流动实例使用 `siliconflow-1`，此前界面只将 `siliconflow` ID 视为固定项，导致“移除”误显示。现在首个实例固定为第三个默认项；空的重复占位项会被归并，已有 Host、模型、密钥和策略选择保持不变。之后手动添加的硅基流动实例仍可移除。
+- 设置净化与临时数据库重建测试覆盖旧 ID 和空占位项；Desktop 检查通过。原生界面冷启动点击走查仍待执行。
+
+### 决策模型固定项开关与自定义 Jev（2026-09-25，已实现）
+
+- TypeSafe Jev、LLM 文本模型、硅基流动 System One 三项默认常显，改为分别开关控制；启用前必须补齐对应配置。关闭的模型不会成为可用的 Auto 决策模型，固定思考等级仍可使用。
+- 可手动添加多个自定义 Jev，分别设置名称、Host、模型 ID 和 API Key；使用 System One 协议进行案例测试及运行。Cloudflare 和额外硅基流动实例仍可按需添加；自定义模型可移除。
+- 设置接口只返回密钥是否存在。临时数据库整对象保存与重建回读、隔离服务冷启动及重启回读已验证；原生 Desktop 的完整交互走查仍待执行。
+
+### Auto 思考决策按逻辑 Turn 复用（2026-09-25，已实现）
+
+- 共享运行层以稳定 run ID 保存非敏感策略快照和决策结果。审批续跑或同一 Turn 重进时复用结果；请求已发出但未提交结果时使用 `recovery_unresolved` 回退，不再次请求决策模型。
+- 所有候选主模型在 Auto 上限内都只有一个可执行档位时，跳过语义请求并记录 `no_effective_choice`。决策失败、服务未启用和恢复未决时使用配置的回退档位，最终档位仍受 Auto 上限和主模型能力约束。
+- 临时数据库重建测试覆盖快照/结果复用与未决请求；决策测试 31/31、Runner 测试 37/37、审批续跑测试 10/10、服务端构建通过。产品负责人已反馈真实效果验证可用；本条不记录未提供的量化评估数据。
+
+### 修复：Auto 首轮决策与调用链可见性（2026-09-25，已修复）
+
+- 新建 Desktop 会话时，首轮发送沿用新对话草稿中的思考选择；选中 Auto 不再被新 Session 草稿的默认“中”覆盖。
+- Auto 在已启用且接入可用时调用所选决策模型；仅有一种可执行档位时跳过。决策请求失败、超时或返回无效结果时使用当前配置的回退档位（默认“中”）；未启用、未配置或固定强度则跳过，并记录原因。
+- 每轮运行详情记录决策成功、回退或跳过及原因；调用链显示决策模型事件和主模型最终实际使用的思考强度，回退时显示“中”而非“Auto”。
+- 根因属于新建 Session 时草稿状态交接丢失；桌面首轮交接守卫、决策失败回退测试和调用链报告测试覆盖这条路径。无需写入长期 pitfalls：目前只发现这一处同类问题。
+
+### 硅基流动 System One 决策模型与自定义 Host（2026-09-25，已实现）
+
+- 决策模型设置页可逐个添加多个硅基流动模型，分别填写 API Host、模型 ID 与 API Key；策略下拉项以模型 ID 区分，独立保存、删除和运行 Noul、Choice、Score 案例测试。密钥只存于服务端，读取设置时仅返回是否已配置。
+- SiliconFlow 的 `diffusiongemma`、`Kev-4b`、`SemIf` 使用其 `/v1/systemone` API；调用复用 `@typesafe-ai/sdk` 的可配置 `baseURL`、现有 TypeSafe Jev provider 与共享问题/结果协议。此前错误地把这些模型发送到 Chat Completions，造成设置页 `400 (no body)`。
+- 验证状态：2026-09-25 的后续改动已补齐临时数据库设置项 round-trip 测试；未使用真实账号发起请求，原生 Desktop UI 冷启动走查仍待执行。
+
+### 决策模型设置页改为单项展开（2026-09-25，已实现）
+
+- 已配置模型默认只展开当前策略选中的一项；点击其他模型时收起前一项，选中策略模型时同步切换展开项。收起的条目仍显示接入类型、配置摘要和当前使用标记。
+- Noul、Choice、Score 的测试结果保留在各自模型下，默认只显示结果摘要；完整 `state + questions` 与 `answers` 只在展开该结果时显示。配置、密钥保存和测试请求流程不变。
+
+### 决策模型支持三种 Jev 模式的真实案例测试（2026-09-24，已实现）
+
+- 决策模型设置页为 TypeSafe Jev、Cloudflare Jev 和文本模型分别提供 Noul（退款请求）、Choice（客服分流）、Score（处理紧急度）测试。三种模式共用同一张重复扣款工单和同一套 `state + questions`；每次点击只调用所选模型一次。TypeSafe 与 Cloudflare 均可在 Host 或 Account ID 未变化时复用已保存凭据。
+- 测试结果按模式分别保留并展示输入与 `answers`。服务端校验回答类型、选项、概率、置信度和评分范围，文本模型使用相同的输出结构；各模型判断值可以不同。测试沿用独立的 30 秒时限，不改变会话中的 Auto 决策流程。
+- 自动化测试覆盖三种接入收到相同输入、输出结构一致及无效结果被拒绝；决策测试 27/27、桌面 API 测试 110/110、界面测试 269/269、桌面 `svelte-check` 0 错误、两端构建通过。临时数据目录中服务冷启动与重启后，案例测试路由均返回预期配置校验响应。外部账号的真实请求与原生桌面点击尚未执行。
+
+### 修复：LLM 决策模型测试连接不再被 Auto 时限中断（2026-09-24，已修复）
+
+- 症状：在决策模型设置页对文本模型点击「测试连接」，默认 1000 毫秒后显示 `LLM decision request was aborted`。
+- 根因：桌面端把每轮 Auto 决策的短时限发给测试连接，服务端用它取消真实的模型测试请求；连接测试与运行时决策混用了同一个截止时间。
+- 修复：连接测试统一使用独立的 30 秒时限，桌面端不再发送 Auto 时限；运行时 Auto 仍遵守用户设置。设置页补充两种时限的说明，真正超时时返回明确提示。
+- 机器守卫：服务端回归测试以本地模拟文本模型复现「模型回应晚于 Auto 时限却被测试连接取消」，修复前稳定报原错误，修复后通过。
+- 验证：决策测试 22/22、桌面 API 测试 110/110、桌面 `svelte-check` 0 错误、服务端与桌面构建通过；临时数据目录中的服务冷启动和重启后，测试连接路由均返回预期的配置校验响应。真实配置下的原生界面点击尚未执行。
+
+### 修复：重建时保留运行中服务的延迟加载 chunk（2026-09-24，已修复）
+
+- 症状：桌面端点击决策模型「测试连接」时，服务报 `ERR_MODULE_NOT_FOUND`，缺少 `build/server/chunks/_server.ts-<hash>.js`。
+- 根因：adapter 原本会先暂存新产物、先发布 chunks、最后替换 manifest；但顶层 `build` 脚本在 adapter 运行前删除了整个 `build/`，使仍在运行的服务所持旧 manifest 找不到延迟加载的 chunk。
+- 修复：移除构建前对活动 `build/` 的删除，继续使用 adapter 的原子发布与旧 chunk 保留流程。
+- 机器守卫：adapter 测试在下一版发布后，从已加载的旧 manifest 执行真实动态导入；并断言生产构建脚本不会在 adapter 发布前删除 `build/`。
+- 验证：修复前隔离复现同样的 `ERR_MODULE_NOT_FOUND`；adapter 测试 4/4、production build 通过；临时数据目录冷启动后，请求测试连接路由得到预期的配置校验 400，未再报 chunk 缺失。当前运行中的服务仍需重启一次以加载已修复的构建产物。
+
+### 决策模型接入与 Auto 可用性门控（2026-09-23，已实现）
+
+- 设置入口改名为“决策模型”，把接入管理与“思考力度自动选择”场景分区展示。已配置决策模型作为独立列表管理，当前包括 TypeSafe Jev、Cloudflare Workers AI 上的 Jev 和 LLM；策略单独从已配置模型中选择一项。每种接入使用自己的配置表单。
+- TypeSafe Jev 使用 Host/API Key；Cloudflare Jev 使用 Account ID/API Token 并调用 `typesafe/jev`；LLM 绑定一个已有文本模型并复用该模型凭据。三种接入共用有界上下文、等级/置信度校验、超时与确定性回退。
+- Jev 适配器、TypeSafe 问题定义和公共 `DecisionProvider` 协议集中在 `src/lib/server/agent/decision/jev/` 与 `decision/contracts.ts`。TypeSafe 直连接入复用 `@typesafe-ai/sdk` 的 `choice()` 和 `systemOne()`；Cloudflare 使用 Workers AI 自己的传输入口，并共用相同的 Jev 问题定义。
+- Auto 仅在决策模型已启用且接入配置可用时可选。Desktop Chat、Project Chat、项目默认思考等级和 Desktop Session API 均门控 Auto；历史 Auto 选择仍会走安全回退，并可从菜单切回固定等级。
+- 调用结果以 `decision_model` / `thinking_level` 写入每轮运行详情，包含所选 provider/model、置信度、决策耗时和回退原因；LLM 决策不使用工具或要求模型输出解释。
+- 验证：初始 TypeSafe/LLM 版本的测试与桌面走查见前次实施记录。Cloudflare 接入本次增加了请求协议、密钥脱敏、账号绑定和新 SettingsStore round-trip 覆盖；保存后可复用同一账号的 Token 测试连接，切换账号则要求新 Token。真实 Cloudflare 凭据未提供，因此没有发起外部连接请求。
+- 验证：新增 SDK 传输、路径归一化、Cloudflare universal-run 与 Jev Choice 校验测试。当时硅基流动文章中的模型 ID 和协议尚未确认；已由 2026-09-25 的 System One 接入记录解决。
+
+### 修复：Auto 思考模式可以切回固定等级（2026-09-23，已修复）
+
+- 症状：聊天思考菜单选中 Auto 后，固定等级滑块消失，无法从 Auto 切回具体等级。
+- 根因：共享 `ComposerModelMenu` 仅在思考等级不是 Auto 时渲染固定等级选择器。
+- 修法：Auto 仍选中时保留固定等级选项，且不显示误导性的等级滑块把手；仅支持一个固定等级的模型仍提供退出 Auto 的入口。Desktop Chat 与 Project Chat 共用该菜单，一并修复。
+- 机器守卫：`apps/desktop/src/chat-ui.test.mjs` 断言 Auto 与固定等级选择器并存、等级选项可选择，且单等级模型保留固定等级入口。
+- 验证：`chat-ui.test.mjs` 与 desktop `svelte-check` 通过，production build 通过；Project Chat 复用同一菜单组件。
+
+### 修复：Telegram 交互菜单正文不再挤成一整段（2026-09-19，待验证）
+
+- 症状（owner 实机）：`/menu → 模型` 的正文里，当前行、模型列表、备注被折成一大段，模型之间只剩空格，长列表很难读。
+- 根因：交互视图以 Telegram rich message 的 Markdown 发送，该格式按 GitHub Flavored Markdown 解析；GFM 里单个 `\n` 是 soft break，渲染成空格。`formatTelegramInteractionView` 用 `lines.join("\n")` 连接各行，body 与所有列表行因此并进同一段，只有空行分隔的标题/备注保留为独立段落。
+- 修法（渠道渲染层）：改为按块组装，块之间用空行；列表行改成 GFM 列表项 `- `，列表项是独立块，换行稳定保留。按钮布局与键盘行为不变。
+- 机器守卫：`telegram/interaction.test.ts` 新增 1 条，断言两行模型以 `\n\n- Model A\n- Model B\n\n` 形态输出、且 `Model A` 与 `Model B` 不再同段（`/Model A.*Model B/` 不匹配）。
+- 验证：`telegram` 的 `formatting`/`interaction`/`runtime` 测试 20 项通过。真实 Telegram 复测仍需 owner 确认。
+
 ### 新增：App 会话列表改为只读 Session 元数据（2026-09-19，已交付）
 
 - 症状（owner 实机）：展开 Web 会话列表要等约一秒，侧栏只显示标题/时间/状态，却为每个会话加载聊天正文并计算消息预览。
@@ -50,7 +133,7 @@
 - 上一轮只给 `handleQueuedControlAction(steer)` 的“异步查询后重校验 run”配了回归；Stop 走独立的 `stopInteractionRun`，只在方法开头校验一次，同类异步竞态因此没有被既有守卫拦住，本次补齐该路径回归（根因类别：异步竞态 / 目标身份在 await 后失效）。
 - 验证：PR 门禁定向测试 97 项全通过（含本次新增），`persistentTaskQueue` / `inboundCoordinator` 9 项共享层测试通过；`tsc --noEmit` 无新增错误（315 项均为仓库既有）；`pnpm run build` production build 通过。真实 Telegram / 飞书首次打开、topic/thread、重启失效、离线输入与服务中断恢复走查仍未完成，能力矩阵中该能力保持“待验证”。
 
-### 新增：Telegram / 飞书 Interaction-first Agent 控制（2026-09-19，待验证）
+### 新增：Telegram / 飞书 Interaction-first Agent 控制（2026-09-19，已交付）
 
 - Telegram 与飞书新增统一 `/menu`，Model / Session / Project / Thinking / Skills / Queue / Status 使用平台原生按钮或卡片；Slash Command 保留，并与按钮复用共享业务动作。
 - `SharedInteractionService` 只承载控制面：短 token、操作者/chat/topic/session/project/run 绑定、过期/容量清理、确认快照和回复绑定输入。普通自然语言仍走原 Agent 消息路径，Approval / Memory Review 保留独立授权生命周期。
@@ -58,7 +141,7 @@
 - Stop 保持“停止当前 run + 清除 pending queue”语义；存在 pending 时先显示影响范围并确认。Queue cancel 只取消指定 pending，Clear pending 不停止当前 run，恢复任务保留重复副作用警告。
 - Busy Queue 通知已迁移到共享 Interaction token，移除 Telegram `qctl:*` 与飞书旧 `queued_control` 双轨；Status 在普通 Session 达到现有 compaction 阈值时提供 Compact / New Session。
 - Telegram callback 仅发送 `ix:<token>`；飞书卡片仅发送 token，并对一次性动作先返回 Processing、后台单次执行后更新原卡片，更新失败只补发结果、不重放业务。
-- 需求与安全约束见 `docs/requirements/bot-interaction-2.md`，共享架构见 `docs/designs/channels/bot-interaction-2.md`。机器测试与 production build 作为 PR 门禁；真实 Telegram / 飞书首次打开、topic/thread、重启失效和中断恢复走查完成前，能力状态保持“待验证”。
+- 需求与安全约束见 `docs/requirements/bot-interaction-2.md`，共享架构见 `docs/designs/channels/bot-interaction-2.md`。机器测试与 production build 作为 PR 门禁；产品负责人已于 2026-09-23 在真实 Telegram / 飞书完成首次打开、topic/thread、重启失效和中断恢复走查，能力矩阵该行状态更新为“已交付”。
 
 ### 修复：Agent City hover 卡片闪烁 + 阴影自遮挡，并修复 master 上 9 个陈旧测试（2026-09-19，已交付）
 
@@ -910,242 +993,6 @@
 - **机器守卫**：`decidePermission.test.ts` 新矩阵逐格断言（含「Auto 永不 ask/deny」「受限模式不自动放行宿主」「Accept edits 对外部效应全 ask vs Auto 全 allow」差集）；`resolvePermissionMode.test.ts` 来源标注+模式→target 推导+沙箱限制仅在参与时附带+全渠道不钳制；`executionBackend.test.ts` 注入式后端验证 workspace 绑定、输出/终态、取消、并发不串配置、能力声明决定高级设置存在性；`approvalSuspension.test.ts` 新增 7 个真实 Runner 场景（宿主直执行/显式宿主请求/denyWrite 文件/管理操作/渠道 Manual 挂起不放宽/切回受限立即生效/模式更改不复活待审批）；`tools/index.test.ts` 经真实 ToolRuntime 的 MCP third_party 对照（auto 直执行 vs accept_edits 产审批）；`externalSubagentAcceptance.test.ts` 契约更新+翻译函数用例；store round-trip 覆盖新形状（含旧字段在 sanitize 丢弃）。
 - **验证（已执行的必需检查）**：服务端全树（agent/settings/approval/hostBash/app/channels/projects/sessions）1553 项测试 1552 过——唯一失败 `desktopApprovals`「lists only for requested session」经 git stash 基线核实为 HEAD 既有问题，与本线无关；其中主验收入口 `approvalSuspension.test.ts` 10/10（三既有审批挂起回归 + 七个新 Auto/受限/竞态场景）。`tsc` 相对 HEAD 基线 diff：生产代码 0 新增错误（新增错误全部位于随实现更新的测试文件，且已随测试转绿）；desktop `svelte-check` 0 错 0 警；`vite build` 通过；desktop 结构守卫 236/236（含按新执行环境契约改写的 sandbox 守卫）。隔离实例冷启动冒烟（构建产物 + 临时 DATA_DIR + 5177 端口）：`/health` 200 → `execution-default` GET 默认 accept_edits / PATCH 改 auto → sandbox GET 新形状（backend + 高级限制，无 enabled）PATCH 保存域名限制 → session-permission GET source=global / POST 会话覆盖 manual 后 source=session → kill 重启后三项保存值全部存活（round-trip 通过）。**未完成/边界**：真实 GUI 的四语言/主题/窄宽度人工点查未执行（以 svelte-check + 结构守卫 + 双语文案落地代替）；渲染后系统提示词的四模式断言由 `modeInstructions.test.ts`（四模式互异 + 关键词）与 runner 接线覆盖，未在真实模型往返中肉眼核对。
 
-### 审批等待成为共享运行时的明确暂停状态：挂起/恢复语义统一（2026-09-10，已实现，issue #48）
-
-- **背景/根因**：用户报告「回答请批准却没有可操作的审批卡」「已有审批未处理时任务继续跑、产生更多审批」「点批准后网络错误卡片消失」。沿实际运行适配链的行为回归证实了三个叠加根因：(1) Host Bash 审批等待的超时结果缺 `terminate: true`，握手窗口（10s）过后 agent 循环继续发起模型轮次；(2) 混合工具批次里兄弟工具的正常结果稀释挂起标记（pi-agent-core 要求整批 `terminate` 才终止），一个挂起变成无限「模型调用→再挂起→再建审批请求」循环（E2E 复现实锤）；(3) Runner 的空回复重试机制把挂起 attempt 当空回答回滚重跑，同一动作最多重复创建 3 个审批请求，且 run 行永远不会落 `waiting_for_approval`，出带恢复找不到可恢复的 run——这就是「模型说请批准但没有卡」的真实机制。
-- **共享运行时修复**：新增 `src/lib/server/approval/suspendedResult.ts`——`buildApprovalSuspensionResult`（无条件 `terminate` + `metadata.approvalRequestId` + `status: waiting_for_approval`）与共享握手窗口常量 `APPROVAL_INLINE_HANDSHAKE_WINDOW_MS`（Host Bash 10s→30s 与 Broker 统一，均为握手非截止）；Runner 构造时安装审批屏障（`beforeToolCall` 包装 + `shouldStopAfterTurn`），工具挂起（含 subagent 冒泡，事件现携带真实 `approvalRequestId`）即设置 run 级挂起标志：未启动的工具被拦截、循环在下一轮模型调用前干净退出（steer 注入也不放行）、stopReason 落 `waiting_for_approval` 且 attempt 不回滚；拒绝/过期返回真实终态 status 不再伪装 waiting；`broken` 挂起结果携带 requestId 供恢复定位。
-- **决定与恢复的幂等/恢复核对**：Broker `listPendingRequests` 读路径按共享 TTL（1h）过期（对齐 Host Bash 惯例）；Host Bash 新增 `expirePending`（等待中 Stop/中断 → 终态，迟到决定不能复活已结束的 run）与 `recoverStaleExecuting`（`executing` 超 30min → 明确「结果未知，请核对勿盲重跑」的 failed，读路径触发，不可再被认领）；Web/Desktop `_handleWebHostToolsCommand` 出带执行前原子 `claimExecution`，认领失败时按记录真实状态答复（运行内执行中 vs 已处理），落实 prd §3.08 的「一次决定一次执行」。
-- **Desktop 前端**：`resolveApproval` 服务端确认前不再移除卡片——新增 `resolvingApprovalId` 提交中状态（经 view store 供 legacy 面板响应，pitfall 2），提交期间按钮与快捷键禁用（DecisionCard 新 `submitting`/`submittingLabel`，`approval-submitting` 语义样式），失败保留卡片可重试，`not_found` 撤卡并提示；多请求稳定队列不覆盖当前卡片；重新打开会话经 `adoptPendingApproval` 以服务端状态恢复卡片。
-- **网络错误边界**：`isSandboxPermissionFailure` 导出并加边界回归——仅 OS 沙箱特征（EPERM/EACCES/sandbox-exec/seatbelt/operation not permitted/permission denied）升级宿主审批；connection refused、DNS、fetch failed、ENOTFOUND 等网络失败返回真实诊断。
-- **机器守卫**：新增 `src/lib/server/agent/core/approvalSuspension.test.ts`（真实 MomRunner + 真实 Agent 循环 + 真实 Broker/Store @ 临时 DATA_DIR，脚本化模型驱动「发起→挂起→决定→恢复」三场景：批准后恰好执行一次且 run 完成、拒绝不执行动作、混合批次挂起后零额外模型轮次且仅一个请求）；`bashApprovalWait.test.ts` 4 项（窗口超时/defer/中止过期/记录消失均 `terminate` + requestId）；`bashPolicy.test.ts` 网络错误边界；`store.test.ts` 过期与卡死恢复；`approvalBroker.test.ts` TTL；`conversationController.test.ts` 4 项（失败保留可重试、飞行中防重复、stale 撤卡、稳定顺序）+ 页面恢复幂等；`chat-ui.test.mjs` 结构守卫（卡片须服务端确认后才移除、submitting 接线、双面绑定）。
-- **验证**：新增/相关服务端测试全绿（E2E 3/3、bashApprovalWait 4/4、agent 全树 842 pass/1 既有 skip、desktop-chat 282、projects 83、service-bootstrap 21、webCommands/hostBash/approval 150）；desktop tsx 单测与 `node --test` 结构守卫全绿（controller 9/9、chat-ui 232/232）；`svelte-check` 0 错 0 警；`vite build` 通过；`tsc` 触碰文件 0 新增错误（存量噪音基线 300 按行号偏移核对）。隔离实例冷启动冒烟（临时 DATA_DIR + 5177 端口，构建产物 `start-server.mjs` 冷启 → `/health` 200 → deep health runtimeReady → `/hosttools list` → Desktop `list_pending` → kill 重启恢复 200）；routes 层 mcp-ui 1 项失败经 stash 基线核实为 HEAD 既有问题，与本线无关。
-- **遗留意向**：握手窗口统一使 Host Bash 连接保持从 10s 延长至 30s（与 Broker 既有体验一致，均为挂起而非阻塞语义）；subagent 冒泡的多请求归因已由事件携带真实 requestId 解决，旧事件回退路径仅影响日志字段。
-
-### 图标体系引入 Reicon Duotone：混合字重规范 + 生成管线（2026-09-09，已实现）
-
-- **背景**：桌面端此前只用 Reicon 的 Outline/Filled 两种字重，希望采用官网已展示的 duotone 双色调风格。核查结论：官方框架包（reicon-svelte 最新 1.0.104）仍只含 Outline/Filled，duotone 只存在于官网与官方数据同步（Iconify 官方包 `@iconify-json/reicon` 1.2.4 收录 1238 个 `-duotone` 变体）；且项目在用的 150 个图标中仅约六成有同字形 duotone，Check/X/Loader/Chevron 等 UI 骨架图标官方就没有 duotone 形态——全量切换不可行，细线条功能图标做 duotone 也无意义。
-- **方案（混合字重体系，规范先落 `DESIGN.md` Foundations）**：16px 及以下的功能/状态图标（导航、行内操作、按钮、spinner、全部状态信号）保持 Outline，Filled 仍仅用于既有激活态；20px 及以上的装饰展示位改用 duotone，并在同一 slice 统一应用：`EmptyState` 共享组件 29 个语义图标名中 28 个走 duotone（仅 `activity` 无同概念 duotone 且会与 `pulse` 撞字形，保留 Outline 兜底）、`ProjectDetail` 欢迎位 Folder 28px、`ArtifactPanel` 5 处 `file-empty` 空列表图标。新增生成管线：`@iconify-json/reicon`（devDependency）+ `scripts/generate-duotone-icons.mjs`——manifest 内 EXACT 同名映射 + SUBSTITUTIONS 同概念显式映射（`Timer`→Stopwatch、`Image`→Gallery、`Sparkle`→Wand、`Film`→Clapperboard、`Search`→search2、`ShieldSlash`→shield-cross、`TriangleWarning`→alert-triangle），产出 `apps/desktop/src/lib/icons/duotone/bodies.generated.ts`（32 个 body，禁止手改）；配套手写 `DuotoneIcon.svelte`，API 对齐 reicon 组件（size/color/class/style + restProps，`aria-hidden` 默认 true）。duotone 层走 `currentColor` + 官方烘焙的 50% 次层透明度，明暗主题与全部主题家族自动适配，不做单独图层重绘。
-- **机器守卫**：生成脚本对 manifest 逐名校验存在性，缺名即非零退出；`DuotoneIcon` 的 `name` 类型派生自生成 map（`DuotoneIconName`），引用不存在的名字直接 svelte-check 报错；DESIGN.md 规范禁止手改生成模块。
-- **验证**：生成脚本 32 body 产出；svelte-check 0 错 0 警；desktop tsx 单测 276/276、`node --test` 结构守卫 241/241；vite build 通过（同时解除了上一条 Markdown 修复记录里因图标线缺 `bodies.generated` 而无法本机跑 build 的阻塞）。隔离实例冷启动视觉走查（独立 vite 1428 端口 + 无后端让空态自然呈现，不触碰用户运行中的服务与真实设置）：暗色下 AI 服务商（cloud-cross）、Skills（wand）、图像（gallery）、视频（clapperboard）、搜索（search2）空状态渲染正确；本地强制亮色（`data-resolved-appearance`，不持久化）复验 Skills/搜索正常；settings 侧栏小图标保持 Outline 符合规范。**未完成**：自动任务页因无后端停在「正在加载」，bell/stopwatch 两个 duotone 未在真实面板过目（同一组件管线、数据已校验存在）；ProjectDetail 欢迎位与 ArtifactPanel 空列表需后端会话才能走到，未截图过目。
-
-### Chat Markdown 渲染修复：价格 $ 不再被当成公式，KaTeX 真公式恢复正常排版（2026-09-09，已实现）
-
-- **症状**：回复同一行出现两个 `$` 时（价格、金额最常见），两个 `$` 之间的中英文正文被渲染成斜体数学公式——「订阅费每月 $10，一年 $120」里「10，一年」变公式、「120。」孤离开；表格单元格（`$10/月，年付 $100`）同样中招，流式与最终渲染都错。真写 LaTeX 公式时排版也是错位的。
-- **根因**：desktop `src/lib/markdown.ts` 给 marked 挂 `marked-katex-extension` 时开了 `nonStandard: true`（非标准规则：同行任意两个 `$` 即成 inline math，不要求定界符贴空白），这是价格文本误伤的直接来源；同时 DOMPurify 配置 `FORBID_ATTR: ["style"]` 且只开 html profile，把 KaTeX 视觉层依赖的内联样式（strut 高度、间距）和 MathML 语义层整段剥掉，真公式因此错位。
-- **修复**：`nonStandard` 回归库默认 `false`——标准规则要求闭合 `$` 贴着空白/标点，实测常见价格形态（`$10、 $20`、`支出 $100（收入 $200）`、`总计 $10，其中 $3。`、`costs $5 and $6`、`"$a 和 $b"`）全部保持字面量，残留边界只剩「孤立 `$` 后跟空格」这类刻意写法；sanitize 改为 `USE_PROFILES: { html: true, mathMl: true }`，新增 `uponSanitizeAttribute` hook 把 style 属性限定在 `.katex` 子树内保留、其余一律剥除，模型输出里的原始 HTML 仍然不能带样式或脚本。hook 懒注册：无 DOM 的 Node 导入拿到的 DOMPurify 没有 addHook/sanitize，只在真实消毒路径首次执行时安装。
-- **机器守卫**：新增 `src/lib/markdown.test.ts` 12 项回归（中英价格、表格内价格、单 `$`、标准 inline/display/`$$` 数学、边界形态固化、代码块 chrome、表格查看器注入、heading id 命名空间），接入 desktop test script；`chat-ui.test.mjs` 新增结构守卫锁定 `nonStandard: false`、mathMl profile、`.katex` 范围 style hook、`FORBID_TAGS` 与 `katex.min.css` 引入，防止配置回潮。
-- **验证**：desktop tsx 单测 276/276、`node --test` 结构守卫 241/241 通过；`svelte-check` 报的 4 个错误全部来自进行中的 DuotoneIcon 图标线（`bodies.generated` 未生成、`aria-hidden` prop 类型），与本次改动文件无关；DOMPurify hook 行为在真实浏览器用真实管线输出夹具验证：`.katex` 内 style 存活且计算高度生效（17.37px strut）、KaTeX_Main 字体解析成功、MathML 层在位、原始 HTML 的 style 属性被剥除、内联 script 被拦截。**未完成**：desktop `vite build` 因图标线缺失 `bodies.generated`（`@iconify-json/reicon` 数据包未安装、生成脚本无法运行）无法在本机构跑，待该线完成后补跑；应用内冷启动冒烟走查同样待 build 恢复后进行。
-
-### 输入框富文本实体高亮：按类型着色的 pill + 持久化引用纳入高亮（2026-09-09，已实现）
-
-- **背景**：composer 里 `/grabby` 这类调用 token 原本的 tint 只有 11% 透明度，暗色主题下几乎不可见，也没有按类型区分；从 `@` 菜单选文件后落进输入框的 `@[文件](路径)` Markdown 原文则完全没有高亮，读起来是链接汤。
-- **方案（保持 textarea + overlay 镜像架构不变）**：`segmentComposerInvocations` 升级为通用实体分段——在既有 `[/@]` 词边界 token 之外，复用共享 `parseProjectFileReferences` 识别 `@[file.md](path)`（含 `:行号`、转义），并识别 `[$Skill](.../SKILL.md)`（与提交分类同构），引用在任何偏移都算一个实体，实体内部不再二次起 pill；`ComposerSegment.kind` 扩宽出 `file`。CSS 侧每种类型用「同色系 tint + 1px inset ring（box-shadow，零布局影响）」双通道区分：command 蓝、skill 紫、miniapp 青、file 中性（与建议菜单/invocation 卡片同一套色相），色相从菜单 → 输入框 → 会话记录保持一致。不引入 `$` 之类视觉前缀：任何改变文本 advance 的装饰都会破坏 overlay 与 textarea 的逐字形镜像、挤歪 CJK 输入法候选窗。
-- **pill 尺寸按实测预算放宽**：bleed 从 x2/y3 放宽到 **x4/y3.5**，让胶囊明显大于文字（用户反馈：原来左右紧贴字符）。约束全部实测验证：垂直方向超过 3.5px 后，跨行折行的上下两个 pill 会触碰粘连（4px 时 ring 融成一块，样张确认）；水平方向 4px 是常见场景（行首、两侧有空格）下 ring 不压到相邻字形的最大留白，CJK 无空格紧邻（`让@timer提醒`）在旧值 2px 时本就互压，软 tint 保持可读。`.composer-highlight` 的 `overflow-clip-margin` 相应改为 `max(bleed-x, bleed-y)`，否则盒边缘会削掉首尾 pill 的 bleed；chat-ui 守卫测试同步钉住新值。
-- **机器守卫**：`composerSuggestionCatalog.test.ts` 新增 7 项分段单测（任意偏移 pill、普通文本/未知 token/邮箱/`3/4` 不误报、文件与 Skill 引用各成一实体、引用内部不嵌套 pill、混合实体按阅读顺序合并且拼接恒等于原文）；`chat-ui.test.mjs` 结构守卫补 `parseProjectFileReferences`、SKILL.md 模式与 `.composer-token[data-kind="file"]` 断言。
-- 验证：catalog 单测 8/8、chat-ui 结构守卫 233/233（含 numeric-typography）、相关 chat 模块批 98/98、desktop 全量 tsx 264/264、`svelte-check` 0 错 0 警、`vite build` 通过；另用应用真实 CSS 值搭样张在浏览器截图核对明暗两套主题下四种类型 pill 的观感、折行对齐、无空格 CJK 相邻与上下行堆叠最坏情况（据此选定 x4/y3.5，否决 y4 粘连方案；临时样张与服务已清理）。
-
-### 会话内 Mini App 快捷入口：顶部菜单与消息打开按钮（2026-09-09，已实现）
-
-- **顶部入口**：普通会话和 Project 会话标题栏都提供可键盘操作的图标菜单；目录只显示已启用且健康的小程序，支持名称/描述搜索、收藏、最近打开的 10 个应用、加载失败重试和「全部小程序」返回既有启动台。
-- **消息入口**：持久化的 `@app-id` Mini App 调用标识显示「打开」按钮；Project 会话通过既有深链桥接到 ChatView，普通会话直接复用共享 Mini App Inspector。重复打开只激活已有标签，不重放消息或再次执行工具。
-- **状态边界**：收藏和最近使用保存在连接作用域的桌面 UI 偏好中；目录加载按连接防止旧连接响应覆盖新连接，失效/停用应用不出现在快捷列表，Inspector 继续显示既有不可用原因。
-- **规范与测试**：设计规则写入 `DESIGN.md`；quick-access 偏好 save → 新建 store → load、去重、连接隔离和最近列表上限有单测覆盖。验证：desktop 测试 240/240、聊天 UI 230/230、`svelte-check` 0 错 0 警、Desktop Vite build、cargo test 60/60 通过；冷启动自动尝试因已有进程占用 `127.0.0.1:1420` 未能启动独立 Tauri 窗口。
-
-### 聊天输入草稿持久化根修：草稿存储成为唯一事实源（2026-09-09，已实现）
-
-- **症状**：会话里正在输入的内容会在某些会话切换后丢失——能否保住草稿取决于「那条切换路径有没有记得手动调 sync」：`openSession`/`newConversation`/fork 记得，服务连接时的默认选座（`selectDefaultSession`，含点侧边栏导航触发的 `connect()`）不记得，直接 `loadDraftIn()` 覆盖 `messageInput`，未保存的输入就此丢失。
-- **根修（结构性，消掉整类问题）**：废弃「切换时手动 syncDraftOut/loadDraftIn」模式，ChatView 改为单一 `$:` 镜像块双向负责——草稿 key 变化（切会话/新建草稿/首条消息建会话）时载入新会话草稿，其余任何变化（打字、加附件、改 thinking 级别、小程序 composer.insert、发送清空、失败回填）即时镜像回 `draftStore`。任何路径切换会话都不可能再丢草稿，也不存在「哪条路径忘了 sync」。草稿 key 规则提炼为纯函数 `composerDraftKey()`（`sessionDraftStore.ts`），镜像块与 store 共用一份，不会再对「当前在编辑哪个草稿」产生分歧；随之失去全部调用方的 `ChatSessionStore.currentDraftKey()` 直接删除。
-- **机器守卫**：`chat-ui.test.mjs` 新增结构性守卫（镜像块存在且双向、全文件禁止 `syncDraftOut(`/`loadDraftIn(`/`draftStore.setText|setFiles|setThinking(` 回潮、key 规则只在共享层定义）；`sessionDraftStore.test.ts` 补 `composerDraftKey` 路由用例，并把该测试文件接入 desktop test script（此前未接入）。
-- 验证：desktop tsx 262/262（含补接的 sessionDraftStore 7 项）、`node --test` 守卫 239/239、`svelte-check` 0 错 0 警、`vite build` 通过、cargo test 通过（未触及 Rust）；冷启动冒烟走查未做（需打包 Tauri 窗口，留待发布前验证）。
-
-### 回收站删除根修：显式 purge 操作让「彻底清除」真正生效（2026-09-08，已实现）
-
-- **症状**：回收站内选中会话点「删除」确认后毫无变化——会话永远留在回收站。
-- **根因**：批量 `delete` 一律走 `lifecycle.trash()`，而 trash 对已回收会话是幂等成功（直接返回 succeeded 的 no-op）。回收站视图发的就是 delete kind，服务端"成功"了但什么都没做：既没有跨存储清除，也不从列表消失。到期 30 天的定时 sweep 是唯一的清除路径，用户主动删除这条路根本不存在。
-- **根修（共享层）**：bulk 操作新增显式 `purge` kind（`delete` 语义一字不改：进回收站/对已回收幂等）；lifecycle 服务新增 `purgeTrashed` 操作（owner 授权重查 + retain 保护 + busy 探针门槛与其余操作一致，执行体经注入端口复用 `SessionTrashCleanupService` 的跨存储 purge：搜索投影 → UI 会话文件 → Agent Context → 删 lifecycle 行，部分失败记 cleanup intent 可恢复）；runtime 装配把 cleanup 服务先建并接入端口（顺序调整，`reconcilePending`/runtime 暴露引用不变）。客户端在回收站视图把删除映射为 purge（web `doBulk` / desktop `runSessionBulk`），删除意图精确保留到操作记录与重试。
-- **文案**：回收站视图的删除确认改为「这些会话已在回收站中，将立即彻底清除，此操作无法恢复。」（双语），其余视图维持 30 天恢复期说明。
-- **机器守卫**：`sessionBulkService.test.ts` +2（purge 真删除：lifecycle 行与 UI 会话文件消失、普通 delete 在回收站仍是幂等 no-op 且对 active 会话进回收站；busy 会话 purge 被 skip 保留）；夹具接入与生产同形的 trash cleanup 端口。
-- 验证：会话域 147/147（含 bulk 12）；桌面 `svelte-check` 0 错 0 警、store 12/12；Web `vite build` 通过；隔离实例冷路径走查：trash A/B → purge API 成功且预览诚实返回 source-unavailable → UI 回收站选 B → 删除 → 确认（显示立即清除文案）→ 回收站 (0)、"No matching sessions"。
-
-### Mini Chat 输入乱码与频繁中断修复：后台生成 + IME 守卫升级（2026-09-08，已实现，closes #47）
-
-- **症状**（issue #47）：Mini Chat 输入框输入中文后残留拼音乱码（如 "wff"）；回复频繁显示「回复已中断」/「Could not reach the Molibot service.」，长回复几乎必中断。
-- **中断根因**：发消息 POST 同步等待整个 LLM 生成完成，撞上传输链两级看门狗——桌面 Tauri 协议传输 30s 请求超时（返回 502 "Could not reach the Molibot service."）+ MiniApp 宿主→子进程 RPC 60s 看门狗（超时直接 SIGKILL 整个 App 子进程并中止生成），下次启动把 pending 消息标记为 interrupted。超过 30s 的回复 100% 中断。
-- **根修（共享层）**：`POST /messages` 与 `/retry` 改为追加轮次后立即返回 201（实测 <2ms），生成在后台继续（App→宿主 `ai.chat` host_call 无看门狗，时长不再受限）；UI 用 `generatingId`（会话级）轮询驱动整个生成生命周期——200ms 轮询流式渲染、终态自动释放、404 自愈、切换会话/新建/设置在生成期间不再被全局锁死；其他会话仍可正常对话（服务端本就按会话粒度并发）。失败原因不再随 30s 超时丢失：消息行新增 `error_message`（SQLite `PRAGMA table_info` 守卫式 ALTER 兼容既有库），失败/中断文案带出可读原因（保留「Provider 错误可见」修复的承诺），`GET /messages` 投影透出。
-- **输入乱码根因**：内置的 `@astryxdesign/core` 0.1.4 的 contentEditable 输入框没有 IME 组合输入守卫，组合期间按 Enter（选词）会误触发提交并重写 DOM，打断组合、残留拼音原文。升级 `@astryxdesign/core`/`@astryxdesign/theme-neutral` 0.1.4→0.5.4、`@stylexjs/stylex` 0.18.3→0.19.0（React 19 已满足 peer），重建 mini-chat（1.1MB→757KB）与 prompt-box 产物，两个内置包版本 bump 至 1.2.0 让现有安装收到更新。
-- **机器守卫**：`miniChat.test.ts` 全套改用「POST 立即返回 + 轮询终态」语义（14 项），新增看门狗回归测试——`processCallTimeoutMs` 压缩到 300ms + 900ms 慢生成，断言 POST 不阻塞且回复最终 completed（旧实现此场景必失败）。
-- 验证：miniapps 套件 209/209、desktopMiniApps 7/7、`vite build` 通过、tsc 改动文件零错误；隔离实例（临时 DATA_DIR）冷路径走查：内置目录版本 1.2.0 → 安装激活 → UI 资产 200 + IME 守卫在产物中（`isComposing||keyCode===229`）→ 发消息 POST 201 立即返回 → 无模型时失败原因落到消息行 → retry 201 立即返回，全部符合预期。
-
-### 会话预览弹窗化：还原真实 chat UI（图片/附件可见）（2026-09-08，已实现）
-
-- **症状**：会话管理页点击「查看」是在列表下方追加一个纯文本「相邻预览」卡片——既打断了浏览位置，也只显示 role+content 纯文本，图片/音频/视频附件全部不可见，无法还原对话的真实样子。桌面端策略区还持续报 `url not allowed on the configured scope: .../api/settings/session-auto-archive`（上一轮接入桌面端时漏配 Tauri HTTP scope）。
-- **根修（共享层）**：`/api/sessions/managed/preview` 改为返回与聊天界面完全相同的投影消息（`loadStoredConversationMessages`：attachments/thinking/steps/model 全量，web/project 走 owner 索引解析，external 透传 contexts 投影），不再丢字段只留三字段；`resolveAuthorizedConversation` 的 web 分支同样改为 owner 索引解析（与 sessions 读 API 对齐），修复浏览器创建会话（真实 userId owner）的附件 404。Web 聊天页的 markdown 渲染抽为共享模块 `src/lib/ui/markdown.ts`，并允许安全的 markdown 图片（同源/绝对安全协议、lazy 加载），聊天页与设置页共用一份实现。
-- **桌面端**：`SessionManagementSection` 预览改为 Dialog 弹窗，内部直接挂 `ConversationTranscript`（桌面聊天同款渲染器：气泡/markdown/代码高亮/复制），附件经 `listDesktopSessionFiles` + `fetchDesktopFileBlob` 加载真实字节（object URL，关闭/切换时 revoke，在途请求有会话一致性守卫）；预览目标行（botId/projectId/source）存入 store 供文件 API 推导参数。Tauri capabilities 补 `/api/settings/session-auto-archive*`（127.0.0.1 + localhost）。
-- **Web 端**：`settings/sessions` 预览同样弹窗化（providers-modal 系 + 新 session-preview-* 语义 CSS，全部主题 token），消息气泡布局 + markdown 渲染 + 附件图片/音频/视频（经 `/api/web/files` 同源 URL）/文件 chip；提炼详情随弹窗展示；双语 + 明暗主题。
-- **机器守卫**：`http-scope.test.mjs` 新增 session-auto-archive scope 断言（此类漏配第二次出现，守卫升级为整类）；`sessionManagement.test.ts` 新增「成功预览保留完整投影（attachments/thinking）且记住来源行」用例（共 12 项）。
-- 验证：桌面 `svelte-check` 0 错 0 警、store 测试 12/12、scope 测试 5/5、`vite build` 通过（桌面 + Web）；Web 基线 svelte-check 错误数不变（存量错误未动）；隔离实例冷路径走查（临时 DATA_DIR + 种子会话）：列表 → 查看 → 弹窗（用户/助手气泡、附件图片、markdown 图片/粗体/代码/列表、提炼摘要）→ 关闭 → 英文界面复验 → 暗色主题复验，全部通过。
-
-### Desktop 设置页接入会话管理：api 适配层 + runes store + SessionManagementSection（2026-09-08，已实现）
-
-- **范围**：desktop app 同等获得已交付的 Web「会话管理」能力——后端零改动，直接调共享 HTTP 端点（owner 级查询参数式授权，不传 requester）。`apps/desktop/src/lib/api.ts` 新增类型化适配函数（managed 列表/预览/selection/bulk/retry/describe-delete/extraction/extraction-status/auto-archive 设置，沿用 requestJson 模式）；`stores/sessionManagement.svelte.ts` runes store（筛选/服务端分页/本页多选+shift 范围/跨页全选快照/预览含提炼详情与 source-unavailable/批量与重试/策略编辑，列表请求 generation 所有权防串写）；`settings/SessionManagementSection.svelte` 三视图+全量筛选+批量控件+策略区（`.settings-footbar` 保存），复用既有语义 CSS/组件（SelectControl/StatusBadge/Dialog/EmptyState/IosSwitch/SkeletonRows），i18n 新增 sessionMgmt* 双语 key；App.svelte assistant 组 memory 后新增导航。
-- **机器守卫**：`api.test.ts` +10（URL/方法/载荷/逐项投影/400 透传）、`sessionManagement.test.ts` 11 项（筛选清选择、跨页快照、删除确认门控、archive 逐目标版本、提炼门控模式、策略细粒度路由、失败保留旧行、旧响应不覆盖新结果）；`chat-ui.test.mjs` taxonomy 断言同步 assistant 组扩展。
-- 验证：桌面 tsx 114/114（含既有 api 103 项不回归）、全量 tsx 288 项与 node --test 237 项不回归、`vite build` 通过、`tsc --noEmit` 0 错误。
-
-### 会话管理生产装配根修：真实忙碌探针/外部只读/Trash 调度/设置 round-trip（2026-09-08，已实现，Session 管理 Phase1 Blockers）
-
-- **B1 生产忙碌探针**：`runtime.ts` 经新装配 `assembleSessionLifecycle`（`sessionServiceAssembly.ts`）装配 lifecycle——真实探针 `createSessionBusyProbe` 覆盖 live runner（`snapshotAllRuntimeRuns`）、待审批（`HostBashStore.listPending` session 维）、非终态关联任务（`DurableExecutionStore.hasNonterminalForSession` 新增：`source_ui_session_id`/attempt `context_session_id` 任一命中即忙）；archive/delete 在生产真正阻塞（busy skip），读失败降级为不忙、永不把监控故障变成 500。机器守卫：`sessionServiceAssembly.test.ts` B1（可控三信号逐个阻塞、清空后成功、默认装配不误伤）。
-- **B2 外部渠道生产可管理**：生产装配传入 `listExternal`（复用 `listExternalSessionsFromContexts` 只读投影→`ExternalManagedCandidate`，含 botId/授权 search 投影）；`isExternalSession` 谓词接入 `authorizedRow`——外部 id 的 archive/restore/trash/setRetain 一律 `skipped/not_applicable`（存在但只读），未知 id 仍 `not_found`；管理预览新增外部只读分支（`readExternalTranscriptFromContexts` transcript 只读 + `readOnly` 标记，缺失则诚实 `source-unavailable`+原因）；keyword 对 external 按标题生效、botIds/sources 筛选直通。机器守卫：US2/US3 级测试（列表可见性、按 BOT、keyword、mutation skip 语义）。
-- **B3 Trash 过期生产调度**：`ensureOwnerSessionTrashExpiryEvent`（常开、无 opt-in——以删除时展示的 30 天期限为准）+ `InternalEventKind session-trash-expiry` + `TaskScheduler.start` 接入；dispatcher 分支走 `reconcilePending`（先重试 intent 再扫过期，auto-archive sweep 只管归档的注释保持不动）；启动时对账一次（`session_trash_reconciled` 日志）；真实 purge 端口 `buildSessionTrashPorts`（UI 文件/Project 文件、Agent Context `deleteSessionArtifacts` 幂等、search 投影、owner/project 鉴权）。机器守卫：`sessionTrashExpiry.test.ts`（事件常开/kind/执行体）+ `sessionMaintenance.test.ts`（真实端口 purge、跨 owner 拒绝、recorded intent 重启对账）。
-- **B4 设置整对象 round-trip**：`sessionAutoArchiveRoundtrip.test.ts`（settings 目录）：富配置（custom provider+model alias、agent、per-bot 策略）save→新 store→load→改策略→save→新 store→load，策略生效且 provider/agent 原样。
-- **建议顺手修**：S2 提炼按会话 BOT 路由（`sessionBotIdOf` 解析 `web:<bot>:<user>`，`agent_self`/`content` 命名空间 + receipt `botId` + extractor 输入逐会话；project 回退默认；S2 测试断言 personal/work 分流）；S3 Tabs 单驱动（`bind:value`+`onValueChange` 二写一 → 受控 `value`+`onValueChange`，`onViewChange` 唯一写 `view`）；S4 sanitize 截断走 API 回执声明（PUT/GET 均返回应用后 policy + previewCount，不改静默 clamp 语义，已验证）。
-- 验证：回归全过 225 项（会话域 179：assembly 5、maintenance 3、expiry 1、roundtrip 1、extraction 17 含 S2、其余会话/查询/批量/入站/归档/清理既有；相邻域 46：taskScheduler、settings store、sanitize、hostBash store、durable store）；`vite build` 通过；`tsc --noEmit` 新增文件 0 错误（svelte-check 未安装且 npx 无源——未改 package.json；基线 qqbot 缺 SDK/tabs-list svelte 类型/channels hookManager 等错误未动）；隔离冷启动冒烟（临时 DATA_DIR：重启→首开管理页 200→建会话→预览→策略启用→bulk archive/delete→operation 可读→优雅重启→kill -9→状态/策略/operation 全部恢复；trash-expiry 事件与启用后的 auto-archive 事件均落盘）。
-- **已知局限**：Phase2 无 document saver（transcript-only 产物显式失败并阻塞归档，见矩阵部分交付）；排队信号经 queued/waiting Durable + 运行中 turn 覆盖，无独立逐会话队列存储。
-
-### 会话管理 Phase 2 UI：提炼并归档/状态/待归档筛选（2026-09-08，已实现，T9 closes #45）
-
-- **范围**：管理页固定「提炼并归档」批量控件（走 T8 门控：仅全部成功、需保留结果已保存、无待审核、来源无变化时归档；失败/待审/并发新消息不归档并明示原因；提炼永不删除）；列表新增提炼状态列（unprocessed/processing/saved/no-useful-information/pending-review/partially-processed/failed）与提炼筛选 + processed-but-not-archived 筛选；预览面板展示精确来源范围（processedThroughId + messageRevision）与保留信息（记忆数/文档标题 + 记忆页链接、待审核候选、失败原因）；purge 后预览与状态接口统一返回 source-unavailable。
-- **后端**：`queryManagedSessions` 经 `SessionExtractionStatusSource` 窄端口派生状态（revision 公式与 T8 共用 `buildExtractionRevision`，新消息到达即 partially-processed；空/畸形模型输出只记 failed，永不记无价值）；`SessionBulkService.getSelectionTargets` 供跨页选择复用；`SessionExtractionService.describe` 只读聚合；`POST /api/sessions/managed/extraction` + `GET .../extraction/status`（鉴权+校验+投影）；runtime 接线（assistant-reply JSON extractor + MemoryGateway + 隐私抑制透传，不接 document saver——纯 transcript 产物 siblings 显式失败而非谎称已保存）。
-- **机器守卫**：`sessionManagedExtraction.test.ts`（6：状态派生/范围/引用、partial、双筛选、failed≠无价值）、`sessionExtractionBatch.test.ts`（4：门控语义/selection/永不删除）、`sessionManagedApi.test.ts`（+5：解析/校验/投影）、gateway 抑制透传（1）；双语 key 机器核对 105/105。
-- 验证：sessions 136/136、memory 98/98 全过；`vite build` 通过；新增文件 tsc 0 错误（`sessionManagedApi` 旧坏 import 与 qqbot 缺 SDK 等基线错误未动）。
-- **已知局限**：多 BOT 下 content/agent_self 命名空间沿用默认 botId（未改 T8 构造）；文档引用仅展示标题+docId（尚无独立文档查看路由）；记忆链接到记忆设置页（无单条深链）。
-
-### Project 会话列表合并到共享 store：标题回退与空列表根修（2026-09-07，已实现）
-
-- **症状**：Project 会话生成新标题后在切换会话/项目时回退；列表请求成功后侧栏仍可能显示为空；行菜单会被普通列表刷新卸载。此前历史修复只覆盖了单侧列表，未覆盖 ProjectTree 侧栏与共享 store 各自维护列表的重复状态。
-- **根因**：侧栏组件内维护了第二份 `sessionsByProject` 缓存和独立加载入口，与 `projectsStore.sessions` 双写互不同步——显示读一份、刷新写另一份，竞态下旧结果覆盖新状态。
-- **根修（共享层）**：`projectsStore` 按项目 ID 持有唯一 `sessionsByProject` 列表及 `sessionListLoading/Errors` 状态；`sessions` 改为由选中项目派生的 getter，不再有可独立写入的副本。侧栏只保留展开/折叠/分页等展示状态；创建、重命名、删除、对话完成刷新统一走 store 的 `newProjectSession/renameProjectSession/removeProjectSession/refreshProjectSessionList`。同项目请求去重（in-flight 复用），按"最新请求所有权"发布结果——过期请求、被变更（rename/delete/create）作废的请求一律不发布，旧结果无法覆盖新状态；后台刷新保留已有行，错误显示为行内 alert + 重试按钮，空列表只在成功读取且结果为空时出现；新建会话先乐观插入列表顶部（服务端即 newest-first），后续列表刷新失败也不会隐藏。会话完成刷新改为携带该会话所属项目 ID（`sessionRuntimeRegistry`/`projectChatStore` 接口相应从无参改为传入 profileId/sessionId），在 A 项目后台完成对话不会再刷错列表。
-- **机器守卫**：`projectsStore.test.ts` 扩展为共享 store 行为测试（项目切换保留刷新标题、去重与"旧响应不能撤销改名/删除"、强制刷新乱序所有权、创建会话在后续列表请求失败时仍可见）；新增 `project-sidebar.test.mjs` 联合行为测试，用 vite SSR 渲染真实 ProjectTree + 真实 store，覆盖单测 store 无法捕获的"双列表覆盖"路径；`chat-ui.test.mjs` 守卫断言同步到新所有权机制（`sessionListRequests` 所有权检查）。
-- **清理**：删除侧栏重复缓存、`loadSessions/renameSession/deleteSession` 本地实现及赋值同步代码，不保留兼容层；后端会话存储格式与 API 不变。
-- **验证**：store 8/8、联合行为测试、tsx 240 项、node 237 项、`svelte-check` 0 错误 0 警告、生产构建通过；隔离实例（mock 服务 + 冒烟页）冷启动走查通过：首发展开加载、选中/行内重命名、服务端标题变更后刷新生效、定时后台刷新期间行菜单保持挂载（行未重建）、断线保留列表/重连恢复、读取失败显示错误 + 重试按钮且行保留、重试恢复、跨项目切换标题不回退、新建会话立即出现、删除选中会话自动回落、中文即时切换。
-
-### 同一消息多张同名图片互相覆盖修复（2026-09-07，已实现，fix #35）
-
-- **症状**：对话中通过复制粘贴添加多张图片（剪贴板给的名字都是 `image.png`）后发送，无论传几张，会话里只能看到最后一张的内容。
-- **根因**：`MomRuntimeStore.saveAttachment` 用 `chatId/attachments/<毫秒>_<文件名>` 落盘；`/api/chat` 与 `/api/stream` 都在循环外只取一次时间戳，同一条消息里的多张同名文件得到完全相同的路径，`writeFileSync` 逐个覆盖，所有附件记录最终指向最后一张的字节。该碰撞是共享层的类缺陷，渠道侧同名同毫秒到达的附件同样命中。
-- **根修（共享层）**：`saveAttachment` 新增 `reserveAttachmentPath`——目标路径已存在时在扩展名前追加 `-2`、`-3` 序号，保证同名同毫秒附件各自独立落盘；`original` 展示名、类型/媒体类型推断（后缀位于扩展名前，`isImage` 等判断不受影响）不变。所有调用方（Web/Desktop 聊天、Feishu、QQ、Telegram、Weixin）无需逐个改动。
-- **粘贴多图补齐**：`clipboardImageFiles` 原来只返回第一张图片就提前返回，一次粘贴多张文件只会有第一张进入待发送列表；现改为返回全部图片文件，未命名条目（同一张图的多格式表示，如 Safari 的 png+tiff）仍只取第一个，保持既有去重语义。ProjectChat 与 ChatView 共用该 helper 与 `ChatComposerShell` 粘贴链路，自动生效。
-- **机器守卫**：新增 `storeAttachments.test.ts`（同名同毫秒三次保存得到三个不同路径且字节各自独立、后缀在扩展名前且 `isImage` 保持 true；不同毫秒同名仍走无后缀确定性路径）；`api.test.ts` 新增多张命名剪贴板图片全部附加的回归。
-- 验证：storeAttachments/session/storeContextCheckpoint/web attachments/streamRequest/feishu/weixin 渠道测试、桌面 `api.test.ts` 93 项、`chat-ui.test.mjs` 227/228 项（唯一失败为项目侧边栏进行中改动的既有断言 `chat-ui.test.mjs:2986`，与本次无关，已用 diff 验证）、`svelte-check` 0 错误 0 警告。真机冷启动粘贴走查待桌面端下次使用确认。
-
-### 文件面板 HTML 预览暗色可读性根修 + 模板文件默认源码视图（2026-09-06，已实现）
-
-- **症状**：右侧项目文件面板预览 `.html` 文件时，暗色主题下内容接近纯黑、完全看不清（如 Hugo 模板 `layouts/partials/extend_footer.html`）。
-- **根因**：`.html` 一律走 sandboxed iframe 渲染预览，artifact 路由直接回吐原始字节——`artifactPreviewUrl` 一路携带的 `theme` 查询参数从未被消费。Hugo 模板不是完整网页，浏览器把模板指令当正文用 UA 默认黑色渲染；iframe 文档画布透明，露出暗色面板，形成黑字叠暗底。无 `<style>` 的真实页面同样命中。
-- **根修（共享层）**：`artifactRoute.ts` 新增 `injectPreviewBaseStyle` / `artifactPreviewResponse`——HTML 文档按 `theme` 注入一段置于文档最前的基底样式（dark `#0d1117/#e6edf3`、light `#ffffff/#1f2328`，与桌面 Primer 语法色板一致；页面自有样式在后必然覆盖，真实带样式页面不受影响）；ETag 折入 theme variant，跨主题缓存不会 304 出旧画布；无 theme、Range 请求、超 4MB 走原流式路径。路由层只保留薄壳。
-- **视图修正**：`viewerRegistry` 新增 `isTemplateDocument`（头部 4096 字符内含 `{{`/`{%`/`<%`/`<?php`/`<?=` 即模板）；含模板指令的 HTML 默认打开源码视图（CodeViewer 语法高亮，明暗主题均正常），`</>` 源码切换扩展到 HTML，用户可手动切回渲染视图；session 作用域 html 标签页在既有 blob 上顺带解码文本，无二次请求。
-- **机器守卫**：`artifactRoute.test.ts` 新增注入位置/主题色/ASCII 注入、ETag theme variant 与 304、无 theme/Range/非 HTML 回退流式等 3 组测试；`viewerRegistry.test.ts` 新增模板嗅探与 hasSourceToggle(html) 断言；`chat-ui.test.mjs` 源码切换重置守卫迁移为 `sourceOverride = null` 契约。
-- 验证：`test:projects` 80 项、桌面 tsx 238 项、node 236 项、`svelte-check` 0 错误、`vite build` 通过；隔离冒烟（Chromium 读取注入后文档计算样式）确认 dark 注入为浅字暗底、light 为白底黑字、原始字节复现黑字透明画布。真机冷启动走查（重启桌面端 → 打开 `layouts/*.html` → 暗色查看 → 明暗切换）待用户下次打开桌面端确认。
-
-### 工作区四面板 header 统一为设置页「标题 + 描述」风格（2026-09-06，已实现）
-
-- **问题**：自动任务、技能、Agent、小程序四个工作区面板的顶部只有一条 42px 窄栏里左对齐的纯标题，与设置页（居中列 + 标题 + 灰色描述）的观感割裂。
-- **实现**：共享 `PageHeader` 组件新增 `workspace` 变体——复用 `.settings-page-header` 全部样式，仅把标题列宽切到 `--workspace-col`，与面板内容列保持同一几何；`ChatWorkspacePane` 移除旧的 `chat-header` 窄栏，改挂 PageHeader 并为四个面板补中英描述文案（`autoTasksHint` / `skillsSquareHint` / `miniAppsHint`，Agent 复用并改写闲置的 `agentStudioHint`）。`workspace-scroll` 的 `scrollbar-gutter` 改为 `stable both-edges`，滚动时居中列仍与 header 对齐（与 settings-scroll 同理）。
-- **侧栏收起态**：展开按钮改为绝对定位在 header 右上列缘（`top:24px; right:28px`）——原设计放左侧会与居中标题文字重叠，且真实桌面端该位置被红绿灯图标占据；走查确认折叠/展开往返正常。
-- **机器守卫**：`chat-ui.test.mjs` 两条旧断言（`workspace-header` 左对齐、`workspace-page-title` 拖拽区）迁移为新契约：workspace 面板必须挂共享 PageHeader（含拖拽区）、header 列宽必须是 `--workspace-col`。
-- 验证：`svelte-check` 0 错误；前端测试 482 项全过；`vite build` 通过；浏览器预览走查四个面板明暗主题、侧栏折叠/展开均正常（预览环境无法连本地服务，内容区加载态为既有逻辑未改动）。
-
-### 小程序 Toast 不自动消失修复（2026-09-06，已实现）
-
-- **症状**：小程序把内容填入聊天输入框后弹出的「已填入输入框，确认后再发送。」Toast 永不消失，只能手动点 ×。
-- **根因**：`miniAppActionFeedback` Toast 的自动消失定时器只写在 `runMiniAppMessageAction` 的 `finally` 里；composer 插入、附件附加、会话打开等路径直接给 `miniAppActionFeedback` 赋值，没有调度定时器。`ChatView.svelte` 与 `ProjectChat.svelte` 两个宿主共有 8 处这样的直接赋值。
-- **修复**：两个宿主各新增 `showMiniAppFeedback(text, card?)`，统一负责「设置文本 + 调度 3 秒自动消失；带结果卡片的 Toast 仍保留到手动关闭」既有策略，全部赋值路径改走该 helper；卡片驻留设计不变。
-- **机器守卫**：`chat-ui.test.mjs` 原守卫只断言文件里存在定时器模式，拦不住「某条路径漏掉定时器」——本次升级为两条：定时器策略必须内聚在 `showMiniAppFeedback` 内，且 `miniAppActionFeedback` 出现 helper/dismiss 之外的任何直接赋值即失败。已对抗式验证旧 bug 写法会被该守卫命中。
-- 验证：`svelte-check` 0 错误；node 测试组 236 项、miniapp messageActions 测试全过。真机冷启动走查（点击小程序填入输入框 → Toast 3 秒自动消失）待用户下次使用时确认。
-
-### Session 列表点击变"新会话"的根修（2026-09-06，已实现）
-
-- **症状**：侧边栏会话明明已更新，点击后右侧却变成新会话（空面板），再点又变回来。
-- **根因 1（重连重置视图）**：服务每次断连会把工作区全部清空，重连后 `selectDefaultSession` 无条件重选"最后一次点击过的会话"，且只在 web 列表第一页里找——找不到就掉进新会话草稿或跳到最新会话。运行时按 pitfall 21/22 本来就经常重启，形成"点开又被打回新会话"的乒乓。修复：断连时先 `untrack` 捕获当前视图快照（本地会话 / 项目会话 / 外部只读会话三类），重连成功后恢复该快照；默认选择只在首启且无快照时兜底。草稿发送创建的会话现在也写入恢复锚点（`persistSelected` 进 `onSessionCreated`）。
-- **根因 2（跨 owner 读取 404）**：桌面侧边栏跨所有 Web owner 聚合会话，但详情读取信任调用方身份（桌面是 `web:<profile>:web-anonymous`），浏览器等其它 surface 创建的会话点击即 404，面板只剩空状态 hero + 错误横幅——看起来就是新会话。修复：新增共享解析 `resolveWebConversationIdentity` / 扩展 `resolveRunnerChatId`（`src/lib/server/web/runtimeContext.ts`），按 Web 索引里会话的真实 owner 解析身份；`/api/sessions/:id`、`/api/chat`、`/api/stream` 及 stop/steer/waitFor 全部改走该解析，读写与停止/插话都落在会话自己的 agent context 上。
-- **根因 3（发送静默换会话）**：`/api/chat` 携带 conversationId 但 owner 不匹配时，`getOrCreateConversation` 会静默续上该 owner 最近一个会话或新建一个——正是"点了会话、一发消息就冒出新会话"的来源。owner 解析修正后该兜底不再被触发。
-- **根因 4（标题永远是 New Session）**：自动命名只在第一条用户消息那轮尝试一次，超时/无 key/报错即永久放弃。改为以"标题仍是默认值"为门槛重试（`hasDefaultConversationTitle`），用户改过的标题不会被覆盖；`/api/chat` 与 `/api/stream` 的调用门槛同步更换。
-- **顺手修**：工作区存量的 `api.ts` memory 插件 `embeddingProviders` 类型错误（前两个 slice 均标注为"与本改动无关"的遗留）——服务端已返回该字段、类型已声明，仅 `loadDesktopCorePluginDetail` 漏传，本次补上，`svelte-check` 现为 0 错误。
-- **机器守卫**：`src/lib/server/web/runtimeContext.test.ts`（owner 解析单测 + 真实存储端到端：浏览器会话经桌面身份可打开、旧身份仍 404 证明修的是解析本身）；`titleSummarizer.test.ts` 重写为"默认标题可重试、自定义标题不覆盖"两条；`chat-ui.test.mjs` 新增重连恢复结构守卫（快照捕获在 teardown 首行且必须 `untrack`、connect 先消费快照再走默认选择、`onSessionCreated` 写恢复锚点）。
-- 验证：桌面端 `pnpm test`（tsx 239 + node 236 + cargo 60）全过，`test:desktop-chat` 271 项全过，`svelte-check` 0 错误，`vite build` 通过。真机冷启动走查（重启服务 → 点击更新会话 → 服务中断恢复）待用户下次打开桌面端确认。
-
-### 项目设置弹窗固定尺寸 + 自动任务 tab 样式重做（2026-09-06，已实现）
-
-项目设置弹窗改为固定视口（760px × 86vh），常规/自动任务两个 tab 共享同一窗口尺寸，切换 tab 不再改变弹窗大小，面板内容自行滚动。自动任务 tab 在弹窗内按新设计参考呈现：任务卡片去边框、改分层阴影 + 12px 圆角；卡片标题用新增 `--fs-section`（19/24）字阶，正文/日期用 `--fs-body-lg`（14.5/18）字阶；弹窗标题用 `--fs-page`（22/28）；主/次按钮在弹窗内为 38px 圆形、带内嵌高光与柔和投影；分隔线统一 1px `--separator`。两个新字阶已纳入 chat-ui 排版守卫的 scale map；DESIGN.md 补充了实体检查器弹窗的固定视口与字阶规范。守卫测试、numeric-typography、build 及明暗主题隔离冒烟均通过；svelte-check 仅剩存量 `api.ts` memory 插件类型错误（与本次无关）。
-
-### 内置 Agent 模板行为优化（2026-09-06，已实现）
-
-8 个模板明确任务深度与证据边界：投资研究移除虚构履历和个人仓位指令；英语教练区分即用表达与训练；审查、统计、反馈、产品和策略模板补充范围及数据口径；Mini App Creator 按实际技能位置构建。7 个模板升至 1.0.1，Mini App Creator 升至 1.3.4。真实模板安装与提示词合并回归覆盖角色覆盖、Bot 规则保留和正文单次注入；模板更新沿用先备份用户修改副本的机制。相关测试 36 项通过；尚未进行真实模型回答质量 A/B 评估。
-
-### 协作规则的自主执行与批准边界（2026-09-06，已实现）
-
-已授权范围内的实现、排错和验证持续执行，进度更新不要求重新批准；关键决策、临时补丁和未授权部署事项保留用户确认。验收要求区分必需验证与额外打磨，文档按实际影响同步。规则以 `AGENTS.md` 为准。
-
-### 小程序主页面改为 macOS 启动台，管理收进二级视图（2026-09-06，已实现）
-
-- **问题**：小程序主入口长期是一张管理页（版本号、状态 Badge、启停开关、卸载菜单、更新按钮铺满首屏），打开它的主要动机却是"启动一个小程序"，两种任务密度错位。
-- **启动台（默认视图）**：新增 `MiniAppsLaunchpad.svelte` 作为 `miniapps` 工作区面板的挂载组件。默认视图是 macOS Launchpad 式图标网格：每个磁贴只有 64px squircle 图标（`MiniAppIcon` 新增 `launchpad` 尺寸）和名字，点击即打开应用；只显示 `enabled && status === "active"` 的可用应用，停用/出错的应用不再占据首屏，其原因统一在管理视图可见。磁贴 hover 亮起中性 fill、按下图标回缩（scale 0.94），入场按索引做 ≤288ms 的错峰淡入；工具栏保留工作区统一三件套——搜索（名称/描述过滤）、已安装/启用/出错计数、主 CTA「管理小程序」。空态三分：未安装任何应用（EmptyState + 去安装）、全部停用（提示 + 去管理）、搜索无结果。
-- **管理视图（二级）**：原 `MiniAppsManager` 原封不动下沉为启动台的 manage 视图（顶部「返回启动台」返回），安装/启停/卸载/更新/AI 路由指引全部能力不丢；Settings 不挂载该组件的既有契约不变。
-- **机器守卫**：`chat-ui.test.mjs` 新增启动台契约测试（仅可用应用上墙、磁贴即按钮、manage 视图复用 manager、reduced-motion 关闭入场动画），并把 workspace 居中规则、唯一挂载点两条既有断言迁移到新组件。
-- 验证：`chat-ui.test.mjs` 227 项全过；`vite build` 通过；`svelte-check` 仅剩工作区既有的 `api.ts` Memory 插件类型错误（与本改动无关）。真机冷启动走查待用户下次打开桌面端时确认。
-
-### Prompt Box 删除同步复活修复与新图标（2026-09-06，已实现，v1.1.0）
-
-- **删除后被同步"复活"的根因与修复**：远端 pb.onlinestool.com 的 API 只实现 list/create（实测 `DELETE /api/prompts/:id` 鉴权通过后返回 "Endpoint not implemented"），本地删除无法上报；下次刷新/同步时 `upsertFromRemote` 把远端仍存在的提示词原样重建。本地 SQLite 新增 `deleted_remote_prompts` 墓碑表：删除带 `remote_id` 的提示词时记录墓碑（`Store.delete`），同步拉取时跳过已墓碑的远端条目（`upsertFromRemote` 返回 null），sync 结果新增 `skippedDeletedCount`。墓碑表由 SCHEMA `CREATE TABLE IF NOT EXISTS` 在旧库上自动补建，无需迁移。
-- **Agent 删除拿不到 ID 的修复**：`list_prompts` 的文本输出此前不含 ID，通过对话让 Agent 删除/更新/查看提示词时无法构造 `delete_prompt` / `update_prompt` / `get_prompt` 调用。每条摘要现在携带 `(id: …)`。
-- **新图标**：替换原莫兰迪渐变抽象图形（语义不明），改为与其他内置小程序一致的扁平多彩分层风格——打开的盒子向上冒出灵感星光、盒身正面带终端提示符 `>_`，紫色系（现有蓝/琥珀/绿/青/橙之外无冲突）。应用内头部 "PB" 文字徽标同步替换为 `icon.svg`（同源相对引用，CSP `img-src 'self'` 允许），并删除死代码 `copy.title`。
-- **版本 1.0.0 → 1.1.0**：随包内容变更同步 bump 版本号，已安装副本经 Mini Apps 管理器收到更新提示。前次 v1.0.7 的 UI 修复未 bump 版本，已安装副本从未收到该更新——本次一并纠正。
-- 机器守卫：`promptBox.test.ts` 新增"删除后同步不复活"回归测试，覆盖 HTTP 与 Agent 工具两条删除路径，精确断言 `pulledCount` / `skippedDeletedCount`，并守卫同步期间绝不向远端发出非 GET 请求（远端只读契约）；`list_prompts` 输出必须携带 id 的断言。
-- 验证：miniapps 全套 208 项、desktopMiniApps 7 项测试全过；用真实旧库副本（88 条全部带 remote_id）端到端实测：墓碑表自动补建 → 删除 → 模拟远端仍返回该条 → 同步不复活、新远端条目正常导入。图标在明暗两种背景、512px 与 48px 尺寸下渲染检查通过。
-
-### 项目文件/附件下载走原生保存对话框（2026-09-06，已实现）
-
-- **修复桌面端所有文件下载点击无反应**：Tauri 的 WKWebView 会静默丢弃 `<a download>` 触发的下载（未注册 `on_download` handler），blob URL 方案在原生壳里完全不生效。新增共享 helper `apps/desktop/src/lib/saveFile.ts`（`saveBlobAsFile`）：Tauri 环境经 FileReader 转 data URL 后调用既有 `save_file_dialog` 原生命令（Mini App 保存图片同通道）弹出系统保存对话框并写盘；纯浏览器 dev 环境保留 anchor 下载兜底。
-- 全部 5 处下载调用点统一走 helper：ArtifactPanel 项目文件下载（用户报告的入口）、ArtifactPanel 会话文件 tab、ArtifactPanel 附件列表、ChatView 会话附件、ProjectChat 会话附件。用户取消保存对话框不报错。
-- 顺手修正 `downloadAttachment` 硬编码 `"personal"` profileId 为 `profileId || "personal"`（与同文件其余调用点一致，修复多 Bot 会话附件下载 404，同 CHANGELOG 记载过的旧坑）。
-- 机器守卫：`chat-ui.test.mjs` 新增断言——所有下载来源文件必须导入 `saveBlobAsFile` 且不得再手写 `anchor.download`；`lib/saveFile.ts` 必须含 `save_file_dialog` 与 Tauri 检测。
-- 验证：226 项 Desktop UI 结构测试全过；vite build 通过；`svelte-check` 仅剩工作区既有的 Memory `embeddingProviders` 类型错误（进行中的无关改动）。Rust 侧无改动（`save_file_dialog` 命令已在线上验证）。另用 curl 实测线上服务 raw 接口对报告中的未跟踪文件返回 200 / 46490 字节（hugo_blog 项目），证实服务端链路本就正常、问题纯在 WebView 层。原生保存对话框弹出已由用户在 `tauri dev` 运行实例中实测确认（2026-09-06）。
-
-### 输入框回车发送 + 输入法上屏守卫（2026-09-06，已实现）
-
-- 主会话与项目会话的 composer 快捷键互换：**Enter 发送，Shift+Enter 换行**（textarea 原生行为，不再拦截），Cmd/Ctrl+Enter 继续发送，Alt+Enter 不拦截。
-- **输入法上屏不再误发送**：守卫改为 `event.isComposing || event.keyCode === 229`——桌面端跑 WKWebView（Safari 内核），确认组合的回车 keydown 在 `compositionend` 之后才触发、`isComposing` 已复位为 `false`，只查 `isComposing` 会漏掉；`keyCode 229` 补上这个洞。Slash/`@` 联想菜单的 Enter 选中同样加固，输入法组词时回车只上屏、不选词不发送。
-- 中英 placeholder 提示同步更新（`enterHint` / `queueHint`）。
-- 机器守卫：`chat-ui.test.mjs` 断言两处 composer 都有 IME 双重守卫与 Shift/Alt 放行，联想菜单排除 keyCode 229。
-- 验证：225 项 Desktop UI 结构测试全过；`svelte-check` 仅剩工作区既有的 Memory `embeddingProviders` 类型错误（进行中的无关改动）。
-
-### 审批续跑显示修复（2026-09-06，已实现）
-
-- Host Bash 与通用工具审批共用后台回答记录器：工具活动结构化保存，最终回答绑定 Agent 来源条目，替换回答不再追加重复消息。
-- Desktop 按服务端运行状态刷新，支持超过 15 秒的续跑、再次审批及切换会话；续跑耗时独立保存并在重载后保留。
-- 已为问题会话备份并重建两次续跑的展示元数据，原始模型上下文与审批记录不变。真实项目会话接口确认孤立进度行归零，恢复 12+8 条工具活动及 57.078s/40.871s 的续跑耗时；39 项服务端与 115 项 Desktop/API 回归通过。原生冷启动验证受电脑控制工具无法识别开发版程序阻塞。
-
-### Host Bash 审批执行与结果回写（2026-09-06，已实现）
-
-- 共享 SQLite 中的 Host Bash 请求由专用执行器处理，通用 Broker 不再提前消费批准或拒绝；工具结果按审批 ID 回写，支持带参数和重复命令。
-- 验证：临时数据库分派、真实无副作用命令执行、精确回写、拒绝与终态保护，以及相关回归共 51 项通过；原生应用冷启动续跑待验证。
-
-## 2026-09-06
-
-### 沙箱 loopback 可达 + 审批卡片三重兜底（已交付）
-
-- **沙箱内 localhost 永久不可达的根修**：`@anthropic-ai/sandbox-runtime` 无条件注入 `NO_PROXY=localhost,127.0.0.1,::1`（HTTP 客户端直连本机），而受限网络的 seatbelt profile 只放行其过滤代理端口（直连默认拒绝）——两者叠加导致沙箱内任何 localhost/局域网服务都连不上，且报错与服务未启动完全一致、无法区分。`buildEffectiveSandboxConfig` 现固定带 `allowLocalBinding: true`，seatbelt 生成直连 loopback 的 outbound/bind 规则；`allowedDomains` 域名过滤继续只管外部主机。机器守卫：`sandbox.test.ts` 断言 effective config 必须含 `allowLocalBinding`；seatbelt 规则已用 `sandbox-exec` 实测（同场景 curl 由 exit 7 变为 HTTP 200）。
-- **设置页审批列表可直接处理**：待审批行新增「批准一次 / 一直允许 / 拒绝」操作。服务端 `resolve_approval` 新增操作员表单（仅 `requestId`+`decision`，无 chat 上下文）：按 ID 全局定位记录，`web:` 作用域复用既有 chat 卡片的批准-执行-恢复机械（隔离实例实测 reject 与 approve-once（含命令执行）全链路），其它渠道记录支持拒绝、批准则提示回对应渠道处理。
-- **打开/切换会话即认领 pending 审批**：`ConversationController.adoptPendingApproval()` 在主会话与项目会话的 `selectSession` 里调用——此前卡片只在"轮次内的 SSE 推送"和"轮次结束后一次性轮询"两个窗口出现，错过（流中断、Stop、重启应用）即永久沉没，用户只能干等。
-- **SSE 单帧容错**：`consumeDesktopSse` 逐事件隔离 handler 异常（协议 `error` 帧与 abort 照常上抛），一个坏帧不再吞掉后续所有帧（此前审批事件可能跟在坏活动帧后面被一起丢掉）。
-- 验证：sandbox 12 项、desktop-chat/hostBash/webCommands 相关 18+14 项、api.test 92 项全过；根构建通过。`svelte-check` 仅剩工作区既有的 Memory `embeddingProviders` 类型错误（进行中的无关改动）。**服务端改动（loopback 放行、操作员解析端点）需重启 dev 栈后生效；前端部分随 vite HMR 即时生效。**
-
-### Desktop 侧栏小程序列表移除（已交付）
-
-- 左侧导航只保留"小程序"主入口（打开小程序管理面板）；删除项目树下方的"小程序"最近使用列表区，两者功能重复，管理面板已覆盖浏览、打开、安装、启停全部能力。
-- 随之删除的孤儿代码：`MiniAppsSidebarSection.svelte` 组件、ChatSidebar 的 4 个相关 props、ChatView 的展开状态（`MINIAPPS_EXPANDED_KEY` localStorage 键与 toggle 函数）、store 的 recent 列表辅助（`markMiniAppUsed`/`recentMiniApps`/`hasMoreThanRecent`/`openableMiniApps` 与 `recentIds` 状态）、`MiniAppIcon` 的 `sidebar` 尺寸变体、styles.css 侧栏列表/角标样式块，以及中英双语的 4 个孤儿文案 key（`miniAppsRecent`/`miniAppsSeeAll`/`miniAppBadgeCount`/`miniAppBadgeDot`）。
-- 保留：服务端 `ctx.badge` 角标能力与打开面板时经服务端目录回收角标的链路不变（角标当前无展示面，是否随之下线属平台能力决策，另行确认）。
-- 验证：225 项 Desktop UI 结构测试（含同步更新的断言与新的"导航是唯一侧栏入口"守卫）、8 项静态守卫测试、9 项 miniapps/turn 单元测试、vite build 全部通过；`svelte-check` 仅剩工作区既有的 Memory `embeddingProviders` 类型错误（与本改动无关）。
-
-## 2026-09-05
-
-### Desktop Session 计划执行闭环（已交付）
-
-- 计划接受后在原 Session 的下一轮直接执行，思考、工具、产物、检查与后续反馈共享同一上下文；右侧计划面板只投影结构化进度，不再创建或替代一个独立执行会话。
-- 计划状态明确区分执行、等待授权、受阻、执行结束待检查与完成。待检查不再占用左侧“进行中”列表；确认完成后不再显示暂停或取消，旧任务的“继续执行”入口改为返回当前对话提出修改。
-- `exitPlan` 使用稳定工具调用 ID 作为计划 ID，修复同一 Session 创建第二个计划时，展示卡片与持久化记录 ID 不一致导致的“计划不存在”。
-- 同一用户轮次的多段终止回复合并为一个回答容器，完整保留文本和过程轨迹；执行过程恢复为无边框、透明背景的紧凑披露，回答状态文案改为“回答完成”。
-- 验证：50 项计划/会话/持久化/运行时测试、18 项 Desktop 对话单元测试、225 项 Desktop UI 结构测试、root 与 Desktop 构建通过；隔离服务中完成暗色主题与右侧面板并排走查。`svelte-check` 仅剩工作区既有的 Memory `embeddingProviders` 类型错误。
-
 ## Archive Index / 归档索引
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
@@ -1153,4 +1000,4 @@
 
 ---
 
-9 月 4 日及更早的实施记录见 [2026 Q3 功能归档](docs/archive/features-archive-2026-Q3.md)。
+9 月 10 日及更早的实施记录见 [2026 Q3 功能归档](docs/archive/features-archive-2026-Q3.md)。

@@ -38,6 +38,9 @@ importers:
       '@sveltejs/kit':
         specifier: ^2.48.1
         version: 2.68.0(@opentelemetry/api@1.9.0)(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.56.4)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0)))(svelte@5.56.4)(typescript@5.9.3)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@typesafe-ai/sdk':
+        specifier: 0.6.0
+        version: 0.6.0
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -1607,6 +1610,10 @@ packages:
 
   '@types/yauzl@3.4.0':
     resolution: {integrity: sha512-NRPn5w6h8dhcnmx3YIRQcqMywY/+nND/uOkJessedcrowO3C0AssHp3tMJpxKAwOhFOo0OV1y9VtsC5hbKKBAw==}
+
+  '@typesafe-ai/sdk@0.6.0':
+    resolution: {integrity: sha512-IddX+Q0XM+VagOUZFeP7wZjaO4SHMdvnh2zEBdrZZnXedWI3BNK1lKhMx3ayrkFWvVLbVcUHJy6AVZlY+e6Jaw==}
+    engines: {node: '>=20'}
 
   '@upsetjs/venn.js@2.0.0':
     resolution: {integrity: sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==}
@@ -4783,6 +4790,8 @@ snapshots:
   '@types/yauzl@3.4.0':
     dependencies:
       '@types/node': 24.13.2
+
+  '@typesafe-ai/sdk@0.6.0': {}
 
   '@upsetjs/venn.js@2.0.0':
     optionalDependencies:

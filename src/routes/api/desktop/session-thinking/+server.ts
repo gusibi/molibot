@@ -4,6 +4,7 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { getRuntimeContextForConversation, resolveRunnerChatId } from "$lib/server/web/runtimeContext";
 import { sanitizeWebProfileId, toWebExternalUserId } from "$lib/server/web/identity";
 import { sanitizeOptionalRuntimeThinkingSelection, type RuntimeThinkingSelection } from "$lib/server/settings";
+import { readAdaptiveThinkingAvailability } from "$lib/server/settings/handlers/adaptiveThinking.js";
 import type {
   DesktopSessionThinkingResponse,
   DesktopSessionThinkingUpdateRequest
@@ -48,7 +49,10 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!parsed) return json({ ok: false, error: "Invalid Thinking selection" }, { status: 400 });
     selection = parsed;
   }
-  const { runtimeContext, chatId } = context(profileId, conversationId);
+  const { runtime, runtimeContext, chatId } = context(profileId, conversationId);
+  if (selection === "auto" && !await readAdaptiveThinkingAvailability(runtime)) {
+    return json({ ok: false, error: "Configure and enable a decision model before selecting Auto." }, { status: 400 });
+  }
   const applied = runtimeContext.store.setSessionThinkingLevelOverride(chatId, conversationId, selection);
   const payload: DesktopSessionThinkingResponse = { ok: true, thinkingLevel: applied };
   return json(payload, { headers: { "Cache-Control": "no-store" } });
