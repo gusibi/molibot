@@ -176,6 +176,7 @@ export class TelegramManager extends BaseChannelRuntime {
       channel: "telegram",
       instanceId: this.instanceId,
       dbFile: options?.queueDbFile,
+      prepareAdmission: (scopeId, payload, retry) => this.snapshotInboundThinkingPolicy(scopeId, payload, retry),
       process: async (payload) => {
         if (!this.bot) {
           throw new Error("Telegram bot is not running.");

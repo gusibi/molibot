@@ -1,16 +1,17 @@
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
-import type { AdaptiveThinkingSettings, RuntimeThinkingLevel, ThinkingStrategy } from "$lib/server/settings/index.js";
+import type { AdaptiveThinkingSettings, RuntimeThinkingLevel, RuntimeThinkingSelection, ThinkingStrategy, DecisionModelSettings } from "$lib/server/settings/index.js";
 import type { AdaptiveResolution } from "$lib/server/agent/decision/adaptiveThinking.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { MemoryScope } from "$lib/server/memory/types.js";
 import type { RunSummary } from "$lib/server/agent/session/runSummary.js";
-import { resolveModelSelection, resolveCompactionSelection, resolveApiKeyForModel } from "$lib/server/agent/routing/modelRouting.js";
+import { resolveModelSelection, resolveModelSelectionForKey, resolveCompactionSelection, resolveApiKeyForModel } from "$lib/server/agent/routing/modelRouting.js";
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import type { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
@@ -42,13 +43,88 @@ export interface RunningTurnRecord {
 
 export interface TurnDecisionPolicy {
   strategy: ThinkingStrategy;
+  source?: "request" | "session" | "project" | "global";
   fixedLevel: RuntimeThinkingLevel;
   enabled: boolean;
   selectedDecisionModelId: string;
+  decisionModel?: Omit<DecisionModelSettings, "apiKey" | "apiToken">;
+  llmDecisionModel?: { id: string; provider: string; api: string; baseUrl: string; endpointFingerprint: string };
   maxThinkingLevel: AdaptiveThinkingSettings["maxThinkingLevel"];
   fallbackThinkingLevel: AdaptiveThinkingSettings["fallbackThinkingLevel"];
   confidenceThreshold: number;
   timeoutMs: number;
+}
+
+/** Captures non-secret policy once, before a queued execution can observe later settings. */
+export function resolveTurnDecisionPolicy(settings: RuntimeSettings, selections: {
+  request?: RuntimeThinkingSelection;
+  session?: RuntimeThinkingSelection;
+  project?: RuntimeThinkingSelection;
+} = {}): TurnDecisionPolicy {
+  const source = selections.request !== undefined ? "request"
+    : selections.session !== undefined ? "session"
+    : selections.project !== undefined ? "project" : "global";
+  const selected = selections.request ?? selections.session ?? selections.project;
+  const decisionModel = settings.adaptiveThinking.decisionModels.find((model) => model.id === settings.adaptiveThinking.selectedDecisionModelId);
+  return {
+    strategy: selected === "auto" ? "auto" : selected ? "fixed" : settings.adaptiveThinking.defaultStrategy,
+    source,
+    fixedLevel: selected && selected !== "auto" ? selected : settings.defaultThinkingLevel,
+    enabled: settings.adaptiveThinking.enabled,
+    selectedDecisionModelId: settings.adaptiveThinking.selectedDecisionModelId,
+    ...(decisionModel ? { decisionModel: nonSecretDecisionModel(decisionModel) } : {}),
+    ...(decisionModel?.provider === "llm" ? { llmDecisionModel: resolveDecisionLlmIdentity(settings, decisionModel.llmModelKey) } : {}),
+    maxThinkingLevel: settings.adaptiveThinking.maxThinkingLevel,
+    fallbackThinkingLevel: settings.adaptiveThinking.fallbackThinkingLevel,
+    confidenceThreshold: settings.adaptiveThinking.confidenceThreshold,
+    timeoutMs: settings.adaptiveThinking.timeoutMs
+  };
+}
+
+function nonSecretDecisionModel(model: DecisionModelSettings): Omit<DecisionModelSettings, "apiKey" | "apiToken"> {
+  const { apiKey: _key, apiToken: _token, ...configuration } = { ...model, apiKey: undefined, apiToken: undefined };
+  return configuration;
+}
+
+function resolveDecisionLlmIdentity(settings: RuntimeSettings, modelKey: string): TurnDecisionPolicy["llmDecisionModel"] {
+  try {
+    const { model } = resolveModelSelectionForKey(settings, modelKey, "text");
+    const endpoint = new URL(model.baseUrl);
+    endpoint.username = "";
+    endpoint.password = "";
+    endpoint.search = "";
+    endpoint.hash = "";
+    return { id: model.id, provider: model.provider, api: model.api, baseUrl: endpoint.toString(),
+      endpointFingerprint: createHash("sha256").update(model.baseUrl).digest("hex") };
+  } catch { return undefined; }
+}
+
+/** Reuses admission connection identity, obtaining credentials only from the server's current matching destination. */
+export function resolveTurnAdaptiveSettings(runtimeSettings: RuntimeSettings, policy: TurnDecisionPolicy): AdaptiveThinkingSettings {
+  const settings = runtimeSettings.adaptiveThinking;
+  if (!policy.decisionModel) return { ...settings, ...policy, decisionModels: [] };
+  const admitted = policy.decisionModel as DecisionModelSettings;
+  const current = settings.decisionModels.find((model) => model.id === admitted.id);
+  const destination = (model: DecisionModelSettings) => JSON.stringify(Object.fromEntries(
+    Object.entries(nonSecretDecisionModel(model)).filter(([key]) => key !== "enabled" && key !== "name").sort(([left], [right]) => left.localeCompare(right))
+  ));
+  const matching = current && destination(current) === destination(admitted);
+  if (admitted.provider === "llm") {
+    const identity = resolveDecisionLlmIdentity(runtimeSettings, admitted.llmModelKey);
+    const expected = policy.llmDecisionModel;
+    const unchanged = matching && identity && expected
+      && identity.id === expected.id && identity.provider === expected.provider
+      && identity.api === expected.api && identity.baseUrl === expected.baseUrl
+      && identity.endpointFingerprint === expected.endpointFingerprint;
+    return { ...settings, ...policy, decisionModels: [{ ...admitted, llmModelKey: unchanged ? admitted.llmModelKey : "" }] };
+  }
+  const model = {
+    ...admitted,
+    ...(admitted.provider === "cloudflare"
+      ? { apiToken: matching ? (current as Extract<DecisionModelSettings, { provider: "cloudflare" }>).apiToken : "" }
+      : { apiKey: matching ? (current as Extract<DecisionModelSettings, { provider: "jev" | "siliconflow" | "custom-jev" }>).apiKey : "" })
+  } as DecisionModelSettings;
+  return { ...settings, ...policy, decisionModels: [model] };
 }
 
 export interface TurnDecisionRecord {

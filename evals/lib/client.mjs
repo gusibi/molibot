@@ -155,7 +155,7 @@ function sameOriginHeaders(endpoint) {
   return { origin: new URL(endpoint).origin };
 }
 
-export async function sendTurn(endpoint, { prompt, files = [], conversationId, fixtureDir, userId }) {
+export async function sendTurn(endpoint, { prompt, files = [], conversationId, fixtureDir, userId, thinkingLevel }) {
   const url = `${endpoint}/api/chat`;
   let response;
 
@@ -164,6 +164,7 @@ export async function sendTurn(endpoint, { prompt, files = [], conversationId, f
     form.set("userId", userId);
     form.set("profileId", EVAL_PROFILE_ID);
     form.set("message", prompt);
+    if (thinkingLevel !== undefined) form.set("thinkingLevel", thinkingLevel);
     if (conversationId) form.set("conversationId", conversationId);
     for (const relative of files) {
       const absolute = path.resolve(fixtureDir, relative);
@@ -179,7 +180,8 @@ export async function sendTurn(endpoint, { prompt, files = [], conversationId, f
         userId,
         profileId: EVAL_PROFILE_ID,
         message: prompt,
-        conversationId
+        conversationId,
+        ...(thinkingLevel !== undefined ? { thinkingLevel } : {})
       })
     });
   }
@@ -213,7 +215,7 @@ export async function readToolTrace(endpoint, conversationId, userId) {
   return tools;
 }
 
-export async function runTaskTurns(endpoint, task, { fixtureDir }) {
+export async function runTaskTurns(endpoint, task, { fixtureDir, thinkingLevel }) {
   const userId = taskUserId(task.id);
   let conversationId = task.autoApprove ? await createSession(endpoint, userId) : undefined;
   const sessions = new Map();
@@ -226,7 +228,8 @@ export async function runTaskTurns(endpoint, task, { fixtureDir }) {
       files: turn.files,
       conversationId,
       fixtureDir,
-      userId
+      userId,
+      thinkingLevel
     }, { sessionId: conversationId, autoApprove: task.autoApprove });
     conversationId = result.conversationId;
     sessions.set(conversationId, userId);

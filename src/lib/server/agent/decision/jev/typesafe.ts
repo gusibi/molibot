@@ -1,4 +1,4 @@
-import { TypeSafeClient } from "@typesafe-ai/sdk";
+import { APIConnectionError, APIError, APITimeoutError, APIUserAbortError, TypeSafeClient } from "@typesafe-ai/sdk";
 import type { DecisionContext, DecisionProvider, DecisionProviderResult } from "../contracts.js";
 import { createThinkingLevelQuestion, parseThinkingLevelAnswer, resolveTypeSafeBaseUrl } from "./protocol.js";
 import { evaluationCase, parseEvaluationAnswers, type EvaluationCaseId, type EvaluationCaseResult } from "./evaluationCases.js";
@@ -36,8 +36,20 @@ export class TypeSafeJevProvider implements DecisionProvider {
     this.client = createClient(baseUrl, apiKey, this.modelId, fetchRequest);
   }
 
+  private async request(payload: Parameters<TypeSafeClient["systemOne"]>[0], options: { signal: AbortSignal }) {
+    try {
+      return await this.client.systemOne(payload, options);
+    } catch (error) {
+      if (error instanceof APIUserAbortError) throw new Error("Jev request was aborted");
+      if (error instanceof APITimeoutError) throw new Error("Jev request timed out");
+      if (error instanceof APIError) throw new Error("Jev request failed (HTTP " + error.status + ")");
+      if (error instanceof APIConnectionError) throw new Error("Jev request failed: network error");
+      throw new Error("malformed_response: Jev returned an invalid response");
+    }
+  }
+
   async decide(input: { context: DecisionContext; signal: AbortSignal }): Promise<DecisionProviderResult> {
-    const response = await this.client.systemOne({
+    const response = await this.request({
       state: input.context.state,
       questions: { thinking_level: createThinkingLevelQuestion() }
     }, { signal: input.signal });
@@ -46,6 +58,8 @@ export class TypeSafeJevProvider implements DecisionProvider {
       level: answer.choice,
       confidence: answer.confidence,
       probabilities: answer.probabilities,
+      ...(Number.isFinite(response.usage?.input_tokens) && Number.isFinite(response.usage?.output_tokens)
+        ? { usage: { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens } } : {}),
       provider: this.providerId,
       model: response.model ?? this.modelId
     };
@@ -53,7 +67,7 @@ export class TypeSafeJevProvider implements DecisionProvider {
 
   async evaluateTestCase(id: EvaluationCaseId, signal: AbortSignal): Promise<EvaluationCaseResult> {
     const testCase = evaluationCase(id);
-    const response = await this.client.systemOne({ state: testCase.state, questions: testCase.questions }, { signal });
+    const response = await this.request({ state: testCase.state, questions: testCase.questions }, { signal });
     return {
       provider: this.providerId,
       model: response.model ?? this.modelId,

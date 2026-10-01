@@ -885,6 +885,7 @@ export const POST: RequestHandler = async ({ request }) => {
     workspaceDir: store.getWorkspaceDir(),
     chatDir: store.getChatDir(runnerChatId),
     thinkingLevelOverride: resolvedThinkingLevel,
+    thinkingStrategySource: parsed.thinkingLevel !== undefined ? "request" : sessionThinkingOverride !== undefined && sessionThinkingOverride !== null ? "session" : project?.thinkingLevel !== undefined ? "project" : "global",
     modelKeyOverride: parsed.modelKey ?? project?.modelKey,
     project: buildRunnerProjectContext(project, store.getScratchDir(runnerChatId)),
     message: {

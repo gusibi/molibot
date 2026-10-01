@@ -77,6 +77,25 @@ export function updateAdaptiveThinkingConfig(
   runtime: SettingsAccessor,
   input: Record<string, unknown>
 ): AdaptiveThinkingConfig {
+  if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
+    throw new Error("Adaptive Thinking enabled must be a boolean.");
+  }
+  if (input.defaultStrategy !== undefined && input.defaultStrategy !== "fixed" && input.defaultStrategy !== "auto") {
+    throw new Error("Adaptive Thinking default strategy must be fixed or auto.");
+  }
+  for (const field of ["maxThinkingLevel", "fallbackThinkingLevel"] as const) {
+    if (input[field] !== undefined && !["low", "medium", "high"].includes(input[field] as string)) {
+      throw new Error("Adaptive Thinking " + field + " must be low, medium, or high.");
+    }
+  }
+  if (input.confidenceThreshold !== undefined && (typeof input.confidenceThreshold !== "number"
+    || !Number.isFinite(input.confidenceThreshold) || input.confidenceThreshold < 0 || input.confidenceThreshold > 1)) {
+    throw new Error("Adaptive Thinking confidence threshold must be a number between 0 and 1.");
+  }
+  if (input.timeoutMs !== undefined && (typeof input.timeoutMs !== "number"
+    || !Number.isInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > 5000)) {
+    throw new Error("Adaptive Thinking timeout must be an integer between 100 and 5000 milliseconds.");
+  }
   const current = runtime.getSettings().adaptiveThinking;
   const currentModels = new Map(current.decisionModels.map((model) => [model.id, model]));
   const rawModels = Array.isArray(input.decisionModels) ? input.decisionModels : current.decisionModels;
@@ -92,10 +111,10 @@ export function updateAdaptiveThinkingConfig(
     if (model.provider === "jev") {
       const saved = currentModels.get("jev");
       const savedJev = saved?.provider === "jev" ? saved : undefined;
-      const baseUrl = String(model.baseUrl ?? savedJev?.baseUrl ?? "").trim().replace(/\/+$/, "");
+      const baseUrl = resolveTypeSafeBaseUrl(String(model.baseUrl ?? savedJev?.baseUrl ?? ""));
       const suppliedKey = typeof suppliedKeys.jev === "string" ? suppliedKeys.jev.trim() : "";
       const clearKey = clearApiKeys.has("jev");
-      if (savedJev?.apiKey && baseUrl !== savedJev.baseUrl && !suppliedKey && !clearKey) {
+      if (savedJev?.apiKey && baseUrl !== resolveTypeSafeBaseUrl(savedJev.baseUrl) && !suppliedKey && !clearKey) {
         throw new Error("Changing the Jev Host requires entering a new API key for that host.");
       }
       decisionModels.push({
@@ -210,7 +229,7 @@ export async function testDecisionModelCase(runtime: SettingsAccessor, input: {
     const testCaseId = parseEvaluationCaseId(input.testCaseId);
     const provider = input.provider === "llm" || input.provider === "cloudflare" || input.provider === "siliconflow" || input.provider === "custom-jev" ? input.provider : "jev";
     if (provider === "jev") {
-      const baseUrl = String(input.baseUrl ?? "").trim().replace(/\/+$/, "");
+      const baseUrl = resolveTypeSafeBaseUrl(String(input.baseUrl ?? ""));
       const suppliedKey = String(input.apiKey ?? "").trim();
       const saved = runtime.getSettings().adaptiveThinking.decisionModels.find((model) => model.id === "jev");
       const apiKey = suppliedKey || (saved?.provider === "jev" && saved.baseUrl === baseUrl ? saved.apiKey : "");

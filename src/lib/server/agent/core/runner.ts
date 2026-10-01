@@ -78,7 +78,7 @@ import {
 } from "$lib/server/agent/core/runtimeNotices.js";
 import { getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { APPROVAL_WAITING_METADATA_STATUS } from "$lib/server/approval/suspendedResult.js";
-import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
+import { getTurnOrchestrator, resolveTurnDecisionPolicy, resolveTurnAdaptiveSettings } from "$lib/server/agent/core/turnOrchestrator.js";
 import {
   type ResolvedModelSelection,
   resolveModelSelection,
@@ -344,6 +344,7 @@ export class MomRunner implements RunnerLike {
     private readonly modelErrorTracker: ModelErrorTracker,
     private readonly memory: MemoryGateway,
     hookManager?: HookManager,
+    private readonly turnOrchestratorFactory = getTurnOrchestrator,
   ) {
     this.hookManager = hookManager ?? NOOP_HOOK_MANAGER;
     // Layer the bound agent's per-route model overrides (text/vision/stt) on top
@@ -817,7 +818,7 @@ export class MomRunner implements RunnerLike {
             keepRecentTokens: Math.max(1, Math.floor(options.keepRecentTokens))
           }
         };
-    const result = await getTurnOrchestrator().compactSessionContext({
+    const result = await this.turnOrchestratorFactory().compactSessionContext({
       channel: this.channel,
       chatId: this.chatId,
       sessionId: this.sessionId,
@@ -849,7 +850,7 @@ export class MomRunner implements RunnerLike {
     let runStartedAt = Date.now();
 
     if (!runId || !workspaceId) {
-      const turn = getTurnOrchestrator().prepareTurn({
+      const turn = this.turnOrchestratorFactory().prepareTurn({
         chatId: this.chatId,
         sessionId: this.sessionId,
         message: ctx.message
@@ -858,6 +859,10 @@ export class MomRunner implements RunnerLike {
       workspaceId = turn.workspaceId;
       runStartedAt = turn.startedAt;
     }
+
+    const turnDecision = this.turnOrchestratorFactory().beginTurnDecision(runId,
+      { ...resolveTurnDecisionPolicy(this.getSettings(), { request: ctx.thinkingLevelOverride }),
+        ...(ctx.thinkingStrategySource ? { source: ctx.thinkingStrategySource } : {}) });
 
     const isIsolatedAutomationRun = ctx.message.isEvent === true && ctx.message.sessionMode === "fresh";
     const turnRetention = classifyTurnRetention(ctx.message.text);
@@ -1098,7 +1103,7 @@ export class MomRunner implements RunnerLike {
       await ctx.setWorking(false);
       await ctx.replaceMessage(settingsError);
       logRunDetail({ type: "final", summary: settingsError, isError: true });
-      getTurnOrchestrator().updateRunStatus(runId, "failed", settingsError);
+      this.turnOrchestratorFactory().updateRunStatus(runId, "failed", settingsError);
       await finishHookRun();
       return { runId, stopReason: "error", errorMessage: settingsError };
     }
@@ -1169,7 +1174,7 @@ export class MomRunner implements RunnerLike {
     if (turnCapabilities.memoryEligible && correctionMemoryIds.length > 0) {
       await this.memory.disputeFromImmediateCorrection(memoryScope, correctionMemoryIds);
     }
-    const memorySnapshot = await getTurnOrchestrator().prepareTurnMemory(
+    const memorySnapshot = await this.turnOrchestratorFactory().prepareTurnMemory(
       memoryScope,
       enrichedText,
       this.memory,
@@ -1939,7 +1944,7 @@ export class MomRunner implements RunnerLike {
       | undefined;
 
     try {
-      stopTurnHeartbeat = getTurnOrchestrator().startTurnHeartbeat(runId);
+      stopTurnHeartbeat = this.turnOrchestratorFactory().startTurnHeartbeat(runId);
       this.activeRunBudget = budget;
       this.agent.state.messages = prepareMessagesForModelContext(
         this.agent.state.messages as AgentMessage[]
@@ -1994,29 +1999,10 @@ export class MomRunner implements RunnerLike {
       currentModelPromptMessage = userMessage;
       currentPersistedPromptMessage = promptInput.persistedMessage;
 
-      const requestedSelection = ctx.thinkingLevelOverride;
-      const selectedStrategy = requestedSelection === "auto"
-        ? "auto"
-        : requestedSelection
-          ? "fixed"
-          : settings.adaptiveThinking.defaultStrategy;
-      const selectedFixedLevel = requestedSelection && requestedSelection !== "auto"
-        ? requestedSelection
-        : settings.defaultThinkingLevel;
-      const orchestrator = getTurnOrchestrator();
-      const turnDecision = orchestrator.beginTurnDecision(runId, {
-        strategy: selectedStrategy,
-        fixedLevel: selectedFixedLevel,
-        enabled: settings.adaptiveThinking.enabled,
-        selectedDecisionModelId: settings.adaptiveThinking.selectedDecisionModelId,
-        maxThinkingLevel: settings.adaptiveThinking.maxThinkingLevel,
-        fallbackThinkingLevel: settings.adaptiveThinking.fallbackThinkingLevel,
-        confidenceThreshold: settings.adaptiveThinking.confidenceThreshold,
-        timeoutMs: settings.adaptiveThinking.timeoutMs
-      });
+      const orchestrator = this.turnOrchestratorFactory();
       const thinkingStrategy = turnDecision.policy.strategy;
       const fixedThinkingLevel = turnDecision.policy.fixedLevel;
-      const adaptiveSettings = { ...settings.adaptiveThinking, ...turnDecision.policy };
+      const adaptiveSettings = resolveTurnAdaptiveSettings(settings, turnDecision.policy);
       let resolvedThinkingLevel = fixedThinkingLevel;
       let adaptiveResolution: Awaited<ReturnType<typeof resolveAdaptiveThinking>> | undefined;
       let decisionAttempted = false;
@@ -2026,6 +2012,7 @@ export class MomRunner implements RunnerLike {
           (this.agent.state.messages as AgentMessage[]).slice(-4),
           {
             attachmentCount: ctx.message.attachments.length,
+            essentialAttachmentContentUnavailable: ctx.message.attachments.length > 0 && !ctx.message.hasInlineAudioTranscript,
             imageCount: ctx.message.imageContents.length,
             project: ctx.project?.name ?? "",
             modelUseCase
@@ -2038,6 +2025,7 @@ export class MomRunner implements RunnerLike {
           decisionAttempted = true;
           adaptiveResolution = fallbackAdaptiveThinking("recovery_unresolved", adaptiveSettings);
           adaptiveResolution.attempted = true;
+          Object.assign(adaptiveResolution, { rubricVersion: ADAPTIVE_THINKING_RUBRIC_VERSION, contextTokens: decisionContext.estimatedTokens, contextBytes: decisionContext.serializedBytes, contextTruncated: decisionContext.truncated });
           orchestrator.commitTurnDecision(runId, adaptiveResolution);
         } else if (adaptiveSettings.enabled && !hasSemanticThinkingChoice(
           modelCandidates.map((candidate) => getModelThinkingLevels(candidate.model)),
@@ -2045,11 +2033,14 @@ export class MomRunner implements RunnerLike {
         )) {
           adaptiveResolution = fallbackAdaptiveThinking("no_effective_choice", adaptiveSettings);
           adaptiveResolution.attempted = false;
+          Object.assign(adaptiveResolution, { rubricVersion: ADAPTIVE_THINKING_RUBRIC_VERSION, contextTokens: decisionContext.estimatedTokens, contextBytes: decisionContext.serializedBytes, contextTruncated: decisionContext.truncated });
           orchestrator.commitTurnDecision(runId, adaptiveResolution);
         } else {
           const controller = new AbortController();
           this.activeDecisionAbortController = controller;
+          if (this.abortRequested) controller.abort();
           try {
+            if (controller.signal.aborted) throw new Error("adaptive thinking cancelled");
             let provider: Awaited<ReturnType<typeof createAdaptiveThinkingProvider>> = null;
             let providerInitFailed = false;
             try {
@@ -2057,7 +2048,8 @@ export class MomRunner implements RunnerLike {
             } catch {
               providerInitFailed = true;
             }
-            decisionAttempted = Boolean(provider && adaptiveSettings.enabled && decisionContext.state.trim());
+            if (controller.signal.aborted) throw new Error("adaptive thinking cancelled");
+            decisionAttempted = Boolean(provider && adaptiveSettings.enabled && decisionContext.state.trim() && !decisionContext.insufficientContext);
             if (decisionAttempted) orchestrator.markTurnDecisionDispatched(runId);
             adaptiveResolution = await resolveAdaptiveThinking({
               strategy: "auto",
@@ -2071,9 +2063,17 @@ export class MomRunner implements RunnerLike {
               adaptiveResolution = fallbackAdaptiveThinking("invalid_configuration", adaptiveSettings);
             }
             adaptiveResolution.attempted = decisionAttempted;
+            Object.assign(adaptiveResolution, { rubricVersion: ADAPTIVE_THINKING_RUBRIC_VERSION, contextTokens: decisionContext.estimatedTokens, contextBytes: decisionContext.serializedBytes, contextTruncated: decisionContext.truncated });
             orchestrator.commitTurnDecision(runId, adaptiveResolution);
           } catch (error) {
             if (this.abortRequested || controller.signal.aborted) {
+              logRunDetail({ type: "info", summary: JSON.stringify({
+                kind: "decision_model", useCase: "thinking_level", status: "canceled", attempted: decisionAttempted,
+                strategy: "auto", strategySource: turnDecision.policy.source, ceiling: adaptiveSettings.maxThinkingLevel
+              }) });
+              if (this.activeHookContext) this.hookManager.emit("runtime.notice", this.activeHookContext, {
+                code: "decision_model.thinking_level", severity: "info", decisionStatus: "canceled", attempted: decisionAttempted
+              });
               stopReason = "aborted";
               await ctx.setWorking(false);
               return { runId, stopReason: "aborted" };
@@ -2084,7 +2084,7 @@ export class MomRunner implements RunnerLike {
           }
         }
         resolvedThinkingLevel = adaptiveResolution.requestedLevel;
-        const selectedDecisionModel = settings.adaptiveThinking.decisionModels.find((model) => model.id === adaptiveSettings.selectedDecisionModelId);
+        const selectedDecisionModel = adaptiveSettings.decisionModels.find((model) => model.id === adaptiveSettings.selectedDecisionModelId);
         const decisionStatus = adaptiveResolution.fallbackReason
           ? decisionAttempted || adaptiveResolution.fallbackReason === "invalid_configuration" ? "fallback" : "skipped"
           : "success";
@@ -2096,6 +2096,8 @@ export class MomRunner implements RunnerLike {
           selectedDecisionModelId: selectedDecisionModel?.id,
           selectedProvider: selectedDecisionModel?.provider,
           strategy: "auto",
+          strategySource: turnDecision.policy.source,
+          ceiling: adaptiveSettings.maxThinkingLevel,
           requestedLevel: adaptiveResolution.requestedLevel,
           confidence: adaptiveResolution.confidence,
           probabilities: adaptiveResolution.probabilities,
@@ -2103,10 +2105,12 @@ export class MomRunner implements RunnerLike {
           provider: adaptiveResolution.provider,
           model: adaptiveResolution.model,
           latencyMs: adaptiveResolution.latencyMs,
-          rubricVersion: ADAPTIVE_THINKING_RUBRIC_VERSION,
-          contextTokens: decisionContext.estimatedTokens,
-          contextBytes: decisionContext.serializedBytes,
-          contextTruncated: decisionContext.truncated
+          rubricVersion: adaptiveResolution.rubricVersion,
+          contextTokens: adaptiveResolution.contextTokens,
+          contextBytes: adaptiveResolution.contextBytes,
+          contextTruncated: adaptiveResolution.contextTruncated,
+          usage: adaptiveResolution.usage,
+          estimatedCost: adaptiveResolution.estimatedCost
         };
         logRunDetail({
           type: "info",
@@ -2122,18 +2126,13 @@ export class MomRunner implements RunnerLike {
             selectedProvider: adaptiveResolution.provider ?? selectedDecisionModel?.provider,
             thinkingLevel: adaptiveResolution.requestedLevel,
             fallbackReason: adaptiveResolution.fallbackReason,
-            latencyMs: adaptiveResolution.latencyMs
-          });
-        }
-      } else {
-        logRunDetail({ type: "info", summary: JSON.stringify({
-          kind: "decision_model", useCase: "thinking_level", status: "skipped", attempted: false,
-          fallbackReason: "fixed_strategy", requestedLevel: fixedThinkingLevel
-        }) });
-        if (this.activeHookContext) {
-          this.hookManager.emit("runtime.notice", this.activeHookContext, {
-            code: "decision_model.thinking_level", severity: "info", decisionStatus: "skipped",
-            attempted: false, thinkingLevel: fixedThinkingLevel, fallbackReason: "fixed_strategy"
+            latencyMs: adaptiveResolution.latencyMs,
+            rubricVersion: adaptiveResolution.rubricVersion,
+            contextTokens: adaptiveResolution.contextTokens,
+            contextBytes: adaptiveResolution.contextBytes,
+            contextTruncated: adaptiveResolution.contextTruncated,
+            usage: adaptiveResolution.usage,
+            estimatedCost: adaptiveResolution.estimatedCost
           });
         }
       }
@@ -2229,7 +2228,7 @@ export class MomRunner implements RunnerLike {
             );
             assistantMessagePersisted = true;
             logRunDetail({ type: "final", summary: keyError, isError: true });
-            getTurnOrchestrator().updateRunStatus(runId, "failed", keyError);
+            this.turnOrchestratorFactory().updateRunStatus(runId, "failed", keyError);
             stopReason = "error";
             errorMessage = keyError;
             return { runId, stopReason: "error", errorMessage: keyError };
@@ -2260,6 +2259,16 @@ export class MomRunner implements RunnerLike {
           }
           continue;
         }
+        logRunDetail({ type: "info", summary: JSON.stringify({
+          kind: "thinking_configuration", strategy: thinkingStrategy, strategySource: turnDecision.policy.source,
+          candidateIndex, provider: selectedModel.provider, model: selectedModel.id,
+          requestedLevel: requestedThinkingLevel, effectiveLevel: effectiveThinkingLevel,
+          capabilityAdjusted: effectiveThinkingLevel !== requestedThinkingLevel,
+          ...(thinkingStrategy === "auto" ? {
+            ceiling: adaptiveSettings.maxThinkingLevel,
+            policyLimitedLevel: RUNTIME_THINKING_LEVELS[Math.min(RUNTIME_THINKING_LEVELS.indexOf(requestedThinkingLevel), RUNTIME_THINKING_LEVELS.indexOf(adaptiveSettings.maxThinkingLevel))]
+          } : {})
+        }) });
         this.agent.state.thinkingLevel = effectiveThinkingLevel;
         this.activePayloadContext = {
           provider: selectedModel.provider,
@@ -3471,7 +3480,7 @@ export class MomRunner implements RunnerLike {
         }) : undefined,
         errorMessage
       };
-      getTurnOrchestrator().commitTurn(this.chatId, runSummary, this.store);
+      this.turnOrchestratorFactory().commitTurn(this.chatId, runSummary, this.store);
       logRunDetail({
         type: "final",
         summary: stopReason === "stop"
@@ -3569,7 +3578,7 @@ export class MomRunner implements RunnerLike {
         }) : undefined,
         errorMessage: message
       };
-      getTurnOrchestrator().commitTurn(this.chatId, failedSummary, this.store);
+      this.turnOrchestratorFactory().commitTurn(this.chatId, failedSummary, this.store);
       logRunDetail({ type: "final", summary: message, isError: true });
       try {
         await ctx.setWorking(false);

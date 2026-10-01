@@ -149,6 +149,7 @@ export class FeishuManager extends BaseChannelRuntime {
             channel: "feishu",
             instanceId: this.instanceId,
             dbFile: options?.queueDbFile,
+            prepareAdmission: (scopeId, payload, retry) => this.snapshotInboundThinkingPolicy(scopeId, payload, retry),
             process: async (payload) => {
                 momLog("feishu", "queue_job_starting", { payload });
                 try {

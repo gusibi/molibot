@@ -327,3 +327,49 @@ test("LLM case test can finish when the model takes longer than the Auto decisio
     decide.mock.restore();
   }
 });
+
+test("Jev save rejects an invalid destination without rebinding a replacement key", () => {
+  for (const baseUrl of ["not-a-url", "https://user:password@example.test", "https://example.test?token=secret", "https://example.test#fragment", "ftp://example.test"]) {
+    const initial = {
+      ...structuredClone(defaultRuntimeSettings),
+      adaptiveThinking: { ...defaultRuntimeSettings.adaptiveThinking, decisionModels: [jev("old-secret", "https://original.example.test/proxy")] }
+    };
+    const runtime = accessor(initial);
+    assert.throws(() => updateAdaptiveThinkingConfig(runtime, {
+      decisionModels: [{ id: "jev", provider: "jev", baseUrl }], apiKeys: { jev: "replacement-secret" }
+    }), /invalid_configuration/);
+    assert.deepEqual(runtime.getSettings(), initial);
+  }
+});
+
+test("Jev saves canonical System One Hosts and retains keys for equivalent destinations", () => {
+  const runtime = accessor({
+    ...structuredClone(defaultRuntimeSettings),
+    adaptiveThinking: { ...defaultRuntimeSettings.adaptiveThinking, decisionModels: [jev("old-secret", "https://original.example.test/proxy")] }
+  });
+  updateAdaptiveThinkingConfig(runtime, {
+    decisionModels: [{ id: "jev", provider: "jev", baseUrl: "https://original.example.test/proxy/v1/systemone/" }]
+  });
+  const stored = runtime.getSettings().adaptiveThinking.decisionModels.find((model) => model.id === "jev");
+  assert.equal(stored?.provider === "jev" ? stored.baseUrl : "", "https://original.example.test/proxy");
+  assert.equal(stored?.provider === "jev" ? stored.apiKey : "", "old-secret");
+});
+
+test("Adaptive Thinking rejects malformed explicit policy values without changing settings", () => {
+  const invalidFields: Record<string, unknown[]> = {
+    enabled: [null, "false", 0],
+    defaultStrategy: [null, "invalid", "off", 0],
+    maxThinkingLevel: [null, "off", "max", "auto", 0],
+    fallbackThinkingLevel: [null, "off", "max", "auto", 0],
+    confidenceThreshold: [null, false, "0.6", NaN, Infinity, -0.1, 1.1],
+    timeoutMs: [null, false, "1000", NaN, Infinity, 99, 5001, 100.5]
+  };
+  for (const [field, values] of Object.entries(invalidFields)) {
+    for (const value of values) {
+      const initial = structuredClone(defaultRuntimeSettings);
+      const runtime = accessor(initial);
+      assert.throws(() => updateAdaptiveThinkingConfig(runtime, { [field]: value }), /Adaptive Thinking/);
+      assert.deepEqual(runtime.getSettings(), initial);
+    }
+  }
+});

@@ -53,7 +53,7 @@ test("an attachment turn is sent as a real multipart body the server can parse",
   const result = await runTaskTurns(`http://127.0.0.1:${address.port}`, {
     id: "UPLOAD",
     turns: [{ prompt: "what does it say", files: ["probe.txt"] }]
-  }, { fixtureDir });
+  }, { fixtureDir, thinkingLevel: "auto" });
 
   assert.equal(result.reply, "read it");
   assert.match(seenContentType ?? "", /^multipart\/form-data; boundary=/);
@@ -61,6 +61,7 @@ test("an attachment turn is sent as a real multipart body the server can parse",
   assert.match(seenBody ?? "", /MOLIBOT-UPLOAD-PROBE/);
   assert.match(seenBody ?? "", /name="files"; filename="probe\.txt"/);
   assert.match(seenBody ?? "", /name="message"/);
+  assert.match(seenBody ?? "", /name="thinkingLevel"\r\n\r\nauto/);
 });
 
 test("auto_approve resolves the pending request through the Desktop approval API", async (t) => {

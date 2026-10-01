@@ -1,15 +1,12 @@
 import { choice } from "@typesafe-ai/sdk";
+import { THINKING_LEVEL_INSTRUCTIONS, THINKING_LEVEL_CRITERIA } from "../rubric.js";
 import {
   DECISION_THINKING_LEVELS,
   type DecisionThinkingLevel
 } from "../contracts.js";
 
 export function createThinkingLevelQuestion() {
-  return choice("Which reasoning effort is appropriate for this request?", {
-    low: "Direct answer, routine transformation, or a simple action with clear requirements.",
-    medium: "Several dependent steps, bounded debugging, or analysis that needs comparison and verification.",
-    high: "Difficult diagnosis, interacting constraints, architectural tradeoffs, or complex multi-step reasoning."
-  });
+  return choice(THINKING_LEVEL_INSTRUCTIONS, THINKING_LEVEL_CRITERIA);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -25,8 +22,9 @@ export function parseThinkingLevelAnswer(value: unknown): {
     throw new Error("malformed_response: Jev returned a non-Choice answer");
   }
   const selected = String(value.choice ?? "");
-  const confidence = Number(value.confidence);
+  const confidence = value.confidence;
   if (!DECISION_THINKING_LEVELS.includes(selected as DecisionThinkingLevel)
+    || typeof confidence !== "number"
     || !Number.isFinite(confidence)
     || confidence < 0
     || confidence > 1) {
@@ -40,8 +38,8 @@ export function parseThinkingLevelAnswer(value: unknown): {
     }
     probabilities = {};
     for (const [key, raw] of Object.entries(value.probabilities)) {
-      const probability = Number(raw);
-      if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
+      const probability = raw;
+      if (typeof probability !== "number" || !Number.isFinite(probability) || probability < 0 || probability > 1) {
         throw new Error("malformed_response: Jev probabilities must be between 0 and 1");
       }
       probabilities[key] = probability;

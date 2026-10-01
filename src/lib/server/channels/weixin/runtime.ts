@@ -138,6 +138,7 @@ export class WeixinManager extends BaseChannelRuntime {
     this.inboundTasks = new InboundTaskCoordinator<WeixinQueuedTaskPayload, IncomingMessage>({
       channel: "weixin",
       instanceId: this.instanceId,
+      prepareAdmission: (scopeId, payload, retry) => this.prepareQueuedAdmission(scopeId, payload, retry),
       process: async (payload) => {
         try {
           await this.processEvent(this.rehydrateQueuedEvent(payload));
@@ -810,6 +811,13 @@ export class WeixinManager extends BaseChannelRuntime {
         timestamp: sourceMessage.timestamp.toISOString()
       }
     };
+  }
+
+  private prepareQueuedAdmission(scopeId: string, payload: WeixinQueuedTaskPayload, retry: boolean): void {
+    const event: ChannelInboundMessage = { ...payload.event, imageContents: [] };
+    this.snapshotInboundThinkingPolicy(scopeId, event, retry);
+    payload.event.runId = event.runId;
+    payload.event.sessionId = event.sessionId;
   }
 
   private rehydrateQueuedEvent(payload: WeixinQueuedTaskPayload): WeixinInboundEvent {

@@ -1,3 +1,9 @@
+### Fixed: Adaptive Thinking admission, cancellation and credential handling（2026-10-01）
+
+Auto snapshots policy and decision destinations before queued execution. Stop and the decision deadline settle promptly even when a provider ignores cancellation; explicit retries receive a new decision while internal recovery reuses the existing one. Invalid confidence and missing follow-up context fall back safely. Jev errors no longer expose upstream payloads, and Web settings save credentials through the current per-connection API.
+
+Decision records retain original rubric/context metadata and available usage/cost. A versioned paired outcome evaluator is available; live quality and savings remain unproven, so Auto stays opt-in. Related regressions, Desktop tests and server build pass. The full backend suite has six failures outside these regressions; existing global typecheck errors and one Desktop accessibility warning remain, detailed in `prd.md`.
+
 ### Fixed: built-in SiliconFlow no longer shows Remove（2026-09-25）
 
 The existing first SiliconFlow configuration stays as the third built-in decision model with an enable switch. Its saved Host, model, key, and Auto selection remain intact; additional SiliconFlow instances can still be removed.

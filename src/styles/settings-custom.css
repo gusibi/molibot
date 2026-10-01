@@ -4077,3 +4077,28 @@
   font-size: 0.75rem;
   color: var(--muted-foreground);
 }
+
+/* Adaptive Thinking settings use the shared settings theme and save footer. */
+
+  .adaptive-page { max-width: 980px; margin: 0 auto; padding: 2rem 2.5rem 7rem; color: var(--foreground); }
+  .adaptive-hero { margin-bottom: 1.5rem; }
+  .adaptive-hero h1 { margin: 0.75rem 0 0.5rem; font-size: clamp(1.75rem, 3vw, 2.5rem); font-weight: 700; letter-spacing: -0.03em; }
+  .adaptive-hero p, .adaptive-card-header p, .adaptive-field p { color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.55; }
+  .adaptive-card { border: 1px solid var(--border); border-radius: 0.875rem; background: var(--card); padding: 1.25rem; }
+  .adaptive-card-spaced { margin-top: 1rem; }
+  .adaptive-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+  .adaptive-card-header h2 { margin: 0; font-size: 1rem; font-weight: 650; }
+  .adaptive-card-header p { margin: 0.35rem 0 0; max-width: 54rem; }
+  .adaptive-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; margin-top: 1.25rem; }
+  .adaptive-fields-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .adaptive-fields-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .adaptive-field { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+  .adaptive-test-row { display: flex; align-items: end; }
+  .adaptive-clear { align-self: flex-start; color: var(--destructive); font-size: 0.75rem; text-decoration: underline; }
+  .adaptive-loading { padding: 2rem 0; color: var(--muted-foreground); }
+  @media (max-width: 760px) {
+    .adaptive-page { padding: 1.25rem 1rem 7rem; }
+    .adaptive-fields, .adaptive-fields-three, .adaptive-fields-two { grid-template-columns: 1fr; }
+  }
+
+.settings-status-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }

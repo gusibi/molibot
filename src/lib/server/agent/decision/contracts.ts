@@ -7,6 +7,7 @@ export interface DecisionContext {
   estimatedTokens: number;
   serializedBytes: number;
   truncated: boolean;
+  insufficientContext?: boolean;
 }
 
 export interface DecisionProviderResult {
@@ -15,6 +16,8 @@ export interface DecisionProviderResult {
   probabilities?: Record<string, number>;
   provider?: string;
   model?: string;
+  usage?: { inputTokens: number; outputTokens: number };
+  estimatedCost?: number;
 }
 
 export interface DecisionProvider {

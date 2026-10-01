@@ -45,3 +45,42 @@ test("InboundTaskCoordinator exposes queue command operations", async () => {
   await delay(10);
   coordinator.close();
 });
+
+test("queued admission policy survives changed defaults and a fresh decision store", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { TurnOrchestrator, resolveTurnDecisionPolicy } = await import("$lib/server/agent/core/turnOrchestrator.js");
+  const { defaultRuntimeSettings } = await import("$lib/server/settings/defaults.js");
+  const directory = mkdtempSync(join(tmpdir(), "molibot-admission-"));
+  const database = join(directory, "decisions.sqlite");
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.adaptiveThinking.defaultStrategy = "auto";
+  const admitted = new TurnOrchestrator(undefined, database);
+  let release!: () => void;
+  const seen: string[] = [];
+  const coordinator = new InboundTaskCoordinator<{ runId: string }, unknown>({
+    channel: "test", instanceId: "admission", dbFile: join(directory, "queue.sqlite"),
+    prepareAdmission: (_scope, payload) => { admitted.beginTurnDecision(payload.runId, resolveTurnDecisionPolicy(settings)); },
+    process: async (payload) => {
+      if (payload.runId === "running") await new Promise<void>((resolve) => { release = resolve; });
+      else {
+        const recovered = new TurnOrchestrator(undefined, database);
+        seen.push(recovered.beginTurnDecision(payload.runId, resolveTurnDecisionPolicy(settings)).policy.strategy);
+        recovered.close();
+      }
+    }
+  });
+  try {
+    coordinator.enqueue("chat", { runId: "running" });
+    coordinator.enqueue("chat", { runId: "queued" });
+    settings.adaptiveThinking.defaultStrategy = "fixed";
+    release();
+    for (let count = 0; count < 50 && seen.length === 0; count++) await delay(10);
+    assert.deepEqual(seen, ["auto"]);
+  } finally {
+    coordinator.close();
+    admitted.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -1967,3 +1967,37 @@ test("runner emits run.started once and run.finished only on turn completion acr
   assert.equal(startedStages.length, 1, "run.started must only be emitted once");
   assert.equal(finishedStages.length, 1, "run.finished must only be emitted once at turn completion");
 });
+
+test("Stop during preflight never dispatches an Auto decision or starts the main model", async () => {
+  const { TurnOrchestrator } = await import("./turnOrchestrator.js");
+  const directory = mkdtempSync(join(tmpdir(), "molibot-cancel-decision-"));
+  const orchestrator = new TurnOrchestrator(undefined, join(directory, "decisions.sqlite"));
+  const settings = createRunnerTestSettings();
+  settings.adaptiveThinking = { ...settings.adaptiveThinking, enabled: true, defaultStrategy: "auto", selectedDecisionModelId: "jev",
+    decisionModels: [{ id: "jev", provider: "jev", baseUrl: "https://example.invalid", apiKey: "test-key" }] };
+  const events: Array<{ stage: string; payload: any }> = [];
+  let runner!: MomRunner;
+  const store = { getWorkspaceDir: () => directory, getScratchDir: () => directory,
+    getSessionEntriesPath: () => join(directory, "entries.jsonl"), appendContextMessage: () => "entry",
+    appendRunSummary: () => {}, appendRunDetail: () => {}, appendRuntimeEvent: () => {}, loadContext: () => [],
+    getSessionSandboxOverride: () => null };
+  const memory = { ...createRunnerTestMemory(), createPromptSnapshot: async () => {
+    runner.abort();
+    return createRunnerTestMemory().createPromptSnapshot();
+  } };
+  runner = new MomRunner("telegram", "chat-stop", "session-stop", store as any, () => settings, () => settings,
+    { record: () => {} } as any, { record: () => {} } as any, memory as any, createRunnerHookManager(events), () => orchestrator);
+  let prompts = 0;
+  (runner as any).agent = { state: { messages: [], tools: [], systemPrompt: "test", model: resolveModelSelection(settings, "text").model,
+    thinkingLevel: "off" }, subscribe: () => () => {}, abort: () => {}, clearAllQueues: () => {}, followUp: () => {}, prompt: async () => { prompts++; } };
+  const context = createRunnerContext("Please analyze this implementation.");
+  context.message.runId = "cancel-preflight";
+  context.message.workspaceId = "workspace-test";
+  try {
+    const result = await runner.run(context);
+    assert.equal(result.stopReason, "aborted");
+    assert.equal(prompts, 0);
+    assert.equal(orchestrator.getTurnDecision("cancel-preflight")?.state, "pending");
+    assert.equal(events.filter((event) => event.stage === "model.call.before").length, 0);
+  } finally { orchestrator.close(); rmSync(directory, { recursive: true, force: true }); }
+});

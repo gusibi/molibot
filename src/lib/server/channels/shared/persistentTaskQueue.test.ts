@@ -242,7 +242,7 @@ test("PersistentTaskQueue quarantines interrupted running work until an explicit
     "bot-recovery",
     "chat-1",
     "interrupted task",
-    JSON.stringify({ text: "resume me" }),
+    JSON.stringify({ text: "resume me", runId: "interrupted-turn" }),
     now,
     now,
     now,
@@ -253,13 +253,15 @@ test("PersistentTaskQueue quarantines interrupted running work until an explicit
   db.close();
 
   let processCalls = 0;
+  let processedRunId = "";
   let resolveDone: (() => void) | null = null;
   const done = new Promise<void>((resolve) => { resolveDone = resolve; });
-  const restarted = new PersistentTaskQueue<{ text: string }>({
+  const restarted = new PersistentTaskQueue<{ text: string; runId: string }>({
     channel: "test",
     instanceId: "bot-recovery",
     dbFile,
-    process: async (_payload, record) => {
+    process: async (payload, record) => {
+      processedRunId = payload.runId;
       processCalls += 1;
       record.checkpoint({ phase: "explicit_retry_running" });
       resolveDone?.();
@@ -274,10 +276,11 @@ test("PersistentTaskQueue quarantines interrupted running work until an explicit
   await restarted.resumeAll();
   assert.equal(processCalls, 0, "startup recovery must not blindly replay side effects");
 
-  assert.equal(restarted.retryRecovery("chat-1", id), "retried");
+  assert.equal(restarted.retryRecovery("chat-1", id, (payload) => { payload.runId = "explicit-retry-turn"; }), "retried");
   await done;
   await delay(10);
   assert.equal(processCalls, 1);
+  assert.equal(processedRunId, "explicit-retry-turn");
   assert.equal(countRows(dbFile), 0);
 
   restarted.close();

@@ -27,3 +27,23 @@ test("createToolProgressBatcher flushes batched Weixin tool progress with line b
     ["工具调用：", "- read config", "- search docs", "- edit file", "- run test", "- send reply"].join("\n")
   ]);
 });
+
+test("queued Weixin admission restores the normalized shape and persists its logical identity", async () => {
+  const { WeixinManager } = await import("./runtime.js");
+  const runtime = Object.create(WeixinManager.prototype);
+  let admittedEvent: any;
+  runtime.snapshotInboundThinkingPolicy = (scopeId: string, event: any, retry: boolean) => {
+    assert.equal(scopeId, "chat-1");
+    assert.equal(retry, true);
+    admittedEvent = event;
+    event.runId = "new-retry-turn";
+    event.sessionId = "admitted-session";
+  };
+  const payload = { event: { chatId: "chat-1", chatType: "private", messageId: 1, userId: "user", text: "hello",
+    ts: "2026-10-01T00:00:00Z", attachments: [], runId: "old-turn" }, sourceMessage: {} };
+  runtime.prepareQueuedAdmission("chat-1", payload, true);
+  assert.deepEqual(admittedEvent.imageContents, []);
+  assert.equal(payload.event.runId, "new-retry-turn");
+  assert.equal((payload.event as { sessionId?: string }).sessionId, "admitted-session");
+  assert.ok(!("imageContents" in payload.event), "queue serialization keeps image bytes absent");
+});

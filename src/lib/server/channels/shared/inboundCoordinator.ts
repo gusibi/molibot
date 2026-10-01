@@ -10,10 +10,12 @@ import type { SharedRuntimeCommandOptions, SharedRuntimeCommandContext } from "$
 interface InboundTaskCoordinatorOptions<TPayload, TTarget>
   extends Omit<PersistentTaskQueueOptions<TPayload>, "process"> {
   process: PersistentTaskQueueOptions<TPayload>["process"];
+  prepareAdmission?: (scopeId: string, payload: TPayload, retry: boolean) => void;
   enqueueFrontFromCommand?: (input: SharedRuntimeCommandContext<TTarget>, text: string) => Promise<number | null>;
 }
 
 export class InboundTaskCoordinator<TPayload, TTarget> {
+  private readonly prepareAdmission?: InboundTaskCoordinatorOptions<TPayload, TTarget>["prepareAdmission"];
   private readonly queue: PersistentTaskQueue<TPayload>;
   private readonly enqueueFrontFromCommandFn?: InboundTaskCoordinatorOptions<TPayload, TTarget>["enqueueFrontFromCommand"];
 
@@ -24,10 +26,12 @@ export class InboundTaskCoordinator<TPayload, TTarget> {
       dbFile: options.dbFile,
       process: options.process
     });
+    this.prepareAdmission = options.prepareAdmission;
     this.enqueueFrontFromCommandFn = options.enqueueFrontFromCommand;
   }
 
   enqueue(scopeId: string, payload: TPayload, options?: { front?: boolean; preview?: string }): number {
+    this.prepareAdmission?.(scopeId, payload, false);
     return this.queue.enqueue(scopeId, payload, options);
   }
 
@@ -56,7 +60,7 @@ export class InboundTaskCoordinator<TPayload, TTarget> {
   }
 
   retryRecovery(scopeId: string, id: number): "retried" | "running" | "not_found" {
-    return this.queue.retryRecovery(scopeId, id);
+    return this.queue.retryRecovery(scopeId, id, (payload) => this.prepareAdmission?.(scopeId, payload, true));
   }
 
   close(): void {

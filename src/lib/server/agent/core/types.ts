@@ -221,6 +221,7 @@ export interface MomContext {
     runLogNotice?: boolean;
   };
   thinkingLevelOverride?: RuntimeThinkingSelection;
+  thinkingStrategySource?: "request" | "session" | "project" | "global";
   modelKeyOverride?: string;
   respond: (text: string, shouldLog?: boolean) => Promise<void>;
   replaceMessage: (text: string) => Promise<void>;

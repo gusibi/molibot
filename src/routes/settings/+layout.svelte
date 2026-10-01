@@ -13,7 +13,7 @@
       overview: "总览",
       aiEngine: "AI 引擎",
       routingPrompt: "路由与提示词",
-      adaptiveThinking: "自适应思考",
+      adaptiveThinking: "决策模型",
       providersModels: "模型与提供方",
       usageStats: "用量统计",
       traceStats: "Trace 分析",
@@ -56,7 +56,7 @@
       overview: "Overview",
       aiEngine: "AI Engine",
       routingPrompt: "Routing & Prompt",
-      adaptiveThinking: "Adaptive Thinking",
+      adaptiveThinking: "Decision Models",
       providersModels: "Providers & Models",
       usageStats: "Usage Stats",
       traceStats: "Trace Analytics",
@@ -101,8 +101,8 @@
   const LS_LABELS = "molibot-settings-show-labels";
   let showLabels = false;
 
-  function t(key: string): string {
-    return COPY[$locale][key] ?? key;
+  function t(key: string, currentLocale: keyof typeof COPY): string {
+    return COPY[currentLocale][key] ?? key;
   }
 
   /* ── Derive active group from current URL ── */
@@ -117,42 +117,42 @@
 
   /* ── i18n-synced group array ── */
   $: navGroups = [
-    { key: "general", icon: "🏠", title: t("general"), links: [{ href: "/settings", label: t("overview"), exact: true }] },
-    { key: "ai", icon: "🤖", title: t("aiEngine"), links: [
-        { href: "/settings/ai/routing", label: t("routingPrompt"), exact: true },
-        { href: "/settings/ai/adaptive-thinking", label: t("adaptiveThinking"), exact: true },
-        { href: "/settings/ai/providers", label: t("providersModels"), exact: true },
-        { href: "/settings/ai/usage", label: t("usageStats"), exact: true },
-        { href: "/settings/ai/trace", label: t("traceStats"), exact: true },
-        { href: "/settings/ai/errors", label: t("modelErrors"), exact: true },
-        { href: "/settings/mcp", label: t("mcpServers"), exact: true },
-        { href: "/settings/search", label: t("searchTools"), exact: true },
-        { href: "/settings/image", label: t("imageTools"), exact: true },
-        { href: "/settings/video", label: t("videoTools"), exact: true },
-        { href: "/settings/tts", label: t("ttsTools"), exact: true },
+    { key: "general", icon: "🏠", title: t("general", $locale), links: [{ href: "/settings", label: t("overview", $locale), exact: true }] },
+    { key: "ai", icon: "🤖", title: t("aiEngine", $locale), links: [
+        { href: "/settings/ai/routing", label: t("routingPrompt", $locale), exact: true },
+        { href: "/settings/ai/adaptive-thinking", label: t("adaptiveThinking", $locale), exact: true },
+        { href: "/settings/ai/providers", label: t("providersModels", $locale), exact: true },
+        { href: "/settings/ai/usage", label: t("usageStats", $locale), exact: true },
+        { href: "/settings/ai/trace", label: t("traceStats", $locale), exact: true },
+        { href: "/settings/ai/errors", label: t("modelErrors", $locale), exact: true },
+        { href: "/settings/mcp", label: t("mcpServers", $locale), exact: true },
+        { href: "/settings/search", label: t("searchTools", $locale), exact: true },
+        { href: "/settings/image", label: t("imageTools", $locale), exact: true },
+        { href: "/settings/video", label: t("videoTools", $locale), exact: true },
+        { href: "/settings/tts", label: t("ttsTools", $locale), exact: true },
       ] },
-    { key: "channels", icon: "💬", title: t("channels"), links: [
-        { href: "/settings/web", label: t("webProfiles"), exact: true },
-        { href: "/settings/telegram", label: t("telegramBot"), exact: true },
-        { href: "/settings/weixin", label: t("wechatBot"), exact: true },
-        { href: "/settings/feishu", label: t("feishuBot"), exact: true },
-        { href: "/settings/qq", label: t("qqBot"), exact: true },
+    { key: "channels", icon: "💬", title: t("channels", $locale), links: [
+        { href: "/settings/web", label: t("webProfiles", $locale), exact: true },
+        { href: "/settings/telegram", label: t("telegramBot", $locale), exact: true },
+        { href: "/settings/weixin", label: t("wechatBot", $locale), exact: true },
+        { href: "/settings/feishu", label: t("feishuBot", $locale), exact: true },
+        { href: "/settings/qq", label: t("qqBot", $locale), exact: true },
       ] },
-    { key: "data", icon: "💾", title: t("agentData"), links: [
-        { href: "/settings/agents", label: t("agents"), exact: true },
-        { href: "/settings/memory", label: t("memory"), exact: true },
-        { href: "/settings/memory-rejections", label: t("memoryRejections"), exact: true },
-        { href: "/settings/skills", label: t("skills"), exact: true },
-        { href: "/settings/skill-drafts", label: t("skillDrafts"), exact: true },
-        { href: "/settings/run-history", label: t("runHistory"), exact: true },
-        { href: "/settings/tasks", label: t("tasks"), exact: true },
-        { href: "/settings/sessions", label: t("sessions"), exact: true },
-        { href: "/settings/approvals", label: t("approvals"), exact: true },
+    { key: "data", icon: "💾", title: t("agentData", $locale), links: [
+        { href: "/settings/agents", label: t("agents", $locale), exact: true },
+        { href: "/settings/memory", label: t("memory", $locale), exact: true },
+        { href: "/settings/memory-rejections", label: t("memoryRejections", $locale), exact: true },
+        { href: "/settings/skills", label: t("skills", $locale), exact: true },
+        { href: "/settings/skill-drafts", label: t("skillDrafts", $locale), exact: true },
+        { href: "/settings/run-history", label: t("runHistory", $locale), exact: true },
+        { href: "/settings/tasks", label: t("tasks", $locale), exact: true },
+        { href: "/settings/sessions", label: t("sessions", $locale), exact: true },
+        { href: "/settings/approvals", label: t("approvals", $locale), exact: true },
       ] },
-    { key: "system", icon: "⚙️", title: t("systemGroup"), links: [
-        { href: "/settings/system", label: t("systemConfig"), exact: true },
-        { href: "/settings/sandbox", label: t("sandbox"), exact: true },
-        { href: "/settings/plugins", label: t("pluginsCore"), exact: true },
+    { key: "system", icon: "⚙️", title: t("systemGroup", $locale), links: [
+        { href: "/settings/system", label: t("systemConfig", $locale), exact: true },
+        { href: "/settings/sandbox", label: t("sandbox", $locale), exact: true },
+        { href: "/settings/plugins", label: t("pluginsCore", $locale), exact: true },
       ] },
   ];
 
@@ -181,11 +181,11 @@
     return active ? "settings-nav-link settings-nav-link--active" : "settings-nav-link";
   }
 
-  function currentPageLabel(pathname: string): string {
-    const found = flatLinks.find((link) =>
+  function currentPageLabel(pathname: string, links: typeof flatLinks, currentLocale: keyof typeof COPY): string {
+    const found = links.find((link) =>
       isActive(pathname, link.href, link.exact),
     );
-    return found?.label ?? t("settings");
+    return found?.label ?? t("settings", currentLocale);
   }
 
   function resolveShouldUseDark(mode: ThemeMode): boolean {
@@ -253,7 +253,7 @@
 
     <!-- ── Primary Sidebar: Icon Navigation (72px / 160px) ── -->
     <aside class="settings-sidebar-primary">
-      <a href="/settings" class="settings-pnav-brand" title={t("settings")}>
+      <a href="/settings" class="settings-pnav-brand" title={t("settings", $locale)}>
         <span class="settings-brand-dot" aria-hidden="true"></span>
         {#if showLabels}
           <span class="settings-pnav-brand-text font-bold text-sm ml-2 select-none">Molibot</span>
@@ -286,10 +286,10 @@
           <span class="settings-pnav-text text-xs ml-2 truncate">{$locale === "zh-CN" ? "隐藏名称" : "Hide Names"}</span>
         {/if}
       </button>
-      <button type="button" class="settings-pnav-icon settings-pnav-theme" onclick={toggleTheme} title={t("theme")} aria-label={t("theme")}>
+      <button type="button" class="settings-pnav-icon settings-pnav-theme" onclick={toggleTheme} title={t("theme", $locale)} aria-label={t("theme", $locale)}>
         <span class="settings-pnav-emoji">{themeMode === "dark" ? "☼" : "☾"}</span>
         {#if showLabels}
-          <span class="settings-pnav-text text-xs ml-2 truncate">{t("theme")}</span>
+          <span class="settings-pnav-text text-xs ml-2 truncate">{t("theme", $locale)}</span>
         {/if}
       </button>
     </aside>
@@ -314,22 +314,22 @@
     <section class="settings-stage">
       <header class="settings-topbar">
         <div class="settings-topbar-breadcrumb">
-          <span class="settings-topbar-label">{t("settings")}</span>
+          <span class="settings-topbar-label">{t("settings", $locale)}</span>
           <span class="settings-topbar-sep" aria-hidden="true">›</span>
-          <span class="settings-topbar-page">{currentPageLabel($page.url.pathname)}</span>
+          <span class="settings-topbar-page">{currentPageLabel($page.url.pathname, flatLinks, $locale)}</span>
         </div>
         <div class="settings-topbar-actions">
           <NativeSelect
             class="settings-topbar-select"
             value={$locale}
             onchange={onLocaleChange}
-            aria-label={t("language")}
+            aria-label={t("language", $locale)}
           >
             <NativeSelectOption value="zh-CN">中文</NativeSelectOption>
             <NativeSelectOption value="en-US">English</NativeSelectOption>
           </NativeSelect>
           <a href="/" class="settings-topbar-chat">
-            {t("openChat")}
+            {t("openChat", $locale)}
           </a>
         </div>
       </header>
@@ -337,12 +337,12 @@
       <!-- Mobile nav (hidden on desktop) -->
       <details class="settings-mobile-nav">
         <summary class="settings-mobile-summary">
-          {t("navigateSettings")}
+          {t("navigateSettings", $locale)}
         </summary>
         <div class="settings-mobile-body">
-          <button type="button" class="settings-mobile-theme-toggle" onclick={toggleTheme} title={t("theme")} aria-label={t("theme")}>
+          <button type="button" class="settings-mobile-theme-toggle" onclick={toggleTheme} title={t("theme", $locale)} aria-label={t("theme", $locale)}>
             <span class="settings-mobile-theme-icon">{themeMode === "dark" ? "☼" : "☾"}</span>
-            <span>{t("theme")}: {themeMode === "light" ? "Light" : themeMode === "dark" ? "Dark" : "System"}</span>
+            <span>{t("theme", $locale)}: {themeMode === "light" ? "Light" : themeMode === "dark" ? "Dark" : "System"}</span>
           </button>
           {#each navGroups as group}
             <div class="settings-mobile-group">

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
@@ -10,7 +11,7 @@ import { zeroAssistantUsage } from "$lib/server/agent/core/runnerHelpers.js";
 import { buildRunnerProjectContext } from "$lib/server/projects/context.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
-import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
+import { getTurnOrchestrator, resolveTurnDecisionPolicy } from "$lib/server/agent/core/turnOrchestrator.js";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
 import { resolveEventSessionMode, resolveEventTargetSessionId, taskSessionRetentionMs, type MomEvent } from "$lib/server/agent/events.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
@@ -641,6 +642,18 @@ export abstract class BaseChannelRuntime {
     });
   }
 
+  protected snapshotInboundThinkingPolicy(scopeId: string, event: ChannelInboundMessage, retry = false): void {
+    const sessionId = event.sessionId ?? this.resolveInboundSessionId(scopeId, event);
+    event.sessionId = sessionId;
+    if (retry) event.runId = `${scopeId}-${sessionId}-${randomUUID()}`;
+    event.runId ??= `${scopeId}-${sessionId}-${event.messageId}`;
+    const target = this.runners.resolveTarget(scopeId, sessionId, event.projectId);
+    getTurnOrchestrator().beginTurnDecision(event.runId, resolveTurnDecisionPolicy(this.getSettings(), {
+      session: target.store.getSessionThinkingLevelOverride(target.chatId, target.sessionId) ?? undefined,
+      project: target.project?.thinkingLevel
+    }));
+  }
+
   protected async runSharedTextTask<TSent extends ContextSentMessageRef>(
     scopeId: string,
     event: ChannelInboundMessage,
@@ -686,6 +699,8 @@ export abstract class BaseChannelRuntime {
       this.store.setActiveSession(scopeId, previousActiveSessionId);
       this.store.setTaskArchiveReturnSession(scopeId, activeSessionId);
     };
+
+    this.snapshotInboundThinkingPolicy(scopeId, event);
 
     // Prepare turn metadata via TurnOrchestrator
     try {

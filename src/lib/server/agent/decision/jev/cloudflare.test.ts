@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { THINKING_LEVEL_INSTRUCTIONS, THINKING_LEVEL_CRITERIA } from "../rubric.js";
 import { buildAdaptiveThinkingContext } from "../adaptiveThinking.js";
 import { CloudflareJevProvider } from "./cloudflare.js";
 
@@ -34,12 +35,8 @@ test("Cloudflare Jev uses the Workers AI universal run request", async () => {
       questions: {
         thinking_level: {
           type: "choice",
-          instructions: "Which reasoning effort is appropriate for this request?",
-          criteria: {
-            low: "Direct answer, routine transformation, or a simple action with clear requirements.",
-            medium: "Several dependent steps, bounded debugging, or analysis that needs comparison and verification.",
-            high: "Difficult diagnosis, interacting constraints, architectural tradeoffs, or complex multi-step reasoning."
-          }
+          instructions: THINKING_LEVEL_INSTRUCTIONS,
+          criteria: THINKING_LEVEL_CRITERIA
         }
       }
     }
@@ -64,4 +61,14 @@ test("Cloudflare Jev rejects an invalid account ID before making a request", asy
     /invalid_configuration.*Account ID/
   );
   assert.equal(calls, 0);
+});
+
+test("Cloudflare rejects coerced confidence and probability values", async () => {
+  for (const invalid of [null, "", false, "0.9"]) {
+    for (const field of ["confidence", "probability"]) {
+      const answer = { type: "choice", choice: "low", confidence: field === "confidence" ? invalid : 0.9, probabilities: { low: field === "probability" ? invalid : 0.9 } };
+      const provider = new CloudflareJevProvider("account", "key", async () => new Response(JSON.stringify({ answers: { thinking_level: answer } }), { status: 200 }));
+      await assert.rejects(() => provider.decide({ context: buildAdaptiveThinkingContext("Translate this."), signal: new AbortController().signal }), /malformed_response/);
+    }
+  }
 });

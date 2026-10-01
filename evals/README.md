@@ -107,3 +107,29 @@ node --test evals/harness.test.mjs
 Schema validation, file-pattern resolution, scoring, the baseline-surprise
 report, and the fixture generators. These run in CI-time; the golden set itself
 costs model calls and runs on demand.
+
+## Adaptive Thinking paired outcome evaluation
+
+`node evals/adaptive-thinking.mjs --list` lists the versioned bilingual tasks offline.
+After authorizing paid calls and building the service, run:
+
+```sh
+node evals/adaptive-thinking.mjs --live --seed-from <data-directory> --fixed-level <existing-default-level> --repeats 3
+```
+
+Optional `--id AT01,AT03` narrows the task set; `--keep-data-dir` preserves isolated
+runtime data for inspection. Each task runs repeated fixed/Auto pairs in fresh
+sessions, alternating pair order. Supply the current fixed default explicitly.
+The seeded decision model must already be enabled and usable; the runner checks this before any paid main-model call. The runner uses the actual main-model chat path, attachments and conversational
+follow-ups, existing deterministic outcome assertions, and a temporary service
+with external channels disabled. It writes replies, checks, end-to-end and
+available decision P50/P95 timings, fallbacks and capability adjustments to
+`evals/results/adaptive-*.json`.
+
+These assertions are outcome checks, not comprehensive expert judgments of
+complex diagnosis quality; review the saved replies. First-visible latency is
+unmeasured because the existing client uses nonstreaming chat. Retries remain null/unproven. Main and decision usage plus LLM decision cost
+are recorded when supplied; combined estimated cost is reported only when every
+main call and attempted decision has a known cost. Jev pricing is unavailable, so
+its combined cost remains null/unproven. Model call count is recorded separately and never treated as
+retry count. This suite alone cannot prove cost or latency savings.

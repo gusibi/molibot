@@ -288,9 +288,9 @@ export class PersistentTaskQueue<TPayload> {
     }
   }
 
-  retryRecovery(scopeId: string, id: number): "retried" | "running" | "not_found" {
+  retryRecovery(scopeId: string, id: number, readmit?: (payload: TPayload) => void): "retried" | "running" | "not_found" {
     const row = this.db.prepare(`
-      SELECT status
+      SELECT status, payload_json
       FROM inbound_tasks
       WHERE channel = ? AND instance_id = ? AND scope_id = ? AND id = ?
     `).get(this.channel, this.instanceId, scopeId, id) as Record<string, unknown> | undefined;
@@ -298,10 +298,13 @@ export class PersistentTaskQueue<TPayload> {
     if (String(row.status) === "running") return "running";
     if (String(row.status) !== "recovery_required") return "not_found";
 
+    const payload = JSON.parse(String(row.payload_json)) as TPayload;
+    readmit?.(payload);
     const nowIso = new Date().toISOString();
     this.db.prepare(`
       UPDATE inbound_tasks
       SET status = 'pending',
+          payload_json = ?,
           error_text = NULL,
           recovery_reason = NULL,
           updated_at = ?,
@@ -309,7 +312,7 @@ export class PersistentTaskQueue<TPayload> {
           finished_at = NULL,
           lease_id = NULL
       WHERE id = ? AND status = 'recovery_required'
-    `).run(nowIso, id);
+    `).run(JSON.stringify(payload), nowIso, id);
     void this.resumeScope(scopeId);
     return "retried";
   }

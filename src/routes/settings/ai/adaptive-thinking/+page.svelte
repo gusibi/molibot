@@ -7,6 +7,7 @@
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { IosSwitch } from "$lib/components/ui/ios-switch";
+  import type { AdaptiveThinkingConfig } from "$lib/server/settings/handlers/adaptiveThinking";
   import { locale, initLocale } from "$lib/ui/i18n";
 
   type LocaleKey = "zh-CN" | "en-US";
@@ -15,6 +16,7 @@
 
   interface AdaptiveConfig {
     enabled: boolean;
+    jevEnabled: boolean;
     baseUrl: string;
     hasApiKey: boolean;
     defaultStrategy: Strategy;
@@ -27,12 +29,14 @@
   const COPY: Record<LocaleKey, Record<string, string>> = {
     "zh-CN": {
       eyebrow: "决策引擎",
-      title: "自适应思考",
-      desc: "使用 Jev 在每个新 Turn 开始前选择合适的推理力度。功能默认关闭，固定思考等级不会调用 Jev。",
+      title: "决策模型",
+      desc: "使用已配置的决策模型在每个新 Turn 开始前选择推理力度。功能默认关闭，固定等级不会调用决策模型。",
       on: "已启用",
       off: "已关闭",
       enable: "启用自适应思考",
       enableHint: "关闭时保留配置；Auto 会使用确定性的回退等级继续执行。",
+      connection: "当前决策模型",
+      jevEnabled: "启用 Jev 接入",
       host: "Jev API Host",
       hostHint: "填写 TypeSafe API 的服务地址，不要包含 /v1/systemone。",
       key: "API Key",
@@ -50,7 +54,7 @@
       ceiling: "自动思考上限",
       ceilingHint: "Auto 和回退结果的最终执行等级都不会超过此上限。",
       fallback: "回退思考等级",
-      fallbackHint: "决策模型关闭或不可用时使用；请求失败、超时或低置信度固定使用“中”。",
+      fallbackHint: "决策模型关闭或不可用时使用；请求失败、超时或低置信度也使用此等级。",
       threshold: "置信度阈值",
       thresholdHint: "低于此值的 Choice 使用回退。初始值 0.6，需用真实任务集校准。",
       timeout: "决策超时（毫秒）",
@@ -71,12 +75,14 @@
     },
     "en-US": {
       eyebrow: "Decision Engine",
-      title: "Adaptive Thinking",
-      desc: "Use Jev to choose reasoning effort before each new Turn. The feature is off by default; fixed levels never call Jev.",
+      title: "Decision Models",
+      desc: "Use the configured decision model to choose reasoning effort before each new Turn. The feature is off by default; fixed levels never call a decision model.",
       on: "On",
       off: "Off",
       enable: "Enable Adaptive Thinking",
       enableHint: "Configuration is kept when disabled; Auto uses the deterministic fallback level.",
+      connection: "Active decision model",
+      jevEnabled: "Enable Jev connection",
       host: "Jev API Host",
       hostHint: "TypeSafe API service address, without /v1/systemone.",
       key: "API Key",
@@ -94,7 +100,7 @@
       ceiling: "Automatic ceiling",
       ceilingHint: "Final Auto and fallback levels never exceed this ceiling.",
       fallback: "Fallback thinking level",
-      fallbackHint: "Used when the decision model is off or unavailable. Failed, timed out, or low-confidence decisions use medium.",
+      fallbackHint: "Used when the decision model is off or unavailable. Failed, timed out, or low-confidence decisions also use this level.",
       threshold: "Confidence threshold",
       thresholdHint: "Choices below this value fall back. Starts at 0.6 and needs real-task calibration.",
       timeout: "Decision timeout (ms)",
@@ -117,6 +123,7 @@
 
   const DEFAULTS: AdaptiveConfig = {
     enabled: false,
+    jevEnabled: false,
     baseUrl: "https://api.typesafe.ai",
     hasApiKey: false,
     defaultStrategy: "fixed",
@@ -127,6 +134,10 @@
   };
 
   let config: AdaptiveConfig = { ...DEFAULTS };
+  let availableDecisionModelIds: string[] = [];
+  let connections: AdaptiveThinkingConfig["decisionModels"] = [];
+  let selectedDecisionModelId = "";
+  let lastSavedDecisionModelId = "";
   let apiKey = "";
   let clearApiKey = false;
   let loading = true;
@@ -136,6 +147,10 @@
   let statusVariant: "default" | "destructive" = "default";
   let lastSaved: AdaptiveConfig = { ...DEFAULTS };
   $: copy = COPY[$locale as LocaleKey] ?? COPY["en-US"];
+  $: autoAvailable = config.enabled && (selectedDecisionModelId === "jev"
+    ? config.jevEnabled && !clearApiKey && Boolean(apiKey.trim() || (config.hasApiKey && config.baseUrl === lastSaved.baseUrl))
+    : availableDecisionModelIds.includes(selectedDecisionModelId));
+  $: shownStatus = status === COPY["zh-CN"].saved || status === COPY["en-US"].saved ? copy.saved : status;
 
   function snapshot(): AdaptiveConfig {
     return { ...config };
@@ -149,10 +164,15 @@
       const response = await fetch("/api/settings/adaptive-thinking");
       const payload = await response.json();
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || copy.failedLoad);
+      availableDecisionModelIds = payload.availableDecisionModelIds;
+      connections = payload.decisionModels;
+      selectedDecisionModelId = payload.selectedDecisionModelId;
+      const jev = connections.find((model) => model.provider === "jev");
       config = {
         enabled: Boolean(payload.enabled),
-        baseUrl: String(payload.baseUrl ?? DEFAULTS.baseUrl),
-        hasApiKey: Boolean(payload.hasApiKey),
+        jevEnabled: jev?.enabled !== false,
+        baseUrl: String(jev?.provider === "jev" ? jev.baseUrl : DEFAULTS.baseUrl),
+        hasApiKey: Boolean(jev?.provider === "jev" && jev.hasApiKey),
         defaultStrategy: payload.defaultStrategy === "auto" ? "auto" : "fixed",
         maxThinkingLevel: ["low", "medium", "high"].includes(payload.maxThinkingLevel) ? payload.maxThinkingLevel : DEFAULTS.maxThinkingLevel,
         fallbackThinkingLevel: ["low", "medium", "high"].includes(payload.fallbackThinkingLevel) ? payload.fallbackThinkingLevel : DEFAULTS.fallbackThinkingLevel,
@@ -160,6 +180,7 @@
         timeoutMs: Number(payload.timeoutMs ?? DEFAULTS.timeoutMs)
       };
       lastSaved = snapshot();
+      lastSavedDecisionModelId = selectedDecisionModelId;
       apiKey = "";
       clearApiKey = false;
     } catch (error) {
@@ -178,14 +199,31 @@
       const response = await fetch("/api/settings/adaptive-thinking", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...config, apiKey: apiKey || undefined, clearApiKey })
+        body: JSON.stringify({
+          enabled: config.enabled,
+          defaultStrategy: config.defaultStrategy,
+          maxThinkingLevel: config.maxThinkingLevel,
+          fallbackThinkingLevel: config.fallbackThinkingLevel,
+          confidenceThreshold: config.confidenceThreshold,
+          timeoutMs: config.timeoutMs,
+          selectedDecisionModelId,
+          decisionModels: connections.map((model) => model.provider === "jev"
+            ? { ...model, baseUrl: config.baseUrl, enabled: config.jevEnabled }
+            : model),
+          apiKeys: apiKey ? { jev: apiKey } : {},
+          clearApiKeys: clearApiKey ? ["jev"] : []
+        })
       });
       const payload = await response.json();
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || copy.failedSave);
-      config.hasApiKey = Boolean(payload.hasApiKey);
+      availableDecisionModelIds = payload.availableDecisionModelIds;
+      connections = payload.decisionModels;
+      const jev = connections.find((model) => model.provider === "jev");
+      config.hasApiKey = Boolean(jev?.provider === "jev" && jev.hasApiKey);
       apiKey = "";
       clearApiKey = false;
       lastSaved = snapshot();
+      lastSavedDecisionModelId = selectedDecisionModelId;
       status = copy.saved;
       statusVariant = "default";
     } catch (error) {
@@ -203,7 +241,7 @@
       const response = await fetch("/api/settings/adaptive-thinking/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baseUrl: config.baseUrl, apiKey, timeoutMs: config.timeoutMs })
+        body: JSON.stringify({ provider: "jev", baseUrl: config.baseUrl, apiKey: clearApiKey ? "" : apiKey, testCaseId: "choice" })
       });
       const payload = await response.json();
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || copy.failedSave);
@@ -219,6 +257,7 @@
 
   function reset(): void {
     config = { ...lastSaved };
+    selectedDecisionModelId = lastSavedDecisionModelId;
     apiKey = "";
     clearApiKey = false;
     status = "";
@@ -231,7 +270,7 @@
 
 <div class="adaptive-page">
   <header class="adaptive-hero">
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="settings-status-badges">
       <Badge variant="secondary">{copy.eyebrow}</Badge>
       <Badge variant={config.enabled ? "default" : "outline"}>{config.enabled ? copy.on : copy.off}</Badge>
     </div>
@@ -241,7 +280,7 @@
 
   {#if status && !saving}
     <Alert variant={statusVariant}>
-      <AlertDescription>{status}</AlertDescription>
+      <AlertDescription>{shownStatus}</AlertDescription>
     </Alert>
   {/if}
 
@@ -259,7 +298,22 @@
         </div>
       </section>
 
-      <section class="adaptive-card">
+      <section class="adaptive-card adaptive-card-spaced">
+        <div class="adaptive-field">
+          <Label for="decision-model">{copy.connection}</Label>
+          <NativeSelect id="decision-model" bind:value={selectedDecisionModelId}>
+            {#each connections as model}
+              <NativeSelectOption value={model.id}>{model.id}</NativeSelectOption>
+            {/each}
+          </NativeSelect>
+        </div>
+      </section>
+
+      <section class="adaptive-card adaptive-card-spaced">
+        <div class="adaptive-card-header">
+          <Label for="jev-enabled">{copy.jevEnabled}</Label>
+          <IosSwitch id="jev-enabled" bind:checked={config.jevEnabled} />
+        </div>
         <div class="adaptive-card-header">
           <h2>{copy.host}</h2>
           <p>{copy.hostHint}</p>
@@ -280,7 +334,7 @@
             {/if}
           </div>
           <div class="adaptive-test-row">
-            <Button type="button" variant="outline" onclick={testConnection} disabled={testing || saving || !apiKey}>
+            <Button type="button" variant="outline" onclick={testConnection} disabled={testing || saving || clearApiKey || (!apiKey && (!config.hasApiKey || config.baseUrl !== lastSaved.baseUrl))}>
               {testing ? copy.testing : copy.test}
             </Button>
           </div>
@@ -297,7 +351,7 @@
             <Label for="adaptive-strategy">{copy.strategy}</Label>
             <NativeSelect id="adaptive-strategy" bind:value={config.defaultStrategy}>
               <NativeSelectOption value="fixed">{copy.fixed}</NativeSelectOption>
-              <NativeSelectOption value="auto">{copy.auto}</NativeSelectOption>
+              <NativeSelectOption value="auto" disabled={!autoAvailable && lastSaved.defaultStrategy !== "auto"}>{copy.auto}</NativeSelectOption>
             </NativeSelect>
           </div>
           <div class="adaptive-field">
@@ -348,7 +402,7 @@
     {#if saving}
       <span class="settings-footbar-saving">{copy.saving}</span>
     {:else if status}
-      <span class={statusVariant === "destructive" ? "settings-footbar-error" : "settings-footbar-ok"}>{status}</span>
+      <span class={statusVariant === "destructive" ? "settings-footbar-error" : "settings-footbar-ok"}>{shownStatus}</span>
     {/if}
   </div>
   <div class="settings-footbar-actions">
@@ -358,26 +412,3 @@
     </button>
   </div>
 </footer>
-
-<style>
-  .adaptive-page { max-width: 980px; margin: 0 auto; padding: 2rem 2.5rem 7rem; color: var(--foreground); }
-  .adaptive-hero { margin-bottom: 1.5rem; }
-  .adaptive-hero h1 { margin: 0.75rem 0 0.5rem; font-size: clamp(1.75rem, 3vw, 2.5rem); font-weight: 700; letter-spacing: -0.03em; }
-  .adaptive-hero p, .adaptive-card-header p, .adaptive-field p { color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.55; }
-  .adaptive-card { border: 1px solid var(--border); border-radius: 0.875rem; background: var(--card); padding: 1.25rem; }
-  .adaptive-card-spaced { margin-top: 1rem; }
-  .adaptive-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-  .adaptive-card-header h2 { margin: 0; font-size: 1rem; font-weight: 650; }
-  .adaptive-card-header p { margin: 0.35rem 0 0; max-width: 54rem; }
-  .adaptive-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; margin-top: 1.25rem; }
-  .adaptive-fields-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .adaptive-fields-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .adaptive-field { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
-  .adaptive-test-row { display: flex; align-items: end; }
-  .adaptive-clear { align-self: flex-start; color: var(--destructive); font-size: 0.75rem; text-decoration: underline; }
-  .adaptive-loading { padding: 2rem 0; color: var(--muted-foreground); }
-  @media (max-width: 760px) {
-    .adaptive-page { padding: 1.25rem 1rem 7rem; }
-    .adaptive-fields, .adaptive-fields-three, .adaptive-fields-two { grid-template-columns: 1fr; }
-  }
-</style>

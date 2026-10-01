@@ -389,6 +389,7 @@ export const POST: RequestHandler = async ({ request }) => {
             workspaceDir: store.getWorkspaceDir(),
             chatDir: store.getChatDir(runnerChatId),
             thinkingLevelOverride: resolvedThinkingLevel,
+    thinkingStrategySource: thinkingLevel !== undefined ? "request" : sessionThinkingOverride !== undefined && sessionThinkingOverride !== null ? "session" : project?.thinkingLevel !== undefined ? "project" : "global",
             // Per-session model resolution: an explicit per-turn `modelKey` (the
             // live composer selection) wins; otherwise fall back to the session's
             // persisted `conversation.modelKey`, then the project default, then

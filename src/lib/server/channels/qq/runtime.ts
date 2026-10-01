@@ -129,6 +129,7 @@ export class QQManager extends BaseChannelRuntime {
     this.inboundTasks = new InboundTaskCoordinator<QQQueuedTaskPayload, SendTarget>({
       channel: "qq",
       instanceId: this.instanceId,
+      prepareAdmission: (scopeId, payload, retry) => this.snapshotInboundThinkingPolicy(scopeId, payload.event, retry),
       process: async (payload) => {
         try {
           const event = this.rehydrateQueuedEvent(payload.event);
