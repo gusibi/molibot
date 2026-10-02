@@ -392,6 +392,8 @@ export interface PromptMiniApp {
 }
 
 interface PromptBuildOptions {
+  /** Explicit configured identity for Room execution; independent of transport workspace. */
+  agentId?: string;
   channel?: PromptChannel;
   /** Enabled, loaded Mini Apps. Empty or absent renders no section. */
   miniApps?: readonly PromptMiniApp[];
@@ -720,7 +722,7 @@ export function buildSystemPrompt(
     renderVars.dataRoot,
     renderVars,
   );
-  const agentId = resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
+  const agentId = options?.agentId ?? resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
   const agentSections = agentId
     ? buildPromptSectionsFromInstructionFiles(
       getAgentDir(agentId),
@@ -734,7 +736,7 @@ export function buildSystemPrompt(
       : buildPromptSectionsFromInstructionFiles(workspaceDir, renderVars, BOT_PROFILE_FILES);
 
   // Resolve each operator file from the most specific configured scope.
-  const operatorOrder = options?.project
+  const operatorOrder = options?.project && !options.agentId
     ? [...PROJECT_RUNTIME_PROFILE_FILES]
     : [...OPERATOR_DIRECTIVE_FILES];
   const operatorEntries = mergePromptSectionEntriesByOrder(
@@ -834,7 +836,7 @@ export function getSystemPromptSources(
     }
     return out;
   };
-  const agentId = resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
+  const agentId = options?.agentId ?? resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
   const projectContext = options?.project
     ? discoverProjectContext(options.project.rootPath)
     : discoverProjectContext(workspaceDir);
@@ -846,13 +848,13 @@ export function getSystemPromptSources(
       if (filePath) identity.push(filePath);
     }
   };
-  if (!options?.project) {
+  if (!options?.project || options.agentId) {
     if (dataRoot !== workspaceDir) pushIdentity(workspaceDir);
     if (agentId) pushIdentity(getAgentDir(agentId));
     pushIdentity(dataRoot);
   }
   const globalFiles = options?.project ? PROJECT_RUNTIME_PROFILE_FILES : undefined;
-  const agentFiles = options?.project ? [] : AGENT_PROFILE_FILES;
+  const agentFiles = options?.project && !options.agentId ? [] : AGENT_PROFILE_FILES;
   const botFiles = options?.project ? PROJECT_RUNTIME_PROFILE_FILES : BOT_PROFILE_FILES;
   const globalSources = collect(dataRoot, globalFiles);
   const agentSources = agentId ? collect(getAgentDir(agentId), agentFiles) : [];

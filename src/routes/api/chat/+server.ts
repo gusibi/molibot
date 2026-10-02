@@ -1,3 +1,4 @@
+import { getRoomStore } from "$lib/server/rooms/runtime.js";
 import { runBackgroundConversation } from "$lib/server/app/backgroundConversation.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -660,6 +661,7 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "Invalid request body" }, { status: 400 });
   }
 
+  if (parsed.conversationId && getRoomStore().get(parsed.conversationId)) return new Response(JSON.stringify({ ok: false, error: "Use the Desktop Room dispatch API" }), { status: 409, headers: { "Content-Type": "application/json" } });
   if (!parsed.message && parsed.files.length === 0) {
     return json({ ok: false, error: "Empty message." }, { status: 400 });
   }

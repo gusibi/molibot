@@ -1533,3 +1533,8 @@ The first shared recipes are:
 `native`, `editorial`, `technical`, `product` and `expressive` are already assigned at the root so later recipe work can deepen those families without changing persistence or family ids.
 
 Typography is deliberately **not** a recipe axis in this phase. Recipe styles must not add font packages. Theme typography should prefer macOS/system font stacks; any bundled font decision is a separate, late-stage size/quality trade-off.
+
+
+## Desktop Agent Rooms
+
+Room transcripts use the existing chat reading column, type tokens and composer. Each reply names its author; recipients and discussion/direct mode remain visible before sending. Member controls use the shared Button, SelectControl and Switch components; setup saves use the fixed settings footbar. Queued, approval and cancelling states appear beside the responsible member. Collapsed sidebar headers reserve the native window control area. The Room view supports Chinese/English, light/dark appearance and narrow Desktop widths.

@@ -64,6 +64,10 @@ export interface ToolExecutionContext {
   sessionId: string;
   workspaceId: string;
   actorId: string;
+  /** Hold execution ownership until a cancelled tool handler settles. */
+  awaitToolQuiescence?: boolean;
+  approvalWaitTimeoutMs?: number;
+  assertAuthority?: (toolId: string, input: unknown) => void;
   cwd: string;
   fs: SafeFsApi;
   shell: SafeShellApi;

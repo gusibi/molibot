@@ -130,6 +130,9 @@
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
   import ConversationPromptNavigator from "./lib/chat/ConversationPromptNavigator.svelte";
   import { PROMPT_NAVIGATOR_MIN_TURNS } from "./lib/chat/conversationNavigation";
+  import RoomWorkspace from "./lib/chat/RoomWorkspace.svelte";
+  import { roomsCopy } from "./lib/chat/roomsCopy";
+  import { loadDesktopRooms } from "./lib/api";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
@@ -363,6 +366,8 @@
   let viewMode: "local" | "external" = "local";
   let projectPaneActive = false;
   let activeProjectSessionId = "";
+  let roomPaneActive = false;
+  let requestedRoomId = "";
   let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let automationUnreadCount = 0;
@@ -1749,6 +1754,7 @@
   }
 
   function newConversation(): void {
+    roomPaneActive = false;
     newConversationWithBot(defaultBot());
   }
 
@@ -1771,6 +1777,9 @@
   }
 
   function openSession(item: DesktopConversationItem): void {
+    roomPaneActive = Boolean(item.roomId);
+    requestedRoomId = item.roomId ?? "";
+    if (item.roomId) { projectPaneActive = false; return; }
     browserOpen = false;
     expandedChannels = { ...expandedChannels, [item.channel]: true };
     persistSidebarTree();
@@ -3086,6 +3095,7 @@
   }
 
   function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
+    roomPaneActive = false;
     const next = openWorkspacePaneState(pane);
     workspacePane = next.workspacePane;
     projectPaneActive = next.projectPaneActive;
@@ -3400,6 +3410,8 @@
     {statusDots}
     formatTime={formatListTime}
     onNewConversation={newConversation}
+    roomsLabel={roomsCopy[locale].title}
+    onOpenRooms={() => { roomPaneActive = true; requestedRoomId = ""; projectPaneActive = false; }}
     onOpenAutoTasks={() => openWorkspacePane("automations")}
     onOpenSkills={() => openWorkspacePane("skills")}
     onOpenAgents={() => openWorkspacePane("agents")}
@@ -3415,6 +3427,11 @@
     onCopySessionPath={copySessionPath}
     onRevealSessionInFinder={revealSessionInFinder}
     onActivateProjectSession={() => {
+      roomPaneActive = false;
+      const selectedId = projectsStore.selectedSessionId;
+      void loadDesktopRooms(connectedEndpoint).then(result => {
+        if (projectsStore.selectedSessionId === selectedId && result.rooms.some(r => r.id === selectedId)) { requestedRoomId = selectedId; roomPaneActive = true; }
+      });
       projectPaneActive = true;
       workspacePane = "chat";
       viewMode = "local";
@@ -3442,7 +3459,9 @@
     onkeydown={onSidebarKeydown}
   ></div>
 
-  {#if projectPaneActive}
+  {#if roomPaneActive}
+    <RoomWorkspace endpoint={connectedEndpoint} {copy} {locale} {requestedRoomId} onSessionChanged={() => { void loadExpandedChannels(); }} />
+  {:else if projectPaneActive}
     <ProjectDetail
       {copy}
       autoAvailable={globalAutoAvailable}

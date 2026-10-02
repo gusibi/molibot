@@ -483,7 +483,7 @@ export async function waitForHostBashApprovalAndExecute(input: {
   } as any);
 
   return pollUntilResolved<ToolResult>({
-    timeoutMs: input.waitTimeoutMs ?? HOST_APPROVAL_INLINE_WINDOW_MS,
+    timeoutMs: ctx.approvalWaitTimeoutMs ?? input.waitTimeoutMs ?? HOST_APPROVAL_INLINE_WINDOW_MS,
     pollMs: HOST_APPROVAL_POLL_INTERVAL_MS,
     signal: ctx.signal,
     onAbort: () => {
@@ -526,6 +526,7 @@ export async function waitForHostBashApprovalAndExecute(input: {
           record.owner
         );
         try {
+          ctx.assertAuthority?.("bash", { command: record.pendingAction?.originalCommand });
           const executed = await executeHostBashApproval({
             record,
             approvedTool: approvedTool ?? undefined,

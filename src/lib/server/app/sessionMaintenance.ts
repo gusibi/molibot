@@ -1,3 +1,4 @@
+import { roomHasWork, purgeRoomArtifacts } from "$lib/server/rooms/runtime.js";
 import { resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import {
@@ -83,7 +84,7 @@ export function realSessionBusyReaders(): SessionBusyReaders {
     },
     hasNonterminalLinkedTask: (conversationId: string) => {
       try {
-        return getDurableExecutionStore().hasNonterminalForSession(conversationId);
+        return roomHasWork(conversationId) || getDurableExecutionStore().hasNonterminalForSession(conversationId);
       } catch {
         return false;
       }
@@ -156,6 +157,7 @@ export function buildSessionTrashPorts(
       return [...new Set(chats)];
     },
     deleteAgentSession: (chatId: string, sessionId: string) => {
+      if (purgeRoomArtifacts(sessionId)) return;
       const projectId = sessions.getConversationProjectId(sessionId);
       const store = projectId
         ? getProjectRuntimeContext(projectId).store

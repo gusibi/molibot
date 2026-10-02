@@ -12,6 +12,7 @@ import { revealAbsolutePath, revealSupported } from "$lib/server/web/revealFile.
 import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
 import { parseBotInstanceId, type ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
+import { getRoomService, getRoomStore } from "$lib/server/rooms/runtime.js";
 import { deleteWebSession, type WebSessionDeletionResult } from "$lib/server/web/sessionLifecycle.js";
 import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStore.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
@@ -158,6 +159,7 @@ export function buildWebItems(
       botDeleted: deleted,
       channel: "web",
       purpose,
+      roomId: entry.conversation.origin === "agent-room" ? entry.conversation.id : undefined,
       readOnly: false,
       // Ordinary lists omit the field entirely; only search collects a preview.
       ...(entry.lastMessageText ? { latestMessagePreview: entry.lastMessageText } : {}),
@@ -484,6 +486,11 @@ export function renameDesktopConversation(sessionId: string, title: string): { t
   const sessions = getRuntime().sessions;
   const owner = sessions.getWebConversationOwner(sessionId);
   if (!owner) return null;
+  const room = getRoomStore().get(sessionId);
+  if (room) {
+    getRoomService().update(sessionId, { title, agentIds: room.participants.filter(p => p.active).map(p => p.agentId), primaryAgentId: room.primaryAgentId, permissionMode: room.permissionMode });
+    return { title: getRoomStore().get(sessionId)!.title };
+  }
   const conversation = sessions.renameConversation(sessionId, "web", owner, title);
   return conversation ? { title: conversation.title } : null;
 }
@@ -494,6 +501,11 @@ export function renameDesktopConversation(sessionId: string, title: string): { t
  * lifecycle also rejects running sessions and removes their Agent context.
  */
 export function deleteDesktopConversation(sessionId: string): WebSessionDeletionResult {
+  if (getRoomStore().get(sessionId)) {
+    if (getRoomService().isBusy(sessionId)) return "running";
+    getRoomService().delete(sessionId);
+    return "deleted";
+  }
   return deleteWebSession({ conversationId: sessionId });
 }
 

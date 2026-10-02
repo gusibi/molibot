@@ -1,3 +1,4 @@
+import { reconcileRoomAgents } from "$lib/server/rooms/runtime.js";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import { sanitizeSettings } from "$lib/server/settings/sanitize.js";
 import { applyChannelPlugins } from "$lib/server/plugins/loader.js";
@@ -335,6 +336,7 @@ function initializeRuntime(): RuntimeState {
       state.settings = sanitizeSettings(patch, latestPersisted);
       currentSettings.value = state.settings;
       state.settingsStore.save(state.settings);
+      reconcileRoomAgents();
       if (!liveServicesDisabled()) {
         applyChannelPlugins(state, applySettingsPatch);
         state.taskScheduler.restart(state.channelManagers, state.settings);

@@ -737,3 +737,21 @@ test("installing code can never be granted permanently", () => {
 
   assert.deepEqual(request.scopeOptions, ["once"], "installs are answered one at a time, always");
 });
+
+test("scheduler-owned execution waits for a cancelled handler before releasing ownership", async () => {
+  const registry = new ToolRegistry();
+  let finish!: (value: { ok: boolean }) => void;
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  registry.register(tool({ handler: async () => { started(); return new Promise(resolve => { finish = resolve; }); } }));
+  const runtime = new ToolRuntime(registry);
+  const abort = new AbortController();
+  let settled = false;
+  const call = runtime.executeToolCall({ toolId: "echo", input: {}, context: { ...context([], abort.signal), awaitToolQuiescence: true } }).then(result => { settled = true; return result; });
+  await ready;
+  abort.abort();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(settled, false);
+  finish({ ok: true });
+  assert.equal((await call).ok, true);
+});

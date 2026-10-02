@@ -1,3 +1,13 @@
+# Desktop Agent Room（Issue #62，2026-10-02）
+
+- **优先级 / 状态**：P1 / 已实现，待原生 Desktop 验收；本记录不关闭 issue。
+- **范围**：三个交付 slice 已落地：显式 Agent 身份与独立 Context、共同快照与并行受限讨论、持久队列和审批/取消/恢复、Desktop 创建与会话入口。完整验收依据为 [Room 规格](docs/requirements/multi-agent-room-spec.md)。
+- **运行限制**：已开始的 Run 不能通过 steer 收紧已经生效的保留策略；此类指令在注入前拒绝，用户停止后作为新消息发送。普通 steer 记录在共享房间记录中。
+- **验证**：Room 服务和实际 Project/图片/模型请求回归、受影响 Runner/工具/Host Bash/Session 测试通过。Desktop 测试为 7 + 325 + 283 项 JavaScript 和 70 项 Rust，通过；`svelte-check` 为 0 错误、1 条既有 AgentCityInspector 警告。服务端及 Desktop 构建通过。
+- **全仓检查限制**：后端完整测试 2266 通过、4 失败、1 跳过；失败为 Python 隔离路径、Mini App 子进程隔离路径、既有 Desktop 审批列表断言，以及并行 Pi 1.0 升级后仍按 0.84 模型目录断言的测试。全仓 TypeScript 仍有既有错误；Room 新增文件无类型错误。上述失败不能作为本次完整检查通过的证据。
+- **冷路径走查**：隔离服务重启、首次 Room 打开、房间切换、中英/明暗及 420px 窄窗口无横向溢出通过。真实审批保留写入资格，同一 Project 目录的另一 Room 可继续；重启将审批 Run 标记中断、队列暂停且不重放，Stop All 可取消暂停项。走查使用本地模拟模型，不使用真实账号或付费请求。
+- **待验收**：真实原生 Desktop 窗口中的创建、切换、审批和服务恢复；浏览器中的 Desktop 前端走查不替代 Tauri 原生窗口验收。
+
 # 决策模型配置与自动思考策略（2026-09-23）
 
 - **优先级 / 状态**：P1 / 已交付，功能验收完成（2026-10-01）。

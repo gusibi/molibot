@@ -4257,3 +4257,44 @@ export async function loadTraceReportHtml(endpoint: string, runIds: string[], la
 export async function publishTraceReport(endpoint: string, runIds: string[], language: string): Promise<string> {
   return (await requestJson<{ url: string }>(endpoint, "/api/desktop/trace-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runIds, language }) })).url;
 }
+
+export async function loadDesktopRooms(endpoint: string) {
+  return requestJson<{ ok: true; rooms: import("@molibot/shared/rooms").AgentRoom[] }>(endpoint, "/api/desktop/rooms");
+}
+export async function loadDesktopRoom(endpoint: string, roomId: string) {
+  const result = await requestJson<{ ok: true; view: import("@molibot/shared/rooms").RoomView }>(endpoint, `/api/desktop/rooms?id=${encodeURIComponent(roomId)}`);
+  return result.view;
+}
+export function actOnDesktopRoom(endpoint: string, action: Record<string, unknown>) {
+  return requestJson<{ ok: true; room?: import("@molibot/shared/rooms").AgentRoom; delivered?: boolean }>(endpoint, "/api/desktop/rooms", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action)
+  });
+}
+export async function streamDesktopRoom(endpoint: string, roomId: string, after: number, signal: AbortSignal, onEvent: (event: import("@molibot/shared/rooms").RoomEvent) => void) {
+  const response = await fetchFromDesktop(serviceUrl(endpoint, `/api/desktop/rooms/events?roomId=${encodeURIComponent(roomId)}&after=${after}`), { signal });
+  if (!response.ok || !response.body) throw new Error(`Room stream unavailable (${response.status})`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (!signal.aborted) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      let end: number;
+      while ((end = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+        const data = frame.split("\n").find(line => line.startsWith("data: "));
+        if (data) onEvent(JSON.parse(data.slice(6)));
+      }
+    }
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
+export async function uploadDesktopRoomFiles(endpoint: string, roomId: string, files: File[]) {
+  const body = new FormData(); body.set("roomId", roomId); files.forEach(file => body.append("files", file));
+  return requestJson<{ ok: true; attachments: Array<{ id: string; attachment: import("@molibot/shared/types/message").ConversationAttachment }> }>(endpoint, "/api/desktop/rooms/files", { method: "POST", body });
+}
+
+export function desktopRoomAttachmentUrl(endpoint: string, roomId: string, local: string): string {
+  return serviceUrl(endpoint, `/api/desktop/rooms/files?roomId=${encodeURIComponent(roomId)}&local=${encodeURIComponent(local)}`);
+}

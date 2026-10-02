@@ -1,3 +1,4 @@
+import { getRoomStore } from "$lib/server/rooms/runtime.js";
 import { createDeterministicSessionId } from "$lib/server/agent/session/ids.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
@@ -122,6 +123,7 @@ export function forkSession(input: {
   fromMessageId: string;
   requestId: string;
 }): SessionForkResult {
+  if (getRoomStore().get(input.sourceSessionId)) return { status: "invalid_fork_point" };
   const profileId = sanitizeWebProfileId(input.profileId);
   const userId = sanitizeWebUserId(input.userId);
   const owner = toWebExternalUserId(userId, profileId);

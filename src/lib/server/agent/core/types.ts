@@ -204,6 +204,13 @@ export type RunnerUiEvent =
     };
 
 export interface MomContext {
+  /** Hold execution ownership until a cancelled tool handler settles. */
+  awaitToolQuiescence?: boolean;
+  approvalWaitTimeoutMs?: number;
+  retention?: import("$lib/shared/types/message.js").TurnRetentionPolicy;
+  sharedRoomContext?: string;
+  executionPolicy?: import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
+  assertToolAuthority?: (toolId: string, input: unknown) => void;
   /** Runner-owned observation of a platform reply ID; never changes delivery behavior. */
   recordDeliveredMessage?: (messageId: string) => void;
   channel: string;

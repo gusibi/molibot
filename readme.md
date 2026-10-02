@@ -136,7 +136,7 @@ Use cases, documentation improvements, bug fixes, and code contributions are wel
 
 ## Documentation
 
-- [Documentation map](docs/README.md) · [Feature guides](docs/features/)
+- [Documentation map](docs/README.md) · [Feature guides](docs/features/) · [Desktop Agent Rooms](docs/guides/agent-rooms.md)
 - [Current capabilities and boundaries](docs/requirements/personal-assistant-capability-matrix.md) · [Release notes](CHANGELOG.md)
 - [Delivery record](features.md) · [Requirements and plans](prd.md)
 - [Skills, tools, and MCP](docs/features/tools-skills-and-mcp.md) · [Plugin development](docs/guides/plugins/plugin-authoring.md)

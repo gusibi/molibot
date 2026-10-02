@@ -6,6 +6,8 @@ export interface AiUsageRecord {
   ts: string;
   channel: string;
   botId: string;
+  agentId?: string;
+  roomId?: string;
   provider: string;
   model: string;
   api: string;
@@ -266,6 +268,8 @@ export class AiUsageTracker {
   record(input: {
     channel: string;
     botId?: string;
+    agentId?: string;
+    roomId?: string;
     provider: string;
     model: string;
     api?: string;
@@ -286,6 +290,8 @@ export class AiUsageTracker {
       ts: new Date().toISOString(),
       channel: String(input.channel ?? "").trim() || "unknown",
       botId: String(input.botId ?? "").trim() || "unknown",
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.roomId ? { roomId: input.roomId } : {}),
       provider: String(input.provider ?? "").trim() || "unknown",
       model: String(input.model ?? "").trim() || "unknown",
       api: String(input.api ?? "").trim() || "unknown",

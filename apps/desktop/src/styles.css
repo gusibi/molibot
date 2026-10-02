@@ -7408,3 +7408,30 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   transition: none !important;
   scale: 1 !important;
 }
+
+/* Rooms share the chat reading column and keep composer actions visible. */
+.room-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; background: var(--header-bg); position: relative; }
+.room-header, .room-composer, .room-setup, .room-list { width: min(720px, calc(100% - 48px)); margin-inline: auto; }
+.room-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 16px; flex-wrap: wrap; }
+.room-header h2 { margin: 0; font-size: var(--fs-title); }
+.chat-layout.sidebar-collapsed .room-header { padding-left: 126px; box-sizing: border-box; }
+.room-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.room-metadata { color: var(--text-secondary); font-size: var(--fs-body); }
+.room-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.room-list-row { display: flex; justify-content: space-between; width: 100%; text-align: left; }
+.room-setup { overflow-y: auto; padding-bottom: 80px; }
+.room-transcript { overflow-y: auto; flex: 1; min-height: 0; padding: 16px max(24px, calc((100% - 720px) / 2)); }
+.room-message, .room-execution { padding-block: 16px; border-bottom: 1px solid var(--separator); }
+.room-user { color: var(--text-primary); }
+.room-execution { border-radius: 8px; }
+.room-composer { padding-block: 12px; flex-shrink: 0; }
+.room-composer .composer-shell { width: 100%; }
+.room-target-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+.room-quote { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+@media (max-width: 600px) {
+  .room-header, .room-composer, .room-setup, .room-list { width: calc(100% - 24px); }
+  .room-header { align-items: flex-start; }
+  .room-transcript { padding-inline: 12px; }
+}
+
+.room-workspace > .settings-footbar { position: absolute; bottom: 0; left: 0; right: 0; margin-top: 0; }

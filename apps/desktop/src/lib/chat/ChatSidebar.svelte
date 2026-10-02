@@ -33,6 +33,8 @@
     statusDots = new Map<string, SessionStatusDot>(),
     formatTime,
     onNewConversation,
+    onOpenRooms,
+    roomsLabel,
     onOpenAutoTasks,
     onOpenSkills,
     onOpenAgents,
@@ -68,6 +70,8 @@
     statusDots?: Map<string, SessionStatusDot>;
     formatTime: (iso: string) => string;
     onNewConversation: () => void;
+    onOpenRooms: () => void;
+    roomsLabel: string;
     onOpenAutoTasks: () => void;
     onOpenSkills: () => void;
     onOpenAgents: () => void;
@@ -120,6 +124,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true" onmousedown={startWindowDrag}></div>
   <nav class="sidebar-nav" aria-label={copy.newChat}>
+    <button type="button" class="nav-item" onclick={onOpenRooms}><Layers size={16} aria-hidden="true" /><span>{roomsLabel}</span></button>
     <button type="button" class="nav-item" onclick={onNewConversation}>
       <Pen size={16} aria-hidden="true" />
       <span>{copy.newChat}</span>

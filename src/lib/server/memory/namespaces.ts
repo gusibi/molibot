@@ -35,14 +35,14 @@ export function namespaceForDomain(scope: MemoryScope, domain: MemoryDomain): Me
     if (!project) throw new Error("Project memory requires projectId.");
     return project;
   }
-  if (domain === "agent_self") return agentNamespace(scope.botId);
+  if (domain === "agent_self") return agentNamespace(scope.agentId ?? scope.botId);
   return contentNamespace(scope.botId);
 }
 
 export function promptMemoryNamespaces(scope: MemoryScope): MemoryNamespace[] {
   const result: MemoryNamespace[] = [];
   if (scope.shareOwner !== false) result.push(ownerNamespace(scope.ownerId));
-  result.push(chatNamespace(scope), agentNamespace(scope.botId));
+  result.push(chatNamespace(scope), agentNamespace(scope.agentId ?? scope.botId));
   const project = projectNamespace(scope);
   if (project) result.push(project);
   return result;

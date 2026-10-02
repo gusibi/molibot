@@ -1,3 +1,4 @@
+import { getRoomService, getRoomStore } from "$lib/server/rooms/runtime.js";
 import { randomUUID } from "node:crypto";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { resolveDurableToolApproval } from "$lib/server/agent/durable/approvalResolution.js";
@@ -94,6 +95,16 @@ export const POST: RequestHandler = async ({ request }) => {
    * card leaves behind. Web-scoped records resume through the same machinery
    * the chat card uses; other channels must resolve in their own channel.
    */
+  if (body.action === "resolve_approval") {
+    const execution = getRoomStore().approvalExecution(String(body.requestId ?? ""));
+    if (execution) {
+      if (body.decision !== "approve_once" && body.decision !== "reject") return json({ ok: false, error: "Room approvals require an operation-specific decision" }, { status: 400 });
+      try {
+        getRoomService().resolveApproval(execution.roomId, execution.id, body.decision);
+        return json({ ok: true, response: "", approval: { status: body.decision === "reject" ? "rejected" : "approved" } });
+      } catch (error) { return json({ ok: false, error: String(error) }, { status: 409 }); }
+    }
+  }
   if (body.action === "resolve_approval" && !body.sessionId && !body.profileId) {
     const requestId = String(body.requestId ?? "").trim();
     const decision = String(body.decision ?? "") as DesktopApprovalDecision;

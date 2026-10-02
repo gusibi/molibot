@@ -418,7 +418,7 @@ export interface DesktopHostBashWhitelistItem {
   enabled: boolean;
   approvedAt: string;
   /** Bot/project this grant covers. Absent on legacy install-wide grants. */
-  scope?: { kind: "bot" | "project"; label: string };
+  scope?: { kind: "bot" | "project" | "agent"; label: string };
   permissions: {
     envAllowlist: number;
     filesystem: string;
@@ -1272,7 +1272,7 @@ export interface DesktopApprovalOption {
 
 /** Bot or project a "一直允许" grant would apply to. */
 export interface DesktopApprovalOwner {
-  kind: "bot" | "project";
+  kind: "bot" | "project" | "agent";
   id: string;
   label: string;
 }
@@ -2455,6 +2455,7 @@ export type DesktopConversationPurpose =
  * true for external channels (plan §3.3).
  */
 export interface DesktopConversationItem {
+  roomId?: string;
   sessionId: string;
   title: string;
   updatedAt: string;

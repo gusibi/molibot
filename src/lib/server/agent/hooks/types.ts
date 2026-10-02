@@ -45,6 +45,8 @@ export interface HookContext {
   runId: string;
   channel: string;
   botId?: string;
+  agentId?: string;
+  roomId?: string;
   chatId: string;
   sessionId: string;
   workspaceId?: string;

@@ -1,3 +1,7 @@
+### Added: Desktop Agent Rooms（2026-10-02）
+
+Desktop can create regular or Project rooms with independent Agent identities and contexts, a shared attributed transcript, directed replies and restricted parallel discussion. Room-local write scheduling, approvals, cancellation and explicit restart recovery preserve execution evidence. See the [Room guide](docs/guides/agent-rooms.md); native Desktop acceptance remains pending.
+
 ### Fixed: Adaptive Thinking admission, cancellation and credential handling（2026-10-01）
 
 Auto snapshots policy and decision destinations before queued execution. Stop and the decision deadline settle promptly even when a provider ignores cancellation; explicit retries receive a new decision while internal recovery reuses the existing one. Invalid confidence and missing follow-up context fall back safely. Jev errors no longer expose upstream payloads, and Web settings save credentials through the current per-connection API.

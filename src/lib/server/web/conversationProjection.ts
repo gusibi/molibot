@@ -1,3 +1,4 @@
+import { getRoomStore } from "$lib/server/rooms/runtime.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { projectDurableConversationPlan } from "$lib/server/agent/durable/planProjection.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
@@ -102,6 +103,7 @@ export function loadConversationMessages(input: {
 }
 
 export function loadStoredConversationMessages(conversationId: string): ProjectedConversationMessage[] {
+  if (getRoomStore().get(conversationId)) return getRoomStore().messages(conversationId).map(m => ({ ...m, conversationId }));
   const sessions = projectionRuntime().sessions;
   const projectId = sessions.getConversationProjectId(conversationId);
   if (projectId) {
@@ -122,6 +124,7 @@ export function truncateConversationProjection(input: {
   conversationId: string;
   fromMessageId: string;
 }): number {
+  if (getRoomStore().get(input.conversationId)) throw new Error("Room history cannot be edited or resent");
   const context = projectionContext(input);
   const projection = loadConversationProjection(input);
   const index = projection.messages.findIndex((message) => message.id === input.fromMessageId);

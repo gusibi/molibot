@@ -16,7 +16,7 @@ export type HostBashApprovalScope = "once" | "session" | "persistent";
  * used to mean. Legacy global grants are still honoured for backwards
  * compatibility; new grants always carry an owner.
  */
-export type HostBashOwnerKind = "bot" | "project";
+export type HostBashOwnerKind = "bot" | "project" | "agent";
 
 export interface HostBashOwner {
   kind: HostBashOwnerKind;

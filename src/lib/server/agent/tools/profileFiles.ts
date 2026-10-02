@@ -76,6 +76,7 @@ function resolveBotRoot(workspaceDir: string): string {
 }
 
 function resolveScopePaths(params: {
+  agentId?: string;
   channel: string;
   workspaceDir: string;
   getSettings: () => RuntimeSettings;
@@ -87,12 +88,12 @@ function resolveScopePaths(params: {
   globalFilePath: string;
   agentId: string;
 } {
-  const botRoot = resolveBotRoot(params.workspaceDir);
+  const botRoot = params.agentId ? params.workspaceDir : resolveBotRoot(params.workspaceDir);
   const botId = basename(botRoot);
   const file = ensureKnownProfileFile(params.file);
   const parentFile = resolveParentProfileFileName(file);
   const settings = params.getSettings();
-  const agentId = getAgentForBot(settings, params.channel, botId);
+  const agentId = params.agentId ?? getAgentForBot(settings, params.channel, botId);
   const dataRoot = resolveDataRootFromWorkspacePath(botRoot);
   const botFilePath = join(botRoot, file);
   // The agent scope only carries AGENT_PROFILE_FILES; other files (USER.md, TOOLS.md)
@@ -196,6 +197,7 @@ function bootstrapBotFile(params: {
 }
 
 export function createProfileFilesTool(options: {
+  agentId?: string;
   channel: string;
   workspaceDir: string;
   getSettings: () => RuntimeSettings;
@@ -208,9 +210,11 @@ export function createProfileFilesTool(options: {
     parameters: profileFileSchema,
     execute: async (_toolCallId, params) => {
       const file = ensureKnownProfileFile(params.file);
-      const requestedScope = resolveRequestedScope(params.scope);
+      const requestedScope = resolveRequestedScope(params.scope ?? (options.agentId ? ((AGENT_PROFILE_FILES as readonly string[]).includes(resolveParentProfileFileName(file)) ? "agent" : "global") : undefined));
+      if (options.agentId && requestedScope === "bot") throw new Error("Room execution has no Bot profile; select Agent or global scope");
       const autoBootstrap = params.autoBootstrap !== false;
       const paths = resolveScopePaths({
+        agentId: options.agentId,
         channel: options.channel,
         workspaceDir: options.workspaceDir,
         getSettings: options.getSettings,

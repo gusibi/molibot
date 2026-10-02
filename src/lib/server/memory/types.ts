@@ -2,6 +2,7 @@ export interface MemoryScope {
   channel: string;
   externalUserId: string;
   botId?: string;
+  agentId?: string;
   ownerId?: string;
   projectId?: string;
   conversationId?: string;

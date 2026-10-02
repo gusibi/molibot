@@ -142,6 +142,12 @@ function createDeferredToolEntry(options: {
 }
 
 export function createMomTools(options: {
+  agentId?: string;
+  executionPolicy?: EffectiveExecutionPolicy;
+  /** Hold execution ownership until a cancelled tool handler settles. */
+  awaitToolQuiescence?: boolean;
+  approvalWaitTimeoutMs?: number;
+  assertToolAuthority?: (toolId: string, input: unknown) => void;
   replyToMessageId?: string;
   sessionPlanProgress?: SessionPlanProgress;
   channel: string;
@@ -199,7 +205,7 @@ export function createMomTools(options: {
   // from, the execution target it implies, and the sandbox restrictions that
   // apply (only when the sandbox participates). Tool dispatch, shell
   // execution, file access, subagents and the prompt all read this result.
-  const policy: EffectiveExecutionPolicy = resolveEffectiveExecutionPolicy({
+  const policy: EffectiveExecutionPolicy = options.executionPolicy ?? resolveEffectiveExecutionPolicy({
     getSettings: options.getSettings,
     chatId: options.chatId,
     sessionId: options.sessionId,
@@ -262,6 +268,7 @@ export function createMomTools(options: {
     chatId: options.chatId
   }));
   const profileFilesRuntimeTool = wrapSerializedTool(createProfileFilesTool({
+    agentId: options.agentId,
     channel: options.channel,
     workspaceDir: options.workspaceDir,
     getSettings: options.getSettings
@@ -422,7 +429,10 @@ export function createMomTools(options: {
       runId: options.runId ?? "default-run",
       sessionId: options.executionSessionId ?? options.sessionId,
       workspaceId: options.workspaceId ?? "personal",
-      actorId: options.chatId,
+      actorId: options.agentId ?? options.chatId,
+      assertAuthority: options.assertToolAuthority,
+      awaitToolQuiescence: options.awaitToolQuiescence,
+      approvalWaitTimeoutMs: options.approvalWaitTimeoutMs,
       cwd: options.cwd,
       signal,
       toolCallId,
@@ -645,6 +655,7 @@ export function createMomTools(options: {
       // "一直允许" grants live on the project (when the run has one) or on this
       // bot workspace — never install-wide.
       owner: resolveHostBashOwner({
+        agentId: options.agentId,
         projectId: options.project?.id,
         projectName: options.project?.name,
         botId
@@ -925,6 +936,7 @@ export function createMomTools(options: {
         channel: options.channel,
         externalUserId: options.chatId,
         botId,
+        agentId: options.agentId,
         projectId: options.project?.id
       }
     }),

@@ -75,11 +75,17 @@ function sanitizeNetwork(input: unknown): HostBashNetworkAccess {
  * silently shared host access between unrelated bots.
  */
 export function resolveHostBashOwner(input: {
+  agentId?: string;
   projectId?: string | null;
   projectName?: string | null;
   botId?: string | null;
 }): HostBashOwner {
   const projectId = sanitizeString(input.projectId);
+  const agentId = sanitizeString(input.agentId);
+  if (agentId) {
+    const key = `agent:${encodeURIComponent(agentId)}${projectId ? `:project:${encodeURIComponent(projectId)}` : ""}`;
+    return { kind: "agent", id: agentId, key, label: agentId };
+  }
   if (projectId) {
     return {
       kind: "project",
@@ -97,7 +103,7 @@ export function sanitizeHostBashOwner(input: unknown): HostBashOwner | undefined
   if (!source) return undefined;
   const id = sanitizeString(source.id).slice(0, 160);
   if (!id) return undefined;
-  const kind = sanitizeString(source.kind) === "project" ? "project" : "bot";
+  const kind = source.kind === "agent" ? "agent" : source.kind === "project" ? "project" : "bot";
   return {
     kind,
     id,

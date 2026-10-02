@@ -1,3 +1,4 @@
+import { getRoomStore } from "$lib/server/rooms/runtime.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { describeExecutionHistory } from "$lib/server/agent/session/executionHistory.js";
 import { applyPlanProgress, finishPlanTurn } from "$lib/server/agent/session/planProgress.js";
@@ -143,6 +144,7 @@ export const POST: RequestHandler = async ({ request }) => {
     });
   }
 
+  if (body.conversationId && getRoomStore().get(body.conversationId)) return new Response(JSON.stringify({ ok: false, error: "Use the Desktop Room dispatch API" }), { status: 409, headers: { "Content-Type": "application/json" } });
   const userId = sanitizeWebUserId(body.userId);
   const profileId = sanitizeWebProfileId(body.profileId);
   const message = String(body.message ?? "").trim();

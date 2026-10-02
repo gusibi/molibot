@@ -790,6 +790,27 @@ export class SessionStore {
     return this.createConversation(channel, externalUserId, undefined, opts?.origin);
   }
 
+  /** Index and count an externally owned transcript without duplicating its message bodies. */
+  syncProjectedMessages(conversationId: string, messages: ConversationMessage[]): void {
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located) return;
+    const file = located.file;
+    const known = new Set(file.messageMetadata.map(m => m.id));
+    let changed = false;
+    for (const message of messages) {
+      if (known.has(message.id)) continue;
+      file.messageMetadata.push({ ...message, content: undefined, contextBacked: true, sourceEntryId: message.id });
+      file.conversation.updatedAt = message.createdAt;
+      this.indexConversationMessage(file.conversation, message);
+      this.activitySink?.recordConversationActivity(conversationId, message);
+      changed = true;
+    }
+    if (!changed) return;
+    file.messageCount = file.messageMetadata.length;
+    if (located.type === "web") writeWebSession(located.externalUserId, file);
+    else if (located.type === "project") writeProjectSession(located.projectId, file);
+  }
+
   appendMessage(
     conversationId: string,
     role: Role,
@@ -1226,8 +1247,8 @@ export class SessionStore {
     return conversations;
   }
 
-  createWebConversation(externalUserId: string): Conversation {
-    return this.createConversation("web", externalUserId);
+  createWebConversation(externalUserId: string, origin?: string): Conversation {
+    return this.createConversation("web", externalUserId, undefined, origin);
   }
 
   /**
@@ -1339,8 +1360,8 @@ export class SessionStore {
     return located?.type === "project" ? located.projectId : null;
   }
 
-  createProjectConversation(projectId: string, externalUserId: string, channel: Channel = "web"): Conversation {
-    return this.createConversation(channel, externalUserId, projectId);
+  createProjectConversation(projectId: string, externalUserId: string, channel: Channel = "web", origin?: string): Conversation {
+    return this.createConversation(channel, externalUserId, projectId, origin);
   }
 
   /** Same empty-session contract as Web, scoped to one project workspace. */

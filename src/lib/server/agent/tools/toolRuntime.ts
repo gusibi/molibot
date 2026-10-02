@@ -233,7 +233,7 @@ export class ToolRuntime {
 
         const isHighRisk = tool.risk === "high" || tool.risk === "critical";
 
-        if (isHighRisk) {
+        if (isHighRisk || deferred === "wait") {
           // The caller chose to wait (or has no opinion): one card, one answer.
           this.approvalService?.createRequest(decision.request);
           resolution = await this.pollApprovalRequest(decision.request, call.context);
@@ -374,6 +374,7 @@ export class ToolRuntime {
     const executionContext: ToolExecutionContext = { ...call.context, signal: executionSignal };
     let timer: NodeJS.Timeout | undefined;
     let cleanupAbort: (() => void) | undefined;
+    call.context.assertAuthority?.(tool.id, call.input);
     const handler = tool.handler(call.input, executionContext).then(
       (value) => ({ type: "result" as const, value }),
       (error) => ({ type: "error" as const, error })
@@ -394,7 +395,10 @@ export class ToolRuntime {
         cleanupAbort = () => upstream.removeEventListener("abort", onAbort);
       }
     });
-    const settled = await Promise.race([handler, deadline, aborted]);
+    let settled = await Promise.race([handler, deadline, aborted]);
+    // A scheduler-owned writer must not hand its lease to another run while
+    // this handler can still mutate the workspace, even if it ignores abort.
+    if (call.context.awaitToolQuiescence && (settled.type === "aborted" || settled.type === "timeout")) settled = await handler;
     if (timer) clearTimeout(timer);
     cleanupAbort?.();
     let result: ToolResult;
@@ -480,7 +484,7 @@ export class ToolRuntime {
       // The inline handshake window only. Past it the run suspends with
       // `waiting_for_approval` and the out-of-band approve -> resume path takes
       // over - the wait itself never counts against any execution timeout.
-      timeoutMs: BROKER_APPROVAL_INLINE_WINDOW_MS,
+      timeoutMs: context.approvalWaitTimeoutMs ?? BROKER_APPROVAL_INLINE_WINDOW_MS,
       pollMs: 500,
       signal: context.signal
     });
