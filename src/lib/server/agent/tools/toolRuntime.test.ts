@@ -598,6 +598,10 @@ test("an unattended deny fails the call without creating a request or suspending
   const runtime = new ToolRuntime(registry, {
     approvalService: {
       checkGrant: () => null,
+      getRequest: () => null,
+      waitForDecision: async () => { throw new Error("Unexpected approval wait"); },
+      resolve: () => { throw new Error("Unexpected approval resolve"); },
+      expireRequest: () => { throw new Error("Unexpected approval expiry"); },
       createRequest: (request: { id: string }) => {
         created.push(request.id);
       }
@@ -666,6 +670,7 @@ test("an approval card offers a lasting grant, so a mode is not a permanent nag"
   // The fingerprint is what a grant matches on, so it has to describe the
   // action rather than the tool alone — otherwise approving one write would
   // grant every future write.
+  assert.ok(request.actionFingerprint);
   assert.match(request.actionFingerprint, /notes\.md/);
 });
 
@@ -754,4 +759,124 @@ test("scheduler-owned execution waits for a cancelled handler before releasing o
   assert.equal(settled, false);
   finish({ ok: true });
   assert.equal((await call).ok, true);
+});
+
+test("prepared invocation authorizes before intent and executes exactly once", async () => {
+  const registry = new ToolRegistry();
+  const order: string[] = [];
+  registry.register({ id: "write", name: "Write", description: "fixture", inputSchema: {}, risk: "low", source: "builtin", effect: "write",
+    handler: async () => { order.push("handler"); return { ok: true, content: "saved" }; } });
+  const runtime = new ToolRuntime(registry, { decidePolicy: () => { order.push("authorization"); return { type: "allow" }; } });
+  const ctx = { ...context(), workspaceId: "", onSideEffectPreflight: async () => { order.push("intent"); } };
+  const prepared = await runtime.prepareToolCall({ toolId: "write", input: { path: "file.txt" }, context: ctx });
+  assert.deepEqual(order, ["authorization"]);
+  assert.ok("execute" in prepared);
+  if (!("execute" in prepared)) return;
+  const result = await prepared.execute();
+  assert.equal(result.ok, true);
+  assert.deepEqual(order, ["authorization", "intent", "handler"]);
+  await assert.rejects(prepared.execute(), /already consumed/);
+});
+
+test("prepared invocation keeps the exact authorized arguments", async () => {
+  const registry = new ToolRegistry();
+  let executed: unknown;
+  registry.register(tool({ handler: async value => { executed = value; return { ok: true }; } }));
+  const input = { path: "approved.txt" };
+  const prepared = await new ToolRuntime(registry).prepareToolCall({ toolId: "echo", input, context: { ...context(), workspaceId: "" } });
+  input.path = "different.txt";
+  assert.ok("execute" in prepared);
+  if ("execute" in prepared) await prepared.execute();
+  assert.deepEqual(executed, { path: "approved.txt" });
+});
+
+test("prepared invocation rechecks authority and cancellation before any intent", async () => {
+  for (const stop of ["authority", "abort"]) {
+    const registry = new ToolRegistry();
+    let executions = 0;
+    let intents = 0;
+    let allowed = true;
+    const controller = new AbortController();
+    registry.register(tool({ handler: async () => { executions++; return { ok: true }; } }));
+    const ctx = { ...context([], controller.signal), workspaceId: "",
+      assertAuthority: () => { if (!allowed) throw new Error("Authority revoked"); },
+      onSideEffectPreflight: async () => { intents++; } };
+    const prepared = await new ToolRuntime(registry).prepareToolCall({ toolId: "echo", input: {}, context: ctx });
+    assert.ok("execute" in prepared);
+    if (!("execute" in prepared)) continue;
+    if (stop === "authority") allowed = false; else controller.abort();
+    await assert.rejects(prepared.execute());
+    assert.equal(executions, 0);
+    assert.equal(intents, 0);
+  }
+});
+
+test("revocation while waiting for the write slot prevents the next intent", async () => {
+  const registry = new ToolRegistry();
+  let release!: () => void;
+  let started!: () => void;
+  const firstStarted = new Promise<void>(resolve => { started = resolve; });
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  let executions = 0;
+  let intents = 0;
+  registry.register(tool({ handler: async () => { executions++; started(); await barrier; return { ok: true }; } }));
+  const runtime = new ToolRuntime(registry);
+  const first = runtime.executeToolCall({ toolId: "echo", input: {}, context: { ...context(), workspaceId: "" } });
+  await firstStarted;
+  let allowed = true;
+  const prepared = await runtime.prepareToolCall({ toolId: "echo", input: {}, context: {
+    ...context(), workspaceId: "", assertAuthority: () => { if (!allowed) throw new Error("Authority revoked"); },
+    onSideEffectPreflight: async () => { intents++; }
+  } });
+  assert.ok("execute" in prepared);
+  if (!("execute" in prepared)) { release(); await first; return; }
+  const second = prepared.execute();
+  allowed = false;
+  release();
+  await first;
+  await assert.rejects(second, /Authority revoked/);
+  assert.equal(executions, 1);
+  assert.equal(intents, 0);
+});
+
+test("Stop while waiting for a write slot does not call an abort-ignoring handler", async () => {
+  const registry = new ToolRegistry();
+  let release!: () => void;
+  let started!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  const firstStarted = new Promise<void>(resolve => { started = resolve; });
+  let executions = 0;
+  let intents = 0;
+  registry.register(tool({ handler: async () => { executions++; started(); await barrier; return { ok: true }; } }));
+  const runtime = new ToolRuntime(registry);
+  const ctx = { ...context(), workspaceId: "" };
+  const first = runtime.executeToolCall({ toolId: "echo", input: {}, context: ctx });
+  await firstStarted;
+  const controller = new AbortController();
+  const prepared = await runtime.prepareToolCall({ toolId: "echo", input: {}, context: {
+    ...ctx, signal: controller.signal, onSideEffectPreflight: async () => { intents++; }
+  } });
+  assert.ok("execute" in prepared);
+  if (!("execute" in prepared)) { release(); await first; return; }
+  const second = prepared.execute();
+  controller.abort(); release();
+  await first;
+  await assert.rejects(second);
+  assert.equal(executions, 1);
+  assert.equal(intents, 0);
+});
+
+test("Stop during asynchronous intent recording never starts the handler", async () => {
+  const registry = new ToolRegistry();
+  const controller = new AbortController();
+  let executions = 0;
+  registry.register(tool({ handler: async () => { executions++; return { ok: true }; } }));
+  const runtime = new ToolRuntime(registry);
+  const prepared = await runtime.prepareToolCall({ toolId: "echo", input: {}, context: {
+    ...context([], controller.signal), workspaceId: "", onSideEffectPreflight: async () => { controller.abort(); }
+  } });
+  assert.ok("execute" in prepared);
+  if (!("execute" in prepared)) return;
+  await assert.rejects(prepared.execute());
+  assert.equal(executions, 0);
 });

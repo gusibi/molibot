@@ -1,5 +1,7 @@
+import { createPiPreparationEffects } from "$lib/server/agent/durable/piPreparationEffects.js";
+import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
 import type { HookStage } from "$lib/server/agent/hooks/types.js";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -10,13 +12,7 @@ import {
   getPiCatalogModels as getModels
 } from "$lib/server/providers/piRuntime.js";
 import {
-  createAgentSession,
-  DefaultResourceLoader,
-  defineTool,
-  SessionManager,
-  SettingsManager,
-  type ModelRuntime,
-  type ToolDefinition
+  type ModelRuntime
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -35,15 +31,12 @@ import { isKnownProvider } from "$lib/server/settings/index.js";
 import { KNOWN_PROVIDER_LIST } from "$lib/server/settings/schema.js";
 import { resolveProviderApiKey } from "$lib/server/agent/identity/auth.js";
 import { momLog, momWarn } from "$lib/server/agent/common/log.js";
+import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
-import { createBashTool, type BashToolHostApprovalOptions } from "$lib/server/agent/tools/bash.js";
-import { createEditTool } from "$lib/server/agent/tools/edit.js";
-import { createReadTool } from "$lib/server/agent/tools/read.js";
-import { createWriteTool } from "$lib/server/agent/tools/write.js";
-import { bindExecutionEnvironment } from "$lib/server/agent/exec/executionBackend.js";
+import type { BashToolHostApprovalOptions } from "$lib/server/agent/tools/bash.js";
 import { resolveEffectiveExecutionPolicy, type EffectiveExecutionPolicy } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
 import { ExternalSubagentRuntime } from "#external-subagent";
@@ -188,7 +181,7 @@ const REVIEW_BASH_ALLOWLIST = [
   /^stat(?:\s|$)/
 ];
 
-const MODEL_REASONING_HINTS: Record<SubagentName, ThinkingLevel> = {
+const MODEL_REASONING_HINTS: Partial<Record<SubagentName, ThinkingLevel>> = {
   scout: "low",
   planner: "medium",
   worker: "medium",
@@ -516,7 +509,7 @@ async function buildModelFromRoute(
       const configured = settings.customProviders.find((provider) => provider.id === providerId);
       const apiKey = configured?.apiKey?.trim();
       if (apiKey) {
-        await modelRuntime.setRuntimeApiKey(providerId, apiKey, { allowNetwork: false });
+        await modelRuntime.setRuntimeApiKey(providerId, apiKey);
       }
       return found;
     }
@@ -564,7 +557,7 @@ async function buildModelFromRoute(
       }]
     });
     if (apiKey) {
-      await modelRuntime.setRuntimeApiKey(customProvider.id, apiKey, { allowNetwork: false });
+      await modelRuntime.setRuntimeApiKey(customProvider.id, apiKey);
     }
     return modelRuntime.getModel(customProvider.id, model.id) ?? model;
   }
@@ -592,7 +585,7 @@ async function buildSubagentFallbackModel(
   const fallbackConfigured = settings.customProviders.find((provider) => provider.id === fallbackProvider);
   const apiKey = fallbackConfigured?.apiKey?.trim();
   if (apiKey) {
-    await modelRuntime.setRuntimeApiKey(fallbackProvider, apiKey, { allowNetwork: false });
+    await modelRuntime.setRuntimeApiKey(fallbackProvider, apiKey);
   }
   return fallbackModel;
 }
@@ -789,147 +782,6 @@ function buildStatusText(mode: "single" | "parallel" | "chain", completed: numbe
   return `Subagents running: ${completed}/${total} completed.`;
 }
 
-function createReadDefinition(cwd: string, workspaceDir: string, hostWideAccess?: boolean): ToolDefinition {
-  const tool = createReadTool({ cwd, workspaceDir, hostWideAccess });
-  const schema = Type.Object({
-    path: Type.String(),
-    offset: Type.Optional(Type.Number()),
-    limit: Type.Optional(Type.Number())
-  });
-  return defineTool({
-    name: "read",
-    label: "read",
-    description: "Read text or image files from the current workspace.",
-    promptSnippet: "Read file contents",
-    promptGuidelines: ["Use read to inspect files instead of shelling out to cat or sed."],
-    parameters: schema,
-    execute: (toolCallId, params, signal) => tool.execute(toolCallId, { label: "read", ...params }, signal)
-  });
-}
-
-function createWriteDefinition(cwd: string, workspaceDir: string, chatId: string, artifactDir?: string, hostWideAccess?: boolean): ToolDefinition {
-  const tool = createWriteTool({ cwd, workspaceDir, chatId, artifactDir, hostWideAccess });
-  const schema = Type.Object({
-    path: Type.String(),
-    content: Type.String()
-  });
-  return defineTool({
-    name: "write",
-    label: "write",
-    description: "Create or overwrite a file inside the current workspace.",
-    promptSnippet: "Create or overwrite files",
-    promptGuidelines: ["Use write when creating new files or replacing whole-file contents."],
-    parameters: schema,
-    execute: (toolCallId, params, signal) => tool.execute(toolCallId, { label: "write", ...params }, signal)
-  });
-}
-
-function createEditDefinition(cwd: string, workspaceDir: string, hostWideAccess?: boolean): ToolDefinition {
-  const tool = createEditTool({ cwd, workspaceDir, hostWideAccess });
-  const schema = Type.Object({
-    path: Type.String(),
-    oldText: Type.String(),
-    newText: Type.String()
-  });
-  return defineTool({
-    name: "edit",
-    label: "edit",
-    description: "Replace an exact text snippet in an existing file.",
-    promptSnippet: "Edit existing files",
-    promptGuidelines: ["Use edit for targeted in-place changes to existing files."],
-    parameters: schema,
-    execute: (toolCallId, params, signal) => tool.execute(toolCallId, { label: "edit", ...params }, signal)
-  });
-}
-
-function createBashDefinition(
-  cwd: string,
-  workspaceDir: string,
-  settings: RuntimeSettings,
-  readOnly: boolean,
-  artifactDir?: string,
-  hostApproval?: BashToolHostApprovalOptions,
-  executionPolicy?: EffectiveExecutionPolicy
-): ToolDefinition {
-  // The child inherits the parent attempt's effective policy explicitly —
-  // delegated work follows the parent task's permissions, execution location
-  // included — instead of re-resolving settings that could drift mid-run.
-  const policy = executionPolicy
-    ?? resolveEffectiveExecutionPolicy({ getSettings: () => settings });
-  // The child's shell runs through the shared execution backend bound to this
-  // attempt: sandbox target actually sandboxes, full access runs on the host,
-  // and Plan fails closed instead of silently escaping to the host.
-  const executionEnvironment = bindExecutionEnvironment({
-    executionTarget: policy.executionTarget,
-    workspaceDir,
-    sandboxSettings: settings.toolSandbox
-  });
-  const tool = createBashTool(cwd, {
-    artifactDir,
-    hostApproval,
-    executionTarget: policy.executionTarget,
-    executionEnvironment
-  });
-  const schema = Type.Object({
-    command: Type.String(),
-    timeout: Type.Optional(Type.Number())
-  });
-  return defineTool({
-    name: "bash",
-    label: "bash",
-    description: readOnly
-      ? "Execute a read-only shell command for inspection."
-      : "Execute a shell command in the current scratch workspace.",
-    promptSnippet: "Run shell commands when file tools are insufficient",
-    promptGuidelines: ["Use bash only when dedicated file tools cannot complete the task directly."],
-    parameters: schema,
-    execute: async (toolCallId, params, signal) => {
-      const command = String(params.command ?? "").trim();
-      if (readOnly && !isSafeReadOnlySubagentCommand(command)) {
-        throw new Error(
-          "This subagent only allows read-only bash commands such as git diff/show/log, rg, grep, find, ls, cat, head, tail, wc, sed -n, pwd, date, or stat."
-        );
-      }
-      return tool.execute(toolCallId, { label: "bash", ...params }, signal);
-    }
-  });
-}
-
-function createCustomTools(
-  agent: SubagentDefinition,
-  options: {
-    cwd: string;
-    workspaceDir: string;
-    chatId: string;
-    settings: RuntimeSettings;
-    artifactDir?: string;
-    hostApproval?: BashToolHostApprovalOptions;
-    executionPolicy?: EffectiveExecutionPolicy;
-  }
-): ToolDefinition[] {
-  const readOnlyShell = agent.name === "scout" || agent.name === "planner" || agent.name === "reviewer";
-  // The child's file tools obey the same effective policy as its shell: full
-  // access removes the workspace-root wall for them too.
-  const hostWideAccess = (options.executionPolicy?.mode ?? "accept_edits") === "auto";
-  const tools: ToolDefinition[] = [
-    createReadDefinition(options.cwd, options.workspaceDir, hostWideAccess),
-    createBashDefinition(
-      options.cwd,
-      options.workspaceDir,
-      options.settings,
-      readOnlyShell,
-      options.artifactDir,
-      options.hostApproval,
-      options.executionPolicy
-    )
-  ];
-  if (agent.name === "worker") {
-    tools.push(createEditDefinition(options.cwd, options.workspaceDir, hostWideAccess));
-    tools.push(createWriteDefinition(options.cwd, options.workspaceDir, options.chatId, options.artifactDir, hostWideAccess));
-  }
-  return tools;
-}
-
 interface RunSingleSubagentOptions {
   cwd: string;
   workspaceDir: string;
@@ -960,36 +812,9 @@ export function buildSubagentPiSettings(settings: RuntimeSettings): {
   };
 }
 
-function normalizeSubagentSessionId(value: string | undefined): string {
-  const normalized = String(value ?? "")
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "")
-    .slice(0, 160)
-    .replace(/[^A-Za-z0-9]+$/g, "");
-  return normalized || `subagent-${randomUUID()}`;
-}
-
-export function createSubagentSessionManager(options: {
-  cwd: string;
-  workspaceDir: string;
-  settings: RuntimeSettings;
-  sessionId?: string;
-}): SessionManager {
-  if (!options.settings.subagentRuntime.persistSessions) {
-    return SessionManager.inMemory(options.cwd, {
-      id: normalizeSubagentSessionId(options.sessionId)
-    });
-  }
-  return SessionManager.create(
-    options.cwd,
-    join(options.workspaceDir, "subagent-sessions"),
-    { id: normalizeSubagentSessionId(options.sessionId) }
-  );
-}
-
 interface SubagentAttemptRuntime {
   model: Model<any>;
-  modelRuntime: ModelRuntime;
+  models: readonly Model<any>[];
   guard: SubagentExecutionGuard;
   startedAt: number;
 }
@@ -1005,7 +830,7 @@ async function runSubagentOnce(
   options: RunSingleSubagentOptions,
   runtime: SubagentAttemptRuntime
 ): Promise<SubagentRunResult> {
-  const { model, modelRuntime, guard, startedAt } = runtime;
+  const { model, models, guard, startedAt } = runtime;
   const logContext = {
     runId: options.parentRunId,
     delegationId: options.delegationId,
@@ -1021,7 +846,6 @@ async function runSubagentOnce(
     api: model.api
   });
 
-  const settingsManager = SettingsManager.inMemory(buildSubagentPiSettings(options.settings));
   const artifactPrompt = options.artifactDir
     ? [
       `Default generated artifact directory: ${options.artifactDir}`,
@@ -1030,54 +854,21 @@ async function runSubagentOnce(
       "- Report output paths using the routed relative path so the parent agent can read them."
     ].join("\n")
     : "";
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: options.cwd,
-    agentDir: options.cwd,
-    settingsManager,
-    noExtensions: true,
-    noSkills: true,
-    noPromptTemplates: true,
-    noThemes: true,
-    noContextFiles: true,
-    appendSystemPrompt: [RUNTIME_PROMPT_APPEND, artifactPrompt, agent.systemPrompt].filter(Boolean)
-  });
-  await resourceLoader.reload();
-
-  const customTools = createCustomTools(agent, {
-    cwd: options.cwd,
-    workspaceDir: options.workspaceDir,
-    chatId: options.chatId,
-    settings: options.settings,
-    artifactDir: options.artifactDir,
-    hostApproval: options.hostApproval,
-    executionPolicy: options.executionPolicy
+  const invocation = currentPiInvocation();
+  if (!invocation) throw new Error("Internal subagents require a native execution owner.");
+  const session = await invocation.child({
+    key: options.subagentTaskId ?? agent.name,
+    model, allowedModels: models, thinkingLevel: MODEL_REASONING_HINTS[agent.name],
+    instructions: [RUNTIME_PROMPT_APPEND, artifactPrompt, agent.systemPrompt].filter(Boolean).join("\n\n"),
+    tools: agent.tools?.length ? agent.tools : ["read", "bash", "edit", "write"],
+    readOnlyShell: agent.name !== "worker", deadlineMs: guard.remainingMs()
   });
 
-  momLog("runner", "subagent_session_creating", {
-    chatId: options.chatId,
-    agent: agent.name,
-    modelId: model.id,
-    toolNames: agent.tools && agent.tools.length > 0 ? agent.tools : ["read", "bash", "edit", "write"]
-  });
-
-  const sessionManager = createSubagentSessionManager({
-    cwd: options.cwd,
-    workspaceDir: options.workspaceDir,
-    settings: options.settings,
-    sessionId: options.subagentSessionId
-  });
-  const { session } = await createAgentSession({
-    cwd: options.cwd,
-    agentDir: options.cwd,
-    model,
-    thinkingLevel: MODEL_REASONING_HINTS[agent.name],
-    modelRuntime,
-    resourceLoader,
-    sessionManager,
-    settingsManager,
-    tools: agent.tools && agent.tools.length > 0 ? agent.tools : ["read", "bash", "edit", "write"],
-    customTools
-  });
+  const sessionUsage = (): UsageStats => {
+    const usage = session.state.usage;
+    return usage ? { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite,
+      total: usage.totalTokens, cost: usage.cost.total, turns: session.state.budget?.modelAttempts ?? buildUsage(session.state.messages).turns } : buildUsage(session.state.messages);
+  };
 
   momLog("runner", "subagent_session_created", {
     chatId: options.chatId,
@@ -1109,7 +900,6 @@ async function runSubagentOnce(
 
     if (event.type === "message_start" && event.message?.role === "assistant") {
       subagentLlmCallCount += 1;
-      options.onTrace?.("model.call.before", { modelAttemptId: `${options.subagentTaskId}:model:${subagentLlmCallCount}`, parentFactId: `subagent_task:${options.subagentTaskId}`, provider: model.provider, model: model.id });
       momLog("runner", "subagent_llm_call_start", {
         ...logContext,
         chatId: options.chatId,
@@ -1121,7 +911,6 @@ async function runSubagentOnce(
     }
 
     if (event.type === "message_end" && event.message?.role === "assistant") {
-      options.onTrace?.("model.call.after", { modelAttemptId: `${options.subagentTaskId}:model:${subagentLlmCallCount}`, parentFactId: `subagent_task:${options.subagentTaskId}`, provider: model.provider, model: model.id, usage: event.message.usage, stopReason: event.message.stopReason });
       const msg = event.message as { stopReason?: string; usage?: { input?: number; output?: number; totalTokens?: number } };
       momLog("runner", "subagent_llm_call_end", {
         ...logContext,
@@ -1137,7 +926,6 @@ async function runSubagentOnce(
 
     if (event.type === "tool_execution_start") {
       subagentToolCallCount += 1;
-      options.onTrace?.("tool.call.before", { toolCallId: `${options.subagentTaskId}:${event.toolCallId}`, toolName: event.toolName, parentFactId: `model_call:${options.subagentTaskId}:model:${subagentLlmCallCount}`, argsPreview: JSON.stringify(event.args ?? {}).slice(0, 500) });
       momLog("runner", "subagent_tool_start", {
         ...logContext,
         chatId: options.chatId,
@@ -1151,7 +939,6 @@ async function runSubagentOnce(
     }
 
     if (event.type !== "tool_execution_end") return;
-    options.onTrace?.(event.isError ? "tool.call.error" : "tool.call.after", { toolCallId: `${options.subagentTaskId}:${event.toolCallId}`, toolName: event.toolName, resultPreview: extractTextFromToolResult(event.result).slice(0, 1000) });
 
     const toolName = String((event as { toolName?: unknown }).toolName ?? "unknown");
     const isError = Boolean((event as { isError?: unknown }).isError);
@@ -1218,9 +1005,9 @@ async function runSubagentOnce(
         output: getAssistantText(lastAssistant),
         stopReason: "error",
         errorMessage: guardStop.reason,
-        usage: buildUsage(messages),
+        usage: sessionUsage(),
         model: session.model?.id,
-        budget: guard.snapshot(),
+        budget: session.state.budget ?? guard.snapshot(),
         runtimeStopKind: "timeout",
         durationMs: Date.now() - startedAt,
         sessionId: session.sessionId
@@ -1249,9 +1036,9 @@ async function runSubagentOnce(
       errorMessage: hostBashApproval
         ? undefined
         : guardStop?.reason ?? lastAssistant?.errorMessage,
-      usage: buildUsage(messages),
+      usage: sessionUsage(),
       model: session.model?.id,
-      budget: guard.snapshot(),
+      budget: session.state.budget ?? guard.snapshot(),
       runtimeStopKind: guardStop?.kind,
       durationMs: Date.now() - startedAt,
       sessionId: session.sessionId
@@ -1274,9 +1061,9 @@ async function runSubagentOnce(
         output: getAssistantText(lastAssistant),
         stopReason: "waiting_for_approval",
         suspensionRequestId: hostBashApproval?.requestId,
-        usage: buildUsage(messages),
+        usage: sessionUsage(),
         model: session.model?.id,
-        budget: guard.snapshot(),
+        budget: session.state.budget ?? guard.snapshot(),
         durationMs: Date.now() - startedAt,
         sessionId: session.sessionId
       };
@@ -1289,11 +1076,11 @@ async function runSubagentOnce(
         agent: agent.name,
         task,
         output: getAssistantText(lastAssistant),
-        stopReason: guardStop.kind === "aborted" ? "aborted" : "error",
+        stopReason: "error",
         errorMessage: guardStop.reason,
-        usage: buildUsage(messages),
+        usage: sessionUsage(),
         model: session.model?.id,
-        budget: guard.snapshot(),
+        budget: session.state.budget ?? guard.snapshot(),
         runtimeStopKind: guardStop.kind,
         durationMs: Date.now() - startedAt,
         sessionId: session.sessionId
@@ -1301,10 +1088,23 @@ async function runSubagentOnce(
     }
     throw error;
   } finally {
-    const cleanup = () => {
+    const cleanup = async () => {
       options.signal?.removeEventListener("abort", onAbort);
       unsubscribe();
-      session.dispose();
+      await session.dispose();
+      if (options.settings.subagentRuntime.persistSessions) {
+        const directory = join(options.workspaceDir, "subagent-sessions");
+        mkdirSync(directory, { recursive: true, mode: 0o700 });
+        let parentId: string | null = null;
+        const entries = session.state.messages.map(message => {
+          const id = randomUUID();
+          const entry = { type: "message", id, parentId, timestamp: new Date(message.timestamp ?? Date.now()).toISOString(), message };
+          parentId = id;
+          return entry;
+        });
+        const header = { type: "session", version: 3, id: session.sessionId, timestamp: new Date(startedAt).toISOString(), cwd: options.cwd };
+        writeFileSync(join(directory, `${session.sessionId}.jsonl`), [header, ...entries].map(entry => JSON.stringify(entry)).join("\n") + "\n", { mode: 0o600 });
+      }
       momLog("runner", "subagent_session_disposed", {
         chatId: options.chatId,
         agent: agent.name,
@@ -1313,9 +1113,9 @@ async function runSubagentOnce(
       });
     };
     if (hardTimedOut && promptPromise) {
-      void promptPromise.then(cleanup, cleanup);
+      void promptPromise.then(cleanup, cleanup).catch(cause => momWarn("runner", "subagent_cleanup_failed", { error: String(cause) }));
     } else {
-      cleanup();
+      await cleanup();
     }
   }
 }
@@ -1385,7 +1185,7 @@ async function runSingleSubagent(
       : pluginSettings.codexPath;
 
     const runtime = getSharedExternalRuntime();
-    const result = await runtime.run(providerId, {
+    const execute = () => runtime.run(providerId, {
       task,
       cwd: options.cwd,
       signal: options.signal,
@@ -1393,6 +1193,12 @@ async function runSingleSubagent(
       permissionMode,
       customPath
     });
+    const invocation = currentPiInvocation();
+    if (!invocation) throw new Error("External subagents require a native execution owner.");
+    const effects = createPiPreparationEffects(invocation.api, invocation.context, () => {
+      invocation.context.abortSignal?.throwIfAborted();
+    });
+    const result = await effects.run(`external-subagent:${options.subagentTaskId ?? agent.name}`, { providerId, task, cwd: options.cwd, permissionMode }, execute);
 
     const responseText =
       result.output.trim().length > 0
@@ -1413,16 +1219,18 @@ async function runSingleSubagent(
     };
   }
 
-  const { models, modelRuntime } = await resolveSubagentModelCandidates(
+  const { models } = await resolveSubagentModelCandidates(
     options.settings,
     agent.modelHint,
     { independentReview: agent.independentReview }
   );
+  const invocation = currentPiInvocation();
+  if (!invocation) throw new Error("Internal subagents require a native execution owner.");
+  const startedAt = await invocation.api.memo(`subagent:${options.subagentTaskId ?? agent.name}:started`, Date.now(), invocation.context);
   const guard = new SubagentExecutionGuard({
-    limits: resolveSubagentBudgetLimits(options.settings),
+    limits: resolveSubagentBudgetLimits(options.settings), startedAt,
     deadlineMs: resolveSubagentExecutionLimits(options.settings).deadlineMs
   });
-  const startedAt = Date.now();
 
   let lastError: unknown;
   for (let index = 0; index < models.length; index += 1) {
@@ -1431,7 +1239,7 @@ async function runSingleSubagent(
     try {
       const result = await runSubagentOnce(agent, task, options, {
         model,
-        modelRuntime,
+        models,
         guard,
         startedAt
       });
@@ -1498,14 +1306,64 @@ export async function runBuiltInSubagentTask(options: {
   settings: RuntimeSettings;
   artifactDir?: string;
   signal?: AbortSignal;
+  executionPolicy?: EffectiveExecutionPolicy;
+  beforeGeneration?: (id: string) => void;
+  onChildUsage?: import("$lib/server/agent/durable/piConversation.js").PiConversationOptions["onChildUsage"];
+  childTools?: () => readonly AgentTool[];
 }): Promise<SubagentRunResult> {
   const agent = getSubagentDefinition(options.agent);
+  if (!currentPiInvocation()) {
+    const { PiRunSession } = await import("$lib/server/agent/core/piRunSession.js");
+    const { createAssistantMessageEventStream } = await import("@earendil-works/pi-ai");
+    const { streamWithPiRuntime } = await import("$lib/server/providers/piRuntime.js");
+    const { ensureServiceOwnership, verifyServiceOwnership } = await import("$lib/server/app/serviceOwnership.js");
+    const id = `internal-subagent-${randomUUID()}`;
+    const model: Model<"openai-completions"> = { id, name: "Internal delegation", provider: id, api: "openai-completions",
+      baseUrl: "http://internal.invalid", input: ["text"], reasoning: false, contextWindow: 128000, maxTokens: 1024,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+    if (!options.childTools) throw new Error("Internal delegation has no admitted tool catalog.");
+    let result: SubagentRunResult | undefined;
+    const delegate: AgentTool = { name: "delegate", label: "Delegate", description: "Run internal delegated work", parameters: Type.Object({}), replay: "safe",
+      execute: async () => {
+        result = await runBuiltInSubagentTask(options);
+        return { content: [{ type: "text", text: result.output }], details: {} };
+      } };
+    let requests = 0;
+    const run = new PiRunSession({ initialState: { model, tools: [delegate], systemPrompt: "Internal delegation", messages: [] },
+      getApiKey: provider => resolveProviderApiKey(provider, () => options.settings.customProviders.find(custom => custom.id === provider)?.apiKey),
+      streamFn: (selected, context, streamOptions) => {
+        if (selected.provider !== id) return streamWithPiRuntime(selected, context, streamOptions);
+        const first = ++requests === 1;
+        const message: AssistantMessage = { role: "assistant", api: model.api, provider: id, model: id, timestamp: Date.now(),
+          content: first ? [{ type: "toolCall", id: "delegate", name: "delegate", arguments: {} }] : [{ type: "text", text: "Completed" }],
+          stopReason: first ? "toolUse" : "stop", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+        const stream = createAssistantMessageEventStream(); stream.push({ type: "done", reason: first ? "toolUse" : "stop", message }); stream.end(); return stream;
+      } });
+    const abort = () => run.abort();
+    options.signal?.addEventListener("abort", abort, { once: true });
+    try {
+      run.startTurn();
+      run.bindRun({ storagePath: join(options.workspaceDir, "runtime", "pi", `${id}.sqlite`), requestId: id, admissionKey: id,
+        models: [model], scope: { ownerId: options.chatId, executionId: id, stepId: "delegation", planVersion: 1, authorityKey: id },
+        childCompaction: buildSubagentPiSettings(options.settings).compaction,
+        childTools: options.childTools, onChildUsage: options.onChildUsage, childBudgetLimits: resolveSubagentBudgetLimits(options.settings),
+        beforeGeneration: id => { if (id.includes(":child:")) options.beforeGeneration?.(id); },
+        assertStorageOwnership: () => { if (!ensureServiceOwnership().owned || !verifyServiceOwnership()) throw new Error("Internal delegation lost service ownership."); },
+        assertAuthority: () => options.signal?.throwIfAborted() });
+      options.signal?.throwIfAborted();
+      await run.prompt(options.task);
+      if (!result) throw new Error("Native internal delegation did not complete.");
+      return result;
+    } finally { options.signal?.removeEventListener("abort", abort); await run.close(); }
+  }
   return runSingleSubagent(agent, options.task, {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     chatId: options.chatId,
     settings: options.settings,
     artifactDir: options.artifactDir,
+    executionPolicy: options.executionPolicy,
     signal: options.signal
   });
 }
@@ -1585,6 +1443,7 @@ export function createSubagentTool(options: {
     description:
       `Delegate codebase-heavy work to an isolated pi-mono subagent. Available roles: ${advertisedAgents.map((name) => `\`${name}\``).join(", ")}. Supports one task, parallel tasks, or a chain with \`{previous}\` placeholder.`,
     parameters: subagentSchema,
+    replay: "safe",
     execute: async (toolCallId, params, signal, onUpdate): Promise<AgentToolResult<SubagentToolDetails>> => {
       const settings = options.getSettings();
       const parsed = parseSubagentMode(

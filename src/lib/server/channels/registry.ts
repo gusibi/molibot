@@ -14,6 +14,7 @@ import { weixinChannelPlugin } from "$lib/server/channels/weixin/index.js";
 import { webChannelPlugin } from "$lib/server/channels/web/index.js";
 
 export interface ChannelManager {
+  getWorkspaceDir?(): string;
   apply(config: unknown): void;
   stop(): void;
   stopTask?(scopeId: string): { aborted: boolean; clearedStale?: boolean };

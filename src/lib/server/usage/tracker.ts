@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 
@@ -18,6 +18,7 @@ export interface AiUsageRecord {
   totalTokens: number;
   appId?: string;
   capability?: "text" | "transcription";
+  requestId?: string;
   status?: "success" | "error";
   durationMs?: number;
   audioSeconds?: number;
@@ -259,6 +260,36 @@ function bucketize(
 export class AiUsageTracker {
   private readonly usageDir: string;
   private readonly usageFile: string;
+  private receiptFileSize = -1;
+  private readonly receipts = new Map<string, string>();
+
+  private receiptKey(record: AiUsageRecord): string {
+    return JSON.stringify([record.channel, record.botId, record.agentId, record.roomId, record.sessionId, record.requestId]);
+  }
+
+  private receiptFact(record: AiUsageRecord): string {
+    const { ts: _ts, ...fact } = record;
+    return JSON.stringify(Object.entries(fact).sort(([a], [b]) => a.localeCompare(b)));
+  }
+
+  private refreshReceipts(): void {
+    const size = existsSync(this.usageFile) ? statSync(this.usageFile).size : 0;
+    if (size === this.receiptFileSize) return;
+    this.receipts.clear();
+    const raw = size ? readFileSync(this.usageFile, "utf8") : "";
+    for (const line of raw.split("\n")) {
+      if (!line.trim()) continue;
+      let record: AiUsageRecord;
+      try { record = JSON.parse(line); } catch { continue; }
+      if (!record.requestId) continue;
+      const key = this.receiptKey(record);
+      const fact = this.receiptFact(record);
+      const existing = this.receipts.get(key);
+      if (existing !== undefined && existing !== fact) throw new Error("Usage receipt has conflicting committed facts.");
+      this.receipts.set(key, fact);
+    }
+    this.receiptFileSize = size;
+  }
 
   constructor(options: { usageDir?: string } = {}) {
     this.usageDir = options.usageDir ?? path.join(storagePaths.dataDir, "usage");
@@ -285,9 +316,11 @@ export class AiUsageTracker {
     audioSeconds?: number;
     errorCode?: string;
     sessionId?: string;
+    requestId?: string;
   }): void {
     const record: AiUsageRecord = {
       ts: new Date().toISOString(),
+      ...(input.requestId ? { requestId: input.requestId } : {}),
       channel: String(input.channel ?? "").trim() || "unknown",
       botId: String(input.botId ?? "").trim() || "unknown",
       ...(input.agentId ? { agentId: input.agentId } : {}),
@@ -317,13 +350,24 @@ export class AiUsageTracker {
         record.cacheWriteTokens;
     }
 
+    if (record.requestId) {
+      this.refreshReceipts();
+      const existing = this.receipts.get(this.receiptKey(record));
+      if (existing !== undefined) {
+        if (existing !== this.receiptFact(record)) throw new Error("Usage receipt has conflicting committed facts.");
+        return;
+      }
+    }
     mkdirSync(this.usageDir, { recursive: true });
     appendFileSync(this.usageFile, `${JSON.stringify(record)}\n`, "utf8");
+    if (record.requestId) {
+      this.receipts.set(this.receiptKey(record), this.receiptFact(record));
+      this.receiptFileSize = statSync(this.usageFile).size;
+    }
   }
 
   list(): AiUsageRecord[] {
-    if (!existsSync(this.usageFile)) return [];
-    const raw = readFileSync(this.usageFile, "utf8");
+    const raw = existsSync(this.usageFile) ? readFileSync(this.usageFile, "utf8") : "";
     const rows = raw
       .split("\n")
       .map((line) => line.trim())
@@ -336,6 +380,9 @@ export class AiUsageTracker {
         if (!parsed.ts || !parsed.provider || !parsed.model) continue;
         out.push({
           ts: String(parsed.ts),
+          ...(parsed.requestId ? { requestId: String(parsed.requestId) } : {}),
+          ...(parsed.agentId ? { agentId: String(parsed.agentId) } : {}),
+          ...(parsed.roomId ? { roomId: String(parsed.roomId) } : {}),
           channel: String(parsed.channel ?? "unknown"),
           botId: String((parsed as { botId?: string }).botId ?? "unknown"),
           provider: String(parsed.provider),

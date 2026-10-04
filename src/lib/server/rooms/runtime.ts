@@ -1,3 +1,5 @@
+import { piRecoveryCandidates } from "$lib/server/app/piRecovery.js";
+import { PiRecoveryStore } from "$lib/server/agent/core/piRecoveryStore.js";
 import { readFileSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { resolveWebInboundFileMeta, toConversationAttachment, saveWebResponseAttachment } from "$lib/server/web/attachments.js";
@@ -46,6 +48,7 @@ function available(id: string): boolean {
   return state?.state !== "trashed" && Boolean(sessions.getWebConversationOwner(id) || sessions.getConversationProjectId(id));
 }
 function createRunner(input: RoomRunnerInput) {
+  input.assertAuthority();
   const runtime = getRuntime();
   const p = project(input.room);
   const settings = structuredClone(roomSettings(runtime.getSettings(), input.agent, p));
@@ -117,7 +120,12 @@ function createRunner(input: RoomRunnerInput) {
         }
       };
       getRoomStore().recordContextRun(input.id, input.id);
-      const turn = getTurnOrchestrator().prepareTurn({ chatId: input.roomId, sessionId: input.contextId, message: { ...message, runId: input.id } });
+      const recovery = new PiRecoveryStore(storagePaths.dataDir);
+      let admitted;
+      try { admitted = recovery.read(input.id); } finally { recovery.close(); }
+      const turn = admitted && getTurnOrchestrator().getRunStatus(input.id) === "running"
+        ? { runId: input.id, workspaceId: admitted.workspaceId }
+        : getTurnOrchestrator().prepareTurn({ chatId: input.roomId, sessionId: input.contextId, message: { ...message, runId: input.id } });
       const result = await runner.run({ ...ctx, message: { ...message, runId: turn.runId, workspaceId: turn.workspaceId } });
       return { status: result.stopReason === "stop" ? "completed" as const : result.stopReason === "aborted" ? "cancelled" as const : "failed" as const,
         text, attachments: outputAttachments, error: result.errorMessage, activities: collector.finalSnapshot() };
@@ -198,7 +206,8 @@ export function getRoomService(): RoomService {
       }
     }
   });
-  service.recover();
+  service.recover(new Set(piRecoveryCandidates(storagePaths.dataDir, id => getTurnOrchestrator().getRunStatus(id))
+    .flatMap(owner => owner.runtimeIdentity?.roomId ? [owner.runtimeIdentity.executionId] : [])));
   return service;
 }
 

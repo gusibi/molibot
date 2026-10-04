@@ -23,7 +23,7 @@ import type { PermissionMode } from "$lib/server/agent/permissions/decidePermiss
 import { PERMISSION_MODES } from "$lib/server/agent/permissions/decidePermission.js";
 import { resolveEffectivePermissionMode } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import type { AgentModelRouting } from "$lib/server/settings/schema.js";
-import { momLog } from "$lib/server/agent/common/log.js";
+import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import {
   findSkillBySelector,
   formatSkillDetailText,
@@ -88,7 +88,7 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   followUpRun?: (scopeId: string, text: string) => { queued: boolean };
   sendText: (target: TTarget, text: string) => Promise<void>;
   uploadFile?: (target: TTarget, filePath: string, title?: string, text?: string) => Promise<void>;
-  executeApprovedHostBash?: (
+  resumeApprovedHostBash?: (
     input: SharedRuntimeCommandContext<TTarget>,
     approved: ApprovedHostBashEntry | undefined,
     request: HostBashApprovalRecord
@@ -261,56 +261,12 @@ export class SharedRuntimeCommandService<TTarget> {
     return { status: "steered", message: this.text("Injected this message into the current task.", "已将这条消息插入当前任务。") };
   }
 
-  // Run ids are `${chatId}-${sessionId}-${messageId}`, so an active run must be
-  // looked up by session, not by scope id. Stale "running" rows past the turn
-  // lock timeout are treated as inactive, matching the orchestrator's lock TTL.
-  private isRunActive(sessionId: string): boolean {
-    try {
-      ensureSqliteParentDir(storagePaths.settingsDbFile);
-      const db = new DatabaseSync(storagePaths.settingsDbFile);
-      const row = db.prepare(
-        "SELECT started_at FROM runs WHERE session_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1"
-      ).get(sessionId) as { started_at: string } | undefined;
-      db.close();
-      if (!row) return false;
-      const startedAt = Date.parse(row.started_at);
-      return Number.isFinite(startedAt) && Date.now() - startedAt < 10 * 60 * 1000;
-    } catch {
-      return false;
-    }
-  }
-
-  // Runs the approved host command without blocking the approval reply, so
-  // channel UI (e.g. Feishu cards) can settle immediately even for long commands.
-  private executeApprovedHostBashInBackground(
-    input: SharedRuntimeCommandContext<TTarget>,
-    approved: ApprovedHostBashEntry | undefined,
-    record: HostBashApprovalRecord
+  private resumeApprovedHostBashInBackground(
+    input: SharedRuntimeCommandContext<TTarget>, approved: ApprovedHostBashEntry | undefined, record: HostBashApprovalRecord
   ): void {
-    const execute = this.options.executeApprovedHostBash;
-    if (!execute) return;
-    void (async () => {
-      // Let the approval reply (card update / text) go out before execution output.
-      await new Promise((resolve) => setImmediate(resolve));
-      // A blocked in-run bash waiter may have claimed execution already.
-      if (typeof this.hostBashStore.claimExecution === "function" && !this.hostBashStore.claimExecution(record.id)) {
-        return;
-      }
-      try {
-        const runSummary = await execute(input, approved, record);
-        this.hostBashStore.markExecution(record.id, "executed");
-        if (runSummary) {
-          await this.options.sendText(input.target, runSummary);
-        }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.hostBashStore.markExecution(record.id, "failed", reason);
-        await this.options.sendText(
-          input.target,
-          this.text(`Approved, but automatic execution failed: ${reason}`, `已批准，但自动执行失败：${reason}`)
-        ).catch(() => undefined);
-      }
-    })();
+    void this.options.resumeApprovedHostBash?.(input, approved, record).catch(error => {
+      momWarn(this.options.channel, "approval_resume_failed", { requestId: record.id, error: String(error) });
+    });
   }
 
   // Duplicate clicks on an approval card (or repeated text replies) arrive after
@@ -350,24 +306,6 @@ export class SharedRuntimeCommandService<TTarget> {
       default:
         return null;
     }
-  }
-
-  // When a run is active, the blocked in-run bash waiter normally claims and
-  // executes the approved command within its poll interval. If the waiter has
-  // already given up (its wait timed out) the record stays "approved" — this
-  // delayed check picks it up so the approval is never silently dropped.
-  private scheduleHostBashExecutionFallback(
-    input: SharedRuntimeCommandContext<TTarget>,
-    approved: ApprovedHostBashEntry | undefined,
-    record: HostBashApprovalRecord
-  ): void {
-    if (typeof this.hostBashStore.getApprovalRecord !== "function") return;
-    setTimeout(() => {
-      const current = this.hostBashStore.getApprovalRecord(record.id);
-      if (current?.status === "approved") {
-        this.executeApprovedHostBashInBackground(input, approved, current);
-      }
-    }, 3000).unref?.();
   }
 
   /**
@@ -478,17 +416,9 @@ export class SharedRuntimeCommandService<TTarget> {
           { label: this.text("Request ID", "请求 ID"), value: this.code(approved.record.id) },
           { label: this.text("Command", "命令"), value: this.code(approved.record.command) }
         ]);
-    if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
-      if (this.isRunActive(sessionId)) {
-        message += `\n\n- ${this.text("Approved. The waiting agent run is executing the command now.", "已批准。等待中的 Agent 运行正在执行该命令。")}`;
-        this.scheduleHostBashExecutionFallback(input, approved.approved, approved.record);
-      } else {
-        this.executeApprovedHostBashInBackground(input, approved.approved, approved.record);
-        message += `\n\n- ${this.text(
-          "Approved. The command is now executing; results will follow in chat.",
-          "已批准。命令正在执行，结果稍后会发到会话中。"
-        )}`;
-      }
+    if (approved.record.pendingAction && this.options.resumeApprovedHostBash) {
+      this.resumeApprovedHostBashInBackground(input, approved.approved, approved.record);
+      message += `\n\n- ${this.text("Approved. The original task will continue.", "已批准，原任务将继续执行。")}`;
     } else if (registered) {
       message += `\n\n- ${this.text("This command is now registered as a reusable Host Bash whitelist entry.", "该命令已登记为可复用的 Host Bash 白名单项。")}`;
     } else {
@@ -536,17 +466,9 @@ export class SharedRuntimeCommandService<TTarget> {
         )
       }
     ]);
-    if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
-      if (this.isRunActive(sessionId)) {
-        message += `\n\n- ${this.text("Approved. The waiting agent run is executing the command now.", "已批准。等待中的 Agent 运行正在执行该命令。")}`;
-        this.scheduleHostBashExecutionFallback(input, undefined, approved.record);
-      } else {
-        this.executeApprovedHostBashInBackground(input, undefined, approved.record);
-        message += `\n\n- ${this.text(
-          "Approved. The command is now executing; results will follow in chat.",
-          "已批准。命令正在执行，结果稍后会发到会话中。"
-        )}`;
-      }
+    if (approved.record.pendingAction && this.options.resumeApprovedHostBash) {
+      this.resumeApprovedHostBashInBackground(input, undefined, approved.record);
+      message += `\n\n- ${this.text("Approved. The original task will continue.", "已批准，原任务将继续执行。")}`;
     }
     return { ok: true, message, request: approved.record };
   }
@@ -565,6 +487,7 @@ export class SharedRuntimeCommandService<TTarget> {
       if (broker) return broker;
       return { ok: false, message: this.text("No matching pending approval found.", "未找到匹配的待处理审批。") };
     }
+    this.resumeApprovedHostBashInBackground(input, undefined, request);
     return {
       ok: true,
       message: this.text(`Rejected Host Bash approval ${request.id} (${request.displayName}).`, `已拒绝 Host Bash 审批 ${request.id}（${request.displayName}）。`),

@@ -1,3 +1,7 @@
+## 2026-10-04 — Pi 正式执行接线
+
+共享 Runner 与内部子 Agent 改用 Pi 原生执行所有权。外部审批只唤醒原任务；稳定消息投影、原始预算、子任务权限与压缩、Codemode nested 收据和 Deferred 原 handle 启动恢复已接线。真实 Runner 强杀测试覆盖原生提交与显示标记之间的窗口，未知提交拒绝自动重提，Room 撤权与 Stop 终态优先。代码验证通过不代表真实外部 transport/Provider 验收完成；能力矩阵继续保留部分交付。详见 [生产验证](docs/reviews/pi-production-integration-validation.md)。
+
 ### Desktop Agent 房间（2026-10-02，已实现，待原生验收）
 
 - 普通和 Project 房间保留一份共享记录与每位成员独立上下文；默认回答者、定向回复和多成员受限 Plan 讨论可在同一房间使用。

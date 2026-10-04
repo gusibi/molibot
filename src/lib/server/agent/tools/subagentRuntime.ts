@@ -52,6 +52,7 @@ export interface SubagentExecutionGuardOptions {
   limits: RunBudgetLimits;
   deadlineMs?: number;
   now?: () => number;
+  startedAt?: number;
 }
 
 /**
@@ -70,7 +71,7 @@ export class SubagentExecutionGuard {
     this.budget = new RunBudget(options.limits);
     this.deadlineMs = options.deadlineMs;
     this.now = options.now ?? Date.now;
-    this.startedAt = this.now();
+    this.startedAt = options.startedAt ?? this.now();
   }
 
   beforeToolCall(): SubagentGuardResult {

@@ -1,61 +1,15 @@
 import { runBackgroundConversation } from "$lib/server/app/backgroundConversation.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
+import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
-import { APPROVAL_WAITING_METADATA_STATUS } from "$lib/server/approval/suspendedResult.js";
+import { buildRunnerProjectContext, getConversationProject } from "$lib/server/projects/context.js";
 import {
   retryApprovalAutoResume,
   APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
   APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS
 } from "$lib/server/channels/shared/approvalAutoResume.js";
-
-/**
- * Replaces the suspended "waiting for user approval" toolResult in the session's
- * persisted message transcript with an explicit outcome instruction for the
- * model.
- *
- * Symmetrical to `rewriteApprovalToolResultInContext` for Host Bash:
- * - On approval, tells the model the user granted permission and to re-issue
- *   the original tool call now. The second call will hit the newly recorded
- *   grant in `ApprovalBroker.checkGrant` and execute directly without asking.
- * - On rejection, tells the model the user declined and not to retry.
- *
- * Matches by `details.approvalRequestId` first (unambiguous), falling back to
- * matching a `waiting_for_approval` toolResult when only one is pending.
- */
-export function rewriteBrokerApprovalToolResultInContext(
-  messages: any[],
-  requestId: string,
-  status: "approved" | "rejected",
-  toolName = "tool"
-): boolean {
-  if (!Array.isArray(messages)) return false;
-
-  const renderedOutput = status === "approved"
-    ? `[Runtime Notice] The user approved the execution of ${toolName} (request ${requestId}). Please re-issue your intended tool call now; it will proceed without requiring further approval.`
-    : `[Runtime Notice] The user rejected the execution of ${toolName} (request ${requestId}). Do not retry this tool call; inform the user and proceed with alternative approaches if available.`;
-
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg && msg.role === "toolResult") {
-      const detailsReqId = msg.details?.approvalRequestId ?? msg.metadata?.approvalRequestId;
-      const textContent = Array.isArray(msg.content)
-        ? msg.content.map((c: any) => c?.text ?? "").join(" ")
-        : String(msg.content ?? "");
-      const isWaitingForApproval = textContent.includes("waiting for user approval")
-        || textContent.includes("Waiting for user approval")
-        || msg.metadata?.status === APPROVAL_WAITING_METADATA_STATUS;
-
-      if (detailsReqId === requestId || (!detailsReqId && isWaitingForApproval)) {
-        msg.content = [{ type: "text", text: renderedOutput }];
-        msg.isError = status === "rejected";
-        return true;
-      }
-    }
-  }
-  return false;
-}
 
 export interface ResumeSuspendedBrokerApprovalInput {
   scopeId: string;
@@ -68,29 +22,14 @@ export interface ResumeSuspendedBrokerApprovalInput {
   channel?: string;
   sessionStore?: SessionStore;
   onWarn?: (code: string, meta: Record<string, unknown>) => void;
+  runContinuation?: (message: ChannelInboundMessage) => Promise<void>;
 }
 
-/**
- * Resumes an agent turn that suspended cleanly on `waiting_for_approval` after
- * the user resolved the corresponding ApprovalBroker request out-of-band.
- *
- * Behavior:
- * 1. Checks `TurnOrchestrator` to see if this session actually has a
- *    `waiting_for_approval` run row (if the run is still actively waiting
- *    inline within the 30s handshake window, the inline poll will claim it
- *    and this returns early).
- * 2. Rewrites the suspended `toolResult` in the persisted transcript.
- * 3. Resets the runner pool entry for this session so the next run picks up the
- *    rewritten history.
- * 4. Runs an empty-message continuation turn through `retryApprovalAutoResume`.
- *    The `TurnOrchestrator.prepareTurn` query (line 197) reclaims the
- *    suspended run row under the same `runId`, so the new turn is a true
- *    continuation rather than an orphaned duplicate.
- */
+/** Wake the original native owner after a scoped decision; committed tool results remain unchanged. */
 export async function resumeSuspendedBrokerApproval(
   input: ResumeSuspendedBrokerApprovalInput
 ): Promise<boolean> {
-  const { scopeId, sessionId, requestId, status, toolName, store, pool, channel = "web" } = input;
+  const { scopeId, sessionId, requestId, store, pool, channel = "web" } = input;
   const sessions = input.sessionStore ?? new SessionStore();
 
   const orchestrator = getTurnOrchestrator();
@@ -105,39 +44,32 @@ export async function resumeSuspendedBrokerApproval(
     return false;
   }
 
-  const messages = store.loadContext(scopeId, sessionId);
-  const rewritten = rewriteBrokerApprovalToolResultInContext(messages, requestId, status, toolName);
-  if (!rewritten) {
-    return false;
-  }
-
-  store.saveContext(scopeId, messages, sessionId);
-  pool.reset(scopeId, sessionId);
+  const suspension = store.readLatestRuntimeEvent(scopeId, "PI_APPROVAL_SUSPENDED", sessionId)?.details;
+  if (!suspension || suspension.requestId !== requestId || suspension.runId !== waitingRun.id
+      || typeof suspension.userId !== "string") return false;
 
   const messageId = Date.now();
   const ts = `${Date.now() / 1000}`;
 
   void retryApprovalAutoResume({
     run: async () => {
+      if (orchestrator.getWaitingApprovalRun(sessionId)?.id !== waitingRun.id) return;
+      const message: ChannelInboundMessage = {
+        chatId: scopeId, workspaceId: "personal", chatType: "private", messageId,
+        userId: suspension.userId as string, userName: suspension.userId as string,
+        text: "", ts, attachments: [], imageContents: [], sessionId, runId: waitingRun.id,
+        ...(typeof suspension.budgetId === "string" ? { budgetId: suspension.budgetId } : {}), isEvent: true
+      };
+      if (input.runContinuation) { await input.runContinuation(message); return; }
+      const project = getConversationProject(sessions, sessionId);
+      const scratchDir = store.getScratchDir(scopeId);
       await runBackgroundConversation(pool.get(scopeId, sessionId), {
         channel,
         workspaceDir: store.getWorkspaceDir(),
         chatDir: store.getChatDir(scopeId),
-        message: {
-          chatId: scopeId,
-          workspaceId: "personal",
-          chatType: "private",
-          messageId,
-          userId: scopeId,
-          userName: scopeId,
-          text: "",
-          ts,
-          attachments: [],
-          imageContents: [],
-          sessionId,
-          runId: waitingRun.id,
-          isEvent: true
-        },
+        project: buildRunnerProjectContext(project, scratchDir),
+        modelKeyOverride: project?.modelKey,
+        message,
       }, sessions);
     },
     maxAttempts: APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS,

@@ -12,7 +12,6 @@ import {
   buildSubagentModelCandidates,
   buildSubagentCustomCompat,
   buildSubagentPiSettings,
-  createSubagentSessionManager,
   createSubagentTool,
   isIndependentReviewRoute,
   isSafeReadOnlySubagentCommand,
@@ -28,14 +27,14 @@ test("custom subagent models declare unsupported developer roles", () => {
   assert.equal(
     buildSubagentCustomCompat(
       { thinkingFormat: undefined },
-      { id: "model", supportedRoles: ["system", "user", "assistant", "tool"] }
+      { id: "model", tags: [], enabled: true, supportedRoles: ["system", "user", "assistant", "tool"] }
     )?.supportsDeveloperRole,
     false
   );
   assert.equal(
     buildSubagentCustomCompat(
       { thinkingFormat: undefined },
-      { id: "model", supportedRoles: ["system", "user", "assistant", "tool", "developer"] }
+      { id: "model", tags: [], enabled: true, supportedRoles: ["system", "user", "assistant", "tool", "developer"] }
     )?.supportsDeveloperRole,
     true
   );
@@ -56,35 +55,6 @@ test("Subagent pi settings inherit bounded compaction values from runtime settin
   });
 });
 
-test("Subagent session manager persists under the workspace only when enabled", () => {
-  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-subagent-session-"));
-  try {
-    const persistedSettings = structuredClone(defaultRuntimeSettings);
-    persistedSettings.subagentRuntime.persistSessions = true;
-    const persisted = createSubagentSessionManager({
-      cwd: workspaceDir,
-      workspaceDir,
-      settings: persistedSettings,
-      sessionId: "run-1-worker"
-    });
-    assert.equal(persisted.isPersisted(), true);
-    assert.equal(persisted.getSessionId(), "run-1-worker");
-    assert.equal(persisted.getSessionDir(), join(workspaceDir, "subagent-sessions"));
-
-    const memorySettings = structuredClone(defaultRuntimeSettings);
-    memorySettings.subagentRuntime.persistSessions = false;
-    const memory = createSubagentSessionManager({
-      cwd: workspaceDir,
-      workspaceDir,
-      settings: memorySettings,
-      sessionId: "run-2-scout"
-    });
-    assert.equal(memory.isPersisted(), false);
-    assert.equal(memory.getSessionId(), "run-2-scout");
-  } finally {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
-});
 
 test("read-only subagent bash rejects shell control operators", () => {
   assert.equal(isSafeReadOnlySubagentCommand("git diff -- src/lib/server/agent/runner.ts"), true);
@@ -359,7 +329,7 @@ test("single mode surfaces a budget-stopped subagent result and a terminal error
     workspaceDir: process.cwd(),
     chatId: "chat-1",
     getSettings: () => defaultRuntimeSettings,
-    emitRunnerEvent: async (event) => { events.push(event as Record<string, unknown>); },
+    emitRunnerEvent: async (event: Record<string, unknown>) => { events.push(event); },
     runSubagent: async (agent: { name: string }, task: string) => budgetStopped(agent.name, task)
   } as any);
 
@@ -707,12 +677,44 @@ test("createSubagentTool rejects a provider disabled after the tool was created"
   }
 });
 
-test("subagent bash binds the shared execution backend from the inherited policy", () => {
-  // Regression (unified execution modes review): the child bash must route
-  // through the bound execution backend — sandbox target really sandboxes,
-  // host target really runs on the host, Plan fails closed.
-  const source = fs.readFileSync(path.resolve("src/lib/server/agent/tools/subagent.ts"), "utf8");
-  assert.match(source, /bindExecutionEnvironment\(\{[\s\S]*?executionTarget: policy\.executionTarget[\s\S]*?sandboxSettings: settings\.toolSandbox[\s\S]*?\}\)/);
-  assert.match(source, /executionEnvironment\s*\n?\s*\}\);/m);
-  assert.match(source, /createBashTool\(cwd, \{[\s\S]*?executionEnvironment[\s\S]*?\}\);/);
+test("native child tools come from the shared runtime permission boundary", () => {
+  const source = fs.readFileSync(path.resolve("src/lib/server/agent/tools/index.ts"), "utf8");
+  assert.match(source, /getChildTools = \(\) => \[readToolDef, bashToolDef, editToolDef, writeToolDef\]\.map\(toAgentTool\)/);
+});
+
+test("standalone skill drafter runs in a native owner and keeps a readable public transcript", { timeout: 10000 }, async () => {
+  const { runBuiltInSubagentTask } = await import("./subagent.js");
+  const { getPiModels } = await import("$lib/server/providers/piRuntime.js");
+  const { createAssistantMessageEventStream } = await import("@earendil-works/pi-ai");
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const workspace = mkdtempSync(join(tmpdir(), "molibot-native-drafter-"));
+  const provider = "native-drafter-fixture";
+  const settings: RuntimeSettings = { ...defaultRuntimeSettings, providerMode: "custom", defaultCustomProviderId: provider,
+    modelRouting: { ...defaultRuntimeSettings.modelRouting, textModelKey: `custom|${provider}|fixture`, subagentModelKey: `custom|${provider}|fixture` },
+    subagentRuntime: { ...defaultRuntimeSettings.subagentRuntime, persistSessions: true },
+    customProviders: [{ id: provider, name: "Fixture", enabled: true, protocol: "openai-compatible", baseUrl: "https://fixture.invalid/v1",
+      apiKey: "fixture-key", path: "/chat/completions", defaultModel: "fixture", models: [{ id: "fixture", enabled: true, tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"] }] }] };
+  const { resolveModelSelection } = await import("$lib/server/agent/routing/modelRouting.js");
+  const model = resolveModelSelection(settings).model;
+  let requests = 0;
+  const stream = () => {
+    requests++;
+    const output = createAssistantMessageEventStream();
+    output.push({ type: "done", reason: "stop", message: { role: "assistant", api: model.api, provider: model.provider, model: model.id,
+      content: [{ type: "text", text: "Draft completed" }], timestamp: Date.now(), stopReason: "stop",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } });
+    output.end(); return output;
+  };
+  getPiModels().setProvider({ id: provider, name: "Fixture", getModels: () => [model],
+    auth: { apiKey: { name: "Fixture", resolve: async () => ({ auth: { apiKey: "fixture-key" } }) } }, stream, streamSimple: stream });
+  const budgets: string[] = [];
+  try {
+    const result = await runBuiltInSubagentTask({ agent: "skill-drafter", task: "Draft a skill", cwd: workspace, workspaceDir: workspace,
+      chatId: "fixture", settings, childTools: () => [], beforeGeneration: id => budgets.push(id) });
+    assert.equal(result.stopReason, "stop", result.errorMessage); assert.equal(requests, 1);
+    assert.equal(budgets.length, 1); assert.match(budgets[0], /:child:/); assert.equal(result.usage.total, 2);
+    const transcript = SessionManager.open(join(workspace, "subagent-sessions", `${result.sessionId}.jsonl`));
+    assert.equal(transcript.getSessionId(), result.sessionId);
+    assert.match(JSON.stringify(transcript.buildSessionContext().messages), /Draft completed/);
+  } finally { getPiModels().deleteProvider(provider); rmSync(workspace, { recursive: true, force: true }); }
 });

@@ -22,7 +22,7 @@ import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult, UNA
 import { execCommand, normalizeCommandOutput, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
 import { buildTempOutputPath as buildSpillPath } from "$lib/server/agent/tools/outputSpill.js";
-import type { ToolDefinition, ToolExecutionContext, ToolResult } from "$lib/server/agent/tools/toolTypes.js";
+import type { PreparedToolInvocation, ToolDefinition, ToolExecutionContext, ToolResult } from "$lib/server/agent/tools/toolTypes.js";
 
 const bashSchema = Type.Object({
   label: Type.String(),
@@ -316,12 +316,14 @@ function requestApprovalFromBash(
       filesystem?: "none" | "scratch-only" | "workspace-read" | "workspace-write";
       network?: "none" | "loopback" | "internet";
     };
-  }
+  },
+  invocationId?: string
 ): { text: string; prompt?: HostBashApprovalPrompt } {
   const store = options.hostBashStore ?? getHostBashStore();
   const classification = classifyHostBashCommand(command);
   const parsed = classifyApprovalRequest(store, classification);
   const requested = store.requestApproval({
+    invocationId,
     toolId: parsed.toolId,
     command: parsed.command,
     approvalMode: parsed.approvalMode,
@@ -413,7 +415,7 @@ function requestApprovalFromBash(
  */
 const HOST_APPROVAL_INLINE_WINDOW_MS = APPROVAL_INLINE_HANDSHAKE_WINDOW_MS;
 const HOST_APPROVAL_POLL_INTERVAL_MS = 500;
-export async function waitForHostBashApprovalAndExecute(input: {
+interface HostBashApprovalInvocationInput {
   store: HostBashStore;
   prompt: HostBashApprovalPrompt;
   scopeId: string;
@@ -423,8 +425,34 @@ export async function waitForHostBashApprovalAndExecute(input: {
   waitTimeoutMs?: number;
   /** Unattended automation run: expire the just-created request and deny instead of waiting. */
   unattendedDenials?: boolean;
-}): Promise<ToolResult> {
+}
+
+export async function waitForHostBashApprovalAndExecute(input: HostBashApprovalInvocationInput): Promise<ToolResult> {
+  const prepared = await prepareHostBashApproval(input);
+  if (!("execute" in prepared)) return prepared;
+  try { return await prepared.execute(input.ctx); }
+  finally { prepared.cancel?.(); }
+}
+
+/** Await a decision without claiming execution or launching a host process. */
+export async function prepareHostBashApproval(input: HostBashApprovalInvocationInput): Promise<ToolResult | PreparedToolInvocation> {
   const { store, prompt, ctx } = input;
+  const stopped = (): ToolResult | undefined => {
+    if (!ctx.signal?.aborted) return undefined;
+    store.expireUnexecuted(prompt.requestId);
+    return { ok: false, error: "Tool execution aborted while waiting for user approval." };
+  };
+  const initialStop = stopped();
+  if (initialStop) return initialStop;
+  const persisted = store.getApprovalRecord?.(prompt.requestId);
+  if (persisted?.status === "rejected" || persisted?.status === "expired") {
+    return { ok: false, error: `Host Bash approval is ${persisted.status}.` };
+  }
+  if (persisted?.status === "executed" || persisted?.status === "failed") {
+    return persisted.status === "executed"
+      ? { ok: true, content: [{ type: "text", text: "Command was already executed by the approval handler. Output was delivered to the chat." }] }
+      : { ok: false, error: persisted.errorText || "Approved command failed during execution." };
+  }
   if (input.unattendedDenials) {
     // The request was already recorded by the caller; expire it so no card
     // promises an approval nobody can give, and let the model report the skip.
@@ -447,21 +475,25 @@ export async function waitForHostBashApprovalAndExecute(input: {
     errorText: input.requestText || "Tool execution is waiting for approval.",
     extraDetails: input.fallbackDetails
   });
-  const durableApprovalScope = await ctx.consumeDurableApproval?.({
+  const durableApprovalScope = persisted?.status === "approved" ? false : await ctx.consumeDurableApproval?.({
     backend: "host_bash",
     actionKey: [prompt.request.toolId, prompt.request.command, prompt.request.approvalMode].join(":"),
     toolId: prompt.request.toolId,
     command: prompt.request.command
   });
+  const consumptionStop = stopped();
+  if (consumptionStop) return consumptionStop;
   if (durableApprovalScope) {
     const approved = store.approve(input.scopeId, prompt.requestId, { scope: durableApprovalScope });
     if (!approved) return buildFallbackResult();
-  } else {
+  } else if (persisted?.status !== "approved") {
     const approvalDisposition = await ctx.onApprovalRequest?.({
       backend: "host_bash",
       requestId: prompt.requestId,
       prompt
     });
+    const notificationStop = stopped();
+    if (notificationStop) return notificationStop;
     if (approvalDisposition === "deny") {
       store.expirePending?.(prompt.requestId);
       return { ok: false, error: UNATTENDED_APPROVAL_DENIAL_TEXT, details: input.fallbackDetails };
@@ -482,7 +514,7 @@ export async function waitForHostBashApprovalAndExecute(input: {
     hostBashApproval: prompt
   } as any);
 
-  return pollUntilResolved<ToolResult>({
+  return pollUntilResolved<ToolResult | PreparedToolInvocation>({
     timeoutMs: ctx.approvalWaitTimeoutMs ?? input.waitTimeoutMs ?? HOST_APPROVAL_INLINE_WINDOW_MS,
     pollMs: HOST_APPROVAL_POLL_INTERVAL_MS,
     signal: ctx.signal,
@@ -493,7 +525,7 @@ export async function waitForHostBashApprovalAndExecute(input: {
       return { ok: false, error: "Tool execution aborted while waiting for user approval." };
     },
     onTimeout: () => buildFallbackResult(),
-    poll: async (): Promise<PollOutcome<ToolResult>> => {
+    poll: async (): Promise<PollOutcome<ToolResult | PreparedToolInvocation>> => {
       const record = store.getApprovalRecord!(prompt.requestId);
       // Record vanished — fall back to the async approve -> execute -> resume flow.
       if (!record) return { done: true, value: buildFallbackResult() };
@@ -513,36 +545,56 @@ export async function waitForHostBashApprovalAndExecute(input: {
         };
       }
       if (record.status === "approved") {
-        // Claim execution so the channel approval handler cannot also run the
-        // command; if the claim is lost, keep polling until the winner records
-        // the outcome (executed/failed).
-        const claimed = typeof store.claimExecution === "function" ? store.claimExecution(record.id) : true;
-        if (!claimed) {
-          return { done: false };
+        if (record.scopeId !== input.scopeId || (record.sessionId && record.sessionId !== ctx.sessionId)) {
+          return { done: true, value: { ok: false, error: "Host Bash approval belongs to a different execution scope." } };
         }
-        const approvedTool = findApprovedHostBash(
-          store,
-          tryParseHostBashCommand(record.pendingAction?.originalCommand ?? ""),
-          record.owner
-        );
-        try {
-          ctx.assertAuthority?.("bash", { command: record.pendingAction?.originalCommand });
-          const executed = await executeHostBashApproval({
-            record,
-            approvedTool: approvedTool ?? undefined,
-            cwd: ctx.cwd,
-            signal: ctx.signal
-          });
-          store.markExecution(record.id, "executed");
-          return {
-            done: true,
-            value: { ok: true, content: [{ type: "text", text: executed.rendered }], details: executed.details }
-          };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          store.markExecution(record.id, "failed", message);
-          return { done: true, value: { ok: false, error: message } };
-        }
+        const binding = (value: typeof record) => JSON.stringify({
+          id: value.id, owner: value.owner, scopeId: value.scopeId, sessionId: value.sessionId,
+          command: value.command, permissions: value.permissions, pendingAction: value.pendingAction
+        });
+        const fingerprint = binding(record);
+        const executionScope = JSON.stringify([ctx.runId, ctx.sessionId, ctx.workspaceId, ctx.actorId, resolve(ctx.cwd)]);
+        const expire = () => { store.expireUnexecuted(record.id); };
+        ctx.signal?.addEventListener("abort", expire, { once: true });
+        if (ctx.signal?.aborted) expire();
+        let consumed = false;
+        return { done: true, value: { cancel: () => {
+          consumed = true;
+          ctx.signal?.removeEventListener("abort", expire);
+          expire();
+        }, execute: async executionContext => {
+          if (consumed) throw new Error("Prepared Host Bash invocation is already consumed.");
+          consumed = true;
+          ctx.signal?.removeEventListener("abort", expire);
+          executionContext.signal?.throwIfAborted();
+          if (JSON.stringify([executionContext.runId, executionContext.sessionId, executionContext.workspaceId,
+            executionContext.actorId, resolve(executionContext.cwd)]) !== executionScope) {
+            return { ok: false, error: "Prepared Host Bash invocation belongs to a different execution context." };
+          }
+          executionContext.assertAuthority?.("bash", { command: record.pendingAction?.originalCommand });
+          const current = store.getApprovalRecord(record.id);
+          if (!current || current.status !== "approved" || binding(current) !== fingerprint) {
+            return { ok: false, error: "Host Bash approval changed or is no longer executable." };
+          }
+          if (!store.claimExecution(current.id)) {
+            return { ok: false, error: "Host Bash approval execution was already claimed." };
+          }
+          try {
+            const approvedTool = findApprovedHostBash(store, tryParseHostBashCommand(current.pendingAction?.originalCommand ?? ""), current.owner);
+            executionContext.signal?.throwIfAborted();
+            executionContext.assertAuthority?.("bash", { command: current.pendingAction?.originalCommand });
+            const executed = await executeHostBashApproval({
+              record: current, approvedTool: approvedTool ?? undefined,
+              cwd: executionContext.cwd, signal: executionContext.signal
+            });
+            store.markExecution(current.id, "executed");
+            return { ok: true, content: [{ type: "text", text: executed.rendered }], details: executed.details };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            store.markExecution(current.id, "failed", message);
+            return { ok: false, error: message };
+          }
+        } } };
       }
       return { done: false };
     }
@@ -657,104 +709,55 @@ export function getBashToolDefinition(
   const artifactDir = options.artifactDir?.trim();
   const relocateRootArtifacts = options.relocateRootArtifacts !== false;
   const hostFullAccess = options.executionTarget === "host";
-  return {
-    id: "bash",
-    name: "bash",
-    description:
-      `Execute shell commands in the scratch workspace. In restricted permission modes commands run under a runtime-managed sandbox; with Full Access they run directly on the host. Use for shell-native work such as scripts, builds, tests, package installs, and data processing. IMPORTANT: Do NOT use bash for reading, writing, or editing files — the dedicated read, write, and edit tools MUST be used instead. Avoid commands like \`cat\`, \`head\`, \`tail\`, \`less\` for reading files (use the read tool), \`cat > file\`, \`echo > file\`, heredocs, or \`tee\` for creating files (use the write tool), and \`sed -i\`, \`awk\`, or \`perl -i\` for modifying files (use the edit tool). Only fall back to shell file manipulation when those tools genuinely cannot express the operation (e.g. bulk renames, chmod, binary processing). Use hostApproval only for host-only capabilities in modes where approval applies. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
-    inputSchema: bashSchema,
-    risk: "high",
-    source: "host",
-    sideEffectClass: "non_idempotent",
-    handler: async (params: any, ctx) => {
-      const hostBashStore = options.hostApproval?.hostBashStore ?? getHostBashStore();
-      const parsedHostBashCommand = hostFullAccess
-        ? null
-        : options.hostApproval
-          ? tryParseHostBashCommand(params.command)
-          : null;
-      const approvedHostBash = hostFullAccess
-        ? undefined
-        : options.hostApproval
-          ? findApprovedHostBash(hostBashStore, parsedHostBashCommand, options.hostApproval.owner)
-          : undefined;
-
-      if (approvedHostBash && parsedHostBashCommand) {
+  const prepareHostCall = async (params: any, ctx: ToolExecutionContext): Promise<ToolResult | PreparedToolInvocation | undefined> => {
+    if (hostFullAccess) return undefined;
+    if (!options.hostApproval) {
+      return params.hostApproval ? { ok: false, error: "Host Bash approval is not configured for this bash tool instance." } : undefined;
+    }
+    const hostBashStore = options.hostApproval?.hostBashStore ?? getHostBashStore();
+    const parsed = options.hostApproval ? tryParseHostBashCommand(params.command) : null;
+    const approved = options.hostApproval ? findApprovedHostBash(hostBashStore, parsed, options.hostApproval.owner) : undefined;
+    if (approved && parsed) {
+      const approvedSnapshot = JSON.stringify(approved);
+      return { execute: async executionContext => {
+        executionContext.signal?.throwIfAborted();
+        executionContext.assertAuthority?.("bash", params);
+        const current = findApprovedHostBash(hostBashStore, parsed, options.hostApproval?.owner);
+        if (!current || JSON.stringify(current) !== approvedSnapshot) {
+          return { ok: false, error: "Host Bash grant changed or was revoked before execution." };
+        }
         const executed = await executeApprovedHostBash({
-          tool: approvedHostBash,
-          cwd: ctx.cwd,
-          originalCommand: parsedHostBashCommand.originalCommand,
-          args: parsedHostBashCommand.args,
-          timeoutSeconds: params.timeout,
+          tool: current, cwd: executionContext.cwd, originalCommand: parsed.originalCommand,
+          args: parsed.args, timeoutSeconds: params.timeout, signal: executionContext.signal
         });
-        return {
-          ok: true,
-          content: [{ type: "text", text: executed.rendered }],
-          details: executed.details
-        };
-      }
-
-      if (params.hostApproval && !hostFullAccess) {
-        if (!options.hostApproval) {
-          return { ok: false, error: "Host Bash approval is not configured for this bash tool instance." };
-        }
-        if (options.hostApproval.unattendedDenials) {
-          // A scheduled run has no one to approve: creating a request would
-          // park the run until the request expired unread. Deny plainly so the
-          // model finishes and reports the skipped step.
-          return {
-            ok: false,
-            error: UNATTENDED_APPROVAL_DENIAL_TEXT,
-            details: { command: params.command, denialReason: "unattended_run" }
-          };
-        }
-        const requested = requestApprovalFromBash(
-          options.hostApproval,
-          params.command,
-          params.timeout,
-          params.hostApproval
-        );
-        if (!requested.prompt) {
-          return { ok: false, error: requested.text || "Tool execution is waiting for approval." };
-        }
-        return waitForHostBashApprovalAndExecute({
-          store: hostBashStore,
-          prompt: requested.prompt,
-          scopeId: options.hostApproval.scopeId,
-          requestText: requested.text,
-          ctx,
-          waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs,
-          unattendedDenials: options.hostApproval.unattendedDenials
-        });
-      }
-
-      if (artifactDir) {
-        mkdirSync(resolve(ctx.cwd, artifactDir), { recursive: true });
-      }
+        return { ok: true, content: [{ type: "text", text: executed.rendered }], details: executed.details };
+      } };
+    }
+    if (!params.hostApproval) return undefined;
+    if (options.hostApproval.unattendedDenials) {
+      return { ok: false, error: UNATTENDED_APPROVAL_DENIAL_TEXT,
+        details: { command: params.command, denialReason: "unattended_run" } };
+    }
+    const requested = requestApprovalFromBash(options.hostApproval, params.command, params.timeout, params.hostApproval,
+      ctx.toolCallId ? JSON.stringify([ctx.runId, ctx.toolCallId]) : undefined);
+    if (!requested.prompt) return { ok: false, error: requested.text || "Tool execution is waiting for approval." };
+    return prepareHostBashApproval({
+      store: hostBashStore, prompt: requested.prompt, scopeId: options.hostApproval.scopeId,
+      requestText: requested.text, ctx, waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs,
+      unattendedDenials: options.hostApproval.unattendedDenials
+    });
+  };
+  const runSandboxAttempt = async (params: any, ctx: ToolExecutionContext): Promise<ToolResult | PreparedToolInvocation> => {
+    const hostBashStore = options.hostApproval?.hostBashStore ?? getHostBashStore();
+    const parsedHostBashCommand = hostFullAccess ? null : options.hostApproval ? tryParseHostBashCommand(params.command) : null;
+    if (artifactDir) {
+      mkdirSync(resolve(ctx.cwd, artifactDir), { recursive: true });
+    }
+    const sandboxAttempt = async () => {
       const rootFilesBefore = relocateRootArtifacts ? snapshotRootFiles(ctx.cwd) : new Map<string, number>();
-
-      let result: Awaited<ReturnType<ToolExecutionContext["shell"]["run"]>>;
-      try {
-        result = await ctx.shell.run(params.command, {
-          cwd: ctx.cwd,
-          timeoutMs: params.timeout ? params.timeout * 1000 : undefined
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.startsWith("Sandbox unavailable:")) {
-          return {
-            ok: false,
-            error: message,
-            details: {
-              sandboxApplied: false,
-              sandboxBlocked: true,
-              sandboxErrorCode: "sandbox_unavailable"
-            }
-          };
-        }
-        throw error;
-      }
-
+      const result = await ctx.shell.run(params.command, {
+        cwd: ctx.cwd, timeoutMs: params.timeout ? params.timeout * 1000 : undefined
+      });
       const movedArtifacts = relocateRootArtifacts
         ? moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore)
         : [];
@@ -770,98 +773,144 @@ export function getBashToolDefinition(
       if (result.stderr) output += `${output ? "\n" : ""}${result.stderr}`;
       output = normalizeCommandOutput(stripAnsi(output));
 
-      let details: BashToolDetails | undefined = result.sandboxApplied || result.warning
+      const details: BashToolDetails | undefined = result.sandboxApplied || result.warning
         ? { sandboxApplied: result.sandboxApplied, sandboxWarning: result.warning }
         : undefined;
       const built = buildBashOutput(ctx.cwd, options.toolOutputDir, output, details, movedArtifacts);
-      let rendered = built.rendered;
-      details = built.details;
+      return { result, rootFilesBefore: [...rootFilesBefore.entries()], built };
+    };
+    let attempt: Awaited<ReturnType<typeof sandboxAttempt>>;
+    try {
+      attempt = ctx.preparationEffects
+        ? await ctx.preparationEffects.run("sandbox", { command: params.command, cwd: ctx.cwd, timeout: params.timeout }, sandboxAttempt)
+        : await sandboxAttempt();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("Sandbox unavailable:")) return { ok: false, error: message,
+        details: { sandboxApplied: false, sandboxBlocked: true, sandboxErrorCode: "sandbox_unavailable" } };
+      throw error;
+    }
+    const { result, built } = attempt;
+    const rootFilesBefore = new Map(attempt.rootFilesBefore);
+    const rendered = built.rendered;
+    const details = built.details;
 
-      if (result.exitCode !== 0) {
-        let errorBody = `${rendered}\n\nCommand exited with code ${result.exitCode}`.trim();
-        if (result.sandboxApplied && options.hostApproval && isSandboxPermissionFailure(rendered)) {
-          // Session-approved host fallback only. Full access never gets here —
-          // it executes on the host in the first place, so there is no sandbox
-          // denial to re-run after — and restricted modes ask through the Host
-          // Bash approval card below.
-          const sessionApproved =
-            !options.hostApproval.ignoreSessionApprovalMode
-            && options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session";
-          if (sessionApproved) {
-            const fallbackResult = await execCommand(wrapCommandWithVenv(params.command), {
-              cwd: ctx.cwd,
-              timeoutSeconds: params.timeout,
-              inheritProcessEnv: true
-            });
-            const fallbackMovedArtifacts = relocateRootArtifacts
-              ? moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore)
-              : [];
-            let fallbackOutput = "";
-            if (fallbackResult.stdout) fallbackOutput += fallbackResult.stdout;
-            if (fallbackResult.stderr) fallbackOutput += `${fallbackOutput ? "\n" : ""}${fallbackResult.stderr}`;
-            fallbackOutput = normalizeCommandOutput(stripAnsi(fallbackOutput));
-            const fallbackBuilt = buildBashOutput(
-              ctx.cwd,
-              options.toolOutputDir,
-              fallbackOutput,
-              {
-                ...details,
-                hostBash: true,
-                sandboxApplied: false,
-                sandboxWarning: "Sandbox blocked this command. Re-ran with session-approved host bash fallback."
-              },
-              fallbackMovedArtifacts
-            );
-            if (fallbackResult.code !== 0) {
-              return { ok: false, error: `${fallbackBuilt.rendered}\n\nCommand exited with code ${fallbackResult.code}`.trim() };
-            }
-            return {
-              ok: true,
-              content: [{ type: "text", text: `${fallbackBuilt.rendered}\n\n[SESSION] Sandbox was bypassed for this session after a permission denial.`.trim() }],
-              details: fallbackBuilt.details
-            };
+    if (result.exitCode !== 0) {
+      let errorBody = `${rendered}\n\nCommand exited with code ${result.exitCode}`.trim();
+      if (result.sandboxApplied && options.hostApproval && isSandboxPermissionFailure(rendered)) {
+        // Session-approved host fallback only. Full access never gets here —
+        // it executes on the host in the first place, so there is no sandbox
+        // denial to re-run after — and restricted modes ask through the Host
+        // Bash approval card below.
+        const sessionApproved =
+          !options.hostApproval.ignoreSessionApprovalMode
+          && options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session";
+        if (sessionApproved) {
+          const fallback = () => execCommand(wrapCommandWithVenv(params.command), {
+            cwd: ctx.cwd, timeoutSeconds: params.timeout, inheritProcessEnv: true, signal: ctx.signal
+          });
+          const fallbackResult = ctx.preparationEffects
+            ? await ctx.preparationEffects.run("session-host", { command: params.command, cwd: ctx.cwd, timeout: params.timeout }, fallback)
+            : await fallback();
+          const fallbackMovedArtifacts = relocateRootArtifacts
+            ? moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore)
+            : [];
+          let fallbackOutput = "";
+          if (fallbackResult.stdout) fallbackOutput += fallbackResult.stdout;
+          if (fallbackResult.stderr) fallbackOutput += `${fallbackOutput ? "\n" : ""}${fallbackResult.stderr}`;
+          fallbackOutput = normalizeCommandOutput(stripAnsi(fallbackOutput));
+          const fallbackBuilt = buildBashOutput(
+            ctx.cwd,
+            options.toolOutputDir,
+            fallbackOutput,
+            {
+              ...details,
+              hostBash: true,
+              sandboxApplied: false,
+              sandboxWarning: "Sandbox blocked this command. Re-ran with session-approved host bash fallback."
+            },
+            fallbackMovedArtifacts
+          );
+          if (fallbackResult.code !== 0) {
+            return { ok: false, error: `${fallbackBuilt.rendered}\n\nCommand exited with code ${fallbackResult.code}`.trim() };
           }
-          if (parsedHostBashCommand) {
-            const requested = requestApprovalFromBash(
-              options.hostApproval,
-              params.command,
-              params.timeout,
-              {
-                reason: buildAutomaticHostApprovalReason(parsedHostBashCommand)
-              }
-            );
-            if (!requested.prompt) {
-              return { ok: false, error: requested.text || "Sandbox blocked this command and host approval was requested automatically." };
-            }
-            return waitForHostBashApprovalAndExecute({
-              store: hostBashStore,
-              prompt: requested.prompt,
-              scopeId: options.hostApproval.scopeId,
-              requestText: "Sandbox blocked this command and host approval was requested automatically.",
-              ctx,
-              fallbackDetails: details,
-              waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs,
-              unattendedDenials: options.hostApproval.unattendedDenials
-            });
-          }
-          const reason = (() => {
-            const classification = classifyHostBashCommand(params.command);
-            return classification.kind === "one-time-script"
-              ? classification.reason
-              : "Automatic approval could not reduce this command to a reusable Host Bash capability.";
-          })();
-          errorBody += `\n\n[SANDBOX] This command appears to need host-level access, but automatic approval kept it as one-time only: ${reason}`;
-        } else if (result.sandboxApplied) {
-          errorBody += "\n\n[SANDBOX] This command ran inside the OS sandbox. If it failed due to filesystem or network restrictions (e.g. \"Operation not permitted\", \"Permission denied\", socket/IPC errors), request host access through `bash` with `hostApproval.reason`. Once approved, runtime will execute the stored host action automatically. Do not retry the same command through plain bash.";
+          return {
+            ok: true,
+            content: [{ type: "text", text: `${fallbackBuilt.rendered}\n\n[SESSION] Sandbox was bypassed for this session after a permission denial.`.trim() }],
+            details: fallbackBuilt.details
+          };
         }
-        return { ok: false, error: errorBody, details };
+        if (parsedHostBashCommand) {
+          const requested = requestApprovalFromBash(
+            options.hostApproval,
+            params.command,
+            params.timeout,
+            {
+              reason: buildAutomaticHostApprovalReason(parsedHostBashCommand)
+            },
+            ctx.toolCallId ? JSON.stringify([ctx.runId, ctx.toolCallId]) : undefined
+          );
+          if (!requested.prompt) {
+            return { ok: false, error: requested.text || "Sandbox blocked this command and host approval was requested automatically." };
+          }
+          return (ctx.preparationEffects ? prepareHostBashApproval : waitForHostBashApprovalAndExecute)({
+            store: hostBashStore,
+            prompt: requested.prompt,
+            scopeId: options.hostApproval.scopeId,
+            requestText: "Sandbox blocked this command and host approval was requested automatically.",
+            ctx,
+            fallbackDetails: details,
+            waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs,
+            unattendedDenials: options.hostApproval.unattendedDenials
+          });
+        }
+        const reason = (() => {
+          const classification = classifyHostBashCommand(params.command);
+          return classification.kind === "one-time-script"
+            ? classification.reason
+            : "Automatic approval could not reduce this command to a reusable Host Bash capability.";
+        })();
+        errorBody += `\n\n[SANDBOX] This command appears to need host-level access, but automatic approval kept it as one-time only: ${reason}`;
+      } else if (result.sandboxApplied) {
+        errorBody += "\n\n[SANDBOX] This command ran inside the OS sandbox. If it failed due to filesystem or network restrictions (e.g. \"Operation not permitted\", \"Permission denied\", socket/IPC errors), request host access through `bash` with `hostApproval.reason`. Once approved, runtime will execute the stored host action automatically. Do not retry the same command through plain bash.";
+      }
+      return { ok: false, error: errorBody, details };
+    }
+
+    return {
+      ok: true,
+      content: [{ type: "text", text: rendered }],
+      details
+    };
+  };
+  return {
+    id: "bash",
+    name: "bash",
+    description:
+      `Execute shell commands in the scratch workspace. In restricted permission modes commands run under a runtime-managed sandbox; with Full Access they run directly on the host. Use for shell-native work such as scripts, builds, tests, package installs, and data processing. IMPORTANT: Do NOT use bash for reading, writing, or editing files — the dedicated read, write, and edit tools MUST be used instead. Avoid commands like \`cat\`, \`head\`, \`tail\`, \`less\` for reading files (use the read tool), \`cat > file\`, \`echo > file\`, heredocs, or \`tee\` for creating files (use the write tool), and \`sed -i\`, \`awk\`, or \`perl -i\` for modifying files (use the edit tool). Only fall back to shell file manipulation when those tools genuinely cannot express the operation (e.g. bulk renames, chmod, binary processing). Use hostApproval only for host-only capabilities in modes where approval applies. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+    inputSchema: bashSchema,
+    risk: "high",
+    source: "host",
+    sideEffectClass: "non_idempotent",
+    prepare: async (params: any, ctx) => {
+      const host = await prepareHostCall(params, ctx);
+      if (host || !ctx.preparationEffects || hostFullAccess) return host;
+      const result = await runSandboxAttempt(params, ctx);
+      if (!("execute" in result) && result.terminate && result.metadata?.status === "waiting_for_approval") return result;
+      return "execute" in result ? result : { execute: async () => result };
+    },
+    handler: async (params: any, ctx) => {
+      const prepared = await prepareHostCall(params, ctx);
+      if (prepared) {
+        if (!("execute" in prepared)) return prepared;
+        try { return await prepared.execute(ctx); }
+        finally { prepared.cancel?.(); }
       }
 
-      return {
-        ok: true,
-        content: [{ type: "text", text: rendered }],
-        details
-      };
+      const result = await runSandboxAttempt(params, ctx);
+      if (!("execute" in result)) return result;
+      try { return await result.execute(ctx); }
+      finally { result.cancel?.(); }
     }
   };
 }
@@ -877,5 +926,9 @@ export function createBashTool(cwd: string, options?: {
 }): AgentTool<typeof bashSchema> {
   const def = getBashToolDefinition({ cwd, ...options });
   const env = options?.artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: options.artifactDir } : undefined;
-  return toolDefToAgentTool(def, cwd, env, { executionEnvironment: options?.executionEnvironment });
+  return toolDefToAgentTool(def, cwd, env, {
+    executionEnvironment: options?.executionEnvironment,
+    runId: options?.hostApproval?.runId,
+    sessionId: options?.hostApproval?.sessionId
+  });
 }

@@ -1,3 +1,7 @@
+## 2026-10-04
+
+- 共享 Agent 执行接入 Pi 原生持久化任务，审批继续原任务，子任务共享预算与取消。异步模型响应重启后查询原请求，避免重复提交；未知提交、权限撤销和已停止任务拒绝自动恢复。真实外部 Provider 与渠道验收仍待验证。
+
 ### Added: Desktop Agent Rooms（2026-10-02）
 
 Desktop can create regular or Project rooms with independent Agent identities and contexts, a shared attributed transcript, directed replies and restricted parallel discussion. Room-local write scheduling, approvals, cancellation and explicit restart recovery preserve execution evidence. See the [Room guide](docs/guides/agent-rooms.md); native Desktop acceptance remains pending.

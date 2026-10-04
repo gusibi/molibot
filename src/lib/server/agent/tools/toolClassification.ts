@@ -56,6 +56,8 @@ const LOCAL_READ_TOOLS = new Set([
   "skillSearch"
 ]);
 
+export const READ_ONLY_TOOL_NAMES = new Set([...LOCAL_READ_TOOLS].filter(name => name !== "toolSearch"));
+
 const NETWORK_TOOLS = new Set(["webSearch", "webFetch"]);
 
 /**

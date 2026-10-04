@@ -1,5 +1,4 @@
 import { getRoomStore } from "$lib/server/rooms/runtime.js";
-import { runBackgroundConversation } from "$lib/server/app/backgroundConversation.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
@@ -37,12 +36,6 @@ import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationAttachment, ConversationPlan } from "$lib/shared/types/message";
 import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
-import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
-import {
-  retryApprovalAutoResume,
-  APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
-  APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS
-} from "$lib/server/channels/shared/approvalAutoResume";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume.js";
 import { imageContentFromSavedAttachment } from "$lib/server/channels/shared/attachmentImageContents.js";
@@ -55,7 +48,6 @@ import {
   getConversationProject,
   resolveProjectContext
 } from "$lib/server/projects/context";
-import { resolveSessionWorkingDir } from "$lib/server/agent/core/runner";
 import { getProjectStore } from "$lib/server/projects/store";
 import { WEB_COMMAND_DEFINITIONS } from "$lib/server/app/composerSuggestions";
 import { getMiniAppHost } from "$lib/server/miniapps/registry";
@@ -227,6 +219,8 @@ export async function _handleWebHostToolsCommand(
   if (subcommand === "reject") {
     const rejected = hostBashStore.reject(scopeId, approvalId || undefined, sessionId);
     if (rejected) {
+      await resumeSuspendedBrokerApproval({ scopeId, sessionId, requestId: rejected.id,
+        status: "rejected", store, pool, channel: "web" });
       return {
         ok: true,
         response: `Rejected Host Bash approval ${rejected.id} (${rejected.displayName}).`,
@@ -357,127 +351,9 @@ export async function _handleWebHostToolsCommand(
   }
 
   if (approved.record.pendingAction) {
-    // The approved command must run where the agent's own turn was running: for
-    // a project conversation that is the project root, not the chat scratch dir.
-    // Getting this wrong made `git push` fail with "not a git repository" while
-    // the UI showed nothing at all.
-    const project = getConversationProject(getRuntime().sessions, sessionId);
-    const scratchDir = store.getScratchDir(scopeId);
-    const cwd = resolveSessionWorkingDir(buildRunnerProjectContext(project, scratchDir), scratchDir);
-
-    /**
-     * Splice the real command output back into the suspended tool result and
-     * resume the run. Runs for failures too — an agent told nothing at all just
-     * repeats "still waiting for your approval" forever.
-     */
-    const resumeWithToolResult = (rendered: string): void => {
-      try {
-        const messages = store.loadContext(scopeId, sessionId);
-        const rewritten = rewriteApprovalToolResultInContext(messages, approved.record.id, rendered);
-
-        if (rewritten) {
-          store.saveContext(scopeId, messages, sessionId);
-          pool.reset(scopeId, sessionId);
-
-          const workspaceId = resolveWorkspaceId();
-          const messageId = Date.now();
-          const ts = `${Date.now() / 1000}`;
-
-          // The approving turn may still hold the session lock; retry until it
-          // releases instead of letting the conflict reject unhandled (which
-          // crashes the sidecar process).
-          void retryApprovalAutoResume({
-            run: async () => {
-              await runBackgroundConversation(pool.get(scopeId, sessionId), {
-                channel: "web",
-                workspaceDir: store.getWorkspaceDir(),
-                chatDir: store.getChatDir(scopeId),
-                // Without this the resumed turn loses the project entirely and
-                // continues in the scratch dir under the global system prompt.
-                project: buildRunnerProjectContext(project, scratchDir),
-                modelKeyOverride: project?.modelKey,
-                message: {
-                  chatId: scopeId,
-                  workspaceId,
-                  chatType: "private",
-                  messageId,
-                  userId: scopeId,
-                  userName: scopeId,
-                  text: "",
-                  ts,
-                  attachments: [],
-                  imageContents: [],
-                  sessionId,
-                  isEvent: true
-                },
-              }, getRuntime().sessions);
-            },
-            maxAttempts: APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS,
-            delayMs: APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
-            onWarn: (warningCode, meta) => {
-              if (warningCode === "approval_auto_resume_retrying" && meta.attempt !== 1 && meta.attempt % 60 !== 0) {
-                return;
-              }
-              console.warn("[web:auto-resume]", warningCode, { scopeId, sessionId, ...meta });
-            },
-            onRetryExhausted: () => {
-              getRuntime().sessions.appendMessage(
-                sessionId,
-                "assistant",
-                webCommandText(
-                  "Command executed, but the session is still busy. Send any message to continue the task.",
-                  "命令已执行，但当前会话仍处于忙碌状态。发送任意消息可继续刚才的任务。"
-                )
-              );
-            }
-          });
-        }
-      } catch (error) {
-        console.error("[web:auto-resume]", "background rewrite or re-run failed", {
-          scopeId,
-          sessionId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
-    };
-
-    // Atomically claim execution before running the command. The in-run bash
-    // waiter may still be polling (the user answered inside the handshake
-    // window) and it claims too — without this compare-and-set both sides
-    // executed the same command (prd §3.08 / issue #48: one decision, one
-    // execution).
-    if (typeof hostBashStore.claimExecution === "function" && !hostBashStore.claimExecution(approved.record.id)) {
-      // Say what actually happened: the waiter winning the claim means the
-      // command is running and its output will land in the conversation; any
-      // other state means the decision was already settled earlier.
-      const current = typeof hostBashStore.getApprovalRecord === "function"
-        ? hostBashStore.getApprovalRecord(approved.record.id)
-        : null;
-      lines.push("", current && (current.status === "approved" || current.status === "executing")
-        ? "Approved. The original task's own waiter claimed execution and is running the command; its output will appear in the conversation."
-        : `This approval was already processed (status: ${current?.status ?? "unknown"}).`);
-      return { ok: true, response: lines.join("\n"), approval: { status: "approved" } };
-    }
-
-    try {
-      const executed = await executeHostBashApproval({
-        record: approved.record,
-        approvedTool: approved.approved,
-        cwd
-      });
-      hostBashStore.markExecution(approved.record.id, "executed");
-      lines.push("", "Approved and executed immediately.");
-      resumeWithToolResult(executed.rendered);
-      return { ok: true, response: lines.join("\n"), approval: { status: "executed" } };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      hostBashStore.markExecution(approved.record.id, "failed", message);
-      lines.push("", `${subcommand === "approve-session" ? "Approved for this session" : "Approved"}, but automatic execution failed: ${message}`);
-      // Hand the failure to the agent as the tool's real result so it can react
-      // (retry differently, or tell the user) instead of staying suspended.
-      resumeWithToolResult(`Command failed after approval (cwd: ${cwd}):\n\n${message}`);
-      return { ok: true, response: lines.join("\n"), approval: { status: "failed", error: message } };
-    }
+    await resumeSuspendedBrokerApproval({ scopeId, sessionId, requestId: approved.record.id,
+      status: "approved", store, pool, channel: "web" });
+    lines.push("", "Approved. The original task will continue.");
   }
 
   return { ok: true, response: lines.join("\n"), approval: { status: "approved" } };

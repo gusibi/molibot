@@ -16,6 +16,7 @@ import {
 import type {
   ApprovedHostBashEntry,
   HostBashApprovalRecord,
+  HostBashCommandClassification,
   HostBashApprovalScope,
   HostBashApprovalStatus,
   HostBashListFilters,
@@ -292,6 +293,7 @@ export class HostBashStore {
   }
 
   requestApproval(input: {
+    invocationId?: string;
     toolId?: unknown;
     displayName?: unknown;
     command: unknown;
@@ -299,7 +301,7 @@ export class HostBashStore {
     approvalMode?: unknown;
     permissions?: unknown;
     pendingAction?: unknown;
-    classification?: unknown;
+    classification?: HostBashCommandClassification;
     channel: unknown;
     chatId: unknown;
     scopeId: unknown;
@@ -307,12 +309,26 @@ export class HostBashStore {
     owner?: unknown;
     requestedByDepth?: number;
   }): {
-    kind: "created" | "existing-pending" | "existing-approved";
+    kind: "created" | "existing-pending" | "existing-approved" | "existing-request";
     approval?: HostBashApprovalRecord;
     approved?: ApprovedHostBashEntry;
   } {
     const record = createHostBashApprovalRecord(input);
     this.expireStalePending();
+    if (input.invocationId) {
+      const existing = this.getApprovalRecord(record.id);
+      if (existing) {
+        const binding = (value: HostBashApprovalRecord) => JSON.stringify({
+          toolId: value.toolId, command: value.command, scopeId: value.scopeId,
+          sessionId: value.sessionId,
+          owner: value.owner ? { kind: value.owner.kind, id: value.owner.id, key: value.owner.key } : undefined,
+          permissions: value.permissions,
+          pendingAction: value.pendingAction
+        });
+        if (binding(existing) !== binding(record)) throw new Error("Host Bash invocation identity was reused with different arguments or authority.");
+        return { kind: "existing-request", approval: existing };
+      }
+    }
 
     if (record.approvalMode === "persistent") {
       const existingApproved = this.getApprovedEntry(record.toolId, record.owner);
@@ -388,7 +404,8 @@ export class HostBashStore {
   getPendingApproval(scopeId: string, approvalId?: string, sessionId?: string): HostBashApprovalRecord | null {
     if (approvalId) {
       const record = this.getApprovalRecord(approvalId);
-      if (record && record.status === "pending") {
+      if (record && record.status === "pending" && record.scopeId === scopeId
+        && (!sessionId || record.sessionId === sessionId)) {
         return record;
       }
       return null;
@@ -554,6 +571,15 @@ export class HostBashStore {
       UPDATE approvals
       SET status = 'expired', resolved_at = ?
       WHERE type = 'request' AND id = ? AND status = 'pending'
+    `).run(new Date().toISOString(), recordId);
+    return Number(result.changes ?? 0) > 0;
+  }
+
+  /** Cancel authorization that has not been claimed by an executor. */
+  expireUnexecuted(recordId: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE approvals SET status = 'expired', resolved_at = ?
+      WHERE type = 'request' AND id = ? AND status IN ('pending', 'approved')
     `).run(new Date().toISOString(), recordId);
     return Number(result.changes ?? 0) > 0;
   }

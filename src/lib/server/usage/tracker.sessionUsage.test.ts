@@ -42,3 +42,22 @@ test("getSessionUsage returns zeros with null coverage for unknown or blank sess
   assert.equal(blank.requests, 0);
   assert.equal(blank.coverageStart, null);
 });
+
+
+test("committed response usage is counted once across tracker reopen and rejects conflicting facts", () => {
+  const usageDir = mkdtempSync(join(tmpdir(), "molibot-usage-receipts-"));
+  const input = { channel: "web", botId: "bot", provider: "pi", model: "model", sessionId: "s-1", requestId: "entry-1", inputTokens: 10, outputTokens: 2 };
+  const first = new AiUsageTracker({ usageDir });
+  first.record(input);
+  const reopened = new AiUsageTracker({ usageDir });
+  reopened.record(input);
+  assert.equal(reopened.getSessionUsage("s-1").requests, 1);
+  assert.equal(reopened.getSessionUsage("s-1").totalTokens, 12);
+  assert.equal(reopened.list()[0].requestId, "entry-1");
+  assert.throws(() => reopened.record({ ...input, outputTokens: 3 }), /conflicting/);
+  reopened.record({ ...input, requestId: "entry-2" });
+  first.record({ ...input, requestId: "entry-2" });
+  assert.equal(first.getSessionUsage("s-1").requests, 2);
+  reopened.record({ ...input, sessionId: "s-2" });
+  assert.equal(reopened.getSessionUsage("s-2").requests, 1);
+});

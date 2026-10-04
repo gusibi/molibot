@@ -4,7 +4,7 @@ import type {
   SpanStatus,
   TelemetryContext,
   TelemetrySpan
-} from "@earendil-works/pi-agent-core";
+} from "@earendil-works/pi-telemetry";
 import type { HookContext, HookManager } from "$lib/server/agent/hooks/types.js";
 
 export interface PiTelemetryContextOptions {

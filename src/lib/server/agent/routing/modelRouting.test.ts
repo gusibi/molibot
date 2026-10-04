@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { convertMessages } from "@earendil-works/pi-ai/api/openai-completions";
 import { defaultRuntimeSettings, type RuntimeSettings } from "$lib/server/settings/index.js";
 import { resolveSttTarget } from "$lib/server/agent/routing/stt.js";
@@ -118,7 +119,9 @@ test("custom model compat disables developer messages when the model role defini
     ]
   };
 
-  assert.equal(resolveCustomModel(provider, "system-only").compat?.supportsDeveloperRole, false);
+  const compat = resolveCustomModel(provider, "system-only").compat;
+  assert.ok(compat && "supportsDeveloperRole" in compat);
+  assert.equal(compat.supportsDeveloperRole, false);
 });
 
 test("custom model compat enables developer messages only when the model role definition includes developer", () => {
@@ -140,7 +143,9 @@ test("custom model compat enables developer messages only when the model role de
     ]
   };
 
-  assert.equal(resolveCustomModel(provider, "developer-capable").compat?.supportsDeveloperRole, true);
+  const compat = resolveCustomModel(provider, "developer-capable").compat;
+  assert.ok(compat && "supportsDeveloperRole" in compat);
+  assert.equal(compat.supportsDeveloperRole, true);
 });
 
 test("pi serializes the top-level prompt with the role declared by each custom model", () => {
@@ -167,7 +172,7 @@ test("pi serializes the top-level prompt with the role declared by each custom m
       }
     ]
   };
-  const context = { systemPrompt: "Follow the instructions.", messages: [] };
+  const context = normalizeContext({ systemPrompt: "Follow the instructions.", messages: [] });
   const systemModel = resolveCustomModel(provider, "system-only");
   const developerModel = resolveCustomModel(provider, "developer-capable");
 

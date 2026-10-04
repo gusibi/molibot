@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { executeApprovedHostBash, executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
 
 function approvedPrintfBash(envAllowlist: string[] = ["PATH"]): ApprovedHostBashEntry {
@@ -121,3 +124,20 @@ test("hasVisibleHostBashOutput suppresses empty success output only", () => {
   assert.equal(hasVisibleHostBashOutput("visible output"), true);
   assert.equal(hasVisibleHostBashOutput("(no output)\n\nHost Bash exited with code 1"), true);
 });
+
+for (const timing of ["before preparation", "during environment preparation"] as const) {
+  test(`stopping Host Bash ${timing} prevents process startup`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), "molibot-host-stop-"));
+    const controller = new AbortController();
+    try {
+      if (timing === "before preparation") controller.abort();
+      const execution = executeApprovedHostBash({
+        tool: approvedPrintfBash(), cwd: directory,
+        originalCommand: "printf started > startup-receipt.txt", args: [], signal: controller.signal
+      });
+      if (timing === "during environment preparation") controller.abort();
+      await assert.rejects(execution, error => error instanceof Error && error.name === "AbortError");
+      assert.equal(existsSync(join(directory, "startup-receipt.txt")), false);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+}

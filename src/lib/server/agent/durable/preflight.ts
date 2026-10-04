@@ -1,3 +1,4 @@
+import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { Context, Model } from "@earendil-works/pi-ai";
 import { streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
@@ -137,7 +138,7 @@ export async function evaluateDurablePreflightWithModel(
   try {
     const stream = (options.streamFn ?? streamWithPiRuntime)(
       options.model,
-      context,
+      normalizeContext(context),
       { maxTokens: Math.max(128, Math.round(options.maxTokens ?? 320)), signal: options.signal } as never
     );
     for await (const event of stream as AsyncIterable<Record<string, unknown>>) {

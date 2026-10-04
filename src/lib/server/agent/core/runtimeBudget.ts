@@ -10,6 +10,19 @@ export interface RunBudgetSnapshot {
   modelAttempts: number;
 }
 
+export interface RunBudgetState extends RunBudgetSnapshot {
+  limits: RunBudgetLimits;
+  exceededReason?: string;
+  exceededKind?: RunBudgetExceededKind;
+}
+
+export interface RunBudgetPersistence {
+  read(): RunBudgetState;
+  mutate(kind: "tool" | "result" | "model", sourceId: string | undefined, isError: boolean | undefined,
+    work: (state: RunBudgetState) => { state: RunBudgetState; result: ToolBudgetResult }): ToolBudgetResult;
+  close(): void;
+}
+
 export interface ToolBudgetResult {
   ok: boolean;
   reason?: string;
@@ -82,7 +95,28 @@ export class RunBudget {
   private exceededReason: string | undefined;
   private exceededKind: RunBudgetExceededKind | undefined;
 
-  constructor(private readonly limits: RunBudgetLimits = DEFAULT_RUN_BUDGET) {}
+  constructor(private limits: RunBudgetLimits = DEFAULT_RUN_BUDGET,
+    private readonly persistence?: RunBudgetPersistence) {
+  }
+
+  private persisted(kind: "tool" | "result" | "model", sourceId: string | undefined,
+    isError: boolean | undefined, work: () => ToolBudgetResult): ToolBudgetResult {
+    return this.persistence!.mutate(kind, sourceId, isError, state => {
+      this.limits = state.limits;
+      this.toolCalls = state.toolCalls;
+      this.toolFailures = state.toolFailures;
+      this.modelAttempts = state.modelAttempts;
+      this.exceededKind = state.exceededKind;
+      this.exceededReason = state.exceededReason;
+      const result = work();
+      return { result, state: {
+        limits: this.limits, toolCalls: this.toolCalls, toolFailures: this.toolFailures,
+        modelAttempts: this.modelAttempts, exceededKind: this.exceededKind, exceededReason: this.exceededReason
+      } };
+    });
+  }
+
+  close(): void { this.persistence?.close(); }
 
   private exceed(kind: RunBudgetExceededKind, reason: string): ToolBudgetResult {
     this.exceededReason = reason;
@@ -90,7 +124,11 @@ export class RunBudget {
     return { ok: false, reason };
   }
 
-  tryStartTool(): ToolBudgetResult {
+  tryStartTool(sourceId?: string): ToolBudgetResult {
+    return this.persistence ? this.persisted("tool", sourceId, undefined, () => this.startTool()) : this.startTool();
+  }
+
+  private startTool(): ToolBudgetResult {
     // Once any budget is blown, no further tool may start. Refusing here (the
     // caller turns this into a blocked tool result and strips the tool list) is
     // what lets the model wind the turn down on its own; the alternative —
@@ -106,7 +144,11 @@ export class RunBudget {
     return { ok: true };
   }
 
-  recordToolResult(isError: boolean): ToolBudgetResult {
+  recordToolResult(isError: boolean, sourceId?: string): ToolBudgetResult {
+    return this.persistence ? this.persisted("result", sourceId, isError, () => this.toolResult(isError)) : this.toolResult(isError);
+  }
+
+  private toolResult(isError: boolean): ToolBudgetResult {
     if (isError) {
       this.toolFailures += 1;
       if (this.toolFailures >= this.limits.maxToolFailures) {
@@ -119,7 +161,11 @@ export class RunBudget {
     return { ok: true };
   }
 
-  tryRecordModelAttempt(): ToolBudgetResult {
+  tryRecordModelAttempt(sourceId?: string): ToolBudgetResult {
+    return this.persistence ? this.persisted("model", sourceId, undefined, () => this.modelAttempt()) : this.modelAttempt();
+  }
+
+  private modelAttempt(): ToolBudgetResult {
     if (this.modelAttempts >= this.limits.maxModelAttempts) {
       return this.exceed(
         "modelAttempts",
@@ -131,6 +177,8 @@ export class RunBudget {
   }
 
   snapshot(): RunBudgetSnapshot {
+    const state = this.persistence?.read();
+    if (state) return { toolCalls: state.toolCalls, toolFailures: state.toolFailures, modelAttempts: state.modelAttempts };
     return {
       toolCalls: this.toolCalls,
       toolFailures: this.toolFailures,
@@ -139,14 +187,14 @@ export class RunBudget {
   }
 
   limitsSnapshot(): RunBudgetLimits {
-    return { ...this.limits };
+    return { ...(this.persistence?.read().limits ?? this.limits) };
   }
 
   getExceededReason(): string | undefined {
-    return this.exceededReason;
+    return this.persistence ? this.persistence.read().exceededReason : this.exceededReason;
   }
 
   getExceededKind(): RunBudgetExceededKind | undefined {
-    return this.exceededKind;
+    return this.persistence ? this.persistence.read().exceededKind : this.exceededKind;
   }
 }

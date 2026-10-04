@@ -207,11 +207,18 @@ export class RoomStore {
       this.db.prepare("DELETE FROM agent_rooms WHERE id=?").run(roomId);
     });
   }
-  recover() {
+  recover(preserve: ReadonlySet<string> = new Set()) {
     this.transaction(() => {
-      this.db.prepare("UPDATE room_executions SET status='interrupted' WHERE status IN ('running','waiting_approval','cancelling')").run();
+      for (const room of this.list()) {
+        for (const execution of this.executions(room.id)) {
+          if (["running", "waiting_approval", "cancelling"].includes(execution.status) && !preserve.has(execution.id)) this.state(execution.id, "interrupted");
+        }
+        const writer = (this.db.prepare("SELECT writer_execution_id FROM agent_rooms WHERE id=?").get(room.id) as { writer_execution_id: string | null }).writer_execution_id;
+        if (!writer || !preserve.has(writer)) {
+          this.db.prepare("UPDATE agent_rooms SET writer_execution_id=NULL,generation=generation+1 WHERE id=?").run(room.id);
+        }
+      }
       this.db.prepare("UPDATE room_executions SET status='paused' WHERE status='queued'").run();
-      this.db.prepare("UPDATE agent_rooms SET writer_execution_id=NULL,generation=generation+1").run();
     });
   }
 }

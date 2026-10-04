@@ -53,6 +53,8 @@ export interface ChannelInboundMessage {
   runId?: string;
   /** Internal: resume only this execution from a shared automation archive. */
   contextRunId?: string;
+  /** Shared step budget identity, stable across execution attempts and approval resume. */
+  budgetId?: string;
   /** Internal: active chat Session to restore after a suspended run finishes. */
   restoreSessionId?: string;
 }
@@ -209,10 +211,12 @@ export interface MomContext {
   approvalWaitTimeoutMs?: number;
   retention?: import("$lib/shared/types/message.js").TurnRetentionPolicy;
   sharedRoomContext?: string;
+  roomRouting?: { agentId: string; agentName: string; recipients: Array<{ id: string; name: string }> };
   executionPolicy?: import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
   assertToolAuthority?: (toolId: string, input: unknown) => void;
   /** Runner-owned observation of a platform reply ID; never changes delivery behavior. */
   recordDeliveredMessage?: (messageId: string) => void;
+  deliveryTarget?: { channel: string; instanceId: string; workspaceDir: string; chatId: string };
   channel: string;
   message: ChannelInboundMessage;
   workspaceDir: string;

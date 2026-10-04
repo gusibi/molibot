@@ -2,6 +2,7 @@ import type { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import type { ApprovalRequest, ApprovalGrant } from "$lib/server/approval/approvalTypes.js";
 import type {
   PolicyDecision,
+  PreparedToolInvocation,
   ToolCallInput,
   ToolDefinition,
   ToolExecutionContext,
@@ -148,6 +149,13 @@ export class ToolRuntime {
   }
 
   async executeToolCall(call: ToolCallInput): Promise<ToolResult> {
+    const prepared = await this.prepareToolCall(call);
+    return "execute" in prepared ? prepared.execute() : prepared;
+  }
+
+  /** Authorize without creating an execution intent; the returned invocation is single-use. */
+  async prepareToolCall(call: ToolCallInput): Promise<ToolResult | { execute(): Promise<ToolResult>; cancel(): void }> {
+    call = { ...call, input: structuredClone(call.input), context: { ...call.context } };
     const workspaceId = call.context.workspaceId;
     if (workspaceId) {
       const workspace = (this.options.workspaceStore ?? getWorkspaceStore()).getWorkspace(workspaceId);
@@ -170,6 +178,20 @@ export class ToolRuntime {
     }
 
     if (decision.type === "approval_required") {
+      if (call.context.resumeApprovalRequestId) {
+        const original = this.approvalService?.getRequest(call.context.resumeApprovalRequestId);
+        if (original) {
+          if (original.runId !== call.context.runId || original.sessionId !== call.context.sessionId ||
+              original.actorId !== call.context.actorId || original.workspaceId !== call.context.workspaceId ||
+              original.capability !== decision.request.capability || original.actionFingerprint !== decision.request.actionFingerprint) {
+            return { ok: false, error: "The persisted approval belongs to a different operation or execution scope." };
+          }
+          if (original.status === "rejected" || original.status === "expired") {
+            return { ok: false, error: `Tool execution was ${original.status} by the original approval decision.` };
+          }
+          decision.request = original;
+        }
+      }
       const grant = this.approvalService?.checkGrant({
         capability: decision.request.capability,
         actorId: decision.request.actorId,
@@ -325,12 +347,38 @@ export class ToolRuntime {
       }
     }
 
+    call.context.signal?.throwIfAborted();
+    call.context.assertAuthority?.(tool.id, call.input);
+    const invocation = await tool.prepare?.(call.input, call.context);
+    if (invocation && !("execute" in invocation)) return invocation;
+    let consumed = false;
+    let finalized = false;
+    const cancel = () => {
+      if (finalized) return;
+      finalized = true;
+      consumed = true;
+      invocation?.cancel?.();
+    };
+    return { cancel, execute: async () => {
+      if (consumed) throw new Error("Prepared tool invocation is already consumed.");
+      consumed = true;
+      try {
+        call.context.signal?.throwIfAborted();
+        call.context.assertAuthority?.(tool.id, call.input);
+        return await this.executeAuthorizedToolCall(call, tool, invocation);
+      } finally { cancel(); }
+    } };
+  }
+
+  private async executeAuthorizedToolCall(call: ToolCallInput, tool: ToolDefinition, invocation?: PreparedToolInvocation): Promise<ToolResult> {
     const sideEffect = classifyToolSideEffect(tool.id, call.input, call.context.toolCallId, tool.sideEffectClass);
     const hasSideEffectBoundary = sideEffect.sideEffectClass !== "pure";
     const releaseSideEffectSlot = hasSideEffectBoundary
       ? await this.acquireSideEffectSlot()
       : undefined;
     try {
+      call.context.signal?.throwIfAborted();
+      call.context.assertAuthority?.(tool.id, call.input);
       let preflight: ToolPreflightOutcome | void = undefined;
       if (hasSideEffectBoundary) {
         preflight = await call.context.onSideEffectPreflight?.(sideEffect);
@@ -374,8 +422,9 @@ export class ToolRuntime {
     const executionContext: ToolExecutionContext = { ...call.context, signal: executionSignal };
     let timer: NodeJS.Timeout | undefined;
     let cleanupAbort: (() => void) | undefined;
+    executionSignal.throwIfAborted();
     call.context.assertAuthority?.(tool.id, call.input);
-    const handler = tool.handler(call.input, executionContext).then(
+    const handler = (invocation ? invocation.execute(executionContext) : tool.handler(call.input, executionContext)).then(
       (value) => ({ type: "result" as const, value }),
       (error) => ({ type: "error" as const, error })
     );

@@ -1,3 +1,6 @@
+import { pendingPiRecovery, piRecoveryCandidates, piRecoveryChannelManager, resumePiOwner } from "./piRecovery.js";
+import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
+import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { reconcileRoomAgents } from "$lib/server/rooms/runtime.js";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import { sanitizeSettings } from "$lib/server/settings/sanitize.js";
@@ -172,9 +175,10 @@ function initializeRuntime(): RuntimeState {
     ensureGlobalProfileDefaults();
     getWorkspaceStore().ensureDefaultWorkspace();
 
+    const nativeOwners = piRecoveryCandidates(config.dataDir, id => getTurnOrchestrator().getRunStatus(id));
     try {
       const cleanupStore = new SqliteTurnCleanupStore();
-      const cleaned = getTurnOrchestrator().cleanupStaleRunningTurns(cleanupStore, { forceAll: true });
+      const cleaned = getTurnOrchestrator().cleanupStaleRunningTurns(cleanupStore, { forceAll: true, preserveRunIds: new Set(nativeOwners.map(record => record.runId)) });
       if (cleaned > 0) {
         console.log(`[runtime] Cleaned up ${cleaned} stale running turns on startup.`);
       }
@@ -755,6 +759,41 @@ function initializeRuntime(): RuntimeState {
 
     globalThis.__molibotRuntime = state;
     configureConversationProjectionRuntime(() => state);
+    if (!liveServicesDisabled()) setTimeout(() => { void (async () => {
+      const pending = await pendingPiRecovery(config.dataDir, id => getTurnOrchestrator().getRunStatus(id));
+      for (const owner of nativeOwners) if (!pending.some(record => record.runId === owner.runId)) {
+        const error = "The process restarted without a committed native Deferred handle; automatic resubmission is blocked.";
+        if (owner.runtimeIdentity?.roomId) {
+          const { getRoomService } = await import("$lib/server/rooms/runtime.js");
+          getRoomService().failNativeRecovery(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId, error);
+        }
+        getTurnOrchestrator().failRunIfRunning(owner.runId, error);
+      }
+      for (const owner of pending) {
+        if (getTurnOrchestrator().getRunStatus(owner.runId) !== "running") continue;
+        if (owner.runtimeIdentity?.roomId) {
+          const { getRoomService } = await import("$lib/server/rooms/runtime.js");
+          if (!getRoomService().resumeNativeExecution(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId)) {
+            getTurnOrchestrator().failRunIfRunning(owner.runId, "The Room execution is no longer authorized or active.");
+          }
+          continue;
+        }
+        const deliveryChannel = owner.transport?.channel ?? owner.channel;
+        const manager = deliveryChannel === "web" ? undefined : piRecoveryChannelManager(owner, state.channelManagers);
+        if (deliveryChannel !== "web" && !manager) {
+          getTurnOrchestrator().failRunIfRunning(owner.runId, "The original Channel owner is no longer enabled.");
+          continue;
+        }
+        const store = new MomRuntimeStore(owner.workspaceDir);
+        const pool = new RunnerPool(owner.channel, store,
+          state.getSettings, state.updateSettings, state.usageTracker, state.modelErrorTracker, state.memory,
+          state.hookManager, owner.runtimeIdentity);
+        const runner = pool.get(owner.chatId, owner.sessionId);
+        void resumePiOwner(owner, runner, state.sessions, manager?.sendInternalNotice ? text => manager.sendInternalNotice!(owner.transport!.chatId, text,
+          { kind: "pi_deferred_completion", filename: owner.runId }) : undefined).catch(error => console.error("[runtime] Native Deferred recovery failed:", error));
+      }
+    })().catch(error => console.error("[runtime] Native recovery inspection failed:", error)); }, 0);
+
     sessions.setMessageProjector((conversationId) => loadStoredConversationMessages(conversationId));
   }
 

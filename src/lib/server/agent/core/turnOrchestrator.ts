@@ -254,6 +254,15 @@ export class TurnOrchestrator {
     return db;
   }
 
+  getRunStatus(runId: string): string | undefined {
+    return (this.getDb().prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string } | undefined)?.status;
+  }
+
+  getWaitingApprovalRun(sessionId: string): { id: string; started_at: string } | undefined {
+    return this.getDb().prepare("SELECT id, started_at FROM runs WHERE session_id = ? AND status = 'waiting_for_approval' ORDER BY started_at DESC LIMIT 1")
+      .get(sessionId) as { id: string; started_at: string } | undefined;
+  }
+
   getTurnDecision(runId: string): TurnDecisionRecord | undefined {
     const row = this.getDb().prepare("SELECT state, policy_json, resolution_json FROM turn_decisions WHERE run_id = ?")
       .get(runId) as { state: TurnDecisionRecord["state"]; policy_json: string; resolution_json: string | null } | undefined;
@@ -422,13 +431,13 @@ export class TurnOrchestrator {
 
   cleanupStaleRunningTurns(
     store: TurnCleanupStore,
-    options: { now?: Date; timeoutMs?: number; forceAll?: boolean } = {}
+    options: { now?: Date; timeoutMs?: number; forceAll?: boolean; preserveRunIds?: ReadonlySet<string> } = {}
   ): number {
     const now = options.now ?? new Date();
     let cleaned = 0;
 
     for (const turn of store.listRunningTurns()) {
-      if (turn.status !== "running") continue;
+      if (turn.status !== "running" || options.preserveRunIds?.has(turn.id)) continue;
       const liveness = resolveTurnLiveness(turn);
       const timeoutMs = options.timeoutMs ?? liveness.timeoutMs;
       if (!options.forceAll) {

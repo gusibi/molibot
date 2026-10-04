@@ -1,3 +1,7 @@
+## Pi 正式内核接线进度（2026-10-04，P1）
+
+正式共享 Runner、原生内部子任务、外部审批归属、父子预算与 Deferred 启动恢复已实施。剩余验收为真实外部渠道 transport 与支持 Deferred 的外部 Provider；没有费用授权时不调用付费请求。整体阶段验收继续以 [spec](docs/requirements/pi-capabilities-integration-spec.md) 和 [能力矩阵](docs/requirements/personal-assistant-capability-matrix.md) 为准。见 [验证证据](docs/reviews/pi-production-integration-validation.md)。
+
 # Desktop Agent Room（Issue #62，2026-10-02）
 
 - **优先级 / 状态**：P1 / 已实现，待原生 Desktop 验收；本记录不关闭 issue。

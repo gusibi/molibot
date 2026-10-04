@@ -18,6 +18,25 @@ function textMessage(role: string, text: string): AgentMessage {
 const CHAT = "chat1";
 const SID = "s-test";
 
+test("committed source projection is idempotent across store reopen and isolated by session", () => {
+  const { store, dir } = makeStore();
+  try {
+    const message = textMessage("user", "committed input");
+    const options = { runId: "run", sourceId: "pi:execution:entry:42" };
+    const first = store.appendContextMessage(CHAT, message, SID, options);
+    const reopened = new MomRuntimeStore(dir);
+    assert.equal(reopened.appendContextMessage(CHAT, structuredClone(message), SID, options), first);
+    assert.equal(reopened.loadContext(CHAT, SID).length, 1);
+    reopened.appendContextMessage(CHAT, message, "another-session", options);
+    assert.equal(reopened.loadContext(CHAT, "another-session").length, 1);
+    assert.throws(() => reopened.appendContextMessage(CHAT, textMessage("user", "different"), SID, options), /source identity/);
+    assert.throws(() => reopened.appendContextMessage(CHAT, message, SID, { ...options, runId: "different-owner" }), /ownership/);
+    assert.equal(reopened.loadContext(CHAT, SID).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("restoreContextCheckpoint drops a failed attempt's persisted steps in lockstep", () => {
   const { store, dir } = makeStore();
   try {

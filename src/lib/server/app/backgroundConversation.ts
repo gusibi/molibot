@@ -5,7 +5,7 @@ import { ConversationActivityCollector } from "$lib/server/app/conversationActiv
 /** Background turns persist one context-backed answer; progress stays in activities. */
 export async function runBackgroundConversation(
   runner: Pick<RunnerLike, "run">,
-  context: Pick<MomContext, "channel" | "message" | "workspaceDir" | "chatDir" | "project" | "modelKeyOverride">,
+  context: Pick<MomContext, "channel" | "message" | "workspaceDir" | "chatDir" | "project" | "modelKeyOverride" | "deliveryTarget">,
   sessions: Pick<SessionStore, "appendMessage">
 ) {
   const activities = new ConversationActivityCollector();

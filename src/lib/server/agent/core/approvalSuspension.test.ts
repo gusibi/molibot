@@ -1,3 +1,4 @@
+import { NOOP_HOOK_MANAGER } from "$lib/server/agent/hooks/types.js";
 // Issue #48 behavior regression: an approval wait must be an explicit
 // suspend/resume lifecycle at the shared runtime level. Drives the real
 // MomRunner + real Agent loop + real broker/store against a temporary data
@@ -5,7 +6,7 @@
 // model-call counts, persisted run rows, broker requests and file side effects.
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -79,17 +80,17 @@ interface ScriptedResponse {
 
 function createScriptedStreamFn(responses: ScriptedResponse[]) {
   let call = 0;
-  const streamFn = async () => {
+  const streamFn = async (model: any) => {
     const script = responses[Math.min(call, responses.length - 1)];
     call += 1;
     const message = {
-      role: "assistant" as const,
+      role: "assistant" as const, api: model.api, provider: model.provider, model: model.id,
       content: [
         ...(script.text ? [{ type: "text" as const, text: script.text }] : []),
         ...(script.toolCalls ?? []).map((tc) => ({ type: "toolCall" as const, id: tc.id, name: tc.name, arguments: tc.arguments }))
       ],
       stopReason: (script.toolCalls?.length ? "toolUse" : "stop") as "toolUse" | "stop",
-      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
       timestamp: Date.now()
     };
     return {
@@ -106,9 +107,9 @@ function createScriptedStreamFn(responses: ScriptedResponse[]) {
 
 /** Re-applies the scripted stream to whatever runner the pool hands out: the
  *  out-of-band resume calls `pool.reset()` and creates a fresh runner. */
-function attachScriptToPool(pool: RunnerPool, script: { streamFn: unknown }): void {
+function attachScriptToPool(pool: InstanceType<typeof RunnerPool>, script: { streamFn: unknown }): void {
   const originalGet = pool.get.bind(pool);
-  (pool as any).get = (...args: any[]) => {
+  (pool as any).get = (...args: Parameters<typeof originalGet>) => {
     const next = originalGet(...args);
     const agent = (next as any).agent;
     if (agent && agent.streamFunction !== script.streamFn) {
@@ -129,7 +130,8 @@ async function createHarness(options: { chatId: string; sessionId: string; respo
     (patch: Partial<RuntimeSettings>) => ({ ...createTestSettings(), ...patch }),
     { record: () => {} } as any,
     { record: () => {} } as any,
-    createTestMemory() as any
+    createTestMemory() as any,
+    NOOP_HOOK_MANAGER
   );
   const runner = pool.get(options.chatId, options.sessionId);
   const script = createScriptedStreamFn(options.responses);
@@ -138,7 +140,7 @@ async function createHarness(options: { chatId: string; sessionId: string; respo
   // pinned runner (and the override above) is destroyed. Re-install the script
   // on whatever runner the pool hands out so the continuation is scripted too.
   const originalGet = pool.get.bind(pool);
-  (pool as any).get = (...args: any[]) => {
+  (pool as any).get = (...args: Parameters<typeof originalGet>) => {
     const next = originalGet(...args);
     if ((next as any).agent && (next as any).agent.streamFunction !== script.streamFn) {
       (next as any).agent.streamFunction = script.streamFn;
@@ -224,7 +226,6 @@ test("a deferred approval suspends the run exactly once and an approval resumes 
   };
   const script = createScriptedStreamFn([
     { toolCalls: [{ id: "tc-1", name: "write", arguments: { path: targetName, content: "approved output", label: "write probe" } }] },
-    { toolCalls: [{ id: "tc-2", name: "write", arguments: { path: targetName, content: "approved output", label: "write probe" } }] },
     { text: "Resumed and completed." }
   ]);
   const settings = createTestSettings();
@@ -235,7 +236,8 @@ test("a deferred approval suspends the run exactly once and an approval resumes 
     (patch: Partial<RuntimeSettings>) => ({ ...createTestSettings(), ...patch }),
     { record: () => {} } as any,
     { record: () => {} } as any,
-    createTestMemory() as any
+    createTestMemory() as any,
+    NOOP_HOOK_MANAGER
   );
   const runner = pool.get(chatId, sessionId);
   (runner as any).agent.streamFunction = script.streamFn;
@@ -251,6 +253,7 @@ test("a deferred approval suspends the run exactly once and an approval resumes 
 
   assert.equal(result.stopReason, "waiting_for_approval", `expected the run to suspend, got ${result.stopReason}`);
   assert.equal(script.callCount(), 1, "a suspension must not trigger additional model rounds");
+  assert.ok(result.runId);
   assert.equal(runRowStatus(result.runId), "waiting_for_approval", "the run row must record the approval wait");
 
   const pending = broker.listPendingRequests().filter((r) => r.sessionId === sessionId);
@@ -275,10 +278,14 @@ test("a deferred approval suspends the run exactly once and an approval resumes 
   });
   assert.equal(resumed, true, "the suspended run must be resumed");
 
-  await waitFor(() => script.callCount() >= 3);
-  assert.equal(script.callCount(), 3, "the resumed run replays the tool once and then answers");
+  await waitFor(() => result.runId !== undefined && runRowStatus(result.runId) === "completed");
+  assert.equal(script.callCount(), 2, "approval continues the original call and then answers without reissuing it");
+  const toolReceipts = store.loadContext(chatId, sessionId).filter(message => message.role === "toolResult");
+  assert.equal(toolReceipts.length, 1);
+  assert.equal(toolReceipts[0].role === "toolResult" && toolReceipts[0].toolCallId, "tc-1");
   assert.ok(findTarget(), "the approved write executed after the grant");
   assert.equal(readFileSync(findTarget()!, "utf8"), "approved output");
+  assert.ok(result.runId);
   assert.equal(runRowStatus(result.runId), "completed", "the original run completed after approval");
 
   rmSync(workspaceDir, { recursive: true, force: true });
@@ -324,6 +331,7 @@ test("a rejected approval resumes the run without executing the action", async (
   await waitFor(() => script.callCount() >= 2);
   assert.equal(script.callCount(), 2, "rejection resumes the run once, without replaying the tool");
   assert.equal(existsSync(join(workspaceDir, "rejected.txt")), false, "a rejected action must never execute");
+  assert.ok(result.runId);
   assert.equal(runRowStatus(result.runId), "completed", "the run still completes after a rejection");
 
   rmSync(workspaceDir, { recursive: true, force: true });
@@ -395,6 +403,7 @@ test("full access executes a host command directly: no approval, no suspension, 
   const result = await runner.run(createRunContext({ chatId, sessionId, text: "run the probe command" }));
   assert.equal(result.stopReason, "stop", `expected an unattended completion, got ${result.stopReason}`);
   assert.equal(script.callCount(), 2, "exactly one tool round plus the answer");
+  assert.ok(result.runId);
   assert.equal(runRowStatus(result.runId), "completed");
   assert.equal(brokerPendingFor(sessionId), 0, "no broker approval may be created in full access");
   assert.equal(hostBashPendingFor(chatId), 0, "no Host Bash approval may be created in full access");
@@ -499,7 +508,8 @@ test("a messaging channel honors Manual instead of silently widening it", async 
     (patch: Partial<RuntimeSettings>) => ({ ...createTestSettings(), ...patch }),
     { record: () => {} } as any,
     { record: () => {} } as any,
-    createTestMemory() as any
+    createTestMemory() as any,
+    NOOP_HOOK_MANAGER
   );
   const runner = pool.get(chatId, sessionId);
   (runner as any).agent.streamFunction = script.streamFn;
@@ -586,4 +596,67 @@ test("changing the mode never retrospectively approves a pending request", async
   assert.equal(existsSync(join(workspaceDir, "pending.txt")), false, "a rejected request never executes, in any mode");
 
   rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test("a new Runner for the same admitted step retains its tool budget", async () => {
+  const chatId = "persistent-budget-chat";
+  const sessionId = "persistent-budget-session";
+  const harness = await createHarness({ chatId, sessionId, responses: [
+    { toolCalls: [{ id: "read-one", name: "read", arguments: { path: "budget-source.txt", label: "first read" } }] },
+    { text: "Read completed." },
+    { toolCalls: [{ id: "read-one", name: "read", arguments: { path: "budget-source.txt", label: "second read" } }] },
+    { text: "The budget was reached." }
+  ] });
+  try {
+    harness.settings.budget = { maxToolCalls: 1, maxToolFailures: 6, maxModelAttempts: 10 };
+    writeFileSync(join(harness.store.getScratchDir(chatId), "budget-source.txt"), "source text");
+    const first = createRunContext({ chatId, sessionId, text: "read once" });
+    first.message.messageId = 1001;
+    first.message.budgetId = "admitted-step";
+    assert.equal((await harness.runner.run(first)).stopReason, "stop");
+    const originalRequestCount = harness.script.callCount();
+    harness.pool.reset(chatId, sessionId);
+    const second = createRunContext({ chatId, sessionId, text: "continue" });
+    second.message.messageId = 1002;
+    second.message.budgetId = "admitted-step";
+    const ends: any[] = [];
+    second.onRunnerEvent = async (event: any) => { if (event.type === "tool_execution_end") ends.push(event); };
+    await harness.pool.get(chatId, sessionId).run(second);
+    assert.equal(harness.script.callCount(), originalRequestCount, "a completed admitted step restores its receipts without another provider request");
+    assert.equal(ends.length, 0, "reopening cannot dispatch the completed tool again");
+    const { RunBudgetStore } = await import("./runBudgetStore.js");
+    const stored = new RunBudgetStore(join(harness.workspaceDir, "runtime", "run-budgets.sqlite"),
+      JSON.stringify([harness.workspaceDir, chatId, "admitted-step"]), harness.settings.budget);
+    try {
+      assert.equal(stored.read().toolCalls, 1);
+      assert.equal(stored.read().toolFailures, 0);
+      assert.equal(stored.read().exceededKind, null, "restoring a completed tool does not consume another allowance");
+    } finally { stored.close(); }
+  } finally { rmSync(harness.workspaceDir, { recursive: true, force: true }); }
+});
+
+test("unknown and invalid calls reusing a successful call ID charge their own failure receipts", async () => {
+  const chatId = "budget-validation-chat";
+  const sessionId = "budget-validation-session";
+  const harness = await createHarness({ chatId, sessionId, responses: [
+    { toolCalls: [{ id: "call_0", name: "read", arguments: { path: "budget-source.txt", label: "read" } }] },
+    { toolCalls: [{ id: "call_0", name: "missing_tool", arguments: {} }] },
+    { toolCalls: [{ id: "call_0", name: "read", arguments: {} }] },
+    { text: "Validation failures were reported." }
+  ] });
+  try {
+    harness.settings.budget = { maxToolCalls: 10, maxToolFailures: 6, maxModelAttempts: 10 };
+    writeFileSync(join(harness.store.getScratchDir(chatId), "budget-source.txt"), "source text");
+    const context = createRunContext({ chatId, sessionId, text: "run validation checks" });
+    context.message.budgetId = "validation-step";
+    assert.equal((await harness.runner.run(context)).stopReason, "stop");
+    assert.equal(harness.script.callCount(), 4);
+    const { RunBudgetStore } = await import("./runBudgetStore.js");
+    const store = new RunBudgetStore(join(harness.workspaceDir, "runtime", "run-budgets.sqlite"),
+      JSON.stringify([harness.workspaceDir, chatId, "validation-step"]), harness.settings.budget);
+    try {
+      assert.equal(store.read().toolCalls, 1);
+      assert.equal(store.read().toolFailures, 2);
+    } finally { store.close(); }
+  } finally { rmSync(harness.workspaceDir, { recursive: true, force: true }); }
 });

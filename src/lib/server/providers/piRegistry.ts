@@ -17,14 +17,15 @@ export function getPiModels() {
   return models;
 }
 
+/** Chat-capable settings candidates; other model types remain in getPiModels(). */
 export function getPiProviders(): readonly PiProviderDescriptor[] {
   return models.getProviders().map((provider) => ({
     id: provider.id as KnownProvider,
     name: provider.name,
     models: models.getModels(provider.id)
-  }));
+  })).filter((provider) => provider.models.length > 0);
 }
 
 export function isPiProvider(value: string): value is KnownProvider {
-  return models.getProvider(value) !== undefined;
+  return models.getModels(value).length > 0;
 }

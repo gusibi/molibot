@@ -10,6 +10,7 @@ import {
   isMiniAppInstallReceipt,
   REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD,
   resolveFinalErrorAction,
+  finalErrorUserMessage,
   resolvePromptAttemptDecision,
   shouldCountToolResultAsFailure,
   shouldEmitFinalRunnerError,
@@ -262,4 +263,10 @@ test("a failure streak only counts consecutive failures of the same class", () =
   assert.equal(trackRepeatedToolFailure(state, undefined), undefined);
   // So does a different failure class.
   assert.deepEqual(trackRepeatedToolFailure(state, { signature: "read::b" }), { signature: "read::b", count: 1 });
+});
+
+test("interrupted replies and provider failures expose different user-facing notices", () => {
+  assert.match(finalErrorUserMessage({aborted: true, errorMessage: "Request was aborted", userText: "重新分析"}), /已中止/);
+  assert.match(finalErrorUserMessage({aborted: true, userText: "Analyze again"}), /interrupted/);
+  assert.match(finalErrorUserMessage({aborted: false, errorMessage: "Provider returned HTTP 429", userText: "Analyze"}), /HTTP 429/);
 });

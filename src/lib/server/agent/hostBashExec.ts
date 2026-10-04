@@ -84,7 +84,9 @@ async function runHostCommand(input: {
 }): Promise<HostRunResult> {
   const shell = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "zsh");
   const shellArgs = process.platform === "win32" ? ["/d", "/s", "/c", input.command] : ["-lc", input.command];
+  input.signal?.throwIfAborted();
   const env = await buildHostEnv(input.permissions);
+  input.signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const timeoutSeconds = input.timeoutSeconds && input.timeoutSeconds > 0
       ? Math.min(Math.round(input.timeoutSeconds), 600)

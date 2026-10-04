@@ -301,7 +301,7 @@ test("plain approval text approves the only pending host tool request in the cha
     runners: {} as any,
     getSettings: () => defaultRuntimeSettings,
     hostBashStore: createTestHostBashStore(pendingApprovals, approvalHistory, approvedTools) as any,
-    executeApprovedHostBash: async () => {
+    resumeApprovedHostBash: async () => {
       autoExecuted = true;
       return "Approved and executed immediately.";
     },
@@ -328,8 +328,8 @@ test("plain approval text approves the only pending host tool request in the cha
   // Execution now happens in the background, after the approval reply.
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(autoExecuted, true);
-  assert.equal(approvalHistory[0]?.status, "executed");
-  assert.ok(sent.some((text) => /Approved and executed immediately/.test(text)));
+  assert.equal(approvalHistory[0]?.status, "approved", "the decision handler leaves execution to the native owner");
+  assert.ok(sent.some((text) => /original task will continue/.test(text)));
 });
 
 test("persistent approval text whitelists the pending host tool request", async () => {
@@ -370,7 +370,7 @@ test("persistent approval text whitelists the pending host tool request", async 
     runners: {} as any,
     getSettings: () => defaultRuntimeSettings,
     hostBashStore: createTestHostBashStore(pendingApprovals, approvalHistory, approvedTools) as any,
-    executeApprovedHostBash: async () => {
+    resumeApprovedHostBash: async () => {
       autoExecuted = true;
       return "Approved and executed immediately.";
     },
@@ -396,7 +396,7 @@ test("persistent approval text whitelists the pending host tool request", async 
   // Execution now happens in the background, after the approval reply.
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(autoExecuted, true);
-  assert.equal(approvalHistory[0]?.status, "executed");
+  assert.equal(approvalHistory[0]?.status, "approved", "the decision handler leaves execution to the native owner");
 });
 
 test("hosttools reject rejects a specific pending host tool request", async () => {
@@ -500,7 +500,7 @@ test("hosttools approve-session enables session fallback without persisting appr
     runners: {} as any,
     getSettings: () => defaultRuntimeSettings,
     hostBashStore: createTestHostBashStore(pendingApprovals, approvalHistory, approvedTools) as any,
-    executeApprovedHostBash: async () => {
+    resumeApprovedHostBash: async () => {
       autoExecuted = true;
       return "Executed immediately.";
     },
@@ -528,7 +528,7 @@ test("hosttools approve-session enables session fallback without persisting appr
   // Execution now happens in the background, after the approval reply.
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(autoExecuted, true);
-  assert.equal(approvalHistory[0]?.status, "executed");
+  assert.equal(approvalHistory[0]?.status, "approved", "the decision handler leaves execution to the native owner");
 });
 
 test("status command renders the same grouped markdown shape on qq", async () => {

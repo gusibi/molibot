@@ -298,3 +298,12 @@ export function resolveFinalErrorAction(input: {
   }
   return { kind: input.streamedPartial.trim() ? "preserve_partial" : "generic" };
 }
+
+export function finalErrorUserMessage(input: { aborted: boolean; errorMessage?: string; userText: string }): string {
+  const chinese = /[\u3400-\u9fff]/.test(input.userText);
+  if (input.aborted) return chinese
+    ? "本次回复已中止，尚未完成。可以重新发送消息重试。"
+    : "This reply was interrupted before completion. Send the message again to retry.";
+  return chinese ? `本次回复失败：${input.errorMessage || "未知错误"}`
+    : `This reply failed: ${input.errorMessage || "Unknown error"}`;
+}

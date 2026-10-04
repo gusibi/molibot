@@ -10,6 +10,7 @@ import type {
   HostBashPermissions
 } from "$lib/server/hostBash/types.js";
 import { classifyHostBashCommand } from "$lib/server/hostBash/commandClassifier.js";
+import { createHash } from "node:crypto";
 
 export const defaultHostBashPermissions: HostBashPermissions = {
   envAllowlist: [],
@@ -419,6 +420,7 @@ export function coerceApprovalMode(input: unknown): HostBashApprovalMode {
 }
 
 export function createHostBashApprovalRecord(input: {
+  invocationId?: string;
   toolId?: unknown;
   displayName?: unknown;
   command: unknown;
@@ -443,6 +445,7 @@ export function createHostBashApprovalRecord(input: {
   const sessionId = sanitizeOptionalString(input.sessionId, 200);
   const displayName = sanitizeString(input.displayName, toolId || command).slice(0, 120) || toolId || command;
   const pendingAction = sanitizeHostBashPendingAction(input.pendingAction);
+  const owner = sanitizeHostBashOwner(input.owner);
   const effectiveCommand = approvalMode === "ephemeral"
     ? sanitizeString(input.command).slice(0, 240)
     : command;
@@ -459,7 +462,10 @@ export function createHostBashApprovalRecord(input: {
   if (!reason) throw new Error("reason is required for host bash approval requests.");
 
   return {
-    id: buildApprovalId(toolId),
+    id: input.invocationId ? `hba-${createHash("sha256").update(JSON.stringify({
+      invocationId: input.invocationId, scopeId, sessionId,
+      owner: owner ? { kind: owner.kind, id: owner.id, key: owner.key } : undefined
+    })).digest("hex")}` : buildApprovalId(toolId),
     toolId,
     displayName,
     command: effectiveCommand,
@@ -469,7 +475,7 @@ export function createHostBashApprovalRecord(input: {
     chatId,
     scopeId,
     sessionId,
-    owner: sanitizeHostBashOwner(input.owner),
+    owner,
     requestedAt: new Date().toISOString(),
     approvalMode,
     status: "pending",

@@ -1,3 +1,4 @@
+import { getCurrentSystemPrompt, getCurrentTools, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,6 +11,14 @@ import { MomRunner, resolveSessionWorkingDir } from "$lib/server/agent/core/runn
 import { resolveModelSelection } from "$lib/server/agent/routing/modelRouting.js";
 import { decideVisionRouting } from "$lib/server/agent/routing/mediaFallback.js";
 import { RunnerPool, snapshotAllRuntimeRuns } from "$lib/server/agent/core/runnerPool.js";
+
+const nativeTestLifecycle = {
+  startTurn: () => {}, bindRun: () => {}, close: async () => {}, sourceIdFor: () => undefined, steer: () => true,
+  replaceContext: async function(this: { state: { messages: unknown[] } }, messages: unknown[]) { this.state.messages = messages; }
+};
+
+const runnerTestWorkspace = mkdtempSync(join(tmpdir(), "molibot-runner-workspace-"));
+test.after(() => rmSync(runnerTestWorkspace, { recursive: true, force: true }));
 
 function createRunnerTestSettings(): RuntimeSettings {
   return {
@@ -488,7 +497,7 @@ test("manual compact reloads the latest persisted session before summarizing", a
   const appended: Array<{ summary: string; summarizedMessages: number; keptMessages: number }> = [];
 
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     loadContext: () => persistedMessages,
     appendCompaction: (_chatId: string, summary: string, keptMessages: unknown[], _before: number, _after: number, summarizedMessages: number) => {
@@ -590,7 +599,7 @@ test("host bash approval is forwarded to runner event sink but does not abort ex
   };
 
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     saveContext: () => {
@@ -634,6 +643,7 @@ test("host bash approval is forwarded to runner event sink but does not abort ex
   let subscriber: ((event: any) => void) | undefined;
   let aborted = false;
   (runner as any).agent = {
+    ...nativeTestLifecycle,
     state: {
       messages: [],
       tools: [],
@@ -652,13 +662,20 @@ test("host bash approval is forwarded to runner event sink but does not abort ex
     },
     followUp: () => {},
     prompt: async () => {
+      (runner as any).agent.state.messages.push({
+        role: "assistant",
+        content: [{ type: "toolCall", id: "host-call-1", name: "bash", arguments: { label: "bash" } }],
+        timestamp: Date.now()
+      });
       subscriber?.({
         type: "tool_execution_start",
+        toolCallId: "host-call-1",
         toolName: "bash",
         args: { label: "bash" }
       });
       subscriber?.({
         type: "tool_execution_end",
+        toolCallId: "host-call-1",
         toolName: "bash",
         isError: true,
         result: {
@@ -743,7 +760,7 @@ test("runner persists user and partial assistant error when a run throws after s
   const settings = createRunnerTestSettings();
   const appendedMessages: any[] = [];
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     saveContext: () => {
@@ -774,6 +791,7 @@ test("runner persists user and partial assistant error when a run throws after s
 
   let subscriber: ((event: any) => void) | undefined;
   (runner as any).agent = {
+    ...nativeTestLifecycle,
     state: {
       messages: [],
       tools: [],
@@ -823,7 +841,7 @@ test("runner persists user and assistant error when a run throws before output",
   const settings = createRunnerTestSettings();
   const appendedMessages: any[] = [];
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     saveContext: () => {
@@ -853,6 +871,7 @@ test("runner persists user and assistant error when a run throws before output",
   );
 
   (runner as any).agent = {
+    ...nativeTestLifecycle,
     state: {
       messages: [],
       tools: [],
@@ -889,7 +908,7 @@ test("runner replays an accepted steer after a whole-attempt retry rolls back it
   const settings = createRunnerTestSettings();
   const appendedMessages: any[] = [];
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
@@ -916,7 +935,7 @@ test("runner replays an accepted steer after a whole-attempt retry rolls back it
   let queuedSteering: any[] = [];
   const requestUserTexts: string[][] = [];
   const agent = {
-    state: {
+    ...nativeTestLifecycle,    state: {
       messages: [] as any[],
       tools: [],
       systemPrompt: "test",
@@ -991,7 +1010,7 @@ test("runner compacts and retries a successful-looking response whose usage exce
   const settings = createRunnerTestSettings();
   const appendedMessages: any[] = [];
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
@@ -1028,6 +1047,7 @@ test("runner compacts and retries a successful-looking response whose usage exce
   let subscriber: ((event: any) => void) | undefined;
   let promptCalls = 0;
   (runner as any).agent = {
+    ...nativeTestLifecycle,
     state: {
       messages: [],
       tools: [],
@@ -1078,7 +1098,7 @@ test("runner preserves completed tool results, compacts, and continues after a p
   const settings = createRunnerTestSettings();
   const appendedMessages: any[] = [];
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
@@ -1111,8 +1131,8 @@ test("runner preserves completed tool results, compacts, and continues after a p
     compactCalls += 1;
     if (compactCalls === 2) {
       const roles = (runner as any).agent.state.messages.map((message: any) => message.role);
-      assert.deepEqual(roles.slice(-2), ["assistant", "toolResult"]);
-      assert.doesNotMatch(JSON.stringify((runner as any).agent.state.messages), /context length exceeded/i);
+      assert.deepEqual(roles.slice(-3), ["assistant", "toolResult", "assistant"]);
+      assert.match(JSON.stringify((runner as any).agent.state.messages), /context length exceeded/i);
     }
     return {
       changed: compactCalls === 2,
@@ -1135,6 +1155,7 @@ test("runner preserves completed tool results, compacts, and continues after a p
     thinkingLevel: settings.defaultThinkingLevel
   };
   (runner as any).agent = {
+    ...nativeTestLifecycle,
     state: agentState,
     sessionId: "test",
     transport: "responses",
@@ -1197,7 +1218,7 @@ test("runner preserves completed tool results, compacts, and continues after a p
   assert.equal(toolExecutions, 1);
   assert.equal(compactCalls, 2);
   assert.equal(appendedMessages.some((message) => message.role === "toolResult"), true);
-  assert.equal(appendedMessages.some((message) => message.errorMessage === "context length exceeded"), false);
+  assert.equal(appendedMessages.some((message) => message.errorMessage === "context length exceeded"), true, "failed canonical provider receipts remain available for diagnostics");
 });
 
 test("runner never reuses a previous turn's assistant message when the current attempt is empty", async () => {
@@ -1210,7 +1231,7 @@ test("runner never reuses a previous turn's assistant message when the current a
   };
   const appendedMessages: any[] = [oldAssistant];
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
@@ -1234,6 +1255,7 @@ test("runner never reuses a previous turn's assistant message when the current a
 
   let promptCalls = 0;
   (runner as any).agent = {
+    ...nativeTestLifecycle,
     state: {
       messages: [oldAssistant],
       tools: [],
@@ -1269,7 +1291,7 @@ test("fresh automation run starts and ends without archived model messages", asy
     { role: "user", content: [{ type: "text", text: "approval prompt" }], timestamp: Date.now() }
   ];
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any, _sessionId: string, options?: any) => {
@@ -1312,6 +1334,7 @@ test("fresh automation run starts and ends without archived model messages", asy
   let subscriber: ((event: any) => void) | undefined;
   let messagesAtPrompt: any[] = [];
   (runner as any).agent = {
+    ...nativeTestLifecycle,
     state: {
       messages: [oldMessage], tools: [], systemPrompt: "test",
       model: resolveModelSelection(settings, "text").model,
@@ -1877,7 +1900,7 @@ test("image attachments tell text-only models to use read on demand", () => {
 test("runner emits run.started once and run.finished only on turn completion across multi-attempt execution", async () => {
   const settings = createRunnerTestSettings();
   const store = {
-    getWorkspaceDir: () => process.cwd(),
+    getWorkspaceDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: () => "entry-1",
@@ -1915,6 +1938,7 @@ test("runner emits run.started once and run.finished only on turn completion acr
   };
   let attemptCount = 0;
   (runner as any).agent = {
+    ...nativeTestLifecycle,
     state: {
       messages: [], tools: [], systemPrompt: "test",
       model: resolveModelSelection(settings, "text").model,
@@ -1988,7 +2012,8 @@ test("Stop during preflight never dispatches an Auto decision or starts the main
   runner = new MomRunner("telegram", "chat-stop", "session-stop", store as any, () => settings, () => settings,
     { record: () => {} } as any, { record: () => {} } as any, memory as any, createRunnerHookManager(events), () => orchestrator);
   let prompts = 0;
-  (runner as any).agent = { state: { messages: [], tools: [], systemPrompt: "test", model: resolveModelSelection(settings, "text").model,
+  (runner as any).agent = {
+    ...nativeTestLifecycle, state: { messages: [], tools: [], systemPrompt: "test", model: resolveModelSelection(settings, "text").model,
     thinkingLevel: "off" }, subscribe: () => () => {}, abort: () => {}, clearAllQueues: () => {}, followUp: () => {}, prompt: async () => { prompts++; } };
   const context = createRunnerContext("Please analyze this implementation.");
   context.message.runId = "cancel-preflight";
@@ -2000,4 +2025,82 @@ test("Stop during preflight never dispatches an Auto decision or starts the main
     assert.equal(orchestrator.getTurnDecision("cancel-preflight")?.state, "pending");
     assert.equal(events.filter((event) => event.stage === "model.call.before").length, 0);
   } finally { orchestrator.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test("Pi requests restore the rendered prompt and tools after session context reload", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-pi-request-"));
+  try {
+    const runner = await createRunnerForHookTest({ chatId: "pi-request", workspaceDir, hookManager: createRunnerHookManager([]) });
+    const agent = (runner as any).agent;
+    (runner as any).renderedSystemPrompt = "Bot rules and profile instructions";
+    agent.state.messages = [];
+    agent.state.tools = [{ name: "read", description: "Read a file", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [{ type: "text", text: "file" }] }) }];
+    const requested: Array<{ prompt: string; tools: string[] }> = [];
+    agent.streamFunction = (model: any, context: any) => {
+      requested.push({ prompt: getCurrentSystemPrompt(context.messages), tools: getCurrentTools(context.messages).map((tool) => tool.name) });
+      const output = createAssistantMessageEventStream();
+      output.push({ type: "done", reason: "stop", message: {
+        role: "assistant", content: [{ type: "text", text: "done" }], api: model.api, provider: model.provider, model: model.id,
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "stop", timestamp: Date.now()
+      } });
+      output.end();
+      return output;
+    };
+    const bind = (requestId: string) => {
+      agent.startTurn();
+      agent.bindRun({ storagePath: join(workspaceDir, `${requestId}.sqlite`), requestId, admissionKey: "fixture",
+        models: [agent.state.model], scope: { ownerId: "fixture", executionId: requestId, stepId: "turn", planVersion: 1, authorityKey: "fixture" },
+        assertStorageOwnership: () => {}, assertAuthority: () => {} });
+    };
+    bind("first");
+    await agent.prompt("First request");
+    await agent.close();
+    agent.state.messages = agent.state.messages.filter((message: any) => message.role !== "system");
+    bind("reload");
+    await agent.prompt("After session reload");
+    await agent.close();
+    assert.equal(requested.length, 2);
+    for (const request of requested) {
+      assert.equal(request.prompt, "Bot rules and profile instructions");
+      assert.ok(request.tools.includes("read"));
+      assert.equal(new Set(request.tools).size, request.tools.length);
+    }
+    assert.equal(agent.state.messages.at(-1).content[0].text, "done");
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test("real Runner applies its budget and trace hooks to nested Codemode writes", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-codemode-"));
+  const events: Array<{ stage: string; payload: any }> = [];
+  try {
+    const runner = await createRunnerForHookTest({ chatId: "codemode-budget", workspaceDir, hookManager: createRunnerHookManager(events) });
+    const settings = { ...createRunnerTestSettings(), permissionMode: "auto", budget: { maxToolCalls: 2, maxToolFailures: 6, maxModelAttempts: 6 } };
+    (runner as any).getSettings = () => settings;
+    const agent = (runner as any).agent;
+    let requests = 0;
+    agent.streamFunction = (model: any) => {
+      requests++;
+      const output = createAssistantMessageEventStream();
+      const first = requests === 1;
+      output.push({ type: "done", reason: first ? "toolUse" : "stop", message: {
+        role: "assistant", content: first ? [{ type: "toolCall", id: "runner-code", name: "codemode", arguments: {
+          code: 'await tools.write({label:"Save first",path:"first.txt",content:"one"}); await tools.write({label:"Save second",path:"second.txt",content:"two"});'
+        } }] : [{ type: "text", text: "Stopped at the configured budget." }], api: model.api, provider: model.provider, model: model.id,
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: first ? "toolUse" : "stop", timestamp: Date.now()
+      } });
+      return output;
+    };
+    await runner.run(createRunnerContext("Save two files using the tool."));
+    assert.ok(events.some(event => event.stage === "tool.call.before" && event.payload.toolCallId === "runner-code:codemode:1"), JSON.stringify(agent.state.messages));
+    assert.ok(events.some(event => event.stage === "tool.call.blocked" && event.payload.toolCallId === "runner-code:codemode:2" && event.payload.blockedBy === "budget"));
+    const result = agent.state.messages.find((message: any) => message.role === "toolResult" && message.toolCallId === "runner-code");
+    assert.ok(result);
+    assert.match(JSON.stringify(result.content), /budget exceeded/);
+    assert.equal(requests, 2);
+  } finally { rmSync(workspaceDir, { recursive: true, force: true }); }
 });

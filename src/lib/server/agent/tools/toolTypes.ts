@@ -4,6 +4,7 @@ import type { SideEffectClass } from "$lib/server/agent/durable/types.js";
 import type { DurableEvidenceRead } from "$lib/server/agent/durable/evidence.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/types.js";
 import type { ThirdPartyHint, ToolEffect } from "$lib/server/agent/tools/toolClassification.js";
+import type { Usage } from "@earendil-works/pi-ai";
 
 export type ToolRiskLevel = "low" | "medium" | "high" | "critical";
 export type ToolSource = "builtin" | "mcp" | "plugin" | "host" | "skill_script";
@@ -34,6 +35,7 @@ export interface ToolResult {
   error?: string;
   metadata?: Record<string, unknown>;
   details?: Record<string, any>;
+  usage?: Usage;
   /** Ask the pi agent loop to stop after this tool batch. */
   terminate?: boolean;
 }
@@ -76,6 +78,12 @@ export interface ToolExecutionContext {
   signal?: AbortSignal;
   /** The originating agent tool-call id. Unique per call, unlike runId which is shared by every call in a run. */
   toolCallId?: string;
+  /** Persisted pre-intent decision of this native tool task. */
+  resumeApprovalRequestId?: string;
+  /** Native pre-intent stages retain receipts and reject interrupted effects with unknown outcomes. */
+  preparationEffects?: {
+    run<T>(stage: string, input: unknown, execute: () => Promise<T>): Promise<T>;
+  };
   /** Streaming progress callback from the agent loop; handlers that delegate to AgentTool.execute must pass it through. */
   onUpdate?: (update: any) => void;
   /**
@@ -102,6 +110,8 @@ export interface ToolExecutionContext {
 export interface ToolSideEffect {
   toolId: string;
   toolCallId?: string;
+  /** Persisted pre-intent decision of this native tool task. */
+  resumeApprovalRequestId?: string;
   sideEffectClass: SideEffectClass;
   idempotencyKey: string;
   targetSummary: string;
@@ -127,7 +137,14 @@ export interface ToolDefinition {
   /** Explicit recovery semantics. Omitted third-party tools are conservative. */
   sideEffectClass?: SideEffectClass;
   requiredPermissions?: string[];
+  /** Resolve tool-specific authorization before the execution intent is recorded. */
+  prepare?: (input: unknown, ctx: ToolExecutionContext) => Promise<ToolResult | PreparedToolInvocation | undefined>;
   handler: (input: unknown, ctx: ToolExecutionContext) => Promise<ToolResult>;
+}
+
+export interface PreparedToolInvocation {
+  execute: (ctx: ToolExecutionContext) => Promise<ToolResult>;
+  cancel?: () => void;
 }
 
 export type PolicyDecision =

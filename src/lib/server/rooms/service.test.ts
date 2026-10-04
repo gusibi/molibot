@@ -254,3 +254,47 @@ test("purging a Room removes its owned transcript, execution evidence and attach
   assert.deepEqual(store.events(room.id), []);
   assert.equal(store.fileByLocal(room.id, "a.txt"), undefined);
 });
+
+test("native recovery preserves the original Room execution and rechecks revoked membership", async (t) => {
+  const { service, store, calls } = fixture(t);
+  const room = service.create({ title: "Native recovery", agentIds: ["writer", "reviewer"] });
+  service.send(room.id, { submissionId: "original", text: "Write" });
+  await flush();
+  const execution = store.executions(room.id)[0];
+  let effects = 0;
+  const recovered = new RoomService({ store, agents: () => [{ id: "writer", name: "Writer", description: "", enabled: true }],
+    createSession: () => ({ id: "unused" }), isSessionAvailable: () => true,
+    createRunner: () => { effects++; throw new Error("Revoked member must not create a runner"); } });
+  recovered.recover(new Set([execution.id]));
+  assert.equal(store.executions(room.id)[0].status, "running");
+  store.update({ ...room, participants: room.participants.map(member => ({ ...member, active: member.agentId !== "writer" })) });
+  assert.equal(recovered.resumeNativeExecution(room.id, execution.id), false);
+  assert.equal(effects, 0);
+  assert.equal(store.executions(room.id)[0].status, "failed");
+  calls[0].finish("Old process settled"); await flush();
+});
+
+
+test("failed native checkpoint inspection releases the preserved Room writer", async t => {
+  const { service, store, calls } = fixture(t);
+  const room = service.create({ title: "Checkpoint failure", agentIds: ["writer"] });
+  service.send(room.id, { submissionId: "original", text: "Write" });
+  await flush();
+  const execution = store.executions(room.id)[0];
+  const recovered = new RoomService({ store, agents: () => [{ id: "writer", name: "Writer", description: "", enabled: true }],
+    createSession: () => ({ id: "unused" }), isSessionAvailable: () => true,
+    createRunner: () => { throw new Error("Inspection failure must not execute"); } });
+  recovered.recover(new Set([execution.id]));
+  assert.equal(recovered.isBusy(room.id), true);
+  recovered.failNativeRecovery(room.id, execution.id, "No committed poll handle");
+  assert.equal(recovered.isBusy(room.id), false);
+  assert.equal(store.executions(room.id)[0].status, "failed");
+  const next = { ...execution, id: "next-writer", status: "queued" as const };
+  store.addExecution(next);
+  assert.equal(store.claim(next), true);
+  store.release(next);
+  store.state(next.id, "cancelled");
+  recovered.failNativeRecovery(room.id, next.id, "Late inspection");
+  assert.equal(store.executions(room.id).find(e => e.id === next.id)?.status, "cancelled");
+  calls[0].finish("Old process settled"); await flush();
+});

@@ -43,7 +43,7 @@ export interface ChannelRunnerPoolLike {
 }
 
 export class RunnerPool implements ChannelRunnerPoolLike {
-  private readonly map = new Map<string, MomRunner>();
+  private readonly map: Map<string, MomRunner>;
 
   constructor(
     private readonly channel: string,
@@ -54,7 +54,9 @@ export class RunnerPool implements ChannelRunnerPoolLike {
     private readonly modelErrorTracker: ModelErrorTracker,
     private readonly memory: MemoryGateway,
     private readonly hookManager: HookManager,
+    private readonly runtimeIdentity?: { agentId: string; roomId: string; executionId: string },
   ) {
+    this.map = [...runtimePools].find(pool => pool.channel === channel && pool.store.getWorkspaceDir() === store.getWorkspaceDir())?.map ?? new Map();
     runtimePools.add(this);
   }
 
@@ -77,6 +79,7 @@ export class RunnerPool implements ChannelRunnerPoolLike {
       this.modelErrorTracker,
       this.memory,
       this.hookManager,
+      undefined, this.runtimeIdentity,
     );
     this.map.set(key, runner);
     return runner;

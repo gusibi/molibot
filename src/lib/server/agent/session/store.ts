@@ -1075,10 +1075,22 @@ export class MomRuntimeStore {
     chatId: string,
     message: AgentMessage,
     sessionId?: string,
-    options?: { runId?: string; retention?: TurnRetentionPolicy; contextBreakdown?: SessionContextSnapshot }
+    options?: { runId?: string; retention?: TurnRetentionPolicy; contextBreakdown?: SessionContextSnapshot; sourceId?: string }
   ): string {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
-    const entryId = createEntryId();
+    const entryId = options?.sourceId
+      ? `source-${createHash("sha256").update(options.sourceId).digest("hex")}`
+      : createEntryId();
+    if (options?.sourceId) {
+      const existing = this.readSessionFileEntries(chatId, id).find(entry => entry.id === entryId);
+      if (existing) {
+        if (existing.type !== "message" || JSON.stringify(existing.message) !== JSON.stringify(message)
+          || existing.runId !== (String(options.runId ?? "").trim() || undefined)) {
+          throw new Error("Committed message source identity was reused with different content or ownership.");
+        }
+        return entryId;
+      }
+    }
     this.appendSessionEntry(chatId, id, {
       type: "message",
       id: entryId,
@@ -1336,6 +1348,11 @@ export class MomRuntimeStore {
       timestamp: new Date().toISOString(),
       ...event
     });
+  }
+
+  readLatestRuntimeEvent(chatId: string, code: string, sessionId: string): SessionRuntimeEventEntry | undefined {
+    return this.readSessionFileEntries(chatId, this.sanitizeSessionId(sessionId))
+      .findLast((entry): entry is SessionRuntimeEventEntry => entry.type === "runtime_event" && entry.code === code);
   }
 
   appendRunSummary(chatId: string, summary: Record<string, unknown>): void {

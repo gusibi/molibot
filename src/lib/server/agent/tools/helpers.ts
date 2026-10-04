@@ -207,7 +207,7 @@ export async function execCommand(command: string, opts: ExecOptions): Promise<E
 }
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
+import type { ToolDefinition, ToolExecutionContext, ToolResult } from "$lib/server/agent/tools/toolTypes.js";
 import type { BoundExecutionEnvironment } from "$lib/server/agent/exec/executionBackend.js";
 import { promises as fsPromises } from "node:fs";
 
@@ -215,7 +215,7 @@ export function toolDefToAgentTool(
   def: ToolDefinition,
   cwd: string,
   env?: Record<string, string>,
-  options?: { executionEnvironment?: BoundExecutionEnvironment }
+  options?: { executionEnvironment?: BoundExecutionEnvironment; runId?: string; sessionId?: string }
 ): AgentTool<any> {
   return {
     name: def.id,
@@ -224,10 +224,12 @@ export function toolDefToAgentTool(
     parameters: def.inputSchema as any,
     execute: async (toolCallId, params, signal) => {
       const ctx: ToolExecutionContext = {
-        runId: toolCallId,
-        sessionId: "legacy-session",
+        runId: options?.runId ?? toolCallId,
+        sessionId: options?.sessionId ?? "legacy-session",
         workspaceId: "legacy-workspace",
         actorId: "legacy-actor",
+        toolCallId,
+        signal,
         cwd,
         fs: {
           readText: async (p) => fsPromises.readFile(p, "utf8"),
@@ -282,7 +284,12 @@ export function toolDefToAgentTool(
         emit: () => {}
       };
 
-      const result = await def.handler(params, ctx);
+      const prepared = await def.prepare?.(params, ctx);
+      let result: ToolResult;
+      if (prepared && "execute" in prepared) {
+        try { result = await prepared.execute(ctx); }
+        finally { prepared.cancel?.(); }
+      } else result = prepared ?? await def.handler(params, ctx);
       if (!result.ok && result.metadata?.status !== "waiting_for_approval") {
         throw new Error(result.error || "Tool execution failed");
       }
@@ -290,7 +297,9 @@ export function toolDefToAgentTool(
         content: Array.isArray(result.content)
           ? result.content
           : [{ type: "text", text: String(result.content ?? result.error ?? "") }],
-        details: result.details
+        details: result.details,
+        metadata: result.metadata,
+        terminate: result.terminate
       };
     }
   };

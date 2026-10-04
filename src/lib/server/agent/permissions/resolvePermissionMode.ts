@@ -84,6 +84,8 @@ export type ExecutionTarget = "sandbox" | "host" | "none";
  * system prompt and the UI all read this same result.
  */
 export interface EffectiveExecutionPolicy {
+  /** Restricts execution to local read tools. */
+  readOnly?: boolean;
   mode: PermissionMode;
   source: PermissionModeSource;
   executionTarget: ExecutionTarget;

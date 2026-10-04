@@ -128,6 +128,7 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
 
   const ctx: MomContext = {
     channel: options.channel,
+    deliveryTarget: { channel: options.channel, instanceId: options.instanceId, workspaceDir: options.workspaceDir, chatId: options.event.scopeId ?? options.event.chatId },
     message: options.event,
     workspaceDir: options.workspaceDir,
     chatDir: options.chatDir,

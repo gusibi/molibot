@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt, getCurrentTools, normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { isContextOverflow } from "@earendil-works/pi-ai";
 import { assistantErrorFromText } from "$lib/server/agent/core/runnerRetryState.js";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
@@ -506,29 +507,22 @@ export function moveAnthropicSystemMessagesToTopLevel(context: any): any {
   )
     return context;
 
-  const systemBlocks: string[] = [];
-  const messages: unknown[] = [];
-  const existingSystemPrompt =
-    typeof context.systemPrompt === "string" ? context.systemPrompt.trim() : "";
-  if (existingSystemPrompt) systemBlocks.push(existingSystemPrompt);
+  // Provider-native transcript messages already carry prompt and tool changes.
+  if (!context.systemPrompt && !context.messages.some((message: any) =>
+    message?.role === "developer"
+  )) return context;
 
-  for (const msg of context.messages) {
-    if (!msg || typeof msg !== "object") {
-      messages.push(msg);
-      continue;
-    }
-    const role = (msg as { role?: unknown }).role;
-    if (role !== "system" && role !== "developer") {
-      messages.push(msg);
-      continue;
-    }
-    const text = extractPlainTextContent((msg as { content?: unknown }).content);
-    if (text) systemBlocks.push(text);
-  }
-
+  const transcript = normalizeContext(context);
+  const systemPrompt = getCurrentSystemPrompt(transcript.messages);
+  const tools = getCurrentTools(transcript.messages);
+  const developerBlocks = context.messages
+    .filter((message: any) => message?.role === "developer")
+    .map((message: any) => extractPlainTextContent(message.content))
+    .filter(Boolean);
   return {
     ...context,
-    systemPrompt: systemBlocks.join("\n\n"),
-    messages
+    systemPrompt: [systemPrompt, ...developerBlocks].filter(Boolean).join("\n\n"),
+    tools,
+    messages: context.messages.filter((message: any) => message?.role !== "system" && message?.role !== "developer")
   };
 }

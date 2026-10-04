@@ -29,7 +29,7 @@ test("both approval entry points use the background conversation recorder", asyn
   const { readFileSync } = await import("node:fs");
   for (const path of ["../../../routes/api/chat/+server.ts", "../channels/shared/brokerApprovalResume.ts"]) {
     const source = readFileSync(new URL(path, import.meta.url), "utf8");
-    assert.match(source, /runBackgroundConversation\(pool\.get\(scopeId, sessionId\)/);
+    assert.match(source, path.includes("routes/") ? /resumeSuspendedBrokerApproval/ : /runBackgroundConversation\(pool\.get\(scopeId, sessionId\)/);
     assert.doesNotMatch(source, /respond:\s*async\s*\(text: string\)\s*=>\s*\{\s*if\s*\(text\.trim\(\)\)\s*\{\s*(getRuntime\(\)\.sessions|sessions)\.appendMessage/);
   }
 });

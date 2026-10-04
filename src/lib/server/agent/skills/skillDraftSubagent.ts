@@ -10,6 +10,10 @@ export interface SkillDraftMetadataSubagentOptions {
   chatId: string;
   settings: RuntimeSettings;
   signal?: AbortSignal;
+  executionPolicy?: import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
+  beforeGeneration?: (id: string) => void;
+  onChildUsage?: import("$lib/server/agent/durable/piConversation.js").PiConversationOptions["onChildUsage"];
+  childTools?: () => readonly import("@earendil-works/pi-agent-core").AgentTool[];
 }
 
 function compactLine(input: string, max = 220): string {
@@ -88,7 +92,7 @@ export async function buildSkillDraftMetadataViaSubagent(
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
       settings: options.settings,
-      signal: options.signal
+      signal: options.signal, executionPolicy: options.executionPolicy, beforeGeneration: options.beforeGeneration, childTools: options.childTools, onChildUsage: options.onChildUsage
     });
     const parsed = extractJsonObject(result.output);
     if (!parsed) {

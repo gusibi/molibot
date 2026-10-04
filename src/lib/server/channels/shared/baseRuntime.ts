@@ -3,10 +3,9 @@ import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import { buildPromptChannelSections } from "$lib/server/agent/prompts/prompt-channel.js";
-import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec.js";
+import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/agent/prompts/prompt.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
-import { resolveSessionWorkingDir } from "$lib/server/agent/core/runner.js";
 import { zeroAssistantUsage } from "$lib/server/agent/core/runnerHelpers.js";
 import { buildRunnerProjectContext } from "$lib/server/projects/context.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
@@ -24,11 +23,7 @@ import { createRunId, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "$lib/server/agent/commands/channelCommands.js";
 import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "$lib/server/channels/shared/contextBuilder.js";
 import type { ChannelInboundMessage, DurableAttemptHooks, DurableAttemptResult, RunResult, RunnerUiEvent } from "$lib/server/agent/core/types.js";
-import {
-  retryApprovalAutoResume,
-  APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
-  APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS
-} from "$lib/server/channels/shared/approvalAutoResume.js";
+
 import { ChannelQueue } from "$lib/server/channels/shared/queue.js";
 import type { PromptChannel } from "$lib/server/agent/prompts/prompt-channel.js";
 import type { Channel } from "$lib/shared/types/message.js";
@@ -396,45 +391,6 @@ export abstract class BaseChannelRuntime {
     return { queued };
   }
 
-  protected getApprovalAutoResumeRetryConfig(): { delayMs: number; maxAttempts: number } {
-    return {
-      delayMs: APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
-      maxAttempts: APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS
-    };
-  }
-
-  protected resumeApprovedHostBashTask<TSent extends ContextSentMessageRef>(
-    scopeId: string,
-    event: ChannelInboundMessage,
-    options: {
-      createBotMessageId: () => number;
-      response: ChannelResponseHandle<TSent>;
-      notifyRetryExhausted?: () => Promise<void>;
-    }
-  ): void {
-    const retry = this.getApprovalAutoResumeRetryConfig();
-    void retryApprovalAutoResume({
-      run: async () => {
-        await this.runSharedTextTask(scopeId, event, {
-          createBotMessageId: options.createBotMessageId,
-          response: options.response
-        });
-      },
-      maxAttempts: retry.maxAttempts,
-      delayMs: retry.delayMs,
-      onWarn: (warningCode, meta) => {
-        if (warningCode === "approval_auto_resume_retrying" && meta.attempt !== 1 && meta.attempt % 60 !== 0) {
-          return;
-        }
-        momWarn(this.channelName, warningCode, {
-          chatId: scopeId,
-          ...meta
-        });
-      },
-      onRetryExhausted: options.notifyRetryExhausted
-    });
-  }
-
   protected buildQueuedBusyNotice(queueId: number): string {
     return `Queued as #${queueId}. Send /steer ${queueId} to inject it into the current task.`;
   }
@@ -562,81 +518,23 @@ export abstract class BaseChannelRuntime {
         );
         return { id: conversation.id, title: conversation.title };
       },
-      executeApprovedHostBash: options.executeApprovedHostBash ?? (async (input, approved, request) => {
-        if (!request.pendingAction) return;
-        // Run where the agent's turn ran. A chat bound to a project executes in
-        // the project root; only an unbound chat falls back to its scratch dir.
-        const scratchDir = this.store.getScratchDir(input.scopeId);
-        const boundProject = getProjectStore().getChannelBinding(this.channelName, this.instanceId, input.scopeId);
-        const executed = await executeHostBashApproval({
-          record: request,
-          approvedTool: approved,
-          cwd: resolveSessionWorkingDir(buildRunnerProjectContext(boundProject, scratchDir), scratchDir)
-        });
-
-        try {
-          const sessionId = request.sessionId || this.store.getActiveSession(input.scopeId);
-          const contextRunId = String(request.pendingAction.runId ?? "").trim();
-          const origin = this.store.readSessionOrigin(input.scopeId, sessionId);
-          const messages = origin?.archiveMode === "shared" && contextRunId
-            ? this.store.loadContextForRun(input.scopeId, sessionId, contextRunId)
-            : this.store.loadContext(input.scopeId, sessionId);
-          const rewritten = rewriteApprovalToolResultInContext(messages, request.id, executed.rendered);
-
-          if (rewritten) {
-            if (origin?.archiveMode === "shared" && contextRunId) {
-              this.store.replaceContextForRun(input.scopeId, sessionId, contextRunId, messages);
-            } else {
-              this.store.saveContext(input.scopeId, messages, sessionId);
-            }
-            this.store.setActiveSession(input.scopeId, sessionId);
-            this.runners.reset(input.scopeId, sessionId);
-
-            const isEnglishChannel = this.channelName === "telegram" || this.channelName === "feishu";
-            const event: ChannelInboundMessage = {
-              chatId: input.chatId,
-              chatType: "private",
-              userId: "system",
-              messageId: Date.now(),
-              text: "",
-              ts: (Date.now() / 1000).toFixed(6),
-              attachments: [],
-              imageContents: [],
-              isEvent: true,
-              sessionId,
-              runId: contextRunId || undefined,
-              contextRunId: contextRunId || undefined,
-              restoreSessionId: origin?.returnSessionId
-            };
-            this.resumeApprovedHostBashTask(input.scopeId, event, {
+      resumeApprovedHostBash: options.resumeApprovedHostBash ?? (async (input, _approved, request) => {
+        const sessionId = request.sessionId || this.store.getActiveSession(input.scopeId);
+        const target = this.runners.resolveTarget(input.scopeId, sessionId);
+        await resumeSuspendedBrokerApproval({
+          scopeId: target.chatId, sessionId: target.sessionId, requestId: request.id,
+          status: request.status === "rejected" ? "rejected" : "approved",
+          store: target.store, pool: this.runners, channel: this.channelName,
+          runContinuation: async message => {
+            await this.runSharedTextTask(input.scopeId, message, {
               createBotMessageId: () => Math.floor(Math.random() * 1000000),
               response: {
-                sendText: async (text) => {
-                  await options.sendText(input.target, text);
-                  return null;
-                },
-                respondInThread: async (text) => {
-                  await options.sendText(input.target, text);
-                }
-              },
-              notifyRetryExhausted: async () => {
-                await options.sendText(
-                  input.target,
-                  isEnglishChannel
-                    ? "Command executed, but the session is still busy. Send any message to continue the task."
-                    : "命令已执行，但当前会话仍处于忙碌状态。发送任意消息可继续刚才的任务。"
-                );
+                sendText: async text => { await options.sendText(input.target, text); return null; },
+                respondInThread: async text => { await options.sendText(input.target, text); }
               }
             });
           }
-        } catch (error) {
-          momWarn(this.channelName, "auto_resume_rewrite_failed", {
-            chatId: input.scopeId,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-
-        return "Approved and executed immediately.";
+        });
       }),
       ...options
     });
@@ -653,6 +551,8 @@ export abstract class BaseChannelRuntime {
       project: target.project?.thinkingLevel
     }));
   }
+
+  getWorkspaceDir(): string { return this.workspaceDir; }
 
   protected async runSharedTextTask<TSent extends ContextSentMessageRef>(
     scopeId: string,

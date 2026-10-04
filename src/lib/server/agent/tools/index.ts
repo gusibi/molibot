@@ -1,3 +1,5 @@
+import { createCodemodeTool } from "./codemode.js";
+import { bindToolRuntime } from "./preparedTool.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import type { HookStage } from "$lib/server/agent/hooks/types.js";
 import { createUpdatePlanTool, type SessionPlanProgress } from "./updatePlan.js";
@@ -54,7 +56,7 @@ import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { bindExecutionEnvironment, type BoundExecutionEnvironment } from "$lib/server/agent/exec/executionBackend.js";
-import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
+import { getRuntimeToolClassification, READ_ONLY_TOOL_NAMES } from "$lib/server/agent/tools/toolClassification.js";
 import { decideToolPermission } from "$lib/server/agent/permissions/toolPermissionGate.js";
 import { resolveEffectiveExecutionPolicy, type EffectiveExecutionPolicy } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { buildRunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
@@ -143,6 +145,9 @@ function createDeferredToolEntry(options: {
 
 export function createMomTools(options: {
   agentId?: string;
+  roomId?: string;
+  runNestedToolCall?: (tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal) => Promise<{ result: import("@earendil-works/pi-agent-core").AgentToolResult<unknown>; isError: boolean }>;
+
   executionPolicy?: EffectiveExecutionPolicy;
   /** Hold execution ownership until a cancelled tool handler settles. */
   awaitToolQuiescence?: boolean;
@@ -346,6 +351,9 @@ export function createMomTools(options: {
 
   const registry = new ToolRegistry();
   const decidePolicy: ToolPolicyDecider = (tool, input, ctx) => {
+    if (policy.readOnly && ((!READ_ONLY_TOOL_NAMES.has(tool.id) && tool.id !== "codemode") || tool.effect !== "read")) {
+      return { type: "deny", reason: "Read-only discussion cannot modify state or execute commands." };
+    }
     if (tool.id === "bash") {
       return decideBashToolPolicy({
         tool,
@@ -420,10 +428,12 @@ export function createMomTools(options: {
   // semantics); restricted modes keep the approved-root protections.
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir, { hostWideAccess: policy.mode === "auto" });
 
+  const nestedToolCallIds = new Set<string>();
   const buildExecutionContext = (
     signal?: AbortSignal,
     toolCallId?: string,
-    onUpdate?: (update: any) => void
+    onUpdate?: (update: any) => void,
+    toolId?: string
   ): ToolExecutionContext => {
     return {
       runId: options.runId ?? "default-run",
@@ -431,7 +441,7 @@ export function createMomTools(options: {
       workspaceId: options.workspaceId ?? "personal",
       actorId: options.agentId ?? options.chatId,
       assertAuthority: options.assertToolAuthority,
-      awaitToolQuiescence: options.awaitToolQuiescence,
+      awaitToolQuiescence: options.awaitToolQuiescence || toolId === "codemode" || (toolCallId !== undefined && nestedToolCallIds.has(toolCallId)),
       approvalWaitTimeoutMs: options.approvalWaitTimeoutMs,
       cwd: options.cwd,
       signal,
@@ -534,16 +544,19 @@ export function createMomTools(options: {
         source,
         effect,
         thirdPartyHint,
+        // The composite owns no lease: nested calls independently own their effects.
+        sideEffectClass: originalTool === codemodeTool ? "pure" : undefined,
         handler: async (input, ctx) => {
           // toolCallId falls back to runId only for callers that predate the
           // per-call context fields; onUpdate keeps progress streaming alive.
           const res = (await originalTool.execute(ctx.toolCallId ?? ctx.runId, input, ctx.signal, ctx.onUpdate)) as any;
           return {
-            ok: !res.error,
+            ok: !res.error && !res.isError,
             content: res.content,
             error: res.error,
             metadata: res.metadata,
             details: res.details,
+            usage: res.usage,
             terminate: res.terminate
           };
         }
@@ -551,55 +564,15 @@ export function createMomTools(options: {
       registry.register(toolDef);
     }
 
-    return {
-      ...originalTool,
-      execute: async (toolCallId, params, signal, onUpdate) => {
-        const toolCtx = buildExecutionContext(signal, toolCallId, onUpdate);
-        const result = await toolRuntime.executeToolCall({
-          toolId: originalTool.name,
-          input: params,
-          context: toolCtx
-        });
-
-        return {
-          content: Array.isArray(result.content)
-            ? result.content
-            : [{ type: "text", text: String(result.content ?? result.error ?? "") }],
-          error: result.ok ? undefined : result.error,
-          metadata: result.metadata,
-          details: result.details,
-          terminate: result.terminate
-        };
-      }
-    };
+    return bindToolRuntime(originalTool, toolRuntime, buildExecutionContext);
   };
 
-  const toAgentTool = (def: ToolDefinition): AgentTool<any> => {
-    return {
-      name: def.id,
-      label: def.name,
-      description: def.description,
-      parameters: def.inputSchema as any,
-      execute: async (toolCallId, params, signal, onUpdate) => {
-        const toolCtx = buildExecutionContext(signal, toolCallId, onUpdate);
-        const result = await toolRuntime.executeToolCall({
-          toolId: def.id,
-          input: params,
-          context: toolCtx
-        });
-
-        return {
-          content: Array.isArray(result.content)
-            ? result.content
-            : [{ type: "text", text: String(result.content ?? result.error ?? "") }],
-          error: result.ok ? undefined : result.error,
-          metadata: result.metadata,
-          details: result.details,
-          terminate: result.terminate
-        };
-      }
-    };
-  };
+  const toAgentTool = (def: ToolDefinition): AgentTool<any> => bindToolRuntime({
+    name: def.id,
+    label: def.name,
+    description: def.description,
+    parameters: def.inputSchema as any
+  }, toolRuntime, buildExecutionContext);
 
   // Register built-in tool definitions in registry
   const durableEvidenceToolDef = options.readDurableEvidence
@@ -681,18 +654,33 @@ export function createMomTools(options: {
       ? rawTools.filter((tool) => tool.name.startsWith(`miniapp__${options.miniAppId}__`))
       : rawTools;
     if (permissionMode === "plan") {
-      const allowed = new Set(["read", "ls", "grep", "glob", "conversationSearch", "skillSearch", "docExtract"]);
+      const allowed = READ_ONLY_TOOL_NAMES;
       return [
         ...scopedTools.filter((tool) => allowed.has(tool.name)).map((tool) => wrapWithToolRuntime(tool)),
         // The generic runtime classifies subagent delegation as a side effect.
         // This Plan-only instance enforces scout/planner roles internally, whose
         // child toolsets are read-only, so expose it without the generic gate.
         ...scopedTools.filter((tool) => tool.name === "subagent"),
-        exitPlanTool
+        exitPlanTool,
+        wrapWithToolRuntime(codemodeTool)
       ];
     }
-    return [...scopedTools.map(tool => wrapWithToolRuntime(tool)), ...(options.sessionPlanProgress ? [createUpdatePlanTool(options.sessionPlanProgress)] : [])];
+    return [wrapWithToolRuntime(codemodeTool), ...scopedTools.map(tool => wrapWithToolRuntime(tool)).filter(tool => !policy.readOnly || (READ_ONLY_TOOL_NAMES.has(tool.name) && registry.get(tool.name)!.effect === "read")), ...(options.sessionPlanProgress && !policy.readOnly ? [createUpdatePlanTool(options.sessionPlanProgress)] : [])];
   };
+  const codemodeTool = createCodemodeTool({
+    getTools: () => [
+      ...getActiveTools().filter(tool => permissionMode !== "plan" || READ_ONLY_TOOL_NAMES.has(tool.name)),
+      ...(!options.miniAppId && !policy.readOnly && permissionMode !== "plan" ? (options.getLoadedMcpTools?.() ?? []).map(wrapWithToolRuntime) : [])
+    ],
+    artifactDir: outputLayout.scratchRoot,
+    workspaceDir: options.workspaceDir,
+    invoke: async (tool, id, args, signal) => {
+      if (!options.runNestedToolCall) throw new Error("Codemode requires the Agent's shared tool dispatcher.");
+      nestedToolCallIds.add(id);
+      try { return await options.runNestedToolCall(tool, id, args, signal); }
+      finally { nestedToolCallIds.delete(id); }
+    }
+  });
   const loadDeferredTools = (toolNames: string[]): string[] => {
     const loaded: string[] = [];
     const requested = new Set(toolNames);
@@ -1020,5 +1008,7 @@ export function createMomTools(options: {
 
   const resultTools = getActiveTools();
   (resultTools as any).wrapTool = wrapWithToolRuntime;
+  (resultTools as any).loadDeferredTools = loadDeferredTools;
+  (resultTools as any).getChildTools = () => [readToolDef, bashToolDef, editToolDef, writeToolDef].map(toAgentTool);
   return resultTools;
 }

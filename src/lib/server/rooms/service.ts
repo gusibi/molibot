@@ -310,14 +310,37 @@ export class RoomService {
     this.deps.deleteSession(id);
   }
   isBusy(id: string) { return this.deps.store.executions(id).some(e => liveStates.has(e.status)); }
-  recover() {
+  recover(preserve: ReadonlySet<string> = new Set()) {
     if (this.active.size) throw new Error("Cannot recover while executions are live");
     for (const room of this.deps.store.list()) for (const e of this.deps.store.executions(room.id)) {
+      if (preserve.has(e.id)) continue;
       if (["running", "waiting_approval", "cancelling"].includes(e.status)) this.deps.interruptExecution?.(e);
       if (e.approvalId) this.deps.invalidateApprovals?.(e);
     }
-    this.deps.store.recover();
+    this.deps.store.recover(preserve);
     for (const room of this.list()) this.changed(room.id);
+  }
+  failNativeRecovery(roomId: string, executionId: string, error: string): void {
+    const execution = this.deps.store.executions(roomId).find(e => e.id === executionId);
+    if (!execution || !["running", "waiting_approval", "cancelling"].includes(execution.status) || this.active.has(execution.id)) return;
+    this.deps.invalidateApprovals?.(execution);
+    this.deps.store.state(execution.id, "failed", error);
+    this.deps.store.release(execution);
+    this.changed(roomId, execution);
+  }
+
+  resumeNativeExecution(roomId: string, executionId: string): boolean {
+    const execution = this.deps.store.executions(roomId).find(e => e.id === executionId);
+    if (!execution || execution.status !== "running" || this.active.has(execution.id)) return false;
+    try { this.assertAuthority(execution); }
+    catch (error) {
+      this.deps.store.state(execution.id, "failed", String(error));
+      this.deps.store.release(execution);
+      this.changed(roomId, execution);
+      return false;
+    }
+    this.start(execution);
+    return true;
   }
   async dispose() {
     this.disposed = true;

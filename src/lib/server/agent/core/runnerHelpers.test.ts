@@ -1,3 +1,4 @@
+import { normalizeContext, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
@@ -6,6 +7,7 @@ import {
   isContextOverflowError,
   isContextOverflowResponse,
   mapUnsupportedDeveloperRole,
+  moveAnthropicSystemMessagesToTopLevel,
   prepareMessagesForModelContext
 } from "$lib/server/agent/core/runnerHelpers.js";
 
@@ -211,4 +213,15 @@ test("normalizing usage leaves provider-reported usage and non-assistant message
   assert.equal(prepared[0], user);
   assert.equal(prepared[1], provider);
   assert.equal((prepared[1] as any).usage.totalTokens, 15);
+});
+
+
+test("Anthropic preserves native system and deferred-tool transcript updates", () => {
+  const tool = { name: "read", description: "Read a file", parameters: { type: "object" } } as any;
+  const context = normalizeContext({ systemPrompt: "Base instructions", messages: [], tools: [tool] });
+  context.messages.push({ role: "system", content: [{ type: "text", text: "Later instructions" }], toolsAdded: [{ ...tool, name: "search" }], timestamp: 1 });
+  const mapped = moveAnthropicSystemMessagesToTopLevel(context);
+  assert.equal(mapped, context);
+  assert.equal(getCurrentSystemPrompt(mapped.messages), "Base instructions\n\nLater instructions");
+  assert.deepEqual(getCurrentTools(mapped.messages).map((item) => item.name), ["read", "search"]);
 });

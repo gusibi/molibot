@@ -143,3 +143,14 @@ test("buildTextChannelContext sends later replacements as supplements after comm
   assert.deepEqual(buffer, ["complete answer"]);
   assert.deepEqual(supplements, ["short postscript"]);
 });
+
+
+test("Telegram topic delivery retains the transport scope independently of project runtime identity", () => {
+  const event = { ...createEvent(), chatId: "-100", scopeId: "-100__topic_7", messageThreadId: 7 };
+  const context = buildTextChannelContext({ channel: "telegram", event, workspaceDir: "/bot-workspace", chatDir: "/bot-workspace/chat",
+    store: {} as never, sessions: {} as never, instanceId: "original-bot", activeSessionId: "project-session",
+    project: { id: "project", name: "Project", rootPath: "/project", scratchDir: "/scratch" },
+    conversationKey: "project-conversation", response: { sendText: async () => null }, createBotMessageId: () => 1 });
+  assert.deepEqual(context.deliveryTarget, { channel: "telegram", instanceId: "original-bot", workspaceDir: "/bot-workspace", chatId: "-100__topic_7" });
+  assert.equal(context.message.chatId, "-100");
+});

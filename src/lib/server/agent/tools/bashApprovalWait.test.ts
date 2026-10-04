@@ -3,8 +3,12 @@
 // store double and assert only the observable tool result shape.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { waitForHostBashApprovalAndExecute } from "$lib/server/agent/tools/bash.js";
-import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import { prepareHostBashApproval, waitForHostBashApprovalAndExecute } from "$lib/server/agent/tools/bash.js";
+import { buildHostBashApprovalPrompt, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import { HostBashStore } from "$lib/server/hostBash/store.js";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function prompt(requestId = "hba-test-1"): HostBashApprovalPrompt {
   return {
@@ -38,6 +42,110 @@ function ctx(overrides: Record<string, unknown> = {}): any {
     ...overrides
   };
 }
+
+test("approved Host Bash prepares without a claim or process and executes exactly once", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-host-prepared-"));
+  try {
+    const store = new HostBashStore(join(directory, "approvals.sqlite"));
+    const requested = store.requestApproval({
+      command: "printf prepared > receipt.txt", reason: "test", approvalMode: "ephemeral",
+      channel: "web", chatId: "chat-1", scopeId: "scope-1", sessionId: "session-1",
+      pendingAction: { kind: "run_one_time_host_script", originalCommand: "printf prepared > receipt.txt", runId: "run-1" }
+    });
+    assert.ok(requested.approval);
+    store.approve("scope-1", requested.approval.id, { scope: "once" });
+    const context = ctx({ cwd: directory, workspaceId: "" });
+    const prepared = await prepareHostBashApproval({
+      store, prompt: buildHostBashApprovalPrompt(requested.approval), scopeId: "scope-1",
+      requestText: "test", ctx: context, waitTimeoutMs: 20
+    });
+    assert.ok("execute" in prepared);
+    assert.equal(store.getApprovalRecord(requested.approval.id)?.status, "approved");
+    assert.equal(existsSync(join(directory, "receipt.txt")), false);
+    assert.equal((await prepared.execute(context)).ok, true);
+    assert.equal(readFileSync(join(directory, "receipt.txt"), "utf8"), "prepared");
+    assert.equal(store.getApprovalRecord(requested.approval.id)?.status, "executed");
+    await assert.rejects(prepared.execute(context), /already consumed/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("prepared Host Bash rejects Stop, revoked authority and a lost execution claim", async () => {
+  for (const failure of ["stop", "authority", "claim", "scope", "context", "cancel"] as const) {
+    const directory = mkdtempSync(join(tmpdir(), "molibot-host-prepared-"));
+    try {
+      const store = new HostBashStore(join(directory, "approvals.sqlite"));
+      const requested = store.requestApproval({
+        command: "printf executed > receipt.txt", reason: "test", approvalMode: "ephemeral",
+        channel: "web", chatId: "chat-1", scopeId: "scope-1", sessionId: "session-1",
+        pendingAction: { kind: "run_one_time_host_script", originalCommand: "printf executed > receipt.txt" }
+      });
+      assert.ok(requested.approval);
+      store.approve("scope-1", requested.approval.id, { scope: "once" });
+      const controller = new AbortController();
+      let authorized = true;
+      const context = ctx({ cwd: directory, workspaceId: "", signal: controller.signal,
+        assertAuthority: () => { if (!authorized) throw new Error("authority revoked"); } });
+      const prepared = await prepareHostBashApproval({
+        store, prompt: buildHostBashApprovalPrompt(requested.approval), scopeId: failure === "scope" ? "another-scope" : "scope-1",
+        requestText: "test", ctx: context, waitTimeoutMs: 20
+      });
+      if (failure === "scope") {
+        assert.ok(!("execute" in prepared));
+        assert.equal(prepared.ok, false);
+      } else {
+        assert.ok("execute" in prepared);
+        if (failure === "stop") controller.abort();
+        if (failure === "authority") authorized = false;
+        if (failure === "cancel") {
+          assert.ok(prepared.cancel);
+          prepared.cancel();
+          await assert.rejects(prepared.execute(context), /already consumed/);
+        } else if (failure === "context") {
+          assert.equal((await prepared.execute({ ...context, sessionId: "another-session" })).ok, false);
+          prepared.cancel?.();
+        } else if (failure === "claim") {
+          assert.equal(store.claimExecution(requested.approval.id), true);
+          assert.equal((await prepared.execute(context)).ok, false);
+        } else await assert.rejects(prepared.execute(context));
+      }
+      assert.equal(existsSync(join(directory, "receipt.txt")), false);
+      if (failure === "stop" || failure === "cancel" || failure === "context") {
+        assert.equal(store.getApprovalRecord(requested.approval.id)?.status, "expired");
+      }
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  }
+});
+
+test("Host Bash admission retains invocation identity across reopen and rejects changed arguments", () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-host-admission-"));
+  try {
+    const path = join(directory, "approvals.sqlite");
+    const store = new HostBashStore(path);
+    const input = {
+      invocationId: JSON.stringify(["run", "tool-call"]), command: "printf original > receipt.txt", reason: "test",
+      approvalMode: "ephemeral", channel: "web", chatId: "chat", scopeId: "scope", sessionId: "session",
+      owner: { kind: "bot", id: "bot" },
+      pendingAction: { kind: "run_one_time_host_script", originalCommand: "printf original > receipt.txt", runId: "run" }
+    };
+    const first = store.requestApproval(input);
+    assert.ok(first.approval);
+    assert.equal(store.approve("another-scope", first.approval.id), null);
+    assert.equal(store.approve("scope", first.approval.id, { sessionId: "another-session" }), null);
+    assert.ok(store.approve("scope", first.approval.id, { scope: "once", sessionId: "session" }));
+    const reopened = new HostBashStore(path);
+    const second = reopened.requestApproval(input);
+    assert.equal(second.kind, "existing-request");
+    assert.equal(second.approval?.id, first.approval.id);
+    assert.equal(second.approval?.status, "approved");
+    assert.equal(reopened.requestApproval({ ...input, owner: { ...input.owner, label: "Renamed bot" } }).approval?.id, first.approval.id);
+    assert.throws(() => reopened.requestApproval({ ...input,
+      pendingAction: { ...input.pendingAction, originalCommand: "printf changed > receipt.txt" }
+    }), /identity was reused/);
+    const otherOwner = reopened.requestApproval({ ...input, owner: { kind: "bot", id: "another-bot" }, scopeId: "other-scope" });
+    assert.notEqual(otherOwner.approval?.id, first.approval.id);
+    assert.equal(existsSync(join(directory, "receipt.txt")), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
 
 test("an inline window timeout suspends the run with a resumable request id", async () => {
   const record = { id: "hba-test-1", status: "pending" };
@@ -119,10 +227,12 @@ test("a vanished request record still suspends the run (no blind continuation)",
 // fail the call without terminating and leave no answerable request behind.
 test("an unattended deny expires the request and returns a plain, non-terminating denial", async () => {
   const expired: string[] = [];
+  let reads = 0;
   const result = await waitForHostBashApprovalAndExecute({
     store: {
       getApprovalRecord: () => {
-        throw new Error("must not poll when denying");
+        reads += 1;
+        return { id: "hba-unattended-1", status: "pending" };
       },
       expirePending: (requestId: string) => {
         expired.push(requestId);
@@ -136,5 +246,44 @@ test("an unattended deny expires the request and returns a plain, non-terminatin
   assert.equal(result.ok, false, "the call must fail so the model reports the skip");
   assert.notEqual(result.terminate, true, "a denial must not suspend the run");
   assert.deepEqual(expired, ["hba-unattended-1"]);
+  assert.equal(reads, 1, "read admission once, without starting a decision polling loop");
   assert.match(String(result.error), /unattended automation run/i);
 });
+
+for (const callback of ["approval notification", "durable approval consumption"] as const) {
+  test(`Stop during ${callback} expires the decision before suspension or execution`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), "molibot-approval-stop-"));
+    try {
+      const store = new HostBashStore(join(directory, "approvals.sqlite"));
+      const requested = store.requestApproval({
+        command: "printf stopped > receipt.txt", reason: "test", approvalMode: "ephemeral",
+        channel: "web", chatId: "chat-1", scopeId: "scope-1", sessionId: "session-1",
+        pendingAction: { kind: "run_one_time_host_script", originalCommand: "printf stopped > receipt.txt" }
+      });
+      assert.ok(requested.approval);
+      const controller = new AbortController();
+      const context = ctx({ cwd: directory, signal: controller.signal,
+        onApprovalRequest: async () => {
+          if (callback === "approval notification") {
+            store.approve("scope-1", requested.approval!.id, { scope: "once", sessionId: "session-1" });
+            controller.abort();
+          }
+          return "defer";
+        },
+        consumeDurableApproval: async () => {
+          if (callback === "durable approval consumption") controller.abort();
+          return callback === "durable approval consumption" ? "once" : undefined;
+        }
+      });
+      const result = await prepareHostBashApproval({ store,
+        prompt: buildHostBashApprovalPrompt(requested.approval), scopeId: "scope-1", requestText: "Approval requested", ctx: context, waitTimeoutMs: 20
+      });
+      assert.ok(!("execute" in result));
+      assert.equal(result.ok, false);
+      assert.equal(result.metadata?.status, undefined, "Stop must not become a resumable approval wait");
+      assert.equal(store.getApprovalRecord(requested.approval.id)?.status, "expired");
+      assert.equal(store.approve("scope-1", requested.approval.id, { scope: "once", sessionId: "session-1" }), null);
+      assert.equal(existsSync(join(directory, "receipt.txt")), false);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+}

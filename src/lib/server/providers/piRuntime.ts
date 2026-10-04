@@ -5,7 +5,7 @@ import type {
   Model,
   ModelsSimpleStreamOptions
 } from "@earendil-works/pi-ai";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, normalizeContext } from "@earendil-works/pi-ai";
 import { streamSimple as streamAnthropic } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { streamSimple as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -194,10 +194,10 @@ function streamProvider(
     return models.streamSimple(model, context, options);
   }
   if (model.api === "anthropic-messages") {
-    return streamAnthropic(model, context, options);
+    return streamAnthropic(model, normalizeContext(context), options);
   }
   if (model.api === "openai-completions") {
-    return streamOpenAICompletions(model, context, options);
+    return streamOpenAICompletions(model, normalizeContext(context), options);
   }
   throw new Error(`Unsupported custom model API '${model.api}' for '${model.provider}/${model.id}'.`);
 }
