@@ -1,0 +1,4 @@
+请实际使用 Codemode，经现有授权工具执行 node acceptance/append-once.mjs E02-error；等待调用完成后，在脚本中 throw new Error("PI-E02-AFTER-WRITE")。不要重新执行脚本，不撤销已成功写入。最终如实报告部分成功和脚本失败。
+
+【另一任务，内部审批】
+请实际使用 Codemode，经 Host Bash 执行 node acceptance/append-once.mjs E02-approval，等待审批，只执行一次。不要用普通直接调用替代 Codemode。

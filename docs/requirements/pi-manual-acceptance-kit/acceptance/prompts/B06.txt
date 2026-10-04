@@ -1,0 +1,4 @@
+请依次通过 Bash 执行：
+1. node acceptance/append-once.mjs B06
+2. node acceptance/wait-and-write.mjs B06-wait 90
+每步只执行一次。结束后读取两个结果文件并回复内容。任何一步结果不确定时请明确报告，不盲目重新运行整组命令。

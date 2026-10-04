@@ -1,0 +1,1 @@
+请明确使用 Host Bash 执行 node acceptance/append-once.mjs B01。不要改用文件写入工具或 sandbox 绕开 Host Bash 审批。只调用一次，批准前不执行，执行后读取结果文件并回答。若当前无法产生审批，说明实际路径，不宣称本用例通过。

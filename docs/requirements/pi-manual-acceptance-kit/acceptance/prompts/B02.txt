@@ -1,0 +1,7 @@
+请使用 Host Bash 执行 node acceptance/append-once.mjs B02-reject，等待审批，不改用其他路径。
+
+【新的任务，用于 Stop 后晚到批准】
+请使用 Host Bash 执行 node acceptance/append-once.mjs B02-late，等待审批，不改用其他路径。
+
+【新的任务，用于重复点击】
+请使用 Host Bash 执行 node acceptance/append-once.mjs B02-repeat，等待审批，只执行一次。

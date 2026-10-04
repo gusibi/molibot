@@ -1,0 +1,1 @@
+请使用 Host Bash 执行 node acceptance/append-once.mjs B03，等待审批，不能改用其他工具。批准后只执行一次并读取 acceptance/results/B03.txt。若服务重启，请继续原审批调用，不创建新调用。

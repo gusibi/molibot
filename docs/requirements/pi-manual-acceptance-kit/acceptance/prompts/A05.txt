@@ -1,0 +1,1 @@
+请使用现有提醒/定时任务能力，创建从现在起两分钟后触发的一次性任务，时区 Asia/Shanghai，目标为当前会话。到时读取 acceptance/input.txt，并回复 PI-EVENT-A05 和文件原文。任务必须走 watched event JSON 和运行时事件系统，不写 OS scheduler，也不以普通 memory 代替提醒。请告诉我实际计划触发时间和任务标识。

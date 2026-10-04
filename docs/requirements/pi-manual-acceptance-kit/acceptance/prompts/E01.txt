@@ -1,0 +1,1 @@
+请实际使用 Codemode：通过当前可用的读取工具读取 acceptance/input.txt 和 acceptance/records.json；筛选 status 为 open 的记录，输出 id 数组和 amount 总和，再输出 input 文件内容。不写文件，不访问网络。请使用工具目录确认真实工具名/参数，不猜测接口。不支持 Codemode 时明确报告，不能用普通直接调用冒充。

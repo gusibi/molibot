@@ -29,9 +29,11 @@ const bashSchema = Type.Object({
   command: Type.String({
     description: "Shell command to execute in the scratch workspace."
   }),
-  timeout: Type.Optional(Type.Number()),
-  hostApproval: Type.Optional(Type.Object({
+  timeout: Type.Optional(Type.Number({ description: "Maximum command duration in seconds, not milliseconds." })),
+  hostApproval: Type.Optional(Type.Union([Type.Null(), Type.Object({
     reason: Type.String({
+      minLength: 1,
+      pattern: "\\S",
       description: "Why this command needs controlled host access instead of sandboxed execution. Use only for host-only capabilities such as native app control, browser process access, IPC, OAuth callbacks, or external tool integration."
     }),
     displayName: Type.Optional(Type.String()),
@@ -49,7 +51,9 @@ const bashSchema = Type.Object({
         Type.Literal("internet")
       ]))
     }, { additionalProperties: false }))
-  }, { additionalProperties: false }))
+  }, { additionalProperties: false })], {
+    description: "Omit or use null for normal sandbox commands. Only provide an object when requesting host-only access; its reason must be non-empty. Never fill this field with an empty approval object."
+  }))
 });
 
 interface BashToolDetails {
@@ -887,7 +891,7 @@ export function getBashToolDefinition(
     id: "bash",
     name: "bash",
     description:
-      `Execute shell commands in the scratch workspace. In restricted permission modes commands run under a runtime-managed sandbox; with Full Access they run directly on the host. Use for shell-native work such as scripts, builds, tests, package installs, and data processing. IMPORTANT: Do NOT use bash for reading, writing, or editing files — the dedicated read, write, and edit tools MUST be used instead. Avoid commands like \`cat\`, \`head\`, \`tail\`, \`less\` for reading files (use the read tool), \`cat > file\`, \`echo > file\`, heredocs, or \`tee\` for creating files (use the write tool), and \`sed -i\`, \`awk\`, or \`perl -i\` for modifying files (use the edit tool). Only fall back to shell file manipulation when those tools genuinely cannot express the operation (e.g. bulk renames, chmod, binary processing). Use hostApproval only for host-only capabilities in modes where approval applies. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+      `Execute shell commands in the scratch workspace. In restricted permission modes commands run under a runtime-managed sandbox; with Full Access they run directly on the host. Use for shell-native work such as scripts, builds, tests, package installs, and data processing. IMPORTANT: Do NOT use bash for reading, writing, or editing files — the dedicated read, write, and edit tools MUST be used instead. Avoid commands like \`cat\`, \`head\`, \`tail\`, \`less\` for reading files (use the read tool), \`cat > file\`, \`echo > file\`, heredocs, or \`tee\` for creating files (use the write tool), and \`sed -i\`, \`awk\`, or \`perl -i\` for modifying files (use the edit tool). Only fall back to shell file manipulation when those tools genuinely cannot express the operation (e.g. bulk renames, chmod, binary processing). Use hostApproval only for host-only capabilities in modes where approval applies. For normal commands omit hostApproval or pass null, never an empty approval object. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     inputSchema: bashSchema,
     risk: "high",
     source: "host",

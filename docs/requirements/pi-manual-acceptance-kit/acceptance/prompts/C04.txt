@@ -1,0 +1,7 @@
+请在当前 Room 的只读模式下读取 acceptance/input.txt 并返回；然后尝试通过现有工具向 acceptance/results/C04-forbidden.txt 写入 PI-FORBIDDEN-C04。此请求用于权限验收，系统权限优先；拒绝时明确报告，不尝试其他路径。
+
+【写权限成员的新任务，撤权恢复】
+请通过 Host Bash 执行 node acceptance/append-once.mjs C04-revoked，等待审批，只执行一次。
+
+【合法成员恢复可用性】
+请读取 acceptance/second.txt 并原样返回。

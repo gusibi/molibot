@@ -1,0 +1,12 @@
+import { appendFile, mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const [id, seconds = '30'] = process.argv.slice(2);
+if (!/^[A-E][0-9]{2}(?:-[a-z0-9]+)?$/.test(id ?? '') || !/^\d+$/.test(seconds) || Number(seconds) > 120) throw new Error('Use case ID and delay 0..120 seconds');
+const dir = path.dirname(fileURLToPath(import.meta.url));
+await mkdir(path.join(dir, 'results'), { recursive: true });
+await appendFile(path.join(dir, 'results', `${id}.started.txt`), `${id}-STARTED\n`);
+console.log(`${id}: started; waiting ${seconds} seconds`);
+await new Promise(resolve => setTimeout(resolve, Number(seconds) * 1000));
+await appendFile(path.join(dir, 'results', `${id}.txt`), `${id}-DONE\n`);
+console.log(`${id}: done`);

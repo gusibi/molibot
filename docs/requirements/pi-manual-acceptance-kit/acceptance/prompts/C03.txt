@@ -1,0 +1,4 @@
+请依次调用工具读取 acceptance/input.txt、acceptance/second.txt、acceptance/records.json，并分别总结内容；每次只读一个文件，不把三次合成一个工具调用。达到系统预算或期限后停止，保留已取得的结果，不申请新任务绕开额度。
+
+【恢复变体，先配置较小预算】
+请先通过 Host Bash 执行 node acceptance/append-once.mjs C03，等待审批；批准后依次单独读取上述三个文件。遵守原任务预算，不因重启重置。

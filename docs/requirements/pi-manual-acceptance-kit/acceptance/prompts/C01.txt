@@ -1,0 +1,4 @@
+请实际调用一个内部子 Agent，给它的任务是读取 acceptance/input.txt 并原样返回。由你汇总结果，说明使用的子任务标识。不能用你自己读取代替子 Agent；不支持时请说明。
+
+【新的任务，子审批恢复】
+请调用一个内部子 Agent，让它通过 Host Bash 执行 node acceptance/append-once.mjs C01-resume，等待审批，只执行一次。父任务等待子结果后读取结果文件并回答。不要在父任务另行执行同一命令。

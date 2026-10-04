@@ -1,0 +1,1 @@
+请通过 Bash 执行 node acceptance/wait-and-write.mjs A06 45，只执行一次。完成后读取 acceptance/results/A06.txt 并回复内容。不要因浏览器连接变化重新执行。

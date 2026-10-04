@@ -1,0 +1,1 @@
+请调用一个前台内部子 Agent，让它通过 Bash 执行 node acceptance/wait-and-write.mjs C02 90，父任务等待子任务结果。本例不授权后台脱离运行。只执行一次，不自动重试。

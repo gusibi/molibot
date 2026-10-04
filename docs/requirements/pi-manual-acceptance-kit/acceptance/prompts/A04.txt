@@ -1,0 +1,13 @@
+这些命令用于执行验收脚本，先走普通 Bash 路径；hostApproval 应省略或设为 null，不要填空审批对象。timeout 的单位是秒，可填 120。若 sandbox 实际拒绝访问，报告限制并按现有权限流程处理。命令尚未启动时不要宣称排队或 Stop 验收完成。
+
+请通过 Bash 执行：node acceptance/wait-and-write.mjs A04-first 30
+只执行一次。完成后读取 acceptance/results/A04-first.txt，回复执行结果。
+
+【出现 started 后，普通发送第二条】
+请通过 Bash 执行 node acceptance/append-once.mjs A04-queued，只执行一次。
+
+【通过现有插入/steer入口发送】
+当前任务结束后的最终回答额外加入 PI-STEER-A04，不新增写操作。
+
+【另开一次运行，出现 started 后点击 Stop】
+请执行 node acceptance/wait-and-write.mjs A04-stop 60，只执行一次。
