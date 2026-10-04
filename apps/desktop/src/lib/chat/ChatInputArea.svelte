@@ -32,6 +32,7 @@
   export let value = "";
   export let endpoint = "";
   export let projectId = "";
+  export let mentionSuggestions: ComposerMenuItem[] = [];
   export let sending = false;
   export let disabled = false;
   export let canSend = false;
@@ -144,6 +145,7 @@
     submitOnSelect: false
   })) : [];
   $: filteredSuggestions = (suggestionKinds.length === 0 || suggestionsDismissed ? [] : [
+    ...(mentionQuery !== null ? mentionSuggestions.filter(item => !activeQuery || item.label.slice(1).toLowerCase().includes(activeQuery) || item.aliases.some(alias => alias.toLowerCase().includes(activeQuery))) : []),
     ...composerSuggestionsStore.items
       .filter((item) => suggestionKinds.includes(item.kind))
       .filter((item) => !activeQuery || item.label.slice(1).toLowerCase().includes(activeQuery) || item.aliases.some((alias) => alias.toLowerCase().includes(activeQuery))),

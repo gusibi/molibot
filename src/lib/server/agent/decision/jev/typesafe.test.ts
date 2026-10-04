@@ -4,7 +4,7 @@ import { THINKING_LEVEL_INSTRUCTIONS, THINKING_LEVEL_CRITERIA } from "../rubric.
 import { buildAdaptiveThinkingContext } from "../adaptiveThinking.js";
 import { TypeSafeJevProvider } from "./typesafe.js";
 
-test("TypeSafe Jev uses the SDK System One endpoint and validates its Choice result", async () => {
+test("TypeSafe Jev uses the Pi classifier System One endpoint and validates its Choice result", async () => {
   let requestUrl = "";
   let requestInit: RequestInit | undefined;
   const provider = new TypeSafeJevProvider("https://api.typesafe.ai", "test-key", async (input, init) => {
@@ -29,7 +29,7 @@ test("TypeSafe Jev uses the SDK System One endpoint and validates its Choice res
   assert.equal(requestUrl, "https://api.typesafe.ai/v1/systemone");
   assert.equal(new Headers(requestInit?.headers).get("authorization"), "Bearer test-key");
   assert.deepEqual(JSON.parse(String(requestInit?.body)), {
-    state: context.state,
+    state: { request: context.state },
     questions: {
       thinking_level: {
         type: "choice",
@@ -90,4 +90,19 @@ test("TypeSafe rejects coerced confidence and probability values", async () => {
       await assert.rejects(() => provider.decide({ context: buildAdaptiveThinkingContext("Translate this."), signal: new AbortController().signal }), /malformed_response/);
     }
   }
+});
+
+
+test("Pi classifier does not retry rate limits or follow a credential redirect", async () => {
+  let calls = 0;
+  const provider = new TypeSafeJevProvider("https://proxy.example.test", "saved-secret", async (_input, init) => {
+    calls += 1;
+    assert.equal(init?.redirect, "error");
+    return new Response(JSON.stringify({ error: "saved-secret" }), { status: 429 });
+  });
+  await assert.rejects(
+    () => provider.decide({ context: buildAdaptiveThinkingContext("Translate this."), signal: new AbortController().signal }),
+    (error: Error) => error.message === "Jev request failed (HTTP 429)"
+  );
+  assert.equal(calls, 1);
 });

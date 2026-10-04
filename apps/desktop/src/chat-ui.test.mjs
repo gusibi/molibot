@@ -81,6 +81,7 @@ const turnProcess = read("./lib/chat/TurnProcess.svelte");
 const processTimeline = read("./lib/chat/ProcessTimeline.svelte");
 const processActivityItem = read("./lib/chat/ProcessActivityItem.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
+const emptyQuickStarts = read("./lib/chat/emptyQuickStarts.ts");
 const conversationTurnSource = read("./lib/chat/conversationTurn.ts");
 const streamRouteSource = read("../../../src/routes/api/stream/+server.ts");
 const markdownArtifactOverlay = read("./lib/chat/MarkdownArtifactOverlay.svelte");
@@ -93,6 +94,8 @@ const agentCityMomoAsset = read("./lib/chat/agentCityMomoAsset.ts");
 const agentCityCommunityAssets = read("./lib/chat/agentCityCommunityAssets.ts");
 const agentCityTheme = read("./lib/chat/agentCityTheme.ts");
 const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
+const sidebarLists = read("./lib/chat/SidebarLists.svelte");
+const projectTree = read("./lib/projects/ProjectTree.svelte");
 const channelAccordion = read("./lib/chat/ChannelAccordion.svelte");
 const activityIcons = read("./lib/chat/activityIcons.ts");
 const chatWorkspace = read("./lib/chat/ChatWorkspacePane.svelte");
@@ -778,6 +781,14 @@ test("empty local Chat offers Agent quick starts that fill and focus without sen
   assert.doesNotMatch(view.match(/function fillEmptyPrompt\(prompt: string\)[\s\S]*?\n  \}/)?.[0] ?? "", /sendMessage|onSend/);
   assert.match(i18n, /emptyChatQuickStartHint: "选择一个起点，只会填入输入框/);
   assert.match(i18n, /emptyChatQuickStartHint: "Choose a starting point\. It only fills the composer/);
+  // Local Chat and Project Chat share one quick-start set and the same
+  // fill-and-focus behaviour, so the two welcome screens cannot drift apart.
+  assert.match(emptyQuickStarts, /emptyChatPlanLabel[\s\S]*emptyChatAnalyzeLabel[\s\S]*emptyChatOrganizeLabel/);
+  assert.match(view, /emptyActions=\{messageInput\.trim\(\) \? \[\] : emptyQuickStarts\(copy\)\}/);
+  assert.match(projectChat, /emptyActions=\{message\.trim\(\) \? \[\] : emptyQuickStarts\(copy\)\}/);
+  assert.match(projectChat, /onEmptyAction=\{fillEmptyPrompt\}/);
+  assert.match(projectChat, /function fillEmptyPrompt\(prompt: string\): void \{\s*if \(message\.trim\(\)\) return;\s*message = prompt;\s*void tick\(\)\.then\(\(\) => chatInputArea\?\.focusInput\(\)\);\s*\}/);
+  assert.match(projectChat, /bind:this=\{chatInputArea\}/);
 });
 
 test("sidebar resizing uses shared pointer manipulation and writes only on completion", () => {
@@ -810,21 +821,61 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and a f
   assert.doesNotMatch(view, /autoCollapsedByWindow/);
   assert.doesNotMatch(view, /\$: if \(viewportWidth !== previousViewportWidth\) \{[\s\S]*?sidebarCollapsed = true/s);
   assert.match(view, /event\.key\.toLowerCase\(\) === "b"/);
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed\s*\{\s*grid-template-columns:\s*0px minmax\(0, 1fr\);/);
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-sidebar\s*\{[\s\S]*transform:\s*translateX\(-100%\);/);
-  // Collapsed titles must clear the traffic lights AND the cluster (84px + 28px
-  // + 2px + 28px + 8px breath).
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header\s*\{\s*padding-left:\s*150px;/);
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.settings-page-header\.is-workspace\s*\{\s*padding-left:\s*150px;\s*padding-right:\s*150px;/);
+  // Collapsing keeps a visible icon rail, not a zero-width hidden column.
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed\s*\{\s*grid-template-columns:\s*minmax\(var\(--sidebar-rail-w\), var\(--sidebar-w, var\(--sidebar-rail-w\)\)\) minmax\(0, 1fr\);/);
+  assert.match(styles, /--sidebar-rail-w:\s*48px/);
+  assert.match(styles, /\.chat-sidebar\.is-collapsed\s*\{/);
+  // Collapsed titles clear the traffic lights AND the cluster (84px + 28px +
+  // 2px + 28px + 8px breath = 150px window-space), minus the 48px rail.
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header\s*\{\s*padding-left:\s*102px;/);
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.settings-page-header\.is-workspace\s*\{\s*padding-left:\s*102px;\s*padding-right:\s*102px;/);
+});
+
+test("collapsed rail carries conversation/project toggles and reuses the shared list for its flyout", () => {
+  // The rail is the collapsed presentation inside the same sidebar element, and
+  // it swaps 新对话 for the two list destinations (the new-chat action stays in
+  // the window title-bar cluster).
+  assert.match(chatSidebar, /class="sidebar-rail"/);
+  assert.match(chatSidebar, /class="sidebar-flyout"/);
+  assert.match(chatSidebar, /onclick=\{\(\) => onToggleFlyout\?\.\("conversations"\)\}/);
+  assert.match(chatSidebar, /onclick=\{\(\) => onToggleFlyout\?\.\("projects"\)\}/);
+  assert.match(view, /let collapsedFlyout: CollapsedFlyout = null/);
+  assert.match(view, /function toggleCollapsedFlyout\(section: Exclude<CollapsedFlyout, null>\): void \{\s*collapsedFlyout = collapsedFlyout === section \? null : section;\s*\}/);
+  // The flyout must render the exact same list component the expanded sidebar
+  // uses, so filtering by channel, projects, rename/delete and pagination stay
+  // identical instead of drifting into a second implementation.
+  assert.match(chatSidebar, /import SidebarLists, \{ type SidebarListSection \} from "\.\/SidebarLists\.svelte"/);
+  assert.match(chatSidebar, /<SidebarLists \{\.\.\.listProps\} sections=\{\["conversations", "projects", "rooms"\]\} variant="sidebar" \/>/);
+  assert.match(chatSidebar, /<SidebarLists \{\.\.\.listProps\} sections=\{\[collapsedFlyout\]\} variant="flyout" \/>/);
+  // The rail also carries a rooms flyout toggle.
+  assert.match(chatSidebar, /onclick=\{\(\) => onToggleFlyout\?\.\("rooms"\)\}/);
+  // Clicking a workspace destination closes the flyout.
+  assert.match(view, /function openWorkspacePane\(pane: Exclude<ChatWorkspacePaneName, "chat">\): void \{\s*roomPaneActive = false;\s*collapsedFlyout = null;/);
+});
+
+test("list-section headings switch the right pane; only the caret collapses", () => {
+  // A section label navigates to that section's content (last conversation /
+  // project / room), so a workspace destination can never trap the reader. The
+  // caret is the separate collapse control.
+  assert.match(chatSidebar, /onOpenConversations,\n\s*onOpenProjects,\n\s*onOpenRooms,/);
+  assert.match(sidebarLists, /class="sidebar-section-toggle" onclick=\{onOpenConversations\}/);
+  assert.match(sidebarLists, /class="sidebar-section-toggle" onclick=\{onOpenRooms\}/);
+  assert.match(sidebarLists, /class="sidebar-section-caret-btn" aria-expanded=\{conversationsOpen\}/);
+  assert.match(projectTree, /class="sidebar-section-toggle" onclick=\{onOpen\}/);
+  assert.match(projectTree, /class="sidebar-section-caret-btn" aria-expanded=\{expanded\}/);
+  assert.match(view, /function openConversationsSection\(\): void \{\s*if \(!conversationsExpanded\) \{ conversationsExpanded = true; persistSidebarTree\(\); \}[\s\S]*?workspacePane = "chat";/);
+  assert.match(view, /function openProjectsSection\(\): void \{\s*if \(!projectsExpanded\) \{ projectsExpanded = true; persistSidebarTree\(\); \}[\s\S]*?projectPaneActive = true;/);
+  assert.match(view, /function openRoomsSection\(\): void \{/);
+  assert.match(styles, /\.sidebar-section-caret-btn\s*\{/);
 });
 
 test("title-bar cluster swaps search for new-chat while collapsed; search stays independent from pagination", () => {
   assert.match(view, /class="sidebar-titlebar-btn" aria-label=\{copy\.searchConversations\}/);
   assert.match(view, /onclick=\{openBrowser\}/);
   assert.match(view, /onclick=\{newChatFromCollapsedSidebar\}/);
-  // The collapsed new-chat slot expands the sidebar with it, so the fresh
+  // The collapsed new-chat slot opens the conversation flyout so the fresh
   // session appears in a visible list instead of a bare title change.
-  assert.match(view, /function newChatFromCollapsedSidebar\(\): void \{\s*if \(sidebarCollapsed\) toggleSidebarCollapse\(\);\s*newConversation\(\);\s*\}/);
+  assert.match(view, /function newChatFromCollapsedSidebar\(\): void \{\s*if \(sidebarCollapsed\) collapsedFlyout = "conversations";\s*newConversation\(\);\s*\}/);
   assert.match(view, /onMoreChannel=\{\(channel\) => void loadMoreChannel\(channel as DesktopConversationChannel\)\}/);
   assert.match(view, /listDesktopConversations\(connectedEndpoint, \{ channel, limit: 10, cursor \}\)/);
   assert.match(view, /new Set\(existing\.map\(\(item\) => item\.sessionId\)\)/);
@@ -1071,7 +1122,7 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   // The avatar is inline at the head of the identity row, not in a left gutter:
   // a gutter indented the whole reply by the avatar's width, so the message body
   // stopped lining up with the composer's left edge.
-  assert.match(transcript, /class="assistant-identity">\s*<img class="assistant-avatar"/);
+  assert.match(transcript, /class="assistant-identity">[\s\S]*?<img class="assistant-avatar"/);
   assert.match(styles, /\.assistant-avatar\s*\{[^}]*width:\s*22px/s);
   assert.match(styles, /\.assistant-layout\s*\{[^}]*display:\s*flex/s);
   // The Agent label is the channel's binding, not a static role word. A channel
@@ -1458,6 +1509,27 @@ test("project settings dialog hands the height budget to a scrollable body", () 
   assert.match(projectSettingsDialog, /projectCommandsEmpty/);
 });
 
+test("shared Button maps its variant to the global control-family class", () => {
+  const button = read("./lib/components/ui/Button.svelte");
+  // `variant` must render the themed control family. A bare `primary`/`secondary`
+  // class matches no rule, so a consumer that does not also pass an explicit
+  // class (Project settings, Update dialog) fell back to a native button and out
+  // of the app theme.
+  assert.match(button, /variant === "primary" \? "primary-button" : "secondary-button"/);
+  assert.doesNotMatch(button, /class=\{`\$\{variant\}/);
+  assert.match(projectSettingsDialog, /<Button variant="primary" type="submit"/);
+});
+
+test("settings entry uses the filled settings2 glyph; mini apps uses widget2 duotone", () => {
+  const projectDetail = read("./lib/projects/ProjectDetail.svelte");
+  assert.match(chatSidebar, /import Settings2 from "reicon-svelte\/icons\/Settings2"/);
+  assert.match(chatSidebar, /<Settings2 class="sidebar-footer-gear" size=\{16\} weight="Filled"/);
+  assert.match(projectDetail, /<Settings2 size=\{16\} weight="Filled"/);
+  assert.match(chatSidebar, /icon: Widget2/);
+  assert.doesNotMatch(chatSidebar, /TuningSquare2/);
+  assert.doesNotMatch(projectDetail, /TuningSquare2/);
+});
+
 // The Project store drops any command without a body or with a name that slugs
 // to nothing. Saving used to report success while the row disappeared on the
 // next open, so the dialog must refuse the save and name the fix instead of
@@ -1571,8 +1643,7 @@ test("issue 8 chat polish stays wired across shared Chat and Project surfaces", 
   // must commit the composition instead of sending.
   assert.match(projectChat, /event\.isComposing \|\| event\.keyCode === 229\) return/);
   assert.match(projectChat, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.altKey\) return/);
-  assert.match(view, /event\.isComposing \|\| event\.keyCode === 229\) return/);
-  assert.match(view, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.altKey\) return/);
+  assert.match(view, /if \(!shouldSubmitComposer\(event\)\) return/);
   assert.match(view, /event\.key === ","[\s\S]*openSettings\(\)/);
   assert.match(view, /event\.key\.toLowerCase\(\) === "k"[\s\S]*toggleCommandPalette/);
   assert.match(view, /class="command-palette"[\s\S]*commandResults as command, index/);
@@ -1892,8 +1963,8 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(view, /const open = !expandedChannels\[channel\]/);
   assert.match(view, /SIDEBAR_TREE_KEY/);
   const projectTree = read("./lib/projects/ProjectTree.svelte");
-  assert.match(chatSidebar, /<ProjectTree/);
-  assert.match(chatSidebar, /overflow-x: hidden/);
+  assert.match(sidebarLists, /<ProjectTree/);
+  assert.match(sidebarLists, /overflow-x: hidden/);
   assert.match(projectTree, /sidebar-section-head/);
   assert.doesNotMatch(projectTree, /project-tree-actions/);
   assert.match(projectTree, /opacity: 0; pointer-events: none/);
@@ -1978,7 +2049,7 @@ test("running affordances wear the rotating border beam", () => {
 });
 
 test("only the Web channel exposes a new Session shortcut", () => {
-  assert.match(chatSidebar, /onNewSession=\{channel\.id === "web" \? onNewConversation : null\}/);
+  assert.match(sidebarLists, /onNewSession=\{channel\.id === "web" \? onNewConversation : null\}/);
   assert.match(channelAccordion, /\{#if onNewSession\}[\s\S]*class="channel-new-session"[\s\S]*aria-label=\{labels\.newChat\}[\s\S]*onclick=\{onNewSession\}/);
   // The create-session affordance is the chat-plus glyph; the collapse arrow is
   // gone — the header itself toggles, so nothing else may reserve trailing width.
@@ -2020,12 +2091,12 @@ test("conversation and project titles share a clean section header layout", () =
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*background:\s*transparent/s);
   // The old gradient's private token must not linger once nothing reads it (pitfall 4).
   assert.doesNotMatch(styles, /--sidebar-section-glass/);
-  for (const source of [chatSidebar, projectTree]) {
+  for (const source of [sidebarLists, projectTree]) {
     assert.match(source, /sidebar-section-head/);
     assert.match(source, /sidebar-section-toggle/);
     assert.match(source, /sidebar-section-caret/);
   }
-  assert.match(chatSidebar, /<section class="sidebar-tree-section">[\s\S]*<ProjectTree/);
+  assert.match(sidebarLists, /<section class="sidebar-tree-section">[\s\S]*<ProjectTree/);
 });
 
 test("Agent Studio projects real activity into an accessible Three.js city", () => {
@@ -2427,8 +2498,8 @@ test("theme families adapt existing chrome only through the documented region ho
   assert.match(chatView, /class="chat-layout"[\s\S]{0,40}data-theme-region="window"/);
   assert.match(chatView, /class="chat-content" data-theme-region="chat"/);
   assert.match(chatView, /class="chat-header" data-theme-region="header"/);
-  assert.match(chatSidebar, /class="chat-sidebar" data-theme-region="sidebar"/);
-  assert.match(chatSidebar, /class="sidebar-channels" data-theme-region="session-list"/);
+  assert.match(chatSidebar, /class="chat-sidebar"[\s\S]{0,60}data-theme-region="sidebar"/);
+  assert.match(sidebarLists, /class="sidebar-channels"[\s\S]{0,80}data-theme-region="session-list"/);
   assert.match(chatInputArea, /class="composer-wrap"[\s\S]{0,80}data-theme-region="composer"/);
   const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
   assert.match(artifactPanel, /class="file-panel project-file-panel artifact-panel"[\s\S]{0,160}data-theme-region="file-panel"/);
@@ -2558,6 +2629,25 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.match(styles, /\.header-actions\s*\{\s*pointer-events:\s*none;\s*\}/);
   assert.match(styles, /\.header-actions > \*\s*\{\s*pointer-events:\s*auto;\s*\}/);
   assert.doesNotMatch(view, /<button[\s\S]{0,160}data-tauri-drag-region/);
+});
+
+test("Room chrome drags across passive content while actions remain clickable", () => {
+  const room = read("./lib/chat/RoomWorkspace.svelte");
+  const header = room.slice(room.indexOf('<header class="room-header"'), room.indexOf('</header>'));
+  assert.match(header, /<header class="room-header" data-tauri-drag-region>/);
+  for (const tag of ['div class="room-heading"', 'span class="room-eyebrow"', 'h2', 'p']) {
+    assert.ok(header.includes(`<${tag} data-tauri-drag-region>`), `${tag} must allow native dragging`);
+  }
+  assert.doesNotMatch(header, /<Button[^>]*data-tauri-drag-region/);
+  assert.match(styles, /\.room-header\s*\{[^}]*width: 100%;[^}]*box-sizing: border-box;/);
+  assert.match(styles, /\.room-actions\s*\{[^}]*pointer-events: none;/);
+  assert.match(styles, /\.room-actions > \*\s*\{[^}]*pointer-events: auto;/);
+  const sidebar = read("./lib/chat/ChatSidebar.svelte");
+  // Rooms are a list section (like conversations/projects), so the rail toggles
+  // a rooms flyout rather than opening a workspace destination.
+  assert.ok(sidebar.indexOf("onSelect: onOpenAgents") < sidebar.indexOf("onSelect: onOpenPlans"));
+  assert.match(sidebar, /onclick=\{\(\) => onToggleFlyout\?\.\("rooms"\)\}/);
+  assert.match(view, /activeWorkspacePane=\{workspacePane\}/);
 });
 
 test("Chat window aligns native macOS traffic lights with the edge-to-edge sidebar", () => {
@@ -2976,8 +3066,8 @@ test("direct one-shot delivery is persisted through the shared runtime for every
 test("automation and skills shortcuts reflect the active workspace pane", () => {
   const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
   assert.match(view, /activeWorkspacePane=\{workspacePane\}/);
-  assert.match(chatSidebar, /class:active=\{activeWorkspacePane === "automations"\}/);
-  assert.match(chatSidebar, /class:active=\{activeWorkspacePane === "skills"\}/);
+  assert.match(chatSidebar, /active: activeWorkspacePane === "automations"/);
+  assert.match(chatSidebar, /active: activeWorkspacePane === "skills"/);
   assert.match(chatSidebar, /\.nav-item\.active\s*\{[^}]*background:/s);
 });
 
@@ -3288,7 +3378,7 @@ test("project creation asks for a name before offering managed or existing direc
 
 test("project sessions render under the active project reusing the chat sidebar chrome", () => {
   const projectTree = readFileSync(new URL("./lib/projects/ProjectTree.svelte", import.meta.url), "utf8");
-  const sidebar = readFileSync(new URL("./lib/chat/ChatSidebar.svelte", import.meta.url), "utf8");
+  const sidebar = readFileSync(new URL("./lib/chat/SidebarLists.svelte", import.meta.url), "utf8");
   const projectDetail = readFileSync(new URL("./lib/projects/ProjectDetail.svelte", import.meta.url), "utf8");
   const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
   // Project is a first-level sidebar tree, not a separate page, and shares
@@ -3944,11 +4034,11 @@ test("project file panel follows file changes live and stays resizable", () => {
   // Dragging the panel touches ONLY the panel: its manipulation updates
   // `filesWidth` (and the resizing flag), never the nav.
   assert.match(view, /const filesManipulation = new DirectManipulation\(\{[\s\S]*?onUpdate\(snapshot\) \{\s*filesWidth = clampFilesWidth\(snapshot\.position\);\s*resizingFiles = [^}]*\}/s);
-  assert.match(view, /\$: filesMaxWidth = inspectorVisible \? filesCap\(viewportWidth, sidebarWidth\) : Number\.POSITIVE_INFINITY/);
+  assert.match(view, /\$: filesMaxWidth = inspectorVisible \? filesCap\(viewportWidth, reservedSidebarWidth\) : Number\.POSITIVE_INFINITY/);
   assert.match(view, /\$: effectiveFilesWidth = Math\.min\(filesWidth, filesMaxWidth\)/);
   // With the Inspector open the panel absorbs a window resize: the sidebar and
   // transcript keep their width, so widening the window widens the panel.
-  assert.match(view, /\$: if \(viewportWidth !== previousViewportWidth\) \{[\s\S]*?if \(inspectorVisible && delta !== 0\) \{\s*filesWidth = Math\.min\(filesCap\(viewportWidth, sidebarWidth\), Math\.max\(FILES_MIN, Math\.round\(filesWidth \+ delta\)\)\)/s);
+  assert.match(view, /\$: if \(viewportWidth !== previousViewportWidth\) \{[\s\S]*?if \(inspectorVisible && delta !== 0\) \{\s*filesWidth = Math\.min\(filesCap\(viewportWidth, reservedSidebarWidth\), Math\.max\(FILES_MIN, Math\.round\(filesWidth \+ delta\)\)\)/s);
   assert.match(view, /--sidebar-w:\$\{effectiveSidebarWidth\}px; --files-w:\$\{effectiveFilesWidth\}px/);
   assert.match(view, /bind:innerWidth=\{viewportWidth\}/);
 });
@@ -4147,7 +4237,7 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /id: "tools", sections: \["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
   assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs", "hostBash"\]/);
-  assert.match(app, /id: "system", sections: \["runtimeEnv", "executionPermissions", "plugins", "diagnostics"\]/);
+  assert.match(app, /id: "system", sections: \["system", "runtimeEnv", "executionPermissions", "plugins", "diagnostics"\]/);
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
     assert.match(sections[key], /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
@@ -4158,6 +4248,22 @@ test("settings navigation keeps the current product taxonomy and entity editors 
   assert.match(app, /label: sectionLabel\(item\.id, text\)/);
   assert.match(app, /<PageHeader title=\{sectionLabel\(activeSection, text\)\}/);
   assert.match(app, /\{text\[preview\.labelKey\]\}/);
+});
+
+test("settings nav uses the owner-picked approval, logs, runtime, trace and system glyphs", () => {
+  // Approval management and System render Filled glyphs; logs/trace/runtime
+  // environment use duotone, matching the owner's per-entry choices.
+  assert.match(app, /import Verified from "reicon-svelte\/icons\/Verified"/);
+  assert.match(app, /import Gear2 from "reicon-svelte\/icons\/Gear2"/);
+  assert.match(app, /import CodeSquare from "\.\/lib\/icons\/duotone\/components\/CodeSquare\.svelte"/);
+  assert.match(app, /import Reorder from "\.\/lib\/icons\/duotone\/components\/Reorder\.svelte"/);
+  assert.match(app, /import Routing3 from "\.\/lib\/icons\/duotone\/components\/Routing3\.svelte"/);
+  assert.match(app, /\{ id: "hostBash", icon: Verified \}/);
+  assert.match(app, /\{ id: "logs", icon: Reorder \}/);
+  assert.match(app, /\{ id: "trace", icon: Routing3 \}/);
+  assert.match(app, /\{ id: "runtimeEnv", icon: CodeSquare \}/);
+  assert.match(app, /\{ id: "system", icon: Gear2 \}/);
+  assert.doesNotMatch(app, /\{ id: "(logs|trace|runtimeEnv|hostBash|system)", icon: (TerminalSquare|Search|Box|ShieldCheck)/);
 });
 
 test("image and video task details use the shared Dialog primitive", () => {
@@ -4740,7 +4846,7 @@ test("Chat mounts one shared inspector host for artifact, durable, and session P
   // a second panel must never introduce a fourth column.
   assert.match(view, /class:with-files=\{inspectorVisible\}/);
   assert.match(view, /\$: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH/);
-  assert.match(view, /\$: filesMaxWidth = inspectorVisible \? filesCap\(viewportWidth, sidebarWidth\) : Number\.POSITIVE_INFINITY/);
+  assert.match(view, /\$: filesMaxWidth = inspectorVisible \? filesCap\(viewportWidth, reservedSidebarWidth\) : Number\.POSITIVE_INFINITY/);
   assert.match(view, /\{#if inspectorVisible\}[\s\S]{0,400}class="files-resizer"/);
   // ChatView mounts exactly one Artifact Panel plus the Durable Execution adapter;
   // both render inside the shared inspector host. MiniAppPanel and ProjectFilePanel
@@ -4993,9 +5099,9 @@ test("the Mini App panel obeys the shared panel layout rules", () => {
 test("Mini Apps are reachable as a primary destination", () => {
   // The destination is a first-class sidebar entry that opens on the Launchpad:
   // the recent-apps tree section was removed as redundant with it.
-  assert.match(chatSidebar, /class="nav-item"[\s\S]{0,200}onclick=\{onOpenMiniApps\}/);
+  assert.match(chatSidebar, /key: "miniapps"[\s\S]{0,200}onSelect: onOpenMiniApps/);
   assert.match(chatSidebar, /copy\.miniAppsNav/);
-  assert.match(chatSidebar, /Grid size=\{16\} aria-hidden="true" \/>/);
+  assert.match(chatSidebar, /icon: Widget2/);
   assert.match(workspacePane, /pane === "miniapps"[\s\S]{0,120}<MiniAppsLaunchpad/);
   assert.doesNotMatch(chatSidebar, /MiniAppsSidebarSection/);
 });
@@ -5221,7 +5327,7 @@ test("an interrupted turn keeps its answer and shows why it stopped as a separat
   // budget used to render nothing but "Request aborted" because the projection
   // let the error string overwrite the answer the same turn had produced.
   assert.match(transcript, /assistantError = message\.role === "assistant"/);
-  assert.match(transcript, /message\.errorMessage\.trim\(\) !== displayContent\.trim\(\)/);
+  assert.match(transcript, /!displayContent\.includes\(message\.errorMessage\.trim\(\)\)/);
   assert.match(transcript, /class="assistant-error-note"/);
   assert.match(transcript, /copy\.assistantErrorLabel/);
 
@@ -5865,4 +5971,56 @@ test("desktop motion completion covers list mutation, controls, disclosures, and
   const completion = baseStyles.slice(baseStyles.indexOf("/* Desktop motion completion layer"));
   assert.doesNotMatch(completion, /\.agent-(?:studio|city)/);
   assert.doesNotMatch(completion, /(?:^|[,\s])(?:canvas|\.agent-scene|\.three-scene)(?:[\s,{:#.]|$)/im);
+});
+
+ test("Room messages reuse the complete ordinary composer and submission controls", () => {
+  const room = read("./lib/chat/RoomWorkspace.svelte");
+  assert.match(room, /<ChatInputArea /);
+  assert.doesNotMatch(room, /<ChatComposerShell|添加附件|Attach files|<textarea/);
+  assert.match(room, /\$:\s*if \(view && !editing && activeDraftKey === sessionDraftKey/);
+  assert.match(room, /draftStore\.update\(activeDraftKey, \{ text: input, files, thinkingLevel: thinking \?\? defaultThinking, modelKey \}\)/);
+  assert.match(view, /draftStore=\{chatStore\.draftStore\}/);
+  assert.match(room, /pendingFiles=\{files\}/);
+  assert.match(room, /onPasteFiles=\{addFiles\}/);
+  assert.match(room, /shouldSubmitComposer\(event\)/);
+  assert.match(room, /modelKey: draft.modelKey \|\| undefined, thinkingLevel: draft.thinkingLevel/);
+  assert.match(room, /onToggleRecording.*onFinishRecording/);
+});
+
+test("Room conversations use the shared Chat chrome, transcript and mention menu", () => {
+  const room = read("./lib/chat/RoomWorkspace.svelte");
+  assert.match(room, /<ChatHeader /);
+  assert.match(room, /<ChatMessagesPane /);
+  assert.match(room, /<ChatInputArea floating=\{true\} \{mentionSuggestions\}/);
+  assert.doesNotMatch(room, /class="room-transcript"|class="room-message"|<ChatMarkdown|class="room-team-bar"/);
+  assert.match(room, /roomMentionIds\(text, members\)/);
+  assert.match(room, /fetchDesktopRoomFileBlob/);
+  assert.match(transcript, /message.authorName \?\? assistantName/);
+});
+
+test("Room event streams reconnect after missed heartbeats and initial request failures", () => {
+ const api = read("./lib/api.ts");
+ const stream = api.slice(api.indexOf("export async function streamDesktopRoom"), api.indexOf("export async function uploadDesktopRoomFiles"));
+ assert.match(stream, /AbortSignal.any\(\[signal, heartbeatAbort.signal\]\)/);
+ assert.match(stream, /heartbeatAbort.abort\(\), 5000/);
+ assert.match(stream, /if \(done\) break;\s*resetHeartbeat\(\)/);
+ assert.match(stream, /finally \{ clearTimeout\(heartbeatTimer\)/);
+ const room = read("./lib/chat/RoomWorkspace.svelte");
+ assert.match(room, /currentEndpoint === endpoint\) void initialize\(\)/);
+ assert.match(room, /reconnecting = true;\s*retryTimer = setTimeout/);
+});
+
+test("Room sends the recipients shown for text mentions and restores through the same session entry", () => {
+ const room = read("./lib/chat/RoomWorkspace.svelte");
+ assert.match(room, /targets: \[\.\.\.explicitRecipients\]/);
+ const restore = view.slice(view.indexOf("async function selectDefaultSession"), view.indexOf("async function loadChannel"));
+ assert.match(restore, /openSession\(target\)/);
+ assert.doesNotMatch(restore, /chatStore.selectSession/);
+});
+
+test("Room model preview and persisted failures use runtime metadata", () => {
+  const source = read("./lib/chat/RoomWorkspace.svelte");
+  assert.match(source, /view\?\.memberModelKeys\?\.\[id\]/);
+  assert.match(source, /execution\?\.status === "failed" \? "error"/);
+  assert.match(source, /errorMessage: execution\?\.error/);
 });

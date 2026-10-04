@@ -19,6 +19,7 @@
   import ApprovalCard from "../chat/ApprovalCard.svelte";
   import ChatInputArea from "../chat/ChatInputArea.svelte";
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
+  import { emptyQuickStarts } from "../chat/emptyQuickStarts";
   import Dialog from "../components/ui/Dialog.svelte";
   import { projectChatStore } from "./projectChatStore.svelte";
   import { appendReference, composerInsertion, insertComposerText, miniAppComposerInsertion, requestArtifactPathOpen, requestArtifactTurnOpen, requestMiniAppDeepLinkOpen, type MiniAppComposerInsertion } from "./composerBridge";
@@ -65,6 +66,7 @@
   let permissionModeSource: PermissionSource = "global";
   let permissionHydrationSession = "";
   let message = "";
+  let chatInputArea: ChatInputArea;
   // Last file reference consumed from the panel. Guards the reactive block
   // below from re-appending the same reference when it re-runs for other reasons.
   let appliedInsertionId = 0;
@@ -606,6 +608,14 @@
     if (projectChatStore.enqueueFollowUp(message)) message = "";
   }
 
+  // Empty-state quick starts fill (never send) the project composer, matching
+  // local Chat. The pane hides them as soon as the composer has text.
+  function fillEmptyPrompt(prompt: string): void {
+    if (message.trim()) return;
+    message = prompt;
+    void tick().then(() => chatInputArea?.focusInput());
+  }
+
   function handleComposerKeydown(event: KeyboardEvent): void {
     // Enter sends, Shift+Enter stays with the textarea as a newline. An IME
     // confirm keystroke arrives as Enter too; WebKit fires it after
@@ -1091,6 +1101,10 @@
     liveSteps={projectToolProgress === "off" ? liveSteps.filter((step) => step.kind !== "activity") : liveSteps}
     emptyTitle={copy.projectEmptyChat}
     emptyHint={copy.projectEmptyChatHint}
+    emptyActionLabel={copy.emptyChatQuickStart}
+    emptyActionHint={copy.emptyChatQuickStartHint}
+    emptyActions={message.trim() ? [] : emptyQuickStarts(copy)}
+    onEmptyAction={fillEmptyPrompt}
     messageActions={messageActions}
     attachmentActions={transcriptAttachmentActions}
     onOpenActivityPath={requestArtifactPathOpen}
@@ -1140,6 +1154,7 @@
     />
   {/if}
   <ChatInputArea
+    bind:this={chatInputArea}
     bind:value={message}
     thinkingLevel={clampedThinkingLevel}
     autoAvailable={globalAutoAvailable}

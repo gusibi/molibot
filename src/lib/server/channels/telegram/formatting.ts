@@ -1,4 +1,5 @@
-import type { Bot, InputRichMessage } from "grammy";
+import type { Bot } from "grammy";
+import type { InputRichMessage } from "grammy/types";
 import { momWarn } from "$lib/server/agent/common/log.js";
 
 const SEND_RETRY_DELAYS_MS = [0, 500, 1500, 3000, 5000, 8000, 12000] as const;

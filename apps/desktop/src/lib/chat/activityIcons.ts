@@ -111,7 +111,8 @@ export function emptyActionIcon(name: string): ReiconComponent {
 }
 
 /** Composer invocation kinds shown as kickers and slash suggestions. */
-export const INVOCATION_ICONS: Record<"command" | "skill" | "miniapp" | "file", ReiconComponent> = {
+export const INVOCATION_ICONS: Record<"command" | "skill" | "miniapp" | "file" | "agent", ReiconComponent> = {
+  agent: ChatDots,
   command: TerminalSquare,
   skill: Sparkle,
   miniapp: Grid,

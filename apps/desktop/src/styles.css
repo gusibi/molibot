@@ -164,6 +164,9 @@
   /* Settings is the reference rail; Chat may still be resized from this base. */
   --sidebar-nav-w: 228px;
   --sidebar-nav-w-narrow: 170px;
+  /* Collapsed Chat keeps a visible icon rail; the conversation/project list
+     opens as a flyout beside it (mirrored by SIDEBAR_RAIL_W in ChatView). */
+  --sidebar-rail-w: 48px;
   --settings-content-width: 720px;
   --data-content-width: 720px;
   /* Shared centered content column: every settings block aligns to this. */
@@ -483,12 +486,14 @@ a:focus-visible {
     minmax(var(--chat-min-w), 1fr)
     minmax(var(--files-min-w), var(--files-w, 280px));
 }
+/* Collapsed keeps the rail (and an optional flyout) in the first track; the
+   rail is the floor, so it never reserves zero width. */
 .chat-layout.sidebar-collapsed {
-  grid-template-columns: 0px minmax(0, 1fr);
+  grid-template-columns: minmax(var(--sidebar-rail-w), var(--sidebar-w, var(--sidebar-rail-w))) minmax(0, 1fr);
 }
 .chat-layout.sidebar-collapsed.with-files {
   grid-template-columns:
-    0px
+    minmax(var(--sidebar-rail-w), var(--sidebar-w, var(--sidebar-rail-w)))
     minmax(var(--chat-min-w), 1fr)
     minmax(var(--files-min-w), var(--files-w, 280px));
 }
@@ -518,29 +523,25 @@ a:focus-visible {
 .chat-layout.resizing-sidebar .chat-sidebar::before {
   border-right-color: var(--control-border-strong);
 }
-.chat-layout.sidebar-collapsed .chat-sidebar {
-  width: 0px !important;
-  max-width: 0px !important;
-  min-width: 0px !important;
-  padding-left: 0px !important;
-  padding-right: 0px !important;
-  opacity: 0;
-  transform: translateX(-100%);
-  pointer-events: none;
+/* The collapsed rail stays flush against the window's left edge; the flyout
+   owns its own inset and separator. */
+.chat-sidebar.is-collapsed {
+  padding-left: 0px;
+  padding-right: 0px;
 }
 .chat-layout.sidebar-collapsed .sidebar-resizer {
   display: none;
 }
-/* Collapsed panes start at the window's left edge, so their titles must clear
-   the traffic lights AND the title-bar control cluster (84px origin + two 28px
-   buttons + gap + 8px breath = 150px). The workspace header keeps its padding
-   symmetric so the centered title column stays centered on W/2. */
+/* Collapsed panes start after the rail, so their titles must clear the traffic
+   lights AND the title-bar control cluster (84px origin + two 28px buttons + gap
+   + 8px breath = 150px window-space, minus the 48px rail = 102px). The workspace
+   header keeps its padding symmetric so the centered title column stays centered. */
 .chat-layout.sidebar-collapsed .chat-header {
-  padding-left: 150px;
+  padding-left: 102px;
 }
 .chat-layout.sidebar-collapsed .settings-page-header.is-workspace {
-  padding-left: 150px;
-  padding-right: 150px;
+  padding-left: 102px;
+  padding-right: 102px;
 }
 /* The title-bar control cluster is one window-level layer anchored next to the
    traffic lights (DESIGN.md: title-bar control cluster). Collapsing swaps the
@@ -732,6 +733,9 @@ a:focus-visible {
 .sidebar-section-head:hover .sidebar-section-caret,
 .sidebar-section-head:focus-within .sidebar-section-caret { opacity: 1; }
 .sidebar-section-caret.open { transform: rotate(90deg); }
+.sidebar-section-caret-btn { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; margin-right: 2px; padding: 0; border: 0; border-radius: var(--rounded-sm, 6px); background: transparent; color: var(--label-secondary); cursor: pointer; }
+.sidebar-section-caret-btn:hover { background: var(--fill); color: var(--label-primary); }
+.sidebar-section-caret-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
 .brand-row { display: flex; align-items: center; gap: 10px; padding: 2px 8px 14px; }
 .brand-copy { display: grid; gap: 2px; min-width: 0; }
 .brand-copy strong { font-size: var(--fs-heading); line-height: var(--lh-heading); font-weight: 600; letter-spacing: var(--tracking-tight); }
@@ -2395,7 +2399,7 @@ a:focus-visible {
     grid-template-columns: minmax(var(--sidebar-nav-w-narrow), var(--sidebar-w, var(--sidebar-nav-w))) minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px));
   }
   .chat-layout.sidebar-collapsed.with-files {
-    grid-template-columns: 0px minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px));
+    grid-template-columns: minmax(var(--sidebar-rail-w), var(--sidebar-w, var(--sidebar-rail-w))) minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px));
   }
 }
 
@@ -2636,17 +2640,18 @@ a:focus-visible {
 .conversation-empty { max-width: 560px; margin: clamp(40px, 15vh, 160px) auto 32px; color: var(--label-secondary); text-align: center; animation: conversation-empty-in var(--duration-panel) var(--ease-spring) both; }
 .conversation-empty h2 { margin: 0 0 12px; color: var(--label-primary); font-size: clamp(24px, 3vw, 32px); line-height: 1.3; font-weight: 600; letter-spacing: -0.025em; text-wrap: balance; }
 .conversation-empty p { margin: 0 auto; max-width: 400px; line-height: var(--lh-body); font-size: var(--fs-body); }
-.conversation-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 28px; text-align: left; }
-.conversation-empty-actions button { display: flex; min-width: 0; min-height: 36px; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: transparent; color: var(--label-secondary); font: inherit; font-size: var(--fs-label); line-height: var(--lh-label); text-align: left; cursor: pointer; }
-.conversation-empty-actions button:hover { border-color: var(--control-border-strong); background: var(--fill-hover); color: var(--label-primary); }
-.conversation-empty-actions button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
-.conversation-empty-actions button > .reicon { width: var(--icon-lg); height: var(--icon-lg); color: var(--label-secondary); }
+.conversation-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 30px; text-align: left; }
+.conversation-empty-actions button { display: flex; min-width: 0; align-items: center; gap: 10px; min-height: 46px; padding: 8px 16px 8px 8px; border: 1px solid var(--separator); border-radius: var(--rounded-md, 12px); background: var(--card-bg); color: var(--label-primary); font: inherit; font-size: var(--fs-label); line-height: var(--lh-label); text-align: left; cursor: pointer; transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard); }
+.conversation-empty-actions button:hover { border-color: var(--control-border-strong); background: var(--fill-hover); transform: translateY(-1px); }
+.conversation-empty-actions button:active { transform: translateY(0); }
+.conversation-empty-actions button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
+.conversation-empty-actions button > .reicon { flex: 0 0 auto; box-sizing: border-box; width: 30px; height: 30px; padding: 6px; border-radius: var(--radius-control); background: var(--accent-soft); color: var(--accent); }
 .conversation-empty-actions button > span { overflow-wrap: anywhere; }
-.conversation-empty .conversation-empty-action-hint { display: block; margin-top: 12px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.conversation-empty .conversation-empty-action-hint { display: block; margin-top: 14px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 @media (max-width: 760px) {
   .conversation-empty { margin-top: 8vh; }
   .conversation-empty-actions { flex-direction: column; align-items: stretch; }
-  .conversation-empty-actions button { min-height: 42px; flex-direction: row; align-items: center; justify-content: flex-start; }
+  .conversation-empty-actions button { min-height: 46px; flex-direction: row; align-items: center; justify-content: flex-start; }
 }
 @keyframes conversation-empty-in { from { opacity: 0; transform: translateY(8px); } }
 /* All rows share one centered reading column, aligned with the composer width. */
@@ -5188,6 +5193,7 @@ select.provider-input { padding-right: 6px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 /* Save actions stay in flow by default for dialogs. Page-level bars are pinned
    to the Settings content pane below, with matching scroll clearance. */
+.settings-form-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .settings-footbar { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 28px; border-top: 1px solid var(--chrome-border); background: var(--chrome-footbar-bg); z-index: 10; margin-top: 24px; }
 .settings-content .settings-footbar { position: absolute; right: 0; bottom: 0; left: 0; margin-top: 0; }
 .settings-content .settings-scroll:has(.settings-footbar) { padding-bottom: 72px; }
@@ -7410,28 +7416,65 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 }
 
 /* Rooms share the chat reading column and keep composer actions visible. */
-.room-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; background: var(--header-bg); position: relative; }
-.room-header, .room-composer, .room-setup, .room-list { width: min(720px, calc(100% - 48px)); margin-inline: auto; }
-.room-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 16px; flex-wrap: wrap; }
+/* Room configuration stays fixed while its conversation picker changes context. */
+.room-workspace > .chat-header { flex-wrap: wrap; height: auto; min-height: var(--chat-header-height, 56px); gap: 8px; }
+.room-workspace > .chat-header .header-actions { height: auto; flex-wrap: wrap; }
+.room-session-picker { min-width: 0; width: min(200px, 36vw); }
+.room-session-picker .select-control { width: 100%; min-width: 0; }
+.room-session-picker .select-control-trigger { width: 100%; min-width: 0; }
+.room-session-picker .select-control-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 560px) {
+  .room-workspace > .chat-header .header-actions { width: 100%; }
+  .room-session-picker { width: auto; flex: 1; }
+}
+.room-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; height: 100%; background: var(--header-bg); position: relative; }
+.room-setup, .room-empty { width: min(720px, calc(100% - 48px)); margin-inline: auto; }
+.room-header { width: 100%; box-sizing: border-box; padding-inline: max(24px, calc((100% - 720px) / 2)); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 16px; flex-wrap: wrap; }
 .room-header h2 { margin: 0; font-size: var(--fs-title); }
-.chat-layout.sidebar-collapsed .room-header { padding-left: 126px; box-sizing: border-box; }
-.room-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.chat-layout.sidebar-collapsed .room-header { padding-left: max(126px, calc((100% - 720px) / 2)); }
+.room-actions { pointer-events: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.room-actions > * { pointer-events: auto; }
 .room-metadata { color: var(--text-secondary); font-size: var(--fs-body); }
-.room-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
-.room-list-row { display: flex; justify-content: space-between; width: 100%; text-align: left; }
-.room-setup { overflow-y: auto; padding-bottom: 80px; }
-.room-transcript { overflow-y: auto; flex: 1; min-height: 0; padding: 16px max(24px, calc((100% - 720px) / 2)); }
-.room-message, .room-execution { padding-block: 16px; border-bottom: 1px solid var(--separator); }
-.room-user { color: var(--text-primary); }
-.room-execution { border-radius: 8px; }
-.room-composer { padding-block: 12px; flex-shrink: 0; }
-.room-composer .composer-shell { width: 100%; }
-.room-target-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+.room-empty { display: grid; place-items: center; align-content: center; flex: 1; min-height: 0; padding: 40px 0; text-align: center; }
+.room-setup { --settings-col: 100%; overflow-y: auto; flex: 1; min-height: 0; padding: 12px 0 96px; }
 .room-quote { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
 @media (max-width: 600px) {
-  .room-header, .room-composer, .room-setup, .room-list { width: calc(100% - 24px); }
-  .room-header { align-items: flex-start; }
-  .room-transcript { padding-inline: 12px; }
+  .room-setup, .room-empty { width: calc(100% - 24px); }
+  .room-header { align-items: flex-start; padding-inline: 12px; }
 }
 
 .room-workspace > .settings-footbar { position: absolute; bottom: 0; left: 0; right: 0; margin-top: 0; }
+
+/* Room setup uses shared settings groups and a compact team picker. */
+.room-heading { min-width: 0; }
+.room-heading p { margin: 8px 0 0; color: var(--label-secondary); font-size: var(--fs-body); line-height: 1.5; }
+.room-eyebrow { display: block; margin-bottom: 8px; color: var(--label-secondary); font-size: var(--fs-meta); font-weight: 500; }
+.room-name-field { width: 100%; }
+.room-name-field input { width: 100%; box-sizing: border-box; }
+.room-members-section { margin-bottom: 28px; }
+.room-member-count { white-space: nowrap; color: var(--label-secondary); font-size: var(--fs-meta); font-variant-numeric: tabular-nums; }
+.room-member-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.room-member-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--card-bg); transition: border-color 140ms ease, background-color 140ms ease; }
+.room-member-card.room-member-selected { border-color: color-mix(in srgb, var(--accent) 55%, var(--hairline)); background: color-mix(in srgb, var(--accent) 5%, var(--card-bg)); }
+.room-member-card:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.room-member-copy { flex: 1; min-width: 0; }
+.room-member-copy strong { display: block; font-size: var(--fs-body); font-weight: 600; overflow-wrap: anywhere; }
+.room-member-copy p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 4px 0 0; color: var(--label-secondary); font-size: var(--fs-meta); line-height: 1.45; }
+.room-member-card .ios-switch { flex-shrink: 0; }
+.room-members-empty { padding: 20px; margin: 0; border: 1px dashed var(--hairline); border-radius: var(--rounded-md); color: var(--label-secondary); font-size: var(--fs-body); }
+.room-team-summary, .room-team-avatars { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.room-team-avatars { gap: 4px; }
+.room-setup-footbar .settings-footbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) {
+  .room-member-grid { grid-template-columns: minmax(0, 1fr); }
+  .room-setup .settings-row { flex-direction: column; align-items: stretch; }
+  .room-setup .setting-row-control { justify-content: stretch; }
+  .room-setup .select-control { width: 100%; max-width: none; }
+  .room-setup-footbar .room-team-avatars { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .room-member-card { transition: none; } }
+
+.room-setting .room-header { padding-top: 24px; padding-bottom: 20px; }
+.room-setting .room-heading h2 { font-size: var(--fs-page); line-height: var(--lh-page); font-weight: 600; letter-spacing: -0.02em; }
+
+.room-workspace > .composer-wrap { flex-shrink: 0; }

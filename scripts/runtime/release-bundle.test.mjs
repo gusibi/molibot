@@ -68,9 +68,14 @@ test("every module start-server.mjs imports is packaged by the release bundle", 
 test("untrusted runtime worker entry points are included by the runtime-module glob", () => {
   const releaseScript = readFileSync(releaseScriptPath, "utf8");
   assert.ok(releaseScript.includes('"$ROOT_DIR"/scripts/runtime/*.mjs'));
-  for (const name of ["untrusted-miniapp-worker.mjs", "untrusted-pi-extension-worker.mjs"]) {
+  for (const name of ["untrusted-miniapp-worker.mjs", "untrusted-pi-extension-worker.mjs", "codemode-worker.mjs"]) {
     assert.ok(existsSync(path.join(rootDir, "scripts", "runtime", name)), `missing packaged worker: ${name}`);
   }
+});
+
+test("Docker includes the runtime worker directory", () => {
+  const source = readFileSync(path.join(rootDir, "Dockerfile"), "utf8");
+  assert.ok(source.includes("COPY --from=build /app/scripts/runtime ./scripts/runtime"));
 });
 
 test("desktop launcher raises the adapter body limit before loading the server", () => {

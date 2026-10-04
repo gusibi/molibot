@@ -2039,7 +2039,7 @@ export class MomRunner implements RunnerLike {
         },
         assertAuthority: (name, args) => this.activeToolAuthority?.(name, args),
         childCompaction: { enabled: settings.subagentRuntime.compactionEnabled, reserveTokens: settings.compaction.reserveTokens, keepRecentTokens: settings.compaction.keepRecentTokens },
-        childBudgetLimits: { maxToolCalls: settings.subagentRuntime.maxToolCalls, maxToolFailures: settings.subagentRuntime.maxToolFailures, maxModelAttempts: settings.subagentRuntime.maxModelTurns },
+        childBudgetLimits: { maxToolCalls: settings.subagentRuntime.maxToolCalls, maxToolFailures: settings.subagentRuntime.maxToolFailures, maxModelAttempts: DEFAULT_RUN_BUDGET.maxModelAttempts, maxModelTurns: settings.subagentRuntime.maxModelTurns },
         childTools: () => (localTools as unknown as { getChildTools: () => AgentTool[] }).getChildTools(),
         beforeChildTool: taskId => {
           const recorded = budget.tryStartTool(`pi:${executionKey}:${taskId}`);
@@ -2075,8 +2075,11 @@ export class MomRunner implements RunnerLike {
         onChildTrace: (stage, data) => { if (this.activeHookContext) this.hookManager.emit(stage, this.activeHookContext, data); },
         beforeGeneration: taskId => {
           if (!taskId.includes(":child:")) this.nativeModelTaskId = taskId;
-          const recorded = budget.tryRecordModelAttempt(taskId);
-          if (!recorded.ok) throw new Error(recorded.reason);
+          if (budget.getExceededKind() === "modelFailures") throw new Error(budget.getExceededReason());
+        },
+        onGenerationError: taskId => {
+          // A failed generation reserves one retry; successful tool rounds spend none.
+          budget.tryRecordModelFailure(taskId);
         },
         recoverTools: async names => {
           this.selectedMcpServerIds = new Set(Array.isArray(nativeRecovery?.mcpServerIds ?? recoveringSuspension?.mcpServerIds)
@@ -2569,7 +2572,7 @@ export class MomRunner implements RunnerLike {
 
         let candidateHadAttemptError = false;
         try {
-          while (attemptCount <= MAX_EMPTY_RETRIES) {
+          while (attemptCount <= Math.max(MAX_EMPTY_RETRIES, budget.limitsSnapshot().maxModelAttempts)) {
             if (attemptCount > 0) {
               momWarn("runner", "empty_response_retry", {
                 runId,
@@ -2905,6 +2908,7 @@ export class MomRunner implements RunnerLike {
               finalText: candidateFinalText,
               attemptCount,
               maxEmptyRetries: MAX_EMPTY_RETRIES,
+              maxModelRetries: budget.limitsSnapshot().maxModelAttempts,
               attemptExecutedTools,
               completedWithoutText: structuredPlanCompleted
             });
@@ -3164,6 +3168,8 @@ export class MomRunner implements RunnerLike {
                 continue;
               }
             }
+
+            if (decision.kind === "terminal_empty") break;
 
             if (candidateFinalText || structuredPlanCompleted) {
               const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
@@ -3472,7 +3478,7 @@ export class MomRunner implements RunnerLike {
           finalText,
           toolCalls: budget.snapshot().toolCalls,
           toolFailures: budget.snapshot().toolFailures,
-          modelAttempts: budget.snapshot().modelAttempts,
+          modelFailures: budget.snapshot().modelFailures,
           explicitSkillCount: explicitlyInvokedSkills.length,
           settings: settings.skillDrafts
         })
@@ -3493,7 +3499,7 @@ export class MomRunner implements RunnerLike {
             provider: receipt.provider, model: receipt.model, api: receipt.api, inputTokens: receipt.usage.input, outputTokens: receipt.usage.output,
             cacheReadTokens: receipt.usage.cacheRead, cacheWriteTokens: receipt.usage.cacheWrite, totalTokens: receipt.usage.totalTokens }),
           childTools: () => (localTools as unknown as { getChildTools: () => AgentTool[] }).getChildTools(),
-          beforeGeneration: id => { const recorded = budget.tryRecordModelAttempt(`skill-draft:${runId}:${id}`); if (!recorded.ok) throw new Error(recorded.reason); }
+          beforeGeneration: () => { if (budget.getExceededKind() === "modelFailures") throw new Error(budget.getExceededReason()); }
         });
         savedSkillDraft = saveSkillDraft({
           workspaceDir: this.store.getWorkspaceDir(),

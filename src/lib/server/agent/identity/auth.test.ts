@@ -3,6 +3,7 @@ import test from "node:test";
 import type {
   AuthCheck,
   AuthInteraction,
+  LoginOptions,
   Credential,
   CredentialInfo,
   CredentialStore,
@@ -306,4 +307,22 @@ test("a saved API-key override is reported on provider status, because pi resolv
   assert.equal(shadowed[0]?.apiKeyOverride, true);
   // The flag must be all that crosses the boundary — never the key itself.
   assert.equal(JSON.stringify(shadowed).includes("access-secret"), false);
+});
+
+
+test("OAuth forwards the stable installation identity required by ChatGPT login", async () => {
+  const store = new MemoryCredentialStore();
+  const models = new FakeModels(store, async () => credential());
+  let identity: string | undefined;
+  const originalLogin = models.login.bind(models);
+  models.login = async (providerId, type, interaction, options?: LoginOptions) => {
+    identity = options?.getDeviceId?.();
+    return originalLogin(providerId, type, interaction);
+  };
+  const id = "12121212-1212-4212-8212-121212121212";
+  const manager = new OAuthLoginManager({ models, credentials: store, getDeviceId: () => id });
+  const session = manager.start("fake-oauth");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(identity, id);
+  assert.equal(manager.get(session.id).state, "done");
 });

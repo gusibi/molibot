@@ -1,4 +1,21 @@
+## v2.9.62（2026-10-05）
+
+桌面端版本：0.9.62。
+
+- Agent 房间支持新建和切换多次会话，聊天、成员上下文、草稿与模型选择按会话隔离；旧房间升级前备份，保留原聊天和上下文。会话事件只同步对应记录。
+- 共享 Agent 执行接入 Pi 原生持久化任务和 Codemode；审批继续原任务，子任务共享取消与执行保护。修复父子工具争用执行锁的死锁，并加强停止、权限校验与 Durable 恢复保护。
+- 主 Agent 失败重试与子任务模型轮次分别计数和持久化；正常模型轮次不消耗失败重试预算。原生工具在审批前校验参数。
+- 桌面设置增加系统页，支持运行时区、Agent 预算、浏览器超时与跨渠道显示配置，保存仅更新修改字段。
+- 增加可选 Pi 图片生成，复用 Provider 凭证，支持多图与伴随文本；Pi 图片用量纳入统一统计，删除历史仍保留计费事实。
+- 桌面侧栏支持折叠图标栏与列表浮层，房间入口移入侧栏；欢迎页、项目运行状态、主题按钮及设置图标统一更新。
+
+验证边界：真实外部 Provider 与渠道验收仍待完成；Web Svelte 检查仍存在页面与依赖声明错误。已通过的服务端构建与 Desktop 检查不代表这些项目已完成验证。
+
 ### Fixed: Validate native tool arguments before approval（2026-10-04）
+
+- Agent 房间支持新建和切换多次会话，保留团队配置并隔离聊天、成员上下文和草稿；旧聊天先备份，再保留为第一条会话。
+
+- 项目会话列表显示与对话列表一致的运行动画及状态标识。
 
 原生工具准备恢复参数校验，避免无效输入先弹出审批、批准后才失败。权限限制保持不变。
 
@@ -8,11 +25,97 @@
 
 ## 2026-10-04
 
+- 模型失败重试与子任务模型轮次分别计数、持久化并报告耗尽原因；房间会话事件仅同步对应会话记录，恢复时保留全量同步。
+
+- 修复 subagent 与子工具争用同一执行锁的死锁；等待锁的任务可及时取消，实际操作仍保留权限校验和串行保护。
+
+- 桌面设置新增系统页，可调整运行时区、Agent 预算、浏览器超时和跨渠道显示；保存只更新修改字段。
+
+- 修复主 Agent 将正常模型轮次计入失败重试预算的问题；默认允许失败后最多重试 6 次，正常多步任务不再在第 6 次请求后被截断。
+
+- Agent 房间在成员停用或删除后仍可打开，文本提及只解析当前房间成员；只读讨论可正常使用 Codemode。
+- 图片用量查询减少数据库读取；图片格式与扩展名保持一致，多图发送失败会报告已上传数量。Pi 图片配置明确复用 Provider 凭证。
+- 录音结束时使用当前会话接收文件；房间导航统一处理浏览器与外部记录。Durable 恢复不再因同一操作的重复 intent 额外转人工核对。
+
+- 修复共享 Button 的 variant 未映射到 `.primary-button`/`.secondary-button`，项目设置等对话框的按钮恢复应用主题；设置入口图标改为 Filled `Settings2`，小程序图标改为 `Widget2` duotone；设置导航按入口定制字形（审批管理/系统 Filled，服务日志/运行环境/Trace duotone）。
+- Agent 房间列表移入左侧栏（折叠态为图标栏浮层），点击「对话 / 项目 / 房间」分区标题会把右侧内容切回上一次的对话、项目会话或房间。
+- 本地 Chat 与项目新会话欢迎页统一为同一套快速开始卡片（拆解目标 / 分析问题 / 整理材料），卡片重设计为强调色图标卡片；侧栏自动任务图标更新。
+- 折叠侧栏保留 48px 图标栏，对话/项目在图标栏旁按需展开列表浮层（复用展开态同一列表组件）；自动任务、技能、Agent、Agent 房间、计划、小程序点击后直接打开现有面板。
 - 共享 Agent 执行接入 Pi 原生持久化任务，审批继续原任务，子任务共享预算与取消。异步模型响应重启后查询原请求，避免重复提交；未知提交、权限撤销和已停止任务拒绝自动恢复。真实外部 Provider 与渠道验收仍待验证。
+
+### Fixed: Durable step budgets and usage receipts（2026-10-03）
+
+
+Step tool and model-attempt budgets persist across retries and approval resume without changing their original limits. Usage records carrying a response identity are counted once across reopen and reject conflicting facts. Pi production kernel replacement remains in progress.
+
+### Fixed: Stop while posting an approval（2026-10-03）
+
+Stopping during approval notification or authorization consumption expires the unexecuted decision instead of leaving the task resumable.
+
+### Fixed: Stop before approved process startup（2026-10-03）
+
+Stopping an approved Host Bash operation during environment preparation prevents the process from starting.
+
+### Fixed: Host Bash approval identity and cancellation（2026-10-03）
+
+Approval by ID validates its scope and Session. Stable tool calls reuse their original approval; cancelled prepared operations expire without starting a process. Explicit approvals are prepared before execution and claimed only when execution begins.
+
+### Fixed: Stop queued tool operations（2026-10-03）
+
+Tools recheck cancellation and authority after acquiring their execution slot and before starting their handler. Stopping a queued write prevents it from running even when its handler ignores cancellation.
+
+### Added: Pi Codemode（2026-10-03）
+
+Agents can combine existing tools in isolated scripts and return selected results. Each nested operation retains permissions, approvals, budgets and audit receipts. Cancellation preserves partial output; approval continuation plans remaining operations without replaying completed writes.
+
+### Added: Optional Pi image generation（2026-10-03）
+
+Image settings use Pi image models and existing Provider credentials. Multiple outputs and companion text remain available for preview, download and channel delivery. Image estimates enter unified usage reporting; unknown prices stay explicit, and cancellation or history deletion preserves billing facts. Native Desktop cold startup and service recovery are verified; live Provider acceptance remains pending.
+
+### Fixed: Multi-agent discussion execution（2026-10-03）
+
+Mentioning multiple Room members now requests independent read-only answers instead of automatically proposing plans. Model previews follow backend routing, and persisted failed or interrupted replies display their actual execution state and useful error notices.
+
+
+### Fixed: Room mention delivery and model context（2026-10-02）
+
+Room requests carry the members selected by typed mentions. Each recipient receives its own author identity and the resolved recipient list as temporary runtime context, so mentions are understood as Room routing. Cold startup and reconnect preserve Room navigation.
+
+### Fixed: Room mentions and shared Chat presentation（2026-10-02）
+
+Agent Room messages now route `@name` and `@id` to the named members, including multi-member discussions. Rooms reuse Chat headers, transcript, live tool process, attachment rendering, composer and approval cards. Management actions use the shared overflow menu. Initial load failures and missed event heartbeats reconnect automatically.
+
+### Fixed: Durable recovery checks every operation（2026-10-02）
+
+An earlier non-idempotent operation now blocks automatic whole-step replay even when the last operation is safe. A single external-state probe cannot mark a multi-operation step completed; these cases require an explicit recovery review.
+
+### Improved: Shared Agent Room composer（2026-10-02）
+
+Agent Rooms now use the ordinary chat input component, including model/Thinking controls, attachment previews and recording controls. Member selection and reply context sit inside the composer. Explicit model and Thinking choices reach the execution request and persist for retries; the default keeps each member’s configured model.
+
+### Improved: Agent Room setup（2026-10-02）
+
+Room creation and member editing now group room details, an avatar-based team picker and collaboration settings. Selected members and save progress appear in a fixed footer; content scrolls inside the panel. Room headers support native window dragging, and the sidebar entry now follows Agent with a conversation icon. The layout supports Chinese/English, light/dark themes and a single-column picker at narrow widths.
+
+### Fixed: Strict TypeScript checking（2026-10-02）
+
+Root TypeScript checking passes after correcting SDK declarations, runtime dependencies, stale routes and test fixtures. Shared UI variants retain their existing styles and markup. Media test endpoints reject invalid engine/provider selections before generation. Run `corepack pnpm check` for the root check; production builds also run it before bundling.
+
+Related regressions and production build pass. Web's full Svelte check still reports existing page and dependency declaration errors; Desktop's check has no errors and one existing warning.
+
+### Fixed: Room quotes and recovery submissions（2026-10-02）
+
+Room submissions reject explicit quotes that cannot fit the shared context budget instead of silently omitting them. Recovery and retry submission IDs persist across restarts; repeated requests return the original result, and conflicting requests are rejected.
 
 ### Added: Desktop Agent Rooms（2026-10-02）
 
 Desktop can create regular or Project rooms with independent Agent identities and contexts, a shared attributed transcript, directed replies and restricted parallel discussion. Room-local write scheduling, approvals, cancellation and explicit restart recovery preserve execution evidence. See the [Room guide](docs/guides/agent-rooms.md); native Desktop acceptance remains pending.
+
+### Changed: Pi runtime 1.0（2026-10-02）
+
+Upgraded the three Pi runtime packages to 1.0.0. Requests retain system instructions and tool declarations under the new transcript API; approval suspension uses the new turn hook. ChatGPT OAuth receives a persistent installation identity, and Jev Auto decisions use Pi's classifier API. Existing model and OAuth catalogs pick up upstream additions.
+
+Focused regressions, production build, Desktop typecheck and isolated runtime initialization pass. Live account authorization and paid model calls remain unverified; root TypeScript checking passes after the same-day follow-up fixes. See [integration assessment](docs/reviews/pi-1.0-upgrade-assessment.md) for feature coverage and exclusions.
 
 ### Fixed: Adaptive Thinking admission, cancellation and credential handling（2026-10-01）
 

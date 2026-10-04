@@ -10,7 +10,9 @@ function encryptAesEcb(data: Buffer, key: Buffer): Buffer {
   return Buffer.concat([cipher.update(data), cipher.final()]);
 }
 
-function buildIncomingMessage(overrides: IncomingMessage["raw"]["item_list"]): IncomingMessage {
+type InboundMediaItem = NonNullable<IncomingMessage["raw"]["item_list"]>[number];
+
+function buildIncomingMessage(overrides: Array<InboundMediaItem & { file_item?: InboundMediaItem["file_item"] & { aeskey?: string } }>): IncomingMessage {
   return {
     userId: "wx-user-1",
     text: "",

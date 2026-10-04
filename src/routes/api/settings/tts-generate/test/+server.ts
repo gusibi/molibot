@@ -13,6 +13,11 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const provider = body.provider;
+  if (provider !== undefined && provider !== "macos" && provider !== "xiaomi") {
+    return json({ ok: false, error: "Invalid TTS provider" }, { status: 400 });
+  }
+
   const runtime = getRuntime();
   const baseSettings = runtime.getSettings().ttsGenerate;
   const ttsGenerate = sanitizeTtsGenerateSettings(body.ttsGenerate ?? baseSettings, baseSettings);
@@ -30,7 +35,7 @@ export const POST: RequestHandler = async ({ request }) => {
     });
     const result = await tool.execute("settings-tts-test-call", {
       text: body.text || "你好，这是 Molibot 的语音合成测试。",
-      provider: body.provider,
+      provider,
       voice: body.voice,
       model: body.model,
       style: body.style,

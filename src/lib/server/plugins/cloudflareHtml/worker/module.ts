@@ -1,3 +1,8 @@
+import type { R2Bucket, Headers as WorkerHeaders, Response as WorkerResponse } from "@cloudflare/workers-types";
+
+declare const Headers: typeof WorkerHeaders;
+declare const Response: typeof WorkerResponse;
+
 export interface Env {
   HTML_BUCKET: R2Bucket;
   ROUTE_PREFIX?: string;
@@ -15,7 +20,7 @@ function normalizeObjectPrefix(value: string | undefined): string {
   return raw ? `${raw}/` : "html/";
 }
 
-function createError(status: number, message: string): Response {
+function createError(status: number, message: string): WorkerResponse {
   return new Response(message, {
     status,
     headers: {
@@ -34,7 +39,7 @@ function extractFileName(pathname: string, routePrefix: string): string | null {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<WorkerResponse> {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return createError(405, "Method Not Allowed");
     }

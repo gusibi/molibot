@@ -1,9 +1,8 @@
 import type {
-  BulkOperationResult,
-  BulkTarget,
   ManagedSessionFilters,
   ManagedSessionItem
 } from "$lib/server/sessions/sessionQueryService.js";
+import type { BulkOperationResult, BulkTarget } from "$lib/server/sessions/sessionBulkService.js";
 import type { BulkOperationKind } from "$lib/server/sessions/sessionBulkStore.js";
 import type { SessionExtractionStatus } from "$lib/server/sessions/sessionExtractionService.js";
 
@@ -186,7 +185,7 @@ export function validateSelectionCreate(body: Record<string, unknown>): { target
  * Per-item result projection: display metadata only — never transcript
  * content. Strips anything the service row might carry beyond the list card.
  */
-export function projectManagedItem(item: ManagedSessionItem & Record<string, unknown>): ManagedSessionItem {
+export function projectManagedItem(item: ManagedSessionItem): ManagedSessionItem {
   return {
     conversationId: item.conversationId,
     title: item.title,

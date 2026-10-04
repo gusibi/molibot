@@ -12,7 +12,7 @@ test("buildSubagentTaskRecord carries budget, model, session and a normalized ta
       task: "do   a   thing\n  with   spaces",
       stopReason: "error",
       errorMessage: "budget exceeded",
-      budget: { toolCalls: 24, toolFailures: 1, modelAttempts: 2 },
+      budget: { toolCalls: 24, toolFailures: 1, modelFailures: 2, modelTurns: 0 },
       model: "claude-sonnet-4-6",
       sessionId: "run-1-1-worker"
     },

@@ -1,3 +1,4 @@
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Context } from "@earendil-works/pi-ai";
@@ -5,12 +6,13 @@ import { summarizeSessionTitleWithLlm, tryAutoSummarizeConversationTitleAsync } 
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 const mockZhSettings: RuntimeSettings = {
+  ...defaultRuntimeSettings,
   locale: "zh-CN",
   providerMode: "pi",
   piModelProvider: "openai",
   piModelName: "gpt-4o",
   customProviders: [],
-  modelRouting: { textModelKey: "pi|openai|gpt-4o" },
+  modelRouting: { ...defaultRuntimeSettings.modelRouting, textModelKey: "pi|openai|gpt-4o" },
   modelFallback: { mode: "same-provider", firstTokenTimeoutMs: 15000 },
   defaultThinkingLevel: "off",
   compaction: { enabled: true, thresholdPercent: 80, reserveTokens: 4096, keepRecentTokens: 2048, defaultContextWindow: 128000 },
@@ -18,12 +20,13 @@ const mockZhSettings: RuntimeSettings = {
 };
 
 const mockEnSettings: RuntimeSettings = {
+  ...defaultRuntimeSettings,
   locale: "en-US",
   providerMode: "pi",
   piModelProvider: "openai",
   piModelName: "gpt-4o",
   customProviders: [],
-  modelRouting: { textModelKey: "pi|openai|gpt-4o" },
+  modelRouting: { ...defaultRuntimeSettings.modelRouting, textModelKey: "pi|openai|gpt-4o" },
   modelFallback: { mode: "same-provider", firstTokenTimeoutMs: 15000 },
   defaultThinkingLevel: "off",
   compaction: { enabled: true, thresholdPercent: 80, reserveTokens: 4096, keepRecentTokens: 2048, defaultContextWindow: 128000 },

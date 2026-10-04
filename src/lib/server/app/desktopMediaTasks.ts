@@ -34,7 +34,10 @@ export function buildDesktopImageTask(task: ImageTaskRecord): DesktopMediaTask {
     requestParams: sanitizeMediaRequestParams(task.requestParams),
     errorMessage: task.errorMessage,
     createdAt: task.createdAt,
-    updatedAt: task.updatedAt
+    updatedAt: task.updatedAt,
+    imageOutputs: task.artifacts?.map(({ index, mimeType, byteLength }) => ({ index, mimeType, byteLength })),
+    textOutput: task.textOutput,
+    costUsd: task.usage?.cost.total
   };
 }
 

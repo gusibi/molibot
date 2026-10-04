@@ -2154,6 +2154,11 @@ export async function loadDesktopImageGenerate(endpoint: string): Promise<Deskto
   return payload.summary;
 }
 
+export async function loadPiImageModels(endpoint: string): Promise<import("@molibot/desktop-contract").DesktopPiImageModel[]> {
+  const payload = await requestJson<{ ok: true; models: import("@molibot/desktop-contract").DesktopPiImageModel[] }>(endpoint, "/api/settings/image-generate/models");
+  return payload.models;
+}
+
 export async function saveDesktopImageGenerate(endpoint: string, input: DesktopMediaGenerateUpdateRequest): Promise<DesktopMediaGenerateSummary> {
   const payload = await requestJson<DesktopImageGenerateResponse>(endpoint, "/api/desktop/image-generate", {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
@@ -3082,10 +3087,11 @@ export async function fetchDesktopProjectRawBlob(
 export async function fetchDesktopMediaTaskBlob(
   endpoint: string,
   kind: DesktopMediaTaskKind,
-  taskId: string
+  taskId: string,
+  imageIndex = 0
 ): Promise<Blob> {
   const route = kind === "image"
-    ? `/api/settings/image-generate/image?taskId=${encodeURIComponent(taskId)}`
+    ? `/api/settings/image-generate/image?taskId=${encodeURIComponent(taskId)}&index=${imageIndex}`
     : `/api/settings/video-generate/video?taskId=${encodeURIComponent(taskId)}`;
   const response = await fetchFromDesktop(serviceUrl(endpoint, route));
   if (!response.ok) {
@@ -4261,25 +4267,33 @@ export async function publishTraceReport(endpoint: string, runIds: string[], lan
 export async function loadDesktopRooms(endpoint: string) {
   return requestJson<{ ok: true; rooms: import("@molibot/shared/rooms").AgentRoom[] }>(endpoint, "/api/desktop/rooms");
 }
-export async function loadDesktopRoom(endpoint: string, roomId: string) {
-  const result = await requestJson<{ ok: true; view: import("@molibot/shared/rooms").RoomView }>(endpoint, `/api/desktop/rooms?id=${encodeURIComponent(roomId)}`);
+export async function loadDesktopRoom(endpoint: string, roomId: string, sessionId = "") {
+  const result = await requestJson<{ ok: true; view: import("@molibot/shared/rooms").RoomView }>(endpoint, `/api/desktop/rooms?id=${encodeURIComponent(roomId)}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ""}`);
   return result.view;
 }
 export function actOnDesktopRoom(endpoint: string, action: Record<string, unknown>) {
-  return requestJson<{ ok: true; room?: import("@molibot/shared/rooms").AgentRoom; delivered?: boolean }>(endpoint, "/api/desktop/rooms", {
+  return requestJson<{ ok: true; room?: import("@molibot/shared/rooms").AgentRoom; session?: import("@molibot/shared/rooms").RoomSession; delivered?: boolean }>(endpoint, "/api/desktop/rooms", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action)
   });
 }
 export async function streamDesktopRoom(endpoint: string, roomId: string, after: number, signal: AbortSignal, onEvent: (event: import("@molibot/shared/rooms").RoomEvent) => void) {
-  const response = await fetchFromDesktop(serviceUrl(endpoint, `/api/desktop/rooms/events?roomId=${encodeURIComponent(roomId)}&after=${after}`), { signal });
+  const heartbeatAbort = new AbortController();
+  const streamSignal = AbortSignal.any([signal, heartbeatAbort.signal]);
+  const response = await fetchFromDesktop(serviceUrl(endpoint, `/api/desktop/rooms/events?roomId=${encodeURIComponent(roomId)}&after=${after}`), { signal: streamSignal });
   if (!response.ok || !response.body) throw new Error(`Room stream unavailable (${response.status})`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // The server emits every second even when idle. A dead proxy/socket must
+  // release the reader so the Room can reconnect from its persisted cursor.
+  let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
+  const resetHeartbeat = () => { clearTimeout(heartbeatTimer); heartbeatTimer = setTimeout(() => heartbeatAbort.abort(), 5000); };
+  resetHeartbeat();
   try {
     while (!signal.aborted) {
       const { value, done } = await reader.read();
       if (done) break;
+      resetHeartbeat();
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
       let end: number;
       while ((end = buffer.indexOf("\n\n")) >= 0) {
@@ -4288,7 +4302,7 @@ export async function streamDesktopRoom(endpoint: string, roomId: string, after:
         if (data) onEvent(JSON.parse(data.slice(6)));
       }
     }
-  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  } finally { clearTimeout(heartbeatTimer); await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 export async function uploadDesktopRoomFiles(endpoint: string, roomId: string, files: File[]) {
   const body = new FormData(); body.set("roomId", roomId); files.forEach(file => body.append("files", file));
@@ -4297,4 +4311,22 @@ export async function uploadDesktopRoomFiles(endpoint: string, roomId: string, f
 
 export function desktopRoomAttachmentUrl(endpoint: string, roomId: string, local: string): string {
   return serviceUrl(endpoint, `/api/desktop/rooms/files?roomId=${encodeURIComponent(roomId)}&local=${encodeURIComponent(local)}`);
+}
+
+export async function fetchDesktopRoomFileBlob(endpoint: string, roomId: string, local: string): Promise<Blob> {
+  const response = await fetchFromDesktop(desktopRoomAttachmentUrl(endpoint, roomId, local));
+  if (!response.ok) throw new Error(`Failed to load Room file (${response.status})`);
+  return responseToBlob(response);
+}
+
+export async function loadDesktopSystem(endpoint: string): Promise<import("@molibot/desktop-contract").DesktopSystemConfig> {
+  const payload = await requestJson<{ ok: true; config: import("@molibot/desktop-contract").DesktopSystemConfig }>(endpoint, "/api/desktop/system");
+  return payload.config;
+}
+
+export async function saveDesktopSystem(endpoint: string, patch: import("@molibot/desktop-contract").DesktopSystemUpdate): Promise<import("@molibot/desktop-contract").DesktopSystemConfig> {
+  const payload = await requestJson<{ ok: true; config: import("@molibot/desktop-contract").DesktopSystemConfig }>(endpoint, "/api/desktop/system", {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
+  });
+  return payload.config;
 }

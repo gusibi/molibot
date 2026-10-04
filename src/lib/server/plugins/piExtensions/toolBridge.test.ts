@@ -137,7 +137,7 @@ test("production extension tools execute through the subprocess client metadata"
   const { tools } = createPiExtensionTools([extension], { cwd: "/workspace", reservedToolNames: new Set() });
   const updates: unknown[] = [];
   const result = await tools[0].execute("call-remote", {}, undefined, (update) => updates.push(update));
-  assert.equal(result.content[0].text, "remote result");
+  assert.equal((result.content[0].type === "text" ? result.content[0].text : ""), "remote result");
   assert.equal(calls[0].method, "invokeTool");
   assert.deepEqual(updates, [{ content: [] }]);
 });

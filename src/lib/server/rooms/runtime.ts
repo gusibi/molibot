@@ -21,21 +21,40 @@ import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity.js";
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
-import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
+import { getRuntimeToolClassification, isReadOnlyTool } from "$lib/server/agent/tools/toolClassification.js";
 
 let store: RoomStore | undefined;
 let service: RoomService | undefined;
 export function reconcileRoomAgents() { service?.reconcileAgents(); }
 export function getRoomStore() { return store ??= new RoomStore(storagePaths.sessionsDbFile); }
 export function purgeRoomArtifacts(id: string): boolean {
-  if (!getRoomStore().get(id)) return false;
-  if (roomHasWork(id)) throw new Error("Room is busy");
-  rmSync(path.join(storagePaths.webWorkspaceDir, "rooms", id), { recursive: true, force: true });
-  getRoomStore().purge(id);
+  const roomStore = getRoomStore();
+  const roomId = roomStore.sessionRoomId(id);
+  if (!roomId) return false;
+  if (roomHasWork(id)) throw new Error("Room conversation is busy");
+  if (id === roomId) {
+    const runtime = getRuntime();
+    for (const session of roomStore.sessions(roomId)) {
+      if (session.id === id) continue;
+      const projectId = runtime.sessions.getConversationProjectId(session.id);
+      if (projectId) runtime.sessions.deleteProjectConversation(projectId, session.id);
+      else runtime.sessions.deleteConversation(session.id, "web", "web:default:owner");
+    }
+    rmSync(path.join(storagePaths.webWorkspaceDir, "rooms", roomId), { recursive: true, force: true });
+    roomStore.purge(roomId);
+  } else {
+    const session = roomStore.sessions(roomId).find(s => s.id === id)!;
+    const contextStore = new MomRuntimeStore(path.join(storagePaths.webWorkspaceDir, "rooms", roomId, "runtime"));
+    for (const context of session.contexts) contextStore.deleteSessionArtifacts(roomId, context.contextId);
+    roomStore.purgeSession(id);
+  }
   return true;
 }
 export function roomHasWork(id: string): boolean {
-  return getRoomStore().executions(id).some(e => ["queued", "running", "waiting_approval", "cancelling", "paused"].includes(e.status));
+  const roomId = getRoomStore().sessionRoomId(id);
+  if (!roomId) return false;
+  return getRoomStore().executions(roomId, id === roomId ? undefined : id)
+    .some(e => ["queued", "running", "waiting_approval", "cancelling", "paused"].includes(e.status));
 }
 function project(room: { projectId?: string }) {
   const result = resolveProjectContext(room.projectId);
@@ -51,9 +70,11 @@ function createRunner(input: RoomRunnerInput) {
   input.assertAuthority();
   const runtime = getRuntime();
   const p = project(input.room);
+  const original = getRoomStore().dispatchesInput(input.dispatchId);
   const settings = structuredClone(roomSettings(runtime.getSettings(), input.agent, p));
+  if (original?.modelKey) settings.modelRouting.textModelKey = original.modelKey;
   const policy = roomPolicy(settings, input.room, input.agent, input.mode);
-  const allowance = contextAllowance(input.room, input.agentId, { submissionId: input.dispatchId, text: input.text, attachments: getRoomStore().dispatchesInput(input.dispatchId)?.attachments });
+  const allowance = contextAllowance(input.room, input.agentId, { submissionId: input.dispatchId, text: input.text, attachments: original?.attachments, modelKey: original?.modelKey, thinkingLevel: original?.thinkingLevel }, input.session);
   if (Math.ceil(JSON.stringify(input.snapshot).length / 2) > allowance) throw new Error("The accepted Room snapshot cannot fit the current model. Send a new explicit message.");
   const workspace = path.join(storagePaths.webWorkspaceDir, "rooms", input.room.id, "runtime");
   const contextStore = new MomRuntimeStore(workspace);
@@ -73,6 +94,7 @@ function createRunner(input: RoomRunnerInput) {
     const room = getRoomStore().get(input.roomId);
     if (!room) throw new Error("Room unavailable");
     const current = roomPolicy(now, room, agent, input.mode);
+    if (current.readOnly && !isReadOnlyTool(toolId, getRuntimeToolClassification(toolId).effect)) throw new Error("Read-only discussion cannot modify state or execute commands");
     if (getRuntimeToolClassification(toolId).effect !== "read" && isStricter(current, policy)) throw new Error("Permissions changed; start a new Run under the current restrictions");
   };
   return {
@@ -89,8 +111,12 @@ function createRunner(input: RoomRunnerInput) {
         ts: input.createdAt, attachments: (original?.attachments ?? []).map(a => ({ ...a, isImage: a.mediaType === "image", isAudio: a.mediaType === "audio" })), imageContents: (original?.attachments ?? []).filter(a => a.mediaType === "image").map(a => ({ type: "image" as const, mimeType: a.mimeType || "image/jpeg", data: readFileSync(path.join(workspace, a.local)).toString("base64") })) };
       const ctx: MomContext = {
         channel: "web", workspaceDir: workspace, chatDir: contextStore.getChatDir(input.roomId), message,
+        thinkingLevelOverride: original?.thinkingLevel,
         awaitToolQuiescence: true, approvalWaitTimeoutMs: Infinity, retention, executionPolicy: policy, assertToolAuthority: assertAuthority,
         project: buildRunnerProjectContext(p, contextStore.getScratchDir(input.roomId)),
+        roomRouting: { agentId: input.agentId, agentName: input.agent.name, recipients: getRoomStore().executions(input.roomId)
+          .filter(execution => execution.dispatchId === input.dispatchId)
+          .map(execution => ({id: execution.agentId, name: runtime.getSettings().agents.find(agent => agent.id === execution.agentId)?.name ?? execution.agentId})) },
         sharedRoomContext: JSON.stringify(shared.map(m => ({ sourceId: m.id, author: m.authorName ?? "user", text: m.content, attachments: m.attachments }))),
         executionHistory: input.retryOf ? JSON.stringify(getRoomStore().operations(input.retryOf)) : undefined,
         respond: async (value) => { text = value; hooks.onText(text); }, replaceMessage: async (value) => { text = value; hooks.onText(text); },
@@ -132,16 +158,17 @@ function createRunner(input: RoomRunnerInput) {
     }
   };
 }
-function contextAllowance(room: import("$lib/shared/rooms.js").AgentRoom, agentId: string, input: import("$lib/shared/rooms.js").RoomSubmission): number {
+function contextAllowance(room: import("$lib/shared/rooms.js").AgentRoom, agentId: string, input: import("$lib/shared/rooms.js").RoomSubmission, session: import("$lib/shared/rooms.js").RoomSession): number {
   const runtime = getRuntime();
   const agent = runtime.getSettings().agents.find(a => a.id === agentId && a.enabled !== false);
   if (!agent) throw new Error("Agent unavailable");
   const p = project(room);
   const settings = roomSettings(runtime.getSettings(), agent, p);
+  if (input.modelKey) settings.modelRouting.textModelKey = input.modelKey;
   const model = resolveModelSelection(settings).model;
   const workspace = path.join(storagePaths.webWorkspaceDir, "rooms", room.id, "runtime");
   const contextStore = new MomRuntimeStore(workspace);
-  const contextId = room.participants.find(m => m.agentId === agentId)?.contextId;
+  const contextId = session.contexts.find(m => m.agentId === agentId)?.contextId;
   const privateTokens = contextId ? contextStore.getSessionStatusSnapshot(room.id, contextId).estimatedContextTokens : 0;
   const instructions = buildSystemPrompt(workspace, room.id, contextId ?? room.id, "", { settings, agentId, channel: "web", project: buildRunnerProjectContext(p, contextStore.getScratchDir(room.id)) });
   const inputTokens = Math.ceil(JSON.stringify(input).length / 2) + (input.attachments?.filter(a => a.mediaType === "image").length ?? 0) * 4096;
@@ -154,9 +181,14 @@ export function getRoomService(): RoomService {
   service = new RoomService({
     syncTranscript: (id, messages) => runtime.sessions.syncProjectedMessages(id, messages.map(m => ({ ...m, conversationId: id }))),
     store: roomStore, agents: () => runtime.getSettings().agents,
+    memberModelKey: (room, agent) => {
+      const selection = resolveModelSelection(roomSettings(runtime.getSettings(), agent, project(room)));
+      return `${selection.source}|${selection.providerId}|${selection.modelId}`;
+    },
     createSession: (input) => {
       project(input);
-      const s = input.projectId ? runtime.sessions.createProjectConversation(input.projectId, "web:default:owner", "web", "agent-room") : runtime.sessions.createWebConversation("web:default:owner", "agent-room");
+      const origin = input.roomId ? "internal:agent-room-session" : "agent-room";
+      const s = input.projectId ? runtime.sessions.createProjectConversation(input.projectId, "web:default:owner", "web", origin) : runtime.sessions.createWebConversation("web:default:owner", origin);
       runtime.sessions.renameConversation(s.id, "web", "web:default:owner", input.title);
       return s;
     },

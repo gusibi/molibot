@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BotAvatar from "./BotAvatar.svelte";
   import TraceReportDrawer from "./TraceReportDrawer.svelte";
   import { loadTraceViewerEnabled } from "../api";
   import { session } from "../stores/session.svelte";
@@ -161,7 +162,7 @@
        that produced no text at all), so it is never printed twice. -->
   {@const assistantError = message.role === "assistant"
     && message.errorMessage
-    && message.errorMessage.trim() !== displayContent.trim()
+    && !displayContent.includes(message.errorMessage.trim())
     ? message.errorMessage
     : ""}
   {@const turnFiles = message.role === "assistant" ? collectTurnFiles(message, attachmentActions?.filesByLocal) : []}
@@ -273,8 +274,8 @@
       <div class="assistant-layout">
         <div class="message-stack">
         <div class="assistant-identity">
-          <img class="assistant-avatar" src="/molibot-icon.png" alt="" width="22" height="22" />
-          <strong>{assistantName}</strong>
+          {#if message.authorAgentId}<BotAvatar botId={message.authorAgentId} name={message.authorName ?? assistantName} size={22} />{:else}<img class="assistant-avatar" src="/molibot-icon.png" alt="" width="22" height="22" />{/if}
+          <strong>{message.authorName ?? assistantName}</strong>
           {#if agentName}<span>{agentName}</span>{/if}
           {#if assistantStatus === "complete"}
             <CheckRead class="assistant-status-check" size={14} role="img" aria-label={copy.assistantStatusComplete} title={copy.assistantStatusComplete} />
@@ -345,6 +346,8 @@
                   title={copy.copyMessage}
                   onclick={() => messageActions.onCopy(message)}
                 >{#if isCopied}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}</button>
+                {#if messageActions.onReply && assistantStatus !== "error" && assistantStatus !== "aborted"}<button type="button" class="message-action" title={messageActions.replyLabel} aria-label={messageActions.replyLabel} onclick={() => messageActions.onReply?.(message)}><PenLine size={14} /></button>{/if}
+                {#if messageActions.onExecute && assistantStatus !== "error" && assistantStatus !== "aborted"}<button type="button" class="message-action" title={messageActions.executeLabel} aria-label={messageActions.executeLabel} onclick={() => messageActions.onExecute?.(message)}><ArrowRight size={14} /></button>{/if}
                 {#if canForkAssistant}
                   <button
                     type="button"

@@ -1,3 +1,4 @@
+import { addImageCost, type ImageCostTotals } from "$lib/shared/usageCosts";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
@@ -17,7 +18,8 @@ export interface AiUsageRecord {
   cacheWriteTokens: number;
   totalTokens: number;
   appId?: string;
-  capability?: "text" | "transcription";
+  capability?: "text" | "transcription" | "image";
+  estimatedCostUsd?: number;
   requestId?: string;
   status?: "success" | "error";
   durationMs?: number;
@@ -31,7 +33,7 @@ export interface AiUsageRecord {
   sessionId?: string;
 }
 
-export interface UsageTotals {
+export interface UsageTotals extends ImageCostTotals {
   requests: number;
   inputTokens: number;
   outputTokens: number;
@@ -119,13 +121,14 @@ function emptyTotals(): UsageTotals {
   };
 }
 
-function addTotals(target: UsageTotals, record: Pick<AiUsageRecord, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "totalTokens">): void {
+function addTotals(target: UsageTotals, record: Pick<AiUsageRecord, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "totalTokens" | "capability" | "estimatedCostUsd">): void {
   target.requests += 1;
   target.inputTokens += record.inputTokens;
   target.outputTokens += record.outputTokens;
   target.cacheReadTokens += record.cacheReadTokens;
   target.cacheWriteTokens += record.cacheWriteTokens;
   target.totalTokens += record.totalTokens;
+  addImageCost(target, record);
 }
 
 function toInt(value: unknown): number {
@@ -291,7 +294,7 @@ export class AiUsageTracker {
     this.receiptFileSize = size;
   }
 
-  constructor(options: { usageDir?: string } = {}) {
+  constructor(private readonly options: { usageDir?: string; imageUsageSource?: () => AiUsageRecord[] } = {}) {
     this.usageDir = options.usageDir ?? path.join(storagePaths.dataDir, "usage");
     this.usageFile = path.join(this.usageDir, "ai-usage.jsonl");
   }
@@ -310,7 +313,7 @@ export class AiUsageTracker {
     cacheWriteTokens?: number;
     totalTokens?: number;
     appId?: string;
-    capability?: "text" | "transcription";
+    capability?: "text" | "transcription" | "image";
     status?: "success" | "error";
     durationMs?: number;
     audioSeconds?: number;
@@ -394,8 +397,8 @@ export class AiUsageTracker {
           cacheWriteTokens: toInt(parsed.cacheWriteTokens),
           totalTokens: toInt(parsed.totalTokens),
           ...((parsed as { appId?: unknown }).appId ? { appId: String((parsed as { appId?: unknown }).appId) } : {}),
-          ...((parsed as { capability?: unknown }).capability === "text" || (parsed as { capability?: unknown }).capability === "transcription"
-            ? { capability: (parsed as { capability: "text" | "transcription" }).capability }
+          ...((parsed as { capability?: unknown }).capability === "text" || (parsed as { capability?: unknown }).capability === "transcription" || (parsed as { capability?: unknown }).capability === "image"
+            ? { capability: (parsed as { capability: "text" | "transcription" | "image" }).capability }
             : {}),
           ...((parsed as { status?: unknown }).status === "success" || (parsed as { status?: unknown }).status === "error"
             ? { status: (parsed as { status: "success" | "error" }).status }
@@ -409,6 +412,7 @@ export class AiUsageTracker {
         // ignore malformed lines
       }
     }
+    out.push(...(this.options.imageUsageSource?.() ?? []));
     return out.sort((a, b) => a.ts.localeCompare(b.ts));
   }
 

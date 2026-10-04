@@ -22,6 +22,53 @@ import { resetMolibotVersionCache } from "$lib/server/miniapps/hostVersion.js";
 process.env.MOLIBOT_VERSION = "2.9.26";
 resetMolibotVersionCache();
 
+type HttpResponse = Awaited<ReturnType<ReturnType<typeof createMdPreview>["handleHttp"]>>;
+function assetsBody(response: HttpResponse) {
+  assert.ok("assets" in response.body);
+  assert.ok(response.body.assets);
+  return response.body.assets;
+}
+
+function dataUriBody(response: HttpResponse) {
+  assert.ok("dataUri" in response.body);
+  assert.ok(response.body.dataUri);
+  return response.body.dataUri;
+}
+
+function uploadedBody(response: HttpResponse) {
+  assert.ok("uploaded" in response.body);
+  assert.ok(response.body.uploaded);
+  return response.body.uploaded;
+}
+
+function failuresBody(response: HttpResponse) {
+  assert.ok("failures" in response.body);
+  assert.ok(response.body.failures);
+  return response.body.failures;
+}
+
+function documentBody(response: HttpResponse) {
+  assert.ok("document" in response.body);
+  assert.ok(response.body.document);
+  return response.body.document;
+}
+
+function settingsBody(response: HttpResponse) {
+  assert.ok("settings" in response.body);
+  assert.ok(response.body.settings);
+  return Object.fromEntries(Object.entries(response.body.settings));
+}
+
+type PreviewResult = Awaited<ReturnType<ReturnType<typeof createMdPreview>["tools"]["preview"]>>;
+function structuredContentOf(result: PreviewResult) {
+  assert.ok("structuredContent" in result);
+  return result.structuredContent;
+}
+function cardOf(result: PreviewResult) {
+  assert.ok("card" in result);
+  return result.card;
+}
+
 function request(path: string, options: { method?: string; body?: unknown; query?: Record<string, string[]> } = {}) {
   return {
     method: options.method ?? "GET",
@@ -106,18 +153,18 @@ test("preview creates a document, matches staged images by basename, reports unr
   await withApp(async (app, dataDir) => {
     const result = await openFixture(app, dataDir);
     assert.match(result.content[0].text, /Previewing "标题"/);
-    assert.deepEqual(result.structuredContent?.unresolvedRefs, ["assets/missing.jpg"]);
-    assert.match(result.card?.link ?? "", /^molibot:\/\/miniapp\/md-preview\/doc\//);
+    assert.deepEqual(structuredContentOf(result)?.unresolvedRefs, ["assets/missing.jpg"]);
+    assert.match(cardOf(result)?.link ?? "", /^molibot:\/\/miniapp\/md-preview\/doc\//);
   });
 });
 
 test("assets resolve for panel + preview: local data URI, remote flag, unresolved absent", async () => {
   await withApp(async (app, dataDir) => {
     const tool = await openFixture(app, dataDir);
-    const docId = tool.structuredContent.documentId as string;
+    const docId = structuredContentOf(tool).documentId as string;
 
     const detail = await app.handleHttp(request(`/documents/${docId}`));
-    const assets = detail.body.assets;
+    const assets = assetsBody(detail);
     assert.equal(assets.length, 2); // staged local + remote; unresolved never stored
     const local = assets.find((asset: { ref: string }) => asset.ref === "assets/shot.png");
     const remote = assets.find((asset: { ref: string }) => asset.ref === "https://example.com/remote.png");
@@ -125,14 +172,14 @@ test("assets resolve for panel + preview: local data URI, remote flag, unresolve
     assert.equal(remote.remote, true);
 
     const data = await app.handleHttp(request(`/documents/${docId}/assets/${local.id}`));
-    assert.match(data.body.dataUri, /^data:image\/png;base64,/);
+    assert.match(dataUriBody(data), /^data:image\/png;base64,/);
   });
 });
 
 test("upload mutates the mapping, never the stored markdown; the key is content-addressed", async (t) => {
   await withApp(async (app, dataDir) => {
     const tool = await openFixture(app, dataDir);
-    const docId = tool.structuredContent.documentId as string;
+    const docId = structuredContentOf(tool).documentId as string;
     await app.handleHttp(request("/settings", {
       method: "PUT",
       body: {
@@ -154,30 +201,30 @@ test("upload mutates the mapping, never the stored markdown; the key is content-
     }) as typeof fetch;
 
     const upload = await app.handleHttp(request(`/documents/${docId}/upload`, { method: "POST", body: {} }));
-    assert.equal(upload.body.failures.length, 0);
+    assert.equal(failuresBody(upload).length, 0);
     assert.equal(seen.length, 1);
 
     // Object key = prefix/<sha256>.png, URL through the public base.
     const crypto = await import("node:crypto");
     const sha = crypto.createHash("sha256").update(Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])).digest("hex");
     assert.equal(seen[0].url, `https://acct.r2.cloudflarestorage.com/bucket/wechat/${sha}.png`);
-    assert.equal(upload.body.uploaded[0].url, `https://img.example.com/wechat/${sha}.png`);
+    assert.equal(uploadedBody(upload)[0].url, `https://img.example.com/wechat/${sha}.png`);
     // SigV4 shape: deterministic credential scope + signed headers. The scope
     // carries the configured region (R2 uses "auto"), never a placeholder.
     assert.match(seen[0].auth, /^AWS4-HMAC-SHA256 Credential=key-id\/\d{8}\/auto\/s3\/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/);
 
     // The mapping is in the DB and the markdown text is untouched by it.
     const detail = await app.handleHttp(request(`/documents/${docId}`));
-    const local = detail.body.assets.find((asset: { ref: string }) => asset.ref === "assets/shot.png");
+    const local = assetsBody(detail).find((asset: { ref: string }) => asset.ref === "assets/shot.png");
     assert.equal(local.uploadedUrl, `https://img.example.com/wechat/${sha}.png`);
-    assert.match(detail.body.document.markdown, /!\[本地图\]\(assets\/shot\.png\)/);
+    assert.match(documentBody(detail).markdown, /!\[本地图\]\(assets\/shot\.png\)/);
   });
 });
 
 test("a re-opened document reuses a prior upload without touching the network", async (t) => {
   await withApp(async (app, dataDir) => {
     const tool = await openFixture(app, dataDir);
-    const docId = tool.structuredContent.documentId as string;
+    const docId = structuredContentOf(tool).documentId as string;
     await app.handleHttp(request("/settings", {
       method: "PUT",
       body: { accountId: "acct", bucket: "bucket", accessKeyId: "key-id", secretAccessKey: "secret" }
@@ -200,11 +247,11 @@ test("a re-opened document reuses a prior upload without touching the network", 
       { markdownPath: stageFile(dataDir, "doc2.md", Buffer.from("# 二\n\n![copy](x/shot.png)", "utf8")), images: [secondPath] },
       { stagedFiles: { images: [{ kind: "image", name: "shot.png", mime: "image/png", path: secondPath, bytes: 7 }] } }
     );
-    const detail = await app.handleHttp(request(`/documents/${second.structuredContent.documentId}`));
-    const reused = detail.body.assets.find((asset: { ref: string }) => asset.ref === "x/shot.png");
+    const detail = await app.handleHttp(request(`/documents/${structuredContentOf(second).documentId}`));
+    const reused = assetsBody(detail).find((asset: { ref: string }) => asset.ref === "x/shot.png");
     assert.ok(reused.uploadedUrl, "prior upload mapping carried over");
-    const upload = await app.handleHttp(request(`/documents/${second.structuredContent.documentId}/upload`, { method: "POST", body: {} }));
-    assert.equal(upload.body.uploaded.length, 0); // nothing pending: no second PUT
+    const upload = await app.handleHttp(request(`/documents/${structuredContentOf(second).documentId}/upload`, { method: "POST", body: {} }));
+    assert.equal(uploadedBody(upload).length, 0); // nothing pending: no second PUT
     assert.equal(calls, 1);
   });
 });
@@ -216,10 +263,10 @@ test("settings round-trip masks the secret and an empty secret patch keeps the c
       body: { accountId: "acct", bucket: "b", accessKeyId: "k", secretAccessKey: "s3cret", theme: "vercel" }
     }));
     const saved = await app.handleHttp(request("/settings"));
-    assert.equal(saved.body.settings.secretAccessKey, undefined, "secret never crosses back to the panel");
-    assert.equal(saved.body.settings.secretSet, true);
-    assert.equal(saved.body.settings.accountId, "acct");
-    assert.equal(saved.body.settings.theme, "vercel");
+    assert.equal(settingsBody(saved).secretAccessKey, undefined, "secret never crosses back to the panel");
+    assert.equal(settingsBody(saved).secretSet, true);
+    assert.equal(settingsBody(saved).accountId, "acct");
+    assert.equal(settingsBody(saved).theme, "vercel");
 
     // The panel never sends the secret unless the operator typed one; a patch
     // without the key keeps the credential, and the other fields still round
@@ -230,8 +277,8 @@ test("settings round-trip masks the secret and an empty secret patch keeps the c
       body: { accountId: "acct", bucket: "b", accessKeyId: "k", theme: "momo-paper" }
     }));
     const kept = await app.handleHttp(request("/settings"));
-    assert.equal(kept.body.settings.secretSet, true, "empty patch does not clear the credential");
-    assert.equal(kept.body.settings.theme, "momo-paper");
+    assert.equal(settingsBody(kept).secretSet, true, "empty patch does not clear the credential");
+    assert.equal(settingsBody(kept).theme, "momo-paper");
   });
 });
 
@@ -250,7 +297,7 @@ test("macaron, geek-mint, and warm-amber themes save in settings and are exporte
         body: { theme }
       }));
       const res = await app.handleHttp(request("/settings"));
-      assert.equal(res.body.settings.theme, theme);
+      assert.equal(settingsBody(res).theme, theme);
     }
   });
 });

@@ -63,7 +63,7 @@ export function updatePluginsConfig(
   for (const [key, value] of Object.entries(pluginsPatch)) {
     if (RESERVED_PLUGIN_KEYS.includes(key)) continue;
     if (value && typeof value === "object" && !Array.isArray(value)) {
-      merged[key] = { ...((current.plugins as Record<string, unknown>)[key] as Record<string, unknown> | undefined) ?? {}, ...value as Record<string, unknown> };
+      merged[key] = { ...(Object.fromEntries(Object.entries(current.plugins))[key] as Record<string, unknown> | undefined) ?? {}, ...value as Record<string, unknown> };
     }
   }
 

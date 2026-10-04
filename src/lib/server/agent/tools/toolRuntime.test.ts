@@ -880,3 +880,71 @@ test("Stop during asynchronous intent recording never starts the handler", async
   await assert.rejects(prepared.execute());
   assert.equal(executions, 0);
 });
+
+test("composite delegation releases effect ownership to nested tools", { timeout: 2000 }, async () => {
+  const registry = new ToolRegistry();
+  const phases: string[] = [];
+  const ctx = { ...context(), workspaceId: "", onSideEffectPreflight: async (effect: { toolId: string }) => { phases.push(`intent:${effect.toolId}`); },
+    onSideEffectReceipt: async (effect: { toolId: string }) => { phases.push(`receipt:${effect.toolId}`); } };
+  const runtime = new ToolRuntime(registry, { executionTimeoutMs: 100 });
+  registry.register(tool({ id: "bash", handler: async () => ({ ok: true, content: "workspace" }) }));
+  registry.register(tool({ id: "write", handler: async () => ({ ok: true, content: "written" }) }));
+  registry.register(tool({ id: "subagent", handler: async () => {
+    const result = await runtime.executeToolCall({ toolId: "bash", input: {}, context: ctx });
+    if (!result.ok) return result;
+    return runtime.executeToolCall({ toolId: "write", input: {}, context: ctx });
+  } }));
+  registry.register(tool({ id: "codemode", handler: async () => runtime.executeToolCall({ toolId: "subagent", input: {}, context: ctx }) }));
+  const result = await runtime.executeToolCall({ toolId: "codemode", input: {}, context: ctx });
+  assert.equal(result.ok, true);
+  assert.equal(result.content, "written");
+  assert.deepEqual(phases, ["intent:bash", "receipt:bash", "intent:write", "receipt:write"]);
+});
+
+test("cancelling an effect-lock waiter settles promptly and preserves successor ordering", { timeout: 2000 }, async () => {
+  const registry = new ToolRegistry();
+  let start!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>(resolve => { start = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const executed: string[] = [];
+  registry.register(tool({ id: "write", handler: async (input: any) => {
+    executed.push(input.id);
+    if (input.id === "first") { start(); await held; }
+    return { ok: true };
+  } }));
+  const runtime = new ToolRuntime(registry);
+  const ctx = { ...context(), workspaceId: "" };
+  const first = runtime.executeToolCall({ toolId: "write", input: { id: "first" }, context: ctx });
+  await started;
+  const abort = new AbortController();
+  const second = await runtime.prepareToolCall({ toolId: "write", input: { id: "cancelled" }, context: { ...ctx, signal: abort.signal } });
+  assert.ok("execute" in second);
+  if (!("execute" in second)) throw new Error("Expected prepared invocation");
+  const waiting = second.execute();
+  const successor = await runtime.prepareToolCall({ toolId: "write", input: { id: "last" }, context: ctx });
+  assert.ok("execute" in successor);
+  if (!("execute" in successor)) throw new Error("Expected prepared invocation");
+  const last = successor.execute();
+  try {
+    abort.abort(new Error("Cancelled waiter"));
+    await assert.rejects(waiting, /Cancelled waiter/);
+    assert.deepEqual(executed, ["first"]);
+  } finally { release(); }
+  await Promise.all([first, last]);
+  assert.deepEqual(executed, ["first", "last"]);
+});
+
+test("composite execution still authorizes every nested effect", async () => {
+  const registry = new ToolRegistry();
+  let writes = 0;
+  const ctx = { ...context(), workspaceId: "" };
+  const runtime = new ToolRuntime(registry, { decidePolicy: definition => definition.id === "write"
+    ? { type: "deny", reason: "Write denied" } : { type: "allow" } });
+  registry.register(tool({ id: "write", handler: async () => { writes++; return { ok: true }; } }));
+  registry.register(tool({ id: "subagent", handler: async () => runtime.executeToolCall({ toolId: "write", input: {}, context: ctx }) }));
+  const result = await runtime.executeToolCall({ toolId: "subagent", input: {}, context: ctx });
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /Write denied/);
+  assert.equal(writes, 0);
+});

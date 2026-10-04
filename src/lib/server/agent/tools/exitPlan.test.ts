@@ -9,7 +9,7 @@ test("exitPlan persists one structured proposal and terminates Plan mode", async
   const scratchDir = mkdtempSync(join(tmpdir(), "molibot-plan-"));
   const emitted: unknown[] = [];
   try {
-    const result = await createExitPlanTool({ scratchDir, sessionId: "s-1", emit: (plan) => emitted.push(plan) })
+    const result = await createExitPlanTool({ scratchDir, sessionId: "s-1", emit: (plan) => { emitted.push(plan); } })
       .execute("call-1", { title: "Ship chat", summary: "Finish the transcript", steps: ["Model steps", "Render plan"] }, undefined, undefined);
     const plan = emitted[0] as { id: string; artifactPath: string; steps: Array<{ text: string }>; status: string };
     assert.equal(result.terminate, true);

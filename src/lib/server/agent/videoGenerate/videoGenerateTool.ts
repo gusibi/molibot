@@ -240,7 +240,7 @@ export function createVideoGenerateTool(options: {
       // --- BRANCH A: QUERYING PROGRESS OF AN EXISTING TASK (Non-blocking: queries status exactly once) ---
       if (params.taskId) {
         const taskId = params.taskId.trim();
-        const engine = params.engine as VideoGenerateEngine;
+        const engine = params.engine;
         if (!engine || engine === "auto") {
           throw new Error("The 'engine' parameter must be specified when querying a task by taskId.");
         }

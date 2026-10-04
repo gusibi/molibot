@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thinkingSelectionLabel } from "./composerInput";
   import AngleDown from "reicon-svelte/icons/AngleDown";
   import AngleLeft from "reicon-svelte/icons/AngleLeft";
   import AngleRight from "reicon-svelte/icons/AngleRight";
@@ -37,16 +38,7 @@
     : levelIndex / (thinkingLevelOptions.length - 1);
 
   function thinkingOptionLabel(level: DesktopThinkingSelection): string {
-    if (level === "auto") return copy.providerThinkingAuto;
-    return {
-      off: copy.thinkingOff,
-      minimal: copy.thinkingMinimal,
-      low: copy.thinkingLow,
-      medium: copy.thinkingMedium,
-      high: copy.thinkingHigh,
-      xhigh: copy.thinkingXHigh,
-      max: copy.thinkingMax
-    }[level];
+    return thinkingSelectionLabel(copy, level);
   }
 
   function buttons(): HTMLButtonElement[] {

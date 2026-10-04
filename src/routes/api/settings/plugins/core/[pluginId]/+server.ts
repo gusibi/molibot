@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "@sveltejs/kit";
+import type { RequestHandler } from "./$types";
 import { getRuntime } from "$lib/server/app/runtime.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
 import { isCoreSettingsPluginId } from "$lib/server/plugins/coreSettings.js";

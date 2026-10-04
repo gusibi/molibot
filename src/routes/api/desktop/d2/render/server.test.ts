@@ -16,13 +16,13 @@ function d2Request(body: unknown): Request {
 }
 
 test("D2 route sends source and theme to the server renderer", async () => {
-  let asked: { url: string; body: Record<string, unknown>; signal: AbortSignal } | null = null;
+  const captured: { asked?: { url: string; body: Record<string, unknown>; signal: AbortSignal } } = {};
   const response = await _handleD2RenderRequest(
     d2Request({ source: "direction: right\nA -> B", theme: "dark" }),
     {
       endpoint: "https://d2.example.test",
       fetchImpl: async (input, init) => {
-        asked = {
+        captured.asked = {
           url: String(input),
           body: JSON.parse(String(init?.body)) as Record<string, unknown>,
           signal: init?.signal as AbortSignal
@@ -40,12 +40,12 @@ test("D2 route sends source and theme to the server renderer", async () => {
     ok: true,
     svg: "<svg xmlns=\"http://www.w3.org/2000/svg\"><path/></svg>"
   });
-  assert.equal(asked?.url, "https://d2.example.test/d2/svg");
-  assert.deepEqual(asked?.body, {
+  assert.equal(captured.asked?.url, "https://d2.example.test/d2/svg");
+  assert.deepEqual(captured.asked?.body, {
     diagram_source: "direction: right\nA -> B",
     diagram_options: { layout: "elk", theme: "200" }
   });
-  assert.equal(asked?.signal.aborted, false);
+  assert.equal(captured.asked?.signal.aborted, false);
 });
 
 test("D2 route refuses oversized source before contacting the renderer", async () => {

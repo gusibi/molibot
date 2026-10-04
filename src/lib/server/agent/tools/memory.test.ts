@@ -76,7 +76,7 @@ test("remembering something about the user goes through add, untouched", async (
   const written = calls.find((call) => call.method === "add");
   assert.notEqual(written, undefined);
   assert.equal(written!.args[1].content, "不喝咖啡");
-  assert.match(String(result.content?.[0]?.text ?? ""), /Added memory/);
+  assert.match(String(result.content[0]?.type === "text" ? result.content[0].text : ""), /Added memory/);
 });
 
 test("a no-memory turn blocks writes but still permits search and deletion", async () => {

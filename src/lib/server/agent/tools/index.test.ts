@@ -232,9 +232,11 @@ test("a non-read MCP operation runs without an approval card in full access and 
     permissionMode: "manual" as const
   };
 
-  const buildTools = (mode: "manual" | "auto") => {
+  const buildTools = (mode: "manual" | "auto" | "accept_edits" | "plan", readOnly = false) => {
     return createMomTools({
       channel: "web",
+      executionPolicy: {mode, source: "agent", executionTarget: mode === "auto" ? "host" : "sandbox", readOnly},
+      approvalWaitTimeoutMs: 10,
       cwd: workspaceDir,
       workspaceDir,
       chatId: "chat-mcp",
@@ -256,7 +258,7 @@ test("a non-read MCP operation runs without an approval card in full access and 
     });
   };
 
-  const prepare = (mode: "manual" | "auto") => {
+  const prepare = (mode: "manual" | "auto" | "accept_edits") => {
     const tools = buildTools(mode);
     const wrapTool = (tools as unknown as { wrapTool: (tool: unknown) => { execute: (id: string, params: unknown) => Promise<{ error?: string; details?: { status?: string } }> } }).wrapTool;
     return wrapTool(fakeMcpTool);
@@ -269,6 +271,21 @@ test("a non-read MCP operation runs without an approval card in full access and 
     assert.equal(autoResult.error, undefined);
     assert.equal(executions.length, 1, "the MCP tool executed exactly once");
     assert.equal(getApprovalBroker().listPendingRequests().filter((r) => r.sessionId === "session-mcp").length, 0, "no approval request in full access");
+
+    const plannedDiscussion = buildTools("plan", true);
+    assert.ok(!plannedDiscussion.some(tool => ["exitPlan", "subagent"].includes(tool.name)));
+    const discussion = buildTools("auto", true);
+    const codemode = discussion.find(tool => tool.name === "codemode")!;
+    const orchestrated = await codemode.execute("tc-discussion-codemode", { code: 'text(ALL_TOOLS.map(tool => tool.name));' });
+    assert.doesNotMatch(JSON.stringify(orchestrated), /Read-only discussion cannot/);
+    assert.match(JSON.stringify(orchestrated), /ls/);
+    assert.doesNotMatch(JSON.stringify(orchestrated), /"write"|"bash"/);
+    const blocked = (discussion as unknown as {wrapTool: (tool: unknown) => {execute: (id: string, params: unknown) => Promise<{error?: string}>}}).wrapTool(fakeMcpTool);
+    executions.length = 0;
+    const denied = await blocked.execute("tc-discussion", {serverId: "srv", toolName: "query"});
+    assert.match(String((denied as {error?: string}).error), /Read-only discussion/);
+    assert.equal(executions.length, 0);
+    assert.ok(!discussion.some(tool => ["bash", "write", "edit", "exitPlan", "webSearch", "webFetch", "subagent"].includes(tool.name)));
 
     // Accept edits: the same call raises an approval request instead.
     executions.length = 0;
@@ -306,7 +323,7 @@ test("full access lets the write tool touch paths outside the workspace roots; r
       emit: () => {}
     } as unknown as ToolExecutionContext);
     // Restricted mode keeps the approved-root wall.
-    const restricted = getWriteToolDefinition({ cwd: workspaceDir, workspaceDir });
+    const restricted = getWriteToolDefinition({ chatId: "chat-1", cwd: workspaceDir, workspaceDir });
     await assert.rejects(
       restricted.handler({ path: outsidePath, content: "no" }, buildCtx()),
       /Path outside allowed workspace roots/
@@ -314,7 +331,7 @@ test("full access lets the write tool touch paths outside the workspace roots; r
 
     // Full access writes the very same path (issue: file tools obey the same
     // effective policy as commands).
-    const full = getWriteToolDefinition({ cwd: workspaceDir, workspaceDir, hostWideAccess: true });
+    const full = getWriteToolDefinition({ chatId: "chat-1", cwd: workspaceDir, workspaceDir, hostWideAccess: true });
     const result = await full.handler({ path: outsidePath, content: "host-wide" }, buildCtx());
     assert.equal(result.ok, true, String(result.error ?? ""));
     assert.equal(existsSync(outsidePath), true);
@@ -355,7 +372,7 @@ test("full access also lifts the output-layout containment for absolute paths", 
     // Restricted mode: an absolute path outside the workspace hits the root
     // wall first; a path inside the workspace but outside the scratch root
     // reaches the output-layout containment.
-    const restricted = getWriteToolDefinition({ cwd: workspaceDir, workspaceDir, outputLayout });
+    const restricted = getWriteToolDefinition({ chatId: "chat-1", cwd: workspaceDir, workspaceDir, outputLayout });
     await assert.rejects(
       restricted.handler({ path: outsidePath, content: "no" }, buildCtx()),
       /Path outside allowed workspace roots/
@@ -364,7 +381,7 @@ test("full access also lifts the output-layout containment for absolute paths", 
     const layoutBlocked = await restricted.handler({ path: insideWorkspaceOutsideScratch, content: "no" }, buildCtx());
     assert.match(String(layoutBlocked.error ?? ""), /Absolute output paths must stay inside/);
 
-    const full = getWriteToolDefinition({ cwd: workspaceDir, workspaceDir, outputLayout, hostWideAccess: true });
+    const full = getWriteToolDefinition({ chatId: "chat-1", cwd: workspaceDir, workspaceDir, outputLayout, hostWideAccess: true });
     const result = await full.handler({ path: outsidePath, content: "layout-free" }, buildCtx());
     assert.equal(result.ok, true, String(result.error ?? ""));
     assert.equal(readFileSync(outsidePath, "utf8"), "layout-free");

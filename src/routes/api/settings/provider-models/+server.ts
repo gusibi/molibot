@@ -7,7 +7,7 @@ import {
   type ProviderTestPayload
 } from "$lib/server/providers/customProtocol";
 
-type ProviderModelsPayload = Pick<ProviderTestPayload, "protocol" | "baseUrl" | "apiKey" | "path">;
+type ProviderModelsPayload = Required<Pick<ProviderTestPayload, "protocol" | "baseUrl" | "apiKey" | "path">>;
 
 function normalizeModelsPayload(body: unknown): ProviderModelsPayload {
   const row = (body ?? {}) as Record<string, unknown>;

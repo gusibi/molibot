@@ -8,7 +8,6 @@ import type { DesktopModelRoutingSettings, DesktopModelRoutingUpdateRequest, Des
 
 export const desktopModelRoutes: readonly ModelRoute[] = [
   "text",
-  "vision",
   "stt",
   "tts",
   "subagent"

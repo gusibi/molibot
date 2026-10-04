@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const appSource = readFileSync(new URL("./App.svelte", import.meta.url), "utf8");
+const apiSource = readFileSync(new URL("./lib/api.ts", import.meta.url), "utf8");
 const capabilities = JSON.parse(
   readFileSync(new URL("../src-tauri/capabilities/default.json", import.meta.url), "utf8")
 );
@@ -10,6 +11,35 @@ const httpPermission = capabilities.permissions.find(
   (permission) => permission?.identifier === "http:default"
 );
 const allowedUrls = new Set(httpPermission?.allow?.map((entry) => entry.url) ?? []);
+
+function scopePatterns(host) {
+  const prefix = `http://${host}:*`;
+  return [...allowedUrls].filter((url) => url.startsWith(prefix)).map((url) => url.slice(prefix.length));
+}
+
+function patternMatches(path, pattern) {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\*/g, ".*");
+  return new RegExp(`^${escaped}$`).test(path);
+}
+
+// Root-cause guard for the recurring class: a `/api/settings/...` route the
+// desktop calls but leaves out of the Tauri HTTP scope fails at runtime with
+// "url not allowed on the configured scope". Scan every settings route in the
+// desktop sources (quoted or template literal) and require both hosts to cover it.
+test("desktop HTTP scope covers every /api/settings route the desktop calls", () => {
+  const sources = `${apiSource}\n${appSource}`;
+  const routes = new Set([...sources.matchAll(/\/api\/settings\/[A-Za-z0-9/_.-]*/g)].map((match) => match[0]));
+  assert.ok(routes.size > 0);
+  for (const host of ["127.0.0.1", "localhost"]) {
+    const patterns = scopePatterns(host);
+    for (const route of routes) {
+      assert.ok(
+        patterns.some((pattern) => patternMatches(route, pattern)),
+        `${route} is missing from the ${host} desktop HTTP scope`
+      );
+    }
+  }
+});
 
 test("desktop HTTP scope allows reading and saving the shared system settings", () => {
   assert.ok(allowedUrls.has("http://127.0.0.1:*/api/settings/system"));

@@ -222,6 +222,7 @@ test("Prompt Box save_prompt tool handles message capture and returns card", asy
   });
 
   assert.equal(toolResult.changed, true);
+  assert.ok(toolResult.structuredContent);
   assert.ok(toolResult.structuredContent.id);
   assert.match(toolResult.structuredContent.title, /expert software architect/);
   assert.deepEqual(toolResult.structuredContent.tags, ["captured"]);
@@ -344,7 +345,7 @@ test("Prompt Box is registered in built-ins and materializes valid bundle", () =
   assert.ok(existsSync(join(appDir, "ui/icon.svg")));
 
   const manifestValidation = readMiniAppManifest(appDir, "prompt-box");
-  assert.ok(manifestValidation.ok, `Manifest validation failed: ${manifestValidation.error}`);
+  assert.ok(manifestValidation.ok, !manifestValidation.ok ? `Manifest validation failed: ${manifestValidation.error}` : "");
   assert.equal(manifestValidation.value.manifest.name, "Prompt Box");
   assert.equal(manifestValidation.value.manifest.contributions?.messageActions?.[0]?.tool, "save_prompt");
 });

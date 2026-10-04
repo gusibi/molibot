@@ -127,6 +127,13 @@ async function assertPublicTarget(url: URL, resolveHostname: NonNullable<WebFetc
   }
 }
 
+/** Applies the shared public-network policy before other tools fetch a URL. */
+export async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
+  const url = parsePublicHttpUrl(rawUrl);
+  await assertPublicTarget(url, (hostname) => lookup(hostname, { all: true, verbatim: true }));
+  return url;
+}
+
 function isPermittedRedirect(from: URL, to: URL): boolean {
   if (from.protocol !== to.protocol || from.port !== to.port || to.username || to.password) return false;
   const stripWww = (hostname: string) => hostname.toLowerCase().replace(/^www\./, "");

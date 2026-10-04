@@ -30,6 +30,7 @@ const miniApp: DesktopMiniAppItem = {
   status: "active",
   enabled: true,
   builtin: true,
+  messageActions: [], aiCapabilities: [], hostCapabilities: [], badge: null,
   toolNames: ["add", "list"],
   iconDataUri: "",
   source: { kind: "builtin" },

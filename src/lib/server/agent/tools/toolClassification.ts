@@ -58,6 +58,11 @@ const LOCAL_READ_TOOLS = new Set([
 
 export const READ_ONLY_TOOL_NAMES = new Set([...LOCAL_READ_TOOLS].filter(name => name !== "toolSearch"));
 
+/** Codemode only orchestrates nested calls, which retain their own authority checks. */
+export function isReadOnlyTool(name: string, effect: ToolEffect | undefined): boolean {
+  return effect === "read" && (name === "codemode" || READ_ONLY_TOOL_NAMES.has(name));
+}
+
 const NETWORK_TOOLS = new Set(["webSearch", "webFetch"]);
 
 /**

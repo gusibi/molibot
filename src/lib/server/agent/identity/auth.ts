@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getPiDeviceId } from "./deviceId.js";
 import type {
   ApiKeyCredential,
   AuthCheck,
@@ -8,6 +9,7 @@ import type {
   Credential,
   CredentialStore,
   OAuthCredential,
+  LoginOptions,
   Provider
 } from "@earendil-works/pi-ai";
 import { getPiModels } from "$lib/server/providers/piRuntime.js";
@@ -99,7 +101,7 @@ interface OAuthModels {
   getProviders(): readonly Provider[];
   getProvider(providerId: string): Provider | undefined;
   checkAuth(providerId: string): Promise<AuthCheck | undefined>;
-  login(providerId: string, type: "oauth", interaction: AuthInteraction): Promise<Credential>;
+  login(providerId: string, type: "oauth", interaction: AuthInteraction, options?: LoginOptions): Promise<Credential>;
   logout(providerId: string): Promise<void>;
 }
 
@@ -155,6 +157,7 @@ export interface OAuthLoginManagerOptions {
   credentials?: CredentialStore;
   now?: () => number;
   createId?: () => string;
+  getDeviceId?: () => string;
   activeTtlMs?: number;
   terminalRetentionMs?: number;
 }
@@ -211,6 +214,7 @@ export class OAuthLoginManager {
   private readonly credentials: CredentialStore;
   private readonly now: () => number;
   private readonly createId: () => string;
+  private readonly getDeviceId: () => string;
   private readonly activeTtlMs: number;
   private readonly terminalRetentionMs: number;
   private readonly sessions = new Map<string, LoginSession>();
@@ -221,6 +225,7 @@ export class OAuthLoginManager {
     this.credentials = options.credentials ?? new FileCredentialStore(resolveAuthFilePath());
     this.now = options.now ?? Date.now;
     this.createId = options.createId ?? randomUUID;
+    this.getDeviceId = options.getDeviceId ?? getPiDeviceId;
     this.activeTtlMs = options.activeTtlMs ?? DEFAULT_ACTIVE_TTL_MS;
     this.terminalRetentionMs = options.terminalRetentionMs ?? DEFAULT_TERMINAL_RETENTION_MS;
   }
@@ -359,7 +364,7 @@ export class OAuthLoginManager {
         signal: session.abortController.signal,
         notify: (event) => this.onEvent(session, event),
         prompt: (prompt) => this.onPrompt(session, prompt)
-      });
+      }, { getDeviceId: this.getDeviceId });
       if (session.cancelReason || session.logoutRequested) {
         if (!isTerminal(session.state)) this.change(session, session.cancelReason ?? "cancelled");
       } else {

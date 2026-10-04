@@ -72,7 +72,7 @@ test("Project task dispatch requires a matching Project target and uses only the
     timezone: "Asia/Shanghai"
   };
   await dispatchProjectTaskEvent(event, "periodic-work.json", "work", {
-    triggerProjectTask: async (_event, filename) => { delivered.push(filename); },
+    triggerProjectTask: async (_event: unknown, filename: string) => { delivered.push(filename); },
     triggerTask: async () => { throw new Error("Channel delivery must not run"); }
   } as any);
   assert.deepEqual(delivered, ["periodic-work.json"]);

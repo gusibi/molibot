@@ -64,7 +64,7 @@ async function isServerPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-function sanitizeDisplay(input: unknown, fallback: RuntimeSettings["display"]): RuntimeSettings["display"] {
+function sanitizeDisplay(input: unknown, fallback: NonNullable<RuntimeSettings["display"]>): NonNullable<RuntimeSettings["display"]> {
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const toolProgress = String(source.toolProgress ?? fallback.toolProgress);
   const showReasoning = String(source.showReasoning ?? fallback.showReasoning);
@@ -72,10 +72,10 @@ function sanitizeDisplay(input: unknown, fallback: RuntimeSettings["display"]): 
   const runLogNoticeRaw = source.runLogNotice;
   return {
     toolProgress: ["off", "new", "all", "verbose"].includes(toolProgress)
-      ? toolProgress as RuntimeSettings["display"]["toolProgress"]
+      ? toolProgress as NonNullable<RuntimeSettings["display"]>["toolProgress"]
       : fallback.toolProgress,
     showReasoning: ["off", "on", "stream", "new"].includes(showReasoning)
-      ? showReasoning as RuntimeSettings["display"]["showReasoning"]
+      ? showReasoning as NonNullable<RuntimeSettings["display"]>["showReasoning"]
       : fallback.showReasoning,
     gatewayNotifyInterval: Number.isFinite(gatewayRaw)
       ? Math.max(0, Math.round(gatewayRaw))
@@ -109,7 +109,7 @@ export async function updateSystemConfig(runtime: SettingsAccessor, patch: Syste
     );
   }
   if (patch.browserAutomation !== undefined) settingsPatch.browserAutomation = sanitizeBrowserAutomation(patch.browserAutomation, current.browserAutomation);
-  if (patch.display !== undefined) settingsPatch.display = sanitizeDisplay(patch.display, current.display ?? defaultRuntimeSettings.display);
+  if (patch.display !== undefined) settingsPatch.display = sanitizeDisplay(patch.display, current.display ?? defaultRuntimeSettings.display!);
   if (patch.permissionMode !== undefined) {
     settingsPatch.permissionMode = PERMISSION_MODES.includes(patch.permissionMode as never)
       ? patch.permissionMode as RuntimeSettings["permissionMode"]

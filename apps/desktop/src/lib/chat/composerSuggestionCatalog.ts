@@ -7,7 +7,7 @@ import { parseProjectFileReferences } from "@molibot/shared/projectFileReference
  * search, so the kind is widened here instead of in the shared contract.
  */
 export type ComposerMenuItem = Omit<DesktopComposerSuggestion, "kind"> & {
-  kind: DesktopComposerSuggestion["kind"] | "file";
+  kind: DesktopComposerSuggestion["kind"] | "file" | "agent";
 };
 
 /** Every entity the highlight overlay can pill, including client-side file references. */

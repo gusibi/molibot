@@ -1,3 +1,4 @@
+import type { HookManager } from "$lib/server/agent/hooks/types.js";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, extname, join } from "node:path";
@@ -160,6 +161,7 @@ export class TelegramManager extends BaseChannelRuntime {
       memoryReview: MemoryCandidateReview;
       usageTracker: AiUsageTracker;
       modelErrorTracker: ModelErrorTracker;
+      hookManager: HookManager;
     }
   ) {
     super({
@@ -453,12 +455,9 @@ export class TelegramManager extends BaseChannelRuntime {
         return await prev(method, payload, signal);
       }
 
-      let lastResult: unknown = null;
-      for (let i = 0; i < chunks.length; i += 1) {
-        const nextPayload =
-          i === 0
-            ? { ...body, text: chunks[i] }
-            : { ...body, text: chunks[i], reply_parameters: undefined };
+      let lastResult = await prev(method, { ...body, text: chunks[0] } as never, signal);
+      for (let i = 1; i < chunks.length; i += 1) {
+        const nextPayload = { ...body, text: chunks[i], reply_parameters: undefined };
         lastResult = await prev(method, nextPayload as never, signal);
       }
       return lastResult;

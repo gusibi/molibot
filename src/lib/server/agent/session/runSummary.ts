@@ -114,7 +114,7 @@ export function formatRunClosingNote(summary: RunSummary): string {
   lines.push(`- Result: ${summary.stopReason}${summary.errorMessage ? ` (${summary.errorMessage})` : ""}`);
   lines.push(`- Duration: ${Math.max(1, Math.round(summary.durationMs / 1000))}s`);
   lines.push(
-    `- Budget: tools ${summary.budget.toolCalls}/${summary.budgetLimits.maxToolCalls}, failed tools ${summary.budget.toolFailures}/${summary.budgetLimits.maxToolFailures}, model attempts ${summary.budget.modelAttempts}/${summary.budgetLimits.maxModelAttempts}`
+    `- Budget: tools ${summary.budget.toolCalls}/${summary.budgetLimits.maxToolCalls}, failed tools ${summary.budget.toolFailures}/${summary.budgetLimits.maxToolFailures}, model failures ${summary.budget.modelFailures}/${summary.budgetLimits.maxModelAttempts}, model turns ${summary.budget.modelTurns}/${summary.budgetLimits.maxModelTurns ?? "unlimited"}`
   );
 
   const tools = unique(summary.toolNames);

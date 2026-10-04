@@ -21,6 +21,10 @@ test("Project sidebar renders refreshed titles and preserves rows during revalid
     const { projectsStore, refreshProjectSessionList, selectProject } = await server.ssrLoadModule("/src/lib/stores/projects.svelte.ts");
     const { translator } = await server.ssrLoadModule("/src/lib/i18n.ts");
     const { render } = await server.ssrLoadModule("svelte/server");
+    const { projectChatStore } = await server.ssrLoadModule("/src/lib/projects/projectChatStore.svelte.ts");
+    const { writable } = await server.ssrLoadModule("svelte/store");
+    const statusState = writable({ statusDots: new Map() });
+    projectChatStore.state = statusState;
     const copy = translator("en");
     projectsStore.endpoint = "http://sidebar.test";
     projectsStore.projects = [{ id: "project", name: "Project" }];
@@ -32,6 +36,14 @@ test("Project sidebar renders refreshed titles and preserves rows during revalid
     } }).body;
     await refreshProjectSessionList("project");
     assert.match(draw(), /Updated title/);
+    statusState.set({ statusDots: new Map([["personal:session", { color: "running", labelKey: "running" }]]) });
+    assert.match(draw(), /running-orb/);
+    assert.match(draw(), /data-color="running"/);
+    statusState.set({ statusDots: new Map([["personal:session", { color: "waiting", labelKey: "waitingApproval" }]]) });
+    assert.match(draw(), /data-color="waiting"/);
+    assert.doesNotMatch(draw(), /running-orb/);
+    statusState.set({ statusDots: new Map() });
+    assert.doesNotMatch(draw(), /data-color="running"/);
     projectsStore.selectedProjectId = "other";
     assert.match(draw(), /Updated title/);
     let finish;

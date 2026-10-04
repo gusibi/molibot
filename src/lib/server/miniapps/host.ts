@@ -821,6 +821,7 @@ export class MiniAppHost {
     this.assertSchemaVersion(slot.id, dataDir, descriptor.manifest.data.schemaVersion);
 
     const unavailableAi: MiniAppAiFacade = {
+      listTextModels: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); },
       generateText: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); },
       chat: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); },
       transcribe: async () => { throw new MiniAppError("AI capability is unavailable.", "load_failed"); }

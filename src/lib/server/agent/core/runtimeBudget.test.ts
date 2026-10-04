@@ -32,9 +32,9 @@ test("budget kinds are reported structurally, not by matching the reason prose",
   assert.equal(callBudget.getExceededKind(), "toolCalls");
 
   const attemptBudget = new RunBudget({ ...LIMITS, maxModelAttempts: 1 });
-  assert.equal(attemptBudget.tryRecordModelAttempt().ok, true);
-  assert.equal(attemptBudget.tryRecordModelAttempt().ok, false);
-  assert.equal(attemptBudget.getExceededKind(), "modelAttempts");
+  assert.equal(attemptBudget.tryRecordModelFailure().ok, true);
+  assert.equal(attemptBudget.tryRecordModelFailure().ok, false);
+  assert.equal(attemptBudget.getExceededKind(), "modelFailures");
 
   const clean = new RunBudget(LIMITS);
   assert.equal(clean.getExceededKind(), undefined);
@@ -43,7 +43,7 @@ test("budget kinds are reported structurally, not by matching the reason prose",
 test("the user-facing stop message names the cause and the failing tools", () => {
   const message = buildBudgetStopUserMessage({
     kind: "toolFailures",
-    snapshot: { toolCalls: 19, toolFailures: 6, modelAttempts: 1 },
+    snapshot: { toolCalls: 19, toolFailures: 6, modelFailures: 1, modelTurns: 0 },
     limits: { maxToolCalls: 100, maxToolFailures: 6, maxModelAttempts: 6 },
     failedToolNames: ["ls", "ls", "read", "subagent"]
   });
@@ -53,4 +53,22 @@ test("the user-facing stop message names the cause and the failing tools", () =>
   assert.match(message, /ls、read、subagent/);
   // Never the model-facing instruction text.
   assert.doesNotMatch(message, /Run budget exceeded/);
+});
+
+test("successful model turns and failed-generation retries have independent limits and messages", () => {
+  const budget = new RunBudget({ ...LIMITS, maxModelAttempts: 1, maxModelTurns: 8 });
+  for (let i = 0; i < 8; i++) assert.equal(budget.tryStartModelTurn().ok, true);
+  assert.equal(budget.snapshot().modelFailures, 0);
+  assert.equal(budget.tryRecordModelFailure().ok, true);
+  assert.deepEqual(budget.snapshot(), { toolCalls: 0, toolFailures: 0, modelFailures: 1, modelTurns: 8 });
+  assert.equal(budget.tryStartModelTurn().ok, false);
+  assert.equal(budget.getExceededKind(), "modelTurns");
+  const message = buildBudgetStopUserMessage({ kind: budget.getExceededKind(), snapshot: budget.snapshot(), limits: budget.limitsSnapshot() });
+  assert.match(message, /模型轮次上限（8\/8）/);
+  assert.doesNotMatch(message, /模型重试/);
+  const failures = new RunBudget({ ...LIMITS, maxModelAttempts: 1 });
+  assert.equal(failures.tryRecordModelFailure().ok, true);
+  assert.equal(failures.tryRecordModelFailure().ok, false);
+  assert.equal(failures.snapshot().modelTurns, 0);
+  assert.match(buildBudgetStopUserMessage({ kind: failures.getExceededKind(), snapshot: failures.snapshot(), limits: failures.limitsSnapshot() }), /模型重试上限/);
 });

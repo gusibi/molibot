@@ -16,7 +16,6 @@ function entry(overrides: Partial<ApprovedHostBashEntry> = {}): ApprovedHostBash
     channel: "web",
     chatId: "chat-1",
     scopeId: "scope-1",
-    approvalMode: "persistent",
     permissions: { envAllowlist: ["PATH", "HOME"], filesystem: "workspace-read", network: "none" },
     approvedAt: "2026-06-28T00:00:00.000Z",
     approvedFromRecordId: "rec-1",

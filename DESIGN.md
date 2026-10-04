@@ -669,12 +669,17 @@ with content moving behind it reads as depth.
   of substituting a different concept; the manifest may map a name to an
   official same-concept duotone (for example `Timer` → `stopwatch-duotone`,
   `Grid` → `squares-duotone`) and that mapping is a reviewed, explicit entry.
-  A few chat chrome slots use owner-picked duotone glyphs that replace the
+  A few chat chrome slots use owner-picked glyphs that replace the
   literal-outline concept entirely — skills → `ruler-pen-duotone`, agent →
-  `vacuum2-duotone`, the settings entry → `tuning-square2-duotone`, send →
-  `plane2-duotone`, plan mode → `circle-arrows-down-duotone`, manual mode →
-  `handshake-duotone`, the all-mini-apps CTA → `list-duotone` — so matching an
-  old outline name there no longer predicts the rendered glyph.
+  `users2-duotone`, agent rooms → `dialog-duotone`, the sidebar's 对话 →
+  `chat-round-line-duotone`, 项目 → `feed-duotone`, 自动任务 → `sort-time-duotone`
+  and 小程序 → `widget2-duotone`, send → `plane2-duotone`, plan mode →
+  `circle-arrows-down-duotone`, manual mode → `handshake-duotone`, the
+  all-mini-apps CTA → `list-duotone` — so matching an old outline name there no
+  longer predicts the rendered glyph. The settings entry is the one deliberate
+  non-duotone exception: it renders the Filled `Settings2` glyph (sidebar footer
+  and the Project header settings button), because the owner chose a solid gear
+  over a duotone tuning-square.
   Still linear Outline everywhere — including inside duotone surfaces — are the
   small functional and status glyphs: spinners, done/failed/warning markers,
   read receipts, activity tool-type icons, and the bare `Check` / `X` / `Plus` /
@@ -1047,6 +1052,23 @@ the same regardless of the window's activation state and of what is behind it.
 - Chat uses the shared 228px baseline resizable sidebar; persisted widths below that
   baseline clamp to it. Flat assistant messages have Agent identity, hover/focus
   actions, and one compact auto-growing composer.
+- Collapsing Chat keeps navigation on screen: the sidebar folds to a 48px icon rail
+  (the first grid track never reserves zero width) that still reaches every
+  destination. The three list destinations — 对话, 项目 and 房间 — open an on-demand
+  flyout column beside the rail, rendering the exact same `SidebarLists` component as
+  the expanded sidebar so channel filtering, project groups, room rows, row actions,
+  and pagination cannot drift. The flyout reuses the remembered expanded width, closes
+  on Escape, on picking another destination, or on clicking its rail icon again, and
+  stays open when an item is selected. A workspace destination (自动任务, 技能, Agent,
+  计划, 小程序) opens its existing pane and closes the flyout instead of adding a
+  column. The rail carries no 新对话 entry: that action stays in the window title-bar
+  cluster while collapsed, and 对话/项目/房间 replace it at the top of the rail.
+- A list-section heading is navigation, not just a disclosure. Clicking the 对话,
+  项目 or 房间 label returns the right pane to that section's content — the reader's
+  last conversation, last project session, or last room — and expands the section, so
+  a workspace destination can never trap them away from their work. Collapse/expand
+  lives on the separate caret control beside the label. Room creation keeps its own
+  `+` in the section head, and the create/edit form still opens in the right pane.
 - Assistant identity is one inline row anchored to the reading column's left edge:
   the avatar, the Bot / Web Profile / app name, and — only for a channel that binds
   one — the Agent it runs as. The avatar is not a left gutter, so the reply body
@@ -1537,4 +1559,20 @@ Typography is deliberately **not** a recipe axis in this phase. Recipe styles mu
 
 ## Desktop Agent Rooms
 
+A Room keeps its team and workspace configuration across conversations. The shared chat header provides a conversation picker and a new-conversation action. Conversation changes reset the reading position and restore that conversation’s draft and model selection. New conversations start with empty shared history and fresh member contexts; previous conversations remain available. Running work stays attached to its originating conversation. Controls use the shared SelectControl and Button, wrap at narrow widths, and use localized labels and theme tokens.
+
+
 Room transcripts use the existing chat reading column, type tokens and composer. Each reply names its author; recipients and discussion/direct mode remain visible before sending. Member controls use the shared Button, SelectControl and Switch components; setup saves use the fixed settings footbar. Queued, approval and cancelling states appear beside the responsible member. Collapsed sidebar headers reserve the native window control area. The Room view supports Chinese/English, light/dark appearance and narrow Desktop widths.
+
+Room creation presents room details, a two-column Agent picker, and collaboration settings in that order. Member tiles use stable shared avatars, brief descriptions, existing switches and a subtle accent selection state; narrow layouts use one column. The fixed footbar shows the selected team and the primary create/save action.
+
+Agent Room writing uses the complete shared `ChatInputArea`, including the existing
+model/Thinking menu, attachment previews, recording controls, IME keyboard handling
+and composer materials. Room-specific member chips and reply context occupy its
+context slot; destructive room management stays in the header. An explicit model
+pick applies to the submitted recipients; the default preserves each member's own
+model. Accepted model/Thinking selections persist with the dispatch for retries.
+
+Room conversations reuse `ChatHeader`, `ChatMessagesPane`, `ConversationLiveView` and `ConversationTranscript` as well as `ChatInputArea`. Author identity is per message; concurrent responses use the same live renderer. Room management lives in the shared overflow menu, and member mentions use the shared composer suggestion menu.
+
+Room model previews use the backend-resolved per-member model keys. Completed transcript messages retain their execution's failure/cancellation state and error detail; a persisted message alone is not evidence of successful completion.

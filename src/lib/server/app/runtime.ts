@@ -1,7 +1,10 @@
 import { pendingPiRecovery, piRecoveryCandidates, piRecoveryChannelManager, resumePiOwner } from "./piRecovery.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { SqliteImageTaskStore } from "$lib/server/agent/imageGenerate/imageTaskStore.js";
+import { readPiImageUsage } from "$lib/server/agent/imageGenerate/usage.js";
 import { reconcileRoomAgents } from "$lib/server/rooms/runtime.js";
+import { momLog } from "$lib/server/agent/common/log.js";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import { sanitizeSettings } from "$lib/server/settings/sanitize.js";
 import { applyChannelPlugins } from "$lib/server/plugins/loader.js";
@@ -256,7 +259,8 @@ function initializeRuntime(): RuntimeState {
         sessionLifecycle.resumeForInboundMessage({ conversationId, requesterExternalUserId });
       }
     });
-    const usageTracker = new AiUsageTracker();
+    const imageUsageStore = new SqliteImageTaskStore();
+    const usageTracker = new AiUsageTracker({ imageUsageSource: () => readPiImageUsage(imageUsageStore) });
     const modelErrorTracker = new ModelErrorTracker();
     const memory = new MemoryGateway(
       () => currentSettings.value,

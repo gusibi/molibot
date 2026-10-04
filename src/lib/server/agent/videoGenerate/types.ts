@@ -22,7 +22,7 @@ export interface VideoGenerateProviderResult {
 
 export interface VideoGenerateProviderContext {
   settings: VideoGenerateSettings;
-  fetch: typeof fetch;
+  fetch: (url: string, init?: RequestInit) => Promise<Response>;
   signal?: AbortSignal;
 }
 

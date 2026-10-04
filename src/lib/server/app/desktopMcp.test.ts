@@ -1,3 +1,4 @@
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { McpServerConfig, RuntimeSettings } from "$lib/server/settings/schema";
@@ -106,6 +107,7 @@ test("saveDesktopMcpServer creates HTTP servers and delete removes exactly one",
 
 test("buildDesktopMcpSummary counts total/enabled and by transport without leaking secrets", () => {
   const summary = buildDesktopMcpSummary({
+    ...defaultRuntimeSettings,
     mcpServers: [stdioServer(), httpServer({ enabled: false }), stdioServer({ id: "fs2" })]
   } as RuntimeSettings);
 
@@ -137,6 +139,7 @@ test("buildDesktopMcpSummary keeps configured enablement separate from live conn
 
 test("buildDesktopMcpSummary includes the managed OpenConnector MCP server", () => {
   const summary = buildDesktopMcpSummary({
+    ...defaultRuntimeSettings,
     mcpServers: [],
     openConnector: {
       enabled: true,

@@ -62,7 +62,7 @@ function createFeishuManagerTestHarness(
           return { data: { message_id: "om_updated" } };
         }
       },
-      chat: { get: async () => ({ code: 0, data: { chat_type: "p2p" } }) }
+      chat: { get: async (): Promise<{ code: number; msg?: string; data?: { chat_type: string } }> => ({ code: 0, data: { chat_type: "p2p" } }) }
     }
   };
 

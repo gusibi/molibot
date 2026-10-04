@@ -6,6 +6,25 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import createMeetingNotes from "./builtin/meeting-notes/server/index.mjs";
 
+type HttpResponse = Awaited<ReturnType<ReturnType<typeof createMeetingNotes>["handleHttp"]>>;
+function meetingBody(response: HttpResponse) {
+  assert.ok("meeting" in response.body);
+  assert.ok(response.body.meeting);
+  return response.body.meeting;
+}
+
+function meetingsBody(response: HttpResponse) {
+  assert.ok("meetings" in response.body);
+  assert.ok(response.body.meetings);
+  return response.body.meetings;
+}
+
+function chunkBody(response: HttpResponse) {
+  assert.ok("chunk" in response.body);
+  assert.ok(response.body.chunk);
+  return response.body.chunk;
+}
+
 function request(path: string, options: { method?: string; body?: unknown; query?: Record<string, string[]>; contentType?: string } = {}) {
   return {
     method: options.method ?? "GET",
@@ -52,7 +71,8 @@ function contextOver(
 async function createMeeting(runtime: ReturnType<typeof createMeetingNotes>, title = "Design review") {
   const created = await runtime.handleHttp(request("/meetings", { method: "POST", body: { title, language: "zh-CN" } }));
   assert.equal(created.status, 201);
-  assert.equal(created.body.meeting.title, title);
+  assert.equal(meetingBody(created).title, title);
+  assert.ok("track" in created.body);
   assert.equal(created.body.track.sourceKind, "microphone");
   return created.body as { meeting: { id: string }; track: { id: string } };
 }
@@ -98,17 +118,17 @@ test("multi-track chunks are idempotent and finalization reports an explicit mis
   const first = await addChunk(runtime, meeting.id, track.id, 0, 0, 5_000);
   const duplicate = await addChunk(runtime, meeting.id, track.id, 0, 0, 5_000);
   assert.equal(first.status, 202);
-  assert.equal(duplicate.body.chunk.id, first.body.chunk.id);
+  assert.equal(chunkBody(duplicate).id, chunkBody(first).id);
   await addChunk(runtime, meeting.id, track.id, 2, 10_000, 15_000);
 
   const finishing = await runtime.handleHttp(request(`/meetings/${meeting.id}/finish`, {
     method: "POST",
     body: { tracks: [{ id: track.id, expectedLastSeq: 2, endMs: 15_000 }] }
   }));
-  assert.ok(["finalizing", "summarizing", "partial"].includes(finishing.body.meeting.status));
+  assert.ok(["finalizing", "summarizing", "partial"].includes(meetingBody(finishing).status));
 
   const detail = await waitFor(
-    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting,
+    async () => meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`)))),
     (value) => value.status === "partial"
   );
   assert.deepEqual(detail.completeness.missingChunks, [{ trackId: track.id, seq: 1 }]);
@@ -147,13 +167,13 @@ test("finish is a barrier and never summarizes while a received chunk is still t
     method: "POST",
     body: { tracks: [{ id: track.id, expectedLastSeq: 0, endMs: 5_000 }] }
   }));
-  const before = (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting;
+  const before = meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`))));
   assert.equal(before.status, "finalizing");
   assert.equal(summaryCalls, 0);
 
   release();
   const completed = await waitFor(
-    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting,
+    async () => meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`)))),
     (value) => value.status === "ready"
   );
   assert.equal(completed.completeness.missingChunks.length, 0);
@@ -178,7 +198,7 @@ test("a recording produces bounded provisional notes before it is stopped", asyn
     await addChunk(runtime, meeting.id, track.id, seq, seq * 10_000, (seq + 1) * 10_000);
   }
   const live = await waitFor(
-    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting,
+    async () => meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`)))),
     (value) => Boolean(value.liveNotes)
   );
   assert.equal(live.status, "recording");
@@ -194,13 +214,13 @@ test("restart requeues an orphaned transcription instead of terminalizing the wh
   const { meeting, track } = await createMeeting(first);
   const added = await addChunk(first, meeting.id, track.id, 0, 0, 5_000);
   await waitFor(
-    async () => (await first.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting.chunks[0],
+    async () => meetingBody((await first.handleHttp(request(`/meetings/${meeting.id}`)))).chunks[0],
     (chunk) => chunk.status === "complete"
   );
   first.dispose();
 
   const db = new DatabaseSync(join(dataDir, "meetings.sqlite"));
-  db.prepare("UPDATE audio_chunks SET status='transcribing' WHERE id=?").run(added.body.chunk.id);
+  db.prepare("UPDATE audio_chunks SET status='transcribing' WHERE id=?").run(chunkBody(added).id);
   db.prepare("UPDATE meetings SET status='finalizing' WHERE id=?").run(meeting.id);
   db.close();
 
@@ -216,7 +236,7 @@ test("restart requeues an orphaned transcription instead of terminalizing the wh
     body: { tracks: [{ id: track.id, expectedLastSeq: 0, endMs: 5_000 }] }
   }));
   const recovered = await waitFor(
-    async () => (await restarted.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting,
+    async () => meetingBody((await restarted.handleHttp(request(`/meetings/${meeting.id}`)))),
     (value) => value.status === "ready"
   );
   assert.equal(resumedCalls, 1);
@@ -239,8 +259,8 @@ test("a v1 draft database is backed up and never read through a compatibility la
   assert.ok(names.some((name) => name.startsWith("meetings.sqlite.backup-")));
   assert.ok(names.some((name) => name.startsWith("audio.backup-")));
   const current = new DatabaseSync(join(dataDir, "meetings.sqlite"));
-  assert.equal(current.prepare("PRAGMA user_version").get().user_version, 2);
-  assert.equal(current.prepare("SELECT COUNT(*) AS count FROM meetings").get().count, 0);
+  assert.equal(current.prepare("PRAGMA user_version").get()?.user_version, 2);
+  assert.equal(current.prepare("SELECT COUNT(*) AS count FROM meetings").get()?.count, 0);
   current.close();
   runtime.dispose();
 });
@@ -251,17 +271,17 @@ test("deleting a meeting removes every retained track chunk", async () => {
   const { meeting, track } = await createMeeting(runtime);
   const added = await addChunk(runtime, meeting.id, track.id, 0, 0, 5_000);
   await waitFor(
-    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting.chunks[0],
+    async () => meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`)))).chunks[0],
     (chunk) => chunk.status === "complete"
   );
-  const retainedPath = join(dataDir, added.body.chunk.audioPath);
+  const retainedPath = join(dataDir, chunkBody(added).audioPath);
   assert.equal(existsSync(retainedPath), true);
   await runtime.handleHttp(request(`/meetings/${meeting.id}/finish`, {
     method: "POST",
     body: { tracks: [{ id: track.id, expectedLastSeq: 0, endMs: 5_000 }] }
   }));
   await waitFor(
-    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting.status,
+    async () => meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`)))).status,
     (status) => status === "ready"
   );
   await runtime.tools.delete({ id: meeting.id });
@@ -278,7 +298,7 @@ test("an active capture cannot be deleted or forced into summary generation", as
   assert.equal(regenerate.status, 409);
   assert.equal(remove.status, 409);
   const detail = await runtime.handleHttp(request(`/meetings/${meeting.id}`));
-  assert.equal(detail.body.meeting.status, "recording");
+  assert.equal(meetingBody(detail).status, "recording");
   runtime.dispose();
 });
 
@@ -289,15 +309,15 @@ test("pause and resume are idempotent meeting state transitions", async () => {
 
   const paused = await runtime.handleHttp(request(`/meetings/${meeting.id}/pause`, { method: "POST", body: {} }));
   assert.equal(paused.status ?? 200, 200);
-  assert.equal(paused.body.meeting.status, "paused");
+  assert.equal(meetingBody(paused).status, "paused");
 
   const pausedAgain = await runtime.handleHttp(request(`/meetings/${meeting.id}/pause`, { method: "POST", body: {} }));
   assert.equal(pausedAgain.status ?? 200, 200);
-  assert.equal(pausedAgain.body.meeting.status, "paused");
+  assert.equal(meetingBody(pausedAgain).status, "paused");
 
   const resumed = await runtime.handleHttp(request(`/meetings/${meeting.id}/resume`, { method: "POST", body: {} }));
   assert.equal(resumed.status ?? 200, 200);
-  assert.equal(resumed.body.meeting.status, "recording");
+  assert.equal(meetingBody(resumed).status, "recording");
   runtime.dispose();
 });
 
@@ -307,7 +327,7 @@ test("a paused meeting is protected as active and becomes interrupted after serv
   const { meeting } = await createMeeting(first);
   const paused = await first.handleHttp(request(`/meetings/${meeting.id}/pause`, { method: "POST", body: {} }));
   assert.equal(paused.status ?? 200, 200);
-  assert.equal(paused.body.meeting.status, "paused");
+  assert.equal(meetingBody(paused).status, "paused");
 
   const regenerate = await first.handleHttp(request(`/meetings/${meeting.id}/regenerate`, { method: "POST", body: {} }));
   const remove = await first.handleHttp(request(`/meetings/${meeting.id}`, { method: "DELETE" }));
@@ -317,10 +337,10 @@ test("a paused meeting is protected as active and becomes interrupted after serv
 
   const restarted = createMeetingNotes(contextOver(dataDir));
   const detail = await restarted.handleHttp(request(`/meetings/${meeting.id}`));
-  assert.equal(detail.body.meeting.status, "interrupted");
+  assert.equal(meetingBody(detail).status, "interrupted");
 
   const reconciled = await restarted.handleHttp(request(`/meetings/${meeting.id}/pause`, { method: "POST", body: {} }));
-  assert.equal(reconciled.body.meeting.status, "paused");
+  assert.equal(meetingBody(reconciled).status, "paused");
   restarted.dispose();
 });
 
@@ -332,21 +352,21 @@ test("history search covers titles, notes, and transcript text and returns activ
   const { meeting, track } = await createMeeting(runtime, "Weekly planning");
   await addChunk(runtime, meeting.id, track.id, 0, 0, 5_000);
   await waitFor(
-    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting.utterances.length,
+    async () => meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`)))).utterances.length,
     (count) => count === 1
   );
 
   const byTranscript = await runtime.handleHttp(request("/meetings", { query: { q: ["atlas"] } }));
-  assert.equal(byTranscript.body.meetings.length, 1);
-  assert.equal(byTranscript.body.meetings[0].id, meeting.id);
-  assert.equal(byTranscript.body.meetings[0].durationMs, 0);
+  assert.equal(meetingsBody(byTranscript).length, 1);
+  assert.equal(meetingsBody(byTranscript)[0].id, meeting.id);
+  assert.equal(meetingsBody(byTranscript)[0].durationMs, 0);
 
   await runtime.handleHttp(request(`/meetings/${meeting.id}/finish`, {
     method: "POST",
     body: { tracks: [{ id: track.id, expectedLastSeq: 0, endMs: 5_000 }] }
   }));
   const completed = await waitFor(
-    async () => (await runtime.handleHttp(request("/meetings", { query: { q: ["weekly"] } }))).body.meetings[0],
+    async () => meetingsBody((await runtime.handleHttp(request("/meetings", { query: { q: ["weekly"] } }))))[0],
     (item) => item?.status === "ready"
   );
   assert.equal(completed.durationMs, 5_000);
@@ -386,7 +406,7 @@ test("meeting audio streaming and batch retry transcription routes work correctl
 
   const chunkRes = await addChunk(runtime, meeting.id, track.id, 0, 0, 5_000, wavBytes);
   assert.equal(chunkRes.status, 202);
-  const chunkId = chunkRes.body.chunk.id;
+  const chunkId = chunkBody(chunkRes).id;
 
   // 测试单个 chunk 音频获取
   const chunkAudioRes = await runtime.handleHttp(request(`/chunks/${chunkId}/audio`));
@@ -396,12 +416,14 @@ test("meeting audio streaming and batch retry transcription routes work correctl
   // 测试整场会议音频获取
   const meetingAudioRes = await runtime.handleHttp(request(`/meetings/${meeting.id}/audio`));
   assert.equal(meetingAudioRes.status, 200);
+  assert.ok(meetingAudioRes.headers);
+  assert.ok(meetingAudioRes.body instanceof Uint8Array);
   assert.equal(meetingAudioRes.headers["content-type"], "audio/wav");
   assert.ok(meetingAudioRes.body.byteLength > 0);
 
   // 等待转写失败
   const failedMeeting = await waitFor(
-    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting,
+    async () => meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`)))),
     (m) => m.completeness.failedChunks.length > 0
   );
   assert.equal(failedMeeting.completeness.failedChunks.length, 1);
@@ -413,7 +435,7 @@ test("meeting audio streaming and batch retry transcription routes work correctl
 
   // 等待重试成功
   const recoveredMeeting = await waitFor(
-    async () => (await runtime.handleHttp(request(`/meetings/${meeting.id}`))).body.meeting,
+    async () => meetingBody((await runtime.handleHttp(request(`/meetings/${meeting.id}`)))),
     (m) => m.completeness.failedChunks.length === 0 && m.utterances.length > 0
   );
   assert.equal(recoveredMeeting.utterances[0].text, "Meeting transcript text");

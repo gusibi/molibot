@@ -307,6 +307,7 @@ test("custom image engines survive a settings store restart and can be removed",
         defaultEngine: "custom-images",
         engines: {
           ...defaultRuntimeSettings.imageGenerate.engines,
+          pi: { ...defaultRuntimeSettings.imageGenerate.engines.pi, enabled: true, model: "pi|fixture|image-model" },
           "custom-images": customEngine
         }
       }
@@ -314,6 +315,7 @@ test("custom image engines survive a settings store restart and can be removed",
 
     new SettingsStore().save(settings);
     const restarted = new SettingsStore().load();
+    assert.deepEqual(JSON.parse(JSON.stringify(restarted.imageGenerate)), JSON.parse(JSON.stringify(settings.imageGenerate)));
     assert.deepEqual(restarted.imageGenerate.engines["custom-images"], customEngine);
     assert.equal(restarted.imageGenerate.defaultEngine, "custom-images");
 
@@ -393,7 +395,7 @@ test("image recognition settings survive save to a fresh store load", () => {
         "vision-a": { enabled: true, name: "Vision A", modelKey: "custom|provider-a|model-a" },
         "vision-b": { enabled: true, name: "Vision B", modelKey: "pi|google|gemini-2.5-flash" }
       }
-    } as const;
+    };
 
     new SettingsStore().save({ ...defaultRuntimeSettings, imageRecognition });
     const restarted = new SettingsStore().load();
@@ -494,7 +496,7 @@ test("MCP server enable state and transport configuration survive a settings sto
   storagePaths.settingsFile = path.join(root, "settings.json");
   storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
 
-  const mcpServers = [
+  const mcpServers: import("./schema.js").McpServerConfig[] = [
     {
       id: "local-tools",
       name: "Local tools",
@@ -706,7 +708,7 @@ test("permission mode survives a settings store restart at every level", () => {
       "the agent-level override must survive"
     );
     // The other axis is untouched: mode and sandbox are orthogonal.
-    assert.equal(restarted.toolSandbox.enabled, defaultRuntimeSettings.toolSandbox.enabled);
+    assert.deepEqual(restarted.toolSandbox, defaultRuntimeSettings.toolSandbox);
   } finally {
     storagePaths.settingsFile = originalSettingsFile;
     storagePaths.settingsDbFile = originalSettingsDbFile;

@@ -1,3 +1,4 @@
+import { Socket } from "node:net";
 import { fork, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import type {
@@ -171,7 +172,7 @@ class MiniAppProcessRuntime implements MiniAppRuntime {
       return;
     }
     if (message.kind === "log") {
-      const level = message.level === "warn" || message.level === "error" ? message.level : "info";
+      const level: "warn" | "error" | "info" = message.level === "warn" || message.level === "error" ? message.level : "info";
       this.options.logger[level](String(message.event ?? "event"), message.detail);
       return;
     }
@@ -249,7 +250,7 @@ export async function createMiniAppProcessRuntime(options: ProcessRuntimeOptions
   child.stderr?.on("data", (chunk) => {
     options.logger.warn("worker_stderr", { message: chunk.toString().slice(0, 4_000) });
   });
-  child.stderr?.unref();
+  if (child.stderr instanceof Socket) child.stderr.unref();
   const runtime = new MiniAppProcessRuntime(child, options);
   child.unref();
   child.channel?.unref();

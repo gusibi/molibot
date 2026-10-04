@@ -33,10 +33,7 @@ export async function resumeSuspendedBrokerApproval(
   const sessions = input.sessionStore ?? new SessionStore();
 
   const orchestrator = getTurnOrchestrator();
-  const db = orchestrator.getDb();
-  const waitingRun = db
-    .prepare("SELECT id, started_at FROM runs WHERE session_id = ? AND status = 'waiting_for_approval' ORDER BY started_at DESC LIMIT 1")
-    .get(sessionId) as { id: string; started_at: string } | undefined;
+  const waitingRun = orchestrator.getWaitingApprovalRun(sessionId);
 
   if (!waitingRun) {
     // No suspended run in this session: either the run was already active inline

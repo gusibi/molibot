@@ -8,6 +8,8 @@ import { clipboardImageFiles } from "./chat/clipboardFiles";
 import { SessionRuntimeRegistry } from "./chat/sessionRuntimeRegistry.svelte";
 import { SessionDraftStore } from "./chat/sessionDraftStore";
 import {
+  loadDesktopSystem,
+  saveDesktopSystem,
   addToFollowUpQueue,
   buildDiagnosticsSummary,
   deleteDesktopProvider,
@@ -2380,4 +2382,23 @@ test("session auto-archive policy routes map to fine-grained settings operations
   } finally {
     globalThis.fetch = original;
   }
+});
+
+
+test("Desktop System transport reads configuration and submits only the requested field patch", async () => {
+  const original = globalThis.fetch;
+  const requests: Array<{ url: string; method: string; body?: unknown }> = [];
+  const config = { budget: { maxToolCalls: 100, maxToolFailures: 6, maxModelAttempts: 12 } };
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return new Response(JSON.stringify({ ok: true, config }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    assert.deepEqual(await loadDesktopSystem("http://127.0.0.1:3000"), config);
+    assert.deepEqual(await saveDesktopSystem("http://127.0.0.1:3000", { budget: { maxModelAttempts: 12 } }), config);
+    assert.deepEqual(requests, [
+      { url: "http://127.0.0.1:3000/api/desktop/system", method: "GET", body: undefined },
+      { url: "http://127.0.0.1:3000/api/desktop/system", method: "PATCH", body: { budget: { maxModelAttempts: 12 } } }
+    ]);
+  } finally { globalThis.fetch = original; }
 });

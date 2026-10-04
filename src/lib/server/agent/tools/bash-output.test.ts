@@ -934,7 +934,7 @@ test("a subagent-bound sandbox environment fails closed when the provider is una
     checkDependencies: () => false,
     async initialize() {},
     async reset() {},
-    async wrapWithSandbox(command) { return command; },
+    async wrapWithSandbox(command: string) { return command; },
     isInitialized: () => false,
     getLastError: () => "dependencies missing"
   };

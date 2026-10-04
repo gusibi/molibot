@@ -453,7 +453,7 @@ export function shouldSuggestSkillDraft(input: {
   finalText: string;
   toolCalls: number;
   toolFailures: number;
-  modelAttempts: number;
+  modelFailures: number;
   explicitSkillCount: number;
   settings?: SkillDraftGenerationSettings;
 }): boolean {
@@ -465,7 +465,7 @@ export function shouldSuggestSkillDraft(input: {
   if (input.explicitSkillCount > 0) return false;
   if (input.toolCalls < settings.minToolCalls) return false;
   const recoveredToolFailure = settings.allowRecoveredToolFailures && input.toolFailures > 0;
-  const usedModelRetry = settings.allowModelRetries && input.modelAttempts >= 2;
+  const usedModelRetry = settings.allowModelRetries && input.modelFailures >= 2;
   return input.toolCalls >= settings.minToolCalls || recoveredToolFailure || usedModelRetry;
 }
 

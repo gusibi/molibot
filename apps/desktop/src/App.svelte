@@ -1,7 +1,6 @@
 <script lang="ts">
   import AddCircle from "reicon-svelte/icons/AddCircle";
   import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
-  import Box from "reicon-svelte/icons/Box";
   import Card from "reicon-svelte/icons/Card";
   import Chart from "reicon-svelte/icons/Chart";
   import Cpu from "reicon-svelte/icons/Cpu";
@@ -18,12 +17,15 @@
   import PlugCircle from "reicon-svelte/icons/PlugCircle";
   import PuzzlePiece from "reicon-svelte/icons/PuzzlePiece";
   import Radio from "reicon-svelte/icons/Radio";
-  import Search from "reicon-svelte/icons/Search";
   import ShieldCheck from "reicon-svelte/icons/ShieldCheck";
   import Soundwave from "reicon-svelte/icons/Soundwave";
   import Stethoscope from "reicon-svelte/icons/Stethoscope";
-  import TerminalSquare from "reicon-svelte/icons/TerminalSquare";
+  import Verified from "reicon-svelte/icons/Verified";
   import XCircle from "reicon-svelte/icons/XCircle";
+  import Gear2 from "reicon-svelte/icons/Gear2";
+  import CodeSquare from "./lib/icons/duotone/components/CodeSquare.svelte";
+  import Reorder from "./lib/icons/duotone/components/Reorder.svelte";
+  import Routing3 from "./lib/icons/duotone/components/Routing3.svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { getVersion } from "@tauri-apps/api/app";
   import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
@@ -33,6 +35,7 @@
   import ExecutionPermissionsSection from "./lib/settings/ExecutionPermissionsSection.svelte";
   import HostBashSection from "./lib/settings/HostBashSection.svelte";
   import RuntimeEnvSection from "./lib/settings/RuntimeEnvSection.svelte";
+  import SystemSection from "./lib/settings/SystemSection.svelte";
   import ModelsSection from "./lib/settings/ModelsSection.svelte";
   import DecisionModelsSection from "./lib/settings/DecisionModelsSection.svelte";
   import AgentsSection from "./lib/settings/AgentsSection.svelte";
@@ -140,7 +143,7 @@
     hapticPreference: HapticPreference;
   };
 
-  type SettingsSection = "general" | "models" | "decisionModels" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "system" | "general" | "models" | "decisionModels" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -567,12 +570,13 @@
     { id: "profiles", icon: Card },
     { id: "usage", icon: Chart },
     { id: "runHistory", icon: History },
-    { id: "logs", icon: TerminalSquare },
-    { id: "trace", icon: Search },
+    { id: "logs", icon: Reorder },
+    { id: "trace", icon: Routing3 },
     { id: "executionPermissions", icon: ShieldCheck },
-    { id: "hostBash", icon: TerminalSquare },
+    { id: "hostBash", icon: Verified },
     { id: "diagnostics", icon: Stethoscope },
-    { id: "runtimeEnv", icon: Box }
+    { id: "system", icon: Gear2 },
+    { id: "runtimeEnv", icon: CodeSquare }
   ];
 
   const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "tools" | "channels" | "activity" | "system"; sections: SettingsSection[]; additionalSections?: SettingsSection[] }[] = [
@@ -582,7 +586,7 @@
     { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
     { id: "channels", sections: ["profiles", "channels"] },
     { id: "activity", sections: ["runHistory", "usage", "trace", "logs", "hostBash"] },
-    { id: "system", sections: ["runtimeEnv", "executionPermissions", "plugins", "diagnostics"] }
+    { id: "system", sections: ["system", "runtimeEnv", "executionPermissions", "plugins", "diagnostics"] }
   ];
 
   let settingsFilter = "";
@@ -637,6 +641,7 @@
       case "executionPermissions": return copy.executionPermissions;
       case "hostBash": return copy.hostBash;
       case "diagnostics": return copy.diagnostics;
+      case "system": return copy.systemSettings;
       case "runtimeEnv": return copy.runtimeEnv;
       default: return copy.general;
     }
@@ -667,6 +672,7 @@
       case "executionPermissions": return copy.executionPermissionsHint;
       case "hostBash": return copy.hostBashHint;
       case "diagnostics": return copy.diagnosticsHint;
+      case "system": return copy.systemSettingsHint;
       case "runtimeEnv": return copy.runtimeEnvHint;
       default: return copy.generalHint;
     }
@@ -1485,6 +1491,8 @@
         <ExecutionPermissionsSection />
       {:else if activeSection === "hostBash"}
         <HostBashSection />
+      {:else if activeSection === "system"}
+        <SystemSection />
       {:else if activeSection === "runtimeEnv"}
         <RuntimeEnvSection />
       {:else}

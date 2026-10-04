@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "@sveltejs/kit";
+import type { RequestHandler } from "./$types";
 import { getRuntime } from "$lib/server/app/runtime.js";
 import { isCoreSettingsPluginId, setCoreSettingsPluginEnabled } from "$lib/server/plugins/coreSettings.js";
 

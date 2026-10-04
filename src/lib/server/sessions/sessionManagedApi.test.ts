@@ -76,10 +76,10 @@ test("validateSelectionCreate: rejects empty target lists", () => {
 });
 
 test("projectManagedItem: exposes display metadata only, never transcript content", () => {
-  const projected = projectManagedItem({
+  const item = {
     conversationId: "c1",
     title: "Hello",
-    source: "local",
+    source: "local" as const,
     channel: "web",
     botId: "personal",
     ownerExternalUserId: "web:personal:x",
@@ -88,17 +88,20 @@ test("projectManagedItem: exposes display metadata only, never transcript conten
     lastActivityAt: "2026-01-02T00:00:00.000Z",
     userTurnCount: 1,
     assistantTurnCount: 1,
-    state: "active",
+    state: "active" as const,
     version: 2,
     retain: false,
     archivedAt: null,
     trashedAt: null,
-    messages: [{ role: "user", content: "secret transcript body" }]
-  } as unknown as Record<string, unknown>);
-  assert.equal((projected as Record<string, unknown>).conversationId, "c1");
-  assert.ok(!("messages" in (projected as Record<string, unknown>)));
-  assert.ok(!("content" in (projected as Record<string, unknown>)));
-  assert.equal((projected as Record<string, unknown>).userTurnCount, 1);
+    messages: [{ role: "user", content: "secret transcript body" }],
+    extractionStatus: "unprocessed" as const, extractionRevision: null, processedThroughId: null,
+    savedMemoryIds: [], savedDocRefs: [], pendingCandidateIds: []
+  };
+  const projected = projectManagedItem(item);
+  assert.equal(projected.conversationId, "c1");
+  assert.ok(!("messages" in projected));
+  assert.ok(!("content" in projected));
+  assert.equal(projected.userTurnCount, 1);
 });
 
 test("projectBulkResult: per-item outcomes carry status and reason, no internals", () => {
@@ -132,7 +135,7 @@ test("projectManagedItem: carries extraction status, source range and retained r
   const projected = projectManagedItem({
     conversationId: "c1",
     title: "Hello",
-    source: "local",
+    source: "local" as const,
     channel: "web",
     botId: "personal",
     ownerExternalUserId: "web:personal:x",
@@ -141,7 +144,7 @@ test("projectManagedItem: carries extraction status, source range and retained r
     lastActivityAt: "2026-01-02T00:00:00.000Z",
     userTurnCount: 1,
     assistantTurnCount: 1,
-    state: "active",
+    state: "active" as const,
     version: 2,
     retain: false,
     archivedAt: null,
@@ -152,7 +155,7 @@ test("projectManagedItem: carries extraction status, source range and retained r
     savedMemoryIds: ["mem-1"],
     savedDocRefs: [{ docId: "doc-1", title: "Notes" }],
     pendingCandidateIds: [],
-    messages: [{ role: "user", content: "secret transcript body" }]
+    messages: [{ role: "user", content: "secret transcript body" }],
   } as unknown as Parameters<typeof projectManagedItem>[0]);
   assert.equal(projected.extractionStatus, "saved");
   assert.equal(projected.processedThroughId, "m9");

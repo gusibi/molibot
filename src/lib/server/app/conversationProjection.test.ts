@@ -128,7 +128,7 @@ test("preserves thinking, tool and text interleaving as ordered transcript steps
   });
 
   const reply = result.messages.find((message) => message.id === "m-a");
-  assert.deepEqual(reply?.steps?.map((step) => step.kind === "activity" ? `${step.kind}:${step.activity.label}` : `${step.kind}:${step.content}`), [
+  assert.deepEqual(reply?.steps?.map((step) => step.kind === "activity" ? `${step.kind}:${step.activity.label}` : `${step.kind}:${"content" in step ? step.content : ""}`), [
     "thinking:inspect first",
     "activity:Read a.ts",
     "text:I found the cause.",
@@ -249,7 +249,7 @@ test("folds multiple terminal assistant replies from one user turn into one answ
   assert.equal(replies.length, 1);
   assert.equal(replies[0]?.content, "完整交付报告\n\n补充收尾说明");
   assert.equal(result.sourceEntryByMessageId.get(replies[0]!.id), "a-supplement");
-  assert.deepEqual(replies[0]?.steps?.map((step) => step.kind === "activity" ? step.kind : `${step.kind}:${step.content}`), [
+  assert.deepEqual(replies[0]?.steps?.map((step) => step.kind === "activity" ? step.kind : `${step.kind}:${"content" in step ? step.content : ""}`), [
     "thinking:A queued runtime follow-up arrived.",
     "text:处理中间状态",
     "activity",

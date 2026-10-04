@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { selectImageEngine } from "$lib/shared/imageGenerate.js";
   import { onMount } from "svelte";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
@@ -18,7 +19,8 @@
 
   interface EngineSettings {
     enabled: boolean;
-    apiKey: string;
+    apiKey?: string;
+    credentialSource?: "api-key" | "provider";
     baseUrl?: string;
     model?: string;
     name?: string;
@@ -35,7 +37,7 @@
     id: string;
     engine: string;
     sessionId: string;
-    status: "processing" | "completed" | "failed";
+    status: "processing" | "completed" | "failed" | "cancelled";
     prompt: string;
     imagePath?: string;
     imageUrl?: string;
@@ -43,6 +45,9 @@
     errorMessage?: string;
     createdAt: string;
     updatedAt: string;
+    artifacts?: Array<{ index: number; mimeType: string; byteLength: number }>;
+    textOutput?: string;
+    usage?: { cost: { total: number } };
   }
 
   const COPY = {
@@ -55,7 +60,7 @@
       enableToolDesc: "禁用后，该工具在调用时会返回配置错误，而不会实际执行。",
       defaultEngine: "默认引擎",
       autoEngine: "自动优先级顺序",
-      autoEngineDesc: "在自动模式下，工具会依次检测 Agnes、OpenAI Images、OpenAI Chat、Google、火山引擎和 ModelScope，使用第一个配置了有效 API Key 的引擎。",
+      autoEngineDesc: "优先使用指定的默认引擎；默认值为自动时依次选择 Agnes、OpenAI Images、OpenAI Chat、Google、火山引擎、ModelScope 和 Pi。Pi 使用所选模型对应的 Provider 凭据。",
       enginesTitle: "图像生成引擎",
       enginesDesc: "配置各图像生成服务方的认证密钥、默认模型及 API 端点。",
       apiKey: "API Key",
@@ -92,6 +97,8 @@
       statusProcessing: "生成中",
       statusCompleted: "已完成",
       statusFailed: "失败",
+      statusCancelled: "已取消",
+      piImageCredentialsHint: "复用 Provider 凭据；Pi 不支持尺寸和种子参数。",
       noTasks: "暂无最近生成记录。",
       taskDetailsTitle: "记录详情",
       taskIdLabel: "任务 ID",
@@ -131,7 +138,7 @@
       enableToolDesc: "When disabled, the tool returns a settings error instead of executing.",
       defaultEngine: "Default engine",
       autoEngine: "Auto priority order",
-      autoEngineDesc: "In auto mode, the tool iterates through Agnes, OpenAI Images, OpenAI Chat, Google, Volcengine, and ModelScope in order, using the first one with a valid API key configured.",
+      autoEngineDesc: "The selected default engine takes priority. Auto checks Agnes, OpenAI Images, OpenAI Chat, Google, Volcengine, ModelScope and Pi. Pi uses the selected model’s Provider credentials.",
       enginesTitle: "Image Generation Engines",
       enginesDesc: "Configure credentials, default models, and API endpoints for your selected painting providers.",
       apiKey: "API Key",
@@ -168,6 +175,8 @@
       statusProcessing: "Processing",
       statusCompleted: "Completed",
       statusFailed: "Failed",
+      statusCancelled: "Cancelled",
+      piImageCredentialsHint: "Uses Provider credentials. Pi does not support size or seed parameters.",
       noTasks: "No recent tasks found.",
       taskDetailsTitle: "Generation Details",
       taskIdLabel: "Task ID",
@@ -205,6 +214,7 @@
   }
 
   const builtinEngines: Array<{ id: EngineId; name: string; hint: string; keyLabel: string; defaultUrl: string; defaultModel: string }> = [
+    { id: "pi", name: "Pi", hint: "", keyLabel: "", defaultUrl: "", defaultModel: "" },
     { id: "agnes", name: "Agnes Image", hint: "High-performance OpenAI-compatible editing and generation (agnes-image-2.0-flash). ELO 1,184.", keyLabel: "AGNES_API_KEY", defaultUrl: "https://apihub.agnes-ai.com", defaultModel: "agnes-image-2.0-flash" },
     { id: "openai", name: "OpenAI Images", hint: "Official OpenAI image generation via gpt-image-2.", keyLabel: "OPENAI_API_KEY", defaultUrl: "https://api.openai.com", defaultModel: "gpt-image-2" },
     { id: "openai-chat", name: "OpenAI Chat Format", hint: "OpenAI-compatible /v1/chat/completions protocol for providers that return image URLs or Base64 from chat messages.", keyLabel: "OPENAI_API_KEY", defaultUrl: "https://api.openai.com", defaultModel: "gpt-4o" },
@@ -224,13 +234,16 @@
   let error = "";
   let testPrompt = "A futuristic cyberpunk cat logo";
   let testEngine: EngineId | "auto" = "auto";
+  let piImageModels: Array<{ key: string; provider: string; name: string }> = [];
   let testSize = "";
+  $: piTestSelected = selectImageEngine(testEngine, imageGenerate.defaultEngine, Object.entries(imageGenerate.engines).map(([id, engine]) => ({ id, enabled: engine.enabled, credentialSource: engine.credentialSource, hasCredentials: Boolean(engine.apiKey?.trim()) }))) === "pi";
   let testImageUrl = "";
   let testResult: any = null;
 
   let showApiKey: Record<string, boolean> = {};
   let tasks: ImageTask[] = [];
   let activeTaskDetails: ImageTask | null = null;
+  let activeTaskImageIndex = 0;
 
   let imageGenerate: ImageGenerateSettings = {
     enabled: true,
@@ -363,6 +376,10 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("loadError"));
       imageGenerate = mergeImageGenerateSettings(data.value);
+      const modelsResponse = await fetch("/api/settings/image-generate/models");
+      const modelsData = await modelsResponse.json();
+      if (!modelsResponse.ok || !modelsData.ok) throw new Error(modelsData.error || t("loadError"));
+      piImageModels = modelsData.models;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -431,7 +448,7 @@
         body: JSON.stringify({
           prompt: testPrompt,
           engine: testEngine,
-          size: testSize || undefined,
+          size: piTestSelected ? undefined : testSize || undefined,
           images: images.length ? images : undefined,
           imageGenerate
         })
@@ -613,6 +630,16 @@
               </div>
 
               <div class="grid gap-3 sm:grid-cols-3 pt-2">
+                {#if engine.id === "pi"}
+                <div class="settings-field settings-field-wide">
+                  <Label>{t("model")}</Label>
+                  <NativeSelect bind:value={imageGenerate.engines.pi.model}>
+                    <NativeSelectOption value="">{t("model")}</NativeSelectOption>
+                    {#each piImageModels as model}<NativeSelectOption value={model.key}>{model.provider} · {model.name}</NativeSelectOption>{/each}
+                  </NativeSelect>
+                  <p>{t("piImageCredentialsHint")}</p>
+                </div>
+                {:else}
                 <div class="grid gap-1.5">
                   <Label>{engine.keyLabel}</Label>
                   <div class="flex items-center gap-1.5">
@@ -648,6 +675,7 @@
                     {t("resolvedUrl")}: <code class="break-all font-semibold text-primary">{resolveCompleteUrl(engine.id, imageGenerate.engines[engine.id].baseUrl ?? "", imageGenerate.engines[engine.id].apiKey)}</code>
                   </p>
                 </div>
+                {/if}
               </div>
             </div>
           {/each}
@@ -777,7 +805,7 @@
                 <NativeSelectOption value={id}>{settings.name || id}</NativeSelectOption>
               {/each}
             </NativeSelect>
-            <Input bind:value={testSize} placeholder={t("testSizePlaceholder")} />
+            {#if !piTestSelected}<Input bind:value={testSize} placeholder={t("testSizePlaceholder")} />{/if}
             <Button type="button" variant="secondary" onclick={runTest} disabled={testing}>{testing ? t("testingButton") : t("testButton")}</Button>
           </div>
           <div class="grid gap-1.5">
@@ -843,6 +871,8 @@
                         <Badge variant="outline" class="border-blue-500/30 bg-blue-500/10 text-blue-500">{t("statusProcessing")}</Badge>
                       {:else if task.status === 'completed'}
                         <Badge variant="default" class="bg-emerald-600 hover:bg-emerald-600/95">{t("statusCompleted")}</Badge>
+                      {:else if task.status === 'cancelled'}
+                        <Badge variant="secondary">{t("statusCancelled")}</Badge>
                       {:else}
                         <Badge variant="destructive">{t("statusFailed")}</Badge>
                       {/if}
@@ -858,7 +888,7 @@
                           <Button
                             variant="ghost"
                             size="sm"
-                            onclick={() => activeTaskDetails = task}
+                            onclick={() => { activeTaskDetails = task; activeTaskImageIndex = 0; }}
                           >
                             {t("viewResult")}
                           </Button>
@@ -867,7 +897,7 @@
                           <Button
                             variant="ghost"
                             size="sm"
-                            onclick={() => activeTaskDetails = task}
+                            onclick={() => { activeTaskDetails = task; activeTaskImageIndex = 0; }}
                           >
                             {t("viewParams")}
                           </Button>
@@ -902,9 +932,19 @@
       </header>
 
       <div class="space-y-4">
-        {#if activeTaskDetails.status === "completed" && (activeTaskDetails.imagePath || activeTaskDetails.imageUrl)}
+        {#if (activeTaskDetails.artifacts?.length ?? 0) > 1}
+          <div class="settings-field">
+            <NativeSelect bind:value={activeTaskImageIndex} aria-label={$locale === "en-US" ? "Image output" : "图片输出"}>
+              {#each activeTaskDetails.artifacts ?? [] as artifact}
+                <NativeSelectOption value={artifact.index}>{$locale === "en-US" ? "Image" : "图片"} {artifact.index + 1}</NativeSelectOption>
+              {/each}
+            </NativeSelect>
+          </div>
+        {/if}
+        {#if activeTaskDetails.textOutput}<p>{activeTaskDetails.textOutput}</p>{/if}
+        {#if activeTaskDetails.artifacts?.length || (activeTaskDetails.status === "completed" && (activeTaskDetails.imagePath || activeTaskDetails.imageUrl))}
           <div class="overflow-hidden rounded-lg border bg-black/5 flex items-center justify-center p-2 max-h-[300px]">
-            <img src="/api/settings/image-generate/image?taskId={activeTaskDetails.id}" alt={activeTaskDetails.prompt} class="max-w-full max-h-[280px] object-contain rounded" />
+            <img src="/api/settings/image-generate/image?taskId={activeTaskDetails.id}&index={activeTaskImageIndex}" alt={activeTaskDetails.prompt} class="max-w-full max-h-[280px] object-contain rounded" />
           </div>
         {/if}
 
@@ -924,6 +964,8 @@
                 <Badge variant="outline" class="border-blue-500/30 bg-blue-500/10 text-blue-500">{t("statusProcessing")}</Badge>
               {:else if activeTaskDetails.status === 'completed'}
                 <Badge variant="default" class="bg-emerald-600 hover:bg-emerald-600/95">{t("statusCompleted")}</Badge>
+              {:else if activeTaskDetails.status === 'cancelled'}
+                <Badge variant="secondary">{t("statusCancelled")}</Badge>
               {:else}
                 <Badge variant="destructive">{t("statusFailed")}</Badge>
               {/if}
@@ -933,6 +975,9 @@
             <span class="text-muted-foreground">{t("prompt")}:</span>
             <span class="text-foreground leading-5">{activeTaskDetails.prompt}</span>
           </div>
+          {#if activeTaskDetails.engine === "pi"}
+            <div class="settings-row"><strong>{$locale === "en-US" ? "Model-estimated cost (USD)" : "模型估算费用（USD）"}</strong><span>{activeTaskDetails.usage ? `$${activeTaskDetails.usage.cost.total.toFixed(6)}` : ($locale === "en-US" ? "Unknown (model returned no usage)" : "未知（模型未返回用量）")}</span></div>
+          {/if}
           {#if activeTaskDetails.requestParams}
             <div class="grid grid-cols-[100px_1fr] gap-2">
               <span class="text-muted-foreground">{t("requestParamsLabel")}:</span>
@@ -960,8 +1005,8 @@
       </div>
 
       <footer class="mt-6 flex justify-end gap-3">
-        {#if activeTaskDetails.status === "completed"}
-          <Button href="/api/settings/image-generate/image?taskId={activeTaskDetails.id}" target="_blank" download="image.png">
+        {#if activeTaskDetails.status === "completed" || activeTaskDetails.artifacts?.length}
+          <Button href="/api/settings/image-generate/image?taskId={activeTaskDetails.id}&index={activeTaskImageIndex}" target="_blank" download="image.png">
             {t("downloadImage")}
           </Button>
         {/if}

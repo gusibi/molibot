@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 
 test("InboundTaskCoordinator exposes queue command operations", async () => {
-  let releaseCurrent: (() => void) | null = null;
+  const current = { release: null as (() => void) | null };
   let coordinator: InboundTaskCoordinator<{ text: string }, { scopeId: string }>;
   coordinator = new InboundTaskCoordinator<{ text: string }, { scopeId: string }>({
     channel: "test",
@@ -13,7 +13,7 @@ test("InboundTaskCoordinator exposes queue command operations", async () => {
     process: async (payload) => {
       if (payload.text === "current") {
         await new Promise<void>((resolve) => {
-          releaseCurrent = resolve;
+          current.release = resolve;
         });
       }
     },
@@ -39,8 +39,8 @@ test("InboundTaskCoordinator exposes queue command operations", async () => {
   assert.equal(await commandOptions.deleteQueued?.("chat-1", pendingId), "deleted");
   assert.deepEqual(await commandOptions.cancelQueuedPending?.("chat-1"), { cleared: 1, stale: false });
   assert.deepEqual((await commandOptions.listQueue?.("chat-1"))?.map((item) => item.id), [currentId]);
-  if (releaseCurrent) {
-    releaseCurrent();
+  if (current.release) {
+    current.release();
   }
   await delay(10);
   coordinator.close();

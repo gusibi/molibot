@@ -24,6 +24,9 @@ export class RunBudgetStore implements RunBudgetPersistence {
           failures INTEGER NOT NULL DEFAULT 0, models INTEGER NOT NULL DEFAULT 0,
           exceeded_kind TEXT, exceeded_reason TEXT
         );
+        CREATE TABLE IF NOT EXISTS run_budget_model_turns (
+          run_id TEXT PRIMARY KEY, max_turns INTEGER, turns INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS run_budget_receipts (
           run_id TEXT NOT NULL, kind TEXT NOT NULL, source_id TEXT NOT NULL,
           is_error INTEGER, accepted INTEGER NOT NULL, reason TEXT,
@@ -32,6 +35,8 @@ export class RunBudgetStore implements RunBudgetPersistence {
       db.prepare(`INSERT OR IGNORE INTO run_budgets
         (run_id,max_tools,max_failures,max_models) VALUES (?,?,?,?)`)
         .run(this.runId, this.limits.maxToolCalls, this.limits.maxToolFailures, this.limits.maxModelAttempts);
+      db.prepare("INSERT OR IGNORE INTO run_budget_model_turns (run_id,max_turns) VALUES (?,?)")
+        .run(this.runId, this.limits.maxModelTurns ?? null);
       this.connection = db;
       return db;
     } catch (cause) { db.close(); throw cause; }
@@ -39,15 +44,16 @@ export class RunBudgetStore implements RunBudgetPersistence {
 
   read(): RunBudgetState {
     const row = this.db.prepare("SELECT * FROM run_budgets WHERE run_id=?").get(this.runId)!;
+    const turns = this.db.prepare("SELECT * FROM run_budget_model_turns WHERE run_id=?").get(this.runId)!;
     return {
-      limits: { maxToolCalls: Number(row.max_tools), maxToolFailures: Number(row.max_failures), maxModelAttempts: Number(row.max_models) },
-      toolCalls: Number(row.tools), toolFailures: Number(row.failures), modelAttempts: Number(row.models),
+      limits: { maxToolCalls: Number(row.max_tools), maxToolFailures: Number(row.max_failures), maxModelAttempts: Number(row.max_models), ...(turns.max_turns !== null ? { maxModelTurns: Number(turns.max_turns) } : {}) },
+      toolCalls: Number(row.tools), toolFailures: Number(row.failures), modelFailures: Number(row.models), modelTurns: Number(turns.turns),
       exceededKind: row.exceeded_kind as RunBudgetState["exceededKind"],
       exceededReason: typeof row.exceeded_reason === "string" ? row.exceeded_reason : undefined
     };
   }
 
-  mutate(kind: "tool" | "result" | "model", sourceId: string | undefined, isError: boolean | undefined,
+  mutate(kind: "tool" | "result" | "model" | "modelTurn", sourceId: string | undefined, isError: boolean | undefined,
     work: (state: RunBudgetState) => { state: RunBudgetState; result: ToolBudgetResult }): ToolBudgetResult {
     const id = sourceId ?? randomUUID();
     const error = isError === undefined ? null : Number(isError);
@@ -64,7 +70,8 @@ export class RunBudgetStore implements RunBudgetPersistence {
       }
       const { state, result } = work(this.read());
       this.db.prepare(`UPDATE run_budgets SET tools=?,failures=?,models=?,exceeded_kind=?,exceeded_reason=? WHERE run_id=?`)
-        .run(state.toolCalls, state.toolFailures, state.modelAttempts, state.exceededKind ?? null, state.exceededReason ?? null, this.runId);
+        .run(state.toolCalls, state.toolFailures, state.modelFailures, state.exceededKind ?? null, state.exceededReason ?? null, this.runId);
+      this.db.prepare("UPDATE run_budget_model_turns SET turns=? WHERE run_id=?").run(state.modelTurns, this.runId);
       this.db.prepare(`INSERT INTO run_budget_receipts (run_id,kind,source_id,is_error,accepted,reason) VALUES (?,?,?,?,?,?)`)
         .run(this.runId, kind, id, error, Number(result.ok), result.reason ?? null);
       this.db.exec("COMMIT");

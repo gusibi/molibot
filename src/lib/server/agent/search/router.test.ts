@@ -16,6 +16,7 @@ const settings: WebSearchSettings = {
   timeoutMs: 60000,
   retryTimeoutMs: 120000,
   engines: {
+    anysearch: { enabled: false, apiKey: "" },
     duckduckgo: { enabled: true, apiKey: "" },
     brave: { enabled: true, apiKey: "brave-key" },
     tavily: { enabled: true, apiKey: "tavily-key" },

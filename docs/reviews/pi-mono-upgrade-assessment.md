@@ -1,5 +1,7 @@
 # pi-mono 0.73.1 → 0.81.0 升级与 Molibot 集成评估
 
+> 当前版本（2026-10-02）：三个运行时包已升级到 1.0.0，最新接入与限制见 [Pi 1.0 升级评估](pi-1.0-upgrade-assessment.md)。以下保留此前版本的评估。
+
 > 实施状态（2026-07-21）：本报告的 P0/P1 与 P1.5 已完成，包括新 scope/0.81、Node 下限、共享 PiRuntime/CredentialStore、两个 Agent 的 `streamFunction`、compaction、subagent `ModelRuntime`、`addedToolNames` 和无用 Web UI 依赖移除。P2/P3 项继续按本文分开推进。
 
 > 复核（2026-08-26）：三个运行时包已从 0.82.0 整体升级到 0.84.3。以下复核补充当前可用能力；原文继续记录 0.73.1 → 0.81.0 的迁移背景。

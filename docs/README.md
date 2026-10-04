@@ -40,6 +40,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 
 - [Assistant Capability Matrix](requirements/personal-assistant-capability-matrix.md) — the single four-state current-status source
 - [Automatic Durable Execution PRD](requirements/automatic-durable-execution-prd.md) — long-task foundation, partially delivered
+- [Pi capabilities integration spec](requirements/pi-capabilities-integration-spec.md) — phased Durable kernel replacement, Deferred responses, Codemode and optional image backend
 - [Permission Modes PRD](requirements/permission-modes-prd.md) — Plan/Manual/Accept/Auto session scope
 - [Project Automations PRD](requirements/project-automations-prd.md) — Project-scoped periodic Runtime Tasks
 - [Artifact Panel PRD](requirements/artifact-panel-prd.md) — shared artifact registry and inspection
@@ -52,6 +53,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 ### Architecture and operation
 
 - [Architecture decisions (ADR)](adr/)
+- [Pi Codemode integration validation](reviews/pi-codemode-integration-validation.md) — shared authorization, approval continuation, execution isolation and input measurement
 - [pi-mono upgrade assessment](reviews/pi-mono-upgrade-assessment.md)
 - [Market positioning research](research/market-positioning.md)
 - [V1 architecture (archived)](archive/designs/v1-architecture.md)

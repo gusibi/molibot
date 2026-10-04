@@ -12,7 +12,7 @@ test("sanitizeSettings backfills imageGenerate for legacy settings", () => {
 
   assert.equal(sanitized.imageGenerate.enabled, defaultRuntimeSettings.imageGenerate.enabled);
   assert.equal(sanitized.imageGenerate.defaultEngine, defaultRuntimeSettings.imageGenerate.defaultEngine);
-  assert.deepEqual(Object.keys(sanitized.imageGenerate.engines).sort(), ["agnes", "google", "modelscope", "openai", "openai-chat", "volcengine"]);
+  assert.deepEqual(Object.keys(sanitized.imageGenerate.engines).sort(), ["agnes", "google", "modelscope", "openai", "openai-chat", "pi", "volcengine"]);
 });
 
 test("sanitizeSettings backfills default agent and links default Web profile", () => {

@@ -374,7 +374,7 @@ export class ToolRuntime {
     const sideEffect = classifyToolSideEffect(tool.id, call.input, call.context.toolCallId, tool.sideEffectClass);
     const hasSideEffectBoundary = sideEffect.sideEffectClass !== "pure";
     const releaseSideEffectSlot = hasSideEffectBoundary
-      ? await this.acquireSideEffectSlot()
+      ? await this.acquireSideEffectSlot(call.context.signal)
       : undefined;
     try {
       call.context.signal?.throwIfAborted();
@@ -488,14 +488,27 @@ export class ToolRuntime {
     }
   }
 
-  private async acquireSideEffectSlot(): Promise<() => void> {
+  private async acquireSideEffectSlot(signal?: AbortSignal): Promise<() => void> {
+    signal?.throwIfAborted();
     const previous = this.sideEffectTail;
     let release!: () => void;
-    this.sideEffectTail = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    return release;
+    this.sideEffectTail = new Promise<void>((resolve) => { release = resolve; });
+    let onAbort: (() => void) | undefined;
+    try {
+      if (!signal) await previous;
+      else await Promise.race([previous, new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      })]);
+      return release;
+    } catch (cause) {
+      // A cancelled waiter exits now, but its successor must still wait for the current owner.
+      void previous.then(release);
+      throw cause;
+    } finally {
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   private async pollApprovalRequest(

@@ -114,7 +114,16 @@ function estimateSegmentSize(segment: FeishuRichTextSegment): number {
   return segment.columns.join("").length + segment.rows.flat().join("").length;
 }
 
-function segmentToCardElement(segment: FeishuRichTextSegment): Record<string, unknown> {
+type FeishuTableElement = {
+  tag: "table";
+  columns: Array<{ name: string; display_name: string; data_type: "lark_md"; width: "auto" }>;
+  rows: Array<Record<string, string>>;
+};
+type FeishuReplyCard = Omit<lark.InteractiveCard, "elements"> & {
+  elements: Array<NonNullable<lark.InteractiveCard["elements"]>[number] | FeishuTableElement>;
+};
+
+function segmentToCardElement(segment: FeishuRichTextSegment): FeishuReplyCard["elements"][number] {
   if (segment.type === "markdown") {
     return {
       tag: "markdown",
@@ -182,7 +191,7 @@ export function buildFeishuPostContent(text: string): string {
   });
 }
 
-export function buildFeishuReplyCards(text: string): lark.InteractiveCard[] {
+export function buildFeishuReplyCards(text: string): FeishuReplyCard[] {
   const normalized = normalizeText(text);
   const segments = parseFeishuRichTextSegments(normalized);
   const chunked = chunkSegmentsForCards(
@@ -217,7 +226,7 @@ export function buildFeishuReplyCards(text: string): lark.InteractiveCard[] {
           ]
         }
       ]
-    } satisfies lark.InteractiveCard;
+    } satisfies FeishuReplyCard;
   });
 }
 

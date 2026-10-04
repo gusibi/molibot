@@ -24,7 +24,8 @@ export const POST: RequestHandler = async ({ request }) => {
     }),
     cwd: settingsTestRoot("image"),
     workspaceDir: settingsTestRoot("image"),
-    artifactDir: "test-images"
+    artifactDir: "test-images",
+    usageScope: { channel: "settings", botId: "settings-test" }
   };
 
   try {

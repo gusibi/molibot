@@ -232,8 +232,10 @@ test("the add and update tools carry the deadline into their text, card, and str
   const added = await runtime.tools.add({ title: "File taxes", dueAt: "2031-04-15", remindAt: "2031-04-10T08:30" });
   assert.equal(added.structuredContent.dueAt, "2031-04-15");
   const dueField = added.card.fields.find((field: { label: string }) => field.label === "Due");
+  assert.ok(dueField);
   assert.equal(dueField.value, "2031-04-15");
   const remindField = added.card.fields.find((field: { label: string }) => field.label === "Reminder");
+  assert.ok(remindField);
   assert.equal(remindField.value, "2031-04-10 08:30", "the model is shown local time, not the stored UTC");
 
   const listed = await runtime.tools.list({});
@@ -242,6 +244,7 @@ test("the add and update tools carry the deadline into their text, card, and str
 
   const moved = await runtime.tools.update({ id: added.structuredContent.id, dueAt: "2031-04-20" });
   assert.match(moved.content[0].text, /due 2031-04-20/);
+  assert.ok(moved.structuredContent);
   assert.equal(moved.structuredContent.dueAt, "2031-04-20");
 
   const overdue = await runtime.tools.list({ due: "overdue" });

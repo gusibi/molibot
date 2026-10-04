@@ -24,6 +24,7 @@
   export let loading = false;
   export let loadingLabel = "";
   export let sending = false;
+  export let liveResponses: Array<{id: string; assistantName: string; authorAgentId?: string; onStop?: () => void; streamingText: string; activity: string; activities: DesktopActivityEntry[]}> = [];
   export let streamingText = "";
   export let streamingThinking = "";
   export let activity = "";
@@ -110,11 +111,12 @@
       {/if}
       <ConversationLiveView
         messages={visibleMessages}
+        showEmpty={!liveResponses.length}
         {copy}
         {formatTime}
         {assistantName}
         {agentName}
-        {sending}
+        sending={sending && !liveResponses.length}
         {streamingText}
         {streamingThinking}
         {activity}
@@ -135,6 +137,9 @@
         {onOpenTurnFiles}
         {endpoint}
       />
+      {#each liveResponses as response (response.id)}
+        <ConversationLiveView messages={[]} {copy} {formatTime} assistantName={response.assistantName} authorAgentId={response.authorAgentId ?? ""} onStop={response.onStop} sending={true} streamingText={response.streamingText} activity={response.activity} activities={response.activities} {emptyTitle} {emptyHint} {endpoint} />
+      {/each}
       <slot />
     {/if}
   </div>

@@ -132,7 +132,7 @@ Try Molibot with a task you actually need to finish. Whether it works or gets st
 - Where you got stuck, or what the output got wrong.
 - Your platform, Molibot version, and model. Sanitized screenshots or errors help; do not include keys or private data.
 
-Use cases, documentation improvements, bug fixes, and code contributions are welcome. Read the [contribution guidelines](AGENTS.md) before development.
+Use cases, documentation improvements, bug fixes, and code contributions are welcome. Read the [contribution guidelines](AGENTS.md) before development. Run `corepack pnpm check` for the root TypeScript check and `corepack pnpm desktop:check` for Desktop components.
 
 ## Documentation
 

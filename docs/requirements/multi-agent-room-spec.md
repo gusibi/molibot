@@ -10,7 +10,7 @@ Molibot 的普通对话以一个 Agent Context 继续单个 Agent 的对话。�
 
 ## Solution
 
-新增 Agent Room：一个长期存在的 UI Session，包含一份带作者归属的共享房间记录，以及每个成员各自独立的 Agent Context。成员使用现有配置的 Agent；一个 Agent 可以参加多个房间，各房间的 Agent Context 彼此独立。
+Agent Room 长期保存团队与工作范围，包含多次 Room Session。每次会话分别保存带作者归属的共享记录，以及每个成员各自独立的 Agent Context。新建会话保留房间配置，开启空聊天和新成员上下文；历史会话可切回继续。成员使用现有配置的 Agent；上下文按房间、会话、成员隔离。
 
 V1 在桌面 App 中创建普通或 Project 房间。没有提及目标时，Primary Agent 回答；回复某个成员的消息时由该成员继续；显式 `@` 指定目标并优先于回复对象。多个 `@` 并行进行受限的只读讨论，需要实际操作时用户另行指定一个成员执行。
 
@@ -59,7 +59,7 @@ V1 在桌面 App 中创建普通或 Project 房间。没有提及目标时，Pri
 
 ### Domain and identity
 
-- Use the domain glossary: Agent Room is the user-visible conversation; UI Session is its presentation and lifecycle record; Agent Context is the model-facing continuation state for one Agent in one Room; Room Participant references an existing configured Agent; Primary Agent is the explicit default recipient.
+- Use the domain glossary: Agent Room owns team configuration and workspace; Room Session owns one conversation and its lifecycle record; Agent Context is the model-facing continuation state for one Agent in one Room Session; Room Participant references an existing configured Agent; Primary Agent is the explicit default recipient.
 - A Room is not a shared Agent Context, Subagent invocation, Runtime Task, or Durable Execution. Ordinary room messages do not automatically promote into Durable Execution.
 - Resolve an explicit `agentId` into a complete runtime identity before constructing the Agent execution. Prompt assembly, model routing, permissions, tool execution, memory and telemetry must use the same identity. Do not fall back from an absent identity inside core runtime code to a Bot-derived Agent.
 - Project rooms retain each Agent's configured identity and style. Project instructions constrain Project work conventions and do not replace Agent identity or weaken safety and approval rules.
@@ -68,18 +68,18 @@ V1 在桌面 App 中创建普通或 Project 房间。没有提及目标时，Pri
 
 ### Room, transcript, dispatch and execution state
 
-- Persist Room metadata, Primary Agent, membership and each participant's Agent Context link as Room-owned Session data. A Room has one visible transcript; each agent continuation stays in its existing Agent Context storage and workspace layout.
+- Persist Room metadata, Primary Agent and membership separately from Room Sessions. Each Room Session owns a visible transcript and per-member Context links; each agent continuation stays in its existing Agent Context storage and workspace layout.
 - Persist one user message for a multi-agent dispatch, not one duplicate per recipient. Store stable message identifiers, author Agent identity for assistant messages, reply target, dispatch identity and per-participant execution status.
-- Stream one correlated set of per-Agent events through the Desktop chat transport. Events and persisted messages identify the Room, dispatch, Agent, and execution so reconnect/reload does not duplicate messages or attach output to the wrong participant.
+- Stream one correlated set of per-Agent events through the Desktop chat transport. Events and persisted messages identify the Room, Session, dispatch, Agent, and execution so reconnect/reload does not duplicate messages or attach output to the wrong participant.
 - Persist queue position, execution owner and terminal/waiting status in database state governed by the existing state-machine and recovery rules. Concurrency-protected fields are queryable columns rather than display-only JSON.
 - Parse selected Agent mentions as structured configured Agent identifiers. Natural-language `@` in an Agent response is display text and never triggers another Agent.
-- Capture one bounded room-context snapshot when a user message is accepted. Every recipient in that dispatch receives the same eligible shared snapshot plus its own Agent Context; sibling output from the same dispatch is not injected automatically. A follow-up or explicit quote can reference that output.
+- Capture one bounded current-session context snapshot when a user message is accepted. Every recipient in that dispatch receives the same eligible shared snapshot plus its own Agent Context; sibling output from the same dispatch is not injected automatically. A follow-up or explicit quote can reference that output.
 - Apply the source turn's retention policy to every derived room-context projection. `turn_only` content never re-enters a later Agent Context, search, or memory merely because it remains visible in the transcript.
 
 ### Dispatch, tools and room-local write coordination
 
-- No mention routes to the current Primary Agent. Reply metadata routes to that Agent unless explicit mentions are present. One explicit mention is a direct full-capability Run; two or more mentions create parallel Plan/read-only Runs.
-- Multi-agent Plan runs use the existing restricted Plan capability boundary. They cannot invoke Bash, Host Bash, MCP, Mini App tools, `webSearch`, or `webFetch`. This is not a promise of zero persistence: transcript, execution records and an authorized plan artifact can still be stored. Do not infer read-only behavior from an Agent's text or an external tool's self-declared annotation.
+- No mention routes to the current Primary Agent. Reply metadata routes to that Agent unless explicit mentions are present. One explicit mention is a direct full-capability Run; two or more mentions create parallel read-only discussion Runs. Discussion is a capability restriction, not an instruction to propose a plan.
+- Multi-agent discussions reuse the restricted local-read tool allowlist without automatically entering Plan mode. An explicitly configured Plan permission mode still applies. They cannot invoke Bash, Host Bash, MCP, Mini App tools, `webSearch`, or `webFetch`. This is not a promise of zero persistence: transcript, execution records and an authorized plan artifact can still be stored. Do not infer read-only behavior from an Agent's text or an external tool's self-declared annotation.
 - A Run with write-capable tools must acquire the Room's single write slot before it can execute. Keep that slot through the Run, including pending approval, and release it only at completion or cancellation. A denied action may continue only according to existing policy while retaining the same slot.
 - The slot key is the Room identity, never a file path, Project ID, Bot, Channel, process-wide flag, or global writer key. Other Rooms may use the same directory and write concurrently; conflicts are an accepted outcome. Existing write conflict checks remain in force but are not represented as cross-Room isolation.
 - This coordination applies only to writes initiated by participants in that Room. It does not block ordinary chats, automations, other Rooms, editors, shell processes or external systems that share the same resources.
@@ -130,7 +130,7 @@ A dispatch contains one accepted user message and one execution entry per select
 | completed / failed / cancelled / interrupted | Terminal execution record | No in-place restart; explicit retry/continuation creates a linked execution |
 
 - At most one Run is active for a participant Context. Additional messages queue by default; steer targets only the selected active execution and is rejected when that execution is not able to accept it.
-- Assign a durable acceptance order within the Room. Write-capable executions acquire the Room writer slot in that order; an older paused entry does not block explicitly resumed or newly accepted work. Plan executions do not acquire the writer slot and may run alongside another member's writer, subject to their own participant availability. A busy participant does not block idle Plan recipients.
+- Assign a durable acceptance order within the Room. Write-capable executions acquire the Room writer slot in that order; an older paused entry does not block explicitly resumed or newly accepted work. Read-only discussion executions do not acquire the writer slot and may run alongside another member's writer, subject to their own participant availability. A busy participant does not block idle discussion recipients.
 - Slot acquisition and the transition to running are atomic. Persist Room ID, execution owner and an ownership generation sufficient to reject stale releases and callbacks. All Room execution entry paths, including retry, continuation and approval resume, obey the same scheduling service.
 - Requesting cancellation does not release the writer slot. Release it only after the Runner and its outstanding operations are quiescent, or after recovery establishes that the previous process execution is no longer active. Pending approval alone is not completion. Denial follows existing policy while retaining ownership if the Run continues.
 - Stop All atomically cancels entries accepted before its scheduling boundary and requests cancellation of their active executions. A later accepted message is new work; it follows normal scheduling and cannot bypass an execution still cancelling.

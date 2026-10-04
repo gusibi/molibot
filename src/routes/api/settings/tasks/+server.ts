@@ -405,7 +405,7 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!task) return json({ ok: false, error: "task is required" }, { status: 400 });
     const channel = String(task.channel ?? "").trim() as TaskChannel;
     const projectId = String(task.projectId ?? "").trim();
-    const isProjectTask = task.kind === "project" || channel === "project" || Boolean(projectId);
+    const isProjectTask = task.kind === "project" || String(task.channel ?? "").trim() === "project" || Boolean(projectId);
     const botId = String(task.botId ?? "").trim();
     const chatId = String(task.chatId ?? "").trim();
     const scope = task.scope === "chat-scratch" ? "chat-scratch" : "workspace";

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { selectImageEngine } from "@molibot/shared/imageGenerate";
+  const piTestSelected = $derived(selectImageEngine(toolsStore.imageTestEngine, toolsStore.imageGenerateEdit?.defaultEngine ?? "auto", (toolsStore.imageGenerateEdit?.engines ?? []).map(engine => ({ id: engine.id, enabled: engine.enabled, credentialSource: engine.credentialSource, hasCredentials: engine.hasApiKey || Boolean(engine.apiKey?.trim()) }))) === "pi");
   import Eye from "reicon-svelte/icons/Eye";
   import EyeSlash from "reicon-svelte/icons/EyeSlash";
   import Refresh from "reicon-svelte/icons/Refresh";
@@ -29,6 +31,7 @@
     openMediaTaskDetail,
     removeImageCustomEngine,
     removeMediaTask,
+    selectMediaTaskImage,
     saveToolSettings,
     secretRevealed,
     testToolSettings,
@@ -145,6 +148,15 @@
             </div>
           {/if}
           <div class="settings-form">
+            {#if engine.id === "pi"}
+            <label class="settings-field settings-field-wide">
+              <span>{session.text.toolModel}</span>
+              <SelectControl value={engine.model} ariaLabel={session.text.toolModel}
+                options={[{ value: "", label: session.text.piImageSelectModel }, ...toolsStore.piImageModels.map(model => ({ value: model.key, label: `${model.provider} · ${model.name}` }))]}
+                onChange={(value) => { engine.model = value; markToolSettingsDirty("imageGenerate"); }} />
+              <span>{session.text.piImageCredentialsHint}</span>
+            </label>
+            {:else}
             <label class="settings-field">
               <span>{session.text.toolBaseUrl}</span>
               <input bind:value={engine.baseUrl} autocomplete="off" spellcheck="false" oninput={() => markToolSettingsDirty("imageGenerate")} />
@@ -168,6 +180,7 @@
                 </label>
               {/if}
             </label>
+            {/if}
           </div>
           {#if isCustomImageEngine(engine.id)}
             <div class="settings-row-actions">
@@ -248,10 +261,12 @@
         <span>{session.text.imageDefaultEngine}</span>
         <SelectControl value={toolsStore.imageTestEngine} ariaLabel={session.text.imageDefaultEngine} options={[{ value: "auto", label: session.text.mediaEngineAuto }, ...toolsStore.imageGenerateEdit.engines.map((engine) => ({ value: engine.id, label: engineLabel(engine) }))]} onChange={(value) => toolsStore.imageTestEngine = value} />
       </label>
+      {#if !piTestSelected}
       <label class="settings-field">
         <span>{session.text.toolImageSize}</span>
         <SelectControl value={toolsStore.imageTestSize} ariaLabel={session.text.toolImageSize} options={[{ value: "1024x1024", label: "1024 × 1024" }, { value: "1536x1024", label: "1536 × 1024" }, { value: "1024x1536", label: "1024 × 1536" }]} onChange={(value) => toolsStore.imageTestSize = value} />
       </label>
+      {/if}
       <label class="settings-field settings-field-wide">
         <span>{session.text.toolPrompt}</span>
         <input bind:value={toolsStore.imageTestPrompt} autocomplete="off" />
@@ -272,7 +287,7 @@
       {#each toolsStore.imageTasks as task (task.id)}
         <div class="settings-row media-task-row">
           <div class="media-task-summary">
-            <span class="status-badge" data-state={task.status === "completed" ? "ready" : task.status === "failed" ? "error" : "pending"}>{task.status === "completed" ? session.text.mediaTaskCompleted : task.status === "failed" ? session.text.mediaTaskFailed : session.text.mediaTaskProcessing}</span>
+            <span class="status-badge" data-state={task.status === "completed" ? "ready" : task.status === "failed" ? "error" : task.status === "cancelled" ? "disconnected" : "pending"}>{task.status === "completed" ? session.text.mediaTaskCompleted : task.status === "failed" ? session.text.mediaTaskFailed : task.status === "cancelled" ? session.text.mediaTaskCancelled : session.text.mediaTaskProcessing}</span>
             <span class="media-task-prompt" title={task.prompt}>{task.prompt}</span>
             <span class="media-task-meta">{taskEngineLabel(task.engine)} · {formatTimestamp(task.createdAt, session.locale)}</span>
           </div>
@@ -302,7 +317,12 @@
         <button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => closeMediaTaskDetail()}><X size={16} aria-hidden="true" /></button>
       </header>
       <div class="modal-body media-task-detail">
-        {#if toolsStore.mediaTaskDetail.status === "completed"}
+        {#if toolsStore.mediaTaskDetail.status === "completed" || toolsStore.mediaTaskDetail.imageOutputs?.length}
+          {#if (toolsStore.mediaTaskDetail.imageOutputs?.length ?? 0) > 1}
+            <SelectControl value={String(toolsStore.mediaTaskImageIndex)} ariaLabel={session.text.piImageOutput}
+              options={toolsStore.mediaTaskDetail.imageOutputs!.map(output => ({ value: String(output.index), label: `${session.text.piImageOutput} ${output.index + 1}` }))}
+              onChange={(value) => selectMediaTaskImage(Number(value))} />
+          {/if}
           <div class="media-task-preview-frame">
             {#if toolsStore.mediaTaskDetailUrl}
               <img class="media-task-preview" src={toolsStore.mediaTaskDetailUrl} alt={toolsStore.mediaTaskDetail.prompt} />
@@ -313,8 +333,12 @@
             {/if}
           </div>
         {/if}
+        {#if toolsStore.mediaTaskDetail.textOutput}<p>{toolsStore.mediaTaskDetail.textOutput}</p>{/if}
         <div class="settings-row"><strong>{session.text.mediaTaskEngine}</strong><span>{taskEngineLabel(toolsStore.mediaTaskDetail.engine)}</span></div>
-        <div class="settings-row"><strong>{session.text.mediaTaskStatus}</strong><span>{toolsStore.mediaTaskDetail.status === "completed" ? session.text.mediaTaskCompleted : toolsStore.mediaTaskDetail.status === "failed" ? session.text.mediaTaskFailed : session.text.mediaTaskProcessing}</span></div>
+        <div class="settings-row"><strong>{session.text.mediaTaskStatus}</strong><span>{toolsStore.mediaTaskDetail.status === "completed" ? session.text.mediaTaskCompleted : toolsStore.mediaTaskDetail.status === "failed" ? session.text.mediaTaskFailed : toolsStore.mediaTaskDetail.status === "cancelled" ? session.text.mediaTaskCancelled : session.text.mediaTaskProcessing}</span></div>
+        {#if toolsStore.mediaTaskDetail.engine === "pi"}
+          <div class="settings-row"><strong>{session.text.mediaTaskEstimatedCost}</strong><span>{toolsStore.mediaTaskDetail.costUsd === undefined ? session.text.mediaTaskCostUnknown : `$${toolsStore.mediaTaskDetail.costUsd.toFixed(6)}`}</span></div>
+        {/if}
         <div class="settings-row media-task-detail-block"><strong>{session.text.mediaTaskPrompt}</strong><span>{toolsStore.mediaTaskDetail.prompt}</span></div>
         {#if toolsStore.mediaTaskDetail.requestParams}
           <div class="settings-row media-task-detail-block"><strong>{session.text.mediaTaskParams}</strong><pre class="media-task-params">{JSON.stringify(toolsStore.mediaTaskDetail.requestParams, null, 2)}</pre></div>

@@ -56,7 +56,7 @@ import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { bindExecutionEnvironment, type BoundExecutionEnvironment } from "$lib/server/agent/exec/executionBackend.js";
-import { getRuntimeToolClassification, READ_ONLY_TOOL_NAMES } from "$lib/server/agent/tools/toolClassification.js";
+import { getRuntimeToolClassification, isReadOnlyTool, READ_ONLY_TOOL_NAMES } from "$lib/server/agent/tools/toolClassification.js";
 import { decideToolPermission } from "$lib/server/agent/permissions/toolPermissionGate.js";
 import { resolveEffectiveExecutionPolicy, type EffectiveExecutionPolicy } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { buildRunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
@@ -303,7 +303,8 @@ export function createMomTools(options: {
     artifactDir,
     outputLayout,
     uploadFile: options.uploadFile,
-    sessionId: options.sessionId
+    sessionId: options.sessionId,
+    usageScope: { channel: options.channel, botId: basename(options.workspaceDir), agentId: options.agentId, roomId: options.roomId }
   }));
   const videoGenerateRuntimeTool = wrapSerializedTool(createVideoGenerateTool({
     getSettings: options.getSettings,
@@ -351,7 +352,7 @@ export function createMomTools(options: {
 
   const registry = new ToolRegistry();
   const decidePolicy: ToolPolicyDecider = (tool, input, ctx) => {
-    if (policy.readOnly && ((!READ_ONLY_TOOL_NAMES.has(tool.id) && tool.id !== "codemode") || tool.effect !== "read")) {
+    if (policy.readOnly && !isReadOnlyTool(tool.id, tool.effect)) {
       return { type: "deny", reason: "Read-only discussion cannot modify state or execute commands." };
     }
     if (tool.id === "bash") {
@@ -544,8 +545,6 @@ export function createMomTools(options: {
         source,
         effect,
         thirdPartyHint,
-        // The composite owns no lease: nested calls independently own their effects.
-        sideEffectClass: originalTool === codemodeTool ? "pure" : undefined,
         handler: async (input, ctx) => {
           // toolCallId falls back to runId only for callers that predate the
           // per-call context fields; onUpdate keeps progress streaming alive.
@@ -653,11 +652,10 @@ export function createMomTools(options: {
     const scopedTools = options.miniAppId
       ? rawTools.filter((tool) => tool.name.startsWith(`miniapp__${options.miniAppId}__`))
       : rawTools;
-    if (permissionMode === "plan") {
+    if (permissionMode === "plan" && !policy.readOnly) {
       const allowed = READ_ONLY_TOOL_NAMES;
       return [
         ...scopedTools.filter((tool) => allowed.has(tool.name)).map((tool) => wrapWithToolRuntime(tool)),
-        // The generic runtime classifies subagent delegation as a side effect.
         // This Plan-only instance enforces scout/planner roles internally, whose
         // child toolsets are read-only, so expose it without the generic gate.
         ...scopedTools.filter((tool) => tool.name === "subagent"),
@@ -665,7 +663,7 @@ export function createMomTools(options: {
         wrapWithToolRuntime(codemodeTool)
       ];
     }
-    return [wrapWithToolRuntime(codemodeTool), ...scopedTools.map(tool => wrapWithToolRuntime(tool)).filter(tool => !policy.readOnly || (READ_ONLY_TOOL_NAMES.has(tool.name) && registry.get(tool.name)!.effect === "read")), ...(options.sessionPlanProgress && !policy.readOnly ? [createUpdatePlanTool(options.sessionPlanProgress)] : [])];
+    return [wrapWithToolRuntime(codemodeTool), ...scopedTools.map(tool => wrapWithToolRuntime(tool)).filter(tool => !policy.readOnly || isReadOnlyTool(tool.name, registry.get(tool.name)!.effect)), ...(options.sessionPlanProgress && !policy.readOnly ? [createUpdatePlanTool(options.sessionPlanProgress)] : [])];
   };
   const codemodeTool = createCodemodeTool({
     getTools: () => [

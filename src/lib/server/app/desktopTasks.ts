@@ -342,7 +342,7 @@ export function buildDesktopTaskTargets(
     }
   }
   return targets.sort((a, b) => a.channel.localeCompare(b.channel)
-    || (("botDisplayName" in a ? a.botDisplayName : a.projectName) || a.botId).localeCompare(("botDisplayName" in b ? b.botDisplayName : b.projectName) || b.botId)
+    || ((a.kind === "project" ? a.projectName : a.botDisplayName) || a.botId).localeCompare((b.kind === "project" ? b.projectName : b.botDisplayName) || b.botId)
     || a.chatId.localeCompare(b.chatId));
 }
 

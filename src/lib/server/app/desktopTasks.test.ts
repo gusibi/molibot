@@ -15,10 +15,7 @@ import type { DesktopTaskExecution } from "$lib/shared/desktop";
 
 test("system task details project the execution record without requiring a chat context", () => {
   assert.deepEqual(buildDesktopSystemTaskExecution({
-    id: "lease-1",
     status: "completed",
-    sessionId: "internal-memory-reflection",
-    runId: "run-1",
     attempt: 1,
     maxAttempts: 3,
     startedAt: "2026-07-15T01:00:00.000Z",

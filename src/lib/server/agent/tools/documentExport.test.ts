@@ -29,7 +29,7 @@ test("DOCX export is re-read and verified before success", async () => {
     }, fx.options);
     assert.equal(result.details.verified, true);
     assert.equal(result.details.format, "docx");
-    assert.ok(result.details.verification.extractedCharacters > 10);
+    assert.ok((result.details.verification.extractedCharacters ?? 0) > 10);
     assert.ok(readFileSync(result.absolutePath).byteLength > 1_000);
   } finally {
     rmSync(fx.root, { recursive: true, force: true });
@@ -66,8 +66,8 @@ test("PDF export embeds CJK glyphs and is re-read after generation", async () =>
       content: "# 服务范围\n\n甲方与乙方确认：交付文件必须经过重新读取验证。\n\n| 项目 | 状态 |\n| --- | --- |\n| 报告 | 完成 |"
     }, fx.options);
     assert.equal(result.details.verified, true);
-    assert.ok(result.details.verification.pages >= 1);
-    assert.ok(result.details.verification.extractedCharacters > 10);
+    assert.ok((result.details.verification.pages ?? 0) >= 1);
+    assert.ok((result.details.verification.extractedCharacters ?? 0) > 10);
   } finally {
     rmSync(fx.root, { recursive: true, force: true });
   }

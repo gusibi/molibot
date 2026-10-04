@@ -337,6 +337,7 @@ const defaultImageGenerateSettings: ImageGenerateSettings = {
   enabled: String(process.env.MOLIBOT_IMAGE_GENERATE_ENABLED ?? "true").toLowerCase() !== "false",
   defaultEngine: (process.env.MOLIBOT_IMAGE_GENERATE_DEFAULT_ENGINE ?? "auto") as ImageGenerateEngineId | "auto",
   engines: {
+    pi: { enabled: false, credentialSource: "provider", model: "", name: "Pi" },
     agnes: imageGenerateEngineFromEnv("agnes", "AGNES_API_KEY", "agnes-image-2.0-flash", "images-generations"),
     openai: imageGenerateEngineFromEnv("openai", "OPENAI_API_KEY", "gpt-image-2", "images-generations"),
     "openai-chat": imageGenerateEngineFromEnv("openai-chat", "OPENAI_API_KEY", "gpt-4o", "chat-completions"),

@@ -10,11 +10,11 @@ import {
   SubagentExecutionGuard
 } from "$lib/server/agent/tools/subagentRuntime.js";
 
-const TEST_LIMITS = { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6 };
+const TEST_LIMITS = { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6, maxModelTurns: 6 };
 
 test("guard blocks tool calls once the tool-call budget is exhausted and exposes a structured stop reason", () => {
   const guard = new SubagentExecutionGuard({
-    limits: { maxToolCalls: 2, maxToolFailures: 6, maxModelAttempts: 6 }
+    limits: { maxToolCalls: 2, maxToolFailures: 6, maxModelAttempts: 6, maxModelTurns: 6 }
   });
 
   assert.equal(guard.beforeToolCall().ok, true);
@@ -32,7 +32,7 @@ test("guard blocks tool calls once the tool-call budget is exhausted and exposes
 test("guard aborts when the wall-clock deadline is exceeded", () => {
   let now = 1_000;
   const guard = new SubagentExecutionGuard({
-    limits: { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6 },
+    limits: { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6, maxModelTurns: 6 },
     deadlineMs: 5_000,
     now: () => now
   });
@@ -49,7 +49,7 @@ test("guard aborts when the wall-clock deadline is exceeded", () => {
 
 test("guard reports no stop reason while within budget and deadline", () => {
   const guard = new SubagentExecutionGuard({
-    limits: { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6 },
+    limits: { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6, maxModelTurns: 6 },
     deadlineMs: 60_000
   });
   guard.beforeToolCall();
@@ -59,7 +59,7 @@ test("guard reports no stop reason while within budget and deadline", () => {
 
 test("evaluateSubagentEvent aborts the session when a tool_execution_start exhausts the budget", () => {
   const guard = new SubagentExecutionGuard({
-    limits: { maxToolCalls: 1, maxToolFailures: 6, maxModelAttempts: 6 }
+    limits: { maxToolCalls: 1, maxToolFailures: 6, maxModelAttempts: 6, maxModelTurns: 6 }
   });
 
   assert.equal(evaluateSubagentEvent(guard, { type: "tool_execution_start", toolName: "bash" }).abort, false);
@@ -71,7 +71,7 @@ test("evaluateSubagentEvent aborts the session when a tool_execution_start exhau
 
 test("evaluateSubagentEvent aborts when repeated tool errors exhaust the failure budget", () => {
   const guard = new SubagentExecutionGuard({
-    limits: { maxToolCalls: 24, maxToolFailures: 2, maxModelAttempts: 6 }
+    limits: { maxToolCalls: 24, maxToolFailures: 2, maxModelAttempts: 6, maxModelTurns: 6 }
   });
 
   evaluateSubagentEvent(guard, { type: "tool_execution_end", toolName: "bash", isError: true });
@@ -82,7 +82,7 @@ test("evaluateSubagentEvent aborts when repeated tool errors exhaust the failure
 
 test("evaluateSubagentEvent ignores unrelated events and does not abort", () => {
   const guard = new SubagentExecutionGuard({
-    limits: { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6 }
+    limits: { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6, maxModelTurns: 6 }
   });
   assert.equal(evaluateSubagentEvent(guard, { type: "message_update" }).abort, false);
   assert.equal(evaluateSubagentEvent(guard, { type: "tool_execution_end", toolName: "bash", isError: false }).abort, false);
@@ -177,7 +177,7 @@ test("resolveSubagentBudgetLimits uses the dedicated subagent budget instead of 
   assert.deepEqual(resolveSubagentBudgetLimits(settings), {
     maxToolCalls: 80,
     maxToolFailures: 9,
-    maxModelAttempts: 14
+    maxModelAttempts: 6, maxModelTurns: 14
   });
 });
 
@@ -197,4 +197,13 @@ test("resolveSubagentExecutionLimits exposes bounded fan-out and deadline settin
     compactionEnabled: true,
     persistSessions: true
   });
+});
+
+test("the delegated guard stops on model turns without spending failed-generation retries", () => {
+  const guard = new SubagentExecutionGuard({ limits: { ...TEST_LIMITS, maxModelTurns: 2 } });
+  assert.equal(guard.beforeModelCall().ok, true);
+  assert.equal(guard.beforeModelCall().ok, true);
+  assert.equal(guard.beforeModelCall().ok, false);
+  assert.match(guard.getStopReason()!.reason, /too many model turns \(2\/2\)/);
+  assert.deepEqual(guard.snapshot(), { toolCalls: 0, toolFailures: 0, modelFailures: 0, modelTurns: 2 });
 });

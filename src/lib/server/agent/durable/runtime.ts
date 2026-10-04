@@ -277,7 +277,8 @@ export class DurableExecutionRuntime {
       projectId: detail.execution.sourceProjectId,
       ...(sourceUiSessionId ? { sessionId: sourceUiSessionId } : {}),
       sessionMode: sourceUiSessionId ? "chat" : "fresh",
-      runId
+      runId,
+      budgetId: JSON.stringify([detail.execution.ownerId, input.executionId, detail.execution.currentPlanVersion, step.id])
     };
 
     const readEvidenceForAttempt = async (evidenceId: string) => {
@@ -555,19 +556,22 @@ export class DurableExecutionRuntime {
       return { kind: "continue", expectedVersion: detail.execution.version };
     }
 
-    const intent = [...detail.sideEffects]
-      .reverse()
-      .find((item) => item.stepId === step.id && item.phase === "intent");
-    // A step becomes `uncertain` as soon as its process dies, even when it
-    // crashed before invoking a tool. With no persisted intent there is no
-    // external action to duplicate, so the accepted plan can safely retry.
-    const effectiveClass = intent?.sideEffectClass ?? "pure";
-    if (!intent || effectiveClass === "pure" || effectiveClass === "idempotent") {
+    const intents = detail.sideEffects.filter((item) => item.stepId === step.id && item.phase === "intent");
+    // A step retry can repeat every operation, not just its most recent call.
+    const intent = intents.find((item) => item.sideEffectClass === "non_idempotent")
+      ?? intents.find((item) => item.sideEffectClass === "queryable");
+    // No intent, or only pure/idempotent operations, permits a whole-step retry.
+    if (!intent) {
       return { kind: "continue", expectedVersion: detail.execution.version };
     }
 
-    if (effectiveClass === "non_idempotent") {
+    if (intent.sideEffectClass === "non_idempotent") {
       this.openRecoveryDecision(detail, step, "This step may already have changed external state and cannot be retried automatically.", filename);
+      return { kind: "stopped" };
+    }
+
+    if (new Set(intents.map(item => JSON.stringify([item.idempotencyKey || item.id, item.sideEffectClass, item.targetSummary, item.contentSummary]))).size > 1) {
+      this.openRecoveryDecision(detail, step, "This step contains multiple operations; confirming one external action cannot establish that the whole step completed safely.", filename);
       return { kind: "stopped" };
     }
 

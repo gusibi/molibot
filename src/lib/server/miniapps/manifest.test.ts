@@ -196,6 +196,7 @@ test("fileParams must match the declared input schema shape", () => {
   for (const { mutate, error } of cases) {
     withManifest(
       (manifest) => {
+        assert.ok(Array.isArray(manifest.tools));
         mutate(manifest.tools[0] as Record<string, unknown>);
       },
       (result) => {

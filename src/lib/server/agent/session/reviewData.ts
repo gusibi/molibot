@@ -170,7 +170,7 @@ function parseRunSummaryLine(raw: string, createdAtFallback: string): RunSummary
       modelFailureSummaries: Array.isArray(parsed.modelFailureSummaries)
         ? parsed.modelFailureSummaries.map((item) => String(item ?? ""))
         : [],
-      budget: parsed.budget ?? { toolCalls: 0, toolFailures: 0, modelAttempts: 0 },
+      budget: parsed.budget ?? { toolCalls: 0, toolFailures: 0, modelFailures: 0, modelTurns: 0 },
       budgetLimits: parsed.budgetLimits ?? { maxToolCalls: 0, maxToolFailures: 0, maxModelAttempts: 0 },
       memorySnapshot: parsed.memorySnapshot,
       reflection: parsed.reflection,

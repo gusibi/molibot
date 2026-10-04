@@ -35,12 +35,15 @@ for (const scope of ["once", "session", "persistent"] as const) {
       const executionId = created.execution.id;
       coordinator.activate({ ownerId: input.ownerId, executionId, expectedVersion: created.execution.version });
       let calls = 0;
+      let firstBudgetId: string | undefined;
       const runtime = new DurableExecutionRuntime({
         store, processOwnerId: "process-a", dataDir: root,
         channelManagers: new Map([["web", new Map([["bot-1", {
           runDurableAttempt: async (message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
             calls += 1;
+            assert.ok(message.budgetId);
             if (calls === 1) {
+              firstBudgetId = message.budgetId;
               await hooks.onApprovalRequest!({
                 requestId: "write-request", backend: "approval_broker",
                 prompt: {
@@ -51,6 +54,7 @@ for (const scope of ["once", "session", "persistent"] as const) {
               } as Parameters<NonNullable<DurableAttemptHooks["onApprovalRequest"]>>[0]);
               return { result: { stopReason: "waiting_for_approval" }, contextSessionId: "suspended-context" };
             }
+            assert.equal(message.budgetId, firstBudgetId, "approval resume retains the admitted step budget");
             assert.equal(await hooks.consumeDurableApproval!({
               backend: "approval_broker", actionKey: "write:report.txt:persistent", toolId: "write", command: "report.txt"
             }), scope);
@@ -441,6 +445,51 @@ test("recovery_required does not retry an uncertain non-idempotent step without 
   }
 });
 
+for (const firstEffect of ["non_idempotent", "queryable"] as const) {
+  test(`recovery reviews an earlier ${firstEffect} operation even when the last intent is safe`, async () => {
+    const { root, store, input } = fixture();
+    try {
+      const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+      const created = coordinator.create(input);
+      const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
+      const claimed = store.claimAttempt({
+        executionId: created.execution.id, expectedVersion: activated.execution.version,
+        processOwnerId: "process-a", runId: "mixed-effects", contextSessionId: "mixed-effects-context", leaseDurationMs: 60_000
+      });
+      const step = store.getDetail(created.execution.id)!.steps[0]!;
+      store.markStepRunning(created.execution.id, step.id, claimed.execution.version, "process-a");
+      for (const sideEffectClass of [firstEffect, "idempotent"] as const) {
+        store.recordSideEffectIntent({
+          executionId: created.execution.id, stepId: step.id, attemptId: claimed.attempt.id,
+          processOwnerId: "process-a", expectedVersion: store.getById(created.execution.id)!.version,
+          sideEffectClass, idempotencyKey: sideEffectClass,
+          targetSummary: sideEffectClass === "idempotent" ? "local report" : "report service",
+          contentSummary: sideEffectClass === "idempotent" ? "write report" : "publish report"
+        });
+      }
+      store.reconcileOrphanedAttempts("process-b");
+      let attempts = 0;
+      const runtime = new DurableExecutionRuntime({
+        store, processOwnerId: "process-b", dataDir: root,
+        queryableProbes: { queryable: async () => { throw new Error("one probe cannot verify a multi-operation step"); } },
+        channelManagers: new Map([["web", new Map([["bot-1", {
+          runDurableAttempt: async () => { attempts += 1; return { result: { stopReason: "stop" } }; }
+        }]])]]) as any
+      });
+      await runtime.run({
+        internal: { kind: "durable-execution", durable: { executionId: created.execution.id, expectedVersion: store.getById(created.execution.id)!.version } }
+      } as MomEvent, join(root, "mixed-effects.json"));
+      assert.equal(attempts, 0, "the earlier send must not be repeated as part of a whole-step retry");
+      const detail = store.getDetail(created.execution.id)!;
+      assert.equal(detail.execution.status, "waiting_for_user");
+      assert.equal(detail.decisions.length, 1);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("queryable recovery reconciles completed external state before verification", async () => {
   const { root, store, input } = fixture();
   try {
@@ -460,6 +509,17 @@ test("queryable recovery reconciles completed external state before verification
     });
     const step = store.getDetail(created.execution.id)!.steps[0]!;
     store.markStepRunning(created.execution.id, step.id, claimed.execution.version, "process-a");
+    store.recordSideEffectIntent({
+      executionId: created.execution.id,
+      stepId: step.id,
+      attemptId: claimed.attempt.id,
+      processOwnerId: "process-a",
+      expectedVersion: store.getById(created.execution.id)!.version,
+      sideEffectClass: "queryable",
+      idempotencyKey: "report:weekly",
+      targetSummary: "report service",
+      contentSummary: "publish report"
+    });
     store.recordSideEffectIntent({
       executionId: created.execution.id,
       stepId: step.id,

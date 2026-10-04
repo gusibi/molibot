@@ -5,6 +5,7 @@ import type { MemoryTurnTrace } from "./traceStore.js";
 
 const trace: MemoryTurnTrace = {
   id: "trace-1", runId: "run-1", sessionId: "session-1", chatId: "chat-1", scope: { channel: "web", externalUserId: "chat-1", botId: "momo" },
+  referencedItems: [],
   profileRevokedMemoryIds: [], assistantSourceEntryId: "assistant-1", query: "", retrievedCount: 1, selectedCount: 1,
   injectedItems: [{ memoryId: "memory-long", order: 0, promptText: "1. 用户偏好较长且完整的回答", source: "retrieved", snapshot: { displayText: "用户偏好较长且完整的回答", content: "用户偏好较长且完整的回答", layer: "long_term", tags: [], updatedAt: "2026-07-17T00:00:00.000Z" } }],
   writeReceipts: [], createdAt: "2026-07-17T00:00:00.000Z"

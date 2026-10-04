@@ -67,6 +67,7 @@ export function resolvePromptAttemptDecision(input: {
   finalText: string;
   attemptCount: number;
   maxEmptyRetries: number;
+  maxModelRetries: number;
   /** A terminal tool produced the user-facing structured result (for example a Plan proposal). */
   completedWithoutText?: boolean;
   /**
@@ -91,7 +92,7 @@ export function resolvePromptAttemptDecision(input: {
       : "";
   if (normalizedError) {
     const canRetry =
-      input.attemptCount < input.maxEmptyRetries &&
+      input.attemptCount < input.maxModelRetries &&
       isRetryableModelError(normalizedError) &&
       !input.attemptExecutedTools;
     return canRetry

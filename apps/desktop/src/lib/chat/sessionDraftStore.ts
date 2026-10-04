@@ -33,6 +33,7 @@ export interface SessionDraft {
   text: string;
   files: File[];
   thinkingLevel: DesktopThinkingSelection;
+  modelKey?: string;
   /**
    * Selected Bot for the new-conversation draft only (plan §6.1). Ignored for
    * existing sessions, whose Bot is fixed at first-message time (plan §6.3).

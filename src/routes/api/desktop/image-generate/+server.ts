@@ -9,7 +9,7 @@ import {
 import { sanitizeImageGenerateSettings } from "$lib/server/settings/sanitize";
 import type { DesktopImageGenerateResponse, DesktopMediaGenerateUpdateRequest } from "$lib/shared/desktop";
 
-const BUILTIN_IMAGE_ENGINE_IDS = new Set(["agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"]);
+const BUILTIN_IMAGE_ENGINE_IDS = new Set(["pi", "agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"]);
 
 export const GET: RequestHandler = async () => {
   const runtime = getRuntime();

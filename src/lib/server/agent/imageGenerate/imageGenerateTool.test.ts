@@ -66,7 +66,7 @@ test("imageGenerate tool successfully calls Agnes API and downloads image", asyn
     }
     if (cleanUrl.includes("generated-agnes.png")) {
       downloadedUrl = cleanUrl;
-      return new Response(Buffer.from("agnes-fake-png-bytes"));
+      return new Response(Buffer.from("agnes-fake-png-bytes"), { headers: { "content-type": "image/png" } });
     }
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -97,8 +97,8 @@ test("imageGenerate tool successfully calls Agnes API and downloads image", asyn
       outputName: "agnes_mountain.png"
     });
 
-    assert.ok(result.content[0].text.includes("Successfully generated image using 'agnes' engine."));
-    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/generated-agnes\.png/);
+    assert.ok((result.content[0].type === "text" ? result.content[0].text : "").includes("Successfully generated image using 'agnes' engine."));
+    assert.match((result.content[0].type === "text" ? result.content[0].text : ""), /Remote URL: https:\/\/example\.com\/generated-agnes\.png/);
     assert.equal(result.details.imageUrl, "https://example.com/generated-agnes.png");
     assert.equal(result.details.engineEnabled, true);
     assert.equal(result.details.providerEnabled, true);
@@ -145,7 +145,7 @@ test("imageGenerate tool still returns generated image details when chat upload 
       }), { status: 200 });
     }
     if (cleanUrl.includes("upload-failed-image.png")) {
-      return new Response(Buffer.from("image-bytes"));
+      return new Response(Buffer.from("image-bytes"), { headers: { "content-type": "image/png" } });
     }
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -165,9 +165,9 @@ test("imageGenerate tool still returns generated image details when chat upload 
       outputName: "upload_failed.png"
     });
 
-    assert.ok(result.content[0].text.includes("Generated successfully, but automatic chat upload failed"));
-    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/upload-failed-image\.png/);
-    assert.match(result.content[0].text, /Upload error: Network request for 'sendDocument' failed!/);
+    assert.ok((result.content[0].type === "text" ? result.content[0].text : "").includes("uploaded 0/1 images before automatic chat upload failed"));
+    assert.match((result.content[0].type === "text" ? result.content[0].text : ""), /Remote URL: https:\/\/example\.com\/upload-failed-image\.png/);
+    assert.match((result.content[0].type === "text" ? result.content[0].text : ""), /Upload error: Network request for 'sendDocument' failed!/);
     assert.equal(result.details.uploaded, false);
     assert.equal(result.details.uploadError, "Network request for 'sendDocument' failed!");
 
@@ -190,9 +190,8 @@ test("imageGenerate tool successfully calls Google Imagen and saves base64 respo
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     requestedUrl = String(url);
     requestPayload = JSON.parse(init?.body as string);
-    // Return base64 for "google-fake-png-bytes" which is "Z29vZ2xlLWZha2UtcG5nLWJ5dGVz"
     return new Response(JSON.stringify({
-      predictions: [{ bytesBase64Encoded: "Z29vZ2xlLWZha2UtcG5nLWJ5dGVz" }]
+      predictions: [{ bytesBase64Encoded: "iVBORw0KGgo=" }]
     }), { status: 200 });
   }) as typeof fetch;
 
@@ -213,13 +212,13 @@ test("imageGenerate tool successfully calls Google Imagen and saves base64 respo
       outputName: "google_cat.png"
     });
 
-    assert.ok(result.content[0].text.includes("Successfully generated image using 'google' engine."));
+    assert.ok((result.content[0].type === "text" ? result.content[0].text : "").includes("Successfully generated image using 'google' engine."));
     assert.ok(requestedUrl.includes("imagen-3.0-generate-001:predict?key=google-test-key"));
     assert.equal(requestPayload.instances[0].prompt, "A cyber cat");
 
     const savedFilePath = join(mockCwd, mockArtifactDir, "google_cat.png");
-    const fileBytes = await fs.readFile(savedFilePath, "utf8");
-    assert.equal(fileBytes, "google-fake-png-bytes");
+    const fileBytes = await fs.readFile(savedFilePath);
+    assert.deepEqual(fileBytes, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   } finally {
     globalThis.fetch = originalFetch;
     try {
@@ -239,7 +238,7 @@ test("imageGenerate tool successfully calls OpenAI Images API and saves base64 r
     requestPayload = JSON.parse(init?.body as string);
     requestHeaders = init?.headers;
     return new Response(JSON.stringify({
-      data: [{ b64_json: "b3BlbmFpLWZha2UtcG5nLWJ5dGVz" }]
+      data: [{ b64_json: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base64") }]
     }), { status: 200 });
   }) as typeof fetch;
 
@@ -260,7 +259,7 @@ test("imageGenerate tool successfully calls OpenAI Images API and saves base64 r
       outputName: "openai_cat.png"
     });
 
-    assert.ok(result.content[0].text.includes("Successfully generated image using 'openai' engine."));
+    assert.ok((result.content[0].type === "text" ? result.content[0].text : "").includes("Successfully generated image using 'openai' engine."));
     assert.equal(requestedUrl, "https://api.openai.com/v1/images/generations");
     assert.equal(requestHeaders["Authorization"], "Bearer openai-test-key");
     assert.equal(requestPayload.model, "gpt-image-2");
@@ -268,8 +267,8 @@ test("imageGenerate tool successfully calls OpenAI Images API and saves base64 r
     assert.equal(requestPayload.n, 1);
 
     const savedFilePath = join(mockCwd, mockArtifactDir, "openai_cat.png");
-    const fileBytes = await fs.readFile(savedFilePath, "utf8");
-    assert.equal(fileBytes, "openai-fake-png-bytes");
+    const fileBytes = await fs.readFile(savedFilePath);
+    assert.deepEqual(fileBytes, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   } finally {
     globalThis.fetch = originalFetch;
     try {
@@ -299,7 +298,7 @@ test("imageGenerate tool successfully calls OpenAI Chat Completions format and d
       }), { status: 200 });
     }
     if (cleanUrl.includes("openai-chat-image.png")) {
-      return new Response(Buffer.from("openai-chat-image-bytes"));
+      return new Response(Buffer.from("openai-chat-image-bytes"), { headers: { "content-type": "image/png" } });
     }
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -326,13 +325,13 @@ test("imageGenerate tool successfully calls OpenAI Chat Completions format and d
       outputName: "openai_chat_cat.png"
     });
 
-    assert.ok(result.content[0].text.includes("Successfully generated image using 'openai-chat' engine."));
+    assert.ok((result.content[0].type === "text" ? result.content[0].text : "").includes("Successfully generated image using 'openai-chat' engine."));
     assert.equal(requestedUrl, "https://chat-compatible.example.com/v1/chat/completions");
     assert.equal(requestHeaders["Authorization"], "Bearer openai-chat-test-key");
     assert.equal(requestPayload.model, "chat-image-model");
     assert.equal(requestPayload.messages[0].role, "user");
     assert.match(requestPayload.messages[0].content, /A cyber cat/);
-    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/openai-chat-image\.png/);
+    assert.match((result.content[0].type === "text" ? result.content[0].text : ""), /Remote URL: https:\/\/example\.com\/openai-chat-image\.png/);
 
     const savedFilePath = join(mockCwd, mockArtifactDir, "openai_chat_cat.png");
     const fileBytes = await fs.readFile(savedFilePath, "utf8");
@@ -446,7 +445,7 @@ test("imageGenerate tool resolves auto engine correctly based on priority", asyn
       }), { status: 200 });
     }
     if (cleanUrl.includes("volc.png")) {
-      return new Response(Buffer.from("volc-bytes"));
+      return new Response(Buffer.from("volc-bytes"), { headers: { "content-type": "image/png" } });
     }
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -497,7 +496,7 @@ test("imageGenerate sends reference image URL to Volcengine as a string, not an 
       }), { status: 200 });
     }
     if (cleanUrl.includes("volc-reference.png")) {
-      return new Response(Buffer.from("volc-reference-bytes"));
+      return new Response(Buffer.from("volc-reference-bytes"), { headers: { "content-type": "image/png" } });
     }
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -551,7 +550,7 @@ test("imageGenerate normalizes JSON-stringified images array from LLM before sen
       }), { status: 200 });
     }
     if (cleanUrl.includes("volc-json-string.png")) {
-      return new Response(Buffer.from("volc-json-string-bytes"));
+      return new Response(Buffer.from("volc-json-string-bytes"), { headers: { "content-type": "image/png" } });
     }
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -575,7 +574,7 @@ test("imageGenerate normalizes JSON-stringified images array from LLM before sen
       prompt: "Keep Momo character",
       engine: "volcengine",
       // LLM sometimes passes arrays as JSON strings instead of real arrays
-      images: "[\"https://molibot-r2.eztoolab.com/momo-agent/02-avatars/happy.png\"]",
+      images: "[\"https://molibot-r2.eztoolab.com/momo-agent/02-avatars/happy.png\"]" as unknown as string[],
       size: "1024x1280",
       outputName: "volc_json_string.png"
     });
@@ -600,7 +599,7 @@ test("imageGenerate tool prefers configured default engine before auto priority 
     if (cleanUrl.includes("generativelanguage.googleapis.com")) {
       resolvedEngine = "google";
       return new Response(JSON.stringify({
-        predictions: [{ bytesBase64Encoded: "ZGVmYXVsdC1nb29nbGUtYnl0ZXM=" }]
+        predictions: [{ bytesBase64Encoded: "iVBORw0KGgo=" }]
       }), { status: 200 });
     }
     if (cleanUrl.includes("/v1/images/generations")) {
@@ -672,7 +671,7 @@ test("imageGenerate tool handles ModelScope async task submission and polling co
     // Download image
     if (cleanUrl.includes("modelscope-final.png")) {
       downloadedBytes = "modelscope-image-data";
-      return new Response(Buffer.from(downloadedBytes));
+      return new Response(Buffer.from(downloadedBytes), { headers: { "content-type": "image/png" } });
     }
     
     return new Response("Not found", { status: 404 });
@@ -695,8 +694,8 @@ test("imageGenerate tool handles ModelScope async task submission and polling co
       outputName: "ms_puppy.png"
     });
 
-    assert.ok(result.content[0].text.includes("Successfully generated image using 'modelscope' engine."));
-    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/modelscope-final\.png/);
+    assert.ok((result.content[0].type === "text" ? result.content[0].text : "").includes("Successfully generated image using 'modelscope' engine."));
+    assert.match((result.content[0].type === "text" ? result.content[0].text : ""), /Remote URL: https:\/\/example\.com\/modelscope-final\.png/);
     assert.equal(result.details.imageUrl, "https://example.com/modelscope-final.png");
     assert.equal(pollAttempts, 2); // Poll twice: PENDING, then SUCCEED
     
@@ -726,7 +725,7 @@ test("imageGenerate tool calls a custom images-generations engine", async () => 
       }), { status: 200 });
     }
     if (url.includes("custom-image.png")) {
-      return new Response(Buffer.from("custom-image-bytes"));
+      return new Response(Buffer.from("custom-image-bytes"), { headers: { "content-type": "image/png" } });
     }
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -754,7 +753,7 @@ test("imageGenerate tool calls a custom images-generations engine", async () => 
       outputName: "custom_cat.png"
     });
 
-    assert.ok(result.content[0].text.includes("Successfully generated image using 'my-custom' engine."));
+    assert.ok((result.content[0].type === "text" ? result.content[0].text : "").includes("Successfully generated image using 'my-custom' engine."));
     assert.equal(requestedUrl, "https://custom.example.com/v1/images/generations");
     assert.equal(requestPayload.model, "custom-model");
     assert.equal(requestPayload.prompt, "A cyber cat");
@@ -782,7 +781,7 @@ test("imageGenerate tool calls a custom chat-completions engine", async () => {
       }), { status: 200 });
     }
     if (url.includes("custom-chat-image.png")) {
-      return new Response(Buffer.from("custom-chat-image-bytes"));
+      return new Response(Buffer.from("custom-chat-image-bytes"), { headers: { "content-type": "image/png" } });
     }
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -810,11 +809,11 @@ test("imageGenerate tool calls a custom chat-completions engine", async () => {
       outputName: "custom_chat_cat.png"
     });
 
-    assert.ok(result.content[0].text.includes("Successfully generated image using 'my-chat' engine."));
+    assert.ok((result.content[0].type === "text" ? result.content[0].text : "").includes("Successfully generated image using 'my-chat' engine."));
     assert.equal(requestedUrl, "https://chat-custom.example.com/v1/chat/completions");
     assert.equal(requestPayload.model, "custom-chat-model");
     assert.equal(requestPayload.messages[0].role, "user");
-    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/custom-chat-image\.png/);
+    assert.match((result.content[0].type === "text" ? result.content[0].text : ""), /Remote URL: https:\/\/example\.com\/custom-chat-image\.png/);
   } finally {
     globalThis.fetch = originalFetch;
     try {
@@ -855,4 +854,20 @@ test("imageGenerate rejects a non-string prompt before generating or uploading",
       await fs.rm(mockCwd, { recursive: true, force: true });
     } catch {}
   }
+});
+
+test("legacy image responses retain JPEG bytes and use the matching artifact extension", async () => {
+  const originalFetch = globalThis.fetch;
+  const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+  globalThis.fetch = (async (url: string) => String(url).includes("/v1/images/generations")
+    ? new Response(JSON.stringify({ data: [{ url: "https://example.com/image" }] }))
+    : new Response(bytes)) as typeof fetch;
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+    const tool = createImageGenerateTool(getTestContext());
+    const result = await tool.execute("jpeg", { prompt: "Draw", engine: "agnes", outputName: "image.png" });
+    assert.equal(result.details.artifacts[0].mimeType, "image/jpeg");
+    assert.match(result.details.filePath, /image\.jpg$/);
+    assert.deepEqual(await fs.readFile(result.details.filePath), bytes);
+  } finally { globalThis.fetch = originalFetch; await fs.rm(mockCwd, { recursive: true, force: true }); }
 });

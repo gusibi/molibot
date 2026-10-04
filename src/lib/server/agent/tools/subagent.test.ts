@@ -303,7 +303,7 @@ function budgetStopped(agentName: string, task: string) {
     errorMessage: "Run budget exceeded: too many tool calls (24/24).",
     usage: ZERO_USAGE,
     model: "fake-model",
-    budget: { toolCalls: 24, toolFailures: 0, modelAttempts: 1 },
+    budget: { toolCalls: 24, toolFailures: 0, modelFailures: 0, modelTurns: 1 },
     runtimeStopKind: "budget_exceeded" as const,
     durationMs: 5
   };
@@ -317,7 +317,7 @@ function completed(agentName: string, task: string) {
     stopReason: "stop",
     usage: ZERO_USAGE,
     model: "fake-model",
-    budget: { toolCalls: 1, toolFailures: 0, modelAttempts: 1 },
+    budget: { toolCalls: 1, toolFailures: 0, modelFailures: 0, modelTurns: 1 },
     durationMs: 3
   };
 }

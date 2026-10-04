@@ -1,10 +1,12 @@
+import { selectImageEngine } from "$lib/shared/imageGenerate.js";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { promises as fs } from "node:fs";
-import { dirname, basename } from "node:path";
+import { dirname, basename, parse, join } from "node:path";
+import type { Models } from "@earendil-works/pi-ai";
 import crypto from "node:crypto";
 import { getImageGenerateProvider } from "./providers.js";
-import type { ImageGenerateEngine, ImageGenerateInput } from "./types.js";
+import type { ImageGenerateEngine, ImageGenerateInput, ImageGenerateProviderResult } from "./types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { SqliteImageTaskStore } from "./imageTaskStore.js";
@@ -54,6 +56,7 @@ function buildImageGenerateDescription(settings: RuntimeSettings): string {
     "- Automatically uploads and displays the image to the chat interface so the user sees it immediately. Do not call `attach` manually after using this tool.",
     "",
     `Enabled engines: ${engineList}.`,
+    ...(settings.imageGenerate.engines.pi?.enabled ? ["Pi uses the configured image model and existing Provider credentials. Omit size and seed; model overrides must use pi|provider|model keys."] : []),
     "",
     "Usage guidelines:",
     "- Use when the user asks to draw a picture, generate an image, create a graphic, or visualize something.",
@@ -62,42 +65,22 @@ function buildImageGenerateDescription(settings: RuntimeSettings): string {
   ].join("\n");
 }
 
+
+function detectedImageMime(bytes: Buffer): string | undefined {
+  if (bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "image/jpeg";
+  if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
+  if (["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))) return "image/gif";
+  if (bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  if (bytes.subarray(4, 8).toString("ascii") === "ftyp" && ["avif", "avis"].includes(bytes.subarray(8, 12).toString("ascii"))) return "image/avif";
+  return undefined;
+}
+
 function resolveEngine(settings: RuntimeSettings["imageGenerate"], requested?: string): ImageGenerateEngine {
-  if (requested && requested !== "auto") {
-    const engineId = requested as ImageGenerateEngine;
-    const config = settings.engines[engineId];
-    if (config?.enabled && config.apiKey.trim()) {
-      return engineId;
-    }
-    throw new Error(`Requested image generation engine '${engineId}' is not enabled or lacks an API key.`);
-  }
-
-  const defaultEngine = settings.defaultEngine;
-  const builtinPriority: ImageGenerateEngine[] = ["agnes", "openai", "openai-chat", "google", "volcengine", "modelscope"];
-  const priorityList: ImageGenerateEngine[] = defaultEngine && defaultEngine !== "auto"
-    ? [defaultEngine, ...builtinPriority]
-    : [...builtinPriority];
-  const seen = new Set<ImageGenerateEngine>();
-  for (const engineId of priorityList) {
-    if (seen.has(engineId)) continue;
-    seen.add(engineId);
-    const config = settings.engines[engineId];
-    if (config?.enabled && config.apiKey.trim()) {
-      return engineId;
-    }
-  }
-
-  // Fall back to any enabled custom engine when no builtin is available.
-  for (const [engineId, config] of Object.entries(settings.engines)) {
-    if (seen.has(engineId)) continue;
-    if (config?.enabled && config.apiKey.trim()) {
-      return engineId as ImageGenerateEngine;
-    }
-  }
-
-  throw new Error(
-    "No image generation engine is enabled. Please configure at least one API key."
-  );
+  const selected = selectImageEngine(requested, settings.defaultEngine, Object.entries(settings.engines).map(([id, engine]) => ({ id, enabled: engine.enabled, credentialSource: engine.credentialSource, hasCredentials: Boolean(engine.apiKey?.trim()) })));
+  if (selected) return selected;
+  throw new Error(requested && requested !== "auto"
+    ? `Requested image generation engine '${requested}' is not enabled or lacks an API key.`
+    : "No image generation engine is enabled. Please configure at least one API key.");
 }
 
 function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { requestedPath: string; path: string; routed: boolean } {
@@ -146,7 +129,8 @@ function sanitizeRequestHeaders(headers: HeadersInit): Record<string, string> {
 }
 
 function redactText(value: string, secrets: string[]): string {
-  let text = value.replace(/([?&]key=)[^&#\s"]+/gi, "$1...redacted");
+  let text = value.replace(/data:image\/[^;\s]+;base64,[A-Za-z0-9+/=]+/g, "[image data redacted]")
+    .replace(/([?&]key=)[^&#\s"]+/gi, "$1...redacted");
   for (const secret of secrets) {
     if (!secret) continue;
     text = text.split(secret).join("...redacted");
@@ -191,7 +175,9 @@ export function createImageGenerateTool(options: {
   outputLayout?: RunOutputLayout;
   uploadFile?: (filePath: string, title?: string, text?: string) => Promise<void>;
   sessionId?: string;
+  usageScope?: { channel: string; botId: string; agentId?: string; roomId?: string };
   taskStore?: SqliteImageTaskStore;
+  piModels?: Models;
 }): AgentTool<typeof imageGenerateSchema> {
   const settings = options.getSettings();
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
@@ -216,18 +202,19 @@ export function createImageGenerateTool(options: {
 
       const loggingFetch = async (url: string | URL | Request, init?: RequestInit) => {
         const urlText = typeof url === "string" || url instanceof URL ? String(url) : url.url;
-        console.log(`[Agent Image Tool] [HTTP REQUEST] URL: ${redactText(urlText, configuredSecrets)}`);
-        if (init?.headers) {
+        console.log(`[Agent Image Tool] [HTTP REQUEST] URL: ${providerCredentials ? "[Pi image operation]" : redactText(urlText, configuredSecrets)}`);
+        if (!providerCredentials && init?.headers) {
           console.log(`[Agent Image Tool] [HTTP REQUEST HEADERS]:`, JSON.stringify(sanitizeRequestHeaders(init.headers)));
         }
-        if (init?.body) {
+        if (!providerCredentials && init?.body) {
           console.log(`[Agent Image Tool] [HTTP REQUEST BODY]: ${redactText(String(init.body), configuredSecrets).slice(0, 2000)}`);
         }
         try {
           const response = await globalThis.fetch(url, init);
           let text = "";
           try {
-            text = await response.clone().text();
+            text = providerCredentials || response.headers.get("content-type")?.startsWith("image/")
+              ? "[image response body omitted]" : await response.clone().text();
           } catch (bodyError) {
             text = `[failed to read response body: ${bodyError instanceof Error ? bodyError.message : String(bodyError)}]`;
           }
@@ -235,7 +222,7 @@ export function createImageGenerateTool(options: {
           console.log(`[Agent Image Tool] [HTTP RESPONSE BODY]: ${redactText(text, configuredSecrets).slice(0, 2000) || "(empty)"}`);
           return response;
         } catch (err) {
-          console.error(`[Agent Image Tool] [HTTP FETCH ERROR]:`, err);
+          console.error(`[Agent Image Tool] [HTTP FETCH ERROR]:`, providerCredentials ? "Pi image HTTP request failed" : err);
           throw err;
         }
       };
@@ -258,15 +245,17 @@ export function createImageGenerateTool(options: {
       // 1. Resolve engine
       const engine = resolveEngine(currentSettings.imageGenerate, params.engine);
       const engineEnabled = currentSettings.imageGenerate.engines[engine]?.enabled === true;
+      const providerCredentials = currentSettings.imageGenerate.engines[engine]?.credentialSource === "provider";
 
       // 2. Resolve output path
-      const outName = String(params.outputName || "").trim() || `image_${Date.now()}.png`;
+      let outName = String(params.outputName || "").trim() || `image_${Date.now()}.png`;
       const target = routeDefaultArtifactPath(outName, options.artifactDir);
-      const filePath = resolveToolPath(options.cwd, target.path);
+      let filePath = resolveToolPath(options.cwd, target.path);
       ensureAllowedPath(filePath);
 
       const requestParams = {
         model: params.model || currentSettings.imageGenerate.engines[engine]?.model,
+        usageScope: options.usageScope,
         engineEnabled,
         providerEnabled: engineEnabled,
         size: params.size,
@@ -277,11 +266,12 @@ export function createImageGenerateTool(options: {
 
       const taskId = crypto.randomUUID();
       taskStore.createTask(taskId, engine, sessionId, inputPrompt, requestParams);
+      let generated = false;
 
       try {
         // 3. Execute provider
         const engineProtocol = currentSettings.imageGenerate.engines[engine]?.protocol;
-        const provider = getImageGenerateProvider(engine, engineProtocol);
+        const provider = getImageGenerateProvider(engine, engineProtocol, options.piModels);
         if (!provider) {
           throw new Error(`Provider not implemented for engine '${engine}'`);
         }
@@ -299,14 +289,20 @@ export function createImageGenerateTool(options: {
         const providerContext = {
           settings: currentSettings.imageGenerate,
           fetch: loggingFetch,
-          signal
+          signal,
+          onProviderResult: (result: Pick<ImageGenerateProviderResult, "text" | "usage">) => taskStore.recordResult(taskId, result.text, result.usage)
         };
 
         const result = await provider.generate(providerInput, providerContext);
+        generated = true;
+        taskStore.recordResult(taskId, result.text, result.usage);
 
         // 4. Resolve Image Buffer
         let imageBuffer: Buffer;
-        if (result.imageBuffer) {
+        let mimeType = result.mimeType;
+        if (result.images?.length) {
+          imageBuffer = result.images[0].imageBuffer;
+        } else if (result.imageBuffer) {
           imageBuffer = result.imageBuffer;
         } else if (result.imageBase64) {
           imageBuffer = Buffer.from(result.imageBase64, "base64");
@@ -315,31 +311,56 @@ export function createImageGenerateTool(options: {
           if (!downloadResponse.ok) {
             throw new Error(`Failed to download generated image from url: ${downloadResponse.statusText}`);
           }
+          const responseMime = downloadResponse.headers.get("content-type")?.split(";")[0].trim();
+          if (responseMime?.startsWith("image/")) mimeType ??= responseMime;
           const ab = await downloadResponse.arrayBuffer();
           imageBuffer = Buffer.from(ab);
         } else {
           throw new Error("Provider returned no image source (URL, Base64, or Buffer).");
         }
 
-        // 5. Write to File
+        const mimeExtensions: Record<string, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif" };
+        const images = result.images ?? [{ imageBuffer, mimeType: detectedImageMime(imageBuffer) ?? mimeType ?? "" }];
+        if (images.some(image => !mimeExtensions[image.mimeType])) throw new Error("Unsupported generated image MIME type.");
+        if (result.images || images[0]!.mimeType !== "image/png") {
+          filePath = join(dirname(filePath), `${parse(filePath).name}${mimeExtensions[images[0]!.mimeType]}`);
+          ensureAllowedPath(filePath);
+          outName = basename(filePath);
+        }
+        // 5. Save and register every output before attempting channel delivery.
         const dir = dirname(filePath);
         await fs.mkdir(dir, { recursive: true });
-        await fs.writeFile(filePath, imageBuffer);
+        const artifacts = [];
+        for (const [index, image] of images.entries()) {
+          signal?.throwIfAborted();
+          const path = index === 0 ? filePath : join(dir, `${parse(filePath).name}-${index + 1}${mimeExtensions[image.mimeType]}`);
+          ensureAllowedPath(path);
+          await fs.writeFile(path, image.imageBuffer, { signal });
+          const artifact = { index, path, mimeType: image.mimeType, byteLength: image.imageBuffer.byteLength };
+          taskStore.recordArtifact(taskId, artifact);
+          artifacts.push(artifact);
+        }
+        signal?.throwIfAborted();
 
         // 6. Automatically upload / attach if capability is available
         let uploadedMessage = "";
         let uploadError: string | undefined;
+        let uploadedCount = 0;
         if (options.uploadFile) {
-          const title = basename(filePath);
           const text = `Generated image: ${inputPrompt}`;
           try {
-            await options.uploadFile(filePath, title, text);
+            for (const artifact of artifacts) {
+              signal?.throwIfAborted();
+              await options.uploadFile(artifact.path, basename(artifact.path), text);
+              uploadedCount++;
+            }
             uploadedMessage = " (Automatically uploaded and sent to chat channel)";
           } catch (err) {
             uploadError = err instanceof Error ? err.message : String(err);
-            uploadedMessage = " (Generated successfully, but automatic chat upload failed)";
+            uploadedMessage = ` (Generated successfully; uploaded ${uploadedCount}/${artifacts.length} images before automatic chat upload failed)`;
           }
         }
+        signal?.throwIfAborted();
 
         // Record completed task state to SQLite
         taskStore.updateTaskProgress(taskId, "completed", filePath, undefined, result.imageUrl);
@@ -349,6 +370,8 @@ export function createImageGenerateTool(options: {
             type: "text",
             text: [
               `Successfully generated image using '${engine}' engine.${uploadedMessage}`,
+              result.text || undefined,
+              artifacts.length > 1 ? `Saved ${artifacts.length} images:\n${artifacts.map(artifact => artifact.path).join("\n")}` : undefined,
               result.imageUrl ? `Remote URL: ${result.imageUrl}` : undefined,
               `Saved file to: ${target.path}`,
               `Absolute path: ${filePath}`,
@@ -360,6 +383,9 @@ export function createImageGenerateTool(options: {
               ? describeFileToolResult(options.outputLayout, filePath, "generated", outName, imageBuffer.byteLength)
               : {}),
             taskId,
+            artifacts,
+            textOutput: result.text,
+            usage: result.usage,
             engine,
             engineEnabled,
             providerEnabled: engineEnabled,
@@ -369,12 +395,15 @@ export function createImageGenerateTool(options: {
             path: target.path,
             filePath,
             uploaded: !!options.uploadFile && !uploadError,
+            uploadedCount,
             uploadError
-          }
+          },
+          usage: result.usage
         };
       } catch (err: any) {
-        const errMsg = err.message || String(err);
-        taskStore.updateTaskProgress(taskId, "failed", undefined, errMsg);
+        const errMsg = `${generated && !signal?.aborted ? "Images generated, but local artifact processing failed: " : ""}${err.message || String(err)}`;
+        taskStore.updateTaskProgress(taskId, signal?.aborted || err?.name === "AbortError" ? "cancelled" : "failed", undefined, errMsg);
+        if (generated && !signal?.aborted && err?.name !== "AbortError") throw new Error(errMsg, { cause: err });
         throw err;
       }
     }

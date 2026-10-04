@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
+import { getRuntimeToolClassification, isReadOnlyTool } from "$lib/server/agent/tools/toolClassification.js";
 
 test("getRuntimeToolClassification: bash => high risk, host source", () => {
   const result = getRuntimeToolClassification("bash");
@@ -187,4 +187,11 @@ test("effect: risk is unchanged by the new dimension", () => {
   assert.equal(getRuntimeToolClassification("write").risk, "medium");
   assert.equal(getRuntimeToolClassification("extensionManage").risk, "critical");
   assert.equal(getRuntimeToolClassification("read").risk, "low");
+});
+
+test("read-only orchestration allows codemode but rejects nested mutations and unknown effects", () => {
+  for (const name of ["codemode", "read", "ls"]) assert.equal(isReadOnlyTool(name, getRuntimeToolClassification(name).effect), true);
+  for (const name of ["write", "bash", "webFetch", "toolSearch", "unknown"]) assert.equal(isReadOnlyTool(name, getRuntimeToolClassification(name).effect), false);
+  assert.equal(isReadOnlyTool("codemode", "installed_app"), false);
+  assert.equal(isReadOnlyTool("read", undefined), false);
 });

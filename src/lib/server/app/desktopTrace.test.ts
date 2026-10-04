@@ -1,3 +1,4 @@
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
@@ -123,8 +124,9 @@ test("buildDesktopTraceSummary filters, ranks, paginates, and strips all preview
 
 test("buildDesktopAgentActivity maps Bot run facts to Agents and expires terminal states", () => {
   const settings = {
+    ...defaultRuntimeSettings,
     channels: {
-      feishu: { instances: [{ id: "smart-momo", name: "Smart Momo", enabled: true, agentId: "agent-smart" }] }
+      feishu: { instances: [{ id: "smart-momo", name: "Smart Momo", enabled: true, credentials: {}, allowedChatIds: [], agentId: "agent-smart" }] }
     }
   } as RuntimeSettings;
   const now = Date.parse("2026-07-12T12:00:20.000Z");
@@ -146,7 +148,8 @@ test("buildDesktopAgentActivity maps Bot run facts to Agents and expires termina
 
 test("buildDesktopAgentActivity preserves concurrent runs and 24h history without keeping the Agent visually busy", () => {
   const settings = {
-    channels: { web: { instances: [{ id: "worker", name: "Worker", enabled: true, agentId: "agent-a" }] } }
+    ...defaultRuntimeSettings,
+    channels: { web: { instances: [{ id: "worker", name: "Worker", enabled: true, credentials: {}, allowedChatIds: [], agentId: "agent-a" }] } }
   } as RuntimeSettings;
   const now = Date.parse("2026-07-12T12:00:20.000Z");
   const items = buildDesktopAgentActivity(settings, [
@@ -167,7 +170,8 @@ test("buildDesktopAgentActivity preserves concurrent runs and 24h history withou
 
 test("buildDesktopAgentActivity assigns unbound Bots to default and nests Subagents under the parent run", () => {
   const settings = {
-    channels: { feishu: { instances: [{ id: "general", name: "General", enabled: true }] } }
+    ...defaultRuntimeSettings,
+    channels: { feishu: { instances: [{ id: "general", name: "General", enabled: true, credentials: {}, allowedChatIds: [] }] } }
   } as RuntimeSettings;
   const now = Date.parse("2026-07-12T12:00:05.000Z");
   const items = buildDesktopAgentActivity(settings, [
@@ -180,7 +184,8 @@ test("buildDesktopAgentActivity assigns unbound Bots to default and nests Subage
 });
 
 test("buildDesktopAgentActivity drops orphaned started runs after the runtime timeout grace", () => {
-  const settings = { channels: { web: { instances: [{ id: "runtime", name: "runtime", enabled: true }] } } } as RuntimeSettings;
+  const settings = {
+    ...defaultRuntimeSettings, channels: { web: { instances: [{ id: "runtime", name: "runtime", enabled: true, credentials: {}, allowedChatIds: [] }] } } } as RuntimeSettings;
   const now = Date.parse("2026-07-12T12:30:00.000Z");
   const items = buildDesktopAgentActivity(settings, [
     fact({ id: "orphan", factType: "run", factId: "orphan", runId: "orphan", channel: "web", botId: "runtime", status: "started", startedAt: "2026-07-12T09:21:17.000Z", updatedAt: "2026-07-12T09:21:17.000Z" })
@@ -190,8 +195,9 @@ test("buildDesktopAgentActivity drops orphaned started runs after the runtime ti
 
 test("active run controls distinguish running, stuck, and orphan records", () => {
   const activeSettings = {
-    agents: [{ id: "smart", name: "Smart", enabled: true }],
-    channels: { feishu: { instances: [{ id: "bot-1", name: "Research Bot", enabled: true, agentId: "smart" }, { id: "global", name: "Global Bot", enabled: true }] } }
+    ...defaultRuntimeSettings,
+    agents: [{ id: "smart", name: "Smart", description: "", enabled: true }],
+    channels: { feishu: { instances: [{ id: "bot-1", name: "Research Bot", enabled: true, credentials: {}, allowedChatIds: [], agentId: "smart" }, { id: "global", name: "Global Bot", enabled: true, credentials: {}, allowedChatIds: [] }] } }
   } as RuntimeSettings;
   const activeFacts = [
     fact({ id: "live", factType: "run", runId: "live", factId: "live", channel: "feishu", botId: "bot-1", chatId: "chat", sessionId: "session", status: "started", startedAt: "2026-07-12T12:00:00.000Z", payload: { taskPreview: "Analyze" } }),
@@ -222,7 +228,8 @@ test("active run controls treat a Web runtime snapshot as live", () => {
     status: "started",
     startedAt: "2026-07-14T12:00:00.000Z"
   });
-  const items = buildDesktopActiveRuns({} as RuntimeSettings, [webFact], [{
+  const items = buildDesktopActiveRuns({
+    ...defaultRuntimeSettings,} as RuntimeSettings, [webFact], [{
     channel: "web",
     botId: "default",
     chatId: "web:default:web-anonymous",
@@ -243,7 +250,8 @@ test("clearing an orphan preserves its audit fact but removes it from active run
   });
   try {
     store.upsertFact(started);
-    assert.equal(buildDesktopActiveRuns({} as RuntimeSettings, store.listRecentFacts(), [], Date.parse("2026-07-14T12:01:00.000Z")).length, 1);
+    assert.equal(buildDesktopActiveRuns({
+    ...defaultRuntimeSettings,} as RuntimeSettings, store.listRecentFacts(), [], Date.parse("2026-07-14T12:01:00.000Z")).length, 1);
 
     store.upsertFact({
       ...started,
@@ -256,7 +264,8 @@ test("clearing an orphan preserves its audit fact but removes it from active run
     const facts = store.listFactsByRunId("orphan");
     assert.equal(facts.length, 1);
     assert.equal(facts[0]?.status, "aborted");
-    assert.deepEqual(buildDesktopActiveRuns({} as RuntimeSettings, facts, [], Date.parse("2026-07-14T12:01:00.000Z")), []);
+    assert.deepEqual(buildDesktopActiveRuns({
+    ...defaultRuntimeSettings,} as RuntimeSettings, facts, [], Date.parse("2026-07-14T12:01:00.000Z")), []);
   } finally {
     store.close();
   }

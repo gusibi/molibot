@@ -9,6 +9,8 @@ export type TranscriptAttachment = {
 };
 
 export type TranscriptMessage = {
+  authorName?: string;
+  authorAgentId?: string;
   traceRunIds?: string[];
   /** Execution duration, excluding time spent waiting before this run started. */
   durationMs?: number;
@@ -137,6 +139,10 @@ export type TranscriptAttachmentActions = {
  * and everything after it is dropped).
  */
 export type TranscriptMessageActions = {
+  onReply?: (message: TranscriptMessage) => void;
+  replyLabel?: string;
+  onExecute?: (message: TranscriptMessage) => void;
+  executeLabel?: string;
   copiedId: string;
   onCopy: (message: TranscriptMessage) => void;
   onEditUser?: (message: TranscriptMessage) => void;

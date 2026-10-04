@@ -35,7 +35,10 @@ This is **Molipibot** — a multi-channel bot framework with a settings UI. See 
 - Bug fixes: BEFORE debugging, search `CHANGELOG.md` (+ archives) and the pitfalls below for prior occurrences of the same symptom/surface. BEFORE merging, answer the "Fix 收尾三问" in AGENTS.md §开发流程沉淀规则 (root-cause class → machine guard → pitfall entry). A second occurrence of the same root-cause class makes a machine guard mandatory.
 - No band-aid-then-root-fix: if a fix needs caller-side gating/special-casing instead of a shared-layer solution, either do the root fix now or file it in `prd.md` with the band-aid's removal condition.
 
-## Recurring Pitfalls (distilled from CHANGELOG.md / prd.md — read BEFORE touching these areas)
+## Recurring Pitfalls
+
+- **编排容器不能持有叶子操作的执行锁**：Codemode、subagent 等容器等待嵌套工具时，副作用由叶子调用独立记录与串行化；否则父子共用 ToolRuntime 会互相等锁。等待锁的取消必须立即返回，但跳过的队列槽只能在前一个持锁者完成后释放，避免后续操作并行越过当前操作。守卫：ToolRuntime 嵌套、权限拒绝、取消顺序回归，以及 PiRunSession 原生父子实际 shell 回归。
+ (distilled from CHANGELOG.md / prd.md — read BEFORE touching these areas)
 
 - **侧栏浮层必须脱离侧栏层级**：移除祖先的 `backdrop-filter` 只能消除一种 fixed containing block；祖先的 stacking context 仍可让菜单被相邻面板覆盖。会话菜单及遮罩统一 Portal 到 `body`，验证应挂载真实组件并检查超出侧栏部分的 `elementFromPoint`，不能把测试菜单预先放到页面根部。
 
@@ -50,6 +53,8 @@ This is **Molipibot** — a multi-channel bot framework with a settings UI. See 
 **长任务的传输超时不得短于任务超时：**eval/客户端允许任务运行数分钟时，HTTP headers/body timeout 必须显式覆盖同等或更长窗口；固定约 300 秒 `fetch failed` 且 `serviceExit=null` 首先判定为 Undici 传输超时，而不是服务崩溃。
 
 **桌面 UI 的 API 请求必须走共享 transport（api.ts），组件层禁止原生 fetch：**webview 源是 Tauri 自定义协议、sidecar API 在 `http://127.0.0.1:<port>`，原生 `fetch` 属跨源且 sidecar 不带 CORS 头——带 JSON body 的 PATCH/POST 预检直接失败，GET 响应同样不可读；curl、服务端直测、同源浏览器打开全部正常，唯独桌面 app 内必挂，`.catch(() => undefined)` 还会把加载失败静默成默认值（症状："执行与权限"保存永远失败，2026-09-12）。新增接口一律在 `apps/desktop/src/lib/api.ts` 补 load/save helper（`fetchFromDesktop` 在 Tauri 内自动切 HTTP plugin，Rust 侧发请求）。守卫：`apps/desktop/src/api-transport-guard.test.mjs`。首犯即配守卫：此类故障在浏览器/服务端测试里完全不可见。
+
+**模型失败重试与成功轮数分开：**父 Agent 的失败重试预算只在模型失败后计数，不能在每次生成前扣减；空回复重试与子 Agent 的轮数上限各自独立。修改原生模型生命周期时，用真实 Runner 验证超过默认重试上限的成功工具循环，并覆盖失败重试、持久化恢复与同一失败去重。
 
 Each item below caused **multiple** shipped bugs. Check the relevant one before writing code.
 
@@ -141,3 +146,7 @@ Each item below caused **multiple** shipped bugs. Check the relevant one before 
 51. **共享默认值的「同特异性 + 声明顺序」会无声反压变体，必须用零特异性默认根修，而不是让调用方逐个叠选择器**（根因：D2/Mermaid 放大弹窗、artifact lightbox、实体编辑器等一批弹窗的尺寸全被静默压回 default，2026-09-16 owner 反馈 D2 弹窗太小且无法放大）：基础规则 `.desktop-dialog-content` / `.desktop-dialog-overlay` 与 `contentClass`/`overlayClass` 变体都是单类选择器（同特异性），而基础规则声明在 styles.css 更靠后，于是所有更早声明的变体都输给 source order——不报错、不警告，`width` 退回 560px 默认，只表现为「弹窗/面板尺寸怎么调都不生效」。规则：共享默认值若要允许变体覆盖，默认值必须低于单类特异性（本仓用 `:where(.desktop-dialog-content)` 造零特异性基础），**不要**用“变体记得再叠一层 `.desktop-dialog-content`”的调用方约定——这正是同一根因被逐个打补丁三次的来源（`.entity-editor-dialog`、`.markdown-artifact-dialog` 各打一次，第三次即本 pitfall）。排障通用化：变体（弹窗 / 面板尺寸、主题覆盖）不生效时，先查基础规则与变体的**特异性 + 声明顺序**，以 `getComputedStyle` 的最终值为准，而不是先怀疑变体本身。守卫：`apps/desktop/src/chat-ui.test.mjs` 断言基础规则为 `:where(...)` 零特异性、不存在带尺寸的裸 `.desktop-dialog-content` 规则、且恢复后的变体尺寸仍在。
 
 52. **生产构建不能在 adapter 原子发布前删除活动 `build/`**（复发症状：服务进程已加载旧 `server/manifest.js`，之后第一次访问延迟加载路由时报 `ERR_MODULE_NOT_FOUND`）。自定义 adapter 会在安全暂存区生成产物，先发布 hashed chunks、最后替换 manifest；顶层构建脚本若先 `rm -rf build`，就绕过这层保护并删掉旧进程仍要导入的 chunk。工作区构建必须保留活动输出，让 adapter 完成发布；若发布包要清理产物，应在独立的新目录处理。守卫：`scripts/svelte-adapter-node-sqlite.test.mjs` 覆盖旧 manifest 的真实动态导入，并检查 `package.json` 的 build 脚本没有预先删除活动输出。
+
+53. **前端热更新与后端生效分别验收**：开发模式的 UI 热更新不会刷新已运行 Node 进程的模块缓存。报告“当前使用中已生效”前，核对实际服务的构建来源、进程启动时间与深度运行时健康状态；隔离测试只证明该测试实例。执行路由的回归同时检查发送目标、真实 Runner 的模型输入及持久化边界，避免组件结构守卫替代端到端证据。
+
+54. **桌面调用经由 `tauriFetch` 的每个 `/api/settings/...` 路由都必须在 Tauri HTTP capability scope 白名单里**（症状：图片设置页打不开、一直停在加载态，2026-10-02）：Pi 图片模型新增 `loadPiImageModels()` 请求 `/api/settings/image-generate/models`，服务端路由正常（curl 200），但 `capabilities/default.json` 只列了同族的 `.../test` 与 `.../image*`，漏了 `.../models`——Tauri 的 Rust 侧 HTTP 客户端在 URL 不在 scope 时直接拒绝，`loadImageGenerate` 的 `Promise.all` 因它 reject 而整体失败并被 catch，`imageGenerateEdit` 保持 null，组件永远走 loading 分支。capability 是第二份手写白名单（同 pitfall 50 的发布清单族）：新增桌面用的 settings 路由必须同一笔改动补白名单，capability 改动需要 Rust 重建 + 重启应用，WebView 热更新不生效。守卫：`apps/desktop/src/http-scope.test.mjs` 现在扫描 `lib/api.ts` 里所有 `/api/settings/...` 路由字面量，要求 127.0.0.1 与 localhost 两个 host 的白名单都覆盖（回放漏掉 `.../models` 会失败）。

@@ -27,7 +27,7 @@ export type GlobalProfileFileName = (typeof GLOBAL_PROFILE_FILES)[number];
 
 type ProfileScope = "global" | "agent" | "bot";
 
-const TEMPLATE_MAP: Partial<Record<string, string>> = {
+const TEMPLATE_MAP: Record<string, string> = {
   "AGENTS.md": agentsTemplate,
   "BOOTSTRAP.md": bootstrapTemplate,
   "IDENTITY.md": identityTemplate,

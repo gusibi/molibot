@@ -1,154 +1,99 @@
 ---
 name: agent-runtime-debug-review
-description: Use this skill when reviewing or debugging an agent runtime that has queues, cancellation, steer/follow-up behavior, subagents, sandbox or host-tool approval, prompt/session persistence, tool-call limits, or execution logs. Trigger on requests about Agent 主流程, Sub Agent, sandbox, host bash approval, stop/abort/steer/followUp, queued tasks, prompt pollution, tool-call limits, runtime logs, or agent execution-flow review. Produces narrow findings or surgical fixes with verification steps.
+description: Use when reviewing or debugging Molibot agent execution involving queues, stop/abort, steer/followUp, retries, subagents, approval suspension/resume, durable execution, prompt/session pollution, tool budgets, or inconsistent runtime status. Applies to execution-flow defects, not unrelated UI styling or general provider setup.
 ---
 
 # Agent Runtime Debug Review
 
-This skill is for agent execution systems where bugs often cross several layers: message intake, queueing, run orchestration, tool dispatch, subagent delegation, sandbox approval, persistence, and user-visible status.
+Trace the failing operation across its actual runtime boundaries. Fix the owning shared layer and verify both execution and user-visible outcomes. For review-only requests, report findings without changing code.
 
-Use it to avoid treating a runtime symptom as a local UI or one-file bug.
+## Establish the contract and evidence
 
-## Repo Map (this project)
+- Read applicable `AGENTS.md` rules. Before diagnosing a bug, search matching symptoms or panels in `CHANGELOG.md`, `docs/archive/changelog-*.md`, and `CLAUDE.md` Recurring Pitfalls. Start from the previous root cause and guard; explain why that guard missed this case.
+- Define the expected observable outcome from existing requirements, tests, and the user's request. For assistant capability status, use `docs/requirements/personal-assistant-capability-matrix.md`; historical delivery notes do not authorize new work.
+- For change reviews, establish the requested diff/base and distinguish pre-existing or unrelated working-tree changes. Review the changed behavior and necessary callers, not the whole runtime.
+- Collect the smallest useful evidence: input, expected/actual behavior, run/session/scope/tool-call identities, relevant logs, and persisted state. Missing logs or a screenshot-only report calls for read-only investigation, not an automatic approval question.
+- Reproduce in isolation when feasible. Treat suspected causes as hypotheses until a concrete failing path supports them. Never read or write real user databases from tests, and do not print credentials or unrelated conversation content.
 
-Skip re-discovery; the layers live here:
+## Locate the active execution path
 
-| Layer | Location |
-|-------|----------|
-| Runner / orchestrator | `src/lib/server/agent/core/runner.ts`, `turnOrchestrator.ts`, `runnerPool.ts` |
-| Runtime notices / budget | `src/lib/server/agent/core/runtimeNotices.ts`, `runtimeBudget.ts` |
-| Session store / compaction / workspace | `src/lib/server/agent/session/` (`store.ts`, `compaction.ts`, `workspace.ts`) |
-| Tool dispatch | `src/lib/server/agent/tools/` (`bash.ts`, `bashPolicy.ts`, `edit.ts`, `mcpInvoke.ts`, ...) |
-| Host bash / host tool approval | `src/lib/server/agent/hostBashExec.ts`, `hostToolExec.ts`, `src/lib/server/approval/` |
-| Watched events / scheduler / leases | `src/lib/server/agent/events.ts`, `eventsLeaseStore.ts`, `taskScheduler.ts` |
-| Subagents | `src/lib/server/agent/subagentProgress.ts`, `src/lib/server/agent/tools/` |
-| Channel intake | `src/lib/server/channels/{telegram,feishu,qq,weixin,web}/`, `shared/`, `registry.ts` |
-| Shared app/query layer | `src/lib/server/app/` |
-| Prompts | `src/lib/server/agent/prompts/` |
+These are entry points, not a frozen architecture map. Verify relevant paths and callers with `rg`; inspect only the branches implicated by the symptom.
 
-## Known Past Failure Modes (check these first)
+| Concern | Entry points |
+|---------|--------------|
+| Intake, queue ownership, live controls | `src/lib/server/channels/shared/inboundCoordinator.ts`, `persistentTaskQueue.ts`, `src/lib/server/app/`, `src/lib/server/web/` |
+| Runner, retries, notices, budgets | `src/lib/server/agent/core/runner.ts`, `turnOrchestrator.ts`, `runnerPool.ts`, `runtimeNotices.ts`, `runtimeBudget.ts` |
+| Approval and host execution | `src/lib/server/approval/`, `src/lib/server/hostBash/`, `src/lib/server/agent/hostBashExec.ts`, `hostToolExec.ts`, `src/lib/server/channels/shared/brokerApprovalResume.ts` |
+| Scheduled and durable work | `src/lib/server/agent/events.ts`, `eventsLeaseStore.ts`, `taskScheduler.ts`, `src/lib/server/agent/durable/` |
+| Tools and delegated execution | `src/lib/server/agent/tools/`, `exec/`, `subagentProgress.ts`, `src/lib/server/plugins/externalSubagent/`, `package/external-subagent/`, `src/lib/server/rooms/` |
+| Model context and persistence | `src/lib/server/agent/prompts/`, `session/`, `src/lib/server/providers/piRuntime.ts` |
+| Status, transcript, trace | `src/lib/server/app/conversationProjection.ts`, `src/lib/server/web/conversationProjection.ts`, `src/lib/server/agent/hooks/` |
 
-Bugs this codebase has already shipped; re-check the matching one before hunting elsewhere:
+Follow intake → claim/control → runner/model → tool/effect → persistence → projection/delivery as relevant. Distinguish the production path from a new kernel, adapter, or isolated prototype that is not yet wired into it. A passing kernel test does not prove the real Runner uses that behavior.
 
-- `toolCallId` collision: a wrapper passing the shared `runId` instead of the per-call id breaks parallel tool calls; dropped `onUpdate` silences tool progress.
-- Lock/lease staleness: session turn locks are heartbeat leases (30s refresh, 2-min timeout); orphaned `retry_wait` leases with a shared `taskId` can block every sibling task.
-- Prompt-cache invalidation: anything per-turn injected into the *system prompt* (memory snapshot, query text) kills provider prefix caching — per-turn data belongs in the user-message envelope, unpersisted.
-- CJK under-count: char/4 token estimation under-counts Chinese 3-4x and can disable threshold compaction; whitespace tokenization collapses CJK queries to one token.
-- Automation-session leakage: sessions missing `origin:"automation"` (or matched only by `task-*` / legacy `[EVENT:...]`) leak into ordinary conversation lists — filter in the shared query layer.
-- Duplicate concurrent automation runs: an active execution must cause new triggers to record `skipped`, not start a second agent.
+## Check the relevant invariants
 
-## Inputs to Collect
+Choose by symptom; do not run every scenario for every change.
 
-Start from the smallest relevant set:
+### Queue, cancellation, steer, and retries
 
-- User symptom, expected behavior, and actual behavior.
-- Recent runtime logs around the failing run.
-- Any flow docs, review docs, or sequence diagrams the repo already has.
-- Current changed files if the user asks for review.
-- Source files for these layers, when present:
-  - channel command/message intake
-  - queue store and run claim logic
-  - runner/orchestrator
-  - tool display and tool dispatch
-  - subagent tool/runtime
-  - sandbox or host-tool approval
-  - prompt/session persistence
-  - logging/telemetry
+- One accepted inbound task keeps a stable identity across busy retries, recovery, approval, and completion. Claims are atomic; duplicates and terminal queue rows do not accumulate.
+- Bind controls to the intended run and scope. Recheck identity and cancellation after asynchronous waits and before effects start; an old Stop must not stop a newer run or delete unconfirmed work. Preserve the established command semantics.
+- Steer is accepted once, in order, and survives an outer retry rollback without replaying later as another task. Keep accepted live controls in run-owned runtime state, not ordinary Session history. Clear them when the run ends.
+- User follow-up follows the existing completion contract. Runtime corrective controls must not manufacture an extra closing reply by entering the follow-up queue.
+- Cancellation reaches tools and child execution. Release owned locks/leases and settle related waits; late callbacks cannot revive terminal runs. Verify lease ownership and recovery from current code rather than copied timeout constants.
 
-State assumptions before editing when the behavior can be interpreted in more than one way.
+### Approval and side effects
 
-## Review Procedure
+Trace request → wait/suspend → decision → resume → execution → terminal state, including the persisted request and execution owner.
 
-1. Classify the symptom.
-   - `stop/abort`: current run cancellation, pending queue cleanup, callback timeout.
-   - `steer/followUp`: injection timing, queued message identity, ordering, persistence.
-   - `subagent`: prompt boundary, inherited context, tool permissions, result summarization, cache impact.
-   - `sandbox/host approval`: approval scope, environment inheritance, command display, repeated prompts.
-   - `tool-call limit`: partial output preservation, continuation behavior, user-visible boundary.
-   - `prompt pollution`: runtime notices or control directives stored as normal conversation.
-   - `scheduler/lease`: watched-event tasks not firing, firing twice, or permanently blocked; stale or orphaned leases; skipped-vs-concurrent semantics.
-   - `observability`: logs cannot distinguish stuck, waiting, running, or blocked states.
+- A suspended run cannot start another tool or model round, including steering or mixed tool batches. Preserve its partial transcript and request identity instead of treating empty final text as a failed attempt.
+- Approval remains bound to actor, scope, Session, capability, and approved arguments. Atomically claim execution so inline and out-of-band handlers cannot both execute it.
+- Stop, rejection, expiry, restart, and late decisions have explicit outcomes. Recheck cancellation and permission after asynchronous preparation and immediately before execution.
+- If execution may already have happened but its outcome is unknown, inspect receipts/state; do not blindly retry the effect or promise exactly-once behavior without evidence.
+- Distinguish interactive, unattended event, and durable approval policies from the active implementation. An unattended task must not wait forever for a human; a durable deferred approval must retain a valid resume owner.
 
-2. Trace the execution path end to end.
-   - Entry: channel/API receives the message or command.
-   - Queue: item is enqueued, claimed, cancelled, steered, or followed up.
-   - Runner: system prompt, session state, model request, tool loop, and completion.
-   - Tools: local sandbox, host bash, MCP/browser, or subagent dispatch.
-   - Persistence: session/context files, run summaries, logs, and user-facing messages.
+### Prompt, Session, and subagent boundaries
 
-3. Separate control planes.
-   - Model instructions: temporary controls injected into the model.
-   - User notifications: human-readable status sent to Telegram/Feishu/QQ/Weixin/Web.
-   - Debug records: structured logs or run events that must not be fed back into the model unless explicitly intended.
+- Keep temporary model controls, human notifications, and structured debug events separate. Temporary runtime directives must never persist as ordinary user/assistant messages or re-enter context after reload/compaction.
+- Inspect the final rendered system prompt and actual model request, not just source lists or previews. Check effective Bot/profile precedence, duplicate sections, and deferred tool descriptions.
+- Keep changing time, memory, query, and skill data out of the cache-stable prefix. Verify placement and provider behavior; do not assume every dynamic suffix invalidates every cached prefix.
+- Check child context, owner/scope, permission propagation, cancellation, approval identity, and intended result delivery. Distinguish internal subagents, external adapters, and Rooms; do not infer equivalent guarantees from a common label.
 
-4. Check invariants.
-   - Stop cancels the active run and handles pending work consistently.
-   - Steer injects into the intended active run and does not silently reorder unrelated messages.
-   - Follow-up waits for completion and preserves user-visible ordering.
-   - Subagents do not inherit accidental prompt or permission state, but do inherit explicitly approved runtime context when intended.
-   - Host-approved tools execute with the same environment and display semantics promised to the user.
-   - Runtime notices are not persisted as normal conversation turns.
-   - Logs expose run id, scope id, tool/subagent start and end, approval wait, timeout, and failure.
+### Budgets, scheduling, and displayed state
 
-5. Recommend the smallest fix.
-   - Prefer a focused source change plus one verification path.
-   - Do not refactor unrelated channel code or rewrite docs unless the change makes docs stale.
-   - If the issue is architectural, write a short staged plan and mark what not to change now.
+- Tool limits, retry exhaustion, and timeouts preserve completed output/effects and expose a truthful terminal or suspended state. Continuation must not repeat completed writes.
+- Scheduled work goes through watched event JSON and runtime events. Check duplicate triggers, skipped runs, stale leases, and restart recovery in the shared owner.
+- Correlate run, scope, tool-call, approval, and child identities across logs and stored state. Parallel same-name tools need distinct call IDs and paired progress/end events.
+- Compare execution truth with transcript projection and delivery. Waiting is not completed; an empty final string is not proof that no output exists; delivery failure is distinct from execution failure.
 
-## Output Format
+## Implement the smallest complete root fix
 
-For review-only tasks:
+For implementation requests, fix cross-channel orchestration in the shared upper layer; channel adapters own transport and message conversion. Do not add per-panel/channel gating to conceal a shared defect. Complete an authorized root fix rather than stopping at a staged plan. If it materially expands scope or changes an undecided product/security contract, present the decision and continue independent work. Temporary patches require the explicit exception in `AGENTS.md`.
 
-```markdown
-Findings
-- [P1/P2/P3] Title - file:line
-  Why it matters, the concrete failing path, and the narrow fix.
+Before finishing a Fix, answer: what root-cause family caused it; which meaningful machine guard prevents recurrence; whether a lasting Pitfalls/rule update is warranted. For a repeated family, a machine guard is required. Update affected documentation by its existing responsibility, without copying incident narratives into permanent rules.
 
-Open questions
-- Only include blockers or ambiguous product decisions.
+## Verify and report
 
-Verification
-- Commands or manual scenario to confirm the behavior.
-```
+Use temporary databases/directories or injectable stores for persistence, queues, leases, trace, and approval tests. Prefer deterministic barriers and real shared runtime/store integration over sleeps or tests that merely match source wording.
 
-For implementation tasks:
-
-```markdown
-Plan
-1. Change [layer] -> verify with [check].
-2. Change [layer] -> verify with [check].
-
-Result
-- Files changed and behavior fixed.
-- Verification run.
-- Remaining risk, if any.
-```
-
-## Verification Scenarios
-
-Baseline for any runtime change in this repo (node test runner, not vitest):
+Run the relevant existing tests using the Node runner, for example:
 
 ```bash
-node --import ./scripts/register-loader.js --import tsx --test <touched .test.ts files, or a src/lib/server/agent/**/*.test.ts glob>
-npx tsc --noEmit   # on touched files / project
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/core/runner.test.ts
+corepack pnpm run check
 ```
 
-Persistence-touching tests (SQLite, settings, queues, leases, approval) must use a temp database or injectable store — never the real user data dir (AGENTS.md rule).
+Select actual affected test files; the example is not a mandatory full-suite command. Confirm current scripts in `package.json` and `apps/desktop/package.json`. UI/desktop changes additionally require the applicable tests, Svelte checks, builds, and the project's cold path: restart an isolated service → first open/click → switch Session/page → disconnect and recover. Settings field changes require whole-object save → fresh store → load round-trip. Do not interrupt a live user service without existing authorization; report that check as incomplete and finish independent checks.
 
-Choose the scenario matching the symptom:
+For the implicated lifecycle, cover the failing case and meaningful boundaries: retry rollback for steer; run replacement for Stop; approval rejection/expiry/late decision and concurrent execution claims; restart recovery for leases/durable work; persisted reload and real model input for prompt pollution. Test mixed batches or child approval when those branches participate in the defect.
 
-- `stop`: start a long-running tool call, send stop, confirm active run aborts and pending items are either cancelled or explicitly retained by design.
-- `steer`: queue a second message during an active run, steer it by id, confirm it is injected once and not later replayed as a duplicate.
-- `followUp`: submit follow-up during active run, confirm it executes after completion with clear status.
-- `subagent`: run a delegated task, confirm parent logs show subagent start/end and only the intended summary returns to parent context.
-- `sandbox/approval`: run a non-approved command and an approved host command, confirm approval prompts, environment, and displayed tool name match policy.
-- `tool limit`: force or simulate a tool-call limit, confirm partial output is preserved and continuation is clearly separated.
-- `prompt pollution`: inspect session/context persistence and confirm runtime notices are recorded as events or user messages, not model history.
+Perform an adversarial final review: challenge ownership, race windows, effect replay, actual production wiring, and whether a simpler complete fix exists. Fix issues introduced by the change.
 
-## Stop Conditions
+Report in the user's language:
 
-Stop and ask before editing when:
+- Review: prioritized findings with verified file/line, concrete trigger, impact, evidence, and proposed root fix. Separate confirmed defects from hypotheses; do not invent findings to fill a quota.
+- Implementation: changed behavior, root cause, regression guard, checks actually run, and remaining relevant risk.
+- Distinguish passed, failed, unperformed, and proposed checks. Isolated verification proves only that instance; claim live-service effectiveness only after verifying its build/process and runtime behavior.
 
-- The desired product behavior is ambiguous, such as whether pending queued items should be cancelled or preserved after stop.
-- A fix would change security policy, approval scope, or command execution trust boundaries.
-- The evidence is only a screenshot with no logs or source path and several layers could be responsible.
+Ask only for materially unresolved behavior, scope, trust boundaries, or missing authorization. Pause only dependent actions. Deliver when acceptance and required checks are met; disclose any required check that remains blocked.

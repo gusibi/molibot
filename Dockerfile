@@ -31,6 +31,7 @@ COPY --from=build /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=build /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY --from=build /app/.env.example ./.env.example
 COPY --from=build /app/bin ./bin
+COPY --from=build /app/scripts/runtime ./scripts/runtime
 COPY --from=build /app/assets/test-images ./assets/test-images
 COPY --from=build /app/src/lib/server/agent/prompts ./src/lib/server/agent/prompts
 # Built-in plugin packages staged at boot by builtinBootstrap.ts — keep in sync

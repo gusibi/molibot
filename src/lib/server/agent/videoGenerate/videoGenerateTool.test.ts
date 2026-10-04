@@ -159,7 +159,7 @@ test("videoGenerate tool successfully submits Agnes task and queries completion"
     });
 
     assert.equal(result3.details.status, "completed");
-    assert.match(result3.content[0].text, /Remote URL: https:\/\/example\.com\/generated-agnes\.mp4/);
+    assert.match((result3.content[0].type === "text" ? result3.content[0].text : ""), /Remote URL: https:\/\/example\.com\/generated-agnes\.mp4/);
     assert.equal(pollHeaders["Authorization"], "Bearer agnes-test-api-key");
     assert.equal(pollAttempts, 2);
     assert.equal(downloaded, false);
@@ -243,7 +243,7 @@ test("videoGenerate tool successfully submits Volcengine task and queries comple
 
     assert.equal(result1.details.status, "processing");
     assert.equal(result1.details.taskId, "cgt-task-999");
-    assert.equal(requestPayload.content[0].text, "A girl hugging a fox");
+    assert.equal((requestPayload.content[0].type === "text" ? requestPayload.content[0].text : ""), "A girl hugging a fox");
     assert.equal(requestPayload.content[1].image_url.url, "https://example.com/fox.png");
     assert.equal(requestPayload.model, "doubao-seedance-2.0-custom");
     assert.equal(requestPayload.generate_audio, true);
@@ -430,8 +430,8 @@ test("videoGenerate tool returns completed status immediately from SQLite withou
 
       assert.equal(result.details.status, "completed");
       assert.equal(result.details.videoUrl, "https://example.com/cached-video.mp4");
-      assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/cached-video\.mp4/);
-      assert.doesNotMatch(result.content[0].text, /Saved file to: unknown/);
+      assert.match((result.content[0].type === "text" ? result.content[0].text : ""), /Remote URL: https:\/\/example\.com\/cached-video\.mp4/);
+      assert.doesNotMatch((result.content[0].type === "text" ? result.content[0].text : ""), /Saved file to: unknown/);
       assert.equal(fetchCalled, false); // remote API was not called
     } finally {
       globalThis.fetch = originalFetch;

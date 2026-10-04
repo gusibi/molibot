@@ -27,7 +27,7 @@ function countRows(dbFile: string): number {
 
 test("PersistentTaskQueue runs front-inserted task before older pending task", async () => {
   const steps: string[] = [];
-  let releaseCurrent: (() => void) | null = null;
+  const current = { release: null as (() => void) | null };
   let resolveDone: (() => void) | null = null;
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -40,7 +40,7 @@ test("PersistentTaskQueue runs front-inserted task before older pending task", a
       steps.push(payload.text);
       if (payload.text === "current") {
         await new Promise<void>((resolve) => {
-          releaseCurrent = resolve;
+          current.release = resolve;
         });
       }
       if (payload.text === "second") {
@@ -53,8 +53,8 @@ test("PersistentTaskQueue runs front-inserted task before older pending task", a
   queue.enqueue("chat-1", { text: "second" }, { preview: "second" });
   queue.enqueue("chat-1", { text: "first" }, { front: true, preview: "first" });
   await delay(0);
-  if (releaseCurrent) {
-    releaseCurrent();
+  if (current.release) {
+    current.release();
   }
   await done;
 
@@ -64,7 +64,7 @@ test("PersistentTaskQueue runs front-inserted task before older pending task", a
 });
 
 test("PersistentTaskQueue lists and deletes pending tasks by id", async () => {
-  let releaseCurrent: (() => void) | null = null;
+  const current = { release: null as (() => void) | null };
   const queue = new PersistentTaskQueue<{ text: string }>({
     channel: "test",
     instanceId: "bot-2",
@@ -72,7 +72,7 @@ test("PersistentTaskQueue lists and deletes pending tasks by id", async () => {
     process: async (payload) => {
       if (payload.text === "current") {
         await new Promise<void>((resolve) => {
-          releaseCurrent = resolve;
+          current.release = resolve;
         });
       }
     }
@@ -92,8 +92,8 @@ test("PersistentTaskQueue lists and deletes pending tasks by id", async () => {
   assert.equal(deleted, "deleted");
   assert.deepEqual(queue.list("chat-1").map((item) => item.id), [firstId, secondId]);
   assert.deepEqual(queue.peek("chat-1", pendingId), { status: "not_found" });
-  if (releaseCurrent) {
-    releaseCurrent();
+  if (current.release) {
+    current.release();
   }
   await delay(10);
   queue.close();
@@ -130,7 +130,7 @@ test("PersistentTaskQueue removes successful tasks from sqlite automatically", a
 
 test("PersistentTaskQueue cancelPending keeps running task and clears only backlog", async () => {
   const { dbFile, cleanup } = createTempQueueDb();
-  let releaseCurrent: (() => void) | null = null;
+  const current = { release: null as (() => void) | null };
   const queue = new PersistentTaskQueue<{ text: string }>({
     channel: "test",
     instanceId: "bot-4",
@@ -138,7 +138,7 @@ test("PersistentTaskQueue cancelPending keeps running task and clears only backl
     process: async (payload) => {
       if (payload.text === "current") {
         await new Promise<void>((resolve) => {
-          releaseCurrent = resolve;
+          current.release = resolve;
         });
       }
     }
@@ -154,8 +154,8 @@ test("PersistentTaskQueue cancelPending keeps running task and clears only backl
   assert.equal(queue.size("chat-1"), 1);
   assert.equal(countRows(dbFile), 1);
 
-  if (releaseCurrent) {
-    releaseCurrent();
+  if (current.release) {
+    current.release();
   }
   await delay(10);
   queue.close();

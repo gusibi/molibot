@@ -1,13 +1,16 @@
 export interface RunBudgetLimits {
   maxToolCalls: number;
   maxToolFailures: number;
+  /** Failed-generation retry limit. */
   maxModelAttempts: number;
+  maxModelTurns?: number;
 }
 
 export interface RunBudgetSnapshot {
   toolCalls: number;
   toolFailures: number;
-  modelAttempts: number;
+  modelFailures: number;
+  modelTurns: number;
 }
 
 export interface RunBudgetState extends RunBudgetSnapshot {
@@ -18,7 +21,7 @@ export interface RunBudgetState extends RunBudgetSnapshot {
 
 export interface RunBudgetPersistence {
   read(): RunBudgetState;
-  mutate(kind: "tool" | "result" | "model", sourceId: string | undefined, isError: boolean | undefined,
+  mutate(kind: "tool" | "result" | "model" | "modelTurn", sourceId: string | undefined, isError: boolean | undefined,
     work: (state: RunBudgetState) => { state: RunBudgetState; result: ToolBudgetResult }): ToolBudgetResult;
   close(): void;
 }
@@ -34,7 +37,7 @@ export interface ToolBudgetResult {
  * reworded once while a `.includes("too many tool calls")` check silently kept
  * pointing at the old wording.
  */
-export type RunBudgetExceededKind = "toolCalls" | "toolFailures" | "modelAttempts";
+export type RunBudgetExceededKind = "toolCalls" | "toolFailures" | "modelFailures" | "modelTurns";
 
 export const DEFAULT_RUN_BUDGET: RunBudgetLimits = {
   maxToolCalls: 24,
@@ -82,8 +85,11 @@ export function buildBudgetStopUserMessage(input: {
   if (input.kind === "toolCalls") {
     return `本轮运行达到工具调用上限（${input.snapshot.toolCalls}/${input.limits.maxToolCalls}）后停止。上方保留了已完成的步骤，可以让我继续。`;
   }
-  if (input.kind === "modelAttempts") {
-    return `本轮运行达到模型重试上限（${input.snapshot.modelAttempts}/${input.limits.maxModelAttempts}）后停止。请稍后重试，或检查模型配置。`;
+  if (input.kind === "modelFailures") {
+    return `本轮运行达到模型重试上限（${input.snapshot.modelFailures}/${input.limits.maxModelAttempts}）后停止。请稍后重试，或检查模型配置。`;
+  }
+  if (input.kind === "modelTurns") {
+    return `子任务达到模型轮次上限（${input.snapshot.modelTurns}/${input.limits.maxModelTurns}）后停止。已完成的步骤仍保留，可缩小任务范围后继续。`;
   }
   return "本轮运行被运行预算中止。上方保留了已完成的步骤。";
 }
@@ -91,7 +97,8 @@ export function buildBudgetStopUserMessage(input: {
 export class RunBudget {
   private toolCalls = 0;
   private toolFailures = 0;
-  private modelAttempts = 0;
+  private modelFailures = 0;
+  private modelTurns = 0;
   private exceededReason: string | undefined;
   private exceededKind: RunBudgetExceededKind | undefined;
 
@@ -99,19 +106,20 @@ export class RunBudget {
     private readonly persistence?: RunBudgetPersistence) {
   }
 
-  private persisted(kind: "tool" | "result" | "model", sourceId: string | undefined,
+  private persisted(kind: "tool" | "result" | "model" | "modelTurn", sourceId: string | undefined,
     isError: boolean | undefined, work: () => ToolBudgetResult): ToolBudgetResult {
     return this.persistence!.mutate(kind, sourceId, isError, state => {
       this.limits = state.limits;
       this.toolCalls = state.toolCalls;
       this.toolFailures = state.toolFailures;
-      this.modelAttempts = state.modelAttempts;
+      this.modelFailures = state.modelFailures;
+      this.modelTurns = state.modelTurns;
       this.exceededKind = state.exceededKind;
       this.exceededReason = state.exceededReason;
       const result = work();
       return { result, state: {
         limits: this.limits, toolCalls: this.toolCalls, toolFailures: this.toolFailures,
-        modelAttempts: this.modelAttempts, exceededKind: this.exceededKind, exceededReason: this.exceededReason
+        modelFailures: this.modelFailures, modelTurns: this.modelTurns, exceededKind: this.exceededKind, exceededReason: this.exceededReason
       } };
     });
   }
@@ -161,28 +169,43 @@ export class RunBudget {
     return { ok: true };
   }
 
-  tryRecordModelAttempt(sourceId?: string): ToolBudgetResult {
-    return this.persistence ? this.persisted("model", sourceId, undefined, () => this.modelAttempt()) : this.modelAttempt();
+  /** Record one failed generation; successful rounds do not spend retries. */
+  tryRecordModelFailure(sourceId?: string): ToolBudgetResult {
+    return this.persistence ? this.persisted("model", sourceId, undefined, () => this.modelFailure()) : this.modelFailure();
   }
 
-  private modelAttempt(): ToolBudgetResult {
-    if (this.modelAttempts >= this.limits.maxModelAttempts) {
+  private modelFailure(): ToolBudgetResult {
+    if (this.modelFailures >= this.limits.maxModelAttempts) {
       return this.exceed(
-        "modelAttempts",
-        `Run budget exceeded: too many model attempts (${this.modelAttempts}/${this.limits.maxModelAttempts}).`
+        "modelFailures",
+        `Run budget exceeded: too many model failures (${this.modelFailures}/${this.limits.maxModelAttempts}).`
       );
     }
-    this.modelAttempts += 1;
+    this.modelFailures += 1;
+    return { ok: true };
+  }
+
+  tryStartModelTurn(sourceId?: string): ToolBudgetResult {
+    return this.persistence ? this.persisted("modelTurn", sourceId, undefined, () => this.modelTurn()) : this.modelTurn();
+  }
+
+  private modelTurn(): ToolBudgetResult {
+    if (this.exceededReason) return { ok: false, reason: this.exceededReason };
+    if (this.limits.maxModelTurns !== undefined && this.modelTurns >= this.limits.maxModelTurns) {
+      return this.exceed("modelTurns", `Run budget exceeded: too many model turns (${this.modelTurns}/${this.limits.maxModelTurns}).`);
+    }
+    this.modelTurns += 1;
     return { ok: true };
   }
 
   snapshot(): RunBudgetSnapshot {
     const state = this.persistence?.read();
-    if (state) return { toolCalls: state.toolCalls, toolFailures: state.toolFailures, modelAttempts: state.modelAttempts };
+    if (state) return { toolCalls: state.toolCalls, toolFailures: state.toolFailures, modelFailures: state.modelFailures, modelTurns: state.modelTurns };
     return {
       toolCalls: this.toolCalls,
       toolFailures: this.toolFailures,
-      modelAttempts: this.modelAttempts
+      modelFailures: this.modelFailures,
+      modelTurns: this.modelTurns
     };
   }
 

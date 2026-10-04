@@ -1,16 +1,19 @@
 <script lang="ts">
-  import CalendarDays from "../icons/duotone/components/CalendarDays.svelte";
-  import CaretRight from "reicon-svelte/icons/CaretRight";
-  import Grid from "../icons/duotone/components/Grid.svelte";
+  import ChatRoundLine from "../icons/duotone/components/ChatRoundLine.svelte";
+  import Dialog from "../icons/duotone/components/Dialog.svelte";
+  import Feed from "../icons/duotone/components/Feed.svelte";
   import Layers from "../icons/duotone/components/Layers.svelte";
   import Pen from "../icons/duotone/components/Pen.svelte";
   import RulerPen from "../icons/duotone/components/RulerPen.svelte";
-  import TuningSquare2 from "../icons/duotone/components/TuningSquare2.svelte";
-  import Vacuum2 from "../icons/duotone/components/Vacuum2.svelte";
-  import ChannelAccordion, { type ChannelDescriptor } from "./ChannelAccordion.svelte";
+  import SortTime from "../icons/duotone/components/SortTime.svelte";
+  import Users2 from "../icons/duotone/components/Users2.svelte";
+  import Widget2 from "../icons/duotone/components/Widget2.svelte";
+  import Settings2 from "reicon-svelte/icons/Settings2";
+  import SidebarLists, { type SidebarListSection } from "./SidebarLists.svelte";
+  import type { ChannelDescriptor } from "./ChannelAccordion.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
+  import type { AgentRoom } from "@molibot/shared/rooms";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
-  import ProjectTree from "../projects/ProjectTree.svelte";
   import type { Translation } from "../i18n";
   import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -19,6 +22,7 @@
     channels,
     conversationsExpanded,
     projectsExpanded,
+    roomsExpanded,
     activeWorkspacePane = "chat",
     automationUnreadCount = 0,
     expandedChannels,
@@ -28,22 +32,35 @@
     channelLoadingMore,
     activeSessionId = "",
     activeProjectSessionId = "",
+    activeRoomId = "",
+    rooms = [],
+    roomMeta = () => "",
     endpoint,
     serviceState = "disconnected",
     statusDots = new Map<string, SessionStatusDot>(),
     formatTime,
+    collapsed = false,
+    collapsedFlyout = null,
+    onToggleFlyout,
     onNewConversation,
-    onOpenRooms,
     roomsLabel,
+    roomsCreateLabel,
+    roomsEmptyLabel,
     onOpenAutoTasks,
     onOpenSkills,
     onOpenAgents,
     onOpenPlans,
     onOpenSettings,
+    onOpenConversations,
+    onOpenProjects,
+    onOpenRooms,
     onToggleConversations,
     onToggleProjects,
+    onToggleRooms,
     onToggleChannel,
     onSelectSession,
+    onSelectRoom,
+    onCreateRoom,
     onMoreChannel,
     onRenameSession,
     onDeleteSession,
@@ -56,6 +73,7 @@
     channels: ChannelDescriptor[];
     conversationsExpanded: boolean;
     projectsExpanded: boolean;
+    roomsExpanded: boolean;
     activeWorkspacePane?: "chat" | "automations" | "skills" | "agents" | "miniapps" | "plans";
     automationUnreadCount?: number;
     expandedChannels: Record<string, boolean>;
@@ -65,22 +83,35 @@
     channelLoadingMore: Record<string, boolean>;
     activeSessionId?: string;
     activeProjectSessionId?: string;
+    activeRoomId?: string;
+    rooms?: AgentRoom[];
+    roomMeta?: (room: AgentRoom) => string;
     endpoint: string;
     serviceState?: "disconnected" | "ready" | "incompatible" | "error";
     statusDots?: Map<string, SessionStatusDot>;
     formatTime: (iso: string) => string;
+    collapsed?: boolean;
+    collapsedFlyout?: SidebarListSection | null;
+    onToggleFlyout?: (section: SidebarListSection) => void;
     onNewConversation: () => void;
-    onOpenRooms: () => void;
     roomsLabel: string;
+    roomsCreateLabel: string;
+    roomsEmptyLabel: string;
     onOpenAutoTasks: () => void;
     onOpenSkills: () => void;
     onOpenAgents: () => void;
     onOpenPlans: () => void;
     onOpenSettings: () => void;
+    onOpenConversations: () => void;
+    onOpenProjects: () => void;
+    onOpenRooms: () => void;
     onToggleConversations: () => void;
     onToggleProjects: () => void;
+    onToggleRooms: () => void;
     onToggleChannel: (channel: string) => void;
     onSelectSession: (item: DesktopConversationItem) => void;
+    onSelectRoom: (roomId: string) => void;
+    onCreateRoom: () => void;
     onMoreChannel: (channel: string) => void;
     onRenameSession: (item: DesktopConversationItem, title: string) => void;
     onDeleteSession: (item: DesktopConversationItem) => void;
@@ -90,27 +121,54 @@
     onOpenMiniApps: () => void;
   } = $props();
 
-  const accordionLabels = $derived({
-    running: copy.running,
-    waitingApproval: copy.waitingApproval,
-    completed: copy.completed,
-    failed: copy.failed,
-    more: copy.more,
-    emptyWeb: copy.emptyWeb,
-    emptyExternal: copy.emptyExternal,
-    notConfigured: copy.notConfigured,
-    goToSettings: copy.goToSettings,
-    menu: copy.conversationMenu,
-    rename: copy.renameConversation,
-    delete: copy.deleteConversation,
-    copyPath: copy.copySessionPath,
-    revealInFinder: copy.openInFinder,
-    renamePlaceholder: copy.renamePlaceholder,
-    deletePrompt: copy.deleteConversationPrompt,
-    cancel: copy.cancelAction,
-    forkedConversation: copy.forkedConversation,
-    newChat: copy.newChat,
-    loading: copy.loading
+  const workspaceItems = $derived([
+    { key: "automations", label: copy.autoTasks, icon: SortTime, active: activeWorkspacePane === "automations", badge: automationUnreadCount, onSelect: onOpenAutoTasks },
+    { key: "skills", label: copy.skillsSquare, icon: RulerPen, active: activeWorkspacePane === "skills", badge: 0, onSelect: onOpenSkills },
+    { key: "agents", label: copy.agentsNav, icon: Users2, active: activeWorkspacePane === "agents", badge: 0, onSelect: onOpenAgents },
+    { key: "plans", label: copy.planBoardNav, icon: Layers, active: activeWorkspacePane === "plans", badge: 0, onSelect: onOpenPlans },
+    { key: "miniapps", label: copy.miniAppsNav, icon: Widget2, active: activeWorkspacePane === "miniapps", badge: 0, onSelect: onOpenMiniApps }
+  ]);
+
+  const listProps = $derived({
+    copy,
+    channels,
+    conversationsExpanded,
+    projectsExpanded,
+    roomsExpanded,
+    expandedChannels,
+    channelItems,
+    channelHasMore,
+    channelLoading,
+    channelLoadingMore,
+    activeSessionId,
+    activeProjectSessionId,
+    activeRoomId,
+    rooms,
+    roomMeta,
+    roomsLabel,
+    roomsCreateLabel,
+    roomsEmptyLabel,
+    endpoint,
+    statusDots,
+    formatTime,
+    onOpenConversations,
+    onOpenProjects,
+    onOpenRooms,
+    onToggleConversations,
+    onToggleProjects,
+    onToggleRooms,
+    onToggleChannel,
+    onSelectSession,
+    onSelectRoom,
+    onCreateRoom,
+    onMoreChannel,
+    onRenameSession,
+    onDeleteSession,
+    onCopySessionPath,
+    onRevealSessionInFinder,
+    onActivateProjectSession,
+    onNewConversation,
+    onOpenSettings
   });
 
   function startWindowDrag(event: MouseEvent): void {
@@ -120,90 +178,115 @@
   }
 </script>
 
-<aside class="chat-sidebar" data-theme-region="sidebar">
+<aside class="chat-sidebar" class:is-collapsed={collapsed} data-theme-region="sidebar">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true" onmousedown={startWindowDrag}></div>
-  <nav class="sidebar-nav" aria-label={copy.newChat}>
-    <button type="button" class="nav-item" onclick={onOpenRooms}><Layers size={16} aria-hidden="true" /><span>{roomsLabel}</span></button>
-    <button type="button" class="nav-item" onclick={onNewConversation}>
-      <Pen size={16} aria-hidden="true" />
-      <span>{copy.newChat}</span>
-    </button>
-    <button type="button" class="nav-item" class:active={activeWorkspacePane === "automations"} aria-current={activeWorkspacePane === "automations" ? "page" : undefined} onclick={onOpenAutoTasks}>
-      <CalendarDays size={16} aria-hidden="true" />
-      <span>{copy.autoTasks}</span>
-      {#if automationUnreadCount > 0}<span class="nav-notification" aria-label={`${automationUnreadCount} ${copy.tasksReminderUnread}`}>{automationUnreadCount > 99 ? "99+" : automationUnreadCount}</span>{/if}
-    </button>
-    <button type="button" class="nav-item" class:active={activeWorkspacePane === "skills"} aria-current={activeWorkspacePane === "skills" ? "page" : undefined} onclick={onOpenSkills}>
-      <RulerPen size={16} aria-hidden="true" />
-      <span>{copy.skillsSquare}</span>
-    </button>
-    <button type="button" class="nav-item" class:active={activeWorkspacePane === "agents"} aria-current={activeWorkspacePane === "agents" ? "page" : undefined} onclick={onOpenAgents}>
-      <Vacuum2 size={16} aria-hidden="true" />
-      <span>{copy.agentsNav}</span>
-    </button>
-    <button type="button" class="nav-item" class:active={activeWorkspacePane === "plans"} aria-current={activeWorkspacePane === "plans" ? "page" : undefined} onclick={onOpenPlans}>
-      <Layers size={16} aria-hidden="true" />
-      <span>{copy.planBoardNav}</span>
-    </button>
-    <button type="button" class="nav-item" class:active={activeWorkspacePane === "miniapps"} aria-current={activeWorkspacePane === "miniapps" ? "page" : undefined} onclick={onOpenMiniApps}>
-      <Grid size={16} aria-hidden="true" />
-      <span>{copy.miniAppsNav}</span>
-    </button>
-  </nav>
 
-  <div class="sidebar-channels" data-theme-region="session-list">
-    <section class="sidebar-tree-section">
-      <button type="button" class="sidebar-section-head sidebar-section-toggle" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>
-        <span>{copy.chat}</span><i aria-hidden="true"><CaretRight class={conversationsExpanded ? "sidebar-section-caret open" : "sidebar-section-caret"} size={12} /></i>
-      </button>
-      {#if conversationsExpanded}
-        {#each channels as channel (channel.id)}
-          <ChannelAccordion
-            {channel}
-            expanded={Boolean(expandedChannels[channel.id])}
-            items={channelItems[channel.id] ?? []}
-            hasMore={Boolean(channelHasMore[channel.id])}
-            loading={Boolean(channelLoading[channel.id])}
-            loadingMore={Boolean(channelLoadingMore[channel.id])}
-            {activeSessionId}
-            {statusDots}
-            labels={accordionLabels}
-            {formatTime}
-            onToggle={() => onToggleChannel(channel.id)}
-            onNewSession={channel.id === "web" ? onNewConversation : null}
-            onSelect={onSelectSession}
-            onMore={() => onMoreChannel(channel.id)}
-            onConfigure={onOpenSettings}
-            onRenameItem={onRenameSession}
-            onDeleteItem={onDeleteSession}
-            onCopySessionPath={onCopySessionPath}
-            onRevealSessionInFinder={onRevealSessionInFinder}
-          />
+  {#if collapsed}
+    <div class="sidebar-collapsed">
+      <nav class="sidebar-rail" aria-label={copy.chat}>
+        <button
+          type="button"
+          class="rail-item"
+          class:active={collapsedFlyout === "conversations"}
+          aria-current={collapsedFlyout === "conversations" ? "page" : undefined}
+          aria-label={copy.chat}
+          title={copy.chat}
+          onclick={() => onToggleFlyout?.("conversations")}
+        >
+          <ChatRoundLine size={18} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="rail-item"
+          class:active={collapsedFlyout === "projects"}
+          aria-current={collapsedFlyout === "projects" ? "page" : undefined}
+          aria-label={copy.projects}
+          title={copy.projects}
+          onclick={() => onToggleFlyout?.("projects")}
+        >
+          <Feed size={18} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="rail-item"
+          class:active={collapsedFlyout === "rooms" || Boolean(activeRoomId)}
+          aria-current={collapsedFlyout === "rooms" || activeRoomId ? "page" : undefined}
+          aria-label={roomsLabel}
+          title={roomsLabel}
+          onclick={() => onToggleFlyout?.("rooms")}
+        >
+          <Dialog size={18} aria-hidden="true" />
+        </button>
+        {#each workspaceItems as item (item.key)}
+          {@const Icon = item.icon}
+          <button
+            type="button"
+            class="rail-item"
+            class:active={item.active}
+            aria-current={item.active ? "page" : undefined}
+            aria-label={item.label}
+            title={item.label}
+            onclick={item.onSelect}
+          >
+            <Icon size={18} aria-hidden="true" />
+            {#if item.badge > 0}<span class="rail-notification" aria-label={`${item.badge} ${copy.tasksReminderUnread}`}>{item.badge > 99 ? "99+" : item.badge}</span>{/if}
+          </button>
         {/each}
+        <div class="rail-spacer"></div>
+        <button
+          type="button"
+          class="rail-avatar"
+          aria-label={`${copy.appName} · ${serviceState === "ready" ? copy.statusOnline : copy.statusOffline}`}
+          title={copy.goToSettings}
+          onclick={onOpenSettings}
+        >
+          <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
+            <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
+          </span>
+        </button>
+      </nav>
+      {#if collapsedFlyout}
+        <div class="sidebar-flyout">
+          <SidebarLists {...listProps} sections={[collapsedFlyout]} variant="flyout" />
+        </div>
       {/if}
-    </section>
-    <section class="sidebar-tree-section">
-      <ProjectTree {copy} {endpoint} expanded={projectsExpanded} activeSessionId={activeProjectSessionId} {formatTime} onToggle={onToggleProjects} onActivateSession={onActivateProjectSession} />
-    </section>
-  </div>
+    </div>
+  {:else}
+    <nav class="sidebar-nav" aria-label={copy.newChat}>
+      <button type="button" class="nav-item" onclick={onNewConversation}>
+        <Pen size={16} aria-hidden="true" />
+        <span>{copy.newChat}</span>
+      </button>
+      {#each workspaceItems as item (item.key)}
+        {@const Icon = item.icon}
+        <button type="button" class="nav-item" class:active={item.active} aria-current={item.active ? "page" : undefined} onclick={item.onSelect}>
+          <Icon size={16} aria-hidden="true" />
+          <span>{item.label}</span>
+          {#if item.badge > 0}<span class="nav-notification" aria-label={`${item.badge} ${copy.tasksReminderUnread}`}>{item.badge > 99 ? "99+" : item.badge}</span>{/if}
+        </button>
+      {/each}
+    </nav>
 
-  <!-- The avatar's status dot already carries the service state visually, so the
-       redundant 在线/离线 line is gone; its text stays as the button's
-       accessible name so status never depends on colour alone. -->
-  <button
-    type="button"
-    class="sidebar-footer"
-    aria-label={`${copy.appName} · ${serviceState === "ready" ? copy.statusOnline : copy.statusOffline}`}
-    onclick={onOpenSettings}
-    title={copy.goToSettings}
-  >
-    <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
-      <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
-    </span>
-    <span class="sidebar-footer-copy"><strong>{copy.appName}</strong></span>
-    <TuningSquare2 class="sidebar-footer-gear" size={16} aria-hidden="true" />
-  </button>
+    <SidebarLists {...listProps} sections={["conversations", "projects", "rooms"]} variant="sidebar" />
+
+    <!-- The avatar's status dot already carries the service state visually, so the
+         redundant 在线/离线 line is gone; its text stays as the button's
+         accessible name so status never depends on colour alone. -->
+    <button
+      type="button"
+      class="sidebar-footer"
+      aria-label={`${copy.appName} · ${serviceState === "ready" ? copy.statusOnline : copy.statusOffline}`}
+      onclick={onOpenSettings}
+      title={copy.goToSettings}
+    >
+      <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
+        <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
+      </span>
+      <span class="sidebar-footer-copy"><strong>{copy.appName}</strong></span>
+      <Settings2 class="sidebar-footer-gear" size={16} weight="Filled" aria-hidden="true" />
+    </button>
+  {/if}
 </aside>
 
 <style>
@@ -242,17 +325,66 @@
   .nav-item.active :global(svg) { color: var(--accent, #006bff); }
   .nav-item :global(svg) { color: var(--label-secondary, #666); }
   .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
-  .sidebar-channels {
+
+  /* Collapsed presentation: a slim icon rail plus an on-demand list flyout. */
+  .sidebar-collapsed {
+    display: flex;
+    flex-direction: row;
     flex: 1 1 auto;
-    overflow-y: auto;
-    overflow-x: hidden;
-    /* Bleed the scroll container to the sidebar's inner right edge so the
-       scrollbar sits flush against the divider; padding keeps content aligned. */
-    margin-right: -12px;
-    padding: 0 12px 0 0;
     min-height: 0;
   }
-  .sidebar-tree-section { min-width: 0; padding: 0 0 8px; }
+  .sidebar-rail {
+    display: flex;
+    flex: 0 0 var(--sidebar-rail-w, 48px);
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    width: var(--sidebar-rail-w, 48px);
+    padding: 0 4px;
+  }
+  .rail-item {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--rounded-sm, 6px);
+    background: transparent;
+    color: var(--label-secondary, #666);
+    cursor: pointer;
+    transition: background var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard);
+  }
+  .rail-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); }
+  .rail-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); }
+  .rail-item.active :global(svg) { color: var(--accent, #006bff); }
+  .rail-notification { position: absolute; top: 2px; right: 2px; display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .rail-spacer { flex: 1 1 auto; }
+  .rail-avatar {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    margin-bottom: 4px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--rounded-sm, 6px);
+    background: transparent;
+    cursor: pointer;
+  }
+  .rail-avatar:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
+  .sidebar-flyout {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding-left: 12px;
+    border-left: 1px solid var(--separator);
+  }
+
   .sidebar-footer {
     display: flex;
     align-items: center;

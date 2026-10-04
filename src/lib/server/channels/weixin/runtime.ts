@@ -1,3 +1,4 @@
+import type { HookManager } from "$lib/server/agent/hooks/types.js";
 import { appendFileSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
@@ -125,6 +126,7 @@ export class WeixinManager extends BaseChannelRuntime {
       memory: MemoryGateway;
       usageTracker: AiUsageTracker;
       modelErrorTracker: ModelErrorTracker;
+      hookManager: HookManager;
     }
   ) {
     super({

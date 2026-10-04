@@ -17,7 +17,7 @@ export function buildDesktopHostBashWhitelistItem(entry: ApprovedHostBashEntry):
     toolId: entry.toolId,
     displayName: entry.displayName,
     reason: entry.reason,
-    approvalMode: entry.approvalMode,
+    approvalMode: "persistent",
     enabled: entry.enabled,
     approvedAt: entry.approvedAt,
     // Grants are per bot/project, so the same tool id can legitimately appear

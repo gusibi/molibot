@@ -1,3 +1,4 @@
+import { Socket } from "node:net";
 import { fork, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { momWarn } from "$lib/server/agent/common/log.js";
@@ -112,7 +113,7 @@ export async function loadPiExtensionsInProcess(input: { cwd: string; agentDir: 
   child.stderr?.on("data", (chunk) => {
     momWarn("plugins", "pi_extension_worker_stderr", { message: chunk.toString().slice(0, 4_000) });
   });
-  child.stderr?.unref();
+  if (child.stderr instanceof Socket) child.stderr.unref();
   child.unref();
   child.channel?.unref();
   try {

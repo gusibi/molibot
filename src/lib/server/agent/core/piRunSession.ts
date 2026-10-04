@@ -19,6 +19,7 @@ export interface PiRunBinding {
   assertAuthority: PiConversationOptions["assertAuthority"];
   recoverTools?: PiConversationOptions["recoverTools"];
   beforeGeneration?: (taskId: string) => void;
+  onGenerationError?: (taskId: string) => void;
   onDeferredCancel?: (outcome: "requested" | "unsupported" | "failed") => Promise<void>;
   onDeferred?: (pollAt: number, taskId?: string) => Promise<void>;
   childTools?: PiConversationOptions["childTools"];
@@ -185,7 +186,12 @@ export class PiRunSession {
         onChildDeferred: async pollAt => { this.hasDeferred = true; await this.binding?.onDeferred?.(pollAt); },
         onChildTrace: this.binding.onChildTrace, onChildUsage: this.binding.onChildUsage, beforeChildTool: this.binding.beforeChildTool, afterChildTool: this.binding.afterChildTool, model: { provider: model.provider, modelId: model.id },
         allowedModels, instructions: this.state.systemPrompt, tools: this.state.tools, initialMessages,
-        afterResponse: async message => { if (message.stopReason === "deferred") this.hasDeferred = true; },
+        afterResponse: async (message, api) => {
+          if (message.stopReason === "deferred") this.hasDeferred = true;
+          if (message.stopReason === "error") {
+            this.binding!.onGenerationError?.(`pi:${this.binding!.requestId}:generation:${api.taskId}`);
+          }
+        },
         beforeRequest: async (messages, _signal, api) => {
           if (!api) throw new Error("Pi generation has no native task identity.");
           this.binding!.beforeGeneration?.(`pi:${this.binding!.requestId}:generation:${api.taskId}`);

@@ -521,7 +521,8 @@ export type ImageGenerateEngineId = string;
 
 export interface ImageGenerateEngineSettings {
   enabled: boolean;
-  apiKey: string;
+  credentialSource?: "api-key" | "provider";
+  apiKey?: string;
   baseUrl?: string;
   model?: string;
   /** Optional display name for custom engines. */
@@ -726,6 +727,7 @@ export interface EventExecutionSettings {
 export interface RunBudgetLimits {
   maxToolCalls: number;
   maxToolFailures: number;
+  /** Failure retries across the parent run; successful model/tool rounds do not consume this limit. */
   maxModelAttempts: number;
 }
 

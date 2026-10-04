@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import type { SideEffectClass } from "$lib/server/agent/durable/types.js";
 import type { ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
 
+// Composite tools delegate effects to their nested tool tasks; they must not hold the shared effect lock.
 const PURE_TOOLS = new Set([
+  "codemode",
+  "subagent",
   "read",
   "fileSearch",
   "conversationSearch",

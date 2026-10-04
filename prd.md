@@ -1,16 +1,43 @@
+# Desktop 系统设置（2026-10-04，P1）
+
+- **已交付**：补齐运行时区、Agent 预算、浏览器超时及全局显示配置；细粒度保存、重启回读和隔离桌面预览通过。
+- **待确认**：已有通用页、执行与权限页、诊断页配置是否迁入系统页。现有入口暂保留。
+- **待验证**：重新打包后的原生 macOS App 安装验收。
+
 ## Pi 正式内核接线进度（2026-10-04，P1）
 
 正式共享 Runner、原生内部子任务、外部审批归属、父子预算与 Deferred 启动恢复已实施。剩余验收为真实外部渠道 transport 与支持 Deferred 的外部 Provider；没有费用授权时不调用付费请求。整体阶段验收继续以 [spec](docs/requirements/pi-capabilities-integration-spec.md) 和 [能力矩阵](docs/requirements/personal-assistant-capability-matrix.md) 为准。见 [验证证据](docs/reviews/pi-production-integration-validation.md)。
 
+# Pi 四项能力接入（2026-10-02）
+
+
+- **范围 / 阶段**：已开始阶段 1：固定 Durable 依赖、执行适配与隔离强杀恢复验证已实现，共享恢复守卫已修正；正式入口接线与阶段 1 完整验收仍在进行。可选 Pi 图片后端的代码接入和本地验收已完成；统一费用汇总和飞书发送契约已完成（2026-10-03）；原生 Desktop 冷启动及服务中断恢复已验证；真实 Provider 验收仍待费用授权。Codemode 的共享工具接线、隔离执行、审批后剩余步骤与本地验收已完成，见 [验证记录](docs/reviews/pi-codemode-integration-validation.md)。Durable 正式接线和 Deferred 继续实施。测试边界已确认，issue 尚未发布。
+- **正式 Runner 切换边界（2026-10-03）**：共享单次 invocation 的授权/执行分离、显式 Host Bash 审批前 intent 与稳定审批身份重开测试已完成；自动 sandbox 升级及外部批准执行入口仍待统一；正式内核尚未替换。[ADR 0005](docs/adr/0005-pi-durable-private-execution-storage.md) 的限定表示边界已接受。提交记录投影去重、租约丢失取消和 Deferred handle 强杀续查已在内核层验证；正式 Runner 的步骤预算已持久化；原始输入恢复和响应记账去重已验证。正式 Pi 入口、父子任务预算与内部子任务恢复仍待接线，详见 [阶段验证](docs/reviews/pi-durable-foundation-validation.md)。
+- **原生接线进展（2026-10-04，部分交付）**：自动 Host Bash 的 native preparation 阶段与收据重开已验证；未知结果不自动执行。原生 conversation/Runner adapter 的输入、工具回调与 Deferred 查询/取消契约已覆盖。正式 Runner 默认切换、外部批准后仅唤醒原任务、内部子 Agent 的 native ownership 和完整生产 Deferred 状态/记账仍未完成，不关闭阶段 1/2/3。
+- **混合批次接线前置（2026-10-04，已验证）**：原生授权 hook 与准备流程的审批挂起阻止同批后续工具执行；关闭并重开后保留原审批、入站和已完成结果，继续原批次。正式 Runner 的审批 barrier 替换仍需与剩余生产接线一起验收。
+- **实施顺序**：阶段 1 验证 Pi Durable 最小端到端闭环；阶段 2 替换执行内核并保留 Molibot 产品能力；阶段 3 接入 Deferred provider response；阶段 4A/4B 分别交付 Codemode 与图片生成。图片模块可在边界明确后独立推进。
+- **验收 / 边界**：逐工具恢复、未知副作用确认、审批与取消联动、子任务恢复、异步 handle 续查、受控脚本工具调用、图片制品落盘；不引入永久双引擎、兼容层或自动数据 migration。完整范围见 [分阶段接入 spec](docs/requirements/pi-capabilities-integration-spec.md)。
+
 # Desktop Agent Room（Issue #62，2026-10-02）
 
+- **同一房间多次会话（P1，2026-10-04，已完成）**：房间保存成员、Primary、Project 与权限；会话独立保存共享记录及每位成员的 Context。支持新建、历史切换和刷新后恢复；新会话不带入旧会话聊天，运行输出始终归属原会话，写入资格继续按房间串行。本次保留旧记录的结构升级已获用户授权；自动备份及一次升级回归通过。真实用户服务未重启，原生安装包尚未替换。
+
+- **对话输入统一（2026-10-02，已完成）**：复用普通 ChatInputArea、模型/思考菜单、附件与录音控件、IME 守卫和草稿存储。真实 Runner 验证显式模型选择，提交参数持久回读与重试幂等通过；隔离页面验证菜单、附件、成员选择、草稿切换、中英、明暗与窄屏。原生录音实录仍待验证。
+
+- **创建页 UI 优化（2026-10-02，已完成）**：共享分组表单、头像成员选择区与固定团队底栏已交付。隔离浏览器中的中英、明暗、560px 宽度、双成员创建、设置页面切换及服务重启回读通过；Desktop 类型检查与构建通过，272 项界面检查通过。该走查使用桌面前端真实代码与临时后端数据，不替代原生 Desktop 的完整房间功能验收。
+
+- **类型检查后续修复（2026-10-02，已完成）**：根目录严格 TypeScript 检查从 310 条错误清零，`corepack pnpm check` 通过；相关回归 547 项通过，生产构建通过；独立临时服务首页、设置页面和设置接口首次加载及重启恢复通过，共享组件的标记与样式配置对比保持一致。未执行原生 UI 点击走查。Web 全量 Svelte 检查仍有 87 条错误（旧页面与第三方声明）；Desktop 检查为 0 错误、1 条既有警告。该结果不替代下述完整后端测试和原生 Desktop 验收记录。
+
 - **优先级 / 状态**：P1 / 已实现，待原生 Desktop 验收；本记录不关闭 issue。
+- **补充验收（2026-10-02）**：文本 `@` 成员已接入共享调度，真实 Runner 回归验证多成员模型与身份；房间标题、消息、运行过程、审批和输入区复用 Chat 组件。原生桌面拖动与录音实录仍待验证。 文本解析目标随请求提交；真实模型输入包含房间路由语义，临时说明不进入历史。默认恢复入口及运行中服务加载最新构建已核对。
 - **范围**：三个交付 slice 已落地：显式 Agent 身份与独立 Context、共同快照与并行受限讨论、持久队列和审批/取消/恢复、Desktop 创建与会话入口。完整验收依据为 [Room 规格](docs/requirements/multi-agent-room-spec.md)。
+- **修正验收（2026-10-03）**：多人讨论与 Plan 流程分离，保留本地只读工具限制；验收必须检查每位成员完整答案、实际模型和持久化失败状态，不能只检查请求已触发。研究员单次取消的具体触发源仍待确认。
 - **运行限制**：已开始的 Run 不能通过 steer 收紧已经生效的保留策略；此类指令在注入前拒绝，用户停止后作为新消息发送。普通 steer 记录在共享房间记录中。
 - **验证**：Room 服务和实际 Project/图片/模型请求回归、受影响 Runner/工具/Host Bash/Session 测试通过。Desktop 测试为 7 + 325 + 283 项 JavaScript 和 70 项 Rust，通过；`svelte-check` 为 0 错误、1 条既有 AgentCityInspector 警告。服务端及 Desktop 构建通过。
 - **全仓检查限制**：后端完整测试 2266 通过、4 失败、1 跳过；失败为 Python 隔离路径、Mini App 子进程隔离路径、既有 Desktop 审批列表断言，以及并行 Pi 1.0 升级后仍按 0.84 模型目录断言的测试。全仓 TypeScript 仍有既有错误；Room 新增文件无类型错误。上述失败不能作为本次完整检查通过的证据。
 - **冷路径走查**：隔离服务重启、首次 Room 打开、房间切换、中英/明暗及 420px 窄窗口无横向溢出通过。真实审批保留写入资格，同一 Project 目录的另一 Room 可继续；重启将审批 Run 标记中断、队列暂停且不重放，Stop All 可取消暂停项。走查使用本地模拟模型，不使用真实账号或付费请求。
 - **待验收**：真实原生 Desktop 窗口中的创建、切换、审批和服务恢复；浏览器中的 Desktop 前端走查不替代 Tauri 原生窗口验收。
+- **修复验证（2026-10-02）**：引用预算不足时拒绝接受，超长引用保留截断标记；暂停恢复和失败重试按房间持久去重并校验目标执行。临时数据库的 Room/Session 回归及本地模拟模型 Runner 集成测试共 34 项通过；Desktop `svelte-check` 为 0 错误、1 条既有警告，服务端构建通过。全仓 TypeScript 检查仍有其它文件错误，Room 文件无报错；原生 Desktop 待验收范围不变。
 
 # 决策模型配置与自动思考策略（2026-09-23）
 
@@ -256,6 +283,8 @@
 ---
 
 ## 3.126 Pi Runtime 0.84.3 与后续能力（2026-08-26）
+
+- **后续交付（2026-10-02）**：当前运行时已升级到 1.0.0；请求 transcript、审批停止钩子、ChatGPT 安装身份和 Jev 分类 API 已接入。适用验收与未验证项见 [Pi 1.0 升级评估](docs/reviews/pi-1.0-upgrade-assessment.md)。Durable、Deferred、Codemode 和 Pi 图片生成的新范围见 [分阶段接入 spec](docs/requirements/pi-capabilities-integration-spec.md)，其他未接入能力不代表批准排期。以下保留 0.84.3 的历史验收记录。
 
 - **Priority / Status**: P1 runtime upgrade delivered (2026-08-26); P1 registry, P2 diagnostics/sampling, and P3 telemetry delivered (2026-08-27); durable deferred responses remain unscheduled.
 - **Problem**: Molibot 已使用统一 PiRuntime，但运行时停在 0.82.0；同时设置层仍维护静态 Provider 列表，无法自动呈现 Pi 新增的全部 Provider 和请求能力。

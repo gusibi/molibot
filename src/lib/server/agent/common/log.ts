@@ -50,6 +50,7 @@ const KEY_LOG_EVENTS = new Set<string>([
   "image_analysis_success",
   // runner critical path
   "run_start",
+  "abort_requested",
   "model_selected",
   "api_key_resolve",
   "llm_request_sent",

@@ -1,3 +1,4 @@
+import type { ImageCostTotals } from "./usageCosts";
 export interface DesktopProfileSummary {
   id: string;
   name: string;
@@ -51,7 +52,7 @@ export interface DesktopWebProfileUpdateResponse {
   profile: DesktopWebProfile;
 }
 
-export interface DesktopUsageTotals {
+export interface DesktopUsageTotals extends ImageCostTotals {
   requests: number;
   inputTokens: number;
   outputTokens: number;
@@ -90,6 +91,7 @@ export interface DesktopUsageDimensionRow extends DesktopUsageTotals {
 }
 
 export interface DesktopUsageRecord extends DesktopUsageTotals {
+  requestId?: string;
   ts: string;
   channel: string;
   botId: string;
@@ -1941,7 +1943,7 @@ export interface DesktopPluginsUpdateRequest {
   memoryReflectionTime: string;
   memoryReflectionNotifications: boolean;
   memoryReflectionNotificationTarget: string;
-  memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean };
+  memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget?: number; scanModelKey?: string };
   values: Record<string, Record<string, string | boolean>>;
   secretValues?: Record<string, Record<string, string>>;
   clearSecrets?: Record<string, string[]>;
@@ -2231,6 +2233,7 @@ export interface DesktopWebSearchUpdateRequest {
 }
 
 export interface DesktopMediaEngine {
+  credentialSource?: "api-key" | "provider";
   id: string;
   enabled: boolean;
   /** True when an API key is configured — the key itself never reaches the WebView. */
@@ -2253,6 +2256,14 @@ export interface DesktopMediaGenerateSummary {
 export interface DesktopImageGenerateResponse {
   ok: true;
   summary: DesktopMediaGenerateSummary;
+}
+
+export interface DesktopPiImageModel {
+  key: string;
+  provider: string;
+  model: string;
+  name: string;
+  supportsReferenceImages: boolean;
 }
 
 export interface DesktopImageRecognitionModel {
@@ -2344,7 +2355,7 @@ export interface DesktopMediaTask {
   id: string;
   kind: DesktopMediaTaskKind;
   engine: string;
-  status: "processing" | "completed" | "failed";
+  status: "processing" | "completed" | "failed" | "cancelled";
   progress?: number;
   prompt: string;
   resultUrl?: string;
@@ -2353,6 +2364,9 @@ export interface DesktopMediaTask {
   errorMessage?: string;
   createdAt: string;
   updatedAt: string;
+  imageOutputs?: Array<{ index: number; mimeType: string; byteLength: number }>;
+  textOutput?: string;
+  costUsd?: number;
 }
 
 export interface DesktopMediaTasksResponse {
@@ -2570,3 +2584,25 @@ export interface DesktopRuntimeEnvResponse {
   ok: true;
   summary: DesktopRuntimeEnvSummary;
 }
+
+/** Global runtime controls exposed by Desktop System settings; excludes credentials and execution policy. */
+export interface DesktopSystemConfig {
+  serverPort: number;
+  timezone: string;
+  budget: { maxToolCalls: number; maxToolFailures: number; maxModelAttempts: number };
+  subagentRuntime: {
+    maxToolCalls: number; maxToolFailures: number; maxModelTurns: number; deadlineMs: number;
+    maxTasks: number; maxConcurrency: number; compactionEnabled: boolean; persistSessions: boolean;
+  };
+  browserAutomation: { defaultTimeoutMs: number };
+  display: {
+    toolProgress: "off" | "new" | "all" | "verbose";
+    showReasoning: "off" | "on" | "stream" | "new";
+    gatewayNotifyInterval: number;
+    runLogNotice: boolean;
+  };
+}
+
+export type DesktopSystemUpdate = {
+  [K in keyof DesktopSystemConfig]?: DesktopSystemConfig[K] extends object ? Partial<DesktopSystemConfig[K]> : DesktopSystemConfig[K];
+};

@@ -107,6 +107,7 @@ interface RawSettings {
   locale?: string;
   serverPort?: number | string;
   plugins?: {
+    entries?: unknown;
     memory?: {
       enabled?: boolean | string;
       backend?: string;

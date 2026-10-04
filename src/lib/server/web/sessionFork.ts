@@ -10,7 +10,10 @@ import { getRuntimeContextForConversation, resolveRunnerChatId } from "$lib/serv
 
 export type SessionForkResult =
   | { status: "created" | "existing"; conversation: Conversation }
-  | { status: "not_found" | "running" | "message_not_found" | "invalid_fork_point" };
+  | { status: "not_found" }
+  | { status: "running" }
+  | { status: "message_not_found" }
+  | { status: "invalid_fork_point" };
 
 interface ForkPool {
   get(chatId: string, sessionId: string): { isRunning(): boolean };

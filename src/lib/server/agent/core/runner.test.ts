@@ -204,7 +204,7 @@ async function createRunnerForHookTest(options: {
 }) {
   const { MomRuntimeStore } = await import("$lib/server/agent/session/store.js");
   const workspaceDir = options.workspaceDir ?? mkdtempSync(join(tmpdir(), "molibot-runner-test-"));
-  return new MomRunner(
+  const runner = new MomRunner(
     "telegram",
     options.chatId,
     `session-${options.chatId}-${Date.now()}`,
@@ -216,6 +216,11 @@ async function createRunnerForHookTest(options: {
     createRunnerTestMemory() as any,
     options.hookManager
   );
+  const agent = (runner as any).agent;
+  const bindRun = agent.bindRun.bind(agent);
+  // The fixture owns temporary Pi storage without claiming the live service lease.
+  agent.bindRun = (input: any) => bindRun({ ...input, assertStorageOwnership: () => {} });
+  return runner;
 }
 
 function activateHookContext(runner: MomRunner, runId: string, chatId: string): void {
@@ -2104,3 +2109,59 @@ test("real Runner applies its budget and trace hooks to nested Codemode writes",
     assert.equal(requests, 2);
   } finally { rmSync(workspaceDir, { recursive: true, force: true }); }
 });
+
+test("real Runner completes more than six successful model rounds without spending retry budget", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-model-retries-"));
+  try {
+    const runner = await createRunnerForHookTest({ chatId: "model-retries", workspaceDir, hookManager: createRunnerHookManager([]) });
+    (runner as any).getSettings = () => ({ ...createRunnerTestSettings(), permissionMode: "auto",
+      budget: { maxToolCalls: 100, maxToolFailures: 6, maxModelAttempts: 6 } });
+    const agent = (runner as any).agent;
+    let requests = 0;
+    agent.streamFunction = (model: any) => {
+      requests++;
+      const first = requests <= 8;
+      const output = createAssistantMessageEventStream();
+      output.push({ type: "done", reason: first ? "toolUse" : "stop", message: {
+        role: "assistant", content: first ? [{ type: "toolCall", id: `save-${requests}`, name: "write",
+          arguments: { label: "Save progress", path: join(workspaceDir, `step-${requests}.txt`), content: "done" } }] : [{ type: "text", text: "All eight steps completed." }],
+        api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), stopReason: first ? "toolUse" : "stop",
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+      } });
+      output.end(); return output;
+    };
+    await runner.run(createRunnerContext("Save eight progress files, then report completion."));
+    assert.equal(requests, 9);
+    for (let i = 1; i <= 8; i++) assert.equal(readFileSync(join(workspaceDir, `step-${i}.txt`), "utf8"), "done");
+    assert.match(JSON.stringify(agent.state.messages.at(-1)), /All eight steps completed/);
+    const summaries = readFileSync((runner as any).store.getRunSummaryLogPath("model-retries"), "utf8");
+    assert.equal(JSON.parse(summaries.trim().split("\n").at(-1)!).budget.modelFailures, 0);
+  } finally { rmSync(workspaceDir, { recursive: true, force: true }); }
+});
+
+for (const recover of [true, false]) {
+  test(`real Runner ${recover ? "recovers on" : "stops after"} the sixth failed model retry`, { timeout: 20000 }, async () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-failed-retries-"));
+    try {
+      const runner = await createRunnerForHookTest({ chatId: "failed-retries", workspaceDir, hookManager: createRunnerHookManager([]) });
+      (runner as any).getSettings = () => ({ ...createRunnerTestSettings(), budget: { maxToolCalls: 100, maxToolFailures: 6, maxModelAttempts: 6 } });
+      const agent = (runner as any).agent;
+      let requests = 0;
+      agent.streamFunction = (model: any) => {
+        requests++;
+        const success = recover && requests === 7;
+        const message = { role: "assistant" as const, content: success ? [{ type: "text" as const, text: "Recovered" }] : [],
+          api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), stopReason: success ? "stop" as const : "error" as const,
+          errorMessage: success ? undefined : "Chat upstream returned 429",
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+        const output = createAssistantMessageEventStream();
+        output.push(success ? { type: "done", reason: "stop", message } : { type: "error", reason: "error", error: message });
+        output.end(); return output;
+      };
+      const result = await runner.run(createRunnerContext("Answer once the provider recovers."));
+      assert.equal(requests, 7, "one initial request plus six retries");
+      assert.equal(result.stopReason, recover ? "stop" : "error");
+      if (recover) assert.match(JSON.stringify(agent.state.messages.at(-1)), /Recovered/);
+    } finally { rmSync(workspaceDir, { recursive: true, force: true }); }
+  });
+}

@@ -144,6 +144,9 @@ importers:
       '@astryxdesign/theme-neutral':
         specifier: 0.5.4
         version: 0.5.4(@astryxdesign/core@0.5.4(@stylexjs/stylex@0.19.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)
+      '@cloudflare/workers-types':
+        specifier: ^5.20261001.1
+        version: 5.20261001.1
       '@iconify-json/reicon':
         specifier: ^1.2.4
         version: 1.2.4
@@ -177,6 +180,9 @@ importers:
       '@types/node':
         specifier: ^24.3.1
         version: 24.13.2
+      '@types/node-fetch':
+        specifier: ^2.6.13
+        version: 2.6.13
       '@types/react':
         specifier: 19.2.14
         version: 19.2.14

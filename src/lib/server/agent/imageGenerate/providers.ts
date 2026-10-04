@@ -6,6 +6,9 @@ import type {
   ImageGenerateProviderResult,
   ImageGenerateProtocol
 } from "./types.js";
+import { getPiModels } from "$lib/server/providers/piRegistry.js";
+import { createPiImageProvider } from "./piProvider.js";
+import type { Models } from "@earendil-works/pi-ai";
 
 const delay = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -221,9 +224,9 @@ function imageResultFromString(text: string): ImageGenerateProviderResult | unde
   const trimmed = text.trim();
   if (!trimmed) return undefined;
 
-  const dataUrlMatch = trimmed.match(/data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/=_-]+)/i);
-  if (dataUrlMatch?.[1]) {
-    return { imageBase64: dataUrlMatch[1] };
+  const dataUrlMatch = trimmed.match(/data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=_-]+)/i);
+  if (dataUrlMatch?.[2]) {
+    return { mimeType: dataUrlMatch[1].toLowerCase(), imageBase64: dataUrlMatch[2] };
   }
 
   if (/^[A-Za-z0-9+/=_-]{80,}$/.test(trimmed)) {
@@ -598,7 +601,8 @@ const genericChatCompletionsProvider: ImageGenerateProvider = {
   }
 };
 
-export function getImageGenerateProvider(engine: string, protocol?: ImageGenerateProtocol): ImageGenerateProvider {
+export function getImageGenerateProvider(engine: string, protocol?: ImageGenerateProtocol, piModels?: Models): ImageGenerateProvider {
+  if (engine === "pi") return createPiImageProvider(piModels ?? getPiModels());
   if (engine === "agnes") return agnesProvider;
   if (engine === "openai") return openaiProvider;
   if (engine === "openai-chat") return openaiChatProvider;

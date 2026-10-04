@@ -29,7 +29,7 @@ test("message capture truncates by UTF-8 bytes and replaces client authority", (
 });
 
 test("message action invocation only calls a contributed active tool with host-owned capture fields", async () => {
-  let invoked: { toolId: string; input: unknown } | null = null;
+  const captured: { invoked?: { toolId: string; input: unknown } } = {};
   const host = {
     listCatalog: () => [{
       id: "capture-app",
@@ -38,7 +38,7 @@ test("message action invocation only calls a contributed active tool with host-o
       messageActions: [{ tool: "save", label: { zh: "保存", en: "Save" }, accepts: ["text"] }]
     }],
     invokeTool: async (toolId: string, input: unknown) => {
-      invoked = { toolId, input };
+      captured.invoked = { toolId, input };
       return { content: [{ type: "text" as const, text: "saved" }], structuredContent: { id: "1" } };
     }
   } as unknown as MiniAppHost;
@@ -58,8 +58,8 @@ test("message action invocation only calls a contributed active tool with host-o
     content: [{ type: "text", text: "saved" }],
     structuredContent: { id: "1" }
   });
-  assert.equal(invoked?.toolId, "miniapp__capture-app__save");
-  assert.deepEqual(invoked?.input, {
+  assert.equal(captured.invoked?.toolId, "miniapp__capture-app__save");
+  assert.deepEqual(captured.invoked?.input, {
     capture: {
       text: "hello",
       role: "assistant",

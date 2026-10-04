@@ -98,7 +98,7 @@ export function getReadToolDefinition(options: ReadToolOptions): ToolDefinition 
               error: `Image is too large to read (${formatSize(bytes.length)}, max ${formatSize(MAX_IMAGE_BYTES)}) and could not be resized below that limit.`
             };
           }
-          dimensionNote = formatDimensionNote(resized);
+          dimensionNote = formatDimensionNote(resized) ?? "";
           image = { type: "image", mimeType: resized.mimeType, data: resized.data };
         }
 

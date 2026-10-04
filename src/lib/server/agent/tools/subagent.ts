@@ -867,7 +867,7 @@ async function runSubagentOnce(
   const sessionUsage = (): UsageStats => {
     const usage = session.state.usage;
     return usage ? { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite,
-      total: usage.totalTokens, cost: usage.cost.total, turns: session.state.budget?.modelAttempts ?? buildUsage(session.state.messages).turns } : buildUsage(session.state.messages);
+      total: usage.totalTokens, cost: usage.cost.total, turns: session.state.budget?.modelTurns ?? buildUsage(session.state.messages).turns } : buildUsage(session.state.messages);
   };
 
   momLog("runner", "subagent_session_created", {

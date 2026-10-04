@@ -6,7 +6,7 @@
   import Pen from "./lib/icons/duotone/components/Pen.svelte";
   import Sidebar from "./lib/icons/duotone/components/Sidebar.svelte";
   import X from "reicon-svelte/icons/X";
-  import type { EmptyActionIcon } from "./lib/chat/activityIcons";
+  import { emptyQuickStarts } from "./lib/chat/emptyQuickStarts";
   import { onDestroy, onMount, tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -130,8 +130,10 @@
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
   import ConversationPromptNavigator from "./lib/chat/ConversationPromptNavigator.svelte";
   import { PROMPT_NAVIGATOR_MIN_TURNS } from "./lib/chat/conversationNavigation";
+  import { shouldSubmitComposer, thinkingSelectionLabel } from "./lib/chat/composerInput";
   import RoomWorkspace from "./lib/chat/RoomWorkspace.svelte";
   import { roomsCopy } from "./lib/chat/roomsCopy";
+  import type { AgentRoom } from "@molibot/shared/rooms";
   import { loadDesktopRooms } from "./lib/api";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
@@ -144,7 +146,7 @@
   import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
   import MiniAppsQuickMenu from "./lib/miniapps/MiniAppsQuickMenu.svelte";
-  import { projectsStore, projectsView, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
+  import { projectsStore, projectsView, refreshProjectSessionList, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
   import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
@@ -344,6 +346,10 @@
   const SIDEBAR_TREE_KEY = "molibot-desktop-sidebar-tree-v2";
   let conversationsExpanded = true;
   let projectsExpanded = true;
+  let roomsExpanded = true;
+  let sidebarRooms: AgentRoom[] = [];
+  let roomsLoadGeneration = 0;
+  let roomStartEditing = false;
   let expandedChannels: Record<DesktopConversationChannel, boolean> = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
   let channelItems: Record<string, DesktopConversationItem[]> = {};
   let channelHasMore: Record<string, boolean> = {};
@@ -366,6 +372,7 @@
   let viewMode: "local" | "external" = "local";
   let projectPaneActive = false;
   let activeProjectSessionId = "";
+  let roomWorkspace: RoomWorkspace;
   let roomPaneActive = false;
   let requestedRoomId = "";
   let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
@@ -515,6 +522,11 @@
   const SIDEBAR_MIN = 228;
   const SIDEBAR_MAX = 420;
   const SIDEBAR_COLLAPSE_THRESHOLD = 160;
+  // Mirrors `--sidebar-rail-w` in styles.css. The collapsed rail stays visible
+  // at all times; the conversation/project list opens as a flyout beside it.
+  const SIDEBAR_RAIL_W = 48;
+  type CollapsedFlyout = "conversations" | "projects" | "rooms" | null;
+  let collapsedFlyout: CollapsedFlyout = null;
   let sidebarMaxWidth = SIDEBAR_MAX;
   let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || SIDEBAR_DEFAULT);
   let lastExpandedSidebarWidth = sidebarWidth >= SIDEBAR_MIN ? sidebarWidth : SIDEBAR_DEFAULT;
@@ -569,15 +581,22 @@
   function toggleSidebarCollapse(): void {
     sidebarCollapsed = !sidebarCollapsed;
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
+    // Either direction starts with no flyout; the lists stay one click away.
+    collapsedFlyout = null;
     if (!sidebarCollapsed && sidebarWidth < SIDEBAR_MIN) {
       sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
     }
   }
+  // Opening one list closes the other; clicking the open one closes the flyout.
+  function toggleCollapsedFlyout(section: Exclude<CollapsedFlyout, null>): void {
+    collapsedFlyout = collapsedFlyout === section ? null : section;
+  }
   // The collapsed title-bar cluster's new-chat slot: a fresh draft only reads as
-  // feedback if the session list is visible, so the sidebar expands with it.
+  // feedback if the session list is visible, so open the conversation flyout
+  // (the sidebar itself stays collapsed).
   function newChatFromCollapsedSidebar(): void {
-    if (sidebarCollapsed) toggleSidebarCollapse();
+    if (sidebarCollapsed) collapsedFlyout = "conversations";
     newConversation();
   }
   function startSidebarResize(event: PointerEvent): void {
@@ -721,14 +740,21 @@
       ? windowWidth - sidebar - CHAT_MIN
       : windowWidth - sidebar - CHAT_MIN_NARROW);
   }
-  $: filesMaxWidth = inspectorVisible ? filesCap(viewportWidth, sidebarWidth) : Number.POSITIVE_INFINITY;
+  // What the first grid track reserves: the full sidebar, or the rail plus its
+  // flyout. The flyout reuses the remembered expanded width (see `sidebarWidth`).
+  $: reservedSidebarWidth = sidebarCollapsed
+    ? SIDEBAR_RAIL_W + (collapsedFlyout ? sidebarWidth : 0)
+    : sidebarWidth;
+  $: filesMaxWidth = inspectorVisible ? filesCap(viewportWidth, reservedSidebarWidth) : Number.POSITIVE_INFINITY;
   $: sidebarMaxWidth = !inspectorVisible
     ? SIDEBAR_MAX
     : Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, viewportWidth - Math.min(filesWidth, filesMaxWidth) - (threeColumn ? CHAT_MIN : CHAT_MIN_NARROW)));
   // The stored width is the user's preference; only what the grid gets is capped,
   // so shrinking the window never destroys the panel width they asked for.
   $: effectiveFilesWidth = Math.min(filesWidth, filesMaxWidth);
-  $: effectiveSidebarWidth = sidebarCollapsed ? 0 : Math.min(sidebarWidth, sidebarMaxWidth);
+  $: effectiveSidebarWidth = sidebarCollapsed
+    ? SIDEBAR_RAIL_W + (collapsedFlyout ? Math.max(0, Math.min(sidebarWidth, sidebarMaxWidth - SIDEBAR_RAIL_W)) : 0)
+    : Math.min(sidebarWidth, sidebarMaxWidth);
 
   // The nav never collapses on its own: only the collapse button or dragging the
   // divider past the threshold may change `sidebarCollapsed`. A narrow window
@@ -741,7 +767,7 @@
     // enlarges the panel — the file you opened — instead of the chat. With no
     // Inspector the transcript keeps absorbing the growth as before.
     if (inspectorVisible && delta !== 0) {
-      filesWidth = Math.min(filesCap(viewportWidth, sidebarWidth), Math.max(FILES_MIN, Math.round(filesWidth + delta)));
+      filesWidth = Math.min(filesCap(viewportWidth, reservedSidebarWidth), Math.max(FILES_MIN, Math.round(filesWidth + delta)));
     }
   }
 
@@ -1040,19 +1066,7 @@
   // is kept for the dropdown + tooltip.
   $: activeModelLabel = activeModelOption?.alias
     || (humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model);
-  function thinkingLabelFor(level: DesktopThinkingSelection): string {
-    if (level === "auto") return copy.providerThinkingAuto;
-    return {
-    off: copy.thinkingOff,
-    minimal: copy.thinkingMinimal,
-    low: copy.thinkingLow,
-    medium: copy.thinkingMedium,
-    high: copy.thinkingHigh,
-    xhigh: copy.thinkingXHigh,
-    max: copy.thinkingMax
-    }[level as DesktopThinkingLevel];
-  }
-  $: thinkingLabel = thinkingLabelFor(clampedThinkingLevel);
+  $: thinkingLabel = thinkingSelectionLabel(copy, clampedThinkingLevel);
   $: if (requestedWorkspacePane !== appliedRequestedWorkspacePane) {
     appliedRequestedWorkspacePane = requestedWorkspacePane;
     workspacePane = requestedWorkspacePane;
@@ -1497,6 +1511,7 @@
 
       connectionReady = true;
       loading = false;
+      void loadRooms();
       startAutomationUnreadPolling();
       startDurableExecutionPolling();
       const restoreView = reconnectRestore;
@@ -1582,6 +1597,7 @@
       const saved = JSON.parse(localStorage.getItem(SIDEBAR_TREE_KEY) || "{}");
       conversationsExpanded = saved.conversationsExpanded !== false;
       projectsExpanded = saved.projectsExpanded !== false;
+      roomsExpanded = saved.roomsExpanded !== false;
       if (saved.expandedChannels && typeof saved.expandedChannels === "object") {
         expandedChannels = { ...expandedChannels, ...saved.expandedChannels };
       }
@@ -1589,12 +1605,102 @@
   }
 
   function persistSidebarTree(): void {
-    localStorage.setItem(SIDEBAR_TREE_KEY, JSON.stringify({ conversationsExpanded, projectsExpanded, expandedChannels }));
+    localStorage.setItem(SIDEBAR_TREE_KEY, JSON.stringify({ conversationsExpanded, projectsExpanded, roomsExpanded, expandedChannels }));
   }
 
   /** Loads every channel the sidebar currently has expanded. */
   async function loadExpandedChannels(): Promise<void> {
     await Promise.all((Object.entries(expandedChannels) as Array<[DesktopConversationChannel, boolean]>).filter(([, open]) => open).map(([channel]) => loadChannel(channel)));
+  }
+
+  // Rooms live as a sidebar list section (like conversations and projects), so
+  // the sidebar owns a snapshot and the room pane only opens a selected room.
+  async function loadRooms(): Promise<void> {
+    const requestEndpoint = connectedEndpoint;
+    if (!requestEndpoint) return;
+    const generation = ++roomsLoadGeneration;
+    try {
+      const result = await loadDesktopRooms(requestEndpoint);
+      if (generation === roomsLoadGeneration && requestEndpoint === connectedEndpoint) sidebarRooms = result.rooms;
+    } catch { /* the sidebar keeps the previous snapshot */ }
+  }
+
+  function roomMeta(room: AgentRoom): string {
+    const count = room.participants.filter(participant => participant.active).length;
+    const project = projectsStore.projects.find(project => project.id === room.projectId)?.name ?? roomsCopy[locale].regular;
+    return `${count} · ${project}`;
+  }
+
+  function openRoom(roomId: string): void {
+    browserOpen = false;
+    closeExternalTranscript();
+    roomPaneActive = true;
+    requestedRoomId = roomId;
+    roomStartEditing = false;
+    projectPaneActive = false;
+    workspacePane = "chat";
+    viewMode = "local";
+    const item = (channelItems.web ?? []).find(entry => entry.roomId === roomId);
+    if (item) persistSelected(item.botId, item.sessionId);
+  }
+
+  function createRoom(): void {
+    browserOpen = false;
+    closeExternalTranscript();
+    roomPaneActive = true;
+    requestedRoomId = "";
+    roomStartEditing = true;
+    projectPaneActive = false;
+    workspacePane = "chat";
+    viewMode = "local";
+  }
+
+  // Clicking a list section's heading returns to that section's content (not
+  // just expanding the list), so a workspace destination like 技能 never traps
+  // the reader away from their last conversation/project/room. Collapsing stays
+  // on the caret.
+  function openConversationsSection(): void {
+    if (!conversationsExpanded) { conversationsExpanded = true; persistSidebarTree(); }
+    roomPaneActive = false;
+    projectPaneActive = false;
+    collapsedFlyout = null;
+    workspacePane = "chat";
+    viewMode = "local";
+    closeExternalTranscript();
+    if (!activeSessionId) {
+      const web = channelItems.web ?? [];
+      if (web[0]) openSession(web[0]);
+    }
+  }
+
+  function openProjectsSection(): void {
+    if (!projectsExpanded) { projectsExpanded = true; persistSidebarTree(); }
+    roomPaneActive = false;
+    collapsedFlyout = null;
+    projectPaneActive = true;
+    workspacePane = "chat";
+    viewMode = "local";
+    closeExternalTranscript();
+    if (projectsStore.selectedSessionId) {
+      activeProjectSessionId = projectsStore.selectedSessionId;
+      return;
+    }
+    const project = projectsStore.projects[0];
+    if (!project) return;
+    void refreshProjectSessionList(project.id).then(() => {
+      const session = projectsStore.sessionsByProject[project.id]?.[0];
+      if (!session) return;
+      activeProjectSessionId = session.conversationId;
+      void selectProjectSession(session.conversationId, project.id);
+    });
+  }
+
+  function openRoomsSection(): void {
+    if (!roomsExpanded) { roomsExpanded = true; persistSidebarTree(); }
+    collapsedFlyout = null;
+    if (roomPaneActive && requestedRoomId) return;
+    if (sidebarRooms[0]) openRoom(sidebarRooms[0].id);
+    else createRoom();
   }
 
   /**
@@ -1606,6 +1712,10 @@
    * "clicked a session, got a new conversation".
    */
   function captureViewForRestore(): (() => void) | null {
+    if (roomPaneActive && requestedRoomId) {
+      const roomId = requestedRoomId;
+      return () => { roomPaneActive = true; requestedRoomId = roomId; roomStartEditing = false; projectPaneActive = false; };
+    }
     if (projectPaneActive) {
       const projectId = projectsStore.selectedProjectId;
       const sessionId = projectsStore.selectedSessionId;
@@ -1646,8 +1756,7 @@
       : null;
     const target = lastItem ?? webItems[0] ?? null;
     if (target) {
-      chatStore.selectSession(target.botId, target.sessionId);
-      void refreshFiles(target.botId, target.sessionId);
+      openSession(target);
     } else {
       chatStore.newConversationDraft(defaultBot());
     }
@@ -1733,6 +1842,11 @@
     persistSidebarTree();
   }
 
+  function toggleRooms(): void {
+    roomsExpanded = !roomsExpanded;
+    persistSidebarTree();
+  }
+
   function newConversationWithBot(botId: string): void {
     if (!connectedEndpoint) return;
     workspacePane = "chat";
@@ -1779,7 +1893,11 @@
   function openSession(item: DesktopConversationItem): void {
     roomPaneActive = Boolean(item.roomId);
     requestedRoomId = item.roomId ?? "";
-    if (item.roomId) { projectPaneActive = false; return; }
+    roomStartEditing = false;
+    if (item.roomId) {
+      openRoom(item.roomId);
+      persistSelected(item.botId, item.sessionId); return;
+    }
     browserOpen = false;
     expandedChannels = { ...expandedChannels, [item.channel]: true };
     persistSidebarTree();
@@ -2758,8 +2876,7 @@
     // confirm keystroke arrives as Enter too; WebKit fires it after
     // compositionend with keyCode still 229, so isComposing alone misses it
     // and the composition would be "sent" instead of committed.
-    if (event.isComposing || event.keyCode === 229) return;
-    if (event.key !== "Enter" || event.shiftKey || event.altKey) return;
+    if (!shouldSubmitComposer(event)) return;
     event.preventDefault();
     if (sending) queueFollowUp();
     else void sendMessage();
@@ -2961,6 +3078,9 @@
     } else if (event.key === "Escape" && searchOpen) {
       event.preventDefault();
       void toggleSearch();
+    } else if (event.key === "Escape" && collapsedFlyout) {
+      event.preventDefault();
+      collapsedFlyout = null;
     }
   }
 
@@ -3096,6 +3216,7 @@
 
   function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
     roomPaneActive = false;
+    collapsedFlyout = null;
     const next = openWorkspacePaneState(pane);
     workspacePane = next.workspacePane;
     projectPaneActive = next.projectPaneActive;
@@ -3197,10 +3318,15 @@
     return bytes;
   }
 
+  function receiveRecording(files: File[]): void {
+    if (roomPaneActive) roomWorkspace?.addFiles(files);
+    else pendingFiles = [...pendingFiles, ...files];
+  }
+
   async function toggleRecording(): Promise<void> {
     if (recordingBusy) return;
     if (recording) { void finishRecording(true); return; }
-    if (!activeSessionId || !modelReady) return;
+    if ((!activeSessionId && !roomPaneActive) || !modelReady) return;
     recordingError = "";
 
     if (isTauriRuntime()) {
@@ -3260,7 +3386,7 @@
         if (bytes.length === 0) return;
         const mimeType = result.mimeType || "audio/wav";
         const file = new File([bytes.buffer as ArrayBuffer], `recording-${Date.now()}.wav`, { type: mimeType });
-        pendingFiles = [...pendingFiles, file];
+        receiveRecording([file]);
       } catch (cause) {
         recordingError = cause instanceof Error ? cause.message : String(cause);
         try { await invoke("cancel_recording"); } catch { /* ignore */ }
@@ -3287,7 +3413,7 @@
     const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
     const ext = (blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm");
     const file = new File([blob], `recording-${Date.now()}.${ext}`, { type: blob.type });
-    pendingFiles = [...pendingFiles, file];
+    receiveRecording([file]);
   }
 
   onDestroy(() => {
@@ -3396,6 +3522,7 @@
     channels={sidebarChannels}
     {conversationsExpanded}
     {projectsExpanded}
+    {roomsExpanded}
     activeWorkspacePane={workspacePane}
     {automationUnreadCount}
     {expandedChannels}
@@ -3405,22 +3532,35 @@
     {channelLoadingMore}
     activeSessionId={sidebarActiveSessionId}
     {activeProjectSessionId}
+    activeRoomId={roomPaneActive ? requestedRoomId : ""}
+    rooms={sidebarRooms}
+    {roomMeta}
     endpoint={connectedEndpoint}
     serviceState={serviceState}
     {statusDots}
     formatTime={formatListTime}
+    collapsed={sidebarCollapsed}
+    {collapsedFlyout}
+    onToggleFlyout={toggleCollapsedFlyout}
     onNewConversation={newConversation}
     roomsLabel={roomsCopy[locale].title}
-    onOpenRooms={() => { roomPaneActive = true; requestedRoomId = ""; projectPaneActive = false; }}
+    roomsCreateLabel={roomsCopy[locale].newRoom}
+    roomsEmptyLabel={roomsCopy[locale].empty}
     onOpenAutoTasks={() => openWorkspacePane("automations")}
     onOpenSkills={() => openWorkspacePane("skills")}
     onOpenAgents={() => openWorkspacePane("agents")}
     onOpenPlans={() => openWorkspacePane("plans")}
     onOpenSettings={() => openSettings()}
+    onOpenConversations={openConversationsSection}
+    onOpenProjects={openProjectsSection}
+    onOpenRooms={openRoomsSection}
     onToggleConversations={toggleConversations}
     onToggleProjects={toggleProjects}
+    onToggleRooms={toggleRooms}
     onToggleChannel={(channel) => toggleChannel(channel as DesktopConversationChannel)}
     onSelectSession={openSession}
+    onSelectRoom={openRoom}
+    onCreateRoom={createRoom}
     onMoreChannel={(channel) => void loadMoreChannel(channel as DesktopConversationChannel)}
     onRenameSession={renameSession}
     onDeleteSession={deleteSession}
@@ -3430,6 +3570,7 @@
       roomPaneActive = false;
       const selectedId = projectsStore.selectedSessionId;
       void loadDesktopRooms(connectedEndpoint).then(result => {
+        if (connectedEndpoint) sidebarRooms = result.rooms;
         if (projectsStore.selectedSessionId === selectedId && result.rooms.some(r => r.id === selectedId)) { requestedRoomId = selectedId; roomPaneActive = true; }
       });
       projectPaneActive = true;
@@ -3460,7 +3601,20 @@
   ></div>
 
   {#if roomPaneActive}
-    <RoomWorkspace endpoint={connectedEndpoint} {copy} {locale} {requestedRoomId} onSessionChanged={() => { void loadExpandedChannels(); }} />
+    <RoomWorkspace bind:this={roomWorkspace} draftStore={chatStore.draftStore} endpoint={connectedEndpoint} {copy} {locale} {requestedRoomId}
+      startInCreate={roomStartEditing}
+      onSelectRoom={id => {
+        requestedRoomId = id;
+        roomStartEditing = false;
+        const item = (channelItems.web ?? []).find(item => item.roomId === id);
+        if (item) persistSelected(item.botId, item.sessionId);
+      }}
+      onExit={() => { roomPaneActive = false; requestedRoomId = ""; roomStartEditing = false; }}
+      {modelOptions} defaultThinking={globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel} autoAvailable={globalAutoAvailable}
+      {recording} {recordingSeconds} {recordingError} {pendingAudioUrls} {inferAttachmentKind}
+      onToggleRecording={toggleRecording} onFinishRecording={(send) => void finishRecording(send)}
+      onDismissRecordingError={() => recordingError = ""} onOpenSettings={() => openSettings()}
+      onSessionChanged={() => { void loadExpandedChannels(); void loadRooms(); }} />
   {:else if projectPaneActive}
     <ProjectDetail
       {copy}
@@ -3642,11 +3796,7 @@
         emptyHint={copy.emptyChatHint}
         emptyActionLabel={copy.emptyChatQuickStart}
         emptyActionHint={copy.emptyChatQuickStartHint}
-        emptyActions={messageInput.trim() ? [] : [
-          { icon: "list-checks", label: copy.emptyChatPlanLabel, prompt: copy.emptyChatPlanPrompt },
-          { icon: "magnifying-glass", label: copy.emptyChatAnalyzeLabel, prompt: copy.emptyChatAnalyzePrompt },
-          { icon: "notebook", label: copy.emptyChatOrganizeLabel, prompt: copy.emptyChatOrganizePrompt }
-        ] satisfies { icon: EmptyActionIcon; label: string; prompt: string }[]}
+        emptyActions={messageInput.trim() ? [] : emptyQuickStarts(copy)}
         onEmptyAction={fillEmptyPrompt}
         {searchMatchIds}
         {activeMatchId}

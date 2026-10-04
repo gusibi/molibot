@@ -10,11 +10,11 @@
 </script>
 
 <div class="slash-suggestions" role="listbox" aria-label={copy.slashMenuLabel}>
-  {#each ["command", "skill", "miniapp", "file"] as kind}
+  {#each ["agent", "command", "skill", "miniapp", "file"] as kind}
     {@const items = suggestions.filter((item) => item.kind === kind)}
     {#if items.length}
-      <div class="slash-suggestion-group" role="group" aria-label={kind === "command" ? copy.slashGroupCommand : kind === "skill" ? copy.slashGroupSkill : kind === "miniapp" ? copy.slashGroupMiniapp : copy.slashGroupFile}>
-        <div class="slash-suggestion-heading">{kind === "command" ? copy.slashGroupCommand : kind === "skill" ? copy.slashGroupSkill : kind === "miniapp" ? copy.slashGroupMiniapp : copy.slashGroupFile}</div>
+      <div class="slash-suggestion-group" role="group" aria-label={kind === "agent" ? "Agent" : kind === "command" ? copy.slashGroupCommand : kind === "skill" ? copy.slashGroupSkill : kind === "miniapp" ? copy.slashGroupMiniapp : copy.slashGroupFile}>
+        <div class="slash-suggestion-heading">{kind === "agent" ? "Agent" : kind === "command" ? copy.slashGroupCommand : kind === "skill" ? copy.slashGroupSkill : kind === "miniapp" ? copy.slashGroupMiniapp : copy.slashGroupFile}</div>
         {#each items as item (item.id)}
           {@const index = suggestions.indexOf(item)}
           {@const SuggestionIcon = INVOCATION_ICONS[item.kind] ?? INVOCATION_ICONS.file}

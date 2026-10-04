@@ -1,7 +1,8 @@
+import { roomMentionIds } from "$lib/shared/roomMentions.js";
 import { randomUUID } from "node:crypto";
 import type { AgentSettings } from "$lib/server/settings/schema.js";
 import { retentionCapabilities, classifyTurnRetention } from "$lib/server/sessions/retentionPolicy.js";
-import type { AgentRoom, RoomDispatch, RoomExecution, RoomMessage, RoomSubmission, RoomView, RoomPermissionMode } from "$lib/shared/rooms.js";
+import type { AgentRoom, RoomSession, RoomDispatch, RoomExecution, RoomMessage, RoomSubmission, RoomView, RoomPermissionMode } from "$lib/shared/rooms.js";
 import type { ConversationActivity } from "$lib/shared/types/message.js";
 import { RoomStore } from "./store.js";
 
@@ -15,14 +16,15 @@ export interface RoomRunner {
   abort(): void;
   steer(text: string): boolean;
 }
-export interface RoomRunnerInput extends RoomExecution { room: AgentRoom; agent: AgentSettings; assertAuthority: () => void }
+export interface RoomRunnerInput extends RoomExecution { room: AgentRoom; session: RoomSession; agent: AgentSettings; assertAuthority: () => void }
 export interface RoomServiceDeps {
   store: RoomStore;
   agents: () => AgentSettings[];
-  createSession: (input: { title: string; projectId?: string }) => { id: string };
+  createSession: (input: { title: string; projectId?: string; roomId?: string }) => { id: string };
   isSessionAvailable: (id: string) => boolean;
   createRunner: (input: RoomRunnerInput) => RoomRunner;
-  contextAllowance?: (room: AgentRoom, agentId: string, input: RoomSubmission) => number;
+  memberModelKey?: (room: AgentRoom, agent: AgentSettings) => string;
+  contextAllowance?: (room: AgentRoom, agentId: string, input: RoomSubmission, session: RoomSession) => number;
   deleteSession?: (id: string) => void;
   renameSession?: (id: string, title: string) => void;
   assertApprovalAuthority?: (execution: RoomExecution) => void;
@@ -59,41 +61,72 @@ export class RoomService {
     const session = this.deps.createSession(input);
     const room: AgentRoom = { id: session.id, title: input.title.trim(), primaryAgentId, projectId: input.projectId,
       permissionMode: input.permissionMode, createdAt: new Date().toISOString(),
-      participants: ids.map(agentId => ({ agentId, contextId: randomUUID(), active: true })) };
+      participants: ids.map(agentId => ({ agentId, active: true })) };
     this.deps.store.create(room);
+    this.deps.store.addSession({ id: session.id, roomId: room.id, title: "", createdAt: room.createdAt,
+      contexts: ids.map(agentId => ({ agentId, contextId: randomUUID() })) });
     return room;
   }
   list(): AgentRoom[] { return this.deps.store.list().filter(r => this.deps.isSessionAvailable(r.id)); }
-  view(id: string): RoomView {
-    const executions = this.deps.store.executions(id);
-    return { room: this.room(id), messages: this.deps.store.messages(id), executions: executions.map(e => {
-      const busy = executions.filter(other => ["running", "waiting_approval", "cancelling"].includes(other.status));
+  private session(roomId: string, sessionId?: string): RoomSession {
+    const sessions = this.deps.store.sessions(roomId).filter(s => this.deps.isSessionAvailable(s.id));
+    const session = sessionId ? sessions.find(s => s.id === sessionId) : sessions[0];
+    if (!session || !this.deps.isSessionAvailable(session.id)) throw new Error("Room conversation unavailable");
+    return session;
+  }
+  newSession(id: string): RoomSession {
+    if (this.disposed) throw new Error("Room service is stopping");
+    const room = this.room(id);
+    const created = this.deps.createSession({ title: room.title, projectId: room.projectId, roomId: room.id });
+    const session: RoomSession = { id: created.id, roomId: id, title: "", createdAt: new Date().toISOString(),
+      contexts: room.participants.map(p => ({ agentId: p.agentId, contextId: randomUUID() })) };
+    this.deps.store.addSession(session);
+    this.changed(id, undefined, session.id);
+    return session;
+  }
+  view(id: string, sessionId?: string): RoomView {
+    const session = this.session(id, sessionId);
+    const executions = this.deps.store.executions(id, session.id);
+    const messages = this.deps.store.messages(id, session.id);
+    const lastUser = messages.findLast(message => message.role === "user");
+    const lastInput = lastUser ? this.deps.store.dispatchesInput(lastUser.dispatchId) : null;
+    const room = this.room(id);
+    const allExecutions = this.deps.store.executions(id);
+    const agents = this.deps.agents();
+    const memberModelKeys = Object.fromEntries(room.participants.filter(p => p.active).map(p => {
+      const agent = agents.find(a => a.id === p.agentId && a.enabled !== false);
+      return [p.agentId, agent ? this.deps.memberModelKey?.(room, agent) ?? "" : ""];
+    }));
+    return { room, session, sessions: this.deps.store.sessions(id).filter(s => this.deps.isSessionAvailable(s.id)), memberModelKeys, messages, composerSelection: lastInput ? { modelKey: lastInput.modelKey, thinkingLevel: lastInput.thinkingLevel } : undefined, executions: executions.map(e => {
+      const busy = allExecutions.filter(other => ["running", "waiting_approval", "cancelling"].includes(other.status));
       const participant = e.status === "queued" ? busy.find(other => other.contextId === e.contextId) : undefined;
-      const writer = e.status === "queued" && e.mode === "direct" ? busy.find(other => other.mode === "direct") ?? executions.find(other => other.order < e.order && other.mode === "direct" && other.status === "queued") : undefined;
+      const writer = e.status === "queued" && e.mode === "direct" ? busy.find(other => other.mode === "direct") ?? allExecutions.find(other => other.order < e.order && other.mode === "direct" && other.status === "queued") : undefined;
       const blocker = participant ?? writer;
       return { ...e, operations: this.deps.store.operations(e.id), blockedBy: blocker ? { agentId: blocker.agentId, executionId: blocker.id, reason: participant ? "participant_busy" as const : "writer_busy" as const, waitingApproval: blocker.status === "waiting_approval" } : undefined };
     }) };
 
   }
   attachments(id: string, ids: string[]) { this.room(id); return this.deps.store.files(id, ids); }
-  private recipients(room: AgentRoom, input: RoomSubmission): string[] {
-    const quote = input.replyToId ? this.deps.store.messages(room.id).find(m => m.id === input.replyToId) : undefined;
+  private recipients(room: AgentRoom, input: RoomSubmission, session: RoomSession): string[] {
+    const quote = input.replyToId ? this.deps.store.messages(room.id, session.id).find(m => m.id === input.replyToId) : undefined;
     if (input.replyToId && !quote) throw new Error("Reply target unavailable");
-    if (quote?.executionId && !this.deps.store.executions(room.id).some(e => e.id === quote.executionId && e.status === "completed")) throw new Error("This reply is not a completed source; retry its execution instead");
+    if (quote?.executionId && !this.deps.store.executions(room.id, session.id).some(e => e.id === quote.executionId && e.status === "completed")) throw new Error("This reply is not a completed source; retry its execution instead");
     if (quote && !retentionCapabilities(quote.retention).futureContext) throw new Error("This message is not eligible for later context");
-    const ids = input.agentIds?.length ? [...new Set(input.agentIds)] : [quote?.authorAgentId ?? room.primaryAgentId];
+    const mentioned = roomMentionIds(input.text, this.deps.agents().filter(agent => room.participants.some(p => p.active && p.agentId === agent.id)));
+    const explicit = [...new Set([...(input.agentIds ?? []), ...mentioned])];
+    const ids = explicit.length ? explicit : [quote?.authorAgentId ?? room.primaryAgentId];
     for (const id of ids) {
       this.agent(id);
       if (!room.participants.some(p => p.agentId === id && p.active)) throw new Error(`Agent is not a current Room member: ${id}`);
     }
     return ids;
   }
-  private snapshot(room: AgentRoom, input: RoomSubmission, ids: string[]): RoomMessage[] {
-    const allowance = Math.min(6_000, ...ids.map(id => this.deps.contextAllowance?.(room, id, input) ?? 6_000));
+  private snapshot(room: AgentRoom, input: RoomSubmission, ids: string[], session: RoomSession): RoomMessage[] {
+    const allowance = Math.min(6_000, ...ids.map(id => this.deps.contextAllowance?.(room, id, input, session) ?? 6_000));
     if (allowance < 0) throw new Error("Required input exceeds a recipient's context allowance");
     let budget = Math.max(0, Math.floor(allowance * 2) - 200);
-    const completed = new Set(this.deps.store.executions(room.id).filter(e => e.status === "completed").map(e => e.id));
-    const history = this.deps.store.messages(room.id).filter(m => retentionCapabilities(m.retention).futureContext && (!m.executionId || completed.has(m.executionId)));
+    const completed = new Set(this.deps.store.executions(room.id, session.id).filter(e => e.status === "completed").map(e => e.id));
+    const history = this.deps.store.messages(room.id, session.id).filter(m => retentionCapabilities(m.retention).futureContext && (!m.executionId || completed.has(m.executionId)));
     const quote = history.find(m => m.id === input.replyToId);
     const selected: RoomMessage[] = [];
     const candidates = [...(quote ? [quote] : []), ...history.filter(m => m.id !== quote?.id).reverse()];
@@ -106,39 +139,46 @@ export class RoomService {
       selected.push({ ...m, content });
       budget -= overhead + content.length;
     }
+    if (quote && !selected.some(m => m.id === quote.id)) throw new Error("The quoted message cannot fit the recipients' context allowance. Remove the quote or send less input.");
     return selected.sort((a, b) => a.sequence - b.sequence);
   }
-  send(id: string, raw: RoomSubmission): RoomDispatch {
+  send(id: string, raw: RoomSubmission, sessionId?: string): RoomDispatch {
     if (this.disposed) throw new Error("Room service is stopping");
     const room = this.room(id);
+    const session = this.session(id, sessionId);
     const input: RoomSubmission = { submissionId: raw.submissionId, text: raw.text.trim(), agentIds: raw.agentIds ? [...new Set(raw.agentIds)].sort() : undefined,
-      replyToId: raw.replyToId, attachments: raw.attachments ?? [] };
+      replyToId: raw.replyToId, attachments: raw.attachments ?? [], modelKey: raw.modelKey || undefined, thinkingLevel: raw.thinkingLevel };
     if (!input.submissionId || (!input.text && !input.attachments?.length)) throw new Error("Submission ID and message are required");
+    if (this.deps.store.resumeSubmission(id, input.submissionId)) throw new Error("Submission ID has a different payload");
     const existing = this.deps.store.dispatch(id, input.submissionId);
     if (existing) {
-      if (JSON.stringify(existing.input) !== JSON.stringify(input)) throw new Error("Submission ID has a different payload");
+      if (existing.dispatch.sessionId !== session.id || JSON.stringify(existing.input) !== JSON.stringify(input)) throw new Error("Submission ID has a different payload");
       return existing.dispatch;
     }
-    const ids = this.recipients(room, input);
-    const snapshot = this.snapshot(room, input, ids);
+    const ids = this.recipients(room, input, session);
+    const snapshot = this.snapshot(room, input, ids, session);
     const ownRetention = classifyTurnRetention(input.text);
     const retention = snapshot.reduce((policy, m) => retentionRank[m.retention] > retentionRank[policy] ? m.retention : policy, ownRetention);
-    const dispatch = { id: randomUUID(), roomId: id, submissionId: input.submissionId };
+    const dispatch = { id: randomUUID(), roomId: id, sessionId: session.id, submissionId: input.submissionId };
     const now = new Date().toISOString();
     this.deps.store.transaction(() => {
       this.deps.store.addDispatch(dispatch, input);
+      this.deps.store.nameSession(session.id, input.text.replace(/\s+/g, " ").slice(0, 60));
       this.deps.store.addMessage({ id: randomUUID(), roomId: id, role: "user", content: input.text, dispatchId: dispatch.id,
         replyToId: input.replyToId, retention: ownRetention, createdAt: now, attachments: input.attachments });
       for (const agentId of ids) this.deps.store.addExecution({ id: randomUUID(), roomId: id, dispatchId: dispatch.id, agentId,
-        contextId: room.participants.find(p => p.agentId === agentId)!.contextId, status: "queued", mode: ids.length > 1 ? "plan" : "direct",
+        contextId: session.contexts.find(p => p.agentId === agentId)!.contextId, status: "queued", mode: ids.length > 1 ? "discussion" : "direct",
         text: input.text, snapshot, retention, partialText: "", createdAt: now });
     });
-    this.changed(id);
+    this.changed(id, undefined, session.id);
     this.pump(id);
     return dispatch;
   }
-  private changed(roomId: string, e?: RoomExecution) {
-    try { this.deps.syncTranscript?.(roomId, this.deps.store.messages(roomId)); }
+  private changed(roomId: string, e?: RoomExecution, sessionId = e?.sessionId) {
+    try {
+      const ids = sessionId ? [sessionId] : this.deps.store.sessions(roomId).map(session => session.id);
+      for (const id of ids) this.deps.syncTranscript?.(id, this.deps.store.messages(roomId, id));
+    }
     catch { this.deps.store.event({ roomId, type: "changed", payload: { errorCode: "ROOM_SESSION_PROJECTION_FAILED" } }); }
     this.deps.store.event({ roomId, dispatchId: e?.dispatchId, executionId: e?.id, agentId: e?.agentId, type: "changed", payload: null });
   }
@@ -162,7 +202,7 @@ export class RoomService {
   }
   private start(e: RoomExecution) {
     let runner: RoomRunner;
-    try { runner = this.deps.createRunner({ ...e, room: this.room(e.roomId), agent: structuredClone(this.agent(e.agentId)), assertAuthority: () => this.assertAuthority(e) }); }
+    try { runner = this.deps.createRunner({ ...e, room: this.room(e.roomId), session: this.session(e.roomId, e.sessionId), agent: structuredClone(this.agent(e.agentId)), assertAuthority: () => this.assertAuthority(e) }); }
     catch (error) { this.deps.store.state(e.id, "failed", String(error)); this.deps.store.release(e); this.changed(e.roomId, e); queueMicrotask(() => this.pump(e.roomId)); return; }
     if (runner.retention && retentionRank[runner.retention] > retentionRank[e.retention]) {
       e.retention = runner.retention;
@@ -204,18 +244,21 @@ export class RoomService {
     });
     this.active.set(e.id, { runner, done: work });
   }
-  stop(id: string, executionId?: string) {
+  stop(id: string, executionId?: string, sessionId?: string) {
     this.room(id);
+    if (sessionId) this.session(id, sessionId);
     const active: string[] = [];
     this.deps.store.transaction(() => {
-      for (const e of this.deps.store.executions(id).filter(e => liveStates.has(e.status) && (!executionId || e.id === executionId))) {
+      for (const e of this.deps.store.executions(id).filter(e => liveStates.has(e.status) && (!executionId || e.id === executionId) && (!sessionId || e.sessionId === sessionId))) {
         this.deps.invalidateApprovals?.(e);
         if (this.active.has(e.id)) { this.deps.store.state(e.id, "cancelling"); active.push(e.id); }
         else this.deps.store.state(e.id, "cancelled");
       }
     });
+    this.deps.store.event({roomId: id, type: "changed", payload: {errorCode: "ROOM_STOP_REQUESTED", executionIds: active}});
     active.forEach(id => this.active.get(id)?.runner.abort());
-    this.changed(id);
+    const execution = executionId ? this.deps.store.executions(id).find(e => e.id === executionId) : undefined;
+    this.changed(id, execution, sessionId ?? execution?.sessionId);
   }
   resolveApproval(id: string, executionId: string, decision: "approve_once" | "reject") {
     const e = this.deps.store.executions(id).find(x => x.id === executionId);
@@ -257,8 +300,9 @@ export class RoomService {
     ids.forEach(id => this.agent(id));
     const next = { ...room, title: input.title?.trim() || room.title, primaryAgentId: input.primaryAgentId,
       permissionMode: input.permissionMode, participants: room.participants.map(p => ({ ...p, active: ids.includes(p.agentId) })) };
-    for (const id of ids) if (!next.participants.some(p => p.agentId === id)) next.participants.push({ agentId: id, contextId: randomUUID(), active: true });
+    for (const id of ids) if (!next.participants.some(p => p.agentId === id)) next.participants.push({ agentId: id, active: true });
     this.deps.store.update(next);
+    this.deps.store.ensureSessionContexts(next);
     const previousRank = rankPermission(room.permissionMode);
     if (rankPermission(next.permissionMode) < previousRank) {
       for (const e of this.deps.store.executions(id).filter(e => e.status === "waiting_approval")) this.stop(id, e.id);
@@ -277,31 +321,40 @@ export class RoomService {
     }
   }
   resume(id: string, executionId: string, submissionId: string): RoomDispatch {
+    if (this.disposed) throw new Error("Room service is stopping");
     const room = this.room(id);
+    if (!submissionId) throw new Error("Submission ID is required");
+    const accepted = this.deps.store.resumeSubmission(id, submissionId);
+    if (accepted) {
+      if (accepted.executionId !== executionId) throw new Error("Submission ID has a different payload");
+      return accepted.dispatch;
+    }
+    if (this.deps.store.dispatch(id, submissionId)) throw new Error("Submission ID has a different payload");
     const e = this.deps.store.executions(id).find(e => e.id === executionId);
     if (!e || !["failed", "interrupted", "paused"].includes(e.status)) throw new Error("Execution cannot be resumed");
     if (e.status === "paused") {
       this.agent(e.agentId);
       if (!room.participants.some(p => p.agentId === e.agentId && p.active)) throw new Error("Room membership revoked");
-      this.deps.store.state(e.id, "queued"); this.pump(id);
-      return { id: e.dispatchId, roomId: id, submissionId };
+      const dispatch = { id: e.dispatchId, roomId: id, sessionId: e.sessionId, submissionId };
+      this.deps.store.transaction(() => {
+        this.deps.store.addResumeSubmission(dispatch, executionId);
+        this.deps.store.state(e.id, "queued");
+      });
+      this.changed(id, e); this.pump(id);
+      return dispatch;
     }
     if (this.deps.store.operations(e.id).some(op => op.status === "unknown")) throw new Error("An external operation has an unknown outcome; reconcile it before continuing");
     const source = this.deps.store.dispatchesInput(e.dispatchId);
     if (!source) throw new Error("Original input unavailable");
     const input: RoomSubmission = { ...source, submissionId, agentIds: [e.agentId] };
-    const existing = this.deps.store.dispatch(id, submissionId);
-    if (existing) {
-      if (JSON.stringify(existing.input) !== JSON.stringify(input)) throw new Error("Submission ID has a different payload");
-      return existing.dispatch;
-    }
-    this.recipients(room, input);
-    const d = { id: randomUUID(), roomId: id, submissionId };
+    this.recipients(room, input, this.session(id, e.sessionId));
+    const d = { id: randomUUID(), roomId: id, sessionId: e.sessionId, submissionId };
     this.deps.store.transaction(() => {
       this.deps.store.addDispatch(d, input);
+      this.deps.store.addResumeSubmission(d, executionId);
       this.deps.store.addExecution({ ...e, id: randomUUID(), dispatchId: d.id, retryOf: e.id, status: "queued", partialText: "", error: undefined, approvalId: undefined, createdAt: new Date().toISOString() });
     });
-    this.changed(id); this.pump(id); return d;
+    this.changed(id, e); this.pump(id); return d;
   }
   delete(id: string) {
     this.room(id);

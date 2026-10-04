@@ -317,7 +317,7 @@ test("child failure budget preserves its executed receipt and blocks the next re
       const message: AssistantMessage = round === 1 ? { ...answer(), stopReason: "toolUse", content: [{ type: "toolCall", id: "call", name: child ? "write" : "subagent", arguments: {} }] } : answer();
       const stream = createAssistantMessageEventStream(); stream.push({ type: "done", reason: message.stopReason === "toolUse" ? "toolUse" : "stop", message }); stream.end(); return stream;
     } };
-  const bound = { ...binding(directory), childTools: () => [childTool], childBudgetLimits: { maxToolCalls: 5, maxToolFailures: 1, maxModelAttempts: 5 },
+  const bound = { ...binding(directory), childTools: () => [childTool], childBudgetLimits: { maxToolCalls: 5, maxToolFailures: 1, maxModelAttempts: 5, maxModelTurns: 5 },
     onChildTrace: (stage: string, data: Record<string, unknown>) => traces.push({ stage, data }) };
   const run = new PiRunSession(options);
   try {
@@ -424,7 +424,7 @@ test("child compaction uses its native ledger and parent generation budget", { t
   const read = { name: "read", label: "Read", description: "Read", parameters: { type: "object" as const, properties: {} }, execute: async () => ({ content: [{ type: "text" as const, text: "Read completed" }], details: {} }) };
   const delegate = { name: "subagent", label: "Delegate", description: "Delegate", replay: "safe" as const, parameters: { type: "object" as const, properties: {} }, execute: async () => {
     const child = await currentPiInvocation()!.child({ key: "compact-worker", model: childModel, instructions: "CHILD_COMPACT", tools: ["read"], readOnlyShell: true });
-    try { await child.prompt("Original task ".repeat(10)); totalTokens = child.state.usage!.totalTokens; childModels = child.state.budget!.modelAttempts; return { content: [{ type: "text" as const, text: "Child complete" }], details: {} }; }
+    try { await child.prompt("Original task ".repeat(10)); totalTokens = child.state.usage!.totalTokens; childModels = child.state.budget!.modelTurns; return { content: [{ type: "text" as const, text: "Child complete" }], details: {} }; }
     finally { await child.dispose(); }
   } };
   const run = new PiRunSession({ initialState: { model, systemPrompt: "ROOT", messages: [], tools: [delegate] }, streamFn: (selected, context) => {
@@ -442,7 +442,7 @@ test("child compaction uses its native ledger and parent generation budget", { t
   } });
   try {
     run.startTurn(); run.bindRun({ ...binding(directory), childTools: () => [read], childCompaction: { enabled: true, reserveTokens: 200, keepRecentTokens: 1 },
-      onChildUsage: usageReceipt, childBudgetLimits: { maxToolCalls: 5, maxToolFailures: 5, maxModelAttempts: 5 }, beforeGeneration: id => { if (id.includes(":child:")) paid.push(id); } });
+      onChildUsage: usageReceipt, childBudgetLimits: { maxToolCalls: 5, maxToolFailures: 5, maxModelAttempts: 5, maxModelTurns: 5 }, beforeGeneration: id => { if (id.includes(":child:")) paid.push(id); } });
     await run.prompt("Delegate");
     assert.equal(summaries, 1, JSON.stringify(run.state.messages)); assert.equal(childRequests, 2);
     assert.equal(totalTokens, 5005); assert.equal(childModels, 3); assert.equal(paid.length, 3); assert.equal(new Set(paid).size, 3);
@@ -455,5 +455,84 @@ test("child compaction uses its native ledger and parent generation budget", { t
     assert.equal(tracker.getSessionUsage("child-test").totalTokens, 5005);
     assert.equal(tracker.list().length, receipts);
     assert.equal(summaries, 1); assert.equal(childRequests, 2);
+  } finally { await run.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("native model failures allow six retries, survive reopen, and count each failed generation once", { timeout: 20000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-model-retries-"));
+  const limits = { maxToolCalls: 100, maxToolFailures: 6, maxModelAttempts: 6 };
+  const { RunBudget } = await import("./runtimeBudget.js");
+  const { RunBudgetStore } = await import("./runBudgetStore.js");
+  const budgetPath = join(directory, "budget.sqlite");
+  let budget = new RunBudget(limits, new RunBudgetStore(budgetPath, "run", limits));
+  let requests = 0;
+  let run: PiRunSession | undefined;
+  const errors: string[] = [];
+  const open = () => {
+    run = new PiRunSession({ initialState: { model, tools: [], messages: [] }, getApiKey: () => "fixture",
+      streamFn: () => { requests++; throw new Error("Temporary provider failure"); } });
+    run.startTurn(); run.bindRun({ ...binding(directory),
+      beforeGeneration: () => { if (budget.getExceededKind() === "modelFailures") throw new Error(budget.getExceededReason()); },
+      onGenerationError: id => { errors.push(id); budget.tryRecordModelFailure(id); } });
+  };
+  try {
+    open();
+    await run!.prompt("Retry this request");
+    assert.equal(requests, 1);
+    assert.equal(budget.snapshot().modelFailures, 1);
+    budget.tryRecordModelFailure(errors[0]);
+    assert.equal(budget.snapshot().modelFailures, 1, "duplicate failure receipt must not spend another retry");
+    await run!.close(); budget.close();
+    budget = new RunBudget(limits, new RunBudgetStore(budgetPath, "run", limits));
+    open(); await run!.prompt("Retry this request");
+    for (let retry = 0; retry < 6; retry++) await run!.continue();
+    assert.equal(requests, 7, "one initial request plus six failed retries");
+    assert.equal(budget.getExceededKind(), "modelFailures");
+    await assert.rejects(() => run!.continue(), /Run budget exceeded/);
+    assert.equal(requests, 7, "exhausted budget must prevent another provider request");
+  } finally { await run?.close(); budget.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("native child bash completes through the same ToolRuntime as its parent delegation", { timeout: 10000 }, async () => {
+  const { ToolRegistry, ToolRuntime } = await import("$lib/server/agent/tools/toolRuntime.js");
+  const { bindToolRuntime } = await import("$lib/server/agent/tools/preparedTool.js");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const directory = mkdtempSync(join(tmpdir(), "molibot-child-shell-lock-"));
+  const registry = new ToolRegistry();
+  const runtime = new ToolRuntime(registry, { executionTimeoutMs: 500 });
+  const effects: string[] = [];
+  let shellOutput = "", roots = 0, children = 0;
+  const buildContext = (signal: AbortSignal | undefined, id: string): import("$lib/server/agent/tools/toolTypes.js").ToolExecutionContext => ({
+    runId: "isolated", sessionId: "isolated", workspaceId: "", actorId: "fixture", cwd: directory, toolCallId: id, signal,
+    fs: { readText: async () => "", writeText: async () => {} }, shell: { run: async () => ({ exitCode: 0, stdout: "", stderr: "" }) },
+    network: { fetch: async () => ({}) }, emit: () => {},
+    onSideEffectPreflight: async effect => { effects.push(`intent:${effect.toolId}`); },
+    onSideEffectReceipt: async effect => { effects.push(`receipt:${effect.toolId}`); }
+  });
+  registry.register({ id: "bash", name: "bash", description: "Shell", inputSchema: {}, risk: "low", source: "builtin", handler: async () => {
+    const result = await promisify(execFile)("/bin/sh", ["-c", "pwd && ls -la"], { cwd: directory });
+    shellOutput = result.stdout;
+    return { ok: true, content: [{ type: "text", text: result.stdout }] };
+  } });
+  registry.register({ id: "subagent", name: "subagent", description: "Delegate", inputSchema: {}, risk: "low", source: "builtin", handler: async () => {
+    const child = await currentPiInvocation()!.child({ key: "worker", model, instructions: "LOCK_CHILD", tools: ["bash"], readOnlyShell: false });
+    try { await child.prompt("Inspect workspace"); return { ok: true, content: [{ type: "text", text: "Child finished" }] }; }
+    finally { await child.dispose(); }
+  } });
+  const bind = (name: string) => bindToolRuntime({ name, label: name, description: name, parameters: { type: "object", properties: {} } }, runtime, buildContext);
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "ROOT", messages: [], tools: [bind("subagent")] },
+    streamFn: (_model, context) => {
+      const child = JSON.stringify(context).includes("LOCK_CHILD");
+      const round = child ? ++children : ++roots;
+      const message: AssistantMessage = round === 1 ? { ...answer(), stopReason: "toolUse", content: [{ type: "toolCall", id: "call", name: child ? "bash" : "subagent", arguments: {} }] } : answer();
+      const stream = createAssistantMessageEventStream(); stream.push({ type: "done", reason: message.stopReason === "toolUse" ? "toolUse" : "stop", message }); stream.end(); return stream;
+    } });
+  try {
+    run.startTurn(); run.bindRun({ ...binding(directory), childTools: () => [bind("bash")] });
+    await run.prompt("Delegate inspection");
+    assert.match(shellOutput, /molibot-child-shell-lock-/);
+    assert.equal(roots, 2); assert.equal(children, 2);
+    assert.deepEqual(effects, ["intent:bash", "receipt:bash"]);
   } finally { await run.close(); rmSync(directory, { recursive: true, force: true }); }
 });

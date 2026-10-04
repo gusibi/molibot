@@ -21,6 +21,7 @@ import {
   type ProviderMode,
   type McpServerConfig,
   type MiniAppEntrySettings,
+  type PluginEntrySettings,
   type RuntimeSettings,
   type WebSearchEngineId,
   type WebSearchEngineSelectionStrategy,
@@ -75,8 +76,9 @@ const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
 ];
 const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
-const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"];
+const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["pi", "agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"];
 const BUILTIN_IMAGE_GENERATE_PROTOCOLS: Record<string, ImageGenerateProtocol> = {
+  pi: "images-generations",
   agnes: "images-generations",
   openai: "images-generations",
   "openai-chat": "chat-completions",
@@ -418,6 +420,12 @@ export function sanitizeImageGenerateSettings(
       ? fallbackEngine.enabled || Boolean(apiKey)
       : Boolean(raw.enabled) || (requestedDefaultEngine === engineId && Boolean(apiKey));
 
+    if (defaultRuntimeSettings.imageGenerate.engines[engineId]?.credentialSource === "provider") {
+      engines[engineId] = { enabled, credentialSource: "provider",
+        model: String(raw.model ?? fallbackEngine.model ?? "").trim() || undefined,
+        name: String(raw.name ?? fallbackEngine.name ?? "").trim() || undefined };
+      continue;
+    }
     engines[engineId] = {
       enabled,
       apiKey,
@@ -1433,11 +1441,11 @@ export function sanitizeAiRoutingConfig(input: AiRoutingInput, current: RuntimeS
   return patch;
 }
 
-export function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSettings): RuntimeSettings {
-  const next: RuntimeSettings = {
+export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown }, current: RuntimeSettings): RuntimeSettings {
+  const next = {
     ...current,
     ...input
-  };
+  } as RuntimeSettings;
 
   const mode = String(next.providerMode ?? "pi").toLowerCase();
   next.providerMode = (mode === "custom" ? "custom" : "pi") as ProviderMode;

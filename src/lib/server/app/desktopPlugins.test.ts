@@ -5,6 +5,13 @@ import type { RuntimeSettings } from "$lib/server/settings/schema";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults";
 import type { PluginCatalog } from "$lib/server/plugins/types";
 
+const requestDefaults = {
+  memoryEmbeddingProviderId: "", memoryEmbeddingModel: "",
+  memoryReflectionTime: "03:00", memoryReflectionNotifications: false,
+  memoryReflectionNotificationTarget: "",
+  memoryDailyMaterials: { ...defaultRuntimeSettings.plugins.memory.dailyMaterials }
+};
+
 test("buildDesktopPluginItem projects identity/version/status and drops on-disk paths", () => {
   const item = buildDesktopPluginItem(
     {
@@ -75,7 +82,7 @@ test("buildDesktopPluginsSummary tolerates an empty catalog", () => {
 
 test("plugin summary exposes safe fields and only a configured flag for passwords", () => {
   const catalog = {
-    channels: [], providers: [], memoryBackends: [{ kind: "memory-backend", key: "mory", name: "Mory", version: "1", source: "built-in", status: "active" }],
+    channels: [], providers: [], extensions: [], miniApps: [], memoryBackends: [{ kind: "memory-backend", key: "mory", name: "Mory", version: "1", source: "built-in", status: "active" }],
     features: [{ kind: "feature", key: "publish", name: "Publish", version: "1", source: "built-in", status: "active", settingsKey: "cloudflareHtml", settingsFields: [{ key: "enabled", label: "Enabled", type: "boolean" }, { key: "workerBaseHost", label: "Host", type: "text" }, { key: "secretAccessKey", label: "Secret", type: "password" }] }]
   } as PluginCatalog;
   const settings = { plugins: { memory: { enabled: true, backend: "mory" }, cloudflareHtml: { enabled: true, workerBaseHost: "https://example.test", secretAccessKey: "secret-value" } } } as unknown as RuntimeSettings;
@@ -89,22 +96,22 @@ test("plugin summary exposes safe fields and only a configured flag for password
 
 test("plugin save preserves omitted passwords, replaces or clears explicitly", () => {
   const catalog = {
-    channels: [], providers: [], memoryBackends: [{ kind: "memory-backend", key: "mory", name: "Mory", version: "1", source: "built-in", status: "active" }],
+    channels: [], providers: [], extensions: [], miniApps: [], memoryBackends: [{ kind: "memory-backend", key: "mory", name: "Mory", version: "1", source: "built-in", status: "active" }],
     features: [{ kind: "feature", key: "publish", name: "Publish", version: "1", source: "built-in", status: "active", settingsKey: "cloudflareHtml", settingsFields: [{ key: "enabled", label: "Enabled", type: "boolean" }, { key: "secretAccessKey", label: "Secret", type: "password" }] }]
   } as PluginCatalog;
   const settings = { plugins: { memory: { enabled: false, backend: "json-file" }, cloudflareHtml: { enabled: false, secretAccessKey: "old" }, hooks: [] } } as unknown as RuntimeSettings;
-  const preserved = buildDesktopPluginsSettings(settings, catalog, { memoryEnabled: true, memoryBackend: "mory", values: { publish: { enabled: true } } });
+  const preserved = buildDesktopPluginsSettings(settings, catalog, { ...requestDefaults, memoryEnabled: true, memoryBackend: "mory", values: { publish: { enabled: true } } });
   assert.equal(preserved.cloudflareHtml.secretAccessKey, "old");
-  const replaced = buildDesktopPluginsSettings(settings, catalog, { memoryEnabled: false, memoryBackend: "json-file", values: {}, secretValues: { publish: { secretAccessKey: "new" } } });
+  const replaced = buildDesktopPluginsSettings(settings, catalog, { ...requestDefaults, memoryEnabled: false, memoryBackend: "json-file", values: {}, secretValues: { publish: { secretAccessKey: "new" } } });
   assert.equal(replaced.cloudflareHtml.secretAccessKey, "new");
-  const cleared = buildDesktopPluginsSettings(settings, catalog, { memoryEnabled: false, memoryBackend: "json-file", values: {}, clearSecrets: { publish: ["secretAccessKey"] } });
+  const cleared = buildDesktopPluginsSettings(settings, catalog, { ...requestDefaults, memoryEnabled: false, memoryBackend: "json-file", values: {}, clearSecrets: { publish: ["secretAccessKey"] } });
   assert.equal(cleared.cloudflareHtml.secretAccessKey, "");
 });
 
 test("plugin save validates and persists daily materials project settings", () => {
   const settings = { plugins: { memory: { enabled: true, backend: "mory", dailyMaterials: { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true } }, cloudflareHtml: {}, hooks: [] } } as unknown as RuntimeSettings;
-  const input = { memoryEnabled: true, memoryBackend: "mory", memoryEmbeddingProviderId: "", memoryEmbeddingModel: "", memoryReflectionTime: "03:00", memoryReflectionNotifications: true, memoryDailyMaterials: { enabled: true, time: "22:45", projectId: "momo-agent", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: false, scanTokenBudget: 120000, scanModelKey: "" }, values: {} };
-  const saved = buildDesktopPluginsSettings(settings, { channels: [], providers: [], features: [], memoryBackends: [{ key: "mory" }] } as PluginCatalog, input, { get: (id: string) => id === "momo-agent" ? { id } : null } as any);
+  const input = { ...requestDefaults, memoryEnabled: true, memoryBackend: "mory", memoryEmbeddingProviderId: "", memoryEmbeddingModel: "", memoryReflectionTime: "03:00", memoryReflectionNotifications: true, memoryDailyMaterials: { enabled: true, time: "22:45", projectId: "momo-agent", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: false, scanTokenBudget: 120000, scanModelKey: "" }, values: {} };
+  const saved = buildDesktopPluginsSettings(settings, { channels: [], providers: [], extensions: [], miniApps: [], features: [], memoryBackends: [{ kind: "memory-backend", key: "mory", name: "Mory", version: "1", source: "built-in", status: "active" }] } as PluginCatalog, input, { get: (id: string) => id === "momo-agent" ? { id } : null } as any);
   assert.deepEqual(saved.memory.dailyMaterials, input.memoryDailyMaterials);
 });
 
@@ -120,14 +127,14 @@ test("plugin summary and save expose the shared memory task target from authoriz
       qq: { instances: [{ id: "qq", name: "QQ", enabled: true, allowedChatIds: ["qq-chat"], credentials: {} }] }
     }
   } as unknown as RuntimeSettings;
-  const catalog = { channels: [], providers: [], features: [], memoryBackends: [{ key: "mory" }] } as PluginCatalog;
+  const catalog = { channels: [], providers: [], extensions: [], miniApps: [], features: [], memoryBackends: [{ kind: "memory-backend", key: "mory", name: "Mory", version: "1", source: "built-in", status: "active" }] } as PluginCatalog;
   const summary = buildDesktopPluginsSummary(catalog, settings);
   assert.equal(summary.memory.reflectionNotificationTargets.length, 2);
   assert.match(summary.memory.reflectionNotificationTargets[0].label, /Telegram/);
   assert.match(summary.memory.reflectionNotificationTargets[1].label, /Feishu/);
   assert.equal(summary.memory.reflectionNotificationTarget, summary.memory.reflectionNotificationTargets[1].value);
 
-  const saved = buildDesktopPluginsSettings(settings, catalog, {
+  const saved = buildDesktopPluginsSettings(settings, catalog, { ...requestDefaults,
     memoryEnabled: true,
     memoryBackend: "mory",
     memoryEmbeddingProviderId: "",

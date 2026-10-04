@@ -27,7 +27,7 @@ export const GET: RequestHandler = async ({ url }) => {
     skills = loadSkillsFromWorkspace(store.getWorkspaceDir(), undefined, {
       disabledSkillPaths: runtime.getSettings().disabledSkillPaths,
       projectRoot: project.rootPath
-    }).skills.map(buildDesktopSkillItem);
+    }).skills.map(skill => buildDesktopSkillItem({ ...skill, enabled: true }));
   } else {
     const result = await listSkills(undefined as never);
     const payload = await result.json() as Parameters<typeof buildDesktopSkillsSummary>[0] & { ok?: boolean };

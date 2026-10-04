@@ -1,3 +1,4 @@
+import { selectImageEngine } from "@molibot/shared/imageGenerate";
 // Tool settings (web search, image / video generation, TTS) — state +
 // orchestration. These four settings sections share dirty-tracking, secret
 // reveal state, media-task polling, and a common test harness, so they live in
@@ -7,6 +8,7 @@ import {
   desktopTtsAudioUrl,
   fetchDesktopMediaTaskBlob,
   loadDesktopImageGenerate,
+  loadPiImageModels,
   loadDesktopMediaTasks,
   loadDesktopTts,
   loadDesktopTtsVoices,
@@ -26,6 +28,7 @@ import type {
   DesktopMediaGenerateUpdateRequest,
   DesktopMediaTask,
   DesktopMediaTaskKind,
+  DesktopPiImageModel,
   DesktopSettingsTestResponse,
   DesktopTtsSummary,
   DesktopTtsUpdateRequest,
@@ -39,7 +42,7 @@ export type ToolSettingsSection = "webSearch" | "imageGenerate" | "videoGenerate
 
 type SearchEngineEditor = DesktopWebSearchUpdateRequest["engines"][number] & { hasApiKey: boolean; apiKey: string; clearApiKey: boolean };
 export type WebSearchEditor = Omit<DesktopWebSearchUpdateRequest, "engines"> & { engines: SearchEngineEditor[] };
-type MediaEngineEditor = DesktopMediaGenerateUpdateRequest["engines"][number] & { hasApiKey: boolean; apiKey: string; clearApiKey: boolean };
+type MediaEngineEditor = DesktopMediaGenerateUpdateRequest["engines"][number] & { credentialSource?: "api-key" | "provider"; hasApiKey: boolean; apiKey: string; clearApiKey: boolean };
 export type MediaEditor = Omit<DesktopMediaGenerateUpdateRequest, "engines"> & { engines: MediaEngineEditor[] };
 type TtsProviderEditor = DesktopTtsUpdateRequest["providers"][number] & { hasApiKey: boolean; apiKey: string; clearApiKey: boolean };
 export type TtsEditor = Omit<DesktopTtsUpdateRequest, "providers"> & { providers: TtsProviderEditor[] };
@@ -80,7 +83,7 @@ const IMAGE_ENGINE_LABELS: Record<string, string> = {
   modelscope: "ModelScope"
 };
 
-export const BUILTIN_IMAGE_ENGINE_IDS = new Set(["agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"]);
+export const BUILTIN_IMAGE_ENGINE_IDS = new Set(["pi", "agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"]);
 
 const VIDEO_ENGINE_LABELS: Record<string, string> = {
   agnes: "Agnes Video",
@@ -113,6 +116,8 @@ export const toolsStore = $state({
   imageGenerateLoading: false,
   imageGenerateEndpoint: "",
   imageTasks: [] as DesktopMediaTask[],
+  piImageModels: [] as DesktopPiImageModel[],
+  mediaTaskImageIndex: 0,
   videoGenerate: null as DesktopMediaGenerateSummary | null,
   videoGenerateEdit: null as MediaEditor | null,
   videoGenerateLoading: false,
@@ -200,9 +205,10 @@ export async function loadImageGenerate(endpoint: string): Promise<void> {
   toolsStore.imageGenerateLoading = true;
   session.error = "";
   try {
-    const [summary, tasks] = await Promise.all([loadDesktopImageGenerate(endpoint), loadDesktopMediaTasks(endpoint, "image").catch(() => [])]);
+    const [summary, tasks, models] = await Promise.all([loadDesktopImageGenerate(endpoint), loadDesktopMediaTasks(endpoint, "image").catch(() => []), loadPiImageModels(endpoint)]);
     toolsStore.imageGenerate = summary;
     toolsStore.imageTasks = tasks;
+    toolsStore.piImageModels = models;
     toolsStore.imageGenerateEdit = { enabled: summary.enabled, defaultEngine: summary.defaultEngine, engines: summary.engines.map((engine) => ({ ...engine, apiKey: "", clearApiKey: false, name: engine.name ?? "", protocol: engine.protocol ?? undefined })) };
     toolsStore.imageTestEngine = summary.defaultEngine;
   } catch (cause) {
@@ -304,7 +310,10 @@ export async function testToolSettings(sectionKind: ToolSettingsSection): Promis
       if (request) toolsStore.testResult = await testDesktopWebSearchSettings(endpoint, request, toolsStore.testQuery, toolsStore.testEngine);
     } else if (sectionKind === "imageGenerate") {
       const request = mediaRequest(toolsStore.imageGenerateEdit);
-      if (request) toolsStore.testResult = await testDesktopImageGenerateSettings(endpoint, request, toolsStore.imageTestPrompt, toolsStore.imageTestEngine, toolsStore.imageTestSize);
+      if (request) {
+        const selected = selectImageEngine(toolsStore.imageTestEngine, request.defaultEngine, toolsStore.imageGenerateEdit!.engines.map(engine => ({ id: engine.id, enabled: engine.enabled, credentialSource: engine.credentialSource, hasCredentials: engine.hasApiKey || Boolean(engine.apiKey?.trim()) })));
+        toolsStore.testResult = await testDesktopImageGenerateSettings(endpoint, request, toolsStore.imageTestPrompt, toolsStore.imageTestEngine, selected === "pi" ? "" : toolsStore.imageTestSize);
+      }
       toolsStore.imageTasks = await loadDesktopMediaTasks(endpoint, "image").catch(() => toolsStore.imageTasks);
     } else if (sectionKind === "videoGenerate") {
       const request = mediaRequest(toolsStore.videoGenerateEdit);
@@ -404,6 +413,7 @@ export function stopMediaPolling(kind: "image" | "video"): void {
 export function openMediaTaskDetail(task: DesktopMediaTask): void {
   revokeMediaDetailUrl();
   toolsStore.mediaTaskDetail = task;
+  toolsStore.mediaTaskImageIndex = 0;
   toolsStore.mediaTaskDetailFailed = false;
   toolsStore.mediaTaskDetailLoading = false;
   loadMediaTaskDetailPreview(task);
@@ -413,10 +423,10 @@ export function openMediaTaskDetail(task: DesktopMediaTask): void {
 // (raw provider/result URLs are blocked and expire). No-op while processing.
 function loadMediaTaskDetailPreview(task: DesktopMediaTask): void {
   const endpoint = session.endpoint;
-  if (task.status !== "completed" || !endpoint) return;
+  if ((!task.imageOutputs?.length && task.status !== "completed") || !endpoint) return;
   const gen = ++mediaDetailGen;
   toolsStore.mediaTaskDetailLoading = true;
-  void fetchDesktopMediaTaskBlob(endpoint, task.kind, task.id)
+  void fetchDesktopMediaTaskBlob(endpoint, task.kind, task.id, toolsStore.mediaTaskImageIndex)
     .then((blob) => {
       if (gen !== mediaDetailGen) return;
       toolsStore.mediaTaskDetailUrl = URL.createObjectURL(blob);
@@ -442,6 +452,15 @@ export function closeMediaTaskDetail(): void {
   toolsStore.mediaTaskDetail = null;
   toolsStore.mediaTaskDetailLoading = false;
   toolsStore.mediaTaskDetailFailed = false;
+}
+
+export function selectMediaTaskImage(index: number): void {
+  const task = toolsStore.mediaTaskDetail;
+  if (!task?.imageOutputs?.some(output => output.index === index)) return;
+  revokeMediaDetailUrl();
+  toolsStore.mediaTaskImageIndex = index;
+  toolsStore.mediaTaskDetailFailed = false;
+  loadMediaTaskDetailPreview(task);
 }
 
 export function onMediaTaskOverlayKeydown(event: KeyboardEvent): void {

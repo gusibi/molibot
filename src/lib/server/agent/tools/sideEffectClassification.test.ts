@@ -19,5 +19,11 @@ test("side-effect classification is deterministic and hashes the full input", ()
   assert.equal(classifyToolSideEffect("runtimeTask", { action: "get", taskId: "task-1" }).sideEffectClass, "pure");
   assert.equal(classifyToolSideEffect("runtimeTask", { action: "update", taskId: "task-1", patch: { enabled: false } }).sideEffectClass, "idempotent");
   assert.equal(classifyToolSideEffect("runtimeTask", { action: "create", type: "todo", text: "Buy milk" }).sideEffectClass, "non_idempotent");
-  assert.equal(classifyToolSideEffect("subagent", { mode: "single", task: "inspect" }).sideEffectClass, "non_idempotent");
+  assert.equal(classifyToolSideEffect("subagent", { mode: "single", task: "inspect" }).sideEffectClass, "pure");
+});
+
+test("composites delegate effect classification without weakening leaf effects", () => {
+  for (const id of ["codemode", "subagent"]) assert.equal(classifyToolSideEffect(id, { task: "write" }).sideEffectClass, "pure");
+  assert.equal(classifyToolSideEffect("bash", { command: "pwd && ls -la" }).sideEffectClass, "non_idempotent");
+  assert.equal(classifyToolSideEffect("write", {}).sideEffectClass, "idempotent");
 });

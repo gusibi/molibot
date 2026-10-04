@@ -1,7 +1,11 @@
+import type { ClassifierModel } from "@earendil-works/pi-ai";
+import { getPiModels } from "$lib/server/providers/piRegistry.js";
 import { APIConnectionError, APIError, APITimeoutError, APIUserAbortError, TypeSafeClient } from "@typesafe-ai/sdk";
 import type { DecisionContext, DecisionProvider, DecisionProviderResult } from "../contracts.js";
-import { createThinkingLevelQuestion, parseThinkingLevelAnswer, resolveTypeSafeBaseUrl } from "./protocol.js";
+import { parseThinkingLevelAnswer, resolveTypeSafeBaseUrl } from "./protocol.js";
 import { evaluationCase, parseEvaluationAnswers, type EvaluationCaseId, type EvaluationCaseResult } from "./evaluationCases.js";
+
+import { THINKING_LEVEL_INSTRUCTIONS, THINKING_LEVEL_CRITERIA } from "../rubric.js";
 
 const DEFAULT_JEV_MODEL = "jev-latest";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -23,6 +27,9 @@ export class TypeSafeJevProvider implements DecisionProvider {
   private readonly client: TypeSafeClient;
   private readonly modelId: string;
   private readonly providerId: string;
+  private readonly classifier: ClassifierModel<"typesafe-system-one">;
+  private readonly apiKey: string;
+  private readonly fetchRequest: typeof fetch;
 
   constructor(
     baseUrl: string,
@@ -34,6 +41,11 @@ export class TypeSafeJevProvider implements DecisionProvider {
     this.modelId = modelId.trim() || DEFAULT_JEV_MODEL;
     this.providerId = providerId;
     this.client = createClient(baseUrl, apiKey, this.modelId, fetchRequest);
+    const catalogModel = getPiModels().getModelOfType("classifier", "typesafe", DEFAULT_JEV_MODEL);
+    if (!catalogModel) throw new Error("TypeSafe classifier is missing from the Pi catalog");
+    this.classifier = { ...catalogModel, api: "typesafe-system-one", id: this.modelId, baseUrl: resolveTypeSafeBaseUrl(baseUrl) + "/v1" };
+    this.apiKey = apiKey;
+    this.fetchRequest = fetchRequest;
   }
 
   private async request(payload: Parameters<TypeSafeClient["systemOne"]>[0], options: { signal: AbortSignal }) {
@@ -49,17 +61,40 @@ export class TypeSafeJevProvider implements DecisionProvider {
   }
 
   async decide(input: { context: DecisionContext; signal: AbortSignal }): Promise<DecisionProviderResult> {
-    const response = await this.request({
-      state: input.context.state,
-      questions: { thinking_level: createThinkingLevelQuestion() }
-    }, { signal: input.signal });
+    let httpStatus: number | undefined;
+    let networkFailed = false;
+    const response = await getPiModels().classify(this.classifier, {
+      state: { request: input.context.state },
+      questions: { thinking_level: { type: "choice", instructions: THINKING_LEVEL_INSTRUCTIONS, criteria: THINKING_LEVEL_CRITERIA } }
+    }, {
+      apiKey: this.apiKey,
+      signal: input.signal,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      maxRetries: 0,
+      fetch: async (url, init) => {
+        try {
+          const result = await this.fetchRequest(url, { ...init, redirect: "error" });
+          httpStatus = result.status;
+          return result;
+        } catch (error) {
+          networkFailed = true;
+          throw error;
+        }
+      }
+    });
+    if (response.stopReason !== "stop") {
+      if (input.signal.aborted) throw new Error("Jev request was aborted");
+      if (httpStatus !== undefined && httpStatus >= 400) throw new Error("Jev request failed (HTTP " + httpStatus + ")");
+      if (networkFailed) throw new Error("Jev request failed: network error or timeout");
+      throw new Error("malformed_response: Jev returned an invalid response");
+    }
     const answer = parseThinkingLevelAnswer(response.answers.thinking_level);
     return {
       level: answer.choice,
       confidence: answer.confidence,
       probabilities: answer.probabilities,
-      ...(Number.isFinite(response.usage?.input_tokens) && Number.isFinite(response.usage?.output_tokens)
-        ? { usage: { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens } } : {}),
+      ...(response.usage !== undefined
+        ? { usage: { inputTokens: response.usage.input, outputTokens: response.usage.output } } : {}),
       provider: this.providerId,
       model: response.model ?? this.modelId
     };

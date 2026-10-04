@@ -56,7 +56,7 @@ test("toolSearch loads imageGenerate by direct deferred-tool selection", async (
   const text = result.content.map((item: any) => String(item.text ?? "")).join("\n");
 
   assert.deepEqual(loadedNames, ["imageGenerate"]);
-  assert.deepEqual(result.addedToolNames, ["imageGenerate"]);
+  assert.deepEqual(result.details.loaded, ["imageGenerate"]);
   assert.match(text, /Loaded deferred tools: imageGenerate/);
   assert.match(text, /"name":"imageGenerate"/);
 });
@@ -76,7 +76,7 @@ test("toolSearch loads ttsGenerate by direct deferred-tool selection", async () 
   const text = result.content.map((item: any) => String(item.text ?? "")).join("\n");
 
   assert.deepEqual(loadedNames, ["ttsGenerate"]);
-  assert.deepEqual(result.addedToolNames, ["ttsGenerate"]);
+  assert.deepEqual(result.details.loaded, ["ttsGenerate"]);
   assert.match(text, /Loaded deferred tools: ttsGenerate/);
   assert.match(text, /"name":"ttsGenerate"/);
 });

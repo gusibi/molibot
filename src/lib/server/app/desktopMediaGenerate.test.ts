@@ -179,3 +179,18 @@ test("isDesktopMediaGenerateUpdateRequest rejects malformed engine payloads", ()
     engines: [{ id: "auto", enabled: true, baseUrl: "", model: "" }]
   }), false);
 });
+
+test("provider credentials survive Desktop projection and granular settings edits", () => {
+  const current = { enabled: true, defaultEngine: "pi", engines: { pi: {
+    enabled: true, credentialSource: "provider" as const, model: "pi|fixture|image"
+  } } };
+  const projected = buildDesktopMediaGenerateSummary(current);
+  assert.equal(projected.engines[0].credentialSource, "provider");
+  assert.equal(projected.engines[0].hasApiKey, false);
+  const edited = buildDesktopMediaGenerateInput(current, { enabled: true, defaultEngine: "pi", engines: [
+    { id: "pi", enabled: true, model: "pi|fixture|updated", baseUrl: "" }
+  ] });
+  assert.ok(edited.engines);
+  assert.equal(edited.engines.pi.credentialSource, "provider");
+  assert.equal(edited.engines.pi.model, "pi|fixture|updated");
+});

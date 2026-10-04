@@ -11,6 +11,8 @@
   import { transcriptCompletedTurnSections, transcriptRenderBlocks } from "./transcript";
   import StreamingChatMarkdown from "./StreamingChatMarkdown.svelte";
   import TurnProcess from "./TurnProcess.svelte";
+  import BotAvatar from "./BotAvatar.svelte";
+  import StopCircle from "reicon-svelte/icons/StopCircle";
   import BeamRing from "./BeamRing.svelte";
 
   export let messages: TranscriptMessage[];
@@ -18,6 +20,9 @@
   export let formatTime: (value: string) => string;
   export let assistantName: string = copy.appName;
   export let agentName = "";
+  export let showEmpty = true;
+  export let authorAgentId = "";
+  export let onStop: (() => void) | undefined = undefined;
   export let sending = false;
   export let streamingText = "";
   export let streamingThinking = "";
@@ -59,7 +64,7 @@
   $: liveSections = transcriptCompletedTurnSections(orderedBlocks);
 </script>
 
-{#if messages.length === 0 && !streamingText && !sending}
+{#if showEmpty && messages.length === 0 && !streamingText && !sending}
   <div class="conversation-empty">
     <h2>{emptyTitle}</h2>
     <p>{emptyHint}</p>
@@ -82,7 +87,7 @@
   <article class="message-row assistant streaming-message">
     <div class="assistant-layout">
       <div class="message-stack">
-        <div class="assistant-identity"><img class="assistant-avatar" src="/molibot-icon.png" alt="" width="22" height="22" /><strong>{assistantName}</strong>{#if agentName}<span>{agentName}</span>{/if}</div>
+        <div class="assistant-identity">{#if authorAgentId}<BotAvatar botId={authorAgentId} name={assistantName} size={22} />{:else}<img class="assistant-avatar" src="/molibot-icon.png" alt="" width="22" height="22" />{/if}<strong>{assistantName}</strong>{#if agentName}<span>{agentName}</span>{/if}{#if onStop}<button type="button" class="message-action" title={copy.stop} aria-label={`${copy.stop} · ${assistantName}`} onclick={onStop}><StopCircle size={14} /></button>{/if}</div>
         <!-- The pre-card phase hint. It only covers the void between sending
              and the first streamed content: the moment thinking or an
              activity arrives, the process card below is the running

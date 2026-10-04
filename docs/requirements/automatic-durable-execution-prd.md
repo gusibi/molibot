@@ -8,6 +8,8 @@
 >
 > 主验收 seam：通过真实 Chat API 和可重启的临时服务验证完整行为；本地 OpenAI-compatible provider fixture 的 live suite 已通过，外部渠道/冷启动矩阵仍待完成
 
+> 执行内核后续范围（2026-10-02）：[Pi 四项能力接入 spec](pi-capabilities-integration-spec.md) 定义 Pi Durable 底层替换及相关阶段；本文继续约束目标、计划、审批、验收与预算等产品语义。下文已有底层执行实现记录不能视为工具调用级恢复已交付。
+
 ### 当前实施状态
 
 已交付的基础主链路：确定性启用与 per-request `auto/force/suppress`、接受的 Session Plan 幂等转换为多步骤 Durable Execution、每 attempt 一个步骤并写入 run-detail evidence、专用 `durable-execution.sqlite` 聚合、版本 CAS/lease、watched event JSON + runtime internal event 续跑、fresh automation attempt、步骤/证据/decision 状态、副作用 intent/receipt、共享 verifier、任务级预算/未终结配额/队列顺序、共享 one-shot catch-up window 与 missed-event recovery，以及 Desktop 会话卡片、Plan 状态投影、单一右侧 inspector、进行中侧栏和反馈/通知链路。普通 Run 的首次非纯工具边界现在还会经过分层限次、结构化模型 preflight；确认升级后会吸收已执行前缀、证据和回执，并在当前副作用执行前安全交接到 Durable Execution。恢复路径已接入 queryable 外部状态探针注册表，并在没有探针或结果不确定时 fail closed；证据读取器只解引用当前任务已授权的 run-detail，带 owner/Project/Session 边界、24KB 上限和不可信标记；审批请求、重复次数、来源渠道通知以及共享 `/durable` 短句柄动作也已落到同一 Durable 聚合。Web API 的虚拟 profile 会在入队前解析为实际可用的 Web manager，避免任务入队后因 manager id 不存在而失败。

@@ -57,7 +57,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   let finalBaseUrl = "";
   let finalApiKey = "";
-  let finalProtocol = "";
+  let finalProtocol: ReturnType<typeof resolveCustomProviderProtocol> = resolveCustomProviderProtocol(undefined);
   let finalPathParam = "";
 
   if (baseUrl !== undefined && apiKey !== undefined) {

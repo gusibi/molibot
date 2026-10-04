@@ -13,6 +13,11 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const engine = body.engine || "auto";
+  if (engine !== "auto" && engine !== "agnes" && engine !== "volcengine") {
+    return json({ ok: false, error: "Invalid video engine" }, { status: 400 });
+  }
+
   const runtime = getRuntime();
   const baseSettings = runtime.getSettings().videoGenerate;
   const videoGenerate = sanitizeVideoGenerateSettings(body.videoGenerate ?? baseSettings, baseSettings);
@@ -31,7 +36,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const tool = createVideoGenerateTool(dummyCtx);
     const result = await tool.execute("settings-test-call", {
       prompt: body.prompt || "A high quality slow cinematic panning of a river",
-      engine: body.engine || "auto",
+      engine,
       outputName: `test_video_${Date.now()}.mp4`
     });
     return json({ ok: true, result });

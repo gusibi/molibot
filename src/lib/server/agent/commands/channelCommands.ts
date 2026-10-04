@@ -2881,7 +2881,6 @@ export class SharedRuntimeCommandService<TTarget> {
     const sessionId = this.options.store.getActiveSession(scopeId);
     const sessionStatus = this.options.store.getSessionStatusSnapshot(scopeId, sessionId);
     const textRoute = this.resolveRouteSummary(effectiveSettings, "text");
-    const visionRoute = this.resolveRouteSummary(effectiveSettings, "vision");
     const sttRoute = this.resolveRouteSummary(effectiveSettings, "stt");
     const ttsTool = this.resolveTtsToolSummary(settings);
     const effectiveMode = this.resolveEffectiveMode(scopeId, sessionId);
@@ -2947,8 +2946,6 @@ export class SharedRuntimeCommandService<TTarget> {
     const modelRows: CommandTableRow[] = [
       { label: this.text("Text", "文本"), value: `${textRoute.label}${this.modelSourceSuffix(settings, "text")}` },
       { label: this.text("Text key", "文本 Key"), value: textRoute.key || this.text("(empty)", "（空）") },
-      { label: this.text("Vision", "视觉"), value: `${visionRoute.label}${this.modelSourceSuffix(settings, "vision")}` },
-      { label: this.text("Vision key", "视觉 Key"), value: visionRoute.key || this.text("(empty)", "（空）") },
       { label: "STT", value: `${sttRoute.label}${this.modelSourceSuffix(settings, "stt")}` },
       { label: "STT key", value: sttRoute.key || this.text("(empty)", "（空）") },
       { label: "TTS", value: ttsTool.label },

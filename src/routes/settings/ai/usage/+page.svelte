@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { addImageCost, type ImageCostTotals } from "$lib/shared/usageCosts";
+
     import { onMount } from "svelte";
     import { Alert, AlertDescription } from "$lib/components/ui/alert";
     import { Badge } from "$lib/components/ui/badge";
@@ -25,7 +27,7 @@
 
     type TimeRange = "today" | "yesterday" | "last7Days" | "last30Days";
 
-    interface UsageTotals {
+    interface UsageTotals extends ImageCostTotals {
         requests: number;
         inputTokens: number;
         outputTokens: number;
@@ -35,6 +37,8 @@
     }
 
     interface AiUsageRecord {
+        capability?: string;
+        estimatedCostUsd?: number;
         ts: string;
         channel: string;
         botId: string;
@@ -158,7 +162,7 @@
             channelDistribution: "渠道分布",
             channelDistributionDesc: "基于现有 channel 字段",
             eventDetailsTitle: "请求事件明细",
-            eventDetailsDesc: "按所选条件筛选的 AI 调用记录；本系统暂未记录结果、延迟、认证索引和费用。",
+            eventDetailsDesc: "按所选条件筛选的 AI 调用记录；图片预估费用仅统计模型已返回的价格，未知价格单独计数。",
             colTime: "时间",
             colChannel: "渠道",
             colBot: "Bot",
@@ -230,7 +234,7 @@
             channelDistribution: "Channel Distribution",
             channelDistributionDesc: "Based on the channel field",
             eventDetailsTitle: "Request Event Details",
-            eventDetailsDesc: "AI call records in the filtered scope; results, latency, auth indexes, and costs are not recorded.",
+            eventDetailsDesc: "AI calls in the filtered scope. Image estimates include only provider-reported prices; unknown prices are counted separately.",
             colTime: "Time",
             colChannel: "Channel",
             colBot: "Bot",
@@ -352,6 +356,7 @@
         target.cacheReadTokens += record.cacheReadTokens;
         target.cacheWriteTokens += record.cacheWriteTokens;
         target.totalTokens += record.totalTokens;
+        addImageCost(target, record);
     }
 
     function formatNumber(value: number): string {
@@ -673,6 +678,13 @@
         </Card>
 
         <div class="usage-metrics">
+            {#if totals.imageCostKnownRequests || totals.imageCostUnknownRequests}
+                <Card>
+                    <CardHeader><CardTitle>{$locale === "zh-CN" ? "图片生成预估费用（美元）" : "Estimated image cost (USD)"}</CardTitle></CardHeader>
+                    <CardContent><strong>{totals.imageEstimatedCostUsd === undefined ? ($locale === "zh-CN" ? "未知" : "Unknown") : `$${totals.imageEstimatedCostUsd.toFixed(6)}`}</strong>{#if totals.imageCostUnknownRequests}<p>{$locale === "zh-CN" ? "费用未知的请求" : "Requests with unknown cost"}: {totals.imageCostUnknownRequests}</p>{/if}</CardContent>
+                </Card>
+            {/if}
+
             <Card class="usage-metric-wide">
                 <CardHeader>
                     <div class="usage-metric-header">

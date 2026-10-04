@@ -42,7 +42,7 @@ export function parseMacosSayVoices(stdout: string): TtsVoiceOption[] {
         sample: match[3]
       } satisfies TtsVoiceOption;
     })
-    .filter((voice): voice is TtsVoiceOption => Boolean(voice));
+    .filter((voice) => voice !== undefined);
 }
 
 export async function listMacosSayVoices(options: {

@@ -277,7 +277,7 @@ export class PiConversationRuntime {
       const budget = new RunBudget(this.options.childBudgetLimits, store);
       if (kind === "model" && budget.getExceededReason()) throw new Error(budget.getExceededReason());
       const id = String(api.taskId);
-      const result = kind === "model" ? budget.tryRecordModelAttempt(id) : kind === "tool" ? budget.tryStartTool(id) : budget.recordToolResult(isError, id);
+      const result = kind === "model" ? budget.tryStartModelTurn(id) : kind === "tool" ? budget.tryStartTool(id) : budget.recordToolResult(isError, id);
       if (!result.ok && kind !== "result") throw new Error(result.reason);
     } finally { store.close(); }
   }

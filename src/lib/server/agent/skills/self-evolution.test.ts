@@ -50,7 +50,7 @@ test("suggests skill draft for successful complex runs", () => {
       finalText: "done",
       toolCalls: 4,
       toolFailures: 0,
-      modelAttempts: 1,
+      modelFailures: 1,
       explicitSkillCount: 0,
       settings: {
         template: {
@@ -67,7 +67,7 @@ test("suggests skill draft for successful complex runs", () => {
       finalText: "done",
       toolCalls: 2,
       toolFailures: 0,
-      modelAttempts: 1,
+      modelFailures: 1,
       explicitSkillCount: 1,
       settings: {
         template: {
@@ -86,7 +86,7 @@ test("skill draft suggestion respects configurable thresholds and toggles", () =
       finalText: "done",
       toolCalls: 4,
       toolFailures: 0,
-      modelAttempts: 1,
+      modelFailures: 1,
       explicitSkillCount: 0,
       settings: {
         autoSave: {
@@ -109,7 +109,7 @@ test("skill draft suggestion respects configurable thresholds and toggles", () =
       finalText: "done",
       toolCalls: 3,
       toolFailures: 1,
-      modelAttempts: 1,
+      modelFailures: 1,
       explicitSkillCount: 0,
       settings: {
         autoSave: {
@@ -132,7 +132,7 @@ test("skill draft suggestion respects configurable thresholds and toggles", () =
       finalText: "done",
       toolCalls: 12,
       toolFailures: 0,
-      modelAttempts: 1,
+      modelFailures: 1,
       explicitSkillCount: 0,
       settings: {
         autoSave: {
@@ -157,7 +157,7 @@ test("skill draft suggestion stays off without a configured workflow skill", () 
       finalText: "done",
       toolCalls: 12,
       toolFailures: 1,
-      modelAttempts: 2,
+      modelFailures: 2,
       explicitSkillCount: 0,
       settings: {
         autoSave: {
@@ -351,7 +351,7 @@ test("run closing note includes budget and draft path", () => {
     budget: {
       toolCalls: 3,
       toolFailures: 1,
-      modelAttempts: 2
+      modelFailures: 2, modelTurns: 0
     },
     budgetLimits: {
       maxToolCalls: 24,
@@ -396,7 +396,7 @@ test("run closing note stays empty-facing unless a draft was saved", () => {
     budget: {
       toolCalls: 1,
       toolFailures: 0,
-      modelAttempts: 1
+      modelFailures: 1, modelTurns: 0
     },
     budgetLimits: {
       maxToolCalls: 24,
@@ -499,7 +499,7 @@ test("run history parser keeps summary fields needed by review pages", () => {
       explicitSkillNames: [],
       usedFallbackModel: false,
       modelFailureSummaries: [],
-      budget: { toolCalls: 2, toolFailures: 0, modelAttempts: 1 },
+      budget: { toolCalls: 2, toolFailures: 0, modelFailures: 1, modelTurns: 0 },
       budgetLimits: { maxToolCalls: 24, maxToolFailures: 6, maxModelAttempts: 6 },
       reflection: { outcome: "success", summary: "ok", nextAction: "none" },
       memorySnapshot: { selectedCount: 2, longTermCount: 1, dailyCount: 1 }

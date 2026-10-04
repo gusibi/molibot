@@ -25,6 +25,8 @@ function createSkill(name: string, scope: LoadedSkill["scope"], filePath: string
     baseDir: filePath.replace(/\/SKILL\.md$/i, ""),
     scope,
     mcpServers: [],
+    allowedTools: [],
+    disableModelInvocation: false,
     aliases: aliases ?? [name],
     signals: { cli: [], mcp: [], tools: [] }
   };

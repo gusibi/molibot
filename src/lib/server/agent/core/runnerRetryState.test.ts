@@ -106,6 +106,7 @@ test("retryable 429 error stays a retryable request error instead of collapsing 
     errorMessage: "Chat upstream returned 429",
     finalText: "",
     attemptCount: 0,
+    maxModelRetries: 2,
     maxEmptyRetries: 2
   });
 
@@ -121,6 +122,7 @@ test("final attempt keeps a terminal request error when retries are exhausted", 
     errorMessage: "Chat upstream returned 429",
     finalText: "",
     attemptCount: 2,
+    maxModelRetries: 2,
     maxEmptyRetries: 2
   });
 
@@ -136,6 +138,7 @@ test("a retryable error becomes terminal once tools have executed, to avoid re-r
     errorMessage: "Chat upstream returned 429",
     finalText: "",
     attemptCount: 0,
+    maxModelRetries: 2,
     maxEmptyRetries: 2,
     attemptExecutedTools: true
   });
@@ -154,6 +157,7 @@ test("a retryable error still retries when no tools executed in the failed attem
     errorMessage: "socket hang up",
     finalText: "",
     attemptCount: 0,
+    maxModelRetries: 2,
     maxEmptyRetries: 2,
     attemptExecutedTools: false
   });
@@ -170,6 +174,7 @@ test("aborted prompt is terminal and never becomes an empty-response retry", () 
     errorMessage: "Command aborted",
     finalText: "",
     attemptCount: 0,
+    maxModelRetries: 2,
     maxEmptyRetries: 2
   });
 
@@ -181,6 +186,7 @@ test("a structured completion ends the attempt without requiring assistant text"
     stopReason: "stop",
     finalText: "",
     attemptCount: 0,
+    maxModelRetries: 2,
     maxEmptyRetries: 2,
     completedWithoutText: true
   });
@@ -269,4 +275,12 @@ test("interrupted replies and provider failures expose different user-facing not
   assert.match(finalErrorUserMessage({aborted: true, errorMessage: "Request was aborted", userText: "重新分析"}), /已中止/);
   assert.match(finalErrorUserMessage({aborted: true, userText: "Analyze again"}), /interrupted/);
   assert.match(finalErrorUserMessage({aborted: false, errorMessage: "Provider returned HTTP 429", userText: "Analyze"}), /HTTP 429/);
+});
+
+test("model failure retries use their configured limit independently from empty responses", () => {
+  const input = { stopReason: "error" as const, errorMessage: "Chat upstream returned 429", finalText: "",
+    maxEmptyRetries: 2, maxModelRetries: 6 };
+  assert.equal(resolvePromptAttemptDecision({ ...input, attemptCount: 5 }).kind, "retryable_error");
+  assert.equal(resolvePromptAttemptDecision({ ...input, attemptCount: 6 }).kind, "terminal_error");
+  assert.equal(resolvePromptAttemptDecision({ ...input, stopReason: "stop", errorMessage: undefined, attemptCount: 2 }).kind, "terminal_empty");
 });

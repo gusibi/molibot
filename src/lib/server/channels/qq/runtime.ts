@@ -1,3 +1,4 @@
+import type { HookManager } from "$lib/server/agent/hooks/types.js";
 import { extname } from "node:path";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { isDirectEventDelivery, resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
@@ -107,6 +108,7 @@ export class QQManager extends BaseChannelRuntime {
       memory: MemoryGateway;
       usageTracker: AiUsageTracker;
       modelErrorTracker: ModelErrorTracker;
+      hookManager: HookManager;
       sdkAccount?: ResolvedQQBotAccount;
     }
   ) {

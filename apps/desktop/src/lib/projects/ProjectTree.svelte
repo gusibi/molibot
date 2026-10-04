@@ -9,6 +9,8 @@
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
   import ConversationRow from "../chat/ConversationRow.svelte";
+  import { projectChatStore } from "./projectChatStore.svelte";
+  import { sessionRuntimeKey } from "../chat/sessionStatusDot";
   import GroupHeader from "../chat/GroupHeader.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
@@ -32,6 +34,7 @@
     expanded,
     activeSessionId = "",
     formatTime,
+    onOpen,
     onToggle,
     onActivateSession
   }: {
@@ -40,9 +43,12 @@
     expanded: boolean;
     activeSessionId?: string;
     formatTime: (value: string) => string;
+    onOpen: () => void;
     onToggle: () => void;
     onActivateSession: () => void;
   } = $props();
+
+  const projectChatState = projectChatStore.state;
 
   const EXPANSION_KEY = "molibot-desktop-expanded-projects";
   const SESSION_PAGE_SIZE = 10;
@@ -240,8 +246,11 @@
 
 <div class="project-tree">
   <div class="sidebar-section-head" class:open={expanded}>
-    <button type="button" class="sidebar-section-toggle" aria-expanded={expanded} onclick={onToggle}>
-      <span>{copy.projects}</span><i class={expanded ? "sidebar-section-caret open project-tree-caret" : "sidebar-section-caret project-tree-caret"} aria-hidden="true"><CaretRight size={12} /></i>
+    <button type="button" class="sidebar-section-toggle" onclick={onOpen}>
+      <span>{copy.projects}</span>
+    </button>
+    <button type="button" class="sidebar-section-caret-btn" aria-expanded={expanded} aria-label={copy.projects} onclick={onToggle}>
+      <i class={expanded ? "sidebar-section-caret open project-tree-caret" : "sidebar-section-caret project-tree-caret"} aria-hidden="true"><CaretRight size={12} /></i>
     </button>
     <button type="button" class="project-add" aria-label={copy.addProject} title={copy.addProject} onclick={() => void beginAdding()}><Plus size={16} aria-hidden="true" /></button>
   </div>
@@ -272,6 +281,7 @@
               <ConversationRow
                 item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false }}
                 active={activeSessionId === session.conversationId}
+                statusDot={$projectChatState.statusDots.get(sessionRuntimeKey("personal", session.conversationId)) ?? null}
                 formatTime={formatTime}
                 labels={rowLabels}
                 onSelect={() => void openSession(project.id, session.conversationId)}

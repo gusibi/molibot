@@ -8,7 +8,8 @@ import type { DesktopMediaGenerateUpdateRequest } from "$lib/shared/desktop";
  */
 export interface MediaEngineSettings {
   enabled: boolean;
-  apiKey: string;
+  apiKey?: string;
+  credentialSource?: "api-key" | "provider";
   baseUrl?: string;
   model?: string;
   name?: string;
@@ -50,6 +51,7 @@ export function isDesktopMediaGenerateUpdateRequest(value: unknown): value is De
 export function buildDesktopMediaEngine(id: string, engine: MediaEngineSettings): DesktopMediaEngine {
   return {
     id,
+    ...(engine.credentialSource ? { credentialSource: engine.credentialSource } : {}),
     enabled: engine.enabled === true,
     hasApiKey: typeof engine.apiKey === "string" && engine.apiKey.trim().length > 0,
     baseUrl: engine.baseUrl ?? "",
@@ -104,6 +106,7 @@ export function buildDesktopMediaGenerateInput(
     const protocol = engine.protocol ?? update?.protocol;
     engines[id] = {
       enabled: update?.enabled ?? engine.enabled,
+      ...(engine.credentialSource ? { credentialSource: engine.credentialSource } : {}),
       baseUrl: update?.baseUrl ?? engine.baseUrl,
       model: update?.model ?? engine.model,
       apiKey: update?.clearApiKey ? "" : replacement || engine.apiKey,

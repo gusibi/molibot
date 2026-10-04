@@ -1,3 +1,4 @@
+import { addImageCost, type ImageCostTotals } from "$lib/shared/usageCosts";
 import type { AiUsageRecord, UsageStatsResponse } from "$lib/server/usage/tracker";
 import type {
   DesktopUsageDailyPoint,
@@ -49,6 +50,7 @@ function addRecord(target: DesktopUsageTotals, record: AiUsageRecord): void {
   target.cacheReadTokens += record.cacheReadTokens;
   target.cacheWriteTokens += record.cacheWriteTokens;
   target.totalTokens += record.totalTokens;
+  addImageCost(target, record);
 }
 
 function summarize(records: AiUsageRecord[]): DesktopUsageTotals {
@@ -149,6 +151,8 @@ function rankedSessions(records: AiUsageRecord[]): DesktopUsageDimensionRow[] {
 
 function projectRecord(record: AiUsageRecord): DesktopUsageRecord {
   return {
+    ...summarize([record]),
+    ...(record.requestId ? { requestId: record.requestId } : {}),
     ts: record.ts,
     channel: record.channel,
     botId: record.botId || "unknown",

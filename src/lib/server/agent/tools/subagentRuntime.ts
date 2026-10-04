@@ -27,7 +27,8 @@ export function resolveSubagentBudgetLimits(settings: RuntimeSettings): RunBudge
   return {
     maxToolCalls: configured?.maxToolCalls ?? DEFAULT_RUN_BUDGET.maxToolCalls,
     maxToolFailures: configured?.maxToolFailures ?? DEFAULT_RUN_BUDGET.maxToolFailures,
-    maxModelAttempts: configured?.maxModelTurns ?? DEFAULT_RUN_BUDGET.maxModelAttempts
+    maxModelAttempts: DEFAULT_RUN_BUDGET.maxModelAttempts,
+    maxModelTurns: configured.maxModelTurns
   };
 }
 
@@ -95,7 +96,7 @@ export class SubagentExecutionGuard {
   beforeModelCall(): SubagentGuardResult {
     const deadline = this.checkDeadline();
     if (!deadline.ok) return deadline;
-    const result = this.budget.tryRecordModelAttempt();
+    const result = this.budget.tryStartModelTurn();
     if (!result.ok) {
       this.recordBudgetStop();
     }
