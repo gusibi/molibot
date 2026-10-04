@@ -1,3 +1,7 @@
+### Fixed: Validate native tool arguments before approval（2026-10-04）
+
+原生工具准备恢复参数校验，避免无效输入先弹出审批、批准后才失败。权限限制保持不变。
+
 ### Fixed: Bash optional approval parameters（2026-10-04）
 
 普通 Bash 可显式省略审批（null）；空审批理由在工具输入校验阶段拒绝，避免普通脚本因空审批对象而阻塞。

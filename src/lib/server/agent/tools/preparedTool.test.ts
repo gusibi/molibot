@@ -76,3 +76,28 @@ test("a pre-intent approval suspension retains the authoritative request identit
   assert.equal(result.terminate, true);
   assert.deepEqual(result.metadata, { status: "waiting_for_approval", approvalRequestId: "approval-one" });
 });
+
+test("native preparation validates Bash input before asking for approval", async () => {
+  const { getBashToolDefinition } = await import("./bash.js");
+  const def = getBashToolDefinition({ cwd: process.cwd(), executionTarget: "sandbox" });
+  const { TypeGuard } = await import("@sinclair/typebox");
+  assert.ok(TypeGuard.IsSchema(def.inputSchema));
+  const registry = new ToolRegistry();
+  registry.register(def);
+  let policyCalls = 0;
+  const runtime = new ToolRuntime(registry, { decidePolicy: () => { policyCalls += 1; return { type: "allow" }; } });
+  const tool = bindToolRuntime({ name: def.id, label: def.name, description: def.description, parameters: def.inputSchema },
+    runtime, signal => context(signal));
+  const invalid = await tool.prepareInvocation("call", {
+    label: "test", command: "node acceptance/wait-and-write.mjs A04-first 30",
+    hostApproval: { reason: "", displayName: "", permissions: { envAllowlist: [], filesystem: "none", network: "none" } }
+  });
+  assert.ok(!("execute" in invalid));
+  assert.equal(invalid.isError, true);
+  assert.match(invalid.error ?? "", /validation|invalid/i);
+  assert.equal(policyCalls, 0);
+  const plain = await tool.prepareInvocation("plain", { label: "test", command: "true", hostApproval: null });
+  assert.ok("execute" in plain);
+  assert.equal(policyCalls, 1);
+  plain.cancel();
+});
