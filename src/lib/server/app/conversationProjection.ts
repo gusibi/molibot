@@ -233,7 +233,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
           content: assistant.content.trim()
         }];
       }
-      if (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim()) out.push(assistant);
+      if (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim() || assistant.steps?.length) out.push(assistant);
     }
     assistant = null;
     terminalCommitted = false;
@@ -350,8 +350,21 @@ export function projectConversationMessages(input: {
   conversationId: string;
   entries: SessionMessageEntry[];
   metadata: UiMessageMetadata[];
+  runSummaries?: Array<Record<string, unknown>>;
 }): ConversationProjection {
   const agentMessages = agentDisplayMessages(input.entries, input.conversationId);
+  const inputTime = (entry: SessionMessageEntry): number => typeof entry.message.timestamp === "number"
+    ? entry.message.timestamp : Date.parse(entry.timestamp);
+  const turnTimeByEntryId = new Map<string, number>();
+  const turnIdByEntryId = new Map<string, string>();
+  let turnTime = NaN;
+  let turnId = "";
+  for (const entry of input.entries) {
+    if (entry.message.role === "user") { turnTime = inputTime(entry); turnId = entry.id; }
+    turnTimeByEntryId.set(entry.id, turnTime);
+    turnIdByEntryId.set(entry.id, turnId);
+  }
+  const summaries = new Map((input.runSummaries ?? []).map(summary => [String(summary.runId), summary]));
   const indexByEntryId = new Map<string, number>();
   agentMessages.forEach((message, index) => indexByEntryId.set(message.sourceEntryId, index));
 
@@ -369,22 +382,41 @@ export function projectConversationMessages(input: {
     return -1;
   };
 
-  for (const metadata of input.metadata) {
+  let metadataTurnTime = NaN;
+  let metadataTurnId: string | undefined;
+  let metadataRunId: string | undefined;
+  for (const [metadataIndex, metadata] of input.metadata.entries()) {
+    if (metadata.role === "user") {
+      metadataTurnTime = Date.parse(metadata.createdAt);
+      metadataTurnId = undefined;
+      metadataRunId = undefined;
+    }
+    const nextReply = metadata.role === "user" ? input.metadata.slice(metadataIndex + 1).find(row => row.role === "assistant") : undefined;
+    const upperTime = Date.parse(metadata.role === "user" ? nextReply?.createdAt ?? metadata.createdAt : metadata.createdAt);
+    // Admission may follow intake after queueing or preprocessing. Match within
+    // the recorded input-to-reply interval, then bind assistants to that input id.
+    const belongsToTurn = (candidate: AgentDisplayMessage): boolean => {
+      if (metadata.role === "assistant" && metadataTurnId) return turnIdByEntryId.get(candidate.sourceEntryId) === metadataTurnId;
+      const sourceTime = turnTimeByEntryId.get(candidate.sourceEntryId);
+      return !Number.isFinite(metadataTurnTime) || sourceTime === undefined || !Number.isFinite(sourceTime)
+        || (sourceTime >= metadataTurnTime - 1000 && sourceTime <= upperTime + 1000);
+    };
     let matchIndex = -1;
     // Phase 1: authoritative id match — order-independent, survives reordering.
     if (metadata.sourceEntryId) {
       const byId = indexByEntryId.get(metadata.sourceEntryId);
-      if (byId != null && !used.has(byId) && agentMessages[byId].role === metadata.role) matchIndex = byId;
+      if (byId != null && !used.has(byId) && agentMessages[byId].role === metadata.role && belongsToTurn(agentMessages[byId])) matchIndex = byId;
     }
     // Phase 2: context-backed rows carry no content of their own — bind to the
     // next in-order Agent row of the same role.
     if (matchIndex < 0 && (metadata.contextBacked || metadata.content == null)) {
-      matchIndex = scanFromCursor((candidate) => candidate.role === metadata.role);
+      matchIndex = scanFromCursor((candidate) => candidate.role === metadata.role && belongsToTurn(candidate));
     }
     // Phase 3: legacy display-only rows migrate only onto a nearby identical Agent row.
     if (matchIndex < 0 && metadata.content != null) {
       matchIndex = scanFromCursor((candidate) =>
         candidate.role === metadata.role
+        && belongsToTurn(candidate)
         && isNearbyLegacyMessage(candidate, metadata)
         && normalized(candidate.content) === normalized(metadata.content));
     }
@@ -396,8 +428,10 @@ export function projectConversationMessages(input: {
       messages.push({
         ...metadata,
         content,
-        steps: metadata.role === "assistant" && content
-          ? [{ id: `${metadata.id}-text`, kind: "text", content }]
+        traceRunIds: metadata.role === "assistant" && metadataRunId ? [metadataRunId] : undefined,
+        steps: metadata.role === "assistant"
+          ? [...(metadata.activities ?? []).map(activity => ({ id: `${metadata.id}-${activity.key}`, kind: "activity" as const, activity })),
+            ...(content ? [{ id: `${metadata.id}-text`, kind: "text" as const, content }] : [])]
           : undefined
       });
       continue;
@@ -406,6 +440,10 @@ export function projectConversationMessages(input: {
     used.add(matchIndex);
     cursor = Math.max(cursor, matchIndex + 1);
     const source = agentMessages[matchIndex];
+    if (metadata.role === "user") {
+      metadataTurnId = source.sourceEntryId;
+      metadataRunId = source.traceRunIds?.[0];
+    }
     sourceEntryByMessageId.set(metadata.id, source.sourceEntryId);
     if (metadata.sourceEntryId !== source.sourceEntryId) {
       resolvedSourceEntries.push({ id: metadata.id, sourceEntryId: source.sourceEntryId });
@@ -432,6 +470,17 @@ export function projectConversationMessages(input: {
     sourceEntryByMessageId.set(message.id, message.sourceEntryId);
     messages.push(message);
   });
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const summary = message.traceRunIds?.map(id => summaries.get(id)).filter(Boolean).at(-1);
+    if (!summary) continue;
+    if (typeof summary.stopReason === "string") message.stopReason = summary.stopReason;
+    if (typeof summary.errorMessage === "string") message.errorMessage = summary.errorMessage;
+    if (!message.content.trim() && typeof summary.finalText === "string" && summary.finalText.trim()) {
+      message.content = summary.finalText;
+      message.steps = [...(message.steps ?? []), { id: `${message.id}-result`, kind: "text", content: message.content }];
+    }
+  }
   messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return { messages: projectTurnPlans(messages), migratedMetadataIds, resolvedSourceEntries, sourceEntryByMessageId };
 }

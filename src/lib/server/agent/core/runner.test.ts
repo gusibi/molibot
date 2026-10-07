@@ -1,6 +1,6 @@
 import { getCurrentSystemPrompt, getCurrentTools, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { MomRunner, resolveSessionWorkingDir } from "$lib/server/agent/core/runn
 import { resolveModelSelection } from "$lib/server/agent/routing/modelRouting.js";
 import { decideVisionRouting } from "$lib/server/agent/routing/mediaFallback.js";
 import { RunnerPool, snapshotAllRuntimeRuns } from "$lib/server/agent/core/runnerPool.js";
+import { PiPreparationRecoveryError } from "$lib/server/agent/durable/piPreparationEffects.js";
 
 const nativeTestLifecycle = {
   startTurn: () => {}, bindRun: () => {}, close: async () => {}, sourceIdFor: () => undefined, steer: () => true,
@@ -905,8 +906,96 @@ test("runner persists user and assistant error when a run throws before output",
   assert.doesNotMatch(JSON.stringify(appendedMessages[0]?.content), /request failed/);
   assert.deepEqual(
     ((runner as any).agent.state.messages as any[]).map((message) => message.role),
-    ["user"]
+    ["user", "assistant"]
   );
+  assert.match(JSON.stringify((runner as any).agent.state.messages.at(-1)), /停止原因/);
+});
+
+test("runner delivers and persists progress when a monitoring tool throws after completed work", async () => {
+  const settings = createRunnerTestSettings();
+  const entries: any[] = [], summaries: any[] = [], replies: string[] = [], replacements: string[] = [];
+  const store = {
+    getWorkspaceDir: () => runnerTestWorkspace, getScratchDir: () => runnerTestWorkspace,
+    getSessionEntriesPath: () => "entries.jsonl",
+    appendContextMessage: (_chatId: string, message: any) => { entries.push(message); return `entry-${entries.length}`; },
+    appendRunSummary: (_chatId: string, summary: any) => summaries.push(summary),
+    appendRunDetail: () => {}, appendRuntimeEvent: () => {}, loadContext: () => entries,
+    getSessionSandboxOverride: () => null
+  };
+  const runner = new MomRunner("telegram", "monitor-fixture", `monitor-${Date.now()}`, store as any,
+    () => settings, () => settings, { record: () => {} } as any, { record: () => {} } as any, createRunnerTestMemory() as any);
+  let subscriber: ((event: any) => void) | undefined;
+  const progress = "文章已提交并推送 abc123；发布结果尚未确认，正在监控 CI。";
+  (runner as any).agent = {
+    ...nativeTestLifecycle,
+    state: { messages: [], tools: [], systemPrompt: "test", model: resolveModelSelection(settings, "text").model, thinkingLevel: "off" },
+    subscribe: (listener: (event: any) => void) => { subscriber = listener; return () => {}; },
+    abort: () => {}, followUp: () => {},
+    prompt: async () => {
+      (runner as any).agent.state.messages.push({ role: "assistant", timestamp: Date.now(), stopReason: "toolUse",
+        content: [{ type: "toolCall", id: "push", name: "bash", arguments: { label: "push-content" } }] });
+      subscriber?.({ type: "tool_execution_start", toolName: "bash", toolCallId: "push", args: { label: "push-content" } });
+      subscriber?.({ type: "tool_execution_end", toolName: "bash", toolCallId: "push", isError: false,
+        result: { content: [{ type: "text", text: "[main abc123] add articles\nmain -> main" }] } });
+      subscriber?.({ type: "message_end", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: progress }], timestamp: Date.now() } });
+      // The next tool-only model message resets the live text buffer.
+      subscriber?.({ type: "message_start", message: { role: "assistant", content: [] } });
+      subscriber?.({ type: "tool_execution_start", toolName: "bash", toolCallId: "watch", args: { label: "watch-actions" } });
+      throw new Error("Preparation stage sandbox outcome is unknown: Command timed out after 300 seconds");
+    }
+  };
+  const context = createRunnerContext("发布这些文章");
+  context.respond = async (text: string) => { replies.push(text); };
+  context.replaceMessage = async (text: string) => { replacements.push(text); };
+  const result = await runner.run(context);
+  assert.equal(result.stopReason, "error", "a receipt must not manufacture overall success");
+  assert.ok(replies.includes(progress), "progress reaches the channel before the wait fails");
+  const report = replacements.at(-1)!;
+  for (const evidence of [progress, "abc123", "watch-actions", "300 seconds", "超时不等于外部任务失败"]) assert.ok(report.includes(evidence), evidence);
+  assert.match(JSON.stringify(entries.at(-1)), /watch-actions/);
+  assert.equal(entries.at(-1).stopReason, "error");
+  assert.equal(summaries.at(-1).stopReason, "error");
+  assert.equal(summaries.at(-1).finalText, report);
+});
+
+test("native Runner preserves completed receipts and a progress reply after uncertain tool preparation", { timeout: 10000 }, async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-monitor-native-"));
+  const artifact = join(workspaceDir, "result.txt");
+  writeFileSync(artifact, "Confirmed artifact: fixture-result-123");
+  const runner = await createRunnerForHookTest({ chatId: "monitor-native", workspaceDir, hookManager: createRunnerHookManager([]) });
+  const agent = (runner as any).agent;
+  let generations = 0, preflights = 0;
+  const replacements: string[] = [], replies: string[] = [];
+  agent.streamFunction = (model: any, context: any) => {
+    generations++;
+    const prompt = getCurrentSystemPrompt(context.messages);
+    assert.equal(prompt.split("Before a long-running wait or monitoring call").length - 1, 1);
+    const first = generations === 1;
+    const message = { role: "assistant", api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), stopReason: "toolUse",
+      content: first ? [{ type: "toolCall", id: "receipt", name: "read", arguments: { path: artifact } }]
+        : [{ type: "text", text: "已确认产物 fixture-result-123，接下来等待外部任务结果。" },
+          { type: "toolCall", id: "monitor", name: "bash", arguments: { command: "printf 'must not execute'", label: "monitor-existing-job", timeout: 300 } }],
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+    const stream = createAssistantMessageEventStream(); stream.push({ type: "done", reason: "toolUse", message } as any); stream.end(); return stream;
+  };
+  const context = createRunnerContext("确认产物后监控外部任务");
+  context.respond = async (text: string) => { replies.push(text); };
+  context.replaceMessage = async (text: string) => { replacements.push(text); };
+  context.onToolSideEffectPreflight = async () => {
+    preflights++;
+    throw new PiPreparationRecoveryError("Preparation stage sandbox outcome is unknown: Command timed out after 300 seconds");
+  };
+  try {
+    const result = await runner.run(context);
+    assert.equal(result.stopReason, "error");
+    assert.equal(preflights, 1, "unknown operations cannot be replayed by a model fallback");
+    assert.equal(generations, 2);
+    assert.ok(replies.some(text => text.includes("接下来等待外部任务结果")));
+    assert.match(replacements.at(-1)!, /fixture-result-123/);
+    assert.match(replacements.at(-1)!, /monitor-existing-job/);
+    assert.match(replacements.at(-1)!, /超时不等于外部任务失败/);
+    assert.match(JSON.stringify(agent.state.messages.at(-1)), /monitor-existing-job/);
+  } finally { await agent.close(); rmSync(workspaceDir, { recursive: true, force: true }); }
 });
 
 test("runner replays an accepted steer after a whole-attempt retry rolls back its consumed message", async () => {

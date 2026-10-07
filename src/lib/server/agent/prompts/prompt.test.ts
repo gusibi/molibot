@@ -817,6 +817,10 @@ test("rendered profiles omit management metadata and retain authorization and sc
     assert.match(prompt, /validation error may be corrected and retried/);
     assert.match(prompt, /Do not turn answer-only or analysis requests into workspace changes/);
     assert.match(prompt, /task difficulty alone does not authorize saving a draft/);
+    assert.equal(prompt.split("Before a long-running wait or monitoring call").length - 1, 1);
+    assert.match(prompt, /Submitted or pushed is not published until the external status confirms it/);
+    assert.match(prompt, /bounded status queries rather than one blocking watch command/);
+    assert.match(prompt, /Never claim a background monitor is active unless runtimeTask has actually created it/);
     assert.doesNotMatch(prompt, /HIGHER priority|follow it exactly|operator-directives-reminder/);
     assert.equal(buildSystemPrompt(workspace, "chat", "session", "changed memory"), prompt,
       "per-turn memory must not invalidate the stable system prefix");

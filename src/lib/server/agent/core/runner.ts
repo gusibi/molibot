@@ -17,7 +17,7 @@ import { buildSystemPrompt, getProjectPromptRefreshKey, type PromptMiniApp } fro
 import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import { writeProjectSystemPromptPreview } from "$lib/server/agent/prompts/projectPromptPreview.js";
 import { resolveProjectFileReferences } from "$lib/server/projects/fileReferences.js";
-import { buildRunReflection, buildSubagentTaskRecord, formatStoppedSubagentReport, formatRunClosingNote, type RunSummary } from "$lib/server/agent/session/runSummary.js";
+import { buildRunReflection, buildSubagentTaskRecord, formatStoppedSubagentReport, formatInterruptedRunReport, formatRunClosingNote, type RunSummary, type RunToolProgress } from "$lib/server/agent/session/runSummary.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { saveSkillDraft, shouldSuggestSkillDraft } from "$lib/server/agent/skills/skillDraft.js";
 import { buildSkillDraftMetadataViaSubagent } from "$lib/server/agent/skills/skillDraftSubagent.js";
@@ -1588,6 +1588,8 @@ export class MomRunner implements RunnerLike {
     };
     let assistantTextStreamed = false;
     let streamedAssistantText = "";
+    let lastAssistantProgressText = "";
+    const toolProgress = new Map<string, RunToolProgress>();
     let firstAssistantTokenLogged = false;
     let promptStartedAt = 0;
     // Citation markers ([[mem:M1]]) are model-facing bookkeeping; hold back
@@ -1623,6 +1625,7 @@ export class MomRunner implements RunnerLike {
         event.type === "message_start" &&
         (event.message as { role?: string }).role === "assistant"
       ) {
+        if (streamedAssistantText.trim()) lastAssistantProgressText = streamedAssistantText;
         this.toolBudgetKeys.clear();
         collectCitationFilter();
         citationFilter = createMemoryCitationStreamFilter();
@@ -1665,6 +1668,11 @@ export class MomRunner implements RunnerLike {
         }
       }
 
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        const text = event.message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+        if (text.trim()) lastAssistantProgressText = text;
+      }
+
       if (event.type === "tool_execution_start") {
         const args = event.args as { command?: unknown; label?: string };
         const displayName = event.toolName === "bash"
@@ -1681,6 +1689,7 @@ export class MomRunner implements RunnerLike {
             : displayName
           : rawLabel;
         usedToolNames.push(event.toolName);
+        toolProgress.set(event.toolCallId, { label, status: "running" });
         logRunDetail({
           type: "tool_start",
           toolName: event.toolName,
@@ -1705,6 +1714,11 @@ export class MomRunner implements RunnerLike {
 
       if (event.type === "tool_execution_end") {
         const body = extractTextFromResult(event.result);
+        toolProgress.set(event.toolCallId, {
+          label: toolProgress.get(event.toolCallId)?.label ?? event.toolName,
+          status: event.isError ? "error" : "success",
+          result: body.slice(0, 600)
+        });
         const fileMutationReceipt = getFileMutationReceipt(event.toolName, event.isError, event.result);
         const fileOutputReceipt = getFileOutputReceipt(event.isError, event.result);
         if (fileMutationReceipt) {
@@ -3357,6 +3371,17 @@ export class MomRunner implements RunnerLike {
         }
       }
 
+      if (!finalText.trim() && stopReason === "error") {
+        errorMessage ??= "Agent stopped without a final conclusion.";
+        finalText = formatInterruptedRunReport({
+          progressText: stripMemoryCitations(lastAssistantProgressText).text,
+          tools: [...toolProgress.values()],
+          error: errorMessage
+        });
+        appendRunContextMessage(createAssistantErrorMessage({ text: finalText, errorMessage, model: activeSelection.model }));
+        assistantMessagePersisted = true;
+      }
+
       collectCitationFilter();
       if (finalText) {
         const strippedFinal = stripMemoryCitations(finalText);
@@ -3621,17 +3646,17 @@ export class MomRunner implements RunnerLike {
       return { runId, workspaceId, assistantSourceEntryId, stopReason, errorMessage, usage: finalUsage };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const partialText = stripMemoryCitations(streamedAssistantText.trim()).text || formatStoppedSubagentReport(subagentTaskRecords, message);
-      if (!assistantMessagePersisted) {
-        appendRunContextMessage(
-          createAssistantErrorMessage({
-            text: partialText,
-            errorMessage: message,
-            model: activeSelection.model
-          })
-        );
-        assistantMessagePersisted = true;
-      }
+      stopReason = "error";
+      errorMessage = message;
+      const partialText = formatInterruptedRunReport({
+        progressText: stripMemoryCitations(streamedAssistantText.trim() || lastAssistantProgressText.trim()).text,
+        tools: [...toolProgress.values()],
+        error: message,
+        subagentReport: formatStoppedSubagentReport(subagentTaskRecords, message)
+      });
+      // Earlier assistant entries may be progress/tool calls, not a closing answer.
+      appendRunContextMessage(createAssistantErrorMessage({ text: partialText, errorMessage: message, model: activeSelection.model }));
+      assistantMessagePersisted = true;
       momError("runner", "run_exception", {
         runId,
         chatId: this.chatId,
@@ -3668,9 +3693,8 @@ export class MomRunner implements RunnerLike {
       logRunDetail({ type: "final", summary: message, isError: true });
       try {
         await ctx.setWorking(false);
-        if (partialText) await ctx.replaceMessage(partialText);
-        else await ctx.replaceMessage(`Run failed: ${message}`);
-        await respondInThread(`Error: ${message}`);
+        if (mainAnswerCommitted) await sendSupplement(partialText);
+        else await ctx.replaceMessage(partialText);
       } catch {
         // ignore secondary UI errors
       }

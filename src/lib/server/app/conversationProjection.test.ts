@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionMessageEntry } from "$lib/server/agent/session/session.js";
+import type { UiMessageMetadata } from "$lib/server/sessions/store.js";
 import { projectConversationMessages } from "./conversationProjection.js";
 
 function entry(id: string, role: "user" | "assistant" | "toolResult", content: unknown, minute: number): SessionMessageEntry {
@@ -23,6 +24,47 @@ function assistantEntry(
   const base = entry(id, "assistant", content, minute);
   return { ...base, message: { ...base.message, ...details } as AgentMessage };
 }
+
+test("missing closing answers cannot shift later turns or preserve wrong stored bindings", () => {
+  const entries = [
+    { ...entry("u1", "user", [{ type: "text", text: "publish" }], 0), runId: "run1" },
+    { ...assistantEntry("a1", [{ type: "toolCall", id: "tool1", name: "bash", arguments: {} }], 1, { stopReason: "toolUse" }), runId: "run1" },
+    { ...entry("u2", "user", [{ type: "text", text: "continue" }], 10), runId: "run2" },
+    { ...assistantEntry("a2", [{ type: "text", text: "translation still missing" }], 11, { stopReason: "stop" }), runId: "run2" },
+    { ...entry("u3", "user", [{ type: "text", text: "which model?" }], 20), runId: "run3" },
+    { ...assistantEntry("a3", [{ type: "text", text: "worker model" }], 21, { stopReason: "stop" }), runId: "run3" }
+  ];
+  const metadata: UiMessageMetadata[] = [
+    { id: "m-u1", conversationId: "session", role: "user", createdAt: entries[0].timestamp, contextBacked: true, sourceEntryId: "u1" },
+    { id: "m-a1", conversationId: "session", role: "assistant", createdAt: entries[1].timestamp, contextBacked: true, sourceEntryId: "a2" },
+    { id: "m-u2", conversationId: "session", role: "user", createdAt: entries[2].timestamp, contextBacked: true, sourceEntryId: "u3" },
+    { id: "m-a2", conversationId: "session", role: "assistant", createdAt: entries[3].timestamp, contextBacked: true, sourceEntryId: "a3" },
+    { id: "m-u3", conversationId: "session", role: "user", createdAt: entries[4].timestamp, contextBacked: true },
+    { id: "m-a3", conversationId: "session", role: "assistant", createdAt: entries[5].timestamp, contextBacked: true }
+  ];
+  const input = { conversationId: "session", entries, metadata, runSummaries: [{ runId: "run1", stopReason: "error", errorMessage: "monitor timed out" }] };
+  const result = projectConversationMessages(input);
+  assert.deepEqual(result.messages.map(message => [message.id, message.content]), [
+    ["m-u1", "publish"], ["m-a1", ""], ["m-u2", "continue"], ["m-a2", "translation still missing"], ["m-u3", "which model?"], ["m-a3", "worker model"]
+  ]);
+  assert.equal(result.messages[1].stopReason, "error");
+  assert.equal(result.messages[1].errorMessage, "monitor timed out");
+  const bindings = new Map(result.resolvedSourceEntries.map(row => [row.id, row.sourceEntryId]));
+  const reloaded = projectConversationMessages({ ...input, metadata: metadata.map(row => ({ ...row, sourceEntryId: bindings.get(row.id) ?? row.sourceEntryId })) });
+  assert.deepEqual(reloaded.messages, result.messages);
+  assert.equal(reloaded.resolvedSourceEntries.length, 0);
+});
+
+test("delayed admission stays paired with its input rather than requiring simultaneous timestamps", () => {
+  const result = projectConversationMessages({ conversationId: "session", entries: [
+    entry("queued-input", "user", [{ type: "text", text: "continue" }], 2),
+    assistantEntry("queued-answer", [{ type: "text", text: "completed" }], 3, { stopReason: "stop" })
+  ], metadata: [
+    { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+    { id: "m-a", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:03:00.000Z", contextBacked: true }
+  ] });
+  assert.deepEqual(result.messages.map(message => [message.id, message.content]), [["m-u", "continue"], ["m-a", "completed"]]);
+});
 
 test("projects provider errors and completed replies from their Agent messages", () => {
   const error = projectConversationMessages({

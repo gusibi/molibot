@@ -60,7 +60,8 @@ export function loadConversationProjection(input: {
     entries: store.listSessionMessageEntries(chatId, input.conversationId, {
       tailBytesCap: PROJECTION_TAIL_BYTES_CAP
     }),
-    metadata: runtime.sessions.listMessageMetadata(input.conversationId)
+    metadata: runtime.sessions.listMessageMetadata(input.conversationId),
+    runSummaries: store.listRunSummaries(chatId, 100).filter(summary => summary.sessionId === input.conversationId)
   });
   runtime.sessions.markMessagesContextBacked(input.conversationId, result.migratedMetadataIds);
   runtime.sessions.recordMessageSourceEntries(input.conversationId, result.resolvedSourceEntries);

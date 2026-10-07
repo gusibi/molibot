@@ -326,6 +326,8 @@ function buildToolsSection(): string {
     "- Default to parallel only for local, read-only, low-risk tool calls with no fallback or retry coordination.",
     "- Default to sequential or tightly limited parallelism for remote/network calls, especially search or fetch steps with timeouts, retries, fallbacks, quotas, or result-normalization requirements.",
     "- If later tool calls depend on whether an earlier call succeeded, timed out, or chose a fallback path, those calls are not truly independent and must be run sequentially.",
+    "- Before a long-running wait or monitoring call, send a short progress reply in the user's language: confirmed completed work and result links/IDs, what is still pending, and what you are about to monitor. Submitted or pushed is not published until the external status confirms it.",
+    "- Monitor external jobs with bounded status queries rather than one blocking watch command. If a query times out, preserve completed work, report the last confirmed state and pending verification, and query the existing job instead of resubmitting it. Never claim a background monitor is active unless runtimeTask has actually created it; use runtimeTask for authorized later follow-up.",
     "- `TOOLS.md` is guidance about conventions and paths; it does not control actual tool availability.",
   ].join("\n"));
 }

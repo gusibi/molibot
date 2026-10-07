@@ -224,3 +224,44 @@ export function formatStoppedSubagentReport(tasks: RunSummarySubagentTask[], par
     "完成情况：不能确认全部完成。已执行操作仍保留，继续前应核对现有产物和验证结果。"
   ].filter(Boolean).join("\n\n");
 }
+
+export interface RunToolProgress {
+  label: string;
+  status: "running" | "success" | "error";
+  result?: string;
+}
+
+/** Tool success confirms only that step, not completion of the user's goal. */
+export function formatInterruptedRunReport(input: {
+  progressText: string;
+  tools: RunToolProgress[];
+  error: string;
+  subagentReport?: string;
+}): string {
+  const excerpt = (text: string, limit: number): string => {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    return normalized.length <= limit ? normalized : `${normalized.slice(0, limit)}…`;
+  };
+  const completed = input.tools.filter(tool => tool.status === "success");
+  const pending = input.tools.filter(tool => tool.status === "running");
+  const failed = input.tools.filter(tool => tool.status === "error");
+  const timedOut = /timed?\s*out|timeout|超时/i.test(input.error);
+  return [
+    input.progressText.trim() === "[SILENT]" ? "" : input.progressText.trim(),
+    timedOut ? "本轮等待或执行超时，已返回的结果保留。" : "本轮执行已停止，已返回的结果保留。",
+    completed.length ? [
+      `已返回成功的步骤（${completed.length} 项，列出最近 ${Math.min(completed.length, 5)} 项）：`,
+      ...completed.slice(-5).map(tool => `- ${excerpt(tool.label, 120)}${tool.result ? `：${excerpt(tool.result, 400)}` : ""}`)
+    ].join("\n") : "本轮没有可确认的成功工具结果。",
+    pending.length ? [
+      "停止位置／未确认的步骤：",
+      ...pending.slice(-5).map(tool => `- ${excerpt(tool.label, 120)}：执行结果尚未返回`)
+    ].join("\n") : "",
+    failed.length ? ["本轮曾返回错误的步骤（可能已被后续步骤恢复）：", ...failed.slice(-3).map(tool => `- ${excerpt(tool.label, 120)}：返回错误`)].join("\n") : "",
+    `停止原因：${excerpt(input.error, 1200)}`,
+    input.subagentReport,
+    input.tools.length
+      ? "整体完成情况：以上只确认已返回的步骤；尚未返回的外部任务结果需要查询确认，超时不等于外部任务失败。继续时先核对已有结果，只处理剩余事项。"
+      : "整体完成情况：本轮未能生成最终结论，需要先检查停止原因。"
+  ].filter(Boolean).join("\n\n");
+}
