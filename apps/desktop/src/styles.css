@@ -1163,16 +1163,22 @@ a:focus-visible {
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
+  /* A light dashed edge marks where the content column begins, so the page title
+     reads as part of that column instead of floating after the controls. */
+  border-left: 1px dashed color-mix(in srgb, var(--label-tertiary) 42%, transparent);
 }
 /* Collapsed, the controls need more room than the rail, so the header falls
-   back to the single flex row (cluster, then title/actions). */
+   back to the single flex row (cluster, then title/actions) and drops the rule. */
 .chat-layout.sidebar-collapsed .chat-header {
   display: flex;
   gap: 8px;
   padding: 0 8px 0 84px;
 }
 .chat-layout.sidebar-collapsed .titlebar-cluster { padding-left: 0; }
-.chat-layout.sidebar-collapsed .window-header-page { flex: 1 1 auto; }
+.chat-layout.sidebar-collapsed .window-header-page {
+  flex: 1 1 auto;
+  border-left: 0;
+}
 .page-header { min-height: 82px; padding: 28px 28px 18px; background: var(--chrome-header-bg); border-bottom-color: var(--chrome-border); }
 .settings-page-header {
   position: relative;

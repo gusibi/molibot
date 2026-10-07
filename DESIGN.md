@@ -1117,8 +1117,11 @@ the same regardless of the window's activation state and of what is behind it.
   the current page's title/context and its actions, right-aligned to the chat
   column's right edge. While the sidebar is expanded the header mirrors the two
   columns, so the title starts exactly at the chat column's left edge and lines
-  up with the content frame below; collapsed it falls back to one flex row (the
-  controls need more than the 48px rail), and the title simply follows them.
+  up with the content frame below, and a light dashed vertical rule marks that
+  column edge so the title reads as part of it rather than floating after the
+  controls; collapsed the header falls back to one flex row (the
+  controls need more than the 48px rail) and drops the rule, the title simply
+  following them.
   Pages publish that content through the shared
   `ChatHeader`; the content frame below renders no second title bar. Chat,
   Project, Room and every workspace destination use this one row, so the title
