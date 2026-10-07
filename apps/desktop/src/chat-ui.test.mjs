@@ -1349,7 +1349,8 @@ test("Window header owns its grid row and the transcript is not reserved beneath
   // the chat content's left edge; collapsed, it falls back to one flex row.
   assert.match(styles, /\.chat-header \{[^}]*grid-template-columns:\s*var\(--sidebar-w, var\(--sidebar-nav-w\)\) minmax\(0, 1fr\)/s);
   assert.match(styles, /\.window-header-page \{[^}]*grid-column:\s*2;[^}]*display:\s*flex;/s);
-  assert.match(styles, /\.window-header-page \{[^}]*border-left:\s*1px dashed/s);
+  assert.match(styles, /\.window-header-page \{[^}]*border-left:\s*1px solid var\(--content-frame-edge\)/s);
+  assert.match(styles, /--content-frame-edge:/);
   assert.match(styles, /\.titlebar-cluster \{[^}]*grid-column:\s*1;[^}]*padding-left:\s*84px;/s);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header \{[^}]*display:\s*flex;/s);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed \.window-header-page \{[^}]*border-left:\s*0;/s);

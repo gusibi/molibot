@@ -235,8 +235,10 @@
   --float-shadow: 0 8px 24px -12px rgba(0,0,0,0.32);
   /* The workspace content frame floats as one surface above the window chrome
      (header + sidebar), so it takes a visible lift rather than the hairline
-     card tiers above. Keyed on brightness below for the same perceived depth. */
+     card tiers above. The edge token is the same neutral tone as the shadow's
+     contact layer, so the header's column rule reads as that edge continuing. */
   --content-shadow: 0 8px 28px -10px rgb(0 0 0 / 20%), 0 2px 6px -3px rgb(0 0 0 / 10%);
+  --content-frame-edge: rgb(0 0 0 / 13%);
   --popover-shadow: 0 1px 1px rgba(0,0,0,0.02), 0 4px 8px -4px rgba(0,0,0,0.04), 0 16px 24px -8px rgba(0,0,0,0.06);
   --glass-shadow: 0 1px 1px rgba(0,0,0,0.02), 0 8px 16px -4px rgba(0,0,0,0.04), 0 24px 32px -8px rgba(0,0,0,0.06);
   --drawer-shadow: -8px 0 24px -8px rgba(0,0,0,0.12);
@@ -353,6 +355,9 @@
   --glass-surface-shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -10px rgb(0 0 0 / 50%), 0 32px 64px -20px rgb(0 0 0 / 44%);
   --glass-chip-shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 6px 16px -6px rgb(0 0 0 / 40%);
   --content-shadow: 0 10px 32px -10px rgb(0 0 0 / 55%), 0 2px 8px -3px rgb(0 0 0 / 40%);
+  /* A black edge would vanish on the dark canvas, so the frame edge lifts with
+     a faint light tone instead — the same role, the other direction. */
+  --content-frame-edge: rgb(255 255 255 / 13%);
 }
 
 /* Plan decisions share the approval card's hierarchy and keyboard affordance —
@@ -1163,9 +1168,11 @@ a:focus-visible {
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
-  /* A light dashed edge marks where the content column begins, so the page title
-     reads as part of that column instead of floating after the controls. */
-  border-left: 1px dashed color-mix(in srgb, var(--label-tertiary) 42%, transparent);
+  padding-left: 12px;
+  /* A hairline column rule in the frame's own edge tone: it reads as the
+     content frame's left edge continuing up through the header, rather than a
+     divider fighting the chrome. */
+  border-left: 1px solid var(--content-frame-edge);
 }
 /* Collapsed, the controls need more room than the rail, so the header falls
    back to the single flex row (cluster, then title/actions) and drops the rule. */
@@ -1177,6 +1184,7 @@ a:focus-visible {
 .chat-layout.sidebar-collapsed .titlebar-cluster { padding-left: 0; }
 .chat-layout.sidebar-collapsed .window-header-page {
   flex: 1 1 auto;
+  padding-left: 0;
   border-left: 0;
 }
 .page-header { min-height: 82px; padding: 28px 28px 18px; background: var(--chrome-header-bg); border-bottom-color: var(--chrome-border); }
