@@ -36,6 +36,18 @@ export const DEFAULT_MAX_UNFINISHED_DURABLE_EXECUTIONS = 20;
 // added at the first non-pure tool boundary.
 const CROSS_SESSION_SIGNAL = /(?:多日|跨天|跨会话|几天后|未来几天|稍后继续|下次继续|明天继续|持续推进|定期(?:汇报|更新|执行)|每天(?:汇报|更新|执行)|每周(?:汇报|更新|执行)|分阶段(?:完成|推进|执行)|长期(?:推进|执行)|\b(?:multi[- ]day|across sessions?|continue later|resume later|keep working|daily updates?|weekly updates?|periodic(?:ally)? report|work over the next few days)\b)/iu;
 
+// A one-shot request that clearly spans several work items still needs the
+// persistent path even when the owner never says "multi-day". These are
+// deterministic signals, so they do not depend on the preflight model and
+// cannot silently degrade to an ordinary Run.
+const URL_PATTERN = /https?:\/\/[^\s"'<>()\]]+/giu;
+const BULK_CONTENT_SIGNAL = /(?:逐[个篇章节条项]|逐一|每[个篇章节条项]|批量|全部|所有|(?:这|那)(?:些|几)|(?:几|数)[个篇章节条项])/u;
+const CONTENT_ACTION_SIGNAL = /(?:保存|收录|整理|翻译|改写|重写|生成|导出|发布|上线|校对|构建|同步|下载)/u;
+
+function countUrls(message: string): number {
+  return (message.match(URL_PATTERN) ?? []).length;
+}
+
 function cleanExplicitCommand(message: string): string {
   return message.replace(EXPLICIT_COMMAND, "").trim();
 }
@@ -58,11 +70,50 @@ export function detectDurableActivation(message: string, mode: DurableRequestMod
       reason: mode === "force" ? "per_request_override" : "explicit_long_task_command"
     };
   }
-  if (!CROSS_SESSION_SIGNAL.test(raw)) return null;
+  if (CROSS_SESSION_SIGNAL.test(raw)) {
+    return {
+      goal: raw,
+      activationPath: "deterministic",
+      reason: "cross_session_execution_intent"
+    };
+  }
+  if (countUrls(raw) >= 2 && CONTENT_ACTION_SIGNAL.test(raw)) {
+    return {
+      goal: raw,
+      activationPath: "deterministic",
+      reason: "multi_item_request"
+    };
+  }
+  if (BULK_CONTENT_SIGNAL.test(raw) && CONTENT_ACTION_SIGNAL.test(raw)) {
+    return {
+      goal: raw,
+      activationPath: "deterministic",
+      reason: "bulk_content_request"
+    };
+  }
+  return null;
+}
+
+/**
+ * When the model preflight degrades (unavailable, error, or invalid output) it
+ * must not silently return to the ordinary Run for a request that already
+ * carries a deterministic long-task signal. This turns that degradation into a
+ * promotion decision so the request stays tracked instead of losing its goal.
+ */
+export function deterministicPromotionFallback(message: string, degraded: boolean): DurablePreflightDecision | null {
+  if (!degraded) return null;
+  const decision = detectDurableActivation(message);
+  if (!decision || decision.activationPath === "forced") return null;
   return {
-    goal: raw,
-    activationPath: "deterministic",
-    reason: "cross_session_execution_intent"
+    mode: "promote",
+    reason: `deterministic_fallback:${decision.reason}`,
+    goal: decision.goal,
+    acceptanceCriteria: [{
+      description: "The requested goal is satisfied and can be confirmed by the owner.",
+      checkerType: "subjective",
+      author: "model"
+    }],
+    expectedWait: "unknown"
   };
 }
 

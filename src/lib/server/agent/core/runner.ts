@@ -124,6 +124,7 @@ import {
   DurablePreflightTracker,
   evaluateDurablePreflightWithModel
 } from "$lib/server/agent/durable/preflight.js";
+import { deterministicPromotionFallback } from "$lib/server/agent/durable/activation.js";
 import type { DurablePrefixEntry } from "$lib/server/agent/durable/types.js";
 import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
 import {
@@ -961,9 +962,13 @@ export class MomRunner implements RunnerLike {
         workspaceId
       });
     };
-    const durablePreflightTracker = new DurablePreflightTracker(async (input) =>
-      evaluateDurablePreflightWithModel(input, { model: this.agent.state.model })
-    );
+    const durablePreflightTracker = new DurablePreflightTracker(async (input) => {
+      const decision = await evaluateDurablePreflightWithModel(input, { model: this.agent.state.model });
+      // A session-plan run or an already-linked execution must not promote a
+      // second time; the deterministic fallback only covers unmanaged runs.
+      const fallbackAllowed = !ctx.sessionPlanProgress && !ctx.executionHistory;
+      return (fallbackAllowed ? deterministicPromotionFallback(ctx.message.text, decision.degraded === true) : null) ?? decision;
+    });
     const sideEffectPreflight = ctx.onToolSideEffectPreflight ?? (async (effect) => {
       const result = await durablePreflightTracker.evaluate({ message: ctx.message.text, effect });
       if (!result.evaluated || result.preflightIndex === undefined) return;

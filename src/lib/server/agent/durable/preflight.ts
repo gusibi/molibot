@@ -25,6 +25,12 @@ export interface DurablePreflightDecision {
   acceptanceCriteria?: AcceptanceCriterionInput[];
   expectedWait?: "none" | "user" | "approval" | "unknown";
   sideEffectRisk?: string;
+  /**
+   * True when the decision is a fallback because the preflight model was
+   * unavailable, errored, or returned unusable output. A degraded `ordinary`
+   * verdict must not silently discard a deterministic long-task signal.
+   */
+  degraded?: boolean;
 }
 
 export interface DurablePreflightResult extends DurablePreflightDecision {
@@ -144,22 +150,22 @@ export async function evaluateDurablePreflightWithModel(
     for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
       output += extractText(event);
       if (event.type === "error") {
-        return { mode: "ordinary", reason: "Durable preflight model returned an error; the ordinary Run remains in control." };
+        return { mode: "ordinary", reason: "Durable preflight model returned an error; the ordinary Run remains in control.", degraded: true };
       }
       if (event.type === "done") {
         const message = event.message as { stopReason?: string } | undefined;
         if (message?.stopReason === "error") {
-          return { mode: "ordinary", reason: "Durable preflight model did not complete; the ordinary Run remains in control." };
+          return { mode: "ordinary", reason: "Durable preflight model did not complete; the ordinary Run remains in control.", degraded: true };
         }
       }
     }
   } catch {
-    return { mode: "ordinary", reason: "Durable preflight model was unavailable; the ordinary Run remains in control." };
+    return { mode: "ordinary", reason: "Durable preflight model was unavailable; the ordinary Run remains in control.", degraded: true };
   }
 
   const parsed = parseJsonObject(output);
   if (!parsed || (parsed.mode !== "ordinary" && parsed.mode !== "promote")) {
-    return { mode: "ordinary", reason: "Durable preflight returned invalid structured output; the ordinary Run remains in control." };
+    return { mode: "ordinary", reason: "Durable preflight returned invalid structured output; the ordinary Run remains in control.", degraded: true };
   }
   const reason = textValue(parsed.reason) ?? "The preflight model did not provide a reason.";
   const expectedWait = parsed.expectedWait === "user" || parsed.expectedWait === "approval" || parsed.expectedWait === "unknown"
@@ -169,7 +175,7 @@ export async function evaluateDurablePreflightWithModel(
   const goal = textValue(parsed.goal);
   const acceptanceCriteria = parseCriteria(parsed.acceptanceCriteria);
   if (parsed.mode === "promote" && (!goal || !acceptanceCriteria)) {
-    return { mode: "ordinary", reason: "Durable preflight omitted the goal or acceptance criteria required for promotion." };
+    return { mode: "ordinary", reason: "Durable preflight omitted the goal or acceptance criteria required for promotion.", degraded: true };
   }
   return {
     mode: parsed.mode,

@@ -1,3 +1,11 @@
+## 2026-10-07 — 规模化自主长任务：多工作项请求的确定性升级（阶段 A 基础切片）
+
+修复线上问题：用户一次发来 4 篇文章链接要求「都保存为博客并发布」，任务却按普通 Run 执行、两次尝试后停在半成品并报「还不能发布」。根因是长任务识别的唯一入口是「首次非幂等工具」时的模型 preflight，而该 preflight 复用主模型；主模型当时不稳定，`evaluateDurablePreflightWithModel` 抛错后按设计静默回退成普通 Run，于是没有创建 Durable Execution（该会话在 durable 库中 0 条记录），自然也不会有跨轮续跑、逐项验收或目标追踪。
+
+已交付：确定性升级新增两个不依赖 preflight 模型的信号——一条消息里 ≥2 个 URL 且带内容动作（保存/收录/整理/翻译/发布…），或批量/复数指代（逐篇/每篇/批量/全部/所有/这些/几篇…）加内容动作，直接创建 Durable Execution（`multi_item_request` / `bulk_content_request`）。同时 `evaluateDurablePreflightWithModel` 的降级分支（模型报错、未完成、不可用、结构化输出非法、promote 缺字段）现在标记 `degraded`；运行器在 preflight 降级且消息命中确定性信号时走确定性升级，而不是静默转普通 Run；Session 计划执行与已绑定执行不受该回退影响，避免重复创建。
+
+验证：`activation.test.ts`（多 URL、批量指代激活；单 URL、比较链接、单篇保存不激活；降级回退升级）、`preflight.test.ts`（结构化非法与不可用均标记 degraded）、`runner.test.ts`、全套 durable + plans + core（145）+ 路由（42）通过；agent 全量 1126/1128（唯一失败为既有、与本改动无关的 `standalone skill drafter`）。尚未交付：「继续」绑定既有目标、调度器代码派发与规模化验收。
+
 ## 2026-10-07 — 规模化自主长任务：工作项独立验收（阶段 A 基础切片）
 
 依据[规模化自主长任务 PRD](docs/requirements/large-autonomous-execution-prd.md)：Durable Execution 的每个计划工作项现在绑定一条确定性验收规则，执行者的「完成」声明不再是验收通过条件。运行器在一次 attempt 结束后先用已注册检查器核对产物证据，通过才标记步骤完成；缺失或格式不符的产物会被拒绝，规则缺失或无对应检查器一律 fail closed（不默认为通过）。

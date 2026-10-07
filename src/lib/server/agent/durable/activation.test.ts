@@ -6,7 +6,8 @@ import test from "node:test";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import {
   activateDurableExecution,
-  detectDurableActivation
+  detectDurableActivation,
+  deterministicPromotionFallback
 } from "./activation.js";
 import { DurableExecutionStore } from "./store.js";
 import { DurableExecutionQuotaError } from "./types.js";
@@ -21,6 +22,36 @@ test("ordinary requests stay on the fast path while cross-session intent activat
       reason: "cross_session_execution_intent"
     }
   );
+});
+
+test("clearly multi-item one-shot requests activate deterministically without the preflight model", () => {
+  assert.deepEqual(
+    detectDurableActivation("https://a.example/1 https://b.example/2 帮我把这几篇文章都保存为博客，然后发布。"),
+    {
+      goal: "https://a.example/1 https://b.example/2 帮我把这几篇文章都保存为博客，然后发布。",
+      activationPath: "deterministic",
+      reason: "multi_item_request"
+    }
+  );
+  assert.deepEqual(
+    detectDurableActivation("把这些文章都收录进博客"),
+    {
+      goal: "把这些文章都收录进博客",
+      activationPath: "deterministic",
+      reason: "bulk_content_request"
+    }
+  );
+  assert.equal(detectDurableActivation("看一下这个链接 https://a.example/1"), null);
+  assert.equal(detectDurableActivation("比较这两个链接 https://a.example/1 https://b.example/2"), null);
+  assert.equal(detectDurableActivation("把这一篇文章保存为博客"), null);
+});
+
+test("a degraded preflight upgrades a deterministic multi-item request instead of silently going ordinary", () => {
+  const promoted = deterministicPromotionFallback("https://a.example/1 https://b.example/2 保存并发布", true);
+  assert.equal(promoted?.mode, "promote");
+  assert.match(promoted?.reason ?? "", /deterministic_fallback:multi_item_request/);
+  assert.equal(deterministicPromotionFallback("https://a.example/1 https://b.example/2 保存并发布", false), null);
+  assert.equal(deterministicPromotionFallback("What is the capital of France?", true), null);
 });
 
 test("explicit command and per-request mode force activation, while suppress wins for the request", () => {

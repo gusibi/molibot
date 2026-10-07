@@ -70,4 +70,21 @@ test("model preflight fails open to ordinary when structured output is invalid",
 
   assert.equal(result.mode, "ordinary");
   assert.match(result.reason, /invalid structured output/);
+  assert.equal(result.degraded, true);
+});
+
+test("an unavailable preflight model is marked degraded so a deterministic signal is not discarded", async () => {
+  const result = await evaluateDurablePreflightWithModel({
+    message: "Save all these articles and publish.",
+    effect: effect("non_idempotent")
+  }, {
+    model: {} as any,
+    streamFn: (async function* () {
+      throw new Error("provider unreachable");
+    }) as any
+  });
+
+  assert.equal(result.mode, "ordinary");
+  assert.match(result.reason, /unavailable/);
+  assert.equal(result.degraded, true);
 });
