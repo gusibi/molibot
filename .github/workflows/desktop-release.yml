@@ -34,6 +34,7 @@ concurrency:
 
 env:
   MACOSX_DEPLOYMENT_TARGET: "13.0"
+  NODE_OPTIONS: "--max-old-space-size=4096"
 
 jobs:
   build-arm64:
