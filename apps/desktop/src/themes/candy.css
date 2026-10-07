@@ -181,10 +181,6 @@
   border-color: var(--control-border-strong);
   box-shadow: var(--float-shadow);
 }
-:root[data-theme-family="candy"] [data-theme-region="file-panel"] .file-panel-head {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 55%, var(--panel-bg)), var(--panel-bg));
-  border-bottom: 1px solid var(--separator);
-}
 
 
 .theme-swatch[data-theme-family-preview="candy"][data-theme-preview-appearance="light"] .tp-side { background: #f2b8d4; }

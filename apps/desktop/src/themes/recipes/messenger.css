@@ -152,10 +152,6 @@
   background: var(--accent-hover);
 }
 
-:root[data-theme-recipe="messenger"] [data-theme-region="file-panel"] .file-panel-head {
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel-bg));
-  border-bottom-color: color-mix(in srgb, var(--accent) 12%, var(--separator));
-}
 
 :root[data-theme-recipe="messenger"] .settings-card {
   border-radius: 12px;

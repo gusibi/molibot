@@ -198,10 +198,6 @@
 }
 
 /* File panel — QQ gives the panel a titled header bar. */
-:root[data-theme-family="qq"] [data-theme-region="file-panel"] .file-panel-head {
-  background: linear-gradient(180deg, #f3f9ff, #e6f2ff);
-  border-bottom: 1px solid rgb(13 47 73 / 12%);
-}
 
 /* Night — the same shapes in QQ's calm blue-gray. */
 :root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="sidebar"]::before {
@@ -216,10 +212,6 @@
 :root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="composer"] .composer {
   border-color: rgb(228 240 251 / 16%);
   box-shadow: 0 16px 34px -18px rgb(0 0 0 / 65%), inset 0 1px 0 rgb(255 255 255 / 6%);
-}
-:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="file-panel"] .file-panel-head {
-  background: linear-gradient(180deg, #18222f, #101822);
-  border-bottom-color: rgb(228 240 251 / 12%);
 }
 
 

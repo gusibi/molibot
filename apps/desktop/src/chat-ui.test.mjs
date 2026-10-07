@@ -6063,20 +6063,25 @@ test("window chrome shares one material and hosts all panes in the content frame
 });
 
 test("theme header shares the sidebar material instead of its own background", () => {
-  // The window header and the sidebar are one background plane. A family that
-  // paints the header region its own fill, rule, or shadow makes the top band
-  // read as a separate surface and breaks the floating content frame, so no
-  // theme may dress the header element itself (control styling stays allowed).
+  // The window header, the Inspector's header strip, and the sidebar are one
+  // background plane. A family that paints either header region its own fill,
+  // rule, or shadow makes the top band read as a separate surface and breaks
+  // the floating content frame, so no theme may dress either header (control
+  // styling inside the header stays allowed).
   const files = [
     ...THEME_FAMILIES.map((family) => `./themes/${family}.css`),
     ...THEME_RECIPES.map((recipe) => `./themes/recipes/${recipe}.css`)
   ];
+  const assertHeaderFree = (selectorPattern, label, source, file) => {
+    for (const match of source.matchAll(selectorPattern)) {
+      assert.doesNotMatch(match[1], /background\s*:/, `${file} must not paint the ${label} a background`);
+      assert.doesNotMatch(match[1], /border-bottom\s*:/, `${file} must not draw a ${label} bottom border`);
+      assert.doesNotMatch(match[1], /box-shadow\s*:/, `${file} must not give the ${label} its own shadow`);
+    }
+  };
   for (const file of files) {
     const source = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
-    for (const match of source.matchAll(/\[data-theme-region="header"\]\s*\{([^}]*)\}/g)) {
-      assert.doesNotMatch(match[1], /background\s*:/, `${file} must not paint the header region a background`);
-      assert.doesNotMatch(match[1], /border-bottom\s*:/, `${file} must not draw a header-region bottom border`);
-      assert.doesNotMatch(match[1], /box-shadow\s*:/, `${file} must not give the header region its own shadow`);
-    }
+    assertHeaderFree(/\[data-theme-region="header"\]\s*\{([^}]*)\}/g, "header region", source, file);
+    assertHeaderFree(/\[data-theme-region="file-panel"\]\s\.file-panel-head\s*\{([^}]*)\}/g, "Inspector header", source, file);
   }
 });
