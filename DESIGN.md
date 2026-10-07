@@ -675,9 +675,12 @@ with content moving behind it reads as depth.
   `chat-round-line-duotone`, 项目 → `feed-duotone`, 自动任务 → `sort-time-duotone`
   and 小程序 → `widget2-duotone`, send → `plane2-duotone`, plan mode →
   `circle-arrows-down-duotone`, manual mode → `handshake-duotone`, the
-  all-mini-apps CTA → `list-duotone` — so matching an old outline name there no
-  longer predicts the rendered glyph. The settings entry is the one deliberate
-  non-duotone exception: it renders the Filled `Settings2` glyph (sidebar footer
+  all-mini-apps CTA → `list-duotone`. The two search slots are owner-picked
+  Outline glyphs that replace their duotone counterparts: the window cluster's
+  conversation search → Outline `Search4`, and the in-conversation search
+  (chat header and Project header) → Outline `MessageSearch`. The settings entry
+  is the other deliberate non-duotone exception: it renders the Filled
+  `Settings2` glyph (sidebar footer
   and the Project header settings button), because the owner chose a solid gear
   over a duotone tuning-square.
   Still linear Outline everywhere — including inside duotone surfaces — are the

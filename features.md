@@ -6,7 +6,9 @@
 
 主题一致性：所有主题下 header 与左侧导航同用一张窗口材质（`--sidebar-material-tint`）。删除了 53 处主题规则：`[data-theme-region="header"]` 元素自身的背景、下边线与阴影（27 个文件），以及 `[data-theme-region="file-panel"] .file-panel-head` 的背景／下边线／阴影（26 个文件），让文件／小程序面板的 header 也回到同一条背景带；主题仍可给 header 内的控件上色。回归守卫断言所有主题都不再给窗口 header 或 Inspector header 上背景。浏览器逐主题核对：25 个家族 × 明暗共 50 组下 header 与侧栏的计算背景完全一致（均为透明，落在同一窗口材质上），侧栏材质 `::before` 全部隐藏；文件面板打开时 `.file-panel-head` 背景透明、无下边线。
 
-验证：桌面回归（含 297 项 `.mjs` 结构守卫）、Svelte 检查、生产构建与 Rust 测试全部通过。浏览器走查了聊天（无 Inspector 与强制打开 Inspector 两种）、自动任务工作区、浅色／深色主题、iOS 浅色主题、Brutalism 深色主题、侧栏展开／折叠、内容悬浮投影与三栏几何（Header 覆盖列 1-2、Inspector 全高、面板左规则分界）。未中断用户后端服务，原生红绿灯避让、原生空白拖动与桌面材质合成尚未在原生窗口走查；服务未就绪故项目／Room 的真实标题切换、会话操作右对齐与搜索展开仅按共享机制验证。
+搜索图标：窗口级「搜索会话」按钮改用 Reicon Outline `Search4`，会话内搜索（聊天 header 与项目 header 的 TranscriptSearch 触发器）改用 Outline `MessageSearch`，替换原先的 duotone `Magnifier`；作为 owner 指定的非 duotone 例外记录在 DESIGN 图标章节。
+
+验证：桌面回归（含 297 项 `.mjs` 结构守卫）、Svelte 检查、生产构建与 Rust 测试全部通过。浏览器走查了聊天（无 Inspector 与强制打开 Inspector 两种）、自动任务工作区、浅色／深色主题、iOS 浅色主题、Brutalism 深色主题、侧栏展开／折叠、Header 标题对齐与列边界实线、内容悬浮投影与三栏几何（Header 覆盖列 1-2、Inspector 全高、面板左规则分界）。未中断用户后端服务，原生红绿灯避让、原生空白拖动与桌面材质合成尚未在原生窗口走查；服务未就绪故项目／Room 的真实标题切换、会话操作右对齐与搜索展开仅按共享机制验证。
 
 ## 2026-10-07
 

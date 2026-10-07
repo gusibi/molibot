@@ -2,8 +2,9 @@
   import { isActiveDurableExecution, isOpenDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Layers from "./lib/icons/duotone/components/Layers.svelte";
-  import Magnifier from "./lib/icons/duotone/components/Magnifier.svelte";
+  import MessageSearch from "reicon-svelte/icons/MessageSearch";
   import Pen from "./lib/icons/duotone/components/Pen.svelte";
+  import Search4 from "reicon-svelte/icons/Search4";
   import Sidebar from "./lib/icons/duotone/components/Sidebar.svelte";
   import X from "reicon-svelte/icons/X";
   import { emptyQuickStarts } from "./lib/chat/emptyQuickStarts";
@@ -3490,7 +3491,7 @@
         </button>
       {:else}
         <button type="button" class="sidebar-titlebar-btn" aria-label={copy.searchConversations} title={copy.searchConversations} onclick={openBrowser}>
-          <Magnifier size={16} aria-hidden="true" />
+          <Search4 size={16} aria-hidden="true" />
         </button>
       {/if}
     </div>
@@ -3720,7 +3721,7 @@
               title={copy.search}
               onclick={toggleSearch}
             >
-              <Magnifier size={16} aria-hidden="true" />
+              <MessageSearch size={16} aria-hidden="true" />
             </button>
           {/if}
           <MiniAppsQuickMenu

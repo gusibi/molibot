@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
+  import MessageSearch from "reicon-svelte/icons/MessageSearch";
   import Sidebar from "../icons/duotone/components/Sidebar.svelte";
   import Settings2 from "reicon-svelte/icons/Settings2";
   import DuotoneIcon from "../icons/duotone/DuotoneIcon.svelte";
@@ -140,7 +140,7 @@
         />
         {#if !searchOpen}
           <button class="icon-button" type="button" aria-label={copy.search} title={copy.search} onclick={toggleSearch}>
-            <Magnifier size={16} aria-hidden="true" />
+            <MessageSearch size={16} aria-hidden="true" />
           </button>
         {/if}
         <MiniAppsQuickMenu
