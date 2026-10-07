@@ -122,7 +122,7 @@
       sourceLabel={project.name}
       searching={searchOpen}
     >
-      <svelte:fragment slot="actions">
+      {#snippet actions()}
         <TranscriptSearch
           bind:value={searchQuery}
           open={searchOpen}
@@ -153,7 +153,7 @@
           <Sidebar class="flip" size={16} aria-hidden="true" />
         </button>
         <button class="icon-button" type="button" aria-label={copy.projectSettings} title={copy.projectSettings} onclick={() => (settingsOpen = true)}><Settings2 size={16} weight="Filled" aria-hidden="true" /></button>
-      </svelte:fragment>
+      {/snippet}
     </ChatHeader>
     <div class="project-body">{#if projectsStore.selectedSessionId}<ProjectChat {copy} {searchMatchIds} {activeMatchId} />{:else}<div class="project-empty"><strong>{copy.projectNoSessions}</strong><button class="primary-button" type="button" onclick={() => void newProjectSession()}>{copy.newChat}</button></div>{/if}</div>
   </section>

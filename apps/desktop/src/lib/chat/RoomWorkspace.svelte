@@ -304,7 +304,7 @@
 <section class="room-workspace" class:room-setting={editing} class:chat-content={Boolean(selected && !editing)} data-theme-region="chat">
   {#if selected && !editing}
     <ChatHeader title={view?.room.title ?? words.title} subtitle={` · ${reconnecting ? words.reconnecting : participants.map(agent => agent.name).join(" · ")}`}>
-      <svelte:fragment slot="actions">
+      {#snippet actions()}
         <div class="room-session-picker"><SelectControl value={selectedSession} options={sessionOptions} ariaLabel={words.conversations}
           disabled={submitting || !view} onChange={sessionId => { if (sessionId !== selectedSession) void open(selected, sessionId); }} /></div>
         <Button class="secondary-button" disabled={submitting || !view} onclick={() => void newConversation()}>{words.newConversation}</Button>
@@ -312,20 +312,21 @@
         <button type="button" class="overflow-menu-item" onclick={back}>{words.back}</button>
         <button type="button" class="overflow-menu-item" onclick={() => view && setup(view.room)}>{words.edit}</button>
         <button type="button" class="overflow-menu-item danger" onclick={() => void remove()}>{words.remove}</button>
-      </OverflowMenu></svelte:fragment>
+      </OverflowMenu>
+      {/snippet}
     </ChatHeader>
   {:else}
-  <header class="room-header" data-tauri-drag-region>
-    <div class="room-heading" data-tauri-drag-region>{#if editing}<span class="room-eyebrow" data-tauri-drag-region>{words.title}</span>{/if}<h2 data-tauri-drag-region>{editing ? (selected ? words.editTitle : words.createTitle) : view?.room.title ?? words.title}</h2>{#if editing}<p data-tauri-drag-region>{words.setupDescription}</p>{/if}</div>
-    <div class="room-actions">
-      {#if editing}<Button class="secondary-button" onclick={cancelEdit}>{words.cancel}</Button>
-      {:else if selected}<Button class="secondary-button" onclick={back}>{words.back}</Button><Button class="secondary-button" onclick={() => view && setup(view.room)}>{words.edit}</Button><Button class="secondary-button" danger onclick={() => void remove()}>{words.remove}</Button>{/if}
-    </div>
-  </header>
+    <ChatHeader title={editing ? (selected ? words.editTitle : words.createTitle) : view?.room.title ?? words.title}>
+      {#snippet actions()}
+        {#if editing}<Button class="secondary-button" onclick={cancelEdit}>{words.cancel}</Button>
+        {:else if selected}<Button class="secondary-button" onclick={back}>{words.back}</Button><Button class="secondary-button" onclick={() => view && setup(view.room)}>{words.edit}</Button><Button class="secondary-button" danger onclick={() => void remove()}>{words.remove}</Button>{/if}
+      {/snippet}
+    </ChatHeader>
   {/if}
   {#if error && (editing || !selected || !view)}<p class="onboarding-error" role="alert">{error}</p>{/if}
   {#if editing}
     <div class="room-setup">
+      <p class="room-setup-description">{words.setupDescription}</p>
       <SettingGroup title={words.basics} description={words.basicsDescription}>
         <SettingRow title={words.name} stacked>
           <label class="settings-field room-name-field"><input aria-label={words.name} placeholder={words.namePlaceholder} bind:value={title} maxlength="120" /></label>

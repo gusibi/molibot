@@ -470,7 +470,10 @@ a:focus-visible {
   width: 100%;
   height: 100%;
 }
-.chat-layout { grid-template-columns: minmax(var(--sidebar-min-w), var(--sidebar-w, var(--sidebar-nav-w))) minmax(0, 1fr); background: transparent; transition: grid-template-columns var(--duration-normal) var(--ease-standard); }
+/* The window is a header band plus one body row. The header spans every column
+   so the native controls, the window-level entries and the current page's title
+   all live in one row; the sidebar and the content container sit below it. */
+.chat-layout { grid-template-columns: minmax(var(--sidebar-min-w), var(--sidebar-w, var(--sidebar-nav-w))) minmax(0, 1fr); grid-template-rows: var(--chat-header-h) minmax(0, 1fr); background: transparent; transition: grid-template-columns var(--duration-normal) var(--ease-standard); }
 /* Nothing declares a document font-size, so anything that never set one was
    inheriting the UA's 16px — a rank that appears nowhere in the design. Anchor
    the whole Chat surface (sidebar + content) on the `label` rank, so an element
@@ -518,11 +521,6 @@ a:focus-visible {
 .chat-layout.resizing .chat-sidebar {
   transition: none !important;
 }
-/* The divider brightens only while the sidebar itself is being dragged; the
-   file-panel resizer must not light up the nav's edge. */
-.chat-layout.resizing-sidebar .chat-sidebar::before {
-  border-right-color: var(--control-border-strong);
-}
 /* The collapsed rail stays flush against the window's left edge; the flyout
    owns its own inset and separator. */
 .chat-sidebar.is-collapsed {
@@ -532,31 +530,59 @@ a:focus-visible {
 .chat-layout.sidebar-collapsed .sidebar-resizer {
   display: none;
 }
-/* Collapsed panes start after the rail, so their titles must clear the traffic
-   lights AND the title-bar control cluster (84px origin + two 28px buttons + gap
-   + 8px breath = 150px window-space, minus the 48px rail = 102px). The workspace
-   header keeps its padding symmetric so the centered title column stays centered. */
-.chat-layout.sidebar-collapsed .chat-header {
-  padding-left: 102px;
-}
-.chat-layout.sidebar-collapsed .settings-page-header.is-workspace {
-  padding-left: 102px;
-  padding-right: 102px;
-}
-/* The title-bar control cluster is one window-level layer anchored next to the
-   traffic lights (DESIGN.md: title-bar control cluster). Collapsing swaps the
-   second slot's action but never moves the buttons. It carries the sidebar's
-   theme region, so the theme families that dress `.sidebar-titlebar-btn` keep
-   working with the buttons living outside the sidebar element. */
-.titlebar-cluster {
+/* One material sheet backs both window chrome and navigation. Keeping blur on
+   an empty sibling preserves viewport positioning for menus inside the panes. */
+.chat-layout { isolation: isolate; }
+.window-material {
   position: absolute;
-  top: 0;
-  left: 84px;
-  height: 42px;
+  inset: 0;
+  z-index: -1;
+  background: var(--sidebar-material-tint);
+  backdrop-filter: var(--sidebar-material-filter);
+  -webkit-backdrop-filter: var(--sidebar-material-filter);
+  pointer-events: none;
+}
+.chat-layout .chat-sidebar::before { display: none; }
+.workspace-main, .workspace-inspector {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  min-height: 0;
+  grid-row: 2;
+  margin: 0 8px 8px 0;
+  overflow: hidden;
+  border-radius: var(--rounded-md);
+  background: var(--header-bg);
+  display: flex;
+  flex-direction: column;
+}
+.workspace-main { grid-column: 2; }
+.workspace-main > *, .workspace-inspector > * { flex: 1; min-height: 0; }
+.workspace-inspector { grid-column: 3; }
+.chat-layout.with-files .workspace-main {
+  margin-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.workspace-inspector {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.chat-layout > .sidebar-resizer, .chat-layout > .files-resizer {
+  top: var(--chat-header-h);
+  bottom: 8px;
+}
+/* The title-bar control cluster is the first group inside the single window
+   header, anchored next to the traffic lights by the header's left padding.
+   Collapsing swaps the second slot's action but never moves the buttons. It
+   carries the sidebar's theme region, so the theme families that dress
+   `.sidebar-titlebar-btn` keep working with the buttons living outside the
+   sidebar element. */
+.titlebar-cluster {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 2px;
-  z-index: 32;
   pointer-events: none;
 }
 .sidebar-titlebar-btn {
@@ -645,7 +671,7 @@ a:focus-visible {
   height: var(--toolbar-height);
   z-index: 30;
 }
-.chat-layout > .window-drag-mask { height: 42px; pointer-events: none; }
+.chat-layout > .window-drag-mask { height: 42px; pointer-events: auto; }
 .chat-sidebar, .settings-sidebar {
   position: relative;
   /* Explicit stacking context for the ::before material layer below. The
@@ -654,7 +680,9 @@ a:focus-visible {
   z-index: 0;
   min-height: 0;
   margin: 0;
-  padding: 42px 12px 8px;
+  /* The window header owns the native traffic-light reservation, so the
+     sidebar starts one row below it and needs no title-bar inset of its own. */
+  padding: 8px 12px 8px;
   overflow: hidden;
   border: 0;
   border-radius: 0;
@@ -663,6 +691,7 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
 }
+.chat-sidebar { grid-column: 1; grid-row: 2; }
 /* The sidebar material rides a ::before layer, not the element: an element
    carrying backdrop-filter is the containing block for fixed-position
    descendants, so the session row's fixed .row-menu was trapped inside this
@@ -689,14 +718,6 @@ a:focus-visible {
 }
 .settings-sidebar {
   padding: 0;
-}
-.sidebar-titlebar-drag {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 42px;
-  pointer-events: auto;
 }
 .sidebar-section-head {
   display: flex;
@@ -1075,31 +1096,32 @@ a:focus-visible {
   overflow: hidden;
   background: var(--gray-100);
 }
-.chat-header, .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--separator); box-sizing: border-box; }
-/* The chat toolbar is NOT a strip the transcript sits below — it floats over
-   the transcript, which scrolls underneath it. That is the whole point of the
-   material: an opaque bar consuming 42px reads as chrome bolted on, while a
-   blurred bar with content moving behind it reads as depth (apple-design §12).
-   It is therefore absolutely positioned inside `.chat-content` and the
-   transcript reserves its height with padding instead (see `.messages`). The
-   hard bottom border goes with it: the blur is what separates the two.
-
-   The material lives on `::before`, not on the header itself, and that is
-   load-bearing rather than tidiness. A `backdrop-filter` element becomes a
-   *backdrop root*: a descendant's own `backdrop-filter` may then only sample
-   content painted inside it (Filter Effects §Backdrop Root). The Mini Apps
-   quick menu is a child of this header and hangs *below* it, into the
-   transcript — so with the filter on the header the menu found nothing to blur
-   and rendered as a plain translucent pane with the transcript's text showing
-   through it sharp. On a `::before` layer the element itself creates no
-   backdrop root, and its children blur the page behind them as intended. */
-.chat-header { min-height: var(--chat-header-h); height: var(--chat-header-h); border-bottom: 0; position: absolute; inset: 0 0 auto; z-index: 31; pointer-events: none; background: transparent; transition: padding-left var(--duration-normal) var(--ease-standard); }
-/* `z-index: -1` is scoped inside the header's own stacking context (it is
-   positioned with a z-index), so the material sits above `.chat-content` and
-   below the header's content — the background, the rim and the filter all
-   belong to this one layer. */
-.chat-header::before { content: ""; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--chrome-header-bg) var(--glass-chrome-opacity), transparent); backdrop-filter: var(--glass-chrome-filter); -webkit-backdrop-filter: var(--glass-chrome-filter); box-shadow: var(--glass-edge); pointer-events: none; }
-.chat-header > * { pointer-events: auto; }
+.page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--separator); box-sizing: border-box; }
+/* The one global window header. It is the top grid row, spanning every column,
+   above the sidebar and the content container. It stays transparent so the
+   shared window material shows through — top and left read as one frame — and
+   it carries no blur or edge of its own (a second material would double the
+   frost and leave a seam). Native traffic lights keep a fixed left
+   reservation; the window-level cluster follows; then the current page's title
+   and its actions. Pages publish those through `ChatHeader`; the content
+   container below never repeats a title bar. */
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  grid-row: 1;
+  grid-column: 1 / -1;
+  height: var(--chat-header-h);
+  min-height: var(--chat-header-h);
+  padding: 0 8px 0 84px;
+  border-bottom: 0;
+  position: relative;
+  z-index: 31;
+  pointer-events: none;
+  background: transparent;
+}
 .page-header { min-height: 82px; padding: 28px 28px 18px; background: var(--chrome-header-bg); border-bottom-color: var(--chrome-border); }
 .settings-page-header {
   position: relative;
@@ -1120,7 +1142,6 @@ a:focus-visible {
   margin: 0 auto;
 }
 .settings-page-header.data-page > div:not(.page-header-actions) { width: min(calc(100% - 56px), var(--data-content-width)); }
-.settings-page-header.is-workspace > div:not(.page-header-actions) { width: var(--workspace-col); }
 .settings-page-header h2 { font-size: var(--fs-page); font-weight: 600; line-height: 28px; letter-spacing: var(--tracking-tight); }
 .page-header-description { max-width: none; margin: 0; color: var(--label-secondary); font-size: var(--fs-label); line-height: 19px; }
 .settings-scroll {
@@ -2469,7 +2490,7 @@ a:focus-visible {
 /* The toolbar floats over the chat column, so a direct child has to reserve its
    height — `.messages` does it with padding, and these panes are not inside the
    scroller. */
-.chat-content > .empty-state { padding-top: var(--chat-header-h); }
+.chat-content > .empty-state { padding-top: 0; }
 .empty-icon { width: 58px; height: 58px; margin: auto; border-radius: var(--rounded-lg); }
 .empty-state h2 { margin: 18px 0 8px; font-size: var(--fs-page); line-height: var(--lh-page); }
 .empty-state p { margin: 0; color: var(--label-secondary); font-size: var(--fs-body); line-height: var(--lh-body); }
@@ -2498,15 +2519,14 @@ a:focus-visible {
    directly (a session switch must land on the tail instantly) and owns its own
    rAF spring for the live follow, so CSS smooth here would animate every instant
    jump into a visible glide — most obviously when opening a transcript. */
-.messages { flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: calc(var(--chat-header-h) + 24px) clamp(20px, 5%, 56px) calc(var(--composer-h) + 24px); }
+.messages { flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 24px clamp(20px, 5%, 56px) calc(var(--composer-h) + 24px); }
 .chat-messages-frame.has-prompt-navigator .messages { padding-inline: clamp(44px, 6%, 72px); }
 .conversation-prompt-navigator {
   position: absolute;
   z-index: 4;
-  /* Both ends clear a floating chrome surface: the toolbar above, the composer
-     below. Without this the rail runs under the composer and its tail markers
-     become unclickable. */
-  top: calc(var(--chat-header-h) + 14px);
+  /* The composer floats over the transcript, so the rail's tail clears it.
+     The window header lives in its own grid row now, not over this pane. */
+  top: 14px;
   bottom: calc(var(--composer-h) + 14px);
   left: 12px;
   width: 54px;
@@ -5814,9 +5834,14 @@ select.provider-input { padding-right: 6px; }
   --glass-popover-bg: var(--card-bg);
   --glass-chrome-opacity: 100%;
 }
-/* The sidebar material lives on the sidebar's ::before layer (see the base
-   rule), so the opaque fallbacks target the layer too — the element itself
-   stays transparent in every mode. */
+/* Chat and Settings degrade their owning material layers together. */
+:root[data-performance="low"] .window-material,
+html[data-reduced-transparency="true"] .window-material,
+html[data-increased-contrast="true"] .window-material {
+  background: var(--sidebar-material-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 :root[data-performance="low"] .chat-sidebar::before,
 :root[data-performance="low"] .settings-sidebar::before,
 html[data-reduced-transparency="true"] .chat-sidebar::before,
@@ -5861,7 +5886,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
      floors, so it must not re-declare the whole `with-files` grid (doing that
      previously fought the higher tier and left an empty panel track). */
   .settings-layout { grid-template-columns: var(--sidebar-nav-w-narrow) 1fr; }
-  .chat-header, .page-header { padding-inline: 18px; }
+  .page-header { padding-inline: 18px; }
   .settings-search { margin-inline: 10px; }
   .settings-nav-list { padding-inline: 7px; }
   .settings-card { margin-inline: 18px; }
@@ -6967,6 +6992,16 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   flex: 1 1 auto;
   min-height: 0;
 }
+/* The workspace page's identity lives in the shared window header; its one-line
+   description stays at the top of the content, centered on the same column. */
+.workspace-description {
+  width: var(--workspace-col);
+  margin: 0 auto;
+  padding: 12px 0 0;
+  color: var(--label-secondary);
+  font-size: var(--fs-label);
+  line-height: 19px;
+}
 
 /* Shared Bits UI dialogs use explicit motion hooks. starting-style gives an
    entrance even if presence metadata changes; data-state keeps close presence
@@ -7416,39 +7451,29 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 }
 
 /* Rooms share the chat reading column and keep composer actions visible. */
-/* Room configuration stays fixed while its conversation picker changes context. */
-.room-workspace > .chat-header { flex-wrap: wrap; height: auto; min-height: var(--chat-header-height, 56px); gap: 8px; }
-.room-workspace > .chat-header .header-actions { height: auto; flex-wrap: wrap; }
 .room-session-picker { min-width: 0; width: min(200px, 36vw); }
 .room-session-picker .select-control { width: 100%; min-width: 0; }
 .room-session-picker .select-control-trigger { width: 100%; min-width: 0; }
 .room-session-picker .select-control-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 560px) {
-  .room-workspace > .chat-header .header-actions { width: 100%; }
   .room-session-picker { width: auto; flex: 1; }
 }
 .room-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; height: 100%; background: var(--header-bg); position: relative; }
 .room-setup, .room-empty { width: min(720px, calc(100% - 48px)); margin-inline: auto; }
-.room-header { width: 100%; box-sizing: border-box; padding-inline: max(24px, calc((100% - 720px) / 2)); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 16px; flex-wrap: wrap; }
-.room-header h2 { margin: 0; font-size: var(--fs-title); }
-.chat-layout.sidebar-collapsed .room-header { padding-left: max(126px, calc((100% - 720px) / 2)); }
 .room-actions { pointer-events: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .room-actions > * { pointer-events: auto; }
 .room-metadata { color: var(--text-secondary); font-size: var(--fs-body); }
 .room-empty { display: grid; place-items: center; align-content: center; flex: 1; min-height: 0; padding: 40px 0; text-align: center; }
 .room-setup { --settings-col: 100%; overflow-y: auto; flex: 1; min-height: 0; padding: 12px 0 96px; }
+.room-setup-description { margin: 0 0 16px; color: var(--label-secondary); font-size: var(--fs-body); line-height: 1.5; }
 .room-quote { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
 @media (max-width: 600px) {
   .room-setup, .room-empty { width: calc(100% - 24px); }
-  .room-header { align-items: flex-start; padding-inline: 12px; }
 }
 
 .room-workspace > .settings-footbar { position: absolute; bottom: 0; left: 0; right: 0; margin-top: 0; }
 
 /* Room setup uses shared settings groups and a compact team picker. */
-.room-heading { min-width: 0; }
-.room-heading p { margin: 8px 0 0; color: var(--label-secondary); font-size: var(--fs-body); line-height: 1.5; }
-.room-eyebrow { display: block; margin-bottom: 8px; color: var(--label-secondary); font-size: var(--fs-meta); font-weight: 500; }
 .room-name-field { width: 100%; }
 .room-name-field input { width: 100%; box-sizing: border-box; }
 .room-members-section { margin-bottom: 28px; }
@@ -7473,8 +7498,5 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .room-setup-footbar .room-team-avatars { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .room-member-card { transition: none; } }
-
-.room-setting .room-header { padding-top: 24px; padding-bottom: 20px; }
-.room-setting .room-heading h2 { font-size: var(--fs-page); line-height: var(--lh-page); font-weight: 600; letter-spacing: -0.02em; }
 
 .room-workspace > .composer-wrap { flex-shrink: 0; }

@@ -740,7 +740,7 @@ element that already owns the region:
 | Hook | Element | Region |
 | --- | --- | --- |
 | `window` | `.chat-layout` | the whole chat window |
-| `header` | `.chat-header` | the floating session header |
+| `header` | `.chat-header` | the global window header |
 | `sidebar` | `.chat-sidebar` | the navigation column |
 | `session-list` | `.sidebar-channels` | the conversation/project tree |
 | `chat` | `.chat-content` | the transcript canvas |
@@ -982,28 +982,21 @@ the same regardless of the window's activation state and of what is behind it.
   uses `rgb(253 255 255 / 62%)`; Rosé Pine, Catppuccin, and Daybreak use their own
   light tints; dark variants use dark tints under a light OS, while the system-dark
   media rule makes those transparent so native dark material provides the depth. This
-  tint and blur belong directly to the
-  edge-to-edge sidebar plane: never implement them as a nested panel, pseudo-element,
-  or opaque card.
+  tint and blur belong to the edge-to-edge window material sheet in Chat and
+  the sidebar material layer in Settings; never apply them to a content container.
   Explicit Light/Dark choices must also set the native Tauri window theme; Midnight's
   family tokens remain independent. System clears the native override and listens for
   OS changes, so AppKit material and WebView tokens always share one resolved
   appearance.
-  This produces one window composition layer like Finder instead of a translucent card
-  over an app canvas. The sidebar stays flush with the window edges; do not add outer
+  The sidebar stays flush with the window edges; do not add outer
   breathing room, panel corner radius, elevation shadow, hover glow, perspective, or
   parallax. Reduced-transparency, increased-contrast, and low-performance modes cover
   the native material with the opaque sidebar token and disable the WebView blur;
   increased contrast also uses a stronger divider. Sidebar resize handles align to the
-  divider at the grid track edge and remain visually transparent: do not draw a second
-  divider. That divider is the shared `--separator` hairline — the same weight and
-  colour as the file panel's, so both pane splits read as one system — and it steps up
-  to the stronger control border only while the sidebar is being dragged, never at rest
-  or on hover. It is painted on the sidebar's material layer, not as an element
-  `border-right`: an element border sits on the raw window material showing through the
-  1px strip and reads brighter than the file panel's border over that panel's opaque
-  surface.
-  Chat's exposed canvas follows the transcript surface.
+  grid track edge and remain visually transparent. Settings retains a shared
+  `--separator` hairline painted on its material layer, so the native backing does
+  not brighten it. Chat uses the content container edge instead of a navigation
+  divider; its exposed canvas is the shared window material.
   Settings keeps its secondary canvas. Hidden sidebar actions
   collapse out of layout and consume title width only on hover or keyboard focus. An empty
   local Chat is an editable new-conversation draft; its Session is created on first send.
@@ -1023,16 +1016,15 @@ the same regardless of the window's activation state and of what is behind it.
 - List/detail workspaces use Global Sidebar → 300–320px list pane → flexible detail
   inspector. Below 1100px the inspector becomes a right-side overlay; the minimum
   supported desktop window is 860×620.
-- Primary workspace destinations (Automations, Skills, Mini Apps) share one unified
-  centered container geometry (`--workspace-col: min(1200px, calc(100% - 48px))`) to
-  prevent jarring viewport jumps and alignment drift when switching sidebar items.
-  Each destination opens with the shared PageHeader (title plus one-line description
-  in secondary label color) centered on that same column — the settings-header
-  pattern, not a bare left-aligned title bar — so the header column and the content
-  columns stay aligned. The scroll container reserves a symmetric scrollbar gutter
-  (`stable both-edges`) to keep that alignment while scrolling. The sidebar-restore
-  control, shown only while the sidebar is collapsed, sits at the header's right
-  column edge where it never collides with the centered title.
+- Primary workspace destinations (Automations, Skills, Mini Apps, Plans, Agents)
+  share one unified centered container geometry (`--workspace-col: min(1200px,
+  calc(100% - 48px))`) to prevent jarring viewport jumps and alignment drift when
+  switching sidebar items. Each destination publishes its title to the single
+  window header (see "Chat headers" below) and keeps its one-line description,
+  in secondary label color, centered at the top of the content on that same
+  column, so the header and content columns stay aligned. The scroll container
+  reserves a symmetric scrollbar gutter (`stable both-edges`) to keep that
+  alignment while scrolling.
   Each destination uses a consistent workspace toolbar (search/filter, live counts,
   and a primary CTA button). Mini Apps opens on a Launchpad pattern: an icon-and-name
   tile grid of enabled, healthy apps where one click launches, with install workflows,
@@ -1113,18 +1105,38 @@ the same regardless of the window's activation state and of what is behind it.
   bounded and truncates when space is limited. Project headers show the session title first and the project name as the
   trailing secondary source label, without a slash or project-type badge. Passive title
   and source text remain part of the native window drag region.
-- Chat's four primary sidebar destinations use one coherent regular-weight icon set
+- The whole window has exactly one global header: the top grid row, spanning the
+  sidebar and the content column. Its left reservation is fixed for the native
+  traffic lights (84px), then the window-level control cluster, then the current
+  page's title/context and its actions. Pages publish that content through the
+  shared `ChatHeader`; the content container below renders no second title bar.
+  Chat, Project, Room and every workspace destination use this one row, so the
+  title and its actions always describe the current page.
+- Chat's primary sidebar destinations use one coherent regular-weight icon set
   and compact 30px rows. Their spacing is sufficient grouping: do not add a hairline
   between the primary destinations and the conversation tree. Their content begins
-  below the full 60px native title-bar drag zone so traffic lights and drag capture
+  below the 42px window header so traffic lights and drag capture
   never overlap the first destination's pointer target.
-- The title-bar control cluster is one window-level layer, anchored next to the
-  traffic lights (left 84px inside the 42px title-bar band) and identical in both
-  sidebar states. Slot one is always the sidebar toggle; slot two is conversation
-  search while the sidebar is expanded and new-chat while it is collapsed — new-chat
-  also expands the sidebar. The cluster never moves and never rides the sidebar's
-  collapse animation; collapsed pane headers reserve left padding that clears the
-  cluster, and per-pane expand buttons are forbidden.
+- Chat uses one full-window material sheet behind the window header and the
+  sidebar; the base header paints no background, blur or edge of its own, so top
+  and left read as one frame with no double frost or seam (a family may still
+  dress the `header` region through its region-adaptation layer). The sheet
+  exposes the
+  shared `--sidebar-material-tint` and filter. Reduced-transparency,
+  increased-contrast and low-performance modes switch the entire sheet to the
+  opaque sidebar role. Chat, Project, Room and workspace
+  content share an inset container below the header, with theme-defined corners
+  and an 8px right/bottom frame. Inspector panes join the container at its internal
+  divider. The material sheet captures no pointer events; native traffic
+  lights, drag capture and the fixed header controls stay at window level.
+- The title-bar control cluster is the first group inside the window header,
+  anchored next to the traffic lights (left 84px inside the 42px band) and
+  identical in both sidebar states. Slot one is always the sidebar toggle; slot
+  two is conversation search while the sidebar is expanded and new-chat while it
+  is collapsed — new-chat also expands the sidebar. The cluster never moves and
+  never rides the sidebar's collapse animation, and it can never be covered by a
+  page title because the title flows after it. Per-pane expand buttons are
+  forbidden.
 - The session tree is one left-aligned grid. Section heads (对话 / 项目), channel
   headers, and project folder rows share a single 8px content inset — no per-level
   re-indent — and session titles sit on the header text's 32px grid line (8px row
@@ -1137,9 +1149,10 @@ the same regardless of the window's activation state and of what is behind it.
   only the section-level 对话 / 项目 heads keep a hover caret. Project folder rows
   mirror expansion in the glyph: `folder-open` duotone while expanded, plain
   `folder` duotone collapsed.
-- The complete 60px Chat header is a native window drag region. Header actions sit
-  above that region and remain clickable; empty chrome and passive source/title text
-  drag the window consistently across the full row.
+- The complete 42px window header is a native window drag region. Header actions
+  take pointer events and remain clickable; every empty pixel and the passive
+  title/source text fall through to the window drag mask, so the row drags the
+  window consistently. The header element itself never becomes a backdrop root.
 - Chat opens at most one right-side Inspector at a time. The File Inspector and the
   Mini App Inspector are two adapters of one seam: they share the grid track, the
   stored width, the resize handle, the minimum width, and the narrow-screen rules.

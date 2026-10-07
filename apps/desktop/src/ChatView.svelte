@@ -113,6 +113,8 @@
   const sessionPermissionModes = new Map<string, PermissionMode>();
   let permissionHydrationSession = "";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
+  import ChatHeader from "./lib/chat/ChatHeader.svelte";
+  import { windowHeader } from "./lib/chat/windowHeader";
   import { saveBlobAsFile } from "./lib/saveFile";
   import { formatMessageTime } from "./lib/chat/messageTime";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
@@ -3455,31 +3457,62 @@
   class:resizing-sidebar={resizingSidebar}
   style={`--sidebar-w:${effectiveSidebarWidth}px; --files-w:${effectiveFilesWidth}px`}
 >
+  <div class="window-material" aria-hidden="true"></div>
   <WindowDragMask />
-  <!-- One window-level title-bar control cluster anchored next to the traffic
-       lights (DESIGN.md: title-bar control cluster). Collapsing swaps the
-       second slot's action but never moves the buttons, so the cluster carries
-       the sidebar's theme region for the theme families that dress its buttons. -->
-  <div class="titlebar-cluster" data-theme-region="sidebar" data-tauri-drag-region>
-    <button
-      type="button"
-      class="sidebar-titlebar-btn"
-      aria-label={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
-      title={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
-      onclick={toggleSidebarCollapse}
-    >
-      <Sidebar size={16} aria-hidden="true" />
-    </button>
-    {#if sidebarCollapsed}
-      <button type="button" class="sidebar-titlebar-btn" aria-label={copy.newChat} title={copy.newChat} onclick={newChatFromCollapsedSidebar}>
-        <Pen size={16} aria-hidden="true" />
+  <!-- The one global header for the whole window. Native traffic lights keep a
+       fixed left reservation, then the window-level control cluster (sidebar
+       toggle + search/new-chat), then the current page's title/context and its
+       actions, which every page publishes through `ChatHeader`. The content
+       container starts below this band, so no page repeats a title bar. -->
+  <header
+    class:searching={$windowHeader.searching}
+    class="chat-header window-header"
+    data-theme-region="header"
+    data-tauri-drag-region
+  >
+    <!-- The title-bar control cluster keeps the sidebar's theme region, so the
+         theme families that dress `.sidebar-titlebar-btn` keep working with the
+         buttons living outside the sidebar element. Collapsing swaps the second
+         slot's action but never moves the buttons. -->
+    <div class="titlebar-cluster" data-theme-region="sidebar" data-tauri-drag-region>
+      <button
+        type="button"
+        class="sidebar-titlebar-btn"
+        aria-label={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
+        title={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
+        onclick={toggleSidebarCollapse}
+      >
+        <Sidebar size={16} aria-hidden="true" />
       </button>
-    {:else}
-      <button type="button" class="sidebar-titlebar-btn" aria-label={copy.searchConversations} title={copy.searchConversations} onclick={openBrowser}>
-        <Magnifier size={16} aria-hidden="true" />
-      </button>
+      {#if sidebarCollapsed}
+        <button type="button" class="sidebar-titlebar-btn" aria-label={copy.newChat} title={copy.newChat} onclick={newChatFromCollapsedSidebar}>
+          <Pen size={16} aria-hidden="true" />
+        </button>
+      {:else}
+        <button type="button" class="sidebar-titlebar-btn" aria-label={copy.searchConversations} title={copy.searchConversations} onclick={openBrowser}>
+          <Magnifier size={16} aria-hidden="true" />
+        </button>
+      {/if}
+    </div>
+    {#if $windowHeader.title}
+      <div class="chat-title-block" data-tauri-drag-region>
+        <div class="chat-title-text" data-tauri-drag-region>
+          <div class="chat-title-name" data-tauri-drag-region title={$windowHeader.title}>{$windowHeader.title}</div>
+          {#if $windowHeader.subtitle}
+            <div class="chat-title-sub" data-tauri-drag-region title={$windowHeader.subtitle}>{$windowHeader.subtitle}</div>
+          {/if}
+        </div>
+        {#if $windowHeader.sourceLabel}
+          <span class="chat-source-label" data-tauri-drag-region title={$windowHeader.sourceLabel}>{$windowHeader.sourceLabel}</span>
+        {/if}
+      </div>
     {/if}
-  </div>
+    <div class="header-actions">
+      {#if $windowHeader.actions}
+        {@render $windowHeader.actions()}
+      {/if}
+    </div>
+  </header>
   {#if commandOpen}
     <div class="command-palette-layer" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeCommandPalette(); }}>
       <div class="command-palette" role="dialog" aria-modal="false" aria-label={copy.commandPalette} tabindex="-1" bind:this={commandElement} onkeydown={onCommandKeydown}>
@@ -3600,6 +3633,7 @@
     onkeydown={onSidebarKeydown}
   ></div>
 
+  <div class="workspace-main">
   {#if roomPaneActive}
     <RoomWorkspace bind:this={roomWorkspace} draftStore={chatStore.draftStore} endpoint={connectedEndpoint} {copy} {locale} {requestedRoomId}
       startInCreate={roomStartEditing}
@@ -3642,16 +3676,12 @@
         onContinuePlan={continuePlan}
       />
     {:else}
-    <header class:searching={searchOpen} class="chat-header" data-theme-region="header" data-tauri-drag-region>
-      <div class="chat-title-block" data-tauri-drag-region>
-        <div class="chat-title-text" data-tauri-drag-region>
-          <div class="chat-title-name" data-tauri-drag-region>{activeHeaderTitle}</div>
-        </div>
-        {#if activeHeaderChannel !== "web"}
-          <span class="chat-source-label" data-tauri-drag-region title={activeHeaderSourceLabel}>{activeHeaderSourceLabel}</span>
-        {/if}
-      </div>
-      <div class="header-actions">
+    <ChatHeader
+      title={activeHeaderTitle}
+      sourceLabel={activeHeaderChannel !== "web" ? activeHeaderSourceLabel : ""}
+      searching={searchOpen}
+    >
+      {#snippet actions()}
         {#if durableActiveCount > 0}
           <button
             type="button"
@@ -3709,8 +3739,8 @@
             {#if sessionFiles.length}<span class="icon-badge">{sessionFiles.length}</span>{/if}
           </button>
         {/if}
-      </div>
-    </header>
+      {/snippet}
+    </ChatHeader>
 
     {#if serviceState !== "ready"}
       <div class="empty-state" aria-live="polite">
@@ -3939,6 +3969,7 @@
     {/if}
   </section>
   {/if}
+  </div>
 
   {#if inspectorVisible}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
@@ -3962,6 +3993,8 @@
     ></div>
   {/if}
 
+  {#if inspectorVisible}
+  <div class="workspace-inspector">
   {#if artifactPanelVisible}
     <ArtifactPanel
       endpoint={connectedEndpoint || serviceEndpoint || ""}
@@ -4008,6 +4041,9 @@
       motionClosing={inspectorClosing}
       onMotionEnd={finishInspectorClose}
     />
+  {/if}
+
+  </div>
   {/if}
 
   <ConversationBrowserDialog

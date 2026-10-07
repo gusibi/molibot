@@ -458,7 +458,7 @@ test("WindowState owns native lifecycle projection and chrome-only material toke
   assert.match(styles, /--chrome-header-bg/);
   assert.match(styles, /--chrome-footbar-bg/);
   assert.match(styles, /--chrome-popover-bg/);
-  assert.match(styles, /\.chat-header[^\n]*var\(--chrome-header-bg\)/);
+  assert.match(styles, /\.page-header[^\n]*var\(--chrome-header-bg\)/);
   assert.match(styles, /\.settings-footbar[^\n]*var\(--chrome-footbar-bg\)/);
   assert.match(styles, /\.command-palette[^\n]*var\(--chrome-popover-bg\)/);
 });
@@ -741,9 +741,8 @@ test("sidebars remove floating depth and keep a stable glass divider", () => {
   // reads brighter than the file panel's border over that panel's opaque surface.
   assert.doesNotMatch(sharedSidebarRule, /border-right:/);
   assert.match(styles, /\.chat-sidebar::before, \.settings-sidebar::before\s*\{[^}]*border-right:\s*1px solid var\(--sidebar-material-border\)/s);
-  // It steps up only while the sidebar itself is dragged — not on hover, and not
-  // when the file-panel resizer moves.
-  assert.match(styles, /\.chat-layout\.resizing-sidebar \.chat-sidebar::before\s*\{[^}]*border-right-color:\s*var\(--control-border-strong\)/s);
+  // Chat exposes one shared window sheet; Settings retains its material divider.
+  assert.match(styles, /\.chat-layout \.chat-sidebar::before\s*\{\s*display: none;/s);
   assert.match(sharedSidebarRule, /box-shadow:\s*none/);
   assert.doesNotMatch(styles, /--floating-sidebar-/);
   assert.doesNotMatch(styles, /\.chat-sidebar:hover,[\s\S]*\.settings-sidebar:focus-within\s*\{/);
@@ -825,10 +824,9 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and a f
   assert.match(styles, /\.chat-layout\.sidebar-collapsed\s*\{\s*grid-template-columns:\s*minmax\(var\(--sidebar-rail-w\), var\(--sidebar-w, var\(--sidebar-rail-w\)\)\) minmax\(0, 1fr\);/);
   assert.match(styles, /--sidebar-rail-w:\s*48px/);
   assert.match(styles, /\.chat-sidebar\.is-collapsed\s*\{/);
-  // Collapsed titles clear the traffic lights AND the cluster (84px + 28px +
-  // 2px + 28px + 8px breath = 150px window-space), minus the 48px rail.
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header\s*\{\s*padding-left:\s*102px;/);
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.settings-page-header\.is-workspace\s*\{\s*padding-left:\s*102px;\s*padding-right:\s*102px;/);
+  // Pane titles sit below the native toolbar, so collapse needs no extra inset.
+  assert.doesNotMatch(styles, /sidebar-collapsed \.chat-header\s*\{[^}]*padding-left: 102px/);
+  assert.match(view, /<div class="workspace-main">/);
 });
 
 test("collapsed rail carries conversation/project toggles and reuses the shared list for its flyout", () => {
@@ -1010,7 +1008,11 @@ test("chat composer keeps keyboard guidance in the textarea placeholder", () => 
 });
 
 test("Chat Header search stays in normal flow and keeps its active result index valid", () => {
-  assert.match(view, /<div class="header-actions">[\s\S]*<TranscriptSearch[\s\S]*<\/div>\s*<\/header>/);
+  // The chat page registers its header content (including the search control)
+  // through `ChatHeader`; the window layout renders that action row in the one
+  // global header, in normal flex flow.
+  assert.match(view, /\{#snippet actions\(\)\}[\s\S]*<TranscriptSearch[\s\S]*\{\/snippet\}/);
+  assert.match(view, /<div class="header-actions">[\s\S]*\{@render \$windowHeader\.actions\(\)\}[\s\S]*<\/div>\s*<\/header>/);
   assert.match(transcriptSearch, /class:open class="search-bar"/);
   assert.match(transcriptSearch, /aria-live="polite"/);
   assert.match(transcriptSearch, /event\.key !== "Enter"/);
@@ -1105,10 +1107,12 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.doesNotMatch(styles, /\.installed-skill-icon[^{]*\{[^}]*#[0-9a-fA-F]{3,6}/s);
   assert.match(styles, /\.row-outcome\.outcome-completed[^{]*\{[^}]*var\(--online\)/s);
   assert.match(styles, /\.row-outcome\.outcome-failed[^{]*\{[^}]*var\(--danger\)/s);
-  // Workspace destinations share the settings PageHeader (title + description)
-  // centered on the wider workspace column, replacing the old bare title bar.
-  assert.match(chatWorkspace, /<PageHeader title=\{workspaceTitle\} description=\{workspaceDescription\} workspace \/>/);
-  assert.match(styles, /\.settings-page-header\.is-workspace > div:not\(\.page-header-actions\)\s*\{[^}]*width:\s*var\(--workspace-col\)/s);
+  // Workspace destinations publish their title to the shared window header and
+  // keep the one-line description at the top of the body, centered on the same
+  // column.
+  assert.match(chatWorkspace, /<ChatHeader title=\{workspaceTitle\} \/>/);
+  assert.match(chatWorkspace, /<p class="workspace-description">\{workspaceDescription\}<\/p>/);
+  assert.match(styles, /\.workspace-description\s*\{[^}]*width:\s*var\(--workspace-col\)/s);
   assert.match(styles, /\.automation-workspace-toolbar \.search-field\s*\{[^}]*height:\s*32px/s);
   assert.match(styles, /\.automation-category-tabs button\s*\{[^}]*white-space:\s*nowrap/s);
   assert.match(styles, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.automation-workspace-layout\.detail-open \.automation-workspace-list\s*\{[^}]*display:\s*none/s);
@@ -1149,7 +1153,7 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   // The top and bottom insets are *reservations* for the two floating chrome
   // surfaces — the toolbar the transcript scrolls under and the composer it
   // scrolls behind — so both ends read a budget rather than a fixed gutter.
-  assert.match(styles, /\.messages \{[^}]*padding: calc\(var\(--chat-header-h\) \+ 24px\) clamp\(20px, 5%, 56px\) calc\(var\(--composer-h\) \+ 24px\)/);
+  assert.match(styles, /\.messages \{[^}]*padding: 24px clamp\(20px, 5%, 56px\) calc\(var\(--composer-h\) \+ 24px\)/);
   // The transcript scrolls and the composer does not, so a right-only scrollbar
   // would shift every message left of the input. A symmetric gutter keeps the
   // reading column and the composer on one center.
@@ -1167,12 +1171,12 @@ test("Desktop Chat keeps structural sidebars separate from one unified workspace
   assert.match(styles, /\.chat-sidebar::before, \.settings-sidebar::before\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
   assert.match(styles, /\.file-panel\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
   assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
-  // The toolbar floats over the transcript and is translucent, but it must still
-  // project the window-activation tint. `--chrome-header-bg` is the mix source
-  // precisely so `[data-window-active="false"]` keeps retinting it — and it is
-  // mixed on the `::before` material layer, never on the header element, so the
-  // header does not become a backdrop root for the Mini Apps menu it hosts.
-  assert.match(styles, /\.chat-header::before \{[^}]*background:\s*color-mix\(in srgb, var\(--chrome-header-bg\) var\(--glass-chrome-opacity\), transparent\)/s);
+  // The one window material sheet backs both the header band and the sidebar;
+  // the header itself paints no material or blur of its own, so top and left
+  // read as one frame with no double frost or seam.
+  assert.match(styles, /\.window-material\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
+  assert.match(styles, /\.chat-layout \.chat-sidebar::before\s*\{\s*display: none;/s);
+  assert.doesNotMatch(styles, /(^|\n)\.chat-header::before\s*\{/);
 });
 
 // The chat page's transient surfaces share one material system (DESIGN.md
@@ -1189,10 +1193,11 @@ test("Chat floating surfaces share one glass material, background and blur toget
     assert.notEqual(start, -1, `${selector} must keep its own rule`);
     return styles.slice(start, styles.indexOf("}", start));
   };
-  // Every transient surface over the transcript: cards, popovers, the two
-  // floating chrome bars, and the running-turn pill. `.composer` and
-  // `.chat-header` carry their material on `::before` (see the backdrop-root
-  // guard below), so they are checked through that layer.
+  // Every transient surface over the transcript: cards, popovers, and the
+  // floating composer. `.composer` carries its material on `::before` (see the
+  // backdrop-root guard below), so it is checked through that layer. `.chat-header`
+  // is not in this set any more: the window header is part of the frame and
+  // paints no glass of its own (see the unified-window-header guard).
   const glassSurfaces = [
     ".approval-card", ".plan-card", ".composer-model-popover", ".slash-suggestions",
     ".overflow-menu-popover", ".command-palette", ".transcript-dock", ".miniapps-quick-menu",
@@ -1200,7 +1205,7 @@ test("Chat floating surfaces share one glass material, background and blur toget
   ];
   const material = (selector) =>
     styles.includes(`\n${selector}::before {`) ? cssRule(`${selector}::before`) : cssRule(selector);
-  for (const selector of [...glassSurfaces, ".composer", ".chat-header"]) {
+  for (const selector of [...glassSurfaces, ".composer"]) {
     const rule = material(selector);
     // A background and a blur are one decision: translucent without blur is a
     // wash of text showing through, and blur without translucency is invisible.
@@ -1255,11 +1260,16 @@ test("Surfaces that host popovers keep their backdrop filter off the element", (
     assert.notEqual(start, -1, `${selector} must keep its own rule`);
     return styles.slice(start, styles.indexOf("}", start));
   };
-  for (const selector of [".composer", ".chat-header"]) {
+  for (const selector of [".composer"]) {
     assert.match(styles, new RegExp(`\\${selector}::before \\{[^}]*backdrop-filter: var\\(--glass-chrome-filter\\)`), `${selector} must frost from its ::before layer`);
     assert.doesNotMatch(cssRule(selector), /backdrop-filter/, `${selector} must not create a backdrop root for its popovers`);
     assert.doesNotMatch(cssRule(selector), /background:\s*color-mix/, `${selector} must not paint the material itself`);
   }
+  // The window header also hosts the Mini Apps quick menu, but it is not a glass
+  // host: it carries no backdrop-filter anywhere, so the menu's own filter
+  // samples the page behind it normally.
+  assert.doesNotMatch(cssRule(".chat-header"), /backdrop-filter/);
+  assert.doesNotMatch(styles, /(^|\n)\.chat-header::before\s*\{/);
   // The `z-index: -1` layer is only scoped if the host establishes a stacking
   // context. It has to be `z-index`, not `isolation: isolate` — the latter is
   // itself on the backdrop-root list and would reinstate the very bug above.
@@ -1326,19 +1336,19 @@ test("Every glass degradation tier flattens every glass tier", () => {
   }
 });
 
-test("Chat chrome floats over the transcript and the transcript reserves its height", () => {
-  // The toolbar and the composer are taken out of the flow so content travels
-  // under them; every surface that has to stay clear of either one reads a
-  // shared budget instead of a fixed offset.
-  assert.match(styles, /\.chat-header \{[^}]*position:\s*absolute;[^}]*inset:\s*0 0 auto;/s);
+test("Window header owns its grid row and the transcript is not reserved beneath it", () => {
+  // The single header is the window's top grid row, above the sidebar and the
+  // content container; it no longer floats over the transcript, so the
+  // transcript reserves only the composer (which still floats).
+  assert.match(styles, /\.chat-layout \{[^}]*grid-template-rows:\s*var\(--chat-header-h\) minmax\(0, 1fr\)/s);
+  assert.match(styles, /\.chat-header \{[^}]*grid-row:\s*1;[^}]*grid-column:\s*1 \/ -1;/s);
+  assert.doesNotMatch(styles, /\.chat-header \{[^}]*position:\s*absolute/);
   assert.match(styles, /\.composer-wrap\.is-floating \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
   assert.match(styles, /--chat-header-h:\s*42px;/);
   assert.match(styles, /--composer-h:\s*0px;/);
-  assert.match(styles, /\.messages \{[^}]*padding: calc\(var\(--chat-header-h\) \+ 24px\)[^}]*calc\(var\(--composer-h\) \+ 24px\)/);
+  assert.match(styles, /\.messages \{[^}]*padding: 24px clamp\(20px, 5%, 56px\) calc\(var\(--composer-h\) \+ 24px\)/);
   assert.match(styles, /\.transcript-dock \{[^}]*bottom: calc\(var\(--composer-h\) \+ 14px\)/s);
-  assert.match(styles, /\.conversation-prompt-navigator \{[^}]*top: calc\(var\(--chat-header-h\) \+ 14px\);[^}]*bottom: calc\(var\(--composer-h\) \+ 14px\);/s);
-  // The toolbar is a full-bleed bar, so it takes the rim but no float shadow.
-  assert.match(styles, /\.chat-header::before \{[^}]*box-shadow: var\(--glass-edge\);/, "a full-bleed bar must not cast a float shadow");
+  assert.match(styles, /\.conversation-prompt-navigator \{[^}]*top: 14px;[^}]*bottom: calc\(var\(--composer-h\) \+ 14px\);/s);
   // The height is a measurement, not a constant: the stack grows with every
   // line of input, queued chip and banner, and the observer has to publish it
   // and clean it up (a stale value would leave the transcript short of its tail).
@@ -2497,20 +2507,18 @@ test("theme families adapt existing chrome only through the documented region ho
   const chatView = read("./ChatView.svelte");
   assert.match(chatView, /class="chat-layout"[\s\S]{0,40}data-theme-region="window"/);
   assert.match(chatView, /class="chat-content" data-theme-region="chat"/);
-  assert.match(chatView, /class="chat-header" data-theme-region="header"/);
+  assert.match(chatView, /class="chat-header window-header"[\s\S]{0,120}data-theme-region="header"/);
   assert.match(chatSidebar, /class="chat-sidebar"[\s\S]{0,60}data-theme-region="sidebar"/);
   assert.match(sidebarLists, /class="sidebar-channels"[\s\S]{0,80}data-theme-region="session-list"/);
   assert.match(chatInputArea, /class="composer-wrap"[\s\S]{0,80}data-theme-region="composer"/);
   const artifactPanel = read("./lib/artifacts/ArtifactPanel.svelte");
   assert.match(artifactPanel, /class="file-panel project-file-panel artifact-panel"[\s\S]{0,160}data-theme-region="file-panel"/);
-  // Every surface that reuses a region element must mount the hook itself. The
-  // project dimension renders the shared ChatHeader and its own `.chat-content`
-  // instead of ChatView's inline ones, and both were missing their hook — so
-  // every family's header and canvas treatment stopped at the project pane (the
-  // toolbar chips vanished there). A shared component is the one place the
-  // "one attribute per region" rule can be lost without a second mount.
+  // The header hook is mounted exactly once, on the window header. Every page,
+  // including the project dimension, publishes its content through the shared
+  // ChatHeader instead of mounting a second header element.
   const chatHeader = read("./lib/chat/ChatHeader.svelte");
-  assert.match(chatHeader, /class="chat-header" data-theme-region="header"/);
+  assert.match(chatHeader, /windowHeader\.set\(/);
+  assert.match(chatHeader, /title,\s*sourceLabel,\s*subtitle,\s*searching,\s*actions,\s*owner/);
   const projectDetail = read("./lib/projects/ProjectDetail.svelte");
   assert.match(projectDetail, /class="chat-content" data-theme-region="chat"/);
 });
@@ -2548,7 +2556,7 @@ test("chat header is single-line and service status lives on the sidebar logo", 
   const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
   assert.doesNotMatch(view, /activeHeaderSourceInitial/);
   assert.match(view, /activeHeaderTitle/);
-  assert.match(view, /\{#if activeHeaderChannel !== "web"\}/);
+  assert.match(view, /sourceLabel=\{activeHeaderChannel !== "web" \? activeHeaderSourceLabel : ""\}/);
   // The title takes the row's slack and ellipsizes inside the CHAT COLUMN. A
   // viewport-relative `max-width` let it run underneath the action buttons as
   // soon as the file panel narrowed the column.
@@ -2612,17 +2620,17 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.match(app, /<WindowDragMask \/>/);
   assert.match(windowDragMask, /getCurrentWindow\(\)\.startDragging\(\)/);
   assert.match(styles, /\.window-drag-mask\s*\{[^}]*position:\s*absolute;[^}]*height:\s*var\(--toolbar-height\);[^}]*z-index:\s*30;/s);
-  assert.match(styles, /\.chat-layout > \.window-drag-mask\s*\{[^}]*height:\s*42px;/s);
-  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*padding:\s*42px 12px 8px;/s);
-  assert.match(chatSidebar, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
-  assert.match(sidebarShell, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
-  assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*42px;[^}]*pointer-events:\s*auto;/s);
+  assert.match(styles, /\.chat-layout > \.window-drag-mask\s*\{[^}]*height:\s*42px;[^}]*pointer-events:\s*auto;/s);
+  assert.match(styles, /\.chat-sidebar, \.settings-sidebar\s*\{[^}]*padding:\s*8px 12px 8px;/s);
+  // The window header is the drag band. It spans the top row above the sidebar
+  // and the content container, so the sidebar needs no title-bar drag strip.
+  assert.match(view, /class="chat-header window-header"[\s\S]{0,140}data-tauri-drag-region/);
+  assert.match(styles, /\.chat-header \{[^}]*padding: 0 8px 0 84px;/s);
   assert.match(view, /class="chat-source-label" data-tauri-drag-region/);
-  assert.match(chatHeader, /class="chat-source-label" data-tauri-drag-region/);
   const pageHeader = read("./lib/components/ui/PageHeader.svelte");
   assert.match(pageHeader, /class="page-header settings-page-header" data-tauri-drag-region/);
-  // Workspace destinations reuse the shared draggable PageHeader for their chrome.
-  assert.match(workspacePane, /<PageHeader title=\{workspaceTitle\} description=\{workspaceDescription\} workspace \/>/);
+  // Workspace destinations publish their title to the shared window header.
+  assert.match(workspacePane, /<ChatHeader title=\{workspaceTitle\} \/>/);
   assert.match(styles, /\.header-actions\s*\{[^}]*z-index:\s*31;/s);
   // The stretched action row sits above the drag mask, so its empty space must
   // stay transparent to pointer events or the toolbar stops dragging the window.
@@ -2631,17 +2639,17 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.doesNotMatch(view, /<button[\s\S]{0,160}data-tauri-drag-region/);
 });
 
-test("Room chrome drags across passive content while actions remain clickable", () => {
+test("Room chrome publishes its identity and actions to the shared window header", () => {
   const room = read("./lib/chat/RoomWorkspace.svelte");
-  const header = room.slice(room.indexOf('<header class="room-header"'), room.indexOf('</header>'));
-  assert.match(header, /<header class="room-header" data-tauri-drag-region>/);
-  for (const tag of ['div class="room-heading"', 'span class="room-eyebrow"', 'h2', 'p']) {
-    assert.ok(header.includes(`<${tag} data-tauri-drag-region>`), `${tag} must allow native dragging`);
-  }
-  assert.doesNotMatch(header, /<Button[^>]*data-tauri-drag-region/);
-  assert.match(styles, /\.room-header\s*\{[^}]*width: 100%;[^}]*box-sizing: border-box;/);
-  assert.match(styles, /\.room-actions\s*\{[^}]*pointer-events: none;/);
-  assert.match(styles, /\.room-actions > \*\s*\{[^}]*pointer-events: auto;/);
+  // The room's title/session picker and its back/edit/remove actions register
+  // with the one window header instead of rendering a second `.room-header`.
+  assert.match(room, /<ChatHeader title=\{view\?\.room\.title \?\? words\.title\}/);
+  assert.match(room, /<ChatHeader title=\{editing \?/);
+  assert.match(room, /\{#snippet actions\(\)\}[\s\S]*room-session-picker[\s\S]*\{\/snippet\}/);
+  assert.doesNotMatch(room, /class="room-header"/);
+  assert.doesNotMatch(room, /class="room-heading"/);
+  // Room setup keeps its one-line description at the top of the body.
+  assert.match(room, /class="room-setup-description">\{words\.setupDescription\}/);
   const sidebar = read("./lib/chat/ChatSidebar.svelte");
   // Rooms are a list section (like conversations/projects), so the rail toggles
   // a rooms flyout rather than opening a workspace destination.
@@ -3407,8 +3415,10 @@ test("project detail reuses the chat header chrome for a single visual language"
   assert.match(projectDetail, /class="icon-button"[\s\S]*aria-label=\{copy\.search\}/);
   assert.match(projectDetail, /class="icon-button"[\s\S]*aria-label=\{copy\.files\}/);
   assert.doesNotMatch(projectDetail, /aria-label=\{copy\.delete\}/);
-  assert.match(chatHeader, /class="chat-header"/);
-  assert.match(chatHeader, /class="chat-source-label"/);
+  // Project publishes its title/source and actions through the shared header,
+  // which renders them in the one window header.
+  assert.match(chatHeader, /windowHeader\.set\(/);
+  assert.match(view, /class="chat-title-name"[\s\S]*class="chat-source-label"/);
   assert.doesNotMatch(chatHeader, /chat-title-separator|sourceInitial/);
 });
 
@@ -5750,11 +5760,11 @@ test("conversation menus and their dismiss layer escape sidebar stacking and cli
 });
 
 test("header source follows the title as bounded secondary text without a badge", () => {
+  assert.ok(view.indexOf('class="chat-title-name"') < view.indexOf('class="chat-source-label"'));
+  assert.doesNotMatch(view, /chat-source-tag|chat-title-separator|sourceInitial/);
+  // ChatHeader is the publishing component now, not a second title bar.
   const shared = read("./lib/chat/ChatHeader.svelte");
-  for (const source of [view, shared]) {
-    assert.ok(source.indexOf('class="chat-title-name"') < source.indexOf('class="chat-source-label"'));
-    assert.doesNotMatch(source, /chat-source-tag|chat-title-separator|sourceInitial/);
-  }
+  assert.doesNotMatch(shared, /class="chat-title-name"|class="chat-source-label"|chat-source-tag|chat-title-separator|sourceInitial/);
   const sourceRule = styles.match(/\.chat-source-label \{([^}]+)\}/)?.[1] ?? "";
   assert.match(sourceRule, /max-width: 30%/);
   assert.match(sourceRule, /color: var\(--label-secondary\)/);
@@ -6023,4 +6033,21 @@ test("Room model preview and persisted failures use runtime metadata", () => {
   assert.match(source, /view\?\.memberModelKeys\?\.\[id\]/);
   assert.match(source, /execution\?\.status === "failed" \? "error"/);
   assert.match(source, /errorMessage: execution\?\.error/);
+});
+
+test("window chrome shares one material and hosts all panes in the content frame", () => {
+  assert.match(view, /class="window-material" aria-hidden="true"/);
+  assert.doesNotMatch(view, /window-toolbar-surface/);
+  assert.match(styles, /\.window-material\s*\{[^}]*inset: 0;[^}]*background: var\(--sidebar-material-tint\);[^}]*backdrop-filter: var\(--sidebar-material-filter\);[^}]*pointer-events: none;/s);
+  assert.match(styles, /\.chat-layout \.chat-sidebar::before\s*\{\s*display: none;/s);
+  assert.match(view, /<div class="workspace-main">\s*\{#if roomPaneActive\}/);
+  assert.match(view, /<div class="workspace-inspector">/);
+  // The content container sits in the window's body row, below the header band.
+  assert.match(styles, /\.workspace-main, \.workspace-inspector\s*\{[^}]*grid-row: 2;[^}]*margin: 0 8px 8px 0;[^}]*border-radius: var\(--rounded-md\)/s);
+  // One global header spans the top row above the frame, next to the native
+  // controls and carrying the current page's title and actions.
+  assert.match(view, /class="chat-header window-header"[\s\S]{0,120}data-theme-region="header"/);
+  assert.match(styles, /\.chat-header \{[^}]*grid-row: 1;[^}]*grid-column: 1 \/ -1;/s);
+  assert.match(styles, /html\[data-reduced-transparency="true"\] \.window-material,[^}]*background: var\(--sidebar-material-bg\);[^}]*backdrop-filter: none;/s);
+  assert.doesNotMatch(styles, /sidebar-collapsed \.chat-header\s*\{[^}]*padding-left: 102px/);
 });

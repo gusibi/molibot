@@ -15,7 +15,6 @@
   import type { AgentRoom } from "@molibot/shared/rooms";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
   import type { Translation } from "../i18n";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
 
   let {
     copy,
@@ -170,17 +169,9 @@
     onNewConversation,
     onOpenSettings
   });
-
-  function startWindowDrag(event: MouseEvent): void {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    void getCurrentWindow().startDragging().catch((error) => console.error("window drag failed", error));
-  }
 </script>
 
 <aside class="chat-sidebar" class:is-collapsed={collapsed} data-theme-region="sidebar">
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true" onmousedown={startWindowDrag}></div>
 
   {#if collapsed}
     <div class="sidebar-collapsed">

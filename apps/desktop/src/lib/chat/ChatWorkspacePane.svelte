@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Component } from "svelte";
   import type { Translation } from "../i18n";
-  import PageHeader from "../components/ui/PageHeader.svelte";
+  import ChatHeader from "./ChatHeader.svelte";
   import TasksSection from "../settings/TasksSection.svelte";
   import InstalledSkillsPane from "./InstalledSkillsPane.svelte";
   import MiniAppsLaunchpad from "../miniapps/MiniAppsLaunchpad.svelte";
@@ -49,7 +49,8 @@
 
 {#key pane}
   <div class="workspace-motion-stage" data-motion-surface="workspace">
-  <PageHeader title={workspaceTitle} description={workspaceDescription} workspace />
+  <ChatHeader title={workspaceTitle} />
+  <p class="workspace-description">{workspaceDescription}</p>
   
   <div
     class="workspace-scroll"

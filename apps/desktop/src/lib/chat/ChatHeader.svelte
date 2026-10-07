@@ -1,29 +1,37 @@
 <script lang="ts">
-  export let sourceLabel = "";
-  export let title: string;
-  export let subtitle = "";
-  export let searching = false;
-</script>
+  import { onDestroy } from "svelte";
+  import type { Snippet } from "svelte";
+  import { emptyWindowHeader, windowHeader } from "./windowHeader";
 
-<!-- The project dimension reuses this header instead of ChatView's inline one, so
-     it must carry the same region hook or every family's header adaptation
-     (accent chips, header rule, canvas seam) silently stops at the project pane.
-     `.chat-header` is the element the DESIGN.md `header` hook names. -->
-<header class:searching class="chat-header" data-theme-region="header" data-tauri-drag-region>
-  <div class="chat-title-block" data-tauri-drag-region>
-    <div class="chat-title-text" data-tauri-drag-region>
-      <div class="chat-title-name" data-tauri-drag-region>{title}</div>
-      {#if subtitle || $$slots.subtitle}
-        <div class="chat-title-sub" data-tauri-drag-region title={subtitle}>
-          <slot name="subtitle">{subtitle}</slot>
-        </div>
-      {/if}
-    </div>
-    {#if sourceLabel}
-      <span class="chat-source-label" data-tauri-drag-region title={sourceLabel}>{sourceLabel}</span>
-    {/if}
-  </div>
-  <div class="header-actions">
-    <slot name="actions" />
-  </div>
-</header>
+  /**
+   * A page publishes its identity to the shared window header through this
+   * component instead of rendering its own title bar. It renders nothing: the
+   * one `<header class="chat-header">` lives in the window layout (`ChatView`),
+   * next to the native controls, so every page shares one header row and the
+   * content container below never repeats a title (DESIGN.md: unified window
+   * header). Pages keep ownership of their title state and action handlers.
+   */
+  let {
+    title,
+    sourceLabel = "",
+    subtitle = "",
+    searching = false,
+    actions = null
+  }: {
+    title: string;
+    sourceLabel?: string;
+    subtitle?: string;
+    searching?: boolean;
+    actions?: Snippet | null;
+  } = $props();
+
+  const owner = Symbol("window-header");
+
+  $effect(() => {
+    windowHeader.set({ title, sourceLabel, subtitle, searching, actions, owner });
+  });
+
+  onDestroy(() => {
+    windowHeader.update((current) => current.owner === owner ? { ...emptyWindowHeader } : current);
+  });
+</script>
