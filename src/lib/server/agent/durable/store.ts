@@ -36,6 +36,7 @@ import {
   type SideEffectClass,
   type SideEffectInput,
   type SideEffectRecord,
+  type StepVerificationRule,
   DurableExecutionBudgetError,
   DurableExecutionConflictError,
   DurableExecutionLeaseError,
@@ -54,6 +55,25 @@ export {
 const TERMINAL_STATUSES = new Set<DurableExecutionStatus>(["partial", "completed", "failed", "cancelled"]);
 const ACTIVE_LEASE_STATUSES = new Set<DurableExecutionStatus>(["running", "verifying"]);
 const DEFAULT_SIDE_EFFECT_CLASS: SideEffectClass = "non_idempotent";
+// A work item is verified by run detail unless its author binds a stronger
+// checker; there is no unverified work item in a plan.
+const DEFAULT_STEP_VERIFICATION: StepVerificationRule = { checkerKey: "run_detail_present", onFailure: "block", version: 1 };
+
+function normalizeVerification(rule: StepVerificationRule | undefined, fallback?: StepVerificationRule): StepVerificationRule | undefined {
+  const source = rule ?? fallback;
+  if (!source) return undefined;
+  const checkerKey = text(source.checkerKey);
+  if (!checkerKey) throw new Error("Step verification rule needs a checkerKey.");
+  const onFailure = source.onFailure === "retry" ? "retry" : "block";
+  const maxAttempts = positiveInt(source.maxAttempts);
+  return {
+    checkerKey,
+    ...(source.params && typeof source.params === "object" ? { params: source.params } : {}),
+    onFailure,
+    ...(onFailure === "retry" ? { maxAttempts: maxAttempts ?? 2 } : {}),
+    version: positiveInt(source.version) ?? 1
+  };
+}
 
 type DurableControlAction =
   | { actionId: string; executionId: string; action: "pause"; expectedVersion: number; reason?: string; now?: Date }
@@ -139,6 +159,18 @@ interface StepRow {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface StepRuleRow {
+  execution_id: string;
+  plan_version: number;
+  step_id: string;
+  checker_key: string;
+  params_json: string | null;
+  on_failure: "retry" | "block";
+  max_attempts: number | null;
+  rule_version: number;
+  created_at: string;
 }
 
 interface CriterionRow {
@@ -368,6 +400,16 @@ function rowToStep(row: StepRow): ExecutionStep {
   };
 }
 
+function rowToStepRule(row: StepRuleRow): StepVerificationRule {
+  return {
+    checkerKey: row.checker_key,
+    ...(row.params_json ? { params: parseJson<Record<string, unknown>>(row.params_json, {}) } : {}),
+    onFailure: row.on_failure,
+    ...(row.max_attempts != null ? { maxAttempts: Number(row.max_attempts) } : {}),
+    version: Number(row.rule_version)
+  };
+}
+
 function rowToCriterion(row: CriterionRow): AcceptanceCriterion {
   return {
     id: row.id,
@@ -497,6 +539,7 @@ interface NormalizedPlanStep {
   sideEffectClass: SideEffectClass;
   idempotencyKey?: string;
   inputSummary?: string;
+  verification: StepVerificationRule;
 }
 
 interface NormalizedPlanTask {
@@ -524,7 +567,8 @@ function normalizePlanContent(input: { tasks: PlanTaskInput[] }): NormalizedPlan
           description: text(step.description),
           sideEffectClass: step.sideEffectClass ?? DEFAULT_SIDE_EFFECT_CLASS,
           idempotencyKey: text(step.idempotencyKey) || undefined,
-          inputSummary: text(step.inputSummary) || undefined
+          inputSummary: text(step.inputSummary) || undefined,
+          verification: normalizeVerification(step.verification, DEFAULT_STEP_VERIFICATION)!
         };
       })
     };
@@ -559,7 +603,8 @@ function normalizeSteps(input: ExecutionStepInput[]): ExecutionStepInput[] {
       description: text(step.description),
       sideEffectClass: step.sideEffectClass ?? DEFAULT_SIDE_EFFECT_CLASS,
       idempotencyKey: text(step.idempotencyKey) || undefined,
-      inputSummary: text(step.inputSummary) || undefined
+      inputSummary: text(step.inputSummary) || undefined,
+      ...(step.verification ? { verification: normalizeVerification(step.verification) } : {})
     };
   });
 }
@@ -675,10 +720,14 @@ export class DurableExecutionStore {
           evidence_summary, attempt_count, started_at, completed_at, last_error, created_at, updated_at
         ) VALUES (?, ?, 1, ?, ?, ?, 'pending', ?, ?, ?, NULL, NULL, NULL, 0, NULL, NULL, NULL, ?, ?)
       `);
-      steps.forEach((step, index) => insertStep.run(
-        id("step"), executionId, index, step.title, step.description ?? "",
-        step.sideEffectClass ?? DEFAULT_SIDE_EFFECT_CLASS, step.idempotencyKey ?? null, step.inputSummary ?? null, createdAt, createdAt
-      ));
+      steps.forEach((step, index) => {
+        const stepId = id("step");
+        insertStep.run(
+          stepId, executionId, index, step.title, step.description ?? "",
+          step.sideEffectClass ?? DEFAULT_SIDE_EFFECT_CLASS, step.idempotencyKey ?? null, step.inputSummary ?? null, createdAt, createdAt
+        );
+        if (step.verification) this.insertStepRule(executionId, 1, stepId, step.verification, createdAt);
+      });
 
       const insertCriterion = this.db.prepare(`
         INSERT INTO durable_acceptance_criteria (
@@ -913,12 +962,42 @@ export class DurableExecutionStore {
     return row ? rowToExecution(row) : null;
   }
 
+  /** Step-bound deterministic acceptance rules, keyed by step id. */
+  private rulesFor(executionId: string): Map<string, StepVerificationRule> {
+    const rows = this.db.prepare("SELECT * FROM durable_step_rules WHERE execution_id = ?").all(text(executionId)) as unknown as StepRuleRow[];
+    return new Map(rows.map((row) => [row.step_id, rowToStepRule(row)]));
+  }
+
+  private attachStepRules(executionId: string, steps: ExecutionStep[]): void {
+    if (steps.length === 0) return;
+    const rules = this.rulesFor(executionId);
+    for (const step of steps) {
+      const rule = rules.get(step.id);
+      if (rule) step.verification = rule;
+    }
+  }
+
+  private insertStepRule(executionId: string, planVersion: number, stepId: string, rule: StepVerificationRule, createdAt: string): void {
+    this.db.prepare(`
+      INSERT INTO durable_step_rules (
+        execution_id, plan_version, step_id, checker_key, params_json, on_failure, max_attempts, rule_version, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      executionId, planVersion, stepId, rule.checkerKey,
+      rule.params && Object.keys(rule.params).length > 0 ? JSON.stringify(rule.params) : null,
+      rule.onFailure === "retry" ? "retry" : "block",
+      rule.onFailure === "retry" ? positiveInt(rule.maxAttempts) ?? 2 : null,
+      positiveInt(rule.version) ?? 1, createdAt
+    );
+  }
+
   getDetail(idValue: string, ownerId?: string): DurableExecutionDetail | null {
     const execution = this.getById(idValue, ownerId);
     if (!execution) return null;
     const idText = execution.id;
     const plans = (this.db.prepare("SELECT * FROM durable_plan_versions WHERE execution_id = ? ORDER BY plan_version DESC").all(idText) as unknown as PlanRow[]).map(rowToPlan);
     const steps = (this.db.prepare("SELECT * FROM durable_steps WHERE execution_id = ? ORDER BY plan_version DESC, step_index ASC").all(idText) as unknown as StepRow[]).map(rowToStep);
+    this.attachStepRules(idText, steps);
     const acceptanceCriteria = (this.db.prepare("SELECT * FROM durable_acceptance_criteria WHERE execution_id = ? ORDER BY plan_version DESC, created_at ASC").all(idText) as unknown as CriterionRow[]).map(rowToCriterion);
     const sideEffects = (this.db.prepare("SELECT * FROM durable_side_effects WHERE execution_id = ? ORDER BY created_at ASC").all(idText) as unknown as SideEffectRow[]).map(rowToSideEffect);
     const evidenceRefs = (this.db.prepare("SELECT * FROM durable_evidence_refs WHERE execution_id = ? ORDER BY created_at ASC").all(idText) as unknown as EvidenceRow[]).map(rowToEvidence);
@@ -1043,9 +1122,13 @@ export class DurableExecutionStore {
       ORDER BY ts.task_id ASC, ts.position ASC
     `).all(execution.id, version) as unknown as Array<StepRow & { task_id: string; position: number }>;
     const stepsByTask = new Map<string, ExecutionStep[]>();
+    const rules = this.rulesFor(execution.id);
     for (const row of stepRows) {
       const list = stepsByTask.get(row.task_id) ?? [];
-      list.push(rowToStep(row));
+      const step = rowToStep(row);
+      const rule = rules.get(step.id);
+      if (rule) step.verification = rule;
+      list.push(step);
       stepsByTask.set(row.task_id, list);
     }
     return taskRows.map((task) => rowToTask(task, stepsByTask.get(task.id) ?? []));
@@ -1101,12 +1184,14 @@ export class DurableExecutionStore {
             step.attemptCount, step.startedAt ?? null, step.completedAt ?? null, step.lastError ?? null,
             step.createdAt, timestamp
           );
+          if (step.verification) this.insertStepRule(current.id, nextVersion, rowId, step.verification, timestamp);
         } else {
           insertStep.run(
             rowId, current.id, nextVersion, stepIndex, step.title, step.description, "pending",
             step.sideEffectClass, step.idempotencyKey ?? null, step.inputSummary ?? null, null, null,
             null, 0, null, null, null, timestamp, timestamp
           );
+          this.insertStepRule(current.id, nextVersion, rowId, step.verification, timestamp);
         }
         insertTaskStep.run(current.id, nextVersion, taskId, rowId, position);
         stepIndex += 1;
@@ -1317,6 +1402,7 @@ export class DurableExecutionStore {
           step.id, executionId, planVersion, stepIndex, step.title, step.description,
           step.sideEffectClass, step.idempotencyKey ?? null, step.inputSummary ?? null, createdAt, createdAt
         );
+        this.insertStepRule(executionId, planVersion, step.id, step.verification, createdAt);
         insertTaskStep.run(executionId, planVersion, task.id, step.id, position);
         stepIndex += 1;
       });
@@ -1613,6 +1699,43 @@ export class DurableExecutionStore {
       const timestamp = nowIso(input.now);
       this.db.prepare("UPDATE durable_steps SET status = 'completed', output_summary = ?, output_ref = ?, evidence_summary = ?, completed_at = ?, updated_at = ? WHERE id = ? AND execution_id = ?").run(
         text(input.outputSummary) || null, text(input.outputRef) || null, text(input.evidenceSummary) || null, timestamp, timestamp, input.stepId, input.executionId
+      );
+      this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
+      const next = this.requireStep(input.executionId, input.stepId);
+      this.db.exec("COMMIT");
+      return rowToStep(next);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Records the outcome of a step whose deterministic verification rule failed.
+   * A `retry` outcome returns the step to `pending` (keeping its attempt count)
+   * so the scheduler can dispatch it again; a `block` outcome fails the step and
+   * stops the goal with an explicit verification reason.
+   */
+  settleStepFailure(input: {
+    executionId: string;
+    stepId: string;
+    expectedVersion: number;
+    processOwnerId: string;
+    retry: boolean;
+    reason: string;
+    now?: Date;
+  }): ExecutionStep {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.requireRow(input.executionId);
+      this.assertVersion(current, input.expectedVersion);
+      this.assertLease(current, input.processOwnerId);
+      const step = this.requireStep(input.executionId, input.stepId);
+      if (step.status !== "running") throw new Error(`Step cannot fail from ${step.status}`);
+      const timestamp = nowIso(input.now);
+      const reason = text(input.reason, "Step verification failed.");
+      this.db.prepare("UPDATE durable_steps SET status = ?, completed_at = NULL, last_error = ?, updated_at = ? WHERE id = ? AND execution_id = ?").run(
+        input.retry ? "pending" : "failed", reason, timestamp, input.stepId, input.executionId
       );
       this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
       const next = this.requireStep(input.executionId, input.stepId);
@@ -2179,6 +2302,19 @@ export class DurableExecutionStore {
         UNIQUE (execution_id, plan_version, step_index)
       );
       CREATE INDEX IF NOT EXISTS idx_durable_steps_execution_status ON durable_steps(execution_id, status, step_index);
+      CREATE TABLE IF NOT EXISTS durable_step_rules (
+        execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
+        plan_version INTEGER NOT NULL,
+        step_id TEXT NOT NULL REFERENCES durable_steps(id) ON DELETE CASCADE,
+        checker_key TEXT NOT NULL,
+        params_json TEXT,
+        on_failure TEXT NOT NULL CHECK (on_failure IN ('retry','block')),
+        max_attempts INTEGER,
+        rule_version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (execution_id, plan_version, step_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_durable_step_rules_execution ON durable_step_rules(execution_id, plan_version);
       CREATE TABLE IF NOT EXISTS durable_acceptance_criteria (
         id TEXT PRIMARY KEY,
         execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,

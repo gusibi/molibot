@@ -1,3 +1,11 @@
+## 2026-10-07 — 规模化自主长任务：工作项独立验收（阶段 A 基础切片）
+
+依据[规模化自主长任务 PRD](docs/requirements/large-autonomous-execution-prd.md)：Durable Execution 的每个计划工作项现在绑定一条确定性验收规则，执行者的「完成」声明不再是验收通过条件。运行器在一次 attempt 结束后先用已注册检查器核对产物证据，通过才标记步骤完成；缺失或格式不符的产物会被拒绝，规则缺失或无对应检查器一律 fail closed（不默认为通过）。
+
+已交付：新增 `durable_step_rules` 表（按 execution/plan_version/step 存储 checker、参数、失败处置、规则版本），随计划创建、修订、内容替换一起写入并在读取时回填到步骤；`exitPlan` 计划步骤默认绑定 `run_detail_present`。运行器内置 `run_detail_present`、`evidence_present`、`expected_outputs` 三种检查器。`onFailure:"retry"` 的规则在额度内把步骤退回 `pending` 重新派发；`"block"` 或额度耗尽时把步骤标记 `failed`，目标进入 `recovery_required`，并通过来源渠道发送持久化的中文兜底报告（停止位置、原因、已完成/未完成项），父模型静默时仍有记录。步骤验收证据以 `durable-step-verifier` 引用保存，可经证据读取器回读。
+
+验证：`stepVerification.test.ts` 6 项（规则 round-trip、修订携带规则、完成但缺产物被拒绝并阻塞、产物存在则通过并推进、跨 attempt 自动推进到完成、retry 规则退回重派），durable + plans 全量 105 项、类型检查通过。剩余阶段 A 范围：规则由主 Agent 在 `exitPlan` 中显式声明、调度器代码派发（不逐项唤醒主模型）、目标累计费用与并发公平、以及真实入口的冷启动 live 验收。
+
 ## 2026-10-07 — Desktop 统一窗口框架与全局 Header
 
 已交付：Chat 顶部与侧栏共用一张窗口材质层，统一主题颜色、透明度与模糊；右侧文件／小程序面板的 header 同样保持透明、与全局 header 属于同一条背景带，它下面的内容与中间对话内容同处一块悬浮面，两者之间只有面板自己的浅色左侧分割线。内容框保留 8px 右侧／底部窗口边距、圆角跟随主题，悬浮阴影加在与整块内容框等尺寸的共享 frame overlay（`.chat-layout::after`）上，使对话与 Inspector 内容读起来是一整块浮在「Header + 侧栏」之上的整体。

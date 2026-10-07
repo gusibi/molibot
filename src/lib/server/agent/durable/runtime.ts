@@ -6,7 +6,7 @@ import type { MomEvent } from "$lib/server/agent/events.js";
 import type { ChannelInboundMessage, DurableAttemptHooks } from "$lib/server/agent/core/types.js";
 import type { ToolApprovalRequest, ToolApprovalConsumptionRequest, ToolResult, ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
 import type { ChannelManager } from "$lib/server/channels/registry.js";
-import type { DurableExecution, ExecutionStep, SideEffectRecord } from "./types.js";
+import type { DurableExecution, ExecutionStep, SideEffectRecord, StepVerificationRule } from "./types.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { readDurableEvidence } from "./evidence.js";
 import { DurableExecutionBudgetError, DurableExecutionConflictError, DurableExecutionNotFoundError } from "./store.js";
@@ -75,6 +75,71 @@ function eventForAttempt(detail: NonNullable<ReturnType<DurableExecutionStore["g
 
 function isTerminalOrWaiting(status: string): boolean {
   return ["partial", "completed", "failed", "cancelled", "paused", "waiting_for_user", "waiting_for_approval"].includes(status);
+}
+
+type StepVerificationVerdict = { result: "passed" | "failed"; summary: string };
+
+/**
+ * Deterministic per-work-item verification. The executor's own "done" claim is
+ * never a pass condition: a rule that names an unknown checker, or expected
+ * outputs that were not recorded, fails closed.
+ */
+function evaluateStepVerification(
+  rule: StepVerificationRule,
+  step: ExecutionStep,
+  detail: NonNullable<ReturnType<DurableExecutionStore["getDetail"]>>,
+  runId?: string
+): StepVerificationVerdict {
+  const stepEvidence = detail.evidenceRefs.filter((ref) => ref.stepId === step.id && ref.status === "available");
+  switch (rule.checkerKey) {
+    case "run_detail_present": {
+      const passed = Boolean(runId) || stepEvidence.some((ref) => ref.referenceType === "run-detail");
+      return { result: passed ? "passed" : "failed", summary: passed ? "The attempt produced run detail evidence." : "The attempt produced no run detail evidence." };
+    }
+    case "evidence_present": {
+      const passed = stepEvidence.length > 0;
+      return { result: passed ? "passed" : "failed", summary: passed ? "The step recorded evidence." : "The step recorded no evidence." };
+    }
+    case "expected_outputs": {
+      const declared = Array.isArray(rule.params?.outputs) ? rule.params!.outputs.filter((value): value is string => typeof value === "string" && value.trim().length > 0) : [];
+      if (declared.length === 0) {
+        return { result: "failed", summary: "The expected_outputs rule declared no outputs to check." };
+      }
+      const haystack = [
+        step.outputRef ?? "",
+        step.outputSummary ?? "",
+        step.evidenceSummary ?? "",
+        ...stepEvidence.flatMap((ref) => [ref.summary, ref.referenceId]),
+        ...detail.sideEffects.filter((effect) => effect.stepId === step.id).flatMap((effect) => [effect.targetSummary, effect.contentSummary, effect.externalId ?? ""])
+      ].join("\n").toLowerCase();
+      const missing = declared.filter((output) => !haystack.includes(output.toLowerCase()));
+      return missing.length === 0
+        ? { result: "passed", summary: `Required outputs are present: ${declared.join(", ")}.` }
+        : { result: "failed", summary: `Required outputs are missing: ${missing.join(", ")}.` };
+    }
+    default:
+      return { result: "failed", summary: `No step checker is registered for ${rule.checkerKey}.` };
+  }
+}
+
+function buildStepVerificationReport(input: {
+  execution: DurableExecution;
+  step: ExecutionStep;
+  verdict: StepVerificationVerdict;
+  completed: number;
+  total: number;
+  remaining: string[];
+}): string {
+  const lines = [
+    `[长任务 ${input.execution.shortHandle}] 步骤「${input.step.title}」未通过验收，已停在当前位置。`,
+    `原因：${input.verdict.summary}`,
+    `进度：已完成 ${input.completed}/${input.total} 步。`
+  ];
+  if (input.remaining.length > 0) {
+    lines.push(`未完成：${input.remaining.slice(0, 10).join("、")}${input.remaining.length > 10 ? ` 等 ${input.remaining.length} 项` : ""}`);
+  }
+  lines.push("修复该步骤后继续执行；需要你决定时会单独通知。");
+  return lines.join("\n");
 }
 
 function deterministicCriterionResult(
@@ -152,6 +217,45 @@ export class DurableExecutionRuntime {
     } catch (cause) {
       momWarn("durableExecution", "continuation_missed_recovery_persist_failed", {
         executionId: durable.executionId,
+        error: cause instanceof Error ? cause.message : String(cause)
+      });
+    }
+  }
+
+  /**
+   * Posts a persisted, human-readable report when a work item cannot be
+   * accepted, so a silent model or an exhausted failure budget still leaves the
+   * owner with the stop position, the reason and the unfinished items.
+   */
+  private async reportBlockedStep(
+    manager: ChannelManager,
+    sourceChatId: string,
+    executionId: string,
+    step: ExecutionStep,
+    verdict: StepVerificationVerdict,
+    filename: string
+  ): Promise<void> {
+    if (!manager.sendInternalNotice) return;
+    const detail = this.store.getDetail(executionId);
+    if (!detail) return;
+    const current = detail.steps
+      .filter((item) => item.planVersion === detail.execution.currentPlanVersion)
+      .sort((left, right) => left.index - right.index);
+    const completed = current.filter((item) => item.status === "completed" || item.status === "skipped").length;
+    const remaining = current.filter((item) => item.status !== "completed" && item.status !== "skipped").map((item) => item.title);
+    const report = buildStepVerificationReport({
+      execution: detail.execution,
+      step,
+      verdict,
+      completed,
+      total: current.length,
+      remaining
+    });
+    try {
+      await manager.sendInternalNotice(sourceChatId, report, { kind: "durable-execution", filename });
+    } catch (cause) {
+      momWarn("durableExecution", "step_report_failed", {
+        executionId,
         error: cause instanceof Error ? cause.message : String(cause)
       });
     }
@@ -468,16 +572,6 @@ export class DurableExecutionRuntime {
           tokensUsed: result.usage?.totalTokens
         });
       } else if (result.stopReason === "stop") {
-        this.store.completeStep({
-          executionId: input.executionId,
-          stepId: step.id,
-          expectedVersion,
-          processOwnerId: this.processOwnerId,
-          outputSummary: "The bounded Agent attempt completed this plan step.",
-          outputRef: result.runId,
-          evidenceSummary: "The attempt run detail is available for inspection."
-        });
-        expectedVersion = this.store.getById(input.executionId)!.version;
         if (result.runId) {
           this.store.addEvidence({
             executionId: input.executionId,
@@ -487,25 +581,93 @@ export class DurableExecutionRuntime {
             referenceId: result.runId,
             summary: `Run detail for completed step “${step.title}”.`
           });
+          expectedVersion = this.store.getById(input.executionId)!.version;
         }
-        const afterStep = this.store.getDetail(input.executionId)!;
-        const hasRemainingStep = afterStep.steps.some((item) =>
-          item.planVersion === afterStep.execution.currentPlanVersion
-          && item.status !== "completed"
-          && item.status !== "skipped"
-        );
-        this.store.finishAttempt({
-          executionId: input.executionId,
-          attemptId: claimed.attempt.id,
-          expectedVersion,
-          processOwnerId: this.processOwnerId,
-          status: "completed",
-          nextExecutionStatus: hasRemainingStep ? "queued" : "verifying",
-          reason: hasRemainingStep
-            ? "Plan step completed; the next step is queued."
-            : "All plan steps completed; acceptance verification is pending.",
-          tokensUsed: result.usage?.totalTokens
-        });
+
+        const rule = step.verification;
+        const afterEvidence = this.store.getDetail(input.executionId)!;
+        const verdict: StepVerificationVerdict = rule
+          ? evaluateStepVerification(rule, afterEvidence.steps.find((item) => item.id === step.id)!, afterEvidence, result.runId)
+          : { result: "passed", summary: "No verification rule is bound to this step; the attempt result is accepted." };
+        if (rule) {
+          this.store.addEvidence({
+            executionId: input.executionId,
+            stepId: step.id,
+            attemptId: claimed.attempt.id,
+            referenceType: "durable-step-verifier",
+            referenceId: rule.checkerKey,
+            summary: `Step verification ${verdict.result}: ${verdict.summary}`
+          });
+          expectedVersion = this.store.getById(input.executionId)!.version;
+        }
+
+        if (verdict.result === "passed") {
+          this.store.completeStep({
+            executionId: input.executionId,
+            stepId: step.id,
+            expectedVersion,
+            processOwnerId: this.processOwnerId,
+            outputSummary: "The bounded Agent attempt completed this plan step.",
+            outputRef: result.runId,
+            evidenceSummary: rule ? `Step verification passed: ${verdict.summary}` : "The attempt run detail is available for inspection."
+          });
+          expectedVersion = this.store.getById(input.executionId)!.version;
+          const afterStep = this.store.getDetail(input.executionId)!;
+          const hasRemainingStep = afterStep.steps.some((item) =>
+            item.planVersion === afterStep.execution.currentPlanVersion
+            && item.status !== "completed"
+            && item.status !== "skipped"
+          );
+          this.store.finishAttempt({
+            executionId: input.executionId,
+            attemptId: claimed.attempt.id,
+            expectedVersion,
+            processOwnerId: this.processOwnerId,
+            status: "completed",
+            nextExecutionStatus: hasRemainingStep ? "queued" : "verifying",
+            reason: hasRemainingStep
+              ? "Plan step completed; the next step is queued."
+              : "All plan steps completed; acceptance verification is pending.",
+            tokensUsed: result.usage?.totalTokens
+          });
+        } else {
+          const maxAttempts = rule?.onFailure === "retry" ? Math.max(1, rule.maxAttempts ?? 2) : 1;
+          const attemptsSoFar = afterEvidence.steps.find((item) => item.id === step.id)!.attemptCount;
+          const canRetry = rule?.onFailure === "retry" && attemptsSoFar < maxAttempts;
+          this.store.settleStepFailure({
+            executionId: input.executionId,
+            stepId: step.id,
+            expectedVersion,
+            processOwnerId: this.processOwnerId,
+            retry: canRetry,
+            reason: `Step verification failed: ${verdict.summary}`
+          });
+          expectedVersion = this.store.getById(input.executionId)!.version;
+          if (canRetry) {
+            this.store.finishAttempt({
+              executionId: input.executionId,
+              attemptId: claimed.attempt.id,
+              expectedVersion,
+              processOwnerId: this.processOwnerId,
+              status: "completed",
+              nextExecutionStatus: "queued",
+              reason: `Step verification failed; retrying (attempt ${attemptsSoFar}/${maxAttempts}).`,
+              tokensUsed: result.usage?.totalTokens
+            });
+          } else {
+            this.store.finishAttempt({
+              executionId: input.executionId,
+              attemptId: claimed.attempt.id,
+              expectedVersion,
+              processOwnerId: this.processOwnerId,
+              status: "failed",
+              nextExecutionStatus: "recovery_required",
+              reason: `Step verification failed: ${verdict.summary}`,
+              tokensUsed: result.usage?.totalTokens
+            });
+            await this.reportBlockedStep(manager, sourceChatId, input.executionId, step, verdict, filename);
+          }
+        }
         this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
       } else {
         this.store.finishAttempt({

@@ -62,7 +62,7 @@ export function readDurableEvidence(
 
   // Verifier evidence is already a bounded, durable summary. It does not need
   // to reopen an ordinary transcript.
-  if (ref.referenceType === "durable-verifier" || ref.referenceType === "durable-queryable-probe") {
+  if (ref.referenceType === "durable-verifier" || ref.referenceType === "durable-step-verifier" || ref.referenceType === "durable-queryable-probe") {
     const bounded = boundedText(ref.summary, Math.max(1024, Math.round(maxBytes)));
     return { ...ref, content: bounded.content, truncated: bounded.truncated, untrusted: true };
   }

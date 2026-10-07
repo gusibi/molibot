@@ -39,12 +39,30 @@ export type AttemptStatus = "running" | "completed" | "failed" | "interrupted" |
 export type SideEffectPhase = "intent" | "receipt";
 export type DurableApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 
+/**
+ * A deterministic acceptance rule bound to one work item. The runtime must
+ * satisfy it before the step can be marked completed; the executor's own
+ * "done" claim is not a pass condition. `checkerKey` must name a registered
+ * checker, otherwise the rule fails closed.
+ */
+export interface StepVerificationRule {
+  checkerKey: string;
+  params?: Record<string, unknown>;
+  /** What to do when the checker fails: retry the same item or block it. */
+  onFailure?: "retry" | "block";
+  /** Total attempts allowed before a `retry` rule blocks. Defaults to 2. */
+  maxAttempts?: number;
+  /** Rule revision, persisted so a later rule change is traceable. */
+  version?: number;
+}
+
 export interface ExecutionStepInput {
   title: string;
   description?: string;
   sideEffectClass?: SideEffectClass;
   idempotencyKey?: string;
   inputSummary?: string;
+  verification?: StepVerificationRule;
 }
 
 /** A completed tool call from an ordinary Run that is absorbed on promotion. */
@@ -149,6 +167,7 @@ export interface ExecutionStep {
   startedAt?: string;
   completedAt?: string;
   lastError?: string;
+  verification?: StepVerificationRule;
   createdAt: string;
   updatedAt: string;
 }
@@ -285,6 +304,8 @@ export interface PlanStepInput {
   sideEffectClass?: SideEffectClass;
   idempotencyKey?: string;
   inputSummary?: string;
+  /** Required before the work item can be accepted; defaults to run-detail evidence. */
+  verification?: StepVerificationRule;
 }
 
 export interface PlanTaskInput {
