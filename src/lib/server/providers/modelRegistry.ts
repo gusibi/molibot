@@ -323,3 +323,20 @@ export class ModelRegistryService {
     };
   }
 }
+
+/**
+ * Resolve the completion-token ceiling for one request. The configured value is
+ * the owner's intent, but a model with a known smaller output limit must not be
+ * asked for more than it accepts: providers reject a `max_tokens` above the
+ * model's limit, which a fallback to a smaller-capability model would otherwise
+ * hit. Unknown custom models keep the configured value.
+ */
+export function resolveModelOutputTokens(
+  modelId: string,
+  configured: number,
+  registry: Pick<ModelRegistryService, "inferModelCapabilities"> = ModelRegistryService.getInstance()
+): number {
+  const requested = configured > 0 ? Math.round(configured) : 8192;
+  const known = registry.inferModelCapabilities(modelId).maxTokens;
+  return known && known > 0 ? Math.min(requested, known) : requested;
+}

@@ -10,7 +10,7 @@ import {
   applyDirectReasoningParams,
   resolveThinkingLevel
 } from "$lib/server/providers/customThinking.js";
-import { ModelRegistryService } from "$lib/server/providers/modelRegistry.js";
+import { ModelRegistryService, resolveModelOutputTokens } from "$lib/server/providers/modelRegistry.js";
 import type { ConversationMessage } from "$lib/shared/types/message.js";
 
 export interface DirectProviderReply {
@@ -190,7 +190,7 @@ export async function callDirectCustomProvider(
   provider: CustomProviderConfig,
   model: string,
   history: ConversationMessage[],
-  settings: Pick<RuntimeSettings, "defaultThinkingLevel" | "systemPrompt">,
+  settings: Pick<RuntimeSettings, "defaultThinkingLevel" | "systemPrompt" | "maxOutputTokens">,
   memoryContext: string
 ): Promise<DirectProviderReply> {
   const protocol = resolveCustomProviderProtocol(provider.protocol);
@@ -205,7 +205,7 @@ export async function callDirectCustomProvider(
         model,
         system: systemPrompt,
         messages: toAnthropicMessages(history),
-        max_tokens: 8192,
+        max_tokens: resolveModelOutputTokens(model, settings.maxOutputTokens),
         temperature: 0.2
       },
       provider,

@@ -7,7 +7,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
  * from hanging indefinitely (e.g. a model that stalls mid-stream) without a
  * structured stop reason bubbling back to the parent.
  */
-export type SubagentStopKind = "budget_exceeded" | "timeout" | "execution_error";
+export type SubagentStopKind = "budget_exceeded" | "timeout" | "execution_error" | "length_exceeded";
 
 export interface SubagentStopReason {
   kind: SubagentStopKind;
@@ -147,6 +147,32 @@ export function shouldFallbackToNextModel(result: {
 }): boolean {
   if (result.runtimeStopKind) return false;
   return result.stopReason === "error";
+}
+
+/** True when an assistant message carries text or a tool call, not just reasoning. */
+export function assistantHasUsableOutput(message: { content?: unknown }): boolean {
+  const parts = Array.isArray(message.content) ? message.content : [];
+  return parts.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const typed = part as { type?: string; text?: unknown };
+    if (typed.type === "toolCall") return true;
+    return typed.type === "text" && String(typed.text ?? "").trim().length > 0;
+  });
+}
+
+/**
+ * Decide how to recover from a child generation stopped by the output-token
+ * ceiling. A response that produced nothing usable spent its whole budget on
+ * reasoning, so the retry drops thinking; a truncated text reply is continued
+ * as-is. Retries are bounded, after which the caller reports `length_exceeded`.
+ */
+export function planLengthRecovery(input: {
+  hasUsableOutput: boolean;
+  lengthRetries: number;
+  maxLengthRetries: number;
+}): { action: "retry"; disableThinking: boolean } | { action: "give_up" } {
+  if (input.lengthRetries >= input.maxLengthRetries) return { action: "give_up" };
+  return { action: "retry", disableThinking: !input.hasUsableOutput };
 }
 
 export interface DeadlineScheduler {

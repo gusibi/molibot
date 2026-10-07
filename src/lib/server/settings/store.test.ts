@@ -680,6 +680,29 @@ test("a raised tool-call budget carries the failure budget with it unless one is
   }
 });
 
+test("model max output tokens survives a settings store restart", () => {
+  // CLAUDE.md pitfall 11: append to `toStaticSettings` or the field silently
+  // resets on restart. This field is hand-edited in settings.json, so a reset
+  // would silently drop a raised output limit back to 8192.
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-max-output-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({ ...defaultRuntimeSettings, maxOutputTokens: 32768 });
+    assert.equal(new SettingsStore().load().maxOutputTokens, 32768);
+    // Out-of-range values clamp instead of disabling the cap.
+    new SettingsStore().save({ ...defaultRuntimeSettings, maxOutputTokens: 999999 });
+    assert.equal(new SettingsStore().load().maxOutputTokens, 262144);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("permission mode survives a settings store restart at every level", () => {
   // CLAUDE.md pitfall 11: a new settings field needs save -> fresh store ->
   // load against a temporary database, because narrow serialization silently

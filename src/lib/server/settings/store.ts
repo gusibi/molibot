@@ -106,6 +106,7 @@ interface RawSettings {
   systemPrompt?: string;
   locale?: string;
   serverPort?: number | string;
+  maxOutputTokens?: number | string;
   plugins?: {
     entries?: unknown;
     memory?: {
@@ -1267,6 +1268,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       defaultRuntimeSettings.systemPrompt,
     locale: raw.locale === "en-US" ? "en-US" : "zh-CN",
     serverPort: Math.round(clampNumber(raw.serverPort, defaultRuntimeSettings.serverPort, 1024, 65535)),
+    maxOutputTokens: Math.round(clampNumber(raw.maxOutputTokens, defaultRuntimeSettings.maxOutputTokens, 256, 262144)),
     agents,
     channels,
     mcpServers,
@@ -2049,6 +2051,7 @@ export class SettingsStore {
       systemPrompt: settings.systemPrompt,
       locale: settings.locale,
       serverPort: settings.serverPort,
+      maxOutputTokens: settings.maxOutputTokens,
       // Serialize the whole plugins block (memory reflection/daily-materials,
       // hooks, and dynamic feature-plugin settings) — a narrow field list here
       // silently reset those settings on every restart.

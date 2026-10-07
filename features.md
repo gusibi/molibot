@@ -1,3 +1,15 @@
+## 2026-10-07 — 模型输出上限可配置 + 输出截断自愈（阶段 A 基础切片）
+
+修复线上问题：子代理用推理模型翻译一篇约 6800 词的英文长文时，最后一条响应 `stopReason: length`、`output: 8192 / reasoning: 8192`，即 8192 的输出预算全被「思考」吃光，正文一个字没写就断了，父 Agent 收到 `Status: length; not completed.` 后停住。根因是自定义 Provider 的模型输出上限被硬编码为 8192，且推理 token 与正文共用这一预算；上下文窗口（这些模型是 1M）与此无关。
+
+已交付：
+
+- **输出上限可配置（写入 settings.json，无设置页控件）**：新增 `maxOutputTokens`（默认 32768，环境变量 `MOLIBOT_MAX_OUTPUT_TOKENS`，范围 256–262144）。模型注册表能识别出模型已知输出上限时按 `min(配置值, 已知上限)` 收敛，避免向 fallback 的小上限模型请求超限 `max_tokens`；未知自定义模型用配置值。`toStaticSettings`/`sanitize`/`RawSettings` 已同步，随设置持久化；主模型（`resolveCustomModel`）、子代理模型（`buildModelFromRoute`）及直连 Provider 的 Anthropic 生成路径均读取该值。用户手动在 settings.json 提高它后重启即可让长翻译/长报告跑完。
+- **C：输出截断识别与自愈**：子代理生成循环现在识别 `stopReason: length`。若该次响应既无正文也无工具调用（预算全花在 reasoning），自动关闭 thinking 后继续已提交上下文并重试（最多 2 次）；重试仍截断则记录结构化停止原因 `length_exceeded`，不再静默当成功。纯函数 `assistantHasUsableOutput` / `planLengthRecovery` 单元覆盖。
+- **A：委托拆分引导**：`subagent` 工具描述明确要求长源材料（整章/数千词文章）按段落拆分后分派，暗示单个委派任务有输出预算上限；`length_exceeded` 作为结构化 `runtimeStopKind` 回传父 Agent，父 Agent 据此拆分重派。
+
+验证：`store.test.ts` 新增 `maxOutputTokens` 重启 round-trip（含越界钳制），settings 55 项、subagentRuntime/piConversation 相关 47 项、agent 全量 1128/1130（唯一失败为既有、与本改动无关的 `standalone skill drafter`）通过；`npm run check` 与文档能力矩阵守卫通过。
+
 ## 2026-10-07 — 规模化自主长任务：多工作项请求的确定性升级（阶段 A 基础切片）
 
 修复线上问题：用户一次发来 4 篇文章链接要求「都保存为博客并发布」，任务却按普通 Run 执行、两次尝试后停在半成品并报「还不能发布」。根因是长任务识别的唯一入口是「首次非幂等工具」时的模型 preflight，而该 preflight 复用主模型；主模型当时不稳定，`evaluateDurablePreflightWithModel` 抛错后按设计静默回退成普通 Run，于是没有创建 Durable Execution（该会话在 durable 库中 0 条记录），自然也不会有跨轮续跑、逐项验收或目标追踪。

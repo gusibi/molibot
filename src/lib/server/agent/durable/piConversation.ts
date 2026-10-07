@@ -13,6 +13,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import type { NativeInvocation, NativeChildOptions, NativeChildSession } from "./piInvocation.js";
 import { decodePiToolDetails } from "./piToolResult.js";
 import { isSafeReadOnlySubagentCommand } from "$lib/server/agent/tools/subagent.js";
+import { assistantHasUsableOutput, planLengthRecovery } from "$lib/server/agent/tools/subagentRuntime.js";
 import { claimPiStorage, createPiToolRegistry, type PiDurableKernelOptions } from "./piKernel.js";
 
 const ChildPolicy = defineDoc<{ deadlineAt: number }>({ kind: "molibot.child-policy", version: 1,
@@ -26,6 +27,13 @@ const Binding = defineEntry<{ key: string; requestId: string; content: JsonValue
 const History = defineEntry("molibot.runner-history");
 const Continuation = defineEntry<{ requestId: string; taskId: TaskId }>("molibot.runner-continuation");
 const Control = defineEntry<{ requestId: string; mode: "steer" | "followUp" }>("molibot.runner-control");
+
+/**
+ * Recovers a model response truncated by the output-token limit that produced
+ * neither text nor a tool call: its whole budget went to reasoning, so the
+ * retry drops thinking and continues the committed context.
+ */
+const MAX_LENGTH_RETRIES = 2;
 
 export interface PiConversationOptions extends PiDurableKernelOptions {
   /** All authorized definitions are registered, including currently deferred tools. */
@@ -497,10 +505,36 @@ export class PiConversationRuntime {
             await submission.wait(context);
             await child.waitForIdle(context);
             await refresh();
+            let lengthRetries = 0;
             while (!this.deferredChildren.has(child.id)) {
               context.abortSignal?.throwIfAborted();
               const last = [...state.messages].reverse().find(message => message.role === "assistant");
-              if (last?.role !== "assistant" || last.stopReason !== "error") break;
+              if (last?.role !== "assistant") break;
+              if (last.stopReason === "length") {
+                // Output hit the token ceiling. Reasoning shares that budget, so
+                // a model that truncated mid-thinking produced nothing usable;
+                // drop thinking and continue the committed context rather than
+                // reporting a bare, unexplained failure.
+                const recovery = planLengthRecovery({
+                  hasUsableOutput: assistantHasUsableOutput(last),
+                  lengthRetries,
+                  maxLengthRetries: MAX_LENGTH_RETRIES
+                });
+                if (recovery.action === "give_up") {
+                  state.runtimeStop = { kind: "length_exceeded", reason: `Model output was truncated at the token limit and was not completed within ${MAX_LENGTH_RETRIES} retries.` };
+                  break;
+                }
+                lengthRetries += 1;
+                if (recovery.disableThinking) {
+                  await child.configure({ thinkingLevel: "off" }, context);
+                }
+                const taskId = await this.continuationTask(child, `length-retry:${lengthRetries}:${last.timestamp}:${model.provider}:${model.id}`);
+                await this.harness!.waitForTask(taskId, context);
+                await child.waitForIdle(context);
+                await refresh();
+                continue;
+              }
+              if (last.stopReason !== "error") break;
               const budget = readBudget();
               const active = await child.agent(context);
               const changedModel = active.model?.provider !== model.provider || active.model.modelId !== model.id;

@@ -12,6 +12,7 @@ import {
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol.js";
 import { resolveProviderApiKey } from "$lib/server/agent/identity/auth.js";
+import { resolveModelOutputTokens } from "$lib/server/providers/modelRegistry.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 
 export interface ResolvedModelSelection {
@@ -144,7 +145,7 @@ export function buildAgentSessionId(
   return [channel, chatId, sessionId, useCase, selection.providerId, selection.modelId].join(":");
 }
 
-export function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Model<any> {
+export function resolveCustomModel(selected: CustomProviderConfig, modelId: string, maxOutputTokens?: number): Model<any> {
   // A built-in provider keeps a settings row so it can be enabled and given a
   // model list, but its transport belongs to pi. Assembling a model from that
   // row's `protocol`/`baseUrl`/`path` produced a wrong endpoint that also failed
@@ -182,7 +183,7 @@ export function resolveCustomModel(selected: CustomProviderConfig, modelId: stri
       cacheWrite: 0,
     },
     contextWindow: configuredModel?.contextWindow || 200000,
-    maxTokens: 8192,
+    maxTokens: resolveModelOutputTokens(modelId, maxOutputTokens ?? 8192),
     samplingParams: configuredModel?.samplingParams,
     compat: protocol === "anthropic"
       ? undefined
@@ -258,7 +259,7 @@ export function resolveModelSelection(
         modelSupportsUseCase(configuredModel, useCase)
       ) {
         return {
-          model: resolveCustomModel(provider, routed.model),
+          model: resolveCustomModel(provider, routed.model, settings.maxOutputTokens),
           source: "custom",
           providerId: provider.id,
           modelId: routed.model,
@@ -273,7 +274,7 @@ export function resolveModelSelection(
     const modelId = selected ? pickCustomModelId(selected, useCase) : "";
     if (selected && isCustomProviderUsable(selected) && modelId) {
       return {
-        model: resolveCustomModel(selected, modelId),
+        model: resolveCustomModel(selected, modelId, settings.maxOutputTokens),
         source: "custom",
         providerId: selected.id,
         modelId,
@@ -288,7 +289,7 @@ export function resolveModelSelection(
     const modelId = pickCustomModelId(provider, useCase);
     if (!modelId) continue;
     return {
-      model: resolveCustomModel(provider, modelId),
+      model: resolveCustomModel(provider, modelId, settings.maxOutputTokens),
       source: "custom",
       providerId: provider.id,
       modelId,
@@ -409,7 +410,7 @@ export function buildModelFallbackSelections(
         .filter((model) => modelSupportsUseCase(model, useCase))
         .filter((model) => model.id !== primary.modelId)
         .map((model) => ({
-          model: resolveCustomModel(provider, model.id),
+          model: resolveCustomModel(provider, model.id, settings.maxOutputTokens),
           source: "custom" as const,
           providerId: provider.id,
           modelId: model.id,
@@ -432,7 +433,7 @@ export function buildModelFallbackSelections(
     const modelId = pickCustomModelId(provider, useCase);
     if (!modelId) continue;
     differentProviderCustom.push({
-      model: resolveCustomModel(provider, modelId),
+      model: resolveCustomModel(provider, modelId, settings.maxOutputTokens),
       source: "custom",
       providerId: provider.id,
       modelId,

@@ -485,6 +485,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     "You are Molibot, a concise and helpful assistant.",
   locale: process.env.MOLIBOT_LOCALE === "zh-CN" ? "zh-CN" : "en-US",
   serverPort: Math.max(1024, Math.min(65535, Math.round(Number(process.env.PORT ?? 3040) || 3040))),
+  maxOutputTokens: boundedIntegerFromEnv("MOLIBOT_MAX_OUTPUT_TOKENS", 32768, 256, 262144),
   timezone: normalizeTimeZone(
     String(process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone)
   ),

@@ -764,6 +764,13 @@ export interface RuntimeSettings {
   systemPrompt: string;
   locale: RuntimeLocale;
   serverPort: number;
+  /**
+   * Maximum completion tokens for one model request (custom-provider models
+   * only; built-in pi models keep their catalog limit). Reasoning tokens share
+   * this budget, so a reasoning model that truncates mid-thinking needs it
+   * raised. Editable in `settings.json`; no settings-page control.
+   */
+  maxOutputTokens: number;
   timezone: string;
   agents: AgentSettings[];
   channels: ChannelSettingsMap;

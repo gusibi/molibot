@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ModelRegistryService, type RemoteModelsRegistry } from "./modelRegistry.js";
+import { ModelRegistryService, resolveModelOutputTokens, type RemoteModelsRegistry } from "./modelRegistry.js";
 
 const mockRegistry: RemoteModelsRegistry = {
   "hpc-ai": {
@@ -84,6 +84,20 @@ test("ModelRegistryService matches models by exact, prefix, and normalized ID", 
   assert.equal(voice.toolCall, false);
   assert.deepEqual(voice.tags, ["text", "audio_input", "stt", "tts"]);
   assert.equal(voice.contextWindow, 32768);
+});
+
+test("resolveModelOutputTokens uses the configured ceiling unless the model's known limit is lower", () => {
+  const registry = new ModelRegistryService("/tmp/test-registry-cache");
+  registry.buildIndex(mockRegistry);
+
+  // Known model with a large limit keeps the configured ceiling.
+  assert.equal(resolveModelOutputTokens("deepseek-v4-flash", 32768, registry), 32768);
+  // Known model with a smaller limit must not be over-asked (a provider rejects it).
+  assert.equal(resolveModelOutputTokens("voice-agent-v1", 32768, registry), 4096);
+  // Unknown custom model keeps the configured ceiling.
+  assert.equal(resolveModelOutputTokens("completely-unknown-custom-model", 32768, registry), 32768);
+  // A missing/invalid configured value falls back to the historic default.
+  assert.equal(resolveModelOutputTokens("completely-unknown-custom-model", 0, registry), 8192);
 });
 
 test("ModelRegistryService falls back gracefully on unknown models", () => {

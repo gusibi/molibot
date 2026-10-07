@@ -19,6 +19,7 @@ import {
   buildCustomProviderCompat
 } from "$lib/server/providers/customThinking.js";
 import { DEFAULT_THINKING_LEVEL_MAP } from "$lib/server/providers/modelThinking.js";
+import { resolveModelOutputTokens } from "$lib/server/providers/modelRegistry.js";
 import {
   buildAnthropicBaseUrl,
   buildOpenAIBaseUrl,
@@ -532,7 +533,7 @@ async function buildModelFromRoute(
       input: configuredModel?.tags?.includes("vision") ? ["text", "image"] : ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: configuredModel?.contextWindow || 200000,
-      maxTokens: 8192,
+      maxTokens: resolveModelOutputTokens(route.model, settings.maxOutputTokens),
       compat: protocol === "anthropic"
         ? undefined
         : buildSubagentCustomCompat(customProvider, configuredModel)
@@ -1458,7 +1459,7 @@ export function createSubagentTool(options: {
     name: "subagent",
     label: "subagent",
     description:
-      `Delegate codebase-heavy work to an isolated pi-mono subagent. Available roles: ${advertisedAgents.map((name) => `\`${name}\``).join(", ")}. Supports one task, parallel tasks, or a chain with \`{previous}\` placeholder.`,
+      `Delegate codebase-heavy work to an isolated pi-mono subagent. Available roles: ${advertisedAgents.map((name) => `\`${name}\``).join(", ")}. Supports one task, parallel tasks, or a chain with \`{previous}\` placeholder. A delegated task has a bounded output budget, so split long source material (a book chapter, a multi-thousand-word article) into sections and delegate each section instead of asking one task to produce a very long document in a single pass.`,
     parameters: subagentSchema,
     replay: "safe",
     execute: async (toolCallId, params, signal, onUpdate): Promise<AgentToolResult<SubagentToolDetails>> => {

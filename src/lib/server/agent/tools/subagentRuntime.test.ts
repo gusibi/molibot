@@ -3,7 +3,9 @@ import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import {
   armSubagentDeadline,
+  assistantHasUsableOutput,
   evaluateSubagentEvent,
+  planLengthRecovery,
   resolveSubagentBudgetLimits,
   resolveSubagentExecutionLimits,
   shouldFallbackToNextModel,
@@ -197,6 +199,23 @@ test("resolveSubagentExecutionLimits exposes bounded fan-out and deadline settin
     compactionEnabled: true,
     persistSessions: true
   });
+});
+
+test("assistantHasUsableOutput distinguishes reasoning-only truncation from real output", () => {
+  assert.equal(assistantHasUsableOutput({ content: [{ type: "thinking", thinking: "planning..." }] }), false);
+  assert.equal(assistantHasUsableOutput({ content: [] }), false);
+  assert.equal(assistantHasUsableOutput({ content: [{ type: "text", text: "   " }] }), false);
+  assert.equal(assistantHasUsableOutput({ content: [{ type: "text", text: "partial translation" }] }), true);
+  assert.equal(assistantHasUsableOutput({ content: [{ type: "toolCall", name: "write" }] }), true);
+});
+
+test("planLengthRecovery drops thinking only when truncation produced no usable output", () => {
+  assert.deepEqual(planLengthRecovery({ hasUsableOutput: false, lengthRetries: 0, maxLengthRetries: 2 }),
+    { action: "retry", disableThinking: true });
+  assert.deepEqual(planLengthRecovery({ hasUsableOutput: true, lengthRetries: 0, maxLengthRetries: 2 }),
+    { action: "retry", disableThinking: false });
+  assert.deepEqual(planLengthRecovery({ hasUsableOutput: false, lengthRetries: 2, maxLengthRetries: 2 }),
+    { action: "give_up" });
 });
 
 test("the delegated guard permits successful model rounds without spending retries", () => {
