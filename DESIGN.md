@@ -1115,7 +1115,11 @@ the same regardless of the window's activation state and of what is behind it.
   sidebar and the chat column (columns 1-2). Its left reservation is fixed for
   the native traffic lights (84px), then the window-level control cluster, then
   the current page's title/context and its actions, right-aligned to the chat
-  column's right edge. Pages publish that content through the shared
+  column's right edge. While the sidebar is expanded the header mirrors the two
+  columns, so the title starts exactly at the chat column's left edge and lines
+  up with the content frame below; collapsed it falls back to one flex row (the
+  controls need more than the 48px rail), and the title simply follows them.
+  Pages publish that content through the shared
   `ChatHeader`; the content frame below renders no second title bar. Chat,
   Project, Room and every workspace destination use this one row, so the title
   and its actions always describe the current page. The open Inspector keeps its

@@ -1345,6 +1345,13 @@ test("Window header owns its grid row and the transcript is not reserved beneath
   assert.match(styles, /\.chat-layout \{[^}]*grid-template-rows:\s*var\(--chat-header-h\) minmax\(0, 1fr\)/s);
   assert.match(styles, /\.chat-header \{[^}]*grid-row:\s*1;[^}]*grid-column:\s*1 \/ 3;/s);
   assert.doesNotMatch(styles, /\.chat-header \{[^}]*position:\s*absolute/);
+  // Expanded, the header mirrors the window columns so the title lines up with
+  // the chat content's left edge; collapsed, it falls back to one flex row.
+  assert.match(styles, /\.chat-header \{[^}]*grid-template-columns:\s*var\(--sidebar-w, var\(--sidebar-nav-w\)\) minmax\(0, 1fr\)/s);
+  assert.match(styles, /\.window-header-page \{[^}]*grid-column:\s*2;[^}]*display:\s*flex;/s);
+  assert.match(styles, /\.titlebar-cluster \{[^}]*grid-column:\s*1;[^}]*padding-left:\s*84px;/s);
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header \{[^}]*display:\s*flex;/s);
+  assert.match(view, /<div class="window-header-page">[\s\S]*class="chat-title-block"[\s\S]*class="header-actions"/);
   assert.match(styles, /\.composer-wrap\.is-floating \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
   assert.match(styles, /--chat-header-h:\s*42px;/);
   assert.match(styles, /--composer-h:\s*0px;/);

@@ -3494,23 +3494,25 @@
         </button>
       {/if}
     </div>
-    {#if $windowHeader.title}
-      <div class="chat-title-block" data-tauri-drag-region>
-        <div class="chat-title-text" data-tauri-drag-region>
-          <div class="chat-title-name" data-tauri-drag-region title={$windowHeader.title}>{$windowHeader.title}</div>
-          {#if $windowHeader.subtitle}
-            <div class="chat-title-sub" data-tauri-drag-region title={$windowHeader.subtitle}>{$windowHeader.subtitle}</div>
+    <div class="window-header-page">
+      {#if $windowHeader.title}
+        <div class="chat-title-block" data-tauri-drag-region>
+          <div class="chat-title-text" data-tauri-drag-region>
+            <div class="chat-title-name" data-tauri-drag-region title={$windowHeader.title}>{$windowHeader.title}</div>
+            {#if $windowHeader.subtitle}
+              <div class="chat-title-sub" data-tauri-drag-region title={$windowHeader.subtitle}>{$windowHeader.subtitle}</div>
+            {/if}
+          </div>
+          {#if $windowHeader.sourceLabel}
+            <span class="chat-source-label" data-tauri-drag-region title={$windowHeader.sourceLabel}>{$windowHeader.sourceLabel}</span>
           {/if}
         </div>
-        {#if $windowHeader.sourceLabel}
-          <span class="chat-source-label" data-tauri-drag-region title={$windowHeader.sourceLabel}>{$windowHeader.sourceLabel}</span>
+      {/if}
+      <div class="header-actions">
+        {#if $windowHeader.actions}
+          {@render $windowHeader.actions()}
         {/if}
       </div>
-    {/if}
-    <div class="header-actions">
-      {#if $windowHeader.actions}
-        {@render $windowHeader.actions()}
-      {/if}
     </div>
   </header>
   {#if commandOpen}
