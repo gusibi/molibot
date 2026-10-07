@@ -1,6 +1,8 @@
 <script lang="ts">
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import Plus from "reicon-svelte/icons/Plus";
+  import ChatRoundLine from "../icons/duotone/components/ChatRoundLine.svelte";
+  import Dialog from "../icons/duotone/components/Dialog.svelte";
   import ChannelAccordion, { type ChannelDescriptor } from "./ChannelAccordion.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { AgentRoom } from "@molibot/shared/rooms";
@@ -131,6 +133,7 @@
     <section class="sidebar-tree-section">
       <div class="sidebar-section-head">
         <button type="button" class="sidebar-section-toggle" onclick={onOpenConversations}>
+          <ChatRoundLine size={16} aria-hidden="true" />
           <span>{copy.chat}</span>
         </button>
         <button type="button" class="sidebar-section-caret-btn" aria-expanded={conversationsOpen} aria-label={copy.chat} onclick={onToggleConversations}>
@@ -173,6 +176,7 @@
     <section class="sidebar-tree-section">
       <div class="sidebar-section-head" class:open={roomsExpanded}>
         <button type="button" class="sidebar-section-toggle" onclick={onOpenRooms}>
+          <Dialog size={16} aria-hidden="true" />
           <span>{roomsLabel}</span>
         </button>
         <button type="button" class="sidebar-section-caret-btn" aria-expanded={roomsOpen} aria-label={roomsLabel} onclick={onToggleRooms}>

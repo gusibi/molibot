@@ -295,12 +295,11 @@ export class ChatSessionStore {
     }
     let aborted = 0;
     for (const run of runs) {
-      if (!run.profileId || !run.sessionId) continue;
+      if (!run.profileId || !run.sessionId || !run.runId) continue;
       const existing = this.registry.get(run.profileId, run.sessionId);
       if (existing?.controller.sending) continue;
       try {
-        await stopDesktopChat(endpoint, run.profileId, run.sessionId);
-        aborted += 1;
+        if (await stopDesktopChat(endpoint, run.profileId, run.sessionId, run.runId)) aborted += 1;
       } catch {
         // Leave it; the next poll retries the abort.
       }

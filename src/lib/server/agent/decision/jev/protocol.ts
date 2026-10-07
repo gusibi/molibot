@@ -1,20 +1,9 @@
-import { choice } from "@typesafe-ai/sdk";
-import { THINKING_LEVEL_INSTRUCTIONS, THINKING_LEVEL_CRITERIA } from "../rubric.js";
-import {
-  DECISION_THINKING_LEVELS,
-  type DecisionThinkingLevel
-} from "../contracts.js";
-
-export function createThinkingLevelQuestion() {
-  return choice(THINKING_LEVEL_INSTRUCTIONS, THINKING_LEVEL_CRITERIA);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export function parseThinkingLevelAnswer(value: unknown): {
-  choice: DecisionThinkingLevel;
+export function parseChoiceAnswer(value: unknown, choices: readonly string[]): {
+  choice: string;
   confidence: number;
   probabilities?: Record<string, number>;
 } {
@@ -23,7 +12,7 @@ export function parseThinkingLevelAnswer(value: unknown): {
   }
   const selected = String(value.choice ?? "");
   const confidence = value.confidence;
-  if (!DECISION_THINKING_LEVELS.includes(selected as DecisionThinkingLevel)
+  if (!choices.includes(selected)
     || typeof confidence !== "number"
     || !Number.isFinite(confidence)
     || confidence < 0
@@ -45,7 +34,7 @@ export function parseThinkingLevelAnswer(value: unknown): {
       probabilities[key] = probability;
     }
   }
-  return { choice: selected as DecisionThinkingLevel, confidence, probabilities };
+  return { choice: selected, confidence, probabilities };
 }
 
 export function resolveTypeSafeBaseUrl(baseUrl: string): string {

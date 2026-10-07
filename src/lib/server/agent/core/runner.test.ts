@@ -2299,3 +2299,74 @@ for (const parentReply of ["report", "silent"] as const) {
     } finally { await agent.close(); rmSync(workspaceDir, { recursive: true, force: true }); }
   });
 }
+
+for (const source of ["orphan_recovery", "client_disconnect"] as const) {
+  test(`${source} cannot cancel background execution or a replacement run`, () => {
+    const runner = Object.create(MomRunner.prototype) as MomRunner;
+    const state = runner as any;
+    state.running = true;
+    state.activeHookContext = { runId: "background-attempt" };
+    state.activeExecutionOwner = "runtime";
+    const aborted: string[] = [];
+    state.abort = (reason: string) => aborted.push(reason);
+    assert.equal(runner.abortRun({ runId: "background-attempt", source }), false);
+    state.activeExecutionOwner = "client";
+    state.activeHookContext = { runId: "replacement-turn" };
+    assert.equal(runner.abortRun({ runId: "old-turn", source }), false);
+    assert.deepEqual(aborted, []);
+    assert.equal(runner.abortRun({ runId: "replacement-turn", source }), true);
+    assert.deepEqual(aborted, [source]);
+    state.running = false;
+    assert.equal(runner.abortRun({ runId: "replacement-turn", source }), false);
+  });
+}
+
+for (const isEvent of [false, true]) {
+  test(`actual run owns transport cancellation only when foreground (isEvent=${isEvent})`, async () => {
+    const runner = await createRunnerForHookTest({
+      chatId: `cancel-owner-${isEvent}`, workspaceDir: runnerTestWorkspace,
+      hookManager: createRunnerHookManager([])
+    });
+    const state = runner as any;
+    const disconnected = new AbortController();
+    const listeners = new Set<unknown>();
+    const add = disconnected.signal.addEventListener.bind(disconnected.signal);
+    const remove = disconnected.signal.removeEventListener.bind(disconnected.signal);
+    disconnected.signal.addEventListener = ((type: string, listener: any, options: any) => {
+      if (type === "abort") listeners.add(listener);
+      add(type, listener, options);
+    }) as typeof disconnected.signal.addEventListener;
+    disconnected.signal.removeEventListener = ((type: string, listener: any, options: any) => {
+      if (type === "abort") listeners.delete(listener);
+      remove(type, listener, options);
+    }) as typeof disconnected.signal.removeEventListener;
+    const aborted: string[] = [];
+    state.abort = (source: string) => aborted.push(source);
+    state.agent = {
+      ...nativeTestLifecycle,
+      state: { messages: [], tools: [], systemPrompt: "test",
+        model: resolveModelSelection(createRunnerTestSettings(), "text").model, thinkingLevel: "off" },
+      subscribe: () => () => {},
+      prompt: async () => {
+        const runId = state.activeHookContext.runId;
+        assert.equal(runner.abortRun({ runId: "stale-run", source: "orphan_recovery" }), false);
+        assert.equal(runner.abortRun({ runId, source: "orphan_recovery" }), !isEvent);
+        disconnected.abort();
+        assert.deepEqual(aborted, isEvent ? [] : ["orphan_recovery", "client_disconnect"]);
+        throw new Error("stream exploded");
+      }
+    };
+    const ctx = createRunnerContext("hello");
+    ctx.message.isEvent = isEvent;
+    ctx.clientSignal = disconnected.signal;
+    const result = await runner.run(ctx);
+    assert.equal(result.stopReason, "error");
+    assert.equal(listeners.size, 0);
+    state.running = true;
+    state.activeExecutionOwner = "client";
+    state.activeHookContext = { runId: "replacement-run" };
+    disconnected.signal.dispatchEvent(new Event("abort"));
+    assert.deepEqual(aborted, isEvent ? [] : ["orphan_recovery", "client_disconnect"]);
+    state.running = false;
+  });
+}

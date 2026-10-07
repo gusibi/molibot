@@ -121,10 +121,9 @@ import { memoryWriteReceiptsFromToolCall } from "$lib/server/memory/writeReceipt
 import { classifyTurnRetention, retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 import {
   DurableExecutionPromotionHandoff,
-  DurablePreflightTracker,
-  evaluateDurablePreflightWithModel
+  DurablePreflightTracker
 } from "$lib/server/agent/durable/preflight.js";
-import { deterministicPromotionFallback } from "$lib/server/agent/durable/activation.js";
+import { decideDurableActivation } from "$lib/server/agent/decision/durableActivation.js";
 import type { DurablePrefixEntry } from "$lib/server/agent/durable/types.js";
 import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
 import {
@@ -225,6 +224,7 @@ export class MomRunner implements RunnerLike {
   private activeExecutionPolicy?: MomContext["executionPolicy"];
   private activeToolAuthority?: MomContext["assertToolAuthority"];
   private running = false;
+  private activeExecutionOwner: "client" | "runtime" = "runtime";
   private abortRequested = false;
   private activeDecisionAbortController: AbortController | null = null;
   private selectedMcpServerIds = new Set<string>();
@@ -754,12 +754,21 @@ export class MomRunner implements RunnerLike {
     };
   }
 
-  abort(): void {
+  /** Automatic transport recovery may cancel only the foreground run it observed. */
+  abortRun(input: { runId: string; source: "orphan_recovery" | "client_disconnect" }): boolean {
+    if (!this.running || this.activeExecutionOwner !== "client" || this.activeHookContext?.runId !== input.runId) return false;
+    this.abort(input.source);
+    return true;
+  }
+
+  abort(source = "runtime_control"): void {
     this.abortRequested = true;
     this.activeDecisionAbortController?.abort();
     this.agent.clearAllQueues();
     momLog("runner", "abort_requested", {
       runId: this.activeHookContext?.runId,
+      source,
+      executionOwner: this.activeExecutionOwner,
       chatId: this.chatId,
       sessionId: this.sessionId
     });
@@ -963,11 +972,12 @@ export class MomRunner implements RunnerLike {
       });
     };
     const durablePreflightTracker = new DurablePreflightTracker(async (input) => {
-      const decision = await evaluateDurablePreflightWithModel(input, { model: this.agent.state.model });
-      // A session-plan run or an already-linked execution must not promote a
-      // second time; the deterministic fallback only covers unmanaged runs.
-      const fallbackAllowed = !ctx.sessionPlanProgress && !ctx.executionHistory;
-      return (fallbackAllowed ? deterministicPromotionFallback(ctx.message.text, decision.degraded === true) : null) ?? decision;
+      const decision = await decideDurableActivation({ ...input, settings: this.getSettings(), signal: this.agent.signal });
+      return decision.mode === "promote" ? {
+        ...decision,
+        goal: input.message,
+        acceptanceCriteria: [{ description: "The requested goal is satisfied and can be confirmed by the owner.", checkerType: "subjective" as const, author: "model" as const }]
+      } : decision;
     });
     const sideEffectPreflight = ctx.onToolSideEffectPreflight ?? (async (effect) => {
       const result = await durablePreflightTracker.evaluate({ message: ctx.message.text, effect });
@@ -1078,6 +1088,7 @@ export class MomRunner implements RunnerLike {
         : undefined;
     this.activeRunAcceptedSteering = [];
     this.activeDurablePrefix = [];
+    this.activeExecutionOwner = ctx.message.isEvent ? "runtime" : "client";
     this.running = true;
     this.abortRequested = false;
     this.activeDecisionAbortController = null;
@@ -1088,6 +1099,8 @@ export class MomRunner implements RunnerLike {
       type: "run_start",
       summary: `Run started for session ${this.sessionId}.`
     });
+
+    const onClientDisconnect = () => this.abortRun({ runId, source: "client_disconnect" });
 
     const queue: Array<() => Promise<void>> = [];
     let queueRunning = false;
@@ -1712,6 +1725,14 @@ export class MomRunner implements RunnerLike {
         enqueue(() => ctx.respond(`_→ ${label}_`, false));
       }
 
+      if (event.type === "tool_execution_update" && ctx.onRunnerEvent) {
+        const partial = event.partialResult as { content?: Array<{ type: string; text?: string }> };
+        const summary = partial?.content?.filter(block => block.type === "text").map(block => block.text ?? "").join("\n") ?? "";
+        if (summary) enqueue(() => ctx.onRunnerEvent!({
+          type: "tool_execution_update", toolCallId: event.toolCallId, toolName: event.toolName, summary
+        }));
+      }
+
       if (event.type === "tool_execution_end") {
         const body = extractTextFromResult(event.result);
         toolProgress.set(event.toolCallId, {
@@ -2030,6 +2051,8 @@ export class MomRunner implements RunnerLike {
       stopTurnHeartbeat = this.turnOrchestratorFactory().startTurnHeartbeat(runId);
       this.activeRunBudget = budget;
       this.agent.startTurn();
+      ctx.clientSignal?.addEventListener("abort", onClientDisconnect, { once: true });
+      if (ctx.clientSignal?.aborted) onClientDisconnect();
       const executionKey = JSON.stringify([botId, this.channel, this.chatId, this.sessionId, ctx.message.budgetId ?? runId]);
       const authorityKey = createHash("sha256").update(JSON.stringify({
         policy: admittedExecutionPolicy ?? executionPolicy, actor: ctx.message.userId, agent: this.runtimeIdentity?.agentId,
@@ -3700,6 +3723,7 @@ export class MomRunner implements RunnerLike {
       }
       return { runId, workspaceId, stopReason: "error", errorMessage: message, usage: finalUsage };
     } finally {
+      ctx.clientSignal?.removeEventListener("abort", onClientDisconnect);
       const owners = new PiRecoveryStore(resolveDataRootFromWorkspacePath(this.store.getWorkspaceDir()));
       try { if (stopReason !== "waiting_for_approval") owners.remove(runId); }
       finally { owners.close(); }

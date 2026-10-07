@@ -37,6 +37,8 @@ This is **Molipibot** — a multi-channel bot framework with a settings UI. See 
 
 ## Recurring Pitfalls
 
+- **会话身份不等于执行归属**：自动恢复与传输断连只能取消它们持有的前台 runId，不能按 Session 直接取消当前 Runner。后台事件和长任务由运行时持有；共享 Runner 必须检查执行归属和 runId。传输监听在运行结束时移除，取消日志记录来源。守卫：Runner 后台/过期身份拒绝取消，以及 Desktop 重连绑定身份、实际停止计数回归。
+
 - **编排容器不能持有叶子操作的执行锁**：Codemode、subagent 等容器等待嵌套工具时，副作用由叶子调用独立记录与串行化；否则父子共用 ToolRuntime 会互相等锁。等待锁的取消必须立即返回，但跳过的队列槽只能在前一个持锁者完成后释放，避免后续操作并行越过当前操作。守卫：ToolRuntime 嵌套、权限拒绝、取消顺序回归，以及 PiRunSession 原生父子实际 shell 回归。
  (distilled from CHANGELOG.md / prd.md — read BEFORE touching these areas)
 

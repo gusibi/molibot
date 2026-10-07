@@ -158,3 +158,16 @@ test("backend capabilities decide which advanced restrictions exist", () => {
   assert.equal(host.capabilities.supportsFilesystemRestrictions, false);
   assert.equal(host.capabilities.supportsEnvInjection, true);
 });
+
+
+test("host command exposes normalized recent output before completion", async () => {
+  const environment = getExecutionBackend(HOST_BACKEND_ID).bindEnvironment({ workspaceDir: tmpdir(), sandboxSettings: defaultToolSandboxSettings });
+  const controller = new AbortController();
+  const outputs: string[] = [];
+  await assert.rejects(environment.execute({
+    command: "printf '\x1b[32mRun Tests\x1b[0m\n'; sleep 10",
+    cwd: tmpdir(), signal: controller.signal,
+    onOutput: output => { outputs.push(output); controller.abort(); }
+  }), /aborted/);
+  assert.equal(outputs[0], "Run Tests\n");
+});

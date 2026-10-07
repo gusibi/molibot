@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import ChatMarkdown from "./ChatMarkdown.svelte";
+  import { processPresentation } from "./processPresentation";
   import AngleDown from "reicon-svelte/icons/AngleDown";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
@@ -11,22 +14,20 @@
   export let blocks: TranscriptProcessBlock[];
   export let copy: Translation;
   export let stateKey: string;
-  export let forceOpen = false;
   export let live = false;
   export let failed = false;
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
   export let endpoint = "";
 
-  // `forceOpen` is followed on its TRANSITIONS, in both directions: the live
-  // card opens while the model is still reasoning and must fold once the
-  // answer starts so the answer leads. After the fold the state belongs to the
-  // reader - a manual re-expand is never re-collapsed by a later transition.
-  let opened = forceOpen;
-  let lastForceOpen = forceOpen;
-  $: if (forceOpen !== lastForceOpen) {
-    lastForceOpen = forceOpen;
-    opened = forceOpen;
-  }
+  let opened = false;
+  let now = Date.now();
+  onMount(() => {
+    if (!live) return;
+    const timer = setInterval(() => { now = Date.now(); }, 1000);
+    return () => clearInterval(timer);
+  });
+  $: presentation = processPresentation(blocks, copy);
+  $: liveDuration = presentation.startedAt === undefined ? 0 : Math.max(0, now - presentation.startedAt);
   $: summary = transcriptProcessSummary(blocks);
   $: isFailed = failed || (summary.interrupted && !live);
   $: displayBlocks = live
@@ -37,6 +38,19 @@
 
   const durationLabel = formatDuration;
 </script>
+
+{#if live}
+  <div class="turn-process-overview">
+    {#each presentation.commentary as block (block.id)}
+      <ChatMarkdown source={block.content} {copy} {endpoint} className="turn-progress-commentary markdown-body" contentKey={`${stateKey}-progress-${block.id}`} />
+    {/each}
+    <div class="turn-progress-current" role="status">
+      <span>{presentation.status}</span>
+      {#if presentation.detail}<span class="turn-progress-detail">{presentation.detail}</span>{/if}
+      {#if liveDuration}<small>{durationLabel(liveDuration)}</small>{/if}
+    </div>
+  </div>
+{/if}
 
 <details class="turn-process" bind:open={opened} data-state={live ? "live" : isFailed ? "error" : "complete"}>
   <summary class="turn-process-summary">
@@ -49,7 +63,7 @@
     {:else}
       {#if isFailed}<TriangleWarning size={14} aria-hidden="true" />{:else}<CheckCircle size={14} aria-hidden="true" />{/if}
     {/if}
-    <span>{live ? copy.runProgress : isFailed ? copy.runFailed : copy.runCompleted}</span>
+    <span>{live ? copy.executionDetails : isFailed ? copy.runFailed : copy.runCompleted}</span>
     {#if summary.toolCount}<small>{copy.turnSummaryTools.replace("{count}", String(summary.toolCount))}</small>{/if}
     {#if summary.fileCount}<small>{copy.turnSummaryFiles.replace("{count}", String(summary.fileCount))}</small>{/if}
     {#if summary.durationMs}<small class="turn-process-duration">{durationLabel(summary.durationMs)}</small>{/if}

@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashPermissions } from "$lib/server/hostBash/index.js";
-import { normalizeCommandOutput, stripAnsi } from "$lib/server/agent/tools/helpers.js";
+import { commandOutputProgress, normalizeCommandOutput, stripAnsi } from "$lib/server/agent/tools/helpers.js";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
@@ -81,6 +81,7 @@ async function runHostCommand(input: {
   timeoutSeconds?: number;
   stdin?: string;
   signal?: AbortSignal;
+  onOutput?: (output: string) => void;
 }): Promise<HostRunResult> {
   const shell = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "zsh");
   const shellArgs = process.platform === "win32" ? ["/d", "/s", "/c", input.command] : ["-lc", input.command];
@@ -102,6 +103,7 @@ async function runHostCommand(input: {
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    const progress = commandOutputProgress(input.onOutput, input.signal);
     const killChild = (): void => {
       try {
         if (process.platform === "win32") {
@@ -135,19 +137,23 @@ async function runHostCommand(input: {
 
     child.stdout?.on("data", (chunk) => {
       stdout += chunk.toString();
+      progress.push(chunk.toString());
       if (stdout.length > 10 * 1024 * 1024) stdout = stdout.slice(0, 10 * 1024 * 1024);
     });
     child.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
+      progress.push(chunk.toString());
       if (stderr.length > 10 * 1024 * 1024) stderr = stderr.slice(0, 10 * 1024 * 1024);
     });
 
     child.on("error", (error) => {
+      progress.cancel();
       clearTimeout(timer);
       if (input.signal) input.signal.removeEventListener("abort", onAbort);
       reject(error);
     });
     child.on("close", (code) => {
+      progress.flush();
       clearTimeout(timer);
       if (input.signal) input.signal.removeEventListener("abort", onAbort);
       if (input.signal?.aborted) {
@@ -173,6 +179,7 @@ export async function executeApprovedHostBash(input: {
   stdin?: string;
   timeoutSeconds?: number;
   signal?: AbortSignal;
+  onOutput?: (output: string) => void;
 }): Promise<ApprovedHostBashRunOutput> {
   const result = await runHostCommand({
     command: input.originalCommand,
@@ -180,6 +187,7 @@ export async function executeApprovedHostBash(input: {
     cwd: input.cwd,
     timeoutSeconds: input.timeoutSeconds,
     stdin: input.stdin,
+    onOutput: input.onOutput,
     signal: input.signal
   });
 
@@ -217,6 +225,7 @@ async function runOneTimeHostScript(input: {
   record: HostBashApprovalRecord;
   cwd: string;
   signal?: AbortSignal;
+  onOutput?: (output: string) => void;
 }): Promise<ApprovedHostBashRunOutput> {
   const pendingAction = input.record.pendingAction;
   if (!pendingAction || pendingAction.kind !== "run_one_time_host_script") {
@@ -228,6 +237,7 @@ async function runOneTimeHostScript(input: {
     cwd: input.cwd,
     timeoutSeconds: pendingAction.timeout,
     stdin: pendingAction.stdin,
+    onOutput: input.onOutput,
     signal: input.signal
   });
 
@@ -265,6 +275,7 @@ async function runApprovedRecordHostBash(input: {
   record: HostBashApprovalRecord;
   cwd: string;
   signal?: AbortSignal;
+  onOutput?: (output: string) => void;
 }): Promise<ApprovedHostBashRunOutput> {
   const pendingAction = input.record.pendingAction;
   if (!pendingAction || pendingAction.kind !== "run_approved_host_bash") {
@@ -276,6 +287,7 @@ async function runApprovedRecordHostBash(input: {
     cwd: input.cwd,
     timeoutSeconds: pendingAction.timeout,
     stdin: pendingAction.stdin,
+    onOutput: input.onOutput,
     signal: input.signal
   });
 
@@ -314,6 +326,7 @@ export async function executeHostBashApproval(input: {
   approvedTool?: ApprovedHostBashEntry;
   cwd: string;
   signal?: AbortSignal;
+  onOutput?: (output: string) => void;
 }): Promise<ApprovedHostBashRunOutput> {
   if (!input.record.pendingAction) {
     throw new Error("Missing pending host action payload.");
@@ -322,6 +335,7 @@ export async function executeHostBashApproval(input: {
     return runOneTimeHostScript({
       record: input.record,
       cwd: input.cwd,
+      onOutput: input.onOutput,
       signal: input.signal
     });
   }
@@ -329,6 +343,7 @@ export async function executeHostBashApproval(input: {
     return runApprovedRecordHostBash({
       record: input.record,
       cwd: input.cwd,
+      onOutput: input.onOutput,
       signal: input.signal
     });
   }
@@ -339,6 +354,7 @@ export async function executeHostBashApproval(input: {
     args: input.record.pendingAction.args ?? [],
     stdin: input.record.pendingAction.stdin,
     timeoutSeconds: input.record.pendingAction.timeout,
+    onOutput: input.onOutput,
     signal: input.signal
   });
 }

@@ -671,11 +671,13 @@ with content moving behind it reads as depth.
   `Grid` → `squares-duotone`) and that mapping is a reviewed, explicit entry.
   A few chat chrome slots use owner-picked glyphs that replace the
   literal-outline concept entirely — skills → `ruler-pen-duotone`, agent →
-  `users2-duotone`, agent rooms → `dialog-duotone`, the sidebar's 对话 →
-  `chat-round-line-duotone`, 项目 → `feed-duotone`, 自动任务 → `sort-time-duotone`
-  and 小程序 → `widget2-duotone`, send → `plane2-duotone`, plan mode →
+  `users2-duotone`, agent rooms (section head and rail) → `dialog-duotone`, the
+  sidebar's 对话 → `chat-round-line-duotone`, send → `plane2-duotone`, plan mode →
   `circle-arrows-down-duotone`, manual mode → `handshake-duotone`, the
-  all-mini-apps CTA → `list-duotone`. The two search slots are owner-picked
+  all-mini-apps CTA → `list-duotone`. Three primary-destination slots are
+  owner-picked Filled glyphs because Reicon ships no duotone for two of them:
+  项目 → Filled `Package` (also the Project section head and rail icon), 自动任务
+  → Filled `SendClock`, and 计划 → Filled `Bulb2`. The two search slots are owner-picked
   Outline glyphs that replace their duotone counterparts: the window cluster's
   conversation search → Outline `Search4`, and the in-conversation search
   (chat header and Project header) → Outline `MessageSearch`. The settings entry
@@ -1055,7 +1057,7 @@ the same regardless of the window's activation state and of what is behind it.
   actions, and one compact auto-growing composer.
 - Collapsing Chat keeps navigation on screen: the sidebar folds to a 48px icon rail
   (the first grid track never reserves zero width) that still reaches every
-  destination. The three list destinations — 对话, 项目 and 房间 — open an on-demand
+  destination. The three list destinations — 对话, 项目 and Agent Team — open an on-demand
   flyout column beside the rail, rendering the exact same `SidebarLists` component as
   the expanded sidebar so channel filtering, project groups, room rows, row actions,
   and pagination cannot drift. The flyout reuses the remembered expanded width, closes
@@ -1063,12 +1065,14 @@ the same regardless of the window's activation state and of what is behind it.
   stays open when an item is selected. A workspace destination (自动任务, 技能, Agent,
   计划, 小程序) opens its existing pane and closes the flyout instead of adding a
   column. The rail carries no 新对话 entry: that action stays in the window title-bar
-  cluster while collapsed, and 对话/项目/房间 replace it at the top of the rail.
+  cluster while collapsed, and 对话/项目/Agent Team replace it at the top of the rail.
 - A list-section heading is navigation, not just a disclosure. Clicking the 对话,
-  项目 or 房间 label returns the right pane to that section's content — the reader's
-  last conversation, last project session, or last room — and expands the section, so
-  a workspace destination can never trap them away from their work. Collapse/expand
-  lives on the separate caret control beside the label. Room creation keeps its own
+  项目 or Agent Team label returns the right pane to that section's content — the
+  reader's last conversation, last project session, or last room — and expands the
+  section, so a workspace destination can never trap them away from their work.
+  Clicking that same heading again while its section is already showing collapses the
+  list, so the whole row reads as one disclosure instead of "expand-only"; the separate
+  caret control beside the label collapses and expands too. Room creation keeps its own
   `+` in the section head, and the create/edit form still opens in the right pane.
 - Assistant identity is one inline row anchored to the reading column's left edge:
   the avatar, the Bot / Web Profile / app name, and — only for a channel that binds
@@ -1160,10 +1164,14 @@ the same regardless of the window's activation state and of what is behind it.
   never rides the sidebar's collapse animation, and it can never be covered by a
   page title because the title flows after it. Per-pane expand buttons are
   forbidden.
-- The session tree is one left-aligned grid. Section heads (对话 / 项目), channel
+- The session tree is one left-aligned grid. Section heads (对话 / 项目 / Agent Team),
+  primary nav rows, channel
   headers, and project folder rows share a single 8px content inset — no per-level
-  re-indent — and session titles sit on the header text's 32px grid line (8px row
-  inset + 16px icon + 8px gap). Rows are avatar-free: the reserved 24px gutter only
+  re-indent, and no theme may inset a section head horizontally — and every label sits
+  on the header text's 32px grid line (8px row
+  inset + 16px icon + 8px gap), section heads included: each carries a 16px icon in the
+  shared icon column so 对话 / 项目 / Agent Team line up with 自动任务 / 计划 and the
+  conversation tree beneath them. Rows are avatar-free: the reserved 24px gutter only
   ever carries a run-status dot or the fork marker, never a per-bot avatar. A running
   session replaces the flat dot with the animated `RunningOrb` (a perspective-projected
   point-sphere, 16px, centered on the same axis as the static 9px dot); every terminal
@@ -1570,6 +1578,8 @@ Copy is part of the design; keep it precise and free of filler.
 
 首次批准后，计划在**来源 Session 以其下一轮普通对话轮次执行**：模型流式思考、调用工具、给出回复，审批走聊天标准审批卡（不是右侧面板），可多轮；计划本身不拥有独立对话。Durable 聚合只作为计划的持久记录与看板读取源，其状态/步骤进度由该轮次的 `plan_progress` 镜像，不再作为独立执行器。只有没有来源 Session 的执行（定时/项目任务）才使用独立任务归档。右侧计划面板是只读进度/记录视图；跨 Session 继续 = 在任意 Session 打开计划并从该会话发起下一轮。
 
+长任务卡片的目标、下一步和等待原因保留换行，长链接或连续字符在卡片内折行；卡片与内部网格不得被文本撑宽，窄屏状态标签另起一行。
+
 运行、等待授权、受阻、执行结束待检查、完成必须使用一致状态；完成后不显示暂停或取消。进度来自结构化步骤更新，不从耗时或工具调用次数推算。
 
 同一用户轮次只呈现一个回答容器；模型或运行时产生的补充终止片段合并到该回答，过程轨迹仍按原顺序保留。思考与工具过程使用无边框、透明背景的可折叠披露，避免在正文前再制造一张高权重卡片。
@@ -1615,3 +1625,13 @@ model. Accepted model/Thinking selections persist with the dispatch for retries.
 Room conversations reuse `ChatHeader`, `ChatMessagesPane`, `ConversationLiveView` and `ConversationTranscript` as well as `ChatInputArea`. Author identity is per message; concurrent responses use the same live renderer. Room management lives in the shared overflow menu, and member mentions use the shared composer suggestion menu.
 
 Room model previews use the backend-resolved per-member model keys. Completed transcript messages retain their execution's failure/cancellation state and error detail; a persisted message alone is not evidence of successful completion.
+
+
+## Live command progress
+
+展开执行详情后，运行中的工具保持独立条目，默认展开最近 12 行真实输出与实时耗时；输出以有界尾部更新，不追加重复轮询块。超过 1 分钟的已完成命令保持独立条目，避免等待步骤被合并摘要隐藏。过程使用现有透明披露与主题 token，不从耗时推断成功、阻塞或百分比。
+
+
+## 对话执行说明
+
+实时过程默认展示最近两条模型进度说明、当前步骤和耗时；说明来自助手面向用户的正文，不从私有思考、工具输出或诊断拼接。无进度说明时，按结构化工具类型展示诚实的当前状态。工具数、调用链、思考原文与终端输出默认折叠到「执行详情」，运行中也不强制展开。子代理任务使用稳定条目更新状态；内部诊断不能成为用户进度。已有最终正文不被过程面板覆盖。

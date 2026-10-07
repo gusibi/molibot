@@ -5,6 +5,7 @@
   import FolderPlus from "reicon-svelte/icons/FolderPlus";
   import Pen from "../icons/duotone/components/Pen.svelte";
   import Plus from "reicon-svelte/icons/Plus";
+  import Package from "reicon-svelte/icons/Package";
   import Trash from "../icons/duotone/components/Trash.svelte";
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
@@ -247,6 +248,7 @@
 <div class="project-tree">
   <div class="sidebar-section-head" class:open={expanded}>
     <button type="button" class="sidebar-section-toggle" onclick={onOpen}>
+      <Package size={16} weight="Filled" aria-hidden="true" />
       <span>{copy.projects}</span>
     </button>
     <button type="button" class="sidebar-section-caret-btn" aria-expanded={expanded} aria-label={copy.projects} onclick={onToggle}>

@@ -178,13 +178,13 @@ export class PiConversationRuntime {
       await this.project(view.entries);
       this.watch = await watchEvents(this.harness, this.conversation.id, BACKGROUND_CONTEXT);
       await this.project(this.watch.snapshot.entries);
-      await this.options.onEvent?.(this.watch.snapshot);
+      await this.registryTools!.emitEvent(this.watch.snapshot);
       this.watch.start(events => this.serializeProjection(async () => {
         for (const event of events) {
           if (event.type === "task_failed") throw new Error(`Pi ${event.kind} failed: ${event.message}`);
           if (event.type === "entry_appended" || event.type === "message_end") await this.project([event.entry]);
           else if (event.type === "snapshot") await this.project(event.entries);
-          await this.options.onEvent?.(event);
+          await this.registryTools!.emitEvent(event);
         }
       }));
       this.timer = setInterval(() => {
@@ -332,6 +332,7 @@ export class PiConversationRuntime {
     for (const readOnlyShell of [true, false]) {
       const name = readOnlyShell ? "molibot.child.inspect" : "molibot.child.worker";
       const registry = createPiToolRegistry({ ...this.options, extensionName: name,
+        onEvent: undefined,
         tools: this.options.childTools().filter(tool => !readOnlyShell || tool.name === "read" || tool.name === "bash"),
         beforeRequest: async (messages, _signal, api) => {
           if (!api) throw new Error("Child generation has no native identity.");

@@ -1,7 +1,3 @@
-import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
-import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
-import type { Context, Model } from "@earendil-works/pi-ai";
-import { streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
 import type { AcceptanceCriterionInput } from "./types.js";
 import type { SideEffectClass } from "./types.js";
 import type { ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
@@ -25,11 +21,6 @@ export interface DurablePreflightDecision {
   acceptanceCriteria?: AcceptanceCriterionInput[];
   expectedWait?: "none" | "user" | "approval" | "unknown";
   sideEffectRisk?: string;
-  /**
-   * True when the decision is a fallback because the preflight model was
-   * unavailable, errored, or returned unusable output. A degraded `ordinary`
-   * verdict must not silently discard a deterministic long-task signal.
-   */
   degraded?: boolean;
 }
 
@@ -41,150 +32,11 @@ export interface DurablePreflightResult extends DurablePreflightDecision {
 
 export type DurablePreflightEvaluator = (input: DurablePreflightInput) => Promise<DurablePreflightDecision>;
 
-export interface DurablePreflightModelOptions {
-  model: Model<any>;
-  streamFn?: StreamFn;
-  signal?: AbortSignal;
-  maxTokens?: number;
-}
-
 export class DurableExecutionPromotionHandoff extends Error {
   constructor(readonly notice: string) {
     super(notice);
     this.name = "DurableExecutionPromotionHandoff";
   }
-}
-
-const PREFLIGHT_SYSTEM_PROMPT = [
-  "You are a safety preflight for a local Agent runtime.",
-  "Decide whether the user's work should be promoted from an ordinary Run to a persistent Durable Execution before the next side effect.",
-  "Promote only when the request clearly needs multiple dependent steps, another session, waiting for a person or approval, recovery after interruption, or a risky non-idempotent external effect.",
-  "Do not promote a one-off lookup or a simple isolated edit merely because a tool has an effect.",
-  "Return JSON only, with no Markdown and no commentary.",
-  "The JSON shape is: {mode:'ordinary'|'promote', reason:string, goal?:string, acceptanceCriteria?:[{description:string, required?:boolean, checkerType:'deterministic'|'subjective', checkerKey?:string}], expectedWait:'none'|'user'|'approval'|'unknown', sideEffectRisk:string}.",
-  "If mode is promote, goal and at least one acceptance criterion are required. Criteria must be concrete and honest; use subjective when no deterministic checker is known."
-].join("\n");
-
-function extractText(event: Record<string, unknown>): string {
-  if (event.type === "text_delta") return String(event.delta ?? "");
-  if (event.type === "text_end") return String(event.content ?? "");
-  return "";
-}
-
-function parseJsonObject(text: string): Record<string, unknown> | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const value = JSON.parse(text.slice(start, end + 1)) as unknown;
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function textValue(value: unknown): string | undefined {
-  const result = typeof value === "string" ? value.trim() : "";
-  return result || undefined;
-}
-
-function parseCriteria(value: unknown): AcceptanceCriterionInput[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const criteria = value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const row = item as Record<string, unknown>;
-    const description = textValue(row.description);
-    if (!description) return [];
-    const checkerType: AcceptanceCriterionInput["checkerType"] = row.checkerType === "deterministic" ? "deterministic" : "subjective";
-    const checkerKey = textValue(row.checkerKey);
-    return [{
-      description,
-      required: row.required !== false,
-      checkerType,
-      ...(checkerKey ? { checkerKey } : {}),
-      author: "model" as const
-    }];
-  });
-  return criteria.length > 0 ? criteria : undefined;
-}
-
-/**
- * Run the bounded structured model check used at the first non-pure boundary.
- * A malformed or unavailable preflight fails open to the ordinary path; the
- * deterministic activation path handles requests that are explicitly long-lived.
- */
-export async function evaluateDurablePreflightWithModel(
-  input: DurablePreflightInput,
-  options: DurablePreflightModelOptions
-): Promise<DurablePreflightDecision> {
-  const context = {
-    systemPrompt: PREFLIGHT_SYSTEM_PROMPT,
-    messages: [{
-      role: "user",
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          request: input.message,
-          nextTool: {
-            id: input.effect.toolId,
-            sideEffectClass: input.effect.sideEffectClass,
-            target: input.effect.targetSummary,
-            content: input.effect.contentSummary
-          }
-        })
-      }],
-      timestamp: Date.now()
-    }] as AgentMessage[],
-    tools: []
-  } as unknown as Context;
-
-  let output = "";
-  try {
-    const stream = (options.streamFn ?? streamWithPiRuntime)(
-      options.model,
-      normalizeContext(context),
-      { maxTokens: Math.max(128, Math.round(options.maxTokens ?? 320)), signal: options.signal } as never
-    );
-    for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
-      output += extractText(event);
-      if (event.type === "error") {
-        return { mode: "ordinary", reason: "Durable preflight model returned an error; the ordinary Run remains in control.", degraded: true };
-      }
-      if (event.type === "done") {
-        const message = event.message as { stopReason?: string } | undefined;
-        if (message?.stopReason === "error") {
-          return { mode: "ordinary", reason: "Durable preflight model did not complete; the ordinary Run remains in control.", degraded: true };
-        }
-      }
-    }
-  } catch {
-    return { mode: "ordinary", reason: "Durable preflight model was unavailable; the ordinary Run remains in control.", degraded: true };
-  }
-
-  const parsed = parseJsonObject(output);
-  if (!parsed || (parsed.mode !== "ordinary" && parsed.mode !== "promote")) {
-    return { mode: "ordinary", reason: "Durable preflight returned invalid structured output; the ordinary Run remains in control.", degraded: true };
-  }
-  const reason = textValue(parsed.reason) ?? "The preflight model did not provide a reason.";
-  const expectedWait = parsed.expectedWait === "user" || parsed.expectedWait === "approval" || parsed.expectedWait === "unknown"
-    ? parsed.expectedWait
-    : "none";
-  const sideEffectRisk = textValue(parsed.sideEffectRisk);
-  const goal = textValue(parsed.goal);
-  const acceptanceCriteria = parseCriteria(parsed.acceptanceCriteria);
-  if (parsed.mode === "promote" && (!goal || !acceptanceCriteria)) {
-    return { mode: "ordinary", reason: "Durable preflight omitted the goal or acceptance criteria required for promotion.", degraded: true };
-  }
-  return {
-    mode: parsed.mode,
-    reason,
-    ...(goal ? { goal } : {}),
-    ...(acceptanceCriteria ? { acceptanceCriteria } : {}),
-    expectedWait,
-    ...(sideEffectRisk ? { sideEffectRisk } : {})
-  };
 }
 
 /**
@@ -198,7 +50,7 @@ export class DurablePreflightTracker {
 
   constructor(private readonly evaluator: DurablePreflightEvaluator = async () => ({
     mode: "ordinary",
-    reason: "No deterministic durable signal was present at this side-effect boundary."
+    reason: "No decision evaluator is configured for this side-effect boundary."
   })) {}
 
   async evaluate(input: DurablePreflightInput): Promise<DurablePreflightResult> {

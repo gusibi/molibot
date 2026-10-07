@@ -3273,12 +3273,6 @@ export function nextFollowUp(queue: string[]): { next: string | null; rest: stri
 
 export type DesktopActivityEntry = DesktopConversationActivity;
 
-function extractDiagnosticField(diagnostic: string, prefix: string): string {
-  const rest = diagnostic.slice(prefix.length + 1);
-  const comma = rest.indexOf(",");
-  return (comma >= 0 ? rest.slice(0, comma) : rest).trim();
-}
-
 /**
  * Maps a runtime SSE event into a human-facing run-progress entry, or null when
  * the event is not a tool/subagent/thread-note step worth showing in the timeline.
@@ -3323,25 +3317,6 @@ export function parseDesktopActivity(
   if (event === "thread_note") {
     const text = String(data.text ?? "").trim();
     return text ? { kind: "note", key: `note-${text}`, label: text, state: "info" } : null;
-  }
-  if (event !== "runner_event") return null;
-  const diagnostic = String(data.diagnostic ?? "").trim();
-  if (!diagnostic) return null;
-  if (diagnostic.startsWith("tool_start=")) {
-    const label = extractDiagnosticField(diagnostic, "tool_start");
-    return { kind: "tool", key: `legacy-${label}`, label, state: "running" };
-  }
-  if (diagnostic.startsWith("tool_end=")) {
-    const isError = /(^|,\s*)status=error/.test(diagnostic);
-    return {
-      kind: "tool",
-      label: extractDiagnosticField(diagnostic, "tool_end"),
-      key: `legacy-${extractDiagnosticField(diagnostic, "tool_end")}`,
-      state: isError ? "error" : "success"
-    };
-  }
-  if (diagnostic.startsWith("subagent")) {
-    return { kind: "subagent", key: `subagent-${diagnostic}`, label: diagnostic, state: "info" };
   }
   return null;
 }
@@ -3717,12 +3692,13 @@ export async function resolveDesktopHostBashById(
 export async function stopDesktopChat(
   endpoint: string,
   profileId: string,
-  sessionId: string
+  sessionId: string,
+  recoveryRunId?: string
 ): Promise<boolean> {
   const payload = await requestJson<{ ok: true; stopped: boolean }>(endpoint, "/api/stream/stop", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profileId, conversationId: sessionId })
+    body: JSON.stringify({ profileId, conversationId: sessionId, recoveryRunId })
   });
   return payload.stopped;
 }

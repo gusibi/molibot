@@ -477,6 +477,7 @@ export function createMomTools(options: {
             cwd: targetCwd,
             timeoutSeconds,
             signal,
+            onOutput: runOpts?.onOutput,
             env: sandboxEnv
           });
 

@@ -1660,9 +1660,16 @@
 
   // Clicking a list section's heading returns to that section's content (not
   // just expanding the list), so a workspace destination like 技能 never traps
-  // the reader away from their last conversation/project/room. Collapsing stays
-  // on the caret.
+  // the reader away from their last conversation/project/room. Clicking the
+  // heading again once its section is already showing collapses the list, so
+  // the whole row reads as one disclosure instead of "expand-only". Collapsing
+  // stays on the caret too.
   function openConversationsSection(): void {
+    if (!sidebarCollapsed && workspacePane === "chat" && !projectPaneActive && !roomPaneActive && conversationsExpanded) {
+      conversationsExpanded = false;
+      persistSidebarTree();
+      return;
+    }
     if (!conversationsExpanded) { conversationsExpanded = true; persistSidebarTree(); }
     roomPaneActive = false;
     projectPaneActive = false;
@@ -1677,6 +1684,11 @@
   }
 
   function openProjectsSection(): void {
+    if (!sidebarCollapsed && projectPaneActive && projectsExpanded) {
+      projectsExpanded = false;
+      persistSidebarTree();
+      return;
+    }
     if (!projectsExpanded) { projectsExpanded = true; persistSidebarTree(); }
     roomPaneActive = false;
     collapsedFlyout = null;
@@ -1699,6 +1711,11 @@
   }
 
   function openRoomsSection(): void {
+    if (!sidebarCollapsed && roomPaneActive && roomsExpanded) {
+      roomsExpanded = false;
+      persistSidebarTree();
+      return;
+    }
     if (!roomsExpanded) { roomsExpanded = true; persistSidebarTree(); }
     collapsedFlyout = null;
     if (roomPaneActive && requestedRoomId) return;

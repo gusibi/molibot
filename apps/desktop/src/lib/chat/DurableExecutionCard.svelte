@@ -88,6 +88,9 @@
 <style>
   .durable-execution-card {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    box-sizing: border-box;
     gap: 12px;
     margin: 16px auto;
     width: min(100%, 720px);
@@ -127,13 +130,12 @@
   }
   .durable-execution-card-title code { font-family: var(--font-mono); }
   .durable-execution-card-title h3 {
-    overflow: hidden;
+    overflow-wrap: anywhere;
     margin: 0;
     font-size: var(--fs-label);
     line-height: var(--lh-label);
     font-weight: 600;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: pre-wrap;
   }
   .durable-execution-status {
     display: inline-flex;
@@ -179,10 +181,10 @@
     line-height: var(--lh-meta);
   }
   .durable-execution-progress-meta span:last-child {
-    overflow: hidden;
+    min-width: 0;
     max-width: 62%;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
   .durable-execution-waiting {
     display: flex;
@@ -195,6 +197,7 @@
     font-size: var(--fs-meta);
     line-height: var(--lh-meta);
   }
+  .durable-execution-waiting span { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
   .durable-execution-waiting :global(svg) { flex: none; color: var(--warning); }
   .durable-execution-waiting strong { margin-right: 5px; color: var(--label-primary); }
   .durable-execution-card-foot {
@@ -222,7 +225,8 @@
   @media (max-width: 600px) {
     .durable-execution-card { margin: 12px 0; padding-inline: 12px; }
     .durable-execution-status { align-self: flex-start; }
-    .durable-execution-card-head { align-items: flex-start; }
+    .durable-execution-card-head { align-items: flex-start; flex-wrap: wrap; }
+    .durable-execution-status { width: 100%; }
     .durable-execution-progress-meta { align-items: flex-start; flex-direction: column; gap: 3px; }
     .durable-execution-progress-meta span:last-child { max-width: 100%; }
   }

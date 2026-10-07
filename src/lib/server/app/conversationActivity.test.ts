@@ -284,3 +284,33 @@ test("closeRunningActivities returns only interrupted ones and agrees with final
   // A second close is a no-op: every activity is already terminal.
   assert.deepEqual(collector.closeRunningActivities(), []);
 });
+
+
+test("live output stays on its own call and cannot revive a completed tool", () => {
+  const collector = new ConversationActivityCollector();
+  for (const toolCallId of ["watch", "other"]) collector.record({ type: "tool_execution_start", toolCallId, toolName: "bash", label: toolCallId });
+  const updated = collector.record({ type: "tool_execution_update", toolCallId: "watch", toolName: "bash", summary: "x".repeat(5000) + "Run Tests" });
+  assert.equal(updated?.state, "running");
+  assert.equal(updated?.summary?.length, 4000);
+  assert.ok(updated?.summary?.endsWith("Run Tests"));
+  assert.equal(collector.snapshot()[1].summary, undefined);
+  collector.record({ type: "tool_execution_end", toolCallId: "watch", toolName: "bash", isError: false, summary: "done" });
+  assert.equal(collector.record({ type: "tool_execution_update", toolCallId: "watch", toolName: "bash", summary: "late" }), undefined);
+  assert.equal(collector.snapshot()[0].summary, "done");
+});
+
+
+test("subagent phases update one linked task without adding diagnostic rows or inflating tool count", () => {
+  const collector = new ConversationActivityCollector();
+  collector.record({ type: "tool_execution_start", toolCallId: "delegate", toolName: "subagent", label: "翻译文章" });
+  const base = { type: "subagent_execution" as const, mode: "single" as const, taskCount: 1, taskIndex: 1, agent: "worker", task: "Translate the article" };
+  assert.equal(collector.record({ ...base, phase: "start" }), undefined);
+  const task = collector.record({ ...base, phase: "task_start" });
+  assert.equal(task?.kind, "subagent");
+  assert.equal(task?.state, "running");
+  assert.equal(collector.record({ ...base, phase: "task_end", stopReason: "stop", progress: "Translation complete" })?.key, task?.key);
+  assert.equal(collector.record({ ...base, phase: "end" }), undefined);
+  assert.equal(collector.snapshot().length, 2);
+  assert.equal(collector.snapshot().filter(activity => activity.kind === "tool").length, 1);
+  assert.equal(collector.snapshot()[1].state, "success");
+});

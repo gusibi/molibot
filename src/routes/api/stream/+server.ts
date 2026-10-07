@@ -255,20 +255,14 @@ export const POST: RequestHandler = async ({ request }) => {
     });
   }
 
-  request.signal.addEventListener(
-    "abort",
-    () => {
-      if (runner.isRunning()) runner.abort();
-    },
-    { once: true }
-  );
-
   const encoder = new TextEncoder();
 
   const durableBotId = resolveWebDurableBotId(profileId, runtime.channelManagers);
   let durable;
   try {
-    durable = sessionPlan || linkedExecution ? null : activateDurableExecution({
+    durable = sessionPlan || linkedExecution ? null : await activateDurableExecution({
+          settings: runtime.getSettings(),
+          signal: request.signal,
           message: inboundText,
           mode: body.durableMode,
           ownerId: "owner",
@@ -376,6 +370,7 @@ export const POST: RequestHandler = async ({ request }) => {
             writeEvent(controller, encoder, "plan_progress", { ...sessionPlan, status: "executing", updatedAt: new Date().toISOString() });
           }
           const result = await runner.run({
+            clientSignal: request.signal,
             executionHistory,
             readDurableEvidence: linkedExecution && coordinator ? async (evidenceId) => coordinator.readEvidence("owner", linkedExecution.execution.id, evidenceId, evidenceManager?.readDurableRunDetail?.bind(evidenceManager)) : undefined,
             sessionPlanProgress: sessionPlan ? {
@@ -491,7 +486,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 writeEvent(controller, encoder, "plan_proposal", planProposal);
                 return;
               }
-              if (event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "subagent_execution") {
+              if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end" || event.type === "subagent_execution") {
                 const activity = activityCollector.record(event);
                 writeEvent(controller, encoder, "runner_event", {
                   diagnostic: diagnostic ?? "",

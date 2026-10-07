@@ -663,7 +663,9 @@ export const POST: RequestHandler = async ({ request }) => {
   const durableBotId = resolveWebDurableBotId(parsed.profileId, runtime.channelManagers);
   let durable;
   try {
-    durable = activateDurableExecution({
+    durable = await activateDurableExecution({
+      settings: runtime.getSettings(),
+      signal: request.signal,
       message: inboundText,
       mode: parsed.durableMode,
       ownerId: "owner",

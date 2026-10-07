@@ -221,3 +221,10 @@ test("activityToolIcon maps tools to distinct icons", () => {
   assert.equal(activityToolIcon({ key: "generic-1", label: "Run shell command" }), "terminal");
   assert.equal(activityToolIcon({ key: "generic-2", label: "Unknown tool" }), "tool");
 });
+
+
+test("long commands stay visible between short command groups", () => {
+  const items = activityTimelineItems([1, 2, 3, 4, 5].map(n => activity({ key: `bash-${n}`, tool: "bash", durationMs: n === 3 ? 542752 : 100 })));
+  assert.deepEqual(items.map(item => item.kind), ["group", "single", "group"]);
+  assert.equal(items[1].key, "bash-3");
+});

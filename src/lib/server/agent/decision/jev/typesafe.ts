@@ -1,8 +1,8 @@
 import type { ClassifierModel } from "@earendil-works/pi-ai";
 import { getPiModels } from "$lib/server/providers/piRegistry.js";
 import { APIConnectionError, APIError, APITimeoutError, APIUserAbortError, TypeSafeClient } from "@typesafe-ai/sdk";
-import type { DecisionContext, DecisionProvider, DecisionProviderResult } from "../contracts.js";
-import { parseThinkingLevelAnswer, resolveTypeSafeBaseUrl } from "./protocol.js";
+import type { DecisionContext, DecisionProvider, DecisionProviderResult, DecisionQuestion } from "../contracts.js";
+import { parseChoiceAnswer, resolveTypeSafeBaseUrl } from "./protocol.js";
 import { evaluationCase, parseEvaluationAnswers, type EvaluationCaseId, type EvaluationCaseResult } from "./evaluationCases.js";
 
 import { THINKING_LEVEL_INSTRUCTIONS, THINKING_LEVEL_CRITERIA } from "../rubric.js";
@@ -60,12 +60,13 @@ export class TypeSafeJevProvider implements DecisionProvider {
     }
   }
 
-  async decide(input: { context: DecisionContext; signal: AbortSignal }): Promise<DecisionProviderResult> {
+  async decide(input: { context: DecisionContext; question?: DecisionQuestion; signal: AbortSignal }): Promise<DecisionProviderResult> {
+    const question = input.question ?? { id: "thinking_level", instructions: THINKING_LEVEL_INSTRUCTIONS, criteria: THINKING_LEVEL_CRITERIA };
     let httpStatus: number | undefined;
     let networkFailed = false;
     const response = await getPiModels().classify(this.classifier, {
       state: { request: input.context.state },
-      questions: { thinking_level: { type: "choice", instructions: THINKING_LEVEL_INSTRUCTIONS, criteria: THINKING_LEVEL_CRITERIA } }
+      questions: { [question.id]: { type: "choice", instructions: question.instructions, criteria: question.criteria } }
     }, {
       apiKey: this.apiKey,
       signal: input.signal,
@@ -88,7 +89,7 @@ export class TypeSafeJevProvider implements DecisionProvider {
       if (networkFailed) throw new Error("Jev request failed: network error or timeout");
       throw new Error("malformed_response: Jev returned an invalid response");
     }
-    const answer = parseThinkingLevelAnswer(response.answers.thinking_level);
+    const answer = parseChoiceAnswer(response.answers[question.id], Object.keys(question.criteria));
     return {
       level: answer.choice,
       confidence: answer.confidence,

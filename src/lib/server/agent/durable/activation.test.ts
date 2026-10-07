@@ -6,53 +6,20 @@ import test from "node:test";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import {
   activateDurableExecution,
-  detectDurableActivation,
-  deterministicPromotionFallback
+  detectDurableActivation
 } from "./activation.js";
 import { DurableExecutionStore } from "./store.js";
 import { DurableExecutionQuotaError } from "./types.js";
 
-test("ordinary requests stay on the fast path while cross-session intent activates deterministically", () => {
-  assert.equal(detectDurableActivation("What is the capital of France?"), null);
-  assert.deepEqual(
-    detectDurableActivation("请未来几天持续推进这份发布计划，并每天汇报"),
-    {
-      goal: "请未来几天持续推进这份发布计划，并每天汇报",
-      activationPath: "deterministic",
-      reason: "cross_session_execution_intent"
-    }
-  );
+test("pasted content and natural-language requests never activate by keyword", () => {
+  for (const message of [
+    "保持附近每个元素不变，不要数字生成。@prompt-box 收录这个提示词",
+    "请未来几天持续推进这份发布计划，并每天汇报",
+    "https://a.example/1 https://b.example/2 保存并发布"
+  ]) assert.equal(detectDurableActivation(message), null);
 });
 
-test("clearly multi-item one-shot requests activate deterministically without the preflight model", () => {
-  assert.deepEqual(
-    detectDurableActivation("https://a.example/1 https://b.example/2 帮我把这几篇文章都保存为博客，然后发布。"),
-    {
-      goal: "https://a.example/1 https://b.example/2 帮我把这几篇文章都保存为博客，然后发布。",
-      activationPath: "deterministic",
-      reason: "multi_item_request"
-    }
-  );
-  assert.deepEqual(
-    detectDurableActivation("把这些文章都收录进博客"),
-    {
-      goal: "把这些文章都收录进博客",
-      activationPath: "deterministic",
-      reason: "bulk_content_request"
-    }
-  );
-  assert.equal(detectDurableActivation("看一下这个链接 https://a.example/1"), null);
-  assert.equal(detectDurableActivation("比较这两个链接 https://a.example/1 https://b.example/2"), null);
-  assert.equal(detectDurableActivation("把这一篇文章保存为博客"), null);
-});
-
-test("a degraded preflight upgrades a deterministic multi-item request instead of silently going ordinary", () => {
-  const promoted = deterministicPromotionFallback("https://a.example/1 https://b.example/2 保存并发布", true);
-  assert.equal(promoted?.mode, "promote");
-  assert.match(promoted?.reason ?? "", /deterministic_fallback:multi_item_request/);
-  assert.equal(deterministicPromotionFallback("https://a.example/1 https://b.example/2 保存并发布", false), null);
-  assert.equal(deterministicPromotionFallback("What is the capital of France?", true), null);
-});
+const promote = async () => ({ mode: "promote" as const, reason: "decision_model:test:durable" });
 
 test("explicit command and per-request mode force activation, while suppress wins for the request", () => {
   assert.deepEqual(
@@ -67,12 +34,12 @@ test("explicit command and per-request mode force activation, while suppress win
   assert.equal(detectDurableActivation("/longtask Prepare it", "suppress"), null);
 });
 
-test("activation persists the source link and starts through the versioned queue seam", () => {
+test("activation persists the source link and starts through the versioned queue seam", async () => {
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-activation-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
   try {
     const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
-    const activated = activateDurableExecution({
+    const activated = await activateDurableExecution({
       message: "Keep working across sessions on the launch plan.",
       ownerId: "owner-1",
       botId: "web-profile",
@@ -80,7 +47,7 @@ test("activation persists the source link and starts through the versioned queue
       sourceChatId: "web:owner-1:web-profile",
       sourceUiSessionId: "session-1",
       sourceProjectId: "project-1"
-    }, coordinator);
+    }, coordinator, promote);
     assert.ok(activated);
     assert.equal(activated.item.execution.status, "queued");
     assert.equal(activated.item.execution.sourceUiSessionId, "session-1");
@@ -94,7 +61,7 @@ test("activation persists the source link and starts through the versioned queue
   }
 });
 
-test("automatic activation respects the unfinished-task quota while explicit force remains available", () => {
+test("automatic activation respects the unfinished-task quota while explicit force remains available", async () => {
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-quota-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
   try {
@@ -107,12 +74,12 @@ test("automatic activation respects the unfinished-task quota while explicit for
       sourceChatId: "web:owner-1:web-profile",
       maxUnfinishedExecutions: 1
     };
-    assert.ok(activateDurableExecution(request, coordinator));
-    assert.throws(
-      () => activateDurableExecution({ ...request, message: "未来几天继续处理第二份计划" }, coordinator),
+    assert.ok(await activateDurableExecution(request, coordinator, promote));
+    await assert.rejects(
+      () => activateDurableExecution({ ...request, message: "未来几天继续处理第二份计划" }, coordinator, promote),
       DurableExecutionQuotaError
     );
-    assert.ok(activateDurableExecution({ ...request, message: "/longtask Force the second plan" }, coordinator));
+    assert.ok(await activateDurableExecution({ ...request, message: "/longtask Force the second plan" }, coordinator, promote));
     assert.equal(store.countUnfinished("owner-1"), 2);
   } finally {
     store.close();

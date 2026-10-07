@@ -1,3 +1,7 @@
+# 可读执行进度（2026-10-08，P1，已交付）
+
+验收：实时默认展示面向用户的阶段说明、当前步骤与耗时；详细工具日志由用户展开。没有阶段正文时只显示结构化当前状态，诊断不进入用户进度。子代理生命周期保持稳定条目；长任务继续由决策模型判断。共享模型指引复用资料并减少重复抓取/读取，实际工具数量改善待后续任务核对。隔离组件与自动检查已验证；用户正在使用的服务及完整桌面运行连接冷路径尚未验证。
+
 # Desktop 统一窗口 Header（2026-10-07，P1，已交付）
 
 顶部与左侧共用窗口材质；当前页面标题和页面级操作迁入唯一顶部 Header，正文取消重复标题栏。范围包括聊天、项目、Room 和工作区，保留 Inspector 局部工具栏并适配所有主题。详细实施顺序和验收见 [改造规格](docs/requirements/desktop-unified-window-header-spec.md)。已按规格实施，并按 Codex 参考收紧为三栏：全局 Header 覆盖侧栏+对话两列，Inspector 为全高独立列（其 header 与全局 Header 同行），内容框带悬浮阴影；27 个主题移除 header 区独立背景以与侧栏统一材质。桌面回归、Svelte 检查、生产构建与 Rust 测试通过；原生红绿灯避让与原生拖动未在原生窗口走查。
@@ -1012,7 +1016,8 @@
 ## 3.65 Automatic Durable Execution 基础主链路（2026-08-10）
 
 - **Priority / Status**: P1 / Partially delivered. Detailed scope: [Automatic Durable Execution PRD](docs/requirements/automatic-durable-execution-prd.md).
-- **Delivered**: shared Agent-layer Durable Execution aggregate with dedicated `durable-execution.sqlite`; deterministic activation and per-request override; accepted Session Plan → deterministic multi-step Durable conversion; one-step-per-attempt continuation with run-detail evidence and Plan-card projection; versioned plan/step/criterion/attempt/decision/evidence/side-effect records; CAS and leases; watched-event JSON/runtime internal continuation; fresh hidden automation attempts; intent/receipt callbacks around non-pure tools; verifier-gated terminal states; cumulative token/attempt/lifetime guards; unfinished-task quota; creation-order queue position; shared one-shot catch-up handling with `recovery_required` on missed continuations; tiered structured model preflight with lazy promotion, executed-prefix absorption, and pre-handler termination; fail-closed queryable recovery; bounded, owner-scoped and explicitly untrusted evidence reads exposed to Durable attempts; persisted approvals with repeat counts and source-channel notifications; shared `/durable` short-handle actions; virtual Web profile routing to an active manager; Desktop transcript card, shared task inspector, sidebar projection, and terminal/waiting feedback.
+- **2026-10-07**: 自动启用与工具前预检使用所选决策模型；移除自然语言关键词判定，正文与实际指令分离。不可用或低置信度保留普通执行，显式命令仍可强制创建。详见自动启用条目。
+- **Delivered**: shared Agent-layer Durable Execution aggregate with dedicated `durable-execution.sqlite`; selected decision-model activation and per-request override; accepted Session Plan → deterministic multi-step Durable conversion; one-step-per-attempt continuation with run-detail evidence and Plan-card projection; versioned plan/step/criterion/attempt/decision/evidence/side-effect records; CAS and leases; watched-event JSON/runtime internal continuation; fresh hidden automation attempts; intent/receipt callbacks around non-pure tools; verifier-gated terminal states; cumulative token/attempt/lifetime guards; unfinished-task quota; creation-order queue position; shared one-shot catch-up handling with `recovery_required` on missed continuations; tiered structured model preflight with lazy promotion, executed-prefix absorption, and pre-handler termination; fail-closed queryable recovery; bounded, owner-scoped and explicitly untrusted evidence reads exposed to Durable attempts; persisted approvals with repeat counts and source-channel notifications; shared `/durable` short-handle actions; virtual Web profile routing to an active manager; Desktop transcript card, shared task inspector, sidebar projection, and terminal/waiting feedback.
 - **Not yet release-complete**: the local OpenAI-compatible-provider Chat API + same-database restart seam now passes, but the complete cold-start/cross-channel acceptance matrix and equivalent external-provider live acceptance remain. Temporary-database, focused runner and channel tests cover the offline seam, authorization, evidence bounds, no-probe recovery and approval consumption; they do not replace those remaining gates.
 - **Verification maintenance**: runner helper fixtures are typed against the canonical `RuntimeSettings` shape, keeping provider capability literals checked by TypeScript without expanding the product runtime surface.
 
@@ -1394,3 +1399,10 @@
 
 - **验收**：缺少最终正文的回合仍保留执行轨迹；错误来源 ID 不跨用户轮次关联；历史异常终态由最近运行摘要补齐。不同用户输入各自保留一轮输出。
 - **验证**：35 项相关回归及故障 session 只读重放通过；用户服务未重启，真实页面冷路径尚未走查。
+
+
+## 长命令执行进度（2026-10-07，P1）
+
+- **需求**：监控外部任务期间可以查看当前工具、实际输出中的步骤和等待耗时。长任务类型继续由当前决策模型判断。
+- **实现完成**：共享命令输出、Runner 活动更新与桌面进度展示接通；Pi 工具准备阶段同步展示，长输出保留最新状态，长命令完成后独立呈现。
+- **验收**：相关回归、前后端构建和隔离组件展示通过；用户服务未重启，完整桌面冷路径与真实聊天断线恢复待验证。

@@ -14,7 +14,7 @@
 
 ### 当前实施状态
 
-已交付的基础主链路：确定性启用与 per-request `auto/force/suppress`、接受的 Session Plan 幂等转换为多步骤 Durable Execution、每 attempt 一个步骤并写入 run-detail evidence、专用 `durable-execution.sqlite` 聚合、版本 CAS/lease、watched event JSON + runtime internal event 续跑、fresh automation attempt、步骤/证据/decision 状态、副作用 intent/receipt、共享 verifier、任务级预算/未终结配额/队列顺序、共享 one-shot catch-up window 与 missed-event recovery，以及 Desktop 会话卡片、Plan 状态投影、单一右侧 inspector、进行中侧栏和反馈/通知链路。普通 Run 的首次非纯工具边界现在还会经过分层限次、结构化模型 preflight；确认升级后会吸收已执行前缀、证据和回执，并在当前副作用执行前安全交接到 Durable Execution。恢复路径已接入 queryable 外部状态探针注册表，并在没有探针或结果不确定时 fail closed；证据读取器只解引用当前任务已授权的 run-detail，带 owner/Project/Session 边界、24KB 上限和不可信标记；审批请求、重复次数、来源渠道通知以及共享 `/durable` 短句柄动作也已落到同一 Durable 聚合。Web API 的虚拟 profile 会在入队前解析为实际可用的 Web manager，避免任务入队后因 manager id 不存在而失败。
+已交付的基础主链路：决策模型自动启用与 per-request `auto/force/suppress`、接受的 Session Plan 幂等转换为多步骤 Durable Execution、每 attempt 一个步骤并写入 run-detail evidence、专用 `durable-execution.sqlite` 聚合、版本 CAS/lease、watched event JSON + runtime internal event 续跑、fresh automation attempt、步骤/证据/decision 状态、副作用 intent/receipt、共享 verifier、任务级预算/未终结配额/队列顺序、共享 one-shot catch-up window 与 missed-event recovery，以及 Desktop 会话卡片、Plan 状态投影、单一右侧 inspector、进行中侧栏和反馈/通知链路。普通 Run 的首次非纯工具边界现在还会经过分层限次的所选决策模型 preflight；确认升级后会吸收已执行前缀、证据和回执，并在当前副作用执行前安全交接到 Durable Execution。恢复路径已接入 queryable 外部状态探针注册表，并在没有探针或结果不确定时 fail closed；证据读取器只解引用当前任务已授权的 run-detail，带 owner/Project/Session 边界、24KB 上限和不可信标记；审批请求、重复次数、来源渠道通知以及共享 `/durable` 短句柄动作也已落到同一 Durable 聚合。Web API 的虚拟 profile 会在入队前解析为实际可用的 Web manager，避免任务入队后因 manager id 不存在而失败。
 
 仍待交付的关键验收项：完整的冷启动/跨渠道验收矩阵（包括真实渠道 transport、重启后的来源通知和恢复后的 Agent 证据读取），以及外部 provider 下的同等 live 验收。本次已用真实 `/api/chat`、临时 `DATA_DIR`、本地 OpenAI-compatible provider 和同库服务重启验证：`profileId=personal` 成功路由到 `default` Web manager，provider 请求已发出，重启后公开 API 返回 `recovery_required` 与 `interrupted` attempt。离线事件超窗、queryable 无探针、证据目标丢失和审批越权已有临时库/单元守卫；这些测试不能替代剩余的冷启动/跨渠道验收。
 
@@ -85,27 +85,19 @@ V1 使用线性步骤，不建设通用 DAG。计划可以在执行中修订，�
 
 ### 自动启用
 
-长任务识别默认开启，不提供一个要求用户主动打开的模式开关。但**「默认开启」指的是这条通道永远可用，不是每一轮对话都要先跑一次分类模型**。运行时无法在调用模型之前"证明"一段自然语言没有执行需求——能做这个判断的只有另一次模型调用，所以「总是预分类」和「简单对话跳过预分类」不可能同时成立。V1 采用两条确定的启用路径：
+自动启用使用设置中当前启用并选中的决策模型（Jev、Cloudflare 或 LLM）。分类输入区分用户要求执行的动作与粘贴的文章、提示词、示例；文本长度、正文关键词和正文项目数量不能单独触发长任务。
 
-**路径 A：确定性信号，立即创建。** 无需模型判断即可成立的信号出现时，在本轮执行任何工具之前创建 Durable Execution：
+**请求入口分类。** `auto` 在普通执行前调用决策模型，选择普通任务或长任务；简单查询、单次本地修改、将一组现成提示词保存到应用均可保持普通执行。模型明确识别跨会话工作、需等待并恢复的工作、多阶段依赖执行或高风险外部操作时创建 Durable Execution。显式命令及 `force` 直接创建，`suppress` 跳过入口分类；续跑既有任务沿用其 id。
 
-- 用户明确表达多日执行、稍后继续、持续推进、定期汇报等跨会话意图；
-- 用户显式使用长任务命令或 per-request override 强制创建；
-- 续跑事件、恢复入口等本身就携带既有 Durable Execution id 的入口。
+**工具前预检。** 普通 Run 首次调用非 `pure` 工具及首次到达更高副作用等级时，使用同一个决策模型，连同工具、副作用等级和目标摘要判断是否升级。升级保留原始目标，初始验收使用待 owner 确认的主观标准，不因一次执行结束就宣称目标通过验收。
 
-**路径 B：惰性升级（lazy promotion），挂在首次非纯只读动作边界上。** 其余请求一律先走现有普通 Run，不额外付出分类延迟和成本。以下任一条件先触发时，在**执行动作之前**暂停并判断是否升级为 Durable Execution：
-
-- 即将调用任何声明为 `idempotent`、`queryable` 或 `non_idempotent` 的工具；只有 `pure`/只读工具不触发，因此简单文件修改可能支付一次 preflight 成本，但普通问答和纯查询不会；
-- 本次 Run 已消耗超过配置阈值的预算比例，且模型仍在推进未完成的多阶段工作；
-- 模型显式提出一个包含多个依赖阶段、或需要中途审批/用户决定的计划。
-
-升级判断本身使用一次轻量、结构化的模型 preflight，返回 `mode`、`reason`、`goal`、初始 `acceptanceCriteria`、预期等待和副作用风险。
+分类沿用决策模型的超时和置信度阈值。未配置、不可用、超时、无效响应或低置信度时保留普通 Run，不使用关键词回退。请求入口最多一次分类，工具前预检最多三次；这会给启用决策模型的普通请求增加一次分类延迟。
 
 **分类次数上限按副作用等级计，不按 Run 计。** 把上限简单写成"每个 Run 最多一次"会在最危险的那一刻关掉判断：一个 Run 先做一次 `idempotent` 文件写入、preflight 判 `ordinary`，十步之后模型执行一次 `non_idempotent` 的发送——那次发送是整份 PRD 里唯一真正不可回滚的动作，却因为"本 Run 已分类过"而完全不经过长任务考量。分类发生在信息最少的时刻，风险出现在之后。因此规则是：
 
 - 同一副作用等级在一个 Run 内最多触发一次 preflight；得到 `ordinary` 后，该等级的后续工具直接放行；
 - **首次出现更高副作用等级时必须重新判断一次**，等级序为 `idempotent` < `queryable` < `non_idempotent`；
-- 由此每个普通 Run 最多 3 次 preflight，实际绝大多数请求是 0 次或 1 次，成本仍然有界。
+- 由此工具前预检每个普通 Run 最多 3 次，不重复评估同一风险等级。
 
 预算阈值耗尽或模型后来明确提出多阶段/待决计划属于**确定性升级信号**，直接创建 Durable Execution，不再请求分类。确定性升级使用原始请求、当前显式计划和本轮已执行前缀生成初始目标与验收标准；生成失败则可见失败，不能继续作为无管理 Run 产生副作用。
 
@@ -115,7 +107,7 @@ V1 使用线性步骤，不建设通用 DAG。计划可以在执行中修订，�
 
 - 步骤数量本身不是判定标准，关键是是否需要跨 Run 状态、恢复或任务级验收；
 - 用户可以明确要求本次不要创建长任务（抑制），也可以把普通任务提升为长任务（强制）；
-- 分类结论、触发路径、原因和置信度记入运行事件，不作为普通对话消息持久化，也不污染后续 Agent Context。
+- 分类结论、原因、降级状态和延迟记入运行事件，不作为普通对话消息持久化，也不污染后续 Agent Context。
 
 无论走哪条路径，一旦判定为长任务，系统必须先写入初始目标、验收标准和第一个安全步骤，然后才允许执行会产生副作用的工具。
 
@@ -391,10 +383,10 @@ Settings 里现有的任务列表是 Runtime Task（定时、提醒、周期自�
 - Scope every Durable Execution by owner and Bot, with optional source Chat, UI Session, Agent Context Session and Project identity. IDs are stable across Runs and channels.
 - Use optimistic `version` checks for plan edits and user decisions, plus process-owner leases for active attempts. A stale worker cannot complete or mutate a newer version.
 - V1 plans are ordered linear steps. A step may be inserted, skipped or replaced through a new plan version, but arbitrary graphs, parallel dependency scheduling and nested workflows are not part of V1.
-- Automatic activation has exactly two paths and never runs a classifier on every conversational turn. Deterministic signals (explicit multi-day/continue-later intent, an explicit override, an inbound continuation carrying a task id) create the task up front. Everything else starts as an ordinary Run and reaches lazy-promotion preflight at the first non-pure tool call; a later budget threshold or explicit multi-stage/waiting plan is a deterministic promotion signal.
-- The preflight is capped per side-effect tier, not per Run: at most one preflight per tier (`idempotent` < `queryable` < `non_idempotent`), and the first appearance of a higher tier always re-evaluates even after an `ordinary` verdict at a lower one. Capping per Run would switch the decision off exactly at the first irreversible action. The bound is therefore at most three preflights per Run, and zero or one for almost every request. It returns `mode`, `reason`, `goal`, initial `acceptanceCriteria`, expected waits and side-effect risk, must complete before the triggering tool executes, and its output is a structured runtime event rather than a persisted conversational control message.
+- Automatic activation and non-pure tool preflight use the selected decision model. Explicit commands and overrides bypass classification; existing task continuations retain their task id. Quoted or pasted content is data, not execution intent.
+- The preflight is capped per side-effect tier, not per Run: at most one preflight per tier (`idempotent` < `queryable` < `non_idempotent`), and the first appearance of a higher tier always re-evaluates even after an `ordinary` verdict at a lower one. Capping per Run would switch the decision off exactly at the first irreversible action. The bound is therefore at most three preflights per Run, in addition to one request-entry classification. The runtime preserves the original goal and uses owner-confirmed subjective acceptance criteria; must complete before the triggering tool executes, and its output is a structured runtime event rather than a persisted conversational control message.
 - Mid-run promotion absorbs the current Run's already-executed tool calls as completed steps carrying their real receipts, and as `uncertain` steps where a receipt is missing. Promotion never discards and never replays a call that already happened. If absorption fails, the request ends with a visible error instead of continuing as an unmanaged Run.
-- If the preflight fails, ordinary low-risk requests continue through the existing Run. A request explicitly identified as multi-day/long-running fails visibly before side effects rather than silently degrading to an unmanaged Run.
+- Unavailable or uncertain classification leaves the ordinary Run in control without keyword promotion. Explicit long-task requests still create a persistent execution.
 - `paused` is a first-class state distinct from `waiting_for_user`, and `partial` is terminal. A user-initiated "continue" from a terminal state creates a new plan version and a new attempt rather than reopening the terminal state.
 - Each attempt builds a fresh controlled Agent Context from stored state (goal, constraints, live acceptance criteria, completed-step evidence summaries and safe references, current step input, previous failure reason). The briefing is an index, not the only knowledge source: a read-only evidence reader lets the attempt dereference only its own authorized evidence under bounded output limits. Attempt Sessions are automation-origin and must be filtered out of every conversation-listing surface in the shared query layer.
 - Enforce a task-level budget (cumulative tokens, attempt count, lifetime days), a per-owner active-execution concurrency cap, and a per-owner cap on unfinished executions. Budget exhaustion yields `partial` with an explicit reason; the concurrency cap queues rather than drops; the unfinished cap rejects further automatic promotion while still honouring an explicit override. Current usage is visible before it is exhausted.
@@ -426,7 +418,7 @@ Settings 里现有的任务列表是 Runtime Task（定时、提醒、周期自�
 - Desktop presentation follows the four surfaces defined in “macOS 桌面端展示”: an in-place transcript card, a third mode of the existing right-hand inspector panel, a sidebar “进行中” group above the conversation list, and a top-chrome badge with macOS notifications for decisions and terminal outcomes. Progress never appends transcript messages, and long-task detail has exactly one host component.
 - Desktop presentation follows `DESIGN.md`, existing shadcn-svelte components, semantic styles, fixed action footers where saving is involved, bilingual copy, Light/Dark/System themes and narrow widths. No viewport units inside sibling-sized panes, `minmax()` floors on panel tracks, paired type-scale variables instead of raw px, semantic colour tokens only, and the task inspector must survive a session switch as workspace-level state.
 - Retain state until the **execution** reaches a terminal state, not until an attempt does. A failed attempt inside a live execution keeps its evidence, because the evidence reader dereferences exactly those references on the next attempt; retention keyed on attempt terminality would let a later attempt read a dangling reference. Apply configurable age/size retention to terminal executions' attempt details while preserving a compact terminal summary and acceptance outcome.
-- Implementation proceeds as one end-to-end vertical slice at a time, each slice ending at a user-visible surface rather than at a store: (1) deterministic activation + persisted task + transcript card and sidebar row; (2) `pure` declarations for the read-only core tools, then lazy-promotion preflight with per-tier caps, absorption of the already-executed prefix and deterministic later escalation; (3) one side-effecting step with a human-checkable receipt + task inspector panel + decision/approval rendering in the originating Session; (4) kill/restart recovery + the recovery prompt and notification; (5) task-level verification + acceptance-criteria UI; (6) budgets, quotas, `queued` and offline catch-up; (7) remaining tool declarations and Channel cards/commands.
+- Implementation proceeds as one end-to-end vertical slice at a time, each slice ending at a user-visible surface rather than at a store: (1) decision-model activation + persisted task + transcript card and sidebar row; (2) `pure` declarations for the read-only core tools, then lazy-promotion preflight with per-tier caps, absorption of the already-executed prefix and later escalation; (3) one side-effecting step with a human-checkable receipt + task inspector panel + decision/approval rendering in the originating Session; (4) kill/restart recovery + the recovery prompt and notification; (5) task-level verification + acceptance-criteria UI; (6) budgets, quotas, `queued` and offline catch-up; (7) remaining tool declarations and Channel cards/commands.
 
 ## Testing Decisions
 
@@ -438,7 +430,7 @@ Settings 里现有的任务列表是 Runtime Task（定时、提醒、周期自�
 - Add focused state-machine/store tests only for invariants that are difficult to isolate through the product seam: version conflicts, lease ownership, legal transitions, atomic intent/receipt writes, decision idempotency and retention.
 - Reuse existing prior art: golden-set state/trace assertions, scratch-service isolation, Agent Context checkpoint tests, persistent inbound queue recovery tests, execution lease recovery tests, Runner receipt guards and cooperative timeout tests.
 - A good completion test asserts world state and acceptance evidence. Matching the words “done”, observing a tool name, or inspecting a private helper is insufficient.
-- Automatic activation scenarios cover explicit multi-day intent, multi-stage action with waits, risky external side effects, a simple file edit, a single lookup and ordinary conversation. They assert that pure queries and ordinary conversation reach no preflight, a simple non-pure edit reaches at most one preflight but may remain ordinary, **an `ordinary` verdict at the `idempotent` tier does not suppress the preflight at the first `non_idempotent` tool in the same Run**, no tier is evaluated twice, and a later budget/explicit-plan escalation promotes deterministically without a further classifier call. Measure false-positive and false-negative classification separately.
+- Automatic activation scenarios cover explicit multi-day intent, multi-stage action with waits, risky external side effects, a simple file edit, a single lookup and ordinary conversation. They assert that configured request-entry classification distinguishes execution intent from pasted content, pure tools reach no tool preflight, a simple non-pure edit reaches at most one preflight but may remain ordinary, **an `ordinary` verdict at the `idempotent` tier does not suppress the preflight at the first `non_idempotent` tool in the same Run**, no tier is evaluated twice, and a later budget/explicit-plan escalation promotes deterministically without a further classifier call. Measure false-positive and false-negative classification separately.
 - Mid-run promotion scenarios prove that tool calls already executed in the promoted Run appear as completed steps with their real receipts, that none of them is re-executed, that a receipt-less call becomes `uncertain`, and that a failed absorption ends the request visibly instead of continuing unmanaged.
 - Safe-recovery scenarios inject failure before intent, after intent/before side effect, after side effect/before receipt, after receipt, while waiting for approval, while waiting for a user decision, and during final verification. The post-side-effect/pre-receipt case uses the external blocking fixture and proves the mutation exists before `SIGKILL`; the verification case asserts that verification re-runs rather than entering `uncertain`, and that judge results are recomputed while deterministic results may be reused.
 - Budget and quota scenarios prove that task-level exhaustion produces `partial` with a stated reason rather than silent continuation, that the concurrency cap queues instead of dropping, and that the unfinished-task cap blocks further automatic promotion while an explicit override still works.
@@ -481,8 +473,8 @@ Settings 里现有的任务列表是 Runtime Task（定时、提醒、周期自�
 - Automatic detection should be judged as a product classifier, not treated as prompt folklore. Its errors must be visible in eval results, and the user must retain a one-request override.
 - This PRD refines the existing planned work item P1-211. It does not change the delivered status of P1-210 bounded recovery.
 - `verifying` is kept as a distinct machine state rather than a phase flag, because the coordinator must forbid side-effecting steps while it is active; it is folded into “进行中” only at the presentation layer.
-- The lazy-promotion design deliberately accepts one trade-off: a request that needs cross-Run state but touches nothing external until late will spend its early work inside an ordinary Run. That work is absorbed on promotion, so nothing is lost, but the earliest steps carry weaker evidence than steps planned from the start. This is the price of not taxing every ordinary conversation with a classifier call, and it is the trade-off the product owner is being asked to approve.
+- Request-entry classification adds one decision call when configured. Tool preflight can revise an ordinary decision when later actions introduce higher risk; promotion absorbs earlier work and its receipts.
 - Offline behaviour is a product statement, not only an engineering limit: “多日执行” means the task survives days, not that it progresses while the Mac is asleep or the app is closed. Every surface that shows a long task must be able to say which of the two it is currently doing.
 - A plan that lives in a Markdown or JSON file is the single most likely way this feature quietly fails: it looks friendlier, it is readable in a diff, and it invites the model to edit it. But the moment the plan is a file the model can rewrite, "已完成步骤不能因计划改写而失去证据" and "模型不能自己宣布完成" stop being enforceable. See [ADR 0004](../adr/0004-per-domain-databases-and-state-representation.md) for the general form of this decision.
 - Per-attempt approval expiry and per-tier preflight are the two places where V1 deliberately pays a recurring user cost to keep a safety property. Both are instrumented (repeat-count metric, preflight-count and latency metric) so the cost is measured rather than argued about, and either can be revisited with data.
-- Product-owner confirmation received before implementation: the V1 boundary, the `Durable Execution` terminology, the two activation paths (deterministic signal + lazy promotion with per-tier preflight caps) and their trade-off, the database-only state representation with Markdown as export, the per-attempt approval scope with its repeat cost, the task-level budget/quota ceilings, and the real Chat API plus service restart test seam.
+- Product-owner confirmation received before implementation: the V1 boundary, the `Durable Execution` terminology, decision-model activation and per-tier tool preflight, the database-only state representation with Markdown as export, the per-attempt approval scope with its repeat cost, the task-level budget/quota ceilings, and the real Chat API plus service restart test seam.

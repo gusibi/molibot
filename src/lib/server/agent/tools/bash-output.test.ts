@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createBashTool, getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
-import { normalizeCommandOutput } from "$lib/server/agent/tools/helpers.js";
+import { commandOutputProgress, normalizeCommandOutput } from "$lib/server/agent/tools/helpers.js";
 import { truncateMiddle } from "$lib/server/agent/tools/truncate.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
@@ -1007,4 +1007,26 @@ test("bound-environment sandbox denials still escalate into a Host Bash approval
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+
+test("command progress coalesces chunks, keeps recent output and stops after abort", t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const controller = new AbortController();
+  const updates: string[] = [];
+  const progress = commandOutputProgress(output => updates.push(output), controller.signal);
+  progress.push("x".repeat(5000));
+  progress.push("\x1b[32mRun Tests\x1b[0m");
+  assert.equal(updates.length, 0);
+  t.mock.timers.tick(500);
+  assert.equal(updates.length, 1);
+  assert.ok(updates[0].endsWith("Run Tests"));
+  assert.ok(updates[0].length <= 4000);
+  progress.flush();
+  assert.equal(updates.length, 1);
+  progress.push("late");
+  controller.abort();
+  progress.flush();
+  t.mock.timers.tick(1000);
+  assert.equal(updates.length, 1);
 });

@@ -88,6 +88,7 @@ export function getRuntimeContextForConversation(
 }
 
 export function stopWebRunner(input: {
+  recoveryRunId?: string;
   profileId: string;
   conversationId: string;
   userId?: string;
@@ -103,7 +104,10 @@ export function stopWebRunner(input: {
   const { pool } = getRuntimeContextForConversation(identity.profileId, conversationId);
   const runner = pool.get(resolveRunnerChatId(conversationId, identity.externalUserId), conversationId);
   if (!runner.isRunning()) return { ok: true, stopped: false };
-  runner.abort();
+  if (input.recoveryRunId !== undefined) {
+    return { ok: true, stopped: runner.abortRun({ runId: input.recoveryRunId, source: "orphan_recovery" }) };
+  }
+  runner.abort("user_stop");
   return { ok: true, stopped: true };
 }
 

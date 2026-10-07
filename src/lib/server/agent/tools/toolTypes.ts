@@ -16,7 +16,7 @@ export interface SafeFsApi {
 }
 
 export interface SafeShellApi {
-  run(command: string, options?: { cwd?: string; timeoutMs?: number }): Promise<{
+  run(command: string, options?: { cwd?: string; timeoutMs?: number; onOutput?: (output: string) => void }): Promise<{
     exitCode: number;
     stdout: string;
     stderr: string;

@@ -851,19 +851,20 @@ test("collapsed rail carries conversation/project toggles and reuses the shared 
   assert.match(view, /function openWorkspacePane\(pane: Exclude<ChatWorkspacePaneName, "chat">\): void \{\s*roomPaneActive = false;\s*collapsedFlyout = null;/);
 });
 
-test("list-section headings switch the right pane; only the caret collapses", () => {
+test("list-section headings navigate, then collapse on a second click; the caret also collapses", () => {
   // A section label navigates to that section's content (last conversation /
-  // project / room), so a workspace destination can never trap the reader. The
-  // caret is the separate collapse control.
+  // project / room), so a workspace destination can never trap the reader.
+  // Clicking the heading again once its section is already showing collapses
+  // the list; the caret is the separate collapse control.
   assert.match(chatSidebar, /onOpenConversations,\n\s*onOpenProjects,\n\s*onOpenRooms,/);
   assert.match(sidebarLists, /class="sidebar-section-toggle" onclick=\{onOpenConversations\}/);
   assert.match(sidebarLists, /class="sidebar-section-toggle" onclick=\{onOpenRooms\}/);
   assert.match(sidebarLists, /class="sidebar-section-caret-btn" aria-expanded=\{conversationsOpen\}/);
   assert.match(projectTree, /class="sidebar-section-toggle" onclick=\{onOpen\}/);
   assert.match(projectTree, /class="sidebar-section-caret-btn" aria-expanded=\{expanded\}/);
-  assert.match(view, /function openConversationsSection\(\): void \{\s*if \(!conversationsExpanded\) \{ conversationsExpanded = true; persistSidebarTree\(\); \}[\s\S]*?workspacePane = "chat";/);
-  assert.match(view, /function openProjectsSection\(\): void \{\s*if \(!projectsExpanded\) \{ projectsExpanded = true; persistSidebarTree\(\); \}[\s\S]*?projectPaneActive = true;/);
-  assert.match(view, /function openRoomsSection\(\): void \{/);
+  assert.match(view, /function openConversationsSection\(\): void \{\s*if \(!sidebarCollapsed && workspacePane === "chat" && !projectPaneActive && !roomPaneActive && conversationsExpanded\) \{\s*conversationsExpanded = false;\s*persistSidebarTree\(\);\s*return;\s*\}[\s\S]*?workspacePane = "chat";/);
+  assert.match(view, /function openProjectsSection\(\): void \{\s*if \(!sidebarCollapsed && projectPaneActive && projectsExpanded\) \{\s*projectsExpanded = false;\s*persistSidebarTree\(\);\s*return;\s*\}[\s\S]*?projectPaneActive = true;/);
+  assert.match(view, /function openRoomsSection\(\): void \{\s*if \(!sidebarCollapsed && roomPaneActive && roomsExpanded\) \{\s*roomsExpanded = false;\s*persistSidebarTree\(\);\s*return;\s*\}[\s\S]*?if \(sidebarRooms\[0\]\) openRoom\(sidebarRooms\[0\]\.id\);/);
   assert.match(styles, /\.sidebar-section-caret-btn\s*\{/);
 });
 
@@ -3137,10 +3138,8 @@ test("completed turns and the Artifact Panel share one flat final-file list", ()
 test("completed reasoning stays opt-in while live reasoning remains visible", () => {
   assert.match(transcript, /<ThinkingCard text=\{message\.thinking\}/);
   assert.doesNotMatch(thinkingCard, /<details class="thinking-card"[^>]*\bopen>/);
-  // The live card is force-open only while no answer exists yet; once response
-  // content streams it folds itself (detailed assertions live with the
-  // turn-process guards in the scroll/navigation suite).
-  assert.match(conversationLiveView, /<TurnProcess blocks=\{liveSections\.process\}[^>]*forceOpen=\{!liveSections\.response\.length\} live/);
+  // Human progress remains visible while execution details are opt-in.
+  assert.match(conversationLiveView, /<TurnProcess blocks=\{liveSections\.process\}[^>]* live/);
   assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
 });
 
@@ -3230,12 +3229,11 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.match(conversationLiveView, /<ConversationTranscript/);
   assert.match(conversationLiveView, /<TurnProcess/);
   assert.match(turnProcess, /<ProcessTimeline/);
-  // The reasoning card folds as soon as the answer starts streaming, not only
-  // at turn end: the live card is force-open only while no response block
-  // exists, and TurnProcess follows forceOpen transitions downward (a manual
-  // re-expand after the fold is never re-collapsed).
-  assert.match(conversationLiveView, /forceOpen=\{!liveSections\.response\.length\}/);
-  assert.match(turnProcess, /forceOpen !== lastForceOpen/);
+  // Raw tool and reasoning logs never force themselves open.
+  assert.doesNotMatch(conversationLiveView, /forceOpen=/);
+  assert.match(turnProcess, /let opened = false/);
+  assert.match(turnProcess, /presentation\.commentary/);
+  assert.match(turnProcess, /copy\.executionDetails/);
 });
 
 test("long conversations share one user-turn navigator and preserve reader scroll ownership", () => {
@@ -6093,5 +6091,17 @@ test("theme header shares the sidebar material instead of its own background", (
     const source = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
     assertHeaderFree(/\[data-theme-region="header"\]\s*\{([^}]*)\}/g, "header region", source, file);
     assertHeaderFree(/\[data-theme-region="file-panel"\]\s\.file-panel-head\s*\{([^}]*)\}/g, "Inspector header", source, file);
+  }
+});
+
+test("durable cards preserve multiline content without widening their grid", () => {
+  const card = read("./lib/chat/DurableExecutionCard.svelte");
+  assert.match(card, /grid-template-columns: minmax\(0, 1fr\)/);
+  for (const selector of [".durable-execution-card-title h3", ".durable-execution-progress-meta span:last-child", ".durable-execution-waiting span"]) {
+    const start = card.indexOf(selector + " {");
+    const rule = card.slice(start, card.indexOf("}", start));
+    assert.match(rule, /white-space: pre-wrap/);
+    assert.match(rule, /overflow-wrap: anywhere/);
+    assert.doesNotMatch(rule, /white-space: nowrap/);
   }
 });

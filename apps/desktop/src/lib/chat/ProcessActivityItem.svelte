@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import InfoCircle from "reicon-svelte/icons/InfoCircle";
@@ -15,11 +16,22 @@
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
 
   let expanded = false;
+  let now = Date.now();
+  onMount(() => {
+    if (activity.state !== "running") return;
+    const timer = setInterval(() => {
+      if (activity.state === "running") now = Date.now();
+      else clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  });
   $: body = classifyActivityBody(activity);
-  $: metadata = formatActivityMetadata(activity);
+  $: metadata = formatActivityMetadata(activity.state === "running" && activity.startedAt
+    ? { ...activity, durationMs: Math.max(0, now - Date.parse(activity.startedAt)) }
+    : activity);
   $: rawBodyContent = body?.kind === "diff" ? (body.diff ?? "") : (body?.content ?? "");
   $: preview = activityPreview(rawBodyContent);
-  $: bodyContent = expanded ? rawBodyContent : preview.content;
+  $: bodyContent = activity.state === "running" ? rawBodyContent.split("\n").slice(-12).join("\n") : expanded ? rawBodyContent : preview.content;
   $: ToolIcon = ACTIVITY_TOOL_ICONS[activityToolIcon(activity)];
 
   const STATUS_ICONS = {
@@ -56,7 +68,7 @@
     <StatusIcon weight="Filled" size={14} aria-hidden="true" />
   {/if}
   {#if body}
-    <details class="process-tool-detail" open={activity.state === "error"}>
+    <details class="process-tool-detail" open={activity.state === "error" || activity.state === "running"}>
       <summary>
         <span class="process-tool-title">
           <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
@@ -92,5 +104,6 @@
       <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
       <span class="process-tool-label-text">{activity.label}</span>
     </span>
+    {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
   {/if}
 </div>

@@ -10,6 +10,27 @@ export class ConversationActivityCollector {
   constructor(private readonly now: () => number = Date.now) {}
 
   record(event: RunnerUiEvent): ConversationActivity | undefined {
+    if (event.type === "subagent_execution") {
+      if (event.phase !== "task_start" && event.phase !== "task_end") return undefined;
+      const parent = this.activities.findLast(activity => activity.kind === "tool" && activity.tool === "subagent" && activity.state === "running");
+      if (!parent) return undefined;
+      const key = `${parent.key}:task:${event.taskIndex ?? 1}`;
+      const index = this.activities.findIndex(activity => activity.key === key);
+      const previous = this.activities[index];
+      if (event.phase === "task_end" && !previous) return undefined;
+      const finishedAt = event.phase === "task_end" ? new Date(this.now()).toISOString() : undefined;
+      const activity: ConversationActivity = {
+        key, kind: "subagent", label: event.agent || "subagent",
+        state: event.phase === "task_start" ? "running" : event.stopReason === "error" || event.stopReason === "aborted" ? "error" : event.stopReason === "waiting_for_approval" ? "info" : "success",
+        summary: (event.progress || event.errorMessage || event.task || "").slice(0, MAX_SUMMARY_LENGTH),
+        startedAt: previous?.startedAt ?? new Date(this.now()).toISOString(),
+        ...(finishedAt ? { finishedAt, durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(previous!.startedAt!)) } : {})
+      };
+      if (index >= 0) this.activities[index] = activity;
+      else this.activities.push(activity);
+      return { ...activity };
+    }
+
     if (event.type === "tool_execution_start") {
       const existingIndex = this.activities.findIndex((candidate) => candidate.key === event.toolCallId);
       const existing = existingIndex >= 0 ? this.activities[existingIndex] : undefined;
@@ -41,6 +62,13 @@ export class ConversationActivityCollector {
       if (existingIndex >= 0) this.activities[existingIndex] = activity;
       else this.activities.push(activity);
       return activity;
+    }
+
+    if (event.type === "tool_execution_update") {
+      const activity = this.activities.find(candidate => candidate.key === event.toolCallId);
+      if (!activity || activity.state !== "running") return undefined;
+      activity.summary = event.summary.slice(-MAX_SUMMARY_LENGTH);
+      return { ...activity };
     }
 
     if (event.type !== "tool_execution_end") return undefined;

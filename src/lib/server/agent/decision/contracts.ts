@@ -20,9 +20,16 @@ export interface DecisionProviderResult {
   estimatedCost?: number;
 }
 
+export interface DecisionQuestion {
+  id: string;
+  instructions: string;
+  criteria: Record<string, string>;
+}
+
 export interface DecisionProvider {
   decide(input: {
     context: DecisionContext;
+    question?: DecisionQuestion;
     signal: AbortSignal;
   }): Promise<DecisionProviderResult>;
 }

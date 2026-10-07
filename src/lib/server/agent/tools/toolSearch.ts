@@ -232,6 +232,13 @@ export function createToolSearchTool(options: {
         });
       }
 
+      const unmatched = directSelections?.filter((selected) =>
+        !matches.some((entry) => normalize(selected) === normalize(entry.name))
+      ) ?? [];
+      const selectionWarning = unmatched.length > 0
+        ? `Unmatched direct selections: ${unmatched.join(", ")}\nselect: accepts exact tool names only. Search keywords in a separate query without select:.\nAvailable deferred tools: ${deferredTools.map((entry) => entry.name).join(", ") || "(none)"}`
+        : "";
+
       const loaded = options.loadDeferredTools(matches.map((entry) => entry.name));
       momLog("runner", "tool_search_end", {
         chatId: options.chatId,
@@ -246,13 +253,14 @@ export function createToolSearchTool(options: {
         return {
           content: [{
             type: "text",
-            text: `No deferred tool matched: ${query}\nAvailable deferred tools: ${deferredTools.map((entry) => entry.name).join(", ") || "(none)"}`
+            text: selectionWarning || `No deferred tool matched: ${query}\nAvailable deferred tools: ${deferredTools.map((entry) => entry.name).join(", ") || "(none)"}`
           }],
-          details: { matches: [], loaded: [] }
+          details: { matches: [], loaded: [], unmatched }
         };
       }
 
       const lines = [
+        ...(selectionWarning ? [selectionWarning] : []),
         loaded.length > 0
           ? `Loaded deferred tools: ${loaded.join(", ")}`
           : "Matching deferred tools were already loaded.",
@@ -271,7 +279,8 @@ export function createToolSearchTool(options: {
             keywords: entry.keywords,
             schema: buildFunctionSchema(entry)
           })),
-          loaded
+          loaded,
+          unmatched
         }
       };
     }

@@ -4,6 +4,7 @@ import { sanitizeWebProfileId, sanitizeWebUserId } from "$lib/server/web/identit
 import { stopWebRunner, waitForWebRunnerIdle } from "$lib/server/web/runtimeContext";
 
 interface StopBody {
+  recoveryRunId?: string;
   profileId?: string;
   conversationId?: string;
   userId?: string;
@@ -24,7 +25,10 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "conversationId is required" }, { status: 400 });
   }
 
-  const result = stopWebRunner({ profileId, userId, conversationId });
+  if (body.recoveryRunId !== undefined && (typeof body.recoveryRunId !== "string" || !body.recoveryRunId.trim())) {
+    return json({ ok: false, error: "recoveryRunId must be a non-empty string" }, { status: 400 });
+  }
+  const result = stopWebRunner({ profileId, userId, conversationId, recoveryRunId: body.recoveryRunId });
   if (result.stopped) {
     await waitForWebRunnerIdle({ profileId, userId, conversationId });
   }

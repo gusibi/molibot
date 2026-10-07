@@ -1,13 +1,13 @@
 <script lang="ts">
   import ChatRoundLine from "../icons/duotone/components/ChatRoundLine.svelte";
   import Dialog from "../icons/duotone/components/Dialog.svelte";
-  import Feed from "../icons/duotone/components/Feed.svelte";
-  import Layers from "../icons/duotone/components/Layers.svelte";
   import Pen from "../icons/duotone/components/Pen.svelte";
   import RulerPen from "../icons/duotone/components/RulerPen.svelte";
-  import SortTime from "../icons/duotone/components/SortTime.svelte";
   import Users2 from "../icons/duotone/components/Users2.svelte";
   import Widget2 from "../icons/duotone/components/Widget2.svelte";
+  import Bulb2 from "reicon-svelte/icons/Bulb2";
+  import Package from "reicon-svelte/icons/Package";
+  import SendClock from "reicon-svelte/icons/SendClock";
   import Settings2 from "reicon-svelte/icons/Settings2";
   import SidebarLists, { type SidebarListSection } from "./SidebarLists.svelte";
   import type { ChannelDescriptor } from "./ChannelAccordion.svelte";
@@ -121,10 +121,10 @@
   } = $props();
 
   const workspaceItems = $derived([
-    { key: "automations", label: copy.autoTasks, icon: SortTime, active: activeWorkspacePane === "automations", badge: automationUnreadCount, onSelect: onOpenAutoTasks },
+    { key: "automations", label: copy.autoTasks, icon: SendClock, active: activeWorkspacePane === "automations", badge: automationUnreadCount, onSelect: onOpenAutoTasks },
     { key: "skills", label: copy.skillsSquare, icon: RulerPen, active: activeWorkspacePane === "skills", badge: 0, onSelect: onOpenSkills },
     { key: "agents", label: copy.agentsNav, icon: Users2, active: activeWorkspacePane === "agents", badge: 0, onSelect: onOpenAgents },
-    { key: "plans", label: copy.planBoardNav, icon: Layers, active: activeWorkspacePane === "plans", badge: 0, onSelect: onOpenPlans },
+    { key: "plans", label: copy.planBoardNav, icon: Bulb2, active: activeWorkspacePane === "plans", badge: 0, onSelect: onOpenPlans },
     { key: "miniapps", label: copy.miniAppsNav, icon: Widget2, active: activeWorkspacePane === "miniapps", badge: 0, onSelect: onOpenMiniApps }
   ]);
 
@@ -196,7 +196,7 @@
           title={copy.projects}
           onclick={() => onToggleFlyout?.("projects")}
         >
-          <Feed size={18} aria-hidden="true" />
+          <Package size={18} weight="Filled" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -220,7 +220,7 @@
             title={item.label}
             onclick={item.onSelect}
           >
-            <Icon size={18} aria-hidden="true" />
+            <Icon size={18} weight="Filled" aria-hidden="true" />
             {#if item.badge > 0}<span class="rail-notification" aria-label={`${item.badge} ${copy.tasksReminderUnread}`}>{item.badge > 99 ? "99+" : item.badge}</span>{/if}
           </button>
         {/each}
@@ -252,7 +252,7 @@
       {#each workspaceItems as item (item.key)}
         {@const Icon = item.icon}
         <button type="button" class="nav-item" class:active={item.active} aria-current={item.active ? "page" : undefined} onclick={item.onSelect}>
-          <Icon size={16} aria-hidden="true" />
+          <Icon size={16} weight="Filled" aria-hidden="true" />
           <span>{item.label}</span>
           {#if item.badge > 0}<span class="nav-notification" aria-label={`${item.badge} ${copy.tasksReminderUnread}`}>{item.badge > 99 ? "99+" : item.badge}</span>{/if}
         </button>

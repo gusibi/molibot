@@ -85,6 +85,7 @@ export interface ExecOptions {
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   inheritProcessEnv?: boolean;
+  onOutput?: (output: string) => void;
 }
 
 export interface ExecResult {
@@ -114,6 +115,26 @@ export function normalizeCommandOutput(text: string): string {
     .join("\n");
 }
 
+/** Bounded recent output, coalesced to avoid flooding the live transcript. */
+export function commandOutputProgress(onOutput?: (output: string) => void, signal?: AbortSignal) {
+  let progressTail = "";
+  let dirty = false;
+  let progressTimer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    if (progressTimer) clearTimeout(progressTimer);
+    progressTimer = undefined;
+    if (!signal?.aborted && dirty) onOutput?.(normalizeCommandOutput(stripAnsi(progressTail)));
+    dirty = false;
+  };
+  const push = (chunk: string) => {
+    if (!onOutput) return;
+    progressTail = (progressTail + chunk).slice(-4_000);
+    dirty = true;
+    if (!progressTimer) progressTimer = setTimeout(flush, 500);
+  };
+  return { push, flush, cancel: () => { if (progressTimer) clearTimeout(progressTimer); progressTimer = undefined; } };
+}
+
 export async function execCommand(command: string, opts: ExecOptions): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const child = spawn("sh", ["-lc", command], {
@@ -126,6 +147,7 @@ export async function execCommand(command: string, opts: ExecOptions): Promise<E
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    const progress = commandOutputProgress(opts.onOutput, opts.signal);
 
     const timer =
       opts.timeoutSeconds && opts.timeoutSeconds > 0
@@ -173,15 +195,18 @@ export async function execCommand(command: string, opts: ExecOptions): Promise<E
 
     child.stdout?.on("data", (chunk) => {
       stdout += chunk.toString();
+      progress.push(chunk.toString());
       if (stdout.length > 10 * 1024 * 1024) stdout = stdout.slice(0, 10 * 1024 * 1024);
     });
 
     child.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
+      progress.push(chunk.toString());
       if (stderr.length > 10 * 1024 * 1024) stderr = stderr.slice(0, 10 * 1024 * 1024);
     });
 
     child.on("close", (code) => {
+      progress.flush();
       if (timer) clearTimeout(timer);
       if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
 
@@ -199,6 +224,7 @@ export async function execCommand(command: string, opts: ExecOptions): Promise<E
     });
 
     child.on("error", (error) => {
+      progress.cancel();
       if (timer) clearTimeout(timer);
       if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
       reject(error);
@@ -222,13 +248,14 @@ export function toolDefToAgentTool(
     label: def.name,
     description: def.description,
     parameters: def.inputSchema as any,
-    execute: async (toolCallId, params, signal) => {
+    execute: async (toolCallId, params, signal, onUpdate) => {
       const ctx: ToolExecutionContext = {
         runId: options?.runId ?? toolCallId,
         sessionId: options?.sessionId ?? "legacy-session",
         workspaceId: "legacy-workspace",
         actorId: "legacy-actor",
         toolCallId,
+        onUpdate,
         signal,
         cwd,
         fs: {
@@ -247,6 +274,7 @@ export function toolDefToAgentTool(
                 cwd: opts?.cwd ?? cwd,
                 timeoutSeconds: opts?.timeoutMs ? opts.timeoutMs / 1000 : undefined,
                 signal,
+                onOutput: opts?.onOutput,
                 env
               });
               // Metadata must survive: the bash handler reads sandboxApplied to
@@ -264,6 +292,7 @@ export function toolDefToAgentTool(
               cwd: opts?.cwd ?? cwd,
               timeoutSeconds: opts?.timeoutMs ? opts.timeoutMs / 1000 : undefined,
               env: env,
+              onOutput: opts?.onOutput,
               signal
             });
             return { exitCode: res.code, stdout: res.stdout, stderr: res.stderr };

@@ -518,19 +518,10 @@ test("desktopProjectRawFileUrl produces raw inspection file url with optional ve
   );
 });
 
-test("parseDesktopActivity maps tool start/end diagnostics to timeline entries", () => {
-  assert.deepEqual(
-    parseDesktopActivity("runner_event", { diagnostic: "tool_start=Bash, label=Run tests" }),
-    { kind: "tool", key: "legacy-Bash", label: "Bash", state: "running" }
-  );
-  assert.deepEqual(
-    parseDesktopActivity("runner_event", { diagnostic: "tool_end=Bash, status=ok, summary=done" }),
-    { kind: "tool", key: "legacy-Bash", label: "Bash", state: "success" }
-  );
-  assert.deepEqual(
-    parseDesktopActivity("runner_event", { diagnostic: "tool_end=Read, status=error, summary=boom" }),
-    { kind: "tool", key: "legacy-Read", label: "Read", state: "error" }
-  );
+test("runtime diagnostics never become user-facing activities", () => {
+  for (const diagnostic of ["tool_start=Bash, label=Run tests", "tool_end=Read, status=error", "subagent_phase=task_start, mode=single, tasks=1"]) {
+    assert.equal(parseDesktopActivity("runner_event", { diagnostic }), null);
+  }
 });
 
 test("parseDesktopActivity surfaces thread notes and ignores plain token events", () => {

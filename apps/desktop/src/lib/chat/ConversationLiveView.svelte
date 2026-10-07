@@ -102,11 +102,7 @@
           </div>
         {/if}
         {#if liveSections.process.length}
-          <!-- Force-open only until the answer exists: reasoning streams with
-               the process card open, and the moment the first response block
-               (text or plan) appears the card folds so the answer leads - not
-               only when the whole turn ends. -->
-          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" forceOpen={!liveSections.response.length} live onOpenPath={onOpenActivityPath} {endpoint} />
+          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" live onOpenPath={onOpenActivityPath} {endpoint} />
         {/if}
         {#each liveSections.response as block (block.id)}
           {#if block.kind === "plan"}

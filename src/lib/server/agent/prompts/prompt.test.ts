@@ -770,6 +770,8 @@ test("installed Mini Apps are named in the prompt so the agent knows to search f
   assert.match(withApps, /\*\*Expenses\*\* \(expenses\)/);
   assert.match(withApps, /miniapp__expenses__record/);
   assert.match(withApps, /miniapp__todo__add, miniapp__todo__list/);
+  assert.match(withApps, /miniAppManage inspects or installs apps; it does not save their records/);
+  assert.match(withApps, /Do not search Mini App operations through skillSearch or mcpInvoke/);
   // Schemas stay out; they arrive through toolSearch.
   assert.doesNotMatch(withApps, /inputSchema/);
 
@@ -817,6 +819,8 @@ test("rendered profiles omit management metadata and retain authorization and sc
     assert.match(prompt, /validation error may be corrected and retried/);
     assert.match(prompt, /Do not turn answer-only or analysis requests into workspace changes/);
     assert.match(prompt, /task difficulty alone does not authorize saving a draft/);
+    assert.equal(prompt.split("At meaningful phase changes").length - 1, 1);
+    assert.match(prompt, /fetch unchanged URLs once/);
     assert.equal(prompt.split("Before a long-running wait or monitoring call").length - 1, 1);
     assert.match(prompt, /Submitted or pushed is not published until the external status confirms it/);
     assert.match(prompt, /bounded status queries rather than one blocking watch command/);

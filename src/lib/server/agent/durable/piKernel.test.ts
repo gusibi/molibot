@@ -795,3 +795,56 @@ test("resume never creates a new execution when admission is absent", async () =
     assert.equal(existsSync(options.storagePath), false);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+test("pre-intent output reaches the live observer before preparation settles, with one tool start", { timeout: 10000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-preparation-progress-"));
+  const events: import("@earendil-works/pi-durable").AgentEvent[] = [];
+  let release!: () => void;
+  const observed = new Promise<void>(resolve => { release = resolve; });
+  const options = kernelOptions(directory, () => {});
+  const base = options.tools[0];
+  options.tools = [{ ...base,
+    prepareInvocation: async (_id: string, _args: unknown, _signal: AbortSignal | undefined, onUpdate: ((result: any) => void) | undefined) => {
+      onUpdate?.({ content: [{ type: "text", text: "Run Schema & Unit Tests" }], details: {} });
+      // The command cannot finish until its progress is actually delivered.
+      await observed;
+      return { cancel: () => {}, execute: async () => ({ content: [{ type: "text" as const, text: "done" }], details: {} }) };
+    }
+  } as import("$lib/server/agent/tools/preparedTool.js").PreparedAgentTool];
+  options.onEvent = async event => {
+    events.push(event);
+    if (event.type === "tool_execution_update" && event.output && "set" in event.output && event.output.set === "Run Schema & Unit Tests") release();
+  };
+  try {
+    const result = await new PiDurableKernel(options).run({ requestId: "request", text: "Watch" });
+    assert.equal(result.status, "completed");
+    assert.equal(events.filter(event => event.type === "tool_execution_start").length, 1);
+    const start = events.findIndex(event => event.type === "tool_execution_start");
+    const update = events.findIndex(event => event.type === "tool_execution_update");
+    const end = events.findIndex(event => event.type === "tool_execution_end");
+    assert.ok(start < update && update < end);
+  } finally { release(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test("long native output keeps delivering the latest status after the retained window fills", { timeout: 10000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-output-tail-"));
+  let release!: () => void;
+  const observed = new Promise<void>(resolve => { release = resolve; });
+  const options = kernelOptions(directory, () => {});
+  options.tools = [{ ...options.tools[0], execute: async (_id, _args, _signal, onUpdate) => {
+    onUpdate?.({ content: [{ type: "text", text: "x".repeat(60000) }], details: {} });
+    onUpdate?.({ content: [{ type: "text", text: "LATEST_DEPLOY_STEP" }], details: {} });
+    await observed;
+    return { content: [{ type: "text" as const, text: "done" }], details: {} };
+  } }];
+  options.onEvent = async event => {
+    if (event.type !== "tool_execution_update" || !event.output) return;
+    const output = "set" in event.output ? event.output.set : event.output.append ?? "";
+    if (output.includes("LATEST_DEPLOY_STEP")) release();
+  };
+  try {
+    assert.equal((await new PiDurableKernel(options).run({ requestId: "request", text: "Watch" })).status, "completed");
+  } finally { release(); rmSync(directory, { recursive: true, force: true }); }
+});

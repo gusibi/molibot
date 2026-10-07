@@ -69,6 +69,7 @@ export function activityToolName(activity: Pick<DesktopConversationActivity, "to
 function groupAction(activity: DesktopConversationActivity): ActivityGroupAction | null {
   if (activity.kind !== "tool" || activity.state !== "success") return null;
   const tool = activityToolName(activity);
+  if (COMMAND_TOOLS.has(tool) && (activity.durationMs ?? 0) >= 60_000) return null;
   if (READ_TOOLS.has(tool)) return "read";
   if (CHANGE_TOOLS.has(tool)) return "change";
   if (SEARCH_TOOLS.has(tool)) return "search";
@@ -85,7 +86,7 @@ function elapsedDuration(activities: DesktopConversationActivity[]): number {
 
 /**
  * Compresses only adjacent, successful calls with a known user-facing action.
- * Running/error rows and unknown tools stay explicit, and callers invoke this
+ * Running/error rows, long commands and unknown tools stay explicit; callers invoke this
  * per activity block so a reasoning/text boundary can never be crossed.
  */
 export function activityTimelineItems(activities: DesktopConversationActivity[]): ActivityTimelineItem[] {

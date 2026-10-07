@@ -41,6 +41,7 @@ export interface CommandExecutionRequest {
   cwd: string;
   timeoutSeconds?: number;
   signal?: AbortSignal;
+  onOutput?: (output: string) => void;
   /** Extra internal env entries (e.g. the scratch artifact dir). */
   env?: NodeJS.ProcessEnv;
 }
@@ -103,6 +104,7 @@ export class HostExecutionBackend implements ExecutionBackend {
           cwd: request.cwd,
           timeoutSeconds: request.timeoutSeconds,
           signal: request.signal,
+          onOutput: request.onOutput,
           env: { ...envFileKeys, ...(request.env ?? {}) },
           inheritProcessEnv: true
         });
@@ -172,6 +174,7 @@ export class AnthropicLocalSandboxBackend implements ExecutionBackend {
           cwd: request.cwd,
           timeoutSeconds: request.timeoutSeconds,
           signal: request.signal,
+          onOutput: request.onOutput,
           env: prepared.env,
           inheritProcessEnv: prepared.inheritProcessEnv
         });

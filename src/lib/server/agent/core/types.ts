@@ -152,6 +152,12 @@ export type RunnerUiEvent =
       startedAt?: string;
     }
   | {
+      type: "tool_execution_update";
+      toolCallId: string;
+      toolName: string;
+      summary: string;
+    }
+  | {
       type: "tool_execution_end";
       toolCallId: string;
       toolName: string;
@@ -207,6 +213,8 @@ export type RunnerUiEvent =
     };
 
 export interface MomContext {
+  /** Transport cancellation belongs only to this foreground run. */
+  clientSignal?: AbortSignal;
   /** Hold execution ownership until a cancelled tool handler settles. */
   awaitToolQuiescence?: boolean;
   approvalWaitTimeoutMs?: number;

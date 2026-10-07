@@ -649,7 +649,8 @@ export abstract class BaseChannelRuntime {
     if (!event.isEvent) {
       let durable;
       try {
-        durable = activateDurableExecution({
+        durable = await activateDurableExecution({
+          settings: this.getSettings(),
           message: event.text,
           ownerId: "owner",
           botId: this.instanceId,

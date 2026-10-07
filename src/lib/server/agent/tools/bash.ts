@@ -589,7 +589,8 @@ export async function prepareHostBashApproval(input: HostBashApprovalInvocationI
             executionContext.assertAuthority?.("bash", { command: current.pendingAction?.originalCommand });
             const executed = await executeHostBashApproval({
               record: current, approvedTool: approvedTool ?? undefined,
-              cwd: executionContext.cwd, signal: executionContext.signal
+              cwd: executionContext.cwd, signal: executionContext.signal,
+              onOutput: output => executionContext.onUpdate?.({ content: [{ type: "text", text: output }], details: {} })
             });
             store.markExecution(current.id, "executed");
             return { ok: true, content: [{ type: "text", text: executed.rendered }], details: executed.details };
@@ -732,7 +733,8 @@ export function getBashToolDefinition(
         }
         const executed = await executeApprovedHostBash({
           tool: current, cwd: executionContext.cwd, originalCommand: parsed.originalCommand,
-          args: parsed.args, timeoutSeconds: params.timeout, signal: executionContext.signal
+          args: parsed.args, timeoutSeconds: params.timeout, signal: executionContext.signal,
+          onOutput: output => executionContext.onUpdate?.({ content: [{ type: "text", text: output }], details: {} })
         });
         return { ok: true, content: [{ type: "text", text: executed.rendered }], details: executed.details };
       } };
@@ -760,7 +762,8 @@ export function getBashToolDefinition(
     const sandboxAttempt = async () => {
       const rootFilesBefore = relocateRootArtifacts ? snapshotRootFiles(ctx.cwd) : new Map<string, number>();
       const result = await ctx.shell.run(params.command, {
-        cwd: ctx.cwd, timeoutMs: params.timeout ? params.timeout * 1000 : undefined
+        cwd: ctx.cwd, timeoutMs: params.timeout ? params.timeout * 1000 : undefined,
+        onOutput: output => ctx.onUpdate?.({ content: [{ type: "text", text: output }], details: {} })
       });
       const movedArtifacts = relocateRootArtifacts
         ? moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore)
@@ -811,7 +814,8 @@ export function getBashToolDefinition(
           && options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session";
         if (sessionApproved) {
           const fallback = () => execCommand(wrapCommandWithVenv(params.command), {
-            cwd: ctx.cwd, timeoutSeconds: params.timeout, inheritProcessEnv: true, signal: ctx.signal
+            cwd: ctx.cwd, timeoutSeconds: params.timeout, inheritProcessEnv: true, signal: ctx.signal,
+            onOutput: output => ctx.onUpdate?.({ content: [{ type: "text", text: output }], details: {} })
           });
           const fallbackResult = ctx.preparationEffects
             ? await ctx.preparationEffects.run("session-host", { command: params.command, cwd: ctx.cwd, timeout: params.timeout }, fallback)

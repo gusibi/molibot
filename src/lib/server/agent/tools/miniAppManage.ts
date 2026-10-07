@@ -144,7 +144,12 @@ export function createMiniAppManageTool(options: MiniAppManageOptions): AgentToo
         const entry = host.listCatalog().find((item) => item.id === appId);
         const receipt = installedReceipt(codeRoot, appId, entry);
         return {
-          content: [{ type: "text" as const, text: `Installed Mini App receipt: ${receipt.appId} v${receipt.version}, status=${receipt.status}, manifest=${receipt.manifestHash}.` }],
+          content: [{ type: "text" as const, text: [
+            `Installed Mini App receipt: ${receipt.appId} v${receipt.version}, status=${receipt.status}, manifest=${receipt.manifestHash}.`,
+            `App tools: ${receipt.toolNames.map((name) => `miniapp__${receipt.appId}__${name}`).join(", ") || "(none)"}`,
+            "Inspect only checks the installed app; it does not read or save app records.",
+            "Choose the app tool for the requested operation, fetch its full schema with toolSearch with query select:<exact tool name>, then call that tool directly. Mini App tools are not MCP servers or Skills."
+          ].join("\n") }],
           details: { action: "inspect", ...receipt }
         };
       }

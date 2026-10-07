@@ -95,7 +95,7 @@ export class PiDurableKernel {
     let suspend!: (requestId: string) => void;
     const suspended = new Promise<{ approvalRequestId: string }>((resolve) => { suspend = (approvalRequestId) => resolve({ approvalRequestId }); });
     let preparationRecovery: Error | undefined;
-    const { registry, tools, preparedCalls } = createPiToolRegistry({ ...this.options, onRecoveryRequired: cause => {
+    const { registry, tools, preparedCalls, emitEvent } = createPiToolRegistry({ ...this.options, onRecoveryRequired: cause => {
       preparationRecovery = cause;
       this.options.onRecoveryRequired?.(cause);
       suspend("recovery_required");
@@ -196,12 +196,12 @@ export class PiDurableKernel {
       if (this.options.projectEntry || this.options.onEvent) {
         projectionWatch = await watchEvents(harness, conversation.id, BACKGROUND_CONTEXT);
         await project(projectionWatch.snapshot.entries);
-        await this.options.onEvent?.(projectionWatch.snapshot);
+        await emitEvent(projectionWatch.snapshot);
         projectionWatch.start(async events => {
           for (const event of events) {
             if (event.type === "snapshot") await project(event.entries);
             else if (event.type === "entry_appended") await project([event.entry]);
-            await this.options.onEvent?.(event);
+            await emitEvent(event);
           }
         });
         projectionFailure = projectionWatch.closed.then(end => {
@@ -278,9 +278,21 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
     const registry = createRegistry();
     const preparedCalls = new Map<string, PreparedAgentInvocation | HostToolResult>();
     const progressSinks = new Map<string, (update: AgentToolResult<unknown>) => void>();
+    const startedCalls = new Set<string>();
+    let eventDelivery = Promise.resolve();
+    const emitEvent = (event: AgentEvent): Promise<void> => {
+      if (event.type === "tool_execution_start") {
+        if (startedCalls.has(event.toolCallId)) return eventDelivery;
+        startedCalls.add(event.toolCallId);
+      } else if (event.type === "tool_execution_end") startedCalls.delete(event.toolCallId);
+      eventDelivery = eventDelivery.then(async () => { await options.onEvent?.(event); });
+      void eventDelivery.catch(() => {});
+      return eventDelivery;
+    };
     const makeTool = (tool: AgentTool) => defineTool({
       name: tool.name, description: tool.description, parameters: tool.parameters,
       replay: tool.replay === "safe" ? "safe" : "unsafe",
+      outputLimits: { maxBytes: 4_000, maxLines: 100, retain: "tail" },
       // Authorization can suspend before intent; the rest of that batch must not start.
       executionMode: options.beforeTool || hasToolPreparation(tool) ? "sequential" : tool.executionMode,
       prepareArguments: tool.prepareArguments,
@@ -373,8 +385,16 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
           if (tool && hasToolPreparation(tool)) {
             const approvalRequestId = await api.memo<string>("molibot.approval-request", context);
             let prepared: PreparedAgentInvocation | HostToolResult;
+            // Restricted bash can execute before intent while probing the sandbox.
+            // Its output must reach the live view before the execute-phase sink exists.
+            await emitEvent({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: JSON.parse(JSON.stringify(call.arguments)) });
             try { prepared = await tool.prepareInvocation(call.id, call.arguments, context.abortSignal,
-              update => progressSinks.get(`${api.taskId}:${call.id}`)?.(update), approvalRequestId,
+              update => {
+                const sink = progressSinks.get(`${api.taskId}:${call.id}`);
+                if (sink) { sink(update); return; }
+                const text = update.content.filter(content => content.type === "text").map(content => content.text).join("\n");
+                void emitEvent({ type: "tool_execution_update", toolCallId: call.id, toolName: call.name, output: { set: text } });
+              }, approvalRequestId,
               createPiPreparationEffects(api, context, () => {
                 options.assertStorageOwnership();
                 options.assertAuthority(call.name, call.arguments);
@@ -387,6 +407,7 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
               }
               throw cause;
             }
+            await eventDelivery;
             try {
               options.assertStorageOwnership();
               context.abortSignal?.throwIfAborted();
@@ -413,7 +434,7 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
       })]
     }));
   install();
-  return { registry, get tools() { return tools; }, preparedCalls,
+  return { registry, get tools() { return tools; }, preparedCalls, emitEvent,
     registerTools(input: readonly AgentTool[]) {
       options.tools = input;
       tools = input.map(makeTool);

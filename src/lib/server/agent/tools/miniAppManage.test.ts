@@ -6,6 +6,8 @@ import test from "node:test";
 import { createMiniAppManageTool } from "$lib/server/agent/tools/miniAppManage.js";
 import { createMiniAppHost } from "$lib/server/miniapps/host.js";
 import { createMiniAppInstaller } from "$lib/server/miniapps/install.js";
+import { buildMiniAppDeferredTools } from "$lib/server/miniapps/toolAdapter.js";
+import { createToolSearchTool } from "$lib/server/agent/tools/toolSearch.js";
 
 function writeBuild(dir: string, tableName: string, version = "1.0.0"): void {
   fs.mkdirSync(path.join(dir, "server"), { recursive: true });
@@ -59,7 +61,7 @@ function harness() {
   });
   const installer = createMiniAppInstaller({ codeRoot, recordSource: () => undefined });
   const tool = createMiniAppManageTool({ cwd, workspaceDir, codeRoot, host, installer });
-  return { root, cwd, codeRoot, tool };
+  return { root, cwd, codeRoot, tool, host };
 }
 
 test("miniAppManage rejects a build whose runtime smoke hits invalid SQL", async () => {
@@ -97,6 +99,24 @@ test("miniAppManage validates, atomically installs, and inspects an exact receip
     const inspected = await fixture.tool.execute("inspect-1", { action: "inspect", appId: "expense-tracker" });
     assert.equal((inspected.details as any).manifestHash, (installed.details as any).manifestHash);
     assert.equal((inspected.details as any).version, "1.1.0");
+    const text = inspected.content.map((item) => item.type === "text" ? item.text : "").join("\n");
+    assert.match(text, /miniapp__expense-tracker__list/);
+    assert.match(text, /toolSearch/);
+    assert.match(text, /does not read or save app records/);
+
+    const entries = buildMiniAppDeferredTools(fixture.host);
+    const search = createToolSearchTool({
+      chatId: "inspect-discovery",
+      getDeferredTools: () => entries,
+      loadDeferredTools: (names) => names
+    });
+    const toolName = `miniapp__expense-tracker__${(inspected.details as any).toolNames[0]}`;
+    const discovered = await search.execute("discover-list", { query: `select:${toolName}` });
+    assert.deepEqual(discovered.details.loaded, [toolName]);
+    assert.equal(discovered.details.matches[0].schema.name, toolName);
+    const appTool = entries.find((entry) => entry.name === toolName)!;
+    const listed = await appTool.tool.execute("list-expenses", {});
+    assert.equal(listed.content[0].type === "text" && listed.content[0].text, "ok");
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }

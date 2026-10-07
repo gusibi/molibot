@@ -3451,6 +3451,11 @@ a:focus-visible {
 }
 .thinking-card summary { width: fit-content; cursor: pointer; color: var(--label-tertiary); font-weight: 500; }
 .thinking-card pre { margin: 8px 0 2px; padding-left: 12px; border-left: 1px solid var(--separator); font: inherit; line-height: 1.6; white-space: pre-wrap; transition: opacity var(--duration-fast) var(--ease-standard); }
+.turn-process-overview { width: min(100%, 680px); min-width: 0; margin: 8px 0; }
+.turn-progress-commentary { color: var(--label-primary); font-size: var(--fs-body); line-height: var(--lh-prose); overflow-wrap: anywhere; }
+.turn-progress-current { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; min-width: 0; color: var(--label-secondary); font-size: var(--fs-label); line-height: var(--lh-prose); }
+.turn-progress-detail { min-width: 0; overflow-wrap: anywhere; }
+.turn-progress-current small { color: var(--label-secondary); font-variant-numeric: tabular-nums; }
 .turn-process { width: min(100%, 680px); overflow: hidden; border: 0; background: transparent; color: var(--label-secondary); }
 .turn-process[open] { background: transparent; }
 .turn-process-summary { display: flex; width: fit-content; max-width: 100%; min-height: 28px; align-items: center; gap: 8px; padding: 3px 0; border-radius: var(--rounded-sm); list-style: none; color: var(--label-tertiary); font-size: var(--fs-label); font-weight: 500; cursor: pointer; transition: color var(--duration-fast) var(--ease-standard); }
