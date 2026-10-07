@@ -1169,7 +1169,9 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
 test("Desktop Chat keeps structural sidebars separate from one unified workspace surface", () => {
   assert.match(styles, /\.chat-layout\s*\{[^}]*background:\s*transparent/s);
   assert.match(styles, /\.chat-sidebar::before, \.settings-sidebar::before\s*\{[^}]*background:\s*var\(--sidebar-material-tint\)/s);
-  assert.match(styles, /\.file-panel\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
+  // The Inspector body is the surface (its header strip stays background), so
+  // the fill lives on the panel's body layer.
+  assert.match(styles, /\.file-panel::after\s*\{[^}]*background:\s*var\(--sidebar-bg\)/s);
   assert.match(styles, /\.chat-content\s*\{[^}]*background:\s*var\(--header-bg\)/s);
   // The one window material sheet backs both the header band and the sidebar;
   // the header itself paints no material or blur of its own, so top and left
@@ -6045,11 +6047,13 @@ test("window chrome shares one material and hosts all panes in the content frame
   // The chat content sits in the window's body row, below the header band, and
   // floats above the window material with the shared content shadow.
   assert.match(styles, /\.workspace-main, \.workspace-inspector\s*\{[^}]*grid-row: 2;[^}]*margin: 0 8px 8px 0;[^}]*border-radius: var\(--rounded-md\)/s);
-  assert.match(styles, /\.workspace-main \{[^}]*box-shadow: var\(--content-shadow\)/s);
+  // One shared shadow on a frame overlay covers chat + Inspector as one surface.
+  assert.match(styles, /\.chat-layout::after \{[^}]*box-shadow: var\(--content-shadow\)/s);
   assert.match(styles, /--content-shadow:/);
-  // The Inspector is a full-height independent column: its own header sits in
-  // the window header row and its body joins the chat content below.
-  assert.match(styles, /\.workspace-inspector \{[^}]*grid-row: 1 \/ 3;[^}]*z-index: 31;/s);
+  // The Inspector is a full-height independent column whose header strip stays
+  // transparent (the window material) and whose body carries the surface.
+  assert.match(styles, /\.workspace-inspector \{[^}]*grid-row: 1 \/ 3;[^}]*z-index: 31;[^}]*background: transparent;/s);
+  assert.match(styles, /\.file-panel::after\s*\{[^}]*border-radius: 0 var\(--rounded-md\) var\(--rounded-md\) 0;/s);
   // One global header spans the top row over the sidebar and chat column
   // (columns 1-2); the Inspector column keeps its own header.
   assert.match(view, /class="chat-header window-header"[\s\S]{0,120}data-theme-region="header"/);

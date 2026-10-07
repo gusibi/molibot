@@ -561,21 +561,18 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
 }
-/* The content frame floats above the window material (header + sidebar). The
-   shadow is what reads as "lifted"; without it the panes look pasted on. */
-.workspace-main {
-  grid-column: 2;
-  box-shadow: var(--content-shadow);
-}
+.workspace-main { grid-column: 2; }
 .workspace-main > *, .workspace-inspector > * { flex: 1; min-height: 0; }
-/* The Inspector is a full-height independent column: its own header sits in the
-   window header row and its body joins the chat content below. It is its own
-   surface, so it needs to paint above the window drag mask while its header
-   buttons stay clickable. */
+/* The Inspector is a full-height independent column: its header sits in the
+   window header row (transparent, over the shared material) and its body joins
+   the chat content below. It paints above the window drag mask so its header
+   buttons stay clickable; the surface itself is painted by the panel's body
+   layer so the header strip reads as background. */
 .workspace-inspector {
   grid-column: 3;
   grid-row: 1 / 3;
   z-index: 31;
+  background: transparent;
 }
 .chat-layout.with-files .workspace-main {
   margin-right: 0;
@@ -585,7 +582,20 @@ a:focus-visible {
 .workspace-inspector {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+}
+/* One shadow for the whole floating frame: the chat content and the Inspector
+   body read as a single lifted surface, so the shadow lives on this overlay —
+   matched to the frame's box — instead of on either pane (where the shared edge
+   would double or seam). It sits above the sidebar and below the content. */
+.chat-layout::after {
+  content: "";
+  grid-row: 2;
+  grid-column: 2 / -1;
+  margin: 0 8px 8px 0;
+  border-radius: var(--rounded-md);
   box-shadow: var(--content-shadow);
+  pointer-events: none;
+  z-index: 0;
 }
 .chat-layout > .sidebar-resizer, .chat-layout > .files-resizer {
   top: var(--chat-header-h);
@@ -1547,8 +1557,22 @@ a:focus-visible {
   min-width: 0;
   min-height: 0;
   padding: 0;
-  background: var(--sidebar-bg);
+  position: relative;
+  background: transparent;
   border-left: 1px solid var(--separator);
+}
+/* The panel's header is part of the window background band; only the body is
+   the floating surface. The surface is painted on this layer so the 42px header
+   strip stays transparent over the shared window material and the body joins
+   the chat content with a matching rounded outer corner. */
+.file-panel::after {
+  content: "";
+  position: absolute;
+  inset: var(--chat-header-h) 0 0 0;
+  z-index: -1;
+  border-radius: 0 var(--rounded-md) var(--rounded-md) 0;
+  background: var(--sidebar-bg);
+  pointer-events: none;
 }
 .durable-panel {
   display: flex;
@@ -1981,7 +2005,11 @@ a:focus-visible {
   box-sizing: border-box;
   flex: 0 0 auto;
   padding: 0 14px;
-  border-bottom: 1px solid var(--separator);
+  /* The header is the background band, not a surface: it paints nothing so it
+     matches the window header exactly, and the body's rounded top edge below it
+     is what separates the two. */
+  background: transparent;
+  border-bottom: 0;
   /* Lift the head (and its close button) above the window-drag-mask that
      covers the top 42px of the layout; otherwise the close/refresh buttons
      sit under the mask and clicks never reach them. */
@@ -6552,11 +6580,15 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   --artifact-code-variable: var(--syntax-code-variable);
   --artifact-code-attr: var(--syntax-code-attr);
   --artifact-code-built-in: var(--syntax-code-built-in);
-  background: var(--artifact-canvas);
+  background: transparent;
   border-left-color: var(--artifact-border);
   color: var(--artifact-fg);
   font-family: var(--font-ui);
 }
+/* The Inspector body carries the repository canvas below the transparent header
+   strip (the shared `.file-panel::after` surface, re-toned to the artifact
+   canvas). */
+.artifact-panel::after { background: var(--artifact-canvas); }
 
 /* Panel chrome: GitHub keeps the repository canvas flat and lets the editor
    surface carry the strongest contrast. */
@@ -6566,8 +6598,8 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   box-sizing: border-box;
   padding: 0 12px;
   gap: 6px;
-  background: var(--artifact-canvas);
-  border-bottom-color: var(--artifact-border);
+  background: transparent;
+  border-bottom: 0;
 }
 .artifact-panel .file-panel-icon { color: var(--artifact-fg-muted); font-size: var(--fs-heading); }
 .artifact-panel .file-panel-head > strong {
@@ -6949,7 +6981,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .artifact-panel .markdown-preview { padding-inline: 12px; }
 }
 
-.session-plan-inspector { min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--surface-secondary); color: var(--label-primary); }
+.session-plan-inspector { min-width: 0; min-height: 0; height: 100%; overflow: auto; background: linear-gradient(to bottom, transparent 0 var(--chat-header-h), var(--surface-secondary) var(--chat-header-h)); border-left: 1px solid var(--separator); color: var(--label-primary); }
 .session-plan-inspector > .plan-card { margin: 16px; }
 .session-plan-inspector .file-panel-head { display: flex; justify-content: space-between; align-items: center; }
 

@@ -383,8 +383,21 @@
     min-height: 0;
     flex-direction: column;
     height: 100%;
-    background: var(--artifact-canvas, var(--surface-secondary));
+    position: relative;
+    background: transparent;
+    border-left: 1px solid var(--separator);
     color: var(--label-primary);
+  }
+  /* The header strip sits in the window header row and stays transparent over
+     the shared material; the body carries the surface below it. */
+  .durable-inspector::after {
+    content: "";
+    position: absolute;
+    inset: 42px 0 0 0;
+    z-index: -1;
+    border-radius: 0 var(--rounded-md) var(--rounded-md) 0;
+    background: var(--artifact-canvas, var(--surface-secondary));
+    pointer-events: none;
   }
   .durable-inspector-head {
     display: flex;
@@ -395,8 +408,8 @@
     min-height: 42px;
     box-sizing: border-box;
     padding: 0 14px;
-    border-bottom: 1px solid var(--separator);
-    background: var(--card-bg);
+    border-bottom: 0;
+    background: transparent;
   }
   .durable-inspector-head > div { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; }
   .durable-inspector-eyebrow { margin: 0; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: 1; font-family: var(--font-mono); }

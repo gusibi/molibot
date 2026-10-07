@@ -1120,9 +1120,9 @@ the same regardless of the window's activation state and of what is behind it.
   Project, Room and every workspace destination use this one row, so the title
   and its actions always describe the current page. The open Inspector keeps its
   own header in that same row, in the Inspector's column: the third column is a
-  full-height independent module, so its header sits next to the global header,
-  separated by the column's light rule, and its body joins the chat content
-  below.
+  full-height independent module, its header strip stays transparent over the
+  shared material (so it reads as the same band as the global header, separated
+  by the column's light rule), and its body joins the chat content below.
 - Chat's primary sidebar destinations use one coherent regular-weight icon set
   and compact 30px rows. Their spacing is sufficient grouping: do not add a hairline
   between the primary destinations and the conversation tree. Their content begins
@@ -1131,15 +1131,16 @@ the same regardless of the window's activation state and of what is behind it.
 - The window header and the sidebar are one background plane over the shared
   `--sidebar-material-tint`/filter sheet: no theme may paint the `header` region
   its own background, bottom rule, or shadow, or the top band reads as a separate
-  surface and the floating frame below stops making sense. The base header paints
-  nothing of its own; reduced-transparency, increased-contrast and low-performance
-  modes switch the whole sheet to the opaque sidebar role. The chat and Inspector
-  content sit in one inset frame below the header — theme-defined corners, an 8px
-  right/bottom frame, and the one shared `--content-shadow` lift that makes the
-  frame read as floating above the material. The two panes join at the Inspector's
-  own left rule (they never seam into one shadow). The material sheet captures no
-  pointer events; native traffic lights, drag capture and the fixed header
-  controls stay at window level.
+  surface and the floating frame below stops making sense. The base header and the
+  open Inspector's header strip paint nothing of their own; reduced-transparency,
+  increased-contrast and low-performance modes switch the whole sheet to the
+  opaque sidebar role. The chat and Inspector content sit in one inset frame below
+  the header — theme-defined corners, an 8px right/bottom frame, and one shared
+  `--content-shadow` lift. The shadow lives on a single frame overlay matched to
+  the panes' box, so both panes read as one floating surface and the shared edge
+  never doubles or seams; only the Inspector's own left rule divides them. The
+  material sheet captures no pointer events; native traffic lights, drag capture
+  and the fixed header controls stay at window level.
 - The title-bar control cluster is the first group inside the window header,
   anchored next to the traffic lights (left 84px inside the 42px band) and
   identical in both sidebar states. Slot one is always the sidebar toggle; slot
