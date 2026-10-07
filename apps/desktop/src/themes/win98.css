@@ -212,10 +212,6 @@
    Region adaptation — Windows 98 — grey chrome, navy selection, square everything (radii come from tokens).
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="win98"] [data-theme-region="header"] {
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="win98"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

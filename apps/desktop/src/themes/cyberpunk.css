@@ -154,10 +154,6 @@
    Region adaptation — Cyberpunk — neon chrome: magenta rule and selection over the violet night.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="cyberpunk"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 16%, var(--header-bg)), color-mix(in srgb, var(--accent) 4%, var(--header-bg)));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="cyberpunk"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

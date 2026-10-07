@@ -1337,11 +1337,11 @@ test("Every glass degradation tier flattens every glass tier", () => {
 });
 
 test("Window header owns its grid row and the transcript is not reserved beneath it", () => {
-  // The single header is the window's top grid row, above the sidebar and the
-  // content container; it no longer floats over the transcript, so the
-  // transcript reserves only the composer (which still floats).
+  // The single header is the window's top grid row, spanning the sidebar and the
+  // chat column (the Inspector column keeps its own header); it no longer floats
+  // over the transcript, so the transcript reserves only the composer.
   assert.match(styles, /\.chat-layout \{[^}]*grid-template-rows:\s*var\(--chat-header-h\) minmax\(0, 1fr\)/s);
-  assert.match(styles, /\.chat-header \{[^}]*grid-row:\s*1;[^}]*grid-column:\s*1 \/ -1;/s);
+  assert.match(styles, /\.chat-header \{[^}]*grid-row:\s*1;[^}]*grid-column:\s*1 \/ 3;/s);
   assert.doesNotMatch(styles, /\.chat-header \{[^}]*position:\s*absolute/);
   assert.match(styles, /\.composer-wrap\.is-floating \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
   assert.match(styles, /--chat-header-h:\s*42px;/);
@@ -6042,12 +6042,37 @@ test("window chrome shares one material and hosts all panes in the content frame
   assert.match(styles, /\.chat-layout \.chat-sidebar::before\s*\{\s*display: none;/s);
   assert.match(view, /<div class="workspace-main">\s*\{#if roomPaneActive\}/);
   assert.match(view, /<div class="workspace-inspector">/);
-  // The content container sits in the window's body row, below the header band.
+  // The chat content sits in the window's body row, below the header band, and
+  // floats above the window material with the shared content shadow.
   assert.match(styles, /\.workspace-main, \.workspace-inspector\s*\{[^}]*grid-row: 2;[^}]*margin: 0 8px 8px 0;[^}]*border-radius: var\(--rounded-md\)/s);
-  // One global header spans the top row above the frame, next to the native
-  // controls and carrying the current page's title and actions.
+  assert.match(styles, /\.workspace-main \{[^}]*box-shadow: var\(--content-shadow\)/s);
+  assert.match(styles, /--content-shadow:/);
+  // The Inspector is a full-height independent column: its own header sits in
+  // the window header row and its body joins the chat content below.
+  assert.match(styles, /\.workspace-inspector \{[^}]*grid-row: 1 \/ 3;[^}]*z-index: 31;/s);
+  // One global header spans the top row over the sidebar and chat column
+  // (columns 1-2); the Inspector column keeps its own header.
   assert.match(view, /class="chat-header window-header"[\s\S]{0,120}data-theme-region="header"/);
-  assert.match(styles, /\.chat-header \{[^}]*grid-row: 1;[^}]*grid-column: 1 \/ -1;/s);
+  assert.match(styles, /\.chat-header \{[^}]*grid-row: 1;[^}]*grid-column: 1 \/ 3;/s);
   assert.match(styles, /html\[data-reduced-transparency="true"\] \.window-material,[^}]*background: var\(--sidebar-material-bg\);[^}]*backdrop-filter: none;/s);
   assert.doesNotMatch(styles, /sidebar-collapsed \.chat-header\s*\{[^}]*padding-left: 102px/);
+});
+
+test("theme header shares the sidebar material instead of its own background", () => {
+  // The window header and the sidebar are one background plane. A family that
+  // paints the header region its own fill, rule, or shadow makes the top band
+  // read as a separate surface and breaks the floating content frame, so no
+  // theme may dress the header element itself (control styling stays allowed).
+  const files = [
+    ...THEME_FAMILIES.map((family) => `./themes/${family}.css`),
+    ...THEME_RECIPES.map((recipe) => `./themes/recipes/${recipe}.css`)
+  ];
+  for (const file of files) {
+    const source = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const match of source.matchAll(/\[data-theme-region="header"\]\s*\{([^}]*)\}/g)) {
+      assert.doesNotMatch(match[1], /background\s*:/, `${file} must not paint the header region a background`);
+      assert.doesNotMatch(match[1], /border-bottom\s*:/, `${file} must not draw a header-region bottom border`);
+      assert.doesNotMatch(match[1], /box-shadow\s*:/, `${file} must not give the header region its own shadow`);
+    }
+  }
 });

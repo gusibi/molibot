@@ -151,10 +151,6 @@
    Region adaptation — Terminal — the phosphor TUI: chrome stays mono, green marks the selected row.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="terminal"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, var(--header-bg)), color-mix(in srgb, var(--accent) 4%, var(--header-bg)));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="terminal"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

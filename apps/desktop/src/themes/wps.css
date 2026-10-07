@@ -122,10 +122,6 @@
    Region adaptation — WPS — a clean paper workspace with the WPS red on the chrome.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="wps"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 11%, var(--header-bg)), color-mix(in srgb, var(--accent) 3%, var(--header-bg)));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="wps"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

@@ -8,11 +8,6 @@
   --recipe-assistant-max: 82%;
 }
 
-:root[data-theme-recipe="material"] [data-theme-region="header"] {
-  background: color-mix(in srgb, var(--accent) 6%, var(--header-bg));
-  border-bottom-color: transparent;
-  box-shadow: inset 0 -1px color-mix(in srgb, var(--label-primary) 7%, transparent);
-}
 :root[data-theme-recipe="material"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

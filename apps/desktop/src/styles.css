@@ -233,6 +233,10 @@
   --soft-shadow: 0 2px 2px rgba(0,0,0,0.04);
   --focal-shadow: 0 2px 4px rgb(0 0 0 / 3%), 0 8px 24px rgb(0 0 0 / 5%);
   --float-shadow: 0 8px 24px -12px rgba(0,0,0,0.32);
+  /* The workspace content frame floats as one surface above the window chrome
+     (header + sidebar), so it takes a visible lift rather than the hairline
+     card tiers above. Keyed on brightness below for the same perceived depth. */
+  --content-shadow: 0 8px 28px -10px rgb(0 0 0 / 20%), 0 2px 6px -3px rgb(0 0 0 / 10%);
   --popover-shadow: 0 1px 1px rgba(0,0,0,0.02), 0 4px 8px -4px rgba(0,0,0,0.04), 0 16px 24px -8px rgba(0,0,0,0.06);
   --glass-shadow: 0 1px 1px rgba(0,0,0,0.02), 0 8px 16px -4px rgba(0,0,0,0.04), 0 24px 32px -8px rgba(0,0,0,0.06);
   --drawer-shadow: -8px 0 24px -8px rgba(0,0,0,0.12);
@@ -348,6 +352,7 @@
 :root[data-resolved-appearance="dark"] {
   --glass-surface-shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -10px rgb(0 0 0 / 50%), 0 32px 64px -20px rgb(0 0 0 / 44%);
   --glass-chip-shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 6px 16px -6px rgb(0 0 0 / 40%);
+  --content-shadow: 0 10px 32px -10px rgb(0 0 0 / 55%), 0 2px 8px -3px rgb(0 0 0 / 40%);
 }
 
 /* Plan decisions share the approval card's hierarchy and keyboard affordance —
@@ -556,9 +561,22 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
 }
-.workspace-main { grid-column: 2; }
+/* The content frame floats above the window material (header + sidebar). The
+   shadow is what reads as "lifted"; without it the panes look pasted on. */
+.workspace-main {
+  grid-column: 2;
+  box-shadow: var(--content-shadow);
+}
 .workspace-main > *, .workspace-inspector > * { flex: 1; min-height: 0; }
-.workspace-inspector { grid-column: 3; }
+/* The Inspector is a full-height independent column: its own header sits in the
+   window header row and its body joins the chat content below. It is its own
+   surface, so it needs to paint above the window drag mask while its header
+   buttons stay clickable. */
+.workspace-inspector {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  z-index: 31;
+}
 .chat-layout.with-files .workspace-main {
   margin-right: 0;
   border-top-right-radius: 0;
@@ -567,6 +585,7 @@ a:focus-visible {
 .workspace-inspector {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+  box-shadow: var(--content-shadow);
 }
 .chat-layout > .sidebar-resizer, .chat-layout > .files-resizer {
   top: var(--chat-header-h);
@@ -1112,7 +1131,7 @@ a:focus-visible {
   gap: 8px;
   box-sizing: border-box;
   grid-row: 1;
-  grid-column: 1 / -1;
+  grid-column: 1 / 3;
   height: var(--chat-header-h);
   min-height: var(--chat-header-h);
   padding: 0 8px 0 84px;

@@ -129,10 +129,6 @@
    Region adaptation — WeChat — flat grey workspace with the green reserved for the selected chat.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="wechat"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, var(--card-bg), color-mix(in srgb, var(--accent) 5%, var(--header-bg)));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="wechat"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

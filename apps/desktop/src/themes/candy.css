@@ -145,10 +145,6 @@
    Region adaptation — Candy — pastel chrome: a pink-tinted header and selection.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="candy"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 16%, var(--header-bg)), color-mix(in srgb, var(--accent) 5%, var(--header-bg)));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="candy"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

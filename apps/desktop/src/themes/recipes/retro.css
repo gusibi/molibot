@@ -3,10 +3,6 @@
  * bevel details while sharing this stricter component grammar.
  */
 
-:root[data-theme-recipe="retro"] [data-theme-region="header"] {
-  border-bottom: 1px solid var(--control-border-strong);
-  box-shadow: none;
-}
 :root[data-theme-recipe="retro"] [data-theme-region="header"]::before,
 :root[data-theme-recipe="retro"] [data-theme-region="sidebar"]::before {
   backdrop-filter: none;

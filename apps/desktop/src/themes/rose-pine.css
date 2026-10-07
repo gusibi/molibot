@@ -121,10 +121,6 @@
    Region adaptation — Rosé Pine — warm muted chrome with the pine/iris accent on the selection.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="rose-pine"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, var(--header-bg)), color-mix(in srgb, var(--accent) 3%, var(--header-bg)));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="rose-pine"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

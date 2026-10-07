@@ -129,10 +129,6 @@
    Region adaptation — iOS — the grouped grey canvas with a lifted header and blue selection.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="ios"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 58%, var(--header-bg)), var(--header-bg));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="ios"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

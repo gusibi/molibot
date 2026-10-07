@@ -7,10 +7,6 @@
   --recipe-message-max: 72%;
 }
 
-:root[data-theme-recipe="messenger"] [data-theme-region="header"] {
-  background: color-mix(in srgb, var(--accent) 9%, var(--header-bg));
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 12%, var(--separator));
-}
 :root[data-theme-recipe="messenger"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

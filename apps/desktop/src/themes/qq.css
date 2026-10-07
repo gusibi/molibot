@@ -149,10 +149,6 @@
    without a section like this fall back to the shared chrome. */
 
 /* Header — QQ's title bar: a light blue sheen over a bottom rule. */
-:root[data-theme-family="qq"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, #f3f9ff, #e6f2ff);
-  border-bottom: 1px solid rgb(13 47 73 / 14%);
-}
 :root[data-theme-family="qq"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;
@@ -208,10 +204,6 @@
 }
 
 /* Night — the same shapes in QQ's calm blue-gray. */
-:root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, #18222f, #101822);
-  border-bottom-color: rgb(228 240 251 / 12%);
-}
 :root[data-theme-family="qq"][data-resolved-appearance="dark"] [data-theme-region="sidebar"]::before {
   background: linear-gradient(180deg, #16202c, #0d1620);
 }

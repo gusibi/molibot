@@ -1,6 +1,6 @@
 # Desktop 统一窗口 Header 改造规格
 
-日期：2026-10-07。优先级：P1。状态：方案已整理，未实施。本次交付为其他 Agent 的实施规格，不是 UI 改造完成记录。
+日期：2026-10-07。优先级：P1。状态：已实施。实施后按用户提供的 Codex 参考收紧为三栏结构：全局 Header 覆盖「侧栏 + 对话」两列（列 1-2），打开的 Inspector 是独立的全高第三列、它自己的 header 与全局 Header 同处 header 行并由浅色规则分隔，内容框（对话 + Inspector）整体悬浮。当前有效契约以 `DESIGN.md` 与 `features.md` 为准；本规格的“Inspector 局部 header 留在面板内”等旧描述已被该收紧取代。
 
 ## Problem Statement
 

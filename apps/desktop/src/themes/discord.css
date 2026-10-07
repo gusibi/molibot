@@ -140,10 +140,6 @@
    Region adaptation — Discord — squared planes; the blurple is the selection, not the canvas.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="discord"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 34%, var(--header-bg)), var(--header-bg));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="discord"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;

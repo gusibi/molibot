@@ -761,6 +761,12 @@ may add a background to `:hover`/`.active` states but never as a rest-state fill
 family file must be a token block, a preview swatch, a `data-theme-region` rule,
 or the Windows 98 bevel; and every region hook used must be in the table above.
 Families without such a section fall back to the shared chrome.
+The `header` hook is the one region that may not restyle its own element: a
+family may repaint the controls inside the header (icon-button accents, focus
+rings), but it must not give the header element a background, bottom border, or
+shadow, because the header and the sidebar are the one background plane the
+floating content frame sits on. `chat-ui.test.mjs` asserts no family paints the
+header region.
 
 One cross-family convention: the composer's opaque glass layer (`::before`) sits
 at `inset:-1px`, exactly over the element's border ring, so in a family with
@@ -1105,30 +1111,35 @@ the same regardless of the window's activation state and of what is behind it.
   bounded and truncates when space is limited. Project headers show the session title first and the project name as the
   trailing secondary source label, without a slash or project-type badge. Passive title
   and source text remain part of the native window drag region.
-- The whole window has exactly one global header: the top grid row, spanning the
-  sidebar and the content column. Its left reservation is fixed for the native
-  traffic lights (84px), then the window-level control cluster, then the current
-  page's title/context and its actions. Pages publish that content through the
-  shared `ChatHeader`; the content container below renders no second title bar.
-  Chat, Project, Room and every workspace destination use this one row, so the
-  title and its actions always describe the current page.
+- The whole window has exactly one global header: the top grid row. It spans the
+  sidebar and the chat column (columns 1-2). Its left reservation is fixed for
+  the native traffic lights (84px), then the window-level control cluster, then
+  the current page's title/context and its actions, right-aligned to the chat
+  column's right edge. Pages publish that content through the shared
+  `ChatHeader`; the content frame below renders no second title bar. Chat,
+  Project, Room and every workspace destination use this one row, so the title
+  and its actions always describe the current page. The open Inspector keeps its
+  own header in that same row, in the Inspector's column: the third column is a
+  full-height independent module, so its header sits next to the global header,
+  separated by the column's light rule, and its body joins the chat content
+  below.
 - Chat's primary sidebar destinations use one coherent regular-weight icon set
   and compact 30px rows. Their spacing is sufficient grouping: do not add a hairline
   between the primary destinations and the conversation tree. Their content begins
   below the 42px window header so traffic lights and drag capture
   never overlap the first destination's pointer target.
-- Chat uses one full-window material sheet behind the window header and the
-  sidebar; the base header paints no background, blur or edge of its own, so top
-  and left read as one frame with no double frost or seam (a family may still
-  dress the `header` region through its region-adaptation layer). The sheet
-  exposes the
-  shared `--sidebar-material-tint` and filter. Reduced-transparency,
-  increased-contrast and low-performance modes switch the entire sheet to the
-  opaque sidebar role. Chat, Project, Room and workspace
-  content share an inset container below the header, with theme-defined corners
-  and an 8px right/bottom frame. Inspector panes join the container at its internal
-  divider. The material sheet captures no pointer events; native traffic
-  lights, drag capture and the fixed header controls stay at window level.
+- The window header and the sidebar are one background plane over the shared
+  `--sidebar-material-tint`/filter sheet: no theme may paint the `header` region
+  its own background, bottom rule, or shadow, or the top band reads as a separate
+  surface and the floating frame below stops making sense. The base header paints
+  nothing of its own; reduced-transparency, increased-contrast and low-performance
+  modes switch the whole sheet to the opaque sidebar role. The chat and Inspector
+  content sit in one inset frame below the header — theme-defined corners, an 8px
+  right/bottom frame, and the one shared `--content-shadow` lift that makes the
+  frame read as floating above the material. The two panes join at the Inspector's
+  own left rule (they never seam into one shadow). The material sheet captures no
+  pointer events; native traffic lights, drag capture and the fixed header
+  controls stay at window level.
 - The title-bar control cluster is the first group inside the window header,
   anchored next to the traffic lights (left 84px inside the 42px band) and
   identical in both sidebar states. Slot one is always the sidebar toggle; slot
@@ -1157,7 +1168,10 @@ the same regardless of the window's activation state and of what is behind it.
   Mini App Inspector are two adapters of one seam: they share the grid track, the
   stored width, the resize handle, the minimum width, and the narrow-screen rules.
   Opening one closes the other; a second Inspector kind must never introduce a fourth
-  column. Both are laid out in flow — a narrow window narrows the sidebar and keeps
+  column. The Inspector is a full-height column: its own header (title, search,
+  close, the Files/Mini Apps switch) sits in the window header row and its body
+  joins the chat content, so opening it never pushes a new row into the layout.
+  Both are laid out in flow — a narrow window narrows the sidebar and keeps
   every column in the grid rather than turning the Inspector into a `position: fixed`
   overlay above Chat or the composer. The nav is never hidden to make room for the
   panel: it folds only when the reader asks. The Inspector has no width ceiling of its

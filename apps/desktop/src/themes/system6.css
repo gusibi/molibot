@@ -155,10 +155,6 @@
    Region adaptation — System 6 — the 1-bit inversion: hard rules and an inverted selected row, no wash.
    Scoped to the documented [data-theme-region] hooks; never changes layout. */
 
-:root[data-theme-family="system6"] [data-theme-region="header"] {
-  background: linear-gradient(180deg, var(--card-bg), var(--header-bg));
-  border-bottom: 1px solid var(--separator);
-}
 :root[data-theme-family="system6"] [data-theme-region="header"]::before {
   background: transparent;
   backdrop-filter: none;
