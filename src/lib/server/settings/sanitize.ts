@@ -1319,7 +1319,7 @@ export function sanitizeSubagentRuntimeSettings(
   return {
     maxToolCalls: integer(source.maxToolCalls, fallback.maxToolCalls, 1, 500),
     maxToolFailures: integer(source.maxToolFailures, fallback.maxToolFailures, 1, 100),
-    maxModelTurns: integer(source.maxModelTurns, fallback.maxModelTurns, 1, 100),
+    maxModelRetries: integer(source.maxModelRetries, fallback.maxModelRetries, 1, 100),
     deadlineMs: integer(source.deadlineMs, fallback.deadlineMs, 1000, 24 * 60 * 60 * 1000),
     maxTasks,
     maxConcurrency: Math.min(

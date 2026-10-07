@@ -25,7 +25,7 @@ export class RunBudgetStore implements RunBudgetPersistence {
           exceeded_kind TEXT, exceeded_reason TEXT
         );
         CREATE TABLE IF NOT EXISTS run_budget_model_turns (
-          run_id TEXT PRIMARY KEY, max_turns INTEGER, turns INTEGER NOT NULL DEFAULT 0
+          run_id TEXT PRIMARY KEY, turns INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS run_budget_receipts (
           run_id TEXT NOT NULL, kind TEXT NOT NULL, source_id TEXT NOT NULL,
@@ -35,8 +35,8 @@ export class RunBudgetStore implements RunBudgetPersistence {
       db.prepare(`INSERT OR IGNORE INTO run_budgets
         (run_id,max_tools,max_failures,max_models) VALUES (?,?,?,?)`)
         .run(this.runId, this.limits.maxToolCalls, this.limits.maxToolFailures, this.limits.maxModelAttempts);
-      db.prepare("INSERT OR IGNORE INTO run_budget_model_turns (run_id,max_turns) VALUES (?,?)")
-        .run(this.runId, this.limits.maxModelTurns ?? null);
+      db.prepare("INSERT OR IGNORE INTO run_budget_model_turns (run_id) VALUES (?)")
+        .run(this.runId);
       this.connection = db;
       return db;
     } catch (cause) { db.close(); throw cause; }
@@ -46,7 +46,7 @@ export class RunBudgetStore implements RunBudgetPersistence {
     const row = this.db.prepare("SELECT * FROM run_budgets WHERE run_id=?").get(this.runId)!;
     const turns = this.db.prepare("SELECT * FROM run_budget_model_turns WHERE run_id=?").get(this.runId)!;
     return {
-      limits: { maxToolCalls: Number(row.max_tools), maxToolFailures: Number(row.max_failures), maxModelAttempts: Number(row.max_models), ...(turns.max_turns !== null ? { maxModelTurns: Number(turns.max_turns) } : {}) },
+      limits: { maxToolCalls: Number(row.max_tools), maxToolFailures: Number(row.max_failures), maxModelAttempts: Number(row.max_models) },
       toolCalls: Number(row.tools), toolFailures: Number(row.failures), modelFailures: Number(row.models), modelTurns: Number(turns.turns),
       exceededKind: row.exceeded_kind as RunBudgetState["exceededKind"],
       exceededReason: typeof row.exceeded_reason === "string" ? row.exceeded_reason : undefined

@@ -1,3 +1,6 @@
+import { buildFeishuInteractionCard } from "$lib/server/channels/feishu/interaction.js";
+import { buildTelegramInteractionKeyboard, formatTelegramInteractionView } from "$lib/server/channels/telegram/interaction.js";
+import { TELEGRAM_MENU_COMMANDS } from "$lib/server/channels/telegram/commands.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -78,6 +81,7 @@ function fixture(options: { promptStore?: InteractionPromptStore; ttlMs?: number
       compactRecommended: false
     }),
     compactInteractionSession: async () => ({ ok: true, message: "compacted" }),
+    stopCurrentInteractionRun: () => ({ ok: true, message: "stopped current" }),
     stopInteractionRun: async () => ({ ok: true, message: "stopped" }),
     steerInteractionRun: () => ({ ok: true, message: "steered" }),
     followUpInteractionRun: () => ({ ok: true, message: "followed" }),
@@ -369,4 +373,108 @@ test("clear pending confirms the exact set and fails stale when it moved", async
   assert.deepEqual(confirmedIds, [5, 6]);
   assert.equal(outcome.kind, "view");
   assert.equal(outcome.kind === "view" ? outcome.view.surface : "", "result");
+});
+
+
+test("stop confirmation offers continue queue and binds it to the current run", async () => {
+  const fx = fixture();
+  fx.commands.getInteractionQueue = async () => [{ id: 5, status: "pending", preview: "later", createdAt: "" }];
+  let currentStops = 0;
+  let clears = 0;
+  fx.commands.stopCurrentInteractionRun = (_context: unknown, runId: string) => {
+    assert.equal(runId, "run-1"); currentStops++;
+    return { ok: true, message: "continued" };
+  };
+  fx.commands.stopInteractionRun = async () => { clears++; return { ok: true, message: "cleared" }; };
+  const view = fx.service.queuedControlView(fx.context, 5);
+  const confirmation = await fx.service.handleToken(buttonToken(view, "Stop"), fx.context);
+  assert.equal(confirmation.kind, "view");
+  if (confirmation.kind !== "view") return;
+  buttonToken(confirmation.view, "Stop and clear");
+  const token = buttonToken(confirmation.view, "Stop and continue queue");
+  await fx.service.handleToken(token, fx.context);
+  await fx.service.handleToken(token, fx.context);
+  assert.equal(currentStops, 1);
+  assert.equal(clears, 0);
+  const another = await fx.service.handleToken(buttonToken(fx.service.queuedControlView(fx.context, 5), "Stop"), fx.context);
+  assert.equal(another.kind, "view");
+  if (another.kind !== "view") return;
+  const staleToken = buttonToken(another.view, "Stop and continue queue");
+  fx.setBinding({ sessionId: "session-1", projectId: null, runId: "replacement-run" });
+  await fx.service.handleToken(staleToken, fx.context);
+  assert.equal(currentStops, 1);
+});
+
+
+test("stop queue choices have Chinese labels and explicit destructive action", async () => {
+  const fx = fixture();
+  fx.commands.interactionText = (_english: string, chinese: string) => chinese;
+  fx.commands.getInteractionQueue = async () => [{ id: 5, status: "pending", preview: "later", createdAt: "" }];
+  const queued = fx.service.queuedControlView(fx.context, 5);
+  const result = await fx.service.handleToken(buttonToken(queued, "停止"), fx.context);
+  assert.equal(result.kind, "view");
+  if (result.kind !== "view") return;
+  assert.match(result.view.body ?? "", /1 个待执行任务/);
+  buttonToken(result.view, "停止并继续队列");
+  buttonToken(result.view, "停止并清空");
+});
+
+
+for (const chinese of [false, true]) {
+  test(`new session shows compact actions and only loads history on demand (${chinese ? "zh" : "en"})`, async () => {
+    const fx = fixture();
+    fx.commands.interactionText = (en: string, zh: string) => chinese ? zh : en;
+    let historyReads = 0;
+    const sessions = fx.commands.getInteractionSessions;
+    fx.commands.getInteractionSessions = () => { historyReads++; return sessions(); };
+    fx.commands.createInteractionSession = async () => {
+      fx.setBinding({ sessionId: "new-session", projectId: null, runId: null });
+      return { ok: true, message: "created" };
+    };
+    const menu = await fx.service.open("menu", fx.context);
+    const result = await fx.service.handleToken(buttonToken(menu, chinese ? "新建会话" : "New session"), fx.context);
+    assert.equal(result.kind, "notice");
+    if (result.kind !== "notice" || !result.view) return;
+    assert.equal(historyReads, 0);
+    assert.equal(result.view.actions?.length, 4);
+    assert.equal(result.view.sections, undefined);
+    const feishu = buildFeishuInteractionCard(result.view);
+    const telegram = buildTelegramInteractionKeyboard(result.view);
+    assert.equal(telegram.inline_keyboard.flat().length, 4);
+    assert.doesNotMatch(JSON.stringify(feishu), /session-2/);
+    assert.doesNotMatch(formatTelegramInteractionView(result.view), /session-2/);
+    const history = await fx.service.handleToken(buttonToken(result.view, chinese ? "历史会话" : "Sessions"), fx.context);
+    assert.equal(history.kind, "view");
+    assert.equal(historyReads, 1);
+    if (history.kind === "view") assert.equal(history.view.sections?.[0]?.rows?.length, 2);
+  });
+
+  test(`running menu renders both stop buttons on Feishu and Telegram (${chinese ? "zh" : "en"})`, async () => {
+    const fx = fixture();
+    fx.commands.interactionText = (en: string, zh: string) => chinese ? zh : en;
+    let currentStops = 0;
+    fx.commands.stopCurrentInteractionRun = (_context: unknown, runId: string) => {
+      assert.equal(runId, "run-1"); currentStops++;
+      return { ok: true, message: "continued" };
+    };
+    for (const surface of ["menu", "status"] as const) {
+      const view = await fx.service.open(surface, fx.context);
+      const label = chinese ? "停止并继续队列" : "Stop and continue queue";
+      const token = buttonToken(view, label);
+      buttonToken(view, chinese ? "停止并清空" : "Stop and clear");
+      assert.ok(JSON.stringify(buildFeishuInteractionCard(view)).includes(label));
+      assert.ok(buildTelegramInteractionKeyboard(view).inline_keyboard.flat().some((button) => button.text === label));
+      await fx.service.handleToken(token, fx.context);
+    }
+    assert.equal(currentStops, 2);
+    fx.setBinding({ sessionId: "session-1", projectId: null, runId: null });
+    const idle = await fx.service.open("menu", fx.context);
+    assert.doesNotMatch(JSON.stringify(buildTelegramInteractionKeyboard(idle)), /Stop and|停止并/);
+  });
+}
+
+test("Telegram native command menu describes stop's queue-clearing behavior", () => {
+  const stop = TELEGRAM_MENU_COMMANDS.find((entry) => entry.command === "stop");
+  assert.match(stop?.en ?? "", /clear queued/);
+  assert.match(stop?.zh ?? "", /清空队列/);
 });

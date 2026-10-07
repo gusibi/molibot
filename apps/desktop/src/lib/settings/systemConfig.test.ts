@@ -5,7 +5,7 @@ import { buildDesktopSystemPatch } from "./systemConfig";
 
 const config: DesktopSystemConfig = { serverPort: 3040, timezone: "UTC",
   budget: { maxToolCalls: 100, maxToolFailures: 6, maxModelAttempts: 6 },
-  subagentRuntime: { maxToolCalls: 100, maxToolFailures: 6, maxModelTurns: 12, deadlineMs: 600000,
+  subagentRuntime: { maxToolCalls: 100, maxToolFailures: 6, maxModelRetries: 12, deadlineMs: 600000,
     maxTasks: 4, maxConcurrency: 2, compactionEnabled: true, persistSessions: true },
   browserAutomation: { defaultTimeoutMs: 60000 },
   display: { toolProgress: "new", showReasoning: "off", gatewayNotifyInterval: 5, runLogNotice: false } };

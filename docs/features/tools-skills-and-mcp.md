@@ -11,6 +11,8 @@ Molibot gives a personal Agent controlled ways to work with information and loca
 
 MCP enablement and connection health are separate. An enabled server may be disconnected or in error when its local process or HTTP endpoint is unavailable. Web and Desktop Settings show the live state and offer **Reconnect**; disabling or deleting a server closes its runtime connection. When a previously connected service returns, the next explicit Agent load or operator reconnect creates a fresh client without requiring a Molibot restart.
 
+Each remote MCP tool request has a fixed two-minute execution limit, including calls made through `mcpInvoke`. Progress does not extend it, and approval waiting is outside this limit. Timeout returns an error and signals cancellation; a remote write may still finish if the server ignores cancellation, so verify its outcome before retrying.
+
 Built-in ingestion is split by responsibility. `read` handles workspace text and images: it returns the original image when the active primary model supports vision, and otherwise invokes the configured image-recognition engines on demand. The same image may be read repeatedly with different prompts. `webFetch` reads guarded public webpages; `docExtract` extracts text and tables from workspace PDF, DOCX, and XLSX files.
 
 Built-in deliverable generation is equally explicit. `documentExport` writes DOCX, XLSX, or PDF only inside Project or Session scratch, re-reads the result with an independent format parser, verifies requested text/sheets/cells, and only then atomically publishes or attaches it. PPTX generation is intentionally deferred.

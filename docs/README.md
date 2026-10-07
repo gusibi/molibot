@@ -39,6 +39,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 ### Planned and requirements
 
 - [Assistant Capability Matrix](requirements/personal-assistant-capability-matrix.md) — the single four-state current-status source
+- [Large Autonomous Execution PRD](requirements/large-autonomous-execution-prd.md) — proposed continuous execution, dynamic decomposition and large-batch acceptance
 - [Automatic Durable Execution PRD](requirements/automatic-durable-execution-prd.md) — long-task foundation, partially delivered
 - [Pi capabilities integration spec](requirements/pi-capabilities-integration-spec.md) — phased Durable kernel replacement, Deferred responses, Codemode and optional image backend
 - [Permission Modes PRD](requirements/permission-modes-prd.md) — Plan/Manual/Accept/Auto session scope
@@ -66,6 +67,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Research](research/) — memory systems, market positioning, Hermes/OpenClaw notes
 - [Sandbox designs](designs/sandbox/)
 - [Plugin guides](guides/plugins/) — [manifest design](designs/plugins/plugin-manifest.md), [plugin contract](guides/plugins/authoring.md), [plugin authoring](guides/plugins/plugin-authoring.md)
+- [Subagent execution and failure recovery](guides/subagent-execution.md)
 - [Deferred tool guide](guides/tools/deferred-tool-authoring.md)
 - [Permission modes × sandbox policy](guides/permission-and-sandbox-modes.md)
 - [Call trace guide](guides/trace/call-trace.md) · [Trace design](designs/trace/)

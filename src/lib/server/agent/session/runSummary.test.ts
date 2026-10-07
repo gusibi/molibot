@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSubagentTaskRecord } from "$lib/server/agent/session/runSummary.js";
+import { buildSubagentTaskRecord, formatStoppedSubagentReport } from "$lib/server/agent/session/runSummary.js";
 
 test("buildSubagentTaskRecord carries budget, model, session and a normalized task preview", () => {
   const record = buildSubagentTaskRecord(
@@ -42,4 +42,13 @@ test("buildSubagentTaskRecord omits budget/model when the event lacks them", () 
   assert.equal(record.sessionId, undefined);
   assert.equal(record.durationMs, undefined);
   assert.equal(record.taskPreview, undefined);
+});
+
+
+test("parent fallback explains incomplete work, last progress and both stopping reasons", () => {
+  const report = formatStoppedSubagentReport([{ mode: "single", taskCount: 1, agent: "worker",
+    taskPreview: "Translate article", stopReason: "error", errorMessage: "Model retries exhausted",
+    progress: "source.md written; translation not validated" }], "Parent model unavailable");
+  for (const evidence of ["未完成", "Translate article", "Model retries exhausted", "source.md", "Parent model unavailable", "不能确认全部完成"]) assert.ok(report.includes(evidence));
+  assert.equal(formatStoppedSubagentReport([{ mode: "single", taskCount: 1, stopReason: "stop" }]), "");
 });

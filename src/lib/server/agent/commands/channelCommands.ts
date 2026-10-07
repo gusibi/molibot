@@ -995,6 +995,19 @@ export class SharedRuntimeCommandService<TTarget> {
     }
   }
 
+  stopCurrentInteractionRun(
+    input: InteractionContext<TTarget>,
+    expectedRunId: string
+  ): { ok: boolean; message: string } {
+    if (!expectedRunId || this.activeInteractionRunId(input.scopeId) !== expectedRunId) {
+      return { ok: false, message: this.text("The target run already changed or finished. Nothing was stopped.", "目标运行已经变化或结束，没有停止新的任务。") };
+    }
+    const result = this.options.stopRun(input.scopeId);
+    return result.aborted || result.clearedStale
+      ? { ok: true, message: this.text("Stopped the current task. Pending tasks will continue after it settles.", "已停止当前任务，取消清理完成后继续执行排队任务。") }
+      : { ok: false, message: this.text("Nothing running. Pending tasks were kept.", "当前没有运行中的任务，排队任务已保留。") };
+  }
+
   async stopInteractionRun(
     input: InteractionContext<TTarget>,
     expectedRunId: string,
@@ -1111,6 +1124,13 @@ export class SharedRuntimeCommandService<TTarget> {
 
     if (cmd === "/acp" || cmd === "/approve" || cmd === "/deny") {
       await this.options.sendText(input.target, ACP_DISABLED_MESSAGE);
+      return true;
+    }
+
+    if (cmd === "/stop" && rawArg.toLowerCase() === "current") {
+      const runId = this.activeInteractionRunId(input.scopeId);
+      const result = this.stopCurrentInteractionRun(this.commandInteractionContext(input), runId ?? "");
+      await this.options.sendText(input.target, result.message);
       return true;
     }
 
@@ -2983,6 +3003,7 @@ export class SharedRuntimeCommandService<TTarget> {
     const advancedRows: CommandTableRow[] = [
       { label: "/steer <text|queueId>", value: d("inject a live correction into the current running task", "向当前运行中的任务注入实时纠正") },
       { label: "/followup <text|queueId>", value: d("run a follow-up turn after the current task finishes", "在当前任务完成后追加一轮任务") },
+      { label: "/stop current", value: d("stop the current task and continue queued tasks", "停止当前任务并继续队列") },
       { label: "/queue", value: d("list current running and queued tasks", "查看当前运行中和排队中的任务") },
       { label: "/queue front <text>", value: d("insert a text task at the front of queue", "将文本任务插入队列最前方") },
       { label: "/queue delete <queueId>", value: d("delete a pending queued task by id", "按 ID 删除排队任务") },

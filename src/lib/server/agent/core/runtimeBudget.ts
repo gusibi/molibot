@@ -3,7 +3,6 @@ export interface RunBudgetLimits {
   maxToolFailures: number;
   /** Failed-generation retry limit. */
   maxModelAttempts: number;
-  maxModelTurns?: number;
 }
 
 export interface RunBudgetSnapshot {
@@ -37,7 +36,7 @@ export interface ToolBudgetResult {
  * reworded once while a `.includes("too many tool calls")` check silently kept
  * pointing at the old wording.
  */
-export type RunBudgetExceededKind = "toolCalls" | "toolFailures" | "modelFailures" | "modelTurns";
+export type RunBudgetExceededKind = "toolCalls" | "toolFailures" | "modelFailures";
 
 export const DEFAULT_RUN_BUDGET: RunBudgetLimits = {
   maxToolCalls: 24,
@@ -87,9 +86,6 @@ export function buildBudgetStopUserMessage(input: {
   }
   if (input.kind === "modelFailures") {
     return `本轮运行达到模型重试上限（${input.snapshot.modelFailures}/${input.limits.maxModelAttempts}）后停止。请稍后重试，或检查模型配置。`;
-  }
-  if (input.kind === "modelTurns") {
-    return `子任务达到模型轮次上限（${input.snapshot.modelTurns}/${input.limits.maxModelTurns}）后停止。已完成的步骤仍保留，可缩小任务范围后继续。`;
   }
   return "本轮运行被运行预算中止。上方保留了已完成的步骤。";
 }
@@ -191,9 +187,6 @@ export class RunBudget {
 
   private modelTurn(): ToolBudgetResult {
     if (this.exceededReason) return { ok: false, reason: this.exceededReason };
-    if (this.limits.maxModelTurns !== undefined && this.modelTurns >= this.limits.maxModelTurns) {
-      return this.exceed("modelTurns", `Run budget exceeded: too many model turns (${this.modelTurns}/${this.limits.maxModelTurns}).`);
-    }
     this.modelTurns += 1;
     return { ok: true };
   }

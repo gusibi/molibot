@@ -52,7 +52,7 @@ export interface PiDurableKernelOptions {
   beforeCompact?: import("@earendil-works/pi-durable").CompactionHooks["beforeCompact"];
   beforeExecute?: (api: ToolExecutionApi, context: import("@earendil-works/chord").Context) => Promise<void>;
   onToolApi?: (callId: string, api: ToolExecutionApi | undefined) => void;
-  onRecoveryRequired?: (cause: Error) => void;
+  onRecoveryRequired?: (cause: Error, conversationId?: number) => void;
 }
 
 export interface PiDurableKernelResult {
@@ -310,7 +310,7 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
           } }, execute);
         } catch (cause) {
           if (cause instanceof PiPreparationRecoveryError) {
-            options.onRecoveryRequired?.(cause);
+            options.onRecoveryRequired?.(cause, api.conversationId);
             await awaitWithContext(new Promise<never>(() => undefined), context);
           }
           throw cause;
@@ -334,7 +334,7 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
           options.assertStorageOwnership();
           return await options.beforeCompact?.(compaction, api, context);
         } catch (cause) {
-          options.onRecoveryRequired?.(cause instanceof Error ? cause : new Error(String(cause)));
+          options.onRecoveryRequired?.(cause instanceof Error ? cause : new Error(String(cause)), api.conversationId);
           await awaitWithContext(new Promise<never>(() => undefined), context);
           return { decline: true };
         }
@@ -349,7 +349,7 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
             return messages ? { messages } : undefined;
           } catch (cause) {
             // Pi reports hook errors and continues. Host admission failures must stop before a provider request.
-            options.onRecoveryRequired?.(cause instanceof Error ? cause : new Error(String(cause)));
+            options.onRecoveryRequired?.(cause instanceof Error ? cause : new Error(String(cause)), api.conversationId);
             await awaitWithContext(new Promise<never>(() => undefined), context);
             return undefined;
           }
@@ -381,7 +381,7 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
               })); }
             catch (cause) {
               if (cause instanceof PiPreparationRecoveryError) {
-                options.onRecoveryRequired?.(cause);
+                options.onRecoveryRequired?.(cause, api.conversationId);
                 // Keep the original ToolTask before intent; a model retry must not conceal an unknown effect.
                 await awaitWithContext(new Promise<never>(() => undefined), context);
               }

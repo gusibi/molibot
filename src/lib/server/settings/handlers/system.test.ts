@@ -42,7 +42,7 @@ test("system config persists a dedicated subagent runtime budget without changin
     subagentRuntime: {
       maxToolCalls: 120,
       maxToolFailures: 8,
-      maxModelTurns: 20,
+      maxModelRetries: 20,
       deadlineMs: 2_400_000,
       maxTasks: 8,
       maxConcurrency: 3,
@@ -54,7 +54,7 @@ test("system config persists a dedicated subagent runtime budget without changin
   assert.deepEqual(updated.subagentRuntime, {
     maxToolCalls: 120,
     maxToolFailures: 8,
-    maxModelTurns: 20,
+    maxModelRetries: 20,
     deadlineMs: 2_400_000,
     maxTasks: 8,
     maxConcurrency: 3,
@@ -67,7 +67,7 @@ test("system config persists a dedicated subagent runtime budget without changin
     subagentRuntime: {
       maxToolCalls: 120.6,
       maxToolFailures: 8,
-      maxModelTurns: 20,
+      maxModelRetries: 20,
       deadlineMs: 2_400_000,
       maxTasks: 2,
       maxConcurrency: 4,

@@ -734,8 +734,8 @@ export interface RunBudgetLimits {
 export interface SubagentRuntimeSettings {
   maxToolCalls: number;
   maxToolFailures: number;
-  /** Model turns inside one delegated task, independent from parent model attempts. */
-  maxModelTurns: number;
+  /** Failed model retries inside one delegated task; successful requests do not consume them. */
+  maxModelRetries: number;
   /** Wall-clock deadline for one delegated task. */
   deadlineMs: number;
   /** Maximum tasks accepted by one parallel or chain invocation. */

@@ -200,6 +200,7 @@ export type RunnerUiEvent =
       /** The persisted approval request a suspending subagent is parked on. */
       approvalRequestId?: string;
       errorMessage?: string;
+      progress?: string;
       budget?: RunBudgetSnapshot;
       model?: string;
       sessionId?: string;

@@ -39,6 +39,41 @@ interface McpToolDetails {
 }
 
 const MCP_CONNECT_TIMEOUT_MS = 8_000;
+export const MCP_EXECUTION_TIMEOUT_MS = 120_000;
+
+/** Bound the remote request even when its transport ignores cancellation. */
+export async function callMcpToolWithTimeout(
+  client: Pick<Client, "callTool">,
+  params: Parameters<Client["callTool"]>[0],
+  signal?: AbortSignal
+): Promise<Awaited<ReturnType<Client["callTool"]>>> {
+  signal?.throwIfAborted();
+  const controller = new AbortController();
+  const executionSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const interrupted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(executionSignal.reason);
+    executionSignal.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
+      controller.abort(new Error(`MCP tool ${params.name} timed out after 120 seconds. The remote operation may still be running; verify its outcome before retrying a write.`));
+    }, MCP_EXECUTION_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([
+      client.callTool(params, undefined, {
+        signal: executionSignal,
+        timeout: MCP_EXECUTION_TIMEOUT_MS,
+        maxTotalTimeout: MCP_EXECUTION_TIMEOUT_MS,
+        resetTimeoutOnProgress: false
+      }),
+      interrupted
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) executionSignal.removeEventListener("abort", onAbort);
+  }
+}
 
 interface ConnectedServer {
   hash: string;
@@ -355,12 +390,10 @@ export class McpToolRegistry {
           parameters,
           execute: async (_toolCallId, params, signal): Promise<{ content: Array<TextContent | ImageContent>; details: McpToolDetails }> => {
             const toolArgs = params && typeof params === "object" ? params as Record<string, unknown> : {};
-            const result = await client.callTool({
+            const result = await callMcpToolWithTimeout(client, {
               name: remote.name,
               arguments: toolArgs
-            }, undefined, {
-              signal
-            });
+            }, signal);
             const content = capMcpToolContent(normalizeToolContent(result), {
               spillDir: join(options.workspaceDir, ".mom-tool-output"),
               spillPrefix: `mcp-${sanitizeToolNameSegment(remote.name)}`

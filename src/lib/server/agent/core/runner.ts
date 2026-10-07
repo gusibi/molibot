@@ -17,7 +17,7 @@ import { buildSystemPrompt, getProjectPromptRefreshKey, type PromptMiniApp } fro
 import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import { writeProjectSystemPromptPreview } from "$lib/server/agent/prompts/projectPromptPreview.js";
 import { resolveProjectFileReferences } from "$lib/server/projects/fileReferences.js";
-import { buildRunReflection, buildSubagentTaskRecord, formatRunClosingNote, type RunSummary } from "$lib/server/agent/session/runSummary.js";
+import { buildRunReflection, buildSubagentTaskRecord, formatStoppedSubagentReport, formatRunClosingNote, type RunSummary } from "$lib/server/agent/session/runSummary.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { saveSkillDraft, shouldSuggestSkillDraft } from "$lib/server/agent/skills/skillDraft.js";
 import { buildSkillDraftMetadataViaSubagent } from "$lib/server/agent/skills/skillDraftSubagent.js";
@@ -2039,7 +2039,7 @@ export class MomRunner implements RunnerLike {
         },
         assertAuthority: (name, args) => this.activeToolAuthority?.(name, args),
         childCompaction: { enabled: settings.subagentRuntime.compactionEnabled, reserveTokens: settings.compaction.reserveTokens, keepRecentTokens: settings.compaction.keepRecentTokens },
-        childBudgetLimits: { maxToolCalls: settings.subagentRuntime.maxToolCalls, maxToolFailures: settings.subagentRuntime.maxToolFailures, maxModelAttempts: DEFAULT_RUN_BUDGET.maxModelAttempts, maxModelTurns: settings.subagentRuntime.maxModelTurns },
+        childBudgetLimits: { maxToolCalls: settings.subagentRuntime.maxToolCalls, maxToolFailures: settings.subagentRuntime.maxToolFailures, maxModelAttempts: settings.subagentRuntime.maxModelRetries },
         childTools: () => (localTools as unknown as { getChildTools: () => AgentTool[] }).getChildTools(),
         beforeChildTool: taskId => {
           const recorded = budget.tryStartTool(`pi:${executionKey}:${taskId}`);
@@ -3341,6 +3341,17 @@ export class MomRunner implements RunnerLike {
         errorMessage = budgetExhaustedNotice;
       }
 
+      if (!finalText.trim() || finalText.startsWith("[SILENT]")) {
+        const report = formatStoppedSubagentReport(subagentTaskRecords, errorMessage);
+        if (report && stopReason !== "aborted" && stopReason !== "waiting_for_approval") {
+          finalText = report;
+          stopReason = "error";
+          errorMessage ||= "Delegated work stopped without a parent conclusion.";
+          appendRunContextMessage(createAssistantErrorMessage({ text: report, errorMessage, model: activeSelection.model }));
+          assistantMessagePersisted = true;
+        }
+      }
+
       collectCitationFilter();
       if (finalText) {
         const strippedFinal = stripMemoryCitations(finalText);
@@ -3605,7 +3616,7 @@ export class MomRunner implements RunnerLike {
       return { runId, workspaceId, assistantSourceEntryId, stopReason, errorMessage, usage: finalUsage };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const partialText = stripMemoryCitations(streamedAssistantText.trim()).text;
+      const partialText = stripMemoryCitations(streamedAssistantText.trim()).text || formatStoppedSubagentReport(subagentTaskRecords, message);
       if (!assistantMessagePersisted) {
         appendRunContextMessage(
           createAssistantErrorMessage({
@@ -3652,9 +3663,8 @@ export class MomRunner implements RunnerLike {
       logRunDetail({ type: "final", summary: message, isError: true });
       try {
         await ctx.setWorking(false);
-        if (!partialText) {
-          await ctx.replaceMessage(`Run failed: ${message}`);
-        }
+        if (partialText) await ctx.replaceMessage(partialText);
+        else await ctx.replaceMessage(`Run failed: ${message}`);
         await respondInThread(`Error: ${message}`);
       } catch {
         // ignore secondary UI errors

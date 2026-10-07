@@ -188,7 +188,8 @@ function displayUserText(text: string): string {
 // a memory-citation marker ([[mem:M1]]); it is model-facing bookkeeping and
 // must never render in a transcript.
 function displayAssistantText(text: string): string {
-  return stripMemoryCitations(text).text;
+  const visible = stripMemoryCitations(text).text;
+  return visible.trimStart().startsWith("[SILENT]") ? "" : visible;
 }
 
 function modelLabel(message: AgentMessage): string | undefined {

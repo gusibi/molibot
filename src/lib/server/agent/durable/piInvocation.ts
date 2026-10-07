@@ -15,7 +15,7 @@ export interface NativeChildOptions {
   deadlineMs?: number;
 }
 export interface NativeChildSession {
-  state: { messages: AgentMessage[]; usage?: import("@earendil-works/pi-ai").Usage; budget?: import("$lib/server/agent/core/runtimeBudget.js").RunBudgetSnapshot };
+  state: { messages: AgentMessage[]; runtimeStop?: { kind: "budget_exceeded" | "timeout" | "execution_error"; reason: string }; usage?: import("@earendil-works/pi-ai").Usage; budget?: import("$lib/server/agent/core/runtimeBudget.js").RunBudgetSnapshot };
   model: Model<any>;
   sessionId: string;
   subscribe(listener: (event: AgentEvent) => void): () => void;

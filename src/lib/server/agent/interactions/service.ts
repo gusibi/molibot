@@ -356,7 +356,20 @@ export class SharedInteractionService<TTarget> {
       }
       case "session.new": {
         const result = await this.options.commands.createInteractionSession(context);
-        return { kind: "notice", message: result.message, view: await this.sessionsView(context, 0) };
+        return {
+          kind: "notice",
+          message: result.message,
+          view: {
+            surface: "result",
+            title: this.options.commands.interactionText(result.ok ? "New session" : "Session creation failed", result.ok ? "新建会话" : "创建会话失败"),
+            actions: [
+              this.button(context, this.options.commands.interactionText("Menu", "菜单"), { type: "menu.open" }, "primary", { oneShot: false }),
+              this.button(context, this.options.commands.interactionText("Sessions", "历史会话"), { type: "sessions.open" }, "default", { oneShot: false }),
+              this.button(context, this.options.commands.interactionText("Model", "模型"), { type: "models.open" }, "default", { oneShot: false }),
+              this.button(context, "Project", { type: "projects.open" }, "default", { oneShot: false })
+            ]
+          }
+        };
       }
       case "session.compact": {
         const result = await this.options.commands.compactInteractionSession(context);
@@ -475,15 +488,20 @@ export class SharedInteractionService<TTarget> {
             surface: "confirm",
             title: this.options.commands.interactionText("Stop current task?", "停止当前任务？"),
             body: this.options.commands.interactionText(
-              `Stopping also clears ${queueIds.length} pending task(s), matching /stop behavior.`,
-              `停止当前任务还会清除 ${queueIds.length} 个待执行任务，与 /stop 的现有行为一致。`
+              `There are ${queueIds.length} pending task(s). Continue them after stopping, or clear the queue.`,
+              `有 ${queueIds.length} 个待执行任务。停止当前任务后，可以继续执行队列，或清空队列。`
             ),
             actions: [
+              this.button(context, this.options.commands.interactionText("Stop and continue queue", "停止并继续队列"), { type: "run.stop.current", runId: binding.runId }, "primary", { binding }),
               this.button(context, this.options.commands.interactionText("Stop and clear", "停止并清空"), { type: "run.stop.confirm", runId: binding.runId, queueIds }, "danger", { binding }),
               this.button(context, this.options.commands.interactionText("Back", "返回"), { type: "status.open" }, "default", { oneShot: false })
             ]
           }
         };
+      }
+      case "run.stop.current": {
+        const result = this.options.commands.stopCurrentInteractionRun(context, action.runId);
+        return { kind: "notice", message: result.message, view: await this.statusView(context) };
       }
       case "run.stop.confirm": {
         const current = this.state(context.scopeId);
@@ -528,7 +546,10 @@ export class SharedInteractionService<TTarget> {
       this.button(context, this.options.commands.interactionText("Sessions", "会话"), { type: "sessions.open" }, "default", { oneShot: false })
     ];
     if (state.runId) {
-      conversationActions.push(this.button(context, this.options.commands.interactionText("Stop", "停止"), { type: "run.stop" }, "danger"));
+      conversationActions.push(
+        this.button(context, this.options.commands.interactionText("Stop and continue queue", "停止并继续队列"), { type: "run.stop.current", runId: state.runId }, "primary"),
+        this.button(context, this.options.commands.interactionText("Stop and clear", "停止并清空"), { type: "run.stop" }, "danger")
+      );
     }
     return {
       surface: "menu",
@@ -768,7 +789,8 @@ export class SharedInteractionService<TTarget> {
     ];
     if (state.runId) {
       actions.unshift(
-        this.button(context, this.options.commands.interactionText("Stop", "停止"), { type: "run.stop" }, "danger"),
+        this.button(context, this.options.commands.interactionText("Stop and continue queue", "停止并继续队列"), { type: "run.stop.current", runId: state.runId }, "primary"),
+        this.button(context, this.options.commands.interactionText("Stop and clear", "停止并清空"), { type: "run.stop" }, "danger"),
         this.button(context, this.options.commands.interactionText("Steer", "调整方向"), { type: "run.steer", runId: state.runId }, "primary"),
         this.button(context, this.options.commands.interactionText("Follow-up", "完成后继续"), { type: "run.followup", runId: state.runId }, "default")
       );

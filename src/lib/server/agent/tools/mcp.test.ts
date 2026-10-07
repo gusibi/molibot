@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createMcpInvokeTool } from "./mcpInvoke.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { McpServerConfig } from "$lib/server/settings/schema.js";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_MAX_BYTES } from "$lib/server/agent/tools/truncate.js";
-import { McpToolRegistry, capMcpToolContent, redactMcpError } from "./mcp.js";
+import { McpToolRegistry, capMcpToolContent, redactMcpError, callMcpToolWithTimeout, MCP_EXECUTION_TIMEOUT_MS } from "./mcp.js";
 
 const fixtureCode = `
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -16,6 +17,7 @@ server.registerTool('ping', { description: 'ping' }, async () => ({ content: [{ 
 server.registerTool('flood', { description: 'return a payload far larger than the context' }, async () => ({
   content: [{ type: 'text', text: 'flooded line of output\\n'.repeat(200000) }]
 }));
+server.registerTool('hang', { description: 'never return' }, async () => new Promise(() => {}));
 server.registerTool('die', { description: 'exit after responding' }, async () => {
   setTimeout(() => process.exit(0), 20);
   return { content: [{ type: 'text', text: 'bye' }] };
@@ -216,4 +218,72 @@ test("a real MCP server's oversized payload is capped on the way into the contex
   );
   assert.match(text, /MCP output truncated from/);
   assert.match(text, /flooded line of output/);
+});
+
+
+test("MCP deadline aborts and settles a transport that ignores cancellation", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let requestSignal: AbortSignal | undefined;
+  let requestOptions: any;
+  const client = { callTool: async (_params: any, _schema: any, options: any) => {
+    requestOptions = options;
+    requestSignal = options.signal;
+    return new Promise<never>(() => {});
+  } };
+  const pending = callMcpToolWithTimeout(client as any, { name: "hang" });
+  const rejected = assert.rejects(pending, /timed out after 120 seconds/);
+  t.mock.timers.tick(MCP_EXECUTION_TIMEOUT_MS - 1);
+  assert.equal(requestSignal?.aborted, false);
+  t.mock.timers.tick(1);
+  await rejected;
+  assert.equal(requestSignal?.aborted, true);
+  assert.equal(requestOptions.timeout, 120_000);
+  assert.equal(requestOptions.maxTotalTimeout, 120_000);
+  assert.equal(requestOptions.resetTimeoutOnProgress, false);
+});
+
+test("MCP user cancellation settles an uncooperative transport immediately", async () => {
+  const controller = new AbortController();
+  let requestSignal: AbortSignal | undefined;
+  const client = { callTool: async (_params: any, _schema: any, options: any) => {
+    requestSignal = options.signal;
+    return new Promise<never>(() => {});
+  } };
+  const pending = callMcpToolWithTimeout(client as any, { name: "hang" }, controller.signal);
+  const rejected = assert.rejects(pending, /Stopped by user/);
+  controller.abort(new Error("Stopped by user"));
+  await rejected;
+  assert.equal(requestSignal?.aborted, true);
+  let called = false;
+  await assert.rejects(callMcpToolWithTimeout({ callTool: async () => { called = true; } } as any, { name: "never-start" }, controller.signal), /Stopped by user/);
+  assert.equal(called, false);
+});
+
+test("MCP completed requests remove their deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let requestSignal: AbortSignal | undefined;
+  const client = { callTool: async (_params: any, _schema: any, options: any) => {
+    requestSignal = options.signal;
+    return { content: [{ type: "text", text: "done" }] };
+  } };
+  await callMcpToolWithTimeout(client as any, { name: "done" });
+  t.mock.timers.tick(MCP_EXECUTION_TIMEOUT_MS);
+  assert.equal(requestSignal?.aborted, false);
+});
+
+
+test("registered remote MCP tools enforce the deadline through mcpInvoke and recover for the next call", async (t) => {
+  const registry = new McpToolRegistry();
+  t.after(() => registry.closeAll());
+  const tools = await registry.getTools([server("deadline")], { workspaceDir: process.cwd() });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const invokeTool = createMcpInvokeTool({ getLoadedMcpTools: () => tools });
+  const pending = invokeTool.execute("hang-call", {
+    action: "call", serverId: "deadline", toolName: "hang", arguments: {}
+  });
+  const rejected = assert.rejects(pending, /timed out after 120 seconds/);
+  t.mock.timers.tick(MCP_EXECUTION_TIMEOUT_MS);
+  await rejected;
+  t.mock.timers.reset();
+  assert.equal(await invoke(tool(tools, "ping")), "pong");
 });

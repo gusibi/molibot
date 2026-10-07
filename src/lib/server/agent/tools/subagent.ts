@@ -48,7 +48,6 @@ import {
 } from "$lib/server/plugins/externalSubagent/config.js";
 import { translatePolicyForClaudeCode, translatePolicyForCodex } from "$lib/server/plugins/externalSubagent/policyTranslation.js";
 import {
-  evaluateSubagentEvent,
   resolveSubagentBudgetLimits,
   resolveSubagentExecutionLimits,
   shouldFallbackToNextModel,
@@ -763,15 +762,28 @@ export function summarizeSubagentResultsForParent(mode: "single" | "parallel" | 
     ].join("\n");
   };
 
+  const describe = (result: SubagentRunResult): string => {
+    const body = compressOutput(result.output);
+    if (result.stopReason === "stop") return body;
+    return [
+      `Task: ${result.task}`,
+      `Status: ${result.stopReason}; not completed.`,
+      `Stop reason: ${result.errorMessage ?? result.runtimeStopKind ?? result.stopReason}`,
+      `Child session: ${result.sessionId ?? "unavailable"}`,
+      "Progress and last execution evidence:", body,
+      "Parent agent: continue within the remaining authorized budget when feasible. Always provide a final status explaining what completed, where execution stopped, why it stopped, and what remains unfinished. A child stopping is not task completion. Inspect existing effects before retrying; do not repeat completed writes."
+    ].join("\n\n");
+  };
+
   if (mode === "single") {
     const [result] = results;
     if (!result) return "Subagent finished with no output.";
-    return withCaveat(result, compressOutput(result.output || `${result.agent} finished without text output.`));
+    return withCaveat(result, describe(result));
   }
 
   return results
     .map((result, index) => {
-      const body = withCaveat(result, compressOutput(result.output));
+      const body = withCaveat(result, describe(result));
       return `## ${index + 1}. ${result.agent}\n\n${body}`;
     })
     .join("\n\n");
@@ -817,6 +829,14 @@ interface SubagentAttemptRuntime {
   models: readonly Model<any>[];
   guard: SubagentExecutionGuard;
   startedAt: number;
+}
+
+function buildStoppedChildEvidence(messages: AgentMessage[]): string {
+  return messages.slice(-8).map(message => {
+    if (message.role === "toolResult") return `${message.toolName} (${message.isError ? "failed" : "succeeded"}): ${extractTextFromToolResult(message)}`;
+    if (message.role === "assistant") return getAssistantText(message);
+    return "";
+  }).filter(Boolean).join("\n").slice(-6000) || "No completed work was reported; inspect the child session before resuming.";
 }
 
 /**
@@ -885,7 +905,8 @@ async function runSubagentOnce(
   let subagentToolCallCount = 0;
   let subagentLlmCallCount = 0;
   const unsubscribe = session.subscribe((event: any) => {
-    const evaluation = evaluateSubagentEvent(guard, event);
+    const deadline = guard.checkDeadline();
+    const evaluation = { abort: !deadline.ok, reason: deadline.reason };
     if (evaluation.abort) {
       momWarn("runner", "subagent_budget_abort", {
         ...logContext,
@@ -993,8 +1014,6 @@ async function runSubagentOnce(
     });
     if (promptOutcome.status === "timeout") {
       hardTimedOut = true;
-      const messages = session.state.messages;
-      const lastAssistant = getLastAssistant(messages);
       const guardStop = guard.getStopReason() ?? {
         kind: "timeout" as const,
         reason: `Subagent exceeded its time budget (${resolveSubagentExecutionLimits(options.settings).deadlineMs}ms).`
@@ -1002,7 +1021,7 @@ async function runSubagentOnce(
       return {
         agent: agent.name,
         task,
-        output: getAssistantText(lastAssistant),
+        output: buildStoppedChildEvidence(session.state.messages),
         stopReason: "error",
         errorMessage: guardStop.reason,
         usage: sessionUsage(),
@@ -1022,11 +1041,11 @@ async function runSubagentOnce(
 
     const messages = session.state.messages;
     const lastAssistant = getLastAssistant(messages);
-    const guardStop = hostBashApproval ? undefined : guard.getStopReason();
+    const guardStop = hostBashApproval ? undefined : session.state.runtimeStop ?? guard.getStopReason();
     return {
       agent: agent.name,
       task,
-      output: getAssistantText(lastAssistant),
+      output: guardStop ? buildStoppedChildEvidence(session.state.messages) : getAssistantText(lastAssistant),
       stopReason: hostBashApproval
         ? "waiting_for_approval"
         : guardStop
@@ -1068,14 +1087,12 @@ async function runSubagentOnce(
         sessionId: session.sessionId
       };
     }
-    const guardStop = guard.getStopReason();
+    const guardStop = session.state.runtimeStop ?? guard.getStopReason();
     if (guardStop) {
-      const messages = session.state.messages;
-      const lastAssistant = getLastAssistant(messages);
       return {
         agent: agent.name,
         task,
-        output: getAssistantText(lastAssistant),
+        output: buildStoppedChildEvidence(session.state.messages),
         stopReason: "error",
         errorMessage: guardStop.reason,
         usage: sessionUsage(),
@@ -1619,6 +1636,7 @@ export function createSubagentTool(options: {
             taskCount: parsed.tasks.length,
             stopReason: normalizeSubagentStopReason(result.stopReason),
             errorMessage: result.errorMessage,
+            progress: result.output.slice(-2000),
             budget: result.budget,
             model: result.model,
             sessionId: result.sessionId
@@ -1691,6 +1709,7 @@ export function createSubagentTool(options: {
 
         return {
           content: [{ type: "text", text: summarizeSubagentResultsForParent(parsed.mode, results) }],
+          isError: endStopReason === "error" || endStopReason === "aborted",
           details: {
             mode: parsed.mode,
             results

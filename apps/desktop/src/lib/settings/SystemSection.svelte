@@ -29,7 +29,7 @@
   const childFields = $derived([
     { key: "maxToolCalls" as const, label: session.text.systemMaxToolCalls, min: 1, max: 500 },
     { key: "maxToolFailures" as const, label: session.text.systemMaxToolFailures, min: 1, max: 100 },
-    { key: "maxModelTurns" as const, label: session.text.systemMaxModelTurns, min: 1, max: 100 },
+    { key: "maxModelRetries" as const, label: session.text.systemChildMaxModelRetries, min: 1, max: 100 },
     { key: "deadlineMs" as const, label: session.text.systemDeadline, min: 1000, max: 86400000 },
     { key: "maxTasks" as const, label: session.text.systemMaxTasks, min: 1, max: 16 },
     { key: "maxConcurrency" as const, label: session.text.systemMaxConcurrency, min: 1, max: 4 }

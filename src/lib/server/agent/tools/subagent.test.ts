@@ -718,3 +718,17 @@ test("standalone skill drafter runs in a native owner and keeps a readable publi
     assert.match(JSON.stringify(transcript.buildSessionContext().messages), /Draft completed/);
   } finally { getPiModels().deleteProvider(provider); rmSync(workspace, { recursive: true, force: true }); }
 });
+
+test("stopped child returns an error receipt with progress and a parent reporting obligation", async () => {
+  const tool = createSubagentTool({ cwd: process.cwd(), workspaceDir: process.cwd(), chatId: "report-child",
+    getSettings: () => defaultRuntimeSettings,
+    runSubagent: async (agent: { name: string }, task: string) => ({ ...budgetStopped(agent.name, task),
+      output: "Created source.md; validation pending", errorMessage: "Model failed after 12 retries" }) } as any);
+  const result = await tool.execute("report", { agent: "worker", task: "Write and validate" }, undefined, undefined);
+  assert.equal(result.isError, true);
+  const text = JSON.stringify(result.content);
+  assert.match(text, /Model failed after 12 retries/);
+  assert.match(text, /Created source.md/);
+  assert.match(text, /not completed/i);
+  assert.match(text, /final.*status/i);
+});

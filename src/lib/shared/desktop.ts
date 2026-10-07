@@ -2591,7 +2591,7 @@ export interface DesktopSystemConfig {
   timezone: string;
   budget: { maxToolCalls: number; maxToolFailures: number; maxModelAttempts: number };
   subagentRuntime: {
-    maxToolCalls: number; maxToolFailures: number; maxModelTurns: number; deadlineMs: number;
+    maxToolCalls: number; maxToolFailures: number; maxModelRetries: number; deadlineMs: number;
     maxTasks: number; maxConcurrency: number; compactionEnabled: boolean; persistSessions: boolean;
   };
   browserAutomation: { defaultTimeoutMs: number };

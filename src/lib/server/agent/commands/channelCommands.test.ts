@@ -1,3 +1,5 @@
+import { DatabaseSync } from "node:sqlite";
+import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -1974,5 +1976,64 @@ test("a broker approval can be answered by button and by plain text on any chann
     storagePaths.settingsDbFile = originalSettingsDbFile;
     rmSync(root, { recursive: true, force: true });
     resetApprovalBrokerForTests();
+  }
+});
+
+
+test("stop current preserves pending work and drains it only after cancellation settles", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stop-current-"));
+  const originalDb = storagePaths.settingsDbFile;
+  storagePaths.settingsDbFile = join(root, "settings.sqlite");
+  const db = new DatabaseSync(storagePaths.settingsDbFile);
+  db.exec("CREATE TABLE runs (id TEXT, session_id TEXT, status TEXT, started_at TEXT); INSERT INTO runs VALUES ('run-1', 'session-1', 'running', '2026-10-07');");
+  const controller = new AbortController();
+  let release!: () => void;
+  const settled = new Promise<void>((resolve) => { release = resolve; });
+  let finished!: () => void;
+  const drained = new Promise<void>((resolve) => { finished = resolve; });
+  const seen: string[] = [];
+  const coordinator = new InboundTaskCoordinator<{ text: string }, string>({
+    channel: "test", instanceId: "stop-current", dbFile: ":memory:",
+    process: async (payload) => {
+      seen.push(payload.text);
+      if (payload.text === "current") {
+        await new Promise<void>((resolve) => controller.signal.addEventListener("abort", () => resolve(), { once: true }));
+        await settled;
+      }
+      if (payload.text === "third") finished();
+    }
+  });
+  try {
+    let stopped = 0;
+    const sent: string[] = [];
+    const service = new SharedRuntimeCommandService<string>({
+      channel: "feishu", instanceId: "test", workspaceDir: process.cwd(), authScopePrefix: "feishu",
+      store: minimalStore() as any, runners: {} as any, getSettings: () => defaultRuntimeSettings,
+      isRunning: () => true,
+      stopRun: () => { stopped++; controller.abort(); return { aborted: true }; },
+      ...coordinator.toCommandOptions(),
+      sendText: async (_target, text) => { sent.push(text); }
+    });
+    coordinator.enqueue("chat-1", { text: "current" });
+    coordinator.enqueue("chat-1", { text: "second" });
+    coordinator.enqueue("chat-1", { text: "third" });
+    assert.equal(service.stopCurrentInteractionRun({ chatId: "chat-1", scopeId: "chat-1", actorId: "user", target: "target" }, "old-run").ok, false);
+    assert.equal(stopped, 0);
+    await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/stop current", target: "target" });
+    assert.equal(stopped, 1);
+    assert.deepEqual(seen, ["current"]);
+    assert.equal(coordinator.list("chat-1").filter((row) => row.status === "pending").length, 2);
+    assert.match(sent[0], /Pending tasks will continue/);
+    release();
+    await drained;
+    await coordinator.resumeAll();
+    assert.deepEqual(seen, ["current", "second", "third"]);
+    assert.equal(coordinator.size("chat-1"), 0);
+    db.exec("UPDATE runs SET id = 'replacement-run'");
+    assert.equal(service.stopCurrentInteractionRun({ chatId: "chat-1", scopeId: "chat-1", actorId: "user", target: "target" }, "run-1").ok, false);
+    assert.equal(stopped, 1);
+  } finally {
+    release(); coordinator.close(); db.close(); storagePaths.settingsDbFile = originalDb;
+    rmSync(root, { recursive: true, force: true });
   }
 });

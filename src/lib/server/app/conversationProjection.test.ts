@@ -396,3 +396,19 @@ test("a displayed turn keeps its recorded run IDs across model continuations", (
   });
   assert.deepEqual(result.messages.find(message => message.role === "assistant")?.traceRunIds, ["run-a", "run-b"]);
 });
+
+test("persisted silent parent reply cannot hide the subsequent unfinished-work report", () => {
+  const result = projectConversationMessages({ conversationId: "session", entries: [
+    entry("user", "user", [{ type: "text", text: "Translate articles" }], 0),
+    assistantEntry("silent", [{ type: "text", text: "[SILENT]" }], 1, { stopReason: "stop" }),
+    assistantEntry("report", [{ type: "text", text: "未完成：子任务停止；翻译未验证。" }], 2,
+      { stopReason: "error", errorMessage: "Delegated work stopped without a parent conclusion." })
+  ], metadata: [
+    { id: "m-u", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true },
+    { id: "m-a", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:02:00.000Z", contextBacked: true, sourceEntryId: "report" }
+  ] });
+  const reply = result.messages.find(message => message.id === "m-a");
+  assert.equal(reply?.content, "未完成：子任务停止；翻译未验证。");
+  assert.equal(reply?.stopReason, "error");
+  assert.ok(reply?.steps?.every(step => step.kind !== "text" || !step.content.includes("[SILENT]")));
+});

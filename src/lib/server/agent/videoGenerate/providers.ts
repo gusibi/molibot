@@ -297,8 +297,8 @@ export async function queryVideoTaskStatus(
     const status = pollData?.status;
 
     if (status === "completed") {
-      const videoUrl = pollData?.video_url || pollData?.remixed_from_video_id;
-      if (!videoUrl) {
+      const videoUrl = pollData?.url || pollData?.video_url;
+      if (typeof videoUrl !== "string" || !/^https?:\/\//i.test(videoUrl)) {
         throw new Error(`Agnes task completed but returned no video URL. Response: ${JSON.stringify(pollData)}`);
       }
       return { status: "completed", progress: 100, videoUrl };

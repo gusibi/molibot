@@ -320,14 +320,8 @@ export function createVideoGenerateTool(options: {
           signal
         };
 
-        let res;
-        try {
-          res = await queryVideoTaskStatus(taskId, engine, providerContext, videoId);
-        } catch (err: any) {
-          const errMsg = err.message || String(err);
-          taskStore.updateTaskProgress(taskId, "failed", 0, undefined, `Query failed: ${errMsg}`);
-          throw err;
-        }
+        // Query errors do not establish that the provider generation failed.
+        const res = await queryVideoTaskStatus(taskId, engine, providerContext, videoId);
 
         if (res.status === "completed") {
           taskStore.updateTaskProgress(taskId, "completed", 100, undefined, undefined, res.videoUrl);

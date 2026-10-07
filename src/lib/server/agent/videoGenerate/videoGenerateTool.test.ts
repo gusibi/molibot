@@ -3,6 +3,7 @@ import test from "node:test";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { queryVideoTaskStatus } from "./providers.js";
 import { createVideoGenerateTool } from "./videoGenerateTool.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { SqliteVideoTaskStore } from "./videoTaskStore.js";
@@ -339,7 +340,9 @@ test("videoGenerate tool supports query progress by taskId and updates status", 
       } else {
         return new Response(JSON.stringify({
           status: "completed",
-          video_url: "https://example.com/async-completed.mp4"
+          url: "https://example.com/async-completed.mp4",
+          remixed_from_video_id: null,
+          error: null
         }), { status: 200 });
       }
     }
@@ -714,4 +717,59 @@ test("video guidance keeps submission details on the tool and allows independent
   assert.match(tool.description, /Do not loop or call this tool repeatedly/);
   assert.match(tool.description, /Never pass Base64, data URLs, local file paths/);
   assert.doesNotMatch(tool.description, /must immediately.*end your turn/i);
+});
+
+test("video query errors preserve processing state and allow a successful retry", async () => {
+  const originalFetch = globalThis.fetch;
+  await fs.mkdir(mockCwd, { recursive: true });
+  const store = new SqliteVideoTaskStore(testDbFile);
+  const taskId = "agnes-query-retry";
+  store.createTask(taskId, "agnes", "default", "test video", {});
+  setTaskUpdatedAt(taskId, new Date(Date.now() - 60_000).toISOString());
+  const tool = createVideoGenerateTool(getTestContext(undefined, undefined, store));
+  try {
+    globalThis.fetch = (async () => { throw new Error("temporary query failure"); }) as typeof fetch;
+    await assert.rejects(tool.execute("query-error", { taskId, engine: "agnes" }), /temporary query failure/);
+    assert.equal(store.getTask(taskId)?.status, "processing");
+    assert.equal(store.getTask(taskId)?.errorMessage, undefined);
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      status: "completed", url: "https://example.com/recovered.mp4", error: null
+    }))) as typeof fetch;
+    const result = await tool.execute("query-retry", { taskId, engine: "agnes" });
+    assert.equal(result.details.status, "completed");
+    assert.equal(store.getTask(taskId)?.videoUrl, "https://example.com/recovered.mp4");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(mockCwd, { recursive: true, force: true });
+  }
+});
+
+test("Agnes remix IDs are not video URLs", async () => {
+  await assert.rejects(queryVideoTaskStatus("test", "agnes", {
+    settings: defaultTestSettings.videoGenerate,
+    fetch: async () => new Response(JSON.stringify({
+      status: "completed", remixed_from_video_id: "video-source-id"
+    }))
+  }), /no video URL/);
+});
+
+test("provider-declared generation failures remain terminal", async () => {
+  const originalFetch = globalThis.fetch;
+  await fs.mkdir(mockCwd, { recursive: true });
+  const store = new SqliteVideoTaskStore(testDbFile);
+  const taskId = "agnes-provider-failure";
+  store.createTask(taskId, "agnes", "default", "test video", {});
+  setTaskUpdatedAt(taskId, new Date(Date.now() - 60_000).toISOString());
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      status: "failed", error: "generation rejected"
+    }))) as typeof fetch;
+    const tool = createVideoGenerateTool(getTestContext(undefined, undefined, store));
+    await tool.execute("provider-failure", { taskId, engine: "agnes" });
+    assert.equal(store.getTask(taskId)?.status, "failed");
+    assert.equal(store.getTask(taskId)?.errorMessage, "generation rejected");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(mockCwd, { recursive: true, force: true });
+  }
 });

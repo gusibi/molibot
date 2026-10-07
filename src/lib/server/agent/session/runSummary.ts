@@ -16,6 +16,7 @@ export interface RunSummarySubagentTask {
   taskPreview?: string;
   stopReason?: string;
   errorMessage?: string;
+  progress?: string;
   durationMs?: number;
   budget?: RunBudgetSnapshot;
   model?: string;
@@ -30,6 +31,7 @@ export interface SubagentTaskEvent {
   task?: string;
   stopReason?: string;
   errorMessage?: string;
+  progress?: string;
   budget?: RunBudgetSnapshot;
   model?: string;
   sessionId?: string;
@@ -54,6 +56,7 @@ export function buildSubagentTaskRecord(
     taskPreview,
     stopReason: event.stopReason,
     errorMessage: event.errorMessage,
+    progress: event.progress,
     durationMs,
     budget: event.budget,
     model: event.model,
@@ -114,7 +117,7 @@ export function formatRunClosingNote(summary: RunSummary): string {
   lines.push(`- Result: ${summary.stopReason}${summary.errorMessage ? ` (${summary.errorMessage})` : ""}`);
   lines.push(`- Duration: ${Math.max(1, Math.round(summary.durationMs / 1000))}s`);
   lines.push(
-    `- Budget: tools ${summary.budget.toolCalls}/${summary.budgetLimits.maxToolCalls}, failed tools ${summary.budget.toolFailures}/${summary.budgetLimits.maxToolFailures}, model failures ${summary.budget.modelFailures}/${summary.budgetLimits.maxModelAttempts}, model turns ${summary.budget.modelTurns}/${summary.budgetLimits.maxModelTurns ?? "unlimited"}`
+    `- Budget: tools ${summary.budget.toolCalls}/${summary.budgetLimits.maxToolCalls}, failed tools ${summary.budget.toolFailures}/${summary.budgetLimits.maxToolFailures}, model failures ${summary.budget.modelFailures}/${summary.budgetLimits.maxModelAttempts}, model turns ${summary.budget.modelTurns}`
   );
 
   const tools = unique(summary.toolNames);
@@ -203,4 +206,21 @@ export function buildRunReflection(input: {
       ? "Review the saved workflow draft and keep the reusable parts."
       : "No immediate follow-up needed unless you want to formalize this workflow as a skill."
   };
+}
+
+
+/** Used only when the parent could not produce a final answer after delegated work stopped. */
+export function formatStoppedSubagentReport(tasks: RunSummarySubagentTask[], parentError?: string): string {
+  const stopped = tasks.filter(task => task.stopReason === "error" || task.stopReason === "aborted");
+  if (!stopped.length) return "";
+  return [
+    "当前状态：未完成。子任务停止后，主 Agent 未能生成最终结论。",
+    ...stopped.map(task => [
+      `子任务：${task.agent ?? "worker"} — ${task.taskPreview ?? "未记录任务描述"}`,
+      `停止原因：${task.errorMessage ?? task.stopReason}`,
+      `停到哪一步：${task.progress ?? "没有可确认的完成记录；需要核对已有文件和执行记录。"}`
+    ].join("\n")),
+    parentError ? `主 Agent 停止原因：${parentError}` : "",
+    "完成情况：不能确认全部完成。已执行操作仍保留，继续前应核对现有产物和验证结果。"
+  ].filter(Boolean).join("\n\n");
 }

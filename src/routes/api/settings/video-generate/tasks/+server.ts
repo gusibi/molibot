@@ -30,8 +30,6 @@ function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { re
   };
 }
 
-const taskFailures = new Map<string, number>();
-
 export const GET: RequestHandler = async () => {
   try {
     const taskStore = new SqliteVideoTaskStore();
@@ -77,7 +75,6 @@ export const GET: RequestHandler = async () => {
             task.status = "completed";
             task.progress = 100;
             task.videoUrl = res.videoUrl;
-            taskFailures.delete(task.id);
           } else if (res.status === "failed") {
             const err = res.error || "Unknown provider generation failure";
             console.error(`[Video Task Poller] Task ${task.id} failed: ${err}`);
@@ -85,29 +82,15 @@ export const GET: RequestHandler = async () => {
             task.status = "failed";
             task.progress = 0;
             task.errorMessage = err;
-            taskFailures.delete(task.id);
           } else {
             const progress = res.progress ?? task.progress;
             console.log(`[Video Task Poller] Task ${task.id} is still processing. Progress: ${progress}%`);
             taskStore.updateTaskProgress(task.id, "processing", progress);
             task.progress = progress;
-            taskFailures.delete(task.id);
           }
         } catch (e) {
           console.error(`[Video Task Poller] Error checking status for task ${task.id}:`, e);
-          const errMsg = e instanceof Error ? e.message : String(e);
-          const is4xx = /HTTP (4\d\d)/i.test(errMsg);
-          const currentCount = (taskFailures.get(task.id) || 0) + 1;
-          taskFailures.set(task.id, currentCount);
-
-          if (is4xx || currentCount >= 3) {
-            console.error(`[Video Task Poller] Marking task ${task.id} as failed due to persistent/client error: ${errMsg}`);
-            taskStore.updateTaskProgress(task.id, "failed", 0, undefined, `Query failed: ${errMsg}`);
-            task.status = "failed";
-            task.progress = 0;
-            task.errorMessage = `Query failed: ${errMsg}`;
-            taskFailures.delete(task.id);
-          }
+          // Preserve the last known state; only a provider failure is terminal.
         }
       }
     }

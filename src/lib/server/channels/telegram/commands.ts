@@ -35,7 +35,7 @@ export const TELEGRAM_MENU_COMMANDS: ReadonlyArray<{
   { command: "menu", en: "Open control menu", zh: "打开操作菜单" },
   { command: "new", en: "Start a new session", zh: "创建新会话" },
   { command: "clear", en: "Clear current session context", zh: "清除当前会话上下文" },
-  { command: "stop", en: "Stop the running task", zh: "停止当前任务" },
+  { command: "stop", en: "Stop and clear queued tasks", zh: "停止并清空队列" },
   { command: "sessions", en: "List or switch sessions", zh: "查看/切换会话" },
   { command: "status", en: "Show bot/session/runtime status", zh: "查看运行状态" },
   { command: "models", en: "Show or switch model", zh: "查看/切换模型" },

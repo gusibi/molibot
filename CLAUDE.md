@@ -54,7 +54,7 @@ This is **Molipibot** — a multi-channel bot framework with a settings UI. See 
 
 **桌面 UI 的 API 请求必须走共享 transport（api.ts），组件层禁止原生 fetch：**webview 源是 Tauri 自定义协议、sidecar API 在 `http://127.0.0.1:<port>`，原生 `fetch` 属跨源且 sidecar 不带 CORS 头——带 JSON body 的 PATCH/POST 预检直接失败，GET 响应同样不可读；curl、服务端直测、同源浏览器打开全部正常，唯独桌面 app 内必挂，`.catch(() => undefined)` 还会把加载失败静默成默认值（症状："执行与权限"保存永远失败，2026-09-12）。新增接口一律在 `apps/desktop/src/lib/api.ts` 补 load/save helper（`fetchFromDesktop` 在 Tauri 内自动切 HTTP plugin，Rust 侧发请求）。守卫：`apps/desktop/src/api-transport-guard.test.mjs`。首犯即配守卫：此类故障在浏览器/服务端测试里完全不可见。
 
-**模型失败重试与成功轮数分开：**父 Agent 的失败重试预算只在模型失败后计数，不能在每次生成前扣减；空回复重试与子 Agent 的轮数上限各自独立。修改原生模型生命周期时，用真实 Runner 验证超过默认重试上限的成功工具循环，并覆盖失败重试、持久化恢复与同一失败去重。
+**模型失败重试与成功轮数分开：**父 Agent 的失败重试预算只在模型失败后计数，不能在每次生成前扣减；空回复重试与子 Agent 的失败重试预算各自独立。修改原生模型生命周期时，用真实 Runner 验证超过默认重试上限的成功工具循环，并覆盖失败重试、持久化恢复与同一失败去重。子任务预算或超时停止必须作为失败工具结果交回父任务，包含进度与原因；不得调用父任务的恢复失败通道。父模型空回复或静默时仍须给出未完成结论。守卫：真实 Runner 的子任务失败/静默收尾，以及原生子任务超过 12 轮、失败重试耗尽与已完成写入不重放回归。
 
 Each item below caused **multiple** shipped bugs. Check the relevant one before writing code.
 

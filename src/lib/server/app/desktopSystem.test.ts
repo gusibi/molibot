@@ -24,13 +24,13 @@ test("Desktop System saves field patches and round-trips the whole settings obje
     assert.deepEqual(Object.keys(readDesktopSystem(runtime)).sort(), ["serverPort", "timezone", "budget", "subagentRuntime", "browserAutomation", "display"].sort());
     await updateDesktopSystem(runtime, {
       timezone: "Asia/Tokyo", budget: { maxModelAttempts: 9 },
-      subagentRuntime: { maxModelTurns: 25, deadlineMs: 1_800_000 },
+      subagentRuntime: { maxModelRetries: 25, deadlineMs: 1_800_000 },
       browserAutomation: { defaultTimeoutMs: 90000 },
       display: { toolProgress: "verbose", showReasoning: "stream", gatewayNotifyInterval: 10 }
     });
     assert.equal(settings.budget.maxModelAttempts, 9);
     assert.equal(settings.budget.maxToolCalls, initial.budget.maxToolCalls);
-    assert.equal(settings.subagentRuntime.maxModelTurns, 25);
+    assert.equal(settings.subagentRuntime.maxModelRetries, 25);
     assert.equal(settings.subagentRuntime.maxTasks, initial.subagentRuntime.maxTasks);
     assert.equal(settings.display!.runLogNotice, initial.display!.runLogNotice);
     for (const key of Object.keys(initial).filter(key => !["timezone", "budget", "subagentRuntime", "browserAutomation", "display"].includes(key)) as Array<keyof RuntimeSettings>) {

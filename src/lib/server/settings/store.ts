@@ -169,7 +169,7 @@ interface RawSettings {
   subagentRuntime?: {
     maxToolCalls?: number | string;
     maxToolFailures?: number | string;
-    maxModelTurns?: number | string;
+    maxModelRetries?: number | string;
     deadlineMs?: number | string;
     maxTasks?: number | string;
     maxConcurrency?: number | string;
@@ -433,7 +433,7 @@ function sanitizeSubagentRuntimeSettings(input: unknown): RuntimeSettings["subag
   return {
     maxToolCalls: clamp("maxToolCalls", defaultRuntimeSettings.subagentRuntime.maxToolCalls, 1, 500),
     maxToolFailures: clamp("maxToolFailures", defaultRuntimeSettings.subagentRuntime.maxToolFailures, 1, 100),
-    maxModelTurns: clamp("maxModelTurns", defaultRuntimeSettings.subagentRuntime.maxModelTurns, 1, 100),
+    maxModelRetries: clamp("maxModelRetries", defaultRuntimeSettings.subagentRuntime.maxModelRetries, 1, 100),
     deadlineMs: clamp("deadlineMs", defaultRuntimeSettings.subagentRuntime.deadlineMs, 1000, 24 * 60 * 60 * 1000),
     maxTasks,
     maxConcurrency: Math.min(
@@ -2072,7 +2072,7 @@ export class SettingsStore {
       subagentRuntime: {
         maxToolCalls: settings.subagentRuntime.maxToolCalls,
         maxToolFailures: settings.subagentRuntime.maxToolFailures,
-        maxModelTurns: settings.subagentRuntime.maxModelTurns,
+        maxModelRetries: settings.subagentRuntime.maxModelRetries,
         deadlineMs: settings.subagentRuntime.deadlineMs,
         maxTasks: settings.subagentRuntime.maxTasks,
         maxConcurrency: settings.subagentRuntime.maxConcurrency,

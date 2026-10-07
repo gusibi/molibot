@@ -42,6 +42,7 @@ export type InteractionAction =
   | { type: "queued.steer"; queueId: number }
   | { type: "status.open" }
   | { type: "run.stop" }
+  | { type: "run.stop.current"; runId: string }
   | { type: "run.stop.confirm"; runId: string; queueIds: number[] }
   | { type: "run.steer"; runId: string }
   | { type: "run.followup"; runId: string }

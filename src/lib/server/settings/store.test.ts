@@ -457,7 +457,7 @@ test("parent and subagent runtime budgets survive a settings store restart indep
       subagentRuntime: {
         maxToolCalls: 140,
         maxToolFailures: 10,
-        maxModelTurns: 24,
+        maxModelRetries: 24,
         deadlineMs: 3_600_000,
         maxTasks: 7,
         maxConcurrency: 3,
@@ -475,7 +475,7 @@ test("parent and subagent runtime budgets survive a settings store restart indep
     assert.deepEqual(restarted.subagentRuntime, {
       maxToolCalls: 140,
       maxToolFailures: 10,
-      maxModelTurns: 24,
+      maxModelRetries: 24,
       deadlineMs: 3_600_000,
       maxTasks: 7,
       maxConcurrency: 3,

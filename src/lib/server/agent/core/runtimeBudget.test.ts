@@ -56,16 +56,13 @@ test("the user-facing stop message names the cause and the failing tools", () =>
 });
 
 test("successful model turns and failed-generation retries have independent limits and messages", () => {
-  const budget = new RunBudget({ ...LIMITS, maxModelAttempts: 1, maxModelTurns: 8 });
+  const budget = new RunBudget({ ...LIMITS, maxModelAttempts: 1 });
   for (let i = 0; i < 8; i++) assert.equal(budget.tryStartModelTurn().ok, true);
   assert.equal(budget.snapshot().modelFailures, 0);
   assert.equal(budget.tryRecordModelFailure().ok, true);
   assert.deepEqual(budget.snapshot(), { toolCalls: 0, toolFailures: 0, modelFailures: 1, modelTurns: 8 });
-  assert.equal(budget.tryStartModelTurn().ok, false);
-  assert.equal(budget.getExceededKind(), "modelTurns");
-  const message = buildBudgetStopUserMessage({ kind: budget.getExceededKind(), snapshot: budget.snapshot(), limits: budget.limitsSnapshot() });
-  assert.match(message, /模型轮次上限（8\/8）/);
-  assert.doesNotMatch(message, /模型重试/);
+  assert.equal(budget.tryStartModelTurn().ok, true);
+  assert.equal(budget.getExceededKind(), undefined);
   const failures = new RunBudget({ ...LIMITS, maxModelAttempts: 1 });
   assert.equal(failures.tryRecordModelFailure().ok, true);
   assert.equal(failures.tryRecordModelFailure().ok, false);

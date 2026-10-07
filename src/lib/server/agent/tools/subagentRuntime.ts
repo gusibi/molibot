@@ -7,7 +7,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
  * from hanging indefinitely (e.g. a model that stalls mid-stream) without a
  * structured stop reason bubbling back to the parent.
  */
-export type SubagentStopKind = "budget_exceeded" | "timeout";
+export type SubagentStopKind = "budget_exceeded" | "timeout" | "execution_error";
 
 export interface SubagentStopReason {
   kind: SubagentStopKind;
@@ -27,8 +27,7 @@ export function resolveSubagentBudgetLimits(settings: RuntimeSettings): RunBudge
   return {
     maxToolCalls: configured?.maxToolCalls ?? DEFAULT_RUN_BUDGET.maxToolCalls,
     maxToolFailures: configured?.maxToolFailures ?? DEFAULT_RUN_BUDGET.maxToolFailures,
-    maxModelAttempts: DEFAULT_RUN_BUDGET.maxModelAttempts,
-    maxModelTurns: configured.maxModelTurns
+    maxModelAttempts: configured.maxModelRetries
   };
 }
 

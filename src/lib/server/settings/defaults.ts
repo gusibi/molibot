@@ -593,7 +593,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   subagentRuntime: {
     maxToolCalls: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_TOOL_CALLS", 100, 1, 500),
     maxToolFailures: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_TOOL_FAILURES", 6, 1, 100),
-    maxModelTurns: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_MODEL_TURNS", 12, 1, 100),
+    maxModelRetries: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_MODEL_RETRIES", 12, 1, 100),
     deadlineMs: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_DEADLINE_MS", 1_800_000, 1000, 24 * 60 * 60 * 1000),
     maxTasks: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_TASKS", 4, 1, 16),
     maxConcurrency: boundedIntegerFromEnv("MOLIBOT_SUBAGENT_MAX_CONCURRENCY", 2, 1, 4),

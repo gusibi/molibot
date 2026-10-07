@@ -64,6 +64,7 @@ export class PiConversationRuntime {
   private deferredChildren = new Set<number>();
   private projectedChildUsage = new Set<number>();
   private childParents = new Map<number, string>();
+  private childStops = new Map<number, (cause: Error) => void>();
   private timer?: ReturnType<typeof setInterval>;
   private ownershipError?: unknown;
   private aborting?: Promise<void>;
@@ -269,7 +270,7 @@ export class PiConversationRuntime {
     if (policy?.deadlineAt && Date.now() >= policy.deadlineAt) throw new Error("Subagent exceeded its original time budget.");
   }
 
-  private childBudget(api: import("@earendil-works/pi-durable").HookApi, kind: "model" | "tool" | "result", isError = false): void {
+  private childBudget(api: import("@earendil-works/pi-durable").HookApi, kind: "model" | "tool" | "result" | "failure", isError = false): void {
     if (!this.options.childBudgetLimits) return;
     const store = new RunBudgetStore(join(dirname(this.options.storagePath), "child-budgets.sqlite"),
       `${this.options.storagePath}:${api.conversationId}`, this.options.childBudgetLimits);
@@ -277,8 +278,8 @@ export class PiConversationRuntime {
       const budget = new RunBudget(this.options.childBudgetLimits, store);
       if (kind === "model" && budget.getExceededReason()) throw new Error(budget.getExceededReason());
       const id = String(api.taskId);
-      const result = kind === "model" ? budget.tryStartModelTurn(id) : kind === "tool" ? budget.tryStartTool(id) : budget.recordToolResult(isError, id);
-      if (!result.ok && kind !== "result") throw new Error(result.reason);
+      const result = kind === "model" ? budget.tryStartModelTurn(id) : kind === "tool" ? budget.tryStartTool(id) : kind === "failure" ? budget.tryRecordModelFailure(id) : budget.recordToolResult(isError, id);
+      if (!result.ok && kind !== "result" && kind !== "failure") throw new Error(result.reason);
     } finally { store.close(); }
   }
 
@@ -336,6 +337,7 @@ export class PiConversationRuntime {
         },
         afterResponse: async (message, api) => {
           if (message.stopReason === "deferred") return;
+          if (message.stopReason === "error") this.childBudget(api, "failure");
           this.options.onChildTrace?.("model.call.after", { modelAttemptId: `pi:child:${api.conversationId}:generation:${api.taskId}`,
             parentFactId: `subagent_task:${this.childParents.get(api.conversationId)}`, provider: message.provider, model: message.model,
             usage: message.usage, stopReason: message.stopReason });
@@ -370,7 +372,11 @@ export class PiConversationRuntime {
             parentFactId: `subagent_task:${this.childParents.get(api.conversationId)}`, provider: agent?.model?.provider, model: agent?.model?.modelId, purpose: "compaction" });
         },
         beforeExecute: api => this.checkChildDeadline(api),
-        onRecoveryRequired: cause => this.suspendFailure(cause)
+        onRecoveryRequired: (cause, conversationId) => {
+          const stop = conversationId === undefined ? undefined : this.childStops.get(conversationId);
+          if (stop) stop(cause);
+          else this.suspendFailure(cause);
+        }
       }, (requestId, detail) => {
         void Promise.resolve(this.options.onSuspended?.(requestId, detail)).then(() => this.suspend(requestId), cause => this.suspendFailure(cause));
       });
@@ -472,24 +478,52 @@ export class PiConversationRuntime {
           await child.abort(BACKGROUND_CONTEXT, { background: true });
           throw new Error("Subagent exceeded its original time budget.");
         }
-        const timer = policy?.deadlineAt ? setTimeout(() => { void child.abort(BACKGROUND_CONTEXT, { background: true }).catch(() => undefined); }, Math.max(0, policy.deadlineAt - Date.now())) : undefined;
+        const timer = policy?.deadlineAt ? setTimeout(() => { state.runtimeStop = { kind: "timeout", reason: "Subagent exceeded its original time budget." }; void child.abort(BACKGROUND_CONTEXT, { background: true }).catch(() => undefined); }, Math.max(0, policy.deadlineAt - Date.now())) : undefined;
+        let settleStop!: () => void;
+        const stopped = new Promise<void>(resolve => { settleStop = resolve; });
+        this.childStops.set(child.id, cause => {
+          state.runtimeStop = { kind: cause.message.includes("time budget") ? "timeout" : cause.message.startsWith("Run budget exceeded:") ? "budget_exceeded" : "execution_error", reason: cause.message };
+          settleStop();
+        });
+        const readBudget = () => {
+          if (!this.options.childBudgetLimits) return undefined;
+          const store = new RunBudgetStore(join(dirname(this.options.storagePath), "child-budgets.sqlite"), `${this.options.storagePath}:${child.id}`, this.options.childBudgetLimits);
+          try { return store.read(); } finally { store.close(); }
+        };
         try {
-        await this.checkChildDeadline({ ...api, conversationId: child.id });
-        const submission = await child.submit({ type: "input", requestId: "task", content: text }, context);
-        await submission.wait(context);
-        await child.waitForIdle(context);
-        await refresh();
-        const last = [...state.messages].reverse().find(message => message.role === "assistant");
-        const active = await child.agent(context);
-        if (!this.deferredChildren.has(child.id) && last?.role === "assistant" && last.stopReason === "error" &&
-            (active.model?.provider !== model.provider || active.model.modelId !== model.id)) {
-          await child.configure({ model: { provider: model.provider, modelId: model.id } }, context);
-          const taskId = await this.continuationTask(child, `fallback:${model.provider}:${model.id}`);
-          await this.harness!.waitForTask(taskId, context);
-          await child.waitForIdle(context);
-          await refresh();
-        }
-        } finally { if (timer) clearTimeout(timer); }
+          const execute = async () => {
+            await this.checkChildDeadline({ ...api, conversationId: child.id });
+            const submission = await child.submit({ type: "input", requestId: "task", content: text }, context);
+            await submission.wait(context);
+            await child.waitForIdle(context);
+            await refresh();
+            while (!this.deferredChildren.has(child.id)) {
+              context.abortSignal?.throwIfAborted();
+              const last = [...state.messages].reverse().find(message => message.role === "assistant");
+              if (last?.role !== "assistant" || last.stopReason !== "error") break;
+              const budget = readBudget();
+              const active = await child.agent(context);
+              const changedModel = active.model?.provider !== model.provider || active.model.modelId !== model.id;
+              if (!budget && !changedModel) break;
+              if (budget?.exceededReason) {
+                state.runtimeStop = { kind: "budget_exceeded", reason: budget.exceededReason };
+                break;
+              }
+              if (changedModel) await child.configure({ model: { provider: model.provider, modelId: model.id } }, context);
+              // Continue the committed child context; retrying never replays completed tools.
+              const taskId = await this.continuationTask(child, `retry:${budget?.modelFailures ?? last.timestamp}:${model.provider}:${model.id}`);
+              await this.harness!.waitForTask(taskId, context);
+              await child.waitForIdle(context);
+              await refresh();
+            }
+          };
+          await Promise.race([execute(), stopped]);
+          if (state.runtimeStop) {
+            await child.abort(BACKGROUND_CONTEXT, { background: true });
+            await child.waitForIdle(BACKGROUND_CONTEXT);
+            await refresh();
+          }
+        } finally { this.childStops.delete(child.id); if (timer) clearTimeout(timer); }
       },
       abort: () => child.abort(context, { background: true }),
       dispose: async () => { const end = await watch.stop(); if (end.reason === "listener_error") throw end.error; }

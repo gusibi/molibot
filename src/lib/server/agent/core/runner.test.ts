@@ -2165,3 +2165,48 @@ for (const recover of [true, false]) {
     } finally { rmSync(workspaceDir, { recursive: true, force: true }); }
   });
 }
+
+for (const parentReply of ["report", "silent"] as const) {
+  test(`real Runner reports a stopped child when the parent reply is ${parentReply}`, { timeout: 10000 }, async () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-child-report-"));
+    const replaced: string[] = [];
+    let roots = 0, children = 0;
+    const runner = await createRunnerForHookTest({ chatId: `child-report-${parentReply}`, workspaceDir, hookManager: createRunnerHookManager([]) });
+    const agent = (runner as any).agent;
+    const bind = agent.bindRun.bind(agent);
+    agent.bindRun = (input: any) => bind({ ...input, childBudgetLimits: { maxToolCalls: 100, maxToolFailures: 6, maxModelAttempts: 2 } });
+    agent.streamFunction = (model: any, context: any) => {
+      const prompt = getCurrentSystemPrompt(context.messages);
+      const child = !prompt.includes("<subagents>");
+      if (child) { children++; throw new Error("Fixture model unavailable"); }
+      roots++;
+      assert.match(prompt, /A child failure or budget stop is not completion/);
+      if (roots > 1) {
+        const receipts = JSON.stringify(context.messages);
+        assert.match(receipts, /not completed/);
+        assert.match(receipts, /model failures/);
+      }
+      const message = {
+        role: "assistant", api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(),
+        content: roots === 1 ? [{ type: "toolCall", id: "delegate", name: "subagent", arguments: { agent: "worker", task: "Translate article and validate files" } }]
+          : [{ type: "text", text: parentReply === "silent" ? "[SILENT]" : "未完成：子任务模型失败重试耗尽；尚未生成文件，验证未执行。" }],
+        stopReason: roots === 1 ? "toolUse" : "stop",
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+      };
+      const stream = createAssistantMessageEventStream(); stream.push({ type: "done", reason: roots === 1 ? "toolUse" : "stop", message } as any); stream.end(); return stream;
+    };
+    const context = createRunnerContext("Translate the article and report completion.");
+    context.replaceMessage = async (text: string) => { replaced.push(text); };
+    try {
+      const result = await runner.run(context);
+      assert.equal(children, 3); assert.equal(roots, 2);
+      assert.match(replaced.join("\n"), /未完成/);
+      if (parentReply === "silent") {
+        assert.equal(result.stopReason, "error");
+        assert.match(replaced.join("\n"), /停止原因|停到哪一步|完成情况/);
+      }
+      const childReceipt = agent.state.messages.find((message: any) => message.role === "toolResult" && message.toolName === "subagent");
+      assert.equal(childReceipt?.isError, true);
+    } finally { await agent.close(); rmSync(workspaceDir, { recursive: true, force: true }); }
+  });
+}

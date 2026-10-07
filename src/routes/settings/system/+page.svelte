@@ -19,7 +19,7 @@
   interface SubagentRuntimeSettings {
     maxToolCalls: number;
     maxToolFailures: number;
-    maxModelTurns: number;
+    maxModelRetries: number;
     deadlineMs: number;
     maxTasks: number;
     maxConcurrency: number;
@@ -82,10 +82,10 @@
       maxToolFailures: "最大允许工具失败次数",
       maxModelAttempts: "最大模型失败重试次数",
       subagentBudgetTitle: "Subagent 长任务预算",
-      subagentBudgetSubtitle: "独立控制每个委派任务的工具、模型轮次、执行时限和并行 fan-out；不会消耗或改写父 Agent 的运行预算。",
+      subagentBudgetSubtitle: "每个委派任务独立限制工具调用、模型失败重试、执行时间和并发数；正常模型请求不消耗失败重试预算，子工具也计入父任务总预算。",
       subagentMaxToolCalls: "每个任务最大工具调用次数",
       subagentMaxToolFailures: "每个任务最大工具失败次数",
-      subagentMaxModelTurns: "每个任务最大模型轮次",
+      subagentMaxModelRetries: "每个任务最大模型失败重试次数",
       subagentDeadlineMinutes: "每个任务最长执行时间（分钟）",
       subagentMaxTasks: "每次委派最多任务数",
       subagentMaxConcurrency: "并行委派最大并发数",
@@ -166,10 +166,10 @@
       maxToolFailures: "Max allowed tool failures",
       maxModelAttempts: "Max retries after model failure",
       subagentBudgetTitle: "Subagent Long-task Budget",
-      subagentBudgetSubtitle: "Independently bound tools, model turns, wall-clock time, and parallel fan-out for each delegation without consuming or changing the parent Agent budget.",
+      subagentBudgetSubtitle: "Each delegated task has tool, model failure retry, time, and concurrency limits. Successful requests do not spend retries; child tools also count against the parent budget.",
       subagentMaxToolCalls: "Max tool calls per task",
       subagentMaxToolFailures: "Max tool failures per task",
-      subagentMaxModelTurns: "Max model turns per task",
+      subagentMaxModelRetries: "Max model failure retries per task",
       subagentDeadlineMinutes: "Task deadline (minutes)",
       subagentMaxTasks: "Max tasks per delegation",
       subagentMaxConcurrency: "Max parallel concurrency",
@@ -248,7 +248,7 @@
 
   let subagentMaxToolCalls = 100;
   let subagentMaxToolFailures = 6;
-  let subagentMaxModelTurns = 12;
+  let subagentMaxModelRetries = 12;
   let subagentDeadlineMinutes = 30;
   let subagentMaxTasks = 4;
   let subagentMaxConcurrency = 2;
@@ -329,7 +329,7 @@
       if (settings.subagentRuntime) {
         subagentMaxToolCalls = settings.subagentRuntime.maxToolCalls ?? subagentMaxToolCalls;
         subagentMaxToolFailures = settings.subagentRuntime.maxToolFailures ?? subagentMaxToolFailures;
-        subagentMaxModelTurns = settings.subagentRuntime.maxModelTurns ?? subagentMaxModelTurns;
+        subagentMaxModelRetries = settings.subagentRuntime.maxModelRetries ?? subagentMaxModelRetries;
         subagentDeadlineMinutes = Math.max(1, Math.round((settings.subagentRuntime.deadlineMs ?? 1_800_000) / 60_000));
         subagentMaxTasks = settings.subagentRuntime.maxTasks ?? subagentMaxTasks;
         subagentMaxConcurrency = settings.subagentRuntime.maxConcurrency ?? subagentMaxConcurrency;
@@ -386,7 +386,7 @@
           subagentRuntime: {
             maxToolCalls: Number(subagentMaxToolCalls),
             maxToolFailures: Number(subagentMaxToolFailures),
-            maxModelTurns: Number(subagentMaxModelTurns),
+            maxModelRetries: Number(subagentMaxModelRetries),
             deadlineMs: Number(subagentDeadlineMinutes) * 60_000,
             maxTasks: Number(subagentMaxTasks),
             maxConcurrency: Number(subagentMaxConcurrency),
@@ -569,8 +569,8 @@
           </div>
           <div class="channel-field-row pt-2">
             <div class="channel-field">
-              <Label for="subagent-max-model-turns">{copy.subagentMaxModelTurns}</Label>
-              <Input id="subagent-max-model-turns" type="number" min="1" max="100" bind:value={subagentMaxModelTurns} disabled={loading} />
+              <Label for="subagent-max-model-retries">{copy.subagentMaxModelRetries}</Label>
+              <Input id="subagent-max-model-retries" type="number" min="1" max="100" bind:value={subagentMaxModelRetries} disabled={loading} />
             </div>
             <div class="channel-field">
               <Label for="subagent-deadline-minutes">{copy.subagentDeadlineMinutes}</Label>

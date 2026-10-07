@@ -354,6 +354,8 @@ function buildSubagentSection(settings?: RuntimeSettings): string {
     "- Delegate a bounded independent task when it materially reduces work or context; keep small tasks local and parent-only tools (web/media/attach/channel) in the parent.",
     `- Roles: \`scout\`=recon, \`planner\`=plan only, \`worker\`=edit, \`reviewer\`=review${externalText}. Subagents have read/bash; edit/write roles: ${writableRoles.join(", ")}.`,
     "- Use the actual runtime budget; never assume a fixed tool-call limit. Include goals, relevant context, constraints, and verification in delegated tasks.",
+    "- For multiple independent items, prefer one bounded task per item when delegation helps. Assign disjoint output paths and shared identifiers in the parent; keep shared validation and publishing in the parent. Start writing after the necessary checks rather than repeating preparation.",
+    "- A child failure or budget stop is not completion. Use its progress and stop reason to recover within the remaining budget, then always report the overall status, completed work, stopping point, reason, and unfinished work. Never silently end or claim success on a stopped child.",
     "- Modes: single task; parallel independent tasks; chain with `{previous}`. Choose only the roles the task needs; no mandatory pipeline.",
   ].join("\n"));
 }
