@@ -464,6 +464,16 @@ export function createMomTools(options: {
           const filePath = resolveToolPath(options.cwd, path);
           ensureAllowedPath(filePath);
           return fs.readFile(filePath);
+        },
+        stat: async (path) => {
+          const filePath = resolveToolPath(options.cwd, path);
+          ensureAllowedPath(filePath);
+          try {
+            const info = await fs.stat(filePath);
+            return { size: info.size, mtimeMs: info.mtimeMs };
+          } catch {
+            return undefined;
+          }
         }
       },
       shell: {

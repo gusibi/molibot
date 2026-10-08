@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { promises as fsp, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { crc32, deflateSync } from "node:zlib";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createReadTool } from "$lib/server/agent/tools/read.js";
+import { createReadTool, getReadToolDefinition } from "$lib/server/agent/tools/read.js";
+import { ToolRegistry, ToolRuntime } from "$lib/server/agent/tools/toolRuntime.js";
+import type { ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/index.js";
 
 function makeTool(cwd: string) {
@@ -206,6 +208,58 @@ test("read recognizes the same image on demand more than once for a text-only mo
     assert.match(textOf(first), /evidence:Read all text/);
     assert.match(textOf(second), /evidence:Inspect layout/);
     assert.equal(first.content.some((part: any) => part.type === "image"), false);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+function runtimeContext(cwd: string): ToolExecutionContext {
+  return {
+    runId: "run-1",
+    sessionId: "session-1",
+    workspaceId: "personal",
+    actorId: "agent-1",
+    cwd,
+    fs: {
+      readText: (p: string) => fsp.readFile(p, "utf8"),
+      writeText: (p: string, c: string) => fsp.writeFile(p, c, "utf8"),
+      readBuffer: (p: string) => fsp.readFile(p),
+      stat: async (p: string) => {
+        try {
+          const info = await fsp.stat(p);
+          return { size: info.size, mtimeMs: info.mtimeMs };
+        } catch {
+          return undefined;
+        }
+      }
+    },
+    shell: { run: async () => ({ exitCode: 0, stdout: "", stderr: "" }) },
+    network: { fetch: async () => ({}) },
+    emit: () => {}
+  };
+}
+
+test("the read tool reuses an unchanged file through the shared tool runtime but re-reads an edit", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-read-reuse-"));
+  try {
+    writeFileSync(join(cwd, "a.txt"), "alpha\nbeta\n");
+    const registry = new ToolRegistry();
+    registry.register(getReadToolDefinition({ cwd, workspaceDir: cwd }));
+    const runtime = new ToolRuntime(registry);
+    const ctx = runtimeContext(cwd);
+
+    const first = await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+    const second = await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+    assert.equal((second.metadata as any)?.resultReused, true);
+    assert.match(((second.content as any[])[0] as { text: string }).text, /Reused a previous read of "a\.txt"/);
+    assert.match(((second.content as any[])[0] as { text: string }).text, /alpha/);
+
+    // A write must invalidate the cached read so the edit is visible.
+    writeFileSync(join(cwd, "a.txt"), "gamma\n");
+    const third = await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+    assert.equal((third.metadata as any)?.resultReused, undefined);
+    assert.match(((third.content as any[])[0] as { text: string }).text, /gamma/);
+    assert.equal(first.ok, true);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

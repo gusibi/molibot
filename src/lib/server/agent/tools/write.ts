@@ -60,6 +60,10 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
     risk: "medium",
     source: "builtin",
     sideEffectClass: "idempotent",
+    invalidatesSources: (input, ctx) => {
+      const raw = String((input as { path?: unknown })?.path ?? "").trim();
+      return raw ? [raw, resolveToolPath(ctx.cwd, raw)] : [];
+    },
     handler: async (params: any, ctx) => {
       const requestedPath = String(params.path ?? "").trim();
       const requestedTarget = params.target === "project" || params.target === "scratch" ? params.target : undefined;

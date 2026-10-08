@@ -13,6 +13,8 @@ export interface SafeFsApi {
   readText(path: string): Promise<string>;
   writeText(path: string, content: string): Promise<void>;
   readBuffer?(path: string): Promise<Buffer>;
+  /** Identity of a source file used to prove a cached read is still fresh. */
+  stat?(path: string): Promise<{ size: number; mtimeMs: number } | undefined>;
 }
 
 export interface SafeShellApi {
@@ -137,9 +139,31 @@ export interface ToolDefinition {
   /** Explicit recovery semantics. Omitted third-party tools are conservative. */
   sideEffectClass?: SideEffectClass;
   requiredPermissions?: string[];
+  /**
+   * Declares a pure read whose result may be reused while its source is
+   * provably unchanged. Only reads may declare this; side-effecting tools must
+   * never be cached.
+   */
+  resultReuse?: ToolResultReuse;
+  /**
+   * Source identities this call changes. After a successful execution the
+   * shared runtime drops matching cached reads so reuse cannot hide an edit.
+   */
+  invalidatesSources?: (input: unknown, ctx: ToolExecutionContext) => string[];
   /** Resolve tool-specific authorization before the execution intent is recorded. */
   prepare?: (input: unknown, ctx: ToolExecutionContext) => Promise<ToolResult | PreparedToolInvocation | undefined>;
   handler: (input: unknown, ctx: ToolExecutionContext) => Promise<ToolResult>;
+}
+
+export interface ToolResultReuse {
+  /** Identity of this exact read request. Same key + same version => reusable. */
+  key: (input: unknown, ctx: ToolExecutionContext) => string | null;
+  /** Source identities this read depends on, for write-triggered invalidation. */
+  sources: (input: unknown, ctx: ToolExecutionContext) => string[];
+  /** Freshness token for the sources, or null when freshness cannot be proven. */
+  version: (input: unknown, ctx: ToolExecutionContext) => Promise<string | null>;
+  /** Human-readable source name for the reuse notice; defaults to the key. */
+  label?: (input: unknown, ctx: ToolExecutionContext) => string;
 }
 
 export interface PreparedToolInvocation {

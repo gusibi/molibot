@@ -261,7 +261,15 @@ export function toolDefToAgentTool(
         fs: {
           readText: async (p) => fsPromises.readFile(p, "utf8"),
           writeText: async (p, c) => fsPromises.writeFile(p, c, "utf8"),
-          readBuffer: async (p) => fsPromises.readFile(p)
+          readBuffer: async (p) => fsPromises.readFile(p),
+          stat: async (p) => {
+            try {
+              const info = await fsPromises.stat(p);
+              return { size: info.size, mtimeMs: info.mtimeMs };
+            } catch {
+              return undefined;
+            }
+          }
         },
         shell: {
           run: async (cmd, opts) => {

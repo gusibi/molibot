@@ -18,6 +18,7 @@ import {
   listBuiltInSubagents,
   normalizeSubagentStopReason,
   parseSubagentMode,
+  renderDelegationBrief,
   resolveSubagentModelRoute,
   summarizeSubagentStopReason,
   summarizeSubagentResultsForParent
@@ -731,4 +732,83 @@ test("stopped child returns an error receipt with progress and a parent reportin
   assert.match(text, /Created source.md/);
   assert.match(text, /not completed/i);
   assert.match(text, /final.*status/i);
+});
+
+test("renderDelegationBrief emits only the supplied fields and leaves a plain task unchanged", () => {
+  assert.equal(renderDelegationBrief({ agent: "scout", task: "Inspect" }, "Inspect"), "Inspect");
+
+  const rendered = renderDelegationBrief({
+    agent: "worker",
+    task: "Write the article",
+    goal: "Draft the bilingual post",
+    knownSources: ["docs/outline.md", "assets/img1.png"],
+    missingInfo: ["the publish URL"],
+    constraints: ["Simplified Chinese + English"],
+    deliverables: ["post.md"],
+    acceptance: ["both languages present"]
+  }, "Write the article");
+
+  assert.match(rendered, /## Delegation brief/);
+  assert.match(rendered, /Goal: Draft the bilingual post/);
+  assert.match(rendered, /docs\/outline\.md/);
+  assert.match(rendered, /the publish URL/);
+  assert.match(rendered, /Simplified Chinese \+ English/);
+  assert.match(rendered, /post\.md/);
+  assert.match(rendered, /both languages present/);
+  assert.match(rendered, /## Task\nWrite the article$/);
+  // A handoff is a brief, not a dump of the parent's own conversation.
+  assert.doesNotMatch(rendered, /previous conversation|parent transcript/i);
+});
+
+test("a structured task brief reaches the delegated child", async () => {
+  const seen: string[] = [];
+  const tool = createSubagentTool({
+    cwd: process.cwd(),
+    workspaceDir: process.cwd(),
+    chatId: "chat-1",
+    getSettings: () => defaultRuntimeSettings,
+    runSubagent: async (agent: { name: string }, task: string) => {
+      seen.push(task);
+      return completed(agent.name, task);
+    }
+  } as any);
+
+  await tool.execute("tool-1", {
+    tasks: [{
+      agent: "scout",
+      task: "Find the config loader",
+      knownSources: ["src/config.ts"],
+      missingInfo: ["the default path"],
+      acceptance: ["cite the file"]
+    }]
+  }, undefined, undefined);
+
+  assert.equal(seen.length, 1);
+  assert.match(seen[0], /Known sources/);
+  assert.match(seen[0], /src\/config\.ts/);
+  assert.match(seen[0], /Missing information/);
+  assert.match(seen[0], /Acceptance criteria/);
+  assert.match(seen[0], /Find the config loader/);
+});
+
+test("parseSubagentMode preserves the structured task brief", () => {
+  const parsed = parseSubagentMode({
+    tasks: [{
+      agent: "worker",
+      task: "Draft",
+      goal: "G",
+      knownSources: ["a.ts"],
+      constraints: ["c"],
+      acceptance: ["done"]
+    }]
+  }, MODE_LIMITS);
+
+  assert.deepEqual(parsed.tasks[0], {
+    agent: "worker",
+    task: "Draft",
+    goal: "G",
+    knownSources: ["a.ts"],
+    constraints: ["c"],
+    acceptance: ["done"]
+  });
 });

@@ -15,6 +15,7 @@ import type { HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
 import { BrokerApprovalService, type ApprovalService } from "$lib/server/approval/approvalService.js";
 import { APPROVAL_INLINE_HANDSHAKE_WINDOW_MS, buildApprovalSuspensionResult, UNATTENDED_APPROVAL_DENIAL_TEXT } from "$lib/server/approval/suspendedResult.js";
 import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
+import { formatReuseNotice, markReusedResult, ResultReuseCache } from "$lib/server/agent/tools/resultReuse.js";
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
 
 /**
@@ -129,6 +130,7 @@ export type ApprovalResolution = "approved" | "rejected" | "expired" | "window_e
 export class ToolRuntime {
   private readonly approvalService?: ApprovalService;
   private sideEffectTail: Promise<void> = Promise.resolve();
+  private readonly resultReuse = new ResultReuseCache();
 
   constructor(
     private readonly registry: ToolRegistry,
@@ -424,6 +426,32 @@ export class ToolRuntime {
     let cleanupAbort: (() => void) | undefined;
     executionSignal.throwIfAborted();
     call.context.assertAuthority?.(tool.id, call.input);
+
+    // A pure read whose source is provably unchanged is served from the
+    // execution-scoped reuse cache instead of a second physical read. The
+    // result still carries a notice naming the source and how to force a
+    // refresh, so reuse is evidence rather than a silent "already read".
+    const reuse = tool.resultReuse;
+    const reuseKey = reuse && sideEffect.sideEffectClass === "pure" ? reuse.key(call.input, call.context) : null;
+    const reuseVersion = reuse && reuseKey ? await reuse.version(call.input, call.context) : null;
+    if (reuse && reuseKey && reuseVersion) {
+      const cached = this.resultReuse.get(reuseKey, reuseVersion);
+      if (cached) {
+        const notice = formatReuseNotice({ path: reuse.label?.(call.input, call.context) ?? reuseKey });
+        call.context.emit({
+          timestamp: new Date().toISOString(),
+          workspaceId: call.context.workspaceId,
+          type: "tool_end",
+          toolName: tool.id,
+          toolCallId: call.context.toolCallId,
+          displayName: tool.name,
+          summary: `Tool ${tool.name} reused an unchanged cached result.`,
+          isError: false
+        });
+        return markReusedResult(cached, notice);
+      }
+    }
+
     const handler = (invocation ? invocation.execute(executionContext) : tool.handler(call.input, executionContext)).then(
       (value) => ({ type: "result" as const, value }),
       (error) => ({ type: "error" as const, error })
@@ -471,6 +499,15 @@ export class ToolRuntime {
     }
     if (hasSideEffectBoundary) {
       await call.context.onSideEffectReceipt?.(sideEffect, result);
+    }
+    // Record successful pure reads for reuse, and drop cached reads that a
+    // successful write/edit just invalidated. Failures are never recorded, so a
+    // failed operation can never masquerade as a reusable success.
+    if (result.ok && reuse && reuseKey && reuseVersion) {
+      this.resultReuse.set(reuseKey, reuseVersion, reuse.sources(call.input, call.context), result);
+    }
+    if (result.ok && tool.invalidatesSources) {
+      this.resultReuse.invalidateSources(tool.invalidatesSources(call.input, call.context));
     }
     call.context.emit({
       timestamp: new Date().toISOString(),

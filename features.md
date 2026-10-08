@@ -1,3 +1,14 @@
+## 2026-10-08 — 子代理结构化交接与只读结果复用
+
+已交付（子代理 token 效率，规格 `docs/requirements/subagent-token-efficiency-spec.md`）：
+
+- **结构化委派 brief**：`subagent` 的每个任务项新增可选 `goal` / `knownSources` / `missingInfo` / `constraints` / `deliverables` / `acceptance` / `scope`。`renderDelegationBrief` 只渲染父代理实际提供的字段并附加到子任务前；无字段时任务原文不变。父代理因此把已抓取的资料、已验证约束和完成标准交给子代理，子代理只补缺失信息，而不是重复整段探索或继承父会话历史。
+- **只读结果复用**：新增 `resultReuse.ts`，在共享 `ToolRuntime` 层按“工具身份 + 归一化参数（路径 / offset / limit）+ 源版本（size + mtimeMs）”复用未变化的只读结果。命中时跳过物理读取，返回原内容并附带指明来源与刷新方式的 notice（不是裸“已读过”拒绝）。源版本变化、范围变化、缓存缺失、失败结果一律重新执行；图片读取不参与复用。
+- **写入失效与副作用隔离**：`read` 声明复用描述符；`write` / `edit` 声明 `invalidatesSources`，成功执行后按源清除对应缓存。只有 `sideEffectClass === "pure"` 的调用会进入复用，写入 / 编辑 / 发布 / 审批永不缓存或跳过。`fs.stat` 加入共享 `SafeFsApi`，无法证明新鲜度时不复用。
+- **测量**：复用结果带 `metadata.resultReused` 并在运行详情中记录一条“复用未变化缓存结果”的 tool_end；模型轮次、工具请求、usage 沿用既有 trace / usage 投影。
+
+验证：新增 `resultReuse.test.ts`（5 项）、`toolRuntime.test.ts` 复用回归（6 项）、`read.test.ts` 真实文件端到端复用与编辑重读（1 项）、`subagent.test.ts` brief 渲染与子代理到达回归（3 项）。`node --test` 跑 `src/lib/server/agent/tools/*` + `core/*` 共 487 项，485 通过、1 跳过，唯一失败为既有环境相关用例（独立 Skill drafter 需要服务所有权，被当前运行的桌面服务占用）；`test:projects` 86 项、`test:desktop-chat` 300 项全绿；`tsc --noEmit` 通过。未做真实模型同批任务的优化前后 token / 质量对比（无基线，未设置节省百分比），未重启用户正在使用的服务。
+
 ## 2026-10-08 — 可读的执行进度与调用复用指引
 
 已交付：实时对话默认显示最近两条助手正文进度说明、当前结构化步骤和实时耗时；工具链与输出折叠到「执行详情」。无正文说明时只显示真实工具状态，不把私有思考或日志生成解释。移除桌面对内部诊断的旧活动解析；子代理开始/结束更新同一个任务条目，不重复增加工具计数。

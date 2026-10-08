@@ -68,6 +68,40 @@ export function getReadToolDefinition(options: ReadToolOptions): ToolDefinition 
     risk: "low",
     source: "builtin",
     sideEffectClass: "pure",
+    // A text read of an unchanged file is safe to reuse within one execution
+    // scope: the key pins the exact range, and the version pins the file's
+    // bytes. Images are excluded because a later read may target a different
+    // prompt or a different (vision-capable) model.
+    resultReuse: {
+      key: (input, ctx) => {
+        const raw = String((input as { path?: unknown })?.path ?? "").trim();
+        if (!raw) return null;
+        const filePath = resolveToolPath(ctx.cwd, raw);
+        if (IMAGE_MIME_TYPES[extname(filePath).toLowerCase()]) return null;
+        const offset = (input as { offset?: unknown }).offset;
+        const limit = (input as { limit?: unknown }).limit;
+        const normalizedOffset = typeof offset === "number" && Number.isFinite(offset) && offset > 1
+          ? Math.floor(offset)
+          : 0;
+        const normalizedLimit = typeof limit === "number" && Number.isFinite(limit)
+          ? String(Math.max(0, Math.floor(limit)))
+          : "none";
+        return `read|${filePath}|offset=${normalizedOffset}|limit=${normalizedLimit}`;
+      },
+      sources: (input, ctx) => {
+        const raw = String((input as { path?: unknown })?.path ?? "").trim();
+        return raw ? [resolveToolPath(ctx.cwd, raw), raw] : [];
+      },
+      version: async (input, ctx) => {
+        const raw = String((input as { path?: unknown })?.path ?? "").trim();
+        if (!raw) return null;
+        const info = await ctx.fs.stat?.(resolveToolPath(ctx.cwd, raw));
+        // Without a provable freshness token, never reuse: the caller must read.
+        if (!info) return null;
+        return `${info.size}:${info.mtimeMs}`;
+      },
+      label: (input) => String((input as { path?: unknown })?.path ?? "").trim()
+    },
     handler: async (params: any, ctx) => {
       const { path, offset, limit } = params;
       const prompt = String(params.prompt ?? "").trim();

@@ -44,6 +44,10 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
     risk: "medium",
     source: "builtin",
     sideEffectClass: "idempotent",
+    invalidatesSources: (input, ctx) => {
+      const raw = String((input as { path?: unknown })?.path ?? "").trim();
+      return raw ? [raw, resolveToolPath(ctx.cwd, raw)] : [];
+    },
     handler: async (params: any, ctx) => {
       const filePath = resolveToolPath(ctx.cwd, params.path);
       ensureAllowedPath(filePath);

@@ -71,7 +71,23 @@ type SubagentModelLevel = (typeof SUBAGENT_MODEL_LEVELS)[number];
 
 const taskItemSchema = Type.Object({
   agent: Type.String(),
-  task: Type.String()
+  task: Type.String(),
+  goal: Type.Optional(Type.String({ description: "One-line objective for this delegated task." })),
+  knownSources: Type.Optional(Type.Array(Type.String(), {
+    maxItems: 32,
+    description: "Sources or paths the parent already gathered. The child must reuse these instead of re-fetching them."
+  })),
+  missingInfo: Type.Optional(Type.Array(Type.String(), {
+    maxItems: 32,
+    description: "Information the parent has not gathered. The child reads only this, not material already supplied."
+  })),
+  constraints: Type.Optional(Type.Array(Type.String(), {
+    maxItems: 32,
+    description: "Verified constraints (required format, allowed paths/tools, confirmed decisions) so the child does not rediscover them."
+  })),
+  deliverables: Type.Optional(Type.Array(Type.String(), { maxItems: 32, description: "Concrete outputs the child must produce." })),
+  acceptance: Type.Optional(Type.Array(Type.String(), { maxItems: 32, description: "Completion criteria; the child stops when these are met." })),
+  scope: Type.Optional(Type.String({ description: "What is in and out of scope for this task." }))
 });
 
 const subagentSchema = Type.Object({
@@ -85,6 +101,13 @@ const subagentSchema = Type.Object({
 type SingleTaskInput = {
   agent: string;
   task: string;
+  goal?: string;
+  knownSources?: string[];
+  missingInfo?: string[];
+  constraints?: string[];
+  deliverables?: string[];
+  acceptance?: string[];
+  scope?: string;
 };
 
 type SubagentInput = {
@@ -254,6 +277,66 @@ function reconcileRedundantModes(
     ?? present[0]!;
 }
 
+function normalizeTaskItem(item: SingleTaskInput): SingleTaskInput {
+  const normalized: SingleTaskInput = {
+    agent: String(item.agent ?? "").trim(),
+    task: String(item.task ?? "").trim()
+  };
+  const list = (values: unknown): string[] | undefined => {
+    if (!Array.isArray(values)) return undefined;
+    const items = values.map((value) => String(value ?? "").trim()).filter(Boolean);
+    return items.length ? items : undefined;
+  };
+  const goal = String(item.goal ?? "").trim();
+  if (goal) normalized.goal = goal;
+  const scope = String(item.scope ?? "").trim();
+  if (scope) normalized.scope = scope;
+  const knownSources = list(item.knownSources);
+  if (knownSources) normalized.knownSources = knownSources;
+  const missingInfo = list(item.missingInfo);
+  if (missingInfo) normalized.missingInfo = missingInfo;
+  const constraints = list(item.constraints);
+  if (constraints) normalized.constraints = constraints;
+  const deliverables = list(item.deliverables);
+  if (deliverables) normalized.deliverables = deliverables;
+  const acceptance = list(item.acceptance);
+  if (acceptance) normalized.acceptance = acceptance;
+  return normalized;
+}
+
+/**
+ * Render the parent's structured task contract into the child's prompt.
+ *
+ * The child gets a compact, complete handoff — objective, what is already
+ * known, what is missing, verified constraints, deliverables and completion
+ * criteria — instead of being asked to rediscover all of it. Only the fields
+ * the parent supplied are emitted; a task with no brief renders unchanged, so
+ * handoff context never becomes an unrelated parent-history dump.
+ */
+export function renderDelegationBrief(item: SingleTaskInput, task: string): string {
+  const rows: string[] = [];
+  const line = (label: string, value: string | undefined): void => {
+    const text = String(value ?? "").trim();
+    if (text) rows.push(`- ${label}: ${text}`);
+  };
+  const section = (label: string, values: string[] | undefined): void => {
+    const items = (values ?? []).map((value) => String(value ?? "").trim()).filter(Boolean);
+    if (items.length === 0) return;
+    rows.push(`- ${label}:`);
+    for (const value of items) rows.push(`  - ${value}`);
+  };
+  line("Goal", item.goal);
+  section("Known sources (already gathered — reuse these; do not re-fetch)", item.knownSources);
+  section("Missing information to gather (read only this)", item.missingInfo);
+  section("Verified constraints", item.constraints);
+  section("Deliverables", item.deliverables);
+  section("Acceptance criteria", item.acceptance);
+  line("Scope", item.scope);
+
+  if (rows.length === 0) return task;
+  return ["## Delegation brief", ...rows, "", "## Task", task].join("\n");
+}
+
 export function parseSubagentMode(
   input: SubagentInput,
   limits: { maxTasks: number; maxConcurrency: number }
@@ -308,10 +391,7 @@ export function parseSubagentMode(
   if (hasParallel) {
     return {
       mode: "parallel",
-      tasks: input.tasks!.map((item) => ({
-        agent: String(item.agent ?? "").trim(),
-        task: String(item.task ?? "").trim()
-      })),
+      tasks: input.tasks!.map(normalizeTaskItem),
       maxConcurrency: Math.max(
         1,
         Math.min(limits.maxConcurrency, Math.floor(input.maxConcurrency ?? limits.maxConcurrency))
@@ -321,10 +401,7 @@ export function parseSubagentMode(
 
   return {
     mode: "chain",
-    tasks: input.chain!.map((item) => ({
-      agent: String(item.agent ?? "").trim(),
-      task: String(item.task ?? "").trim()
-    })),
+    tasks: input.chain!.map(normalizeTaskItem),
     maxConcurrency: 1
   };
 }
@@ -1460,7 +1537,7 @@ export function createSubagentTool(options: {
     name: "subagent",
     label: "subagent",
     description:
-      `Delegate codebase-heavy work to an isolated pi-mono subagent. Available roles: ${advertisedAgents.map((name) => `\`${name}\``).join(", ")}. Supports one task, parallel tasks, or a chain with \`{previous}\` placeholder. A delegated task has a bounded output budget, so split long source material (a book chapter, a multi-thousand-word article) into sections and delegate each section instead of asking one task to produce a very long document in a single pass.`,
+      `Delegate codebase-heavy work to an isolated pi-mono subagent. Available roles: ${advertisedAgents.map((name) => `\`${name}\``).join(", ")}. Supports one task, parallel tasks, or a chain with \`{previous}\` placeholder. Each task item accepts an optional structured brief — \`goal\`, \`knownSources\`, \`missingInfo\`, \`constraints\`, \`deliverables\`, \`acceptance\`, \`scope\` — so the delegate reuses what you already gathered and reads only what is missing instead of re-exploring. A delegated task has a bounded output budget, so split long source material (a book chapter, a multi-thousand-word article) into sections and delegate each section instead of asking one task to produce a very long document in a single pass.`,
     parameters: subagentSchema,
     replay: "safe",
     execute: async (toolCallId, params, signal, onUpdate): Promise<AgentToolResult<SubagentToolDetails>> => {
@@ -1595,7 +1672,7 @@ export function createSubagentTool(options: {
             (options as any)._testHostApprovalCallback(hostApproval);
           }
 
-          const result = await runSubagent(agent, task, {
+          const result = await runSubagent(agent, renderDelegationBrief(item, task), {
             cwd: options.cwd,
             workspaceDir: options.workspaceDir,
             chatId: options.chatId,

@@ -948,3 +948,143 @@ test("composite execution still authorizes every nested effect", async () => {
   assert.match(result.error ?? "", /Write denied/);
   assert.equal(writes, 0);
 });
+
+function textOf(result: { content?: unknown }): string {
+  return ((result.content as any[] | undefined)?.[0] as { text?: string } | undefined)?.text ?? "";
+}
+
+/**
+ * A pure read whose freshness token the test controls, so reuse can be observed
+ * without depending on file mtime granularity.
+ */
+function reuseReadTool(counter: { reads: number }, options?: { fail?: boolean }) {
+  let version = "v1";
+  const def = tool({
+    id: "read",
+    sideEffectClass: "pure",
+    resultReuse: {
+      key: (input) => `read|${(input as { path?: string }).path}|o=${(input as { offset?: number }).offset ?? 0}`,
+      sources: (input) => {
+        const raw = String((input as { path?: string }).path ?? "");
+        return [raw, `/tmp/${raw}`];
+      },
+      version: async () => version,
+      label: (input) => String((input as { path?: string }).path ?? "")
+    },
+    handler: async (input) => {
+      counter.reads += 1;
+      if (options?.fail) return { ok: false, error: "read failed" };
+      return { ok: true, content: [{ type: "text", text: `content-of-${(input as { path?: string }).path}` }] };
+    }
+  });
+  return { def, setVersion: (next: string) => { version = next; } };
+}
+
+test("a repeated unchanged pure read is served from cache without a second physical read", async () => {
+  const registry = new ToolRegistry();
+  const counter = { reads: 0 };
+  registry.register(reuseReadTool(counter).def);
+  const runtime = new ToolRuntime(registry);
+  const ctx = context();
+
+  const first = await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+  const second = await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+
+  assert.equal(counter.reads, 1, "the physical read must happen once");
+  assert.equal((first.metadata as any)?.resultReused, undefined);
+  assert.equal((second.metadata as any)?.resultReused, true);
+  // The reuse must still carry the useful prior content, plus an actionable notice.
+  assert.match(textOf(second), /Reused a previous read of "a\.txt"/);
+  assert.match(textOf(second), /content-of-a\.txt/);
+});
+
+test("a changed source version forces a fresh read", async () => {
+  const registry = new ToolRegistry();
+  const counter = { reads: 0 };
+  const { def, setVersion } = reuseReadTool(counter);
+  registry.register(def);
+  const runtime = new ToolRuntime(registry);
+  const ctx = context();
+
+  await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+  setVersion("v2");
+  const second = await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+
+  assert.equal(counter.reads, 2, "an edited file must be read again");
+  assert.equal((second.metadata as any)?.resultReused, undefined);
+});
+
+test("a different range for the same file is not reused", async () => {
+  const registry = new ToolRegistry();
+  const counter = { reads: 0 };
+  registry.register(reuseReadTool(counter).def);
+  const runtime = new ToolRuntime(registry);
+  const ctx = context();
+
+  await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+  await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt", offset: 10 }, context: ctx });
+
+  assert.equal(counter.reads, 2);
+});
+
+test("a failed read is never recorded as a reusable result", async () => {
+  const registry = new ToolRegistry();
+  const counter = { reads: 0 };
+  registry.register(reuseReadTool(counter, { fail: true }).def);
+  const runtime = new ToolRuntime(registry);
+  const ctx = context();
+
+  await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+  await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+
+  assert.equal(counter.reads, 2, "a failed read must not satisfy a later read");
+});
+
+test("a successful write invalidates cached reads of the same source", async () => {
+  const registry = new ToolRegistry();
+  const counter = { reads: 0 };
+  registry.register(reuseReadTool(counter).def);
+  registry.register(tool({
+    id: "write",
+    sideEffectClass: "idempotent",
+    invalidatesSources: (input, ctx) => {
+      const raw = String((input as { path?: string }).path ?? "");
+      return [raw, `${ctx.cwd}/${raw}`];
+    },
+    handler: async () => ({ ok: true, content: "written" })
+  }));
+  const runtime = new ToolRuntime(registry);
+  const ctx = context();
+
+  await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+  await runtime.executeToolCall({ toolId: "write", input: { path: "a.txt" }, context: ctx });
+  await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+
+  assert.equal(counter.reads, 2, "reuse must not hide an edit");
+});
+
+test("a side-effecting tool is never served from the read cache", async () => {
+  const registry = new ToolRegistry();
+  let runs = 0;
+  registry.register(tool({
+    id: "write",
+    sideEffectClass: "idempotent",
+    // A misdeclared side-effecting tool must still not be recycled.
+    resultReuse: {
+      key: () => "write|same",
+      sources: () => ["same"],
+      version: async () => "v1"
+    },
+    handler: async () => {
+      runs += 1;
+      return { ok: true, content: "effect" };
+    }
+  }));
+  const runtime = new ToolRuntime(registry);
+  const ctx = context();
+
+  await runtime.executeToolCall({ toolId: "write", input: { path: "a.txt" }, context: ctx });
+  await runtime.executeToolCall({ toolId: "write", input: { path: "a.txt" }, context: ctx });
+
+  assert.equal(runs, 2);
+});
