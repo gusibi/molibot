@@ -45,7 +45,7 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
     source: "builtin",
     sideEffectClass: "idempotent",
     invalidatesSources: (input, ctx) => {
-      const raw = String((input as { path?: unknown })?.path ?? "").trim();
+      const raw = String((input as { path?: unknown })?.path ?? "");
       return raw ? [raw, resolveToolPath(ctx.cwd, raw)] : [];
     },
     handler: async (params: any, ctx) => {

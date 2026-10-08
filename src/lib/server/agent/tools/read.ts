@@ -29,6 +29,7 @@ const readSchema = Type.Object({
   path: Type.String(),
   offset: Type.Optional(Type.Number()),
   limit: Type.Optional(Type.Number()),
+  refresh: Type.Optional(Type.Boolean({ description: "Read the file again without using a previous result." })),
   prompt: Type.Optional(Type.String({
     description: "For image files, what to inspect or extract. May be changed across repeated reads of the same image."
   }))
@@ -69,38 +70,37 @@ export function getReadToolDefinition(options: ReadToolOptions): ToolDefinition 
     source: "builtin",
     sideEffectClass: "pure",
     // A text read of an unchanged file is safe to reuse within one execution
-    // scope: the key pins the exact range, and the version pins the file's
-    // bytes. Images are excluded because a later read may target a different
-    // prompt or a different (vision-capable) model.
+    // scope: the key pins the exact range; file identity and change times
+    // invalidate reads after external writes or replacements. Images are excluded
+    // because their prompts and the active vision model may change.
     resultReuse: {
       key: (input, ctx) => {
-        const raw = String((input as { path?: unknown })?.path ?? "").trim();
+        if ((input as { refresh?: boolean })?.refresh) return null;
+        const raw = String((input as { path?: unknown })?.path ?? "");
         if (!raw) return null;
         const filePath = resolveToolPath(ctx.cwd, raw);
         if (IMAGE_MIME_TYPES[extname(filePath).toLowerCase()]) return null;
         const offset = (input as { offset?: unknown }).offset;
         const limit = (input as { limit?: unknown }).limit;
-        const normalizedOffset = typeof offset === "number" && Number.isFinite(offset) && offset > 1
-          ? Math.floor(offset)
-          : 0;
-        const normalizedLimit = typeof limit === "number" && Number.isFinite(limit)
-          ? String(Math.max(0, Math.floor(limit)))
+        const normalizedOffset = typeof offset === "number" && offset > 0 ? offset : 1;
+        const normalizedLimit = typeof limit === "number"
+          ? String(limit)
           : "none";
         return `read|${filePath}|offset=${normalizedOffset}|limit=${normalizedLimit}`;
       },
       sources: (input, ctx) => {
-        const raw = String((input as { path?: unknown })?.path ?? "").trim();
+        const raw = String((input as { path?: unknown })?.path ?? "");
         return raw ? [resolveToolPath(ctx.cwd, raw), raw] : [];
       },
       version: async (input, ctx) => {
-        const raw = String((input as { path?: unknown })?.path ?? "").trim();
+        const raw = String((input as { path?: unknown })?.path ?? "");
         if (!raw) return null;
         const info = await ctx.fs.stat?.(resolveToolPath(ctx.cwd, raw));
         // Without a provable freshness token, never reuse: the caller must read.
         if (!info) return null;
-        return `${info.size}:${info.mtimeMs}`;
+        return info.version;
       },
-      label: (input) => String((input as { path?: unknown })?.path ?? "").trim()
+      label: (input) => String((input as { path?: unknown })?.path ?? "")
     },
     handler: async (params: any, ctx) => {
       const { path, offset, limit } = params;

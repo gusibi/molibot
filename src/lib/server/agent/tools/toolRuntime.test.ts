@@ -1088,3 +1088,23 @@ test("a side-effecting tool is never served from the read cache", async () => {
 
   assert.equal(runs, 2);
 });
+
+test("a source change during a read prevents caching that result", async () => {
+  const registry = new ToolRegistry();
+  let version = "v1";
+  let reads = 0;
+  registry.register(tool({ id: "read", sideEffectClass: "pure",
+    resultReuse: { key: () => "read|a", sources: () => ["a"], version: async () => version },
+    handler: async () => {
+      reads++;
+      version = "v2";
+      return { ok: true, content: [{ type: "text", text: reads === 1 ? "old" : "new" }] };
+    }
+  }));
+  const runtime = new ToolRuntime(registry);
+  await runtime.executeToolCall({ toolId: "read", input: {}, context: context() });
+  const second = await runtime.executeToolCall({ toolId: "read", input: {}, context: context() });
+  assert.equal(reads, 2);
+  assert.equal(textOf(second), "new");
+  assert.equal(second.metadata?.resultReused, undefined);
+});

@@ -1,6 +1,6 @@
 # 子代理 token 效率优化
 
-日期：2026-10-08。状态：结构化交接与只读结果复用已实施并通过回归；真实任务的 token/质量基线对比尚未测量。Issue tracker 未配置，发布及 `ready-for-agent` 标签待运行 `/setup-matt-pocock-skills` 后完成。
+日期：2026-10-08。状态：结构化交接与只读结果复用已实施并通过回归；单任务交接、外部写入/文件替换后的缓存失效、路径身份及显式刷新已修正；真实任务的 token/质量基线对比尚未测量。Issue tracker 未配置，发布及 `ready-for-agent` 标签待运行 `/setup-matt-pocock-skills` 后完成。
 
 ## Problem Statement
 
@@ -79,7 +79,7 @@
 
 ## Further Notes
 
-The readable progress display and prompt reuse guidance have been committed. This specification does not claim that runtime duplicate detection or measurable savings already exists.
+The readable progress display and prompt reuse guidance have been committed. The runtime reuses identical text reads using file identity and nanosecond modification/change times, checks the version before and after reading, and supports `refresh: true`. Measurable token savings remain unverified.
 
 The read tool already reports the next offset after truncation. Repeated overlapping reads therefore cannot be attributed solely to missing continuation information. Better handoff, model behavior and runtime reuse must be evaluated together.
 

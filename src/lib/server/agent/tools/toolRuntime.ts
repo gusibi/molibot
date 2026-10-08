@@ -434,6 +434,8 @@ export class ToolRuntime {
     const reuse = tool.resultReuse;
     const reuseKey = reuse && sideEffect.sideEffectClass === "pure" ? reuse.key(call.input, call.context) : null;
     const reuseVersion = reuse && reuseKey ? await reuse.version(call.input, call.context) : null;
+    executionSignal.throwIfAborted();
+    call.context.assertAuthority?.(tool.id, call.input);
     if (reuse && reuseKey && reuseVersion) {
       const cached = this.resultReuse.get(reuseKey, reuseVersion);
       if (cached) {
@@ -503,7 +505,8 @@ export class ToolRuntime {
     // Record successful pure reads for reuse, and drop cached reads that a
     // successful write/edit just invalidated. Failures are never recorded, so a
     // failed operation can never masquerade as a reusable success.
-    if (result.ok && reuse && reuseKey && reuseVersion) {
+    if (result.ok && reuse && reuseKey && reuseVersion &&
+        await reuse.version(call.input, call.context) === reuseVersion) {
       this.resultReuse.set(reuseKey, reuseVersion, reuse.sources(call.input, call.context), result);
     }
     if (result.ok && tool.invalidatesSources) {

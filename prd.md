@@ -1,6 +1,6 @@
 # 子代理 token 效率优化（2026-10-08，P1，部分交付）
 
-[规格](docs/requirements/subagent-token-efficiency-spec.md) 覆盖精简交接、只读结果安全复用、重复操作检测和实际 token/质量对比。已交付：委派任务支持结构化 brief（goal / knownSources / missingInfo / constraints / deliverables / acceptance / scope）并渲染进子代理提示词；共享 ToolRuntime 按“工具身份 + 归一化参数 + 源版本”复用未变化的只读结果，写入/编辑失效对应缓存，失败不缓存。待办：同一批代表性任务在优化前后的真实模型 token、轮次、耗时与质量对比（尚无可信基线，未设置节省百分比）。Issue tracker 未配置，运行 `/setup-matt-pocock-skills` 后发布并标记 `ready-for-agent`。长任务继续使用决策模型。
+[规格](docs/requirements/subagent-token-efficiency-spec.md) 覆盖精简交接、只读结果安全复用、重复操作检测和实际 token/质量对比。已交付：委派任务支持结构化 brief（goal / knownSources / missingInfo / constraints / deliverables / acceptance / scope）并渲染进子代理提示词；共享 ToolRuntime 按“工具身份 + 归一化参数 + 源版本”复用未变化的只读结果，写入/编辑失效对应缓存，失败及读取期间版本变化不缓存，支持显式刷新；单任务入口保留完整 brief，外部修改/替换与文件名空白已覆盖回归。待办：同一批代表性任务在优化前后的真实模型 token、轮次、耗时与质量对比（尚无可信基线，未设置节省百分比）。Issue tracker 未配置，运行 `/setup-matt-pocock-skills` 后发布并标记 `ready-for-agent`。长任务继续使用决策模型。
 
 # 可读执行进度（2026-10-08，P1，已交付）
 

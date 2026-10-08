@@ -1,9 +1,17 @@
+## 2026-10-08 — 只读缓存有效性与单任务交接修复
+
+已交付：文件读取缓存使用设备、inode、大小及纳秒级修改/状态变化时间，读取前后版本不一致的结果不进入缓存。外部写入保留大小和修改时间、替换文件时重新读取；`read` 支持 `refresh: true` 显式刷新。缓存与实际读取保留相同的文件名空白，offset / limit 不合并语义不同的请求。单任务 `{agent, task}` 与并行、链式任务使用相同的结构化交接字段。
+
+根因：缓存身份与实际操作身份不一致、文件版本信息不足、单任务接口字段遗漏。回归守卫覆盖保留 mtime 的外部写入/替换、空白文件名、显式刷新、小数 offset、读取期间版本变化及单任务 schema/子任务请求。
+
+验证：独立临时 DATA_DIR 中的 read / resultReuse / ToolRuntime / subagent / index / edit / write 测试 123 项通过，最终 offset 改动后的 read 测试 13 项通过；`corepack pnpm run check` 与生产构建通过。subagent 原生委派测试新增 `testDataDir` 前置模块自带临时 DATA_DIR，不再依赖外部环境变量，也不会与真实服务的租约冲突。真实模型 token / 质量基线仍未测量，运行中的用户服务未重启。
+
 ## 2026-10-08 — 子代理结构化交接与只读结果复用
 
 已交付（子代理 token 效率，规格 `docs/requirements/subagent-token-efficiency-spec.md`）：
 
 - **结构化委派 brief**：`subagent` 的每个任务项新增可选 `goal` / `knownSources` / `missingInfo` / `constraints` / `deliverables` / `acceptance` / `scope`。`renderDelegationBrief` 只渲染父代理实际提供的字段并附加到子任务前；无字段时任务原文不变。父代理因此把已抓取的资料、已验证约束和完成标准交给子代理，子代理只补缺失信息，而不是重复整段探索或继承父会话历史。
-- **只读结果复用**：新增 `resultReuse.ts`，在共享 `ToolRuntime` 层按“工具身份 + 归一化参数（路径 / offset / limit）+ 源版本（size + mtimeMs）”复用未变化的只读结果。命中时跳过物理读取，返回原内容并附带指明来源与刷新方式的 notice（不是裸“已读过”拒绝）。源版本变化、范围变化、缓存缺失、失败结果一律重新执行；图片读取不参与复用。
+- **只读结果复用**：新增 `resultReuse.ts`，在共享 `ToolRuntime` 层按“工具身份 + 归一化参数（路径 / offset / limit）+ 源版本（设备 / inode / size / 纳秒级 mtime 与 ctime）”复用未变化的只读结果。命中时跳过物理读取，返回原内容并附带指明来源与刷新方式的 notice（不是裸“已读过”拒绝）。源版本变化、范围变化、缓存缺失、失败结果一律重新执行；图片读取不参与复用。
 - **写入失效与副作用隔离**：`read` 声明复用描述符；`write` / `edit` 声明 `invalidatesSources`，成功执行后按源清除对应缓存。只有 `sideEffectClass === "pure"` 的调用会进入复用，写入 / 编辑 / 发布 / 审批永不缓存或跳过。`fs.stat` 加入共享 `SafeFsApi`，无法证明新鲜度时不复用。
 - **测量**：复用结果带 `metadata.resultReused` 并在运行详情中记录一条“复用未变化缓存结果”的 tool_end；模型轮次、工具请求、usage 沿用既有 trace / usage 投影。
 

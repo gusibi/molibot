@@ -14,7 +14,7 @@ export interface SafeFsApi {
   writeText(path: string, content: string): Promise<void>;
   readBuffer?(path: string): Promise<Buffer>;
   /** Identity of a source file used to prove a cached read is still fresh. */
-  stat?(path: string): Promise<{ size: number; mtimeMs: number } | undefined>;
+  stat?(path: string): Promise<{ version: string } | undefined>;
 }
 
 export interface SafeShellApi {

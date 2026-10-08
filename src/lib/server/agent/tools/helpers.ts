@@ -264,8 +264,8 @@ export function toolDefToAgentTool(
           readBuffer: async (p) => fsPromises.readFile(p),
           stat: async (p) => {
             try {
-              const info = await fsPromises.stat(p);
-              return { size: info.size, mtimeMs: info.mtimeMs };
+              const info = await fsPromises.stat(p, { bigint: true });
+              return { version: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}` };
             } catch {
               return undefined;
             }

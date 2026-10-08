@@ -1,3 +1,4 @@
+import "./testDataDir.js";
 import assert from "node:assert/strict";
 import fs, { mkdtempSync, rmSync } from "node:fs";
 import os, { tmpdir } from "node:os";
@@ -811,4 +812,29 @@ test("parseSubagentMode preserves the structured task brief", () => {
     constraints: ["c"],
     acceptance: ["done"]
   });
+});
+
+test("single-task delegation preserves the brief in the schema and child request", async () => {
+  const seen: string[] = [];
+  const tool = createSubagentTool({
+    cwd: process.cwd(), workspaceDir: process.cwd(), chatId: "single-brief",
+    getSettings: () => defaultRuntimeSettings,
+    runSubagent: async (agent: { name: string }, task: string) => {
+      seen.push(task);
+      return completed(agent.name, task);
+    }
+  } as any);
+  const input = { agent: "worker", task: "Draft", goal: "Bilingual post",
+    knownSources: ["outline.md"], constraints: ["Chinese and English"], acceptance: ["Both languages present"] };
+  for (const field of ["goal", "knownSources", "constraints", "acceptance"]) {
+    assert.ok(field in tool.parameters.properties, `${field} must be model-visible in single mode`);
+  }
+  assert.deepEqual(parseSubagentMode(input, MODE_LIMITS).tasks, [input]);
+  const result = await tool.execute("single-brief", input, undefined, undefined);
+  assert.equal(result.isError, false);
+  assert.equal(seen.length, 1);
+  assert.match(seen[0], /Bilingual post/);
+  assert.match(seen[0], /outline\.md/);
+  assert.match(seen[0], /Chinese and English/);
+  assert.match(seen[0], /Both languages present/);
 });

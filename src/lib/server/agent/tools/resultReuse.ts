@@ -71,7 +71,7 @@ export class ResultReuseCache {
 export function formatReuseNotice(input: { path: string }): string {
   return [
     `[Reused a previous read of "${input.path}": the source is unchanged since then, so this is the same content without re-reading it.`,
-    "Change the path or range, or edit the file, to force a fresh read.]"
+    "Use refresh=true for a fresh read, or change the path or range.]"
   ].join(" ");
 }
 

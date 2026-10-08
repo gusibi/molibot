@@ -91,6 +91,7 @@ const taskItemSchema = Type.Object({
 });
 
 const subagentSchema = Type.Object({
+  ...taskItemSchema.properties,
   agent: Type.Optional(Type.String()),
   task: Type.Optional(Type.String()),
   tasks: Type.Optional(Type.Array(taskItemSchema, { maxItems: 16 })),
@@ -110,9 +111,7 @@ type SingleTaskInput = {
   scope?: string;
 };
 
-type SubagentInput = {
-  agent?: string;
-  task?: string;
+type SubagentInput = Partial<SingleTaskInput> & {
   tasks?: SingleTaskInput[];
   chain?: SingleTaskInput[];
   maxConcurrency?: number;
@@ -356,7 +355,7 @@ export function parseSubagentMode(
 
   if (modeCount > 1) {
     const present: Array<{ mode: "single" | "parallel" | "chain"; tasks: SingleTaskInput[] }> = [];
-    if (hasSingle) present.push({ mode: "single", tasks: [{ agent: input.agent!.trim(), task: input.task!.trim() }] });
+    if (hasSingle) present.push({ mode: "single", tasks: [normalizeTaskItem({ ...input, agent: input.agent!, task: input.task! })] });
     if (hasParallel) present.push({ mode: "parallel", tasks: input.tasks! as SingleTaskInput[] });
     if (hasChain) present.push({ mode: "chain", tasks: input.chain! as SingleTaskInput[] });
 
@@ -383,7 +382,7 @@ export function parseSubagentMode(
   if (hasSingle) {
     return {
       mode: "single",
-      tasks: [{ agent: input.agent!.trim(), task: input.task!.trim() }],
+      tasks: [normalizeTaskItem({ ...input, agent: input.agent!, task: input.task! })],
       maxConcurrency: 1
     };
   }

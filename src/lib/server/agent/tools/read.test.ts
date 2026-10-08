@@ -226,8 +226,8 @@ function runtimeContext(cwd: string): ToolExecutionContext {
       readBuffer: (p: string) => fsp.readFile(p),
       stat: async (p: string) => {
         try {
-          const info = await fsp.stat(p);
-          return { size: info.size, mtimeMs: info.mtimeMs };
+          const info = await fsp.stat(p, { bigint: true });
+          return { version: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}` };
         } catch {
           return undefined;
         }
@@ -263,4 +263,69 @@ test("the read tool reuses an unchanged file through the shared tool runtime but
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test("external writes and replacements with preserved size and mtime invalidate reads", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-read-version-"));
+  try {
+    const path = join(cwd, "a.txt");
+    await fsp.writeFile(path, "old");
+    await fsp.utimes(path, 1700000000, 1700000000);
+    const registry = new ToolRegistry();
+    registry.register(getReadToolDefinition({ cwd, workspaceDir: cwd }));
+    const runtime = new ToolRuntime(registry);
+    const ctx = runtimeContext(cwd);
+    const read = () => runtime.executeToolCall({ toolId: "read", input: { path: "a.txt" }, context: ctx });
+    await read();
+    await fsp.writeFile(path, "new");
+    await fsp.utimes(path, 1700000000, 1700000000);
+    const changed = await read();
+    assert.equal(changed.metadata?.resultReused, undefined);
+    assert.equal((changed.content as any[])[0].text, "new");
+    await fsp.writeFile(join(cwd, "replacement"), "end");
+    await fsp.utimes(join(cwd, "replacement"), 1700000000, 1700000000);
+    await fsp.rename(join(cwd, "replacement"), path);
+    const replaced = await read();
+    assert.equal(replaced.metadata?.resultReused, undefined);
+    assert.equal((replaced.content as any[])[0].text, "end");
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("read preserves filename whitespace and explicit refresh performs a physical read", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-read-path-"));
+  try {
+    await fsp.writeFile(join(cwd, "a.txt"), "one");
+    await fsp.writeFile(join(cwd, " a.txt"), "two");
+    const registry = new ToolRegistry();
+    registry.register(getReadToolDefinition({ cwd, workspaceDir: cwd }));
+    const runtime = new ToolRuntime(registry);
+    const ctx = runtimeContext(cwd);
+    let physicalReads = 0;
+    ctx.fs.readBuffer = async p => { physicalReads++; return fsp.readFile(p); };
+    const read = (input: object) => runtime.executeToolCall({ toolId: "read", input, context: ctx });
+    await read({ path: "a.txt" });
+    const padded = await read({ path: " a.txt" });
+    assert.equal((padded.content as any[])[0].text, "two");
+    await read({ path: "a.txt" });
+    assert.equal(physicalReads, 2);
+    const fresh = await read({ path: "a.txt", refresh: true });
+    assert.equal(physicalReads, 3);
+    assert.equal(fresh.metadata?.resultReused, undefined);
+    assert.equal((fresh.content as any[])[0].text, "one");
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("fractional offsets do not collide with integer read requests", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-read-offset-"));
+  try {
+    await fsp.writeFile(join(cwd, "a.txt"), "one\ntwo\nthree");
+    const registry = new ToolRegistry();
+    registry.register(getReadToolDefinition({ cwd, workspaceDir: cwd }));
+    const runtime = new ToolRuntime(registry);
+    const ctx = runtimeContext(cwd);
+    await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt", offset: 1.5 }, context: ctx });
+    const second = await runtime.executeToolCall({ toolId: "read", input: { path: "a.txt", offset: 1 }, context: ctx });
+    assert.equal(second.metadata?.resultReused, undefined);
+    assert.match((second.content as any[])[0].text, /one\ntwo\nthree/);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
