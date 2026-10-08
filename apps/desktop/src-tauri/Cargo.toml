@@ -1,6 +1,6 @@
 [package]
 name = "molibot-desktop"
-version = "0.9.62"
+version = "0.9.63"
 description = "Molibot macOS desktop host"
 authors = ["EZTOOLAB"]
 edition = "2021"
