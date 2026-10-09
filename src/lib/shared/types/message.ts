@@ -169,6 +169,8 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   projectId?: string;
+  /** Stable owner of an ordinary Session. Missing means unassigned; Project Sessions do not use this field. */
+  agentId?: string;
   origin?: string;
   external?: ExternalSessionMetadata;
   /** Per-session text-model override (routing key, e.g. `custom|CliProxyAPI|gpt-5.4-mini`).

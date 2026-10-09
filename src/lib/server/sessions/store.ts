@@ -505,7 +505,8 @@ export class SessionStore {
     }
   }
 
-  private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string): Conversation {
+  private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string, agentId?: string): Conversation {
+    if (!projectId && agentId !== undefined && !agentId.trim()) throw new Error("Agent ID is required");
     const now = new Date().toISOString();
     const id = createRuntimeSessionId("session", {
       exists: (candidate) => this.resolveSessionStorage(candidate) !== null
@@ -519,6 +520,7 @@ export class SessionStore {
       updatedAt: now
     };
     if (origin) conversation.origin = origin;
+    if (!projectId && agentId?.trim()) conversation.agentId = agentId.trim();
 
     if (projectId) {
       conversation.projectId = projectId;
@@ -712,9 +714,10 @@ export class SessionStore {
     channel: Channel,
     externalUserId: string,
     conversationId?: string,
-    opts?: { projectId?: string; origin?: string }
+    opts?: { projectId?: string; origin?: string; agentId?: string }
   ): Conversation {
     const now = new Date().toISOString();
+    if (!opts?.projectId && opts?.agentId !== undefined && !opts.agentId.trim()) throw new Error("Agent ID is required");
 
     if (opts?.projectId) {
       if (conversationId) {
@@ -745,6 +748,9 @@ export class SessionStore {
 
     if (conversationId) {
       const found = this.getConversationById(conversationId, channel, externalUserId);
+      if (found && !found.projectId && opts?.agentId !== undefined && found.agentId !== opts.agentId.trim()) {
+        throw new Error(`Agent mismatch for Session ${found.id}`);
+      }
       if (found && this.inboundReuseAllowed(found.id, externalUserId)) {
         const located = this.resolveSessionStorage(found.id);
         if (located) {
@@ -764,11 +770,12 @@ export class SessionStore {
       }
     }
 
-    const list = this.listConversations(channel, externalUserId);
+    const list = this.listConversations(channel, externalUserId)
+      .filter((conversation) => opts?.agentId === undefined || conversation.agentId === opts.agentId.trim());
     if (list.length > 0) {
       const latest = list[0];
       if (!this.inboundReuseAllowed(latest.id, externalUserId)) {
-        return this.createConversation(channel, externalUserId, undefined, opts?.origin);
+        return this.createConversation(channel, externalUserId, undefined, opts?.origin, opts?.agentId);
       }
       const located = this.resolveSessionStorage(latest.id);
       if (located) {
@@ -787,7 +794,7 @@ export class SessionStore {
       }
     }
 
-    return this.createConversation(channel, externalUserId, undefined, opts?.origin);
+    return this.createConversation(channel, externalUserId, undefined, opts?.origin, opts?.agentId);
   }
 
   /** Index and count an externally owned transcript without duplicating its message bodies. */
@@ -1247,20 +1254,44 @@ export class SessionStore {
     return conversations;
   }
 
-  createWebConversation(externalUserId: string, origin?: string): Conversation {
-    return this.createConversation("web", externalUserId, undefined, origin);
+  createWebConversation(externalUserId: string, origin?: string, agentId?: string): Conversation {
+    return this.createConversation("web", externalUserId, undefined, origin, agentId);
   }
 
   /**
-   * Returns the newest empty Web conversation for this profile, or creates one.
+   * Persists an explicit claim for an unassigned local Web Session. The caller
+   * must authorize the target Agent before calling. Returns null for an unknown,
+   * foreign or Project Session; rejects empty IDs and changing existing ownership.
+   * Repeating the same claim is idempotent and does not change activity time.
+   */
+  claimConversationAgent(conversationId: string, externalUserId: string, agentId: string): Conversation | null {
+    const id = agentId.trim();
+    if (!id) throw new Error("Agent ID is required");
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located || located.type !== "web" || located.externalUserId !== externalUserId) return null;
+    const conversation = located.file.conversation;
+    if (conversation.agentId && conversation.agentId !== id) {
+      throw new Error(`Agent mismatch for Session ${conversationId}`);
+    }
+    if (!conversation.agentId) {
+      conversation.agentId = id;
+      writeWebSession(located.externalUserId, located.file);
+    }
+    return conversation;
+  }
+
+  /**
+   * Returns the newest empty Web conversation for this profile and supplied Agent, or creates one.
    * Keeping this decision in the shared store makes repeated new-chat requests
    * idempotent without teaching desktop/channel callers about storage files.
    */
-  getOrCreateEmptyWebConversation(externalUserId: string): { conversation: Conversation; reused: boolean } {
+  getOrCreateEmptyWebConversation(externalUserId: string, agentId?: string): { conversation: Conversation; reused: boolean } {
+    if (agentId !== undefined && !agentId.trim()) throw new Error("Agent ID is required");
     const existing = this.listConversations("web", externalUserId)
+      .filter((conversation) => agentId === undefined || conversation.agentId === agentId.trim())
       .find((conversation) => this.listMessages(conversation.id).length === 0);
     if (existing) return { conversation: existing, reused: true };
-    return { conversation: this.createWebConversation(externalUserId), reused: false };
+    return { conversation: this.createWebConversation(externalUserId, undefined, agentId), reused: false };
   }
 
   /**
