@@ -15,6 +15,8 @@
 
   let {
     endpoint,
+    agentId,
+    includeArchived = false,
     open = false,
     labels,
     formatTime,
@@ -22,6 +24,8 @@
     onClose
   }: {
     endpoint: string;
+    agentId?: string;
+    includeArchived?: boolean;
     open?: boolean;
     labels: {
       search: string;
@@ -91,7 +95,7 @@
     loading = true;
     error = "";
     try {
-      const response = await searchDesktopConversations(endpoint, { scope: nextScope, query: q, limit: 10 });
+      const response = await searchDesktopConversations(endpoint, { scope: nextScope, query: q, limit: 10, agentId, includeArchived });
       if (requestGeneration === generation) groups = response.groups;
     } catch (cause) {
       if (requestGeneration === generation) error = cause instanceof Error ? cause.message : String(cause);
@@ -108,6 +112,7 @@
     }
     const q = query;
     const nextScope = scope;
+    const selectedAgent = agentId;
     if (!opened) {
       opened = true;
       void loadResults(q, nextScope);
@@ -124,7 +129,8 @@
     loadingMore = { ...loadingMore, [group.source]: true };
     try {
       const response = await searchDesktopConversations(endpoint, {
-        scope: group.source,
+        agentId, includeArchived,
+        scope: agentId !== undefined ? requestedScope : group.source,
         query: requestedQuery,
         limit: 10,
         cursor: group.nextCursor
@@ -224,7 +230,7 @@
         <section class="browser-group">
           <header class="browser-group-header">
             <GroupIcon size={16} aria-hidden="true" />
-            <span class="browser-group-name">{scopeLabel(group.source)}</span>
+            <span class="browser-group-name">{agentId !== undefined ? labels.all : scopeLabel(group.source)}</span>
             <span class="browser-group-count">{group.total}</span>
           </header>
           <div class="browser-result-list">

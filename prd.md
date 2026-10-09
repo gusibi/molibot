@@ -1,3 +1,7 @@
+# Personal Agent 体验升级 V1（2026-10-09，优先级未指定）
+
+已交付（2026-10-10）。Desktop 提供 Agent 导航、首页、完整历史、独立草稿和恢复；普通 Session 固定 Agent 身份，共享执行入口、模型路由、记忆授权及禁用/删除约束已接通。Project 保持现有行为，独立 Web 页面未改。旧未归属会话必须先在 Desktop 显式认领，不能推断身份。产品约定见 [PRD](docs/requirements/personal-agent-experience-v1.md)，验收边界见 [规格](docs/requirements/personal-agent-desktop-v1-spec.md) 与 [验证记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。
+
 # 子代理 token 效率优化（2026-10-08，P1，部分交付）
 
 [规格](docs/requirements/subagent-token-efficiency-spec.md) 覆盖精简交接、只读结果安全复用、重复操作检测和实际 token/质量对比。已交付：委派任务支持结构化 brief（goal / knownSources / missingInfo / constraints / deliverables / acceptance / scope）并渲染进子代理提示词；共享 ToolRuntime 按“工具身份 + 归一化参数 + 源版本”复用未变化的只读结果，写入/编辑失效对应缓存，失败及读取期间版本变化不缓存，支持显式刷新；单任务入口保留完整 brief，外部修改/替换与文件名空白已覆盖回归。待办：同一批代表性任务在优化前后的真实模型 token、轮次、耗时与质量对比（尚无可信基线，未设置节省百分比）。Issue tracker 未配置，运行 `/setup-matt-pocock-skills` 后发布并标记 `ready-for-agent`。长任务继续使用决策模型。
@@ -88,11 +92,9 @@
 - **状态**：已在 `reactive-statement-guard.test.mjs` 显式登记为已知存量（新文件不得再犯）；**待办**：两个组件整体迁移到 runes `$props`/`$derived` 后从守卫白名单移除。
 - **优先级**：低（当前无用户可见故障报告；转换涉及 onMount/命令式逻辑，需组件级验证配合）。
 
-## 侧边栏会话行的 Agent 区分方式（2026-09-15，待 owner 拍板）
+## 侧边栏会话行的 Agent 区分方式（由 Personal Agent V1 替代）
 
-- **背景 / 优先级**：会话行已去掉 bot 头像（2026-09-15 左对齐改版），同一渠道下不同 Bot → 不同 Agent 的会话在列表里暂无视觉区分；owner 提出两个候选：悬浮时显示、右键菜单里显示。优先级待定。
-- **候选方案（待核对）**：A. 行 hover 提示（title 增加 Agent 名）+ 右键菜单顶部显示所属 Agent（改动最小）；B. 非默认 Agent 的会话在标题后追加弱化 Agent 名后缀（常显、无需交互，但增加视觉噪声）；C. 会话行内以小徽标标注 Agent 色/名。
-- **验收口径**：能一眼或一次交互内说出任意会话属于哪个 Agent；不复活已删除的行首头像；中英文与明暗主题下可读。
+导航和身份展示统一以 [Personal Agent V1](docs/requirements/personal-agent-experience-v1.md) 为准，不再单独实施旧的 hover、标题后缀或徽标候选。
 
 ## 调用链插件与小程序（2026-09-13）
 

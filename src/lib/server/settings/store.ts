@@ -40,7 +40,8 @@ import {
   sanitizePluginEntries,
   sanitizeSessionAutoArchiveSettings,
   sanitizeTtsGenerateSettings,
-  sanitizeAdaptiveThinkingSettings
+  sanitizeAdaptiveThinkingSettings,
+  sanitizeDesktopNavigation
 } from "$lib/server/settings/sanitize.js";
 import {
   resolveCustomProviderThinkingFormat,
@@ -60,7 +61,8 @@ type DynamicSettingKey =
   | "imageRecognition"
   | "videoGenerate"
   | "ttsGenerate"
-  | "toolSandbox";
+  | "toolSandbox"
+  | "desktopNavigation";
 const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = [
   "customProviders",
   "channels",
@@ -70,7 +72,8 @@ const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = [
   "imageRecognition",
   "videoGenerate",
   "ttsGenerate",
-  "toolSandbox"
+  "toolSandbox",
+  "desktopNavigation"
 ];
 
 interface RawSettings {
@@ -139,6 +142,9 @@ interface RawSettings {
   };
   telegramBots?: unknown;
   agents?: unknown;
+  defaultAgentId?: string;
+  deletedAgentIds?: string[];
+  desktopNavigation?: unknown;
   channels?: unknown;
   telegramBotToken?: string;
   telegramAllowedChatIds?: string[] | string;
@@ -819,6 +825,9 @@ function sanitizeAgents(input: unknown): AgentSettings[] {
       name: String(item.name ?? "").trim() || id,
       description: String(item.description ?? "").trim(),
       enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+      ...(item.visible === undefined ? {} : { visible: item.visible !== false }),
+      ...(item.avatar === undefined ? {} : { avatar: String(item.avatar).trim() }),
+      ...(item.shareOwnerMemory === undefined ? {} : { shareOwnerMemory: item.shareOwnerMemory !== false }),
       permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
       modelRouting: sanitizeAgentModelRouting(item.modelRouting)
     }));
@@ -1146,6 +1155,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const qqBots = qqBotsFromList.length > 0 ? qqBotsFromList : [];
   const sanitizedAgents = sanitizeAgents(raw.agents);
   const agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
+  if (String(raw.defaultAgentId ?? DEFAULT_AGENT_ID) === DEFAULT_AGENT_ID && (!Array.isArray(raw.deletedAgentIds) || !raw.deletedAgentIds.includes(DEFAULT_AGENT_ID))) {
+    if (!agents.some(agent => agent.id === DEFAULT_AGENT_ID)) agents.unshift(defaultAgentSettings());
+  }
   const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots, qqBots);
   if (agents.some((agent) => agent.id === DEFAULT_AGENT_ID)) {
     const webInstances = Array.isArray(channels.web?.instances) ? channels.web.instances : [];
@@ -1270,6 +1282,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     serverPort: Math.round(clampNumber(raw.serverPort, defaultRuntimeSettings.serverPort, 1024, 65535)),
     maxOutputTokens: Math.round(clampNumber(raw.maxOutputTokens, defaultRuntimeSettings.maxOutputTokens, 256, 262144)),
     agents,
+    defaultAgentId: String(raw.defaultAgentId ?? "default"),
+    deletedAgentIds: Array.isArray(raw.deletedAgentIds) ? raw.deletedAgentIds.map(String) : [],
+    desktopNavigation: sanitizeDesktopNavigation(raw.desktopNavigation),
     channels,
     mcpServers,
     openConnector,
@@ -1634,6 +1649,8 @@ export class SettingsStore {
         dynamic.customProviders = this.parseDynamicValue(row.value_json, []);
       } else if (row.key === "channels") {
         dynamic.channels = this.parseDynamicValue(row.value_json, {});
+      } else if (row.key === "desktopNavigation") {
+        dynamic.desktopNavigation = this.parseDynamicValue(row.value_json, {});
       } else if (row.key === "agents") {
         dynamic.agents = this.parseDynamicValue(row.value_json, []);
       }
@@ -1654,7 +1671,10 @@ export class SettingsStore {
         permission_mode: string | null;
         model_routing_json: string | null;
       }>;
+      const agentMetadataRow = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = 'agent_metadata'").get() as { value_json: string } | undefined;
+      const agentMetadata = agentMetadataRow ? this.parseDynamicValue<Record<string, Pick<AgentSettings, "visible" | "avatar" | "shareOwnerMemory">>>(agentMetadataRow.value_json, {}) : {};
       const agents = agentsRows.map((row) => ({
+        ...agentMetadata[row.id],
         id: row.id,
         name: row.name,
         description: row.description,
@@ -1769,6 +1789,7 @@ export class SettingsStore {
       const toolSandbox = this.loadSandboxSettings(db);
 
       return {
+        desktopNavigation: legacy.desktopNavigation,
         agents: agents.length > 0 ? agents : legacy.agents,
         channels: Object.keys(channels).length > 0 ? channels : legacy.channels,
         customProviders: customProviders.length > 0 ? customProviders : legacy.customProviders,
@@ -1886,7 +1907,12 @@ export class SettingsStore {
       const now = new Date().toISOString();
       db.exec("BEGIN");
 
+      if (keys.includes("desktopNavigation")) {
+        db.prepare("INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at) VALUES (?, ?, ?)").run("desktopNavigation", JSON.stringify(settings.desktopNavigation), now);
+      }
       if (keys.includes("agents")) {
+        const metadata = Object.fromEntries(settings.agents.map(agent => [agent.id, { visible: agent.visible, avatar: agent.avatar, shareOwnerMemory: agent.shareOwnerMemory }]));
+        db.prepare("INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at) VALUES ('agent_metadata', ?, ?)").run(JSON.stringify(metadata), now);
         db.exec("DELETE FROM settings_agents");
         const insertAgent = db.prepare(`
           INSERT INTO settings_agents (id, name, description, enabled, permission_mode, model_routing_json, updated_at)
@@ -2057,6 +2083,8 @@ export class SettingsStore {
       // silently reset those settings on every restart.
       plugins: settings.plugins,
       timezone: settings.timezone,
+      defaultAgentId: settings.defaultAgentId,
+      deletedAgentIds: settings.deletedAgentIds,
       mcpServers: settings.mcpServers,
       openConnector: settings.openConnector,
       skillSearch: settings.skillSearch,
@@ -2105,7 +2133,7 @@ export class SettingsStore {
     };
   }
 
-  load(): RuntimeSettings {
+  load(persist = true): RuntimeSettings {
     const rawStatic = readJsonFile<RawSettings>(storagePaths.settingsFile, {});
     const rawDynamic = this.loadDynamicSettings();
 
@@ -2155,6 +2183,7 @@ export class SettingsStore {
     const rawDynamicAfterMigration = this.loadDynamicSettings();
     const merged: RawSettings = {
       ...rawStatic,
+      desktopNavigation: rawDynamicAfterMigration.desktopNavigation ?? rawStatic.desktopNavigation,
       customProviders: rawDynamicAfterMigration.customProviders ?? rawStatic.customProviders,
       channels: rawDynamicAfterMigration.channels ?? rawStatic.channels,
       agents: rawDynamicAfterMigration.agents ?? rawStatic.agents,
@@ -2166,10 +2195,16 @@ export class SettingsStore {
       toolSandbox: rawDynamicAfterMigration.toolSandbox ?? rawStatic.toolSandbox
     };
     const settings = sanitize(merged);
-    this.saveDynamicSettings(settings);
-    // Overwrite settings.json to clean up migrated keys
-    writeJsonFile(storagePaths.settingsFile, this.toStaticSettings(settings));
+    if (persist) {
+      this.saveDynamicSettings(settings);
+      // Overwrite settings.json to clean up migrated keys.
+      writeJsonFile(storagePaths.settingsFile, this.toStaticSettings(settings));
+    }
     return settings;
+  }
+
+  saveDesktopNavigation(settings: RuntimeSettings): void {
+    this.saveDynamicSettings(settings, ["desktopNavigation"]);
   }
 
   save(settings: RuntimeSettings): void {

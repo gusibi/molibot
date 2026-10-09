@@ -1,27 +1,46 @@
-# Personal Agent Desktop V1 实施进度
+# Personal Agent Desktop V1 实施与验证
 
-日期：2026-10-09。完整验收依据为 [实施规格](../../../requirements/personal-agent-desktop-v1-spec.md)。产品能力尚未交付；以下记录实现顺序与验证证据。
+完成日期：2026-10-10。当前能力状态以 [能力矩阵](../../../requirements/personal-assistant-capability-matrix.md) 为准，持续验收依据为 [实施规格](../../../requirements/personal-agent-desktop-v1-spec.md)。
 
-## 已完成的基础
+## 交付范围
 
-- 普通 Session 可保存稳定 Agent ID；整对象读写同时保留模型覆盖。
-- 显式指定 Agent 时，普通会话和空会话按 Agent 复用；指定 ID 的归属错配拒绝。
-- 本地 Web 会话的认领校验 owner，只允许从未分配到指定 Agent；重复请求幂等。
-- Project 的显式 ID 查询、创建和复用不参与 Agent 校验。
-- 相关 Session 测试 35 项通过，TypeScript 检查和服务端构建通过。双轴审查完成；发现的 Project 查询边界问题已修复。
+- 普通 Session 在共享存储与 Runner 中固定 Agent ID；新建、继续、认领、控制和文件读取使用同一执行上下文。Project 保持原边界。
+- 默认 Agent 始终显示、置顶并标记；全局新对话进入默认 Agent，每个启用 Agent 的“＋”进入指定草稿。内置默认身份仍在使用且未删除时，配置补齐缺少的真实默认条目。
+- Desktop Agent 首页、头像和简介、多组历史展开、完整历史与跨 Agent 搜索、每 Agent 草稿、上次页面恢复。超过最近列表容量的会话按 ID 恢复。
+- Session 模型覆盖优先于当前 Agent 默认及全局默认；首次发送的草稿设置在发起时固定。切换页面后，后台创建、回答和文件请求不覆盖当前页面。
+- Agent 默认选择、可见性、启用、owner 共享、稳定 ID 和删除 tombstone。删除前检查渠道/任务引用、审批和非终态运行，普通历史幂等归档，Project 不参与。
+- 外部 Session 的持久身份、改绑后新会话、只读认领分类；定时事件按固定执行身份记录禁用跳过，周期事件不补跑错过的 slot。
+- 记忆 Gateway 统一授权读取、修改和维护；反思候选遵循 Agent namespace，关闭 owner 共享仍保留本 Agent 私有 profile 注入。删除 Agent 的私有记忆留存但不进入新身份。
+- 导航只写独立 SQLite dynamic key，不重写 provider/channel/Agent 配置，也不重启渠道服务；新增设置字段完整 round-trip。
 
-## 尚未完成
+## 自动检查
 
-1. 真实共享执行入口接入固定归属，覆盖新建 Agent → 发送 → 重启 → 继续执行；拒绝未分配、停用和错配身份。
-2. 外部渠道改绑后的新会话、Agent 默认选择、启用与删除约束、定时跳过和幂等归档。
-3. Owner 与 Agent 记忆授权、反思写入及最终 prompt 注入一致。
-4. Desktop Agent 导航、主页、完整历史、草稿、恢复与管理；设计规范与双语主题适配。
-5. Desktop 检查、构建及隔离服务的真实冷路径走查。
+- 服务端全量：2525 项，2519 通过、5 失败、1 跳过。5 项失败已在实施前独立 HEAD 基线复现：Python tooling 路径假设、Mini App 子进程继承 DB_DIR、Desktop Broker 审批列表、两项 Session fork 用例。本次未修无关问题，不能宣称全量全绿。
+- 全量之后的默认 Agent/配置改动：26 项相关回归通过，覆盖已有自建列表的默认条目、删除约束及设置 round-trip。
+- 全量之后的私有 profile/授权改动：29 项针对性回归通过，包含真实 Provider 请求中的身份、私有知识、模型覆盖和进程重启；Gateway 旧 scope 权限变化及删除回归通过。
+- Desktop：334 项行为测试、298 项源码守卫、70 项 Rust 测试通过。新增首次创建等待期间切换 Agent、返回原 Agent 输入新草稿的行为回归。
+- `check`、`desktop:check`、服务端与 Desktop build 通过。Desktop 保留原有 AgentCityInspector 的一项无障碍 warning；打包保留既有大 chunk warning。
+- 全部持久化测试使用临时数据库或隔离 DATA_DIR，没有读写用户运行数据库。
 
-## 存储边界
+## 冷路径走查
 
-调用方必须显式传入 Agent ID 才启用归属校验；此阶段没有把旧入口推断为历史归属，也没有迁移历史。认领方法负责存储 owner 校验，Agent 存在、启用和授权校验由待接入的共享应用层负责。外部历史保持既有只读权限，当前认领仅适用于本地 Web Session。
+隔离服务、临时配置及本地 SSE Provider 连接 Desktop 官方预览入口，使用真实页面操作：
 
-## 完整测试限制
+1. 首次打开默认 Agent 首页，初始历史折叠，内部 Agent 隐藏但设置页可管理。
+2. 分别输入两份 Agent 草稿并切换，原草稿恢复；独立展开多个历史组。
+3. 首次发送产生固定 Researcher Session 并收到真实 Runner 回复；刷新恢复原会话和展开状态。
+4. 停止隔离服务，再以同一 DATA_DIR 重启；页面恢复后在原 Session 继续发送并收到回复。
+5. 默认标记与列表置顶、Writer 的“＋”进入 Writer、全局新对话进入默认 Researcher，首次发送得到回复。
+6. 中英文即时切换、明暗模式、520px 窗口的 Agent 编辑表单及固定保存栏；禁用 Agent 首页无发送入口。
 
-后端完整测试在隔离 DATA_DIR 下为 2508 通过、5 失败、1 跳过（2514 项）。5 项失败已在独立 HEAD 基线复现：Python tooling 路径假设、Mini App 子进程数据目录校验、Desktop 审批列表和两项 Session fork 测试。最终存储小改动由 35 项针对性回归覆盖；完整测试并非全绿。
+未中断用户服务。人工 UI 验证使用 Desktop 官方浏览器预览，未启动原生 macOS 窗口做完整人工走查；原生部分由 Rust 测试覆盖。外部真实渠道和付费 Provider 未做在线验收。
+
+## 审查与边界
+
+标准与规格双轴审查完成。发现的身份缓存、审批恢复、反思写入、删除引用、导航响应式和存储粒度、首次发送/文件异步串页问题已修正，并按风险补回归。
+
+这些修复的根因分别属于上下文身份、授权层级与异步竞态；共享 admission/Gateway、完整 round-trip、状态守卫和行为测试负责拦截同类问题。默认 Agent 缺失属于默认值补全遗漏；旧守卫只覆盖空列表，没有覆盖“仅自建条目”的配置，本次补了该配置回归。没有引入临时补丁，无需新增重复的长期协作规则。
+
+独立 Web 页面保持原结构。具体的“不猜测旧归属、未归属只读”规则同样适用于共享 Web 入口：旧未知归属会话需先在 Desktop 显式认领，独立 Web 没有新增认领控件。此限制不应表述为旧未知历史可以直接续聊。
+
+PRD 与规格保留在 requirements：稳定身份、权限、删除与 Project 边界仍能指导后续改动。未新增并行计划或发布任务；本次不包含部署或 issue tracker 发布。

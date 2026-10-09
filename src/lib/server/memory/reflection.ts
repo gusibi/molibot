@@ -18,6 +18,7 @@ export interface ReflectionSourceScope extends MemoryScope {
 export interface ReflectionTarget {
   ownerId: string;
   botId: string;
+  agentId?: string;
   timezone: string;
   sourceScopes: ReflectionSourceScope[];
 }
@@ -106,6 +107,7 @@ export function reflectionTargetId(target: ReflectionTarget): string {
   return createHash("sha256").update(JSON.stringify([
     target.ownerId,
     target.botId,
+    target.agentId,
     target.timezone,
     canonicalScopes(target.sourceScopes)
   ])).digest("hex");
@@ -169,6 +171,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
         });
         for (const entry of entries) {
           if (this.excluded(entry.conversation.id)) continue;
+          if (target.agentId && entry.conversation.agentId !== target.agentId) continue;
           const transcript = readExternalTranscriptFromContexts(this.externalDataRoot, entry.conversation.id);
           if (!transcript) continue;
           const watermark = this.state.get(targetId, entry.conversation.id);
@@ -186,6 +189,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
         : this.sessions.listConversations(scope.channel as Channel, scope.externalUserId);
       for (const conversation of conversations) {
         if (this.excluded(conversation.id)) continue;
+        if (!conversation.projectId && target.agentId && conversation.agentId !== target.agentId) continue;
         const watermark = this.state.get(targetId, conversation.id);
         const messages = this.sessions.listMessages(conversation.id)
           .filter((message) => retentionCapabilities(message.retention).memoryEligible)
@@ -222,6 +226,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
         });
         for (const entry of entries) {
           if (this.excluded(entry.conversation.id)) continue;
+          if (target.agentId && entry.conversation.agentId !== target.agentId) continue;
           const transcript = readExternalTranscriptFromContexts(this.externalDataRoot, entry.conversation.id);
           for (const message of transcript?.messages ?? []) consider(message.createdAt);
         }
@@ -232,6 +237,7 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
         : this.sessions.listConversations(scope.channel as Channel, scope.externalUserId);
       for (const conversation of conversations) {
         if (this.excluded(conversation.id)) continue;
+        if (!conversation.projectId && target.agentId && conversation.agentId !== target.agentId) continue;
         for (const message of this.sessions.listMessages(conversation.id)) consider(message.createdAt);
       }
     }
@@ -272,7 +278,8 @@ export class MemoryReflectionService {
       const relatedRows = await this.gateway.search({
         ...projection.scope,
         ownerId: target.ownerId,
-        botId: target.botId
+        botId: target.botId,
+        agentId: target.agentId
       }, { query, mode: "hybrid", limit: 12 });
       const relatedMemories: ReflectionRelatedMemory[] = relatedRows
         .filter((record): record is MemoryRecord & { namespace: NonNullable<MemoryRecord["namespace"]>; domain: NonNullable<MemoryRecord["domain"]>; type: NonNullable<MemoryRecord["type"]>; subject: string; path: string } =>
@@ -302,7 +309,7 @@ export class MemoryReflectionService {
           // instead of silently dropping the repetition. Best-effort — a failed
           // reinforcement must not block sibling candidates or the watermark.
           try {
-            await this.gateway.reinforceMemory({ ...projection.scope, ownerId: target.ownerId, botId: target.botId }, equivalent.record.id);
+            await this.gateway.reinforceMemory({ ...projection.scope, ownerId: target.ownerId, botId: target.botId, agentId: target.agentId }, equivalent.record.id);
           } catch {
             // ignore
           }
@@ -331,12 +338,16 @@ export class MemoryReflectionService {
             supersedesMemoryId: related.record.id
           } : item.disputesRef && related ? { ...item, disputesMemoryId: related.record.id } : item;
           const { supersedesRef: _supersedesRef, disputesRef: _disputesRef, ...candidateInput } = candidate;
-          const created = this.gateway.createCandidate({
+          const candidateWrite = {
             ...candidateInput,
+            namespace: target.agentId ? recommendedCandidateNamespace(target, projection.scope, candidateInput.domain) : candidateInput.namespace,
             path: candidateInput.path || `mory://${candidateInput.type}/${candidateInput.subject}`,
             runKey,
             sources
-          });
+          };
+          const created = target.agentId
+            ? this.gateway.createScopedCandidate({ ...projection.scope, ownerId: target.ownerId, botId: target.botId, agentId: target.agentId }, candidateWrite)
+            : this.gateway.createCandidate(candidateWrite);
           if (created) {
             createdCandidates += 1;
             const finalCandidate = await this.gateway.maybeAutoConfirmCandidate(created.id);
@@ -367,6 +378,6 @@ export class MemoryReflectionService {
 export function recommendedCandidateNamespace(target: ReflectionTarget, scope: ReflectionSourceScope, domain: MemoryCandidateCreateInput["domain"]): MemoryCandidateCreateInput["namespace"] {
   if (domain === "owner") return ownerNamespace(target.ownerId);
   if (domain === "project") return projectNamespace({ ...scope, ownerId: target.ownerId }) ?? chatNamespace(scope);
-  if (domain === "agent_self") return agentNamespace(target.botId);
+  if (domain === "agent_self") return agentNamespace(target.agentId ?? scope.agentId ?? target.botId);
   return contentNamespace(target.botId);
 }

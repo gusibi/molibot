@@ -1,3 +1,4 @@
+import { requireEnabledAgent } from "$lib/server/sessions/sessionAgentService.js";
 import { PiRecoveryStore } from "./piRecoveryStore.js";
 import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
@@ -296,6 +297,7 @@ export class MomRunner implements RunnerLike {
       sessionId: this.sessionId,
       store: this.store,
       channel: this.channel,
+      agentId: this.runtimeIdentity?.agentId,
       botId
     }).executionTarget;
   }
@@ -356,13 +358,13 @@ export class MomRunner implements RunnerLike {
     private readonly memory: MemoryGateway,
     hookManager?: HookManager,
     private readonly turnOrchestratorFactory = getTurnOrchestrator,
-    private readonly runtimeIdentity?: { agentId: string; roomId: string; executionId: string },
+    private readonly runtimeIdentity?: ({ agentId: string; roomId: string; executionId: string } | { agentId: string; roomId?: undefined; executionId?: undefined }),
   ) {
     this.hookManager = hookManager ?? NOOP_HOOK_MANAGER;
-    if (!runtimeIdentity) {
+    if (!runtimeIdentity?.roomId) {
       const baseGetSettings = this.getSettings;
       this.getSettings = () => applyAgentModelRoutingOverride(
-        baseGetSettings(), this.channel, basename(this.store.getWorkspaceDir()) || "unknown"
+        baseGetSettings(), this.channel, basename(this.store.getWorkspaceDir()) || "unknown", this.runtimeIdentity?.agentId
       );
     }
     const settings = this.getSettings();
@@ -744,10 +746,11 @@ export class MomRunner implements RunnerLike {
     return this.running;
   }
 
-  snapshotActiveRun(): { channel: string; botId: string; chatId: string; sessionId: string } | null {
+  snapshotActiveRun(): { channel: string; botId: string; chatId: string; sessionId: string; agentId?: string } | null {
     if (!this.running) return null;
     return {
       channel: this.activeHookContext?.channel ?? this.channel,
+      ...(this.runtimeIdentity?.agentId ? { agentId: this.runtimeIdentity.agentId } : {}),
       botId: this.activeHookContext?.botId ?? (basename(this.store.getWorkspaceDir()) || "unknown"),
       chatId: this.chatId,
       sessionId: this.sessionId
@@ -864,7 +867,14 @@ export class MomRunner implements RunnerLike {
     };
   }
 
+  get sessionAgentId(): string | undefined { return this.runtimeIdentity?.agentId; }
+
   async run(ctx: MomContext): Promise<RunResult> {
+    if (this.runtimeIdentity?.agentId && !this.runtimeIdentity.roomId && !ctx.project) {
+      const persisted = this.store.readSessionOrigin(this.chatId, this.sessionId)?.agentId;
+      if (persisted && persisted !== this.runtimeIdentity.agentId) throw new Error("Session Agent mismatch");
+      this.store.markSessionOrigin(this.chatId, this.sessionId, { agentId: this.runtimeIdentity.agentId });
+    }
     this.activeProject = ctx.project;
     this.activeToolAuthority = ctx.assertToolAuthority;
     this.activeExecutionPolicy = ctx.executionPolicy;
@@ -894,6 +904,7 @@ export class MomRunner implements RunnerLike {
     recoveryStore.close();
     const savedSuspension = this.store.readLatestRuntimeEvent?.(this.chatId, "PI_APPROVAL_SUSPENDED", this.sessionId)?.details;
     const recoveringSuspension = savedSuspension?.runId === runId && savedSuspension.userId === ctx.message.userId ? savedSuspension : undefined;
+    if (this.runtimeIdentity?.agentId && !this.runtimeIdentity.roomId && !ctx.project && !nativeRecovery && !recoveringSuspension) requireEnabledAgent(this.getSettings(), this.runtimeIdentity.agentId);
     const turnRetention = nativeRecovery?.context.retention ?? recoveringSuspension?.retention as MomContext["retention"] ?? ctx.retention ?? classifyTurnRetention(ctx.message.text);
     const turnCapabilities = retentionCapabilities(turnRetention);
     const contextRunId = String(ctx.message.contextRunId ?? "").trim();
@@ -1135,6 +1146,7 @@ export class MomRunner implements RunnerLike {
       sessionId: this.sessionId,
       store: this.store,
       channel: this.channel,
+      agentId: this.runtimeIdentity?.agentId,
       botId
     });
     const admittedExecutionPolicy = nativeRecovery?.context.executionPolicy ?? recoveringSuspension?.executionPolicy as typeof currentExecutionPolicy | undefined;
@@ -1225,6 +1237,7 @@ export class MomRunner implements RunnerLike {
       externalUserId: this.chatId,
       botId,
       agentId: this.runtimeIdentity?.agentId,
+      shareOwner: this.runtimeIdentity?.agentId ? settings.agents.find(agent => agent.id === this.runtimeIdentity?.agentId)?.shareOwnerMemory !== false : undefined,
       projectId: this.activeProject?.id
     };
     const correctionMemoryIds = detectImmediateMemoryCorrections(
@@ -1247,6 +1260,7 @@ export class MomRunner implements RunnerLike {
     // provider prefix caching stays valid across turns.
     const runPromptKey = JSON.stringify({
       base: nextPromptKey,
+      agentId: this.runtimeIdentity?.agentId,
       project: ctx.project ? getProjectPromptRefreshKey(ctx.project) : null
     });
     if (!this.systemPromptReady || this.promptRefreshKey !== runPromptKey) {

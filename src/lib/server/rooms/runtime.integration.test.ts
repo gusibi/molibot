@@ -38,10 +38,10 @@ test("Desktop Room dispatch uses distinct configured models and identities in re
     import { getAgentDir } from './src/lib/server/agent/prompts/profiles.ts';
     import { handleRoomRequest } from './src/lib/server/app/desktopRooms.ts';
     const runtime = getRuntime();
-    runtime.updateSettings({providerMode:'custom',defaultCustomProviderId:'room-test',permissionMode:'accept_edits',
+    runtime.updateSettings({defaultAgentId:'a',providerMode:'custom',defaultCustomProviderId:'room-test',permissionMode:'accept_edits',
       modelRouting:{...runtime.getSettings().modelRouting,textModelKey:'custom|room-test|model-a'},
       customProviders:[{id:'room-test',name:'Test',enabled:true,protocol:'openai-compatible',baseUrl:'http://127.0.0.1:${port}/v1',apiKey:'test',path:'/chat/completions',defaultModel:'model-a',models:['model-a','model-b'].map(id=>({id,enabled:true,tags:['text','vision'],verification:{vision:'passed'},supportedRoles:['system','user','assistant','tool','developer']}))}],
-      agents:[{id:'a',name:'Agent A',description:'',enabled:true,modelRouting:{textModelKey:'custom|room-test|model-a'}},{id:'b',name:'Agent B',description:'',enabled:true,modelRouting:{textModelKey:'custom|room-test|model-b'}}]});
+      agents:[...runtime.getSettings().agents,{id:'a',name:'Agent A',description:'',enabled:true,modelRouting:{textModelKey:'custom|room-test|model-a'}},{id:'b',name:'Agent B',description:'',enabled:true,modelRouting:{textModelKey:'custom|room-test|model-b'}}]});
     for(const id of ['a','b']) { mkdirSync(getAgentDir(id),{recursive:true}); writeFileSync(join(getAgentDir(id),'IDENTITY.md'),'You are identity-'+id+'.'); }
     const { getProjectStore } = await import('./src/lib/server/projects/store.ts');
     const projectRoot = process.env.ROOM_PROJECT_ROOT;

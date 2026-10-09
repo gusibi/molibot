@@ -82,3 +82,42 @@ test("empty draft sessions are reused only within the selected Agent", (t) => {
   assert.notEqual(researcher.conversation.id, writer.conversation.id);
   assert.deepEqual(store.getOrCreateEmptyWebConversation(OWNER, "researcher"), { conversation: researcher.conversation, reused: true });
 });
+
+test("shared admission rejects unassigned history and disabled Agents without changing the saved identity", async t => {
+  const store = setup(t);
+  const { admitAgentConversation, claimAgentConversation, resolveOrdinaryWebConversation } = await import("./sessionAgentService.js");
+  const { defaultRuntimeSettings } = await import("../settings/defaults.js");
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.agents.push({ id: "researcher", name: "Researcher", description: "", enabled: true });
+  const unknown = store.createWebConversation(OWNER);
+  assert.throws(() => resolveOrdinaryWebConversation(store, settings, { externalUserId: OWNER, profileId: "personal", conversationId: unknown.id }), /unassigned/);
+  claimAgentConversation(store, settings, { externalUserId: OWNER, conversationId: unknown.id, agentId: "researcher" });
+  assert.equal(admitAgentConversation(store, settings, { externalUserId: OWNER, conversationId: unknown.id, agentId: "researcher" }).id, unknown.id);
+  settings.agents.find(agent => agent.id === "researcher")!.enabled = false;
+  assert.throws(() => admitAgentConversation(store, settings, { externalUserId: OWNER, conversationId: unknown.id, agentId: "researcher" }), /disabled/);
+  assert.equal(store.getConversationById(unknown.id, "web", OWNER)?.agentId, "researcher");
+});
+
+test("stored admission rebinds new input, preserves history and lets only persisted approval resume a disabled Agent", async t => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-stored-admission-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const { MomRuntimeStore } = await import("../agent/session/store.js");
+  const { admitStoredAgentSession } = await import("./sessionAgentService.js");
+  const { defaultRuntimeSettings } = await import("../settings/defaults.js");
+  const settings = structuredClone(defaultRuntimeSettings);
+  settings.agents.push({ id: "writer", name: "Writer", description: "", enabled: true });
+  const store = new MomRuntimeStore(root);
+  const original = store.createSession("chat");
+  store.markSessionOrigin("chat", original, { agentId: "default" });
+  store.appendContextMessage("chat", { role: "user", content: "OLD_PRIVATE", timestamp: Date.now() }, original);
+  const next = admitStoredAgentSession(store, settings, { chatId: "chat", sessionId: original, explicit: false, agentId: "writer" });
+  assert.notEqual(next, original);
+  assert.equal(store.readSessionOrigin("chat", original)?.agentId, "default");
+  assert.equal(store.readSessionOrigin("chat", next)?.agentId, "writer");
+  assert.deepEqual(store.loadContext("chat", next), []);
+  settings.agents.find(agent => agent.id === "default")!.enabled = false;
+  assert.throws(() => admitStoredAgentSession(store, settings, { chatId: "chat", sessionId: original, explicit: true, agentId: "writer" }), /disabled/);
+  store.appendRuntimeEvent("chat", { code: "PI_APPROVAL_SUSPENDED", level: "info", summary: "Approval suspended", details: { runId: "approved-run", userId: "owner" } }, original);
+  assert.equal(admitStoredAgentSession(store, settings, { chatId: "chat", sessionId: original, explicit: true, agentId: "writer", recoveryRunId: "approved-run", userId: "owner" }), original);
+  assert.throws(() => admitStoredAgentSession(store, settings, { chatId: "chat", sessionId: original, explicit: true, agentId: "writer", recoveryRunId: "different-run", userId: "owner" }), /disabled/);
+});

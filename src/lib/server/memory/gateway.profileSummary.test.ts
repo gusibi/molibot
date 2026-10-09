@@ -17,7 +17,7 @@ function record(id: string, content: string): MemoryRecord {
   };
 }
 
-function harness(records: MemoryRecord[]) {
+function harness(records: MemoryRecord[], agents: Array<{ id: string; enabled: boolean; shareOwnerMemory?: boolean }> = [], deletedAgentIds: string[] = []) {
   const dir = mkdtempSync(join(tmpdir(), "molibot-profile-summary-gateway-"));
   const backend: MemoryBackend = {
     capabilities: () => ({ supportsHybridSearch: true, supportsVectorSearch: false, supportsIncrementalFlush: true, supportsLayeredMemory: true, supportsCandidates: true }),
@@ -30,14 +30,14 @@ function harness(records: MemoryRecord[]) {
   const snapshots = new MemoryProfileSnapshotStore(join(dir, "settings.sqlite"));
   const candidates = new MemoryCandidateStore(join(dir, "candidates.sqlite"));
   const gateway = new MemoryGateway(
-    () => ({ plugins: { memory: { enabled: true, backend: "mory" } } }) as any,
+    () => ({ agents, deletedAgentIds, plugins: { memory: { enabled: true, backend: "mory" } } }) as any,
     {} as any,
     undefined,
     { candidateStore: candidates, backends: { mory: backend }, backendDefinitions: [{ key: "mory", name: "mory", description: "test", create: () => backend }], importers: [], profileSnapshotStore: snapshots }
   );
   const scope = { ownerId: "owner", botId: "momo", channel: "web", externalUserId: "profile-1", includeOwner: true, includeAgentSelf: true };
   const cleanup = () => { snapshots.close(); candidates.close(); rmSync(dir, { recursive: true, force: true }); };
-  return { gateway, records, scope, cleanup };
+  return { gateway, backend, records, scope, cleanup };
 }
 
 test("buildProfile synthesizes the summary once per fingerprint and reuses the cache", async () => {
@@ -79,4 +79,55 @@ test("buildProfile skips synthesis without a summarizer or without profile recor
     assert.equal(calls, 0);
     assert.equal(profile.summary, "");
   } finally { empty.cleanup(); }
+});
+
+test("ordinary profiles share only authorized owner memory and never another or deleted Agent", async () => {
+  const owner = record("owner-fact", "OWNER_FACT");
+  const research = { ...record("research-fact", "RESEARCH_PRIVATE"), namespace: "agent:researcher", domain: "agent_self", type: "skill" } as MemoryRecord;
+  const writing = { ...record("writing-fact", "WRITER_PRIVATE"), namespace: "agent:writer", domain: "agent_self", type: "skill" } as MemoryRecord;
+  const deleted: string[] = [];
+  const agents = [{ id: "researcher", enabled: true, shareOwnerMemory: true }, { id: "writer", enabled: true, shareOwnerMemory: false }];
+  const h = harness([owner, research, writing], agents, deleted);
+  try {
+    const scope = { ...h.scope, agentId: "researcher" };
+    const first = await h.gateway.buildProfile(scope);
+    assert.match(JSON.stringify(first), /OWNER_FACT|RESEARCH_PRIVATE/);
+    assert.doesNotMatch(JSON.stringify(first), /WRITER_PRIVATE/);
+    const second = await h.gateway.buildProfile({ ...scope, externalUserId: "second-session" });
+    assert.match(JSON.stringify(second), /RESEARCH_PRIVATE/);
+    const isolated = await h.gateway.buildProfile({ ...scope, agentId: "writer" });
+    assert.doesNotMatch(JSON.stringify(isolated), /OWNER_FACT|RESEARCH_PRIVATE/);
+    deleted.push("researcher");
+    assert.doesNotMatch(JSON.stringify(await h.gateway.buildProfile(scope)), /OWNER_FACT|RESEARCH_PRIVATE/);
+    assert.doesNotMatch(JSON.stringify(await h.gateway.buildProfile({ ...scope, agentId: "new-researcher" })), /RESEARCH_PRIVATE/);
+  } finally { h.cleanup(); }
+});
+
+
+test("captured Agent scopes recheck owner sharing and deletion before mutations", async () => {
+  const agents = [{ id: "researcher", enabled: true, shareOwnerMemory: true }];
+  const deleted: string[] = [];
+  const h = harness([], agents, deleted);
+  const observed: any[] = [];
+  h.backend.get = async () => null;
+  h.backend.update = async scope => { observed.push(scope); return null; };
+  h.backend.delete = async scope => { observed.push(scope); return false; };
+  h.backend.flush = async scope => { observed.push(scope); return { scannedMessages: 0, addedCount: 0, memories: [], updatedCursorConversations: 0 }; };
+  h.backend.compact = async scope => { observed.push(scope); return { scannedCount: 0, removedCount: 0, scopesAffected: 0 }; };
+  try {
+    const captured = { ...h.scope, agentId: "researcher", shareOwner: true };
+    agents[0].shareOwnerMemory = false;
+    await h.gateway.update(captured, "owner-memory", { content: "New fact" });
+    await h.gateway.delete(captured, "owner-memory");
+    await h.gateway.flush(captured);
+    await h.gateway.compact(captured);
+    assert.equal(observed.length, 4);
+    assert.ok(observed.every(scope => scope.shareOwner === false));
+    deleted.push("researcher");
+    await h.gateway.update(captured, "private-memory", {});
+    await h.gateway.delete(captured, "private-memory");
+    await h.gateway.flush(captured);
+    await h.gateway.compact(captured);
+    assert.equal(observed.length, 4);
+  } finally { h.cleanup(); }
 });

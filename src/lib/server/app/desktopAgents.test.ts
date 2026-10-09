@@ -21,7 +21,7 @@ function agent(overrides: Partial<AgentSettings> = {}): AgentSettings {
 }
 
 function settings(overrides: Partial<RuntimeSettings> = {}): RuntimeSettings {
-  return { agents: [agent()], ...overrides } as RuntimeSettings;
+  return { agents: [agent()], deletedAgentIds: [], ...overrides } as RuntimeSettings;
 }
 
 test("buildDesktopAgentItem projects display fields, mode, and counts model overrides", () => {

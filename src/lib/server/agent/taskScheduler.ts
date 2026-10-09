@@ -11,6 +11,7 @@ import type { MemoryReflectionNotificationTarget } from "$lib/server/settings/sc
 import type { MomEvent } from "$lib/server/agent/events.js";
 import type { MemoryCandidateReview, MemoryReviewBatch } from "$lib/server/memory/review.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
+import { readSessionOriginMetadata } from "$lib/server/agent/session/metadata.js";
 import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
 
 export interface InternalTaskExecutionResult {
@@ -166,8 +167,11 @@ export function collectMemoryReflectionInternals(settings?: RuntimeSettings): Ar
   if (!settings?.plugins.memory.enabled || settings.plugins.memory.backend !== "mory") return [];
   const internals: Array<NonNullable<MomEvent["internal"]>> = [];
   for (const { channel } of TASK_CHANNEL_ROOTS) {
+    if (channel === "web") continue;
     for (const instance of settings.channels?.[channel]?.instances ?? []) {
       if (instance.enabled === false) continue;
+      const agent = settings.agents.find(agent => agent.id === instance.agentId);
+      if (!agent?.enabled) continue;
       const chatIds = allowedChatIds(channel, instance.id, instance.allowedChatIds);
       if (chatIds.length === 0) continue;
       internals.push({
@@ -175,11 +179,19 @@ export function collectMemoryReflectionInternals(settings?: RuntimeSettings): Ar
         target: {
           ownerId: SYSTEM_TASK_OWNER_ID,
           botId: instance.id,
+          agentId: instance.agentId,
           timezone: settings.timezone,
           sourceScopes: chatIds.map((externalUserId) => ({ channel, externalUserId }))
         }
       });
     }
+  }
+  for (const agent of settings.agents.filter(agent => agent.enabled)) {
+    const profiles = [`agent-${agent.id}`, ...(settings.channels.web?.instances ?? []).filter(instance => instance.agentId === agent.id).map(instance => instance.id)];
+    for (const profileId of new Set(profiles)) internals.push({ kind: "memory-reflection", target: {
+      ownerId: SYSTEM_TASK_OWNER_ID, botId: profileId, agentId: agent.id, timezone: settings.timezone,
+      sourceScopes: [{ channel: "web", externalUserId: `web:${profileId}:web-anonymous` }]
+    } });
   }
   return internals;
 }
@@ -570,6 +582,13 @@ export class TaskScheduler {
           {
             channel,
             leaseScope: `${channel}:${botId}`,
+            skipReason: event => {
+              if (event.target?.kind === "project" || event.execution === "internal") return undefined;
+              const pinned = event.sessionId ? readSessionOriginMetadata(join(botsRoot, botId, event.chatId, "contexts"), event.sessionId)?.agentId : undefined;
+              const agentId = pinned ?? settings?.channels[channel]?.instances.find(instance => instance.id === botId)?.agentId;
+              const agent = settings?.agents.find(item => item.id === agentId);
+              return !agent ? "agent_missing" : !agent.enabled ? "agent_disabled" : undefined;
+            },
             getExecutionSettings: () => settings?.events ?? {
               executionTimeoutMs: 600_000,
               maxAttempts: 3,

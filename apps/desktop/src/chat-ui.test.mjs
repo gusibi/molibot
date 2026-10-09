@@ -189,7 +189,7 @@ test("the composer's model pill reflects the Session, never a stale global defau
   assert.doesNotMatch(projectChat, /\n\s*activeModelKey = state\.currentKey;/);
   // 2. With no explicit per-session pick, both chat surfaces follow the model
   //    that actually answered last instead of the current global default.
-  for (const source of [view, projectChat]) {
+  for (const source of [projectChat]) {
     assert.match(source, /lastTranscriptModelKey/);
     assert.match(source, /transcriptModelKeys\.set\(sessionId, key\)/);
     // An explicit pick outranks it and is not undone by the next reply.
@@ -304,7 +304,7 @@ test("entity settings editors use the shared dialog shell with a dedicated scrol
     MCP: sections.mcp
   })) {
     assert.match(section, /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/, `${name} editor should use Dialog`);
-    assert.match(section, /<Dialog[\s\S]*<form[^>]*class="entity-editor-form"[\s\S]*<div class="entity-editor-body">[\s\S]*<footer class="entity-editor-foot"[\s\S]*<\/Dialog>/, `${name} editor should isolate its scrolling body`);
+    assert.match(section, /<Dialog[\s\S]*<form[^>]*class="entity-editor-form"[\s\S]*<div class="entity-editor-body">[\s\S]*<footer class="entity-editor-foot(?: settings-footbar)?"[\s\S]*<\/Dialog>/, `${name} editor should isolate its scrolling body`);
   }
   assert.match(styles, /\.entity-editor-form\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*overflow:\s*hidden/s);
   assert.match(styles, /\.entity-editor-body\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s);
@@ -749,9 +749,10 @@ test("sidebars remove floating depth and keep a stable glass divider", () => {
   assert.doesNotMatch(styles, /\.sidebar-resizer::after/);
 });
 
-test("empty local Chat starts an editable draft instead of disabling the composer", () => {
-  assert.match(view, /const target = lastItem \?\? webItems\[0\] \?\? null;[\s\S]*if \(target\)[\s\S]*else \{\s*chatStore\.newConversationDraft\(defaultBot\(\)\);\s*\}/);
-  assert.match(view, /if \(remaining\[0\]\) openSession\(remaining\[0\]\);\s*else chatStore\.newConversationDraft\(defaultBot\(\)\);/);
+test("empty local Chat starts an Agent draft instead of choosing arbitrary history", () => {
+  assert.match(view, /else openAgentChat\(onboardingAgents/);
+  assert.match(view, /chatStore\.newConversationDraft\(botId\)/);
+  assert.match(view, /selectedAgentId = agentId/);
 });
 
 test("composer drafts persist through one reactive mirror, not manual switch-site sync", () => {
@@ -761,7 +762,7 @@ test("composer drafts persist through one reactive mirror, not manual switch-sit
   // loadDraftIn pairs at each switch site could not survive contact with
   // reality — the connect-time default selection ran without one and text
   // typed into a session was lost for good (2026-09).
-  assert.match(view, /const key = composerDraftKey\(chatState\.activeSessionId, chatState\.activeProfileId\);\s*if \(key !== activeDraftKey\) \{\s*activeDraftKey = key;\s*const draft = chatStore\.draftStore\.get\(key\);\s*messageInput = draft\.text;\s*pendingFiles = draft\.files;\s*thinkingLevel = draft\.thinkingLevel;\s*\} else \{\s*chatStore\.draftStore\.update\(key, \{ text: messageInput, files: pendingFiles, thinkingLevel \}\);/);
+  assert.match(view, /const key = composerDraftKey\(chatState\.activeSessionId, chatState\.activeProfileId\);\s*if \(key !== activeDraftKey\) \{\s*activeDraftKey = key;\s*const draft = chatStore\.draftStore\.get\(key\);\s*messageInput = draft\.text;\s*pendingFiles = draft\.files;\s*thinkingLevel = draft\.thinkingLevel;\s*\} else \{\s*chatStore\.draftStore\.update\(key, \{ text: messageInput, files: pendingFiles, thinkingLevel, thinkingTouched: draftThinkingTouched, permissionMode: draftPermissionModeTouched \? draftPermissionMode : undefined \}\);/);
   // No switch-site sync may come back, and no direct store writes outside the
   // mirror: a forgotten sync is exactly the bug class this deletes.
   assert.doesNotMatch(view, /syncDraftOut\(|loadDraftIn\(/);
@@ -783,7 +784,7 @@ test("empty local Chat offers Agent quick starts that fill and focus without sen
   // Local Chat and Project Chat share one quick-start set and the same
   // fill-and-focus behaviour, so the two welcome screens cannot drift apart.
   assert.match(emptyQuickStarts, /emptyChatPlanLabel[\s\S]*emptyChatAnalyzeLabel[\s\S]*emptyChatOrganizeLabel/);
-  assert.match(view, /emptyActions=\{messageInput\.trim\(\) \? \[\] : emptyQuickStarts\(copy\)\}/);
+  assert.match(view, /emptyActions=\{!agentCanExecute \|\| messageInput\.trim\(\) \? \[\] : emptyQuickStarts\(copy\)\}/);
   assert.match(projectChat, /emptyActions=\{message\.trim\(\) \? \[\] : emptyQuickStarts\(copy\)\}/);
   assert.match(projectChat, /onEmptyAction=\{fillEmptyPrompt\}/);
   assert.match(projectChat, /function fillEmptyPrompt\(prompt: string\): void \{\s*if \(message\.trim\(\)\) return;\s*message = prompt;\s*void tick\(\)\.then\(\(\) => chatInputArea\?\.focusInput\(\)\);\s*\}/);
@@ -848,7 +849,7 @@ test("collapsed rail carries conversation/project toggles and reuses the shared 
   // The rail also carries a rooms flyout toggle.
   assert.match(chatSidebar, /onclick=\{\(\) => onToggleFlyout\?\.\("rooms"\)\}/);
   // Clicking a workspace destination closes the flyout.
-  assert.match(view, /function openWorkspacePane\(pane: Exclude<ChatWorkspacePaneName, "chat">\): void \{\s*roomPaneActive = false;\s*collapsedFlyout = null;/);
+  assert.match(view, /function openWorkspacePane\(pane: Exclude<ChatWorkspacePaneName, "chat">\): void \{[\s\S]*?roomPaneActive = false;\s*collapsedFlyout = null;/);
 });
 
 test("list-section headings navigate, then collapse on a second click; the caret also collapses", () => {
@@ -2072,7 +2073,7 @@ test("running affordances wear the rotating border beam", () => {
 });
 
 test("only the Web channel exposes a new Session shortcut", () => {
-  assert.match(sidebarLists, /onNewSession=\{channel\.id === "web" \? onNewConversation : null\}/);
+  assert.match(sidebarLists, /\{@render conversationContent\(\)\}/);
   assert.match(channelAccordion, /\{#if onNewSession\}[\s\S]*class="channel-new-session"[\s\S]*aria-label=\{labels\.newChat\}[\s\S]*onclick=\{onNewSession\}/);
   // The create-session affordance is the chat-plus glyph; the collapse arrow is
   // gone — the header itself toggles, so nothing else may reserve trailing width.
@@ -2185,7 +2186,7 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(chatWorkspace, /onOpenAgentChat: \(agentId: string\) => void/);
   assert.match(chatWorkspace, /\{onOpenAgentChat\}/);
   assert.match(view, /function openAgentChat\(agentId: string\)/);
-  assert.match(view, /profiles\.find\(\(item\) => item\.agentId === agentId\)/);
+  assert.match(view, /newConversationWithBot\(`agent-\$\{agentId\}`\)/);
   assert.match(view, /chatStore\.newConversationDraft\(botId\)/);
   assert.doesNotMatch(styles, /\.agent-city-detail\s*\{/);
   assert.match(agentStudio, /projection\.hiddenAgentCount/);
@@ -2561,7 +2562,7 @@ test("chat primary navigation stays in the Chat workspace", () => {
   assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("skills"\)\}/);
   // New chat must enter a profile-selectable draft. The first send creates the
   // Session through ChatSessionStore with that pinned profile.
-  assert.match(view, /chatStore\.newConversationDraft\(defaultBot\(\)\)/);
+  assert.match(view, /chatStore\.newConversationDraft\(botId\)/);
   assert.doesNotMatch(view, /async function newConversation[\s\S]*?await createDesktopSession\(connectedEndpoint, defaultBot\(\)\)/);
 });
 
@@ -2694,7 +2695,7 @@ test("per-session model persistence commits caches only after the server save su
     /await saveDesktopSessionModel\(projectsStore\.endpoint, sessionId, value\);\s*sessionModelOverrides\.set\(sessionId, value\);[\s\S]{0,240}?hydratedModelSessions\.add\(sessionId\);/
   );
   assert.doesNotMatch(view, /saveDesktopSessionModel\([^\n]+\)\.catch\(\(\) => \{\}\)/);
-  assert.match(chatSessionStore, /await deps\.onDraftSessionCreated\?\.\(profileId, created\.id\)/);
+  assert.match(chatSessionStore, /await deps\.onDraftSessionCreated\?\.\(profileId, created\.id, draft\)/);
   assert.match(view, /await chatStore\.send\(text, files\);[\s\S]*catch \(cause\)[\s\S]*messageInput = text;[\s\S]*pendingFiles = files;/);
   assert.match(view, /if \(activeSessionId === sessionId\) activeModelKey = value/);
   assert.match(projectChat, /if \(projectsStore\.selectedSessionId === sessionId\) activeModelKey = value/);
@@ -4025,7 +4026,7 @@ test("background session-list refreshes keep existing rows mounted", () => {
   // timestamps. They must not set ChannelAccordion.loading, which replaces the
   // whole list with an ellipsis and makes the sidebar flash on every turn.
   assert.match(view, /async function loadChannel\(channel: DesktopConversationChannel, showLoading = true\)/);
-  assert.match(view, /refreshSidebar: \(\) => loadChannel\("web", false\)/);
+  assert.match(view, /refreshSidebar: refreshAgentSessions/);
   assert.match(view, /if \(showLoading\) channelLoading = \{ \.\.\.channelLoading, \[channel\]: true \}/);
   assert.match(view, /catch \{[\s\S]*?if \(showLoading\) \{[\s\S]*?channelItems = \{ \.\.\.channelItems, \[channel\]: \[\] \}/);
 });
@@ -4236,18 +4237,16 @@ test("a draft session only writes a permission override when the user explicitly
   // so changing the global default never reached new conversations.
   const chatView = read("./ChatView.svelte");
   assert.match(chatView, /draftPermissionModeTouched/);
-  assert.match(chatView, /if \(draftPermissionModeTouched\) \{[\s\S]*?saveDesktopSessionPermission/);
+  assert.match(chatView, /if \(draft\.permissionMode\) \{[\s\S]*?saveDesktopSessionPermission/);
   assert.match(chatView, /loadDesktopExecutionDefault/);
   // The untouched default must refetch on every new draft and on settings
   // changes, or the menu shows a stale mode the runtime has moved past.
   assert.match(chatView, /draftMode !== lastDraftMode/);
   assert.match(chatView, /if \(draftMode && !draftPermissionModeTouched\) draftPermissionDefaultEndpoint = "";/);
-  // The untouched branch must exist beside the touched one and never save.
-  const draftBlock = chatView.match(/if \(draftPermissionModeTouched\) \{[\s\S]*?\} else \{[\s\S]*?\n          \}/);
-  assert.ok(draftBlock, "the touched/untouched pair must stay inside onDraftSessionCreated");
-  const untouched = draftBlock[0].slice(draftBlock[0].indexOf("} else {"));
-  assert.match(untouched, /permissionModeSource = "global";/);
-  assert.doesNotMatch(untouched, /saveDesktopSessionPermission/);
+  const draftBlock = chatView.slice(chatView.indexOf("onDraftSessionCreated:"), chatView.indexOf("onSessionCreated:"));
+  assert.match(draftBlock, /if \(draft\.permissionMode\)/);
+  assert.doesNotMatch(draftBlock, /draftPermissionModeTouched|draftModelKey/);
+
 });
 
 test("settings navigation keeps the current product taxonomy and entity editors open as dialogs", () => {
@@ -4263,7 +4262,7 @@ test("settings navigation keeps the current product taxonomy and entity editors 
     assert.match(sections[key], /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
   }
   assert.match(sections.agents, /class="entity-editor-head"/);
-  assert.match(sections.agents, /class="entity-editor-foot"/);
+  assert.match(sections.agents, /class="entity-editor-foot settings-footbar"/);
   assert.match(styles, /\.entity-editor-foot\s*\{[^}]*justify-content:\s*flex-end/s);
   assert.match(app, /label: sectionLabel\(item\.id, text\)/);
   assert.match(app, /<PageHeader title=\{sectionLabel\(activeSection, text\)\}/);
@@ -4859,7 +4858,7 @@ test("Chat mounts one shared inspector host for artifact, durable, and session P
   // Conversation identity comes from the live pane, and so does the scope: the
   // panel never re-scopes per selected artifact (that used to swap the Project
   // tree for a two-tab session view with no way back).
-  assert.match(view, /\$: artifactPanelVisible = filePanelOpen && serviceState === "ready" && \(projectPaneActive \|\| profiles\.length > 0\)/);
+  assert.match(view, /\$: artifactPanelVisible = filePanelOpen && serviceState === "ready" && \(projectPaneActive \|\| onboardingAgents\.length > 0\)/);
   assert.match(view, /sessionId=\{projectPaneActive \? \(projectsStore\.selectedSessionId \?\? ""\) : inspectorSessionId\}/);
   assert.match(view, /profileId=\{projectPaneActive \? "personal" : inspectorProfileId\}/);
   // One grid class, one resizer, one max-width computation for both adapters —
@@ -5817,7 +5816,7 @@ test("fixed thinking levels remain selectable while Auto is selected", () => {
 });
 
 test("the first turn inherits the new-conversation thinking selection before sending", () => {
-  const selected = chatSessionStore.indexOf("const selectedThinking = this.draftStore.get(NEW_CONVERSATION_KEY).thinkingLevel");
+  const selected = chatSessionStore.indexOf('const selectedThinking = draft.thinkingLevel');
   const carried = chatSessionStore.indexOf("this.draftStore.setThinking(sessionDraftKey(profileId, created.id), selectedThinking)");
   const sent = chatSessionStore.indexOf("await entry.controller.send({ message: content, files })");
   assert.ok(selected >= 0 && selected < carried && carried < sent);

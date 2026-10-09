@@ -127,7 +127,6 @@
     type TranscriptMessage,
     type TranscriptMessageActions
   } from "./lib/chat/transcript";
-  import { lastTranscriptModelKey } from "./lib/chat/modelSelection";
   import ApprovalCard from "./lib/chat/ApprovalCard.svelte";
   import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
@@ -138,6 +137,9 @@
   import { roomsCopy } from "./lib/chat/roomsCopy";
   import type { AgentRoom } from "@molibot/shared/rooms";
   import { loadDesktopRooms } from "./lib/api";
+  import AgentNavigation from "./lib/chat/AgentNavigation.svelte";
+  import AgentAvatar from "./lib/components/ui/AgentAvatar.svelte";
+  import { loadDesktopAgentNavigation, saveDesktopAgentNavigation, claimDesktopSessionAgent, type DesktopAgentNavigation } from "./lib/api";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
@@ -255,13 +257,6 @@
   let thinkingHydrationSeq = 0;
   const hydratedModelSessions = new Set<string>();
   let modelHydrationSeq = 0;
-  // Sessions with no persisted override whose model was inferred from the last
-  // assistant message, so the composer shows what actually answered instead of
-  // the current global default. Ranks below an explicit pick.
-  const transcriptModelKeys = new Map<string, string>();
-  // Bumped when a hydration settles so the transcript-derived `$:` re-runs
-  // (`hydratedModelSessions` is a plain Set and tracks nothing).
-  let modelHydrationMark = 0;
   let appliedModelSessionId = "";
   // Model chosen while composing a not-yet-persisted new conversation. Seeded onto
   // the real session the moment it's created (before the first turn snapshots it).
@@ -731,7 +726,7 @@
   // session file list is what made the panel unreachable while a Mini App was
   // open — and left the Files side of the panel empty in a conversation.
   // Project/session identity still comes from the live pane below.
-  $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0);
+  $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || onboardingAgents.length > 0);
   $: durablePanelVisible = durablePanelOpen && serviceState === "ready" && Boolean(connectedEndpoint);
   $: inspectorVisible = artifactPanelVisible || durablePanelVisible || inspector?.kind === "session-plan";
   $: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH;
@@ -876,6 +871,36 @@
   }];
   const onboardingProviderTags: DesktopProviderModelTag[] = ["text", "vision", "audio_input", "stt", "tts", "tool"];
   let providerApiKeyInput = "";
+  let agentNavigation: DesktopAgentNavigation = { expandedAgentIds: [], page: "agent", agentId: "", sessionId: "" };
+  let defaultAgentId = "default";
+  let selectedAgentId = "";
+  let deletedAgentIds: string[] = [];
+  let historyAgentId: string | undefined;
+  let agentRefresh = 0;
+  let ordinarySessions: DesktopConversationItem[] = [];
+  $: selectedAgent = onboardingAgents.find(agent => agent.id === selectedAgentId);
+  $: agentCanExecute = Boolean(selectedAgent?.enabled);
+  function persistAgentNavigation(): void {
+    if (connectedEndpoint) void saveDesktopAgentNavigation(connectedEndpoint, agentNavigation).catch(cause => chatStore.setActiveError(String(cause)));
+  }
+  function toggleAgent(id: string): void {
+    const expanded = agentNavigation.expandedAgentIds;
+    agentNavigation = { ...agentNavigation, expandedAgentIds: expanded.includes(id) ? expanded.filter(item => item !== id) : [...expanded, id] };
+    persistAgentNavigation();
+  }
+  function openAgentHistory(id?: string): void { historyAgentId = id ?? "__all__"; browserOpen = true; }
+  async function refreshAgentSessions(): Promise<void> {
+    if (!connectedEndpoint) return;
+    const result = await listDesktopConversations(connectedEndpoint, { channel: "web", allAgents: true, limit: 100, includeArchived: true });
+    ordinarySessions = result.items;
+    agentRefresh += 1;
+  }
+  async function claimActiveSession(id: string): Promise<void> {
+    const sessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (!connectedEndpoint || !sessionId) return;
+    try { await claimDesktopSessionAgent(connectedEndpoint, sessionId, id); selectedAgentId = id; await refreshAgentSessions(); }
+    catch (cause) { chatStore.setActiveError(String(cause)); }
+  }
   let onboardingAgents: DesktopAgentItem[] = [];
   let onboardingProfiles: DesktopWebProfile[] = [];
   let onboardingProfileId = "";
@@ -1020,43 +1045,22 @@
       }
     }
   }
-  $: botOptions = profiles.map((profile) => ({
-    id: profile.id,
-    name: profile.agentName || copy.agentStudioGlobalName,
-    subtitle: profile.name
-  }));
+  $: botOptions = onboardingAgents.filter(agent => agent.enabled && (agent.id === defaultAgentId || agent.visible !== false)).map(agent => ({ id: `agent-${agent.id}`, name: agent.name, subtitle: agent.description }));
   // Per-session model: when the active web session changes, show its model
-  // (persisted override → global default) and hydrate the override cache once.
+  // (persisted override → Agent default → global default) and hydrate the override cache once.
   // Gated on loaded options so the selector reflects a valid key.
   $: if (viewMode === "local" && activeSessionId && activeSessionId !== appliedModelSessionId && modelOptions.length > 0) {
     appliedModelSessionId = activeSessionId;
     const override = resolveSessionModelKey(activeSessionId);
-    activeModelKey = override && modelOptions.some((option) => option.key === override) ? override : globalModelKey;
+    activeModelKey = override && modelOptions.some((option) => option.key === override) ? override : selectedAgent?.modelRouting.textModelKey || globalModelKey;
     void hydrateSessionModel(activeSessionId);
   }
   $: if (viewMode === "local" && activeSessionId && activeProfileId && connectedEndpoint && !hydratedThinkingSessions.has(activeSessionId)) {
     void hydrateSessionThinking(activeSessionId, activeProfileId);
   }
-  // With no explicit per-session pick, the composer follows the model that
-  // actually answered last in this transcript (and updates as new replies land)
-  // rather than showing whatever the global default is now.
-  $: applyTranscriptModel(activeSessionId, modelHydrationMark, messages, modelOptions);
-  function applyTranscriptModel(
-    sessionId: string,
-    _hydrationMark: number,
-    transcript: TranscriptMessage[],
-    options: DesktopModelOption[]
-  ): void {
-    if (viewMode !== "local" || !sessionId) return;
-    if (!hydratedModelSessions.has(sessionId) || sessionModelOverrides.has(sessionId)) return;
-    const key = lastTranscriptModelKey(transcript, options);
-    if (!key) return;
-    transcriptModelKeys.set(sessionId, key);
-    activeModelKey = key;
-  }
-  /** Session model precedence: explicit pick → last answering model → global. */
+  /** Session model precedence: explicit pick → Agent default → global. */
   function resolveSessionModelKey(sessionId: string): string {
-    return sessionModelOverrides.get(sessionId) ?? transcriptModelKeys.get(sessionId) ?? "";
+    return sessionModelOverrides.get(sessionId) ?? "";
   }
   $: activeModelOption = modelOptions.find((model) => model.key === activeModelKey);
   $: activeModelFullLabel = activeModelOption?.label ?? copy.model;
@@ -1074,11 +1078,11 @@
     appliedRequestedWorkspacePane = requestedWorkspacePane;
     workspacePane = requestedWorkspacePane;
   }
-  $: activeBotName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.name ?? copy.bot;
-  $: activeAgentName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.agentName || copy.agentStudioGlobalName;
+  $: activeBotName = selectedAgent?.name ?? selectedAgentId ?? copy.bot;
+  $: activeAgentName = selectedAgent?.name || selectedAgentId || (locale === "zh-CN" ? "未归属" : "Unassigned");
   $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
-  $: activeSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeSessionId);
-  $: activeExternalSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeExternalSessionId);
+  $: activeSessionItem = ordinarySessions.find((item) => item.sessionId === activeSessionId);
+  $: activeExternalSessionItem = ordinarySessions.find((item) => item.sessionId === activeExternalSessionId);
   $: activeHeaderChannel = viewMode === "external" ? activeExternalChannel : (activeSessionItem?.channel ?? "web");
   $: activeHeaderSourceLabel = sidebarChannels.find((channel) => channel.id === activeHeaderChannel)?.name ?? activeHeaderChannel;
   $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (activeSessionItem?.title || copy.chat);
@@ -1087,11 +1091,7 @@
   // binding inherits the default one. Instance ids repeat across channels, so the
   // lookup is scoped to the active channel's group.
   $: agentNameById = new Map(onboardingAgents.map((agent) => [agent.id, agent.name]));
-  $: activeExternalAgentId = channelSummary
-    ? (channelSummary.groups
-        .find((group) => group.channel === activeHeaderChannel)?.instances
-        .find((instance) => instance.id === activeExternalSessionItem?.botId)?.agentId ?? "")
-    : "";
+  $: activeExternalAgentId = activeExternalSessionItem?.agentId ?? selectedAgentId;
   $: activeExternalAgentName = activeExternalAgentId ? (agentNameById.get(activeExternalAgentId) ?? activeExternalAgentId) : copy.agentStudioGlobalName;
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: linkedPlanExecutionIds = new Set(messages.map((message) => message.plan?.durableExecutionId).filter((id): id is string => Boolean(id)));
@@ -1295,9 +1295,7 @@
   }
 
   function defaultBot(): string {
-    const last = localStorage.getItem(LAST_BOT_KEY) ?? "";
-    if (last && profiles.some((profile) => profile.id === last)) return last;
-    return profiles[0]?.id ?? "";
+    return `agent-${selectedAgent?.enabled ? selectedAgent.id : defaultAgentId}`;
   }
 
   function persistSelected(profileId: string, sessionId: string): void {
@@ -1328,13 +1326,19 @@
       pendingFiles = draft.files;
       thinkingLevel = draft.thinkingLevel;
     } else {
-      chatStore.draftStore.update(key, { text: messageInput, files: pendingFiles, thinkingLevel });
+      chatStore.draftStore.update(key, { text: messageInput, files: pendingFiles, thinkingLevel, thinkingTouched: draftThinkingTouched, permissionMode: draftPermissionModeTouched ? draftPermissionMode : undefined });
     }
   }
   $: if (!draftMode && chatState.activeSessionId && hydratedThinkingSessions.has(chatState.activeSessionId)) {
     const persistedThinking = sessionThinkingOverrides.get(chatState.activeSessionId);
     if (persistedThinking) thinkingLevel = persistedThinking;
     else thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
+  }
+  $: if (projectPaneActive && projectsViewSnapshot.selectedProjectId && connectedEndpoint) {
+    if (agentNavigation.page !== "project" || agentNavigation.projectId !== projectsViewSnapshot.selectedProjectId || agentNavigation.sessionId !== projectsViewSnapshot.selectedSessionId) {
+      agentNavigation = { ...agentNavigation, page: "project", projectId: projectsViewSnapshot.selectedProjectId, sessionId: projectsViewSnapshot.selectedSessionId ?? "" };
+      persistAgentNavigation();
+    }
   }
   let pendingSettingsRefresh = false;
   let refreshingSettings = false;
@@ -1382,7 +1386,7 @@
       globalAutoAvailable = nextAdaptiveThinking.autoAvailable;
       activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       onboardingProfiles = nextWebProfiles;
-      if (nextAgents) onboardingAgents = nextAgents.items;
+      if (nextAgents) { onboardingAgents = nextAgents.items; agentNavigation = { ...agentNavigation, expandedAgentIds: agentNavigation.expandedAgentIds.filter(id => !nextAgents.items.some(agent => agent.id === id && !agent.enabled)) }; defaultAgentId = nextAgents.defaultAgentId ?? "default"; deletedAgentIds = nextAgents.deletedAgentIds ?? []; agentRefresh += 1; }
       if (nextChannels) {
         channelSummary = nextChannels;
         onboardingChannels = summarizeOnboardingChannels(nextChannels);
@@ -1435,6 +1439,9 @@
       const rememberedProfile = localStorage.getItem(PROFILE_STORAGE_KEY) ?? "";
       onboardingProfiles = nextWebProfiles;
       onboardingAgents = nextAgents.items;
+      defaultAgentId = nextAgents.defaultAgentId ?? "default"; deletedAgentIds = nextAgents.deletedAgentIds ?? [];
+      agentNavigation = (await loadDesktopAgentNavigation(endpoint)).navigation;
+      agentNavigation.expandedAgentIds = agentNavigation.expandedAgentIds.filter(id => !nextAgents.items.some(agent => agent.id === id && !agent.enabled));
       channelSummary = nextChannels;
       onboardingChannels = summarizeOnboardingChannels(nextChannels);
       onboardingDiagnostics = summarizeOnboardingDiagnostics(nextRuntimeEnv, true);
@@ -1458,48 +1465,38 @@
         modelReady: () => modelReady,
         labels: () => conversationLabels(),
         loadTranscript,
-        refreshSidebar: () => loadChannel("web", false),
+        refreshSidebar: refreshAgentSessions,
+        resolveAgent: profileId => profileId.startsWith("agent-") ? profileId.slice(6) : undefined,
         resolveModel: (_profileId, sessionId) => sessionModelOverrides.get(sessionId),
-        onDraftSessionCreated: async (_profileId, sessionId) => {
-          // Carry the draft's model onto the freshly-created session so its first
-          // turn runs on it; persist so it survives restarts.
-          if (draftModelKey) {
-            const key = draftModelKey;
-            await saveDesktopSessionModel(connectedEndpoint, sessionId, key);
-            draftModelKey = "";
-            sessionModelOverrides.set(sessionId, key);
+        onDraftSessionCreated: async (profileId, sessionId, draft) => {
+          if (draft.modelKey) {
+            await saveDesktopSessionModel(connectedEndpoint, sessionId, draft.modelKey);
+            sessionModelOverrides.set(sessionId, draft.modelKey);
             hydratedModelSessions.add(sessionId);
-            appliedModelSessionId = sessionId;
-            activeModelKey = key;
           }
-          if (draftThinkingTouched) {
-            const selected = thinkingLevel;
-            await saveDesktopSessionThinking(connectedEndpoint, _profileId, sessionId, selected);
-            sessionThinkingOverrides.set(sessionId, selected);
+          if (draft.thinkingTouched) {
+            await saveDesktopSessionThinking(connectedEndpoint, profileId, sessionId, draft.thinkingLevel);
+            sessionThinkingOverrides.set(sessionId, draft.thinkingLevel);
             hydratedThinkingSessions.add(sessionId);
           }
-          // Only an explicit in-draft pick becomes an override; an untouched
-          // draft lets the session inherit the resolved default, so changing
-          // the global default mode still reaches new conversations.
-          if (draftPermissionModeTouched) {
-            const saved = await saveDesktopSessionPermission(connectedEndpoint, _profileId, sessionId, draftPermissionMode);
+          if (draft.permissionMode) {
+            const saved = await saveDesktopSessionPermission(connectedEndpoint, profileId, sessionId, draft.permissionMode);
             sessionPermissionModes.set(sessionId, saved);
-            permissionModeSource = "session";
-          } else {
-            sessionPermissionModes.delete(sessionId);
-            permissionModeSource = "global";
           }
-          draftPermissionModeTouched = false;
-          draftThinkingTouched = false;
         },
         onSessionCreated: (profileId, sessionId) => {
           localStorage.setItem(LAST_BOT_KEY, profileId);
           // A session created by sending from the draft never went through
           // openSession; without this the reconnect/first-launch restore points
           // at an older conversation instead of the one the user is now in.
-          persistSelected(profileId, sessionId);
-          void loadChannel("web");
-          void refreshFiles(profileId, sessionId);
+          if (chatStore.registry.active?.sessionId === sessionId) {
+            persistSelected(profileId, sessionId);
+            selectedAgentId = profileId.startsWith("agent-") ? profileId.slice(6) : selectedAgentId;
+            agentNavigation = { ...agentNavigation, page: "session", agentId: selectedAgentId, sessionId };
+            persistAgentNavigation();
+            void refreshFiles(profileId, sessionId);
+          }
+          void refreshAgentSessions();
         },
         // A turn can produce files — a generated image, an exported document —
         // and the transcript renders an attachment through its Session file
@@ -1635,6 +1632,7 @@
   }
 
   function openRoom(roomId: string): void {
+    agentNavigation = { ...agentNavigation, page: "room", roomId, sessionId: "" }; persistAgentNavigation();
     browserOpen = false;
     closeExternalTranscript();
     roomPaneActive = true;
@@ -1678,8 +1676,7 @@
     viewMode = "local";
     closeExternalTranscript();
     if (!activeSessionId) {
-      const web = channelItems.web ?? [];
-      if (web[0]) openSession(web[0]);
+      openAgentChat(selectedAgentId || defaultAgentId);
     }
   }
 
@@ -1755,6 +1752,9 @@
       const botName = activeExternalBotName;
       return () => { void openExternalTranscript(sessionId, channel, title, botName); };
     }
+    if (chatStore.draftMode && selectedAgentId) {
+      const id = selectedAgentId; return () => openAgentChat(id);
+    }
     const entry = chatStore.registry.active;
     if (!entry) return null;
     const profileId = entry.profileId;
@@ -1767,19 +1767,25 @@
 
   async function selectDefaultSession(generation = connectionGeneration): Promise<void> {
     restoreSidebarTree();
-    await loadExpandedChannels();
+    await refreshAgentSessions();
     if (generation !== connectionGeneration) return;
-    const webItems = channelItems.web ?? [];
-    const last = restoreSelected();
-    const lastItem = last
-      ? webItems.find((item) => item.sessionId === last.sessionId && item.botId === last.profileId)
-      : null;
-    const target = lastItem ?? webItems[0] ?? null;
-    if (target) {
-      openSession(target);
-    } else {
-      chatStore.newConversationDraft(defaultBot());
+    const saved = agentNavigation;
+    if (saved.page === "room" && saved.roomId) { openRoom(saved.roomId); return; }
+    if (saved.page === "project" && saved.projectId) {
+      await selectProject(saved.projectId);
+      if (saved.sessionId) await selectProjectSession(saved.sessionId, saved.projectId);
+      projectPaneActive = true; workspacePane = "chat"; return;
     }
+    if (["agents", "skills", "plans", "miniapps", "automations"].includes(saved.page)) { openWorkspacePane(saved.page as Exclude<ChatWorkspacePaneName, "chat">); return; }
+    let target = saved.sessionId ? ordinarySessions.find(item => item.sessionId === saved.sessionId) : undefined;
+    if (!target && saved.sessionId) {
+      const result = await listDesktopConversations(connectedEndpoint, { channel: "web", allAgents: true, includeArchived: true, sessionId: saved.sessionId, limit: 1 });
+      target = result.items[0];
+      if (target) ordinarySessions = [...ordinarySessions, target];
+    }
+    if (generation !== connectionGeneration) return;
+    if (target) openSession(target);
+    else openAgentChat(onboardingAgents.some(agent => agent.id === saved.agentId) ? saved.agentId : defaultAgentId);
   }
 
   async function loadChannel(channel: DesktopConversationChannel, showLoading = true): Promise<void> {
@@ -1878,8 +1884,7 @@
     persistSidebarTree();
     if (botId) localStorage.setItem(LAST_BOT_KEY, botId);
     chatStore.newConversationDraft(botId);
-    // A fresh draft starts on the global default; a pick here is held in
-    // draftModelKey until the session is created.
+    // The Agent homepage applies its default after entering this draft.
     draftModelKey = "";
     appliedModelSessionId = "";
     activeModelKey = globalModelKey;
@@ -1889,7 +1894,7 @@
 
   function newConversation(): void {
     roomPaneActive = false;
-    newConversationWithBot(defaultBot());
+    openAgentChat(defaultAgentId);
   }
 
   async function openAgentSettings(agentId?: string): Promise<void> {
@@ -1900,17 +1905,24 @@
   }
 
   function openAgentChat(agentId: string): void {
-    const profile = agentId === "default"
-      ? profiles.find((item) => !item.agentId || item.agentId === "default") ?? profiles[0]
-      : profiles.find((item) => item.agentId === agentId);
-    if (!profile) {
-      openSettings("profiles");
-      return;
-    }
-    newConversationWithBot(profile.id);
+    selectedAgentId = agentId;
+    roomPaneActive = false;
+    newConversationWithBot(`agent-${agentId}`);
+    const draft = chatStore.draftStore.get(composerDraftKey("", `agent-${agentId}`));
+    draftModelKey = draft.modelKey ?? "";
+    draftThinkingTouched = draft.thinkingTouched ?? false;
+    thinkingLevel = draft.thinkingLevel;
+    draftPermissionModeTouched = Boolean(draft.permissionMode);
+    if (draft.permissionMode) draftPermissionMode = draft.permissionMode;
+    activeModelKey = draftModelKey || onboardingAgents.find(agent => agent.id === agentId)?.modelRouting.textModelKey || globalModelKey;
+    agentNavigation = { ...agentNavigation, page: "agent", agentId, sessionId: "" };
+    persistAgentNavigation();
   }
 
   function openSession(item: DesktopConversationItem): void {
+    selectedAgentId = item.agentId ?? "";
+    agentNavigation = { ...agentNavigation, page: item.channel === "web" ? "session" : "external", agentId: selectedAgentId, sessionId: item.sessionId };
+    persistAgentNavigation();
     roomPaneActive = Boolean(item.roomId);
     requestedRoomId = item.roomId ?? "";
     roomStartEditing = false;
@@ -1946,7 +1958,7 @@
       channelItems = { ...channelItems, [item.channel]: (channelItems[item.channel] ?? []).map((it) =>
         it.sessionId === item.sessionId ? { ...it, title: saved } : it
       ) };
-      await loadChannel(item.channel);
+      await refreshAgentSessions();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
@@ -1959,13 +1971,13 @@
     try {
       await deleteDesktopConversation(connectedEndpoint, item.sessionId);
       chatStore.disposeSession(item.botId, item.sessionId);
-      const remaining = (channelItems[item.channel] ?? []).filter((it) => it.sessionId !== item.sessionId);
+      const remaining = ordinarySessions.filter(it => it.sessionId !== item.sessionId && it.agentId === item.agentId && !it.readOnly);
       channelItems = { ...channelItems, [item.channel]: remaining };
       if (viewMode === "local" && item.sessionId === activeSessionId) {
         if (remaining[0]) openSession(remaining[0]);
-        else chatStore.newConversationDraft(defaultBot());
+        else openAgentChat(item.agentId && onboardingAgents.some(agent => agent.id === item.agentId) ? item.agentId : defaultAgentId);
       }
-      await loadChannel(item.channel);
+      await refreshAgentSessions();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
@@ -1993,6 +2005,7 @@
 
   function openBrowser(): void {
     if (!connectedEndpoint) return;
+    historyAgentId = "__all__";
     browserOpen = true;
   }
 
@@ -2010,6 +2023,7 @@
     }
     openSession({
       sessionId: item.sessionId,
+      agentId: item.agentId,
       title: item.title,
       updatedAt: item.updatedAt,
       botId: item.botId ?? item.contextId,
@@ -2268,6 +2282,12 @@
     }
   }
 
+  function isCurrentFileSession(profileId: string, sessionId: string): boolean {
+    return viewMode === "external"
+      ? activeExternalSessionItem?.botId === profileId && activeExternalSessionId === sessionId
+      : chatStore.registry.active?.profileId === profileId && chatStore.registry.active?.sessionId === sessionId;
+  }
+
   async function refreshFiles(profileId: string, sessionId: string): Promise<void> {
     if (!connectedEndpoint || !profileId || !sessionId) {
       sessionFiles = [];
@@ -2275,9 +2295,9 @@
     }
     try {
       const files = await listDesktopSessionFiles(connectedEndpoint, profileId, sessionId);
-      sessionFiles = files;
+      if (isCurrentFileSession(profileId, sessionId)) sessionFiles = files;
     } catch {
-      sessionFiles = [];
+      if (isCurrentFileSession(profileId, sessionId)) sessionFiles = [];
     }
   }
 
@@ -2520,6 +2540,7 @@
   async function sendMessage(): Promise<void> {
     if (modelSelectionHydrating) return;
     const text = messageInput;
+    const submittedKey = composerDraftKey(activeSessionId, activeProfileId);
     thinkingLevel = clampedThinkingLevel;
     const files = pendingFiles;
     const editingId = editingMessageId;
@@ -2563,9 +2584,14 @@
     try {
       await chatStore.send(text, files);
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-      messageInput = text;
-      pendingFiles = files;
+      if (composerDraftKey(activeSessionId, activeProfileId) === submittedKey && !messageInput.trim() && pendingFiles.length === 0) {
+        error = cause instanceof Error ? cause.message : String(cause);
+        messageInput = text;
+        pendingFiles = files;
+      } else {
+        const draft = chatStore.draftStore.get(submittedKey);
+        if (!draft.text.trim() && draft.files.length === 0) chatStore.draftStore.update(submittedKey, { text, files });
+      }
     }
   }
 
@@ -2814,7 +2840,6 @@
         activeModelKey = key;
       }
       // No persisted pick: fall through to the transcript's last model.
-      modelHydrationMark += 1;
     } catch {
       // network hiccup: leave the composer on its default; a later switch retries
     } finally {
@@ -2852,12 +2877,12 @@
       if (draftMode || !sessionId) {
         activeModelKey = value;
         draftModelKey = value;
+        chatStore.draftStore.update(composerDraftKey("", draftProfileId), { modelKey: value });
       } else {
         await saveDesktopSessionModel(connectedEndpoint, sessionId, value);
         sessionModelOverrides.set(sessionId, value);
         // An explicit pick outranks the transcript-derived model until the user
         // picks again, so the selector can't snap back on the next reply.
-        transcriptModelKeys.delete(sessionId);
         hydratedModelSessions.add(sessionId);
         if (activeSessionId === sessionId) activeModelKey = value;
       }
@@ -3235,6 +3260,7 @@
   }
 
   function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
+    agentNavigation = { ...agentNavigation, page: pane, sessionId: "" }; persistAgentNavigation();
     roomPaneActive = false;
     collapsedFlyout = null;
     const next = openWorkspacePaneState(pane);
@@ -3570,7 +3596,11 @@
       </div>
     </div>
   {/if}
+  {#snippet agentConversationContent()}
+    <AgentNavigation endpoint={connectedEndpoint} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} expanded={agentNavigation.expandedAgentIds} activeAgentId={selectedAgentId} {activeSessionId} refresh={agentRefresh} {locale} {copy} {statusDots} formatTime={formatListTime} onAgent={openAgentChat} onToggle={toggleAgent} onSelect={openSession} onHistory={openAgentHistory} onManage={() => openAgentSettings()} onRename={renameSession} onDelete={deleteSession} />
+  {/snippet}
   <ChatSidebar
+    conversationContent={agentConversationContent}
     {copy}
     channels={sidebarChannels}
     {conversationsExpanded}
@@ -3714,7 +3744,7 @@
             <span>{durableActiveCount > 99 ? "99+" : durableActiveCount}</span>
           </button>
         {/if}
-        {#if serviceState === "ready" && profiles.length > 0}
+        {#if serviceState === "ready" && onboardingAgents.length > 0}
           <TranscriptSearch
             bind:value={searchQuery}
             open={searchOpen}
@@ -3781,7 +3811,7 @@
       </div>
     {:else if loading}
       <div class="empty-state"><p>{copy.loadingChat}</p></div>
-    {:else if profiles.length === 0}
+    {:else if onboardingAgents.length === 0}
       <div class="empty-state">
         <h2>{copy.noProfiles}</h2>
         <p>{copy.noProfilesHint}</p>
@@ -3813,7 +3843,12 @@
                 <h2>{copy.noExternalSessions}</h2>
               </div>
             {/if}
-            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} agentName={activeExternalAgentName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
+            {#if !selectedAgentId}
+            <div class="agent-claim-row"><span>{locale === "zh-CN" ? "认领仅标记归属，外部历史仍为只读。" : "Assignment preserves read-only external history."}</span>
+              {#each onboardingAgents.filter(agent => agent.enabled) as agent}<button type="button" class="secondary-button" onclick={() => claimActiveSession(agent.id)}>{agent.name}</button>{/each}
+            </div>
+          {/if}
+          <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} agentName={activeExternalAgentName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
           {/if}
         </div>
         {#if externalTranscript && !externalTranscriptLoading && !externalTranscriptError}
@@ -3828,6 +3863,11 @@
         </footer>
       {/if}
     {:else}
+      {#if !selectedAgentId && activeSessionId && viewMode === "local"}
+        <div class="agent-claim-row"><span>{locale === "zh-CN" ? "此历史尚未归属 Agent，认领后可继续。" : "Assign this history to an Agent to continue."}</span>
+          {#each onboardingAgents.filter(agent => agent.enabled) as agent}<button type="button" class="secondary-button" onclick={() => claimActiveSession(agent.id)}>{agent.name}</button>{/each}
+        </div>
+      {/if}
       <ChatMessagesPane
         bind:messagesElement
         {messages}
@@ -3842,11 +3882,11 @@
         {activity}
         activities={activityEntries}
         {liveSteps}
-        emptyTitle={copy.emptyChatTitle}
-        emptyHint={copy.emptyChatHint}
+        emptyTitle={selectedAgent?.name || copy.emptyChatTitle}
+        emptyHint={selectedAgent?.description || copy.emptyChatHint}
         emptyActionLabel={copy.emptyChatQuickStart}
         emptyActionHint={copy.emptyChatQuickStartHint}
-        emptyActions={messageInput.trim() ? [] : emptyQuickStarts(copy)}
+        emptyActions={!agentCanExecute || messageInput.trim() ? [] : emptyQuickStarts(copy)}
         onEmptyAction={fillEmptyPrompt}
         {searchMatchIds}
         {activeMatchId}
@@ -3859,6 +3899,18 @@
         attentionLabel={copy.pendingApprovalNotice}
         attentionAction={copy.pendingApprovalJump}
       >
+        <svelte:fragment slot="home">
+          {#if draftMode && selectedAgent}
+            <div class="agent-home-identity"><AgentAvatar name={selectedAgent.name} src={selectedAgent.avatar ?? ""} /></div>
+            {#if ordinarySessions.some(item => item.agentId === selectedAgentId)}
+              <div class="agent-home-recent"><span>{locale === "zh-CN" ? "最近对话" : "Recent conversations"}</span>
+                {#each ordinarySessions.filter(item => item.agentId === selectedAgentId).slice(0, 3) as item (item.sessionId)}
+                  <button class="secondary-button" type="button" onclick={() => openSession(item)}>{item.title}</button>
+                {/each}
+              </div>
+            {/if}
+          {/if}
+        </svelte:fragment>
         {#if pendingApproval}
           <!-- The wrapper exists so the pane can watch this card without knowing
                what it is; `bind:this` on the component would hand over the
@@ -3913,8 +3965,8 @@
         contextUsage={composerContextUsage}
         {sessionUsage}
         {sending}
-        disabled={!modelReady || (!draftMode && !activeSessionId) || modelSelectionHydrating}
-        canSend={Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
+        disabled={!modelReady || !agentCanExecute || (!draftMode && !activeSessionId) || modelSelectionHydrating}
+        canSend={agentCanExecute && Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
         placeholder={sending ? copy.queueHint : copy.enterHint}
         {modelReady}
         {modelOptions}
@@ -3955,12 +4007,12 @@
         onChangePermissionMode={changePermissionMode}
       >
         <svelte:fragment slot="mention">
-          {#if profiles.length > 0 && (draftMode || activeSessionId)}
+          {#if onboardingAgents.length > 0 && (draftMode || activeSessionId)}
             <BotMention
               mode={draftMode ? "select" : "locked"}
               bots={botOptions}
-              selectedId={draftMode ? draftProfileId : activeProfileId}
-              onSelect={(id) => chatStore.setDraftProfileId(id)}
+              selectedId={`agent-${selectedAgentId}`}
+              onSelect={(id) => openAgentChat(id.slice(6))}
               labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
             />
           {/if}
@@ -4069,6 +4121,8 @@
   <ConversationBrowserDialog
     endpoint={connectedEndpoint}
     open={browserOpen}
+    agentId={historyAgentId}
+    includeArchived={true}
     labels={{
       search: copy.searchConversations,
       searchEmpty: copy.searchEmpty,

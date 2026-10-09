@@ -490,6 +490,9 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     String(process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone)
   ),
   agents: defaultAgents,
+  defaultAgentId: "default",
+  deletedAgentIds: [],
+  desktopNavigation: { expandedAgentIds: [], page: "agent", agentId: "", sessionId: "" },
   channels: {
     web: {
       instances: [

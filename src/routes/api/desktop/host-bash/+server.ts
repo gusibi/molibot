@@ -17,7 +17,7 @@ import { buildHostBashApprovalPrompt, type HostBashApprovalMode, type HostBashAp
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker";
 import { listDesktopBrokerApprovals, resolveDesktopBrokerApproval } from "$lib/server/app/desktopApprovals";
 import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume";
-import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { getRuntimeContextForConversation } from "$lib/server/web/runtimeContext";
 import { _handleWebHostToolsCommand } from "../../chat/+server";
 
 const APPROVAL_SUBCOMMANDS: Record<DesktopApprovalDecision, string> = {
@@ -215,7 +215,7 @@ export const POST: RequestHandler = async ({ request }) => {
       const status = brokerResolution.status;
       const externalUserId = owner ?? toWebExternalUserId("web-anonymous", profileId);
       const scopeId = resolveRunnerChatId(sessionId, externalUserId);
-      const { store, pool } = getWebRuntimeContext(profileId);
+      const { store, pool } = getRuntimeContextForConversation(profileId, sessionId);
       void resumeSuspendedBrokerApproval({
         scopeId,
         sessionId,

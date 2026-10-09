@@ -1,6 +1,6 @@
 import type { ConversationMessage } from "$lib/shared/types/message";
 import { getRuntime } from "$lib/server/app/runtime";
-import { getProjectRuntimeContext, getWebRuntimeContext, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext";
+import { getProjectRuntimeContext, getRuntimeContextForConversation, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext";
 
 /**
  * Authorized lookup of a Session's workspace directory.
@@ -53,6 +53,6 @@ export function resolveAuthorizedConversation(input: {
     externalUserId: identity.externalUserId,
     conversation,
     messages: runtime.sessions.listMessages(conversation.id),
-    workspaceDir: getWebRuntimeContext(identity.profileId).store.getWorkspaceDir()
+    workspaceDir: getRuntimeContextForConversation(identity.profileId, conversation.id).store.getWorkspaceDir()
   };
 }

@@ -5,7 +5,7 @@ import {
   type SessionLifecycleStore
 } from "$lib/server/sessions/sessionLifecycleStore.js";
 import { SessionLifecycleService } from "$lib/server/sessions/sessionLifecycleService.js";
-import { getWebRuntimeContext } from "$lib/server/web/runtimeContext.js";
+import { getRuntimeContextForConversation } from "$lib/server/web/runtimeContext.js";
 
 export type WebSessionDeletionResult = "deleted" | "not_found" | "running" | "protected";
 
@@ -14,7 +14,7 @@ interface WebSessionLifecycleDependencies {
   lifecycle?: SessionLifecycleStore;
   /** Running work, queued work, pending approvals or nonterminal linked tasks refuse deletion. */
   isBusy?: (conversationId: string) => boolean;
-  getContext?: (profileId: string) => {
+  getContext?: (profileId: string, conversationId?: string) => {
     pool: {
       get(chatId: string, sessionId: string): { isRunning(): boolean };
     };
@@ -49,8 +49,8 @@ export function deleteWebSessionWith(
   const isBusy =
     dependencies.isBusy ??
     ((id: string) => {
-      const getContext = dependencies.getContext ?? getWebRuntimeContext;
-      return getContext(profileIdFromOwner(owner)).pool.get(owner, id).isRunning();
+      const getContext = dependencies.getContext ?? getRuntimeContextForConversation;
+      return getContext(profileIdFromOwner(owner), id).pool.get(owner, id).isRunning();
     });
   const service = new SessionLifecycleService({
     sessions: dependencies.sessions,
@@ -74,7 +74,7 @@ export function deleteWebSession(input: {
   return deleteWebSessionWith(
     {
       sessions: getRuntime().sessions,
-      getContext: getWebRuntimeContext
+      getContext: getRuntimeContextForConversation
     },
     input
   );

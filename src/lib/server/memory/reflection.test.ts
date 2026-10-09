@@ -8,7 +8,7 @@ import { MemoryGateway } from "./gateway.js";
 import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, reflectionTargetId, type ReflectionSourceProjection, type ReflectionTarget } from "./reflection.js";
 import type { MemoryBackend, MemoryRecord } from "./types.js";
 
-function harness() {
+function harness(agents: Array<{ id: string; enabled: boolean; shareOwnerMemory?: boolean }> = []) {
   const dir = mkdtempSync(join(tmpdir(), "molibot-reflection-"));
   const candidates = new MemoryCandidateStore(join(dir, "candidates.sqlite"));
   const state = new ReflectionStateStore(join(dir, "reflection.sqlite"));
@@ -20,7 +20,7 @@ function harness() {
     compact: async () => ({ scannedCount: 0, removedCount: 0, scopesAffected: 0 })
   };
   const gateway = new MemoryGateway(
-    () => ({ plugins: { memory: { enabled: true, backend: "mory" } } }) as any,
+    () => ({ agents, plugins: { memory: { enabled: true, backend: "mory" } } }) as any,
     {} as any,
     undefined,
     { candidateStore: candidates, backends: { mory: backend }, backendDefinitions: [{ key: "mory", name: "mory", description: "test", create: () => backend }], importers: [] }
@@ -298,5 +298,21 @@ test("skill reflection keeps runtime-owned assistant evidence and rejects extrac
     const sources = h.candidates.list("pending")[0]?.sources ?? [];
     assert.deepEqual(sources.map((source) => source.conversationMessageId), ["message-1", "successful-assistant-entry"]);
     assert.equal(sources.some((source) => source.sessionId === "forged"), false);
+  } finally { h.cleanup(); }
+});
+
+test("reflection pins private candidates to the Agent and refuses unauthorized owner writes", async () => {
+  const h = harness([{ id: "researcher", enabled: true, shareOwnerMemory: false }]);
+  try {
+    const target = { ...h.target, agentId: "researcher" };
+    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, { extract: async () => [
+      { namespace: "agent:foreign", domain: "agent_self", type: "skill", layer: "long_term", subject: "research", value: "PRIVATE_SKILL", confidence: 0.95, reason: "user_explicit" },
+      { namespace: "owner:owner", domain: "owner", type: "user_preference", layer: "long_term", subject: "answer_length", value: "OWNER_LEAK", confidence: 0.95, reason: "user_explicit" }
+    ] });
+    const result = await service.run(target, { now: new Date("2026-07-12T02:00:00.000Z") });
+    assert.equal(result.createdCandidates, 1);
+    const candidates = h.gateway.listCandidates();
+    assert.equal(candidates[0].namespace, "agent:researcher");
+    assert.equal(candidates[0].value, "PRIVATE_SKILL");
   } finally { h.cleanup(); }
 });

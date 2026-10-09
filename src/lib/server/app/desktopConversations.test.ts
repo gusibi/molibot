@@ -15,6 +15,7 @@ import {
   decodeCursor,
   encodeCursor,
   listDesktopConversations,
+  listDesktopAgentConversations,
   parseWebProfileId,
   queryConversationSearchGroup,
   queryConversations,
@@ -531,5 +532,22 @@ test("project conversation lists expose metadata without projecting messages", (
     const list = store.listProjectConversations("p-1");
     assert.equal(list.length, 1);
     assert.equal(list[0].id, conversation.id);
+  });
+});
+
+test("Agent enumeration follows immutable Session ownership across profiles and leaves unknown history unassigned", () => {
+  withTempStorage(root => {
+    const sessions = new SessionStore();
+    const first = sessions.createWebConversation("web:old-bot:web-anonymous", undefined, "researcher");
+    const second = sessions.createWebConversation("web:agent-researcher:web-anonymous", undefined, "researcher");
+    sessions.createWebConversation("web:old-bot:web-anonymous", undefined, "writer");
+    const unknown = sessions.createWebConversation("web:old-bot:web-anonymous");
+    sessions.setMessageProjector(() => { throw new Error("enumeration opened a transcript"); });
+    const ctx = { sessions, settings: querySettings(), dataRoot: root, isActive: () => true };
+    const result = listDesktopAgentConversations({ agentId: "researcher", limit: 1 }, ctx);
+    assert.equal(result.items.length, 1); assert.ok(result.nextCursor);
+    const next = listDesktopAgentConversations({ agentId: "researcher", limit: 1, cursor: result.nextCursor }, ctx);
+    assert.deepEqual(new Set([...result.items, ...next.items].map(item => item.sessionId)), new Set([first.id, second.id]));
+    assert.deepEqual(listDesktopAgentConversations({ agentId: "__unassigned__" }, ctx).items.map(item => item.sessionId), [unknown.id]);
   });
 });

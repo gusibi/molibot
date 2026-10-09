@@ -206,10 +206,11 @@ export function resolveCustomModel(selected: CustomProviderConfig, modelId: stri
 export function applyAgentModelRoutingOverride(
   settings: RuntimeSettings,
   channel: string,
-  botId: string
+  botId: string,
+  sessionAgentId?: string
 ): RuntimeSettings {
   const instances = settings.channels?.[channel]?.instances ?? [];
-  const agentId = (instances.find((instance) => instance.id === botId)?.agentId ?? "").trim();
+  const agentId = (sessionAgentId ?? instances.find((instance) => instance.id === botId)?.agentId ?? "").trim();
   if (!agentId) return settings;
   const override = settings.agents.find((agent) => agent.id === agentId)?.modelRouting;
   if (!override) return settings;

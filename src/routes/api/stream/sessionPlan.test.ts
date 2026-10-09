@@ -12,12 +12,12 @@ test("approved plan streams through the original Session and feedback reuses tha
   const { POST } = await import("./+server.js");
   const runtime = getRuntime();
   const externalUserId = "web:personal:web-anonymous";
-  const conversation = runtime.sessions.createWebConversation(externalUserId);
+  const conversation = runtime.sessions.createWebConversation(externalUserId, undefined, "default");
   runtime.sessions.appendMessage(conversation.id, "assistant", "Approved plan", { plan: {
     id: "p", title: "Build", summary: "Build then verify", status: "accepted", recommendedMode: "accept_edits", artifactPath: "plans/p.md",
     steps: [{ id: "a", text: "Build", status: "pending" }]
   } });
-  const { pool } = resolveRuntimeContext({ profileId: "personal" });
+  const { pool } = resolveRuntimeContext({ profileId: "personal", agentId: "default" });
   const runner = pool.get(externalUserId, conversation.id);
   const originalRun = runner.run;
   const inputs: string[] = [];

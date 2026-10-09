@@ -67,3 +67,18 @@ test("drafts are isolated per session (switching away and back restores input)",
   assert.equal(store.get(sessionDraftKey("personal", "s-1")).text, "A");
   assert.equal(store.get(sessionDraftKey("work", "s-2")).text, "B");
 });
+
+test("Agent home drafts restore text, attachments, Thinking and model independently", () => {
+  const drafts = new SessionDraftStore();
+  const research = composerDraftKey("", "agent-researcher");
+  const writing = composerDraftKey("", "agent-writer");
+  const attachment = new File(["notes"], "notes.txt");
+  drafts.update(research, { text: "research", files: [attachment], thinkingLevel: "high", modelKey: "research-model" });
+  drafts.update(writing, { text: "write", thinkingLevel: "low", modelKey: "writing-model" });
+  assert.notEqual(research, writing);
+  assert.equal(drafts.get(research).text, "research");
+  assert.deepEqual(drafts.get(research).files, [attachment]);
+  assert.equal(drafts.get(research).thinkingLevel, "high");
+  assert.equal(drafts.get(research).modelKey, "research-model");
+  assert.equal(drafts.get(writing).text, "write");
+});

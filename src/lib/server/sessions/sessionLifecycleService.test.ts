@@ -306,3 +306,22 @@ test("restore refuses while fresh work is running and never replays the transcri
   assert.equal(fx.sessions.listMessages(conversation.id).length, 2);
   assert.equal(authorizedHits(fx, "omega").length, 1);
 });
+
+test("Agent deletion archives local and external history idempotently while Project history stays active", () => {
+  const h = setup();
+  try {
+    const local = h.sessions.createWebConversation(OWNER, undefined, "researcher");
+    const other = h.sessions.createWebConversation(OWNER, undefined, "writer");
+    const external = { ...local, id: "external-mirror", channel: "telegram", externalUserId: "chat" } as any;
+    const service = new SessionLifecycleService({ sessions: h.sessions, lifecycle: h.lifecycle, listExternal: () => [{ conversation: external, botId: "bot", channel: "telegram" }], isExternalSession: id => id === external.id });
+    assert.deepEqual(new Set(service.listAgentHistory("researcher").map(conversation => conversation.id)), new Set([local.id, external.id]));
+    assert.ok(service.archiveAgentHistory("researcher").every(result => result.status === "succeeded"));
+    assert.equal(h.lifecycle.get(local.id)?.state, "archived");
+    assert.equal(h.lifecycle.get(external.id)?.state, "archived");
+    assert.equal(h.lifecycle.get(other.id), null);
+    const version = h.lifecycle.get(external.id)?.version;
+    service.archiveAgentHistory("researcher");
+    assert.equal(h.lifecycle.get(external.id)?.version, version);
+    assert.equal(service.archive({ conversationId: external.id }).status, "skipped");
+  } finally { h.cleanup(); }
+});

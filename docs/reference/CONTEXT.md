@@ -29,6 +29,10 @@ _Avoid_: Temporary worker, room-local Agent definition
 The working directory used by an Agent Room's participants; multiple rooms may use the same directory and files. Writable execution is coordinated within each room, without excluding concurrent writes from other rooms.
 _Avoid_: Isolated working copy, Agent private context, project-wide write lock
 
+**Session Agent（会话所属 Agent）**:
+The fixed assistant identity owning an ordinary Personal Agent conversation. It is distinct from an Agent Room's default recipient; Project conversations retain their existing behavior in V1.
+_Avoid_: Primary Agent, current Channel binding
+
 **Primary Agent**:
 The explicitly selected default participant in an Agent Room, addressed when a user message neither names target Agents nor replies to a participant's message. Addressing another participant does not change the Primary Agent.
 _Avoid_: Last speaker, coordinator, parent Agent

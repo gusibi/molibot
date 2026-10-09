@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import ChatRoundLine from "../icons/duotone/components/ChatRoundLine.svelte";
   import Dialog from "../icons/duotone/components/Dialog.svelte";
   import Pen from "../icons/duotone/components/Pen.svelte";
@@ -18,6 +19,7 @@
 
   let {
     copy,
+    conversationContent,
     channels,
     conversationsExpanded,
     projectsExpanded,
@@ -69,6 +71,7 @@
     onOpenMiniApps
   }: {
     copy: Translation;
+    conversationContent: Snippet;
     channels: ChannelDescriptor[];
     conversationsExpanded: boolean;
     projectsExpanded: boolean;
@@ -130,6 +133,7 @@
 
   const listProps = $derived({
     copy,
+    conversationContent,
     channels,
     conversationsExpanded,
     projectsExpanded,

@@ -1,3 +1,4 @@
+import { admitStoredAgentSession } from "$lib/server/sessions/sessionAgentService.js";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -541,8 +542,17 @@ export abstract class BaseChannelRuntime {
   }
 
   protected snapshotInboundThinkingPolicy(scopeId: string, event: ChannelInboundMessage, retry = false): void {
-    const sessionId = event.sessionId ?? this.resolveInboundSessionId(scopeId, event);
+    let sessionId = event.sessionId ?? this.resolveInboundSessionId(scopeId, event);
+    const admissionTarget = this.runners.resolveTarget(scopeId, sessionId, event.projectId);
+    if (!admissionTarget.project) {
+      const agentId = this.getSettings().channels[this.channelName]?.instances.find(instance => instance.id === this.instanceId)?.agentId ?? "";
+      sessionId = admitStoredAgentSession(this.store, this.getSettings(), {
+        chatId: scopeId, sessionId, explicit: Boolean(event.sessionId), agentId,
+        recoveryRunId: event.runId, userId: event.userId, automation: event.isEvent && event.sessionMode === "fresh"
+      });
+    }
     event.sessionId = sessionId;
+    if (event.isEvent && event.runId) getEventExecutionLeaseStore().attachSessionByRunId(event.runId, sessionId);
     if (retry) event.runId = `${scopeId}-${sessionId}-${randomUUID()}`;
     event.runId ??= `${scopeId}-${sessionId}-${event.messageId}`;
     const target = this.runners.resolveTarget(scopeId, sessionId, event.projectId);
@@ -583,9 +593,8 @@ export abstract class BaseChannelRuntime {
     const previousActiveSessionId = event.isEvent && event.sessionMode === "fresh"
       ? this.store.getActiveSession(scopeId)
       : event.restoreSessionId;
-    const activeSessionId = event.isEvent
-      ? this.resolveInboundSessionId(scopeId, event)
-      : event.sessionId || this.resolveInboundSessionId(scopeId, event);
+    this.snapshotInboundThinkingPolicy(scopeId, event);
+    const activeSessionId = event.sessionId!;
     if (
       event.isEvent
       && event.sessionMode === "fresh"
@@ -599,8 +608,6 @@ export abstract class BaseChannelRuntime {
       this.store.setActiveSession(scopeId, previousActiveSessionId);
       this.store.setTaskArchiveReturnSession(scopeId, activeSessionId);
     };
-
-    this.snapshotInboundThinkingPolicy(scopeId, event);
 
     // Prepare turn metadata via TurnOrchestrator
     try {

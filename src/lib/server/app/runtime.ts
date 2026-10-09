@@ -1,3 +1,4 @@
+import { validateAgentReferences } from "$lib/server/settings/validators.js";
 import { pendingPiRecovery, piRecoveryCandidates, piRecoveryChannelManager, resumePiOwner } from "./piRecovery.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
@@ -340,9 +341,19 @@ function initializeRuntime(): RuntimeState {
       // Always merge patches on top of the latest persisted settings snapshot.
       // This prevents stale in-memory runtime copies (for example another long-lived dev process)
       // from overwriting newer channel/provider data with historical values.
-      const latestPersisted = state.settingsStore.load();
-      state.settings = sanitizeSettings(patch, latestPersisted);
+      const navigationOnly = Object.keys(patch).length === 1 && Boolean(patch.desktopNavigation);
+      const latestPersisted = state.settingsStore.load(!navigationOnly);
+      const next = sanitizeSettings(patch, latestPersisted);
+      if (patch.agents || patch.defaultAgentId !== undefined || patch.deletedAgentIds) {
+        const error = validateAgentReferences(latestPersisted, next);
+        if (error) throw new Error(error);
+      }
+      state.settings = next;
       currentSettings.value = state.settings;
+      if (navigationOnly) {
+        state.settingsStore.saveDesktopNavigation(state.settings);
+        return state.settings;
+      }
       state.settingsStore.save(state.settings);
       reconcileRoomAgents();
       if (!liveServicesDisabled()) {

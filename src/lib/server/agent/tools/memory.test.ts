@@ -107,3 +107,23 @@ test("the tool description steers remembering to add and warns about the corpus"
   assert.match(collapsed, /requires type=world_knowledge/);
   assert.match(collapsed, /use add for every user fact or preference/);
 });
+
+
+test("ordinary Agent cannot widen recall or target another Agent self namespace", async () => {
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+  const agentScope = { ...scope, agentId: "researcher", ownerId: "owner" };
+  const memory = {
+    search: async (...args: unknown[]) => { calls.push({ method: "search", args }); return []; },
+    searchAll: async () => { throw new Error("unscoped recall"); },
+    list: async (...args: unknown[]) => { calls.push({ method: "list", args }); return []; },
+    listAll: async () => { throw new Error("unscoped list"); },
+    add: async (...args: unknown[]) => { calls.push({ method: "add", args }); return { id: "self" }; }
+  };
+  const tool = createMemoryTool({ memory: memory as any, scope: agentScope });
+  await tool.execute("search", { action: "search", query: "identity", allScopes: true } as any, undefined as any);
+  await tool.execute("list", { action: "list", allScopes: true } as any, undefined as any);
+  await tool.execute("self", { action: "set_agent_self", content: "Research method", subject: "method", namespace: "agent:writer" } as any, undefined as any);
+  assert.deepEqual(calls.map(call => call.method), ["search", "search", "add"]);
+  for (const call of calls) assert.deepEqual(call.args[0], agentScope);
+  assert.equal((calls[2].args[1] as { namespace: string }).namespace, "agent:researcher");
+});

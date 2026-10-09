@@ -20,7 +20,7 @@ export interface WebRuntimeContext {
 
 const webRuntimes = new Map<string, WebRuntimeContext>();
 
-function buildRuntimeContext(workspaceDir: string): WebRuntimeContext {
+function buildRuntimeContext(workspaceDir: string, agentId?: string): WebRuntimeContext {
   const runtime = getRuntime();
   const store = new MomRuntimeStore(workspaceDir);
   const pool = new RunnerPool(
@@ -31,7 +31,8 @@ function buildRuntimeContext(workspaceDir: string): WebRuntimeContext {
     runtime.usageTracker,
     runtime.modelErrorTracker,
     runtime.memory,
-    runtime.hookManager
+    runtime.hookManager,
+    agentId ? { agentId } : undefined
   );
   return { store, pool };
 }
@@ -44,6 +45,19 @@ export function getWebRuntimeContext(profileId: string): WebRuntimeContext {
   const workspaceDir = path.join(storagePaths.webWorkspaceDir, "bots", key);
   const created = buildRuntimeContext(workspaceDir);
   webRuntimes.set(key, created);
+  return created;
+}
+
+const agentRuntimes = new Map<string, WebRuntimeContext>();
+
+export function getAgentRuntimeContext(agentId: string, profileId: string): WebRuntimeContext {
+  if (!/^[a-zA-Z0-9._-]+$/.test(agentId) || agentId === "." || agentId === "..") throw new Error("Invalid Agent ID");
+  const profile = sanitizeWebProfileId(profileId);
+  const key = `${profile}:${agentId}`;
+  const existing = agentRuntimes.get(key);
+  if (existing) return existing;
+  const created = buildRuntimeContext(path.join(storagePaths.webWorkspaceDir, "bots", profile), agentId);
+  agentRuntimes.set(key, created);
   return created;
 }
 
@@ -67,9 +81,11 @@ export function getProjectRuntimeContext(projectId: string): WebRuntimeContext {
 export function resolveRuntimeContext(input: {
   profileId: string;
   projectId?: string | null;
+  agentId?: string;
 }): WebRuntimeContext {
   const projectId = String(input.projectId ?? "").trim();
   if (projectId) return getProjectRuntimeContext(projectId);
+  if (input.agentId) return getAgentRuntimeContext(input.agentId, input.profileId);
   return getWebRuntimeContext(input.profileId);
 }
 
@@ -84,7 +100,9 @@ export function getRuntimeContextForConversation(
 ): WebRuntimeContext {
   const id = String(conversationId ?? "").trim();
   const projectId = id ? getRuntime().sessions.getConversationProjectId(id) : null;
-  return resolveRuntimeContext({ profileId, projectId });
+  const owner = id ? getRuntime().sessions.getWebConversationOwner(id) : null;
+  const conversation = owner ? getRuntime().sessions.getConversationById(id, "web", owner) : null;
+  return resolveRuntimeContext({ profileId, projectId, agentId: conversation?.agentId });
 }
 
 export function stopWebRunner(input: {

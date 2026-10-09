@@ -109,6 +109,7 @@
       {#if hiddenCount > 0}
         <button class="load-earlier-messages" type="button" onclick={() => (visibleCount += PAGE_SIZE)}>{copy.loadEarlierMessages.replace("{count}", String(Math.min(PAGE_SIZE, hiddenCount)))}</button>
       {/if}
+      {#if messages.length === 0 && !sending}<slot name="home" />{/if}
       <ConversationLiveView
         messages={visibleMessages}
         showEmpty={!liveResponses.length}

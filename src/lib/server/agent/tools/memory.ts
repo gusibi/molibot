@@ -1,3 +1,4 @@
+import { agentNamespace } from "$lib/server/memory/namespaces.js";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
@@ -70,7 +71,7 @@ export function createMemoryTool(options: {
     execute: async (_toolCallId, params) => {
       const action = params.action as MemoryAction;
       const scope = options.scope;
-      const allScopes = Boolean(params.allScopes);
+      const allScopes = Boolean(params.allScopes) && (!scope.agentId || Boolean(scope.projectId));
       if (options.writesAllowed === false && ["add", "update", "flush", "sync", "compact", "add_content", "set_agent_self"].includes(action)) {
         throw new Error("This turn is not eligible for memory writes. Search and explicit deletion remain available.");
       }
@@ -105,7 +106,9 @@ export function createMemoryTool(options: {
           subject,
           reason: "user_explicit"
         };
-        const item = action === "add_content" ? await options.memory.addContentMemory(botId, input) : await options.memory.setAgentSelfMemory(botId, input);
+        const item = action === "add_content" ? await options.memory.addContentMemory(botId, input) : scope.agentId && !scope.projectId
+          ? await options.memory.add(scope, { ...input, namespace: agentNamespace(scope.agentId), domain: "agent_self" })
+          : await options.memory.setAgentSelfMemory(botId, input);
         return { content: [{ type: "text", text: `Saved ${action}: ${item?.id ?? "(disabled)"}` }], details: { item } };
       }
 

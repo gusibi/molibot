@@ -143,7 +143,7 @@ export function buildBotNameResolver(settings: RuntimeSettings): BotNameResolver
 }
 
 export function buildWebItems(
-  entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string; origin?: string; parentSessionId?: string }; externalUserId: string; lastMessageText?: string }>,
+  entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string; agentId?: string; origin?: string; parentSessionId?: string }; externalUserId: string; lastMessageText?: string }>,
   resolver: BotNameResolver
 ): DesktopConversationItem[] {
   return entries.map((entry) => {
@@ -152,6 +152,7 @@ export function buildWebItems(
     const purpose = classifyWebPurpose(entry.conversation);
     return {
       sessionId: entry.conversation.id,
+      agentId: entry.conversation.agentId,
       title: entry.conversation.title || "New Session",
       updatedAt: entry.conversation.updatedAt,
       botId: profileId,
@@ -188,6 +189,7 @@ export function buildExternalItems(
     const { name, deleted } = resolver.externalName(channel, botId, botId);
     return {
       sessionId: entry.conversation.id,
+      agentId: entry.conversation.agentId,
       title: entry.conversation.title || "New Session",
       updatedAt: entry.conversation.updatedAt,
       botId,
@@ -384,7 +386,8 @@ function channelSearchItems(
     contextDeleted: item.botDeleted,
     readOnly: item.readOnly,
     latestMessagePreview: item.latestMessagePreview,
-    botId: item.botId
+    botId: item.botId,
+    agentId: item.agentId
   }));
 }
 
@@ -429,6 +432,8 @@ function projectSearchItems(ctx: DesktopConversationQueryContext): DesktopConver
 export function searchDesktopConversations(
   input: {
     scope?: DesktopConversationSearchScope;
+    agentId?: string;
+    includeArchived?: boolean;
     query?: string;
     limit?: number;
     cursor?: string | null;
@@ -437,17 +442,46 @@ export function searchDesktopConversations(
   ctx: DesktopConversationQueryContext = runtimeQueryContext()
 ): { scope: DesktopConversationSearchScope; groups: DesktopConversationSearchGroup[] } {
   const scope = input.scope ?? "all";
-  const effective = input.isActive ? { ...ctx, isActive: input.isActive } : ctx;
+  const effective = archiveQueryContext(ctx, input);
+  if (input.agentId !== undefined) {
+    const items = searchSourcesForScope(scope).filter(source => source !== "project")
+      .flatMap(source => channelSearchItems(effective, source as DesktopConversationChannel))
+      .filter(item => matchesAgent(item, input.agentId));
+    const group = queryConversationSearchGroup("web", items, input);
+    return { scope, groups: group.total ? [group] : [] };
+  }
   // Search always pays for previews: matching must keep working against the
   // last message, and the dialog renders the preview line.
-  const groups = searchSourcesForScope(scope).map((source) => queryConversationSearchGroup(
+  const groups = searchSourcesForScope(scope).filter(source => input.agentId === undefined || source !== "project").map((source) => queryConversationSearchGroup(
     source,
     source === "project"
       ? projectSearchItems(effective)
-      : channelSearchItems(effective, source),
+      : channelSearchItems(effective, source).filter(item => matchesAgent(item, input.agentId)),
     { query: input.query, limit: input.limit, cursor: input.cursor }
   )).filter((group) => group.total > 0);
   return { scope, groups };
+}
+
+function matchesAgent(item: { agentId?: string }, agentId?: string): boolean {
+  return agentId === undefined || agentId === "__all__" || (agentId === "__unassigned__" ? !item.agentId : item.agentId === agentId);
+}
+
+function archiveQueryContext(ctx: DesktopConversationQueryContext, input: { includeArchived?: boolean; isActive?: (id: string) => boolean }): DesktopConversationQueryContext {
+  if (input.isActive) return { ...ctx, isActive: input.isActive };
+  if (!input.includeArchived) return ctx;
+  return { ...ctx, isActive: id => getSessionLifecycleStore().get(id)?.state !== "trashed" };
+}
+
+/** Agent ownership comes from Session records, never the current Bot binding. */
+export function listDesktopAgentConversations(
+  input: { agentId?: string; sessionId?: string; limit?: number; cursor?: string | null; query?: string; includeArchived?: boolean; isActive?: (id: string) => boolean },
+  ctx: DesktopConversationQueryContext = runtimeQueryContext()
+): { items: DesktopConversationItem[]; nextCursor: string | null; hasMore: boolean } {
+  const effective = archiveQueryContext(ctx, input);
+  const channels: DesktopConversationChannel[] = ["web", "telegram", "feishu", "qq", "weixin"];
+  const items = channels.flatMap(channel => collectItems(effective, channel, Boolean(input.query?.trim())))
+    .filter(item => !item.roomId && matchesAgent(item, input.agentId) && (!input.sessionId || item.sessionId === input.sessionId));
+  return queryConversations(items, input);
 }
 
 export function listDesktopConversations(

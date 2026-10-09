@@ -965,9 +965,24 @@ export function sanitizeSingleAgent(input: unknown): AgentSettings {
     name: String(item.name ?? "").trim() || id,
     description: String(item.description ?? "").trim(),
     enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+    ...(item.visible === undefined ? {} : { visible: item.visible !== false }),
+    ...(item.avatar === undefined ? {} : { avatar: String(item.avatar).trim() }),
+    ...(item.shareOwnerMemory === undefined ? {} : { shareOwnerMemory: item.shareOwnerMemory !== false }),
     permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
     modelRouting: sanitizeAgentModelRouting(item.modelRouting)
   });
+}
+
+export function sanitizeDesktopNavigation(input: unknown): RuntimeSettings["desktopNavigation"] {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    expandedAgentIds: Array.isArray(value.expandedAgentIds) ? [...new Set(value.expandedAgentIds.map(String).filter(Boolean))] : [],
+    page: String(value.page ?? "agent"),
+    ...(value.projectId ? { projectId: String(value.projectId) } : {}),
+    ...(value.roomId ? { roomId: String(value.roomId) } : {}),
+    agentId: String(value.agentId ?? ""),
+    sessionId: String(value.sessionId ?? "")
+  };
 }
 
 export function sanitizeAgents(input: unknown): AgentSettings[] {
@@ -1614,6 +1629,12 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
   next.locale = next.locale === "zh-CN" ? "zh-CN" : "en-US";
   const sanitizedAgents = sanitizeAgents(next.agents ?? current.agents);
   next.agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
+  next.defaultAgentId = String(next.defaultAgentId ?? current.defaultAgentId ?? "default").trim();
+  next.deletedAgentIds = Array.isArray(next.deletedAgentIds) ? [...new Set(next.deletedAgentIds.map(String))] : [];
+  if (next.defaultAgentId === DEFAULT_AGENT_ID && !next.deletedAgentIds.includes(DEFAULT_AGENT_ID) && !next.agents.some(agent => agent.id === DEFAULT_AGENT_ID)) {
+    next.agents.unshift(defaultAgentSettings());
+  }
+  next.desktopNavigation = sanitizeDesktopNavigation(next.desktopNavigation);
   const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
   const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
   const sanitizedQQBots = sanitizeQQBots(next.qqBots);

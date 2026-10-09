@@ -351,6 +351,27 @@ export class SessionLifecycleService {
     );
   }
 
+  listAgentHistory(agentId: string): Conversation[] {
+    return [
+      ...this.sessions.listAllWebConversationMeta().map(entry => entry.conversation),
+      ...(this.listExternal?.() ?? []).map(entry => entry.conversation)
+    ].filter(conversation => conversation.agentId === agentId && !conversation.projectId && conversation.origin !== "agent-room");
+  }
+
+  /** Agent deletion archives external projections without enabling mirror mutations. */
+  archiveAgentHistory(agentId: string): LifecycleItemOutcome[] {
+    return this.listAgentHistory(agentId).map(conversation => {
+      if (!this.isExternalSession(conversation.id)) return this.archive({ conversationId: conversation.id });
+      const row = this.lifecycle.ensureRow(conversation.id, { createdAt: conversation.createdAt });
+      if (row.state === "archived" || row.state === "trashed") return { status: "succeeded", conversationId: row.conversationId, state: row.state, version: row.version };
+      if (this.isBusy(conversation.id)) return this.skipped(conversation.id, "busy");
+      try {
+        const next = this.mutate(row.conversationId, row, { state: "archived", archivedAt: this.nowIso() });
+        return { status: "succeeded", conversationId: next.conversationId, state: next.state, version: next.version };
+      } catch (cause) { return { status: "failed", conversationId: conversation.id, reason: String(cause) }; }
+    });
+  }
+
   archive(input: { conversationId: string; requesterExternalUserId?: string; expectedVersion?: number }): LifecycleItemOutcome {
     const resolved = this.authorizedRow(input.conversationId, input.requesterExternalUserId);
     if (!("located" in resolved)) return resolved;

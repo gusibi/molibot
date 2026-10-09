@@ -472,12 +472,12 @@ export class TurnOrchestrator {
       queryText,
       12
     );
-    if (options?.sessionId && scope.botId && scope.shareOwner !== false) {
+    if (options?.sessionId && scope.botId) {
       snapshot.profile = await memoryGateway.createProfileTurnSnapshot(options.sessionId, {
         ...scope,
         ownerId: scope.ownerId ?? "owner",
         botId: scope.botId,
-        includeOwner: true,
+        includeOwner: scope.shareOwner !== false,
         includeAgentSelf: true
       });
     }

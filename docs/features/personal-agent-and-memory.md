@@ -12,8 +12,16 @@ Molibot is built for an Agent that works with you over time, not a chat that sta
 ## Start here
 
 1. Configure a provider and create an Agent in Settings.
-2. Start a conversation in Web or Desktop.
+2. In Desktop, the default Agent appears first. Global New chat uses it; each enabled Agent’s + button starts that Agent’s draft. Select an Agent to open its home, then send the first message to create a Session. Expand its history independently, or open Full history for archived sessions and source filters. Web continues to use configured Web Profiles.
 3. Review saved and pending memories from the Memory settings area.
+
+## Ordinary Session identity
+
+The first message fixes the Session’s Agent. Session model overrides take precedence over the current Agent’s default and then the global default. Each Agent keeps its own new-chat draft. Restarting restores the last selected page or Session.
+
+Settings → Agents controls the default Agent, avatar, description, sidebar visibility, enabled state and owner memory sharing. A disabled Agent retains readable history but cannot start new turns or scheduled attempts. Deletion requires resolving channel/task references and pending work; ordinary history is archived and the deleted ID cannot be reused. Private memories remain stored but are excluded from other Agents.
+
+Unknown historical ownership is never guessed. Use Desktop’s explicit claim action before continuing an unassigned local Session. External mirrors can be classified by Agent while remaining read-only. The standalone Web page has no claim control; an unknown old Web Session must first be claimed from Desktop.
 
 ## Boundaries
 
@@ -25,4 +33,5 @@ Memory is configurable and reviewable. It is not a claim that every conversation
 - [ADR 0001: memory namespace and turn-retention semantics](../adr/0001-memory-namespace-and-turn-retention.md)
 - [Memory improvement plan v3 (archived)](../archive/requirements/memory-improvement-plan-v3.md)
 - [Project session provenance (archived)](../archive/requirements/project-session-provenance-and-inspection.md)
+- [Personal Agent V1 acceptance contract](../requirements/personal-agent-desktop-v1-spec.md)
 - [Delivered changes](../../features.md)

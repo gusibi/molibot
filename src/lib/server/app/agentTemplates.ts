@@ -26,7 +26,9 @@ export function installAgentTemplate(templateId: string): { templateId: string; 
           id: installed.template.id,
           name: installed.template.name,
           description: installed.template.description,
-          enabled: true
+          enabled: true,
+          visible: false,
+          shareOwnerMemory: false
         }
       ]
     });
@@ -81,7 +83,9 @@ export function updateAgentTemplate(templateId: string): AgentTemplateUpdateResu
           id,
           name: updated.template.name,
           description: updated.template.description,
-          enabled: true
+          enabled: true,
+          visible: false,
+          shareOwnerMemory: false
         }
       ]
     });

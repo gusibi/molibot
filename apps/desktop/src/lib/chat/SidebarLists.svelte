@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import Plus from "reicon-svelte/icons/Plus";
   import ChatRoundLine from "../icons/duotone/components/ChatRoundLine.svelte";
@@ -14,6 +15,7 @@
 
   let {
     copy,
+    conversationContent,
     channels,
     sections,
     conversationsExpanded,
@@ -56,6 +58,7 @@
     onOpenSettings
   }: {
     copy: Translation;
+    conversationContent: Snippet;
     channels: ChannelDescriptor[];
     sections: SidebarListSection[];
     conversationsExpanded: boolean;
@@ -141,29 +144,7 @@
         </button>
       </div>
       {#if conversationsOpen}
-        {#each channels as channel (channel.id)}
-          <ChannelAccordion
-            {channel}
-            expanded={Boolean(expandedChannels[channel.id])}
-            items={channelItems[channel.id] ?? []}
-            hasMore={Boolean(channelHasMore[channel.id])}
-            loading={Boolean(channelLoading[channel.id])}
-            loadingMore={Boolean(channelLoadingMore[channel.id])}
-            {activeSessionId}
-            {statusDots}
-            labels={accordionLabels}
-            {formatTime}
-            onToggle={() => onToggleChannel(channel.id)}
-            onNewSession={channel.id === "web" ? onNewConversation : null}
-            onSelect={onSelectSession}
-            onMore={() => onMoreChannel(channel.id)}
-            onConfigure={onOpenSettings}
-            onRenameItem={onRenameSession}
-            onDeleteItem={onDeleteSession}
-            onCopySessionPath={onCopySessionPath}
-            onRevealSessionInFinder={onRevealSessionInFinder}
-          />
-        {/each}
+        {@render conversationContent()}
       {/if}
     </section>
   {/if}

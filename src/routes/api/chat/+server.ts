@@ -1,3 +1,4 @@
+import { resolveOrdinaryWebConversation } from "$lib/server/sessions/sessionAgentService.js";
 import { getRoomStore } from "$lib/server/rooms/runtime.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -67,6 +68,7 @@ interface ChatBody {
   message?: string;
   conversationId?: string;
   profileId?: string;
+  agentId?: string;
   thinkingLevel?: string;
   projectId?: string;
   modelKey?: string;
@@ -78,6 +80,7 @@ interface ParsedWebChatRequest {
   message: string;
   conversationId?: string;
   profileId: string;
+  agentId?: string;
   files: File[];
   thinkingLevel?: RuntimeThinkingSelection;
   projectId?: string;
@@ -507,6 +510,7 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
       message,
       conversationId: conversationRaw || undefined,
       profileId,
+      agentId: String(form.get("agentId") ?? "").trim() || undefined,
       files,
       thinkingLevel: sanitizeOptionalRuntimeThinkingSelection(form.get("thinkingLevel")),
       projectId: String(form.get("projectId") ?? "").trim() || undefined,
@@ -521,6 +525,7 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
     message: normalizeText(String(body.message ?? "")),
     conversationId: String(body.conversationId ?? "").trim() || undefined,
     profileId: sanitizeWebProfileId(body.profileId),
+    agentId: body.agentId?.trim() || undefined,
     files: [],
     thinkingLevel: sanitizeOptionalRuntimeThinkingSelection(body.thinkingLevel),
     projectId: String(body.projectId ?? "").trim() || undefined,
@@ -592,14 +597,16 @@ export const POST: RequestHandler = async ({ request }) => {
     conversationId: parsed.conversationId
   });
   const externalUserId = identity.externalUserId;
-  const conversation = runtime.sessions.getOrCreateConversation(
-    "web",
-    externalUserId,
-    parsed.conversationId,
-    { projectId: project?.id }
-  );
+  let conversation;
+  try {
+    conversation = project
+      ? runtime.sessions.getOrCreateConversation("web", externalUserId, parsed.conversationId, { projectId: project.id })
+      : resolveOrdinaryWebConversation(runtime.sessions, runtime.getSettings(), { externalUserId, profileId: identity.profileId, conversationId: parsed.conversationId, agentId: parsed.agentId });
+  } catch (cause) {
+    return json({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }, { status: 409 });
+  }
 
-  const { store, pool } = resolveRuntimeContext({ profileId: identity.profileId, projectId: project?.id });
+  const { store, pool } = resolveRuntimeContext({ profileId: identity.profileId, projectId: project?.id, agentId: conversation.agentId });
   // The runner is always keyed by the conversation's own identity (project or
   // Web owner) so the turn reopens the exact agent context that wrote this
   // session's history instead of forking a caller-keyed copy.
@@ -766,7 +773,7 @@ export const POST: RequestHandler = async ({ request }) => {
     chatDir: store.getChatDir(runnerChatId),
     thinkingLevelOverride: resolvedThinkingLevel,
     thinkingStrategySource: parsed.thinkingLevel !== undefined ? "request" : sessionThinkingOverride !== undefined && sessionThinkingOverride !== null ? "session" : project?.thinkingLevel !== undefined ? "project" : "global",
-    modelKeyOverride: parsed.modelKey ?? project?.modelKey,
+    modelKeyOverride: parsed.modelKey ?? conversation.modelKey ?? project?.modelKey,
     project: buildRunnerProjectContext(project, store.getScratchDir(runnerChatId)),
     message: {
       chatId: runnerChatId,

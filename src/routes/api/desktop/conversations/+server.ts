@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import {
   listDesktopConversations,
+  listDesktopAgentConversations,
   renameDesktopConversation,
   deleteDesktopConversation
 } from "$lib/server/app/desktopConversations.js";
@@ -36,7 +37,9 @@ export const GET: RequestHandler = async ({ url }) => {
   const query = url.searchParams.get("query") || "";
   const botId = url.searchParams.get("botId") || "";
 
-  const result = listDesktopConversations({
+  const result = url.searchParams.has("agentId") || url.searchParams.has("allAgents")
+    ? listDesktopAgentConversations({ sessionId: url.searchParams.get("sessionId") ?? undefined, agentId: url.searchParams.get("agentId") ?? undefined, limit, cursor, query, includeArchived: url.searchParams.get("includeArchived") === "true" })
+    : listDesktopConversations({
     channel,
     limit,
     cursor,

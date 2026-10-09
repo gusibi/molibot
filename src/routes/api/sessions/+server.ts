@@ -1,3 +1,4 @@
+import { requireEnabledAgent } from "$lib/server/sessions/sessionAgentService.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
@@ -36,9 +37,9 @@ export const GET: RequestHandler = async ({ url }) => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: { userId?: string; profileId?: string };
+  let body: { userId?: string; profileId?: string; agentId?: string };
   try {
-    body = (await request.json()) as { userId?: string; profileId?: string };
+    body = (await request.json()) as { userId?: string; profileId?: string; agentId?: string };
   } catch {
     body = {};
   }
@@ -46,13 +47,18 @@ export const POST: RequestHandler = async ({ request }) => {
   const userId = sanitizeWebUserId(body.userId);
   const profileId = sanitizeWebProfileId(body.profileId);
   const externalUserId = toWebExternalUserId(userId, profileId);
-  const { sessions } = getRuntime();
-  const { conversation: session, reused } = sessions.getOrCreateEmptyWebConversation(externalUserId);
+  const { sessions, getSettings } = getRuntime();
+  const agentId = body.agentId ?? getSettings().channels.web?.instances.find(item => item.id === profileId)?.agentId;
+  if (!agentId) return json({ ok: false, error: "Select an Agent" }, { status: 409 });
+  try { requireEnabledAgent(getSettings(), agentId); }
+  catch (cause) { return json({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }, { status: 409 }); }
+  const { conversation: session, reused } = sessions.getOrCreateEmptyWebConversation(externalUserId, agentId);
 
   return json({
     ok: true,
     session: {
       id: session.id,
+      agentId: session.agentId,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       title: session.title || "New Session"

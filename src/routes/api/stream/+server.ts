@@ -1,3 +1,4 @@
+import { resolveOrdinaryWebConversation } from "$lib/server/sessions/sessionAgentService.js";
 import { getRoomStore } from "$lib/server/rooms/runtime.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { describeExecutionHistory } from "$lib/server/agent/session/executionHistory.js";
@@ -174,13 +175,15 @@ export const POST: RequestHandler = async ({ request }) => {
   // surface and silently continue or create a different session.
   const identity = resolveWebConversationIdentity({ profileId, userId, conversationId });
   const externalUserId = identity.externalUserId;
-  const conversation = runtime.sessions.getOrCreateConversation(
-    "web",
-    externalUserId,
-    conversationId,
-    { projectId: project?.id }
-  );
-  const { store, pool } = resolveRuntimeContext({ profileId: identity.profileId, projectId: project?.id });
+  let conversation;
+  try {
+    conversation = project
+      ? runtime.sessions.getOrCreateConversation("web", externalUserId, conversationId, { projectId: project.id })
+      : resolveOrdinaryWebConversation(runtime.sessions, runtime.getSettings(), { externalUserId, profileId: identity.profileId, conversationId, agentId: body.agentId });
+  } catch (cause) {
+    return new Response(JSON.stringify({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }), { status: 409, headers: { "Content-Type": "application/json" } });
+  }
+  const { store, pool } = resolveRuntimeContext({ profileId: identity.profileId, projectId: project?.id, agentId: conversation.agentId });
   // The runner is always keyed by the conversation's own identity (project or
   // Web owner) so the turn reopens the exact agent context that wrote this
   // session's history instead of forking a caller-keyed copy.

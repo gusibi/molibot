@@ -2727,6 +2727,10 @@ export async function listDesktopConversations(
     cursor?: string | null;
     query?: string;
     botId?: string;
+    agentId?: string;
+    allAgents?: boolean;
+    sessionId?: string;
+    includeArchived?: boolean;
   }
 ): Promise<DesktopConversationsResponse> {
   const search = new URLSearchParams({ channel: params.channel });
@@ -2734,6 +2738,10 @@ export async function listDesktopConversations(
   if (params.cursor) search.set("cursor", params.cursor);
   if (params.query) search.set("query", params.query);
   if (params.botId) search.set("botId", params.botId);
+  if (params.agentId !== undefined) search.set("agentId", params.agentId);
+  if (params.allAgents) search.set("allAgents", "true");
+  if (params.sessionId) search.set("sessionId", params.sessionId);
+  if (params.includeArchived) search.set("includeArchived", "true");
   return requestJson<DesktopConversationsResponse>(
     endpoint,
     `/api/desktop/conversations?${search.toString()}`
@@ -2864,12 +2872,16 @@ export async function searchDesktopConversations(
   endpoint: string,
   params: {
     scope: DesktopConversationSearchScope;
+    agentId?: string;
+    includeArchived?: boolean;
     query?: string;
     limit?: number;
     cursor?: string | null;
   }
 ): Promise<DesktopConversationSearchResponse> {
   const search = new URLSearchParams({ scope: params.scope });
+  if (params.agentId !== undefined) search.set("agentId", params.agentId);
+  if (params.includeArchived) search.set("includeArchived", "true");
   if (params.query) search.set("query", params.query);
   if (params.limit) search.set("limit", String(params.limit));
   if (params.cursor) search.set("cursor", params.cursor);
@@ -2897,7 +2909,8 @@ export async function listDesktopSessions(
 
 export async function createDesktopSession(
   endpoint: string,
-  profileId: string
+  profileId: string,
+  agentId?: string
 ): Promise<DesktopSessionSummary & { reused: boolean }> {
   const payload = await requestJson<{ ok: true; session: DesktopSessionSummary; reused: boolean }>(
     endpoint,
@@ -2905,7 +2918,7 @@ export async function createDesktopSession(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profileId })
+      body: JSON.stringify({ profileId, agentId })
     }
   );
   return { ...payload.session, reused: payload.reused };
@@ -4305,4 +4318,18 @@ export async function saveDesktopSystem(endpoint: string, patch: import("@molibo
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
   });
   return payload.config;
+}
+
+export interface DesktopAgentNavigation { projectId?: string; roomId?: string; expandedAgentIds: string[]; page: string; agentId: string; sessionId: string }
+export function loadDesktopAgentNavigation(endpoint: string): Promise<{ navigation: DesktopAgentNavigation; defaultAgentId: string }> {
+  return requestJson(endpoint, "/api/desktop/agent-navigation");
+}
+export function saveDesktopAgentNavigation(endpoint: string, navigation: DesktopAgentNavigation): Promise<unknown> {
+  return requestJson(endpoint, "/api/desktop/agent-navigation", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ navigation }) });
+}
+export function setDesktopDefaultAgent(endpoint: string, defaultAgentId: string): Promise<unknown> {
+  return requestJson(endpoint, "/api/desktop/agent-navigation", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ defaultAgentId }) });
+}
+export function claimDesktopSessionAgent(endpoint: string, conversationId: string, agentId: string): Promise<unknown> {
+  return requestJson(endpoint, "/api/desktop/session-agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId, agentId }) });
 }

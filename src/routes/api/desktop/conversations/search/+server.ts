@@ -23,6 +23,8 @@ function parseLimit(raw: string | null): number | undefined {
 
 export const GET: RequestHandler = ({ url }) => {
   const result = searchDesktopConversations({
+    agentId: url.searchParams.get("agentId") ?? undefined,
+    includeArchived: url.searchParams.get("includeArchived") === "true",
     scope: parseScope(url.searchParams.get("scope")),
     query: url.searchParams.get("query") || "",
     limit: parseLimit(url.searchParams.get("limit")),

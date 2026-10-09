@@ -25,7 +25,7 @@ import type { SessionExtractionStatusSource } from "$lib/server/sessions/session
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import {
   getProjectRuntimeContext,
-  getWebRuntimeContext
+  getRuntimeContextForConversation
 } from "$lib/server/web/runtimeContext.js";
 
 /**
@@ -161,7 +161,7 @@ export function buildSessionTrashPorts(
       const projectId = sessions.getConversationProjectId(sessionId);
       const store = projectId
         ? getProjectRuntimeContext(projectId).store
-        : getWebRuntimeContext(profileIdFromChatId(chatId)).store;
+        : getRuntimeContextForConversation(profileIdFromChatId(chatId), sessionId).store;
       // Idempotent by design: missing contexts report false, never throw.
       store.deleteSessionArtifacts(chatId, sessionId);
     },

@@ -7,6 +7,8 @@
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
+  import { setDesktopDefaultAgent } from "../api";
+  import { notifySettingsChanged } from "../stores/session.svelte";
   import { modelOptionCopy } from "../presentation";
   import type { DesktopModelRoute } from "../api";
   import { session } from "../stores/session.svelte";
@@ -52,6 +54,9 @@
 {:else if agentsStore.loading || !agentsStore.agents}
   <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else}
+  <SettingGroup><SettingRow title={session.locale === "zh-CN" ? "默认 Agent" : "Default Agent"}>
+    <SelectControl value={agentsStore.agents?.defaultAgentId ?? "default"} options={agentsStore.agents.items.filter(agent => agent.enabled).map(agent => ({ value: agent.id, label: agent.name }))} ariaLabel={session.locale === "zh-CN" ? "默认 Agent" : "Default Agent"} onChange={async id => { if (!session.endpoint) return; try { await setDesktopDefaultAgent(session.endpoint, id); await loadAgents(session.endpoint); notifySettingsChanged(); } catch (cause) { session.error = String(cause); } }} />
+  </SettingRow></SettingGroup>
   {#if !agentsStore.agentEdit && agentsStore.templates.length > 0}
     <SettingGroup title={session.text.agentTemplates} description={session.text.agentTemplatesHint}>
       {#each agentsStore.templates as template (template.id)}
@@ -140,6 +145,9 @@
         <label class="settings-field"><span>{field.label}</span><SelectControl value={agentsStore.agentEdit.modelRouting[field.key as keyof typeof agentsStore.agentEdit.modelRouting]} ariaLabel={field.label} options={[{ value: "", label: session.text.agentFollowGlobal }, ...(modelsStore.modelStates[field.route as DesktopModelRoute]?.options ?? []).map((option) => ({ value: option.key, label: modelOptionCopy(option).name }))]} onChange={(value) => updateAgentEdit((draft) => ({ ...draft, modelRouting: { ...draft.modelRouting, [field.key]: value } }))} /></label>
       {/each}
     </div>
+    <label class="settings-field"><span>{session.locale === "zh-CN" ? "头像地址" : "Avatar URL"}</span><input value={agentsStore.agentEdit.avatar ?? ""} oninput={event => updateAgentEdit(draft => ({ ...draft, avatar: event.currentTarget.value }))} /></label>
+    <SettingRow title={session.locale === "zh-CN" ? "在对话侧栏显示" : "Show in chat sidebar"}><IosSwitch checked={agentsStore.agentEdit.id === agentsStore.agents?.defaultAgentId || agentsStore.agentEdit.visible !== false} disabled={agentsStore.agentEdit.id === agentsStore.agents?.defaultAgentId} ariaLabel={session.locale === "zh-CN" ? "在对话侧栏显示" : "Show in chat sidebar"} onCheckedChange={visible => updateAgentEdit(draft => ({ ...draft, visible }))} /></SettingRow>
+    <SettingRow title={session.locale === "zh-CN" ? "使用共享个人记忆" : "Use shared owner memory"}><IosSwitch checked={agentsStore.agentEdit.shareOwnerMemory !== false} ariaLabel={session.locale === "zh-CN" ? "使用共享个人记忆" : "Use shared owner memory"} onCheckedChange={shareOwnerMemory => updateAgentEdit(draft => ({ ...draft, shareOwnerMemory }))} /></SettingRow>
     <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.agentEnabled}</span><IosSwitch checked={agentsStore.agentEdit.enabled} ariaLabel={session.text.agentEnabled} onCheckedChange={(checked) => updateAgentEdit((draft) => ({ ...draft, enabled: checked }))} /></div></div>
     <div class="provider-editor-toolbar"><strong>{session.text.agentFiles}</strong></div>
     <div class="profile-files-editor">
@@ -148,7 +156,7 @@
       {/each}
     </div>
     </div>
-    <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={agentsStore.saving || !agentsStore.agentEdit.id.trim()}>{agentsStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
+    <footer class="entity-editor-foot settings-footbar"><button class="secondary-button" type="button" disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={agentsStore.saving || !agentsStore.agentEdit.id.trim()}>{agentsStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
   </form>
   </Dialog>
 {/if}

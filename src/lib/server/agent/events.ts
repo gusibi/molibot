@@ -38,6 +38,7 @@ export interface ManagedEventMetadata {
 export interface InternalEventTarget {
   ownerId: string;
   botId: string;
+  agentId?: string;
   timezone: string;
   sourceScopes: Array<{ channel: string; externalUserId: string; projectId?: string; shareOwner?: boolean }>;
 }
@@ -306,6 +307,7 @@ export interface EventsWatcherOptions {
    */
   catchUpWindowMs?: number;
   /** Called after a one-shot event is skipped because it missed the window. */
+  skipReason?: (event: MomEvent) => string | undefined;
   onSkip?: (context: { event: MomEvent; filename: string; reason: string }) => void;
 }
 
@@ -575,6 +577,14 @@ export class EventsWatcher {
   }
 
   private dispatchEvent(event: MomEvent, filename: string, slotKey?: string): void {
+    const skipReason = this.options.skipReason?.(event);
+    if (skipReason) {
+      const triggerSlot = slotKey ?? this.buildTriggerSlot(event, filename);
+      const settings = this.getExecutionSettings();
+      this.getLeaseStore().recordSkipped({ leaseScope: this.getLeaseScope(), eventFile: filename, eventType: event.type, triggerSlot, chatId: event.chatId, sessionId: event.sessionId ?? event.chatId, channel: this.options.channel, taskId: event.taskId ?? `${this.getLeaseScope()}:${filename}`, runId: this.createRunId(filename), maxAttempts: settings.maxAttempts, timeoutMs: settings.executionTimeoutMs, eventPayloadJson: JSON.stringify(event), reason: skipReason });
+      this.markSkipped(filename, event, skipReason, triggerSlot);
+      return;
+    }
     if (event.type === "periodic" && this.isRunningLockEnabled()) {
       const lock = this.tryAcquirePeriodicRunLock(filename, slotKey ?? this.buildMinuteSlotKey(new Date()));
       if (!lock) return;
@@ -1001,7 +1011,7 @@ export class EventsWatcher {
     }
   }
 
-  private markSkipped(filename: string, event: MomEvent, reason: string): void {
+  private markSkipped(filename: string, event: MomEvent, reason: string, slotKey?: string): void {
     this.updateEventFile(filename, (current) => ({
       ...current,
       delivery: this.resolveDeliveryMode(current),
@@ -1010,10 +1020,17 @@ export class EventsWatcher {
         state: "skipped",
         completedAt: new Date().toISOString(),
         runCount: current.status?.runCount ?? event.status?.runCount ?? 0,
-        reason
+        reason,
+        ...(slotKey ? { lastSlotKey: slotKey } : {})
       }
     }));
-    this.cancel(filename);
+    if (event.type === "periodic") {
+      const entry = this.periodic.get(filename);
+      if (entry) {
+        entry.event.status = { ...entry.event.status, state: "skipped", reason, ...(slotKey ? { lastSlotKey: slotKey } : {}) };
+        if (slotKey) entry.lastTick = slotKey;
+      }
+    } else this.cancel(filename);
     this.knownFiles.add(filename);
     this.options.onSkip?.({ event, filename, reason });
   }

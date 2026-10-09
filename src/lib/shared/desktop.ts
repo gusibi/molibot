@@ -1530,6 +1530,9 @@ export interface DesktopProviderAuthLogoutResponse {
 }
 
 export interface DesktopAgentItem {
+  visible?: boolean;
+  avatar?: string;
+  shareOwnerMemory?: boolean;
   id: string;
   name: string;
   description: string;
@@ -1541,6 +1544,9 @@ export interface DesktopAgentItem {
 }
 
 export interface DesktopAgentSaveRequest {
+  visible?: boolean;
+  avatar?: string;
+  shareOwnerMemory?: boolean;
   previousId?: string;
   id: string;
   name: string;
@@ -1552,6 +1558,8 @@ export interface DesktopAgentSaveRequest {
 }
 
 export interface DesktopAgentsSummary {
+  deletedAgentIds?: string[];
+  defaultAgentId?: string;
   items: DesktopAgentItem[];
   counts: { total: number; enabled: number };
 }
@@ -2469,6 +2477,7 @@ export type DesktopConversationPurpose =
  * true for external channels (plan §3.3).
  */
 export interface DesktopConversationItem {
+  agentId?: string;
   roomId?: string;
   sessionId: string;
   title: string;
@@ -2497,6 +2506,7 @@ export type DesktopConversationSearchScope = "all" | DesktopConversationSearchSo
 
 /** One owner-visible result from the Desktop's cross-source conversation search. */
 export interface DesktopConversationSearchItem {
+  agentId?: string;
   source: DesktopConversationSearchSource;
   sessionId: string;
   title: string;

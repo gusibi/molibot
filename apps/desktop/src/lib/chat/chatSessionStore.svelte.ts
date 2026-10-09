@@ -7,7 +7,8 @@ import {
 } from "./sessionRuntimeRegistry.svelte";
 import {
   SessionDraftStore,
-  NEW_CONVERSATION_KEY,
+  type SessionDraft,
+  composerDraftKey,
   sessionDraftKey
 } from "./sessionDraftStore";
 import type { ConversationLabels, UiMessage } from "./conversationController.svelte";
@@ -61,10 +62,11 @@ export interface ChatSessionStoreDeps {
   /** Fires the instant a draft session gets its id, BEFORE the first turn snapshots
    * its context. The host uses this to seed the new session's model so the very
    * first message runs on the model picked while still in draft mode. */
-  onDraftSessionCreated?(profileId: string, sessionId: string): void | Promise<void>;
+  onDraftSessionCreated?(profileId: string, sessionId: string, draft: SessionDraft): void | Promise<void>;
   /** Per-session text-model routing key a turn on this session should run with
    * (persisted per conversation → global default). Undefined leaves the runtime
    * on the global routing. */
+  resolveAgent?(profileId: string): string | undefined;
   resolveModel?(profileId: string, sessionId: string): string | undefined;
 }
 
@@ -108,6 +110,7 @@ export class ChatSessionStore {
   /** Bot (profile id) chosen for the new-conversation draft (plan §6.1). */
   draftProfileId = $state("");
 
+  private selectionRevision = 0;
   private deps: ChatSessionStoreDeps | null = null;
 
   init(deps: ChatSessionStoreDeps): void {
@@ -159,6 +162,7 @@ export class ChatSessionStore {
    * transcript. Switching never touches any other entry's in-flight turn. */
   async selectSession(profileId: string, sessionId: string): Promise<void> {
     if (!profileId || !sessionId) return;
+    this.selectionRevision += 1;
     this.draftMode = false;
     const entry = this.registry.getOrCreate(profileId, sessionId);
     this.registry.setActive(profileId, sessionId);
@@ -171,15 +175,17 @@ export class ChatSessionStore {
 
   /** Enters the not-yet-persisted new-conversation draft (plan §6.1). */
   newConversationDraft(defaultProfileId: string): void {
+    this.selectionRevision += 1;
     this.registry.clearActive();
     this.draftMode = true;
     this.draftProfileId = defaultProfileId;
-    this.draftStore.setProfileId(NEW_CONVERSATION_KEY, defaultProfileId);
+    this.draftStore.setProfileId(composerDraftKey("", defaultProfileId), defaultProfileId);
   }
 
   setDraftProfileId(profileId: string): void {
+    this.selectionRevision += 1;
     this.draftProfileId = profileId;
-    this.draftStore.setProfileId(NEW_CONVERSATION_KEY, profileId);
+    this.draftStore.setProfileId(composerDraftKey("", profileId), profileId);
   }
 
   /**
@@ -200,17 +206,25 @@ export class ChatSessionStore {
     if (this.draftMode || !this.registry.active) {
       const profileId = this.draftProfileId;
       if (!profileId) return;
-      const created = await createDesktopSession(endpoint, profileId);
-      const selectedThinking = this.draftStore.get(NEW_CONVERSATION_KEY).thinkingLevel;
+      const draftKey = composerDraftKey("", profileId);
+      const draft = { ...this.draftStore.get(draftKey), files: [...files] };
+      const submittedDraft = this.draftStore.update(draftKey, { text: "", files: [] });
+      const revision = this.selectionRevision;
+      const created = await createDesktopSession(endpoint, profileId, deps.resolveAgent?.(profileId));
+      const selectedThinking = draft.thinkingLevel;
       this.draftStore.setThinking(sessionDraftKey(profileId, created.id), selectedThinking);
       const entry = this.registry.getOrCreate(profileId, created.id);
       // Persist draft-scoped routing before activating/sending. If this fails,
       // the caller keeps the draft text and can retry instead of creating a
       // conversation that only appears to remember its selected model.
-      await deps.onDraftSessionCreated?.(profileId, created.id);
-      this.registry.setActive(profileId, created.id);
-      this.draftMode = false;
-      this.draftStore.clear(NEW_CONVERSATION_KEY);
+      await deps.onDraftSessionCreated?.(profileId, created.id, draft);
+      const unchangedDraft = this.draftStore.get(draftKey) === submittedDraft;
+      const stillSelected = unchangedDraft && revision === this.selectionRevision && this.draftMode && this.draftProfileId === profileId && !this.registry.active;
+      if (stillSelected) {
+        this.registry.setActive(profileId, created.id);
+        this.draftMode = false;
+      }
+      if (unchangedDraft) this.draftStore.clear(draftKey);
       // Surface the new conversation in the sidebar the instant it exists, not
       // after the first (possibly long) turn settles. Previously this fired only
       // once `controller.send` resolved, so a running first turn — whose title

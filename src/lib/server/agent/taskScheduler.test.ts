@@ -104,7 +104,7 @@ test("internal reflection sends one separate context-free notice only when reque
 test("owner runtime creates one dynamic reflection event regardless of Bot count", () => {
   const eventsDir = mkdtempSync(join(tmpdir(), "molibot-reflection-event-"));
   try {
-    const settings = { timezone: "Asia/Shanghai", plugins: { memory: { enabled: true, backend: "mory", reflectionTime: "03:00", reflectionNotifications: true } }, channels: { web: { instances: [{ id: "momo", enabled: true, allowedChatIds: [] }] }, telegram: { instances: [] } } } as any;
+    const settings = { timezone: "Asia/Shanghai", agents: [{ id: "personal", enabled: true }], plugins: { memory: { enabled: true, backend: "mory", reflectionTime: "03:00", reflectionNotifications: true } }, channels: { web: { instances: [{ id: "momo", agentId: "personal", enabled: true, allowedChatIds: [] }] }, telegram: { instances: [] } } } as any;
     const file = ensureOwnerMemoryReflectionEvent(eventsDir, settings);
     assert.ok(file);
     const event = JSON.parse(readFileSync(file, "utf8"));
@@ -112,13 +112,13 @@ test("owner runtime creates one dynamic reflection event regardless of Bot count
     assert.deepEqual(event.managed, { by: "molibot", scope: "owner", kind: "memory-reflection", ownerId: "owner" });
     assert.equal(event.internal.target, undefined);
     assert.equal(event.schedule, "0 3 * * *");
-    assert.equal(collectMemoryReflectionInternals(settings).length, 1);
+    assert.equal(collectMemoryReflectionInternals(settings).length, 2);
     writeFileSync(file, JSON.stringify({ ...event, status: { state: "completed", runCount: 3 } }));
-    settings.channels.telegram.instances.push({ id: "future-bot", enabled: true, allowedChatIds: ["chat-2"] });
+    settings.channels.telegram.instances.push({ id: "future-bot", agentId: "personal", enabled: true, allowedChatIds: ["chat-2"] });
     ensureOwnerMemoryReflectionEvent(eventsDir, settings);
     const updated = JSON.parse(readFileSync(file, "utf8"));
     assert.equal(updated.status.runCount, 3);
-    assert.equal(collectMemoryReflectionInternals(settings).length, 2);
+    assert.equal(collectMemoryReflectionInternals(settings).length, 3);
     assert.equal(readdirSync(eventsDir).filter((name) => name === "memory-reflection.json").length, 1);
   } finally { rmSync(eventsDir, { recursive: true, force: true }); }
 });

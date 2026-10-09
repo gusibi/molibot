@@ -35,3 +35,63 @@ test("reconnect binds cancellation to the listed run and counts only actual stop
     ]);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+
+test("first send retains its draft settings while another Agent becomes active", async () => {
+  const originalFetch = globalThis.fetch;
+  let release!: (response: Response) => void;
+  globalThis.fetch = async () => new Promise<Response>(resolve => { release = resolve; });
+  try {
+    const store = new ChatSessionStore();
+    const snapshots: unknown[] = [];
+    const sent: unknown[] = [];
+    store.init({ endpoint: () => "http://isolated.invalid", modelReady: () => true,
+      labels: () => ({} as any), loadTranscript: async () => [],
+      onDraftSessionCreated: (_profile, _id, draft) => { snapshots.push(draft); } });
+    store.newConversationDraft("agent-researcher");
+    store.draftStore.update("__new_conversation__:agent-researcher", { modelKey: "research-model", thinkingLevel: "high" });
+    (store.registry as any).getOrCreate = () => ({ controller: { send: async (input: unknown) => { sent.push(input); } } });
+    const pending = store.send("Research", []);
+    store.newConversationDraft("agent-writer");
+    store.draftStore.update("__new_conversation__:agent-writer", { text: "Writer draft", modelKey: "writer-model" });
+    release(new Response(JSON.stringify({ ok: true, session: { id: "research-session" }, reused: false })));
+    await pending;
+    assert.equal(store.draftProfileId, "agent-writer");
+    assert.equal(store.draftMode, true);
+    assert.equal(store.registry.active, undefined);
+    assert.equal((snapshots[0] as { modelKey: string }).modelKey, "research-model");
+    assert.equal(store.draftStore.get("__new_conversation__:agent-writer").text, "Writer draft");
+    assert.deepEqual(sent, [{ message: "Research", files: [] }]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("first send does not consume a new draft after returning to the same Agent", async () => {
+  const originalFetch = globalThis.fetch;
+  let release!: (response: Response) => void;
+  globalThis.fetch = async () => new Promise<Response>(resolve => { release = resolve; });
+  try {
+    const store = new ChatSessionStore();
+    const snapshots: unknown[] = [];
+    const sent: unknown[] = [];
+    store.init({ endpoint: () => "http://isolated.invalid", modelReady: () => true,
+      labels: () => ({} as any), loadTranscript: async () => [],
+      onDraftSessionCreated: (_profile, _id, draft) => { snapshots.push(draft); } });
+    store.newConversationDraft("agent-researcher");
+    store.draftStore.update("__new_conversation__:agent-researcher", { modelKey: "research-model", thinkingLevel: "high" });
+    (store.registry as any).getOrCreate = () => ({ controller: { send: async (input: unknown) => { sent.push(input); } } });
+    const pending = store.send("Research", []);
+    store.newConversationDraft("agent-writer");
+    store.draftStore.update("__new_conversation__:agent-writer", { text: "Writer draft", modelKey: "writer-model" });
+    store.newConversationDraft("agent-researcher");
+    store.draftStore.update("__new_conversation__:agent-researcher", { text: "New research draft", modelKey: "new-model" });
+    release(new Response(JSON.stringify({ ok: true, session: { id: "research-session" }, reused: false })));
+    await pending;
+    assert.equal(store.draftProfileId, "agent-researcher");
+    assert.equal(store.draftStore.get("__new_conversation__:agent-researcher").text, "New research draft");
+    assert.equal(store.draftMode, true);
+    assert.equal(store.registry.active, undefined);
+    assert.equal((snapshots[0] as { modelKey: string }).modelKey, "research-model");
+    assert.equal(store.draftStore.get("__new_conversation__:agent-writer").text, "Writer draft");
+    assert.deepEqual(sent, [{ message: "Research", files: [] }]);
+  } finally { globalThis.fetch = originalFetch; }
+});

@@ -512,3 +512,25 @@ test("a run suspended on approval settles its lease as waiting_approval and rele
     store.close();
   }
 });
+
+test("disabled Agent trigger records a skipped reason and a restarted watcher does not replay the slot", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-disabled-event-"));
+  const leases = new EventExecutionLeaseStore(":memory:");
+  const filename = "periodic.json";
+  let disabled = true; let calls = 0;
+  const event: MomEvent = { type: "periodic", chatId: "chat", text: "hello", schedule: "* * * * *", timezone: "UTC" };
+  writeFileSync(join(root, filename), JSON.stringify(event));
+  const makeWatcher = () => new EventsWatcher(root, async () => { calls += 1; }, { channel: "telegram", leaseStore: leases, skipReason: () => disabled ? "agent_disabled" : undefined });
+  let watcher = makeWatcher();
+  try {
+    watcher.start();
+    await new Promise(resolve => setTimeout(resolve, 1150));
+    const status = JSON.parse(readFileSync(join(root, filename), "utf8")).status;
+    assert.equal(calls, 0); assert.equal(status.state, "skipped"); assert.equal(status.reason, "agent_disabled"); assert.ok(status.lastSlotKey);
+    watcher.stop(); disabled = false; watcher = makeWatcher(); watcher.start();
+    await new Promise(resolve => setTimeout(resolve, 1150));
+    // A next-minute trigger is legitimate; only the skipped slot must stay terminal.
+    assert.equal(leases.getLatest("telegram", filename, "chat", status.lastSlotKey)?.status, "skipped");
+    if (JSON.parse(readFileSync(join(root, filename), "utf8")).status.lastSlotKey === status.lastSlotKey) assert.equal(calls, 0);
+  } finally { watcher.stop(); leases.close(); rmSync(root, { recursive: true, force: true }); }
+});

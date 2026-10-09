@@ -352,3 +352,12 @@ test("sanitizeMcpServers infers http transport from url and keeps top-level head
   assert.equal(servers[0]?.http.url, "https://mcp.tdx.com.cn:3001/mcp");
   assert.deepEqual(servers[0]?.http.headers, { "tdx-api-key": "您的密钥" });
 });
+
+
+test("the built-in default Agent remains available alongside custom Agents", () => {
+  const settings = sanitizeSettings({ agents: [{ id: "writer", name: "Writer", enabled: true, description: "" }], defaultAgentId: "default", deletedAgentIds: [] }, defaultRuntimeSettings);
+  assert.equal(settings.agents[0].id, "default");
+  assert.equal(settings.agents[1].id, "writer");
+  const deleted = sanitizeSettings({ agents: [{ id: "writer", name: "Writer", enabled: true, description: "" }], defaultAgentId: "writer", deletedAgentIds: ["default"] }, defaultRuntimeSettings);
+  assert.deepEqual(deleted.agents.map(agent => agent.id), ["writer"]);
+});

@@ -15,6 +15,7 @@ globals.__molibotRuntime = {
   updateSettings: () => {},
   sessions: {
     getConversationProjectId: () => null,
+    getConversationById: () => null,
     getWebConversationOwner: () => "web:personal:web-anonymous"
   }
 };

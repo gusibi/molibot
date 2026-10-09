@@ -25,6 +25,9 @@ export function buildDesktopAgentItem(agent: AgentSettings): DesktopAgentItem {
     name: agent.name || agent.id,
     description: agent.description ?? "",
     enabled: agent.enabled !== false,
+    visible: agent.visible !== false,
+    avatar: agent.avatar ?? "",
+    shareOwnerMemory: agent.shareOwnerMemory !== false,
     permissionMode: agent.permissionMode ?? null,
     modelOverrides: countModelOverrides(agent),
     modelRouting: {
@@ -38,11 +41,14 @@ export function saveDesktopAgent(settings: RuntimeSettings, request: DesktopAgen
   const id = String(request.id ?? "").trim();
   const previousId = String(request.previousId ?? "").trim();
   if (!id) throw new Error("agentId is required");
+  if (previousId && previousId !== id) throw new Error("Agent ID is immutable");
+  if (settings.deletedAgentIds.includes(id)) throw new Error("Deleted Agent ID cannot be reused");
   const agent: AgentSettings = {
     id,
     name: String(request.name ?? "").trim() || id,
     description: String(request.description ?? "").trim(),
     enabled: request.enabled !== false,
+    visible: request.visible !== false, avatar: request.avatar ?? "", shareOwnerMemory: request.shareOwnerMemory !== false,
     permissionMode: request.permissionMode === null ? undefined : request.permissionMode,
     modelRouting: sanitizeAgentModelRouting(request.modelRouting)
   };
@@ -52,6 +58,7 @@ export function saveDesktopAgent(settings: RuntimeSettings, request: DesktopAgen
 export function deleteDesktopAgent(settings: RuntimeSettings, agentId: string): AgentSettings[] {
   const id = String(agentId ?? "").trim();
   if (!id) throw new Error("agentId is required");
+  if (settings.deletedAgentIds.includes(id)) throw new Error("Deleted Agent ID cannot be reused");
   const referenced = Object.values(settings.channels ?? {}).some((channel) =>
     Array.isArray(channel?.instances) && channel.instances.some((instance) => String(instance.agentId ?? "").trim() === id)
   );
@@ -62,8 +69,10 @@ export function deleteDesktopAgent(settings: RuntimeSettings, agentId: string): 
 
 export function buildDesktopAgentsSummary(settings: RuntimeSettings): DesktopAgentsSummary {
   const agents = Array.isArray(settings.agents) ? settings.agents : [];
-  const items = agents.map(buildDesktopAgentItem);
+  const items = agents.map(buildDesktopAgentItem).sort((a, b) => Number(b.id === settings.defaultAgentId) - Number(a.id === settings.defaultAgentId));
   return {
+    defaultAgentId: settings.defaultAgentId,
+    deletedAgentIds: settings.deletedAgentIds,
     items,
     counts: {
       total: items.length,

@@ -209,11 +209,23 @@ export function sanitizeAgentModelRouting(input: unknown): AgentModelRouting | u
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+export interface DesktopNavigationSettings {
+  projectId?: string;
+  roomId?: string;
+  expandedAgentIds: string[];
+  page: string;
+  agentId: string;
+  sessionId: string;
+}
+
 export interface AgentSettings {
   id: string;
   name: string;
   description: string;
   enabled: boolean;
+  visible?: boolean;
+  avatar?: string;
+  shareOwnerMemory?: boolean;
   /** Undefined = inherit; never "off". Resolved by the shared override chain. */
   permissionMode?: PermissionMode;
   modelRouting?: AgentModelRouting;
@@ -773,6 +785,9 @@ export interface RuntimeSettings {
   maxOutputTokens: number;
   timezone: string;
   agents: AgentSettings[];
+  defaultAgentId: string;
+  deletedAgentIds: string[];
+  desktopNavigation: DesktopNavigationSettings;
   channels: ChannelSettingsMap;
   mcpServers: McpServerConfig[];
   openConnector: OpenConnectorSettings;

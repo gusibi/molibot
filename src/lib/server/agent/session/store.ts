@@ -457,6 +457,8 @@ export class MomRuntimeStore {
 
   markSessionOrigin(chatId: string, sessionId: string, metadata: SessionOriginMetadata): void {
     const id = this.sanitizeSessionId(sessionId);
+    const existing = this.readSessionOrigin(chatId, id)?.agentId;
+    if (metadata.agentId && existing && metadata.agentId !== existing) throw new Error("Session Agent mismatch");
     this.ensureSessionEntriesFile(chatId, id);
     writeSessionOriginMetadata(this.getContextsDir(chatId), id, metadata);
   }

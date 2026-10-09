@@ -21,12 +21,12 @@ export function sessionDraftKey(profileId: string, sessionId: string): string {
 
 /**
  * Draft key the live composer binds to right now: the active session's key, or
- * the single new-conversation draft when no session is active. One rule, shared
+ * the current Agent’s new-conversation draft when no session is active. One rule, shared
  * by the store and the ChatView mirror, so the two can never disagree about
  * which draft the composer is currently editing.
  */
 export function composerDraftKey(activeSessionId: string, activeProfileId: string): string {
-  return activeSessionId ? sessionDraftKey(activeProfileId, activeSessionId) : NEW_CONVERSATION_KEY;
+  return activeSessionId ? sessionDraftKey(activeProfileId, activeSessionId) : activeProfileId ? `${NEW_CONVERSATION_KEY}:${activeProfileId}` : NEW_CONVERSATION_KEY;
 }
 
 export interface SessionDraft {
@@ -34,6 +34,8 @@ export interface SessionDraft {
   files: File[];
   thinkingLevel: DesktopThinkingSelection;
   modelKey?: string;
+  thinkingTouched?: boolean;
+  permissionMode?: "plan" | "manual" | "accept_edits" | "auto";
   /**
    * Selected Bot for the new-conversation draft only (plan §6.1). Ignored for
    * existing sessions, whose Bot is fixed at first-message time (plan §6.3).
@@ -46,9 +48,9 @@ export function emptyDraft(thinkingLevel: DesktopThinkingSelection = "medium"): 
 }
 
 /**
- * Stores one draft per session key (existing sessions) plus a single
- * new-conversation draft (plan §10.2: only one not-yet-persisted draft at a
- * time, so the sidebar never shows multiple invisible temp sessions).
+ * Stores one draft per session key (existing sessions) plus one
+ * new-conversation draft per Agent. Drafts stay out of persisted history until
+ * the first message creates a Session.
  */
 export class SessionDraftStore {
   private readonly drafts = new Map<string, SessionDraft>();
@@ -74,6 +76,9 @@ export class SessionDraftStore {
   update(key: string, patch: Partial<SessionDraft>): SessionDraft {
     const current = this.get(key);
     const next = { ...current, ...patch };
+    if (Object.entries(patch).every(([field, value]) => field === "files"
+      ? current.files.length === next.files.length && current.files.every((file, index) => file === next.files[index])
+      : current[field as keyof SessionDraft] === value)) return current;
     this.drafts.set(key, next);
     return next;
   }

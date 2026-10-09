@@ -7592,3 +7592,32 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 @media (prefers-reduced-motion: reduce) { .room-member-card { transition: none; } }
 
 .room-workspace > .composer-wrap { flex-shrink: 0; }
+
+/* Personal Agent navigation shares the chat and settings control tokens. */
+.agent-navigation { display: grid; gap: 4px; min-width: 0; }
+.agent-navigation-heading { display: flex; align-items: center; min-width: 0; }
+.agent-navigation-primary { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 9px 8px; border: 0; border-radius: var(--radius-md, 8px); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+.agent-navigation-primary:hover, .agent-navigation-primary.active { background: var(--sidebar-surface-hover); }
+.agent-navigation-identity { display: grid; min-width: 0; gap: 3px; }
+.agent-navigation-identity strong, .agent-navigation-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-navigation-identity strong { font-size: 13px; font-weight: 500; }
+.agent-navigation-identity small { font-size: 11px; color: var(--text-secondary); }
+.agent-avatar { display: inline-flex; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 9px; overflow: hidden; background: var(--sidebar-surface-hover); }
+.agent-avatar-image, .agent-avatar-fallback { width: 100%; height: 100%; object-fit: cover; }
+.agent-avatar-fallback { display: grid; place-items: center; font-size: 14px; color: var(--text-secondary); }
+.agent-navigation-caret { display: grid; place-items: center; width: 28px; height: 32px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.agent-navigation-caret .open { transform: rotate(90deg); }
+.agent-navigation-history { display: grid; gap: 2px; padding-left: 12px; }
+.agent-history-button { justify-self: start; margin: 4px 0 8px; }
+.agent-navigation-actions, .agent-claim-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 8px; }
+.agent-claim-row { align-items: center; color: var(--text-secondary); font-size: 12px; }
+
+.agent-home-identity { display: flex; justify-content: center; margin-top: 24px; }
+.agent-home-identity .agent-avatar { width: 56px; height: 56px; flex-basis: 56px; border-radius: 16px; }
+.agent-home-recent { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px auto; max-width: 640px; color: var(--text-secondary); font-size: 12px; padding: 0 16px; }
+
+.agent-navigation-primary.current strong { color: var(--accent, var(--text-primary)); }
+
+.agent-default-label { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--text-secondary); }
+.agent-navigation-new.secondary-button { display: grid; place-items: center; flex: 0 0 26px; width: 26px; height: 28px; min-height: 0; padding: 0; border-color: transparent; background: transparent; box-shadow: none; color: var(--text-secondary); }
+.agent-navigation-new.secondary-button:hover { background: var(--sidebar-surface-hover); color: var(--text-primary); }

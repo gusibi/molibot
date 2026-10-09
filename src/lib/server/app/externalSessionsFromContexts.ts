@@ -11,6 +11,7 @@ import {
   messageContent,
   readSessionMetadataFile,
   writeSessionDisplayMetadata,
+  writeSessionOriginMetadata,
   type SessionDisplayMetadata
 } from "$lib/server/agent/session/metadata.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
@@ -376,7 +377,7 @@ export function listExternalSessionsFromContexts(
       chatId: entry.chatId,
       sessionId: entry.sessionId
     };
-    const conversation = buildConversation(ref, entries);
+    const conversation = { ...buildConversation(ref, entries), agentId: readSessionMetadataFile(entry.contextsDir, entry.sessionId)?.agentId };
     const lastMessage = [...messageEntries].reverse().find((message) =>
       (message.message.role === "user" || message.message.role === "assistant")
       && retentionCapabilities(message.retention).searchable
@@ -416,7 +417,7 @@ export function listExternalSessionMetaFromContexts(
       chatId: entry.chatId,
       sessionId: entry.sessionId
     };
-    const conversation = conversationFromDisplay(ref, display);
+    const conversation = { ...conversationFromDisplay(ref, display), agentId: metadata?.agentId };
     out.push({ conversation, channel: entry.channel, externalUserId: conversation.externalUserId });
   }
   return out;
@@ -461,7 +462,19 @@ export function readExternalTranscriptFromContexts(
   if (!existsSync(file)) return null;
   const entries = readEntries(contextsDir, ref.sessionId, 16 * 1024 * 1024);
   return {
-    conversation: buildConversation(ref, entries),
+    conversation: { ...buildConversation(ref, entries), agentId: readSessionMetadataFile(contextsDir, ref.sessionId)?.agentId },
     messages: buildMessages(ref, entries, workspaceDir)
   };
+}
+
+/** Owner attribution never grants execution permission to an external mirror. */
+export function claimExternalSessionAgent(dataRoot: string, id: string, agentId: string): Conversation {
+  const ref = decodeExternalSessionId(id);
+  const transcript = readExternalTranscriptFromContexts(dataRoot, id);
+  const dir = ref ? channelDir(ref.channel) : null;
+  if (!ref || !dir || !transcript) throw new Error("External Session not found");
+  if (transcript.conversation.projectId) throw new Error("Project ownership is separate");
+  if (transcript.conversation.agentId && transcript.conversation.agentId !== agentId) throw new Error("Session Agent is immutable");
+  writeSessionOriginMetadata(join(resolve(dataRoot), dir, "bots", ref.botId, ref.chatId, "contexts"), ref.sessionId, { agentId });
+  return { ...transcript.conversation, agentId };
 }

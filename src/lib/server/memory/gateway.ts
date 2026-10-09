@@ -40,7 +40,7 @@ import {
 import { appendMemoryGovernanceRejection } from "$lib/server/memory/governanceLog.js";
 import type { MemoryTraceFeedbackValue, SqliteMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 import { MemoryProfileBuilder, type MemoryProfileResult, type MemoryProfileScope } from "$lib/server/memory/profileBuilder.js";
-import { deriveMemoryAccessScope } from "$lib/server/memory/namespaces.js";
+import { deriveMemoryAccessScope, namespaceForDomain } from "$lib/server/memory/namespaces.js";
 import { tokenizeWords } from "#mory";
 import { getMemoryProfileSnapshotStore, type MemoryProfileSnapshotStore } from "$lib/server/memory/profileSnapshotStore.js";
 import type { MemoryProfileTurnSnapshot } from "$lib/server/memory/types.js";
@@ -147,6 +147,12 @@ export class MemoryGateway {
     if (!this.isEnabled() || this.getActiveBackendKey() !== "mory") return null;
     const validated = this.validateCandidate(input);
     return this.candidates.create({ ...validated, fingerprint: input.fingerprint || candidateFingerprint(validated) });
+  }
+
+  createScopedCandidate(scope: MemoryScope, input: MemoryCandidateCreateInput): MemoryCandidate | null {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized || !deriveMemoryAccessScope(authorized, { includeContent: true }).authorizedNamespaces.includes(input.namespace)) return null;
+    return this.createCandidate(input);
   }
 
   async maybeAutoConfirmCandidate(id: string): Promise<MemoryCandidate | null> {
@@ -366,8 +372,20 @@ export class MemoryGateway {
     return parts[0] === "project" ? decodeURIComponent(parts[2] ?? "") : undefined;
   }
 
+  private authorizedAgentScope(scope: MemoryScope): MemoryScope | null {
+    if (!scope.agentId || scope.projectId) return scope;
+    const settings = this.getSettings();
+    const agent = settings.agents.find(item => item.id === scope.agentId);
+    if (!agent || settings.deletedAgentIds?.includes(scope.agentId)) return null;
+    return { ...scope, shareOwner: scope.shareOwner !== false && agent.shareOwnerMemory !== false };
+  }
+
   async add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord | null> {
-    if (!this.isEnabled()) return null;
+    const authorized = this.authorizedAgentScope(scope);
+    if (!this.isEnabled() || !authorized) return null;
+    scope = authorized;
+    const namespace = input.namespace ?? (input.domain ? namespaceForDomain(scope, input.domain) : undefined);
+    if (namespace && !deriveMemoryAccessScope(scope, { includeContent: true }).authorizedNamespaces.includes(namespace)) throw new Error("Memory namespace is not authorized for this Agent");
     const assessed = assessMemoryWrite(input);
     if (!assessed.allowed || !assessed.prepared) {
       if (this.governanceLogPath) {
@@ -387,14 +405,17 @@ export class MemoryGateway {
   }
 
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
-    if (!this.isEnabled()) return [];
-    return (await this.getBackend().search(scope, input))
+    const authorized = this.authorizedAgentScope(scope);
+    if (!this.isEnabled() || !authorized) return [];
+    return (await this.getBackend().search(authorized, input))
       .map((record) => this.withGovernanceState(record))
       .filter((record) => !record.privacySuppressed);
   }
 
   async getForGovernance(scope: MemoryScope, id: string): Promise<MemoryRecord | null> {
-    if (!this.isEnabled()) return null;
+    const authorized = this.authorizedAgentScope(scope);
+    if (!this.isEnabled() || !authorized) return null;
+    scope = authorized;
     const record = await this.getBackend().get(scope, id);
     return record ? this.withGovernanceState(record) : null;
   }
@@ -434,6 +455,9 @@ export class MemoryGateway {
   }
 
   async delete(scope: MemoryScope, id: string): Promise<boolean> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return false;
+    scope = authorized;
     if (!this.isEnabled()) return false;
     const existing = await this.getBackend().get(scope, id);
     const deleted = await this.getBackend().delete(scope, id);
@@ -444,6 +468,9 @@ export class MemoryGateway {
   }
 
   async update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return null;
+    scope = authorized;
     if (!this.isEnabled()) return null;
     const existing = await this.getBackend().get(scope, id);
     const nextInput: MemoryUpdateInput = { ...input };
@@ -489,6 +516,9 @@ export class MemoryGateway {
   }
 
   async suppressPrivacy(scope: MemoryScope, id: string, options: { idempotencyKey: string; reason: string }): Promise<MemoryRecord | null> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return null;
+    scope = authorized;
     if (!this.isEnabled()) return null;
     const existing = await this.getBackend().get(scope, id);
     if (!existing) return null;
@@ -504,6 +534,9 @@ export class MemoryGateway {
   }
 
   async restorePrivacy(scope: MemoryScope, id: string, options: { idempotencyKey: string; reason: string }): Promise<MemoryRecord | null> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return null;
+    scope = authorized;
     if (!this.isEnabled()) return null;
     const existing = await this.getBackend().get(scope, id);
     if (!existing) return null;
@@ -522,6 +555,9 @@ export class MemoryGateway {
   // again, so nudge confidence and freshness instead of dropping the signal.
   // Utility stays untouched — it is owned by the trace-feedback ledger.
   async reinforceMemory(scope: MemoryScope, id: string): Promise<MemoryRecord | null> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return null;
+    scope = authorized;
     if (!this.isEnabled()) return null;
     const existing = await this.getForGovernance(scope, id);
     if (!existing || existing.state !== "active" || existing.privacySuppressed) return null;
@@ -657,6 +693,9 @@ export class MemoryGateway {
   }
 
   async recordSuccessfulInjectionUsage(scope: MemoryScope, traceId: string, memoryIds: string[], injectedAt = new Date().toISOString()): Promise<number> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return 0;
+    scope = authorized;
     const backend = this.getBackend();
     if (!backend.recordInjectionUsage) return 0;
     let recorded = 0;
@@ -678,10 +717,10 @@ export class MemoryGateway {
   }
 
   async buildProfile(input: Omit<MemoryProfileScope, "authorizedNamespaces">): Promise<MemoryProfileResult> {
-    const derived = deriveMemoryAccessScope({
-      ...input,
-      shareOwner: input.includeOwner
-    });
+    const authorized = this.authorizedAgentScope({ ...input, shareOwner: input.includeOwner });
+    const derived = deriveMemoryAccessScope(authorized ?? { ...input, shareOwner: false });
+    if (!authorized) derived.authorizedNamespaces = [];
+
     const authorizedNamespaces = derived.authorizedNamespaces.filter((namespace) =>
       (input.includeAgentSelf || !namespace.startsWith("agent:"))
       && (input.includeOwner || !namespace.startsWith("owner:"))
@@ -723,6 +762,9 @@ export class MemoryGateway {
   }
 
   async listForMaintenance(scope: MemoryScope, limit = 10_000): Promise<MemoryRecord[]> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return [];
+    scope = authorized;
     const backend = this.getBackend();
     const rows = backend.listMaintenanceRecords
       ? await backend.listMaintenanceRecords(scope, limit)
@@ -778,12 +820,16 @@ export class MemoryGateway {
   }
 
   async versions(scope: MemoryScope, id: string): Promise<MemoryRecord[]> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return [];
+    scope = authorized;
     if (!this.isEnabled()) return [];
     return this.getBackend().versions?.(scope, id) ?? [];
   }
 
   async flush(scope: MemoryScope): Promise<MemoryFlushResult> {
-    if (!this.isEnabled()) {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!this.isEnabled() || !authorized) {
       return {
         scannedMessages: 0,
         addedCount: 0,
@@ -791,14 +837,15 @@ export class MemoryGateway {
         updatedCursorConversations: 0
       };
     }
-    return this.getBackend().flush(scope);
+    return this.getBackend().flush(authorized);
   }
 
   async compact(scope?: MemoryScope): Promise<MemoryCompactResult> {
-    if (!this.isEnabled()) {
+    const authorized = scope ? this.authorizedAgentScope(scope) : undefined;
+    if (!this.isEnabled() || authorized === null) {
       return { scannedCount: 0, removedCount: 0, scopesAffected: 0 };
     }
-    return this.getBackend().compact(scope);
+    return this.getBackend().compact(authorized);
   }
 
   async buildPromptContext(scope: MemoryScope, query: string, limit = 5): Promise<string> {

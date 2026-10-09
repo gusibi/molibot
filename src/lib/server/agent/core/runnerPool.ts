@@ -11,6 +11,7 @@ export interface RuntimeRunnerSnapshot {
   botId: string;
   chatId: string;
   sessionId: string;
+  agentId?: string;
 }
 
 const runtimePools = new Set<RunnerPool>();
@@ -54,7 +55,7 @@ export class RunnerPool implements ChannelRunnerPoolLike {
     private readonly modelErrorTracker: ModelErrorTracker,
     private readonly memory: MemoryGateway,
     private readonly hookManager: HookManager,
-    private readonly runtimeIdentity?: { agentId: string; roomId: string; executionId: string },
+    private readonly runtimeIdentity?: ({ agentId: string; roomId: string; executionId: string } | { agentId: string; roomId?: undefined; executionId?: undefined }),
   ) {
     this.map = [...runtimePools].find(pool => pool.channel === channel && pool.store.getWorkspaceDir() === store.getWorkspaceDir())?.map ?? new Map();
     runtimePools.add(this);
@@ -66,8 +67,10 @@ export class RunnerPool implements ChannelRunnerPoolLike {
 
   get(chatId: string, sessionId: string): MomRunner {
     const key = this.key(chatId, sessionId);
+    const agentId = this.runtimeIdentity?.agentId ?? this.store.readSessionOrigin(chatId, sessionId)?.agentId;
     const existing = this.map.get(key);
-    if (existing) return existing;
+    if (existing && existing.sessionAgentId === agentId) return existing;
+    if (existing?.isRunning()) throw new Error("Running Session Agent cannot change");
     const runner = new MomRunner(
       this.channel,
       chatId,
@@ -79,7 +82,7 @@ export class RunnerPool implements ChannelRunnerPoolLike {
       this.modelErrorTracker,
       this.memory,
       this.hookManager,
-      undefined, this.runtimeIdentity,
+      undefined, this.runtimeIdentity ?? (agentId ? { agentId } : undefined),
     );
     this.map.set(key, runner);
     return runner;

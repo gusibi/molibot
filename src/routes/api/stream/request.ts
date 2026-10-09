@@ -5,6 +5,7 @@ interface StreamBody {
   message?: string;
   conversationId?: string;
   profileId?: string;
+  agentId?: string;
   thinkingLevel?: string;
   projectId?: string;
   modelKey?: string;
@@ -28,6 +29,7 @@ export async function parseStreamRequest(request: Request): Promise<ParsedStream
     message: String(form.get("message") ?? ""),
     conversationId: String(form.get("conversationId") ?? ""),
     profileId: String(form.get("profileId") ?? ""),
+    agentId: String(form.get("agentId") ?? "").trim() || undefined,
     thinkingLevel: String(form.get("thinkingLevel") ?? ""),
     projectId: String(form.get("projectId") ?? ""),
     modelKey: String(form.get("modelKey") ?? "").trim() || undefined,
