@@ -1,10 +1,16 @@
+## 2026-10-10 — 历史 Session 自动关联（已交付）
+
+共享启动与 Bot/Agent 配置更新按 Bot 目录和有效 Agent 绑定补齐普通 Session 归属。Web 会话与 Context 固定身份优先，Bot 改绑不改写历史；Project、自动任务和缺失有效绑定的数据不参与。身份冲突保留两侧并明确报告，不移动或重写聊天正文。
+
+17 项针对性回归、类型检查、构建及隔离进程首次列表/重启列表通过。完整后端回归 2524 通过、5 项此前已复现的基线失败、1 跳过。实际历史补齐 69 条 Web 会话与 94 条 Context 元数据，冲突为零，重复执行无修改；仍有 121 条可见历史缺失有效 Bot/Agent 绑定。见 [验证记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。
+
 ## 2026-10-10 — Personal Agent Desktop V1（已交付）
 
 Desktop 以 Agent 为普通对话入口，默认 Agent 始终置顶并标记，启用的 Agent 提供“＋”新对话按钮，全局新对话进入默认 Agent。支持头像、名称、简介、多个历史组展开、按 Agent 的完整历史与跨 Agent 搜索、独立草稿和上次页面恢复。Agent 管理支持可见性、启用状态、共享 owner 记忆和默认选择；编辑使用固定保存栏，中英文、明暗主题及窄窗口均检查。
 
-普通 Session 固定执行 Agent，模型按 Session 覆盖 → 当前 Agent 默认 → 全局默认解析。跨渠道改绑不会改写旧 Session，未归属历史需显式认领，外部镜像仍只读。共享层约束禁用、定时跳过、删除引用与运行检查、幂等归档和删除 ID；私有记忆按稳定 Agent ID 授权，关闭 owner 共享后仍保留本 Agent 的私有知识。
+普通 Session 固定执行 Agent，模型按 Session 覆盖 → 当前 Agent 默认 → 全局默认解析。跨渠道改绑不会改写旧 Session，旧历史按 Bot 目录及有效 Agent 绑定自动关联，缺失绑定的历史可显式认领，外部镜像仍只读。共享层约束禁用、定时跳过、删除引用与运行检查、幂等归档和删除 ID；私有记忆按稳定 Agent ID 授权，关闭 owner 共享后仍保留本 Agent 的私有知识。
 
-后端完整回归 2519 通过、5 个已复现的基线失败、1 跳过；本次后续私有 profile 与授权改动由 29 项相关回归覆盖。Desktop 334 项行为测试、298 项源码守卫和 70 项 Rust 测试通过；类型检查、两端构建及隔离 Desktop 预览的服务重启/历史续聊通过。详见 [实施记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。独立 Web 页面不新增认领入口；旧未知归属会话需在 Desktop 认领后续聊。原生窗口完整人工走查未执行。
+后端完整回归 2519 通过、5 个已复现的基线失败、1 跳过；本次后续私有 profile 与授权改动由 29 项相关回归覆盖。Desktop 334 项行为测试、298 项源码守卫和 70 项 Rust 测试通过；类型检查、两端构建及隔离 Desktop 预览的服务重启/历史续聊通过。详见 [实施记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。独立 Web 页面不新增认领入口；缺失有效 Bot 绑定的未归属会话需在 Desktop 认领后续聊。原生窗口完整人工走查未执行。
 
 ## 2026-10-09 — Personal Agent V1 会话存储基础（部分实施）
 

@@ -32,6 +32,7 @@ import { SessionAutoArchiveStore } from "$lib/server/sessions/sessionAutoArchive
 import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchiveService.js";
 import { SessionTrashCleanupService } from "$lib/server/sessions/sessionTrashCleanup.js";
 import { buildProductionSessionLifecycle, buildSessionTrashCleanup } from "$lib/server/app/sessionMaintenance.js";
+import { associateSessionAgents } from "$lib/server/sessions/sessionAgentAssociation.js";
 import { rebuildExternalSessionMetadata } from "$lib/server/app/externalSessionsFromContexts.js";
 import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
 import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
@@ -218,6 +219,7 @@ function initializeRuntime(): RuntimeState {
     }
 
     const sessions = new SessionStore();
+    associateSessionAgents(sessions, settings, config.dataDir);
     sessions.setConversationSearchIndex(getConversationSearchIndex(storagePaths.moryDbFile), "web");
     // T9 managed extraction: receipts live in the Session-owned store
     // (sessions.db) so the managed list can derive per-Session status and
@@ -348,6 +350,7 @@ function initializeRuntime(): RuntimeState {
         const error = validateAgentReferences(latestPersisted, next);
         if (error) throw new Error(error);
       }
+      if (patch.channels || patch.agents) associateSessionAgents(sessions, latestPersisted, config.dataDir);
       state.settings = next;
       currentSettings.value = state.settings;
       if (navigationOnly) {
@@ -355,6 +358,7 @@ function initializeRuntime(): RuntimeState {
         return state.settings;
       }
       state.settingsStore.save(state.settings);
+      if (patch.channels || patch.agents) associateSessionAgents(sessions, state.settings, config.dataDir);
       reconcileRoomAgents();
       if (!liveServicesDisabled()) {
         applyChannelPlugins(state, applySettingsPatch);

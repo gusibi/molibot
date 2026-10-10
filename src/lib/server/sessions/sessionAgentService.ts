@@ -9,7 +9,7 @@ export function requireEnabledAgent(settings: RuntimeSettings, agentId: string):
   return agent;
 }
 
-/** Resolves ordinary execution from persisted ownership; never guesses old history from a Bot binding. */
+/** Resolves ordinary execution from persisted ownership. */
 export function admitAgentConversation(
   sessions: SessionStore,
   settings: RuntimeSettings,
@@ -67,4 +67,10 @@ export function admitStoredAgentSession(
   if (!input.explicit && pinned !== admittedAgentId) sessionId = store.createSession(input.chatId);
   store.markSessionOrigin(input.chatId, sessionId, { agentId: admittedAgentId, ...(input.automation ? { origin: "automation" } : {}) });
   return sessionId;
+}
+
+/** Directory ownership supplies the configured Bot identity for unassigned history. */
+export function configuredSessionAgent(settings: RuntimeSettings, channel: string, botId: string): string | undefined {
+  const agentId = settings.channels[channel]?.instances.find(instance => instance.id === botId)?.agentId;
+  return agentId && settings.agents.some(agent => agent.id === agentId) && !settings.deletedAgentIds.includes(agentId) ? agentId : undefined;
 }

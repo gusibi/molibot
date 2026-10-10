@@ -1,6 +1,6 @@
 # Personal Agent 体验升级 V1（2026-10-09，优先级未指定）
 
-已交付（2026-10-10）。Desktop 提供 Agent 导航、首页、完整历史、独立草稿和恢复；普通 Session 固定 Agent 身份，共享执行入口、模型路由、记忆授权及禁用/删除约束已接通。Project 保持现有行为，独立 Web 页面未改。旧未归属会话必须先在 Desktop 显式认领，不能推断身份。产品约定见 [PRD](docs/requirements/personal-agent-experience-v1.md)，验收边界见 [规格](docs/requirements/personal-agent-desktop-v1-spec.md) 与 [验证记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。
+已交付（2026-10-10）。Desktop 提供 Agent 导航、首页、完整历史、独立草稿和恢复；普通 Session 固定 Agent 身份，共享执行入口、模型路由、记忆授权及禁用/删除约束已接通。Project 保持现有行为，独立 Web 页面未改。旧普通会话按 Bot 目录和有效 Agent 绑定自动关联；缺失有效绑定的历史才需要显式认领。产品约定见 [PRD](docs/requirements/personal-agent-experience-v1.md)，验收边界见 [规格](docs/requirements/personal-agent-desktop-v1-spec.md) 与 [验证记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。
 
 # 子代理 token 效率优化（2026-10-08，P1，部分交付）
 

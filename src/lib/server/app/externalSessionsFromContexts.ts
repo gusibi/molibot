@@ -19,6 +19,8 @@ import type { ExternalSessionEntry } from "$lib/server/app/desktopExternalSessio
 import type { Channel, Conversation, ConversationMessage, ConversationAttachment } from "$lib/shared/types/message.js";
 import { mediaTypeFromName, mimeFromFilename } from "$lib/shared/filePreview.js";
 import { isAuthorizedConversationSource, type AuthorizedConversationSource } from "$lib/server/sessions/conversationAuthorization.js";
+import type { RuntimeSettings } from "$lib/server/settings/schema.js";
+import { configuredSessionAgent } from "$lib/server/sessions/sessionAgentService.js";
 import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 
 /**
@@ -34,8 +36,8 @@ import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
  * (`bot:<botId>:chat:<chatId>:<sessionId>`) preserves the shape that
  * `parseBotInstanceId()` reads to recover Bot identity for grouping.
  *
- * Lives in the app/upper layer (never in a channel) and only ever reads from
- * `contexts/` — no writes, mirroring `desktopRunHistory` / `conversationThinking`.
+ * Lives in the shared app layer. Transcripts remain read-only; derived display
+ * metadata and fixed Agent ownership are persisted alongside them.
  */
 
 export interface ExternalSessionRef {
@@ -477,4 +479,18 @@ export function claimExternalSessionAgent(dataRoot: string, id: string, agentId:
   if (transcript.conversation.agentId && transcript.conversation.agentId !== agentId) throw new Error("Session Agent is immutable");
   writeSessionOriginMetadata(join(resolve(dataRoot), dir, "bots", ref.botId, ref.chatId, "contexts"), ref.sessionId, { agentId });
   return { ...transcript.conversation, agentId };
+}
+
+/** Pins missing Session ownership from its Bot directory, preserving existing identities. */
+export function associateContextSessionAgents(dataRoot: string, settings: RuntimeSettings): number {
+  let assigned = 0;
+  for (const entry of listContextSessions(resolve(dataRoot))) {
+    const metadata = readSessionMetadataFile(entry.contextsDir, entry.sessionId);
+    if (metadata?.agentId || metadata?.display?.eventPrompt || isAutomationSession(entry.contextsDir, entry.sessionId)) continue;
+    const agentId = configuredSessionAgent(settings, entry.channel, entry.botId);
+    if (!agentId) continue;
+    writeSessionOriginMetadata(entry.contextsDir, entry.sessionId, { agentId });
+    assigned += 1;
+  }
+  return assigned;
 }
