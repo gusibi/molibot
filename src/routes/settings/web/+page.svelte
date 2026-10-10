@@ -56,7 +56,6 @@
       modeAuto: "全自动（完全访问）",
       resetBtn: "重置",
       linkedAgentLabel: "关联 Agent",
-      noAgentFallback: "无 Agent（仅使用全局兜底）",
       overridesTitle: "Profile Markdown 覆盖文件",
       overridesDesc: "文件将保存为包含元数据头部的真实 Markdown 文档。留空则删除覆盖文件。",
       editText: "在此编辑",
@@ -101,7 +100,6 @@
       modeAuto: "Auto (Full Access)",
       resetBtn: "Reset",
       linkedAgentLabel: "Linked Agent",
-      noAgentFallback: "No agent (global fallback only)",
       overridesTitle: "Profile Markdown Overrides",
       overridesDesc: "Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.",
       editText: "Edit",
@@ -148,7 +146,7 @@
       id: createProfileId(),
       name: "",
       enabled: true,
-      agentId: "",
+      agentId: "default",
       permissionMode: undefined,
       profileFiles: emptyProfileFiles(),
       isNew: true
@@ -214,7 +212,7 @@
             id: profile.id ?? createProfileId(),
             name: profile.name ?? "",
             enabled: profile.enabled ?? true,
-            agentId: profile.agentId ?? "",
+            agentId: profile.agentId ?? "default",
             permissionMode: profile.permissionMode,
             profileFiles: emptyProfileFiles(),
             isNew: false
@@ -223,7 +221,7 @@
             id: "default",
             name: "Default Web",
             enabled: true,
-            agentId: "",
+            agentId: "default",
             profileFiles: emptyProfileFiles(),
             isNew: false
           }];
@@ -502,7 +500,6 @@
               <div class="channel-field">
                 <Label for="web-profile-agent">{copy.linkedAgentLabel}</Label>
                 <NativeSelect id="web-profile-agent" bind:value={selectedProfile.agentId}>
-                  <NativeSelectOption value="">{copy.noAgentFallback}</NativeSelectOption>
                   {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}

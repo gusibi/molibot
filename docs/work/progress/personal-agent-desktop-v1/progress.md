@@ -62,3 +62,16 @@ PRD 与规格保留在 requirements：稳定身份、权限、删除与 Project 
 AgentNavigation 遗漏 ConversationRow 的路径操作回调，外部只读会话因此没有任何可用菜单项。恢复复制路径、Finder 打开及完整翻译标签，继续复用共享组件的重命名、删除确认和 Portal 浮层。新增源码守卫覆盖 ChatView → AgentNavigation → ConversationRow 的接线，避免只测底层组件而漏掉新入口。
 
 Desktop 9 项预检查、334 项行为测试、299 项源码守卫和 70 项 Rust 测试通过；Desktop 类型检查与构建通过，保留既有 Agent City 可访问性警告。隔离服务冷启动后首次右键显示完整菜单，复制路径有成功提示，删除确认可取消，切换 Session 后仍可用；隔离服务中断、重启及重新加载后菜单恢复。没有中断用户服务，原生 Finder 窗口未人工验证。
+
+
+## 2026-10-10 — Momo/global 语义与空绑定
+
+实际设置中 `defaultAgentId` 为 `default`，Agent 名称为 Momo，但 15 个渠道 Bot 仍保存空 Agent ID。原提示词的 global 规则会生效，旧 UI 将该状态叫“无 Agent／全局兜底”，新的稳定身份执行与历史关联却把它当作未分配。根因是默认配置语义与执行身份没有统一；上一轮守卫漏测了“Bot 存在但绑定为空”，本次该回归先失败再通过。
+
+共享 `normalizeChannelAgentId` 将已配置 Bot 的空值规范化为固定 `default`，设置读写、渠道初始化和历史关联采用同一语义。Momo 的存在不依赖新对话默认偏好，但删除记录仍有效；未知 Bot、显式失效 Agent 和已经固定的 Session 不重新分配。Desktop 与独立 Web 的渠道/Profile 选择都不再提供空 Agent 选项。只用 channels 动态 key 保存实际配置，不移动或覆盖根目录及 Agent 人设文件。
+
+实际数据补齐 15 个 Bot、161 条 Context，用户示例 Agent ID 为 `default`，重复执行零修改、零冲突；可见 Momo Context 历史为 198 条。仅剩 1 条未归属历史，来源 Web Bot `personal` 已不存在于配置。直接渲染示例 Bot 的真实系统提示词，原全局 SOUL 标题仅出现一次，Agent 专属人设文件为空，现有全局人设仍生效；未调用付费模型。
+
+临时数据库的 saveChannels → 新 Store → load 覆盖完整设置对象及渠道所有支持字段，验证物理 agent_id 为 `default` 且不覆盖其他设置。46 项设置/历史与 52 项提示词/执行回归通过。完整后端 2533 项，2527 通过、5 项前文已复现的基线失败、1 跳过。Desktop 9 项预检查、334 项行为、300 项源码守卫、70 项 Rust 测试通过；两端类型检查与构建通过，Desktop 保留既有 Agent City 可访问性警告。
+
+隔离 Desktop 构建预览与独立 Web 飞书设置核对初始 Momo 选择；即使新对话默认是 Researcher，新建 Bot/Profile 仍选 Momo。中英文即时切换、明暗主题与 520px 表单检查通过，保存按钮位于窗口内；Profile 保存后显示 Momo，隔离服务重启后读取同一绑定。用户服务未中断。未在原生 macOS 窗口做本轮完整人工验证。

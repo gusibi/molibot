@@ -65,7 +65,6 @@
       streamLabel: "使用 CardKit 启用流式输出",
       streamDesc: "使用飞书 CardKit 实时流式传输响应。",
       linkedAgentLabel: "关联 Agent",
-      noAgentFallback: "无 Agent（仅使用全局兜底）",
       permissionModeLabel: "权限模式",
       permissionModeDesc: "覆盖此 Bot 会话使用的权限模式；继承全局时使用系统默认执行模式。",
       inheritOption: "继承全局",
@@ -125,7 +124,6 @@
       streamLabel: "Stream agent output with CardKit",
       streamDesc: "Stream responses in real-time using Feishu CardKit.",
       linkedAgentLabel: "Linked Agent",
-      noAgentFallback: "No agent (global fallback only)",
       permissionModeLabel: "Permission mode",
       permissionModeDesc: "Overrides the permission mode for this bot's conversations; inherit uses the system default execution mode.",
       inheritOption: "Inherit global",
@@ -197,7 +195,7 @@
       id: createBotId(),
       name: "",
       enabled: false,
-      agentId: "",
+      agentId: "default",
       appId: "",
       appSecret: "",
       verificationToken: "",
@@ -281,7 +279,7 @@
             id: bot.id ?? createBotId(),
             name: bot.name ?? "",
             enabled: bot.enabled ?? true,
-            agentId: bot.agentId ?? "",
+            agentId: bot.agentId ?? "default",
             appId: bot.credentials?.appId ?? "",
             appSecret: bot.credentials?.appSecret ?? "",
             verificationToken: bot.credentials?.verificationToken ?? "",
@@ -580,7 +578,6 @@
               <div class="channel-field">
                 <Label for="feishu-agent">{copy.linkedAgentLabel}</Label>
                 <NativeSelect id="feishu-agent" bind:value={selectedBot.agentId}>
-                  <NativeSelectOption value="">{copy.noAgentFallback}</NativeSelectOption>
                   {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}

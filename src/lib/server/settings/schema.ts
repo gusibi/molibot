@@ -233,6 +233,11 @@ export interface AgentSettings {
 
 export const DEFAULT_AGENT_ID = "default";
 
+/** Global Bot execution belongs to Momo; the Desktop default is a separate choice. */
+export function normalizeChannelAgentId(value: unknown): string {
+  return String(value ?? "").trim() || DEFAULT_AGENT_ID;
+}
+
 export function defaultAgentSettings(): AgentSettings {
   return {
     id: DEFAULT_AGENT_ID,

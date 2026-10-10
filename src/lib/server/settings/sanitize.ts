@@ -1,6 +1,7 @@
 import {
   type AgentSettings,
   DEFAULT_AGENT_ID,
+  normalizeChannelAgentId,
   defaultAgentSettings,
   normalizeDefaultAgentSettings,
   defaultRuntimeSettings,
@@ -1202,7 +1203,7 @@ export function sanitizeSingleChannelInstance(input: unknown): ChannelInstanceSe
     id,
     name: String(item.name ?? "").trim() || id,
     enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-    agentId: String(item.agentId ?? "").trim(),
+    agentId: normalizeChannelAgentId(item.agentId),
     credentials,
     allowedChatIds: Array.isArray(item.allowedChatIds)
       ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
@@ -1225,6 +1226,7 @@ function sanitizeChannels(
       {
         instances: (value?.instances ?? []).map((instance) => ({
           ...instance,
+          agentId: normalizeChannelAgentId(instance.agentId),
           credentials: { ...(instance.credentials ?? {}) },
           allowedChatIds: [...(instance.allowedChatIds ?? [])],
           display: instance.display ? sanitizeChannelInstanceDisplaySettings(instance.display) : undefined
@@ -1257,7 +1259,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
-      agentId: "",
+      agentId: DEFAULT_AGENT_ID,
       credentials: { token: bot.token },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -1268,7 +1270,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
-      agentId: "",
+      agentId: DEFAULT_AGENT_ID,
       credentials: { appId: bot.appId, appSecret: bot.appSecret },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -1279,7 +1281,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
-      agentId: "",
+      agentId: DEFAULT_AGENT_ID,
       credentials: { appId: bot.appId, clientSecret: bot.clientSecret },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -1631,7 +1633,7 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
   next.agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
   next.defaultAgentId = String(next.defaultAgentId ?? current.defaultAgentId ?? "default").trim();
   next.deletedAgentIds = Array.isArray(next.deletedAgentIds) ? [...new Set(next.deletedAgentIds.map(String))] : [];
-  if (next.defaultAgentId === DEFAULT_AGENT_ID && !next.deletedAgentIds.includes(DEFAULT_AGENT_ID) && !next.agents.some(agent => agent.id === DEFAULT_AGENT_ID)) {
+  if (!next.deletedAgentIds.includes(DEFAULT_AGENT_ID) && !next.agents.some(agent => agent.id === DEFAULT_AGENT_ID)) {
     next.agents.unshift(defaultAgentSettings());
   }
   next.desktopNavigation = sanitizeDesktopNavigation(next.desktopNavigation);

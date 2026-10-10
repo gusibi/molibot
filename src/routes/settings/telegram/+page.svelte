@@ -52,7 +52,6 @@
       streamLabel: "启用流式输出",
       streamDesc: "实时流式传输 Agent 响应。默认开启。",
       linkedAgentLabel: "关联 Agent",
-      noAgentFallback: "无 Agent（仅使用全局兜底）",
       permissionModeLabel: "权限模式",
       permissionModeDesc: "覆盖此 Bot 会话使用的权限模式；继承全局时使用系统默认执行模式。",
       inheritOption: "继承全局",
@@ -99,7 +98,6 @@
       streamLabel: "Enable streaming output",
       streamDesc: "Stream agent responses in real-time. Default on.",
       linkedAgentLabel: "Linked Agent",
-      noAgentFallback: "No agent (global fallback only)",
       permissionModeLabel: "Permission mode",
       permissionModeDesc: "Overrides the permission mode for this bot's conversations; inherit uses the system default execution mode.",
       inheritOption: "Inherit global",
@@ -157,7 +155,7 @@
       name: "",
       enabled: false,
       streamOutput: true,
-      agentId: "",
+      agentId: "default",
       token: "",
       allowedChatIds: "",
       permissionMode: undefined,
@@ -235,7 +233,7 @@
             name: bot.name ?? "",
             enabled: bot.enabled ?? true,
             streamOutput: String(bot.credentials?.streamOutput ?? "").toLowerCase() !== "false",
-            agentId: bot.agentId ?? "",
+            agentId: bot.agentId ?? "default",
             token: bot.credentials?.token ?? "",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
             permissionMode: bot.permissionMode,
@@ -510,7 +508,6 @@
               <div class="channel-field">
                 <Label for="tg-agent">{copy.linkedAgentLabel}</Label>
                 <NativeSelect id="tg-agent" bind:value={selectedBot.agentId}>
-                  <NativeSelectOption value="">{copy.noAgentFallback}</NativeSelectOption>
                   {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}

@@ -1640,3 +1640,8 @@ Room model previews use the backend-resolved per-member model keys. Completed tr
 ## Personal Agent Desktop
 
 普通对话的左栏以 Agent 为主入口。默认 Agent 始终显示并置于首位，标明“默认 / Default”；全局新对话进入默认 Agent。每个启用的 Agent 在名称旁提供独立“＋”新对话按钮，按钮只进入该 Agent 草稿，不提前创建空 Session。头像、名称和描述进入 Agent 首页，独立箭头展开历史；多个 Agent 可同时展开，首次默认收起。首页展示身份与填写草稿的建议，发送后沿用紧凑聊天头部、输入区和 Inspector。模型仅在输入区选择。历史展示来源，未归属与已删除 Agent 的记录可只读查看；管理入口保持可见。导航、首页和历史使用共享控件、语义 CSS 与主题 token，支持中英和窄宽度。
+
+
+### Agent 选择的一致语义
+
+渠道 Bot 与 Web Profile 必须显示明确的 Agent 身份。初始选择 Momo（稳定 ID `default`），不提供“无 Agent／全局兜底”这一空身份选项。global 指共享配置和规则的作用域；新对话的默认 Agent 是独立偏好，不改变既有 Bot 或 Session 的身份。Desktop 与独立 Web 设置页使用同一规则。

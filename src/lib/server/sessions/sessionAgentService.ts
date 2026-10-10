@@ -1,3 +1,4 @@
+import { normalizeChannelAgentId } from "$lib/server/settings/schema.js";
 import type { RuntimeSettings, AgentSettings } from "$lib/server/settings/schema.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { Conversation } from "$lib/shared/types/message.js";
@@ -71,6 +72,8 @@ export function admitStoredAgentSession(
 
 /** Directory ownership supplies the configured Bot identity for unassigned history. */
 export function configuredSessionAgent(settings: RuntimeSettings, channel: string, botId: string): string | undefined {
-  const agentId = settings.channels[channel]?.instances.find(instance => instance.id === botId)?.agentId;
+  const bot = settings.channels[channel]?.instances.find(instance => instance.id === botId);
+  if (!bot) return undefined;
+  const agentId = normalizeChannelAgentId(bot.agentId);
   return agentId && settings.agents.some(agent => agent.id === agentId) && !settings.deletedAgentIds.includes(agentId) ? agentId : undefined;
 }

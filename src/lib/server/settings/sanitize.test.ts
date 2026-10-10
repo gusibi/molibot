@@ -361,3 +361,13 @@ test("the built-in default Agent remains available alongside custom Agents", () 
   const deleted = sanitizeSettings({ agents: [{ id: "writer", name: "Writer", enabled: true, description: "" }], defaultAgentId: "writer", deletedAgentIds: ["default"] }, defaultRuntimeSettings);
   assert.deepEqual(deleted.agents.map(agent => agent.id), ["writer"]);
 });
+
+test("all configured channels canonicalize global execution to Momo even with a custom Desktop default", () => {
+  const channels = Object.fromEntries(["web", "telegram", "feishu", "qq", "weixin", "future-channel"].map(channel => [channel, { instances: [{ id: "bot", name: "Bot", enabled: false, agentId: "  ", credentials: {}, allowedChatIds: [] }] }]));
+  const result = sanitizeSettings({ agents: [{ id: "writer", name: "Writer", description: "", enabled: true }], defaultAgentId: "writer", channels }, defaultRuntimeSettings);
+  assert.equal(result.defaultAgentId, "writer");
+  assert.ok(result.agents.some(agent => agent.id === "default" && agent.name === "Momo"));
+  for (const channel of Object.values(result.channels)) {
+    assert.ok(channel.instances.every(instance => instance.agentId === "default"));
+  }
+});

@@ -54,7 +54,7 @@ export async function toggleProfile(profile: DesktopWebProfile): Promise<void> {
 }
 
 export function beginNewProfile(): void {
-  profilesStore.profileEdit = { isNew: true, id: newProfileId(), name: "", enabled: true, agentId: "", permissionMode: null, files: emptyProfileFiles() };
+  profilesStore.profileEdit = { isNew: true, id: newProfileId(), name: "", enabled: true, agentId: "default", permissionMode: null, files: emptyProfileFiles() };
   profilesStore.actionMessage = "";
 }
 

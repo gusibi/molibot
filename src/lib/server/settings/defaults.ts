@@ -144,7 +144,7 @@ function mapTelegramBotsToChannelSettings(bots: TelegramBotConfig[]): ChannelIns
     id: bot.id,
     name: bot.name,
     enabled: true,
-    agentId: "",
+    agentId: DEFAULT_AGENT_ID,
     credentials: {
       token: bot.token
     },
@@ -157,7 +157,7 @@ function mapFeishuBotsToChannelSettings(bots: FeishuBotConfig[]): ChannelInstanc
     id: bot.id,
     name: bot.name,
     enabled: true,
-    agentId: "",
+    agentId: DEFAULT_AGENT_ID,
     credentials: {
       appId: bot.appId,
       appSecret: bot.appSecret
@@ -171,7 +171,7 @@ function mapQQBotsToChannelSettings(bots: QQBotConfig[]): ChannelInstanceSetting
     id: bot.id,
     name: bot.name,
     enabled: true,
-    agentId: "",
+    agentId: DEFAULT_AGENT_ID,
     credentials: {
       appId: bot.appId,
       clientSecret: bot.clientSecret

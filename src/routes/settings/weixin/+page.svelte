@@ -63,7 +63,6 @@
       enableLabel: "启用该插件实例",
       enableDesc: "禁用的 Bot 将保留但无法在运行时选择。",
       linkedAgentLabel: "关联 Agent",
-      noAgentFallback: "无 Agent（仅使用全局兜底）",
       permissionModeLabel: "权限模式",
       permissionModeDesc: "覆盖此 Bot 会话使用的权限模式；继承全局时使用系统默认执行模式。",
       inheritOption: "继承全局",
@@ -116,7 +115,6 @@
       enableLabel: "Enable this plugin instance",
       enableDesc: "Disabled bots stay saved but are not selectable at runtime.",
       linkedAgentLabel: "Linked Agent",
-      noAgentFallback: "No agent (global fallback only)",
       permissionModeLabel: "Permission mode",
       permissionModeDesc: "Overrides the permission mode for this bot's conversations; inherit uses the system default execution mode.",
       inheritOption: "Inherit global",
@@ -175,7 +173,7 @@
       id: createBotId(),
       name: "",
       enabled: false,
-      agentId: "",
+      agentId: "default",
       baseUrl: "",
       allowedChatIds: "",
       permissionMode: undefined,
@@ -251,7 +249,7 @@
             id: bot.id ?? createBotId(),
             name: bot.name ?? "",
             enabled: bot.enabled ?? true,
-            agentId: bot.agentId ?? "",
+            agentId: bot.agentId ?? "default",
             baseUrl: bot.credentials?.baseUrl ?? "",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
             permissionMode: bot.permissionMode,
@@ -606,7 +604,6 @@
               <div class="channel-field">
                 <Label for="wx-agent">{copy.linkedAgentLabel}</Label>
                 <NativeSelect id="wx-agent" bind:value={selectedBot.agentId}>
-                  <NativeSelectOption value="">{copy.noAgentFallback}</NativeSelectOption>
                   {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}

@@ -792,3 +792,26 @@ test("plugin entry enable state survives a settings store restart", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("global Bot bindings persist canonical Momo through a channel-only save and settings restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-momo-binding-"));
+  const originals = { ...storagePaths };
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+  try {
+    const store = new SettingsStore();
+    const before = store.load();
+    const instance = { id: "global-bot", name: "Global Bot", enabled: false, agentId: "", credentials: { token: "fixture" }, allowedChatIds: ["chat"], permissionMode: "manual" as const, display: { toolProgress: "verbose" as const, showReasoning: "stream" as const, gatewayNotifyInterval: 15, runLogNotice: true } };
+    const channels = { ...before.channels, fixture: { instances: [instance] } };
+    store.saveChannels({ ...before, channels, systemPrompt: "must not overwrite another setting" });
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(JSON.parse(JSON.stringify(restarted)), JSON.parse(JSON.stringify({ ...before, channels: { ...channels, fixture: { instances: [{ ...instance, agentId: "default" }] } } })));
+    const db = new DatabaseSync(storagePaths.settingsDbFile, { readOnly: true });
+    try {
+      assert.equal(db.prepare("SELECT agent_id FROM settings_channel_instances WHERE channel_key = ? AND id = ?").get("fixture", "global-bot")?.agent_id, "default");
+    } finally { db.close(); }
+  } finally {
+    Object.assign(storagePaths, originals);
+    rmSync(root, { recursive: true, force: true });
+  }
+});

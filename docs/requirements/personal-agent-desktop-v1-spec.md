@@ -61,7 +61,7 @@ Desktop 的普通对话导航以 Channel 和历史 Session 为中心，用户难
 - 普通 Session 创建时持久化稳定的 Session Agent 标识。服务端以其确定执行身份并拒绝不一致请求；历史归属不随渠道改绑、名称或模型变化。Primary Agent 保留其现有 Room 默认收件人含义。
 - 新建普通对话首次发送前可换 Agent，首次发送建立 Session 和绑定。创建 Agent 后直接使用 Desktop 共享执行入口，不能借另一个 Agent 的入口冒充执行。
 - 外部渠道改绑后新入站消息创建或进入改绑后新 Agent 的新 Session；不继续旧 Agent 上下文。外部执行路由在共享层解决，Channel 仅承担连接与消息适配。独立 Web UI 不改，已有功能继续可用。
-- 旧普通 Session 按所在 Bot 目录与该 Bot 的有效 Agent 绑定自动关联，已有 Agent 归属优先且不可改写。缺失 Bot 或有效 Agent 绑定的历史保留在未分配历史，可显式认领。关联不改变外部会话只读属性，Project 和自动任务不参与。
+- 旧普通 Session 按所在 Bot 目录与该 Bot 的有效 Agent 绑定自动关联，已有 Agent 归属优先且不可改写。 已配置 Bot 的空绑定表示 Momo，统一持久化为 `agentId: "default"`；`global` 是共享配置作用域，`defaultAgentId` 只表示新对话默认选择。缺失 Bot 或有效 Agent 绑定的历史保留在未分配历史，可显式认领。关联不改变外部会话只读属性，Project 和自动任务不参与。
 - Session 显式模型覆盖优先，其次使用 Agent 当前配置，再继承现有默认配置。后续轮次使用当前有效配置，历史消息不改写；模型不改变归属。
 - Owner 事实与偏好在同一 owner 的普通助手间按授权共享；Project 保持既有作用域；Agent 私有知识按稳定身份隔离，写入、反思、检索和最终模型注入一致。内部业务 Agent 不扩大授权，既有 turn-retention 规则继续生效。
 - 禁用 Agent 默认折叠且历史可查看，阻止新建、续聊及自动任务新触发。既有运行不因禁用自动停止，已有停止与恢复控制保留。禁用期间定时任务跳过并记录原因；重新启用不补跑。

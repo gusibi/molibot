@@ -6120,3 +6120,20 @@ test("Agent sidebar retains every shared Session context menu action and transla
     assert.ok(navigation.includes(`copy.${label}`), `Missing translated menu label: ${label}`);
   }
 });
+
+test("channel and Web Profile settings use a concrete Momo identity instead of an empty global option", () => {
+  for (const section of ["ChannelsSection", "ProfilesSection"]) {
+    assert.doesNotMatch(read(`./lib/settings/${section}.svelte`), /profileNoAgent|value: ""/);
+  }
+  for (const store of ["channels", "profiles"]) {
+    assert.match(read(`./lib/stores/${store}.svelte.ts`), /agentId: "default"/);
+  }
+  for (const channel of ["telegram", "feishu", "qq", "weixin", "web"]) {
+    const page = read(`../../../src/routes/settings/${channel}/+page.svelte`);
+    assert.doesNotMatch(page, /noAgentFallback/);
+    const selector = page.match(/<NativeSelect[^>]*value=\{[^}]*agentId\}[\s\S]*?<\/NativeSelect>/)?.[0];
+    assert.ok(selector, `Missing Agent selector for ${channel}`);
+    assert.doesNotMatch(selector, /<NativeSelectOption value="">/);
+    assert.match(page, /agentId: "default"/);
+  }
+});

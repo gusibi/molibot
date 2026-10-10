@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
   type AgentSettings,
   DEFAULT_AGENT_ID,
+  normalizeChannelAgentId,
   type ChannelSettingsMap,
   defaultRuntimeSettings,
   defaultAgentSettings,
@@ -954,7 +955,7 @@ function sanitizeChannels(
           id,
           name: String(item.name ?? "").trim() || id,
           enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-          agentId: String(item.agentId ?? "").trim(),
+          agentId: normalizeChannelAgentId(item.agentId),
           credentials: Object.fromEntries(
             Object.entries(credentialsSource)
               .map(([credKey, credValue]) => [credKey, String(credValue ?? "").trim()])
@@ -975,7 +976,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
-      agentId: "",
+      agentId: DEFAULT_AGENT_ID,
       credentials: { token: bot.token },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -986,7 +987,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
-      agentId: "",
+      agentId: DEFAULT_AGENT_ID,
       credentials: {
         appId: bot.appId,
         appSecret: bot.appSecret,
@@ -1002,7 +1003,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
-      agentId: "",
+      agentId: DEFAULT_AGENT_ID,
       credentials: { appId: bot.appId, clientSecret: bot.clientSecret },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -1155,7 +1156,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const qqBots = qqBotsFromList.length > 0 ? qqBotsFromList : [];
   const sanitizedAgents = sanitizeAgents(raw.agents);
   const agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
-  if (String(raw.defaultAgentId ?? DEFAULT_AGENT_ID) === DEFAULT_AGENT_ID && (!Array.isArray(raw.deletedAgentIds) || !raw.deletedAgentIds.includes(DEFAULT_AGENT_ID))) {
+  if (!Array.isArray(raw.deletedAgentIds) || !raw.deletedAgentIds.includes(DEFAULT_AGENT_ID)) {
     if (!agents.some(agent => agent.id === DEFAULT_AGENT_ID)) agents.unshift(defaultAgentSettings());
   }
   const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots, qqBots);
@@ -1945,7 +1946,7 @@ export class SettingsStore {
               instance.id,
               instance.name || instance.id,
               instance.enabled ? 1 : 0,
-              instance.agentId ?? "",
+              normalizeChannelAgentId(instance.agentId),
               JSON.stringify(instance.credentials ?? {}),
               JSON.stringify(instance.allowedChatIds ?? []),
               instance.permissionMode ?? null,
@@ -2201,6 +2202,10 @@ export class SettingsStore {
       writeJsonFile(storagePaths.settingsFile, this.toStaticSettings(settings));
     }
     return settings;
+  }
+
+  saveChannels(settings: RuntimeSettings): void {
+    this.saveDynamicSettings(settings, ["channels"]);
   }
 
   saveDesktopNavigation(settings: RuntimeSettings): void {

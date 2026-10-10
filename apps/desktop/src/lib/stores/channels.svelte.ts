@@ -62,7 +62,7 @@ export function beginNewChannel(channel: DesktopExternalChannel): void {
     id: `${channel}-${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10)}`,
     name: "",
     enabled: true,
-    agentId: "",
+    agentId: "default",
     permissionMode: null as "plan" | "manual" | "accept_edits" | "auto" | null,
     allowedChatIds: [],
     fields: channel === "weixin" ? { baseUrl: "https://ilinkai.weixin.qq.com" } : channel === "telegram" || channel === "feishu" ? { streamOutput: "true" } : {},

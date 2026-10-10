@@ -95,3 +95,12 @@ test("Web Context automation and conflicting identities remain untouched and con
   assert.equal(sessions.getConversationById(conflict.id, "web", owner)?.agentId, "default");
   assert.equal(readSessionOriginMetadata(conflictDir, conflict.id)?.agentId, "researcher");
 });
+
+test("configured Bots with empty global binding belong to canonical Momo, independently of the Desktop default", t => {
+  const { root, settings, sessions, seed } = setup(t);
+  settings.defaultAgentId = "researcher";
+  settings.channels.telegram.instances[0].agentId = "";
+  const dir = seed("moli-t", "personal", "123", "global-history");
+  assert.deepEqual(associateSessionAgents(sessions, settings, root), { contexts: 1, web: 0, conflicts: 0 });
+  assert.equal(readSessionOriginMetadata(dir, "global-history")?.agentId, "default");
+});
