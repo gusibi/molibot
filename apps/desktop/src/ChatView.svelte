@@ -3597,7 +3597,7 @@
     </div>
   {/if}
   {#snippet agentConversationContent()}
-    <AgentNavigation endpoint={connectedEndpoint} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} expanded={agentNavigation.expandedAgentIds} activeAgentId={selectedAgentId} {activeSessionId} refresh={agentRefresh} {locale} {copy} {statusDots} formatTime={formatListTime} onAgent={openAgentChat} onToggle={toggleAgent} onSelect={openSession} onHistory={openAgentHistory} onManage={() => openAgentSettings()} onRename={renameSession} onDelete={deleteSession} />
+    <AgentNavigation endpoint={connectedEndpoint} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} expanded={agentNavigation.expandedAgentIds} activeAgentId={selectedAgentId} {activeSessionId} refresh={agentRefresh} {locale} {copy} {statusDots} formatTime={formatListTime} onAgent={openAgentChat} onToggle={toggleAgent} onSelect={openSession} onHistory={openAgentHistory} onManage={() => openAgentSettings()} onRename={renameSession} onDelete={deleteSession} onCopySessionPath={copySessionPath} onRevealSessionInFinder={revealSessionInFinder} />
   {/snippet}
   <ChatSidebar
     conversationContent={agentConversationContent}

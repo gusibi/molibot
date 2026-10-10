@@ -6104,3 +6104,19 @@ test("durable cards preserve multiline content without widening their grid", () 
     assert.doesNotMatch(rule, /white-space: nowrap/);
   }
 });
+
+
+test("Agent sidebar retains every shared Session context menu action and translated labels", () => {
+  const navigation = read("./lib/chat/AgentNavigation.svelte");
+  const host = view.match(/<AgentNavigation\s[\s\S]*?\/>/)?.[0];
+  assert.ok(host);
+  assert.match(host, /onCopySessionPath=\{copySessionPath\}/);
+  assert.match(host, /onRevealSessionInFinder=\{revealSessionInFinder\}/);
+  assert.match(host, /onRename=\{renameSession\}/);
+  assert.match(host, /onDelete=\{deleteSession\}/);
+  assert.match(navigation, /onCopyPath=\{\(\) => onCopySessionPath\(item\)\}/);
+  assert.match(navigation, /onRevealInFinder=\{\(\) => onRevealSessionInFinder\(item\)\}/);
+  for (const label of ["conversationMenu", "copySessionPath", "openInFinder", "renamePlaceholder", "deleteConversationPrompt", "cancelAction"]) {
+    assert.ok(navigation.includes(`copy.${label}`), `Missing translated menu label: ${label}`);
+  }
+});
