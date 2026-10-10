@@ -1,3 +1,7 @@
+# Agent 共享工作区与 Session 数据迁移（2026-10-10）
+
+已授权，实施中。迁移发现与暂存准备已实现，尚未接入生产 Runtime 或 Desktop，完整迁移未交付。普通 Session 改为 Agent 共享工作区内的上下文文件；App 检测旧目录并经用户确认复制迁移，源目录保留且不再写入。Runtime、界面及目录说明统一使用新布局。完整需求与验收见 [规格](docs/requirements/agent-session-storage-spec.md)。
+
 # Personal Agent 体验升级 V1（2026-10-09，优先级未指定）
 
 已交付（2026-10-10）。Desktop 提供 Agent 导航、首页、完整历史、独立草稿和恢复；普通 Session 固定 Agent 身份，共享执行入口、模型路由、记忆授权及禁用/删除约束已接通。Project 保持现有行为，独立 Web 页面未改。Momo 使用固定 ID `default`，已配置 Bot 的空绑定明确保存为 Momo；global 是共享配置作用域，新对话默认选择独立于该身份。旧普通会话按 Bot 目录和有效 Agent 绑定自动关联；缺失有效绑定的历史才需要显式认领。产品约定见 [PRD](docs/requirements/personal-agent-experience-v1.md)，验收边界见 [规格](docs/requirements/personal-agent-desktop-v1-spec.md) 与 [验证记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。
