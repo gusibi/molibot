@@ -29,6 +29,9 @@ importers:
       '@earendil-works/pi-durable':
         specifier: 1.0.0
         version: 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(@smithy/signature-v4@5.7.4)(undici@8.5.0)(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-mcp':
+        specifier: ^1.0.0
+        version: 1.0.0
       '@earendil-works/pi-telemetry':
         specifier: ^1.0.0
         version: 1.0.0
@@ -38,9 +41,6 @@ importers:
       '@larksuiteoapi/node-sdk':
         specifier: ^1.66.0
         version: 1.68.0
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.27.1
-        version: 1.29.0(zod@4.4.3)
       '@pdf-lib/fontkit':
         specifier: 1.1.1
         version: 1.1.1
@@ -153,6 +153,9 @@ importers:
       '@internationalized/date':
         specifier: ^3.12.1
         version: 3.12.2
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.27.1
+        version: 1.29.0(zod@4.4.3)
       '@rollup/plugin-commonjs':
         specifier: ^29.0.3
         version: 29.0.3(rollup@4.62.2)

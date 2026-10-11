@@ -1,11 +1,15 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  McpClient,
+  StdioTransport,
+  StreamableHttpTransport,
+  toLlmContent
+} from "@earendil-works/pi-mcp";
 import { join } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { McpServerConfig } from "$lib/server/settings/schema.js";
+import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
 import { spillFullOutput } from "$lib/server/agent/tools/outputSpill.js";
 import {
   DEFAULT_MAX_BYTES,
@@ -41,12 +45,22 @@ interface McpToolDetails {
 const MCP_CONNECT_TIMEOUT_MS = 8_000;
 export const MCP_EXECUTION_TIMEOUT_MS = 120_000;
 
-/** Bound the remote request even when its transport ignores cancellation. */
+/**
+ * Bound a remote tool call with an absolute deadline.
+ *
+ * Pi's client already applies `timeoutMs` to a `tools/call` request and cancels
+ * the in-flight request over the protocol. That timeout, however, is renewed by
+ * every progress notification, so a chatty server could keep one call alive
+ * indefinitely. This wrapper enforces a single absolute deadline that progress
+ * cannot extend and aborts the Pi request through the same `AbortSignal` — it
+ * does not reimplement protocol cancellation.
+ */
 export async function callMcpToolWithTimeout(
-  client: Pick<Client, "callTool">,
-  params: Parameters<Client["callTool"]>[0],
+  client: Pick<McpClient, "callTool">,
+  name: string,
+  args: Record<string, unknown>,
   signal?: AbortSignal
-): Promise<Awaited<ReturnType<Client["callTool"]>>> {
+): Promise<Awaited<ReturnType<McpClient["callTool"]>>> {
   signal?.throwIfAborted();
   const controller = new AbortController();
   const executionSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -56,17 +70,12 @@ export async function callMcpToolWithTimeout(
     onAbort = () => reject(executionSignal.reason);
     executionSignal.addEventListener("abort", onAbort, { once: true });
     timer = setTimeout(() => {
-      controller.abort(new Error(`MCP tool ${params.name} timed out after 120 seconds. The remote operation may still be running; verify its outcome before retrying a write.`));
+      controller.abort(new Error(`MCP tool ${name} timed out after 120 seconds. The remote operation may still be running; verify its outcome before retrying a write.`));
     }, MCP_EXECUTION_TIMEOUT_MS);
   });
   try {
     return await Promise.race([
-      client.callTool(params, undefined, {
-        signal: executionSignal,
-        timeout: MCP_EXECUTION_TIMEOUT_MS,
-        maxTotalTimeout: MCP_EXECUTION_TIMEOUT_MS,
-        resetTimeoutOnProgress: false
-      }),
+      client.callTool(name, args, { signal: executionSignal, timeoutMs: MCP_EXECUTION_TIMEOUT_MS }),
       interrupted
     ]);
   } finally {
@@ -80,8 +89,8 @@ interface ConnectedServer {
   config: McpServerConfig;
   workspaceDir: string;
   state: McpConnectionState;
-  client?: Client;
-  transport?: StdioClientTransport | StreamableHTTPClientTransport;
+  client?: McpClient;
+  transport?: StdioTransport | StreamableHttpTransport;
   tools: AgentTool<any>[];
   lastError?: string;
   lastAttemptAt?: string;
@@ -195,77 +204,6 @@ export function capMcpToolContent(
   return out;
 }
 
-function normalizeToolContent(
-  payload: unknown
-): Array<TextContent | ImageContent> {
-  if (!payload || typeof payload !== "object") {
-    return [{ type: "text", text: String(payload ?? "(empty)") }];
-  }
-
-  const result = payload as {
-    content?: Array<Record<string, unknown>>;
-    structuredContent?: unknown;
-  };
-  const out: Array<TextContent | ImageContent> = [];
-  const content = Array.isArray(result.content) ? result.content : [];
-
-  for (const item of content) {
-    const type = String(item?.type ?? "").trim();
-    if (type === "text" && typeof item?.text === "string") {
-      out.push({ type: "text", text: item.text });
-      continue;
-    }
-
-    if (type === "image" && typeof item?.data === "string" && typeof item?.mimeType === "string") {
-      out.push({ type: "image", data: item.data, mimeType: item.mimeType });
-      continue;
-    }
-
-    if (type === "audio") {
-      out.push({
-        type: "text",
-        text: `[MCP audio content omitted] mimeType=${String(item?.mimeType ?? "unknown")}`
-      });
-      continue;
-    }
-
-    if (type === "resource_link") {
-      out.push({
-        type: "text",
-        text: `[MCP resource link] ${String(item?.name ?? item?.title ?? "resource")} -> ${String(item?.uri ?? "")}`
-      });
-      continue;
-    }
-
-    if (type === "resource" && item?.resource && typeof item.resource === "object") {
-      const resource = item.resource as Record<string, unknown>;
-      if (typeof resource.text === "string") {
-        out.push({ type: "text", text: resource.text });
-      } else if (typeof resource.blob === "string") {
-        out.push({
-          type: "text",
-          text: `[MCP resource blob] uri=${String(resource.uri ?? "")} mimeType=${String(resource.mimeType ?? "")}`
-        });
-      } else {
-        out.push({ type: "text", text: `[MCP resource] ${JSON.stringify(resource)}` });
-      }
-      continue;
-    }
-
-    out.push({ type: "text", text: `[MCP content] ${JSON.stringify(item)}` });
-  }
-
-  if (result.structuredContent !== undefined) {
-    out.push({ type: "text", text: `[MCP structuredContent]\n${JSON.stringify(result.structuredContent, null, 2)}` });
-  }
-
-  if (out.length === 0) {
-    out.push({ type: "text", text: "(MCP tool returned no content)" });
-  }
-
-  return out;
-}
-
 export class McpToolRegistry {
   private readonly servers = new Map<string, ConnectedServer>();
   private syncQueue: Promise<void> = Promise.resolve();
@@ -313,34 +251,87 @@ export class McpToolRegistry {
     });
   }
 
+  private buildAgentTool(
+    server: McpServerConfig,
+    remote: { name: string; description?: string; inputSchema: Record<string, unknown>; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } },
+    client: McpClient,
+    options: McpRegistryOptions
+  ): AgentTool<any> {
+    const parameters = Type.Unsafe<Record<string, unknown>>(
+      remote.inputSchema && typeof remote.inputSchema === "object"
+        ? remote.inputSchema
+        : { type: "object", additionalProperties: true }
+    );
+    const localToolName = this.buildToolName(server, remote.name);
+
+    const tool: AgentTool<any> = {
+      name: localToolName,
+      label: `mcp:${server.name}/${remote.name}`,
+      description: `[MCP:${server.name}] ${remote.description || remote.name}`,
+      parameters,
+      execute: async (_toolCallId, params, signal): Promise<{ content: Array<TextContent | ImageContent>; details: McpToolDetails }> => {
+        const toolArgs = params && typeof params === "object" ? params as Record<string, unknown> : {};
+        const result = await callMcpToolWithTimeout(client, remote.name, toolArgs, signal);
+        const converted = toLlmContent(result);
+        // Pi maps a content-less result (no blocks, no `structuredContent`) to
+        // an empty array; keep the explicit placeholder so the model sees that
+        // the call happened instead of an empty tool message.
+        if (converted.length === 0) converted.push({ type: "text", text: "(MCP tool returned no content)" });
+        const content = capMcpToolContent(converted, {
+          spillDir: join(options.workspaceDir, ".mom-tool-output"),
+          spillPrefix: `mcp-${sanitizeToolNameSegment(remote.name)}`
+        });
+        const details: McpToolDetails = {
+          serverId: server.id,
+          serverName: server.name,
+          remoteToolName: remote.name,
+          isError: Boolean(result.isError)
+        };
+
+        if (result.isError) {
+          const text = content
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n")
+            .trim();
+          throw new Error(text || `MCP tool ${server.name}/${remote.name} returned isError=true`);
+        }
+
+        return { content, details };
+      }
+    };
+
+    // The server's own annotations enter the shared permission classification
+    // through the same door Mini App manifests use. A missing annotation stays
+    // `undeclared`, never `read_only`.
+    (tool as { classification?: unknown }).classification = getRuntimeToolClassification(localToolName, {
+      mcp: remote.annotations
+    });
+
+    return tool;
+  }
+
   private async connectServer(
     server: McpServerConfig,
     options: McpRegistryOptions
   ): Promise<ConnectedServer> {
     const transport = server.transport === "http"
-      ? new StreamableHTTPClientTransport(new URL(server.http.url), {
-        requestInit: {
-          headers: {
-            ...toStringRecord(server.http.headers)
-          }
-        }
+      ? new StreamableHttpTransport({
+        url: server.http.url,
+        headers: toStringRecord(server.http.headers)
       })
-      : (() => {
-        const env = {
-          ...toStringRecord(process.env),
-          ...toStringRecord(server.stdio.env)
-        };
-        return new StdioClientTransport({
-          command: server.stdio.command,
-          args: server.stdio.args,
-          cwd: server.stdio.cwd || options.workspaceDir,
-          env
-        });
-      })();
-    const client = new Client(
-      { name: "molibot-mcp-client", version: "0.1.0" },
-      { capabilities: {} }
-    );
+      : new StdioTransport({
+        command: server.stdio.command,
+        args: server.stdio.args,
+        cwd: server.stdio.cwd || options.workspaceDir,
+        env: toStringRecord(server.stdio.env)
+      });
+    const client = new McpClient({
+      name: "molibot-mcp-client",
+      version: "0.1.0",
+      capabilities: {},
+      requestTimeoutMs: MCP_CONNECT_TIMEOUT_MS
+    });
 
     const entry: ConnectedServer = {
       hash: this.buildServerHash(server),
@@ -356,7 +347,11 @@ export class McpToolRegistry {
     const key = this.serverKey(options.workspaceDir, server.id);
     this.servers.set(key, entry);
     const markDisconnected = (error?: Error): void => {
-      if (this.servers.get(key) !== entry || entry.closing) return;
+      // A transport that closes/errors while `connect()` is still running is
+      // reporting the connect failure itself; the catch below owns that
+      // transition (and the single warning). React only to a live connection
+      // dropping.
+      if (this.servers.get(key) !== entry || entry.closing || entry.state === "connecting") return;
       entry.state = error ? "error" : "disconnected";
       entry.lastError = error ? redactMcpError(error.message, server) : undefined;
       entry.client = undefined;
@@ -369,55 +364,13 @@ export class McpToolRegistry {
         ...(error ? { error: redactMcpError(error.message, server) } : {})
       });
     };
-    transport.onclose = () => markDisconnected();
-    transport.onerror = (error) => markDisconnected(error);
+    transport.onClose(() => markDisconnected());
+    transport.onError((error) => markDisconnected(error));
 
     try {
-      await client.connect(transport, { timeout: MCP_CONNECT_TIMEOUT_MS });
-      const listed = await client.listTools(undefined, { timeout: MCP_CONNECT_TIMEOUT_MS });
-      entry.tools = listed.tools.map((remote): AgentTool<any> => {
-        const parameters = Type.Unsafe<Record<string, unknown>>(
-          remote.inputSchema && typeof remote.inputSchema === "object"
-            ? remote.inputSchema
-            : { type: "object", additionalProperties: true }
-        );
-        const localToolName = this.buildToolName(server, remote.name);
-
-        return {
-          name: localToolName,
-          label: `mcp:${server.name}/${remote.name}`,
-          description: `[MCP:${server.name}] ${remote.description || remote.name}`,
-          parameters,
-          execute: async (_toolCallId, params, signal): Promise<{ content: Array<TextContent | ImageContent>; details: McpToolDetails }> => {
-            const toolArgs = params && typeof params === "object" ? params as Record<string, unknown> : {};
-            const result = await callMcpToolWithTimeout(client, {
-              name: remote.name,
-              arguments: toolArgs
-            }, signal);
-            const content = capMcpToolContent(normalizeToolContent(result), {
-              spillDir: join(options.workspaceDir, ".mom-tool-output"),
-              spillPrefix: `mcp-${sanitizeToolNameSegment(remote.name)}`
-            });
-            const details: McpToolDetails = {
-              serverId: server.id,
-              serverName: server.name,
-              remoteToolName: remote.name,
-              isError: Boolean(result.isError)
-            };
-
-            if (result.isError) {
-              const text = content
-                .filter((part) => part.type === "text")
-                .map((part) => part.text)
-                .join("\n")
-                .trim();
-              throw new Error(text || `MCP tool ${server.name}/${remote.name} returned isError=true`);
-            }
-
-            return { content, details };
-          }
-        };
-      });
+      await client.connect(transport);
+      const listed = await client.listTools({ timeoutMs: MCP_CONNECT_TIMEOUT_MS });
+      entry.tools = listed.map((remote) => this.buildAgentTool(server, remote, client, options));
       entry.state = "connected";
       entry.lastError = undefined;
       entry.connectedAt = new Date().toISOString();
@@ -429,9 +382,9 @@ export class McpToolRegistry {
       entry.transport = undefined;
       entry.tools = [];
       try {
-        await transport.close();
+        await client.close();
       } catch {
-        // The failed transport may already be closed.
+        // The failed client may already be closed.
       }
       entry.closing = false;
       entry.state = "error";
