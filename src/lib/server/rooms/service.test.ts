@@ -63,6 +63,32 @@ test("an explicit quote is truncated visibly or rejected before acceptance when 
   await flush(); calls[1].finish("Reviewed"); await flush();
 });
 
+test("a recovery review parks the Room execution and resumes it once approved", async (t) => {
+  const { service, store, calls } = fixture(t);
+  const room = service.create({ title: "Review", agentIds: ["writer"] });
+  service.send(room.id, { submissionId: "s1", text: "Work" });
+  await flush();
+  const execution = service.view(room.id).executions[0];
+  calls[0].finish("done");
+  await flush();
+
+  // Simulate the restart inspection: a running-but-inactive execution is parked.
+  store.state(execution.id, "running");
+  assert.equal(service.parkNativeRecovery(room.id, execution.id, "recovery-review:r1", "unknown outcome"), true);
+  const parked = service.view(room.id).executions.find(e => e.id === execution.id)!;
+  assert.equal(parked.status, "waiting_approval");
+  assert.equal(parked.approvalId, "recovery-review:r1");
+  assert.equal(parked.approval?.command, "recovery_review");
+
+  const before = calls.length;
+  assert.equal(service.resumeNativeExecution(room.id, execution.id), true);
+  await flush();
+  assert.equal(calls.length, before + 1, "approval resumes a fresh run");
+  const resumed = service.view(room.id).executions.find(e => e.id === execution.id)!;
+  assert.equal(resumed.status, "running");
+  assert.equal(resumed.approvalId, undefined);
+});
+
 test("paused resume submissions survive reload, deduplicate after completion and reject conflicts", async (t) => {
   const { service, calls, store, dir } = fixture(t);
   const room = service.create({ title: "Resume", agentIds: ["writer", "reviewer"] });

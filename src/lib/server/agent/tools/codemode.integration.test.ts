@@ -176,6 +176,17 @@ test("assembled Codemode scripts discover, classify and display generated models
   assert.equal(images.length, 1, "the displayed image reaches the tool result");
 });
 
+test("an oversized generated image is referenced instead of inlined", async () => {
+  const { inlineOrReferenceImages } = await import("./codemode.js");
+  const small = { type: "image" as const, ref: "runs/small.png", mimeType: "image/png", data: "AAAA" };
+  const large = { type: "image" as const, ref: "runs/large.png", mimeType: "image/png", data: "A".repeat(700_001) };
+  assert.deepEqual(inlineOrReferenceImages([small]), [{ type: "image", data: "AAAA", mimeType: "image/png" }]);
+  const rendered = inlineOrReferenceImages([large]);
+  assert.equal(rendered.length, 1);
+  assert.equal(rendered[0].type, "text");
+  assert.match((rendered[0] as { text: string }).text, /too large to inline.*runs\/large\.png/);
+});
+
 test("model operations are absent when the caller cannot authorize them", async () => {
   const { tool } = await fixture();
   const result = await tool.execute("no-models", { code: 'await models.list();' });

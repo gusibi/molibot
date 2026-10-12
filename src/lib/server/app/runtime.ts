@@ -240,7 +240,9 @@ async function failPiRecoveryReview(inspection: PiRecoveryInspection, managers: 
     if (!broker.getRequest(approvalId)) {
       broker.createRequest({
         id: approvalId, runId: owner.runId, sessionId: owner.sessionId, workspaceId: owner.workspaceId,
-        actorId: owner.actor, capability: "recovery_review", riskLevel: "high",
+        // A Room resolves approvals against the owning agent; other surfaces ignore the actor.
+        actorId: owner.runtimeIdentity?.roomId ? (owner.runtimeIdentity.agentId ?? owner.actor) : owner.actor,
+        capability: "recovery_review", riskLevel: "high",
         action: { type: "network", toolName: "recovery_review" }, reason: text, status: "pending",
         requestedBy: { agentId: owner.runtimeIdentity?.agentId ?? "recovery", depth: 0 },
         scopeOptions: ["once"], createdAt: new Date().toISOString()
@@ -255,11 +257,14 @@ async function failPiRecoveryReview(inspection: PiRecoveryInspection, managers: 
     console.error("[runtime] Failed to create the recovery review decision request:", error);
   }
   if (owner.runtimeIdentity?.roomId) {
-    // Room executions have no Decision Request surface yet; fail them with the
-    // specific reason rather than leaving the Room blocked.
+    // Park the Room execution on the same Decision Request surface: the Room UI
+    // shows it for review, and resolving it resumes or abandons the execution.
     const { getRoomService } = await import("$lib/server/rooms/runtime.js");
-    getRoomService().failNativeRecovery(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId, text);
-    getTurnOrchestrator().failRunIfRunning(owner.runId, text);
+    if (getRoomService().parkNativeRecovery(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId, approvalId, text)) {
+      getTurnOrchestrator().markRunForRecoveryReview(owner.runId, text);
+    } else {
+      getTurnOrchestrator().failRunIfRunning(owner.runId, text);
+    }
     return;
   }
   const deliveryChannel = owner.transport?.channel ?? owner.channel;
@@ -886,6 +891,10 @@ function initializeRuntime(): RuntimeState {
         if (!owner) return;
         if (status !== "approved") {
           getTurnOrchestrator().updateRunStatus(runId, "aborted", "Recovery review was rejected.");
+          if (owner.runtimeIdentity?.roomId) {
+            const { getRoomService } = await import("$lib/server/rooms/runtime.js");
+            getRoomService().failNativeRecovery(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId, "Recovery review was rejected.");
+          }
           const cleanup = new PiRecoveryStore(config.dataDir);
           try { cleanup.remove(runId); } finally { cleanup.close(); }
           return;

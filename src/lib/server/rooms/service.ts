@@ -382,9 +382,23 @@ export class RoomService {
     this.changed(roomId, execution);
   }
 
+  /**
+   * Park a run whose restart outcome is unknown behind a Decision Request, so a
+   * person reviews it in the Room instead of the execution failing outright.
+   */
+  parkNativeRecovery(roomId: string, executionId: string, approvalId: string, reason: string): boolean {
+    const execution = this.deps.store.executions(roomId).find(e => e.id === executionId);
+    if (!execution || !["running", "waiting_approval"].includes(execution.status) || this.active.has(execution.id)) return false;
+    this.deps.store.state(execution.id, "waiting_approval", undefined, approvalId);
+    this.deps.store.approval(execution.id, { command: "recovery_review", displayName: "recovery_review", reason });
+    this.changed(roomId, execution);
+    return true;
+  }
+
   resumeNativeExecution(roomId: string, executionId: string): boolean {
     const execution = this.deps.store.executions(roomId).find(e => e.id === executionId);
-    if (!execution || execution.status !== "running" || this.active.has(execution.id)) return false;
+    // A recovery review parks the execution at waiting_approval; either state can resume.
+    if (!execution || !["running", "waiting_approval"].includes(execution.status) || this.active.has(execution.id)) return false;
     try { this.assertAuthority(execution); }
     catch (error) {
       this.deps.store.state(execution.id, "failed", String(error));
@@ -392,6 +406,9 @@ export class RoomService {
       this.changed(roomId, execution);
       return false;
     }
+    // Clear the (already resolved) approval and run from pending.
+    this.deps.store.state(execution.id, "running", undefined, undefined);
+    this.deps.store.approval(execution.id, undefined);
     this.start(execution);
     return true;
   }

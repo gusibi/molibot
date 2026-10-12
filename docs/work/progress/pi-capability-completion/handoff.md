@@ -18,7 +18,9 @@
 ### A 普通任务恢复 — 已按规格收尾（Desktop 核对文案已补）
 关键代码：`src/lib/server/app/piRecovery.ts`（`inspectPiRecovery` 分类 + `uncertainCallIds`）、`src/lib/server/app/runtime.ts`（启动协调器、`resumePiRecoveryOwner`、`failPiRecoveryReview` Decision Request、`onApprovalResolved` 续跑）、`src/lib/server/app/backgroundConversation.ts`（按 `assistantSourceEntryId` 幂等记录）、`src/lib/server/agent/core/turnOrchestrator.ts`（`markRunForRecoveryReview` / `abortRunningTurnsForSession` 含 `recovery_review`）、`src/lib/server/agent/tools/sideEffectClassification.ts`（`isReplaySafeTool`）、`src/lib/server/agent/durable/piConversation.ts`（`assertRecovery` 支持 `approvedRecoveryCallIds`）、`src/lib/server/agent/core/piRunSession.ts` + `types.ts`（`MomContext.approvedRecoveryCallIds` 透传）、`agent/tools/index.ts`（`wrapWithToolRuntime`/`toAgentTool` 设置 `replay: "safe"`）。
 
-A 剩余小项：Room 执行的 review 仍是终态失败（无 Decision Request 入口）；Desktop 已补专用「等待核对」卡片文案（`ChatView` + i18n），Web 端（若有）仍通用；`failPiRecoveryReview`/`onApprovalResolved` 运行时装线无端到端测试。
+A 已补 Room review 入口（本会话，方向 A）：`RoomService.parkNativeRecovery` 把 Room 执行停在 `waiting_approval` + `approvalId=recovery-review:<runId>`，run 标 `recovery_review`；批准经 `onApprovalResolved` → `resumeNativeExecution`（守卫接受 `waiting_approval`）续跑，拒绝/过期 `failNativeRecovery`；请求 `actorId` 对 Room 用 agent 身份；`rooms/runtime.ts` 透传 `approvedRecoveryCallIds`（不重放）。测试：`rooms/service.test.ts` 新增 1 项。
+
+A 剩余：Room review 真实运行时装线端到端测试；Desktop 专用「等待核对」文案（`ChatView` + i18n，已补）；Web（若有）仍通用；`failPiRecoveryReview`/`onApprovalResolved` 运行时装线无端到端测试。
 
 ### B MCP OAuth — 首片
 关键代码：`src/lib/server/settings/mcpAuth.ts`（共享 auth 解析）、`settings/schema.ts`（`McpServerAuthConfig`）、`settings/sanitize.ts` / `store.ts` / `defaults.ts`（三处 sanitizer 都调 `resolveMcpAuthConfig`）、`src/lib/server/agent/mcp/oauthStore.ts`（0600 受保护凭据、按 serverId+URL+授权服务器隔离）、`agent/mcp/oauth.ts`（Pi 公共 OAuth 封装）、`agent/mcp/oauthRuntime.ts`（单例）、`agent/tools/mcp.ts`（`adaptOAuthProvider` 接入 + 状态）、`src/routes/api/settings/mcp/+server.ts`、`src/routes/api/desktop/mcp/+server.ts`、`src/routes/settings/mcp/+page.svelte`（Web UI）。
@@ -36,7 +38,9 @@ B 仍未完成（规格列全）：远端 Web 公网回调（当前 loopback）�
 ### C Codemode 模型 API — 首片
 关键代码：`src/lib/server/agent/models/modelOperations.ts`（共享 `ModelOperations`：catalog/classify/generateImages + authorize/beforeCall/onUsage）、`agent/tools/codemode.ts` + `scripts/runtime/codemode-worker.mjs`（`models.list/classify/generateImages` 全局 + `image()` 输出回传）、`agent/tools/index.ts`（`modelOperationDeps`）、`agent/core/runner.ts`（预算/用量接入，Plan/只读下不可用）。
 
-C 未完成：真实 Runner 端到端（真实分类/图片 Provider、多图、参考图、伴随文本、并发/恢复/取消）；大图制品引用；图片经媒体任务/制品服务的来源归属；模型调用走现有审批卡（当前 authority+budget+usage）。
+C 已补大图不内联（本会话）：超 700k 字符的生成图片不再内联 base64，改为文本制品引用（`inlineOrReferenceImages`），小图仍内联；精确 `ref` 因沙箱 `image()` 丢弃仍待补。
+
+C 未完成：真实 Runner 端到端（真实分类/图片 Provider、多图、参考图、伴随文本、并发/恢复/取消）；大图**精确**制品引用；图片经媒体任务/制品服务的来源归属；模型调用走现有审批卡（当前 authority+budget+usage）。
 
 ### D Pi 扩展运行接口 — 首片
 生产路径是 `scripts/runtime/untrusted-pi-extension-worker.mjs` + 主进程 IPC handler（`src/lib/server/plugins/piExtensions/processClient.ts` / `toolBridge.ts` / `eventBridge.ts` / `commandBridge.ts`）。**不要只改 `src/lib/server/plugins/piExtensions/context.ts`**（未被生产调用）。

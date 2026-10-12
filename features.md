@@ -4,6 +4,20 @@ Agent 设置页"内置头像"网格原来写死 12 个 `pattern-*.svg`，导致�
 
 验证：`agentAvatarPresets.test.ts` 2 项（临时目录派生、自然排序、双语标签）、settings 组 13 项、reactive/runes 守卫通过；`desktop:check` 0 错误（仅剩 AgentCityInspector 既有警告）；`vite build` 产物含全部 24 个头像 URL 与标签；隔离 dev 实例（端口 1427）冒烟：scifi svg 200、虚拟模块导出 24 项、设置页编译 200。未执行 Tauri 原生壳冷启动走查；24 个 svg 与新代码尚未提交 git。
 
+## 2026-10-12 — Room 恢复核对接入 Decision Request（部分交付）
+
+Room 执行遇到「重启前结果未知需核对」时不再直接终态失败：`RoomService.parkNativeRecovery` 把执行停在 `waiting_approval` 并挂上共享 Decision Request（`recovery-review:<runId>`），Room 现有审批卡即可展示；批准经 `onApprovalResolved` → `resumeNativeExecution` 续跑（守卫已接受 `waiting_approval` 并清审批），拒绝/过期则结束执行。Room 审批请求用 agent 身份以通过身份校验；`rooms/runtime.ts` 把 `approvedRecoveryCallIds` 从恢复记录透传给 Run，保证确认过的未知调用按中断结算、不重放。
+
+验证：`rooms/service.test.ts` 新增「park + resume once approved」；rooms 与 piRecovery 回归 51 项、根 `check`（仅剩既有会话列表错误）与 build 通过。
+
+未验收：Room review 的真实运行时装线端到端（真实 Room + durable + 重启 + 审批续跑/拒绝/不重放）。
+
+## 2026-10-12 — Codemode 大图不内联（部分交付）
+
+Codemode 脚本经 `image()` 展示的生成图片，base64 超过 700k 字符时不再内联进工具结果，改为文本制品引用，避免单图灌爆模型上下文与记录；小图仍内联供视觉。逻辑抽为 `inlineOrReferenceImages` 纯函数。
+
+验证：`codemode.integration.test.ts` 13 项（新增小图内联 / 大图转引用）；根 `check` 仅剩既有会话列表错误、build 通过。未验收：沙箱 `image()` 丢弃 `ref` 导致精确制品引用缺失，及图片经媒体任务服务的来源归属。
+
 ## 2026-10-12 — 等待核对专用审批文案（部分交付）
 
 桌面聊天里的「等待核对」审批不再复用通用主机命令文案：`ChatView.svelte` 按 `command === "recovery_review"` 切换到专用标题与说明（说明这是服务重启前结果未知的外部操作；批准=按已中断处理并继续，不重放），中英各加 `approvalRecoveryReviewTitle` / `approvalRecoveryReviewSubtitle`。

@@ -152,6 +152,9 @@ function createRunner(input: RoomRunnerInput) {
       const turn = admitted && getTurnOrchestrator().getRunStatus(input.id) === "running"
         ? { runId: input.id, workspaceId: admitted.workspaceId }
         : getTurnOrchestrator().prepareTurn({ chatId: input.roomId, sessionId: input.contextId, message: { ...message, runId: input.id } });
+      // A person confirmed the uncertain calls during recovery review: pass them
+      // through so Pi settles them as interrupted instead of replaying them.
+      if (admitted?.context.approvedRecoveryCallIds) ctx.approvedRecoveryCallIds = admitted.context.approvedRecoveryCallIds;
       const result = await runner.run({ ...ctx, message: { ...message, runId: turn.runId, workspaceId: turn.workspaceId } });
       return { status: result.stopReason === "stop" ? "completed" as const : result.stopReason === "aborted" ? "cancelled" as const : "failed" as const,
         text, attachments: outputAttachments, error: result.errorMessage, activities: collector.finalSnapshot() };

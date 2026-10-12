@@ -33,6 +33,26 @@ async function invokeModelOperation(models: ModelOperations, member: string, arg
 }
 
 /** The VM has no host I/O; every external operation re-enters the tool dispatcher. */
+/**
+ * A generated image is inlined for vision only up to this size (base64 chars).
+ * Larger ones are replaced by a text reference so one image cannot flood the
+ * model context or the transcript; the bytes stay in the workspace artifact.
+ */
+const INLINE_IMAGE_MAX_BASE64 = 700_000;
+
+/** Inline a generated image for vision only up to the cap; larger ones become a text artifact reference. */
+export function inlineOrReferenceImages(
+  images: Array<{ type: "image"; ref?: string; data: string; mimeType: string }>
+): Array<{ type: "image"; data: string; mimeType: string } | { type: "text"; text: string }> {
+  const out: Array<{ type: "image"; data: string; mimeType: string } | { type: "text"; text: string }> = [];
+  for (const block of images) {
+    out.push(block.data.length <= INLINE_IMAGE_MAX_BASE64
+      ? { type: "image", data: block.data, mimeType: block.mimeType }
+      : { type: "text", text: `[Generated image too large to inline (${block.mimeType}); saved to this run's workspace artifacts${block.ref ? `: ${block.ref}` : ""}.]` });
+  }
+  return out;
+}
+
 export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof schema> {
   return {
     name: "codemode", label: "Codemode",
@@ -126,7 +146,7 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof s
         await Promise.allSettled([...calls.values()].map(call => call.promise));
         await exited;
         const displayImages = Array.isArray(result.images)
-          ? (result.images as Array<{ type: "image"; data: string; mimeType: string }>).map(block => ({ type: "image" as const, data: block.data, mimeType: block.mimeType }))
+          ? inlineOrReferenceImages(result.images as Array<{ type: "image"; ref?: string; data: string; mimeType: string }>)
           : [];
         return { content: [{ type: "text", text: result.text || "Script completed." }, ...displayImages],
           details: { ...suspension?.details, invocationIds, calls: result.calls ?? [], errorKind: result.errorKind,
