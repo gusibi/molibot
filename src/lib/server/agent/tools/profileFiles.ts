@@ -7,6 +7,7 @@ import {
   BOT_PROFILE_FILES,
   getAgentDir,
   getAgentForBot,
+  getGlobalProfileDir,
   normalizeEditableBody,
   writeProfileFiles
 } from "$lib/server/agent/prompts/profiles.js";
@@ -100,7 +101,7 @@ function resolveScopePaths(params: {
   // fall back straight to global, matching the prompt assembly in prompt.ts.
   const agentHasFile = (AGENT_PROFILE_FILES as readonly string[]).includes(parentFile);
   const agentFilePath = agentId && agentHasFile ? join(getAgentDir(agentId), parentFile) : null;
-  const globalFilePath = join(dataRoot, parentFile);
+  const globalFilePath = join(getGlobalProfileDir(dataRoot), parentFile);
   return {
     botId,
     botFilePath,

@@ -1,8 +1,430 @@
-## 2026-10-10 — Agent Session 迁移准备（部分实施）
+## 2026-10-11 — 内置头像选择器改为目录派生，scifi 头像集入库（已交付）
 
-共享迁移模块提供只读发现及暂存准备，保留源 Context 正文、源文件修改时间与权限。它记录稳定 Session 映射、固定 Agent 归属及原当前路由；附件和 scratch 保留目录关系，Skill 同内容可共享、不同内容阻塞，Event 副本携带原回复目标和映射后的创建 Session。校验清单支持准备阶段重试，拒绝覆盖已改变的副本。
+Agent 设置页"内置头像"网格原来写死 12 个 `pattern-*.svg`，导致后来放入 `static/agent-avatars/` 的 12 个 `scifi-*.svg` 永远不出现在选择器里（且 `static/` 根目录这份拷贝在代码中零引用，真正被服务的是 `apps/desktop/public/agent-avatars/`）。根修：资产收敛到 `apps/desktop/public/agent-avatars/` 单一目录（删除根目录 `static/`），新增 `agentAvatarPresets.ts` 在构建时用 `readdirSync` 派生列表（扩展名过滤 + 自然排序 + 中英标签），经 Vite 虚拟模块 `virtual:agent-avatars` 注入 `AgentSettingsPage.svelte`——以后往目录里加图片文件即自动出现在选择器，列表不再可能与目录脱节。头像 URL 格式不变（`/agent-avatars/<文件名>`），已保存的 Agent 头像继续有效。
 
-此模块尚未接入生产启动或 Desktop，暂存完成不代表迁移成功。Runtime 隔离/提交、Web 展示索引、配置与持久引用处理、全部新路径消费者和 Desktop 确认流程仍待实现；没有迁移真实用户数据。实施与验证见 [记录](docs/work/progress/agent-session-storage/progress.md)。
+验证：`agentAvatarPresets.test.ts` 2 项（临时目录派生、自然排序、双语标签）、settings 组 13 项、reactive/runes 守卫通过；`desktop:check` 0 错误（仅剩 AgentCityInspector 既有警告）；`vite build` 产物含全部 24 个头像 URL 与标签；隔离 dev 实例（端口 1427）冒烟：scifi svg 200、虚拟模块导出 24 项、设置页编译 200。未执行 Tauri 原生壳冷启动走查；24 个 svg 与新代码尚未提交 git。
+
+## 2026-10-12 — 等待核对专用审批文案（部分交付）
+
+桌面聊天里的「等待核对」审批不再复用通用主机命令文案：`ChatView.svelte` 按 `command === "recovery_review"` 切换到专用标题与说明（说明这是服务重启前结果未知的外部操作；批准=按已中断处理并继续，不重放），中英各加 `approvalRecoveryReviewTitle` / `approvalRecoveryReviewSubtitle`。
+
+验证：Desktop `svelte-check` 0 错误 1 既有警告；根 `check` 仅剩既有会话列表错误、build 通过。Web 端审批卡（若有）仍为通用呈现，Room review 仍为终态失败，均留待后续。
+
+## 2026-10-12 — Pi 扩展 compact 与事件路径（部分交付）
+
+`ctx.compact()` 现在真实触发原生压缩（经运行预算），Plan/只读下不可用。新增按 run 的扩展宿主注册表（`plugins/piExtensions/runHost.ts`，`createMomTools` 每次运行时注册）：事件处理器拿到与工具相同的真实快照、`ctx.tools` 与 host session，因此在事件里也能 `executeTool` / `stream` / 分类图片；无运行时退化为 cwd + 系统提示。
+
+验证：`executeTool.test.ts` 9 项（含 compact 通知、事件处理器嵌套调用）、`eventBridge.test.ts` 9 项；piExtensions 与工具组 90 项、根 `check`（仅剩既有会话列表错误）与 build 通过。
+
+未验收：`ctx.signal`、命令（slash command）路径、跨作用域（当前由快照天然限定）、真实扩展宿主端到端。
+
+## 2026-10-12 — Pi 扩展工具目录与 abort（部分交付）
+
+`ctx.tools` 现在给出与模型相同的**可调用工具目录**（名称/标签/描述/参数 schema，`createMomTools.toolCatalog` → worker），扩展据此知道 `executeTool` 能调什么。`ctx.abort()` 经双向 IPC 通知主机（`extensionAbort` → `PiRunSession.abort`，任何模式可用）；扩展忽略取消时 worker 被终止、fault 上报，服务其他部分不受影响。
+
+验证：`executeTool.test.ts` 增至 7 项（新增工具目录、abort 通知、忽略取消不拖垮服务）；piExtensions 与工具组 88 项、根 `check`（仅剩既有会话列表错误）与 build 通过。
+
+未验收：真实 `compact`/`signal`、事件/命令路径快照与嵌套调用、跨作用域（当前由快照天然限定）、真实扩展宿主端到端。
+
+## 2026-10-12 — Pi 扩展只读 sessionManager（部分交付）
+
+扩展现在可通过 `ctx.sessionManager` 只读地查看当前执行的原生会话：`getSessionId`/`getCwd`/`getSessionFile`/`getSessionDir`/`getSessionName`/`getHeader`/`getLeafId`/`getLeafEntry`/`getEntry`/`getEntries`/`getBranch`/`getTree`/`buildContextEntries`/`buildSessionProjection`；无标签时 `getLabel` 返回 `undefined`，线性日志的 `getTree` 为扁平。条目来自原生 durable 活跃上下文（存储已解析分支），每条携带其贡献的模型消息（同时以 pi 风格 `message` 暴露、并保留完整 `messages`），每次调用刷新（`PiRunSession.extensionSessionSource` → `PiConversationRuntime.context()`），同步返回、不伪装 Promise；快照不含凭据。注意 durable 记录与 pi SessionManager 的字段差异（无 `parentId`/`timestamp`）。
+
+验证：`sessionSnapshot.test.ts` 1 项（身份/记录/分支/叶/树/投影/无标签）与 `runtimeSnapshot.test.ts` 增 session 断言；piExtensions 与工具组 84 项、根 `check`（仅剩既有会话列表错误）与 build 通过。
+
+未验收：真实 `abort`/`compact`、`ctx.tools` 工具目录、事件/命令路径快照、跨作用域拒绝、扩展崩溃/忽略取消端到端、真实扩展宿主端到端。
+
+## 2026-10-11 — Pi 扩展流式 chat（部分交付）
+
+`ctx.modelRegistry.stream`/`streamSimple`/`complete` 现在可用：主进程用共享 `Models` 适配器（`getPiModels()`）运行 provider 流，并经新增的双向 IPC 推送通道（`hostEvent`）把有界序列化事件回传给扩展；authority、预算与用量与 Codemode 同一条路径。单个事件超过 256KB 会使流失败而不是越界；扩展侧传 `AbortSignal` 取消会通知主机（`modelRegistry.streamAbort`）并终止流。
+
+验证：`modelStream.test.ts` 5 项（事件顺序 + 最终结果、`streamSimple` 标记、超界失败、主机失败→错误、取消通知）通过；piExtensions 与工具组 83 项、根 `check`（仅剩既有会话列表错误）与 build 通过。
+
+未验收：只读 session 快照、真实 abort/compact、`ctx.tools` 目录、事件/命令路径快照、跨作用域拒绝、扩展崩溃/忽略取消端到端、真实 Provider/扩展宿主端到端。
+
+## 2026-10-11 — Pi 扩展 modelRegistry：发现与分类/图片（部分交付）
+
+扩展可通过 `ctx.modelRegistry` 做同步模型发现（`getAll`/`getAvailable`/`find`/`findOfType`/`getModelsOfType`/`getModelOfType`/`hasConfiguredAuth`），并用 `classify`/`generateImages` 调用模型；后两者经双向 IPC 走共享 `ModelOperations`，权限、预算与用量与 Codemode 同一条路径。凭据、Provider 对象、Provider/模型注册、`stream`/`streamSimple`/`complete` 明确拒绝（不再静默成功）。新增 `plugins/piExtensions/modelCatalog.ts`，仅暴露 provider/id/name/api 与「是否有凭据」，每次调用重新解析可用性、快照不含凭据；`toolBridge` 的 host session 增加 `modelRegistry.classify`/`generateImages` 分发，Plan/只读下不可用并返回错误结果。
+
+验证：`modelRegistry.test.ts` 3 项、`modelCatalog.test.ts` 2 项，`runtimeContext.test.ts` 增发现断言；piExtensions 与工具组 78 项、根 `check`（仅剩既有会话列表错误）与 build 通过。
+
+未验收：流式 chat 调用、只读 session 快照、真实 abort/compact、`ctx.tools` 目录、事件/命令路径快照、跨作用域拒绝、扩展崩溃/忽略取消端到端。
+
+## 2026-10-11 — Pi 扩展 executeTool 走共享 ToolRuntime（部分交付）
+
+扩展子进程现在能通过 `ctx.executeTool(name, args)` 嵌套调用工具，且经**共享 ToolRuntime** 运行：`createMomTools` 用与模型相同的可调用工具集解析目标，未知工具和主机端失败都返回 `isError` 结果而不是抛出。为此新增 worker→主机请求通道：`processClient.ts` 的 `registerHostSession`/`releaseHostSession` 按 token 把请求路由回发起它的那次调用，`toolBridge.ts` 每次调用注册/释放 host session 并透传 `hostToken`，从而按调用身份隔离并拒绝迟到回复；`ctx.tools` 暂为空。
+
+验证：`executeTool.test.ts` 4 项（成功路由、无 host session 报错、主机失败→isError、已释放 session 拒绝迟到请求）通过；piExtensions 与工具组 93 项、根 `check`（仅剩既有会话列表错误）与 build 通过。
+
+未验收：只读 `sessionManager` 快照、`modelRegistry`（发现/分类/图片/流式）、真实 `signal`/`abort`/`compact`、`ctx.tools` 工具目录、事件/命令路径的完整快照与 `executeTool`、跨作用域拒绝、扩展崩溃/忽略取消端到端、真实扩展宿主端到端验收。
+
+## 2026-10-11 — Pi 扩展运行接口首片：真实运行状态（部分交付）
+
+真正运行扩展的子进程（`scripts/runtime/untrusted-pi-extension-worker.mjs`）不再是占位上下文：`ExtensionContext` 的 `cwd` / `systemPrompt` / `model` / `thinkingLevel` / `scopedModels` / `isIdle()` / `hasPendingMessages()` / `getContextUsage()` / `getSystemPrompt()` 现在来自调用方传入的真实运行快照。新增 `plugins/piExtensions/runtimeSnapshot.ts`（`buildPiExtensionRuntimeSnapshot`，序列化 pi-ai `Model` 时剥离 headers，快照不含凭据）与 `types.ts` 的 `PiExtensionRuntimeSnapshot`。未接线的 `sessionManager` / `modelRegistry` 改为命名抛错代理，`abort()` / `compact()` / `shutdown()` 明确抛错——不再静默 no-op 或返回伪造成功。工具路径经 `createMomTools.piExtensionRuntime` → `createPiExtensionTools.runtime` → worker 透传；`runner.ts` 用 `PiRunSession.state` + 渲染后的系统提示 + 待处理消息数组装快照。
+
+验证：`runtimeSnapshot.test.ts` 3 项与 `runtimeContext.test.ts`（真实子进程加载 fixture 扩展）通过；piExtensions 组 38 项、根 `check`（仅剩既有会话列表错误）与 build 通过。
+
+未验收：只读 `sessionManager` 快照、`modelRegistry`（发现/分类/图片/流式）、`executeTool()` 走共享 ToolRuntime、真实 `signal`/`abort`/`compact`、事件/命令路径的完整快照、身份绑定与迟到回复隔离、跨作用域拒绝、扩展崩溃/忽略取消的端到端、真实扩展宿主端到端验收。
+
+## 2026-10-11 — MCP OAuth 回调与追加授权的单元验证（部分交付）
+
+为回调和追加授权补单元/集成验证，并明确标注不能单测的部分：
+- **回调 host 契约**：`oauth.e2e.test.ts` 注入 `listenCallback`（`OAuthCallbackServer.listen({ redirectHost })`），断言授权请求的 `redirect_uri` 取自监听器上报的地址、不硬编码 loopback。**远端公网回调本身仍需「回调基址」配置与部署，尚未实现**，因此只验证了接缝，未验证公网可达。
+- **追加授权（step-up）**：断言传输遇 403 `insufficient_scope` 时给出可操作的 `McpOAuthAuthorizationRequiredError`；并断言 Molibot 安装的 `adaptOAuthProvider` 在 step-up 时请求「已授予 ∪ 被要求」的并集 scope。**传输触发的自动打开浏览器/自动续跑尚未实现**，只验证了「安全暂停 + 并集 scope」这一已实现契约。
+- **真实第三方账号**与**原生桌面冷启动**无法用单元测试替代：前者需要真实 OAuth MCP 服务与账号（隔离实例手工走查），后者需要运行 Tauri（手工走查）。本地 fixture 已覆盖真实账号会走的同一批代码路径（discovery / 注册 / PKCE / state / issuer / 刷新 / step-up / 退出 / 重启），但不证明外部服务本身可用。
+
+证据：`oauth.e2e.test.ts` 13 项通过；服务端 B 组与 MCP UI 守卫通过；类型检查仅剩既有错误。
+
+## 2026-10-11 — MCP 重新授权保留额外 scopes（已交付）
+
+重新授权（含 step-up 后再次登录）改为请求「已授予 scope ∪ 授权服务器声明的默认 scopes」，不再用默认 scope 覆盖并丢掉此前追加授予的权限。根因：`McpOAuthManager.beginLogin` 未向 Pi 的 OAuth 流程传 scope，`runFlow` 回退到 protected-resource metadata 的 `scopes_supported`，额外 scope 被静默丢弃。授权请求与授权码交换现在都带上并集 scope。
+
+验证：`oauth.e2e.test.ts` 新增用例先完成一次登录缓存 discovery 与客户端注册，再把已授予 scope 改为仅 `mcp.admin`，重新授权时断言授权 URL 的 scope 同时包含 `mcp.read`（声明的默认）与 `mcp.admin`（已授予）；人为移除修复后该断言失败，修复后 11 项全通过。
+
+## 2026-10-11 — Desktop MCP OAuth 控件（已交付）
+
+Desktop 原生 MCP 设置补齐 OAuth，与 Web 一致：编辑器可选择「请求头 / OAuth」，OAuth 下填写授权服务器元数据地址（留空自动发现）与客户端名称；列表行显示授权状态（已授权 / 未授权 / 已过期 / 等待浏览器 / 授权失败）与失败原因，并提供登录 / 重新授权 / 退出授权。登录在系统浏览器打开授权链接（Tauri `open_external_url`，非 Tauri 回退 `window.open`），随后每 3 秒轮询状态直到结算，授权成功后经共享重连发现工具。
+
+根因是后端早已具备该能力、前端从未接线：`/api/desktop/mcp` 支持 `oauth_login` / `oauth_reauthorize` / `oauth_logout`，摘要已带 `authMode` / `authState` / `authError`，保存请求已带 `authMode` / `authServerMetadataUrl` / `clientName`，但 `McpSection.svelte`、`stores/mcp.svelte.ts`、`api.ts` 没有对应控件与调用。空白元数据/客户端名表示保留已保存值，切换为 OAuth 时后端会自动丢弃手工 `Authorization` 头。顺带修正 MCP UI 守卫里过期的 `removeMcpServer` 断言。
+
+证据：MCP UI 守卫 4 项（含新增 Desktop OAuth 守卫）、Desktop UI 守卫 313 项、Desktop API 112 项、reactive/runes 守卫通过；`desktop:check` 0 错误、1 条既有警告。未执行原生桌面冷启动走查（需构建 Tauri 或中断服务），保留为待验证。
+
+## 2026-10-11 — MCP OAuth 端到端（已交付验证）
+
+使用本地 HTTP MCP 资源与本地 OAuth 授权服务器跑通真实协议链路，不再只做适配器单测：discovery、动态客户端注册、PKCE S256、`state` 校验、RFC 9207 `iss` 校验、刷新、追加授权（step-up）提示、同 URL 双账号隔离、退出/删除只清理自身、重启后凭据可用，以及登录完成后既有连接注册表重连并重新发现工具。
+
+修复两处根因。①授权码交换没有复用配置的 `authServerMetadataUrl`，会在交换阶段重新 discovery，隐藏 discovery 或端点非默认时会指向错误授权服务器甚至失败；现在配置的元数据地址贯穿整个流程。②已结算或取消的登录尝试会滞留在内存 pending 表，导致退出或删除服务后状态回显为过期 `error` 而不是未授权；现在登录成功即移除尝试，退出/删除会丢弃尝试，迟到的尝试无法复活授权。
+
+新增 `oauth.e2e.test.ts` 10 项覆盖上述链路；既有 oauth/oauthStore/mcpAuth/设置 round-trip 29 项、desktopMcp/openConnector 11 项、mcp 注册表 20 项、工具相关 31 项通过。类型检查仅剩既有的会话列表 API `unknown` 错误。未验收：Desktop 原生 MCP 设置页的 OAuth 控件、远端 Web 公网回调（当前 loopback）、传输触发 step-up 的自动续授权（当前安全暂停并给出可操作提示）、重新授权保留已授予的额外 scopes。
+
+## 2026-10-11 — Agent 运行归属与侧栏图标（已交付）
+
+运行事实保留执行上下文的 Agent 身份，状态投影使用该身份；桌面选择其他 Agent 后不再将运行状态归到 Momo，后续 Bot 改绑不改变已有运行的身份。侧栏仅显示状态图标，执行中使用 1.4 秒呼吸动画，空闲与未就绪不显示；中英说明保留在悬浮提示和无障碍名称中。减少动态效果或低性能模式下图标静态。
+
+根因为运行身份在 trace 持久化与投影之间丢失。临时数据库回归覆盖真实 Hook → SQLite → 状态投影的开始、完成和改绑；轮询回归覆盖断连、失败与恢复。原有测试仅覆盖 Bot 配置绑定。27 项运行状态/Hook/轮询测试、313 项 Desktop UI 守卫、Desktop svelte-check（0 错误，保留既有 1 条警告）与 build 通过。组件浏览器检查覆盖首次加载、切换 Agent、中英、图标无可见文字、动画及断连状态模拟。完整服务冷启动、Session 切换与服务重连尚未执行，未重启当前执行中的用户服务。全项目类型检查仍被会话列表接口的既有 unknown 类型错误阻塞。
+
+## 2026-10-11 — MCP 分发死锁与可配置超时（已交付）
+
+`mcpInvoke` 将执行锁和副作用记录交给内部 MCP 工具，避免父调用持锁等待子调用的死锁；内部工具保留权限检查和串行保护，分发调用不会自动重放。每个 MCP 服务支持 `timeoutMs`（1000–3600000 毫秒，默认 120000），Desktop 编辑表单使用秒，Web JSON 配置使用毫秒。进度通知不延长绝对截止时间；超时传递取消信号并结束本地等待，远端写操作结果仍须核实后再重试。修改设置影响后续调用，不改变已在等待中的调用。
+
+设置保存和启动读取共用 MCP 清洗逻辑，临时数据库 round-trip 覆盖完整服务配置。回归覆盖真实分发路径的父子锁、非自动重放、配置超时、取消和超时后的后续调用。
+
+验证：117 项 MCP/运行时/设置相关测试、314 项 Desktop UI 与响应式检查、Desktop svelte-check、两端 build 通过。隔离实例验证保存、重启回读、页面切换、服务中断恢复、中英/明暗和 390px。全项目类型检查仍有既有会话列表 API 类型错误，旧 MCP 删除动作源码匹配测试与当前确认弹窗不符；真实服务已获授权重启，健康检查正常；tdx 已连接并返回 120000 毫秒超时，原 session 无活动运行记录。
+
+## 2026-10-11 — 共享 Agent 规则真正生效（已交付）
+
+设置导航分组使用“助手”。Agent 管理上方提供“共享配置 / 共享规则”编辑，读写真实全局 AGENTS.md，并且只保存该文件。所有 Agent 的提示词按共享协作规则、Agent 协作规则、Bot 补充规则叠加；明确的模型和身份等配置仍优先于共享默认。Momo 与全局规则共用同一文件且只注入一次。没有把 Agent 编辑变成全局编辑。
+
+根因是同名 profile 文件的覆盖策略也用于协作规则，导致有专属 AGENTS.md 的 Agent 丢失共享规则；既有测试仅覆盖 Agent → Bot 叠加。增加真实提示词回归覆盖多个 Agent 与 Momo，验证共享只出现一次、专属仍保留及顺序；API 回归验证 scope=global 与仅写 AGENTS.md。30 项真实提示词、112 项 API、315 项 UI/响应式回归通过，Desktop check/build 与服务 build 通过。隔离实例检查保存回读、重启、服务恢复、中英明暗和 390px；没有新增 settings 字段，原生安装包未更新。
+
+## 2026-10-11 — 设置页视觉整理（已交付）
+
+设置导航使用清楚的选中态；标题与表单共享阅读列，分组标题、说明、行间距和分隔线统一。Agent 列表带身份头像；二级编辑保留全局导航，内部分类横向排列，身份标题与表单限定阅读宽度，头像预设按需展开。固定保存栏注明保存生效，正文留出底栏空间；分类切换返回正文顶部，草稿保留。窄窗口下拉单独一行，开关不挤压说明。沿用主题 token 和共享控件，无新依赖或持久化字段。
+
+验证：315 项桌面 UI/响应式守卫、Desktop svelte-check 和 build 通过；隔离实例走查通用、模型、技能、记忆、渠道与两个 Agent 编辑入口，覆盖头像展开、分类草稿、保存返回、服务中断恢复、中英、明暗和 390px 无横向溢出及底栏可达。保留既有 1 条可访问性和构建体积警告，原生安装包未更新。
+
+## 2026-10-11 — Agent 设置入口整理（已交付）
+
+全局设置的 Agent 页面把默认 Agent 放在上方“全局设置”组，说明仅影响全局新对话。列表使用“编辑”入口，已有 Agent 位于安装模板前。Agent 编辑是右侧内容区的二级页面，最左侧始终保留设置搜索与导航；内部分类和固定保存栏限定在编辑区域，返回 Agent 列表。Agent 首页进入编辑继续保留应用导航。专属记忆与共享记忆分开，机器人默认仅显示当前绑定。
+
+验证：315 项桌面 UI/响应式守卫、Desktop svelte-check 与 build 通过。隔离实例检查冷启动、两个编辑入口、设置导航切换保留草稿、保存/返回、服务中断恢复、中英明暗及 390px 无横向溢出和固定底栏。保留既有 1 条可访问性及构建体积警告，未更新原生安装包。导航守卫明确检查全局设置导航不因 Agent 编辑而隐藏，编辑区域保留窗口拖动栏占位。无持久化字段变化。
+
+## 2026-10-11 — Agent 机器人绑定交互（已交付）
+
+Agent 设置的“消息渠道”改为“绑定的机器人”。默认只列出当前 Agent 的绑定；“绑定其他机器人”显示渠道、原负责人及改绑说明。“移交给 Momo”代替解绑开关，Momo 的机器人通过目标 Agent 的绑定入口转交。所有操作先进入草稿，待保存区列出变更与撤销；固定底栏保存后生效，历史会话归属、机器人启用状态及凭证不变。
+
+验证：6 项绑定投影/共享保存回归、315 项桌面 UI/响应式守卫通过；Desktop svelte-check 与 build 通过，保留既有 1 条可访问性及构建体积警告。隔离实例完成首次打开、分类切换、绑定/移交/撤销、保存回读、服务中断后保留草稿与恢复重试、中英明暗/390px 固定底栏走查。未更新原生安装包。
+
+根因是作用域和操作含义混淆：把全局机器人列表与当前 Agent 绑定用启停样式开关呈现。既有守卫验证保存时不覆盖渠道配置，没有验证视图归属及草稿动作；新增投影回归覆盖仅显示当前绑定、跨渠道同 ID、移交、撤销和 Momo 非空身份。不需要新增持久化字段或长期 pitfalls。
+
+## 2026-10-11 — 迁移完成状态在新建会话与重启后保持（已交付）
+
+已完成迁移且源文件未新增或变化时，启动检测跳过旧会话映射的数据库校验；保留或删除旧目录都不会因新运行记录重新要求迁移。搜索历史缺少归属时保留原 ID，明确归属的记录正常转换，首次迁移仍阻止有歧义的待恢复任务。56 项迁移/运行时回归、独立进程中新建会话后再次启动及生产构建通过；全项目类型检查被会话列表接口的 `latestConversationAtByAgent: unknown` 错误阻塞。
+
+## 2026-10-11 — Agent 首页去掉输入框 Agent 选择器并补齐会话右键菜单（已交付）
+
+Agent 首页输入框左下角的 Agent 选择器移除：首页本来就挂在侧栏选中的 Agent 下，头像与标题也已标明身份，composer 里再放一个可点选 Agent 的下拉属于重复入口（群聊 Room 内选择发言对象的选择器不受影响，仍有真实作用）。会话内的 composer 保留只读 Bot 徽标（locked 模式），仅移除 draft 模式的 select 下拉。
+
+Agent 首页「最近对话」、全部对话历史页与搜索浏览弹层的会话行右键菜单补齐为 3 项：复制 session 路径、从 Finder 打开、删除对话（复用侧栏同款 RowContextMenu 与既有 `copySessionPath` / `revealSessionInFinder` handler，复制与 Finder 对只读会话同样可用；项目来源会话按 `projectId` 解析路径）。新增 chat-ui 守卫：首页 composer 不再出现 select/locked 双模式，三种会话列表均接线复制/Finder/删除。
+
+验证：313 项 chat-ui 回归、相关单测与守卫、桌面生产构建通过；svelte-check 仅剩未跟踪新文件 AgentSettingsPage.svelte 的 1 条既有错误与 AgentCityInspector 的 1 条既有 a11y 警告，均非本次改动文件。真实桌面冷启动走查未执行（需启动桌面实例，避免打断正在使用的会话），建议重启桌面应用后确认首页输入框左下角已无 Agent 头像按钮、右键行出现 3 项菜单。
+
+## 2026-10-11 — Agent 配置范围与文件卡片（已交付）
+
+通用设置增加“全局 Agent 的设置”目录。单 Agent 编辑标题显示身份，技能按专属和继承范围显示数量，共享技能默认收起；记忆分别显示当前 Agent 和已授权共享记录数量。Momo 角色文件作为全局默认规则的影响在角色页明确说明。
+
+文件页按生成内容、上传附件及来源待确认分区，再按文件类型分组，组内时间倒序。卡片显示图片缩略图、渠道、完整时间和来源对话；预览保留项目及对话身份。来源从共享文件接口的消息角色、入站附件及成功工具记录判定，历史证据不足时保留待确认状态；普通文本扩展名识别在共享文件预览层修正。图片使用既有文件传输，进入可视区域后加载并释放 Blob URL。
+
+验证：15 项文件来源/类型/分组/分页回归、315 项桌面 UI/响应式守卫通过；Desktop svelte-check 无错误（1 条既有可访问性警告），服务和桌面 build 通过。隔离实例验证首次打开、分类切换、图片预览、来源对话切换、服务停止后错误及重启重试、中英即时切换、明暗与 390px 无横向溢出。根项目 check 被未改动的 piRecovery.ordinary.test.ts 和 conversations API 类型错误阻塞；未替换原生安装包。
+
+根因：配置作用域未在界面区分，文件接口缺少来源字段。旧文件守卫验证可见性、身份和迁移映射读取次数，没有验证来源。新增回归覆盖消息角色及同目录内的生成/上传/未知文件；既有长期规则足够，无需重复加入 pitfalls。
+
+## 2026-10-11 — 普通任务恢复收尾：三窗口强杀矩阵 + 核对后继续原执行
+
+- **三窗口强杀矩阵**：新增 `src/lib/server/app/piRecovery.windows.test.ts` 与 `evals/fixtures/pi-tool-window-worker.ts`，用受控 barrier 触发真实 SIGKILL，覆盖规格要求的三个窗口——intent 前（tool `call` 阶段）、外部成功未提交（tool `execute` 阶段，不可重放→核对不重跑、可安全重放→重跑一次）、结果提交未投影（第一个工具已提交、第二个未开始）。独立 ledger 统计真实执行次数，验证已提交操作不重复、未开始操作只执行一次。
+- **核对后继续原执行**：未知外部操作的 `review` 现在会经共享 Decision Request（`ApprovalBroker`，capability `recovery_review`）park 原执行；批准后把 run 置回 running 并原样续跑（人工确认过的未知工具按中断结算、绝不重跑），拒绝或过期则中止并清理记录。`recovery_review` 记录在启动扫描中保留，`inspectPiRecovery` 返回 `uncertainCallIds`，`approvedRecoveryCallIds` 经记录 context → `MomContext` → 原生 binding → Pi `assertRecovery` 透传。第三窗口与新增的“核对确认后继续”场景共同证明：确认只作用于原执行，且不重放未知操作。
+
+验证：`piRecovery.windows.test.ts`（5 场景）、`piRecovery.test.ts`、`piRecovery.classification.test.ts`、`piRecovery.ordinary.test.ts`、`piRecovery.continuity.test.ts`、`recoveryReview.test.ts`、`replaySafety.test.ts`、`backgroundConversation.test.ts` 共 27 项通过；`piRunSession.test.ts`、`rooms/service.test.ts`、`approvalBroker.test.ts`、`resolutionEvents.test.ts`、`codemode.integration.test.ts` 80 项、service-bootstrap 21、desktop-chat 303 通过；`pnpm check` 与生产构建通过。
+
+未验收：Room 执行的 review 仍为终态失败；Desktop/Web 用通用审批卡呈现，尚无专用“等待核对”卡片文案；`failPiRecoveryReview`/`onApprovalResolved` 运行时装线无端到端测试（由批准后续跑矩阵覆盖）。
+
+## 2026-10-11 — 普通任务恢复补全：安全读取自动恢复、等待核对状态、专项验证
+
+动机：首片恢复把不可安全重放的中断一律停在“明确失败+事件”，安全读取也会被拦；未知外部操作没有区别于失败的独立状态；父子任务/预算/租约等缺少专项验证。
+
+改动：
+
+- **安全读取自动恢复**：`agent/tools/sideEffectClassification.ts` 新增 `isReplaySafeTool(toolId, declared)`，以共享副作用分类判定中断是否可重放——声明的 `pure` 或已知纯读取为可重放；写入、命令、第三方工具、`codemode`/`subagent` 与未声明工具保持不可重放。`createMomTools` 的 `wrapWithToolRuntime` 与 `toAgentTool` 据此给 `read`/`docExtract`/`webSearch`/`webFetch`/`skillSearch`/`profileFiles`/`switchModel`/`grep`/`find`/`ls`/`conversation_search` 设置 Pi 的 `replay: "safe"`，使中断的安全读取在重启后从原生断点自动继续，而不是进入核对。
+- **等待核对独立状态**：新增 `turnOrchestrator.markRunForRecoveryReview`，把未知外部操作的原执行置于非终态 `recovery_review`（此前是 `failed`），并在 `abortRunningTurnsForSession` 中包含该状态，使用户显式 Stop 能清除；`DesktopSessionRunStatus` 增加该状态，Desktop 状态映射将其呈现为“等待”。结构化运行事件 `PI_RECOVERY_REVIEW` 与人类可读通知保持不变。
+- **专项验证**：新增 `replaySafety.test.ts`、`recoveryReview.test.ts`、`piRecovery.continuity.test.ts`，并在 `codemode.integration.test.ts` 增加“安全读取标记 replay-safe”断言；父子任务/子会话复用、Room 撤权、预算/期限存储保持沿用既有回归。
+
+验证：`replaySafety.test.ts`、`recoveryReview.test.ts`、`piRecovery.continuity.test.ts`（服务租约在恢复起始丢失即阻止首个 Provider 请求；预算按 `[workspace, chatId, budgetId]` 跨重启保持且不同 run 隔离）、`codemode.integration.test.ts` 全通过；`piRecovery.test.ts`、`piRecovery.classification.test.ts`、`piRecovery.ordinary.test.ts`、`piRunSession.test.ts`、`runBudgetStore.test.ts` 等 63 项相关回归、service-bootstrap 21、desktop-chat 303、projects 86、decision 50 通过；`pnpm check`、`desktop:check`（0 error）与生产构建通过。
+
+未验收：intent 前 / 外部成功未提交 / 结果提交未投影三窗口的受控 barrier 强杀矩阵；`recovery_review` 尚未接入审批/Decision Request 的“核对后继续原执行”。
+
+## 2026-10-11 — Codemode 模型 API（部分交付）
+
+动机：Codemode 脚本之前只能组合工具，不能在一次受控脚本里调用分类模型或生成图片。
+
+改动：新增共享 `agent/models/modelOperations.ts`：按类型（classifier / image）返回模型目录与凭据可用状态，`classify` 承接 Pi `models.classify`，`generateImages` 承接 `models.generateImages` 并把图片落盘为工作区制品，返回可直接交给 `image()` 的图片对象（含 `type`/`ref`/`mimeType`/`data`）。每一步都经 `authorize`（共享副作用/权限闸门）、`beforeCall`（请求前预算保留）、`onUsage`（用量与费用收据）；未知模型键给出 `models.list()` 纠错指引；参考图仅接受 https URL 或 data URL，超出 10 MiB 拒绝。`codemode.ts` 与 `codemode-worker.mjs` 注册 `models.list` / `models.classify` / `models.generateImages` 脚本全局，走与工具相同的 IPC、取消和 deadline 通道；`image()` 产出已回传到工具结果（此前被丢弃）。`createMomTools` 暴露 `modelOperationDeps`，Runner 在非只读、非 Plan 模式接入（只读/Plan 下脚本看不到 `models`），模型调用计入父执行预算并记入用量。
+
+验证：`modelOperations.test.ts`（目录可用性、授权/预算/收据顺序、拒绝即不请求、图片落盘、未知键纠错）与 `codemode.integration.test.ts` 新增两条（脚本发现/分类/生成/`image()` 展示、无授权时 `models` 不可用）通过；codemode 与 runner 既有回归、desktop-chat 303、projects 86、decision 50 通过；`pnpm check` 与生产构建通过。
+
+未验收：真实 Runner 端到端（真实分类/图片 Provider、多图、参考图、伴随文本、并发归属、Deferred 轮询、重启复用已提交结果、取消传播）；大图制品引用；图片经现有媒体任务/制品服务的来源归属；模型调用接入现有审批卡（当前为 authority + budget + usage）。脚本取消会中止在途模型请求，但远端取消后的说明仍沿用 Pi Provider 行为。
+
+## 2026-10-11 — MCP OAuth 授权（部分交付）
+
+动机：HTTP MCP 之前只支持配置 headers，需要 OAuth 的服务器缺少登录、刷新、追加授权与退出入口，用户无法使用要求授权的远端工具。
+
+改动：`McpServerConfig` 新增显式认证方式 `auth`（`headers` | `oauth`，含 `authServerMetadataUrl` / `clientName`），三个 sanitizer（`sanitize.ts` / `store.ts` / `defaults.ts`）统一复用 `settings/mcpAuth.ts` 的解析，选择 OAuth 时丢弃手工 `Authorization`，避免令牌来源不明确。`agent/mcp/oauthStore.ts` 把 Pi 的 `McpOAuthStateStore` 落到受保护文件（`<数据目录>/mcp-oauth.json`，0600），按 serverId + URL + 授权服务器隔离：同一 URL 的不同配置各自登录，URL/认证方式/授权服务器变化后不复用不匹配 token，删除服务器只清它自己的记录。`agent/mcp/oauth.ts` 用 Pi 公共 OAuth 客户端（discovery、PKCE、state、RFC 9207 issuer 校验、刷新、step-up scopes、动态客户端注册）提供状态、发起登录（loopback 回调）、取消、重新授权、退出；`McpToolRegistry` 用 `adaptOAuthProvider` 接入 HTTP 传输，授权失败给出可操作提示；状态接口只回传授权状态，不含 token、不进入设置响应/日志/prompt。settings 与 desktop 的 MCP API 增加 `oauth_login` / `oauth_reauthorize` / `oauth_cancel` / `oauth_logout`，Web MCP 设置页新增授权状态与登录/重新授权/退出按钮。
+
+验证：`oauthStore.test.ts`（scope 隔离、同 URL 双配置、删除只清自身、reload 保留）、`oauth.test.ts`（状态/过期/退出/删除不影响同 URL 兄弟）、`mcpAuth.test.ts`（默认 headers、OAuth 丢弃 Authorization、stdio 保持 headers）、settings store 整对象 round-trip 含 oauth 服务器、mcp/desktopMcp 既有回归通过；`pnpm check` 与生产构建通过。
+
+未验收：真实 OAuth 授权服务器端到端（discovery/PKCE/state/issuer/刷新/追加 scopes/过期/迟到回调）回归；Desktop 原生 MCP 设置页的 OAuth 控件与系统浏览器授权入口；远端 Web 公网回调（当前为 loopback，适用于浏览器在同机的 Desktop/本地 Web）。`mcp-ui.test.mjs` 中 desktop MCP 断言为既有失败（HEAD 组件已用 `removeMcpServer(id)`，测试仍期望 `removeMcpServer(server.id)`），与本次改动无关。
+
+## 2026-10-11 — 普通任务启动恢复按原生断点分类（部分交付）
+
+动机：服务启动只对带 Deferred handle（`poll` checkpoint）的运行自动续查，普通任务即使存在原生 checkpoint 也被当作“无 Deferred handle”直接失败，用户需重新发起工作。
+
+改动：`piRecovery.ts` 新增 `inspectPiRecovery`，通过 Pi 正式 storage/task 记录（不读私有 JSON 布局）把每个 running owner 分类为 `resume` / `review` / `unavailable`。live 的模型请求（generation `request` 或 compaction `summarize`）与不可安全重放的工具 intent（tool `execute` 且 `replay !== "safe"`）→ `review`；缺失或损坏的执行记录 → `unavailable`；其余原生断点（`prepare` / `retry` / `poll` / `select` / `tools` / 未开始的工具调用 / 已提交仅待 reconcile）→ `resume`。删除“只有 Deferred 才允许启动恢复”的分类限制与误导性失败文案。
+
+`runtime.ts` 启动协调器按分类处理：`resume` 走原 `resumePiOwner`（保留原 Session、Agent、Project、Bot、渠道发送目标、模型目录与原运行预算，复用原 Pi storage/requestId，不重发原用户输入）；`review` / `unavailable` 记录结构化运行事件 `PI_RECOVERY_REVIEW`、向原渠道发送人类可读说明并按终态失败，不自动重提。`backgroundConversation.ts` 按原生 `assistantSourceEntryId` 幂等记录答案：重启后重新投影已提交答案时不再向 Session 二次追加，也不重复通知。
+
+验证：新增分类回归（真实 `PiRunSession` + 原生 SQLite：model request→review、unsafe tool→review、safe tool→resume、已提交→resume、缺失记录→unavailable）；新增真实 Runner 强杀回归（模型请求中断后重启不重发，provider ledger 仅 1 次 submit）；Deferred 强杀回归、`backgroundConversation` 幂等回归、service-bootstrap 21 项与 desktop-chat 303 项全部通过。
+
+未验收：父子任务、预算/期限保持、Room 授权撤销、服务租约，以及 intent 前 / 外部成功未提交 / 结果提交未投影三个窗口的强杀矩阵；`review` 由现有审批或 Decision Request 入口承载（当前为明确失败 + 结构化运行事件，尚无独立“等待核对”运行状态）。read 类工具仍按 Pi 默认保守处理（未声明 `replay: "safe"`），安全读取的自动恢复与共享副作用分类打通留待后续 slice。
+
+## 2026-10-11 — 全局 profile 层统一迁入 agents/default（已交付）
+
+全局 profile 目录在代码中定义为 `~/.molibot/agents/default/`（`getGlobalProfileDir()`）：Momo 即全局默认身份，她的 Agent profile 就是所有 Agent/Bot 回退共享的全局基线，数据目录根下不再放置任何 profile 文件，也不留根目录回退。动机：此前全局层文件散落在数据根（`~/.molibot/AGENTS.md` 等），Agent 设置页只显示 agent 层（`agents/<id>/`），Momo 页面因此显示为空，用户无法统一在一个目录管理全部 Agent 定义。改动：`profiles.ts` 新增 `getGlobalProfileDir()` 并切换 `ensureGlobalProfileDefaults` 与 global scope 读写；`prompt.ts` 全局 sections、identity 与 source 列表改用该目录；`tools/profileFiles.ts` 的 globalFilePath 与 `tools/path.ts` 的路径守卫（禁止文件工具直连 profile 文件）同步指向新目录，并删除 `path.ts` 里重复的文件名列表改用共享常量。新增守卫测试断言 `getGlobalProfileDir() === getAgentDir("default")`。本机一次性迁移根目录 6 个 profile 文件及 1 个历史备份到 `agents/default/`，重启后端后验证：`/api/settings/profile-files?scope=global` 与 `/api/desktop/profile-files?scope=agent&agentId=default` 均返回迁移后内容，运行时 `buildSystemPrompt` 的全局 source 全部指向 `agents/default/`。对其他 Agent 行为不变（自身 agent 层优先、缺失回退该目录）。注意：旧安装若有根目录 profile 文件需手动移入 `agents/default/`，系统不做自动迁移。106 项相关测试（prompts/tools/runner）与生产构建通过。
+
+## 2026-10-11 — Agent 首页快捷任务脱离输入卡阴影（已交付）
+
+Agent 首页的快捷任务按钮原先作为普通文档流元素排在输入卡下方 14px 处，被输入卡（stacking context）的 float 层环境阴影整个罩住——按钮是字面上被渲染在半透明阴影下面，亮色下发灰、暗色下接近糊白，视觉上也显得拥挤。修复：`.agent-home-tasks` 提升为 `position: relative; z-index: 1`，按钮绘制在阴影之上恢复真实底色；与输入卡的间距 14px → 28px，与上方 identity 区块节奏一致。用真实 styles.css 的静态 harness + headless Chrome 截图并经视觉评审：亮暗两主题下改前均复现罩影（暗色按钮填充被冲到灰 114–149），改后按钮恢复真实 token 底色、对比度约 7.9:1（暗色）、间距增加且与下方"最近对话"标题无碰撞，输入卡边框/圆角/阴影不变。313 项 chat-ui 回归（含读取 styles.css 的结构守卫）与生产构建通过。Project Chat 与普通空对话的快捷入口走 transcript 内嵌路径，不经过此规则，无需改动。
+
+## 2026-10-11 — 侧栏吸顶标题去底色（已交付）
+
+Agent、Agent Team、项目一级标题吸顶后不再绘制 `--sidebar-bg` 纯色底，仅用 backdrop blur（14px）熔掉从下方滚过的行，与侧边栏材质在任意主题下保持同一表面；修复半透明 tint 主题（壁纸透过侧边栏材质着色）中纯色底显示为突兀白卡片的问题，同时不产生透底文字碰撞。分组头上不加 `isolation`（会把 blur 的 backdrop 根截断在自己身上导致遮罩失效）。减低透明度 / 提高对比度 / 低性能模式回退为不透明 `--sidebar-bg` 底色。结构守卫升级：吸顶规则必须含 backdrop-filter、不含 background 与 isolation，降级规则必须回退不透明底色；另修正一条因 AgentNavigation 移至 ChatView 而过期的挂载点断言。313 项 UI/侧栏回归、Svelte 检查与生产构建通过；浏览器实测 google（半透明 tint）与 cartoon（不透明）两族主题及降级模式：静止时分组头与侧边栏浑然一体，滚动行在吸顶头下熔为磨砂。
+
+## 2026-10-11 — Agent 侧栏稳定排序与默认置顶（已交付）
+
+Agent 侧栏排序：默认 Agent（Momo）固定置顶；其余按全部渠道最新对话更新时间倒序，同一时间按名称首字母（中文按拼音）排序，无对话的按名称放在默认与有对话 Agent 之后。编辑配置不再改变顺序——排序键只取会话时间与名称，设置数组顺序（`upsertAgent` 会把被编辑项移到末尾）不再影响列表。时间在服务端分页前汇总，不受最近 100 条分页截断影响。列表行「待命中」占位状态移除（`agentActivityLabel` 空闲/未就绪返回空串，行内不渲染），仅保留工作中/已完成/失败/已停用；Agent Home 的状态 tooltip 同步过滤空段。排序函数新增 `defaultAgentId` 参数并有回归测试（置顶、数组重排不变、无时间兜底）；同批修正 `desktopConversations.test.ts` 中 `latestConversationAtByAgent` 键集合断言漏计 writer 的问题。24 项共享/会话查询测试、313 项 chat-ui 回归、svelte-check、桌面与生产构建通过。真实服务冷启动走查：重启后端后接口返回各 Agent 最新时间，真实数据下顺序为 Momo 置顶 + 按时间 + 无对话按拼音，模拟编辑任意 Agent（数组重排）顺序逐字节一致。注意：后端为构建产物（`scripts/start-server.mjs`），改服务端代码后需重新 `pnpm build` 并重启服务，否则接口缺 `latestConversationAtByAgent` 导致列表退化为纯名称序。
+
+## 2026-10-11 — 侧栏二级层级缩进
+
+Agent（含总览）、Agent Team 与项目二级内容统一缩进 12px，一级标题保持原字号与位置，沿用统一滚动和吸顶行为。
+
+## 2026-10-11 — 侧栏一级菜单与统一滚动（部分交付）
+
+Agent、Agent Team、项目共用一个滚动容器，上方快捷入口固定。一级标题点击展开/折叠，悬停或聚焦显示箭头与新增操作，仅一级标题吸顶。真实服务预览确认只有一个目录滚动容器、一级标题吸顶且上方快捷入口固定；三组标题点击展开/折叠，Team/项目新增按钮默认隐藏。314 项 UI/侧栏回归、Svelte 检查与生产构建通过；原生冷启动及断连恢复待验证。
+
+## 2026-10-11 — Agent 文件与附件页及快捷菜单（部分交付）
+
+Agent 首页 header 增加文件入口；左侧有效 Agent 右键菜单依次为全部对话、文件与附件、设置，均打开当前 Agent 的对应页面。文件页按对话分页展示生成文件与上传附件，复用 ArtifactPanel 预览并可返回来源对话；每批最多四个并发读取，失败项可重试，切换 Agent 丢弃旧响应。已删除及未归属历史仅提供全部对话。
+
+312 项界面检查、3 项分页/重试/切换/并发回归、Svelte 检查及生产构建通过；真实服务预览确认三个菜单跳转、header 文件入口、生成图片预览及返回飞书来源对话。原生冷启动、隔离服务断连恢复与完整中英/明暗视觉走查未完成。当前不统计产出总数，不定位到具体消息；范围为现有 Session 文件接口可列出的可用文件，不包含 Agent 工作区全部文件或 Project 文件。外部渠道的文件时间沿用现有接口的磁盘修改时间。
+
+## 2026-10-11 — Agent 对话列表简化（部分交付）
+
+最近与全部对话共用两列布局：渠道图标位于标题左侧，更新时间右对齐；移除独立来源列与重复对话图标。来源与只读状态保留悬停提示和无障碍名称，窄窗口保持两列、长标题截断。311 项界面检查、Svelte 检查与生产构建通过；真实页面的中英、明暗、窄屏及隔离冷启动、切换、断连恢复尚未验证。产出统计与 Agent 产出列表未实施。
+
+## 2026-10-11 — MCP 底层接入替换为 Pi（已交付）
+
+生产 MCP 客户端改用 Pi 的独立实现（`@earendil-works/pi-mcp`）：`McpClient` 负责连接与协议，`StdioTransport`/`StreamableHttpTransport` 负责传输，`toLlmContent` 负责结果转换；删除 Molibot 自维护的官方 SDK 接入、transport 事件接线和逐类型内容解析。官方 `@modelcontextprotocol/sdk` 从生产依赖降为测试依赖，仅用于隔离 stdio/HTTP 测试服务器。保留设置契约、`loadMcp`/`mcpInvoke` 会话工具入口、连接注册表与状态投影（disabled/connecting/connected/disconnected/error）、8 秒连接上限与 120 秒绝对执行期限（progress 不能续期突破）、结果限额与完整输出落盘、凭据脱敏、`isError` 与 server/tool 运行身份；MCP annotations 通过工具 classification 进入现有 `third_party` 权限分类，未声明注解仍为 `undeclared`，各权限模式的既定规则不变。stdio 子进程由 Pi 按进程组托管，服务退出时统一释放。
+
+验证：`mcp.test.ts` 20 项通过（真实隔离 stdio 生命周期/重连/禁用启用/错误/显式 reconnect、忽略取消下的绝对期限、环境与工具参数映射、HTTP 头部映射、文本/图片/内嵌资源/资源链接/音频/仅 structuredContent 转换、`isError` 抛出、大输出截断与完整落盘、注解→分类）；`mcpInvoke`、`loadMcp`、`toolClassification`、`decidePermission`、`toolPermissionGate`、`codemode.integration`、`approvalBroker`、`desktopMcp`、`prompt`、`index`、`toolRuntime`、`approvalSuspension`、`runner` 相关回归共 243 项通过；`pnpm check` 与 `pnpm build` 通过。限制：未对真实用户 MCP 服务器或返回多页工具列表的服务器单独走查（分页由 Pi `listTools` 内部完成）；未在原生 Desktop 冷路径与真实服务重启下验证。
+
+## 2026-10-11 — 侧栏导航顺序统一
+
+展开与折叠均按新对话、自动任务、技能、计划、小程序、Agent、Agent Team、项目 排列；折叠侧栏新增第一项新对话入口。Agent、Agent Team 与项目集中置于其他入口下方。312 项回归通过；最终顺序的真实页面、原生冷启动及断连恢复仍待验证。
+
+## 2026-10-11 — Agent 角色文件与本地头像（已交付）
+
+Agent 设置集中编辑 AGENTS/IDENTITY/SOUL/SONG，显示各文件用途；基础信息提供 12 个内置图案、本地头像上传与恢复默认。图片保存到 Agent workspace，内置资源随包构建。配置作用域见 [Agent 设置规格](docs/requirements/agent-settings-page.md)。
+
+## 2026-10-11 — Agent 空闲与忙碌图标
+
+首页空闲状态使用睡眠图标，忙碌使用奔跑图标，移除暂停与时钟表达；保持原有状态数据、主题颜色和总览入口。
+
+## 2026-10-11 — Agent 首页头像与运行入口（部分交付）
+
+圆形头像放大裁切方图。运行入口合并至可点击头像，右下角显示基于真实数据的待命、执行、完成、失败、未知或停用图标；悬停显示状态与任务，点击打开当前 Agent 总览。移除独立状态文字和运行情况按钮。真实服务预览已确认裁切、状态提示及点击进入当前 Agent 总览；310 项 UI/侧栏回归、Svelte 检查和生产构建通过。原生冷启动与断连恢复仍待验证。
+
+## 2026-10-11 — 空未归属历史入口隐藏（部分交付）
+
+Agent 侧栏仅在存在未归属对话时展示“未归属历史”。独立查询包含归档、排除回收站，不受最近 100 条列表限制；认领或删除后刷新。311 项界面检查、3 项状态与历史刷新回归、Svelte 检查和构建通过；隔离页面确认空入口隐藏。原生安装包冷启动尚未验证。
+
+## 2026-10-11 — Agent 统一入口（部分交付）
+
+侧栏 Agent 分组包含动画总览、各 Agent 首页入口和状态文字，移除独立“对话”分组与重复 Agent 工作区按钮。点击动画 Agent 或侧栏名称进入同一首页，首页显示运行状态和当前任务摘要，可返回总览定位该 Agent。三处共享状态轮询，断连清除过期状态，旧连接响应不能覆盖新连接。界面与响应式检查 310 项、状态轮询和城市投影回归 15 项、Svelte 检查及构建通过；隔离服务验证首页/总览首次进入、Agent 切换、动画点击、中英、明暗、560px 列表浮层和服务中断后恢复。完整原生安装包冷启动尚未验证，未替换安装包。
+
+## 2026-10-11 — 房间设置入口与成员编辑（部分交付）
+
+房间首页与会话顶栏新增设置图标，进入与 Agent 设置共用布局的主内容区设置页，包含房间信息、成员、协作方式和固定保存栏。侧栏编辑成员直接打开成员分类。修复导航与编辑请求同时更新时，导航清空编辑状态的问题：编辑意图随房间加载完成后应用。新增真实组件脚本回归，修复前失败、修复后通过；此前预览只改变编辑请求，未覆盖父组件同时更新导航版本的路径。308 项界面检查、导航回归、Svelte 检查和构建通过；隔离预览验证名称与成员保存、重新加载、中英、明暗及 560px 窄屏。完整原生冷启动和真实服务中断恢复尚未验证，未替换安装包。
+
+## 2026-10-11 — Agent 列表管理与房间操作层级（部分交付）
+
+左侧 Agent 只保留首页入口。Agent 最近与全部列表复用右键删除菜单，全部列表支持多选、选择已加载条目和批量删除。删除走共享回收站服务，成功条目移除，失败条目保留。房间首页移除重复新对话按钮；会话顶栏只提供首页和新对话图标，编辑成员与删除房间移到侧栏右键菜单。隔离组件预览已验证中英切换、暗色、560px 宽度、右键单删和批量部分失败。房间组件首次打开、会话切换和侧栏右键编辑入口已验证；初始化只在成员与项目加载完成后打开一次，避免覆盖编辑状态。308 项界面与响应式检查、2 项删除回归、Desktop 类型检查和构建通过。隔离预览服务重启后首次进入通过；完整原生冷启动、真实运行时断连恢复及房间设置保存走查尚未完成。
+
+## 2026-10-11 — Agent 房间首页（部分交付）
+
+房间入口展示与 Agent 共用的首页、输入区和最近三条会话行，可展开全部历史并打开会话；会话页提供返回首页，移除顶部会话下拉。新对话首次发送时创建，创建失败保留草稿，切换房间时忽略过期创建结果。真实页面中英、主题、窄窗口及冷启动和断连恢复走查未完成；当前未替换原生安装包。
+
+## 2026-10-11 — Agent 图标操作主题适配（部分交付）
+
+Agent 设置复用共享图标按钮主题；首页历史操作保留共享 secondary 按钮的主题外观，局部类只设置尺寸。移除覆盖背景、边框、阴影与 hover 的固定样式。Brutalism 明暗与 Minimal 即时切换已在真实服务预览验证，Agent 设置与相邻 Header 按钮的计算样式一致，历史按钮恢复主题边框与表面。304 项 UI/侧栏回归、Svelte 检查和生产构建通过；原生冷启动、断连恢复仍待验证。
+
+## 2026-10-11 — Agent 导航与图标操作（部分交付）
+
+- 2026-10-11：Agent 设置改为主页主内容区内的二级页面，保留应用主侧栏；通用 Settings 入口保留通用导航。两个入口复用表单，窄容器分类横向排列，返回/保存回到入口。
+
+Agent 导航复用项目分组头与会话行，仅显示名称和小头像；新对话操作按项目规则在悬停或聚焦时出现，省略号在列表内加载下一页。移除重复搜索、管理与全部历史按钮。首页查看全部和 Header 设置采用图标按钮，会话来源使用次级单色标记与渠道名称提示。UI/侧栏回归首次 302/302 通过；并行接入 Agent 设置主区域后最终为 300/302，两项旧结构断言失败，本次新增导航检查通过。Svelte 检查零错误，生产构建通过；连接真实服务的独立前端预览验证展开、原位追加、来源提示与键盘进入首页。完整中英、主题、窄窗及服务冷启动、断连恢复仍待验证。
+
+## 2026-10-11 — Agent 身份区与默认头像（部分交付）
+
+新对话页采用上移的 96px 圆形头像，下方依次显示名称和简介，无简介时保留简短提示。共享 AgentAvatar 在头像缺失、空白或加载失败时使用侧栏与设置页相同的 Molibot logo，覆盖首页、导航及 Agent 设置。真实页面视觉与冷启动走查尚未完成。
+
+## 2026-10-11 — 新对话页居中与 Header 设置（部分交付）
+
+头像、Agent 名称与简短提示居中置于输入框上方，输入区随内容视口高度调整位置，三个推荐按钮居中紧接其下。Agent 设置移至窗口 Header，最近对话保持三条共享列表行。真实页面视觉、冷启动与断连恢复走查尚未完成。
+
+## 2026-10-11 — 新对话页以输入为主（部分交付）
+
+新对话页将真实输入区置于主内容列，标题与 Agent 身份缩小，推荐任务改为紧凑按钮，最近对话限定三条并复用历史行组件。简介和推荐说明不占首屏。发送后沿用正常聊天布局；新对话页不启用聊天记录自动滚底及回到最新按钮。原生冷启动、发送、Session 切换及断连恢复走查尚未完成。
+
+## 2026-10-11 — Agent 独立设置页面（已交付）
+
+- 2026-10-11：Agent“记忆与知识”接入现有记忆记录与独立归属检索，保留共享授权；移除 KNOWLEDGE.md 编辑与提示词注入。全局记忆后端、候选审核及维护保留在通用记忆中心。
+
+Agent 首页提供设置入口，创建与编辑使用基础信息、模型与能力、技能与工具、记忆与知识、消息渠道、高级设置六类导航，保留原有字段、分类间草稿与固定保存栏。Agent 技能停用与全局停用共同生效，工具开关由共享执行层限制直接、延迟和 Codemode 调用；记忆记录按 Agent 归属检索，共享个人记忆可独立授权。Bot/Web Profile 绑定通过专用 API 只修改 Agent 身份，保留凭证、权限和其它配置。共享 Provider、资源安装、MCP 连接、记忆服务和渠道账号继续在通用设置管理。
+
+临时数据库整对象回读、提示词、工具调用和绑定保留回归通过；隔离服务真实页面创建、分类切换、保存、服务中断与冷启动恢复，中英、明暗和 390px 宽度走查通过。实现边界见 [规格](docs/requirements/agent-settings-page.md)。
+
+## 2026-10-11 — Agent 对话列表统一（部分交付）
+
+首页最近对话与完整历史复用 AgentConversationRow，统一标题与预览、来源与只读状态、更新时间三列、细分隔线及窄窗口布局。移除首页专用圆角行样式。真实页面视觉与冷启动走查尚未完成。
+
+## 2026-10-11 — Desktop 启动标题与会话恢复（部分交付）
+
+启动顶栏显示服务状态，初始导航加载期间保留加载画面；恢复查询覆盖外部渠道 Session，无有效目标时进入默认 Momo 首页。界面回归覆盖状态衔接、失效 Session 和外部渠道恢复。原生冷启动、切换及断连恢复走查尚未完成。
+
+## 2026-10-11 — Agent 历史查询性能与工具栏高度（部分交付）
+
+搜索框、来源选择器和返回按钮统一为 40px。共享搜索先枚举元数据、筛选 Agent/来源并分页，再投影当前页预览；外部渠道元数据一次枚举，正文按候选 ID 读取，不再为每个渠道重复解析全部日志。有搜索词时只投影归属筛选后的候选，保留预览搜索及不可搜索正文排除。
+
+真实旧接口第一页约 4.94 秒，元数据接口约 108 毫秒；隔离的 60 个 Web 与 40 个外部会话基准中，旧扫描流程中位约 109 毫秒，当前页预览流程约 21 毫秒。22 项会话查询、12 项外部会话、296 项界面回归、前后端类型检查及构建通过。回归限定首/次页投影条数及其他 Agent 不被读取。真实服务仍加载旧构建，未重启或中断用户服务；更新后的真实 HTTP、工具栏视觉及冷启动走查未完成，隔离基准不代表真实数据的最终时延。
+
+## 2026-10-11 — Agent 首页最近对话 Logo（已交付）
+
+最近对话每行左侧显示对应渠道的本地 Logo，与完整历史来源列共享 `CHANNEL_LOGOS` 映射；标题保持截断，时间保持右对齐。
+
+## 2026-10-11 — Agent 历史来源 Logo（已交付）
+
+Agent 历史来源列复用 Session 侧栏的本地渠道 Logo，Telegram 不再显示通用飞机图标。沿用共享 `CHANNEL_LOGOS` 映射，不新增资源。
+
+## 2026-10-11 — Agent 历史三列布局（部分交付）
+
+完整历史页采用标题与预览、来源与只读状态、最后更新时间三列，使用细分隔线与整行点击。搜索框和共享来源下拉筛选位于顶部；窄窗口每条记录改为两行。Agent 范围与最近更新时间排序保持生效。项目筛选和独立归档入口尚未提供，页面不显示无效操作。Svelte 检查与生产构建通过，真实页面的主题、语言及窄宽度走查仍受原生服务发现阻塞。
+
+## 2026-10-11 — Agent 完整历史页面（部分交付）
+
+Agent 首页“查看全部”在主内容区展示该 Agent 的完整 Session 列表，窗口标题显示 Agent 名称与“全部对话”。搜索、来源筛选与分页携带固定 Agent ID；来源不提供无效的项目选项。返回按钮进入该 Agent 首页，选择记录打开真实会话；全局搜索保留独立弹窗。293 项界面与响应性回归、20 项服务端会话测试和生产构建通过。真实页面及冷启动走查仍未完成：浏览器预览无法完成原生服务发现。
+
+## 2026-10-11 — Agent 首页布局（部分交付）
+
+Agent 草稿首页以并排头像与名称、简介、快捷任务卡片和最近对话列表展示；窗口标题使用 Agent 名称，输入区保持在底部。任务卡片只填入草稿；最近对话显示真实标题、内容预览与时间，并提供当前 Agent 历史入口。无历史显示开始提示，窄窗口卡片纵向排列，文案支持中英并沿用主题 token。292 项界面与响应性检查、Svelte 检查和生产构建通过；既有 AgentCityInspector 警告仍存在。真实主题、语言、窄窗口及冷启动走查未完成：浏览器预览停在原生服务发现阶段，无法进入首页。
+
+## 2026-10-11 — 渠道会话切换缓存与侧栏选中（修复）
+
+Agent 侧栏使用当前可见会话 ID，飞书、微信等只读会话点击后立即高亮对应行，滚动定位也跟随渠道会话。渠道历史按服务地址与会话 ID 缓存，重访立即展示并后台刷新；切换、关闭与断连取消旧请求，晚返回的成功或错误不会覆盖新选择，同一会话失败后可重试。新增异步回归覆盖乱序响应、缓存刷新、跨服务隔离、关闭与重试；3 项加载器回归及 292 项界面/响应性守卫通过，桌面类型检查与构建通过（既有 AgentCityInspector 警告）。原生冷启动、首次点击与断连恢复走查未完成：自动化无法绑定开发版窗口，浏览器预览缺少原生服务发现能力，停在服务检查状态。当前真实渠道历史 HTTP 请求已验证为几十毫秒返回，缓存不保证未打开过的会话无网络等待。
+
+## 2026-10-11 — 渠道会话文件列表阻塞服务（修复）
+
+Agent 共享工作区的外部会话文件列表在一次请求内构建路径引用匹配器，复用迁移映射与会话引用集合，不再对每个候选文件读取完整清单并重建映射。保留历史路径解析与会话文件可见性。临时目录回归覆盖迁移后 80 个文件只读清单一次、只展示被该会话引用的文件；真实服务重启加载修复后，截图对应飞书和微信历史接口分别约 42 ms、14 ms、文件列表约 139 ms、84 ms 返回 200；并发健康检查 runtimeReady=true，服务恢复响应。
+
+## 2026-10-11 — 迁移进度重连与批量检查点（修复）
+
+弹窗发现后台迁移运行中时自动接续进度查询；查询串行发送，服务代次变化后丢弃旧响应，完成后关闭弹窗并启用工作区。后台运行时禁用重复确认与归属调整。复制和发布每 32 个文件保存一次清单，阶段结束时保存完整进度；重试逐文件验证未记录检查点的已复制或已发布文件，不猜测归属，不覆盖不同内容。临时目录回归覆盖检查点中断后的完整续跑及清单写入次数；迁移相关 54 项、桌面界面 289 项测试通过。原生弹窗首次打开、切换页面和断连恢复的完整走查未完成：自动化工具无法绑定开发版窗口。
+
+## 2026-10-11 — 迁移中进度查询不再重复扫描来源（修复）
+
+迁移执行期间，进度接口读取已验证的迁移清单，不重复扫描和哈希全部来源文件。确认前、复制时和切换后的校验保留；非执行状态仍完整检测源文件变化。临时目录回归验证进度查询独立于源扫描且正常状态仍拒绝源变化，迁移相关 53 项回归、类型检查与构建通过。真实桌面服务已加载进度查询修复；6,145 项全部发布、确认接口返回 needed=false，深度健康检查 runtimeReady=true。
+
+## 2026-10-11 — processing 媒体记录不再误拦 Session 迁移（修复）
+
+媒体任务按 task ID 查询，Session ID 不参与恢复执行；缺少唯一来源时保留原 ID，不修改 processing 状态、远程任务信息或产物。运行与审批的非终态歧义仍阻塞，未知表保持严格检查。阻塞诊断包含数据库、表名、主键与状态。回归覆盖 processing 图片和视频记录；真实来源映射及旧 Bot 排除选择的只读持久引用校验通过，未提交真实迁移。
+
+## 2026-10-10 — 历史 Session 引用歧义不再误拦迁移（修复）
+
+旧数据库中缺少唯一来源的终态运行、媒体任务、已结束审批、trace 和记忆记录保留原 Session ID；来源明确的记录按迁移映射更新。可恢复任务及未知表的歧义仍阻塞，避免猜测执行归属。临时数据库覆盖同名 default、历史保留、准确改写与运行中任务阻塞；迁移、Runtime 门控及生命周期 52 项回归通过。
+
+## 2026-10-10 — 迁移弹窗操作组对齐（修复）
+
+目标 Agent 选择器与“不迁移”按钮放入同一个左对齐操作组，控制高度一致；窄窗口改为纵向排列并保持共同左边线。详情与资源忽略操作使用相同起点，固定底栏保留右对齐。复用 SelectControl、Button 与主题 token，不改变迁移判断或保存行为。
+
+## 2026-10-10 — 缺失 Bot 排除资格误判（修复）
+
+迁移引用检查先识别 SQLite 文件头，跳过其他格式的 `.db` 和空的非应用数据库占位文件；损坏或截断的应用 SQLite 仍明确阻塞。仅实际执行表与 deferred Pi 恢复记录参与可恢复任务判断，历史 trace 的成功或运行状态不再阻止排除旧 Bot。补充临时数据库回归，旧数据保留；隔离界面验证无需选择 Agent 即可排除两个旧 Bot，确认后正常进入对话页。
+
+## 2026-10-10 — Agent City 启动画面（已实现）
+
+Desktop 服务启动等待区域展示本地等距微缩城市，包含五栋建筑、协作站与十二个移动机器人。中英状态与恢复操作沿用启动协调器；支持主题、窄窗口及减少动态效果，错误状态暂停动画。插画为装饰场景，不表示真实 Agent 运行状态。 验证：289 项界面测试与 4 项启动协调器测试通过，Desktop build 通过，svelte-check 为 0 errors / 1 条已有 AgentCityInspector 警告；隔离浏览器检查首次加载、动态场景、延迟恢复入口及窄窗口。原生 App 冷启动、真实服务中断恢复与明暗/中英实际切换尚未验证。
+
+## 2026-10-10 — 迁移阻塞与启动顺序明确显示（修复）
+
+移除仅关闭弹窗的“稍后”按钮。关闭弹窗后，主会话区域显示“会话数据尚未处理”与可见的处理入口，不再误显示服务启动中。忽略选择明确说明需确认才保存并启用服务；被可恢复任务引用的资源与旧 Bot 不显示忽略按钮，详情说明原因。服务 ready 后才检查迁移，短暂请求失败留在启动恢复界面并自动重试，不弹空错误窗口；服务中断时关闭弹窗，恢复后重新检查。所有预览、确认与轮询响应都校验服务地址和请求代次，避免过期结果覆盖新服务状态。
+
+## 2026-10-10 — 缺失 Bot 的旧数据可选择不迁移（已实现）
+
+迁移弹窗为缺失 Bot 提供“不迁移此 Bot 的旧数据”，无需选择 Agent 或编辑文件。排除该 Bot 的全部会话（含已有归属）、资源、事件、当前路由与普通 Web 展示副本；其他 Bot 的数据继续迁移，原文件保留。选择可在确认前撤销，确认时保存，重启不重复要求处理；全部排除时可确认进入空工作区。可恢复队列、Durable 任务、事件租约与 Bash 审批仍引用该 Bot 时明确阻塞，终态历史保持原样。验证使用临时数据。
+
+## 2026-10-10 — 迁移弹窗认领缺失 Bot 的历史归属（已实现）
+
+旧 Bot 不在当前配置且历史数据未记录 Agent 时，可在迁移弹窗直接选择目标 Agent，无需编辑文件。选择后重新计算会话、资源、当前路由和 Web 展示；预览不保存或启动 Runtime，确认时才保存迁移归属。支持改选和撤销，已有效固定的会话归属保留；迁移开始后选项锁定，失败按原选择重试。缺失 Bot 不会重新创建，旧文件与现有 Bot 配置不变。有冲突显示“需要处理”，冲突解决后显示“等待确认”并启用迁移。
+
+## 2026-10-10 — 迁移弹窗布局与固定操作栏（修复）
+
+迁移弹窗采用固定标题摘要、中间正文滚动和固定底部操作栏，长冲突列表与展开诊断不会遮挡按钮。摘要数字、冲突标题、会话数量和路径按桌面主题区分层级，诊断折叠显示，资源冲突支持原有忽略/恢复操作。中英、明暗主题及窄窗口验证使用隔离实例，不操作真实数据。
+
+## 2026-10-10 — 迁移归属提示说明缺失 Bot（修复）
+
+历史 Bot 不在当前配置中且会话未记录 Agent 归属时，迁移弹窗明确显示渠道、Bot ID、受影响会话及无法确定目标 Agent 的原因。同一 Bot 的会话、资源、路由与 Web 展示连带报错合并，原始诊断可展开查看；已指定但不存在的 Agent 单独说明。迁移阻塞和原文件保护规则保持有效。
+
+## 2026-10-10 — 迁移资源冲突可忽略（已实现）
+
+scratch 中的依赖环境与缓存自动跳过，包括 `node_modules` 下的可执行符号链接。迁移弹窗提供单项“忽略此资源”、恢复选择及“迁移其余数据”，预览重新计算数量；只有确认时保存忽略策略，重启后保留。Context、身份与持久运行引用冲突仍需解决，被可恢复事件租约引用的资源不能跳过。原文件保持不变。临时数据回归覆盖损坏 Event、链接、Skill 冲突、API 预览与确认、租约约束及冷启动。
+
+## 2026-10-10 — 迁移跳过 scratch 虚拟环境（修复）
+
+Agent 存储迁移忽略 scratch 内的 `.venv` 临时目录，包括其中的 Python 符号链接和链接形式的 `.venv`。原目录保留，正常产物继续迁移；其他位置的符号链接仍阻止迁移。回归使用临时数据，覆盖旧源树整体扫描、Bot/Chat scratch、正常产物和原文件保留。
+
+## 2026-10-10 — Agent 共享存储与确认迁移（已实现）
+
+普通 Session、技能、事件、附件、scratch 和运行记录统一存入 `sessions/<agentId>`；Context 文件及元数据保存固定 Agent 和完整渠道来源。Bot 改绑定不改变历史执行身份，新对话只创建 Context 与元数据，共享资源不随单个 Session 删除。渠道配置、规则、认证和连接数据整理到 `channels/<channel>/bots/<botId>`；Project 与 Room 保持独立域。
+
+Desktop 启动发现旧数据后阻止 Runtime、队列与事件推进，提供中英确认、稍后、重开、进度、冲突及重试入口。确认后经过稳定映射、校验复制、逐文件发布和分域持久引用切换再启动 Runtime。源文件字节、修改时间和权限保留；同名 Session、Skill 冲突、历史附件和产物引用、当前路由及事件回复目标均有回归覆盖。已完成的映射不会覆盖目标后续修改，新增源项在下一次冷启动重新请求确认。
+
+隔离生命周期、跨渠道资源、历史正文及 Room 运行已验证；类型检查、两端构建、Desktop 测试通过。完整后端测试仍有既有基线失败，原生 Tauri 完整人工走查未执行，详见 [实施记录](docs/work/progress/agent-session-storage/progress.md)。没有迁移真实用户数据；本轮改动按用户要求保持未提交。
 
 ## 2026-10-10 — Momo 与 global 身份归一（已交付）
 

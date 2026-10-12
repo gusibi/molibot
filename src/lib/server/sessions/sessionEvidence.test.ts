@@ -1,3 +1,4 @@
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,13 +13,13 @@ const OWNER = "web:personal:web-anonymous";
 function setup() {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-session-evidence-"));
   const originals = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "legacy");
-  storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
   return {
     sessions: new SessionStore(),
     teardown() {

@@ -1,3 +1,4 @@
+import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { json } from "@sveltejs/kit";
@@ -37,6 +38,8 @@ interface EventStatus {
 }
 
 interface RawEventTask {
+  agentId?: string;
+  deliveryTarget?: { channel: string; instanceId: string; chatId: string };
   taskId?: string;
   managed?: { by?: string; scope?: string; kind?: string; ownerId?: string };
   enabled?: boolean;
@@ -148,10 +151,11 @@ function toTaskItem(
   }
   if (isDurableExecutionTaskEvent(raw)) return null;
 
+  if (raw.deliveryTarget) { channel = raw.deliveryTarget.channel as TaskSource; botId = raw.deliveryTarget.instanceId; }
   const stat = statSync(filePath);
   const updatedAt = stat.mtime.toISOString();
   const filename = filePath.split("/").at(-1) ?? filePath;
-  const chatId = String(raw.chatId ?? fallbackChatId ?? "").trim();
+  const chatId = String(raw.deliveryTarget?.chatId ?? raw.chatId ?? fallbackChatId ?? "").trim();
   const type = raw.type;
   const status = raw.status?.state ?? "pending";
 
@@ -228,12 +232,7 @@ function collectJsonFiles(dir: string): string[] {
 
 function resolveTasksRoots(): Array<{ channel: TaskSource; botsRoot: string }> {
   const dataRoot = resolve(config.dataDir);
-  return [...TASK_CHANNEL_ROOTS.map(({ channel, dir }) => ({
-    channel,
-    botsRoot: channel === "web"
-      ? join(resolve(config.webWorkspaceDir), "bots")
-      : join(dataRoot, dir, "bots")
-  })), { channel: SYSTEM_TASK_CHANNEL, botsRoot: join(dataRoot, SYSTEM_TASK_BOTS_DIR) }];
+  return [{ channel: "web", botsRoot: join(dataRoot, "sessions") }, { channel: SYSTEM_TASK_CHANNEL, botsRoot: join(dataRoot, SYSTEM_TASK_BOTS_DIR) }];
 }
 
 function resolveProjectTaskRoots(): Array<{ projectId: string; projectName: string; eventsDir: string }> {
@@ -446,28 +445,16 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ ok: true, created: filePath });
     }
 
-    const root = resolveTasksRoots().find((entry) => entry.channel === channel);
-    if (!root || !botId || botId.includes("/") || botId.includes("..")) return json({ ok: false, error: "invalid task target" }, { status: 400 });
-    const botDir = join(root.botsRoot, botId);
-    if (!existsSync(botDir)) return json({ ok: false, error: "bot_not_found" }, { status: 404 });
-    if (scope === "chat-scratch") {
-      if (!chatId || chatId.includes("/") || chatId.includes("..")) {
-        return json({ ok: false, error: "chat_not_found" }, { status: 404 });
-      }
-      const chatDir = join(botDir, chatId);
-      if (!existsSync(chatDir)) {
-        if (channel === "web") {
-          mkdirSync(chatDir, { recursive: true });
-        } else {
-          return json({ ok: false, error: "chat_not_found" }, { status: 404 });
-        }
-      }
-    }
-    const eventsDir = scope === "workspace" ? join(botDir, "events") : join(botDir, chatId, "scratch", "events");
+    const instance = getRuntime().getSettings().channels[channel]?.instances.find(item => item.id === botId);
+    if (!instance || instance.enabled === false || !chatId) return json({ ok: false, error: "invalid task target" }, { status: 400 });
+    const agentId = instance.agentId || "default";
+    const eventsDir = join(agentWorkspaceDir(config.dataDir, agentId), "events");
     mkdirSync(eventsDir, { recursive: true });
     const now = Date.now();
     const filePath = join(eventsDir, `periodic-${now}-${Math.random().toString(36).slice(2, 8)}.json`);
     const event: RawEventTask = {
+      agentId,
+      deliveryTarget: { channel, instanceId: botId, chatId },
       taskId: createRuntimeTaskId(),
       enabled: true,
       type: "periodic",
@@ -767,7 +754,7 @@ export const POST: RequestHandler = async ({ request }) => {
           const taskId = String(parsed.taskId ?? item.taskId ?? "").trim() || createRuntimeTaskId();
           parsed.taskId = taskId;
           writeFileSync(resolvedPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-          const leaseScope = isProjectTask ? `project:${item.projectId}` : `${item.channel}:${item.botId}`;
+          const leaseScope = isProjectTask ? `project:${item.projectId}` : parsed.agentId ? `agent:${parsed.agentId}` : `${item.channel}:${item.botId}`;
           const triggerSlot = `manual:${Date.now()}`;
           const runId = `${item.filename}:${triggerSlot}:${Math.random().toString(36).slice(2, 8)}`;
           const store = getEventExecutionLeaseStore();

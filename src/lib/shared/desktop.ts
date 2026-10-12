@@ -1215,6 +1215,7 @@ export interface DesktopPlanDecisionRequest {
 }
 
 export interface DesktopSessionFile {
+  origin: "generated" | "uploaded" | "unknown";
   id: string;
   original: string;
   local: string;
@@ -1533,6 +1534,8 @@ export interface DesktopAgentItem {
   visible?: boolean;
   avatar?: string;
   shareOwnerMemory?: boolean;
+  disabledSkillPaths?: string[];
+  disabledTools?: string[];
   id: string;
   name: string;
   description: string;
@@ -1547,6 +1550,8 @@ export interface DesktopAgentSaveRequest {
   visible?: boolean;
   avatar?: string;
   shareOwnerMemory?: boolean;
+  disabledSkillPaths?: string[];
+  disabledTools?: string[];
   previousId?: string;
   id: string;
   name: string;
@@ -1573,6 +1578,7 @@ export type DesktopMcpTransport = "stdio" | "http";
 export type DesktopMcpConnectionState = "disabled" | "connecting" | "connected" | "disconnected" | "error";
 
 export interface DesktopMcpItem {
+  timeoutMs?: number;
   id: string;
   name: string;
   managed: boolean;
@@ -1592,9 +1598,13 @@ export interface DesktopMcpItem {
   lastError: string;
   lastAttemptAt: string;
   connectedAt: string;
+  authMode: "headers" | "oauth";
+  authState: "not_applicable" | "unauthorized" | "authorizing" | "authorized" | "expired" | "error";
+  authError: string;
 }
 
 export interface DesktopMcpSaveRequest {
+  timeoutMs?: number;
   previousId?: string;
   id: string;
   name: string;
@@ -1611,6 +1621,9 @@ export interface DesktopMcpSaveRequest {
   clearCwd?: boolean;
   headerValues?: Record<string, string>;
   clearHeaderKeys?: string[];
+  authMode?: "headers" | "oauth";
+  authServerMetadataUrl?: string;
+  clientName?: string;
 }
 
 export interface DesktopMcpSummary {
@@ -1621,6 +1634,12 @@ export interface DesktopMcpSummary {
 export interface DesktopMcpResponse {
   ok: true;
   summary: DesktopMcpSummary;
+}
+
+/** OAuth login/re-authorize response: the summary plus the browser redirect to open. */
+export interface DesktopMcpOAuthResponse extends DesktopMcpResponse {
+  loginId?: string;
+  authorizationUrl?: string;
 }
 
 export interface DesktopMcpToggleRequest {
@@ -1840,7 +1859,7 @@ export interface DesktopMemoryCandidate {
 }
 
 export type DesktopMemoryAction = "profile" | "restore-state" | "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
-export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; botId?: string; ownerId?: string; conversationId?: string; projectId?: string; includeOwner?: boolean; includeAgentSelf?: boolean; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
+export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; agentId?: string; channel?: string; userId?: string; botId?: string; ownerId?: string; conversationId?: string; projectId?: string; includeOwner?: boolean; includeAgentSelf?: boolean; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
 export interface DesktopMemoryActionResponse { ok: true; profile?: DesktopMemoryProfile; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
 export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }
@@ -2493,6 +2512,8 @@ export interface DesktopConversationItem {
 }
 
 export interface DesktopConversationsResponse {
+  /** Present for Agent-scoped queries; computed before pagination. */
+  latestConversationAtByAgent?: Record<string, number>;
   ok: true;
   channel: DesktopConversationChannel;
   items: DesktopConversationItem[];
@@ -2544,6 +2565,7 @@ export interface DesktopConversationSearchResponse {
 export type DesktopSessionRunStatus =
   | "running"
   | "waiting_for_approval"
+  | "recovery_review"
   | "completed"
   | "failed"
   | "aborted";

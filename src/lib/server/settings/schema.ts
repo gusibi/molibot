@@ -226,6 +226,8 @@ export interface AgentSettings {
   visible?: boolean;
   avatar?: string;
   shareOwnerMemory?: boolean;
+  disabledSkillPaths?: string[];
+  disabledTools?: string[];
   /** Undefined = inherit; never "off". Resolved by the shared override chain. */
   permissionMode?: PermissionMode;
   modelRouting?: AgentModelRouting;
@@ -434,13 +436,35 @@ export interface McpHttpConfig {
   headers: Record<string, string>;
 }
 
+/** Explicit authentication choice for one MCP server; never inferred from a token's presence. */
+export type McpAuthMode = "headers" | "oauth";
+
+export interface McpOAuthConfig {
+  /**
+   * Authorization-server metadata document to trust instead of discovery, for
+   * services that advertise a wrong authorization server or none. Must be https
+   * except on loopback.
+   */
+  authServerMetadataUrl: string;
+  /** Client name presented during dynamic client registration. */
+  clientName: string;
+}
+
+export interface McpServerAuthConfig {
+  mode: McpAuthMode;
+  oauth: McpOAuthConfig;
+}
+
 export interface McpServerConfig {
+  /** Absolute tool execution deadline in milliseconds; omitted uses 120 seconds. */
+  timeoutMs?: number;
   id: string;
   name: string;
   enabled: boolean;
   transport: McpTransport;
   stdio: McpStdioConfig;
   http: McpHttpConfig;
+  auth?: McpServerAuthConfig;
   toolNamePrefix: string;
 }
 

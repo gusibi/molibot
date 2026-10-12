@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -22,11 +22,11 @@ function makeRoot(): string {
 }
 
 function botWorkspace(root: string, channelDir: string, botId: string): string {
-  return join(root, channelDir, "bots", botId);
+  return join(root, "sessions", `${channelDir}_${botId}`);
 }
 
 function contextsDir(root: string, channelDir: string, botId: string, chatId: string): string {
-  return join(botWorkspace(root, channelDir, botId), chatId, "contexts");
+  return join(botWorkspace(root, channelDir, botId), "contexts");
 }
 
 /** Seeds a raw legacy session with no metadata sidecar (pre-upgrade shape). */
@@ -41,6 +41,9 @@ function seedLegacySession(
 ): string {
   const dir = contextsDir(root, channelDir, botId, chatId);
   mkdirSync(dir, { recursive: true });
+  const meta = join(dir, `${sessionId}.meta.json`);
+  const prior = existsSync(meta) ? JSON.parse(readFileSync(meta, "utf8")) : {};
+  writeFileSync(meta, JSON.stringify({ ...prior, agentId: `${channelDir}_${botId}`, source: { channel: ({ "moli-t": "telegram", "moli-f": "feishu", "moli-w": "web" } as Record<string, string>)[channelDir], botId, chatId, sessionId } }));
   const lines = [JSON.stringify({ type: "session", version: 1, id: sessionId, timestamp: createdAt })];
   let prev: string | null = null;
   entries.forEach((entry, index) => {
@@ -64,7 +67,7 @@ test("MomRuntimeStore keeps display metadata in step with the log and preserves 
   const root = makeRoot();
   try {
     const workspace = botWorkspace(root, "moli-t", "mybot");
-    const store = new MomRuntimeStore(workspace);
+    const store = new MomRuntimeStore(workspace, { source: { channel: "telegram", botId: "mybot" } });
     const chatId = "111";
     const sessionId = store.createSession(chatId);
     const dir = contextsDir(root, "moli-t", "mybot", chatId);
@@ -100,7 +103,7 @@ test("MomRuntimeStore flags internal Event Sessions without an Event classificat
   const root = makeRoot();
   try {
     const workspace = botWorkspace(root, "moli-t", "mybot");
-    const store = new MomRuntimeStore(workspace);
+    const store = new MomRuntimeStore(workspace, { source: { channel: "telegram", botId: "mybot" } });
     const chatId = "111";
     const sessionId = store.createSession(chatId);
     store.appendContextMessage(chatId, message("user", "[EVENT:reminder] do the thing"), sessionId);

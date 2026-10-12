@@ -49,6 +49,7 @@ import {
 } from "$lib/server/settings/index.js";
 import { isAbsolute } from "node:path";
 import { deriveToolFailureBudget } from "$lib/server/agent/core/runtimeBudget.js";
+import { resolveMcpAuthConfig } from "$lib/server/settings/mcpAuth.js";
 import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
 
 /**
@@ -969,6 +970,8 @@ export function sanitizeSingleAgent(input: unknown): AgentSettings {
     ...(item.visible === undefined ? {} : { visible: item.visible !== false }),
     ...(item.avatar === undefined ? {} : { avatar: String(item.avatar).trim() }),
     ...(item.shareOwnerMemory === undefined ? {} : { shareOwnerMemory: item.shareOwnerMemory !== false }),
+    ...(item.disabledSkillPaths === undefined ? {} : { disabledSkillPaths: Array.isArray(item.disabledSkillPaths) ? [...new Set(item.disabledSkillPaths.map(String).map(value => value.trim()).filter(Boolean))] : [] }),
+    ...(item.disabledTools === undefined ? {} : { disabledTools: Array.isArray(item.disabledTools) ? [...new Set(item.disabledTools.map(String).map(value => value.trim()).filter(Boolean))] : [] }),
     permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
     modelRouting: sanitizeAgentModelRouting(item.modelRouting)
   });
@@ -1132,6 +1135,11 @@ export function sanitizeMcpServers(input: unknown): McpServerConfig[] {
     if (transport === "stdio" && !command) continue;
     if (transport === "http" && !url) continue;
 
+    // OAuth is HTTP-only and must not be mixed with a manual Authorization
+    // header: two token sources on one server make the effective credential
+    // ambiguous. Selecting OAuth drops any manual Authorization header.
+    const auth = resolveMcpAuthConfig(transport, item, headers);
+
     out.push({
       id,
       name: String(item.name ?? "").trim() || id,
@@ -1147,6 +1155,8 @@ export function sanitizeMcpServers(input: unknown): McpServerConfig[] {
         url,
         headers
       },
+      auth,
+      ...(item.timeoutMs === undefined ? {} : { timeoutMs: Math.round(clampNumber(item.timeoutMs, 120_000, 1_000, 3_600_000)) }),
       toolNamePrefix: String(item.toolNamePrefix ?? "").trim()
     });
   }

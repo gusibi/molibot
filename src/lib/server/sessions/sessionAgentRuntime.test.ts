@@ -46,11 +46,11 @@ test("ordinary Agent executes its own identity and restores only its Session aft
     const owner='web:agent-researcher:web-anonymous';
     await runtime.memory.add({channel:'web',externalUserId:owner,botId:'agent-researcher',agentId:'researcher',ownerId:'owner'}, {namespace:'agent:researcher',domain:'agent_self',type:'user_fact',subject:'research_method',content:'PERSONAL_PRIVATE_MEMORY',reason:'user_explicit',pinned:true});
     await runtime.memory.add({channel:'web',externalUserId:owner,botId:'default',agentId:'default',ownerId:'owner'}, {namespace:'agent:default',domain:'agent_self',type:'user_fact',subject:'private_method',content:'FOREIGN_AGENT_PRIVATE',reason:'user_explicit',pinned:true});
-    const session=runtime.sessions.createWebConversation(owner);
+    const session=runtime.sessions.createWebConversation(owner,undefined,'researcher');
     const { getRuntimeContextForConversation } = await import('./src/lib/server/web/runtimeContext.ts');
     const { claimAgentConversation } = await import('./src/lib/server/sessions/sessionAgentService.ts');
     getRuntimeContextForConversation('agent-researcher',session.id).pool.get(owner,session.id);
-    claimAgentConversation(runtime.sessions,runtime.getSettings(),{externalUserId:owner,conversationId:session.id,agentId:'researcher'});
+
     const other=runtime.sessions.createWebConversation(owner,undefined,'researcher');
     runtime.sessions.appendMessage(other.id,'user','OTHER_SESSION_SECRET');
     const result=await turn(session.id,'FIRST_INPUT');

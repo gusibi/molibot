@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { buildDesktopMemorySummary } from "$lib/server/app/desktopMemory";
+import { buildDesktopMemorySummary, desktopAgentMemoryScope, desktopAgentMemoryRecords } from "$lib/server/app/desktopMemory";
 import type { DesktopMemoryResponse } from "$lib/shared/desktop";
 import type { DesktopMemoryActionRequest, DesktopMemoryActionResponse, DesktopMemoryRejectionsResponse } from "$lib/shared/desktop";
 import { resolve } from "node:path";
@@ -35,7 +35,9 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     const body = await request.json() as DesktopMemoryActionRequest;
     const memory = getRuntime().memory;
-    const scope = memoryScope(body);
+    const agentScope = body.agentId !== undefined ? desktopAgentMemoryScope(getRuntime().getSettings(), body.agentId) : null;
+    const scope = agentScope ?? memoryScope(body);
+    if (agentScope && (!["list", "search"].includes(body.action) || body.allScopes)) throw new Error("Agent memory view supports scoped list and search only");
     let payload: DesktopMemoryActionResponse;
     if (body.action === "profile") {
       const defaultProfile = resolveDesktopWebProfiles(getRuntime().getSettings()).find((profile) => profile.enabled);
@@ -107,7 +109,9 @@ export const POST: RequestHandler = async ({ request }) => {
     } else if (body.action === "list" || body.action === "search") {
       const query = body.action === "search" ? String(body.query ?? "") : "";
       const items = body.allScopes ? await memory.searchAll({ query, limit: body.limit ?? 200, mode: body.action === "search" ? "hybrid" : "recent" }) : await memory.search(scope, { query, limit: body.limit ?? 200, mode: body.action === "search" ? "hybrid" : "recent" });
-      payload = { ok: true, items };
+      payload = { ok: true, items: agentScope
+        ? desktopAgentMemoryRecords(agentScope, items)
+        : items };
     } else if (body.action === "sync") payload = { ok: true, sync: await memory.syncExternalMemories() as unknown as Record<string, number> };
     else if (body.action === "flush") payload = { ok: true, result: await memory.flush(scope) as unknown as Record<string, number> };
     else if (body.action === "compact") payload = { ok: true, result: (body.allScopes ? await memory.compact() : await memory.compact(scope)) as unknown as Record<string, number> };

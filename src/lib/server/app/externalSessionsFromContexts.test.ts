@@ -16,9 +16,12 @@ interface SeedEntry {
   timestamp: string;
 }
 
+const sources = new Map<string, { channel: string; botId: string; chatId: string }>();
 function contextsDir(root: string, channelDir: string, botId: string, chatId: string): string {
-  const dir = path.join(root, channelDir, "bots", botId, chatId, "contexts");
+  const dir = path.join(root, "sessions", `${channelDir}_${botId}_${chatId}`.replace(/[^a-zA-Z0-9._-]/g, "_"), "contexts");
+  sources.set(dir, { channel: ({ "moli-t": "telegram", "moli-f": "feishu", "moli-wx": "weixin" } as Record<string, string>)[channelDir], botId, chatId });
   mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "default.meta.json"), JSON.stringify({ agentId: path.basename(path.dirname(dir)), source: sources.get(dir) }));
   return dir;
 }
 
@@ -42,6 +45,7 @@ function seedSession(dir: string, sessionId: string, entries: SeedEntry[], creat
   });
   writeFileSync(path.join(dir, `${sessionId}.jsonl`), `${lines.join("\n")}\n`, "utf8");
   writeFileSync(path.join(dir, `${sessionId}.json`), "[]\n", "utf8");
+  writeFileSync(path.join(dir, `${sessionId}.meta.json`), JSON.stringify({ agentId: path.basename(path.dirname(dir)), source: sources.get(dir) }));
 }
 
 test("listExternalSessionsFromContexts projects contexts sessions, skips automation and empty", () => {
@@ -209,7 +213,7 @@ test("readExternalTranscriptFromContexts attaches generated image from imageGene
   const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-image-"));
   try {
     const dir = contextsDir(root, "moli-f", "feishu-momo", "oc_chat1");
-    const workspaceDir = path.join(root, "moli-f", "bots", "feishu-momo", "oc_chat1");
+    const workspaceDir = path.dirname(dir);
     const imageAbsPath = path.join(workspaceDir, "scratch", "2026", "07", "10", "pastoral_evening.jpg");
 
     const lines: string[] = [
@@ -283,7 +287,7 @@ test("readExternalTranscriptFromContexts recovers user-sent attachments from the
   const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-user-att-"));
   try {
     const dir = contextsDir(root, "moli-wx", "weixin-momo-2", "oc_chat1");
-    const workspaceDir = path.join(root, "moli-wx", "bots", "weixin-momo-2", "oc_chat1");
+    const workspaceDir = path.dirname(dir);
     const attachmentAbsPath = path.join(workspaceDir, "attachments", "1774279785778_weixin_photo.jpeg");
 
     const userContent = [

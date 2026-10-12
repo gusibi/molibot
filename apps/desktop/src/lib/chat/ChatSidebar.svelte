@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import ChatRoundLine from "../icons/duotone/components/ChatRoundLine.svelte";
   import Dialog from "../icons/duotone/components/Dialog.svelte";
   import Pen from "../icons/duotone/components/Pen.svelte";
   import RulerPen from "../icons/duotone/components/RulerPen.svelte";
@@ -46,10 +45,11 @@
     onNewConversation,
     roomsLabel,
     roomsCreateLabel,
+    roomsEditLabel,
+    roomsDeleteLabel,
     roomsEmptyLabel,
     onOpenAutoTasks,
     onOpenSkills,
-    onOpenAgents,
     onOpenPlans,
     onOpenSettings,
     onOpenConversations,
@@ -61,6 +61,8 @@
     onToggleChannel,
     onSelectSession,
     onSelectRoom,
+    onEditRoom,
+    onDeleteRoom,
     onCreateRoom,
     onMoreChannel,
     onRenameSession,
@@ -98,10 +100,11 @@
     onNewConversation: () => void;
     roomsLabel: string;
     roomsCreateLabel: string;
+    roomsEditLabel: string;
+    roomsDeleteLabel: string;
     roomsEmptyLabel: string;
     onOpenAutoTasks: () => void;
     onOpenSkills: () => void;
-    onOpenAgents: () => void;
     onOpenPlans: () => void;
     onOpenSettings: () => void;
     onOpenConversations: () => void;
@@ -113,6 +116,8 @@
     onToggleChannel: (channel: string) => void;
     onSelectSession: (item: DesktopConversationItem) => void;
     onSelectRoom: (roomId: string) => void;
+    onEditRoom: (roomId: string) => void;
+    onDeleteRoom: (roomId: string) => void;
     onCreateRoom: () => void;
     onMoreChannel: (channel: string) => void;
     onRenameSession: (item: DesktopConversationItem, title: string) => void;
@@ -126,7 +131,6 @@
   const workspaceItems = $derived([
     { key: "automations", label: copy.autoTasks, icon: SendClock, active: activeWorkspacePane === "automations", badge: automationUnreadCount, onSelect: onOpenAutoTasks },
     { key: "skills", label: copy.skillsSquare, icon: RulerPen, active: activeWorkspacePane === "skills", badge: 0, onSelect: onOpenSkills },
-    { key: "agents", label: copy.agentsNav, icon: Users2, active: activeWorkspacePane === "agents", badge: 0, onSelect: onOpenAgents },
     { key: "plans", label: copy.planBoardNav, icon: Bulb2, active: activeWorkspacePane === "plans", badge: 0, onSelect: onOpenPlans },
     { key: "miniapps", label: copy.miniAppsNav, icon: Widget2, active: activeWorkspacePane === "miniapps", badge: 0, onSelect: onOpenMiniApps }
   ]);
@@ -150,6 +154,8 @@
     roomMeta,
     roomsLabel,
     roomsCreateLabel,
+    roomsEditLabel,
+    roomsDeleteLabel,
     roomsEmptyLabel,
     endpoint,
     statusDots,
@@ -163,6 +169,8 @@
     onToggleChannel,
     onSelectSession,
     onSelectRoom,
+    onEditRoom,
+    onDeleteRoom,
     onCreateRoom,
     onMoreChannel,
     onRenameSession,
@@ -180,38 +188,8 @@
   {#if collapsed}
     <div class="sidebar-collapsed">
       <nav class="sidebar-rail" aria-label={copy.chat}>
-        <button
-          type="button"
-          class="rail-item"
-          class:active={collapsedFlyout === "conversations"}
-          aria-current={collapsedFlyout === "conversations" ? "page" : undefined}
-          aria-label={copy.chat}
-          title={copy.chat}
-          onclick={() => onToggleFlyout?.("conversations")}
-        >
-          <ChatRoundLine size={18} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          class="rail-item"
-          class:active={collapsedFlyout === "projects"}
-          aria-current={collapsedFlyout === "projects" ? "page" : undefined}
-          aria-label={copy.projects}
-          title={copy.projects}
-          onclick={() => onToggleFlyout?.("projects")}
-        >
-          <Package size={18} weight="Filled" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          class="rail-item"
-          class:active={collapsedFlyout === "rooms" || Boolean(activeRoomId)}
-          aria-current={collapsedFlyout === "rooms" || activeRoomId ? "page" : undefined}
-          aria-label={roomsLabel}
-          title={roomsLabel}
-          onclick={() => onToggleFlyout?.("rooms")}
-        >
-          <Dialog size={18} aria-hidden="true" />
+        <button type="button" class="rail-item" aria-label={copy.newChat} title={copy.newChat} onclick={onNewConversation}>
+          <Pen size={18} aria-hidden="true" />
         </button>
         {#each workspaceItems as item (item.key)}
           {@const Icon = item.icon}
@@ -228,6 +206,42 @@
             {#if item.badge > 0}<span class="rail-notification" aria-label={`${item.badge} ${copy.tasksReminderUnread}`}>{item.badge > 99 ? "99+" : item.badge}</span>{/if}
           </button>
         {/each}
+        <button
+          type="button"
+          class="rail-item"
+          class:active={collapsedFlyout === "conversations"}
+          aria-current={collapsedFlyout === "conversations" ? "page" : undefined}
+          aria-label={copy.agentsNav}
+          title={copy.agentsNav}
+          onclick={() => onToggleFlyout?.("conversations")}
+        >
+          <Users2 size={18} aria-hidden="true" />
+        </button>
+
+        <button
+          type="button"
+          class="rail-item"
+          class:active={collapsedFlyout === "rooms" || Boolean(activeRoomId)}
+          aria-current={collapsedFlyout === "rooms" || activeRoomId ? "page" : undefined}
+          aria-label={roomsLabel}
+          title={roomsLabel}
+          onclick={() => onToggleFlyout?.("rooms")}
+        >
+          <Dialog size={18} aria-hidden="true" />
+        </button>
+
+        <button
+          type="button"
+          class="rail-item"
+          class:active={collapsedFlyout === "projects"}
+          aria-current={collapsedFlyout === "projects" ? "page" : undefined}
+          aria-label={copy.projects}
+          title={copy.projects}
+          onclick={() => onToggleFlyout?.("projects")}
+        >
+          <Package size={18} weight="Filled" aria-hidden="true" />
+        </button>
+
         <div class="rail-spacer"></div>
         <button
           type="button"
@@ -253,6 +267,8 @@
         <Pen size={16} aria-hidden="true" />
         <span>{copy.newChat}</span>
       </button>
+    </nav>
+    <nav class="sidebar-nav" aria-label={copy.chat}>
       {#each workspaceItems as item (item.key)}
         {@const Icon = item.icon}
         <button type="button" class="nav-item" class:active={item.active} aria-current={item.active ? "page" : undefined} onclick={item.onSelect}>
@@ -263,7 +279,7 @@
       {/each}
     </nav>
 
-    <SidebarLists {...listProps} sections={["conversations", "projects", "rooms"]} variant="sidebar" />
+    <SidebarLists {...listProps} sections={["conversations", "rooms", "projects"]} variant="sidebar" />
 
     <!-- The avatar's status dot already carries the service state visually, so the
          redundant 在线/离线 line is gone; its text stays as the button's

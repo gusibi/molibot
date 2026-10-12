@@ -4,12 +4,15 @@ import {
   StreamableHttpTransport,
   toLlmContent
 } from "@earendil-works/pi-mcp";
+import { McpOAuthAuthorizationRequiredError } from "@earendil-works/pi-mcp/oauth";
 import { join } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { McpServerConfig } from "$lib/server/settings/schema.js";
 import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
+import { getMcpOAuthManager } from "$lib/server/agent/mcp/oauthRuntime.js";
+import type { McpAuthStatus, McpOAuthManager } from "$lib/server/agent/mcp/oauth.js";
 import { spillFullOutput } from "$lib/server/agent/tools/outputSpill.js";
 import {
   DEFAULT_MAX_BYTES,
@@ -24,6 +27,9 @@ export interface McpRegistryOptions {
   onWarn?: (message: string, extra?: Record<string, unknown>) => void;
 }
 
+/** OAuth surface the registry needs; a test can inject its own manager and store. */
+export type McpRegistryOAuth = Pick<McpOAuthManager, "authProvider" | "authStatus" | "forgetServer">;
+
 export type McpConnectionState = "disabled" | "connecting" | "connected" | "disconnected" | "error";
 
 export interface McpServerStatus {
@@ -33,6 +39,8 @@ export interface McpServerStatus {
   lastError?: string;
   lastAttemptAt?: string;
   connectedAt?: string;
+  /** OAuth authorization state for OAuth servers; absent for header/stdio servers. */
+  auth?: McpAuthStatus;
 }
 
 interface McpToolDetails {
@@ -53,13 +61,15 @@ export const MCP_EXECUTION_TIMEOUT_MS = 120_000;
  * every progress notification, so a chatty server could keep one call alive
  * indefinitely. This wrapper enforces a single absolute deadline that progress
  * cannot extend and aborts the Pi request through the same `AbortSignal` — it
- * does not reimplement protocol cancellation.
+ * does not reimplement protocol cancellation. `timeoutMs` is the sanitized
+ * per-server setting, defaulting to 120 seconds.
  */
 export async function callMcpToolWithTimeout(
   client: Pick<McpClient, "callTool">,
   name: string,
   args: Record<string, unknown>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs = MCP_EXECUTION_TIMEOUT_MS
 ): Promise<Awaited<ReturnType<McpClient["callTool"]>>> {
   signal?.throwIfAborted();
   const controller = new AbortController();
@@ -70,12 +80,12 @@ export async function callMcpToolWithTimeout(
     onAbort = () => reject(executionSignal.reason);
     executionSignal.addEventListener("abort", onAbort, { once: true });
     timer = setTimeout(() => {
-      controller.abort(new Error(`MCP tool ${name} timed out after 120 seconds. The remote operation may still be running; verify its outcome before retrying a write.`));
-    }, MCP_EXECUTION_TIMEOUT_MS);
+      controller.abort(new Error(`MCP tool ${name} timed out after ${timeoutMs / 1000} seconds. The remote operation may still be running; verify its outcome before retrying a write.`));
+    }, timeoutMs);
   });
   try {
     return await Promise.race([
-      client.callTool(name, args, { signal: executionSignal, timeoutMs: MCP_EXECUTION_TIMEOUT_MS }),
+      client.callTool(name, args, { signal: executionSignal, timeoutMs }),
       interrupted
     ]);
   } finally {
@@ -208,6 +218,9 @@ export class McpToolRegistry {
   private readonly servers = new Map<string, ConnectedServer>();
   private syncQueue: Promise<void> = Promise.resolve();
 
+  /** Production uses the process-wide manager; an isolated test injects its own. */
+  constructor(private readonly oauthManager: McpRegistryOAuth = getMcpOAuthManager()) {}
+
   private enqueueSync<T>(task: () => Promise<T>): Promise<T> {
     const next = this.syncQueue.then(task, task);
     this.syncQueue = next.then(() => undefined, () => undefined);
@@ -247,6 +260,8 @@ export class McpToolRegistry {
       transport: server.transport,
       stdio: server.stdio,
       http: server.http,
+      auth: server.auth,
+      timeoutMs: server.timeoutMs,
       toolNamePrefix: server.toolNamePrefix
     });
   }
@@ -271,7 +286,7 @@ export class McpToolRegistry {
       parameters,
       execute: async (_toolCallId, params, signal): Promise<{ content: Array<TextContent | ImageContent>; details: McpToolDetails }> => {
         const toolArgs = params && typeof params === "object" ? params as Record<string, unknown> : {};
-        const result = await callMcpToolWithTimeout(client, remote.name, toolArgs, signal);
+        const result = await callMcpToolWithTimeout(client, remote.name, toolArgs, signal, server.timeoutMs);
         const converted = toLlmContent(result);
         // Pi maps a content-less result (no blocks, no `structuredContent`) to
         // an empty array; keep the explicit placeholder so the model sees that
@@ -318,7 +333,8 @@ export class McpToolRegistry {
     const transport = server.transport === "http"
       ? new StreamableHttpTransport({
         url: server.http.url,
-        headers: toStringRecord(server.http.headers)
+        headers: toStringRecord(server.http.headers),
+        ...(server.auth?.mode === "oauth" ? { authProvider: this.oauthManager.authProvider(server) } : {})
       })
       : new StdioTransport({
         command: server.stdio.command,
@@ -376,7 +392,9 @@ export class McpToolRegistry {
       entry.connectedAt = new Date().toISOString();
       return entry;
     } catch (error) {
-      const message = redactMcpError(error instanceof Error ? error.message : String(error), server);
+      const message = error instanceof McpOAuthAuthorizationRequiredError
+        ? `Authorization required for MCP server "${server.name}". Open MCP settings, sign in, then reconnect.`
+        : redactMcpError(error instanceof Error ? error.message : String(error), server);
       entry.closing = true;
       entry.client = undefined;
       entry.transport = undefined;
@@ -440,7 +458,11 @@ export class McpToolRegistry {
         const next = configured.get(existing.config.id);
         if (next?.enabled) continue;
         await this.closeServer(existing, next ? "disabled" : "disconnected");
-        if (!next) this.servers.delete(key);
+        if (!next) {
+          // Deleting a server clears only its own authorization records.
+          this.oauthManager.forgetServer(existing.config.id);
+          this.servers.delete(key);
+        }
         else {
           existing.config = next;
           existing.hash = this.buildServerHash(next);
@@ -477,7 +499,8 @@ export class McpToolRegistry {
         toolCount: entry?.state === "connected" ? entry.tools.length : 0,
         ...(entry?.lastError ? { lastError: entry.lastError } : {}),
         ...(entry?.lastAttemptAt ? { lastAttemptAt: entry.lastAttemptAt } : {}),
-        ...(entry?.connectedAt ? { connectedAt: entry.connectedAt } : {})
+        ...(entry?.connectedAt ? { connectedAt: entry.connectedAt } : {}),
+        ...(server.auth?.mode === "oauth" ? { auth: this.oauthManager.authStatus(server) } : {})
       };
     });
   }

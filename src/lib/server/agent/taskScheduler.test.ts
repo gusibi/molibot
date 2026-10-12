@@ -15,31 +15,9 @@ import {
   ensureOwnerMemoryReflectionEvent,
   formatDailyMaterialsNotification,
   listMemoryReflectionNotificationTargets,
-  migrateLegacyManagedMemoryEvents,
-  migrateLegacyWebTaskEvents,
   resolveMemoryReflectionNotificationTarget
 } from "./taskScheduler";
 import { executeOwnerMemoryReflection, formatOwnerMemoryReflectionNotification, OwnerMemoryReflectionError } from "./ownerMemoryReflection";
-
-test("migrates legacy Web scratch events into the bot-level watched directory", () => {
-  const botsRoot = mkdtempSync(join(tmpdir(), "molibot-web-events-"));
-  const legacyEventsDir = join(botsRoot, "default", "web:default:web-anonymous", "scratch", "events");
-  const eventPath = join(legacyEventsDir, "periodic-123.json");
-  const event = { type: "periodic", chatId: "web:default:web-anonymous", text: "Send summary" };
-  mkdirSync(legacyEventsDir, { recursive: true });
-  writeFileSync(eventPath, `${JSON.stringify(event)}\n`);
-
-  try {
-    const migrated = migrateLegacyWebTaskEvents(botsRoot);
-    const destination = join(botsRoot, "default", "events", "periodic-123.json");
-
-    assert.deepEqual(migrated, [destination]);
-    assert.equal(existsSync(eventPath), false);
-    assert.deepEqual(JSON.parse(readFileSync(destination, "utf8")), event);
-  } finally {
-    rmSync(botsRoot, { recursive: true, force: true });
-  }
-});
 
 test("internal memory reflection bypasses channel task delivery", async () => {
   let internalCalls = 0;
@@ -325,24 +303,4 @@ test("owner daily materials event preserves status and disables without deleting
     ensureOwnerDailyMaterialsEvent(eventsDir, settings);
     assert.equal(JSON.parse(readFileSync(file!, "utf8")).enabled, false);
   } finally { rmSync(eventsDir, { recursive: true, force: true }); }
-});
-
-test("legacy managed migration removes only recognized per-Bot memory events", () => {
-  const botsRoot = mkdtempSync(join(tmpdir(), "molibot-managed-migration-"));
-  const eventsDir = join(botsRoot, "momo", "events");
-  mkdirSync(eventsDir, { recursive: true });
-  const reflection = join(eventsDir, "memory-reflection.json");
-  const materials = join(eventsDir, "daily-materials.json");
-  const userTask = join(eventsDir, "periodic-user.json");
-  writeFileSync(reflection, JSON.stringify({ type: "periodic", internal: { kind: "memory-reflection" } }));
-  writeFileSync(materials, JSON.stringify({ type: "periodic", internal: { kind: "daily-materials" } }));
-  writeFileSync(userTask, JSON.stringify({ type: "periodic", text: "Keep me" }));
-
-  try {
-    assert.deepEqual(migrateLegacyManagedMemoryEvents(botsRoot).sort(), [materials, reflection].sort());
-    assert.equal(existsSync(reflection), false);
-    assert.equal(existsSync(materials), false);
-    assert.equal(existsSync(userTask), true);
-    assert.deepEqual(migrateLegacyManagedMemoryEvents(botsRoot), []);
-  } finally { rmSync(botsRoot, { recursive: true, force: true }); }
 });

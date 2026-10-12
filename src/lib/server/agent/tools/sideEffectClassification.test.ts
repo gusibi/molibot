@@ -23,7 +23,7 @@ test("side-effect classification is deterministic and hashes the full input", ()
 });
 
 test("composites delegate effect classification without weakening leaf effects", () => {
-  for (const id of ["codemode", "subagent"]) assert.equal(classifyToolSideEffect(id, { task: "write" }).sideEffectClass, "pure");
+  for (const id of ["codemode", "subagent", "mcpInvoke"]) assert.equal(classifyToolSideEffect(id, { task: "write" }).sideEffectClass, "pure");
   assert.equal(classifyToolSideEffect("bash", { command: "pwd && ls -la" }).sideEffectClass, "non_idempotent");
   assert.equal(classifyToolSideEffect("write", {}).sideEffectClass, "idempotent");
 });

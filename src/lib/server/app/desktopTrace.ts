@@ -297,7 +297,9 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
 
   for (const fact of runFacts) {
     const bot = botDetails.get(`${fact.channel}:${fact.botId}`);
-    const agentId = bot?.agentId ?? "default";
+    const agentId = typeof fact.payload.agentId === "string" && fact.payload.agentId.trim()
+      ? fact.payload.agentId.trim()
+      : bot?.agentId ?? "default";
     const terminal = fact.status !== "started" && fact.status !== "waiting";
     const finishedAt = fact.finishedAt ?? fact.updatedAt;
     const referenceAt = terminal ? Date.parse(finishedAt) : latestUpdateByRun.get(fact.runId) ?? Date.parse(fact.updatedAt);

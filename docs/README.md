@@ -42,6 +42,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Large Autonomous Execution PRD](requirements/large-autonomous-execution-prd.md) — proposed continuous execution, dynamic decomposition and large-batch acceptance
 - [Automatic Durable Execution PRD](requirements/automatic-durable-execution-prd.md) — long-task foundation, partially delivered
 - [Pi capabilities integration spec](requirements/pi-capabilities-integration-spec.md) — phased Durable kernel replacement, Deferred responses, Codemode and optional image backend
+- [Pi capability completion spec](requirements/pi-capability-completion-spec.md) — approved ordinary-task recovery, MCP OAuth, Codemode model API and extension runtime interfaces; [Issue #64](https://github.com/gusibi/molibot/issues/64)
 - [Permission Modes PRD](requirements/permission-modes-prd.md) — Plan/Manual/Accept/Auto session scope
 - [Project Automations PRD](requirements/project-automations-prd.md) — Project-scoped periodic Runtime Tasks
 - [Artifact Panel PRD](requirements/artifact-panel-prd.md) — shared artifact registry and inspection

@@ -12,6 +12,7 @@ const attachSchema = Type.Object({
 });
 
 export function createAttachTool(options: {
+  source?: Partial<import("$lib/server/sessions/agentStorage.js").SessionSource>;
   cwd: string;
   workspaceDir: string;
   artifactDir?: string;
@@ -32,7 +33,7 @@ export function createAttachTool(options: {
   }
 
   function resolveAttachPath(inputPath: string): string {
-    const filePath = resolveToolPath(options.cwd, inputPath);
+    const filePath = resolveToolPath(options.cwd, inputPath, options.source);
     if (existsSync(filePath) || !artifactDir) return filePath;
 
     const cwd = resolve(options.cwd);

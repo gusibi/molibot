@@ -1,3 +1,4 @@
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -111,14 +112,14 @@ test("unknown selection surfaces instead of silently extracting nothing", async 
 test("real bulk snapshots feed extraction targets; extraction never deletes", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-session-extract-batch-"));
   const originals = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile,
+
     projectsDir: storagePaths.projectsDir
   };
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "legacy");
-  storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
   storagePaths.projectsDir = path.join(root, "projects");
   t.after(() => {
     Object.assign(storagePaths, originals);

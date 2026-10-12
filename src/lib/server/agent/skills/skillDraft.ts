@@ -1,3 +1,4 @@
+import { isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { SkillScope } from "$lib/server/agent/skills/skills.js";
@@ -562,7 +563,7 @@ function resolveLiveSkillRoot(params: {
   if (params.scope === "global") {
     return resolve(resolveDataRootFromWorkspacePath(params.workspaceDir), "skills");
   }
-  if (params.scope === "chat") {
+  if (params.scope === "chat" && !isAgentWorkspace(params.workspaceDir)) {
     return resolve(params.workspaceDir, params.chatId, "skills");
   }
   return resolve(params.workspaceDir, "skills");

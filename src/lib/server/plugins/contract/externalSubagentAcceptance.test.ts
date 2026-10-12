@@ -27,7 +27,6 @@ test("External Subagent reference migration full acceptance seam", async () => {
     storagePaths.dbDir = path.join(root, "db");
     storagePaths.settingsDbFile = path.join(storagePaths.dbDir, "settings.sqlite");
     storagePaths.settingsFile = path.join(root, "settings.json");
-    storagePaths.sessionsIndexFile = path.join(root, "sessions-index.json");
     storagePaths.pluginsPackagesDir = path.join(root, "plugins", "packages");
     storagePaths.pluginsConfigDir = path.join(root, "plugins", "config");
     storagePaths.pluginsDataDir = path.join(root, "plugins", "data");

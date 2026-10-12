@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { Type } from "@sinclair/typebox";
 import { parseCodemodeSource } from "@earendil-works/pi-codemode/source";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { ModelOperations } from "$lib/server/agent/models/modelOperations.js";
 
 const schema = Type.Object({ code: Type.String() });
 
@@ -14,13 +15,28 @@ interface CodemodeOptions {
   invoke(tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal): Promise<NestedResult>;
   artifactDir: string;
   workspaceDir: string;
+  /** Model work shared with pi extensions; omitted when the caller cannot authorize it. */
+  models?: ModelOperations;
+}
+
+const MODEL_DECLARATIONS = [
+  { name: "models.list", description: "List classifier and image models with credential availability.", signature: "(): Promise<Array<{ key: string; type: string; provider: string; model: string; name: string; available: boolean }>>" },
+  { name: "models.classify", description: "Run a structured classifier against a state and questions.", signature: "(input: { model?: string; state: object; questions: object }): Promise<{ model: string; answers: Record<string, unknown>; usage?: unknown }>" },
+  { name: "models.generateImages", description: "Generate images from a prompt with optional reference images. Pass a returned image to image() to display it.", signature: "(input: { model?: string; prompt: string; images?: string[] }): Promise<{ model: string; images: Array<{ type: \"image\"; ref: string; mimeType: string; data: string }>; text?: string; usage?: unknown }>" }
+] as const;
+
+async function invokeModelOperation(models: ModelOperations, member: string, args: unknown, signal: AbortSignal): Promise<unknown> {
+  if (member === "list") return models.catalog();
+  if (member === "classify") return models.classify(args as Parameters<ModelOperations["classify"]>[0], signal);
+  if (member === "generateImages") return models.generateImages(args as Parameters<ModelOperations["generateImages"]>[0], signal);
+  throw new Error(`Unknown model operation: models.${member}`);
 }
 
 /** The VM has no host I/O; every external operation re-enters the tool dispatcher. */
 export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof schema> {
   return {
     name: "codemode", label: "Codemode",
-    description: "Run bounded JavaScript using await tools.<name>(args), ALL_TOOLS, searchTools(query), describeTool(name), text(value), and return. Tools return their result object with content and details. No direct files, network, Node, credentials, timers, models or nested Codemode. Parallelize independent reads with Promise.all; await every operation. Failed scripts keep partial output; completed operations are not rolled back. A suspended script cannot be replayed: use its receipts to plan remaining work. Optional first line: // @options: {\"timeout_ms\":60000,\"max_output_tokens\":2000}. store/load values are local to this execution.",
+    description: "Run bounded JavaScript using await tools.<name>(args), ALL_TOOLS, searchTools(query), describeTool(name), text(value), and return. When models are enabled, also await models.list(), models.classify({state,questions}), models.generateImages({prompt,images?}); pass a returned image object to image() to display it. Tools return their result object with content and details. No direct files, network, Node, credentials, timers or nested Codemode. Parallelize independent reads with Promise.all; await every operation. Failed scripts keep partial output; completed operations are not rolled back. A suspended script cannot be replayed: use its receipts to plan remaining work. Optional first line: // @options: {\"timeout_ms\":60000,\"max_output_tokens\":2000}. store/load values are local to this execution.",
     parameters: schema,
     // Only nested calls act on the host; each has its own permission boundary.
     classification: { risk: "low", source: "builtin", effect: "read" },
@@ -76,6 +92,12 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof s
         invocationIds.push(id);
         const promise = (async () => {
           try {
+            if (typeof message.name === "string" && message.name.startsWith("models.")) {
+              if (!options.models) throw new Error("Model operations are not available to this script.");
+              const value = await invokeModelOperation(options.models, message.name.slice("models.".length), message.args, controller.signal);
+              if (!terminal && child.connected) child.send({ kind: "reply", id: message.id, value });
+              return;
+            }
             const tool = catalog.find(tool => tool.name === message.name);
             if (!tool || tool.name === "codemode") throw new Error("Tool is not available to this script.");
             const outcome = await options.invoke(tool, id, message.args, controller.signal);
@@ -97,12 +119,16 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof s
       const exited = new Promise<void>(resolve => child.once("close", () => resolve()));
       try {
         child.send({ kind: "execute", code: parsed.code, timeoutMs, maxChars, outputPath, outputRef,
-          tools: catalog.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters })) });
+          tools: catalog.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters })),
+          ...(options.models ? { models: MODEL_DECLARATIONS } : {}) });
         if (signal?.aborted) abort();
         const result = await completed;
         await Promise.allSettled([...calls.values()].map(call => call.promise));
         await exited;
-        return { content: [{ type: "text", text: result.text || "Script completed." }],
+        const displayImages = Array.isArray(result.images)
+          ? (result.images as Array<{ type: "image"; data: string; mimeType: string }>).map(block => ({ type: "image" as const, data: block.data, mimeType: block.mimeType }))
+          : [];
+        return { content: [{ type: "text", text: result.text || "Script completed." }, ...displayImages],
           details: { ...suspension?.details, invocationIds, calls: result.calls ?? [], errorKind: result.errorKind,
             ...(result.truncated ? { outputRef } : {}), requiresReplan: !result.ok },
           ...(suspension ? { terminate: true, metadata: suspension.metadata } : {}),

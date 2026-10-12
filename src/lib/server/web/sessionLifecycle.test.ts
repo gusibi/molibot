@@ -1,3 +1,4 @@
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ function setupTempStorage(): { root: string; restore(): void } {
   const original = { ...storagePaths };
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "legacy");
-  storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
   return {
     root,
     restore() {

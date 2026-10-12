@@ -504,6 +504,8 @@ test("manual compact reloads the latest persisted session before summarizing", a
 
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     loadContext: () => persistedMessages,
     appendCompaction: (_chatId: string, summary: string, keptMessages: unknown[], _before: number, _after: number, summarizedMessages: number) => {
@@ -606,6 +608,8 @@ test("host bash approval is forwarded to runner event sink but does not abort ex
 
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     saveContext: () => {
@@ -767,6 +771,8 @@ test("runner persists user and partial assistant error when a run throws after s
   const appendedMessages: any[] = [];
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     saveContext: () => {
@@ -848,6 +854,8 @@ test("runner persists user and assistant error when a run throws before output",
   const appendedMessages: any[] = [];
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     saveContext: () => {
@@ -915,7 +923,9 @@ test("runner delivers and persists progress when a monitoring tool throws after 
   const settings = createRunnerTestSettings();
   const entries: any[] = [], summaries: any[] = [], replies: string[] = [], replacements: string[] = [];
   const store = {
-    getWorkspaceDir: () => runnerTestWorkspace, getScratchDir: () => runnerTestWorkspace,
+    getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace, getScratchDir: () => runnerTestWorkspace,
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => { entries.push(message); return `entry-${entries.length}`; },
     appendRunSummary: (_chatId: string, summary: any) => summaries.push(summary),
@@ -1003,6 +1013,8 @@ test("runner replays an accepted steer after a whole-attempt retry rolls back it
   const appendedMessages: any[] = [];
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
@@ -1105,6 +1117,8 @@ test("runner compacts and retries a successful-looking response whose usage exce
   const appendedMessages: any[] = [];
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
@@ -1193,6 +1207,8 @@ test("runner preserves completed tool results, compacts, and continues after a p
   const appendedMessages: any[] = [];
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
@@ -1326,6 +1342,8 @@ test("runner never reuses a previous turn's assistant message when the current a
   const appendedMessages: any[] = [oldAssistant];
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any) => appendedMessages.push(message),
@@ -1386,6 +1404,8 @@ test("fresh automation run starts and ends without archived model messages", asy
   ];
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: (_chatId: string, message: any, _sessionId: string, options?: any) => {
@@ -1874,7 +1894,7 @@ test("runner matches read skill paths after tool path correction", async () => {
     setActiveSkill(runner, skillPath);
 
     const agent = (runner as any).agent;
-    await agent.beforeToolCall(readToolCall("read-corrected", "data/moli-t/skills/corrected/SKILL.md"));
+    await agent.beforeToolCall(readToolCall("read-corrected", skillPath));
     await agent.afterToolCall({
       toolCall: { id: "read-corrected", name: "read", input: {} },
       result: { content: [{ type: "text", text: "skill body" }] },
@@ -1995,6 +2015,8 @@ test("runner emits run.started once and run.finished only on turn completion acr
   const settings = createRunnerTestSettings();
   const store = {
     getWorkspaceDir: () => runnerTestWorkspace,
+    getBotId: () => "runner-test",
+    getBotProfileDir: () => runnerTestWorkspace,
     getScratchDir: () => process.cwd(),
     getSessionEntriesPath: () => "entries.jsonl",
     appendContextMessage: () => "entry-1",
@@ -2095,7 +2117,7 @@ test("Stop during preflight never dispatches an Auto decision or starts the main
     decisionModels: [{ id: "jev", provider: "jev", baseUrl: "https://example.invalid", apiKey: "test-key" }] };
   const events: Array<{ stage: string; payload: any }> = [];
   let runner!: MomRunner;
-  const store = { getWorkspaceDir: () => directory, getScratchDir: () => directory,
+  const store = { getWorkspaceDir: () => directory, getBotId: () => "runner-test", getBotProfileDir: () => directory, getScratchDir: () => directory,
     getSessionEntriesPath: () => join(directory, "entries.jsonl"), appendContextMessage: () => "entry",
     appendRunSummary: () => {}, appendRunDetail: () => {}, appendRuntimeEvent: () => {}, loadContext: () => [],
     getSessionSandboxOverride: () => null };

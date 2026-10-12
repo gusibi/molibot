@@ -29,6 +29,7 @@ interface BuildTextChannelContextOptions<TSent extends ContextSentMessageRef> {
   channel: Channel;
   event: ChannelInboundMessage;
   workspaceDir: string;
+  deliveryWorkspaceDir?: string;
   chatDir: string;
   store: MomRuntimeStore;
   sessions: SessionStore;
@@ -128,7 +129,7 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
 
   const ctx: MomContext = {
     channel: options.channel,
-    deliveryTarget: { channel: options.channel, instanceId: options.instanceId, workspaceDir: options.workspaceDir, chatId: options.event.scopeId ?? options.event.chatId },
+    deliveryTarget: { channel: options.channel, instanceId: options.instanceId, workspaceDir: options.deliveryWorkspaceDir ?? options.workspaceDir, chatId: options.event.scopeId ?? options.event.chatId },
     message: options.event,
     workspaceDir: options.workspaceDir,
     chatDir: options.chatDir,

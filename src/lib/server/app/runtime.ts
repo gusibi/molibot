@@ -1,5 +1,8 @@
+import { storageRuntimeReady } from "$lib/server/sessions/agentStorageLifecycle.js";
 import { validateAgentReferences } from "$lib/server/settings/validators.js";
-import { pendingPiRecovery, piRecoveryCandidates, piRecoveryChannelManager, resumePiOwner } from "./piRecovery.js";
+import { inspectPiRecovery, piRecoveryCandidates, piRecoveryChannelManager, resumePiOwner, type PiRecoveryInspection } from "./piRecovery.js";
+import { PiRecoveryStore, type PiRecoveryRecord } from "$lib/server/agent/core/piRecoveryStore.js";
+import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { SqliteImageTaskStore } from "$lib/server/agent/imageGenerate/imageTaskStore.js";
@@ -32,7 +35,6 @@ import { SessionAutoArchiveStore } from "$lib/server/sessions/sessionAutoArchive
 import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchiveService.js";
 import { SessionTrashCleanupService } from "$lib/server/sessions/sessionTrashCleanup.js";
 import { buildProductionSessionLifecycle, buildSessionTrashCleanup } from "$lib/server/app/sessionMaintenance.js";
-import { associateSessionAgents } from "$lib/server/sessions/sessionAgentAssociation.js";
 import { rebuildExternalSessionMetadata } from "$lib/server/app/externalSessionsFromContexts.js";
 import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
 import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
@@ -164,6 +166,7 @@ function logSandboxEnvStartup(state: RuntimeState): void {
  * green handshake for hours. Never call `initializeRuntime` directly.
  */
 export function getRuntime(): RuntimeState {
+  if (!storageRuntimeReady()) throw new Error("Agent storage migration requires confirmation");
   try {
     const state = initializeRuntime();
     recordRuntimeReady();
@@ -173,6 +176,101 @@ export function getRuntime(): RuntimeState {
     throw error;
   }
 }
+
+/** Continue one admitted execution from its native Safe Resume Point. */
+async function resumePiRecoveryOwner(owner: PiRecoveryRecord, state: RuntimeState): Promise<void> {
+  if (getTurnOrchestrator().getRunStatus(owner.runId) !== "running") return;
+  if (owner.runtimeIdentity?.roomId) {
+    const { getRoomService } = await import("$lib/server/rooms/runtime.js");
+    if (!getRoomService().resumeNativeExecution(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId)) {
+      getTurnOrchestrator().failRunIfRunning(owner.runId, "The Room execution is no longer authorized or active.");
+    }
+    return;
+  }
+  const deliveryChannel = owner.transport?.channel ?? owner.channel;
+  const manager = deliveryChannel === "web" ? undefined : piRecoveryChannelManager(owner, state.channelManagers);
+  if (deliveryChannel !== "web" && !manager) {
+    getTurnOrchestrator().failRunIfRunning(owner.runId, "The original Channel owner is no longer enabled.");
+    return;
+  }
+  const store = new MomRuntimeStore(owner.workspaceDir);
+  const pool = new RunnerPool(owner.channel, store,
+    state.getSettings, state.updateSettings, state.usageTracker, state.modelErrorTracker, state.memory,
+    state.hookManager, owner.runtimeIdentity);
+  const runner = pool.get(owner.chatId, owner.sessionId);
+  void resumePiOwner(owner, runner, state.sessions, manager?.sendInternalNotice ? text => manager.sendInternalNotice!(owner.transport!.chatId, text,
+    { kind: "pi_deferred_completion", filename: owner.runId }) : undefined).catch(error => console.error("[runtime] Native recovery failed:", error));
+}
+
+/**
+ * A restart can find native work that must not run again on its own: a remote
+ * model request or an external operation was durably admitted without a
+ * committed result. For `review`, park the original run behind a Decision
+ * Request so a person can confirm the outcome and continue; for `unavailable`
+ * the run fails with the specific reason. Neither silently resends.
+ */
+async function failPiRecoveryReview(inspection: PiRecoveryInspection, managers: Map<string, Map<string, ChannelManager>>): Promise<void> {
+  const { record: owner, disposition } = inspection;
+  const detail = inspection.reason ?? "The original execution could not be inspected.";
+  const text = disposition === "review"
+    ? `Automatic recovery paused: ${detail} The original request was not resent; review the pending operation, then resend it if it should continue.`
+    : `Automatic recovery is unavailable: ${detail} Resend the request to run it again.`;
+  const store = new MomRuntimeStore(owner.workspaceDir);
+  try {
+    store.appendRuntimeEvent(owner.chatId, {
+      code: "PI_RECOVERY_REVIEW",
+      level: disposition === "review" ? "warn" : "error",
+      summary: text,
+      details: { runId: owner.runId, disposition, reason: detail, channel: owner.channel, sessionId: owner.sessionId, deferred: owner.deferred, uncertainCallIds: inspection.uncertainCallIds ?? [] }
+    }, owner.sessionId);
+  } catch (error) {
+    console.error("[runtime] Failed to record the recovery review event:", error);
+  }
+  if (disposition !== "review") {
+    // No readable native execution: this cannot be reviewed, only rerun.
+    getTurnOrchestrator().failRunIfRunning(owner.runId, text);
+    return;
+  }
+  // Park the unknown outcome behind the shared Decision Request surface. The
+  // approval broker already renders on Desktop and Web; resolving it resumes or
+  // abandons this exact execution via onApprovalResolved.
+  const approvalId = `recovery-review:${owner.runId}`;
+  try {
+    const broker = getApprovalBroker();
+    if (!broker.getRequest(approvalId)) {
+      broker.createRequest({
+        id: approvalId, runId: owner.runId, sessionId: owner.sessionId, workspaceId: owner.workspaceId,
+        actorId: owner.actor, capability: "recovery_review", riskLevel: "high",
+        action: { type: "network", toolName: "recovery_review" }, reason: text, status: "pending",
+        requestedBy: { agentId: owner.runtimeIdentity?.agentId ?? "recovery", depth: 0 },
+        scopeOptions: ["once"], createdAt: new Date().toISOString()
+      });
+    }
+    const recoveryStore = new PiRecoveryStore(config.dataDir);
+    try {
+      const current = recoveryStore.read(owner.runId);
+      if (current) recoveryStore.save({ ...current, reviewApprovalId: approvalId, uncertainCallIds: inspection.uncertainCallIds ?? [] });
+    } finally { recoveryStore.close(); }
+  } catch (error) {
+    console.error("[runtime] Failed to create the recovery review decision request:", error);
+  }
+  if (owner.runtimeIdentity?.roomId) {
+    // Room executions have no Decision Request surface yet; fail them with the
+    // specific reason rather than leaving the Room blocked.
+    const { getRoomService } = await import("$lib/server/rooms/runtime.js");
+    getRoomService().failNativeRecovery(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId, text);
+    getTurnOrchestrator().failRunIfRunning(owner.runId, text);
+    return;
+  }
+  const deliveryChannel = owner.transport?.channel ?? owner.channel;
+  const manager = deliveryChannel === "web" ? undefined : piRecoveryChannelManager(owner, managers);
+  if (manager?.sendInternalNotice && owner.transport) {
+    try { await manager.sendInternalNotice(owner.transport.chatId, text, { kind: "pi_recovery_review", filename: owner.runId }); }
+    catch (error) { console.error("[runtime] Failed to deliver the recovery review notice:", error); }
+  }
+  getTurnOrchestrator().markRunForRecoveryReview(owner.runId, text);
+}
+
 
 function initializeRuntime(): RuntimeState {
   if (!globalThis.__molibotRuntime) {
@@ -219,7 +317,6 @@ function initializeRuntime(): RuntimeState {
     }
 
     const sessions = new SessionStore();
-    associateSessionAgents(sessions, settings, config.dataDir);
     sessions.setConversationSearchIndex(getConversationSearchIndex(storagePaths.moryDbFile), "web");
     // T9 managed extraction: receipts live in the Session-owned store
     // (sessions.db) so the managed list can derive per-Session status and
@@ -350,7 +447,6 @@ function initializeRuntime(): RuntimeState {
         const error = validateAgentReferences(latestPersisted, next);
         if (error) throw new Error(error);
       }
-      if (patch.channels || patch.agents) associateSessionAgents(sessions, latestPersisted, config.dataDir);
       state.settings = next;
       currentSettings.value = state.settings;
       if (navigationOnly) {
@@ -358,7 +454,6 @@ function initializeRuntime(): RuntimeState {
         return state.settings;
       }
       state.settingsStore.save(state.settings);
-      if (patch.channels || patch.agents) associateSessionAgents(sessions, state.settings, config.dataDir);
       reconcileRoomAgents();
       if (!liveServicesDisabled()) {
         applyChannelPlugins(state, applySettingsPatch);
@@ -778,38 +873,46 @@ function initializeRuntime(): RuntimeState {
 
     globalThis.__molibotRuntime = state;
     configureConversationProjectionRuntime(() => state);
-    if (!liveServicesDisabled()) setTimeout(() => { void (async () => {
-      const pending = await pendingPiRecovery(config.dataDir, id => getTurnOrchestrator().getRunStatus(id));
-      for (const owner of nativeOwners) if (!pending.some(record => record.runId === owner.runId)) {
-        const error = "The process restarted without a committed native Deferred handle; automatic resubmission is blocked.";
-        if (owner.runtimeIdentity?.roomId) {
-          const { getRoomService } = await import("$lib/server/rooms/runtime.js");
-          getRoomService().failNativeRecovery(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId, error);
+    // Resolve a parked recovery review: approving continues the exact original
+    // execution (with the uncertain calls settled as interrupted); rejecting
+    // abandons it. Expiry behaves like rejection.
+    onApprovalResolved((approvalId, status) => {
+      if (!approvalId.startsWith("recovery-review:")) return;
+      const runId = approvalId.slice("recovery-review:".length);
+      void (async () => {
+        const reader = new PiRecoveryStore(config.dataDir);
+        let owner: PiRecoveryRecord | undefined;
+        try { owner = reader.read(runId); } finally { reader.close(); }
+        if (!owner) return;
+        if (status !== "approved") {
+          getTurnOrchestrator().updateRunStatus(runId, "aborted", "Recovery review was rejected.");
+          const cleanup = new PiRecoveryStore(config.dataDir);
+          try { cleanup.remove(runId); } finally { cleanup.close(); }
+          return;
         }
-        getTurnOrchestrator().failRunIfRunning(owner.runId, error);
-      }
-      for (const owner of pending) {
-        if (getTurnOrchestrator().getRunStatus(owner.runId) !== "running") continue;
-        if (owner.runtimeIdentity?.roomId) {
-          const { getRoomService } = await import("$lib/server/rooms/runtime.js");
-          if (!getRoomService().resumeNativeExecution(owner.runtimeIdentity.roomId, owner.runtimeIdentity.executionId)) {
-            getTurnOrchestrator().failRunIfRunning(owner.runId, "The Room execution is no longer authorized or active.");
+        getTurnOrchestrator().updateRunStatus(runId, "running");
+        const writer = new PiRecoveryStore(config.dataDir);
+        let approved: PiRecoveryRecord | undefined;
+        try {
+          const current = writer.read(runId);
+          if (current) {
+            approved = { ...current, context: { ...current.context, approvedRecoveryCallIds: current.uncertainCallIds ?? [] } };
+            writer.save(approved);
           }
+        } finally { writer.close(); }
+        if (approved) await resumePiRecoveryOwner(approved, state);
+      })().catch(error => console.error("[runtime] Recovery review resolution failed:", error));
+    });
+    if (!liveServicesDisabled()) setTimeout(() => { void (async () => {
+      const inspected = await inspectPiRecovery(config.dataDir, id => getTurnOrchestrator().getRunStatus(id));
+      for (const inspection of inspected) {
+        const owner = inspection.record;
+        if (getTurnOrchestrator().getRunStatus(owner.runId) !== "running") continue;
+        if (inspection.disposition !== "resume") {
+          await failPiRecoveryReview(inspection, state.channelManagers);
           continue;
         }
-        const deliveryChannel = owner.transport?.channel ?? owner.channel;
-        const manager = deliveryChannel === "web" ? undefined : piRecoveryChannelManager(owner, state.channelManagers);
-        if (deliveryChannel !== "web" && !manager) {
-          getTurnOrchestrator().failRunIfRunning(owner.runId, "The original Channel owner is no longer enabled.");
-          continue;
-        }
-        const store = new MomRuntimeStore(owner.workspaceDir);
-        const pool = new RunnerPool(owner.channel, store,
-          state.getSettings, state.updateSettings, state.usageTracker, state.modelErrorTracker, state.memory,
-          state.hookManager, owner.runtimeIdentity);
-        const runner = pool.get(owner.chatId, owner.sessionId);
-        void resumePiOwner(owner, runner, state.sessions, manager?.sendInternalNotice ? text => manager.sendInternalNotice!(owner.transport!.chatId, text,
-          { kind: "pi_deferred_completion", filename: owner.runId }) : undefined).catch(error => console.error("[runtime] Native Deferred recovery failed:", error));
+        await resumePiRecoveryOwner(owner, state);
       }
     })().catch(error => console.error("[runtime] Native recovery inspection failed:", error)); }, 0);
 

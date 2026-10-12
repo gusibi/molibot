@@ -1,8 +1,9 @@
 <script lang="ts">
+  import RowContextMenu from "../components/ui/RowContextMenu.svelte";
   import type { Snippet } from "svelte";
   import CaretRight from "reicon-svelte/icons/CaretRight";
   import Plus from "reicon-svelte/icons/Plus";
-  import ChatRoundLine from "../icons/duotone/components/ChatRoundLine.svelte";
+  import Users2 from "../icons/duotone/components/Users2.svelte";
   import Dialog from "../icons/duotone/components/Dialog.svelte";
   import ChannelAccordion, { type ChannelDescriptor } from "./ChannelAccordion.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
@@ -33,6 +34,8 @@
     roomMeta = () => "",
     roomsLabel,
     roomsCreateLabel,
+    roomsEditLabel,
+    roomsDeleteLabel,
     roomsEmptyLabel,
     endpoint,
     statusDots = new Map<string, SessionStatusDot>(),
@@ -47,6 +50,8 @@
     onToggleChannel,
     onSelectSession,
     onSelectRoom,
+    onEditRoom,
+    onDeleteRoom,
     onCreateRoom,
     onMoreChannel,
     onRenameSession,
@@ -76,6 +81,8 @@
     roomMeta?: (room: AgentRoom) => string;
     roomsLabel: string;
     roomsCreateLabel: string;
+    roomsEditLabel: string;
+    roomsDeleteLabel: string;
     roomsEmptyLabel: string;
     endpoint: string;
     statusDots?: Map<string, SessionStatusDot>;
@@ -90,6 +97,8 @@
     onToggleChannel: (channel: string) => void;
     onSelectSession: (item: DesktopConversationItem) => void;
     onSelectRoom: (roomId: string) => void;
+    onEditRoom: (roomId: string) => void;
+    onDeleteRoom: (roomId: string) => void;
     onCreateRoom: () => void;
     onMoreChannel: (channel: string) => void;
     onRenameSession: (item: DesktopConversationItem, title: string) => void;
@@ -135,48 +144,52 @@
   {#if sections.includes("conversations")}
     <section class="sidebar-tree-section">
       <div class="sidebar-section-head">
-        <button type="button" class="sidebar-section-toggle" onclick={onOpenConversations}>
-          <ChatRoundLine size={16} aria-hidden="true" />
-          <span>{copy.chat}</span>
+        <button type="button" class="sidebar-section-toggle" aria-expanded={conversationsOpen} onclick={onToggleConversations}>
+          <Users2 size={16} aria-hidden="true" />
+          <span>{copy.agentsNav}</span>
         </button>
-        <button type="button" class="sidebar-section-caret-btn" aria-expanded={conversationsOpen} aria-label={copy.chat} onclick={onToggleConversations}>
+        <button type="button" class="sidebar-section-caret-btn" aria-expanded={conversationsOpen} aria-label={copy.agentsNav} onclick={onToggleConversations}>
           <i aria-hidden="true"><CaretRight class={conversationsOpen ? "sidebar-section-caret open" : "sidebar-section-caret"} size={12} /></i>
         </button>
       </div>
       {#if conversationsOpen}
-        {@render conversationContent()}
+        <div class="sidebar-tree-children">{@render conversationContent()}</div>
       {/if}
-    </section>
-  {/if}
-  {#if sections.includes("projects")}
-    <section class="sidebar-tree-section">
-      <ProjectTree {copy} {endpoint} expanded={projectsOpen} activeSessionId={activeProjectSessionId} {formatTime} onOpen={onOpenProjects} onToggle={onToggleProjects} onActivateSession={onActivateProjectSession} />
     </section>
   {/if}
   {#if sections.includes("rooms")}
     <section class="sidebar-tree-section">
       <div class="sidebar-section-head" class:open={roomsExpanded}>
-        <button type="button" class="sidebar-section-toggle" onclick={onOpenRooms}>
+        <button type="button" class="sidebar-section-toggle" aria-expanded={roomsOpen} onclick={onToggleRooms}>
           <Dialog size={16} aria-hidden="true" />
           <span>{roomsLabel}</span>
         </button>
         <button type="button" class="sidebar-section-caret-btn" aria-expanded={roomsOpen} aria-label={roomsLabel} onclick={onToggleRooms}>
           <i aria-hidden="true"><CaretRight class={roomsOpen ? "sidebar-section-caret open" : "sidebar-section-caret"} size={12} /></i>
         </button>
-        <button type="button" class="rooms-add" aria-label={roomsCreateLabel} title={roomsCreateLabel} onclick={onCreateRoom}><Plus size={16} aria-hidden="true" /></button>
+        <button type="button" class="sidebar-section-caret-btn sidebar-section-action" aria-label={roomsCreateLabel} title={roomsCreateLabel} onclick={onCreateRoom}><Plus size={16} aria-hidden="true" /></button>
       </div>
       {#if roomsOpen}
+        <div class="sidebar-tree-children">
         {#if rooms.length === 0}
           <p class="rooms-empty">{roomsEmptyLabel}</p>
         {:else}
           {#each rooms as room (room.id)}
+            <RowContextMenu items={[{label: roomsEditLabel, onSelect: () => onEditRoom(room.id)}, {label: roomsDeleteLabel, danger: true, onSelect: () => onDeleteRoom(room.id)}]}>
             <button type="button" class="sidebar-room-row" class:active={room.id === activeRoomId} aria-current={room.id === activeRoomId ? "page" : undefined} onclick={() => onSelectRoom(room.id)}>
               <span class="sidebar-room-title">{room.title}</span>
               <span class="sidebar-room-meta">{roomMeta(room)}</span>
             </button>
+            </RowContextMenu>
           {/each}
         {/if}
+        </div>
       {/if}
+    </section>
+  {/if}
+  {#if sections.includes("projects")}
+    <section class="sidebar-tree-section">
+      <ProjectTree {copy} {endpoint} expanded={projectsOpen} activeSessionId={activeProjectSessionId} {formatTime} onOpen={onToggleProjects} onToggle={onToggleProjects} onActivateSession={onActivateProjectSession} />
     </section>
   {/if}
 </div>
@@ -196,22 +209,6 @@
      owns the divider, so the bleed-to-divider trick does not apply. */
   .sidebar-channels-flyout { margin-right: 0; }
   .sidebar-tree-section { min-width: 0; padding: 0 0 8px; }
-  .rooms-add {
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-    width: 24px;
-    height: 24px;
-    margin-right: 2px;
-    padding: 0;
-    border: 0;
-    border-radius: var(--rounded-sm, 6px);
-    background: transparent;
-    color: var(--label-tertiary);
-    cursor: pointer;
-  }
-  .rooms-add:hover { background: var(--fill); color: var(--label-primary); }
-  .rooms-add:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
   .sidebar-room-row {
     display: flex;
     align-items: center;

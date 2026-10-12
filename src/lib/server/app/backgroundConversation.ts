@@ -1,4 +1,4 @@
-import type { MomContext, RunnerLike } from "$lib/server/agent/core/types.js";
+import type { MomContext, RunResult, RunnerLike } from "$lib/server/agent/core/types.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity.js";
 
@@ -6,8 +6,8 @@ import { ConversationActivityCollector } from "$lib/server/app/conversationActiv
 export async function runBackgroundConversation(
   runner: Pick<RunnerLike, "run">,
   context: Pick<MomContext, "channel" | "message" | "workspaceDir" | "chatDir" | "project" | "modelKeyOverride" | "deliveryTarget">,
-  sessions: Pick<SessionStore, "appendMessage">
-) {
+  sessions: Pick<SessionStore, "appendMessage"> & Partial<Pick<SessionStore, "listMessageMetadata">>
+): Promise<RunResult & { answer: string; recorded: boolean }> {
   const activities = new ConversationActivityCollector();
   let answer = "";
   let model: string | undefined;
@@ -29,14 +29,21 @@ export async function runBackgroundConversation(
     deleteMessage: async () => {},
     uploadFile: async () => {}
   });
-  if (result.stopReason !== "waiting_for_approval") {
-    sessions.appendMessage(context.message.sessionId!, "assistant", answer.trim() || result.errorMessage || "", {
-      durationMs: Date.now() - startedAt,
-      contextBacked: true,
-      sourceEntryId: result.assistantSourceEntryId,
-      activities: activities.finalSnapshot(),
-      model
-    });
-  }
-  return result;
+  if (result.stopReason === "waiting_for_approval") return { ...result, answer: "", recorded: false };
+  const content = answer.trim() || result.errorMessage || "";
+  const sessionId = context.message.sessionId!;
+  // Recovery re-projects committed native entries. A source identity already
+  // persisted means this answer was recorded before the interruption; recording
+  // it again would show the same result twice.
+  const duplicate = Boolean(result.assistantSourceEntryId)
+    && (sessions.listMessageMetadata?.(sessionId) ?? []).some((message) => message.sourceEntryId === result.assistantSourceEntryId);
+  if (duplicate) return { ...result, answer: content, recorded: false };
+  sessions.appendMessage(sessionId, "assistant", content, {
+    durationMs: Date.now() - startedAt,
+    contextBacked: true,
+    sourceEntryId: result.assistantSourceEntryId,
+    activities: activities.finalSnapshot(),
+    model
+  });
+  return { ...result, answer: content, recorded: true };
 }

@@ -97,7 +97,7 @@ Molibot 适合希望用 AI 持续推进个人项目、整理资料和处理重�
 
 1. 下载 `Molibot_*_aarch64.dmg`，安装并打开应用。本地运行时会自动启动。
 2. 在 **设置 → AI Providers（模型提供商）** 中，连接支持的账号或填写 API Key，并选择可用模型。
-3. 打开与默认助理 Momo 的对话，附上一份真实资料，尝试上面的文件整理任务。
+3. 从侧栏 Agent 分组选择默认助理 Momo（“总览”可查看所有 Agent 的运行情况），附上一份真实资料，尝试上面的文件整理任务。
 4. 查看结果并提出一次修改；需要围绕本地目录长期工作时，再创建 Project。
 
 如果连接失败，先在模型提供商设置中测试连接，检查账号授权、额度和接口配置。
@@ -143,3 +143,7 @@ molibot
 - [交付记录](features.md) · [需求与计划](prd.md)
 - [Skills、工具与 MCP](docs/features/tools-skills-and-mcp.md) · [插件开发](docs/guides/plugins/plugin-authoring.md)
 - [架构决策](docs/adr/) · [Agent 开发系列](docs/agent-dev-series/README.md)
+
+## Agent 数据存储
+
+普通对话及资源位于 `<DATA_DIR>/sessions/<agentId>`，身份文件位于 `agents/<agentId>`，渠道连接数据位于 `channels/<channel>/bots/<botId>`。Session 是 `contexts/` 下的上下文文件及元数据，不建立独立工作区。升级旧存储时，Desktop 等待服务就绪后展示迁移确认；成功前暂停运行与任务。迁移复制并校验数据，保留原始文件。scratch 中可重建的依赖与缓存自动跳过；资源冲突可选择“忽略此资源”，再“迁移其余数据”。忽略的文件仍在原位置，不进入新工作区；缺失 Bot 的历史数据可在弹窗选择目标 Agent，或选择“不迁移此 Bot 的旧数据”，无需修改旧文件；已有固定归属保持不变，迁移开始后按原选择重试。不能排除的数据不会显示忽略按钮。关闭未完成的弹窗后，主区域显示处理入口；会话正文、身份与可恢复运行引用冲突仍需先解决。详见 [存储规格](docs/requirements/agent-session-storage-spec.md) 与 [验证记录](docs/work/progress/agent-session-storage/progress.md)。

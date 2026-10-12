@@ -1,0 +1,102 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import test from "node:test";
+const execute = promisify(execFile);
+
+test("pending storage blocks Runtime and APIs until explicit confirmation, then survives a cold restart", { timeout: 60_000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-storage-lifecycle-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = join(root, "moli-w/bots/default/web:default:owner/contexts/history.json");
+  mkdirSync(dirname(source), { recursive: true });
+  const body = JSON.stringify([{ role: "user", content: "historical message", timestamp: 1 }]);
+  writeFileSync(source, body);
+  for (const chat of ["web:default:owner", "web:default:other"]) {
+    const duplicate = join(root, `moli-w/bots/default/${chat}/contexts/default.json`);
+    mkdirSync(dirname(duplicate), { recursive: true });
+    writeFileSync(duplicate, body);
+  }
+  const orphan = join(root, "moli-t/bots/removed/chat/contexts/orphan.json");
+  mkdirSync(dirname(orphan), { recursive: true });
+  writeFileSync(orphan, body);
+  const skipped = join(root, "moli-w/bots/retired/web:retired:owner/contexts/skip.json");
+  mkdirSync(dirname(skipped), { recursive: true });
+  writeFileSync(skipped, body);
+  const ignored = "moli-w/bots/default/web:default:owner/attachments/broken";
+  mkdirSync(dirname(join(root, ignored)), { recursive: true });
+  symlinkSync("/unavailable/asset", join(root, ignored));
+  const env = { ...process.env, DATA_DIR: root, DB_DIR: join(root, "db"), SETTINGS_FILE: join(root, "settings.json"), SETTINGS_DB_FILE: join(root, "db/settings.sqlite"), SESSIONS_DIR: join(root, "sessions"), SESSIONS_INDEX_FILE: join(root, "sessions/index.json"), WEB_WORKSPACE_DIR: join(root, "channels/web"), PI_CODING_AGENT_DIR: join(root, "pi"), MOLIBOT_DISABLE_LIVE_CHANNELS: "1", MOLIBOT_ALLOW_EXTERNAL_DATA_PATHS: "0" };
+  const common = `
+    import assert from 'node:assert/strict';
+    import { getRuntime } from './src/lib/server/app/runtime.ts';
+    import { GET, POST } from './src/routes/api/desktop/storage-migration/+server.ts';
+    import { GET as health } from './src/routes/api/desktop/health/+server.ts';
+    import { GET as bootstrap } from './src/routes/api/desktop/bootstrap/+server.ts';
+  `;
+  const run = (code: string) => execute(process.execPath, ["--import", "./scripts/register-loader.js", "--import", "tsx", "--input-type=module", "-e", common + code], { env, timeout: 40_000, maxBuffer: 4_000_000 });
+  await run(`
+    const pending = await (await GET()).json();
+    assert.equal(pending.needed, true);
+    assert.equal(pending.sessions, 3);
+    assert.ok(pending.availableAgents.some(agent => agent.id === "default"));
+    assert.equal(pending.conflictItems.find(item => item.path).path, 'moli-w/bots/default/web:default:owner/attachments/broken');
+    const preview = await POST({request:new Request('http://localhost/api/desktop/storage-migration',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'preview',ignoredPaths:['moli-w/bots/default/web:default:owner/attachments/broken'],botAssignments:[{channel:'telegram',botId:'removed',agentId:'default'},{channel:'web',botId:'retired',agentId:null}]})})});
+    assert.equal(preview.status, 200);
+    assert.deepEqual((await preview.json()).conflicts, []);
+    assert.ok((await (await GET()).json()).conflicts.length > 1);
+    assert.deepEqual((await (await GET()).json()).botAssignments, []);
+    const invalid = await POST({request:new Request('http://localhost/api/desktop/storage-migration',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'confirm',ignoredPaths:['moli-w/bots/default/web:default:owner/contexts']})})});
+    assert.equal(invalid.status, 409);
+
+    assert.throws(() => getRuntime(), /requires confirmation/);
+    assert.equal(globalThis.__molibotRuntime, undefined);
+    const live = await health({url:new URL('http://localhost/api/desktop/health?deep=1')});
+    assert.equal(live.status, 200);
+    assert.equal((await live.json()).runtimeReady, false);
+    assert.equal((await bootstrap()).status, 503);
+    const rejected = await POST({request:new Request('http://localhost/api/desktop/storage-migration',{method:'POST',headers:{'content-type':'application/json'},body:'{"action":"later"}'})});
+    assert.equal(rejected.status, 400);
+    const done = await POST({request:new Request('http://localhost/api/desktop/storage-migration',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'confirm',ignoredPaths:['moli-w/bots/default/web:default:owner/attachments/broken'],botAssignments:[{channel:'telegram',botId:'removed',agentId:'default'},{channel:'web',botId:'retired',agentId:null}]})})});
+    assert.equal(done.status, 200, await done.clone().text());
+    assert.equal((await done.json()).needed, false);
+    const { SettingsStore } = await import('./src/lib/server/settings/store.ts');
+    assert.equal(new SettingsStore().load(false).channels.telegram.instances.some(bot => bot.id === 'removed'), false);
+    assert.equal((await bootstrap()).status, 200);
+    assert.equal((await (await GET()).json()).needed, false);
+    process.exit(0);
+  `);
+  assert.equal(readFileSync(source, "utf8"), body);
+  assert.equal(readFileSync(orphan, "utf8"), body);
+  assert.equal(readFileSync(skipped, "utf8"), body);
+  await run(`
+    const status = await (await GET()).json();
+    assert.equal(status.needed, false, JSON.stringify(status));
+    assert.equal(status.phase, 'completed');
+    assert.deepEqual(status.botAssignments, [{channel:'telegram',botId:'removed',agentId:'default'},{channel:'web',botId:'retired',agentId:null}]);
+    const { MomRuntimeStore } = await import('./src/lib/server/agent/session/store.ts');
+    const store = new MomRuntimeStore(process.env.DATA_DIR+'/sessions/default',{source:{channel:'web',botId:'default'}});
+    assert.equal(store.loadContext('web:default:owner','history')[0].content, 'historical message');
+    store.appendContextMessage('web:default:owner',{role:'user',content:'continued',timestamp:2},'history');
+    const session = store.createSession('web:default:owner');
+    assert.equal(store.readSessionOrigin('web:default:owner',session).agentId, 'default');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(process.env.DATA_DIR+'/db/post-cutover.sqlite');
+    db.exec("CREATE TABLE conversation_search_changes(seq INTEGER PRIMARY KEY, conversation_id TEXT); INSERT INTO conversation_search_changes VALUES (3287, 'default')");
+    db.close();
+    getRuntime();
+    process.exit(0);
+  `);
+  await run(`
+    const status = await (await GET()).json();
+    assert.equal(status.needed, false, JSON.stringify(status));
+    assert.equal(status.phase, 'completed');
+    assert.equal((await bootstrap()).status, 200);
+    process.exit(0);
+  `);
+  assert.equal(readFileSync(source, "utf8"), body);
+  assert.equal(readFileSync(orphan, "utf8"), body);
+  assert.equal(readFileSync(skipped, "utf8"), body);
+});

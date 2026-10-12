@@ -179,7 +179,6 @@ test("Pi image settings survive a complete settings store round trip without los
     storagePaths.dbDir = join(directory, "db");
     storagePaths.settingsDbFile = join(directory, "db", "settings.sqlite");
     storagePaths.settingsFile = join(directory, "settings.json");
-    storagePaths.sessionsIndexFile = join(directory, "sessions-index.json");
     const imageGenerate = {
       ...defaultRuntimeSettings.imageGenerate,
       defaultEngine: "pi", engines: {

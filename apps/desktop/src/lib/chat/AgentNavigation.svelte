@@ -1,49 +1,42 @@
 <script lang="ts">
-  import Plus from "reicon-svelte/icons/Plus";
-  import CaretRight from "reicon-svelte/icons/CaretRight";
-  import type { DesktopAgentItem, DesktopConversationItem } from "@molibot/desktop-contract";
+  import { sortAgentNavigation } from "@molibot/shared/agentNavigation";
+  import RowContextMenu from "../components/ui/RowContextMenu.svelte";
+  import GroupHeader from "./GroupHeader.svelte";
+  import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
-  import { listDesktopConversations } from "../api";
   import AgentAvatar from "../components/ui/AgentAvatar.svelte";
-  import Button from "../components/ui/Button.svelte";
-  import ConversationRow from "./ConversationRow.svelte";
-  import type { SessionStatusDot } from "./sessionStatusDot";
-  let { endpoint, agents, defaultAgentId, deletedAgentIds = [], expanded, activeAgentId, activeSessionId, refresh = 0, locale, copy, statusDots, formatTime, onAgent, onToggle, onSelect, onHistory, onManage, onRename, onDelete, onCopySessionPath, onRevealSessionInFinder }:
-    { endpoint: string; defaultAgentId: string; agents: DesktopAgentItem[]; deletedAgentIds?: string[]; expanded: string[]; activeAgentId: string; activeSessionId: string; refresh?: number; locale: "zh-CN" | "en"; copy: Translation; statusDots: Map<string, SessionStatusDot>; formatTime: (iso: string) => string; onAgent: (id: string) => void; onToggle: (id: string) => void; onSelect: (item: DesktopConversationItem) => void; onHistory: (id?: string) => void; onManage: () => void; onRename: (item: DesktopConversationItem, title: string) => void; onDelete: (item: DesktopConversationItem) => void; onCopySessionPath: (item: DesktopConversationItem) => void | Promise<void>; onRevealSessionInFinder: (item: DesktopConversationItem) => void | Promise<void> } = $props();
-  let items = $state<Record<string, DesktopConversationItem[]>>({});
-  let error = $state("");
-  const groups = $derived([...agents.filter(agent => agent.id === defaultAgentId || agent.visible !== false).sort((a, b) => Number(b.id === defaultAgentId) - Number(a.id === defaultAgentId)), ...deletedAgentIds.map(id => ({ id, name: `${id} (${locale === "zh-CN" ? "已删除" : "Deleted"})`, description: "", avatar: "", enabled: false })), { id: "__unassigned__", name: locale === "zh-CN" ? "未归属历史" : "Unassigned history", description: "", avatar: "", enabled: false }]);
-  $effect(() => {
-    const server = endpoint; const ids = [...expanded]; const revision = refresh;
-    let current = true;
-    if (server) void Promise.all(ids.map(async id => {
-      const result = await listDesktopConversations(server, { channel: "web", agentId: id, limit: 10 });
-      return [id, result.items] as const;
-    })).then(results => { if (current) { items = { ...items, ...Object.fromEntries(results) }; error = ""; } }).catch(cause => { if (current) error = String(cause); });
-    return () => { current = false; };
-  });
+  import { agentActivityLabel } from "./agentActivity";
+  import Run from "reicon-svelte/icons/Run";
+  import Check from "reicon-svelte/icons/Check";
+  import X from "reicon-svelte/icons/X";
+  import Minus from "reicon-svelte/icons/Minus";
+  import Map from "../icons/duotone/components/Map.svelte";
+  let { latestConversationAtByAgent = {}, activities = [], activityReady = false, selectedAgentId = "", overviewActive = false, onOverview, hasUnassignedHistory = false, agents, defaultAgentId, deletedAgentIds = [], locale, copy, onAgent, onHistory, onFiles, onSettings }:
+    { latestConversationAtByAgent?: Record<string, number>; activities?: DesktopAgentActivityItem[]; activityReady?: boolean; selectedAgentId?: string; overviewActive?: boolean; onOverview: () => void; hasUnassignedHistory?: boolean; defaultAgentId: string; agents: DesktopAgentItem[]; deletedAgentIds?: string[]; locale: "zh-CN" | "en"; copy: Translation; onAgent: (id: string) => void; onHistory: (id: string) => void; onFiles: (id: string) => void; onSettings: (id: string) => void } = $props();
+  const groups = $derived([...sortAgentNavigation(agents.filter(agent => agent.id === defaultAgentId || agent.visible !== false), latestConversationAtByAgent, defaultAgentId), ...deletedAgentIds.map(id => ({ id, name: `${id} (${locale === "zh-CN" ? "已删除" : "Deleted"})`, description: "", avatar: "", enabled: false })), ...(hasUnassignedHistory ? [{ id: "__unassigned__", name: locale === "zh-CN" ? "未归属历史" : "Unassigned history", description: "", avatar: "", enabled: false }] : [])]);
 </script>
 <div class="agent-navigation">
+  <GroupHeader label={copy.agentOverview} active={overviewActive} expandable={false} onToggle={onOverview}>
+    {#snippet avatar()}<Map size={16} aria-hidden="true" />{/snippet}
+  </GroupHeader>
   {#each groups as agent (agent.id)}
+    <RowContextMenu items={[{label: locale === "zh-CN" ? "全部对话" : "All conversations", onSelect: () => onHistory(agent.id)}, ...(agents.some(item => item.id === agent.id) ? [{label: locale === "zh-CN" ? "文件与附件" : "Files and attachments", onSelect: () => onFiles(agent.id)}, {label: locale === "zh-CN" ? "设置" : "Settings", onSelect: () => onSettings(agent.id)}] : [])]}>
     <div class="agent-navigation-group">
-      <div class="agent-navigation-heading">
-        <button type="button" class="agent-navigation-primary" class:current={activeAgentId === agent.id} class:active={activeAgentId === agent.id && !activeSessionId} onclick={() => agent.id === "__unassigned__" ? onHistory(agent.id) : onAgent(agent.id)}>
-          <AgentAvatar name={agent.name || agent.id} src={agent.avatar ?? ""} />
-          <span class="agent-navigation-identity"><strong>{agent.name || agent.id}{#if agent.id === defaultAgentId}<span class="agent-default-label">{locale === "zh-CN" ? "默认" : "Default"}</span>{/if}</strong><small>{agent.description || (agent.enabled ? "" : locale === "zh-CN" ? "仅查看历史" : "History only")}</small></span>
-        </button>
-        {#if agent.enabled}<Button class="agent-navigation-new" ariaLabel={`${locale === "zh-CN" ? "新对话" : "New chat"}: ${agent.name}`} title={locale === "zh-CN" ? "新对话" : "New chat"} onclick={() => onAgent(agent.id)}><Plus size={14} /></Button>{/if}
-        <button type="button" class="agent-navigation-caret" aria-label={`${locale === "zh-CN" ? "展开历史" : "Expand history"}: ${agent.name}`} aria-expanded={expanded.includes(agent.id)} onclick={() => onToggle(agent.id)}><CaretRight size={14} class={expanded.includes(agent.id) ? "open" : ""} /></button>
-      </div>
-      {#if expanded.includes(agent.id)}
-        <div class="agent-navigation-history">
-          {#each items[agent.id] ?? [] as item (item.sessionId)}
-            <ConversationRow {item} active={item.sessionId === activeSessionId} statusDot={statusDots.get(`${item.botId}:${item.sessionId}`) ?? null} {formatTime} labels={{ running: copy.running, waitingApproval: copy.waitingApproval, completed: copy.completed, failed: copy.failed, menu: copy.conversationMenu, copyPath: copy.copySessionPath, revealInFinder: copy.openInFinder, placeholder: copy.renamePlaceholder, deletePrompt: copy.deleteConversationPrompt, forkedConversation: copy.forkedConversation, rename: copy.renameConversation, delete: copy.deleteConversation, cancel: copy.cancelAction }} onSelect={() => onSelect(item)} onRename={title => onRename(item, title)} onDelete={() => onDelete(item)} onCopyPath={() => onCopySessionPath(item)} onRevealInFinder={() => onRevealSessionInFinder(item)} />
-          {/each}
-          <Button class="agent-history-button" onclick={() => onHistory(agent.id)}>{locale === "zh-CN" ? "全部历史" : "Full history"}</Button>
-        </div>
-      {/if}
+      <GroupHeader label={agent.name || agent.id} active={!overviewActive && selectedAgentId === agent.id} open={false} expandable={false} actionLabel={copy.newChat} onAction={agent.enabled ? () => onAgent(agent.id) : null} onToggle={() => agent.enabled ? onAgent(agent.id) : onHistory(agent.id)}>
+        {#snippet avatar()}<AgentAvatar name={agent.name || agent.id} src={agent.avatar ?? ""} />{/snippet}
+        {#snippet status()}
+          {@const activity = activities.find(item => item.agentId === agent.id)}
+          {@const label = agents.some(item => item.id === agent.id) ? agentActivityLabel(agent.enabled, activity, activityReady, copy) : ""}
+          {#if label}
+            {@const status = !agent.enabled ? "disabled" : activity?.status}
+            {@const StatusIcon = status === "working" ? Run : status === "completed" ? Check : status === "error" ? X : Minus}
+            <span class="agent-navigation-status" data-status={status} title={label} role="img" aria-label={label}><StatusIcon size={14} aria-hidden="true" /></span>
+          {/if}
+        {/snippet}
+      </GroupHeader>
+
     </div>
+    </RowContextMenu>
   {/each}
-  {#if error}<p class="settings-error">{error}</p>{/if}
-  <div class="agent-navigation-actions"><Button onclick={() => onHistory()}>{copy.searchConversations}</Button><Button onclick={onManage}>{locale === "zh-CN" ? "管理 Agent" : "Manage Agents"}</Button></div>
+
 </div>

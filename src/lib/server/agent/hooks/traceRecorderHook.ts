@@ -333,7 +333,7 @@ export class TraceRecorderHook implements RuntimeHook {
     payload: Record<string, unknown>,
     status: TraceFactRecord["status"]
   ): void {
-    this.recordGenericFact(event, payload, "run", event.context.runId, event.context.sessionId, status, {
+    this.recordGenericFact(event, { ...payload, agentId: event.context.agentId }, "run", event.context.runId, event.context.sessionId, status, {
       startedAt: status === "started" ? event.timestamp : this.runStates.get(event.context.runId)?.startedAt,
       finishedAt: status === "started" ? undefined : event.timestamp,
       durationMs: numberField(payload, "durationMs")

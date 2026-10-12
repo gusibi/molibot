@@ -296,14 +296,14 @@ test("MCP completed requests remove their deadline", async (t) => {
 test("registered remote MCP tools enforce the deadline through mcpInvoke and recover for the next call", async (t) => {
   const registry = new McpToolRegistry();
   t.after(() => registry.closeAll());
-  const tools = await registry.getTools([server("deadline")], { workspaceDir: process.cwd() });
+  const tools = await registry.getTools([{ ...server("deadline"), timeoutMs: 5_000 }], { workspaceDir: process.cwd() });
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const invokeTool = createMcpInvokeTool({ getLoadedMcpTools: () => tools });
   const pending = invokeTool.execute("hang-call", {
     action: "call", serverId: "deadline", toolName: "hang", arguments: {}
   });
-  const rejected = assert.rejects(pending, /timed out after 120 seconds/);
-  t.mock.timers.tick(MCP_EXECUTION_TIMEOUT_MS);
+  const rejected = assert.rejects(pending, /timed out after 5 seconds/);
+  t.mock.timers.tick(5_000);
   await rejected;
   t.mock.timers.reset();
   assert.equal(await invoke(tool(tools, "ping")), "pong");

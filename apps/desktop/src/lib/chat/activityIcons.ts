@@ -27,6 +27,7 @@ import Soundwave from "reicon-svelte/icons/Soundwave";
 import Sparkle from "reicon-svelte/icons/Sparkle";
 import TerminalSquare from "reicon-svelte/icons/TerminalSquare";
 import type { ReiconComponent } from "../components/ui/iconTypes";
+import type { DesktopConversationSearchSource } from "@molibot/desktop-contract";
 import type { ActivityGroupAction, ActivityToolIconName } from "./activityView";
 
 /** Reicon components for each semantic tool class produced by `activityToolIcon`. */
@@ -117,4 +118,13 @@ export const INVOCATION_ICONS: Record<"command" | "skill" | "miniapp" | "file" |
   skill: Sparkle,
   miniapp: Grid,
   file: File
+};
+
+export const CONVERSATION_SOURCE_ICONS: Record<DesktopConversationSearchSource, ReiconComponent> = {
+  web: CHANNEL_ICONS.browser,
+  project: CHANNEL_ICONS["folder-simple"],
+  telegram: CHANNEL_ICONS["telegram-logo"],
+  feishu: CHANNEL_ICONS.bird,
+  qq: CHANNEL_ICONS["linux-logo"],
+  weixin: CHANNEL_ICONS["wechat-logo"]
 };

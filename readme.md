@@ -95,7 +95,7 @@ You need an Apple Silicon Mac and a working model account or API key. Check [Rel
 
 1. Download `Molibot_*_aarch64.dmg`, install, and open the app. The local runtime starts automatically.
 2. In **Settings → AI Providers**, connect a supported account or enter an API key, then choose an available model.
-3. Open a conversation with Momo, the default assistant. Attach a real document and try the document task above.
+3. Select Momo, the default assistant, in the sidebar’s Agent group. Overview shows activity across all Agents. Attach a real document and try the document task above.
 4. Inspect the output and ask for a revision. Create a Project when you want to keep working with a local folder.
 
 If the connection fails, test it in the provider settings and check account authorization, available quota, and endpoint configuration.
@@ -116,6 +116,8 @@ molibot
 ```
 
 Open `http://localhost:3040`, configure a model provider, create or confirm an Agent, and start chatting. The default data directory is `~/.molibot`; see [.env.example](.env.example) for environment configuration.
+
+Ordinary Agent conversations and resources live in `<DATA_DIR>/sessions/<agentId>`; identity files live in `agents/<agentId>`, and channel connection data lives in `channels/<channel>/bots/<botId>`. Session contexts and metadata are files under `contexts/`, with no per-Session workspace. When upgrading older storage, the Desktop app waits for service readiness, then asks for confirmation before copying and switching data. Runs and tasks stay paused until migration succeeds; original files are preserved. Rebuildable dependencies and caches under scratch are skipped automatically. Resource conflicts offer **Skip this resource** and **Migrate remaining data**; skipped files remain in the original location and are unavailable in the new workspace. For a missing Bot, choose a destination Agent or **Skip this Bot’s old data** in the dialog without editing original files. Existing fixed ownership is preserved; once migration starts, retries retain the confirmed choices. Unavailable exclusion actions are hidden. Closing a pending dialog leaves a visible review entry in the main pane. Context, identity and recoverable execution references must be resolved before migration. See the [storage specification](docs/requirements/agent-session-storage-spec.md) and [verification record](docs/work/progress/agent-session-storage/progress.md).
 
 ## Before you start
 

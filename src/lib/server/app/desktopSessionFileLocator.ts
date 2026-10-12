@@ -1,3 +1,5 @@
+import { listAgentSessions } from "$lib/server/sessions/agentStorage.js";
+import { resolveAgentFileReference, sessionReferencesFile } from "$lib/server/sessions/agentFileReferences.js";
 import fs from "node:fs";
 import path from "node:path";
 import type { DesktopMiniAppResourceLocator } from "$lib/shared/desktop.js";
@@ -48,7 +50,9 @@ export async function resolveDesktopSessionFileLocator(locator: unknown): Promis
   if (external) {
     const channelRoot = TASK_CHANNEL_ROOTS.find((entry) => entry.channel === external.channel);
     if (!channelRoot) invalid();
-    const workspace = path.resolve(config.dataDir, channelRoot.dir, "bots", external.botId, external.chatId);
+    const location = listAgentSessions(config.dataDir, { channel: external.channel, botId: external.botId, chatId: external.chatId }).find(item => item.sessionId === external.sessionId);
+    if (!location) invalid();
+    const workspace = location.workspaceDir;
     const sourcePath = containedFile(workspace, local);
     const relative = path.relative(workspace, sourcePath);
     if (!relative.startsWith(`scratch${path.sep}`) && !relative.startsWith(`attachments${path.sep}`)) invalid();
@@ -56,7 +60,7 @@ export async function resolveDesktopSessionFileLocator(locator: unknown): Promis
     const jsonl = path.join(contexts, `${external.sessionId}.jsonl`);
     const json = path.join(contexts, `${external.sessionId}.json`);
     const contextFile = fs.existsSync(jsonl) ? jsonl : json;
-    if (!fs.existsSync(contextFile) || !fs.readFileSync(contextFile, "utf8").includes(local)) invalid();
+    if (!fs.existsSync(contextFile) || !sessionReferencesFile(workspace, local, fs.readFileSync(contextFile, "utf8"), location.source)) invalid();
     const original = path.basename(local);
     const mediaType = mediaTypeFromName(original);
     return {
@@ -78,7 +82,7 @@ export async function resolveDesktopSessionFileLocator(locator: unknown): Promis
     .flatMap((message) => message.attachments ?? [])
     .find((item) => String(item.local ?? "") === local);
   if (!attachment) invalid();
-  const sourcePath = containedFile(resolved.workspaceDir, local);
+  const sourcePath = containedFile(resolved.workspaceDir, path.relative(resolved.workspaceDir, resolveAgentFileReference(resolved.workspaceDir, local, { channel: "web", chatId: resolved.externalUserId })));
   const original = String(attachment.original ?? "").trim() || path.basename(local);
   const mimeType = String(attachment.mimeType ?? "").trim() || mimeFromFilename(original) || undefined;
   const kind = attachment.mediaType === "image" || mimeType?.startsWith("image/") ? "image" : "file";

@@ -1,3 +1,4 @@
+import { agentWorkspaceDir, channelDataDir, listAgentSessions } from "$lib/server/sessions/agentStorage.js";
 import path from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -22,7 +23,10 @@ export const GET: RequestHandler = async ({ url }) => {
   const runtime = getRuntime();
   const settings = runtime.getSettings();
   const externalUserId = toWebExternalUserId(userId, profileId);
-  const workspaceDir = path.join(storagePaths.webWorkspaceDir, "bots", profileId);
+  const existing = listAgentSessions(storagePaths.dataDir, { channel: "web", botId: profileId, chatId: externalUserId }).find(item => item.sessionId === sessionId);
+  const agentId = existing?.agentId ?? settings.channels.web?.instances.find(item => item.id === profileId)?.agentId ?? "default";
+  const workspaceDir = agentWorkspaceDir(storagePaths.dataDir, agentId);
+  const botProfileDir = channelDataDir(storagePaths.dataDir, "web", profileId);
   const memory =
     (await runtime.memory.buildPromptContext(
       { channel: "web", externalUserId },
@@ -36,12 +40,14 @@ export const GET: RequestHandler = async ({ url }) => {
     sessionId,
     memory,
     {
+      agentId, botProfileDir,
       channel: "web",
       timezone: settings.timezone,
       settings
     }
   );
   const sources = getSystemPromptSources(workspaceDir, {
+    agentId, botProfileDir,
     channel: "web",
     settings
   });

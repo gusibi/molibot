@@ -1,3 +1,4 @@
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,14 +56,14 @@ interface Fixture {
 function setup(): Fixture {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-session-managed-extract-"));
   const originals = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile,
+
     projectsDir: storagePaths.projectsDir
   };
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "legacy");
-  storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
   storagePaths.projectsDir = path.join(root, "projects");
 
   const sessions = new SessionStore();

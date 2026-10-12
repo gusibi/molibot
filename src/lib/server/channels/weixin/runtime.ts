@@ -131,7 +131,7 @@ export class WeixinManager extends BaseChannelRuntime {
   ) {
     super({
       channel: "weixin",
-      defaultWorkspaceName: "moli-wx",
+      defaultWorkspaceName: "channels/weixin",
       getSettings,
       updateSettings,
       sessionStore,
@@ -638,6 +638,7 @@ export class WeixinManager extends BaseChannelRuntime {
         sourceMessage: syntheticMessage,
         isEvent: true,
         taskId: task.taskId,
+                agentId: task.agentId,
         sessionId: task.sessionId,
         sessionMode: resolveEventSessionMode(task)
       };

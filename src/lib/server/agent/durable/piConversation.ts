@@ -55,6 +55,8 @@ export interface PiConversationOptions extends PiDurableKernelOptions {
   projectEntry?: (entry: EntryRecord, sourceId: string, input?: { primary: boolean; mode?: "steer" | "followUp" }) => Promise<void>;
   onSuspended?: (requestId: string, detail?: Parameters<Parameters<typeof createPiToolRegistry>[1]>[1]) => Promise<void>;
   recoverTools?: (names: readonly string[]) => Promise<PiDurableKernelOptions["tools"]>;
+  /** Tool call ids a person confirmed during recovery review; settle them as interrupted instead of blocking. */
+  approvedRecoveryCallIds?: readonly string[];
 
 }
 
@@ -643,12 +645,16 @@ export class PiConversationRuntime {
 
   private async assertRecovery(): Promise<void> {
     const inspection = await this.harness!.inspect(BACKGROUND_CONTEXT);
+    const approved = new Set(this.options.approvedRecoveryCallIds ?? []);
     for (const { record } of inspection.tasks) {
       if (record.kind !== ToolTask.definition.name || !("checkpoint" in record.state)) continue;
       const checkpoint = record.state.checkpoint;
       if (checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint) && checkpoint.phase === "execute") {
         const input = record.input;
         if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid persisted tool task.");
+        // A person reviewed the unknown outcome and accepted it; Pi settles the
+        // call as interrupted and continues the remaining work.
+        if (approved.has(String(input.callId))) continue;
         const assistant = (await this.harness!.commit(tx => tx.entry(input.assistant as EntryId), BACKGROUND_CONTEXT))?.model?.[0];
         const call = assistant?.role === "assistant" ? assistant.content.find(block => block.type === "toolCall" && block.id === input.callId) : undefined;
         const tool = call?.type === "toolCall" ? [...this.registryTools!.tools, ...(this.options.childTools?.() ?? [])].find(tool => tool.name === call.name) : undefined;

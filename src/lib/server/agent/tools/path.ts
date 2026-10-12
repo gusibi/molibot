@@ -1,20 +1,12 @@
+import { resolveAgentFileReference } from "$lib/server/sessions/agentFileReferences.js";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
+import { GLOBAL_PROFILE_FILES, getGlobalProfileDir } from "$lib/server/agent/prompts/profiles.js";
 import {
   resolveDataRootFromWorkspacePath,
   resolveMemoryRootFromWorkspacePath,
   resolveMiniAppCodeRootFromWorkspacePath
 } from "$lib/server/agent/session/workspace.js";
-
-const GLOBAL_PROFILE_FILES = [
-  "AGENTS.md",
-  "SOUL.md",
-  "TOOLS.md",
-  "BOOTSTRAP.md",
-  "IDENTITY.md",
-  "USER.md",
-  "SONG.md"
-] as const;
 
 export function pathCompareKey(pathLike: string): string {
   const resolved = resolve(pathLike);
@@ -46,7 +38,7 @@ export function expandHomePrefix(input: string): string | null {
   return resolve(home, match[1] ?? "");
 }
 
-export function resolveToolPath(baseDir: string, input: string): string {
+export function resolveToolPath(baseDir: string, input: string, source?: Partial<import("$lib/server/sessions/agentStorage.js").SessionSource>): string {
   if (input === "") throw new Error("Path is required");
 
   // Shell-style home prefixes resolve against the real home directory, not
@@ -57,45 +49,15 @@ export function resolveToolPath(baseDir: string, input: string): string {
 
   const normalizedBase = resolve(baseDir).replace(/\\/g, "/");
 
-  // Tools run under chat scratch dir; normalize accidentally duplicated prefixes.
   const normalizedInput = input.replace(/\\/g, "/").replace(/^\.\//, "");
-  const duplicatedScratchPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-[^/]+)\/[^/]+\/scratch\/(.+)$/);
-  if (duplicatedScratchPrefix?.[1]) {
-    return resolve(baseDir, duplicatedScratchPrefix[1]);
+  const agentWorkspace = normalizedBase.match(/^(.*\/sessions\/[^/]+)(?:\/scratch(?:\/.*)?)?$/)?.[1];
+  if (agentWorkspace) {
+    const mapped = resolveAgentFileReference(agentWorkspace, input, source);
+    if (mapped !== resolve(agentWorkspace, input)) return mapped;
+    if (/^(attachments|scratch|skills|run-details)(?:\/|$)/.test(normalizedInput)) return resolve(agentWorkspace, normalizedInput);
   }
+  const workspaceFromScratch = agentWorkspace ?? normalizedBase.match(/^(.*)\/[^/]+\/scratch(?:\/.*)?$/)?.[1];
 
-  // Normalize common skill path mistakes when tools run inside chat scratch.
-  // Example:
-  //   cwd: .../.molibot/moli-t/<chatId>/scratch
-  //   input: data/moli-t/skills/brave-search/SKILL.md
-  // Should resolve to:
-  //   .../.molibot/skills/brave-search/SKILL.md
-  const workspaceFromScratch = normalizedBase.match(/^(.*)\/[^/]+\/scratch(?:\/.*)?$/)?.[1];
-  const workspaceSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-[^/]+)\/skills(?:\/(.*))?$/);
-  if (workspaceFromScratch && workspaceSkillsPrefix) {
-    const dataRoot = resolveDataRootFromWorkspacePath(workspaceFromScratch);
-    const suffix = workspaceSkillsPrefix[1] ?? "";
-    return resolve(dataRoot, "skills", suffix);
-  }
-
-  // Normalize chat-local skill path when explicitly referencing chat scope.
-  // Example:
-  //   input: data/moli-t/<chatId>/skills/my-task/SKILL.md
-  // Should resolve to:
-  //   .../.molibot/moli-t/<chatId>/skills/my-task/SKILL.md
-  const chatSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-[^/]+)\/([^/]+)\/skills(?:\/(.*))?$/);
-  if (workspaceFromScratch && chatSkillsPrefix) {
-    const chatId = chatSkillsPrefix[1] ?? "";
-    const suffix = chatSkillsPrefix[2] ?? "";
-    return resolve(workspaceFromScratch, chatId, "skills", suffix);
-  }
-
-  // Normalize shared memory paths to DATA_DIR/memory when called from chat scratch.
-  // Example:
-  //   cwd: .../.molibot/moli-t/bots/<bot>/<chatId>/scratch
-  //   input: memory/moli-t/bots/<bot>/<chatId>/MEMORY.md
-  // Should resolve to:
-  //   .../.molibot/memory/moli-t/bots/<bot>/<chatId>/MEMORY.md
   const memoryPrefix = normalizedInput.match(/^memory(?:\/(.*))?$/);
   if (workspaceFromScratch && memoryPrefix) {
     const dataRoot = resolveDataRootFromWorkspacePath(workspaceFromScratch);
@@ -125,9 +87,10 @@ export function createPathGuard(cwd: string, workspaceDir: string, options?: { h
   const miniAppCodeRoot = resolveMiniAppCodeRootFromWorkspacePath(workspaceResolved);
   const allowedRoots = [resolve(cwd), workspaceResolved, globalSkillsRoot, miniAppCodeRoot];
 
-  // Pre-compute the exact global profile file paths under dataRoot.
+  // Pre-compute the exact global profile file paths inside the global profile
+  // dir (agents/default under the data root).
   const globalProfilePathKeys = new Set(
-    GLOBAL_PROFILE_FILES.map((file) => pathCompareKey(resolve(dataRoot, file))),
+    GLOBAL_PROFILE_FILES.map((file) => pathCompareKey(resolve(getGlobalProfileDir(dataRoot), file))),
   );
 
   return (filePath: string): void => {
@@ -153,6 +116,9 @@ export function createPathGuard(cwd: string, workspaceDir: string, options?: { h
       );
     }
 
+    if (/^moli-[^/]+(?:\/|$)/.test(relative(dataRoot, resolved).replaceAll("\\", "/"))) {
+      throw new Error("Legacy Channel snapshots are read-only; use the Agent workspace.");
+    }
     if (options?.hostWideAccess === true) return;
     const ok = allowedRoots.some((root) => {
       const rel = relative(root, resolved);

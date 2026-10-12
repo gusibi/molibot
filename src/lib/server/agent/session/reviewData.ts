@@ -1,3 +1,5 @@
+import { resolveAgentFileReference } from "$lib/server/sessions/agentFileReferences.js";
+import { isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
 import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
@@ -92,18 +94,9 @@ export function listAgentWorkspaces(dataRoot: string): AgentWorkspaceRef[] {
     }
   }
 
-  // 1. Channel bots (moli-w, moli-t, moli-f, moli-q, moli-wx, etc.)
-  for (const { dir } of TASK_CHANNEL_ROOTS) {
-    collectFromBotsRoot(join(root, dir, "bots"));
-  }
-
-  // Also check any extra moli-* directories that might exist under dataRoot
-  if (existsSync(root)) {
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (entry.isDirectory() && entry.name.startsWith("moli-")) {
-        collectFromBotsRoot(join(root, entry.name, "bots"));
-      }
-    }
+  const agentsRoot = join(root, "sessions");
+  if (existsSync(agentsRoot)) for (const entry of readdirSync(agentsRoot, { withFileTypes: true })) {
+    if (entry.isDirectory()) items.push({ botId: entry.name, chatId: "", workspaceDir: join(agentsRoot, entry.name) });
   }
 
   // 2. System bots
@@ -218,7 +211,10 @@ export function readRunHistory(dataRoot: string, limit = 200): { items: RunHisto
   const items: RunHistoryItem[] = [];
 
   for (const workspace of listAgentWorkspaces(dataRoot)) {
-    const filePath = join(workspace.workspaceDir, workspace.chatId, "run-summaries.jsonl");
+    const histories = [join(workspace.workspaceDir, workspace.chatId, "run-summaries.jsonl")];
+    const historyRoot = join(workspace.workspaceDir, "run-history");
+    if (isAgentWorkspace(workspace.workspaceDir) && existsSync(historyRoot)) for (const name of readdirSync(historyRoot)) histories.push(join(historyRoot, name, "run-summaries.jsonl"));
+    for (const filePath of histories) {
     if (!existsSync(filePath)) continue;
 
     let content = "";
@@ -263,11 +259,12 @@ export function readRunHistory(dataRoot: string, limit = 200): { items: RunHisto
         reflectionSummary: parsed.reflection?.summary ?? "",
         nextAction: parsed.reflection?.nextAction ?? "",
         memorySelectedCount: Number(parsed.memorySnapshot?.selectedCount ?? 0),
-        skillDraftPath: String(parsed.skillDraft?.filePath ?? "")
+        skillDraftPath: parsed.skillDraft?.filePath && isAgentWorkspace(workspace.workspaceDir) ? resolveAgentFileReference(workspace.workspaceDir, parsed.skillDraft.filePath) : String(parsed.skillDraft?.filePath ?? "")
       });
     }
   }
 
+  }
   items.sort((a, b) => {
     const timeOrder = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     return timeOrder !== 0 ? timeOrder : b.runId.localeCompare(a.runId);

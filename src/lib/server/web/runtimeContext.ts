@@ -1,3 +1,4 @@
+import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
 import path from "node:path";
 import { getRuntime } from "$lib/server/app/runtime";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool";
@@ -20,9 +21,9 @@ export interface WebRuntimeContext {
 
 const webRuntimes = new Map<string, WebRuntimeContext>();
 
-function buildRuntimeContext(workspaceDir: string, agentId?: string): WebRuntimeContext {
+function buildRuntimeContext(workspaceDir: string, agentId?: string, profileId?: string): WebRuntimeContext {
   const runtime = getRuntime();
-  const store = new MomRuntimeStore(workspaceDir);
+  const store = new MomRuntimeStore(workspaceDir, profileId ? { source: { channel: "web", botId: profileId } } : undefined);
   const pool = new RunnerPool(
     "web",
     store,
@@ -42,8 +43,8 @@ export function getWebRuntimeContext(profileId: string): WebRuntimeContext {
   const existing = webRuntimes.get(key);
   if (existing) return existing;
 
-  const workspaceDir = path.join(storagePaths.webWorkspaceDir, "bots", key);
-  const created = buildRuntimeContext(workspaceDir);
+  const agentId = getRuntime().getSettings().channels.web?.instances.find(bot => bot.id === key)?.agentId || "default";
+  const created = buildRuntimeContext(agentWorkspaceDir(storagePaths.dataDir, agentId), agentId, key);
   webRuntimes.set(key, created);
   return created;
 }
@@ -56,7 +57,7 @@ export function getAgentRuntimeContext(agentId: string, profileId: string): WebR
   const key = `${profile}:${agentId}`;
   const existing = agentRuntimes.get(key);
   if (existing) return existing;
-  const created = buildRuntimeContext(path.join(storagePaths.webWorkspaceDir, "bots", profile), agentId);
+  const created = buildRuntimeContext(agentWorkspaceDir(storagePaths.dataDir, agentId), agentId, profile);
   agentRuntimes.set(key, created);
   return created;
 }
@@ -65,7 +66,7 @@ export function getAgentRuntimeContext(agentId: string, profileId: string): WebR
  * Runtime for a project conversation. Its agent execution — the context
  * transcript persisted by the runner — lives under the project workspace
  * (`<dataRoot>/projects/<projectId>/runtime`) so nothing leaks into the shared
- * bot workspace under the channel `moli-*` bots directory.
+ * ordinary Agent workspace.
  */
 export function getProjectRuntimeContext(projectId: string): WebRuntimeContext {
   return getOrCreateProjectRuntimeHandle(projectId, () =>

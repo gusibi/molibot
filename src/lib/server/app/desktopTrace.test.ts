@@ -270,3 +270,26 @@ test("clearing an orphan preserves its audit fact but removes it from active run
     store.close();
   }
 });
+
+
+test("Agent activity uses the recorded run owner across start, completion and Bot rebinding", async () => {
+  const { DefaultHookManager } = await import("$lib/server/agent/hooks/manager.js");
+  const { TraceRecorderHook } = await import("$lib/server/agent/hooks/traceRecorderHook.js");
+  const store = new SqliteTraceStore(":memory:");
+  const manager = new DefaultHookManager();
+  manager.register(new TraceRecorderHook(store));
+  const settings = { ...defaultRuntimeSettings, channels: { web: { instances: [{ id: "desktop", name: "Desktop", agentId: "default", enabled: true, credentials: {}, allowedChatIds: [] }] } } } as RuntimeSettings;
+  const ctx = { runId: "smart-run", channel: "web", botId: "desktop", agentId: "smart", chatId: "chat", sessionId: "session", actorId: "owner" };
+  try {
+    for (const [stage, status] of [["run.beforeStart", "working"], ["run.finished", "completed"]] as const) {
+      manager.emit(stage, ctx, { status: "success", agentId: "default", taskPreview: "Research" });
+      await manager.flush({ timeoutMs: 1000 });
+      const items = buildDesktopAgentActivity(settings, store.listRecentFacts(100));
+      assert.deepEqual(items.map(item => [item.agentId, item.status]), [["smart", status]]);
+      settings.channels.web.instances[0].agentId = "another-agent";
+      assert.deepEqual(buildDesktopAgentActivity(settings, store.listRecentFacts(100)).map(item => item.agentId), ["smart"]);
+    }
+  } finally {
+    store.close();
+  }
+});

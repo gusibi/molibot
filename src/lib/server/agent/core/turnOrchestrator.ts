@@ -416,8 +416,22 @@ export class TurnOrchestrator {
     return Number(result.changes ?? 0) > 0;
   }
 
+  /**
+   * Park a run that cannot continue automatically until a person reviews the
+   * unknown external operation. This is deliberately not a terminal failure:
+   * the run stays visible as awaiting review and is only cleared by an explicit
+   * Stop or by superseding work.
+   */
+  markRunForRecoveryReview(runId: string, error: string): boolean {
+    const result = this.getDb().prepare("UPDATE runs SET status = 'recovery_review', error = ? WHERE id = ? AND status = 'running'").run(
+      error,
+      runId
+    );
+    return Number(result.changes ?? 0) > 0;
+  }
+
   abortRunningTurnsForSession(sessionId: string, error = "Stopped by user."): number {
-    const result = this.getDb().prepare("UPDATE runs SET status = 'aborted', error = ?, finished_at = ? WHERE session_id = ? AND status = 'running'").run(
+    const result = this.getDb().prepare("UPDATE runs SET status = 'aborted', error = ?, finished_at = ? WHERE session_id = ? AND status IN ('running','recovery_review')").run(
       error,
       new Date().toISOString(),
       sessionId

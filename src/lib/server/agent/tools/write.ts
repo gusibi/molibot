@@ -62,7 +62,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
     sideEffectClass: "idempotent",
     invalidatesSources: (input, ctx) => {
       const raw = String((input as { path?: unknown })?.path ?? "").trim();
-      return raw ? [raw, resolveToolPath(ctx.cwd, raw)] : [];
+      return raw ? [raw, resolveToolPath(ctx.cwd, raw, ctx.sessionSource)] : [];
     },
     handler: async (params: any, ctx) => {
       const requestedPath = String(params.path ?? "").trim();
@@ -83,7 +83,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
         ? resolve(requestedPath)
         : baseRoot
           ? resolve(baseRoot, requestedPath)
-          : resolveToolPath(ctx.cwd, legacyTarget.path);
+          : resolveToolPath(ctx.cwd, legacyTarget.path, ctx.sessionSource);
       ensureAllowedPath(filePath);
       // Full access removes the output-layout containment too: file tools obey
       // the same effective policy as commands.
@@ -120,7 +120,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
       // in the run's cwd, so echoing the requested path back hands the agent a
       // string that resolves to nothing — which is exactly how a release ended
       // up running `gh release create --notes-file <path that did not exist>`.
-      const reportedPath = filePath === resolveToolPath(ctx.cwd, requestedPath)
+      const reportedPath = filePath === resolveToolPath(ctx.cwd, requestedPath, ctx.sessionSource)
         ? requestedPath
         : filePath;
       return {

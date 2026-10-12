@@ -59,7 +59,7 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
   ) {}
 
   readRunDetail(chatId: string, sessionId: string | undefined, projectId: string | undefined, runId: string): RunDetailEntry[] {
-    if (!projectId) return this.options.botStore.readRunDetail(chatId, runId);
+    if (!projectId) return (sessionId ? this.options.botStore.forSession(chatId, sessionId) : this.options.botStore).readRunDetail(chatId, runId);
     if (!sessionId) return [];
     const projectChatId = `bot:${this.options.instanceId}:chat:${chatId}:${sessionId}`;
     const projectStore = new MomRuntimeStore(projectRuntimeWorkspaceDir(projectId));
@@ -93,7 +93,7 @@ export class ProjectAwareRunnerPool implements ChannelRunnerPoolLike {
     const conversationKey = `bot:${this.options.instanceId}:chat:${scopeId}:${sessionId}`;
     const botTarget: ResolvedRunnerTarget = {
       pool: this.base,
-      store: this.options.botStore,
+      store: this.options.botStore.forSession(scopeId, sessionId),
       chatId: scopeId,
       sessionId,
       project: null,

@@ -50,3 +50,9 @@ test("no dispatcher branch is stranded in a text builder", () => {
     "a `cmd === \"/...\"` comparison outside tryHandleWebCommand is a misplaced branch"
   );
 });
+
+test("Skill commands resolve the current Session's fixed Agent", () => {
+  assert.match(source, /getRuntimeContextForConversation\(profileId, conversationId\)/);
+  const body = dispatcherBody();
+  for (const detail of ["false", "true"]) assert.ok(body.includes(`buildSkillsText(profileId, rawArg, ${detail}, projectId, conversationId)`));
+});

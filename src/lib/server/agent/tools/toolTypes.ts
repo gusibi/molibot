@@ -64,6 +64,7 @@ export interface ToolApprovalConsumptionRequest {
 }
 
 export interface ToolExecutionContext {
+  sessionSource?: Partial<import("$lib/server/sessions/agentStorage.js").SessionSource>;
   runId: string;
   sessionId: string;
   workspaceId: string;

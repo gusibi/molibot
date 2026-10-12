@@ -24,10 +24,33 @@ test("Desktop MCP settings expose shared switch, status, reconnect, and delete a
   assert.match(desktopSection, /server\.connectionState/);
   assert.match(desktopSection, /toggleMcpServer\(server\.id, enabled\)/);
   assert.match(desktopSection, /reconnectMcp\(server\.id\)/);
-  assert.match(desktopSection, /removeMcpServer\(server\.id\)/);
+  assert.match(desktopSection, /removeMcpServer\(id\)/);
   assert.match(desktopStore, /toggleDesktopMcp/);
   assert.match(desktopStore, /reconnectDesktopMcp/);
   assert.doesNotMatch(desktopSection, /class="switch"/);
+});
+
+test("Desktop MCP settings expose OAuth mode, authorization status, sign-in and sign-out", () => {
+  // The editor can choose OAuth and configure the discovery override + client name.
+  assert.match(desktopSection, /mcpAuthMode/);
+  assert.match(desktopSection, /authServerMetadataUrl: event\.currentTarget\.value/);
+  assert.match(desktopSection, /clientName: event\.currentTarget\.value/);
+  // A list row shows the authorization state and drives login/re-auth/sign-out.
+  assert.match(desktopSection, /server\.authMode === "oauth"/);
+  assert.match(desktopSection, /authLabel\(server\.authState\)/);
+  assert.match(desktopSection, /handleOauthLogin\(server\.id, false\)/);
+  assert.match(desktopSection, /handleOauthLogin\(server\.id, true\)/);
+  assert.match(desktopSection, /oauthMcpLogout\(server\.id\)/);
+  // Login opens the authorization URL in the system browser.
+  assert.match(desktopSection, /open_external_url/);
+  // Store + API carry the OAuth actions and poll the shared attempt to settle.
+  assert.match(desktopStore, /oauthLoginDesktopMcp/);
+  assert.match(desktopStore, /oauthLogoutDesktopMcp/);
+  assert.match(desktopStore, /startMcpOauthPoll\(id\)/);
+  assert.match(desktopStore, /stopMcpOauthPoll/);
+  assert.match(desktopApi, /oauthLoginDesktopMcp/);
+  assert.match(desktopApi, /action: reauthorize \? "oauth_reauthorize" : "oauth_login"/);
+  assert.match(desktopApi, /action: "oauth_logout"/);
 });
 
 test("Desktop MCP auto-reconnects enabled servers on app reopen without stalling the list load", () => {

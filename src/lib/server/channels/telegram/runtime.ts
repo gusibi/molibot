@@ -6,7 +6,6 @@ import { Bot, InlineKeyboard, InputFile } from "grammy";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import {
-  EventsWatcher,
   isDirectEventDelivery,
   resolveEventSessionMode,
   type MomEvent,
@@ -61,12 +60,6 @@ export class TelegramManager extends BaseChannelRuntime {
   private static readonly STREAM_RENDER_INTERVAL_MS = 1000;
   private static readonly STREAM_EDIT_RETRY_AFTER_CAP_MS = 1500;
   private static readonly STREAM_EDIT_REQUEST_TIMEOUT_MS = 5000;
-  private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
-  private static readonly LEGACY_CHAT_EVENTS_RELATIVE_DIRS = [
-    ["data", "moli-t", "events"],
-    ["data", "molipi_bot", "events"],
-    ["data", "telegram-mom", "events"]
-  ] as const;
   private readonly commandService: SharedRuntimeCommandService<TelegramCommandTarget>;
   private readonly interactionService: SharedInteractionService<TelegramCommandTarget>;
   private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, TelegramCommandTarget>;
@@ -80,8 +73,6 @@ export class TelegramManager extends BaseChannelRuntime {
     requestId: string;
     action: "approve" | "approve_once" | "approve_session" | "approve_persistent" | "reject";
   }>();
-  private readonly events: EventsWatcher[] = [];
-  private readonly watchedChatEventDirs = new Set<string>();
   private authDisabled = false;
 
   private splitTelegramMessageText(text: string, chunkSize = 3500): string[] {
@@ -166,7 +157,7 @@ export class TelegramManager extends BaseChannelRuntime {
   ) {
     super({
       channel: "telegram",
-      defaultWorkspaceName: "moli-t",
+      defaultWorkspaceName: "channels/telegram",
       getSettings,
       updateSettings,
       sessionStore,
@@ -959,7 +950,6 @@ export class TelegramManager extends BaseChannelRuntime {
     this.currentToken = token;
     this.currentAllowedChatIdsKey = allowedChatIdsKey;
     void this.inboundTasks.resumeAll();
-    this.startEventsWatchers(allowed);
     void this.writePromptPreview(Array.from(allowed));
   }
 
@@ -1000,14 +990,7 @@ export class TelegramManager extends BaseChannelRuntime {
   }
 
   stop(): void {
-    if (this.events.length > 0) {
-      for (const watcher of this.events) {
-        watcher.stop();
-      }
-      this.events.length = 0;
-      this.watchedChatEventDirs.clear();
-      momLog("telegram", "events_watcher_stopped");
-    }
+
 
     if (this.bot) {
       this.bot.stop();
@@ -1062,95 +1045,6 @@ export class TelegramManager extends BaseChannelRuntime {
 
   private getEventConversationKey(chatId: string): string {
     return `bot:${this.instanceId}:chat:${chatId}`;
-  }
-
-  private startEventsWatchers(allowed: Set<string>): void {
-    for (const chatId of allowed) {
-      this.ensureChatEventsWatcher(chatId);
-    }
-  }
-
-  private ensureChatEventsWatcher(scopeId: string): void {
-    this.migrateLegacyChatEventDirs(scopeId);
-    const eventsDir = join(this.store.getScratchDir(scopeId), ...TelegramManager.CHAT_EVENTS_RELATIVE_DIR);
-    if (this.watchedChatEventDirs.has(eventsDir)) return;
-    this.watchedChatEventDirs.add(eventsDir);
-    this.addEventsWatcher(eventsDir, "chat-scratch", scopeId);
-  }
-
-  private migrateLegacyChatEventDirs(scopeId: string): void {
-    const scratchDir = this.store.getScratchDir(scopeId);
-    const canonicalDir = join(scratchDir, ...TelegramManager.CHAT_EVENTS_RELATIVE_DIR);
-    mkdirSync(canonicalDir, { recursive: true });
-
-    for (const legacySegments of TelegramManager.LEGACY_CHAT_EVENTS_RELATIVE_DIRS) {
-      const legacyDir = join(scratchDir, ...legacySegments);
-      if (!existsSync(legacyDir) || legacyDir === canonicalDir) continue;
-
-      let moved = 0;
-      try {
-        for (const name of readdirSync(legacyDir)) {
-          if (!name.endsWith(".json")) continue;
-          const from = join(legacyDir, name);
-          let to = join(canonicalDir, name);
-          if (existsSync(to)) {
-            const stem = basename(name, ".json");
-            to = join(canonicalDir, `${stem}-migrated-${Date.now()}.json`);
-          }
-          renameSync(from, to);
-          moved += 1;
-        }
-      } catch (error) {
-        momWarn("telegram", "legacy_chat_events_migration_failed", {
-          chatId: scopeId,
-          legacyDir,
-          canonicalDir,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        continue;
-      }
-
-      try {
-        rmSync(legacyDir, { recursive: true, force: true });
-      } catch {
-        // Ignore cleanup failures after successful migration.
-      }
-
-      if (moved > 0) {
-      momLog("telegram", "legacy_chat_events_migrated", {
-        chatId: scopeId,
-        legacyDir,
-        canonicalDir,
-        moved
-        });
-      }
-    }
-  }
-
-  private addEventsWatcher(eventsDir: string, source: "workspace" | "chat-scratch", chatId: string | null): void {
-    const watcher = new EventsWatcher(
-      eventsDir,
-      (event, filename) => {
-        return this.handleSyntheticEvent(event, filename);
-      },
-      {
-        channel: "telegram",
-        leaseScope: this.getEventLeaseScope(),
-        getExecutionSettings: () => this.getSettings().events,
-        onTimeout: ({ event, runId }) => {
-          momWarn("telegram", "event_timeout_abort_requested", {
-            runId,
-            chatId: event.chatId,
-            eventsDir,
-            source
-          });
-          this.abortTaskRun(event.chatId, "Scheduled event attempt timed out.");
-        }
-      }
-    );
-    watcher.start();
-    this.events.push(watcher);
-    momLog("telegram", "events_watcher_started", { eventsDir, source, chatId });
   }
 
   private resolveEventDeliveryMode(event: MomEvent): EventDeliveryMode {
@@ -1222,6 +1116,7 @@ export class TelegramManager extends BaseChannelRuntime {
               imageContents: [],
               isEvent: true,
               taskId: event.taskId,
+        agentId: event.agentId,
               sessionId: event.sessionId,
               sessionMode: resolveEventSessionMode(event)
             };
@@ -1350,7 +1245,6 @@ export class TelegramManager extends BaseChannelRuntime {
         reply_parameters: { message_id: event.messageId }
       })
       : sendOptions;
-    this.ensureChatEventsWatcher(scopeId);
     const sessionId = event.sessionId || this.resolveInboundSessionId(scopeId, event);
     const sessionThinkingLevelOverride = this.store.getSessionThinkingLevelOverride(scopeId, sessionId);
     const selectedProject = this.runners.resolveTarget(scopeId, sessionId).project;

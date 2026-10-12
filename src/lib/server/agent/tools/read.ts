@@ -78,7 +78,7 @@ export function getReadToolDefinition(options: ReadToolOptions): ToolDefinition 
         if ((input as { refresh?: boolean })?.refresh) return null;
         const raw = String((input as { path?: unknown })?.path ?? "");
         if (!raw) return null;
-        const filePath = resolveToolPath(ctx.cwd, raw);
+        const filePath = resolveToolPath(ctx.cwd, raw, ctx.sessionSource);
         if (IMAGE_MIME_TYPES[extname(filePath).toLowerCase()]) return null;
         const offset = (input as { offset?: unknown }).offset;
         const limit = (input as { limit?: unknown }).limit;
@@ -90,12 +90,12 @@ export function getReadToolDefinition(options: ReadToolOptions): ToolDefinition 
       },
       sources: (input, ctx) => {
         const raw = String((input as { path?: unknown })?.path ?? "");
-        return raw ? [resolveToolPath(ctx.cwd, raw), raw] : [];
+        return raw ? [resolveToolPath(ctx.cwd, raw, ctx.sessionSource), raw] : [];
       },
       version: async (input, ctx) => {
         const raw = String((input as { path?: unknown })?.path ?? "");
         if (!raw) return null;
-        const info = await ctx.fs.stat?.(resolveToolPath(ctx.cwd, raw));
+        const info = await ctx.fs.stat?.(resolveToolPath(ctx.cwd, raw, ctx.sessionSource));
         // Without a provable freshness token, never reuse: the caller must read.
         if (!info) return null;
         return info.version;
@@ -108,7 +108,7 @@ export function getReadToolDefinition(options: ReadToolOptions): ToolDefinition 
       if (prompt.length > MAX_IMAGE_PROMPT_CHARS) {
         return { ok: false, error: `Image read prompt is too long (${prompt.length} characters, max ${MAX_IMAGE_PROMPT_CHARS}).` };
       }
-      const filePath = resolveToolPath(ctx.cwd, path);
+      const filePath = resolveToolPath(ctx.cwd, path, ctx.sessionSource);
       ensureAllowedPath(filePath);
 
       if (!ctx.fs.readBuffer) {

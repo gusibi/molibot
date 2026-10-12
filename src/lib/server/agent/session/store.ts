@@ -1,3 +1,5 @@
+import { resolveAgentFileReference, readAgentRunSummaries } from "$lib/server/sessions/agentFileReferences.js";
+import { agentWorkspaceDir, channelDataDir, isAgentWorkspace, findAgentSession, listAgentSessions, readActiveRoute, writeActiveRoute, type SessionSource } from "$lib/server/sessions/agentStorage.js";
 import {
   appendFileSync,
   closeSync,
@@ -106,11 +108,14 @@ export class MomRuntimeStore {
   private readonly defaultSessionId = "default";
   private readonly thinkingLevels = new Set<string>(RUNTIME_THINKING_LEVELS);
 
-  constructor(private readonly workspaceDir: string) {
+  constructor(private readonly workspaceDir: string, private readonly scope?: {
+    source: Pick<SessionSource, "channel" | "botId">;
+    getAgentId?: () => string;
+  }) {
     ensureDir(this.workspaceDir);
     ensureDir(this.getGlobalSkillsDir());
     // Keep bot-scoped skills in place for channel bot workspaces.
-    if (!this.isBotWorkspace()) {
+    if (!this.isBotWorkspace() && !isAgentWorkspace(this.workspaceDir)) {
       this.migrateLegacyWorkspaceSkills();
     }
   }
@@ -207,12 +212,31 @@ export class MomRuntimeStore {
     this.moveMemoryFileIfNeeded(this.getLegacyChatMemoryFile(chatId), this.getChatMemoryFile(chatId));
   }
 
+  private get shared(): boolean { return isAgentWorkspace(this.workspaceDir); }
   getWorkspaceDir(): string {
-    return this.workspaceDir;
+    return this.scope?.getAgentId ? agentWorkspaceDir(this.getDataRoot(), this.scope.getAgentId()) : this.workspaceDir;
+  }
+  getBotId(): string { return this.scope?.source.botId ?? this.workspaceDir.split(/[\\/]/).at(-1) ?? "unknown"; }
+  getBotProfileDir(): string { return this.scope ? channelDataDir(this.getDataRoot(), this.scope.source.channel, this.scope.source.botId) : this.workspaceDir; }
+  private source(chatId: string): SessionSource { return { ...(this.scope?.source ?? { channel: "web", botId: "default" }), chatId }; }
+  private sessionWorkspace(chatId: string, sessionId?: string): string {
+    if (this.shared && this.scope?.getAgentId && sessionId) {
+      const found = findAgentSession(this.getDataRoot(), sessionId, this.source(chatId));
+      if (found) return found.workspaceDir;
+    }
+    return this.getWorkspaceDir();
+  }
+  forAgent(agentId: string): MomRuntimeStore {
+    return new MomRuntimeStore(agentWorkspaceDir(this.getDataRoot(), agentId), this.scope ? { source: this.scope.source } : undefined);
+  }
+
+  forSession(chatId: string, sessionId: string): MomRuntimeStore {
+    if (!this.shared) return this;
+    return new MomRuntimeStore(this.sessionWorkspace(chatId, sessionId), this.scope ? { source: this.scope.source } : undefined);
   }
 
   getChatDir(chatId: string): string {
-    const dir = join(this.workspaceDir, chatId);
+    const dir = this.shared ? this.getWorkspaceDir() : join(this.workspaceDir, chatId);
     ensureDir(dir);
     ensureDir(join(dir, "attachments"));
     ensureDir(join(dir, "scratch"));
@@ -238,15 +262,15 @@ export class MomRuntimeStore {
     return this.ensureSessionEntriesFile(chatId, id);
   }
 
-  private getContextsDir(chatId: string): string {
-    const dir = join(this.getChatDir(chatId), "contexts");
+  private getContextsDir(chatId: string, sessionId?: string): string {
+    const dir = this.shared ? join(this.sessionWorkspace(chatId, sessionId), "contexts") : join(this.getChatDir(chatId), "contexts");
     ensureDir(dir);
     return dir;
   }
 
   /** Contexts path without directory creation, for read/diff-only helpers. */
-  private contextsDirPath(chatId: string): string {
-    return join(this.workspaceDir, chatId, "contexts");
+  private contextsDirPath(chatId: string, sessionId?: string): string {
+    return this.shared ? join(this.sessionWorkspace(chatId, sessionId), "contexts") : join(this.workspaceDir, chatId, "contexts");
   }
 
   /**
@@ -257,7 +281,7 @@ export class MomRuntimeStore {
   private touchSessionDisplayMetadata(chatId: string, sessionId: string, entries: SessionFileEntry[]): void {
     const id = this.sanitizeSessionId(sessionId);
     try {
-      writeSessionDisplayMetadata(this.contextsDirPath(chatId), id, deriveSessionDisplayMetadata(entries));
+      writeSessionDisplayMetadata(this.contextsDirPath(chatId, id), id, deriveSessionDisplayMetadata(entries));
     } catch {
       // Metadata is a listing optimization; a write failure must never block
       // the actual Session mutation.
@@ -269,15 +293,15 @@ export class MomRuntimeStore {
   }
 
   private getSessionContextFile(chatId: string, sessionId: string): string {
-    return join(this.getContextsDir(chatId), `${sessionId}.json`);
+    return join(this.getContextsDir(chatId, sessionId), `${sessionId}.json`);
   }
 
   private getSessionEntriesFile(chatId: string, sessionId: string): string {
-    return join(this.getContextsDir(chatId), `${sessionId}.jsonl`);
+    return join(this.getContextsDir(chatId, sessionId), `${sessionId}.jsonl`);
   }
 
   private getSessionMetadataFile(chatId: string, sessionId: string): string {
-    return join(this.getContextsDir(chatId), `${sessionId}.meta.json`);
+    return join(this.getContextsDir(chatId, sessionId), `${sessionId}.meta.json`);
   }
 
   private sanitizeSessionId(sessionId: string): string {
@@ -289,7 +313,7 @@ export class MomRuntimeStore {
   private ensureSessionContextFile(chatId: string, sessionId: string): string {
     const id = this.sanitizeSessionId(sessionId);
     const file = this.getSessionContextFile(chatId, id);
-    if (!existsSync(file)) {
+    if (!this.shared && !existsSync(file)) {
       writeFileSync(file, "[]\n", "utf8");
     }
     return file;
@@ -298,6 +322,11 @@ export class MomRuntimeStore {
   private ensureSessionEntriesFile(chatId: string, sessionId: string): string {
     const id = this.sanitizeSessionId(sessionId);
     const file = this.getSessionEntriesFile(chatId, id);
+    if (this.shared && !readSessionOriginMetadata(this.getContextsDir(chatId, id), id)) {
+      writeSessionOriginMetadata(this.getContextsDir(chatId, id), id, {
+        agentId: this.sessionWorkspace(chatId, id).split(/[\\/]/).at(-1), source: { ...this.source(chatId), sessionId: id }
+      });
+    }
     if (!existsSync(file)) {
       const header = createSessionHeader(id);
       writeFileSync(file, serializeSessionEntries([header]), "utf8");
@@ -306,6 +335,7 @@ export class MomRuntimeStore {
   }
 
   private migrateLegacyContext(chatId: string): void {
+    if (this.shared) return;
     const legacy = join(this.getChatDir(chatId), "context.json");
     if (!existsSync(legacy)) return;
 
@@ -329,7 +359,7 @@ export class MomRuntimeStore {
   private migrateLegacySessionContext(chatId: string, sessionId: string): void {
     const id = this.sanitizeSessionId(sessionId);
     const entriesFile = this.ensureSessionEntriesFile(chatId, id);
-    const rawContextFile = this.ensureSessionContextFile(chatId, id);
+    const rawContextFile = this.shared ? this.getSessionContextFile(chatId, id) : this.ensureSessionContextFile(chatId, id);
     if (!existsSync(rawContextFile)) return;
 
     try {
@@ -432,6 +462,8 @@ export class MomRuntimeStore {
   }
 
   listSessions(chatId: string): string[] {
+    if (this.shared) return listAgentSessions(this.getDataRoot(), this.source(chatId))
+      .filter(item => this.scope?.getAgentId || item.workspaceDir === this.getWorkspaceDir()).map(item => item.sessionId).sort();
     this.migrateLegacyContext(chatId);
     const dir = this.getContextsDir(chatId);
     const out = [...new Set(
@@ -452,7 +484,7 @@ export class MomRuntimeStore {
 
   readSessionOrigin(chatId: string, sessionId: string): SessionOriginMetadata | null {
     const id = this.sanitizeSessionId(sessionId);
-    return readSessionOriginMetadata(this.getContextsDir(chatId), id);
+    return readSessionOriginMetadata(this.getContextsDir(chatId, id), id);
   }
 
   markSessionOrigin(chatId: string, sessionId: string, metadata: SessionOriginMetadata): void {
@@ -460,7 +492,7 @@ export class MomRuntimeStore {
     const existing = this.readSessionOrigin(chatId, id)?.agentId;
     if (metadata.agentId && existing && metadata.agentId !== existing) throw new Error("Session Agent mismatch");
     this.ensureSessionEntriesFile(chatId, id);
-    writeSessionOriginMetadata(this.getContextsDir(chatId), id, metadata);
+    writeSessionOriginMetadata(this.getContextsDir(chatId, id), id, metadata);
   }
 
   listVisibleSessions(chatId: string): string[] {
@@ -468,6 +500,11 @@ export class MomRuntimeStore {
   }
 
   getActiveSession(chatId: string): string {
+    if (this.shared) {
+      const route = readActiveRoute(this.getDataRoot(), this.source(chatId));
+      if (route && this.listSessions(chatId).includes(route.sessionId)) return route.sessionId;
+      return this.createSession(chatId);
+    }
     this.migrateLegacyContext(chatId);
     const file = this.getActiveSessionFile(chatId);
     const sessions = this.listSessions(chatId);
@@ -494,7 +531,8 @@ export class MomRuntimeStore {
     if (!sessions.includes(id)) {
       throw new Error(`Session '${id}' does not exist.`);
     }
-    writeFileSync(this.getActiveSessionFile(chatId), id, "utf8");
+    if (this.shared) writeActiveRoute(this.getDataRoot(), this.source(chatId), { sessionId: id, agentId: this.readSessionOrigin(chatId, id)?.agentId ?? this.getWorkspaceDir().split(/[\\/]/).at(-1)! });
+    else writeFileSync(this.getActiveSessionFile(chatId), id, "utf8");
     return id;
   }
 
@@ -503,7 +541,7 @@ export class MomRuntimeStore {
       exists: (candidate) => existsSync(this.getSessionContextFile(chatId, candidate))
         || existsSync(this.getSessionEntriesFile(chatId, candidate))
     });
-    this.ensureSessionContextFile(chatId, id);
+    if (!this.shared) this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     this.setActiveSession(chatId, id);
     return id;
@@ -542,10 +580,11 @@ export class MomRuntimeStore {
     const stableTaskId = String(taskId ?? "").trim();
     if (!stableTaskId) return this.beginTaskSession(chatId, retentionMs);
 
-    const id = taskArchiveSessionId(stableTaskId)!;
+    const ownedTaskId = this.shared ? JSON.stringify([this.getWorkspaceDir(), this.source(chatId), stableTaskId]) : stableTaskId;
+    const id = taskArchiveSessionId(ownedTaskId)!;
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
-    if (!this.readSessionOrigin(chatId, id)) {
+    if (this.readSessionOrigin(chatId, id)?.origin !== "automation") {
       this.markSessionOrigin(chatId, id, {
         origin: "automation",
         taskId: stableTaskId,
@@ -604,7 +643,8 @@ export class MomRuntimeStore {
   clearSessionContext(chatId: string, sessionId: string): void {
     const id = this.sanitizeSessionId(sessionId);
     this.ensureSessionContextFile(chatId, id);
-    writeFileSync(this.getSessionContextFile(chatId, id), "[]\n", "utf8");
+    const contextFile = this.getSessionContextFile(chatId, id);
+    if (!this.shared || existsSync(contextFile)) writeFileSync(contextFile, "[]\n", "utf8");
     const header = this.readSessionHeader(chatId, id);
     this.writeSessionFileEntries(chatId, id, [header]);
   }
@@ -645,7 +685,8 @@ export class MomRuntimeStore {
       throw new Error("Cannot delete the last session.");
     }
 
-    unlinkSync(this.getSessionContextFile(chatId, id));
+    const contextFile = this.getSessionContextFile(chatId, id);
+    if (existsSync(contextFile)) unlinkSync(contextFile);
     try {
       unlinkSync(this.getSessionEntriesFile(chatId, id));
     } catch {
@@ -663,7 +704,7 @@ export class MomRuntimeStore {
   }
 
   private reserveAttachmentPath(chatId: string, millis: number, safeName: string): string {
-    const attachmentsDir = join(this.workspaceDir, chatId, "attachments");
+    const attachmentsDir = join(this.getChatDir(chatId), "attachments");
     let candidate = `${millis}_${safeName}`;
     for (let counter = 2; existsSync(join(attachmentsDir, candidate)); counter += 1) {
       const dot = safeName.lastIndexOf(".");
@@ -686,8 +727,8 @@ export class MomRuntimeStore {
     // Attachments sharing a millisecond and a filename (e.g. several pasted
     // images all named "image.png" in one message) must not overwrite each
     // other: suffix -2, -3, … before the extension on path collision.
-    const local = `${chatId}/attachments/${this.reserveAttachmentPath(chatId, millis, safeName)}`;
-    const fullPath = join(this.workspaceDir, local);
+    const local = `${this.shared ? "" : `${chatId}/`}attachments/${this.reserveAttachmentPath(chatId, millis, safeName)}`;
+    const fullPath = join(this.getWorkspaceDir(), local);
     ensureDir(dirname(fullPath));
     writeFileSync(fullPath, content);
 
@@ -1015,7 +1056,8 @@ export class MomRuntimeStore {
     const kept: SessionFileEntry[] = [header, ...body.slice(0, index)];
     this.writeSessionFileEntries(chatId, id, kept);
     const snapshot = buildMessagesFromSessionEntries(kept).messages;
-    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+    const snapshotFile = this.getSessionContextFile(chatId, id);
+    if (!this.shared || existsSync(snapshotFile)) writeFileSync(snapshotFile, JSON.stringify(snapshot, null, 2), "utf8");
     return body.length - index;
   }
 
@@ -1023,7 +1065,7 @@ export class MomRuntimeStore {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const current = this.loadContext(chatId, id);
     const file = this.ensureSessionContextFile(chatId, id);
-    writeFileSync(file, JSON.stringify(messages, null, 2), "utf8");
+    if (!this.shared || existsSync(file)) writeFileSync(file, JSON.stringify(messages, null, 2), "utf8");
 
     let prefixMatches = true;
     const prefixLength = Math.min(current.length, messages.length);
@@ -1111,7 +1153,8 @@ export class MomRuntimeStore {
       return entryId;
     }
     const snapshot = this.loadContext(chatId, id);
-    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+    const snapshotFile = this.getSessionContextFile(chatId, id);
+    if (!this.shared || existsSync(snapshotFile)) writeFileSync(snapshotFile, JSON.stringify(snapshot, null, 2), "utf8");
     return entryId;
   }
 
@@ -1153,7 +1196,8 @@ export class MomRuntimeStore {
     const kept: SessionFileEntry[] = [header, ...body.slice(0, checkpoint.bodyEntryCount)];
     this.writeSessionFileEntries(chatId, id, kept);
     const snapshot = buildMessagesFromSessionEntries(kept).messages;
-    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+    const snapshotFile = this.getSessionContextFile(chatId, id);
+    if (!this.shared || existsSync(snapshotFile)) writeFileSync(snapshotFile, JSON.stringify(snapshot, null, 2), "utf8");
     return body.length - checkpoint.bodyEntryCount;
   }
 
@@ -1173,7 +1217,8 @@ export class MomRuntimeStore {
       entries.splice(index, 1);
       this.writeSessionFileEntries(chatId, id, entries);
       const snapshot = buildMessagesFromSessionEntries(entries).messages;
-      writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+      const snapshotFile = this.getSessionContextFile(chatId, id);
+    if (!this.shared || existsSync(snapshotFile)) writeFileSync(snapshotFile, JSON.stringify(snapshot, null, 2), "utf8");
       return true;
     }
     return false;
@@ -1334,7 +1379,8 @@ export class MomRuntimeStore {
       reason
     });
     const snapshot = [createCompactionSummaryMessage(summary), ...keptMessages];
-    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+    const snapshotFile = this.getSessionContextFile(chatId, id);
+    if (!this.shared || existsSync(snapshotFile)) writeFileSync(snapshotFile, JSON.stringify(snapshot, null, 2), "utf8");
   }
 
   appendRuntimeEvent(
@@ -1361,6 +1407,7 @@ export class MomRuntimeStore {
     const file = this.getRunSummaryLogPath(chatId);
     const record = {
       createdAt: new Date().toISOString(),
+      ...(this.shared ? { source: this.source(chatId) } : {}),
       ...summary
     };
     appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
@@ -1383,7 +1430,10 @@ export class MomRuntimeStore {
   }
 
   readRunDetail(chatId: string, runId: string): RunDetailEntry[] {
-    const file = this.getRunDetailPath(chatId, runId);
+    const current = this.getRunDetailPath(chatId, runId);
+    const file = this.shared && !existsSync(current)
+      ? resolveAgentFileReference(this.getWorkspaceDir(), `run-details/${String(runId).replace(/[^a-zA-Z0-9._-]/g, "_")}.jsonl`, this.source(chatId))
+      : current;
     if (!existsSync(file)) return [];
     try {
       return parseRunDetailEntries(readFileSync(file, "utf8"));
@@ -1392,48 +1442,29 @@ export class MomRuntimeStore {
     }
   }
 
-  readLatestRunSummary(chatId: string): Record<string, unknown> | null {
+  private readRunSummaries(chatId: string): Array<Record<string, unknown>> {
+    const source = this.source(chatId);
+    const rows = this.shared ? readAgentRunSummaries(this.getWorkspaceDir(), source) : [];
     const file = this.getRunSummaryLogPath(chatId);
-    try {
-      const lines = readFileSync(file, "utf8")
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (existsSync(file)) {
+      for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
         try {
-          const parsed = JSON.parse(lines[index]) as Record<string, unknown>;
-          if (parsed && typeof parsed === "object") return parsed;
-        } catch {
-          // skip invalid line
-        }
+          const row = JSON.parse(line) as Record<string, unknown>;
+          if (!row || typeof row !== "object") continue;
+          if (this.shared && (!row.source || !Object.entries(source).every(([key, value]) => (row.source as Record<string, unknown>)[key] === value))) continue;
+          rows.push(row);
+        } catch { /* Ignore malformed historical lines. */ }
       }
-    } catch {
-      // ignore
     }
-    return null;
+    return rows.sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")));
+  }
+
+  readLatestRunSummary(chatId: string): Record<string, unknown> | null {
+    return this.readRunSummaries(chatId)[0] ?? null;
   }
 
   listRunSummaries(chatId: string, limit = 20): Array<Record<string, unknown>> {
-    const file = this.getRunSummaryLogPath(chatId);
-    const max = Math.max(1, Math.min(100, Math.floor(limit) || 20));
-    try {
-      const lines = readFileSync(file, "utf8")
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      const out: Array<Record<string, unknown>> = [];
-      for (let index = lines.length - 1; index >= 0 && out.length < max; index -= 1) {
-        try {
-          const parsed = JSON.parse(lines[index]) as Record<string, unknown>;
-          if (parsed && typeof parsed === "object") out.push(parsed);
-        } catch {
-          // skip invalid line
-        }
-      }
-      return out;
-    } catch {
-      return [];
-    }
+    return this.readRunSummaries(chatId).slice(0, Math.max(1, Math.min(100, Math.floor(limit) || 20)));
   }
 
   getSessionStatusSnapshot(chatId: string, sessionId?: string): SessionStatusSnapshot {
@@ -1471,39 +1502,13 @@ export class MomRuntimeStore {
       cacheWriteTokens: 0,
       totalTokens: 0
     };
-    const file = this.getRunSummaryLogPath(chatId);
-    if (!existsSync(file)) return out;
-
-    try {
-      const lines = readFileSync(file, "utf8")
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
-      for (const line of lines) {
-        try {
-          const row = JSON.parse(line) as {
-            sessionId?: string;
-            usage?: {
-              inputTokens?: number;
-              outputTokens?: number;
-              cacheReadTokens?: number;
-              cacheWriteTokens?: number;
-              totalTokens?: number;
-            };
-          };
-          if (this.sanitizeSessionId(row.sessionId ?? "") !== id) continue;
-          out.runCount += 1;
-          out.inputTokens += Number(row.usage?.inputTokens ?? 0);
-          out.outputTokens += Number(row.usage?.outputTokens ?? 0);
-          out.cacheReadTokens += Number(row.usage?.cacheReadTokens ?? 0);
-          out.cacheWriteTokens += Number(row.usage?.cacheWriteTokens ?? 0);
-          out.totalTokens += Number(row.usage?.totalTokens ?? 0);
-        } catch {
-          // ignore malformed historical lines
-        }
+    for (const row of this.readRunSummaries(chatId)) {
+      if (row.sessionId !== id) continue;
+      const usage = row.usage as SessionUsageSnapshot | undefined;
+      out.runCount += 1;
+      for (const key of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens"] as const) {
+        out[key] += Number(usage?.[key] ?? 0);
       }
-    } catch {
-      return out;
     }
 
     return out;

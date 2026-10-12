@@ -362,3 +362,14 @@ test("existing event lease databases migrate result storage without losing histo
   assert.deepEqual(store.getById(lease.id)?.result, result);
   store.close();
 });
+
+
+test("Agent leases isolate channels and instances with the same Chat ID", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  try {
+    for (const channel of ["telegram", "qq"]) store.acquire(acquireInput({ leaseScope: "agent:default", eventFile: `${channel}.json`, runId: channel, eventPayloadJson: JSON.stringify({ deliveryTarget: { channel, instanceId: "one", chatId: "chat-1" } }) }));
+    assert.equal(store.hasActiveForChat("chat-1", "agent:default", { channel: "telegram", instanceId: "two" }), false);
+    assert.equal(store.markAbortedForChat("chat-1", "stop", new Date(), "agent:default", { channel: "telegram", instanceId: "one" }), 1);
+    assert.equal(store.hasActiveForChat("chat-1", "agent:default", { channel: "qq", instanceId: "one" }), true);
+  } finally { store.close(); }
+});

@@ -25,6 +25,22 @@ test("approval continuation stores one sourced answer and structured tool activi
   assert.equal(options.activities[0].state, "success");
 });
 
+test("a re-projected committed answer is not recorded twice", async () => {
+  const saved: unknown[][] = [];
+  const outcome = await runBackgroundConversation({ run: async (ctx) => {
+    await ctx.replaceMessage("Original answer");
+    return { stopReason: "stop", assistantSourceEntryId: "answer-1" };
+  } }, {
+    channel: "web", workspaceDir: "/workspace", chatDir: "/chat",
+    message: { chatId: "chat", chatType: "private", messageId: 2, userId: "user", text: "", ts: "1", attachments: [], imageContents: [], sessionId: "session", isEvent: true }
+  }, {
+    appendMessage: (...args) => { saved.push(args); return {} as never; },
+    listMessageMetadata: () => [{ id: "existing", sourceEntryId: "answer-1" } as never]
+  });
+  assert.equal(outcome.recorded, false);
+  assert.equal(saved.length, 0, "a restart must not show the same committed answer twice");
+});
+
 test("both approval entry points use the background conversation recorder", async () => {
   const { readFileSync } = await import("node:fs");
   for (const path of ["../../../routes/api/chat/+server.ts", "../channels/shared/brokerApprovalResume.ts"]) {

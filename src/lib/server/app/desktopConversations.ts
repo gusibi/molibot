@@ -1,3 +1,5 @@
+import { latestAgentConversationTimes } from "$lib/shared/agentNavigation.js";
+import { listAgentSessions } from "$lib/server/sessions/agentStorage.js";
 import fs from "node:fs";
 import path, { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -41,8 +43,8 @@ import type {
  * Ordinary enumeration reads Session metadata only: Web conversations through
  * `listAllWebConversationMeta` and external conversations through the Session
  * metadata sidecar. Message previews (and the Agent Context parses they need)
- * are collected only for explicit search, so opening a list never loads chat
- * transcripts.
+ * are collected only for explicit search or the visible page of the search
+ * browser; plain enumeration never loads chat transcripts.
  */
 
 const PREVIEW_MAX = 300;
@@ -371,24 +373,30 @@ function collectItems(
   return items.filter((item) => item.purpose === "conversation" && ctx.isActive(item.sessionId));
 }
 
-function channelSearchItems(
-  ctx: DesktopConversationQueryContext,
-  source: DesktopConversationChannel
-): DesktopConversationSearchItem[] {
-  return collectItems(ctx, source, true).map((item) => ({
-    source,
-    sessionId: item.sessionId,
-    title: item.title,
-    updatedAt: item.updatedAt,
-    channel: item.channel,
-    contextId: item.botId,
-    contextName: item.botName,
-    contextDeleted: item.botDeleted,
-    readOnly: item.readOnly,
-    latestMessagePreview: item.latestMessagePreview,
-    botId: item.botId,
-    agentId: item.agentId
+/** Enumerate each metadata source once before ownership filtering or pagination. */
+function ordinarySearchItems(ctx: DesktopConversationQueryContext, sources: DesktopConversationSearchSource[]): DesktopConversationSearchItem[] {
+  const resolver = buildBotNameResolver(ctx.settings);
+  const items = [
+    ...(sources.includes("web") ? buildWebItems(ctx.sessions.listAllWebConversationMeta(), resolver) : []),
+    ...(sources.some(source => source !== "web" && source !== "project")
+      ? buildExternalItems(listExternalSessionMetaFromContexts(ctx.dataRoot), resolver).filter(item => sources.includes(item.channel)) : [])
+  ];
+  return items.filter(item => item.purpose === "conversation" && ctx.isActive(item.sessionId)).map(item => ({
+    source: item.channel, sessionId: item.sessionId, title: item.title, updatedAt: item.updatedAt,
+    channel: item.channel, contextId: item.botId, contextName: item.botName,
+    contextDeleted: item.botDeleted, readOnly: item.readOnly, botId: item.botId, agentId: item.agentId
   }));
+}
+
+/** Preview projection is bounded by the candidate ids, never all stored logs. */
+function withSearchPreviews(ctx: DesktopConversationQueryContext, items: DesktopConversationSearchItem[]): DesktopConversationSearchItem[] {
+  const webIds = new Set(items.filter(item => item.source === "web").map(item => item.sessionId));
+  const externalIds = new Set(items.filter(item => item.source !== "web" && item.source !== "project").map(item => item.sessionId));
+  const previews = new Map<string, string>();
+  if (webIds.size) for (const entry of ctx.sessions.listAllWebConversations(webIds)) previews.set(entry.conversation.id, entry.lastMessageText);
+  if (externalIds.size) for (const entry of listExternalSessionsFromContexts(ctx.dataRoot, undefined, externalIds)) previews.set(entry.conversation.id, entry.preview ?? "");
+  return items.map(item => ({ ...item, latestMessagePreview: item.source === "project"
+    ? latestConversationPreview(ctx.sessions.listMessages(item.sessionId, 20)) : previews.get(item.sessionId) || undefined }));
 }
 
 function latestConversationPreview(messages: ReadonlyArray<{ role: string; content: string; retention?: TurnRetentionPolicy }>): string | undefined {
@@ -420,7 +428,6 @@ function projectSearchItems(ctx: DesktopConversationQueryContext): DesktopConver
         contextName: project.name,
         contextDeleted: false,
         readOnly: false,
-        latestMessagePreview: latestConversationPreview(sessions.listMessages(conversation.id, 20)),
         projectId: project.id
       });
     }
@@ -443,22 +450,20 @@ export function searchDesktopConversations(
 ): { scope: DesktopConversationSearchScope; groups: DesktopConversationSearchGroup[] } {
   const scope = input.scope ?? "all";
   const effective = archiveQueryContext(ctx, input);
-  if (input.agentId !== undefined) {
-    const items = searchSourcesForScope(scope).filter(source => source !== "project")
-      .flatMap(source => channelSearchItems(effective, source as DesktopConversationChannel))
-      .filter(item => matchesAgent(item, input.agentId));
-    const group = queryConversationSearchGroup("web", items, input);
-    return { scope, groups: group.total ? [group] : [] };
+  const sources = searchSourcesForScope(scope);
+  let candidates = ordinarySearchItems(effective, sources).filter(item => matchesAgent(item, input.agentId));
+  if (input.agentId === undefined && sources.includes("project")) candidates.push(...projectSearchItems(effective));
+  const searching = Boolean(input.query?.trim());
+  if (searching) candidates = withSearchPreviews(effective, candidates);
+  const groupSources: DesktopConversationSearchSource[] = input.agentId !== undefined ? ["web"] : sources;
+  const groups = groupSources.map(source => queryConversationSearchGroup(source,
+    input.agentId !== undefined ? candidates : candidates.filter(item => item.source === source), input
+  )).filter(group => group.total > 0);
+  if (!searching) {
+    const previews = withSearchPreviews(effective, groups.flatMap(group => group.items));
+    const byId = new Map(previews.map(item => [item.sessionId, item]));
+    for (const group of groups) group.items = group.items.map(item => byId.get(item.sessionId) ?? item);
   }
-  // Search always pays for previews: matching must keep working against the
-  // last message, and the dialog renders the preview line.
-  const groups = searchSourcesForScope(scope).filter(source => input.agentId === undefined || source !== "project").map((source) => queryConversationSearchGroup(
-    source,
-    source === "project"
-      ? projectSearchItems(effective)
-      : channelSearchItems(effective, source).filter(item => matchesAgent(item, input.agentId)),
-    { query: input.query, limit: input.limit, cursor: input.cursor }
-  )).filter((group) => group.total > 0);
   return { scope, groups };
 }
 
@@ -476,12 +481,12 @@ function archiveQueryContext(ctx: DesktopConversationQueryContext, input: { incl
 export function listDesktopAgentConversations(
   input: { agentId?: string; sessionId?: string; limit?: number; cursor?: string | null; query?: string; includeArchived?: boolean; isActive?: (id: string) => boolean },
   ctx: DesktopConversationQueryContext = runtimeQueryContext()
-): { items: DesktopConversationItem[]; nextCursor: string | null; hasMore: boolean } {
+): { items: DesktopConversationItem[]; nextCursor: string | null; hasMore: boolean; latestConversationAtByAgent: Record<string, number> } {
   const effective = archiveQueryContext(ctx, input);
   const channels: DesktopConversationChannel[] = ["web", "telegram", "feishu", "qq", "weixin"];
   const items = channels.flatMap(channel => collectItems(effective, channel, Boolean(input.query?.trim())))
     .filter(item => !item.roomId && matchesAgent(item, input.agentId) && (!input.sessionId || item.sessionId === input.sessionId));
-  return queryConversations(items, input);
+  return { ...queryConversations(items, input), latestConversationAtByAgent: latestAgentConversationTimes(items) };
 }
 
 export function listDesktopConversations(
@@ -546,6 +551,7 @@ export function deleteDesktopConversation(sessionId: string): WebSessionDeletion
 function normalizeRunStatus(status: string): DesktopSessionRunStatus {
   if (status === "running") return "running";
   if (status === "waiting_for_approval") return "waiting_for_approval";
+  if (status === "recovery_review") return "recovery_review";
   if (status === "completed") return "completed";
   if (status === "aborted") return "aborted";
   return "failed";
@@ -577,7 +583,7 @@ export function listDesktopSessionRuns(): { runs: DesktopSessionRun[] } {
   try {
     rows = db
       .prepare(
-        "SELECT id, session_id, channel_id, status, started_at, error FROM runs WHERE status IN ('running','waiting_for_approval')"
+        "SELECT id, session_id, channel_id, status, started_at, error FROM runs WHERE status IN ('running','waiting_for_approval','recovery_review')"
       )
       .all() as typeof rows;
   } catch {
@@ -622,7 +628,9 @@ export function resolveDesktopSessionFilePath(sessionId: string, projectId?: str
   if (external) {
     const root = TASK_CHANNEL_ROOTS.find((entry) => entry.channel === external.channel);
     if (!root) return null;
-    const contexts = path.resolve(config.dataDir, root.dir, "bots", external.botId, external.chatId, "contexts");
+    const location = listAgentSessions(config.dataDir, { channel: external.channel, botId: external.botId, chatId: external.chatId }).find(item => item.sessionId === external.sessionId);
+    if (!location) return null;
+    const contexts = location.contextsDir;
     const jsonl = path.join(contexts, `${external.sessionId}.jsonl`);
     const json = path.join(contexts, `${external.sessionId}.json`);
     if (fs.existsSync(jsonl)) return jsonl;

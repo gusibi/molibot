@@ -57,7 +57,7 @@ export class RunnerPool implements ChannelRunnerPoolLike {
     private readonly hookManager: HookManager,
     private readonly runtimeIdentity?: ({ agentId: string; roomId: string; executionId: string } | { agentId: string; roomId?: undefined; executionId?: undefined }),
   ) {
-    this.map = [...runtimePools].find(pool => pool.channel === channel && pool.store.getWorkspaceDir() === store.getWorkspaceDir())?.map ?? new Map();
+    this.map = [...runtimePools].find(pool => pool.channel === channel && pool.store.getWorkspaceDir() === store.getWorkspaceDir() && pool.store.getBotId() === store.getBotId())?.map ?? new Map();
     runtimePools.add(this);
   }
 
@@ -75,7 +75,7 @@ export class RunnerPool implements ChannelRunnerPoolLike {
       this.channel,
       chatId,
       sessionId,
-      this.store,
+      this.store.forSession(chatId, sessionId),
       this.getSettings,
       this.updateSettings,
       this.usageTracker,

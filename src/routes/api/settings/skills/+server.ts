@@ -101,7 +101,7 @@ export const GET: RequestHandler = async () => {
   const disabledSet = new Set(settings.disabledSkillPaths ?? []);
   const dataRoot = resolve(config.dataDir);
   const globalSkillsDir = join(dataRoot, "skills");
-  const botsRoot = join(dataRoot, "moli-t", "bots");
+  const botsRoot = join(dataRoot, "sessions");
   const diagnostics: string[] = [];
   const items: SkillItem[] = [];
 
@@ -130,18 +130,7 @@ export const GET: RequestHandler = async () => {
         }
       }
 
-      const chatEntries = readdirSync(botDir, { withFileTypes: true }).filter((e) => e.isDirectory() && e.name !== "skills");
-      for (const chat of chatEntries) {
-        const chatId = chat.name;
-        const chatSkillsDir = join(botDir, chatId, "skills");
-        if (!existsSync(chatSkillsDir)) continue;
-        const files: string[] = [];
-        collectSkillFiles(chatSkillsDir, files);
-        for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
-          const item = parseSkillFile(filePath, "chat", diagnostics, botId, chatId);
-          if (item) items.push(item);
-        }
-      }
+
     }
   }
 

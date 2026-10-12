@@ -18,7 +18,6 @@ export const storagePaths = {
   projectsDir: path.resolve(config.dataDir, "projects"),
   webWorkspaceDir: path.resolve(config.webWorkspaceDir),
   sessionsDir: path.resolve(config.sessionsDir),
-  sessionsIndexFile: path.resolve(config.sessionsIndexFile),
   /**
    * The global (owner-wide) Skill root. Must stay in step with
    * `resolveGlobalSkillsDirFromWorkspacePath`, which is how the loader derives
@@ -222,10 +221,7 @@ function migrateLegacyDbFiles(): void {
   migrateSqliteFile(path.resolve(config.dataDir, "outbox.sqlite"), storagePaths.outboxDbFile);
   migrateSqliteFile(path.resolve(config.dataDir, "memory", "mory.sqlite"), storagePaths.moryDbFile);
   migrateSqliteFile(path.resolve(config.dataDir, "sessions.db"), path.resolve(storagePaths.dbDir, "sessions.db"));
-  migrateSqliteFile(
-    path.resolve(config.dataDir, "moli-t", "settings.sqlite"),
-    path.resolve(storagePaths.dbDir, "moli-t", "settings.sqlite")
-  );
+
 }
 
 export function initDb(): void {
@@ -255,9 +251,6 @@ export function initDb(): void {
 
   if (!fs.existsSync(storagePaths.settingsFile)) {
     writeJsonFile(storagePaths.settingsFile, {});
-  }
-  if (!fs.existsSync(storagePaths.sessionsIndexFile)) {
-    writeJsonFile(storagePaths.sessionsIndexFile, {});
   }
 
   try {

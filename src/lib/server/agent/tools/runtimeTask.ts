@@ -149,6 +149,8 @@ function publicTask(row: TaskFile) {
 
 export function createRuntimeTaskTool(options: {
   workspaceDir: string;
+  agentId?: string;
+  deliveryTarget?: MomEvent["deliveryTarget"];
   chatId: string;
   sessionId?: string;
   timezone: string;
@@ -248,6 +250,7 @@ export function createRuntimeTaskTool(options: {
       const common = {
         taskId,
         enabled: true,
+        ...(isProjectChat ? {} : { agentId: options.agentId, deliveryTarget: options.deliveryTarget }),
         chatId: isProjectChat ? `project:${options.projectId}` : options.chatId,
         ...(isProjectChat ? { target: { kind: "project" as const, projectId: options.projectId! } } : {}),
         sessionId: options.sessionId,

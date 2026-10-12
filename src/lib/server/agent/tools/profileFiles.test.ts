@@ -10,8 +10,8 @@ import { createProfileFilesTool } from "./profileFiles.js";
 let tmpRoot: string;
 let originalDataDir: string;
 
-const workspaceDir = () => join(tmpRoot, "moli-w", "bots", "default");
-const globalPath = (file: string) => join(tmpRoot, file);
+const workspaceDir = () => join(tmpRoot, "channels", "web", "bots", "default");
+const globalPath = (file: string) => join(tmpRoot, "agents", "default", file);
 const botPath = (file: string) => join(workspaceDir(), file);
 
 const settings = (agentId = ""): RuntimeSettings =>

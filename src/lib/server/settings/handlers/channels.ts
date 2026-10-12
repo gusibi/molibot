@@ -106,3 +106,15 @@ export function deleteChannelInstance(
   const updated = runtime.updateSettings({ channels: nextChannels });
   return { ok: true, instances: (updated.channels ?? {})[ch]?.instances ?? [] };
 }
+
+/** Change only the Bot identity binding; preserve credentials and channel policy. */
+export function setChannelAgentBinding(runtime: SettingsAccessor, channel: string, id: string, agentId: string): void {
+  const current = runtime.getSettings();
+  const group = current.channels[channel];
+  if (!group?.instances.some(instance => instance.id === id)) throw new Error("Channel instance not found");
+  if (!current.agents.some(agent => agent.id === agentId && agent.enabled)) throw new Error("Enabled Agent not found");
+  const channels = { ...current.channels, [channel]: { ...group, instances: group.instances.map(instance => instance.id === id ? { ...instance, agentId } : instance) } };
+  const error = validateAgentReferences(current, { channels });
+  if (error) throw new Error(error);
+  runtime.updateSettings({ channels });
+}

@@ -4,6 +4,7 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { listMcpServers, replaceMcpServers } from "$lib/server/settings/handlers/mcp";
 import { config } from "$lib/server/app/env";
 import { getMcpServerStatuses, reconcileMcpServers, reconnectMcpServer } from "$lib/server/agent/tools/mcp";
+import { getMcpOAuthManager } from "$lib/server/agent/mcp/oauthRuntime";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector";
 
 async function responsePayload(connectEnabled = false) {
@@ -58,11 +59,25 @@ export const PATCH: RequestHandler = async ({ request }) => {
 export const POST: RequestHandler = async ({ request }) => {
   try {
     const runtime = getRuntime();
-    const body = await request.json() as { id?: string; action?: string };
+    const body = await request.json() as { id?: string; action?: string; loginId?: string };
     const id = String(body.id ?? "").trim();
-    if (body.action !== "reconnect") throw new Error("Unsupported MCP action");
+    const manager = getMcpOAuthManager();
+    if (body.action === "oauth_cancel") {
+      await manager.closeLogin(String(body.loginId ?? "").trim());
+      return json(await responsePayload());
+    }
     const server = listMcpServers(runtime).find((item) => item.id === id);
     if (!server) throw new Error(`Unknown MCP server: ${id}`);
+    if (body.action === "oauth_login" || body.action === "oauth_reauthorize") {
+      if (!server.enabled) throw new Error(`MCP server is disabled: ${id}`);
+      const { session } = await manager.beginLogin(server, { force: body.action === "oauth_reauthorize" });
+      return json({ ...await responsePayload(), loginId: session.id, authorizationUrl: session.authorizationUrl });
+    }
+    if (body.action === "oauth_logout") {
+      await manager.logout(server);
+      return json(await responsePayload());
+    }
+    if (body.action !== "reconnect") throw new Error("Unsupported MCP action");
     if (!server.enabled) throw new Error(`MCP server is disabled: ${id}`);
     await reconnectMcpServer(server, { workspaceDir: config.webWorkspaceDir });
     return json(await responsePayload());

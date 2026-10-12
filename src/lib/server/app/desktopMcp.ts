@@ -2,6 +2,7 @@ import type { McpServerConfig, RuntimeSettings } from "$lib/server/settings/sche
 import type { DesktopMcpItem, DesktopMcpSummary, DesktopMcpTransport } from "$lib/shared/desktop";
 import type { McpServerStatus } from "$lib/server/agent/tools/mcp";
 import { effectiveMcpServers, OPEN_CONNECTOR_MCP_ID } from "$lib/server/settings/openConnector";
+import { resolveMcpAuthConfig } from "$lib/server/settings/mcpAuth";
 
 function coerceTransport(value: unknown): DesktopMcpTransport {
   return value === "http" ? "http" : "stdio";
@@ -31,6 +32,7 @@ export function buildDesktopMcpItem(server: McpServerConfig, status?: McpServerS
     enabled: server.enabled !== false,
     transport,
     toolNamePrefix: server.toolNamePrefix ?? "",
+    timeoutMs: server.timeoutMs ?? 120_000,
     command: transport === "stdio" ? stdio.command ?? "" : "",
     argCount: transport === "stdio" && Array.isArray(stdio.args) ? stdio.args.length : 0,
     envKeyCount: transport === "stdio" ? countKeys(stdio.env) : 0,
@@ -43,7 +45,10 @@ export function buildDesktopMcpItem(server: McpServerConfig, status?: McpServerS
     toolCount: status?.toolCount ?? 0,
     lastError: status?.lastError ?? "",
     lastAttemptAt: status?.lastAttemptAt ?? "",
-    connectedAt: status?.connectedAt ?? ""
+    connectedAt: status?.connectedAt ?? "",
+    authMode: server.auth?.mode === "oauth" ? "oauth" : "headers",
+    authState: server.auth?.mode === "oauth" ? status?.auth?.state ?? "unauthorized" : "not_applicable",
+    authError: status?.auth?.state === "error" ? status.auth.error ?? "" : ""
   };
 }
 
@@ -74,19 +79,30 @@ export function saveDesktopMcpServer(settings: RuntimeSettings, input: import("$
     const normalizedKey = key.trim();
     if (normalizedKey && value !== "") headers[normalizedKey] = String(value);
   }
+  const auth = resolveMcpAuthConfig(input.transport, {
+    auth: {
+      mode: input.authMode ?? existing?.auth?.mode ?? "headers",
+      oauth: {
+        authServerMetadataUrl: input.authServerMetadataUrl ?? existing?.auth?.oauth.authServerMetadataUrl ?? "",
+        clientName: input.clientName ?? existing?.auth?.oauth.clientName ?? ""
+      }
+    }
+  }, headers);
   const server: McpServerConfig = {
     id,
     name: String(input.name ?? "").trim() || id,
     enabled: input.enabled !== false,
     transport: input.transport,
     toolNamePrefix: String(input.toolNamePrefix ?? "").trim(),
+    timeoutMs: input.timeoutMs ?? existing?.timeoutMs ?? 120_000,
     stdio: {
       command,
       args: input.clearArgs ? [] : input.args ? input.args.map((value) => String(value).trim()).filter(Boolean) : [...(existing?.stdio.args ?? [])],
       env,
       cwd: input.clearCwd ? "" : input.cwdValue?.trim() || existing?.stdio.cwd || ""
     },
-    http: { url, headers }
+    http: { url, headers },
+    auth
   };
   return existingIndex >= 0
     ? servers.map((item, index) => index === existingIndex ? server : item)

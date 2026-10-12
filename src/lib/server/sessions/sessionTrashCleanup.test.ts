@@ -1,3 +1,4 @@
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,13 +34,13 @@ interface Fixture {
 function setup(): Fixture {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-trash-cleanup-"));
   const originals = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "legacy");
-  storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
   const now = { value: new Date("2026-09-01T10:00:00.000Z") };
   const clock = () => new Date(now.value);

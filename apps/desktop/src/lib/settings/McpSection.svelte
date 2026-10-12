@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
+  import { onDestroy } from "svelte";
   import X from "reicon-svelte/icons/X";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
@@ -14,9 +16,12 @@
     beginMcpEdit,
     beginNewMcp,
     loadMcp,
+    oauthMcpLogin,
+    oauthMcpLogout,
     reconnectMcp,
     removeMcpServer,
     saveMcpEditor,
+    stopMcpOauthPoll,
     toggleMcpServer,
     updateMcpEdit
   } from "../stores/mcp.svelte";
@@ -38,11 +43,38 @@
     return "disconnected";
   }
 
+  function authLabel(state: string): string {
+    if (state === "authorized") return session.text.mcpAuthAuthorized;
+    if (state === "expired") return session.text.mcpAuthExpired;
+    if (state === "authorizing") return session.text.mcpAuthAuthorizing;
+    if (state === "error") return session.text.mcpAuthError;
+    return session.text.mcpAuthUnauthorized;
+  }
+
+  /** Open the authorization URL in the system browser (the loopback callback needs it). */
+  async function openMcpAuthUrl(value: string): Promise<void> {
+    if (!value) return;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error(session.text.mcpAuthUrlInvalid);
+      if ("__TAURI_INTERNALS__" in window) await invoke("open_external_url", { url: url.href });
+      else window.open(url.href, "_blank", "noopener,noreferrer");
+    } catch (cause) {
+      session.error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  async function handleOauthLogin(id: string, reauthorize: boolean): Promise<void> {
+    await openMcpAuthUrl(await oauthMcpLogin(id, reauthorize));
+  }
+
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== mcpStore.endpoint) {
       void loadMcp(session.endpoint);
     }
   });
+
+  onDestroy(stopMcpOauthPoll);
 
   async function handleConfirmDelete(): Promise<void> {
     if (!deletingMcpServer) return;
@@ -75,13 +107,20 @@
             {/if}
             {#if server.toolNamePrefix}<p>{session.text.mcpPrefix}: {server.toolNamePrefix}</p>{/if}
             {#if server.connectionState === "connected"}<p>{session.text.mcpLoadedTools}: {server.toolCount}</p>{/if}
+            {#if server.authMode === "oauth"}<p>{session.text.mcpAuthTitle}: {authLabel(server.authState)}</p>{/if}
             {#if server.lastError}<p class="settings-error-copy">{server.lastError}</p>{/if}
+            {#if server.authMode === "oauth" && server.authError}<p class="settings-error-copy">{server.authError}</p>{/if}
           </div>
           <div class="settings-row-actions">
             {#if server.managed}<span class="status-badge" data-state="disconnected">{session.text.mcpManaged}</span>{/if}
             <span class="status-badge" data-state={statusTone(server.connectionState)}>{statusLabel(server.connectionState)}</span>
             {#if !server.managed}<IosSwitch checked={server.enabled} ariaLabel={`${session.text.mcpEnabled}: ${server.name}`} disabled={Boolean(mcpStore.busyId)} onCheckedChange={(enabled) => void toggleMcpServer(server.id, enabled)} />{/if}
             {#if server.enabled && server.connectionState !== "connected"}<button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void reconnectMcp(server.id)}>{mcpStore.busyId === server.id ? session.text.mcpConnecting : session.text.mcpReconnect}</button>{/if}
+            {#if server.authMode === "oauth"}
+              {#if server.authState !== "authorized"}<button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void handleOauthLogin(server.id, false)}>{session.text.mcpAuthSignIn}</button>{/if}
+              {#if server.authState === "authorized"}<button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void handleOauthLogin(server.id, true)}>{session.text.mcpAuthReauthorize}</button>{/if}
+              {#if server.authState === "authorized" || server.authState === "expired"}<button class="secondary-button danger-action" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => void oauthMcpLogout(server.id)}>{session.text.mcpAuthSignOut}</button>{/if}
+            {/if}
             {#if !server.managed}
               <button class="secondary-button" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => beginMcpEdit(server)}>{session.text.edit}</button>
               <button class="secondary-button danger-action" type="button" disabled={Boolean(mcpStore.busyId)} onclick={() => (deletingMcpServer = server)}>{session.text.delete}</button>
@@ -101,6 +140,7 @@
         <label class="settings-field"><span>{session.text.mcpId}</span><input value={mcpStore.mcpEdit.id} disabled={!mcpStore.mcpEdit.isNew} autocomplete="off" spellcheck="false" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, id: event.currentTarget.value }))} /></label>
         <label class="settings-field"><span>{session.text.mcpName}</span><input value={mcpStore.mcpEdit.name} autocomplete="off" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, name: event.currentTarget.value }))} /></label>
         <label class="settings-field"><span>{session.text.mcpTransport}</span><SelectControl value={mcpStore.mcpEdit.transport} ariaLabel={session.text.mcpTransport} options={[{ value: "stdio", label: "stdio" }, { value: "http", label: "http" }]} onChange={(value) => updateMcpEdit((draft) => ({ ...draft, transport: value as "stdio" | "http" }))} /></label>
+        <label class="settings-field"><span>{session.text.mcpTimeout}</span><input type="number" min="1" max="3600" step="1" required value={(mcpStore.mcpEdit.timeoutMs ?? 120_000) / 1000} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, timeoutMs: Number(event.currentTarget.value) * 1000 }))} /></label>
         <label class="settings-field"><span>{session.text.mcpPrefix}</span><input value={mcpStore.mcpEdit.toolNamePrefix} autocomplete="off" spellcheck="false" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, toolNamePrefix: event.currentTarget.value }))} /></label>
       </div>
       <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.mcpEnabled}</span><IosSwitch checked={mcpStore.mcpEdit.enabled} ariaLabel={session.text.mcpEnabled} onCheckedChange={(enabled) => updateMcpEdit((draft) => ({ ...draft, enabled }))} /></div></div>
@@ -114,7 +154,13 @@
       {:else}
         <div class="settings-form">
           <label class="settings-field settings-field-wide"><span>{session.text.mcpUrl}</span><input value={mcpStore.mcpEdit.url} autocomplete="off" spellcheck="false" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, url: event.currentTarget.value }))} /></label>
-          <label class="settings-field settings-field-wide"><span>{session.text.mcpHeadersReplace}</span><textarea rows="4" value={mcpStore.mcpEdit.headerDraft} placeholder={session.text.mcpMapPlaceholder} autocomplete="off" spellcheck="false" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, headerDraft: event.currentTarget.value }))}></textarea>{#each savedMcp?.headerKeys ?? [] as key (key)}<label class="inline-check"><input type="checkbox" checked={mcpStore.mcpEdit.clearHeaderKeys?.includes(key)} onchange={() => updateMcpEdit((draft) => ({ ...draft, clearHeaderKeys: draft.clearHeaderKeys?.includes(key) ? draft.clearHeaderKeys.filter((item) => item !== key) : [...(draft.clearHeaderKeys ?? []), key] }))} /> {session.text.mcpClearKey}: {key}</label>{/each}</label>
+          <label class="settings-field"><span>{session.text.mcpAuthMode}</span><SelectControl value={mcpStore.mcpEdit.authMode ?? "headers"} ariaLabel={session.text.mcpAuthMode} options={[{ value: "headers", label: session.text.mcpAuthModeHeaders }, { value: "oauth", label: session.text.mcpAuthModeOauth }]} onChange={(value) => updateMcpEdit((draft) => ({ ...draft, authMode: value as "headers" | "oauth" }))} /></label>
+          {#if (mcpStore.mcpEdit.authMode ?? "headers") === "oauth"}
+            <label class="settings-field settings-field-wide"><span>{session.text.mcpAuthServerMetadataUrl}</span><input value={mcpStore.mcpEdit.authServerMetadataUrl ?? ""} placeholder={session.text.mcpAuthMetadataHint} autocomplete="off" spellcheck="false" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, authServerMetadataUrl: event.currentTarget.value }))} /></label>
+            <label class="settings-field settings-field-wide"><span>{session.text.mcpClientName}</span><input value={mcpStore.mcpEdit.clientName ?? ""} placeholder="Molibot" autocomplete="off" spellcheck="false" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, clientName: event.currentTarget.value }))} /></label>
+          {:else}
+            <label class="settings-field settings-field-wide"><span>{session.text.mcpHeadersReplace}</span><textarea rows="4" value={mcpStore.mcpEdit.headerDraft} placeholder={session.text.mcpMapPlaceholder} autocomplete="off" spellcheck="false" oninput={(event) => updateMcpEdit((draft) => ({ ...draft, headerDraft: event.currentTarget.value }))}></textarea>{#each savedMcp?.headerKeys ?? [] as key (key)}<label class="inline-check"><input type="checkbox" checked={mcpStore.mcpEdit.clearHeaderKeys?.includes(key)} onchange={() => updateMcpEdit((draft) => ({ ...draft, clearHeaderKeys: draft.clearHeaderKeys?.includes(key) ? draft.clearHeaderKeys.filter((item) => item !== key) : [...(draft.clearHeaderKeys ?? []), key] }))} /> {session.text.mcpClearKey}: {key}</label>{/each}</label>
+          {/if}
         </div>
       {/if}
       </div>

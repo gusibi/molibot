@@ -38,3 +38,11 @@ test("a 'projects' segment in an ancestor path does not hijack resolution", () =
     "/home/u/projects/.molibot"
   );
 });
+
+test("ancestor sessions and channels names do not hijack the Agent data root", () => {
+  for (const ancestor of ["sessions", "channels"]) {
+    const root = `/tmp/${ancestor}/user-data`;
+    assert.equal(resolveDataRootFromWorkspacePath(`${root}/sessions/default`), root);
+    assert.equal(resolveDataRootFromWorkspacePath(`${root}/channels/telegram/bots/one`), root);
+  }
+});

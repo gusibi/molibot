@@ -1,3 +1,4 @@
+import { sanitizeAgents } from "./sanitize.js";
 import { DatabaseSync } from "node:sqlite";
 import {
   type AgentSettings,
@@ -6,12 +7,10 @@ import {
   type ChannelSettingsMap,
   defaultRuntimeSettings,
   defaultAgentSettings,
-  normalizeDefaultAgentSettings,
   sanitizeAgentModelRouting,
   type ModelCapabilityTag,
   type ModelCapabilityVerification,
   type ProviderModelConfig,
-  type McpServerConfig,
   type CustomProviderConfig,
   type CustomProviderProtocol,
   type TelegramBotConfig,
@@ -42,7 +41,8 @@ import {
   sanitizeSessionAutoArchiveSettings,
   sanitizeTtsGenerateSettings,
   sanitizeAdaptiveThinkingSettings,
-  sanitizeDesktopNavigation
+  sanitizeDesktopNavigation,
+  sanitizeMcpServers
 } from "$lib/server/settings/sanitize.js";
 import {
   resolveCustomProviderThinkingFormat,
@@ -540,84 +540,6 @@ function sanitizeCloudflareHtmlPluginSettings(input: unknown): RuntimeSettings["
   };
 }
 
-function sanitizeMcpServers(input: unknown): McpServerConfig[] {
-  const rows: Array<{ id: string; value: Record<string, unknown> }> = Array.isArray(input)
-    ? input
-      .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
-      .map((row) => ({ id: String(row.id ?? "").trim(), value: row }))
-    : (input && typeof input === "object")
-      ? Object.entries(input as Record<string, unknown>)
-        .filter(([, row]) => Boolean(row) && typeof row === "object")
-        .map(([id, row]) => ({ id: String(id).trim(), value: row as Record<string, unknown> }))
-      : [];
-  if (rows.length === 0) return [];
-
-  const out: McpServerConfig[] = [];
-  const dedup = new Set<string>();
-  for (const row of rows) {
-    const item = row.value;
-    const id = row.id || String(item.id ?? "").trim() || `mcp-${Math.random().toString(36).slice(2, 8)}`;
-    if (dedup.has(id)) continue;
-    dedup.add(id);
-
-    const stdioRaw = item.stdio && typeof item.stdio === "object"
-      ? item.stdio as Record<string, unknown>
-      : {};
-    const command = String(stdioRaw.command ?? item.command ?? "").trim();
-
-    const args = Array.isArray(stdioRaw.args)
-      ? stdioRaw.args.map((value) => String(value ?? "").trim()).filter(Boolean)
-      : [];
-    const envRaw = stdioRaw.env && typeof stdioRaw.env === "object"
-      ? stdioRaw.env as Record<string, unknown>
-      : {};
-    const env = Object.fromEntries(
-      Object.entries(envRaw)
-        .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
-        .filter(([key]) => Boolean(key))
-    );
-    const httpRaw = item.http && typeof item.http === "object"
-      ? item.http as Record<string, unknown>
-      : {};
-    const topLevelHeadersRaw = item.headers && typeof item.headers === "object"
-      ? item.headers as Record<string, unknown>
-      : {};
-    const headersRaw = httpRaw.headers && typeof httpRaw.headers === "object"
-      ? httpRaw.headers as Record<string, unknown>
-      : topLevelHeadersRaw;
-    const url = String(httpRaw.url ?? item.url ?? "").trim();
-    const transportRaw = String(item.transport ?? item.type ?? (url ? "http" : "stdio")).trim().toLowerCase();
-    const transport = transportRaw === "http" ? "http" : "stdio";
-    const headers = Object.fromEntries(
-      Object.entries(headersRaw)
-        .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
-        .filter(([key]) => Boolean(key))
-    );
-    if (transport === "stdio" && !command) continue;
-    if (transport === "http" && !url) continue;
-
-    out.push({
-      id,
-      name: String(item.name ?? "").trim() || id,
-      enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-      transport,
-      stdio: {
-        command,
-        args,
-        env,
-        cwd: String(stdioRaw.cwd ?? "").trim()
-      },
-      http: {
-        url,
-        headers
-      },
-      toolNamePrefix: String(item.toolNamePrefix ?? "").trim()
-    });
-  }
-
-  return out;
-}
-
 function sanitizeOpenConnector(input: unknown): RuntimeSettings["openConnector"] {
   const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const baseUrl = String(raw.baseUrl ?? "https://opc.eztoolab.com").trim().replace(/\/+$/, "");
@@ -808,34 +730,6 @@ function sanitizeList(input: unknown): string[] {
   return [];
 }
 
-
-function sanitizeAgents(input: unknown): AgentSettings[] {
-  if (!Array.isArray(input)) return [];
-
-  const out: AgentSettings[] = [];
-  const dedup = new Set<string>();
-
-  for (const row of input) {
-    if (!row || typeof row !== "object") continue;
-    const item = row as Record<string, unknown>;
-    const id = String(item.id ?? "").trim();
-    if (!id || dedup.has(id)) continue;
-    dedup.add(id);
-    out.push(normalizeDefaultAgentSettings({
-      id,
-      name: String(item.name ?? "").trim() || id,
-      description: String(item.description ?? "").trim(),
-      enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-      ...(item.visible === undefined ? {} : { visible: item.visible !== false }),
-      ...(item.avatar === undefined ? {} : { avatar: String(item.avatar).trim() }),
-      ...(item.shareOwnerMemory === undefined ? {} : { shareOwnerMemory: item.shareOwnerMemory !== false }),
-      permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
-      modelRouting: sanitizeAgentModelRouting(item.modelRouting)
-    }));
-  }
-
-  return out;
-}
 
 function sanitizeTelegramBots(input: unknown): TelegramBotConfig[] {
   if (!Array.isArray(input)) return [];
@@ -1673,7 +1567,7 @@ export class SettingsStore {
         model_routing_json: string | null;
       }>;
       const agentMetadataRow = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = 'agent_metadata'").get() as { value_json: string } | undefined;
-      const agentMetadata = agentMetadataRow ? this.parseDynamicValue<Record<string, Pick<AgentSettings, "visible" | "avatar" | "shareOwnerMemory">>>(agentMetadataRow.value_json, {}) : {};
+      const agentMetadata = agentMetadataRow ? this.parseDynamicValue<Record<string, Pick<AgentSettings, "visible" | "avatar" | "shareOwnerMemory" | "disabledSkillPaths" | "disabledTools">>>(agentMetadataRow.value_json, {}) : {};
       const agents = agentsRows.map((row) => ({
         ...agentMetadata[row.id],
         id: row.id,
@@ -1912,7 +1806,7 @@ export class SettingsStore {
         db.prepare("INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at) VALUES (?, ?, ?)").run("desktopNavigation", JSON.stringify(settings.desktopNavigation), now);
       }
       if (keys.includes("agents")) {
-        const metadata = Object.fromEntries(settings.agents.map(agent => [agent.id, { visible: agent.visible, avatar: agent.avatar, shareOwnerMemory: agent.shareOwnerMemory }]));
+        const metadata = Object.fromEntries(settings.agents.map(agent => [agent.id, { visible: agent.visible, avatar: agent.avatar, shareOwnerMemory: agent.shareOwnerMemory, disabledSkillPaths: agent.disabledSkillPaths, disabledTools: agent.disabledTools }]));
         db.prepare("INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at) VALUES ('agent_metadata', ?, ?)").run(JSON.stringify(metadata), now);
         db.exec("DELETE FROM settings_agents");
         const insertAgent = db.prepare(`

@@ -124,21 +124,8 @@ export const config = {
     process.env.SETTINGS_DB_FILE,
     path.join(resolvedDatabaseDir, "settings.sqlite")
   ),
-  webWorkspaceDir: dataDirScope.resolve(
-    "WEB_WORKSPACE_DIR",
-    process.env.WEB_WORKSPACE_DIR,
-    path.join(resolvedDataDir, "moli-w")
-  ),
-  sessionsDir: dataDirScope.resolve(
-    "SESSIONS_DIR",
-    process.env.SESSIONS_DIR,
-    path.join(resolvedDataDir, "sessions")
-  ),
-  sessionsIndexFile: dataDirScope.resolve(
-    "SESSIONS_INDEX_FILE",
-    process.env.SESSIONS_INDEX_FILE,
-    path.join(resolvedDataDir, "sessions", "index.json")
-  ),
+  webWorkspaceDir: path.join(resolvedDataDir, "channels", "web"),
+  sessionsDir: path.join(resolvedDataDir, "sessions"),
   telegramSttBaseUrl:
     (process.env.TELEGRAM_STT_BASE_URL ??
       process.env.CUSTOM_AI_BASE_URL ??

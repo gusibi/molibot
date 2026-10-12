@@ -38,6 +38,8 @@
   import SystemSection from "./lib/settings/SystemSection.svelte";
   import ModelsSection from "./lib/settings/ModelsSection.svelte";
   import DecisionModelsSection from "./lib/settings/DecisionModelsSection.svelte";
+  import AgentSettingsPage from "./lib/settings/AgentSettingsPage.svelte";
+  import { agentsStore } from "./lib/stores/agents.svelte";
   import AgentsSection from "./lib/settings/AgentsSection.svelte";
   import McpSection from "./lib/settings/McpSection.svelte";
   import OpenConnectorSection from "./lib/settings/OpenConnectorSection.svelte";
@@ -57,6 +59,7 @@
   import VideoGenerateSection from "./lib/settings/VideoGenerateSection.svelte";
   import TtsGenerateSection from "./lib/settings/TtsGenerateSection.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
+  import AgentStorageMigration from "./lib/components/AgentStorageMigration.svelte";
   import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import {
     updaterStore,
@@ -147,6 +150,10 @@
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
+  let storageReady = false;
+  let storageMigrationPending = false;
+  let storageMigrationOpen = false;
+  let storageCheckError = "";
   let startup: StartupState = initialStartupState;
   let statusScheduler: ActivityScheduler | null = null;
   let windowStateAdapter: WindowStateAdapter | null = null;
@@ -705,7 +712,7 @@
 
 
 
-  $: serviceReady = status?.service.state === "ready" && !!status?.service.endpoint;
+  $: serviceReady = storageReady && status?.service.state === "ready" && !!status?.service.endpoint;
   // Mirror shell state into the shared session store consumed by extracted
   // runes-mode section components.
   $: session.endpoint = status?.service.endpoint ?? null;
@@ -1158,13 +1165,15 @@
   <ChatView
     copy={text}
     {locale}
-    startupPhase={startup.phase}
-    startupError={startup.error}
+    {storageMigrationPending}
+    openStorageMigration={() => storageMigrationOpen = true}
+    startupPhase={storageCheckError ? "error" : startup.phase}
+    startupError={storageCheckError || startup.error}
     {retryStartup}
     {openStartupDiagnostics}
     {openStartupLogs}
     serviceEndpoint={status?.service.endpoint ?? null}
-    serviceState={status?.service.state ?? "disconnected"}
+    serviceState={storageReady ? (status?.service.state ?? "disconnected") : "disconnected"}
     serviceOwnership={status?.service.ownership ?? null}
     launchAtLogin={status?.launchAtLogin ?? false}
     launchAtLoginBusy={busy}
@@ -1173,13 +1182,14 @@
     onCommandResult={publishCommandResult}
     onFeedback={publishFeedback}
     {openSettings}
+    settingsVisible={settingsOpen}
     requestedWorkspacePane={requestedChatPane}
   />
 </div>
 
 {#if settingsOpen}
   <div class="settings-overlay" class:closing={settingsClosing} role="dialog" aria-modal="true" aria-label={text.settings}>
-  <main class="settings-layout" class:closing={settingsClosing} onanimationend={finishSettingsClose}>
+  <main class="settings-layout" class:agent-editor={activeSection === "agents" && Boolean(agentsStore.agentEdit)} class:closing={settingsClosing} onanimationend={finishSettingsClose}>
     <WindowDragMask />
     <aside class="settings-sidebar">
       <div class="settings-titlebar-space" data-tauri-drag-region aria-hidden="true"></div>
@@ -1215,6 +1225,9 @@
       </div>
     </aside>
     <section class="settings-content">
+      {#if activeSection === "agents" && agentsStore.agentEdit}
+        <AgentSettingsPage backLabel={locale === "zh-CN" ? "返回 Agent 列表" : "Back to Agent list"} />
+      {:else}
       {#key activeSection}
         <div class="settings-motion-stage" data-motion-surface="settings">
       <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "memory"} scrolled={settingsScrolled} />
@@ -1222,7 +1235,7 @@
       <div class="settings-scroll" data-section={activeSection} onscroll={(event) => (settingsScrolled = event.currentTarget.scrollTop > 2)}>
 
       {#if activeSection === "general"}
-        <SettingGroup ariaLabel={text.general}>
+        <SettingGroup title={locale === "zh-CN" ? "界面与启动" : "Interface and startup"} ariaLabel={text.general}>
           <SettingRow title={text.uiLanguage}>
             <SelectControl value={locale} ariaLabel={text.uiLanguage} options={[{ value: "zh-CN", label: "简体中文" }, { value: "en", label: "English" }]} onChange={changeLocale} />
           </SettingRow>
@@ -1529,9 +1542,12 @@
       </div>
         </div>
       {/key}
+      {/if}
     </section>
   </main>
   </div>
 {/if}
 
 <UpdateDialog {locale} />
+
+<AgentStorageMigration serviceAvailable={status?.service.state === "ready"} onError={(error) => storageCheckError = error} endpoint={status?.service.endpoint ?? null} {locale} bind:open={storageMigrationOpen} onPending={(pending) => storageMigrationPending = pending} onReady={(ready) => storageReady = ready} />

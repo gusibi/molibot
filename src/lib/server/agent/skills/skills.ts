@@ -1,3 +1,4 @@
+import { isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
 import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
@@ -49,6 +50,7 @@ interface SkillLoadOptions {
   disabledSkillPaths?: string[];
   workspaceId?: string;
   projectRoot?: string;
+  agentDisabledSkillPaths?: string[];
 }
 
 const TOKEN_PATTERN = /[a-z0-9][a-z0-9:_-]*/i;
@@ -292,7 +294,7 @@ export function loadSkillsFromWorkspace(
 ): SkillLoadResult {
   const diagnostics: string[] = [];
   const disabled = new Set(
-    (options?.disabledSkillPaths ?? [])
+    [...(options?.disabledSkillPaths ?? []), ...(options?.agentDisabledSkillPaths ?? [])]
       .map((row) => String(row ?? "").trim())
       .filter(Boolean)
   );
@@ -304,7 +306,7 @@ export function loadSkillsFromWorkspace(
   }
   roots.push({ scope: "bot", dir: join(workspaceDir, "skills") });
   roots.push({ scope: "global", dir: join(dataRoot, "skills") });
-  if (chatId?.trim()) {
+  if (chatId?.trim() && !isAgentWorkspace(workspaceDir)) {
     roots.push({ scope: "chat", dir: join(workspaceDir, chatId.trim(), "skills") });
   }
 

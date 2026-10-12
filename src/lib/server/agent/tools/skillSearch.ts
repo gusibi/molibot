@@ -239,6 +239,7 @@ function isClearLocalWinner(matches: SkillSearchMatch[]): boolean {
 
 export function createSkillSearchTool(options: {
   workspaceDir: string;
+  agentId?: string;
   chatId: string;
   projectRoot?: string;
   getSettings: () => RuntimeSettings;
@@ -253,6 +254,7 @@ export function createSkillSearchTool(options: {
       const settings = options.getSettings();
       const { skills } = loadSkillsFromWorkspace(options.workspaceDir, options.chatId, {
         disabledSkillPaths: settings.disabledSkillPaths,
+        agentDisabledSkillPaths: settings.agents.find(agent => agent.id === options.agentId)?.disabledSkillPaths,
         projectRoot: options.projectRoot
       });
       const intent = String(params.intent ?? "").trim();

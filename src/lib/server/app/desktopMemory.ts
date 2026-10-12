@@ -1,3 +1,5 @@
+import { agentNamespace, ownerNamespace } from "$lib/server/memory/namespaces";
+import type { MemoryRecord } from "$lib/server/memory/types";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import type { MemoryBackendCapabilities } from "$lib/server/memory/types";
 import type { DesktopMemorySummary } from "$lib/shared/desktop";
@@ -35,4 +37,15 @@ export function buildDesktopMemorySummary(
       candidates: caps?.supportsCandidates === true
     }
   };
+}
+
+/** Agent settings show Agent facts and optionally shared owner records. */
+export function desktopAgentMemoryScope(settings: RuntimeSettings, agentId: string) {
+  const agent = settings.agents.find(item => item.id === agentId);
+  if (!agent || settings.deletedAgentIds?.includes(agentId)) throw new Error("Agent not found");
+  return { agentId, botId: agentId, channel: "web", externalUserId: "desktop-agent-memory", ownerId: "owner", shareOwner: agent.shareOwnerMemory !== false };
+}
+
+export function desktopAgentMemoryRecords(scope: ReturnType<typeof desktopAgentMemoryScope>, items: MemoryRecord[]): MemoryRecord[] {
+  return items.filter(item => item.namespace === agentNamespace(scope.agentId) || (scope.shareOwner && item.namespace === ownerNamespace(scope.ownerId)));
 }

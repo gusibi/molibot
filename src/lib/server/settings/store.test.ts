@@ -504,16 +504,30 @@ test("MCP server enable state and transport configuration survive a settings sto
       transport: "stdio" as const,
       stdio: { command: "node", args: ["server.mjs"], env: { TOKEN: "secret" }, cwd: "workspace" },
       http: { url: "", headers: {} },
+      auth: { mode: "headers" as const, oauth: { authServerMetadataUrl: "", clientName: "" } },
       toolNamePrefix: "local"
     },
     {
+      timeoutMs: 45_000,
       id: "remote-tools",
       name: "Remote tools",
       enabled: true,
       transport: "http" as const,
       stdio: { command: "", args: [], env: {}, cwd: "" },
       http: { url: "http://127.0.0.1:9123/mcp", headers: { Authorization: "Bearer secret" } },
+      auth: { mode: "headers" as const, oauth: { authServerMetadataUrl: "", clientName: "" } },
       toolNamePrefix: "remote"
+    },
+    {
+      timeoutMs: 300_000,
+      id: "oauth-tools",
+      name: "OAuth tools",
+      enabled: true,
+      transport: "http" as const,
+      stdio: { command: "", args: [], env: {}, cwd: "" },
+      http: { url: "https://oauth.example.com/mcp", headers: {} },
+      auth: { mode: "oauth" as const, oauth: { authServerMetadataUrl: "https://auth.example.com/meta", clientName: "Molibot" } },
+      toolNamePrefix: "oauth"
     }
   ];
 
@@ -770,7 +784,6 @@ test("plugin entry enable state survives a settings store restart", () => {
     storagePaths.dbDir = path.join(root, "db");
     storagePaths.settingsDbFile = path.join(storagePaths.dbDir, "settings.sqlite");
     storagePaths.settingsFile = path.join(root, "settings.json");
-    storagePaths.sessionsIndexFile = path.join(root, "sessions-index.json");
 
     new SettingsStore().save({
       ...defaultRuntimeSettings,
@@ -810,6 +823,24 @@ test("global Bot bindings persist canonical Momo through a channel-only save and
     try {
       assert.equal(db.prepare("SELECT agent_id FROM settings_channel_instances WHERE channel_key = ? AND id = ?").get("fixture", "global-bot")?.agent_id, "default");
     } finally { db.close(); }
+  } finally {
+    Object.assign(storagePaths, originals);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Agent settings preserve the entire object through save and a new store load", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-agent-settings-roundtrip-"));
+  const originals = { ...storagePaths };
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+  try {
+    const store = new SettingsStore();
+    const before = store.load();
+    const expected = { ...before, agents: [...before.agents, { id: "researcher", name: "Researcher", description: "Independent Agent", enabled: true, visible: false, avatar: "/api/desktop/agent-avatar?id=researcher&file=" + "a".repeat(64) + ".png", shareOwnerMemory: false, permissionMode: "manual" as const, modelRouting: { textModelKey: "custom:fixture", sttModelKey: "custom:speech" }, disabledSkillPaths: ["skills/research/SKILL.md"], disabledTools: ["bash", "webSearch"] }] };
+    store.save(expected);
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(JSON.parse(JSON.stringify(restarted)), JSON.parse(JSON.stringify(expected)));
   } finally {
     Object.assign(storagePaths, originals);
     rmSync(root, { recursive: true, force: true });

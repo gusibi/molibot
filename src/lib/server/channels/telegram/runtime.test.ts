@@ -1,3 +1,4 @@
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync } from "node:fs";
@@ -8,7 +9,7 @@ import { TelegramManager } from "$lib/server/channels/telegram/runtime.js";
 import { buildTelegramMemoryReviewKeyboard, parseTelegramMemoryReviewCallback } from "$lib/server/channels/telegram/memoryReview.js";
 
 // Mock dependencies for TelegramManager instantiation
-const mockGetSettings = () => ({}) as any;
+const mockGetSettings = () => structuredClone(defaultRuntimeSettings);
 const mockUpdateSettings = (patch: any) => ({}) as any;
 const mockSessions = {} as any;
 function createMockDeps() {

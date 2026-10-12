@@ -78,7 +78,7 @@ for (const channel of ["telegram", "feishu"]) test(`${channel} restart retains t
       assert.deepEqual(context.deliveryTarget, owner.transport);
       assert.equal(context.message.userId, "original-actor"); assert.equal(context.message.isEvent, true); assert.equal(context.message.text, "");
       await context.respond("Original answer"); return { stopReason: "stop", assistantSourceEntryId: "native-answer" };
-    } }, { appendMessage: (_id, _role, content) => { messages.push(content); return {} as never; } },
+    } }, { appendMessage: (_id, _role, content) => { messages.push(content); return {} as never; }, listMessageMetadata: () => [] },
     text => manager.sendInternalNotice(owner.transport.chatId, text));
     assert.equal(result.stopReason, "stop"); assert.deepEqual(sent, ["Original answer"]); assert.deepEqual(messages, sent);
   } finally { rmSync(directory, { recursive: true, force: true }); }

@@ -30,6 +30,7 @@
   export let activity = "";
   export let activities: DesktopActivityEntry[] = [];
   export let liveSteps: DesktopConversationStep[] = [];
+  export let customHome = false;
   export let emptyTitle: string;
   export let emptyHint: string;
   export let emptyActionLabel = "";
@@ -112,7 +113,7 @@
       {#if messages.length === 0 && !sending}<slot name="home" />{/if}
       <ConversationLiveView
         messages={visibleMessages}
-        showEmpty={!liveResponses.length}
+        showEmpty={!customHome && !liveResponses.length}
         {copy}
         {formatTime}
         {assistantName}

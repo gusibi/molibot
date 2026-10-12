@@ -371,3 +371,11 @@ test("all configured channels canonicalize global execution to Momo even with a 
     assert.ok(channel.instances.every(instance => instance.agentId === "default"));
   }
 });
+
+
+test("MCP tool deadlines retain defaults and bound configured values", () => {
+  for (const [raw, expected] of [[undefined, undefined], [45_000, 45_000], [0, 1_000], [-1, 1_000], [Infinity, 120_000], ["invalid", 120_000], [4_000_000, 3_600_000]] as const) {
+    const [server] = sanitizeMcpServers([{ id: "test", url: "https://mcp.example.com", timeoutMs: raw }]);
+    assert.equal(server.timeoutMs, expected);
+  }
+});

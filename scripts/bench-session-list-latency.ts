@@ -18,6 +18,7 @@ import {
   buildExternalItems,
   buildWebItems,
   listDesktopConversations,
+  searchDesktopConversations,
   queryConversations,
   type BotNameResolver,
   type DesktopConversationQueryContext
@@ -102,11 +103,13 @@ function seedAgentContext(file: string, sessionId: string, messages: number): vo
 async function main(): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-list-bench-"));
   const original = {
+    dataDir: storagePaths.dataDir,
     webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
     sessionsIndexFile: storagePaths.sessionsIndexFile,
     projectsDir: storagePaths.projectsDir
   };
+  storagePaths.dataDir = root;
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "legacy");
   storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
@@ -165,10 +168,11 @@ async function main(): Promise<void> {
 
     // --- External: raw Agent Context transcripts plus derived metadata. ---
     for (let i = 0; i < EXTERNAL_SESSIONS; i += 1) {
-      const dir = path.join(root, "moli-t", "bots", "mybot", "111", "contexts");
+      const dir = path.join(root, "sessions", "default", "contexts");
       mkdirSync(dir, { recursive: true });
       seedAgentContext(path.join(dir, `s-${String(i).padStart(2, "0")}.jsonl`), `s-${String(i).padStart(2, "0")}`, EXTERNAL_MESSAGES);
       writeFileSync(path.join(dir, `s-${String(i).padStart(2, "0")}.json`), "[]\n", "utf8");
+      writeFileSync(path.join(dir, `s-${String(i).padStart(2, "0")}.meta.json`), JSON.stringify({ agentId: "default", source: { channel: "telegram", botId: "mybot", chatId: "111", sessionId: `s-${String(i).padStart(2, "0")}` } }));
     }
     rebuildExternalSessionMetadata(root);
 
@@ -188,6 +192,14 @@ async function main(): Promise<void> {
     });
     await measure("  light: metadata projection only", 12, () => {
       listExternalSessionMetaFromContexts(root);
+    });
+    console.log("\nAgent history first page (same isolated dataset)");
+    await measure("  former: all previews + four external scans", 5, () => {
+      buildWebItems(store.listAllWebConversations(), resolver);
+      for (let channel = 0; channel < 4; channel++) buildExternalItems(listExternalSessionsFromContexts(root), resolver);
+    });
+    await measure("  fixed: metadata + ten visible previews", 5, () => {
+      searchDesktopConversations({ scope: "all", agentId: "default", limit: 10 }, webCtx);
     });
     console.log("");
   } finally {

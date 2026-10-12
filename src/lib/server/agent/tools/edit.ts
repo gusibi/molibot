@@ -46,10 +46,10 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
     sideEffectClass: "idempotent",
     invalidatesSources: (input, ctx) => {
       const raw = String((input as { path?: unknown })?.path ?? "");
-      return raw ? [raw, resolveToolPath(ctx.cwd, raw)] : [];
+      return raw ? [raw, resolveToolPath(ctx.cwd, raw, ctx.sessionSource)] : [];
     },
     handler: async (params: any, ctx) => {
-      const filePath = resolveToolPath(ctx.cwd, params.path);
+      const filePath = resolveToolPath(ctx.cwd, params.path, ctx.sessionSource);
       ensureAllowedPath(filePath);
       // Checked before the read-modify-write cycle, so a denied file is never
       // even opened for mutation (CLAUDE.md pitfall 26d).

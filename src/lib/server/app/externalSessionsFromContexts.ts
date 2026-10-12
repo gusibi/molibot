@@ -1,3 +1,5 @@
+import { resolveAgentFileReference } from "$lib/server/sessions/agentFileReferences.js";
+import { listAgentSessions } from "$lib/server/sessions/agentStorage.js";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -11,7 +13,6 @@ import {
   messageContent,
   readSessionMetadataFile,
   writeSessionDisplayMetadata,
-  writeSessionOriginMetadata,
   type SessionDisplayMetadata
 } from "$lib/server/agent/session/metadata.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
@@ -19,8 +20,6 @@ import type { ExternalSessionEntry } from "$lib/server/app/desktopExternalSessio
 import type { Channel, Conversation, ConversationMessage, ConversationAttachment } from "$lib/shared/types/message.js";
 import { mediaTypeFromName, mimeFromFilename } from "$lib/shared/filePreview.js";
 import { isAuthorizedConversationSource, type AuthorizedConversationSource } from "$lib/server/sessions/conversationAuthorization.js";
-import type { RuntimeSettings } from "$lib/server/settings/schema.js";
-import { configuredSessionAgent } from "$lib/server/sessions/sessionAgentService.js";
 import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 
 /**
@@ -196,7 +195,7 @@ function extractGeneratedAttachments(message: AgentMessage, workspaceDir: string
     mediaType = "video";
   }
   if (!filePath || !mediaType) return [];
-  const resolved = isAbsolute(filePath) ? resolve(filePath) : resolve(workspaceDir, filePath);
+  const resolved = resolveAgentFileReference(workspaceDir, filePath);
   const rel = relative(workspaceDir, resolved);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) return [];
   return [{ original: basename(resolved), local: rel, mediaType }];
@@ -221,7 +220,7 @@ function extractChannelAttachments(content: string, workspaceDir: string): {
   for (const line of match[1].split("\n")) {
     const candidate = line.trim();
     if (!candidate || !isAbsolute(candidate)) continue;
-    const resolved = resolve(candidate);
+    const resolved = resolveAgentFileReference(workspaceDir, candidate);
     const rel = relative(workspaceDir, resolved);
     if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
     attachments.push({
@@ -322,23 +321,10 @@ interface ContextSessionRef {
 
 /** Enumerates every session file present under the channel bot workspaces. */
 function listContextSessions(root: string): ContextSessionRef[] {
-  const out: ContextSessionRef[] = [];
-  for (const { channel, dir } of TASK_CHANNEL_ROOTS) {
-    const botsRoot = join(root, dir, "bots");
-    if (!existsSync(botsRoot)) continue;
-    for (const bot of readdirSync(botsRoot, { withFileTypes: true })) {
-      if (!bot.isDirectory()) continue;
-      const botDir = join(botsRoot, bot.name);
-      for (const chat of readdirSync(botDir, { withFileTypes: true })) {
-        if (!chat.isDirectory() || chat.name === "skills") continue;
-        const contextsDir = join(botDir, chat.name, "contexts");
-        for (const sessionId of listContextSessionIds(contextsDir)) {
-          out.push({ channel, botId: bot.name, chatId: chat.name, contextsDir, sessionId });
-        }
-      }
-    }
-  }
-  return out;
+  return listAgentSessions(root).filter(item => item.source.channel !== "web").map(item => ({
+    channel: item.source.channel as Channel, botId: item.source.botId, chatId: item.source.chatId,
+    contextsDir: item.contextsDir, sessionId: item.sessionId
+  }));
 }
 
 function authorizedForContext(
@@ -362,11 +348,14 @@ function authorizedForContext(
  */
 export function listExternalSessionsFromContexts(
   dataRoot: string,
-  authorizedSources?: AuthorizedConversationSource[]
+  authorizedSources?: AuthorizedConversationSource[],
+  sessionIds?: ReadonlySet<string>
 ): ExternalSessionEntry[] {
   const root = resolve(dataRoot);
   const out: ExternalSessionEntry[] = [];
   for (const entry of listContextSessions(root)) {
+    const id = encodeExternalSessionId({ channel: entry.channel, botId: entry.botId, chatId: entry.chatId, sessionId: entry.sessionId });
+    if (sessionIds && !sessionIds.has(id)) continue;
     if (isAutomationSession(entry.contextsDir, entry.sessionId)) continue;
     const entries = readEntries(entry.contextsDir, entry.sessionId);
     if (isEventPromptSession(entries)) continue;
@@ -458,8 +447,9 @@ export function readExternalTranscriptFromContexts(
   if (!ref) return null;
   const dir = channelDir(ref.channel);
   if (!dir) return null;
-  const workspaceDir = join(resolve(dataRoot), dir, "bots", ref.botId, ref.chatId);
-  const contextsDir = join(workspaceDir, "contexts");
+  const location = listAgentSessions(dataRoot, { channel: ref.channel, botId: ref.botId, chatId: ref.chatId }).find(item => item.sessionId === ref.sessionId);
+  if (!location) return null;
+  const { workspaceDir, contextsDir } = location;
   const file = join(contextsDir, `${ref.sessionId}.jsonl`);
   if (!existsSync(file)) return null;
   const entries = readEntries(contextsDir, ref.sessionId, 16 * 1024 * 1024);
@@ -477,20 +467,6 @@ export function claimExternalSessionAgent(dataRoot: string, id: string, agentId:
   if (!ref || !dir || !transcript) throw new Error("External Session not found");
   if (transcript.conversation.projectId) throw new Error("Project ownership is separate");
   if (transcript.conversation.agentId && transcript.conversation.agentId !== agentId) throw new Error("Session Agent is immutable");
-  writeSessionOriginMetadata(join(resolve(dataRoot), dir, "bots", ref.botId, ref.chatId, "contexts"), ref.sessionId, { agentId });
+  if (transcript.conversation.agentId !== agentId) throw new Error("Session Agent is immutable");
   return { ...transcript.conversation, agentId };
-}
-
-/** Pins missing Session ownership from its Bot directory, preserving existing identities. */
-export function associateContextSessionAgents(dataRoot: string, settings: RuntimeSettings): number {
-  let assigned = 0;
-  for (const entry of listContextSessions(resolve(dataRoot))) {
-    const metadata = readSessionMetadataFile(entry.contextsDir, entry.sessionId);
-    if (metadata?.agentId || metadata?.display?.eventPrompt || isAutomationSession(entry.contextsDir, entry.sessionId)) continue;
-    const agentId = configuredSessionAgent(settings, entry.channel, entry.botId);
-    if (!agentId) continue;
-    writeSessionOriginMetadata(entry.contextsDir, entry.sessionId, { agentId });
-    assigned += 1;
-  }
-  return assigned;
 }

@@ -1,3 +1,4 @@
+import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
 import { admitStoredAgentSession } from "$lib/server/sessions/sessionAgentService.js";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
@@ -104,7 +105,10 @@ export abstract class BaseChannelRuntime {
     this.updateSettings = init.updateSettings;
     this.workspaceDir = runtimeOptions?.workspaceDir ?? resolve(config.dataDir, init.defaultWorkspaceName);
     this.instanceId = runtimeOptions?.instanceId ?? "default";
-    this.store = new MomRuntimeStore(this.workspaceDir);
+    this.store = new MomRuntimeStore(agentWorkspaceDir(config.dataDir, this.getSettings().channels[this.channelName]?.instances.find(bot => bot.id === this.instanceId)?.agentId || "default"), {
+      source: { channel: this.channelName, botId: this.instanceId },
+      getAgentId: () => this.getSettings().channels[this.channelName]?.instances.find(bot => bot.id === this.instanceId)?.agentId || "default"
+    });
     this.sessions = init.sessionStore ?? new SessionStore();
 
     if (!runtimeOptions?.memory) {
@@ -239,8 +243,10 @@ export abstract class BaseChannelRuntime {
     return this.stopChatWork(scopeId);
   }
 
-  protected getEventLeaseScope(): string {
-    return `${this.channelName}:${this.instanceId}`;
+  protected getEventLeaseScope(scopeId: string): string {
+    const sessionId = this.store.getActiveSession(scopeId);
+    const agentId = this.store.readSessionOrigin(scopeId, sessionId)?.agentId || this.getSettings().channels[this.channelName]?.instances.find(bot => bot.id === this.instanceId)?.agentId || "default";
+    return `agent:${agentId}`;
   }
 
   /**
@@ -248,9 +254,16 @@ export abstract class BaseChannelRuntime {
    * archive (legacy tasks without an id keep per-run Sessions); everything else
    * uses the chat's active Session.
    */
+  protected eventStore(event: Pick<ChannelInboundMessage, "isEvent" | "agentId">): MomRuntimeStore {
+    if (!event.isEvent || !event.agentId) return this.store;
+    if (!this.getSettings().agents.some(agent => agent.id === event.agentId)) throw new Error("Event Agent no longer exists");
+    return this.store.forAgent(event.agentId);
+  }
+
   protected resolveInboundSessionId(scopeId: string, event: ChannelInboundMessage): string {
+    const store = this.eventStore(event);
     if (event.isEvent && event.sessionMode === "fresh") {
-      const sessionId = this.store.beginTaskArchiveSession(
+      const sessionId = store.beginTaskArchiveSession(
         scopeId,
         String((event as ChannelInboundMessage & { taskId?: string }).taskId ?? ""),
         taskSessionRetentionMs(this.getSettings().events?.taskSessionRetentionDays),
@@ -261,7 +274,7 @@ export abstract class BaseChannelRuntime {
       momLog(this.channelName, "event_fresh_archive_resolved", { chatId: scopeId, sessionId, taskId: event.taskId });
       return sessionId;
     }
-    const sessionId = resolveEventTargetSessionId(event, this.store.getActiveSession(scopeId));
+    const sessionId = resolveEventTargetSessionId(event, store.getActiveSession(scopeId));
     if (event.isEvent && event.runId) {
       getEventExecutionLeaseStore().attachSessionByRunId(event.runId, sessionId);
     }
@@ -286,11 +299,12 @@ export abstract class BaseChannelRuntime {
       imageContents: [],
       isEvent: true,
       taskId: event.taskId,
+      agentId: event.agentId,
       sessionId: event.sessionId,
       sessionMode: resolveEventSessionMode(event),
       runId
     });
-    appendDirectEventContextMessage(this.store, event.chatId, sessionId, event.text, now, runId);
+    appendDirectEventContextMessage(this.eventStore({ isEvent: true, agentId: event.agentId }), event.chatId, sessionId, event.text, now, runId);
     if (previousActiveSessionId && previousActiveSessionId !== sessionId) {
       this.store.setActiveSession(event.chatId, previousActiveSessionId);
     }
@@ -342,7 +356,8 @@ export abstract class BaseChannelRuntime {
       scopeId,
       "Stopped by user.",
       new Date(),
-      this.getEventLeaseScope()
+      this.getEventLeaseScope(scopeId),
+      { channel: this.channelName, instanceId: this.instanceId }
     );
     if (stopped.aborted) {
       this.running.delete(scopeId);
@@ -397,7 +412,7 @@ export abstract class BaseChannelRuntime {
   }
 
   protected isScopeBusy(scopeId: string): boolean {
-    return this.running.has(scopeId) || getEventExecutionLeaseStore().hasActiveForChat(scopeId, this.getEventLeaseScope());
+    return this.running.has(scopeId) || getEventExecutionLeaseStore().hasActiveForChat(scopeId, this.getEventLeaseScope(scopeId), { channel: this.channelName, instanceId: this.instanceId });
   }
 
   protected async writePromptPreview(allowedChatIds: string[]): Promise<void> {
@@ -410,13 +425,15 @@ export abstract class BaseChannelRuntime {
           12
         )) || "(no working memory yet)")
       : "(no working memory yet)";
-    const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText, {
+    const prompt = buildSystemPromptPreview(this.store.getWorkspaceDir(), chatId, sessionId, memoryText, {
       channel: this.channelName,
+      botProfileDir: this.workspaceDir,
       settings: this.getSettings()
     });
     const channelSections = buildPromptChannelSections(this.channelName);
-    const sources = getSystemPromptSources(this.workspaceDir, {
+    const sources = getSystemPromptSources(this.store.getWorkspaceDir(), {
       channel: this.channelName,
+      botProfileDir: this.workspaceDir,
       settings: this.getSettings()
     });
     const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
@@ -483,10 +500,11 @@ export abstract class BaseChannelRuntime {
       "channel" | "instanceId" | "workspaceDir" | "store" | "runners" | "getSettings" | "updateSettings"
     >
   ): SharedRuntimeCommandService<TTarget> {
+    const store = this.store;
     return new SharedRuntimeCommandService<TTarget>({
       channel: this.channelName,
       instanceId: this.instanceId,
-      workspaceDir: this.workspaceDir,
+      get workspaceDir() { return store.getWorkspaceDir(); },
       store: this.store,
       runners: this.runners,
       getSettings: this.getSettings,
@@ -545,8 +563,8 @@ export abstract class BaseChannelRuntime {
     let sessionId = event.sessionId ?? this.resolveInboundSessionId(scopeId, event);
     const admissionTarget = this.runners.resolveTarget(scopeId, sessionId, event.projectId);
     if (!admissionTarget.project) {
-      const agentId = this.getSettings().channels[this.channelName]?.instances.find(instance => instance.id === this.instanceId)?.agentId ?? "";
-      sessionId = admitStoredAgentSession(this.store, this.getSettings(), {
+      const agentId = event.isEvent && event.agentId ? event.agentId : this.getSettings().channels[this.channelName]?.instances.find(instance => instance.id === this.instanceId)?.agentId || "default";
+      sessionId = admitStoredAgentSession(this.eventStore(event), this.getSettings(), {
         chatId: scopeId, sessionId, explicit: Boolean(event.sessionId), agentId,
         recoveryRunId: event.runId, userId: event.userId, automation: event.isEvent && event.sessionMode === "fresh"
       });
@@ -712,9 +730,10 @@ export abstract class BaseChannelRuntime {
     const ctx = buildTextChannelContext({
       channel: this.channelName as Channel,
       event,
-      workspaceDir: this.workspaceDir,
+      workspaceDir: target.store.getWorkspaceDir(),
+      deliveryWorkspaceDir: this.workspaceDir,
       chatDir: target.store.getChatDir(target.chatId),
-      store: this.store,
+      store: target.store,
       sessions: this.sessions,
       instanceId: this.instanceId,
       activeSessionId,

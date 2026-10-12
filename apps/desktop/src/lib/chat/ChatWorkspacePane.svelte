@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
   import type { Component } from "svelte";
   import type { Translation } from "../i18n";
   import ChatHeader from "./ChatHeader.svelte";
@@ -8,6 +9,11 @@
   import PlansWorkspace from "../plans/PlansWorkspace.svelte";
   import type { ChatWorkspacePane } from "./workspace";
 
+  export let agents: DesktopAgentItem[] = [];
+  export let activities: DesktopAgentActivityItem[] = [];
+  export let activityReady = false;
+  export let activityError = "";
+  export let focusedAgentId = "";
   export let pane: Exclude<ChatWorkspacePane, "chat">;
   export let copy: Translation;
   export let serviceEndpoint: string | null;
@@ -24,8 +30,12 @@
   export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
 
   interface AgentStudioProps {
+    agents: DesktopAgentItem[];
+    activities: DesktopAgentActivityItem[];
+    activityReady: boolean;
+    activityError: string;
+    focusedAgentId: string;
     copy: Translation;
-    serviceEndpoint: string | null;
     serviceReady: boolean;
     onOpenAgentSettings: (agentId?: string) => void;
     onOpenAgentChat: (agentId: string) => void;
@@ -43,7 +53,7 @@
     });
   }
 
-  $: workspaceTitle = pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : pane === "plans" ? copy.planBoardTitle : copy.agentsNav;
+  $: workspaceTitle = pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : pane === "plans" ? copy.planBoardTitle : `${copy.agentsNav} · ${copy.agentOverview}`;
   $: workspaceDescription = pane === "automations" ? copy.autoTasksHint : pane === "skills" ? copy.skillsSquareHint : pane === "miniapps" ? copy.miniAppsHint : pane === "plans" ? copy.planBoardHint : copy.agentStudioHint;
 </script>
 
@@ -73,7 +83,7 @@
     {:else if pane === "plans"}
       <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} />
     {:else if AgentStudioComponent}
-      <AgentStudioComponent {copy} {serviceEndpoint} {serviceReady} {onOpenAgentSettings} {onOpenAgentChat} />
+      <AgentStudioComponent {agents} {activities} {activityReady} {activityError} {focusedAgentId} {copy} {serviceReady} {onOpenAgentSettings} {onOpenAgentChat} />
     {:else}
       <div class="workspace-empty"><p>{copy.loading}</p></div>
     {/if}

@@ -15,6 +15,7 @@ import type { SessionFileEntry, SessionMessageEntry } from "./session.js";
 
 export interface SessionOriginMetadata {
   agentId?: string;
+  source?: import("$lib/server/sessions/agentStorage.js").SessionSource;
   origin?: "automation" | "chat";
   taskId?: string;
   runId?: string;

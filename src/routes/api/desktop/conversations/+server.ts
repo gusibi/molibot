@@ -51,6 +51,7 @@ export const GET: RequestHandler = async ({ url }) => {
     ok: true,
     channel,
     items: result.items,
+    ...("latestConversationAtByAgent" in result ? { latestConversationAtByAgent: result.latestConversationAtByAgent } : {}),
     nextCursor: result.nextCursor,
     hasMore: result.hasMore
   };

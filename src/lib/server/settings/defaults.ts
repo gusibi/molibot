@@ -26,6 +26,7 @@ import {
   type RunBudgetLimits,
   type TelegramBotConfig
 } from "$lib/server/settings/schema.js";
+import { resolveMcpAuthConfig } from "$lib/server/settings/mcpAuth.js";
 import { defaultToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import { defaultHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings/thinking.js";
@@ -115,6 +116,7 @@ function parseEnvMcpServers(): McpServerConfig[] {
       if (transport === "stdio" && !command) continue;
       if (transport === "http" && !url) continue;
 
+      const auth = resolveMcpAuthConfig(transport, item, headers);
       out.push({
         id,
         name: String(item.name ?? "").trim() || id,
@@ -130,6 +132,7 @@ function parseEnvMcpServers(): McpServerConfig[] {
           url,
           headers
         },
+        auth,
         toolNamePrefix: String(item.toolNamePrefix ?? "").trim()
       });
     }

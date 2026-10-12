@@ -47,8 +47,8 @@ export default function create(context) {
 
 function harness() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-miniapp-manage-"));
-  const workspaceDir = path.join(root, "moli-w", "bots", "Web-miniapp");
-  const cwd = path.join(workspaceDir, "web-user", "scratch");
+  const workspaceDir = path.join(root, "sessions", "default");
+  const cwd = path.join(workspaceDir, "scratch");
   const codeRoot = path.join(root, "miniapps", "apps");
   const dataRoot = path.join(root, "miniapps", "data");
   fs.mkdirSync(cwd, { recursive: true });

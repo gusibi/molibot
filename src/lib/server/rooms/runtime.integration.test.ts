@@ -65,7 +65,7 @@ test("Desktop Room dispatch uses distinct configured models and identities in re
     const invalid = await handleRoomRequest(service,new Request('http://localhost/api/desktop/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'send',roomId:room.id,sessionId:room.id,submissionId:'invalid',text:'invalid',modelKey:'invalid'})}),new URL('http://localhost/api/desktop/rooms'));
     if(invalid.status===200) throw new Error('Invalid model accepted');
     const { MomRuntimeStore } = await import('./src/lib/server/agent/session/store.ts');
-    const persisted = new MomRuntimeStore(join(process.env.DATA_DIR,'moli-w','rooms',room.id,'runtime'));
+    const persisted = new MomRuntimeStore(join(process.env.DATA_DIR,'channels','web','rooms',room.id,'runtime'));
     console.log('ROOM_ROUTING_PERSISTED='+JSON.stringify(initial.executions.flatMap(e=>persisted.listSessionMessageEntries(room.id,e.contextId))));
     console.log('ROOM_RESULT='+JSON.stringify(initial));
     console.log('ROOM_AFTER_FAILURE='+JSON.stringify(service.view(room.id).executions.at(-1)));

@@ -261,8 +261,10 @@ test("project prompts retain only USER.md from runtime profiles", () => {
     writeFileSync(join(workspaceDir, "SOUL.md"), "BOT-SOUL-MARKER", "utf8");
     writeFileSync(join(agentDir, "AGENTS.md"), "AGENT-MARKER", "utf8");
     writeFileSync(join(agentDir, "IDENTITY.md"), "AGENT-IDENTITY-MARKER", "utf8");
-    writeFileSync(join(dataRoot, "USER.md"), "GLOBAL-USER-MARKER", "utf8");
-    writeFileSync(join(dataRoot, "IDENTITY.md"), "GLOBAL-IDENTITY-MARKER", "utf8");
+    const globalDir = join(dataRoot, "agents", "default");
+    mkdirSync(globalDir, { recursive: true });
+    writeFileSync(join(globalDir, "USER.md"), "GLOBAL-USER-MARKER", "utf8");
+    writeFileSync(join(globalDir, "IDENTITY.md"), "GLOBAL-IDENTITY-MARKER", "utf8");
     writeFileSync(join(projectDir, "AGENTS.md"), "PROJECT-AGENTS-MARKER", "utf8");
 
     const settings = {
@@ -390,7 +392,8 @@ test("bot BOT.md stacks with global AGENTS.md instead of replacing it", () => {
   const workspaceDir = join(dataRoot, "moli-test", "bots", "bot-1");
   try {
     mkdirSync(workspaceDir, { recursive: true });
-    writeFileSync(join(dataRoot, "AGENTS.md"), "# AGENTS.md\n\nGLOBAL-AGENTS-MARKER", "utf8");
+    mkdirSync(join(dataRoot, "agents", "default"), { recursive: true });
+    writeFileSync(join(dataRoot, "agents", "default", "AGENTS.md"), "# AGENTS.md\n\nGLOBAL-AGENTS-MARKER", "utf8");
 
     const withoutBotFile = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
       timezone: "UTC"
@@ -429,6 +432,8 @@ test("bot BOT.md stacks with linked agent AGENTS.md while identity files still o
     storagePaths.agentsDir = join(dataRoot, "agents");
     mkdirSync(workspaceDir, { recursive: true });
     mkdirSync(agentDir, { recursive: true });
+    mkdirSync(join(dataRoot, "agents", "default"), { recursive: true });
+    writeFileSync(join(dataRoot, "agents", "default", "AGENTS.md"), "# AGENTS.md\n\nGLOBAL-SHARED-MARKER", "utf8");
     writeFileSync(join(agentDir, "AGENTS.md"), "# AGENTS.md\n\nAGENT-AGENTS-MARKER", "utf8");
     writeFileSync(join(agentDir, "SOUL.md"), "# SOUL.md\n\nAGENT-SOUL-MARKER", "utf8");
     writeFileSync(join(workspaceDir, "BOT.md"), "# BOT.md\n\nBOT-STACK-MARKER", "utf8");
@@ -457,6 +462,8 @@ test("bot BOT.md stacks with linked agent AGENTS.md while identity files still o
 
     assert.match(prompt, /BOT-STACK-MARKER/);
     assert.match(prompt, /AGENT-AGENTS-MARKER/);
+    assert.equal(prompt.split("GLOBAL-SHARED-MARKER").length - 1, 1);
+    assert.ok(prompt.indexOf("GLOBAL-SHARED-MARKER") < prompt.indexOf("AGENT-AGENTS-MARKER"));
     assert.match(prompt, /BOT-SOUL-MARKER/);
     assert.doesNotMatch(prompt, /AGENT-SOUL-MARKER/);
     assert.ok(
@@ -502,7 +509,7 @@ test("bot operator identity prevents default Momo identity from overriding profi
 
 test("prompt source prioritizes webSearch for current web information", () => {
   assert.match(promptSource, /"webSearch"/);
-  assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"webSearch"[\s\S]*\}/);
+  assert.match(promptSource, /function buildAvailableDeferredToolsSection\([^)]*\): string \{[\s\S]*"webSearch"[\s\S]*\}/);
   // The outcome table in <tools> owns the routing; the pipeline points at it.
   assert.match(promptSource, /- current web information → `webSearch`/);
   assert.match(promptSource, /an explicitly selected skill or app may use its own live source/);
@@ -585,7 +592,7 @@ test("MCP controls exist exactly when the prompt advertises them (s-20260817-ztf
  */
 test("prompt source prioritizes imageGenerate before skillSearch and bash image scripts", () => {
   assert.match(promptSource, /"imageGenerate"/);
-  assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"imageGenerate"[\s\S]*\}/);
+  assert.match(promptSource, /function buildAvailableDeferredToolsSection\([^)]*\): string \{[\s\S]*"imageGenerate"[\s\S]*\}/);
   assert.match(promptSource, /- image generation or editing → `imageGenerate`, not scripts or discovered skills/);
   assert.match(promptSource, /Automatic outcome routing after explicit skill and app selection/);
   assert.match(promptSource, /Infer intent semantically in any language/);
@@ -594,7 +601,7 @@ test("prompt source prioritizes imageGenerate before skillSearch and bash image 
 
 test("prompt source prioritizes videoGenerate before skillSearch and bash video scripts", () => {
   assert.match(promptSource, /"videoGenerate"/);
-  assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"videoGenerate"[\s\S]*\}/);
+  assert.match(promptSource, /function buildAvailableDeferredToolsSection\([^)]*\): string \{[\s\S]*"videoGenerate"[\s\S]*\}/);
   assert.match(promptSource, /- video generation or progress checks → `videoGenerate`/);
   assert.match(promptSource, /follow its submission\/status contract/);
   assert.doesNotMatch(promptSource, /Base64|second submission this turn/);
@@ -602,7 +609,7 @@ test("prompt source prioritizes videoGenerate before skillSearch and bash video 
 
 test("prompt source prioritizes ttsGenerate before skillSearch and bash audio scripts", () => {
   assert.match(promptSource, /"ttsGenerate"/);
-  assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"ttsGenerate"[\s\S]*\}/);
+  assert.match(promptSource, /function buildAvailableDeferredToolsSection\([^)]*\): string \{[\s\S]*"ttsGenerate"[\s\S]*\}/);
   assert.match(promptSource, /- speech, narration, voiceover, spoken audio → `ttsGenerate`, not OS speech commands/);
   assert.match(promptSource, /macOS `say`/);
 });
@@ -806,8 +813,9 @@ test("rendered profiles omit management metadata and retain authorization and sc
   const workspace = join(root, "moli-test", "bots", "bot");
   try {
     mkdirSync(workspace, { recursive: true });
-    writeFileSync(join(root, "AGENTS.md"), "# AGENTS.md\n\nCOLLABORATION\n\n---\nlast_updated: 2026-09-16\nowner: user\n");
-    writeFileSync(join(root, "IDENTITY.md"), "---\ntitle: identity\n---\n# IDENTITY.md\n\nName: Moli\n\n---\nlast_updated: 2026-09-16\nowner: user\n");
+    mkdirSync(join(root, "agents", "default"), { recursive: true });
+    writeFileSync(join(root, "agents", "default", "AGENTS.md"), "# AGENTS.md\n\nCOLLABORATION\n\n---\nlast_updated: 2026-09-16\nowner: user\n");
+    writeFileSync(join(root, "agents", "default", "IDENTITY.md"), "---\ntitle: identity\n---\n# IDENTITY.md\n\nName: Moli\n\n---\nlast_updated: 2026-09-16\nowner: user\n");
     const prompt = buildSystemPrompt(workspace, "chat", "session", "");
     assert.match(prompt, /COLLABORATION/);
     assert.match(prompt, /Name: Moli/);
@@ -829,6 +837,67 @@ test("rendered profiles omit management metadata and retain authorization and sc
     assert.equal(buildSystemPrompt(workspace, "chat", "session", "changed memory"), prompt,
       "per-turn memory must not invalidate the stable system prefix");
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Agent settings exclude disabled skills and do not inject a knowledge markdown file", () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-agent-settings-prompt-"));
+  const original = storagePaths.dataDir;
+  storagePaths.dataDir = root;
+  try {
+    const workspace = join(root, "sessions", "researcher");
+    const profile = join(root, "agents", "researcher");
+    mkdirSync(profile, { recursive: true });
+    const enabled = join(root, "skills", "enabled", "SKILL.md");
+    const disabled = join(root, "skills", "disabled", "SKILL.md");
+    mkdirSync(workspace, { recursive: true });
+    for (const [file, name] of [[enabled, "enabled-fixture"], [disabled, "disabled-fixture"]]) {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, `---\nname: ${name}\ndescription: Fixture skill\n---\nUse fixture.\n`);
+    }
+    writeFileSync(join(profile, "AGENTS.md"), "ROLE-INSTRUCTIONS-FIXTURE");
+    writeFileSync(join(profile, "KNOWLEDGE.md"), "KNOWLEDGE-FIXTURE-FACT");
+    const settings = { ...defaultRuntimeSettings, agents: [...defaultRuntimeSettings.agents, { id: "researcher", name: "Researcher", description: "", enabled: true, disabledSkillPaths: [disabled], disabledTools: ["webSearch", "loadMcp", "mcpInvoke"] }] };
+    const prompt = buildSystemPrompt(workspace, "chat", "session", "(none)", { channel: "web", timezone: "UTC", agentId: "researcher", settings });
+    assert.equal(prompt.split("ROLE-INSTRUCTIONS-FIXTURE").length - 1, 1);
+    assert.ok(!prompt.includes("KNOWLEDGE-FIXTURE-FACT"));
+    assert.ok(prompt.includes("enabled-fixture"));
+    assert.ok(!prompt.includes("disabled-fixture"));
+    assert.ok(!prompt.split("<available-deferred-tools>")[1].split("</available-deferred-tools>")[0].includes("webSearch"));
+    assert.ok(!prompt.includes("<mcp-access>"));
+    assert.ok(prompt.includes("<agent-tool-availability>"));
+    const otherPrompt = buildSystemPrompt(workspace, "chat", "other-session", "(none)", { channel: "web", timezone: "UTC", agentId: "default", settings });
+    assert.ok(!otherPrompt.includes("KNOWLEDGE-FIXTURE-FACT"));
+    assert.ok(otherPrompt.includes("disabled-fixture"));
+  } finally { storagePaths.dataDir = original; rmSync(root, { recursive: true, force: true }); }
+});
+
+test("shared collaboration rules reach every Agent exactly once alongside its own rules", () => {
+  const root = mkdtempSync(join(tmpdir(), "shared-agent-rules-"));
+  const oldData = storagePaths.dataDir;
+  const oldAgents = storagePaths.agentsDir;
+  try {
+    storagePaths.dataDir = root;
+    storagePaths.agentsDir = join(root, "agents");
+    const workspace = join(root, "moli-w", "bots", "test-bot");
+    mkdirSync(workspace, { recursive: true });
+    for (const id of ["default", "first", "second"]) {
+      const dir = join(root, "agents", id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "AGENTS.md"), `# AGENTS.md\n\n${id === "default" ? "SHARED-RULE" : `OWN-RULE-${id}`}`);
+    }
+    for (const agentId of ["default", "first", "second"]) {
+      const prompt = buildSystemPrompt(workspace, "chat", "session", "", { agentId, timezone: "UTC" });
+      assert.equal(prompt.split("SHARED-RULE").length - 1, 1);
+      if (agentId !== "default") {
+        assert.match(prompt, new RegExp(`OWN-RULE-${agentId}`));
+        assert.ok(prompt.indexOf("SHARED-RULE") < prompt.indexOf(`OWN-RULE-${agentId}`));
+      }
+    }
+  } finally {
+    storagePaths.dataDir = oldData;
+    storagePaths.agentsDir = oldAgents;
     rmSync(root, { recursive: true, force: true });
   }
 });

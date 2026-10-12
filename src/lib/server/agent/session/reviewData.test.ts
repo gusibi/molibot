@@ -3,28 +3,24 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { AgentStorageMigration } from "$lib/server/sessions/agentStorageMigration.js";
 import { listAgentWorkspaces, readRunHistory, readSkillDrafts } from "$lib/server/agent/session/reviewData.js";
 
-test("readSkillDrafts reads one bot-level draft directory only once even with multiple chats", () => {
-  const root = join(process.cwd(), "src/lib/server/agent/testdata/review-drafts");
-  const filePath = join(
-    root,
-    "moli-t",
-    "bots",
-    "molifin_bot",
-    "skill-drafts",
-    "2026-04-11-event.md"
-  );
-
-  const { items, diagnostics } = readSkillDrafts(root);
-
-  assert.deepEqual(diagnostics, []);
-  assert.equal(items.length, 1);
-  assert.equal(items[0]?.filePath, filePath);
-  assert.equal(items[0]?.botId, "molifin_bot");
+test("readSkillDrafts reads one Agent draft directory even without a Context", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-review-drafts-"));
+  try {
+    const filePath = join(root, "sessions/assistant/skill-drafts/event.md");
+    mkdirSync(join(root, "sessions/assistant/skill-drafts"), { recursive: true });
+    writeFileSync(filePath, "---\nname: event\ndescription: draft\n---\ncontent");
+    const { items, diagnostics } = readSkillDrafts(root);
+    assert.deepEqual(diagnostics, []);
+    assert.equal(items.length, 1);
+    assert.equal(items[0]?.filePath, filePath);
+    assert.equal(items[0]?.botId, "assistant");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("listAgentWorkspaces and readRunHistory discover multi-channel and project workspaces while skipping non-chat dirs", () => {
+test("listAgentWorkspaces and readRunHistory discover multi-channel and project workspaces while skipping non-chat dirs", async () => {
   const tmpRoot = mkdtempSync(join(tmpdir(), "molibot-review-data-test-"));
   try {
     // 1. Web / Desktop bot
@@ -72,6 +68,7 @@ test("listAgentWorkspaces and readRunHistory discover multi-channel and project 
       createdAt: "2026-08-18T12:00:00.000Z"
     }) + "\n", "utf8");
 
+    await new AgentStorageMigration(tmpRoot, { agents: ["personal", "feishu-momo"], bots: [{ channel: "web", botId: "personal", agentId: "personal" }, { channel: "feishu", botId: "feishu-momo", agentId: "feishu-momo" }] }).execute();
     const workspaces = listAgentWorkspaces(tmpRoot);
     assert.equal(workspaces.length, 3);
     assert.deepEqual(workspaces.map(w => w.botId), ["feishu-momo", "personal", "project:my-app"]);

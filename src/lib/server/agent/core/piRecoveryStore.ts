@@ -13,7 +13,7 @@ export interface PiRecoveryRecord {
   channel: string;
   transport?: MomContext["deliveryTarget"];
   runtimeIdentity?: ({ agentId: string; roomId: string; executionId: string } | { agentId: string; roomId?: undefined; executionId?: undefined });
-  context: Pick<MomContext, 'project' | 'modelKeyOverride' | 'retention' | 'executionPolicy' | 'roomRouting'>;
+  context: Pick<MomContext, 'project' | 'modelKeyOverride' | 'retention' | 'executionPolicy' | 'roomRouting' | 'approvedRecoveryCallIds'>;
   actor: string;
   workspaceId: string;
   budgetId?: string;
@@ -22,6 +22,10 @@ export interface PiRecoveryRecord {
   mcpServers?: Record<string, string>;
   storagePath?: string;
   deferred: boolean;
+  /** Approval/DECISION request that parks an unknown external outcome for review. */
+  reviewApprovalId?: string;
+  /** Tool call ids whose outcome is unknown and needs a human decision. */
+  uncertainCallIds?: string[];
 }
 
 export class PiRecoveryStore {

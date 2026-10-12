@@ -1,3 +1,5 @@
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
+import { dirname as sessionDataRoot } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -94,13 +96,13 @@ test("resolveWebConversationIdentity falls back to the derived identity without 
 test("a browser-created session opens through the Desktop identity path", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-identity-e2e-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "legacy");
-  storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
   const store = new SessionStore();
   const owner = "web:personal:browser-user";
@@ -110,7 +112,7 @@ test("a browser-created session opens through the Desktop identity path", () => 
 
   const runtimeStub = {
     sessions: store,
-    getSettings: () => ({ locale: "zh-CN" })
+    getSettings: () => structuredClone(defaultRuntimeSettings)
   };
   (globalThis as unknown as Record<string, unknown>).__molibotRuntime = runtimeStub;
   configureConversationProjectionRuntime(() => ({ sessions: store }));
@@ -138,7 +140,7 @@ test("a browser-created session opens through the Desktop identity path", () => 
     delete (globalThis as unknown as Record<string, unknown>).__molibotRuntime;
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;
-    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     rmSync(root, { recursive: true, force: true });
   }
 });

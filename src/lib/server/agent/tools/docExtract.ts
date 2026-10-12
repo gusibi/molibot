@@ -242,6 +242,7 @@ function capExtractedText(text: string, spillDir?: string): {
 }
 
 export async function runDocExtract(input: { path: string; ocr?: OcrMode }, options: {
+  source?: Partial<import("$lib/server/sessions/agentStorage.js").SessionSource>;
   cwd: string;
   workspaceDir: string;
   spillDir?: string;
@@ -252,7 +253,7 @@ export async function runDocExtract(input: { path: string; ocr?: OcrMode }, opti
 }): Promise<DocExtractResult> {
   const requestedPath = String(input?.path ?? "").trim();
   if (!requestedPath) throw new Error("Document path is required.");
-  const filePath = resolveToolPath(options.cwd, requestedPath);
+  const filePath = resolveToolPath(options.cwd, requestedPath, options.source);
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
   ensureAllowedPath(filePath);
   const realFilePath = await fs.realpath(filePath);
@@ -328,6 +329,7 @@ function renderDocExtract(result: DocExtractResult): string {
 }
 
 export function createDocExtractTool(options: {
+  source?: Partial<import("$lib/server/sessions/agentStorage.js").SessionSource>;
   cwd: string;
   workspaceDir: string;
   spillDir?: string;

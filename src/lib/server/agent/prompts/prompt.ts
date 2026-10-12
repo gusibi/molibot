@@ -1,3 +1,4 @@
+import { isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -7,6 +8,7 @@ import {
   BOT_PROFILE_FILES,
   GLOBAL_PROFILE_FILES,
   getAgentDir,
+  getGlobalProfileDir,
   normalizeEditableBody
 } from "$lib/server/agent/prompts/profiles.js";
 import {
@@ -181,16 +183,15 @@ function buildPathsSection(vars: PromptRenderVars, project?: ProjectPromptContex
   return section("Paths", [
     "Every runtime path is listed here; other sections refer back to this block instead of repeating them.",
     `- Bash working directory for tools: ${vars.scratchDir}`,
-    `- Bot runtime root: ${vars.workspaceDir}`,
-    `- Chat root: ${vars.chatDir}`,
+    `- Agent shared runtime root: ${vars.workspaceDir}`,
     `- Session context: ${vars.sessionContextFile}`,
     `- Older chat history: ${vars.chatDir}/log.jsonl`,
-    `- Events: bot=${vars.workspaceEventsDir}; chat=${vars.chatScratchEventsDir}`,
+    `- Events: ${vars.workspaceEventsDir}; use runtimeTask to record the Agent and full delivery target.`,
     `- Memory: global=${vars.globalMemoryPath}; chat=${vars.chatMemoryPath}`,
-    `- Skill roots: reusable=${vars.globalSkillsDir}; bot=${vars.botSkillsDir}; chat-only=${vars.chatSkillsDir}`,
+    `- Skill roots: reusable=${vars.globalSkillsDir}; Agent=${vars.botSkillsDir}`,
     `- System configuration log: ${vars.workspaceDir}/SYSTEM.md — record installed packages, credential/config changes, and global setup steps here.`,
     "- Write scratch paths relative to the bash working directory; ordinary artifacts default to the per-message `scratch_artifact_dir` unless the user or a skill specifies another path.",
-    "- Runtime and control files stay at the locations above: never move event JSON into an artifact folder, and create skills only under the three skill roots.",
+    "- Runtime and control files stay at the locations above: never move event JSON into an artifact folder, and create skills only under the listed skill roots.",
     "- Use only paths listed here or returned by tools; never assume `/workspace` exists.",
   ], "paths");
 }
@@ -250,7 +251,7 @@ function buildInstalledMiniAppsSection(apps: readonly PromptMiniApp[] | undefine
   ].join("\n"));
 }
 
-function buildAvailableDeferredToolsSection(): string {
+function buildAvailableDeferredToolsSection(disabled: ReadonlySet<string>): string {
   return xmlBlock("available-deferred-tools", [
     "runtimeTask",
     "documentExport",
@@ -261,7 +262,7 @@ function buildAvailableDeferredToolsSection(): string {
     "imageGenerate",
     "videoGenerate",
     "ttsGenerate"
-  ].join("\n"));
+  ].filter(tool => !disabled.has(tool)).join("\n"));
 }
 
 function buildToolSearchProtocolSection(): string {
@@ -400,6 +401,7 @@ export interface PromptMiniApp {
 }
 
 interface PromptBuildOptions {
+  botProfileDir?: string;
   /** Explicit configured identity for Room execution; independent of transport workspace. */
   agentId?: string;
   channel?: PromptChannel;
@@ -441,7 +443,8 @@ function buildBaseSystemPromptWithOptions(
   const channelSections = options?.channel
     ? buildPromptChannelSections(options.channel)
     : [];
-  const mcpAccessSection = buildMcpAccessSection(options?.settings);
+  const disabledTools = new Set(options?.settings?.agents.find(agent => agent.id === options?.agentId)?.disabledTools ?? []);
+  const mcpAccessSection = disabledTools.has("loadMcp") || disabledTools.has("mcpInvoke") ? null : buildMcpAccessSection(options?.settings);
   const profileFiles = options?.operatorProfileFiles ?? [];
   const identityLine = options?.operatorDirectivesPresent
     ? [
@@ -464,11 +467,12 @@ function buildBaseSystemPromptWithOptions(
     ...(options?.settings ? ["", buildFeaturePluginsSection(options.settings)] : []),
     "",
     // --- Tools (automatic outcome routing precedes discovered skills) ---
-    buildAvailableDeferredToolsSection(),
+    buildAvailableDeferredToolsSection(disabledTools),
     "",
     buildToolSearchProtocolSection(),
     "",
     buildToolsSection(),
+    ...(disabledTools.size ? [xmlBlock("agent-tool-availability", `Disabled direct tools for this Agent: ${[...disabledTools].sort().join(", ")}. Do not call or load these tools. General tool guidance applies only to the tools actually exposed in this run.`)] : []),
     "",
     buildSubagentSection(options?.settings),
     "",
@@ -507,6 +511,7 @@ function buildPromptRenderVariables(
   timezone: string,
   settings?: RuntimeSettings,
   projectRoot?: string,
+  agentId?: string,
 ): PromptRenderVars {
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceDir);
@@ -515,7 +520,7 @@ function buildPromptRenderVariables(
   const chatMemoryPath = `${memoryRoot}/${memoryWorkspaceRel}/${chatId}/MEMORY.md`;
   const workspaceName =
     memoryWorkspaceRel || (workspaceDir.split("/").filter(Boolean).at(-1) ?? "bot-root");
-  const chatDir = `${workspaceDir}/${chatId}`;
+  const chatDir = isAgentWorkspace(workspaceDir) ? workspaceDir : `${workspaceDir}/${chatId}`;
   const scratchDir = `${chatDir}/scratch`;
   const chatScratchEventsDir = `${scratchDir}/events`;
   const sessionContextFile = `${chatDir}/contexts/${sessionId}.jsonl`;
@@ -526,7 +531,7 @@ function buildPromptRenderVariables(
   const availableSkills = loadFormattedSkillsCached(
     workspaceDir,
     chatId,
-    settings?.disabledSkillPaths ?? [],
+    [...(settings?.disabledSkillPaths ?? []), ...(settings?.agents.find(agent => agent.id === agentId)?.disabledSkillPaths ?? [])],
     projectRoot
   );
   const skillCreatorSkillFile = `${globalSkillsDir}/skill-creator/SKILL.md`;
@@ -651,6 +656,11 @@ function mergePromptSectionEntriesByOrder(
 ): MergedPromptSection[] {
   const merged = new Map<string, string>();
   for (const fileName of order) {
+    if (fileName === "AGENTS.md") {
+      const rules = [...new Set([...maps].reverse().map(map => map.get(fileName)).filter((value): value is string => Boolean(value)))];
+      if (rules.length) merged.set(fileName, rules.length === 1 ? rules[0] : `# AGENTS.md\n\n${rules.map(value => value.replace(/^# AGENTS\.md\s*\n?/, "").trim()).join("\n\n")}`);
+      continue;
+    }
     for (const map of maps) {
       const value = map.get(fileName);
       if (!value) continue;
@@ -701,6 +711,7 @@ function resolveAgentIdForWorkspace(
   settings: RuntimeSettings | undefined,
   channel: PromptChannel | undefined
 ): string {
+  if (isAgentWorkspace(workspaceDir)) return basename(resolve(workspaceDir));
   if (!settings || !channel) return "";
   const botId = basename(resolve(workspaceDir));
   const instances = settings.channels?.[channel]?.instances ?? [];
@@ -724,10 +735,11 @@ export function buildSystemPrompt(
     timezone,
     options?.settings,
     options?.project?.rootPath,
+    options?.agentId ?? resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel),
   );
-  const projectContext = options?.project ? discoverProjectContext(options.project.rootPath) : discoverProjectContext(workspaceDir);
+  const projectContext = options?.project ? discoverProjectContext(options.project.rootPath) : isAgentWorkspace(workspaceDir) ? null : discoverProjectContext(workspaceDir);
   const globalSections = buildPromptSectionsFromInstructionFiles(
-    renderVars.dataRoot,
+    getGlobalProfileDir(renderVars.dataRoot),
     renderVars,
   );
   const agentId = options?.agentId ?? resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
@@ -741,9 +753,9 @@ export function buildSystemPrompt(
   const botSections =
     renderVars.dataRoot === workspaceDir
       ? new Map<string, string>()
-      : buildPromptSectionsFromInstructionFiles(workspaceDir, renderVars, BOT_PROFILE_FILES);
+      : buildPromptSectionsFromInstructionFiles(options?.botProfileDir ?? workspaceDir, renderVars, BOT_PROFILE_FILES);
 
-  // Resolve each operator file from the most specific configured scope.
+  // Collaboration rules accumulate from shared to specific scopes; identity files use the most specific scope.
   const operatorOrder = options?.project && !options.agentId
     ? [...PROJECT_RUNTIME_PROFILE_FILES]
     : [...OPERATOR_DIRECTIVE_FILES];
@@ -784,6 +796,7 @@ export function buildSystemPrompt(
   }
   sections.push(buildBaseSystemPromptWithOptions(renderVars, {
     ...options,
+    agentId,
     operatorDirectivesPresent: operatorSections.length > 0 || Boolean(options?.project),
     operatorProfileFiles
   }));
@@ -847,7 +860,7 @@ export function getSystemPromptSources(
   const agentId = options?.agentId ?? resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
   const projectContext = options?.project
     ? discoverProjectContext(options.project.rootPath)
-    : discoverProjectContext(workspaceDir);
+    : isAgentWorkspace(workspaceDir) ? null : discoverProjectContext(workspaceDir);
   const identity: string[] = [];
   const pushIdentity = (baseDir: string) => {
     for (const fileName of IDENTITY_INSTRUCTION_FILES) {
@@ -857,16 +870,16 @@ export function getSystemPromptSources(
     }
   };
   if (!options?.project || options.agentId) {
-    if (dataRoot !== workspaceDir) pushIdentity(workspaceDir);
+    if (dataRoot !== workspaceDir) pushIdentity(options?.botProfileDir ?? workspaceDir);
     if (agentId) pushIdentity(getAgentDir(agentId));
-    pushIdentity(dataRoot);
+    pushIdentity(getGlobalProfileDir(dataRoot));
   }
   const globalFiles = options?.project ? PROJECT_RUNTIME_PROFILE_FILES : undefined;
   const agentFiles = options?.project && !options.agentId ? [] : AGENT_PROFILE_FILES;
   const botFiles = options?.project ? PROJECT_RUNTIME_PROFILE_FILES : BOT_PROFILE_FILES;
-  const globalSources = collect(dataRoot, globalFiles);
+  const globalSources = collect(getGlobalProfileDir(dataRoot), globalFiles);
   const agentSources = agentId ? collect(getAgentDir(agentId), agentFiles) : [];
-  const botSources = dataRoot === workspaceDir ? [] : collect(workspaceDir, botFiles);
+  const botSources = dataRoot === workspaceDir ? [] : collect(options?.botProfileDir ?? workspaceDir, botFiles);
   if (options?.project) {
     const effectiveUserSource = botSources[0] ?? globalSources[0];
     return {

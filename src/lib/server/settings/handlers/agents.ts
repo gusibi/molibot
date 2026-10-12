@@ -18,8 +18,16 @@ export function listAgents(runtime: SettingsAccessor): AgentSettings[] {
   return runtime.getSettings().agents ?? [];
 }
 
+function mergeAgentInput(agents: AgentSettings[], raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const input = raw as Record<string, unknown>;
+  const existing = agents.find(agent => agent.id === String(input.id ?? "").trim());
+  return { ...existing, ...input };
+}
+
 export function replaceAgents(runtime: SettingsAccessor, raw: unknown): AgentSettings[] {
-  const agents = sanitizeAgents(raw);
+  const current = runtime.getSettings();
+  const agents = sanitizeAgents(Array.isArray(raw) ? raw.map(row => mergeAgentInput(current.agents, row)) : raw);
   if (runtime.getSettings().agents.some(agent => !agents.some(next => next.id === agent.id))) throw new Error("Delete Agents through the Agent lifecycle endpoint");
   const refError = validateAgentReferences(runtime.getSettings(), { agents });
   if (refError) throw new Error(refError);
@@ -28,9 +36,9 @@ export function replaceAgents(runtime: SettingsAccessor, raw: unknown): AgentSet
 }
 
 export function upsertAgent(runtime: SettingsAccessor, raw: unknown, previousIdRaw?: unknown): AgentSettings {
-  const agent = sanitizeSingleAgent(raw);
-  const previousId = previousIdRaw === undefined ? agent.id : String(previousIdRaw ?? "").trim();
   const current = runtime.getSettings();
+  const agent = sanitizeSingleAgent(mergeAgentInput(current.agents, raw));
+  const previousId = previousIdRaw === undefined ? agent.id : String(previousIdRaw ?? "").trim();
   if (previousId && previousId !== agent.id) throw new Error("Agent ID is immutable; edit the display name instead.");
   if (!/^[a-zA-Z0-9._-]+$/.test(agent.id) || agent.id === "." || agent.id === "..") throw new Error("Invalid Agent ID");
   const toRemove = new Set<string>();
@@ -54,18 +62,11 @@ export function deleteAgent(runtime: SettingsAccessor & { sessions: SessionStore
   const owned = runtime.sessionLifecycle.listAgentHistory(id);
   const sessionIds = new Set(owned.flatMap(conversation => [conversation.id, decodeExternalSessionId(conversation.id)?.sessionId ?? conversation.id]));
   const references: string[] = [];
-  for (const { dir } of TASK_CHANNEL_ROOTS) {
-    const bots = join(config.dataDir, dir, "bots");
-    if (!existsSync(bots)) continue;
-    for (const bot of readdirSync(bots, { withFileTypes: true }).filter(entry => entry.isDirectory())) {
-      const events = join(bots, bot.name, "events");
-      if (!existsSync(events)) continue;
-      for (const filename of readdirSync(events).filter(name => name.endsWith(".json"))) {
-        const event = JSON.parse(readFileSync(join(events, filename), "utf8"));
-        if (event.target?.kind === "project" || event.managed || event.enabled === false || ["executed", "expired", "cancelled"].includes(event.status?.state)) continue;
-        if (event.agentId === id || event.internal?.target?.agentId === id || sessionIds.has(event.sessionId)) references.push(`${bot.name}/${filename}`);
-      }
-    }
+  const events = join(config.dataDir, "sessions", id, "events");
+  if (existsSync(events)) for (const filename of readdirSync(events).filter(name => name.endsWith(".json"))) {
+    const event = JSON.parse(readFileSync(join(events, filename), "utf8"));
+    if (event.target?.kind === "project" || event.managed || event.enabled === false || ["completed", "skipped"].includes(event.status?.state)) continue;
+    if (event.agentId === id || sessionIds.has(event.sessionId)) references.push(filename);
   }
   if (references.length) throw new Error(`Agent is referenced by scheduled tasks: ${references.join(", ")}`);
   const runs = snapshotAllRuntimeRuns().filter(run => run.agentId === id || sessionIds.has(run.sessionId));

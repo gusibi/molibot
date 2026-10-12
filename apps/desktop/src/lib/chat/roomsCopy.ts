@@ -1,5 +1,6 @@
 export const roomsCopy = {
   "zh-CN": {
+    settings: "房间设置", settingsBack: "返回房间",
     createTitle: "组建你的 Agent 团队", editTitle: "调整房间成员", setupDescription: "让不同专长的 Agent 在同一个房间里协作。",
     basics: "房间信息", basicsDescription: "给这次协作一个清晰的名字。", namePlaceholder: "例如：产品评审、每周规划…",
     membersDescription: "选择参与协作的 Agent，每位成员保留独立的身份与上下文。", selectedCount: "位已选", agentDescription: "使用此 Agent 的模型与专属指令",
@@ -16,6 +17,7 @@ export const roomsCopy = {
     queued: "排队中", running: "运行中", waiting_approval: "等待审批", cancelling: "正在停止", paused: "已暂停", completed: "已完成", failed: "失败", cancelled: "已停止", interrupted: "已中断", blocked: "等待成员空闲或房间写入资格", reconnecting: "连接中断，正在恢复…"
   },
   en: {
+    settings: "Room settings", settingsBack: "Back to room",
     createTitle: "Bring your Agents together", editTitle: "Refine your room", setupDescription: "A shared space for Agents with different strengths to collaborate.",
     basics: "Room details", basicsDescription: "Give this collaboration a clear name.", namePlaceholder: "e.g. Product review, Weekly planning…",
     membersDescription: "Choose your team. Each Agent keeps its own identity and context.", selectedCount: "selected", agentDescription: "This Agent’s own model and instructions",

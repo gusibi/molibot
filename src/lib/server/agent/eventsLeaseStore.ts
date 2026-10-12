@@ -401,12 +401,14 @@ export class EventExecutionLeaseStore {
     return Number(result.changes ?? 0) > 0;
   }
 
-  markAbortedForChat(chatId: string, error = "Stopped by user.", now = new Date(), leaseScope?: string): number {
+  markAbortedForChat(chatId: string, error = "Stopped by user.", now = new Date(), leaseScope?: string, target?: { channel: string; instanceId: string }): number {
     const nowIso = now.toISOString();
     const scopeClause = leaseScope ? "AND lease_scope = ?" : "";
     const params = leaseScope
       ? [nowIso, error, nowIso, chatId, leaseScope]
       : [nowIso, error, nowIso, chatId];
+    const targetClause = target ? "AND json_extract(event_payload_json, '$.deliveryTarget.channel') = ? AND json_extract(event_payload_json, '$.deliveryTarget.instanceId') = ?" : "";
+    if (target) params.push(target.channel, target.instanceId);
     const result = this.db.prepare(`
       UPDATE event_execution_leases
       SET status = 'aborted',
@@ -415,7 +417,7 @@ export class EventExecutionLeaseStore {
           last_error = ?,
           retry_scheduled_at = NULL,
           updated_at = ?
-      WHERE chat_id = ? ${scopeClause} AND status IN ('running', 'retry_wait')
+      WHERE chat_id = ? ${scopeClause} ${targetClause} AND status IN ('running', 'retry_wait')
     `).run(...params);
     return Number(result.changes ?? 0);
   }
@@ -457,12 +459,14 @@ export class EventExecutionLeaseStore {
     return Number(result.changes ?? 0) > 0;
   }
 
-  hasActiveForChat(chatId: string, leaseScope?: string): boolean {
+  hasActiveForChat(chatId: string, leaseScope?: string, target?: { channel: string; instanceId: string }): boolean {
     const scopeClause = leaseScope ? "AND lease_scope = ?" : "";
     const params = leaseScope ? [chatId, leaseScope] : [chatId];
+    const targetClause = target ? "AND json_extract(event_payload_json, '$.deliveryTarget.channel') = ? AND json_extract(event_payload_json, '$.deliveryTarget.instanceId') = ?" : "";
+    if (target) params.push(target.channel, target.instanceId);
     const row = this.db.prepare(`
       SELECT id FROM event_execution_leases
-      WHERE chat_id = ? ${scopeClause} AND status IN ('running', 'retry_wait')
+      WHERE chat_id = ? ${scopeClause} ${targetClause} AND status IN ('running', 'retry_wait')
       LIMIT 1
     `).get(...params) as { id: string } | undefined;
     return Boolean(row);

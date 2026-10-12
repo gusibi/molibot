@@ -30,6 +30,7 @@ const miniAppManageSchema = Type.Object({
 });
 
 interface MiniAppManageOptions {
+  source?: Partial<import("$lib/server/sessions/agentStorage.js").SessionSource>;
   cwd: string;
   workspaceDir: string;
   codeRoot?: string;
@@ -156,7 +157,7 @@ export function createMiniAppManageTool(options: MiniAppManageOptions): AgentToo
 
       const requestedPath = String(params.path ?? "").trim();
       if (!requestedPath) throw new Error(`path is required for ${params.action}`);
-      const requestedSourceDir = resolveToolPath(options.cwd, requestedPath);
+      const requestedSourceDir = resolveToolPath(options.cwd, requestedPath, options.source);
       guardPath(requestedSourceDir);
       let sourceDir: string;
       try {

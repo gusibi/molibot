@@ -114,7 +114,7 @@ export class QQManager extends BaseChannelRuntime {
   ) {
     super({
       channel: "qq",
-      defaultWorkspaceName: "moli-q",
+      defaultWorkspaceName: "channels/qq",
       getSettings,
       updateSettings,
       sessionStore,
@@ -573,6 +573,7 @@ export class QQManager extends BaseChannelRuntime {
       imageContents: [],
       isEvent: true,
       taskId: task.taskId,
+                agentId: task.agentId,
       sessionId: task.sessionId,
       sessionMode: resolveEventSessionMode(task)
     };

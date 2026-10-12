@@ -8,9 +8,7 @@
   import Plus from "reicon-svelte/icons/Plus";
   import Video from "../icons/duotone/components/Video.svelte";
   import { onDestroy, onMount } from "svelte";
-  import { ActivityScheduler, agentActivityPolicy, documentActivityVisibility } from "../native/activityScheduler";
   import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
-  import { loadDesktopAgentActivity, loadDesktopAgents } from "../api";
   import type { Translation } from "../i18n";
   import AgentCityCanvas from "./AgentCityCanvas.svelte";
   import AgentCityFallback from "./AgentCityFallback.svelte";
@@ -31,24 +29,20 @@
   } from "./agentCityProjection";
 
   export let copy: Translation;
-  export let serviceEndpoint: string | null;
   export let serviceReady: boolean;
   export let onOpenAgentSettings: (agentId?: string) => void;
   export let onOpenAgentChat: (agentId: string) => void = () => {};
 
   const SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1";
-  let agents: DesktopAgentItem[] = [];
-  let activities: DesktopAgentActivityItem[] = [];
+  export let agents: DesktopAgentItem[] = [];
+  export let activities: DesktopAgentActivityItem[] = [];
+  export let activityReady = false;
+  export let activityError = "";
+  export let focusedAgentId = "";
   let slotMap: Record<string, number> = readStoredSlots();
-  let loading = false;
-  let error = "";
-  let refreshScheduler: ActivityScheduler | null = null;
-  let refreshGeneration = 0;
   let quality: AgentCityQuality = "full";
   let fallback = false;
   let cityWidth = 1000;
-  let cityShell: HTMLDivElement;
-  let shellObserver: ResizeObserver | null = null;
   let themeObserver: MutationObserver | null = null;
   let theme: AgentCityTheme = currentTheme();
   let sky = currentSky();
@@ -56,6 +50,7 @@
   let hoveredFloorKey: string | null = null;
   let hoveredFloorAnchor: { x: number; y: number } | null = null;
   let selectedFloorKey: string | null = null;
+  let appliedFocusedAgentId = "";
   let cityCanvas: AgentCityCanvas | null = null;
   let viewAdjusted = false;
   let followWorking = false;
@@ -151,30 +146,18 @@
   );
   $: cityHeight = agentCityViewportHeight(projection.sceneFloors, cityWidth);
 
-  async function refresh(): Promise<void> {
-    if (!serviceReady || !serviceEndpoint) return;
-    const endpoint = serviceEndpoint;
-    const generation = ++refreshGeneration;
-    loading = agents.length === 0;
-    try {
-      const [agentSummary, nextActivities] = await Promise.all([
-        loadDesktopAgents(endpoint),
-        loadDesktopAgentActivity(endpoint)
-      ]);
-      if (generation !== refreshGeneration || endpoint !== serviceEndpoint || !serviceReady) return;
-      agents = agentSummary.items;
-      activities = nextActivities;
-      const nextSlots = reconcileAgentCitySlots(agents.filter((agent) => agent.id !== "default").map((agent) => agent.id), slotMap).slots;
-      if (JSON.stringify(slotMap) !== JSON.stringify(nextSlots)) {
-        slotMap = nextSlots;
-        localStorage.setItem(SLOT_STORAGE_KEY, JSON.stringify(slotMap));
-      }
-      error = "";
-    } catch (cause) {
-      if (generation !== refreshGeneration || endpoint !== serviceEndpoint) return;
-      error = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      if (generation === refreshGeneration) loading = false;
+  $: {
+    const nextSlots = reconcileAgentCitySlots(agents.filter(agent => agent.id !== "default").map(agent => agent.id), slotMap).slots;
+    if (JSON.stringify(slotMap) !== JSON.stringify(nextSlots)) {
+      slotMap = nextSlots;
+      localStorage.setItem(SLOT_STORAGE_KEY, JSON.stringify(slotMap));
+    }
+  }
+  $: if (focusedAgentId !== appliedFocusedAgentId) {
+    const floor = cityFloors.find(item => item.agent.id === focusedAgentId);
+    if (floor || !focusedAgentId) {
+      selectedFloorKey = floor?.key ?? null;
+      appliedFocusedAgentId = focusedAgentId;
     }
   }
 
@@ -201,7 +184,9 @@
   }
 
   function handleSelect(key: string | null): void {
-    selectedFloorKey = key;
+    const floor = cityFloors.find(item => item.key === key);
+    if (floor) onOpenAgentChat(floor.agent.id);
+    else selectedFloorKey = null;
   }
 
   /** Working agents first, so the search box answers "who is busy?" too. */
@@ -310,13 +295,15 @@
     return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
   }
 
-  onMount(() => {
-    refreshScheduler = new ActivityScheduler(agentActivityPolicy, refresh, documentActivityVisibility);
-    refreshScheduler.start();
-    shellObserver = new ResizeObserver(([entry]) => {
+  function observeCityShell(node: HTMLDivElement) {
+    const observer = new ResizeObserver(([entry]) => {
       if (entry) cityWidth = entry.contentRect.width;
     });
-    shellObserver.observe(cityShell);
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
+
+  onMount(() => {
     themeObserver = new MutationObserver(() => {
       theme = currentTheme();
       sky = currentSky();
@@ -339,10 +326,6 @@
   let cleanupSystemTheme = (): void => {};
 
   onDestroy(() => {
-    refreshGeneration += 1;
-    refreshScheduler?.dispose();
-    refreshScheduler = null;
-    shellObserver?.disconnect();
     themeObserver?.disconnect();
     cleanupSystemTheme();
   });
@@ -354,16 +337,20 @@
   <div class="agent-studio-summary" aria-label={copy.agentStudioSummary}>
     <span><strong>{visibleAgents.length}</strong>{copy.agentStudioResidents}</span>
     <span><strong>{enabledCount}</strong>{copy.agentStudioOnDuty}</span>
-    <span><strong>{projection.workingCount}</strong>{copy.agentStudioWorkingCount}</span>
-    <span><strong>{activeWorkerCount}</strong>{copy.agentStudioWorkers}</span>
+    {#if activityReady}
+      <span><strong>{projection.workingCount}</strong>{copy.agentStudioWorkingCount}</span>
+      <span><strong>{activeWorkerCount}</strong>{copy.agentStudioWorkers}</span>
+    {/if}
   </div>
 
   {#if !serviceReady}
     <div class="agent-studio-state"><Plug size={28} aria-hidden="true" /><p>{copy.agentStudioUnavailable}</p></div>
-  {:else if loading}
+  {:else if !activityReady && activityError}
+    <div class="agent-studio-state" role="alert"><p>{copy.agentActivityUnavailable}</p></div>
+  {:else if !activityReady}
     <div class="agent-studio-state"><Loader class="agent-studio-spinner" size={28} aria-hidden="true" /><p>{copy.loadingChat}</p></div>
   {:else}
-    <div class="agent-city-shell" class:agent-city-shell--fallback={fallback} bind:this={cityShell} style={`--agent-city-height:${cityHeight}px`}>
+    <div class="agent-city-shell" class:agent-city-shell--fallback={fallback} use:observeCityShell style={`--agent-city-height:${cityHeight}px`}>
       <div class="agent-city-toolbar">
         <span><Map size={14} aria-hidden="true" />{copy.agentCityDispatchCenter}</span>
         {#if !fallback}
@@ -481,5 +468,5 @@
     </div>
   {/if}
 
-  {#if error}<p class="agent-studio-error" role="alert">{error}</p>{/if}
+  {#if activityError}<p class="agent-studio-error" role="alert">{activityError}</p>{/if}
 </section>

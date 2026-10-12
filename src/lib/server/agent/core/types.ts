@@ -43,6 +43,8 @@ export interface ChannelInboundMessage {
   hasInlineAudioTranscript?: boolean;
   isEvent?: boolean;
   taskId?: string;
+  /** Fixed owner of an ordinary scheduled Event. */
+  agentId?: string;
   /** Explicit Project owner for a shared automation attempt. */
   projectId?: string;
   // fresh: scheduled-event run should start a new task session instead of the chat's active session.
@@ -222,6 +224,11 @@ export interface MomContext {
   sharedRoomContext?: string;
   roomRouting?: { agentId: string; agentName: string; recipients: Array<{ id: string; name: string }> };
   executionPolicy?: import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
+  /**
+   * Tool call ids a person explicitly confirmed during recovery review. Pi is
+   * allowed to settle these as interrupted instead of blocking the whole run.
+   */
+  approvedRecoveryCallIds?: string[];
   assertToolAuthority?: (toolId: string, input: unknown) => void;
   /** Runner-owned observation of a platform reply ID; never changes delivery behavior. */
   recordDeliveredMessage?: (messageId: string) => void;

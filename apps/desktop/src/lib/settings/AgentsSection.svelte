@@ -1,43 +1,32 @@
 <script lang="ts">
-  import X from "reicon-svelte/icons/X";
+  import SharedAgentRulesSection from "./SharedAgentRulesSection.svelte";
+  import AgentAvatar from "../components/ui/AgentAvatar.svelte";
+  import Button from "../components/ui/Button.svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
-  import Dialog from "../components/ui/Dialog.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
-  import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
   import { setDesktopDefaultAgent } from "../api";
   import { notifySettingsChanged } from "../stores/session.svelte";
-  import { modelOptionCopy } from "../presentation";
-  import type { DesktopModelRoute } from "../api";
   import { session } from "../stores/session.svelte";
-  import { modelsStore, loadModels } from "../stores/models.svelte";
   import { listFlip, listIn, listOut } from "../motion/listMotion";
   import {
     agentsStore,
-    AGENT_FILE_NAMES,
     beginAgentEdit,
     beginNewAgent,
     installAgentFromTemplate,
     loadAgents,
     removeAgent,
-    saveAgentEditor,
-    updateAgentEdit,
     updateAgentFromTemplate
   } from "../stores/agents.svelte";
 
+  let sharedRulesOpen = $state(false);
   let deletingAgent = $state<NonNullable<typeof agentsStore.agents>["items"][number] | null>(null);
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== agentsStore.endpoint) {
       void loadAgents(session.endpoint);
-    }
-  });
-  // The per-agent overrides editor needs the available model options.
-  $effect(() => {
-    if (session.serviceReady && session.endpoint && session.endpoint !== modelsStore.loadedEndpoint) {
-      void loadModels(session.endpoint);
     }
   });
 
@@ -49,14 +38,44 @@
   }
 </script>
 
-{#if !session.serviceReady}
+{#if sharedRulesOpen}
+  <SharedAgentRulesSection onClose={() => sharedRulesOpen = false} />
+{:else if !session.serviceReady}
   <SettingGroup><EmptyState title={session.text.agentsUnavailable} icon="robot" /></SettingGroup>
 {:else if agentsStore.loading || !agentsStore.agents}
   <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else}
-  <SettingGroup><SettingRow title={session.locale === "zh-CN" ? "默认 Agent" : "Default Agent"}>
+  <SettingGroup title={session.locale === "zh-CN" ? "共享配置" : "Shared configuration"}>
+    <SettingRow title={session.locale === "zh-CN" ? "共享规则" : "Shared rules"} description={session.locale === "zh-CN" ? "所有 Agent 都会读取。专属规则在此基础上补充，模型等明确选择优先于共享默认值。" : "Read by every Agent. Agent rules extend this baseline; explicit model choices take priority over shared defaults."}>
+      <Button onclick={() => sharedRulesOpen = true}>{session.text.agentEdit}</Button>
+    </SettingRow><SettingRow title={session.locale === "zh-CN" ? "默认 Agent" : "Default Agent"} description={session.locale === "zh-CN" ? "用于全局新对话；已有机器人绑定和对话归属不变。" : "Used for global new conversations. Existing bot bindings and conversations keep their Agent."}>
     <SelectControl value={agentsStore.agents?.defaultAgentId ?? "default"} options={agentsStore.agents.items.filter(agent => agent.enabled).map(agent => ({ value: agent.id, label: agent.name }))} ariaLabel={session.locale === "zh-CN" ? "默认 Agent" : "Default Agent"} onChange={async id => { if (!session.endpoint) return; try { await setDesktopDefaultAgent(session.endpoint, id); await loadAgents(session.endpoint); notifySettingsChanged(); } catch (cause) { session.error = String(cause); } }} />
   </SettingRow></SettingGroup>
+
+  <SettingGroup title={session.text.agents} description={`${session.locale === "zh-CN" ? "选择一个 Agent 进行编辑。" : "Choose an Agent to edit."} ${session.text.agentsTotal}: ${agentsStore.agents.counts.total} · ${session.text.agentsEnabledCount}: ${agentsStore.agents.counts.enabled}`}>
+    <svelte:fragment slot="action">
+      <button class="secondary-button" type="button" disabled={agentsStore.agentEdit !== null} onclick={beginNewAgent}>{session.text.agentAdd}</button>
+    </svelte:fragment>
+    {#if agentsStore.agents.counts.total === 0}
+      <EmptyState title={session.text.agentsEmpty} description={session.text.agentsHint} icon="robot" />
+    {:else}
+      {#each agentsStore.agents.items as agent (agent.id)}
+        <div class="settings-row agent-management-row" in:listIn out:listOut animate:listFlip>
+          <AgentAvatar name={agent.name} src={agent.avatar || ""} />
+          <div class="profile-info">
+            <strong>{agent.name}</strong>
+            {#if agent.description}<p>{agent.description}</p>{/if}
+            <p>{session.text.agentPermissionMode}: {agent.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[agent.permissionMode]} · {session.text.agentModelOverrides}: {agent.modelOverrides}</p>
+          </div>
+          <span class="status-badge" data-state={agent.enabled ? "ready" : "disconnected"}>{agent.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
+          <div class="settings-row-actions">
+            <Button disabled={agentsStore.editorLoading} ariaLabel={session.locale === "zh-CN" ? `编辑 ${agent.name} 的设置` : `Edit settings for ${agent.name}`} onclick={() => void beginAgentEdit(agent.id)}>{session.text.agentEdit}</Button>
+            <button class="secondary-button danger-action" type="button" disabled={agentsStore.saving} onclick={() => (deletingAgent = agent)}>{session.text.agentDelete}</button>
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </SettingGroup>
   {#if !agentsStore.agentEdit && agentsStore.templates.length > 0}
     <SettingGroup title={session.text.agentTemplates} description={session.text.agentTemplatesHint}>
       {#each agentsStore.templates as template (template.id)}
@@ -107,58 +126,6 @@
     </SettingGroup>
   {/if}
 
-  <SettingGroup title={session.text.agents} description={`${session.text.agentsTotal}: ${agentsStore.agents.counts.total} · ${session.text.agentsEnabledCount}: ${agentsStore.agents.counts.enabled}`}>
-    <svelte:fragment slot="action">
-      <button class="secondary-button" type="button" disabled={agentsStore.agentEdit !== null} onclick={beginNewAgent}>{session.text.agentAdd}</button>
-    </svelte:fragment>
-    {#if agentsStore.agents.counts.total === 0}
-      <EmptyState title={session.text.agentsEmpty} description={session.text.agentsHint} icon="robot" />
-    {:else}
-      {#each agentsStore.agents.items as agent (agent.id)}
-        <div class="settings-row" in:listIn out:listOut animate:listFlip>
-          <div class="profile-info">
-            <strong>{agent.name}</strong>
-            {#if agent.description}<p>{agent.description}</p>{/if}
-            <p>{session.text.agentPermissionMode}: {agent.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[agent.permissionMode]} · {session.text.agentModelOverrides}: {agent.modelOverrides}</p>
-          </div>
-          <span class="status-badge" data-state={agent.enabled ? "ready" : "disconnected"}>{agent.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
-          <div class="settings-row-actions">
-            <button class="secondary-button" type="button" disabled={agentsStore.editorLoading} onclick={() => void beginAgentEdit(agent.id)}>{session.text.agentEdit}</button>
-            <button class="secondary-button danger-action" type="button" disabled={agentsStore.saving} onclick={() => (deletingAgent = agent)}>{session.text.agentDelete}</button>
-          </div>
-        </div>
-      {/each}
-    {/if}
-  </SettingGroup>
-{/if}
-{#if agentsStore.agentEdit}
-  <Dialog open={true} busy={agentsStore.saving} contentClass="entity-editor-dialog" labelledBy="agent-editor-title" onOpenChange={(next) => { if (!next) agentsStore.agentEdit = null; }}>
-  <form id="desktop-agent-form" class="entity-editor-form" aria-label={session.text.agents} onsubmit={(event) => { event.preventDefault(); void saveAgentEditor(); }}>
-    <header class="entity-editor-head"><strong id="agent-editor-title">{session.text.agents}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}><X size={16} aria-hidden="true" /></button></header>
-    <div class="entity-editor-body">
-    <div class="settings-form">
-      <label class="settings-field"><span>{session.text.agentId}</span><input value={agentsStore.agentEdit.id} disabled={!agentsStore.agentEdit.isNew} autocomplete="off" spellcheck="false" oninput={(event) => updateAgentEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
-      <label class="settings-field"><span>{session.text.agentName}</span><input value={agentsStore.agentEdit.name} autocomplete="off" oninput={(event) => updateAgentEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
-      <label class="settings-field settings-field-wide"><span>{session.text.agentDescription}</span><textarea rows="3" value={agentsStore.agentEdit.description} autocomplete="off" oninput={(event) => updateAgentEdit((draft) => ({ ...draft, description: (event.currentTarget as HTMLTextAreaElement).value }))}></textarea></label>
-      <label class="settings-field"><span>{session.text.agentPermissionMode}</span><SelectControl value={agentsStore.agentEdit.permissionMode ?? "inherit"} ariaLabel={session.text.agentPermissionMode} options={[{ value: "inherit", label: session.text.agentPermissionModeInherit }, { value: "plan", label: session.text.permissionModePlan }, { value: "manual", label: session.text.permissionModeManual }, { value: "accept_edits", label: session.text.permissionModeAcceptEdits }, { value: "auto", label: session.text.permissionModeAuto }]} onChange={(value) => updateAgentEdit((draft) => ({ ...draft, permissionMode: value === "inherit" ? null : value as "plan" | "manual" | "accept_edits" | "auto" }))} /></label>
-      {#each [{ key: "textModelKey", route: "text", label: session.text.agentTextModel }, { key: "sttModelKey", route: "stt", label: session.text.agentSttModel }] as field (field.key)}
-        <label class="settings-field"><span>{field.label}</span><SelectControl value={agentsStore.agentEdit.modelRouting[field.key as keyof typeof agentsStore.agentEdit.modelRouting]} ariaLabel={field.label} options={[{ value: "", label: session.text.agentFollowGlobal }, ...(modelsStore.modelStates[field.route as DesktopModelRoute]?.options ?? []).map((option) => ({ value: option.key, label: modelOptionCopy(option).name }))]} onChange={(value) => updateAgentEdit((draft) => ({ ...draft, modelRouting: { ...draft.modelRouting, [field.key]: value } }))} /></label>
-      {/each}
-    </div>
-    <label class="settings-field"><span>{session.locale === "zh-CN" ? "头像地址" : "Avatar URL"}</span><input value={agentsStore.agentEdit.avatar ?? ""} oninput={event => updateAgentEdit(draft => ({ ...draft, avatar: event.currentTarget.value }))} /></label>
-    <SettingRow title={session.locale === "zh-CN" ? "在对话侧栏显示" : "Show in chat sidebar"}><IosSwitch checked={agentsStore.agentEdit.id === agentsStore.agents?.defaultAgentId || agentsStore.agentEdit.visible !== false} disabled={agentsStore.agentEdit.id === agentsStore.agents?.defaultAgentId} ariaLabel={session.locale === "zh-CN" ? "在对话侧栏显示" : "Show in chat sidebar"} onCheckedChange={visible => updateAgentEdit(draft => ({ ...draft, visible }))} /></SettingRow>
-    <SettingRow title={session.locale === "zh-CN" ? "使用共享个人记忆" : "Use shared owner memory"}><IosSwitch checked={agentsStore.agentEdit.shareOwnerMemory !== false} ariaLabel={session.locale === "zh-CN" ? "使用共享个人记忆" : "Use shared owner memory"} onCheckedChange={shareOwnerMemory => updateAgentEdit(draft => ({ ...draft, shareOwnerMemory }))} /></SettingRow>
-    <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.agentEnabled}</span><IosSwitch checked={agentsStore.agentEdit.enabled} ariaLabel={session.text.agentEnabled} onCheckedChange={(checked) => updateAgentEdit((draft) => ({ ...draft, enabled: checked }))} /></div></div>
-    <div class="provider-editor-toolbar"><strong>{session.text.agentFiles}</strong></div>
-    <div class="profile-files-editor">
-      {#each AGENT_FILE_NAMES as fileName (fileName)}
-        <label class="settings-field"><span>{fileName}</span><textarea rows="7" value={agentsStore.agentEdit.files[fileName] ?? ""} autocomplete="off" spellcheck="false" oninput={(event) => updateAgentEdit((draft) => ({ ...draft, files: { ...draft.files, [fileName]: (event.currentTarget as HTMLTextAreaElement).value } }))}></textarea></label>
-      {/each}
-    </div>
-    </div>
-    <footer class="entity-editor-foot settings-footbar"><button class="secondary-button" type="button" disabled={agentsStore.saving} onclick={() => (agentsStore.agentEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={agentsStore.saving || !agentsStore.agentEdit.id.trim()}>{agentsStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
-  </form>
-  </Dialog>
 {/if}
 
 {#if deletingAgent}

@@ -149,10 +149,10 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
   return lines.join("\n");
 }
 
-function buildSkillsText(profileId: string, rawArg = "", detailMode = false, projectId?: string): string {
+function buildSkillsText(profileId: string, rawArg = "", detailMode = false, projectId?: string, conversationId?: string): string {
   const locale = commandLocaleFromSettings(getRuntime().getSettings());
   const project = projectId ? getProjectStore().get(projectId) : null;
-  const { store } = projectId ? resolveRuntimeContext({ profileId, projectId }) : getWebRuntimeContext(profileId);
+  const { store } = projectId ? resolveRuntimeContext({ profileId, projectId }) : getRuntimeContextForConversation(profileId, conversationId);
   const { skills, diagnostics } = loadSkillsFromWorkspace(store.getWorkspaceDir(), "web", {
     disabledSkillPaths: getRuntime().getSettings().disabledSkillPaths,
     projectRoot: project?.rootPath
@@ -403,14 +403,14 @@ async function tryHandleWebCommand(
   if (cmd === "/skills") {
     return {
       ok: true,
-      response: buildSkillsText(profileId, rawArg, false, projectId)
+      response: buildSkillsText(profileId, rawArg, false, projectId, conversationId)
     };
   }
 
   if (cmd === "/skills-detail") {
     return {
       ok: true,
-      response: buildSkillsText(profileId, rawArg, true, projectId)
+      response: buildSkillsText(profileId, rawArg, true, projectId, conversationId)
     };
   }
 

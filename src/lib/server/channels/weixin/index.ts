@@ -9,7 +9,7 @@ function listInstances(settings: RuntimeSettings): ChannelPluginInstance<WeixinC
     .filter((instance) => instance.enabled)
     .map((instance) => ({
       id: instance.id,
-      workspaceDir: resolve(config.dataDir, "moli-wx", "bots", instance.id),
+      workspaceDir: resolve(config.dataDir, "channels", "weixin", "bots", instance.id),
       config: {
         baseUrl: instance.credentials.baseUrl,
         allowedChatIds: instance.allowedChatIds

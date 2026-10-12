@@ -25,14 +25,15 @@ import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.j
 function withWorkspaceGuard(
   tool: AgentTool<any>,
   cwd: string,
-  ensureAllowedPath: (filePath: string) => void
+  ensureAllowedPath: (filePath: string) => void,
+  source?: Partial<import("$lib/server/sessions/agentStorage.js").SessionSource>
 ): AgentTool<any> {
   return {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate) => {
       const requested = (params as { path?: unknown } | undefined)?.path;
       if (typeof requested === "string" && requested.trim() !== "") {
-        const resolved = resolveToolPath(cwd, requested);
+        const resolved = resolveToolPath(cwd, requested, source);
         ensureAllowedPath(resolved);
         return tool.execute(toolCallId, { ...(params as object), path: resolved }, signal, onUpdate);
       }
@@ -42,6 +43,7 @@ function withWorkspaceGuard(
 }
 
 export function createFileSearchTools(options: {
+  source?: Partial<import("$lib/server/sessions/agentStorage.js").SessionSource>;
   cwd: string;
   workspaceDir: string;
 }): AgentTool<any>[] {
@@ -50,5 +52,5 @@ export function createFileSearchTools(options: {
     createGrepTool(options.cwd),
     createFindTool(options.cwd),
     createLsTool(options.cwd)
-  ].map((tool) => withWorkspaceGuard(tool, options.cwd, ensureAllowedPath));
+  ].map((tool) => withWorkspaceGuard(tool, options.cwd, ensureAllowedPath, options.source));
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Button } from "$lib/components/ui/button";
   import { Label } from "$lib/components/ui/label";
@@ -17,9 +17,12 @@
     connectionState: "disabled" | "connecting" | "connected" | "disconnected" | "error";
     toolCount: number;
     lastError: string;
+    authMode: "headers" | "oauth";
+    authState: "not_applicable" | "unauthorized" | "authorizing" | "authorized" | "expired" | "error";
+    authError: string;
   };
 
-  type McpStatus = Pick<McpServerDraft, "connectionState" | "toolCount" | "lastError"> & { serverId: string };
+  type McpStatus = Pick<McpServerDraft, "connectionState" | "toolCount" | "lastError" | "authState" | "authError"> & { serverId: string };
 
   const COPY = {
     "zh-CN": {
@@ -28,7 +31,7 @@
       desc: "配置您的 Model Context Protocol (MCP) 服务。在下方输入包含服务定义的 JSON 块，支持嵌套的 mcpServers 结构或扁平的对象映射。",
       loadingText: "正在加载 MCP 设置...",
       configTitle: "MCP 配置",
-      configDesc: "以 JSON 格式定义标准的 stdio 或 http MCP 服务",
+      configDesc: "以 JSON 格式定义 stdio 或 http MCP 服务。每个服务可设置 timeoutMs（1000–3600000 毫秒），默认 120000；进度通知不会延长超时。",
       btnReset: "重置",
       btnParse: "格式化并解析",
       jsonSchemaLabel: "MCP JSON 配置内容",
@@ -58,7 +61,18 @@
       disabledMsg: "MCP 服务已关闭。",
       reconnectedMsg: "MCP 已重新连接。",
       deletedMsg: "MCP 服务已删除。",
-      saveBeforeAction: "先保存 JSON 修改，再管理连接。"
+      saveBeforeAction: "先保存 JSON 修改，再管理连接。",
+      authTitle: "OAuth 授权",
+      authAuthorized: "已授权",
+      authUnauthorized: "未授权",
+      authExpired: "已过期",
+      authAuthorizing: "等待浏览器授权…",
+      authError: "授权失败",
+      authSignIn: "登录",
+      authReauthorize: "重新授权",
+      authSignOut: "退出授权",
+      authPending: "已打开浏览器，请在浏览器中完成授权。",
+      authSignedOut: "已退出该服务的授权。"
     },
     "en-US": {
       eyebrow: "Tooling Surface",
@@ -66,7 +80,7 @@
       desc: "Configure your Model Context Protocol (MCP) servers. Paste one JSON block containing your server definitions; we support both nested mcpServers layout or a flat object map.",
       loadingText: "Loading MCP settings...",
       configTitle: "MCP Configuration",
-      configDesc: "Define standard stdio or http MCP servers in JSON format",
+      configDesc: "Define stdio or http MCP servers in JSON. Each server accepts timeoutMs (1000–3600000 milliseconds), default 120000; progress does not extend the deadline.",
       btnReset: "Reset",
       btnParse: "Format & Parse",
       jsonSchemaLabel: "MCP JSON Schema",
@@ -96,7 +110,18 @@
       disabledMsg: "MCP server disabled.",
       reconnectedMsg: "MCP reconnected.",
       deletedMsg: "MCP server deleted.",
-      saveBeforeAction: "Save the JSON changes before managing connections."
+      saveBeforeAction: "Save the JSON changes before managing connections.",
+      authTitle: "OAuth authorization",
+      authAuthorized: "Authorized",
+      authUnauthorized: "Not authorized",
+      authExpired: "Expired",
+      authAuthorizing: "Waiting for browser…",
+      authError: "Authorization failed",
+      authSignIn: "Sign in",
+      authReauthorize: "Re-authorize",
+      authSignOut: "Sign out",
+      authPending: "Browser opened. Complete the authorization there.",
+      authSignedOut: "Signed out of this server."
     }
   };
 
@@ -113,6 +138,7 @@
   "mcpServers": {
     "browserwing": {
       "type": "http",
+      "timeoutMs": 120000,
       "url": "http://127.0.0.1:9222/api/v1/mcp/message"
     }
   }
@@ -154,6 +180,8 @@
       const command = String((row.stdio as Record<string, unknown> | undefined)?.command ?? row.command ?? "").trim();
       const typeRaw = String(row.type ?? row.transport ?? (url ? "http" : "stdio")).trim().toLowerCase();
       const type = typeRaw === "http" ? "http" : "stdio";
+      const authRaw = row.auth && typeof row.auth === "object" ? row.auth as Record<string, unknown> : {};
+      const authMode = type === "http" && String(authRaw.mode ?? "").trim().toLowerCase() === "oauth" ? "oauth" : "headers";
       const name = String(row.name ?? id).trim() || id;
       const status = liveStatuses.find((item) => item.serverId === id);
       out.push({
@@ -165,7 +193,10 @@
         command,
         connectionState: status?.connectionState ?? (row.enabled === false ? "disabled" : "disconnected"),
         toolCount: status?.toolCount ?? 0,
-        lastError: status?.lastError ?? ""
+        lastError: status?.lastError ?? "",
+        authMode,
+        authState: authMode === "oauth" ? status?.authState ?? "unauthorized" : "not_applicable",
+        authError: authMode === "oauth" ? status?.authError ?? "" : ""
       });
     }
     return out.sort((a, b) => a.id.localeCompare(b.id));
@@ -179,7 +210,12 @@
       const serverId = String(row.serverId ?? "").trim();
       const state = String(row.state ?? "disconnected") as McpServerDraft["connectionState"];
       if (!serverId || !["disabled", "connecting", "connected", "disconnected", "error"].includes(state)) return [];
-      return [{ serverId, connectionState: state, toolCount: Number(row.toolCount ?? 0), lastError: String(row.lastError ?? "") }];
+      const authRaw = row.auth && typeof row.auth === "object" ? row.auth as Record<string, unknown> : {};
+      const authStateRaw = String(authRaw.state ?? "not_applicable");
+      const authState = (["not_applicable", "unauthorized", "authorizing", "authorized", "expired", "error"].includes(authStateRaw)
+        ? authStateRaw : "not_applicable") as McpServerDraft["authState"];
+      return [{ serverId, connectionState: state, toolCount: Number(row.toolCount ?? 0), lastError: String(row.lastError ?? ""),
+        authState, authError: String(authRaw.error ?? "") }];
     });
   }
 
@@ -189,6 +225,78 @@
     if (state === "error") return copy.connectionError;
     if (state === "disabled") return copy.statusOff;
     return copy.disconnected;
+  }
+
+  function authLabel(item: McpServerDraft): string {
+    if (item.authState === "authorized") return copy.authAuthorized;
+    if (item.authState === "expired") return copy.authExpired;
+    if (item.authState === "authorizing") return copy.authAuthorizing;
+    if (item.authState === "error") return copy.authError;
+    return copy.authUnauthorized;
+  }
+
+  let oauthPoller: ReturnType<typeof setInterval> | undefined;
+  function stopOauthPoll(): void {
+    if (oauthPoller) { clearInterval(oauthPoller); oauthPoller = undefined; }
+  }
+  /** The loopback callback completes in the browser; refresh status until it settles. */
+  function startOauthPoll(id: string): void {
+    stopOauthPoll();
+    const deadline = Date.now() + 120_000;
+    oauthPoller = setInterval(async () => {
+      if (Date.now() > deadline) { stopOauthPoll(); return; }
+      try {
+        const res = await fetch("/api/settings/mcp", { headers: { "Cache-Control": "no-store" } });
+        const data = await res.json();
+        if (data?.ok) {
+          statuses = normalizeStatuses(data.statuses);
+          servers = servers.map((server) => {
+            const status = statuses.find((item) => item.serverId === server.id);
+            return status ? { ...server, connectionState: status.connectionState, toolCount: status.toolCount,
+              lastError: status.lastError, authState: server.authMode === "oauth" ? status.authState : server.authState,
+              authError: server.authMode === "oauth" ? status.authError : server.authError } : server;
+          });
+        }
+        const current = servers.find((server) => server.id === id);
+        if (!current || current.authState === "authorized" || current.authState === "error") stopOauthPoll();
+      } catch {
+        // Keep polling; a transient failure should not end a live authorization.
+      }
+    }, 3_000);
+  }
+
+  async function oauthLogin(id: string, reauthorize: boolean): Promise<void> {
+    if (hasUnsavedJson) { error = copy.saveBeforeAction; return; }
+    busyId = id; error = ""; message = "";
+    try {
+      const res = await fetch("/api/settings/mcp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: reauthorize ? "oauth_reauthorize" : "oauth_login" })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Failed to start authorization");
+      if (data.authorizationUrl) window.open(data.authorizationUrl, "_blank", "noopener");
+      applyServerResponse(data);
+      message = copy.authPending;
+      startOauthPoll(id);
+    } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
+    finally { busyId = ""; }
+  }
+
+  async function oauthLogout(id: string): Promise<void> {
+    if (hasUnsavedJson) { error = copy.saveBeforeAction; return; }
+    busyId = id; error = ""; message = "";
+    try {
+      const res = await fetch("/api/settings/mcp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "oauth_logout" })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Failed to sign out");
+      applyServerResponse(data);
+      message = copy.authSignedOut;
+    } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
+    finally { busyId = ""; }
   }
 
   function applyServerResponse(data: { mcpServers?: unknown; statuses?: unknown }): void {
@@ -343,6 +451,7 @@
   }
 
   onMount(loadSettings);
+  onDestroy(stopOauthPoll);
 </script>
 
 <div class="mcp-page">
@@ -413,8 +522,10 @@
                       {item.type === "http" ? (item.url || copy.missingUrl) : (item.command || copy.missingCommand)}
                     </span>
                     <span class="mcp-server-detail">{statusLabel(item.connectionState)}{item.connectionState === "connected" ? ` · ${copy.loadedTools.replace("{count}", String(item.toolCount))}` : ""}</span>
+                    {#if item.authMode === "oauth"}<span class="mcp-pill">{copy.authTitle}: {authLabel(item)}</span>{/if}
                   </div>
                   {#if item.lastError}<p class="mcp-server-error">{item.lastError}</p>{/if}
+                  {#if item.authMode === "oauth" && item.authError}<p class="mcp-server-error">{item.authError}</p>{/if}
                 </div>
                 <div class="mcp-server-actions">
                   {#if hasUnsavedJson}<span class="mcp-server-action-hint">{copy.saveBeforeAction}</span>{/if}
@@ -425,6 +536,9 @@
                     onCheckedChange={(enabled) => void toggleServer(item, enabled)}
                   />
                   {#if item.enabled && item.connectionState !== "connected"}<Button type="button" variant="outline" size="sm" disabled={Boolean(busyId) || hasUnsavedJson} onclick={() => void reconnectServer(item.id)}>{busyId === item.id ? copy.connecting : copy.reconnect}</Button>{/if}
+                  {#if item.authMode === "oauth" && item.authState !== "authorized"}<Button type="button" variant="outline" size="sm" disabled={Boolean(busyId) || hasUnsavedJson} onclick={() => void oauthLogin(item.id, false)}>{copy.authSignIn}</Button>{/if}
+                  {#if item.authMode === "oauth" && item.authState === "authorized"}<Button type="button" variant="outline" size="sm" disabled={Boolean(busyId) || hasUnsavedJson} onclick={() => void oauthLogin(item.id, true)}>{copy.authReauthorize}</Button>{/if}
+                  {#if item.authMode === "oauth" && (item.authState === "authorized" || item.authState === "expired")}<Button type="button" variant="outline" size="sm" disabled={Boolean(busyId) || hasUnsavedJson} onclick={() => void oauthLogout(item.id)}>{copy.authSignOut}</Button>{/if}
                   <Button type="button" variant="destructive" size="sm" disabled={Boolean(busyId) || hasUnsavedJson} onclick={() => void deleteServer(item.id)}>{copy.delete}</Button>
                 </div>
               </div>

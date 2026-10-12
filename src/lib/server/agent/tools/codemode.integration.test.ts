@@ -12,7 +12,7 @@ const root = mkdtempSync(join(tmpdir(), "molibot-codemode-assembly-"));
 process.env.DATA_DIR = root;
 after(() => rmSync(root, { recursive: true, force: true }));
 
-async function fixture(readOnly = false, delay = 0, approval?: "defer" | "deny", maxCalls = Infinity) {
+async function fixture(readOnly = false, delay = 0, approval?: "defer" | "deny", maxCalls = Infinity, disabledTools: string[] = [], modelCalls?: string[]) {
   const [{ createMomTools }, { MomRuntimeStore }, { defaultRuntimeSettings }] = await Promise.all([
     import("./index.js"), import("$lib/server/agent/session/store.js"), import("$lib/server/settings/defaults.js")
   ]);
@@ -35,11 +35,11 @@ async function fixture(readOnly = false, delay = 0, approval?: "defer" | "deny",
   const assistantMessage: AssistantMessage = { role: "assistant", content: [], api: "openai-completions", provider: "fixture", model: "fixture",
     timestamp: Date.now(), stopReason: "toolUse", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
-  const tools = createMomTools({ channel: "web", executionPolicy: { mode, source: "agent", executionTarget: "host", readOnly },
+  const tools = createMomTools({ agentId: "fixture-agent", channel: "web", executionPolicy: { mode, source: "agent", executionTarget: "host", readOnly },
     cwd: workspace, workspaceDir: workspace, chatId: "fixture", sessionId: "session", timezone: "UTC", store,
     memory: { syncExternalMemories: async () => {}, createProfileTurnSnapshot: async () => ({ fingerprint: "", items: [] }),
       createPromptSnapshot: async () => ({ createdAt: "", fingerprint: "", query: "", promptText: "", selected: [], longTerm: [], daily: [] }) } as never,
-    getSettings: () => ({ ...defaultRuntimeSettings, permissionMode: mode }), updateSettings: patch => ({ ...defaultRuntimeSettings, ...patch }),
+    getSettings: () => ({ ...defaultRuntimeSettings, permissionMode: mode, agents: [...defaultRuntimeSettings.agents, { id: "fixture-agent", name: "Fixture", description: "", enabled: true, disabledTools }] }), updateSettings: patch => ({ ...defaultRuntimeSettings, ...patch }),
     getSelectedMcpServerIds: () => new Set(), setSelectedMcpServerIds: () => {}, getLoadedMcpTools: () => [mcp],
     refreshLoadedMcpTools: async () => ({ statuses: [], toolCount: 1 }), uploadFile: async () => {},
     onApprovalRequest: approval ? async request => { requests.push(request.requestId); return approval; } : undefined,
@@ -47,9 +47,10 @@ async function fixture(readOnly = false, delay = 0, approval?: "defer" | "deny",
     onSideEffectReceipt: async effect => { ids.push(`receipt:${effect.toolCallId}`); },
     runNestedToolCall: (tool, id, args, signal) => runToolCall({ type: "toolCall", id, name: tool.name, arguments: args as never },
       { tools: [tool], assistantMessage, context: { messages: [assistantMessage], tools: [tool] }, signal,
-        beforeToolCall: async () => { const started = budget.tryStartTool(); return started.ok ? undefined : { block: true, reason: started.reason }; } })
+        beforeToolCall: async () => { const started = budget.tryStartTool(); return started.ok ? undefined : { block: true, reason: started.reason }; } }),
+    ...(modelCalls ? { modelOperationDeps: { models: modelFixture(modelCalls) } } : {})
   });
-  return { tool: tools.find(tool => tool.name === "codemode")!, workspace, effects, ids, requests, start, budget };
+  return { tools, tool: tools.find(tool => tool.name === "codemode")!, workspace, effects, ids, requests, start, budget };
 }
 
 test("assembled Codemode dispatches nested writes without reentrant lease deadlock", async () => {
@@ -129,4 +130,65 @@ test("approval resume executes only remaining operations and retains prior write
   assert.equal((resumed as any).error, undefined);
   assert.deepEqual(effects, ["two"]);
   assert.deepEqual(ids, ["intent:before-approval:codemode:1", "receipt:before-approval:codemode:1", "intent:remaining-operations:codemode:1", "receipt:remaining-operations:codemode:1"]);
+});
+
+
+test("Agent tool exclusions apply to direct, deferred and nested Codemode calls", async () => {
+  const { tools, tool, effects } = await fixture(false, 0, undefined, Infinity, ["bash", "write", "edit", "webSearch", "mcpInvoke"]);
+  assert.ok(!tools.some(tool => ["bash", "write", "edit", "webSearch", "mcpInvoke"].includes(tool.name)));
+  const result = await tool.execute("disabled", { code: 'await tools.mcp__fixture__write({value:"forbidden"});' });
+  assert.match((result as any).error, /does not exist|disabled/);
+  assert.deepEqual(effects, []);
+  const other = await fixture();
+  assert.ok(other.tools.some(tool => tool.name === "bash"), "another Agent retains its own tools");
+});
+
+function modelFixture(calls: string[]) {
+  const classifier = { type: "classifier" as const, provider: "alpha", id: "cls", name: "Alpha classifier", api: "fixture", baseUrl: "", contextWindow: 4096 };
+  const image = { type: "image" as const, provider: "alpha", id: "img", name: "Alpha image", api: "fixture", baseUrl: "", input: ["text", "image"], output: ["image"] };
+  return {
+    getModelsOfType: (type: string) => type === "classifier" ? [classifier] : [image],
+    getModelOfType: (type: string, provider: string, id: string) => [classifier, image].find((m) => m.type === type && m.provider === provider && m.id === id),
+    checkAuth: async () => ({ type: "api_key" as const }),
+    classify: async () => { calls.push("classify"); return { api: "fixture", provider: "alpha", model: "cls", answers: { flag: { type: "bool", probability: 0.8 } }, stopReason: "stop" as const, timestamp: 1 }; },
+    generateImages: async () => { calls.push("generateImages"); return { api: "fixture", provider: "alpha", model: "img",
+      output: [{ type: "image" as const, mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" }], stopReason: "stop" as const, timestamp: 1 }; }
+  } as never;
+}
+
+test("assembled Codemode scripts discover, classify and display generated models through the shared service", async () => {
+  const modelCalls: string[] = [];
+  const { tool } = await fixture(false, 0, undefined, Infinity, [], modelCalls);
+  const result = await tool.execute("models", { code: `
+    const catalog = await models.list();
+    const cls = await models.classify({ state: { text: "hi" }, questions: {} });
+    const gen = await models.generateImages({ prompt: "a cat" });
+    image(gen.images[0]);
+    text(JSON.stringify({ catalog: catalog.length, answer: cls.answers.flag, type: gen.images[0].type }));
+  ` });
+  assert.equal((result as any).error, undefined);
+  assert.deepEqual(modelCalls, ["classify", "generateImages"]);
+  const text = (result.content as Array<{ type: string; text?: string }>).filter(b => b.type === "text").map(b => b.text).join("\n");
+  assert.match(text, /"catalog":2/);
+  assert.match(text, /"answer":\{"type":"bool","probability":0\.8\}/);
+  assert.match(text, /"type":"image"/);
+  const images = (result.content as Array<{ type: string }>).filter(b => b.type === "image");
+  assert.equal(images.length, 1, "the displayed image reaches the tool result");
+});
+
+test("model operations are absent when the caller cannot authorize them", async () => {
+  const { tool } = await fixture();
+  const result = await tool.execute("no-models", { code: 'await models.list();' });
+  assert.match((result as any).error, /models is not defined/);
+});
+
+test("interrupted safe reads are marked replay-safe while writes, bash and codemode are not", async () => {
+  const { tools } = await fixture();
+  const replay = (name: string) => (tools.find((tool) => tool.name === name) as { replay?: string } | undefined)?.replay;
+  assert.equal(replay("read"), "safe");
+  assert.equal(replay("docExtract"), "safe");
+  assert.equal(replay("conversation_search"), "safe");
+  assert.equal(replay("write"), undefined);
+  assert.equal(replay("bash"), undefined);
+  assert.equal(replay("codemode"), undefined);
 });

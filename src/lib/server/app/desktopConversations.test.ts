@@ -1,3 +1,4 @@
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,6 +19,7 @@ import {
   listDesktopAgentConversations,
   parseWebProfileId,
   queryConversationSearchGroup,
+  searchDesktopConversations,
   queryConversations,
   sortItems,
   type BotNameResolver,
@@ -320,14 +322,14 @@ test("buildBotNameResolver resolves web/external names and detects deleted bots"
 
 test("SessionStore.listAllWebConversations aggregates across profiles with a preview", () => {  const root = mkdtempSync(path.join(tmpdir(), "molibot-desktop-convs-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
     const store = new SessionStore();
     const a = store.createWebConversation("web:personal:web-anonymous");
@@ -349,8 +351,8 @@ test("SessionStore.listAllWebConversations aggregates across profiles with a pre
 
     // Session file path resolution
     const pathA = store.getSessionFilePath(a.id);
-    assert.ok(pathA?.endsWith(`${a.id}.json`));
-    assert.ok(pathA?.includes("ui-sessions"));
+    assert.ok(pathA?.endsWith(`${a.id}.jsonl`));
+    assert.ok(pathA?.includes("contexts"));
 
     const projConv = store.createProjectConversation("test-proj", "web:personal:web-anonymous");
     const projPath = store.getSessionFilePath(projConv.id, "test-proj");
@@ -359,7 +361,7 @@ test("SessionStore.listAllWebConversations aggregates across profiles with a pre
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;
-    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -385,14 +387,14 @@ function querySettings(): RuntimeSettings {
 function withTempStorage<T>(run: (root: string) => T): T {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-desktop-list-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile,
+
     projectsDir: storagePaths.projectsDir
   };
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "legacy");
-  storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
   storagePaths.projectsDir = path.join(root, "projects");
   try {
     return run(root);
@@ -409,7 +411,7 @@ function seedExternalSession(
   entries: Array<{ role: "user" | "assistant"; content: string; timestamp: string }>,
   createdAt: string
 ): string {
-  const dir = path.join(root, "moli-t", "bots", "mybot", chatId, "contexts");
+  const dir = path.join(root, "sessions", "default", "contexts");
   mkdirSync(dir, { recursive: true });
   const lines = [JSON.stringify({ type: "session", version: 1, id: sessionId, timestamp: createdAt })];
   let prev: string | null = null;
@@ -427,6 +429,7 @@ function seedExternalSession(
   const file = path.join(dir, `${sessionId}.jsonl`);
   writeFileSync(file, `${lines.join("\n")}\n`, "utf8");
   writeFileSync(path.join(dir, `${sessionId}.json`), "[]\n", "utf8");
+  writeFileSync(path.join(dir, `${sessionId}.meta.json`), JSON.stringify({ agentId: "default", source: { channel: "telegram", botId: "mybot", chatId } }));
   return file;
 }
 
@@ -535,19 +538,65 @@ test("project conversation lists expose metadata without projecting messages", (
   });
 });
 
-test("Agent enumeration follows immutable Session ownership across profiles and leaves unknown history unassigned", () => {
+test("Agent enumeration follows immutable Session ownership across profiles and assigns new ordinary history to Momo", () => {
   withTempStorage(root => {
     const sessions = new SessionStore();
     const first = sessions.createWebConversation("web:old-bot:web-anonymous", undefined, "researcher");
     const second = sessions.createWebConversation("web:agent-researcher:web-anonymous", undefined, "researcher");
     sessions.createWebConversation("web:old-bot:web-anonymous", undefined, "writer");
-    const unknown = sessions.createWebConversation("web:old-bot:web-anonymous");
+    const momo = sessions.createWebConversation("web:old-bot:web-anonymous");
     sessions.setMessageProjector(() => { throw new Error("enumeration opened a transcript"); });
     const ctx = { sessions, settings: querySettings(), dataRoot: root, isActive: () => true };
     const result = listDesktopAgentConversations({ agentId: "researcher", limit: 1 }, ctx);
     assert.equal(result.items.length, 1); assert.ok(result.nextCursor);
+    const aggregate = listDesktopAgentConversations({ limit: 1 }, ctx);
+    assert.deepEqual(Object.keys(aggregate.latestConversationAtByAgent).sort(), ["default", "researcher", "writer"]);
+    assert.ok(aggregate.latestConversationAtByAgent.researcher > 0);
     const next = listDesktopAgentConversations({ agentId: "researcher", limit: 1, cursor: result.nextCursor }, ctx);
     assert.deepEqual(new Set([...result.items, ...next.items].map(item => item.sessionId)), new Set([first.id, second.id]));
-    assert.deepEqual(listDesktopAgentConversations({ agentId: "__unassigned__" }, ctx).items.map(item => item.sessionId), [unknown.id]);
+    assert.deepEqual(listDesktopAgentConversations({ agentId: "default" }, ctx).items.map(item => item.sessionId), [momo.id]);
+  });
+});
+
+
+test("search browsing projects previews only after Agent filtering and pagination", () => {
+  withTempStorage(root => {
+    const sessions = new SessionStore();
+    const ids = Array.from({ length: 12 }, () => sessions.createWebConversation("web:agent-researcher:web-anonymous", undefined, "researcher").id);
+    const other = sessions.createWebConversation("web:agent-writer:web-anonymous", undefined, "writer").id;
+    const projected: string[] = [];
+    sessions.setMessageProjector(id => { projected.push(id); return []; });
+    const ctx = { sessions, settings: querySettings(), dataRoot: root, isActive: () => true };
+    const first = searchDesktopConversations({ agentId: "researcher", limit: 3 }, ctx);
+    assert.equal(first.groups[0].total, 12);
+    assert.deepEqual(new Set(projected), new Set(first.groups[0].items.map(item => item.sessionId)));
+    assert.equal(projected.length, 3);
+    assert.ok(!projected.includes(other));
+    projected.length = 0;
+    const next = searchDesktopConversations({ agentId: "researcher", limit: 3, cursor: first.groups[0].nextCursor }, ctx);
+    assert.equal(projected.length, 3);
+    assert.deepEqual(new Set(projected), new Set(next.groups[0].items.map(item => item.sessionId)));
+    assert.ok(next.groups[0].items.every(item => !first.groups[0].items.some(previous => previous.sessionId === item.sessionId)));
+    projected.length = 0;
+    searchDesktopConversations({ agentId: "researcher", query: "no match", limit: 3 }, ctx);
+    assert.equal(projected.length, ids.length);
+    assert.ok(!projected.includes(other));
+  });
+});
+
+
+test("paged Agent search keeps searchable previews and excludes retained private text", () => {
+  withTempStorage(root => {
+    const sessions = new SessionStore();
+    const conversation = sessions.createWebConversation("web:personal:web-anonymous", undefined, "researcher");
+    sessions.setMessageProjector(id => [
+      { id: "public", conversationId: id, role: "assistant", content: "needle preview", createdAt: "2026-10-11T00:00:00Z" },
+      { id: "private", conversationId: id, role: "assistant", content: "private preview", createdAt: "2026-10-11T00:01:00Z", retention: "not_searchable" }
+    ]);
+    const ctx = { sessions, settings: querySettings(), dataRoot: root, isActive: () => true };
+    const result = searchDesktopConversations({ agentId: "researcher", query: "needle", limit: 10 }, ctx);
+    assert.equal(result.groups[0].items[0].sessionId, conversation.id);
+    assert.equal(result.groups[0].items[0].latestMessagePreview, "needle preview");
+    assert.equal(searchDesktopConversations({ agentId: "researcher", query: "private preview" }, ctx).groups.length, 0);
   });
 });

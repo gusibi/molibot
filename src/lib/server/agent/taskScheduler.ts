@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { config } from "$lib/server/app/env.js";
@@ -391,62 +391,6 @@ export function ensureOwnerSessionTrashExpiryEvent(eventsDir: string, settings?:
   return filePath;
 }
 
-export function migrateLegacyManagedMemoryEvents(botsRoot: string): string[] {
-  if (!existsSync(botsRoot)) return [];
-  const removed: string[] = [];
-  for (const botEntry of readdirSync(botsRoot, { withFileTypes: true })) {
-    if (!botEntry.isDirectory()) continue;
-    const eventsDir = join(botsRoot, botEntry.name, "events");
-    for (const [filename, kind] of [["memory-reflection.json", "memory-reflection"], ["memory-maintenance.json", "memory-maintenance"], ["daily-materials.json", "daily-materials"]] as const) {
-      const filePath = join(eventsDir, filename);
-      if (!existsSync(filePath)) continue;
-      try {
-        const event = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
-        if (event.internal?.kind !== kind) continue;
-        unlinkSync(filePath);
-        removed.push(filePath);
-      } catch { /* keep malformed or user-repurposed files */ }
-    }
-  }
-  return removed;
-}
-
-/**
- * Desktop automations are watched by this shared scheduler at
- * `<bot>/events`. Early Desktop builds incorrectly stored Web automations in
- * a chat scratch directory, which the Web runtime never watches. Move those
- * files once at scheduler start while keeping their chatId payload intact.
- */
-export function migrateLegacyWebTaskEvents(botsRoot: string): string[] {
-  if (!existsSync(botsRoot)) return [];
-
-  const migrated: string[] = [];
-  for (const botEntry of readdirSync(botsRoot, { withFileTypes: true })) {
-    if (!botEntry.isDirectory()) continue;
-    const botDir = join(botsRoot, botEntry.name);
-    const eventsDir = join(botDir, "events");
-
-    for (const chatEntry of readdirSync(botDir, { withFileTypes: true })) {
-      if (!chatEntry.isDirectory() || chatEntry.name === "events") continue;
-      const legacyEventsDir = join(botDir, chatEntry.name, "scratch", "events");
-      if (!existsSync(legacyEventsDir)) continue;
-
-      for (const entry of readdirSync(legacyEventsDir, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-        mkdirSync(eventsDir, { recursive: true });
-        let destination = join(eventsDir, entry.name);
-        if (existsSync(destination)) {
-          const suffix = `-migrated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          destination = join(eventsDir, `${entry.name.slice(0, -5)}${suffix}.json`);
-        }
-        renameSync(join(legacyEventsDir, entry.name), destination);
-        migrated.push(destination);
-      }
-    }
-  }
-  return migrated;
-}
-
 export class TaskScheduler {
   private watchers: EventsWatcher[] = [];
 
@@ -526,89 +470,30 @@ export class TaskScheduler {
       momWarn("taskScheduler", "project_task_manager_missing", {});
     }
 
-    for (const { channel, dir } of TASK_CHANNEL_ROOTS) {
-      const botsRoot = channel === "web"
-        ? join(resolve(config.webWorkspaceDir), "bots")
-        : join(dataRoot, dir, "bots");
-      if (channel === "web") {
-        const migrated = migrateLegacyWebTaskEvents(botsRoot);
-        if (migrated.length > 0) {
-          momLog("taskScheduler", "legacy_web_events_migrated", { count: migrated.length, botsRoot });
-        }
-      }
-      if (!existsSync(botsRoot)) {
-        momLog("taskScheduler", "bots_root_missing", { channel, botsRoot });
-        continue;
-      }
-      const removedManaged = migrateLegacyManagedMemoryEvents(botsRoot);
-      if (removedManaged.length > 0) momLog("taskScheduler", "legacy_managed_events_removed", { channel, count: removedManaged.length });
-      const managers = channelManagers.get(channel);
-      if (!managers) {
-        momLog("taskScheduler", "channel_skipped_no_managers", { channel });
-        continue;
-      }
-
-      const botEntries = readdirSync(botsRoot, { withFileTypes: true }).filter((e) => e.isDirectory());
-      for (const botEntry of botEntries) {
-        const botId = botEntry.name;
-        const manager = managers.get(botId);
-        if (!manager) {
-          momLog("taskScheduler", "manager_not_found", { channel, botId });
-          continue;
-        }
-        if (typeof manager.triggerTask !== "function") {
-          momLog("taskScheduler", "trigger_task_not_supported", { channel, botId });
-          continue;
-        }
-
-        const eventsDir = join(botsRoot, botId, "events");
-        if (!existsSync(eventsDir)) {
-          mkdirSync(eventsDir, { recursive: true });
-          momLog("taskScheduler", "events_dir_created", { channel, botId, eventsDir });
-        }
-        const watcher = new EventsWatcher(
-          eventsDir,
-          (event, filename) => {
-            momLog("taskScheduler", "event_dispatched", {
-              channel,
-              botId,
-              filename,
-              eventType: event.type,
-              chatId: event.chatId,
-              delivery: event.delivery
-            });
-            return dispatchTaskEvent(event, filename, manager, this.runInternalEvent);
-          },
-          {
-            channel,
-            leaseScope: `${channel}:${botId}`,
-            skipReason: event => {
-              if (event.target?.kind === "project" || event.execution === "internal") return undefined;
-              const pinned = event.sessionId ? readSessionOriginMetadata(join(botsRoot, botId, event.chatId, "contexts"), event.sessionId)?.agentId : undefined;
-              const agentId = pinned ?? settings?.channels[channel]?.instances.find(instance => instance.id === botId)?.agentId;
-              const agent = settings?.agents.find(item => item.id === agentId);
-              return !agent ? "agent_missing" : !agent.enabled ? "agent_disabled" : undefined;
-            },
-            getExecutionSettings: () => settings?.events ?? {
-              executionTimeoutMs: 600_000,
-              maxAttempts: 3,
-              retryDelayMs: 5000
-            },
-            onTimeout: ({ event, runId }) => {
-              momWarn("taskScheduler", "event_timeout_abort_requested", {
-                channel,
-                botId,
-                runId,
-                chatId: event.chatId
-              });
-              manager.abortTaskRun?.(event.chatId, "Scheduled event attempt timed out.");
-            }
-          }
-        );
-        watcher.start();
-        this.watchers.push(watcher);
-        started.push(`${channel}/${botId}`);
-      }
+    for (const agent of settings?.agents ?? []) {
+      const eventsDir = join(dataRoot, "sessions", agent.id, "events");
+      mkdirSync(eventsDir, { recursive: true });
+      const managerFor = (event: MomEvent) => event.deliveryTarget
+        ? channelManagers.get(event.deliveryTarget.channel)?.get(event.deliveryTarget.instanceId) : undefined;
+      const watcher = new EventsWatcher(eventsDir, async (event, filename) => {
+        const manager = managerFor(event);
+        if (!manager) throw new Error("Event delivery target is unavailable");
+        if (event.agentId !== agent.id || !event.deliveryTarget) throw new Error("Event Agent or delivery target is invalid");
+        return dispatchTaskEvent({ ...event, chatId: event.deliveryTarget.chatId }, filename, manager, this.runInternalEvent);
+      }, {
+        channel: "agent",
+        leaseScope: `agent:${agent.id}`,
+        skipReason: event => {
+          if (event.agentId !== agent.id) return "agent_mismatch";
+          if (!agent.enabled) return "agent_disabled";
+          return managerFor(event) ? undefined : "delivery_target_missing";
+        },
+        getExecutionSettings: () => settings?.events ?? { executionTimeoutMs: 600_000, maxAttempts: 3, retryDelayMs: 5000 },
+        onTimeout: ({ event }) => { managerFor(event)?.abortTaskRun?.(event.deliveryTarget!.chatId, "Scheduled event attempt timed out."); }
+      });
+      watcher.start();
+      this.watchers.push(watcher);
+      started.push(`agent/${agent.id}`);
     }
 
     momLog("taskScheduler", "started", { count: this.watchers.length, watchers: started.join(",") });

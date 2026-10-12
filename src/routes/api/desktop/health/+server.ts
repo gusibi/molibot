@@ -1,3 +1,4 @@
+import { storageRuntimeReady } from "$lib/server/sessions/agentStorageLifecycle.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { getRuntime } from "$lib/server/app/runtime.js";
@@ -13,6 +14,7 @@ import { probeRuntime, runtimeHealthSnapshot } from "$lib/server/app/runtimeHeal
  * answer 200 from a process whose runtime never initialised.
  */
 export const GET: RequestHandler = async ({ url }) => {
+  if (!storageRuntimeReady()) return json({ status: "migration_required", service: "molibot", runtimeReady: false }, { headers: { "cache-control": "no-store" } });
   const deep = url.searchParams.get("deep") === "1";
   if (!deep) {
     const snapshot = runtimeHealthSnapshot();

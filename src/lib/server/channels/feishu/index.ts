@@ -9,7 +9,7 @@ function listInstances(settings: RuntimeSettings): ChannelPluginInstance<FeishuC
     .filter((instance) => instance.enabled && instance.credentials.appId?.trim() && instance.credentials.appSecret?.trim())
     .map((instance) => ({
       id: instance.id,
-      workspaceDir: resolve(config.dataDir, "moli-f", "bots", instance.id),
+      workspaceDir: resolve(config.dataDir, "channels", "feishu", "bots", instance.id),
       config: {
         appId: instance.credentials.appId,
         appSecret: instance.credentials.appSecret,

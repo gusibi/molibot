@@ -5,6 +5,7 @@ import type { ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
 // Composite tools delegate effects to their nested tool tasks; they must not hold the shared effect lock.
 const PURE_TOOLS = new Set([
   "codemode",
+  "mcpInvoke",
   "subagent",
   "read",
   "fileSearch",
@@ -18,6 +19,31 @@ const PURE_TOOLS = new Set([
 ]);
 
 const IDEMPOTENT_TOOLS = new Set(["write", "edit", "documentExport"]);
+
+/**
+ * Tool ids whose interrupted execution is safe to replay after a crash: pure
+ * reads. Includes the file/conversation search tools, whose runtime tool names
+ * (`grep`, `find`, `ls`, `conversation_search`) differ from the classifier ids.
+ * Idempotent writes are deliberately excluded — replaying a write would also
+ * re-fire its intent/receipt hooks and could double-count usage. Composite
+ * orchestrators (`codemode`, `subagent`, `mcpInvoke`) are excluded too: their nested calls
+ * carry their own replay policy, and a suspended Codemode script is explicitly
+ * not replayable.
+ */
+const REPLAY_SAFE_TOOLS = new Set(
+  [...PURE_TOOLS, "grep", "find", "ls", "conversation_search"].filter((id) => id !== "codemode" && id !== "subagent" && id !== "mcpInvoke")
+);
+
+/**
+ * Whether Pi may re-run this tool after an interrupted execution. A declared
+ * pure class wins; otherwise only a known pure read is replay-safe. Anything
+ * that writes, calls an external service, or is undeclared stays blocking.
+ */
+export function isReplaySafeTool(toolId: string, declared?: SideEffectClass): boolean {
+  if (declared === "pure") return true;
+  if (declared) return false;
+  return REPLAY_SAFE_TOOLS.has(toolId);
+}
 
 function inputRecord(input: unknown): Record<string, unknown> {
   return input && typeof input === "object" ? input as Record<string, unknown> : {};

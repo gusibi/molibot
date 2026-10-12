@@ -80,7 +80,7 @@ export function nextTurnStatus(input: {
  * that has already finished is not present in the response (plan §11.2).
  */
 export function statusFromRestoredRun(
-  runStatus: "running" | "waiting_for_approval"
+  runStatus: "running" | "waiting_for_approval" | "recovery_review"
 ): "running" | "waiting" {
-  return runStatus === "waiting_for_approval" ? "waiting" : "running";
+  return runStatus === "running" ? "running" : "waiting";
 }

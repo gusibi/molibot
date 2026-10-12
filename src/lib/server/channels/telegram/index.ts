@@ -9,7 +9,7 @@ function listInstances(settings: RuntimeSettings): ChannelPluginInstance<Telegra
     .filter((instance) => instance.enabled && instance.credentials.token?.trim())
     .map((instance) => ({
       id: instance.id,
-      workspaceDir: resolve(config.dataDir, "moli-t", "bots", instance.id),
+      workspaceDir: resolve(config.dataDir, "channels", "telegram", "bots", instance.id),
       config: {
         token: instance.credentials.token,
         allowedChatIds: instance.allowedChatIds

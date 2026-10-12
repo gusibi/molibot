@@ -1,5 +1,7 @@
 # Pi 四项能力分阶段接入 Spec
 
+2026-10-11 范围更新：正式 Runner、原生内部子任务、父子预算、外部审批唤醒与 Deferred 启动恢复已接线，证据见 [生产验证](../reviews/pi-production-integration-validation.md)。下文阶段进度保留分阶段记录，不代表当前尚未接线。普通任务启动恢复的剩余范围，以及 MCP OAuth、Codemode 模型 API、扩展运行接口，现由 [Pi 能力补齐规格](pi-capability-completion-spec.md) 负责；本文件保留既有接入的架构和验收约束。
+
 日期：2026-10-02。状态：实现范围已由产品负责人提出；已开始阶段 1 的执行适配与隔离验证；阶段 4A 的 Codemode 本地验收完成，阶段 4B 的图片代码接入与本地验收完成，真实付费图片 Provider 尚待验证。负责人继续实施指令已确认共享 Durable 入口、临时数据库与真实子进程中断的测试边界。优先级：可靠执行内核优先，其他能力按依赖独立交付。
 
 实施证据与剩余边界见 [第一阶段验证记录](../reviews/pi-durable-foundation-validation.md)。

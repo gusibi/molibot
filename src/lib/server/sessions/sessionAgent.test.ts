@@ -1,3 +1,4 @@
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +14,7 @@ function setup(t: test.TestContext): SessionStore {
   const originals = { ...storagePaths };
   storagePaths.webWorkspaceDir = path.join(root, "web");
   storagePaths.sessionsDir = path.join(root, "sessions");
-  storagePaths.sessionsIndexFile = path.join(root, "index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
   storagePaths.projectsDir = path.join(root, "projects");
   t.after(() => {
     Object.assign(storagePaths, originals);
@@ -47,20 +48,20 @@ test("Agent changes create independent ordinary sessions without reassigning his
   assert.equal(store.listMessages(second.id).length, 0);
 });
 
-test("unassigned history requires an owner-authorized claim and cannot change Agent later", (t) => {
+test("ordinary Sessions default to Momo and cannot change Agent later", (t) => {
   const store = setup(t);
   const old = store.createWebConversation(OWNER);
   store.appendMessage(old.id, "user", "historical message");
-  assert.equal(new SessionStore().getConversationById(old.id, "web", OWNER)?.agentId, undefined);
+  assert.equal(new SessionStore().getConversationById(old.id, "web", OWNER)?.agentId, "default");
   assert.throws(() => store.getOrCreateConversation("web", OWNER, old.id, { agentId: "researcher" }), /Agent mismatch/);
   assert.equal(store.claimConversationAgent(old.id, "web:other:owner", "researcher"), null);
-  assert.equal(store.claimConversationAgent(old.id, OWNER, "researcher")?.agentId, "researcher");
+  assert.equal(store.claimConversationAgent(old.id, OWNER, "default")?.agentId, "default");
   const activityTime = store.getConversationById(old.id, "web", OWNER)?.updatedAt;
-  assert.equal(store.claimConversationAgent(old.id, OWNER, "researcher")?.agentId, "researcher");
+  assert.equal(store.claimConversationAgent(old.id, OWNER, "default")?.agentId, "default");
   assert.equal(store.getConversationById(old.id, "web", OWNER)?.updatedAt, activityTime);
   assert.throws(() => store.claimConversationAgent(old.id, OWNER, "writer"), /Agent mismatch/);
   const restarted = new SessionStore();
-  assert.equal(restarted.getConversationById(old.id, "web", OWNER)?.agentId, "researcher");
+  assert.equal(restarted.getConversationById(old.id, "web", OWNER)?.agentId, "default");
   assert.equal(restarted.listMessages(old.id)[0]?.content, "historical message");
 });
 
@@ -83,19 +84,20 @@ test("empty draft sessions are reused only within the selected Agent", (t) => {
   assert.deepEqual(store.getOrCreateEmptyWebConversation(OWNER, "researcher"), { conversation: researcher.conversation, reused: true });
 });
 
-test("shared admission rejects unassigned history and disabled Agents without changing the saved identity", async t => {
+test("shared admission resolves Momo and rejects Agent changes and disabled Agents", async t => {
   const store = setup(t);
   const { admitAgentConversation, claimAgentConversation, resolveOrdinaryWebConversation } = await import("./sessionAgentService.js");
   const { defaultRuntimeSettings } = await import("../settings/defaults.js");
   const settings = structuredClone(defaultRuntimeSettings);
   settings.agents.push({ id: "researcher", name: "Researcher", description: "", enabled: true });
   const unknown = store.createWebConversation(OWNER);
-  assert.throws(() => resolveOrdinaryWebConversation(store, settings, { externalUserId: OWNER, profileId: "personal", conversationId: unknown.id }), /unassigned/);
-  claimAgentConversation(store, settings, { externalUserId: OWNER, conversationId: unknown.id, agentId: "researcher" });
-  assert.equal(admitAgentConversation(store, settings, { externalUserId: OWNER, conversationId: unknown.id, agentId: "researcher" }).id, unknown.id);
+  assert.equal(resolveOrdinaryWebConversation(store, settings, { externalUserId: OWNER, profileId: "personal", conversationId: unknown.id }).agentId, "default");
+  assert.throws(() => claimAgentConversation(store, settings, { externalUserId: OWNER, conversationId: unknown.id, agentId: "researcher" }), /Agent mismatch/);
+  const assigned = store.createWebConversation(OWNER, undefined, "researcher");
+  assert.equal(admitAgentConversation(store, settings, { externalUserId: OWNER, conversationId: assigned.id, agentId: "researcher" }).id, assigned.id);
   settings.agents.find(agent => agent.id === "researcher")!.enabled = false;
-  assert.throws(() => admitAgentConversation(store, settings, { externalUserId: OWNER, conversationId: unknown.id, agentId: "researcher" }), /disabled/);
-  assert.equal(store.getConversationById(unknown.id, "web", OWNER)?.agentId, "researcher");
+  assert.throws(() => admitAgentConversation(store, settings, { externalUserId: OWNER, conversationId: assigned.id, agentId: "researcher" }), /disabled/);
+  assert.equal(store.getConversationById(assigned.id, "web", OWNER)?.agentId, "researcher");
 });
 
 test("stored admission rebinds new input, preserves history and lets only persisted approval resume a disabled Agent", async t => {

@@ -1,9 +1,11 @@
 import { createCodemodeTool } from "./codemode.js";
+import { createPiModelOperations } from "$lib/server/agent/models/modelOperations.js";
+import { isReplaySafeTool } from "$lib/server/agent/tools/sideEffectClassification.js";
 import { bindToolRuntime } from "./preparedTool.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import type { HookStage } from "$lib/server/agent/hooks/types.js";
 import { createUpdatePlanTool, type SessionPlanProgress } from "./updatePlan.js";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolCallOutcome } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { promises as fs } from "node:fs";
 import { dirname as pathDirname, basename, join } from "node:path";
@@ -43,6 +45,7 @@ import { createExitPlanTool } from "$lib/server/agent/tools/exitPlan.js";
 import { createFeaturePluginTools } from "$lib/server/plugins/feature-registry.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { createPiExtensionTools } from "$lib/server/plugins/piExtensions/toolBridge.js";
+import { registerPiExtensionRunHost } from "$lib/server/plugins/piExtensions/runHost.js";
 import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import { buildMiniAppDeferredTools } from "$lib/server/miniapps/toolAdapter.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
@@ -191,7 +194,23 @@ export function createMomTools(options: {
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
   readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
+  /** Shared model work for Codemode scripts; omitted when the caller cannot authorize it. */
+  modelOperationDeps?: Omit<import("$lib/server/agent/models/modelOperations.js").PiModelOperationsDeps, "artifactDir" | "workspaceDir">;
+  /** Real run state handed to pi extension contexts; omitted when unavailable. */
+  piExtensionRuntime?: () => import("$lib/server/plugins/piExtensions/types.js").PiExtensionRuntimeSnapshot | undefined | Promise<import("$lib/server/plugins/piExtensions/types.js").PiExtensionRuntimeSnapshot | undefined>;
+  /** Chat streaming for pi extension contexts; omitted when unavailable. */
+  extensionModelStream?: (input: import("$lib/server/plugins/piExtensions/toolBridge.js").PiExtensionStreamInput, emit: (event: unknown) => void, signal: AbortSignal) => Promise<unknown>;
+  /** Abort the run from a pi extension (`ctx.abort()`). */
+  extensionAbort?: () => void;
+  /** Trigger compaction from a pi extension (`ctx.compact()`). */
+  extensionCompact?: () => void | Promise<void>;
 }): AgentTool<any>[] {
+  // Tools a pi extension may invoke through `ctx.executeTool()`: exactly the set
+  // the model can call, so permission/approval/budget apply the same way.
+  const runtimeCallableTools = (): AgentTool<any>[] => [
+    ...getActiveTools().filter((tool) => permissionMode !== "plan" || READ_ONLY_TOOL_NAMES.has(tool.name)),
+    ...(!options.miniAppId && !policy.readOnly && permissionMode !== "plan" ? (options.getLoadedMcpTools?.() ?? []).filter((tool) => !agentDisabledTools.has("mcpInvoke")).map((tool) => wrapWithToolRuntime(tool)) : [])
+  ];
   const datedArtifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
   const artifactDir = options.project
     ? join(options.project.scratchDir, datedArtifactDir)
@@ -246,6 +265,8 @@ export function createMomTools(options: {
   ].filter((value): value is string => Boolean(value));
   const loadedDeferredToolNames = new Set<string>();
   const runtimeTaskTool = wrapSerializedTool(createRuntimeTaskTool({
+    agentId: options.store.getWorkspaceDir().split(/[\\/]/).at(-1),
+    deliveryTarget: { channel: options.channel, instanceId: options.store.getBotId(), chatId: options.chatId },
     workspaceDir: options.workspaceDir,
     chatId: options.chatId,
     sessionId: options.sessionId,
@@ -265,6 +286,7 @@ export function createMomTools(options: {
     updateSettings: options.updateSettings
   }));
   const miniAppManageRuntimeTool = wrapSerializedTool(createMiniAppManageTool({
+    source: { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId },
     cwd: options.cwd,
     workspaceDir: options.workspaceDir
   }));
@@ -275,7 +297,7 @@ export function createMomTools(options: {
   const profileFilesRuntimeTool = wrapSerializedTool(createProfileFilesTool({
     agentId: options.agentId,
     channel: options.channel,
-    workspaceDir: options.workspaceDir,
+    workspaceDir: options.store.getBotProfileDir(),
     getSettings: options.getSettings
   }));
   const webSearchRuntimeTool = wrapSerializedTool(createWebSearchTool({
@@ -283,6 +305,7 @@ export function createMomTools(options: {
   }));
   const webFetchRuntimeTool = wrapSerializedTool(createWebFetchTool());
   const docExtractRuntimeTool = wrapSerializedTool(createDocExtractTool({
+    source: { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId },
     channel: options.channel,
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
@@ -304,7 +327,7 @@ export function createMomTools(options: {
     outputLayout,
     uploadFile: options.uploadFile,
     sessionId: options.sessionId,
-    usageScope: { channel: options.channel, botId: basename(options.workspaceDir), agentId: options.agentId, roomId: options.roomId }
+    usageScope: { channel: options.channel, botId: options.store.getBotId(), agentId: options.agentId, roomId: options.roomId }
   }));
   const videoGenerateRuntimeTool = wrapSerializedTool(createVideoGenerateTool({
     getSettings: options.getSettings,
@@ -337,7 +360,7 @@ export function createMomTools(options: {
       const entry = options.store.listSessionMessageEntries(options.chatId, options.sessionId).find(item => item.id === metadata.sourceEntryId);
       return entry?.runId ? [entry.runId] : [];
     },
-    traceScope: { channel: options.channel, botId: basename(options.workspaceDir), chatId: options.chatId, sessionId: options.sessionId }
+    traceScope: { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId, sessionId: options.sessionId }
   }).map((tool) => wrapSerializedTool(tool));
 
   let tools: AgentTool<any>[] = [];
@@ -351,7 +374,9 @@ export function createMomTools(options: {
   const miniAppToolHints = new Map<string, { readOnlyHint: boolean; destructiveHint: boolean }>();
 
   const registry = new ToolRegistry();
+  const agentDisabledTools = new Set(options.getSettings().agents.find(agent => agent.id === options.agentId)?.disabledTools ?? []);
   const decidePolicy: ToolPolicyDecider = (tool, input, ctx) => {
+    if (agentDisabledTools.has(tool.id) || (tool.id.startsWith("mcp__") && agentDisabledTools.has("mcpInvoke"))) return { type: "deny", reason: "This tool is disabled for the current Agent." };
     if (policy.readOnly && !isReadOnlyTool(tool.id, tool.effect)) {
       return { type: "deny", reason: "Read-only discussion cannot modify state or execute commands." };
     }
@@ -437,6 +462,7 @@ export function createMomTools(options: {
     toolId?: string
   ): ToolExecutionContext => {
     return {
+      sessionSource: { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId },
       runId: options.runId ?? "default-run",
       sessionId: options.executionSessionId ?? options.sessionId,
       workspaceId: options.workspaceId ?? "personal",
@@ -450,23 +476,23 @@ export function createMomTools(options: {
       onUpdate,
       fs: {
         readText: async (path) => {
-          const filePath = resolveToolPath(options.cwd, path);
+          const filePath = resolveToolPath(options.cwd, path, { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId });
           ensureAllowedPath(filePath);
           return fs.readFile(filePath, "utf8");
         },
         writeText: async (path, content) => {
-          const filePath = resolveToolPath(options.cwd, path);
+          const filePath = resolveToolPath(options.cwd, path, { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId });
           ensureAllowedPath(filePath);
           await fs.mkdir(pathDirname(filePath), { recursive: true });
           await fs.writeFile(filePath, content, "utf8");
         },
         readBuffer: async (path) => {
-          const filePath = resolveToolPath(options.cwd, path);
+          const filePath = resolveToolPath(options.cwd, path, { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId });
           ensureAllowedPath(filePath);
           return fs.readFile(filePath);
         },
         stat: async (path) => {
-          const filePath = resolveToolPath(options.cwd, path);
+          const filePath = resolveToolPath(options.cwd, path, { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId });
           ensureAllowedPath(filePath);
           try {
             const info = await fs.stat(filePath, { bigint: true });
@@ -574,15 +600,20 @@ export function createMomTools(options: {
       registry.register(toolDef);
     }
 
-    return bindToolRuntime(originalTool, toolRuntime, buildExecutionContext);
+    const replaySafe = isReplaySafeTool(originalTool.name, registry.get(originalTool.name)?.sideEffectClass);
+    const wrapped = bindToolRuntime(originalTool, toolRuntime, buildExecutionContext);
+    return replaySafe ? { ...wrapped, replay: "safe" as const } : wrapped;
   };
 
-  const toAgentTool = (def: ToolDefinition): AgentTool<any> => bindToolRuntime({
-    name: def.id,
-    label: def.name,
-    description: def.description,
-    parameters: def.inputSchema as any
-  }, toolRuntime, buildExecutionContext);
+  const toAgentTool = (def: ToolDefinition): AgentTool<any> => {
+    const bound = bindToolRuntime({
+      name: def.id,
+      label: def.name,
+      description: def.description,
+      parameters: def.inputSchema as any
+    }, toolRuntime, buildExecutionContext);
+    return isReplaySafeTool(def.id, def.sideEffectClass) ? { ...bound, replay: "safe" as const } : bound;
+  };
 
   // Register built-in tool definitions in registry
   const durableEvidenceToolDef = options.readDurableEvidence
@@ -660,9 +691,10 @@ export function createMomTools(options: {
       ...featureTools,
       ...piExtensionTools
     ];
+    const enabledTools = rawTools.filter(tool => !agentDisabledTools.has(tool.name));
     const scopedTools = options.miniAppId
-      ? rawTools.filter((tool) => tool.name.startsWith(`miniapp__${options.miniAppId}__`))
-      : rawTools;
+      ? enabledTools.filter((tool) => tool.name.startsWith(`miniapp__${options.miniAppId}__`))
+      : enabledTools;
     if (permissionMode === "plan" && !policy.readOnly) {
       const allowed = READ_ONLY_TOOL_NAMES;
       return [
@@ -676,13 +708,14 @@ export function createMomTools(options: {
     }
     return [wrapWithToolRuntime(codemodeTool), ...scopedTools.map(tool => wrapWithToolRuntime(tool)).filter(tool => !policy.readOnly || isReadOnlyTool(tool.name, registry.get(tool.name)!.effect)), ...(options.sessionPlanProgress && !policy.readOnly ? [createUpdatePlanTool(options.sessionPlanProgress)] : [])];
   };
+  const codemodeModels = options.modelOperationDeps
+    ? createPiModelOperations({ ...options.modelOperationDeps, artifactDir: outputLayout.scratchRoot, workspaceDir: options.workspaceDir })
+    : undefined;
   const codemodeTool = createCodemodeTool({
-    getTools: () => [
-      ...getActiveTools().filter(tool => permissionMode !== "plan" || READ_ONLY_TOOL_NAMES.has(tool.name)),
-      ...(!options.miniAppId && !policy.readOnly && permissionMode !== "plan" ? (options.getLoadedMcpTools?.() ?? []).map(wrapWithToolRuntime) : [])
-    ],
+    getTools: runtimeCallableTools,
     artifactDir: outputLayout.scratchRoot,
     workspaceDir: options.workspaceDir,
+    ...(codemodeModels ? { models: codemodeModels } : {}),
     invoke: async (tool, id, args, signal) => {
       if (!options.runNestedToolCall) throw new Error("Codemode requires the Agent's shared tool dispatcher.");
       nestedToolCallIds.add(id);
@@ -913,7 +946,7 @@ export function createMomTools(options: {
       return miniAppEntries;
     })()
   ];
-  deferredTools = deferredEntries.map((item) => item.entry);
+  deferredTools = deferredEntries.map((item) => item.entry).filter(entry => !agentDisabledTools.has(entry.name));
   // The Agent loop snapshots its tools before the first provider request.
   // Explicit @app invocation must therefore preload its tools now, rather
   // than relying on a later toolSearch state update.
@@ -948,6 +981,7 @@ export function createMomTools(options: {
       }
     }),
     createSkillSearchTool({
+      agentId: options.agentId,
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
       projectRoot: options.project?.rootPath,
@@ -964,7 +998,7 @@ export function createMomTools(options: {
     toAgentTool(bashToolDef),
     toAgentTool(editToolDef),
     toAgentTool(writeToolDef),
-    ...createFileSearchTools({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
+    ...createFileSearchTools({ source: { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId }, cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createSubagentTool({
       channel: options.channel,
       cwd: options.cwd,
@@ -984,7 +1018,7 @@ export function createMomTools(options: {
       allowedAgents: permissionMode === "plan" ? ["scout", "planner"] : undefined,
       excludedTools: permissionMode === "plan" ? ["bash"] : undefined
     }),
-    createAttachTool({ ...options, artifactDir })
+    createAttachTool({ ...options, source: { channel: options.channel, botId: options.store.getBotId(), chatId: options.chatId }, artifactDir })
   ].map((tool) => wrapSerializedTool(tool));
 
   if (options.exposeLoadMcpTool) {
@@ -999,11 +1033,55 @@ export function createMomTools(options: {
     })));
   }
 
+  const extensionToolCatalog = () => runtimeCallableTools().map((tool) => ({
+    name: tool.name,
+    label: tool.label ?? tool.name,
+    description: tool.description ?? "",
+    parameters: tool.parameters
+  }));
+
+  const executeExtensionTool = options.runNestedToolCall
+    ? async (name: string, args: unknown, signal: AbortSignal | undefined, callerId: string): Promise<AgentToolCallOutcome> => {
+      const tool = runtimeCallableTools().find((candidate) => candidate.name === name);
+      const callId = `${callerId}/${name}`;
+      const toolCall = { type: "toolCall" as const, id: callId, name, arguments: (args ?? {}) as any };
+      if (!tool) return { toolCall, result: { content: [{ type: "text", text: `Unknown tool: ${name}` }], details: {} }, isError: true };
+      nestedToolCallIds.add(callId);
+      try {
+        const outcome = await options.runNestedToolCall!(tool, callId, args, signal ?? new AbortController().signal);
+        return { toolCall, result: outcome.result, isError: outcome.isError };
+      } finally {
+        nestedToolCallIds.delete(callId);
+      }
+    }
+    : undefined;
+
+  // Event and command handlers invoked during this run read their state and call
+  // back through this host, keyed by run id.
+  if (options.runId) {
+    registerPiExtensionRunHost(options.runId, {
+      runtime: options.piExtensionRuntime,
+      executeTool: executeExtensionTool,
+      modelOperations: codemodeModels,
+      streamModel: options.extensionModelStream,
+      toolCatalog: extensionToolCatalog,
+      abort: options.extensionAbort,
+      compact: options.extensionCompact
+    });
+  }
+
   const piHost = getPiExtensionHost();
   const piResult = createPiExtensionTools(
     piHost.getActiveExtensions(options.getSettings(), botId),
     {
       cwd: options.cwd,
+      ...(options.piExtensionRuntime ? { runtime: options.piExtensionRuntime } : {}),
+      ...(executeExtensionTool ? { executeTool: executeExtensionTool } : {}),
+      ...(codemodeModels ? { modelOperations: codemodeModels } : {}),
+      ...(options.extensionModelStream ? { streamModel: options.extensionModelStream } : {}),
+      ...(options.extensionAbort ? { abort: options.extensionAbort } : {}),
+      ...(options.extensionCompact ? { compact: options.extensionCompact } : {}),
+      toolCatalog: extensionToolCatalog,
       reservedToolNames: new Set([
         ...tools.map((tool) => tool.name),
         ...deferredTools.map((entry) => entry.name),
@@ -1018,6 +1096,6 @@ export function createMomTools(options: {
   const resultTools = getActiveTools();
   (resultTools as any).wrapTool = wrapWithToolRuntime;
   (resultTools as any).loadDeferredTools = loadDeferredTools;
-  (resultTools as any).getChildTools = () => [readToolDef, bashToolDef, editToolDef, writeToolDef].map(toAgentTool);
+  (resultTools as any).getChildTools = () => [readToolDef, bashToolDef, editToolDef, writeToolDef].filter(tool => !agentDisabledTools.has(tool.id)).map(toAgentTool);
   return resultTools;
 }

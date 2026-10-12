@@ -136,7 +136,7 @@ export class FeishuManager extends BaseChannelRuntime {
     ) {
         super({
             channel: "feishu",
-            defaultWorkspaceName: "moli-f",
+            defaultWorkspaceName: "channels/feishu",
             getSettings,
             updateSettings,
             sessionStore,
@@ -1433,6 +1433,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 imageContents: [],
                 isEvent: true,
                 taskId: task.taskId,
+                agentId: task.agentId,
                 sessionId: task.sessionId,
                 sessionMode: resolveEventSessionMode(task)
             };

@@ -15,6 +15,7 @@ export function openConnectorMcpServer(settings: RuntimeSettings): McpServerConf
       url: `${connector.baseUrl.replace(/\/+$/, "")}/mcp`,
       headers: { Authorization: `Bearer ${connector.runtimeToken}` }
     },
+    auth: { mode: "headers", oauth: { authServerMetadataUrl: "", clientName: "" } },
     toolNamePrefix: "connector"
   };
 }

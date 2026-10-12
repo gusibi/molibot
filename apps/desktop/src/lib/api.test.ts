@@ -8,6 +8,8 @@ import { clipboardImageFiles } from "./chat/clipboardFiles";
 import { SessionRuntimeRegistry } from "./chat/sessionRuntimeRegistry.svelte";
 import { SessionDraftStore } from "./chat/sessionDraftStore";
 import {
+  loadDesktopSharedAgentRules,
+  saveDesktopSharedAgentRules,
   loadDesktopSystem,
   saveDesktopSystem,
   addToFollowUpQueue,
@@ -440,7 +442,7 @@ function externalSummary(overrides: Partial<DesktopExternalSessionsSummary> = {}
 }
 
 function file(id: string, mediaType: DesktopSessionFile["mediaType"]): DesktopSessionFile {
-  return { id, original: `${id}.bin`, local: `files/${id}.bin`, mediaType, size: 10, createdAt: "2026-06-28T00:00:00.000Z" };
+  return { origin: "uploaded", id, original: `${id}.bin`, local: `files/${id}.bin`, mediaType, size: 10, createdAt: "2026-06-28T00:00:00.000Z" };
 }
 
 test("desktop SSE parsing preserves events split across arbitrary chunks", async () => {
@@ -2391,5 +2393,20 @@ test("Desktop System transport reads configuration and submits only the requeste
       { url: "http://127.0.0.1:3000/api/desktop/system", method: "GET", body: undefined },
       { url: "http://127.0.0.1:3000/api/desktop/system", method: "PATCH", body: { budget: { maxModelAttempts: 12 } } }
     ]);
+  } finally { globalThis.fetch = original; }
+});
+
+test("shared Agent rules read the global scope and save only AGENTS.md", async () => {
+  const original = globalThis.fetch;
+  const requests: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null });
+    return new Response(JSON.stringify({ ok: true, files: { "AGENTS.md": "shared rules" } }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal(await loadDesktopSharedAgentRules("http://localhost:3040"), "shared rules");
+    assert.equal(await saveDesktopSharedAgentRules("http://localhost:3040", "new rules"), "shared rules");
+    assert.match(requests[0].url, /scope=global$/);
+    assert.deepEqual(requests[1].body, { scope: "global", files: { "AGENTS.md": "new rules" } });
   } finally { globalThis.fetch = original; }
 });

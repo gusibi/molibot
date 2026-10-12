@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { dirname } from "node:path";
 import { createModels, createAssistantMessageEventStream, type SimpleStreamOptions, type AssistantMessage, type AssistantMessageEvent, type ImageContent, type Message, type Model } from "@earendil-works/pi-ai";
 import type { AgentOptions, AgentState, AgentEvent, AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import type { AgentEvent as PiEvent, ModelRef } from "@earendil-works/pi-durable";
@@ -18,6 +19,7 @@ export interface PiRunBinding {
   assertStorageOwnership: () => void;
   assertAuthority: PiConversationOptions["assertAuthority"];
   recoverTools?: PiConversationOptions["recoverTools"];
+  approvedRecoveryCallIds?: readonly string[];
   beforeGeneration?: (taskId: string) => void;
   onGenerationError?: (taskId: string) => void;
   onDeferredCancel?: (outcome: "requested" | "unsupported" | "failed") => Promise<void>;
@@ -76,6 +78,27 @@ export class PiRunSession {
   startTurn(): void { this.accepting = true; this.controller = new AbortController(); }
   bindRun(binding: PiRunBinding): void { this.binding = binding; this.primaryAdmitted = false; this.hasDeferred = false; }
   get projectionRunId(): string | undefined { return this.runtime?.projectionRunId; }
+  /** Messages queued for this run (steering and follow-ups) that have not been delivered. */
+  pendingMessageCount(): number { return this.queued.length + this.transient.length; }
+
+  /**
+   * Read-only view of the native durable log for `ctx.sessionManager`, refreshed
+   * per call. Entries are the active context (branches already resolved by the
+   * store); each keeps the model-visible messages it contributed.
+   */
+  async extensionSessionSource(): Promise<{ id?: string; file?: string; dir?: string; entries: Array<{ id: string; kind: string; messages: unknown[] }> }> {
+    const entries = this.runtime ? (await this.runtime.context()).entries : [];
+    const file = this.binding?.storagePath;
+    return {
+      ...(this.sessionId ? { id: this.sessionId } : {}),
+      ...(file ? { file, dir: dirname(file) } : {}),
+      entries: entries.map((entry) => ({
+        id: String(entry.id),
+        kind: entry.kind,
+        messages: entry.model ? JSON.parse(JSON.stringify(entry.model)) as unknown[] : []
+      }))
+    };
+  }
   get isRecovering(): boolean { return Boolean(this.binding && existsSync(this.binding.storagePath)); }
   toolOriginFor(callId: string): AssistantMessage | undefined { return this.toolOrigins.get(callId); }
   sourceIdFor(message: AgentMessage): string | undefined { return this.sourceIds.get(message); }
@@ -175,6 +198,7 @@ export class PiRunSession {
         storagePath: this.binding.storagePath, scope: this.binding.scope, admissionKey: this.binding.admissionKey, projectionRunId: this.binding.runId,
         assertStorageOwnership: this.binding.assertStorageOwnership, assertAuthority: this.binding.assertAuthority,
         recoverTools: this.binding.recoverTools, models: this.createModels(),
+        approvedRecoveryCallIds: this.binding.approvedRecoveryCallIds,
         childTools: this.binding.childTools, childCompaction: this.binding.childCompaction, childBudgetLimits: this.binding.childBudgetLimits,
         registerModel: model => {
           const admitted = [...this.binding!.models, ...this.ownedModels].find(candidate => candidate.provider === model.provider && candidate.id === model.id);
@@ -271,6 +295,11 @@ export class PiRunSession {
   async replaceContext(messages: AgentMessage[]): Promise<void> {
     if (this.runtime) await this.runtime.replaceContext(messages as Message[]);
     this.state.messages = messages;
+  }
+
+  /** Trigger native compaction (its model call flows through the run's budget). */
+  async compact(instructions?: string): Promise<void> {
+    await this.runtime?.compact(instructions);
   }
 
   async continue(): Promise<void> {

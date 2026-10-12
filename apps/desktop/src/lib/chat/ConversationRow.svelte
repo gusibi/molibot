@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { CONVERSATION_SOURCE_ICONS } from "./activityIcons";
+  import type { DesktopConversationChannel } from "@molibot/desktop-contract";
   import Copy from "../icons/duotone/components/Copy.svelte";
   import FolderOpen from "../icons/duotone/components/FolderOpen.svelte";
   import Pen from "../icons/duotone/components/Pen.svelte";
@@ -13,6 +15,8 @@
 
   let {
     item,
+    source,
+    sourceLabel = "",
     active = false,
     statusDot = null,
     formatTime,
@@ -24,6 +28,8 @@
     onRevealInFinder
   }: {
     item: ConversationRowItem;
+    source?: DesktopConversationChannel;
+    sourceLabel?: string;
     active?: boolean;
     statusDot?: SessionStatusDot | null;
     formatTime: (iso: string) => string;
@@ -49,6 +55,7 @@
     onRevealInFinder?: () => void | Promise<void>;
   } = $props();
 
+  const SourceIcon = $derived(source ? CONVERSATION_SOURCE_ICONS[source] : null);
   const canRename = $derived(!item.readOnly && Boolean(onRename));
   const canDelete = $derived(!item.readOnly && Boolean(onDelete));
   const canContextMenu = $derived(canRename || canDelete || Boolean(onCopyPath) || Boolean(onRevealInFinder));
@@ -217,6 +224,7 @@
         <span class="row-branch" aria-label={labels.forkedConversation} title={labels.forkedConversation}>↳</span>
       {/if}
       <span class="row-title">{item.title}</span>
+      {#if SourceIcon}<span class="conversation-source-mark" title={sourceLabel} aria-label={sourceLabel}><SourceIcon size={13} aria-hidden="true" /></span>{/if}
       <span class="row-time">{formatTime(item.updatedAt)}</span>
     </button>
   {/if}

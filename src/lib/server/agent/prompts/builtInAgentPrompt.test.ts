@@ -16,10 +16,11 @@ test("shipped Agent profiles render once, override global identity and preserve 
   const originalDataDir = storagePaths.dataDir;
   try {
     storagePaths.dataDir = dataRoot;
-    mkdirSync(agentsRoot);
+    const globalDir = path.join(dataRoot, "agents", "default");
+    mkdirSync(globalDir, { recursive: true });
     mkdirSync(workspaceDir, { recursive: true });
     for (const name of ["AGENTS.md", "SOUL.md", "IDENTITY.md"]) {
-      writeFileSync(path.join(dataRoot, name), `# ${name}\n\nGLOBAL-ROLE-SENTINEL`);
+      writeFileSync(path.join(globalDir, name), `# ${name}\n\nGLOBAL-ROLE-SENTINEL`);
     }
     writeFileSync(path.join(workspaceDir, "BOT.md"), "# BOT.md\n\nBOT-DIRECTIVE-SENTINEL");
     for (const template of listBuiltInAgentTemplates({ agentsRoot })) {

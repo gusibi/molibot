@@ -43,7 +43,7 @@ export function resolveOrdinaryWebConversation(
 ): Conversation {
   const existing = input.conversationId ? sessions.getConversationById(input.conversationId, "web", input.externalUserId) : null;
   if (existing?.projectId) return sessions.getOrCreateConversation("web", input.externalUserId, existing.id, { projectId: existing.projectId });
-  const agentId = input.agentId ?? (input.conversationId ? existing?.agentId : settings.channels.web?.instances.find(item => item.id === input.profileId)?.agentId);
+  const agentId = input.agentId ?? (input.conversationId ? existing?.agentId : settings.channels.web?.instances.find(item => item.id === input.profileId)?.agentId || "default");
   if (!agentId) throw new Error("Session is unassigned; claim it before continuing");
   return admitAgentConversation(sessions, settings, { ...input, agentId });
 }

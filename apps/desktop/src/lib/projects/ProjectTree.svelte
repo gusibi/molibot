@@ -247,16 +247,17 @@
 
 <div class="project-tree">
   <div class="sidebar-section-head" class:open={expanded}>
-    <button type="button" class="sidebar-section-toggle" onclick={onOpen}>
+    <button type="button" class="sidebar-section-toggle" aria-expanded={expanded} onclick={onOpen}>
       <Package size={16} weight="Filled" aria-hidden="true" />
       <span>{copy.projects}</span>
     </button>
     <button type="button" class="sidebar-section-caret-btn" aria-expanded={expanded} aria-label={copy.projects} onclick={onToggle}>
       <i class={expanded ? "sidebar-section-caret open project-tree-caret" : "sidebar-section-caret project-tree-caret"} aria-hidden="true"><CaretRight size={12} /></i>
     </button>
-    <button type="button" class="project-add" aria-label={copy.addProject} title={copy.addProject} onclick={() => void beginAdding()}><Plus size={16} aria-hidden="true" /></button>
+    <button type="button" class="sidebar-section-caret-btn sidebar-section-action" aria-label={copy.addProject} title={copy.addProject} onclick={() => void beginAdding()}><Plus size={16} aria-hidden="true" /></button>
   </div>
   {#if expanded}
+    <div class="sidebar-tree-children">
     {#each projectsStore.projects as project (project.id)}
       {@const projectSessions = projectsStore.sessionsByProject[project.id] ?? []}
       {@const visibleProjectSessions = projectSessions.slice(0, visibleSessionLimits[project.id] ?? SESSION_PAGE_SIZE)}
@@ -301,6 +302,7 @@
         {/if}
       </div>
     {/each}
+    </div>
   {/if}
 </div>
 
@@ -351,10 +353,6 @@
   .project-row-menu button { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
   .project-row-menu button:hover { background: var(--fill); }
   .project-row-menu button.danger-action { color: var(--danger); }
-  .project-tree-caret, .project-add { opacity: 0; pointer-events: none; transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }
-  .sidebar-section-head:hover .project-tree-caret, .sidebar-section-head:hover .project-add, .sidebar-section-head:focus-within .project-tree-caret, .sidebar-section-head:focus-within .project-add { opacity: 1; pointer-events: auto; }
-  .project-add { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; margin-right: 2px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
-  .project-add:hover { background: var(--fill); color: var(--label-primary); }
   .project-tree-state { margin: 0; padding: 6px 8px 6px 32px; color: var(--label-tertiary); font-size: 12px; }
   .project-more { width: 100%; height: 30px; padding: 0 8px 0 32px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--accent); font: inherit; font-size: var(--fs-label); text-align: left; cursor: pointer; }
   .project-more:hover { background: var(--fill); }

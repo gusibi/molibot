@@ -1,10 +1,11 @@
 import { resolve } from "node:path";
 
-const CHANNEL_WORKSPACE_MARKER = /\/(moli-[^/]+)\//;
+const CHANNEL_WORKSPACE_MARKER = /\/(moli-[^/]+)\//g;
 // Project runtime workspaces live at `<dataRoot>/projects/<projectId>/runtime`.
 // The marker is intentionally specific (requires the `/<id>/runtime` tail) so a
 // stray `projects` segment in an ancestor path can never be mistaken for it.
-const PROJECT_WORKSPACE_MARKER = /\/(projects)\/[^/]+\/runtime(?:\/|$)/;
+const AGENT_WORKSPACE_MARKER = /\/(sessions|channels)\/[^/]+(?=\/|$)/g;
+const PROJECT_WORKSPACE_MARKER = /\/(projects)\/[^/]+\/runtime(?:\/|$)/g;
 
 function normalizedResolved(pathLike: string): string {
   return resolve(pathLike).replace(/\\/g, "/");
@@ -12,14 +13,11 @@ function normalizedResolved(pathLike: string): string {
 
 function findWorkspaceMarker(pathLike: string): { marker: string; markerIndex: number } | null {
   const normalized = normalizedResolved(pathLike);
-  const channel = CHANNEL_WORKSPACE_MARKER.exec(normalized);
-  if (channel && typeof channel.index === "number") {
-    return { marker: channel[1], markerIndex: channel.index };
-  }
-  const project = PROJECT_WORKSPACE_MARKER.exec(normalized);
-  if (project && typeof project.index === "number") {
-    return { marker: project[1], markerIndex: project.index };
-  }
+  const matches = [CHANNEL_WORKSPACE_MARKER, AGENT_WORKSPACE_MARKER, PROJECT_WORKSPACE_MARKER]
+    .flatMap(marker => [...normalized.matchAll(marker)])
+    .sort((a, b) => b.index! - a.index!);
+  const match = matches[0];
+  if (match) return { marker: match[1], markerIndex: match.index! };
   return null;
 }
 

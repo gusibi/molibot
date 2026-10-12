@@ -1,3 +1,5 @@
+import { listAgentSessions, isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
+import { resolveAgentFileReference, createSessionFileEvidenceMatcher } from "$lib/server/sessions/agentFileReferences.js";
 import { existsSync, readFileSync, realpathSync, statSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { json } from "@sveltejs/kit";
@@ -12,6 +14,7 @@ import { resolveAuthorizedConversation } from "$lib/server/web/sessionWorkspace"
 import { streamFileWithRange } from "$lib/server/http/rangeResponse";
 
 interface SessionFileRecord {
+  origin: "generated" | "uploaded" | "unknown";
   id: string;
   original: string;
   local: string;
@@ -53,7 +56,7 @@ export function _buildConversationFiles(
     for (const attachment of message.attachments ?? []) {
       const local = String(attachment.local ?? "").trim();
       if (!local) continue;
-      const fullPath = path.resolve(workspaceDir, local);
+      const fullPath = resolveAgentFileReference(workspaceDir, local, { channel: "web", chatId: externalUserId });
       const workspaceRoot = path.resolve(workspaceDir);
       if (fullPath !== workspaceRoot && !fullPath.startsWith(`${workspaceRoot}${path.sep}`)) continue;
       if (!existsSync(fullPath)) continue;
@@ -63,6 +66,7 @@ export function _buildConversationFiles(
       const mimeType = attachment.mimeType || undefined;
       files.set(local, {
         id: encodeFileId(local),
+        origin: message.role === "user" ? "uploaded" : "generated",
         original: String(attachment.original ?? "").trim() || path.basename(local),
         local,
         mimeType,
@@ -81,8 +85,10 @@ export function _buildConversationFiles(
     for (const activity of message.activities ?? []) {
       const output = activity.fileOutput;
       if (activity.state !== "success" || output?.rootKind !== "scratch" || !output.path) continue;
-      const scratchRoot = path.resolve(workspaceDir, externalUserId, "scratch");
-      const fullPath = path.resolve(scratchRoot, output.path);
+      const scratchRoot = isAgentWorkspace(workspaceDir) ? path.resolve(workspaceDir, "scratch") : path.resolve(workspaceDir, externalUserId, "scratch");
+      const fullPath = isAgentWorkspace(workspaceDir)
+        ? resolveAgentFileReference(workspaceDir, `scratch/${output.path}`, { channel: "web", botId: externalUserId.split(":")[1], chatId: externalUserId })
+        : path.resolve(scratchRoot, output.path);
       if (fullPath !== scratchRoot && !fullPath.startsWith(`${scratchRoot}${path.sep}`)) continue;
       if (!existsSync(fullPath)) continue;
       const realScratchRoot = realpathSync(scratchRoot);
@@ -95,6 +101,7 @@ export function _buildConversationFiles(
       const mimeType = mimeFromFilename(original) ?? undefined;
       files.set(local, {
         id: encodeFileId(local),
+        origin: "generated",
         original,
         local,
         mimeType,
@@ -163,7 +170,9 @@ export const GET: RequestHandler = async ({ url, request }) => {
     if (!channelRoot) {
       return json({ ok: false, error: `Unsupported external channel: ${extRef.channel}` }, { status: 404 });
     }
-    const workspaceDir = path.resolve(config.dataDir, channelRoot.dir, "bots", extRef.botId, extRef.chatId);
+    const location = listAgentSessions(config.dataDir, { channel: extRef.channel, botId: extRef.botId, chatId: extRef.chatId }).find(item => item.sessionId === extRef.sessionId);
+    if (!location) return json({ ok: false, error: "Session not found" }, { status: 404 });
+    const workspaceDir = location.workspaceDir;
     if (!existsSync(workspaceDir)) {
       return json({ ok: false, error: "Session workspace directory not found" }, { status: 404 });
     }
@@ -186,24 +195,26 @@ export const GET: RequestHandler = async ({ url, request }) => {
       }
     }
 
+    const referencesFile = createSessionFileEvidenceMatcher(workspaceDir, sessionText, location.source);
     const scanned = [
       ...scanDirectoryFiles(path.join(workspaceDir, "scratch"), workspaceDir),
       ...scanDirectoryFiles(path.join(workspaceDir, "attachments"), workspaceDir)
     ];
 
     const files: SessionFileRecord[] = scanned
-      .filter(({ relativePath }) => sessionText.includes(relativePath))
+      .filter(({ relativePath }) => referencesFile(relativePath) !== null)
       .map(({ relativePath, stats }) => {
         const original = path.basename(relativePath);
         const mediaType = mediaTypeFromName(original);
         return {
           id: encodeFileId(relativePath),
+          origin: referencesFile(relativePath)!.origin,
           original,
           local: relativePath,
           mimeType: mimeFromFilename(original) ?? undefined,
           mediaType,
           size: stats.size,
-          createdAt: stats.mtime.toISOString(),
+          createdAt: referencesFile(relativePath)!.createdAt || stats.mtime.toISOString(),
           source: "persisted",
           previewKind: classifyFilePreview({ name: original, mediaType })
         };
@@ -263,7 +274,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
     return json({ ok: false, error: "File not found in this session" }, { status: 404 });
   }
 
-  const fullPath = path.resolve(resolved.workspaceDir, local);
+  const fullPath = resolveAgentFileReference(resolved.workspaceDir, local, { channel: "web", chatId: resolved.externalUserId });
   return streamFileResponse(fullPath, file.mimeType, file.original, download, request);
 };
 

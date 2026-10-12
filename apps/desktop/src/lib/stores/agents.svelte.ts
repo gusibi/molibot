@@ -1,6 +1,6 @@
 // Agent definitions settings — state + orchestration.
-import { deleteDesktopAgent, installDesktopAgentTemplate, loadDesktopAgentFiles, loadDesktopAgents, loadDesktopAgentTemplates, saveDesktopAgent, saveDesktopAgentFiles, updateDesktopAgentTemplate } from "../api";
-import type { DesktopAgentTemplateSummary } from "../api";
+import { deleteDesktopAgent, installDesktopAgentTemplate, loadDesktopAgentFiles, loadDesktopAgents, loadDesktopAgentTemplates, saveDesktopAgent, saveDesktopAgentFiles, saveDesktopAgentBinding, updateDesktopAgentTemplate } from "../api";
+import type { DesktopAgentBindingChange, DesktopAgentTemplateSummary } from "../api";
 import type { DesktopAgentSaveRequest, DesktopAgentsSummary } from "@molibot/desktop-contract";
 import { session, setError, notifySettingsChanged } from "./session.svelte";
 
@@ -20,6 +20,14 @@ export const agentsStore = $state({
   editorLoading: false,
   actionMessage: ""
 });
+
+let agentEditorGeneration = 0;
+
+export function cancelAgentEdit(): void {
+  agentEditorGeneration++;
+  agentsStore.agentEdit = null;
+  agentsStore.editorLoading = false;
+}
 
 function emptyAgentFiles(): Record<string, string> {
   return Object.fromEntries(AGENT_FILE_NAMES.map((name) => [name, ""]));
@@ -101,6 +109,8 @@ export async function updateAgentFromTemplate(templateId: string): Promise<void>
 }
 
 export function beginNewAgent(): void {
+  if (agentsStore.saving) return;
+  cancelAgentEdit();
   agentsStore.agentEdit = {
     isNew: true,
     id: `agent-${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10)}`,
@@ -110,6 +120,7 @@ export function beginNewAgent(): void {
     visible: true, avatar: "", shareOwnerMemory: true,
     permissionMode: null as "plan" | "manual" | "accept_edits" | "auto" | null,
     modelRouting: { textModelKey: "", sttModelKey: "" },
+    disabledSkillPaths: [], disabledTools: [],
     files: emptyAgentFiles()
   };
   agentsStore.actionMessage = "";
@@ -118,9 +129,14 @@ export function beginNewAgent(): void {
 export async function beginAgentEdit(agentId: string): Promise<void> {
   const endpoint = session.endpoint;
   const agent = agentsStore.agents?.items.find((item) => item.id === agentId);
-  if (!endpoint || !agent || agentsStore.editorLoading) return;
+  if (!endpoint || !agent || agentsStore.saving) return;
+  const generation = ++agentEditorGeneration;
   agentsStore.editorLoading = true;
+  agentsStore.actionMessage = "";
+  session.error = "";
   try {
+    const files = await loadDesktopAgentFiles(endpoint, agent.id);
+    if (generation !== agentEditorGeneration) return;
     agentsStore.agentEdit = {
       isNew: false,
       previousId: agent.id,
@@ -130,14 +146,15 @@ export async function beginAgentEdit(agentId: string): Promise<void> {
       enabled: agent.enabled,
       visible: agent.visible, avatar: agent.avatar, shareOwnerMemory: agent.shareOwnerMemory,
       permissionMode: agent.permissionMode,
+      disabledSkillPaths: [...(agent.disabledSkillPaths ?? [])], disabledTools: [...(agent.disabledTools ?? [])],
       modelRouting: { ...agent.modelRouting },
-      files: { ...emptyAgentFiles(), ...(await loadDesktopAgentFiles(endpoint, agent.id)) }
+      files: { ...emptyAgentFiles(), ...files }
     };
     agentsStore.actionMessage = "";
   } catch (cause) {
-    setError(cause);
+    if (generation === agentEditorGeneration) setError(cause);
   } finally {
-    agentsStore.editorLoading = false;
+    if (generation === agentEditorGeneration) agentsStore.editorLoading = false;
   }
 }
 
@@ -145,10 +162,15 @@ export function updateAgentEdit(updater: (draft: AgentEditor) => AgentEditor): v
   if (agentsStore.agentEdit) agentsStore.agentEdit = updater(agentsStore.agentEdit);
 }
 
-export async function saveAgentEditor(): Promise<void> {
+export async function saveAgentEditor(bindings: DesktopAgentBindingChange[] = []): Promise<void> {
   const endpoint = session.endpoint;
   const agentEdit = agentsStore.agentEdit;
   if (!endpoint || !agentEdit || agentsStore.saving || !agentEdit.id.trim()) return;
+  if (agentEdit.isNew && agentsStore.agents?.items.some(agent => agent.id === agentEdit.id.trim())) {
+    session.error = session.locale === "zh-CN" ? "Agent ID 已存在，请使用其它 ID。" : "Agent ID already exists. Choose another ID.";
+    return;
+  }
+  let metadataSaved = false;
   agentsStore.saving = true;
   session.error = "";
   try {
@@ -160,14 +182,19 @@ export async function saveAgentEditor(): Promise<void> {
       enabled: agentEdit.enabled,
       visible: agentEdit.visible, avatar: agentEdit.avatar, shareOwnerMemory: agentEdit.shareOwnerMemory,
       permissionMode: agentEdit.permissionMode,
+      disabledSkillPaths: agentEdit.disabledSkillPaths, disabledTools: agentEdit.disabledTools,
       modelRouting: agentEdit.modelRouting
     });
+    metadataSaved = true;
+    agentsStore.agentEdit = { ...agentEdit, isNew: false, previousId: agentEdit.id.trim(), id: agentEdit.id.trim() };
     await saveDesktopAgentFiles(endpoint, agentEdit.id.trim(), agentEdit.files);
+    for (const binding of bindings) await saveDesktopAgentBinding(endpoint, binding);
     agentsStore.agentEdit = null;
     agentsStore.actionMessage = session.text.agentSaved;
     notifySettingsChanged();
   } catch (cause) {
     setError(cause);
+    if (metadataSaved) session.error = `${session.locale === "zh-CN" ? "部分配置已保存；请重试完成剩余保存。" : "Some settings were saved; retry to finish the remaining changes."} ${session.error}`;
   } finally {
     agentsStore.saving = false;
   }

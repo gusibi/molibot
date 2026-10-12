@@ -1,3 +1,4 @@
+import { agentWorkspaceDir, findAgentSession, listAgentSessions } from "$lib/server/sessions/agentStorage.js";
 import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
@@ -13,11 +14,6 @@ import type {
   ConversationMessage,
   Role
 } from "$lib/shared/types/message.js";
-
-interface SessionsIndex {
-  byUserKey: Record<string, string[]>;
-  byConversationId: Record<string, { channel: Channel; externalUserId: string }>;
-}
 
 interface WebSessionsIndex {
   byUserId: Record<string, string[]>;
@@ -65,45 +61,16 @@ function sanitizeConversationTitle(input: string): string {
   return normalized.length > 120 ? normalized.slice(0, 120) : normalized;
 }
 
-function userKey(channel: Channel, externalUserId: string): string {
-  return `${channel}:${externalUserId}`;
-}
-
 function sanitizeUserDirPart(value: string): string {
   const safe = String(value ?? "").trim().replace(/[^a-zA-Z0-9._-]/g, "_");
   return safe || "anonymous";
 }
 
-function legacySessionFilePath(conversationId: string): string {
-  return path.join(storagePaths.sessionsDir, `${conversationId}.json`);
-}
-
-function webUiSessionsDir(): string {
-  return path.join(storagePaths.webWorkspaceDir, "ui-sessions");
-}
-
-function webIndexFilePath(): string {
-  return path.join(webUiSessionsDir(), "index.json");
-}
-
-function webUiSessionScopeDir(externalUserId: string): string {
-  return path.join(webUiSessionsDir(), sanitizeUserDirPart(externalUserId));
-}
-
-function webSessionFilePath(externalUserId: string, conversationId: string): string {
-  return path.join(webUiSessionScopeDir(externalUserId), `${conversationId}.json`);
-}
-
-function legacyWebIndexFilePath(): string {
-  return path.join(storagePaths.webWorkspaceDir, "sessions-index.json");
-}
-
-function legacyWebUserSessionsDir(externalUserId: string): string {
-  return path.join(storagePaths.webWorkspaceDir, "users", sanitizeUserDirPart(externalUserId), "sessions");
-}
-
-function legacyWebSessionFilePath(externalUserId: string, conversationId: string): string {
-  return path.join(legacyWebUserSessionsDir(externalUserId), `${conversationId}.json`);
+function webIndexFilePath(): string { return path.join(storagePaths.sessionsDir, "ui-index.json"); }
+function webSessionFilePath(externalUserId: string, conversationId: string, agentId?: string): string {
+  const owner = agentId ?? findAgentSession(storagePaths.dataDir, conversationId, { channel: "web", chatId: externalUserId })?.agentId;
+  if (!owner) throw new Error(`Session storage ownership missing: ${conversationId}`);
+  return path.join(agentWorkspaceDir(storagePaths.dataDir, owner), "contexts", `${conversationId}.meta.json`);
 }
 
 function projectDir(projectId: string): string {
@@ -116,38 +83,6 @@ function projectIndexFilePath(projectId: string): string {
 
 function projectSessionFilePath(projectId: string, conversationId: string): string {
   return path.join(projectDir(projectId), "sessions", `${sanitizeUserDirPart(conversationId)}.json`);
-}
-
-function readLegacyIndex(): SessionsIndex {
-  const raw = readJsonFile<Record<string, unknown>>(storagePaths.sessionsIndexFile, {});
-  const byUserKeyRaw =
-    raw && typeof raw.byUserKey === "object" && raw.byUserKey
-      ? (raw.byUserKey as Record<string, unknown>)
-      : {};
-  const byUserKey: Record<string, string[]> = {};
-  for (const [k, v] of Object.entries(byUserKeyRaw)) {
-    byUserKey[k] = Array.isArray(v) ? v.map((x) => String(x)) : [];
-  }
-
-  const byConversationIdRaw =
-    raw && typeof raw.byConversationId === "object" && raw.byConversationId
-      ? (raw.byConversationId as Record<string, unknown>)
-      : {};
-  const byConversationId: SessionsIndex["byConversationId"] = {};
-  for (const [k, v] of Object.entries(byConversationIdRaw)) {
-    if (!v || typeof v !== "object") continue;
-    const item = v as Record<string, unknown>;
-    byConversationId[k] = {
-      channel: String(item.channel ?? "web") as Channel,
-      externalUserId: String(item.externalUserId ?? "")
-    };
-  }
-
-  return { byUserKey, byConversationId };
-}
-
-function writeLegacyIndex(index: SessionsIndex): void {
-  writeJsonFile(storagePaths.sessionsIndexFile, index);
 }
 
 function readWebIndexFile(filePath: string): WebSessionsIndex {
@@ -177,87 +112,7 @@ function readWebIndexFile(filePath: string): WebSessionsIndex {
   return { byUserId, byConversationId };
 }
 
-function removeDirectoryIfEmpty(dir: string): void {
-  try {
-    fs.rmdirSync(dir);
-  } catch {
-    // Keep non-empty or inaccessible legacy directories for a later retry.
-  }
-}
-
-function migrateLegacyWebUiSessionsLayout(): void {
-  const legacyIndexPath = legacyWebIndexFilePath();
-  if (!fs.existsSync(legacyIndexPath)) return;
-
-  const legacyIndex = readWebIndexFile(legacyIndexPath);
-  const nextIndex = readWebIndexFile(webIndexFilePath());
-  const migrated: Array<{ externalUserId: string; conversationId: string }> = [];
-  let changed = false;
-
-  for (const [conversationId, owner] of Object.entries(legacyIndex.byConversationId)) {
-    const externalUserId = owner.externalUserId;
-    if (!externalUserId) continue;
-    const from = legacyWebSessionFilePath(externalUserId, conversationId);
-    const to = webSessionFilePath(externalUserId, conversationId);
-    if (!fs.existsSync(from) && !fs.existsSync(to)) continue;
-
-    if (!fs.existsSync(to)) {
-      const file = readSessionFromFile(from);
-      if (!file) continue;
-      writeJsonFile(to, file);
-    }
-    ensureWebIndexEntry(nextIndex, externalUserId, conversationId);
-    migrated.push({ externalUserId, conversationId });
-    changed = true;
-  }
-
-  for (const [externalUserId, legacyOrder] of Object.entries(legacyIndex.byUserId)) {
-    const migratedOrder = legacyOrder.filter((conversationId) =>
-      nextIndex.byConversationId[conversationId]?.externalUserId === externalUserId
-      && fs.existsSync(webSessionFilePath(externalUserId, conversationId))
-    );
-    if (migratedOrder.length === 0) continue;
-    const migratedIds = new Set(migratedOrder);
-    nextIndex.byUserId[externalUserId] = [
-      ...migratedOrder,
-      ...(nextIndex.byUserId[externalUserId] ?? []).filter((id) => !migratedIds.has(id))
-    ];
-  }
-
-  if (changed) writeJsonFile(webIndexFilePath(), nextIndex);
-
-  for (const item of migrated) {
-    const from = legacyWebSessionFilePath(item.externalUserId, item.conversationId);
-    if (fs.existsSync(from) && fs.existsSync(webSessionFilePath(item.externalUserId, item.conversationId))) {
-      try {
-        fs.unlinkSync(from);
-      } catch {
-        // Keep the legacy index so cleanup can retry after the new copy is in use.
-      }
-    }
-    removeDirectoryIfEmpty(legacyWebUserSessionsDir(item.externalUserId));
-    removeDirectoryIfEmpty(path.dirname(legacyWebUserSessionsDir(item.externalUserId)));
-  }
-
-  const fullyMigrated = Object.entries(legacyIndex.byConversationId).every(([conversationId, owner]) =>
-    Boolean(
-      owner.externalUserId
-      && fs.existsSync(webSessionFilePath(owner.externalUserId, conversationId))
-      && !fs.existsSync(legacyWebSessionFilePath(owner.externalUserId, conversationId))
-    )
-  );
-  if (fullyMigrated) {
-    try {
-      fs.unlinkSync(legacyIndexPath);
-    } catch {
-      return;
-    }
-    removeDirectoryIfEmpty(path.join(storagePaths.webWorkspaceDir, "users"));
-  }
-}
-
 function readWebIndex(): WebSessionsIndex {
-  migrateLegacyWebUiSessionsLayout();
   return readWebIndexFile(webIndexFilePath());
 }
 
@@ -291,12 +146,15 @@ function writeProjectSession(projectId: string, data: SessionFile): void {
 }
 
 function readSessionFromFile(filePath: string): SessionFile | null {
-  const data = readJsonFile<(Partial<SessionFile> & { conversation?: Conversation; messages?: ConversationMessage[] }) | null>(filePath, null);
+  const raw = readJsonFile<(Partial<SessionFile> & { conversation?: Conversation; messages?: ConversationMessage[]; ui?: SessionFile }) | null>(filePath, null);
+  const data = raw?.ui ?? raw;
   if (!data || !data.conversation) return null;
+  if (raw?.ui && typeof (raw as { agentId?: unknown }).agentId === "string") data.conversation.agentId = (raw as { agentId: string }).agentId;
   if (!data.conversation.title) {
     data.conversation.title = DEFAULT_SESSION_TITLE;
   }
-  const legacyMessages = Array.isArray(data.messages) ? data.messages : [];
+  const messages = (data as { messages?: ConversationMessage[] }).messages;
+  const legacyMessages = Array.isArray(messages) ? messages : [];
   const messageMetadata = Array.isArray(data.messageMetadata)
     ? data.messageMetadata.map((item) => ({ ...item, contextBacked: item.contextBacked === true }))
     : legacyMessages.map((message) => ({ ...message, contextBacked: false }));
@@ -307,23 +165,19 @@ function readSessionFromFile(filePath: string): SessionFile | null {
   };
 }
 
-function readLegacySession(conversationId: string): SessionFile | null {
-  return readSessionFromFile(legacySessionFilePath(conversationId));
-}
-
-function writeLegacySession(_data: SessionFile): void {
-  // Intentionally inert: external-channel conversations are no longer persisted
-  // to the legacy `~/.molibot/sessions` flat store. The Desktop viewer now reads
-  // them from the Agent `contexts/` store (see externalSessionsFromContexts.ts).
-  // Web and Project conversations use their own writers and are unaffected.
-}
-
 function readWebSession(externalUserId: string, conversationId: string): SessionFile | null {
-  return readSessionFromFile(webSessionFilePath(externalUserId, conversationId));
+  const match = findAgentSession(storagePaths.dataDir, conversationId, { channel: "web", chatId: externalUserId });
+  return match ? readSessionFromFile(path.join(match.contextsDir, `${conversationId}.meta.json`)) : null;
 }
 
 function writeWebSession(externalUserId: string, data: SessionFile): void {
-  writeJsonFile(webSessionFilePath(externalUserId, data.conversation.id), data);
+  const agentId = data.conversation.agentId || "default";
+  const file = webSessionFilePath(externalUserId, data.conversation.id, agentId);
+  const existing = readJsonFile<Record<string, unknown>>(file, {});
+  const profile = externalUserId.split(":")[1] || "default";
+  writeJsonFile(file, { ...existing, agentId, source: existing.source ?? { channel: "web", botId: profile, chatId: externalUserId, sessionId: data.conversation.id }, ui: data });
+  const context = path.join(path.dirname(file), `${data.conversation.id}.jsonl`);
+  if (!fs.existsSync(context)) fs.writeFileSync(context, JSON.stringify({ type: "session", version: 3, id: data.conversation.id, timestamp: data.conversation.createdAt }) + "\n");
 }
 
 function ensureWebIndexEntry(index: WebSessionsIndex, externalUserId: string, conversationId: string): void {
@@ -520,7 +374,7 @@ export class SessionStore {
       updatedAt: now
     };
     if (origin) conversation.origin = origin;
-    if (!projectId && agentId?.trim()) conversation.agentId = agentId.trim();
+    if (!projectId) conversation.agentId = agentId?.trim() || "default";
 
     if (projectId) {
       conversation.projectId = projectId;
@@ -548,70 +402,8 @@ export class SessionStore {
     return conversation;
   }
 
-  private migrateLegacyWebUser(externalUserId: string): void {
-    const legacy = readLegacyIndex();
-    const key = userKey("web", externalUserId);
-    const ids = legacy.byUserKey[key] ?? [];
-    if (ids.length === 0) return;
-
-    const webIndex = readWebIndex();
-    let webChanged = false;
-    let legacyChanged = false;
-
-    for (const id of ids) {
-      const file = readLegacySession(id);
-      if (file && file.conversation.channel === "web" && file.conversation.externalUserId === externalUserId) {
-        writeWebSession(externalUserId, file);
-        ensureWebIndexEntry(webIndex, externalUserId, id);
-        webChanged = true;
-      }
-
-      const legacyPath = legacySessionFilePath(id);
-      if (fs.existsSync(legacyPath)) {
-        try {
-          fs.unlinkSync(legacyPath);
-        } catch {
-          // keep legacy file on cleanup failure
-        }
-      }
-      if (legacy.byConversationId[id]) {
-        delete legacy.byConversationId[id];
-        legacyChanged = true;
-      }
-    }
-
-    if (legacy.byUserKey[key]) {
-      delete legacy.byUserKey[key];
-      legacyChanged = true;
-    }
-
-    if (webChanged) {
-      writeWebIndex(webIndex);
-    }
-    if (legacyChanged) {
-      writeLegacyIndex(legacy);
-    }
-  }
-
-  /**
-   * Migrates every legacy Web user's sessions into the Web workspace index.
-   * Used by the cross-profile desktop conversation list (plan §12.2), which has
-   * no single `externalUserId` to pass to the lazy per-user migration. Safe to
-   * call repeatedly - already-migrated users have no legacy entries left.
-   */
-  migrateAllLegacyWebUsers(): void {
-    const legacy = readLegacyIndex();
-    const keys = Object.keys(legacy.byUserKey);
-    for (const key of keys) {
-      if (!key.startsWith("web:")) continue;
-      const externalUserId = key.slice("web:".length);
-      if (externalUserId) this.migrateLegacyWebUser(externalUserId);
-    }
-  }
-
   private resolveSessionStorage(conversationId: string):
     | { type: "web"; externalUserId: string; file: SessionFile }
-    | { type: "legacy"; file: SessionFile }
     | { type: "project"; projectId: string; file: SessionFile }
     | null {
     if (fs.existsSync(storagePaths.projectsDir)) {
@@ -637,22 +429,7 @@ export class SessionStore {
       writeWebIndex(webIndex);
     }
 
-    const legacyFile = readLegacySession(conversationId);
-    if (!legacyFile) return null;
-
-    if (legacyFile.conversation.channel === "web") {
-      this.migrateLegacyWebUser(legacyFile.conversation.externalUserId);
-      const migratedIndex = readWebIndex();
-      const owner = migratedIndex.byConversationId[conversationId];
-      if (owner?.externalUserId) {
-        const migrated = readWebSession(owner.externalUserId, conversationId);
-        if (migrated) {
-          return { type: "web", externalUserId: owner.externalUserId, file: migrated };
-        }
-      }
-    }
-
-    return { type: "legacy", file: legacyFile };
+    return null;
   }
 
   /**
@@ -688,8 +465,7 @@ export class SessionStore {
     externalUserId: string
   ): Conversation | null {
     if (channel === "web") {
-      this.migrateLegacyWebUser(externalUserId);
-      const webIndex = readWebIndex();
+        const webIndex = readWebIndex();
       const owner = webIndex.byConversationId[conversationId];
       if (owner && owner.externalUserId === externalUserId) {
         const file = readWebSession(externalUserId, conversationId);
@@ -702,12 +478,7 @@ export class SessionStore {
       return null;
     }
 
-    const index = readLegacyIndex();
-    const owner = index.byConversationId[conversationId];
-    if (!owner) return null;
-    if (owner.channel !== channel || owner.externalUserId !== externalUserId) return null;
-    const file = readLegacySession(conversationId);
-    return file?.conversation ?? null;
+    return null;
   }
 
   getOrCreateConversation(
@@ -762,8 +533,6 @@ export class SessionStore {
             writeWebSession(located.externalUserId, located.file);
           } else if (located.type === "project") {
             writeProjectSession(located.projectId, located.file);
-          } else {
-            writeLegacySession(located.file);
           }
           return located.file.conversation;
         }
@@ -787,8 +556,6 @@ export class SessionStore {
           writeWebSession(located.externalUserId, located.file);
         } else if (located.type === "project") {
           writeProjectSession(located.projectId, located.file);
-        } else {
-          writeLegacySession(located.file);
         }
         return located.file.conversation;
       }
@@ -887,8 +654,7 @@ export class SessionStore {
       writeProjectSession(located.projectId, file);
       this.indexConversationMessage(file.conversation, message);
     } else {
-      writeLegacySession(file);
-      this.indexConversationMessage(file.conversation, message);
+      // External transcripts are persisted by the Agent Context store.
     }
 
     // Last conversation activity advances for accepted conversational
@@ -919,7 +685,6 @@ export class SessionStore {
     located.file.conversation.updatedAt = new Date().toISOString();
     if (located.type === "web") writeWebSession(located.externalUserId, located.file);
     else if (located.type === "project") writeProjectSession(located.projectId, located.file);
-    else writeLegacySession(located.file);
     return message.plan;
   }
 
@@ -935,10 +700,7 @@ export class SessionStore {
     if (located.type === "web" && located.externalUserId !== externalUserId) {
       return null;
     }
-    if (located.type === "legacy") {
-      const owner = readLegacyIndex().byConversationId[conversationId];
-      if (!owner || owner.channel !== channel || owner.externalUserId !== externalUserId) return null;
-    }
+
 
     located.file.conversation.title = sanitizeConversationTitle(title);
     located.file.conversation.updatedAt = new Date().toISOString();
@@ -947,8 +709,6 @@ export class SessionStore {
       writeWebSession(located.externalUserId, located.file);
     } else if (located.type === "project") {
       writeProjectSession(located.projectId, located.file);
-    } else {
-      writeLegacySession(located.file);
     }
 
     return located.file.conversation;
@@ -981,8 +741,6 @@ export class SessionStore {
       writeWebSession(located.externalUserId, located.file);
     } else if (located.type === "project") {
       writeProjectSession(located.projectId, located.file);
-    } else {
-      writeLegacySession(located.file);
     }
 
     return located.file.conversation;
@@ -1001,7 +759,10 @@ export class SessionStore {
       const owner = index.byConversationId[conversationId];
       if (!owner || owner.externalUserId !== externalUserId) return false;
 
-      fs.unlinkSync(webSessionFilePath(externalUserId, conversationId));
+      const metadata = webSessionFilePath(externalUserId, conversationId);
+      for (const file of [metadata, metadata.replace(/\.meta\.json$/, ".json"), metadata.replace(/\.meta\.json$/, ".jsonl")]) {
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      }
       index.byUserId[externalUserId] = (index.byUserId[externalUserId] ?? [])
         .filter((id) => id !== conversationId);
       delete index.byConversationId[conversationId];
@@ -1011,18 +772,7 @@ export class SessionStore {
       return true;
     }
 
-    const index = readLegacyIndex();
-    const owner = index.byConversationId[conversationId];
-    if (!owner || owner.channel !== channel || owner.externalUserId !== externalUserId) return false;
-
-    fs.unlinkSync(legacySessionFilePath(conversationId));
-    const key = userKey(channel, externalUserId);
-    index.byUserKey[key] = (index.byUserKey[key] ?? []).filter((id) => id !== conversationId);
-    delete index.byConversationId[conversationId];
-    writeLegacyIndex(index);
-    const source = this.searchSource(conversation);
-    if (source) this.enqueueSearchDelete((index) => index.enqueueDeleteConversation(source.sourceKey, conversationId));
-    return true;
+    return false;
   }
 
   /**
@@ -1056,7 +806,6 @@ export class SessionStore {
     located.file.conversation.updatedAt = new Date().toISOString();
     if (located.type === "web") writeWebSession(located.externalUserId, located.file);
     else if (located.type === "project") writeProjectSession(located.projectId, located.file);
-    else writeLegacySession(located.file);
     const source = this.searchSource(located.file.conversation);
     if (source) {
       for (const message of removedMessages) {
@@ -1197,7 +946,6 @@ export class SessionStore {
     if (!changed) return;
     if (located.type === "web") writeWebSession(located.externalUserId, located.file);
     else if (located.type === "project") writeProjectSession(located.projectId, located.file);
-    else writeLegacySession(located.file);
   }
 
   /**
@@ -1220,13 +968,11 @@ export class SessionStore {
     if (!changed) return;
     if (located.type === "web") writeWebSession(located.externalUserId, located.file);
     else if (located.type === "project") writeProjectSession(located.projectId, located.file);
-    else writeLegacySession(located.file);
   }
 
   listConversations(channel: Channel, externalUserId: string): Conversation[] {
     if (channel === "web") {
-      this.migrateLegacyWebUser(externalUserId);
-      const webIndex = readWebIndex();
+        const webIndex = readWebIndex();
       const ids = webIndex.byUserId[externalUserId] ?? [];
       const conversations: Conversation[] = [];
 
@@ -1240,18 +986,7 @@ export class SessionStore {
       return conversations;
     }
 
-    const index = readLegacyIndex();
-    const ids = index.byUserKey[userKey(channel, externalUserId)] ?? [];
-    const conversations: Conversation[] = [];
-
-    for (const id of ids) {
-      const file = readLegacySession(id);
-      if (!file) continue;
-      conversations.push(file.conversation);
-    }
-
-    conversations.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    return conversations;
+    return [];
   }
 
   createWebConversation(externalUserId: string, origin?: string, agentId?: string): Conversation {
@@ -1301,20 +1036,15 @@ export class SessionStore {
    * for the sidebar's "latest message" line and title/preview search. Used only
    * by the shared desktop conversation query layer — never by channel runtimes.
    */
-  listAllWebConversations(): Array<{
+  listAllWebConversations(sessionIds?: ReadonlySet<string>): Array<{
     conversation: Conversation;
     externalUserId: string;
     lastMessageText: string;
   }> {
-    // Migrate any not-yet-migrated legacy Web sessions into the Web workspace
-    // index before reading it. The per-profile `listConversations` migrates a
-    // single user lazily; this cross-profile list must migrate every legacy Web
-    // user, otherwise conversations created before the Web-workspace migration
-    // would be invisible to the desktop sidebar (plan §12.2 cross-Bot aggregation).
-    this.migrateAllLegacyWebUsers();
     const webIndex = readWebIndex();
     const out: Array<{ conversation: Conversation; externalUserId: string; lastMessageText: string }> = [];
     for (const [id, owner] of Object.entries(webIndex.byConversationId)) {
+      if (sessionIds && !sessionIds.has(id)) continue;
       const file = readWebSession(owner.externalUserId, id);
       if (!file) continue;
       const internalOrigin = inferHistoricalInternalOrigin(file.conversation);
@@ -1338,7 +1068,6 @@ export class SessionStore {
    * previews on demand for the current page only.
    */
   listAllWebConversationMeta(): Array<{ conversation: Conversation; externalUserId: string }> {
-    this.migrateAllLegacyWebUsers();
     const webIndex = readWebIndex();
     const out: Array<{ conversation: Conversation; externalUserId: string }> = [];
     for (const [id, owner] of Object.entries(webIndex.byConversationId)) {
@@ -1484,9 +1213,11 @@ export class SessionStore {
       return projectSessionFilePath(located.projectId, id);
     }
     if (located.type === "web") {
-      return webSessionFilePath(located.externalUserId, id);
+      const meta = webSessionFilePath(located.externalUserId, id);
+      const jsonl = meta.replace(/\.meta\.json$/, ".jsonl");
+      return fs.existsSync(jsonl) ? jsonl : meta.replace(/\.meta\.json$/, ".json");
     }
-    return legacySessionFilePath(id);
+    return null;
   }
 
 }

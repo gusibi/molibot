@@ -1,3 +1,5 @@
+import { AgentStorageMigration } from "./agentStorageMigration.js";
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,15 +13,15 @@ import { listAuthorizedConversationSources } from "./conversationAuthorization";
 test("deleting a Web conversation removes its file and index entry", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-desktop-sessions-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
 
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
     const store = new SessionStore();
     const externalUserId = "web:personal:web-anonymous";
@@ -34,15 +36,9 @@ test("deleting a Web conversation removes its file and index entry", () => {
     store.appendMessage(session.id, "assistant", "hello back", { model: "openai/gpt-5" });
     assert.equal(store.listMessages(session.id)[1]?.model, "openai/gpt-5");
 
-    const sessionFile = path.join(
-      root,
-      "web",
-      "ui-sessions",
-      "web_personal_web-anonymous",
-      `${session.id}.json`
-    );
+    const sessionFile = path.join(root, "sessions", "default", "contexts", `${session.id}.meta.json`);
     assert.equal(existsSync(sessionFile), true);
-    assert.equal(existsSync(path.join(root, "web", "ui-sessions", "index.json")), true);
+    assert.equal(existsSync(path.join(storagePaths.sessionsDir, "ui-index.json")), true);
     assert.equal(existsSync(path.join(root, "web", "users")), false);
     assert.equal(existsSync(path.join(root, "web", "sessions-index.json")), false);
     assert.equal(store.deleteConversation(session.id, "web", externalUserId), true);
@@ -52,7 +48,7 @@ test("deleting a Web conversation removes its file and index entry", () => {
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;
-    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -63,7 +59,7 @@ test("context-backed UI messages persist metadata without transcript content", (
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const store = new SessionStore();
     const session = store.createWebConversation("web:default:web-anonymous");
     const message = store.appendMessage(session.id, "user", "only Agent entries own this text", {
@@ -71,13 +67,7 @@ test("context-backed UI messages persist metadata without transcript content", (
       durationMs: 40871,
       attachments: [{ original: "note.txt", local: "attachments/note.txt", mediaType: "file" }]
     });
-    const file = JSON.parse(readFileSync(path.join(
-      root,
-      "web",
-      "ui-sessions",
-      "web_default_web-anonymous",
-      `${session.id}.json`
-    ), "utf8"));
+    const file = JSON.parse(readFileSync(path.join(root, "sessions", "default", "contexts", `${session.id}.meta.json`), "utf8")).ui;
     assert.equal("messages" in file, false);
     assert.equal("lastMessageText" in file, false);
     assert.equal(file.messageMetadata[0].id, message.id);
@@ -90,16 +80,16 @@ test("context-backed UI messages persist metadata without transcript content", (
   }
 });
 
-test("legacy Web users layout migrates to ui-sessions without losing ordering", () => {
+test("confirmed Web migration preserves ordering and retains source files", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-ui-session-migration-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
 
   try {
-    const webRoot = path.join(root, "web");
+    const webRoot = path.join(root, "moli-w");
     const externalUserId = "web:personal:web-anonymous";
     const conversationIds = ["legacy-first", "legacy-second"];
     const legacySessionDir = path.join(webRoot, "users", "web_personal_web-anonymous", "sessions");
@@ -122,23 +112,24 @@ test("legacy Web users layout migrates to ui-sessions without losing ordering", 
       byConversationId: Object.fromEntries(conversationIds.map((id) => [id, { externalUserId }]))
     }));
     storagePaths.webWorkspaceDir = webRoot;
-    storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.sessionsDir = path.join(root, "sessions");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
+    await new AgentStorageMigration(root, { agents: ["default"], bots: [{ channel: "web", botId: "personal" }] }).execute();
     const store = new SessionStore();
     assert.deepEqual(store.listConversations("web", externalUserId).map((item) => item.id), conversationIds);
     for (const conversationId of conversationIds) {
-      assert.equal(existsSync(path.join(webRoot, "ui-sessions", "web_personal_web-anonymous", `${conversationId}.json`)), true);
+      assert.equal(existsSync(path.join(root, "sessions", "default", "contexts", `${conversationId}.meta.json`)), true);
     }
-    assert.equal(existsSync(path.join(webRoot, "ui-sessions", "index.json")), true);
-    const migratedIndex = JSON.parse(readFileSync(path.join(webRoot, "ui-sessions", "index.json"), "utf8"));
+    assert.equal(existsSync(path.join(root, "sessions", "ui-index.json")), true);
+    const migratedIndex = JSON.parse(readFileSync(path.join(root, "sessions", "ui-index.json"), "utf8"));
     assert.deepEqual(migratedIndex.byUserId[externalUserId], conversationIds);
-    assert.equal(existsSync(path.join(webRoot, "sessions-index.json")), false);
-    assert.equal(existsSync(path.join(webRoot, "users")), false);
+    assert.equal(existsSync(path.join(webRoot, "sessions-index.json")), true);
+    assert.equal(existsSync(path.join(webRoot, "users")), true);
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;
-    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -146,15 +137,15 @@ test("legacy Web users layout migrates to ui-sessions without losing ordering", 
 test("automation Web conversations persist their origin for the shared sidebar filter", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-automation-origin-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
 
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
     const store = new SessionStore();
     const conversation = store.getOrCreateConversation(
@@ -168,7 +159,7 @@ test("automation Web conversations persist their origin for the shared sidebar f
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;
-    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -179,7 +170,7 @@ test("historical internal Web sessions are classified without deleting their dat
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const store = new SessionStore();
     const owner = "web:default:web-anonymous";
     const approval = store.createWebConversation(owner);
@@ -205,15 +196,15 @@ test("historical internal Web sessions are classified without deleting their dat
 test("external-channel conversations no longer persist to the legacy sessions store", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-external-noop-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
 
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
     const store = new SessionStore();
     const tg = store.getOrCreateConversation("telegram", "bot:main:chat:user-1:s-20260704-abcd");
@@ -229,7 +220,7 @@ test("external-channel conversations no longer persist to the legacy sessions st
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;
-    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -238,15 +229,15 @@ test("project conversations use isolated project storage and remain outside Web 
   const root = mkdtempSync(path.join(tmpdir(), "molibot-project-sessions-"));
   const original = {
     projectsDir: storagePaths.projectsDir,
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
   try {
     storagePaths.projectsDir = path.join(root, "projects");
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const store = new SessionStore();
     const owner = "web:personal:user";
     const project = store.getOrCreateConversation("web", owner, undefined, { projectId: "wiki" });
@@ -281,15 +272,15 @@ test("listSwitchableProjectConversations scopes automation conversations to thei
   const root = mkdtempSync(path.join(tmpdir(), "molibot-switchable-project-"));
   const original = {
     projectsDir: storagePaths.projectsDir,
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
   try {
     storagePaths.projectsDir = path.join(root, "projects");
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const store = new SessionStore();
 
     const ownScope = store.getOrCreateConversation(
@@ -334,15 +325,15 @@ test("empty conversations are reused once per Web profile and project", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-empty-session-"));
   const original = {
     projectsDir: storagePaths.projectsDir,
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
   try {
     storagePaths.projectsDir = path.join(root, "projects");
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const store = new SessionStore();
     const personal = "web:personal:user";
     const work = "web:work:user";
@@ -374,15 +365,15 @@ test("empty conversations are reused once per Web profile and project", () => {
 test("truncateMessagesFrom drops the picked message and everything after it", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-truncate-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
 
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
     const store = new SessionStore();
     const externalUserId = "web:personal:web-anonymous";
@@ -427,7 +418,7 @@ test("forkConversationBeforeMessage preserves the parent and round-trips child l
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
     const owner = "web:personal:web-anonymous";
     const store = new SessionStore();
@@ -473,7 +464,7 @@ test("getForkableConversation resolves Project Sessions and keeps Web Sessions o
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     storagePaths.projectsDir = path.join(root, "projects");
 
     const owner = "web:personal:web-anonymous";
@@ -505,7 +496,7 @@ test("forkConversationBeforeMessage forks a Project Session into the same projec
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     storagePaths.projectsDir = path.join(root, "projects");
 
     const owner = "web:personal:web-anonymous";
@@ -538,12 +529,12 @@ test("forkConversationBeforeMessage forks a Project Session into the same projec
 
 test("SessionStore incrementally indexes and tombstones truncated or deleted messages", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-session-search-lifecycle-"));
-  const original = { webWorkspaceDir: storagePaths.webWorkspaceDir, sessionsDir: storagePaths.sessionsDir, sessionsIndexFile: storagePaths.sessionsIndexFile };
+  const original = { dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir, sessionsDir: storagePaths.sessionsDir };
   const index = new ConversationSearchIndex(":memory:");
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const store = new SessionStore();
     store.setConversationSearchIndex(index, "web");
     const externalUserId = "web:personal:web-anonymous";
@@ -566,13 +557,13 @@ test("SessionStore incrementally indexes and tombstones truncated or deleted mes
 
 test("SessionStore persists retention policy and never indexes non-searchable turns", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-session-retention-"));
-  const original = { webWorkspaceDir: storagePaths.webWorkspaceDir, sessionsDir: storagePaths.sessionsDir, sessionsIndexFile: storagePaths.sessionsIndexFile };
+  const original = { dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir, sessionsDir: storagePaths.sessionsDir };
   const indexed: Array<{ content: string }> = [];
   const index = { enqueueUpsert: (document: { content: string }) => { indexed.push(document); } };
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const store = new SessionStore();
     store.setConversationSearchIndex(index as unknown as ConversationSearchIndex, "web");
     const externalUserId = "web:personal:web-anonymous";
@@ -596,7 +587,7 @@ test("per-session model override round-trips through disk and clears on empty", 
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
     const externalUserId = "web:personal:web-anonymous";
     const store = new SessionStore();
@@ -637,15 +628,15 @@ test("tool activity file paths survive a save → fresh store → load round tri
   // would empty the file panel's "changes from this session" view on restart.
   const root = mkdtempSync(path.join(tmpdir(), "molibot-activity-paths-"));
   const original = {
-    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    dataDir: storagePaths.dataDir, webWorkspaceDir: storagePaths.webWorkspaceDir,
     sessionsDir: storagePaths.sessionsDir,
-    sessionsIndexFile: storagePaths.sessionsIndexFile
+
   };
 
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
 
     const externalUserId = "web:personal:web-anonymous";
     const session = new SessionStore().createWebConversation(externalUserId);
@@ -665,7 +656,7 @@ test("tool activity file paths survive a save → fresh store → load round tri
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;
-    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -676,7 +667,7 @@ test("conversation plans survive save, edit, and a fresh store", () => {
   try {
     storagePaths.webWorkspaceDir = path.join(root, "web");
     storagePaths.sessionsDir = path.join(root, "legacy");
-    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const store = new SessionStore();
     const session = store.createWebConversation("web:personal:web-anonymous");
     store.appendMessage(session.id, "assistant", "", {

@@ -298,7 +298,6 @@ test("entity settings editors use the shared dialog shell with a dedicated scrol
   assert.match(styles, /:where\(\.desktop-dialog-overlay\)\s*\{[^}]*position:\s*fixed[^}]*inset:\s*0/s);
   assert.match(styles, /:where\(\.desktop-dialog-content\)\s*\{[^}]*position:\s*fixed[^}]*left:\s*50%[^}]*top:\s*50%[^}]*transform:\s*translate\(-50%,\s*-50%\)/s);
   for (const [name, section] of Object.entries({
-    Agent: sections.agents,
     Profile: sections.profiles,
     Channel: sections.channels,
     MCP: sections.mcp
@@ -427,7 +426,8 @@ test("ActivityScheduler owns polling and preserves only recording display clocks
 
   assert.match(tasksSection, /new ActivityScheduler\(/);
   assert.match(traceSection, /new ActivityScheduler\(/);
-  assert.match(agentStudio, /new ActivityScheduler\(/);
+  assert.match(view, /new ActivityScheduler\(agentActivityPolicy, refreshAgentActivity/);
+  assert.doesNotMatch(agentStudio, /new ActivityScheduler\(/);
   assert.match(tools, /const mediaSchedulers = new Map/);
   assert.match(view, /backgroundActivityPolicy/);
   assert.match(view, /reconnectActivityPolicy/);
@@ -750,7 +750,7 @@ test("sidebars remove floating depth and keep a stable glass divider", () => {
 });
 
 test("empty local Chat starts an Agent draft instead of choosing arbitrary history", () => {
-  assert.match(view, /else openAgentChat\(onboardingAgents/);
+  assert.match(view, /else openAgentChat\(defaultAgentId/);
   assert.match(view, /chatStore\.newConversationDraft\(botId\)/);
   assert.match(view, /selectedAgentId = agentId/);
 });
@@ -827,6 +827,7 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and a f
   assert.match(styles, /\.chat-sidebar\.is-collapsed\s*\{/);
   // Pane titles sit below the native toolbar, so collapse needs no extra inset.
   assert.doesNotMatch(styles, /sidebar-collapsed \.chat-header\s*\{[^}]*padding-left: 102px/);
+  assert.match(styles, /\.settings-layout\.agent-editor > \.settings-content\s*\{[^}]*padding-top: var\(--toolbar-height\)/);
   assert.match(view, /<div class="workspace-main">/);
 });
 
@@ -844,7 +845,7 @@ test("collapsed rail carries conversation/project toggles and reuses the shared 
   // uses, so filtering by channel, projects, rename/delete and pagination stay
   // identical instead of drifting into a second implementation.
   assert.match(chatSidebar, /import SidebarLists, \{ type SidebarListSection \} from "\.\/SidebarLists\.svelte"/);
-  assert.match(chatSidebar, /<SidebarLists \{\.\.\.listProps\} sections=\{\["conversations", "projects", "rooms"\]\} variant="sidebar" \/>/);
+  assert.match(chatSidebar, /<SidebarLists \{\.\.\.listProps\} sections=\{\["conversations", "rooms", "projects"\]\} variant="sidebar" \/>/);
   assert.match(chatSidebar, /<SidebarLists \{\.\.\.listProps\} sections=\{\[collapsedFlyout\]\} variant="flyout" \/>/);
   // The rail also carries a rooms flyout toggle.
   assert.match(chatSidebar, /onclick=\{\(\) => onToggleFlyout\?\.\("rooms"\)\}/);
@@ -852,20 +853,16 @@ test("collapsed rail carries conversation/project toggles and reuses the shared 
   assert.match(view, /function openWorkspacePane\(pane: Exclude<ChatWorkspacePaneName, "chat">\): void \{[\s\S]*?roomPaneActive = false;\s*collapsedFlyout = null;/);
 });
 
-test("list-section headings navigate, then collapse on a second click; the caret also collapses", () => {
-  // A section label navigates to that section's content (last conversation /
-  // project / room), so a workspace destination can never trap the reader.
-  // Clicking the heading again once its section is already showing collapses
-  // the list; the caret is the separate collapse control.
+test("Primary sidebar headings toggle their own list without navigating", () => {
   assert.match(chatSidebar, /onOpenConversations,\n\s*onOpenProjects,\n\s*onOpenRooms,/);
-  assert.match(sidebarLists, /class="sidebar-section-toggle" onclick=\{onOpenConversations\}/);
-  assert.match(sidebarLists, /class="sidebar-section-toggle" onclick=\{onOpenRooms\}/);
+  assert.match(sidebarLists, /class="sidebar-section-toggle" aria-expanded=\{conversationsOpen\} onclick=\{onToggleConversations\}/);
+  assert.match(sidebarLists, /class="sidebar-section-toggle" aria-expanded=\{roomsOpen\} onclick=\{onToggleRooms\}/);
   assert.match(sidebarLists, /class="sidebar-section-caret-btn" aria-expanded=\{conversationsOpen\}/);
-  assert.match(projectTree, /class="sidebar-section-toggle" onclick=\{onOpen\}/);
+  assert.match(projectTree, /class="sidebar-section-toggle" aria-expanded=\{expanded\} onclick=\{onOpen\}/);
   assert.match(projectTree, /class="sidebar-section-caret-btn" aria-expanded=\{expanded\}/);
-  assert.match(view, /function openConversationsSection\(\): void \{\s*if \(!sidebarCollapsed && workspacePane === "chat" && !projectPaneActive && !roomPaneActive && conversationsExpanded\) \{\s*conversationsExpanded = false;\s*persistSidebarTree\(\);\s*return;\s*\}[\s\S]*?workspacePane = "chat";/);
-  assert.match(view, /function openProjectsSection\(\): void \{\s*if \(!sidebarCollapsed && projectPaneActive && projectsExpanded\) \{\s*projectsExpanded = false;\s*persistSidebarTree\(\);\s*return;\s*\}[\s\S]*?projectPaneActive = true;/);
-  assert.match(view, /function openRoomsSection\(\): void \{\s*if \(!sidebarCollapsed && roomPaneActive && roomsExpanded\) \{\s*roomsExpanded = false;\s*persistSidebarTree\(\);\s*return;\s*\}[\s\S]*?if \(sidebarRooms\[0\]\) openRoom\(sidebarRooms\[0\]\.id\);/);
+  assert.match(view, /onOpenConversations=\{\(\) => openAgentOverview\(\)\}/);
+  assert.match(view, /function openProjectsSection\(\): void \{[\s\S]*?if \(!sidebarCollapsed && projectPaneActive && projectsExpanded\) \{\s*projectsExpanded = false;\s*persistSidebarTree\(\);\s*return;\s*\}[\s\S]*?projectPaneActive = true;/);
+  assert.match(view, /function openRoomsSection\(\): void \{[\s\S]*?if \(!sidebarCollapsed && roomPaneActive && roomsExpanded\) \{\s*roomsExpanded = false;\s*persistSidebarTree\(\);\s*return;\s*\}[\s\S]*?if \(sidebarRooms\[0\]\) openRoom\(sidebarRooms\[0\]\.id\);/);
   assert.match(styles, /\.sidebar-section-caret-btn\s*\{/);
 });
 
@@ -999,7 +996,7 @@ test("installed Skills recomputes its card list when async store data arrives", 
   assert.doesNotMatch(sections.skills, /\$: filteredSkills/);
 });
 
-const formSectionKey = { agent: "agents", mcp: "mcp", channel: "channels", profile: "profiles", task: "tasks", memory: "memory" };
+const formSectionKey = { mcp: "mcp", channel: "channels", profile: "profiles", task: "tasks", memory: "memory" };
 
 test("chat composer keeps keyboard guidance in the textarea placeholder", () => {
   assert.match(view, /placeholder=\{sending \? copy\.queueHint : copy\.enterHint\}/);
@@ -1456,7 +1453,7 @@ test("composer model pill and grouped menu prefer aliases and truncate without s
   assert.doesNotMatch(composerModelMenu, /composer-model-option-id/);
   assert.match(projectSettingsDialog, /modelOptionCopy\(model\)\.name/);
   assert.match(read("./lib/settings/ModelsSection.svelte"), /groupModelOptions\(options\)/);
-  assert.match(read("./lib/settings/AgentsSection.svelte"), /modelOptionCopy\(option\)\.name/);
+  assert.match(read("./lib/settings/AgentSettingsPage.svelte"), /modelOptionCopy\(option\)\.name/);
   assert.match(styles, /\.composer-model-label \{[^}]*text-overflow: ellipsis/s);
   assert.doesNotMatch(styles, /\.composer-model-label[^{]*\{[^}]*container-type/s);
   assert.doesNotMatch(styles, /composer-model-marquee/);
@@ -1638,6 +1635,11 @@ test("composer bottom bar owns the agent mention and keeps selectors quiet", () 
   // model selector instead of occupying its own row above the textarea.
   assert.match(chatInputArea, /<slot name="mention" \/>/);
   assert.match(view, /slot="mention"/);
+  // Agent homes sit next to the sidebar's agent list, so the composer must not
+  // duplicate agent switching: sessions keep only the read-only bot badge.
+  assert.doesNotMatch(view, /mode=\{draftMode \? "select" : "locked"\}/);
+  assert.match(view, /\{#if !draftMode && onboardingAgents\.length > 0 && activeSessionId\}/);
+  assert.match(view, /mode="locked"/);
   // The model/thinking trigger and the mention pill rest without a background
   // or border; only hover (or open) paints one — like the neighbouring icons.
   assert.match(styles, /\.composer-model-trigger \{[^}]*border: 0;[^}]*background: transparent/s);
@@ -1648,11 +1650,11 @@ test("composer bottom bar owns the agent mention and keeps selectors quiet", () 
 
 test("issue 8 chat polish stays wired across shared Chat and Project surfaces", () => {
   assert.match(view, /openWorkspacePaneState\(pane\)/);
-  assert.match(view, /service-starting-spinner/);
+  assert.match(view, /<AgentCityStartup paused=\{startupPhase === "error"\}/);
   assert.match(view, /startup-recovery-actions/);
   assert.match(view, /aria-live="polite"/);
-  assert.match(app, /startupPhase=\{startup\.phase\}/);
-  assert.match(app, /startupError=\{startup\.error\}/);
+  assert.match(app, /startupPhase=\{storageCheckError \? "error" : startup\.phase\}/);
+  assert.match(app, /startupError=\{storageCheckError \|\| startup\.error\}/);
   assert.match(app, /statusScheduler\?\.wake\("retry"\)/);
   assert.doesNotMatch(app, /setInterval\(\(\) => void refreshStatus\(\), 1000\)/);
   assert.match(transcript, /class="message-meta"/);
@@ -1991,7 +1993,7 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(sidebarLists, /overflow-x: hidden/);
   assert.match(projectTree, /sidebar-section-head/);
   assert.doesNotMatch(projectTree, /project-tree-actions/);
-  assert.match(projectTree, /opacity: 0; pointer-events: none/);
+  assert.match(styles, /opacity: 0; pointer-events: none/);
   assert.match(row, /\.row-title\s*\{[^}]*flex:\s*1 1 auto[^}]*min-width:\s*0/s);
   assert.doesNotMatch(row, /\.row-title\s*\{[^}]*max-width:/s, "the title must grow with the resized sidebar");
   assert.match(row, /\.row-time\s*\{[^}]*flex:\s*0 0 auto/s);
@@ -2124,10 +2126,8 @@ test("conversation and project titles share a clean section header layout", () =
 });
 
 test("Agent Studio projects real activity into an accessible Three.js city", () => {
-  const skillsPosition = chatSidebar.indexOf('activeWorkspacePane === "skills"');
-  const agentsPosition = chatSidebar.indexOf('activeWorkspacePane === "agents"');
-  assert.ok(skillsPosition >= 0 && agentsPosition > skillsPosition);
-  assert.match(view, /onOpenAgents=\{\(\) => openWorkspacePane\("agents"\)\}/);
+  assert.doesNotMatch(chatSidebar, /key: "agents"/);
+  assert.match(read("./lib/chat/AgentNavigation.svelte"), /label=\{copy.agentOverview\}/);
   assert.match(app, /requestedChatPane: "chat" \| "automations" \| "skills" \| "agents"/);
   assert.match(app, /searchParams\.get\("pane"\)/);
   assert.ok(app.indexOf('const runningInTauri = "__TAURI_INTERNALS__" in window') < app.indexOf('searchParams.get("pane")'));
@@ -2136,11 +2136,11 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.doesNotMatch(agentStudio, /<h2>\{copy\.agentStudio\}<\/h2>/);
   assert.match(styles, /\.agent-studio\s*\{[^}]*padding:\s*12px 0 40px/s);
   assert.match(agentStudio, /id: "default"/);
-  assert.match(agentStudio, /loadDesktopAgents\(endpoint\)/);
-  assert.match(agentStudio, /loadDesktopAgentActivity\(endpoint\)/);
-  assert.match(agentStudio, /new ActivityScheduler\(agentActivityPolicy, refresh, documentActivityVisibility\)/);
+  assert.match(view, /loadDesktopAgents\(endpoint\)/);
+  assert.match(view, /loadDesktopAgentActivity\(endpoint\)/);
+  assert.match(view, /new ActivityScheduler\(agentActivityPolicy, refreshAgentActivity, documentActivityVisibility\)/);
   assert.doesNotMatch(agentStudio, /setInterval\(/);
-  assert.match(agentStudio, /generation !== refreshGeneration/);
+  assert.match(view, /generation !== connectionGeneration/);
   assert.match(agentStudio, /SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1"/);
   assert.match(agentStudio, /projectAgentCity/);
   assert.match(agentStudio, /<AgentCityCanvas/);
@@ -2190,7 +2190,7 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(view, /chatStore\.newConversationDraft\(botId\)/);
   assert.doesNotMatch(styles, /\.agent-city-detail\s*\{/);
   assert.match(agentStudio, /projection\.hiddenAgentCount/);
-  assert.match(agentStudio, /documentActivityVisibility/);
+  assert.match(view, /documentActivityVisibility/);
   assert.doesNotMatch(agentStudio, /visibilitychange/);
   assert.match(agentCityFallback, /agent-city-fallback-building/);
   assert.match(agentCityFallback, /floor\.activity\.botName/);
@@ -2570,7 +2570,7 @@ test("chat header is single-line and service status lives on the sidebar logo", 
   const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
   assert.doesNotMatch(view, /activeHeaderSourceInitial/);
   assert.match(view, /activeHeaderTitle/);
-  assert.match(view, /sourceLabel=\{activeHeaderChannel !== "web" \? activeHeaderSourceLabel : ""\}/);
+  assert.match(view, /sourceLabel=\{!agentFilesActive && !agentHistoryActive && activeHeaderChannel !== "web" \? activeHeaderSourceLabel : ""\}/);
   // The title takes the row's slack and ellipsizes inside the CHAT COLUMN. A
   // viewport-relative `max-width` let it run underneath the action buttons as
   // soon as the file panel narrowed the column.
@@ -2659,7 +2659,7 @@ test("Room chrome publishes its identity and actions to the shared window header
   // with the one window header instead of rendering a second `.room-header`.
   assert.match(room, /<ChatHeader title=\{view\?\.room\.title \?\? words\.title\}/);
   assert.match(room, /<ChatHeader title=\{editing \?/);
-  assert.match(room, /\{#snippet actions\(\)\}[\s\S]*room-session-picker[\s\S]*\{\/snippet\}/);
+  assert.match(room, /\{#snippet actions\(\)\}[\s\S]*newConversation[\s\S]*\{\/snippet\}/);
   assert.doesNotMatch(room, /class="room-header"/);
   assert.doesNotMatch(room, /class="room-heading"/);
   // Room setup keeps its one-line description at the top of the body.
@@ -4249,7 +4249,7 @@ test("a draft session only writes a permission override when the user explicitly
 
 });
 
-test("settings navigation keeps the current product taxonomy and entity editors open as dialogs", () => {
+test("settings navigation keeps shared resources and uses a dedicated Agent settings page", () => {
   assert.match(app, /id: "general", sections: \["general"\]/);
   assert.match(app, /id: "models", sections: \["models", "providers"\]/);
   assert.match(app, /id: "assistant", sections: \["agents", "skills", "memory", "sessionManagement"\]/);
@@ -4261,8 +4261,22 @@ test("settings navigation keeps the current product taxonomy and entity editors 
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
     assert.match(sections[key], /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
   }
-  assert.match(sections.agents, /class="entity-editor-head"/);
-  assert.match(sections.agents, /class="entity-editor-foot settings-footbar"/);
+  const agentSettings = read("./lib/settings/AgentSettingsPage.svelte");
+  assert.match(app, /activeSection === "agents" && agentsStore.agentEdit/);
+  assert.match(app, /<AgentSettingsPage backLabel=\{locale === "zh-CN" \? "返回 Agent 列表" : "Back to Agent list"\}/);
+  assert.match(app, /<WindowDragMask \/>\s*<aside class="settings-sidebar">/);
+  assert.doesNotMatch(styles, /\.settings-layout\.agent-editor\s*\{[^}]*grid-template-columns/);
+  assert.match(view, /<div class="workspace-main">\s*\{#if agentSettingsActive\}/);
+  assert.match(view, /<AgentSettingsPage onClose=\{closeAgentSettings\}/);
+  const openSettingsBody = view.slice(view.indexOf("async function openAgentSettings("), view.indexOf("function openAgentChat("));
+  assert.doesNotMatch(openSettingsBody, /openSettings\("agents"\)/);
+  assert.match(app, /<section class="settings-content">\s*\{#if activeSection === "agents" && agentsStore.agentEdit\}/);
+  assert.match(agentSettings, /class="agent-settings-shell"/);
+  assert.match(styles, /@container agent-settings \(max-width: 620px\)/);
+  assert.match(agentSettings, /class="settings-footbar agent-settings-foot"/);
+  assert.match(agentSettings, /let section = \$state\("basic"\)/);
+  assert.match(agentSettings, /aria-current=/);
+  assert.match(agentSettings, /saveAgentEditor\(changes\)/);
   assert.match(styles, /\.entity-editor-foot\s*\{[^}]*justify-content:\s*flex-end/s);
   assert.match(app, /label: sectionLabel\(item\.id, text\)/);
   assert.match(app, /<PageHeader title=\{sectionLabel\(activeSection, text\)\}/);
@@ -5682,7 +5696,7 @@ test("a service reconnect restores the viewed conversation instead of re-running
   assert.match(view, /captureViewForRestore[\s\S]*?projectsStore\.selectedSessionId[\s\S]*?activeExternalSessionId[\s\S]*?chatStore\.registry\.active/s);
   // connect() consumes the snapshot first; default selection is only the
   // first-launch fallback (no snapshot = nothing to restore).
-  assert.match(view, /const restoreView = reconnectRestore;\s*reconnectRestore = null;\s*if \(restoreView\) \{[\s\S]*?restoreView\(\);\s*\} else \{\s*void selectDefaultSession\(generation\);/s);
+  assert.match(view, /const restoreView = reconnectRestore;\s*reconnectRestore = null;\s*if \(restoreView\) \{[\s\S]*?restoreView\(\);\s*\} else \{\s*initialNavigationPending = true;\s*void selectDefaultSession\(generation\)/s);
   // A session created by sending from the draft never passed through
   // openSession — it must still become the restore anchor.
   assert.match(view, /onSessionCreated: \(profileId, sessionId\) => \{[\s\S]*?persistSelected\(profileId, sessionId\);/s);
@@ -6010,7 +6024,7 @@ test("Room conversations use the shared Chat chrome, transcript and mention menu
   const room = read("./lib/chat/RoomWorkspace.svelte");
   assert.match(room, /<ChatHeader /);
   assert.match(room, /<ChatMessagesPane /);
-  assert.match(room, /<ChatInputArea floating=\{true\} \{mentionSuggestions\}/);
+  assert.match(room, /<ChatInputArea floating=\{!showHome\} \{mentionSuggestions\}/);
   assert.doesNotMatch(room, /class="room-transcript"|class="room-message"|<ChatMarkdown|class="room-team-bar"/);
   assert.match(room, /roomMentionIds\(text, members\)/);
   assert.match(room, /fetchDesktopRoomFileBlob/);
@@ -6049,7 +6063,7 @@ test("window chrome shares one material and hosts all panes in the content frame
   assert.doesNotMatch(view, /window-toolbar-surface/);
   assert.match(styles, /\.window-material\s*\{[^}]*inset: 0;[^}]*background: var\(--sidebar-material-tint\);[^}]*backdrop-filter: var\(--sidebar-material-filter\);[^}]*pointer-events: none;/s);
   assert.match(styles, /\.chat-layout \.chat-sidebar::before\s*\{\s*display: none;/s);
-  assert.match(view, /<div class="workspace-main">\s*\{#if roomPaneActive\}/);
+  assert.match(view, /<div class="workspace-main">\s*\{#if agentSettingsActive\}/);
   assert.match(view, /<div class="workspace-inspector">/);
   // The chat content sits in the window's body row, below the header band, and
   // floats above the window material with the shared content shadow.
@@ -6106,19 +6120,27 @@ test("durable cards preserve multiline content without widening their grid", () 
 });
 
 
-test("Agent sidebar retains every shared Session context menu action and translated labels", () => {
-  const navigation = read("./lib/chat/AgentNavigation.svelte");
-  const host = view.match(/<AgentNavigation\s[\s\S]*?\/>/)?.[0];
-  assert.ok(host);
-  assert.match(host, /onCopySessionPath=\{copySessionPath\}/);
-  assert.match(host, /onRevealSessionInFinder=\{revealSessionInFinder\}/);
-  assert.match(host, /onRename=\{renameSession\}/);
-  assert.match(host, /onDelete=\{deleteSession\}/);
-  assert.match(navigation, /onCopyPath=\{\(\) => onCopySessionPath\(item\)\}/);
-  assert.match(navigation, /onRevealInFinder=\{\(\) => onRevealSessionInFinder\(item\)\}/);
-  for (const label of ["conversationMenu", "copySessionPath", "openInFinder", "renamePlaceholder", "deleteConversationPrompt", "cancelAction"]) {
-    assert.ok(navigation.includes(`copy.${label}`), `Missing translated menu label: ${label}`);
-  }
+test("Agent recent and full history share deletion and explicit selection", () => {
+  assert.match(read("./lib/chat/AgentHome.svelte"), /onDelete=\{onDelete/);
+  const row = read("./lib/chat/AgentConversationRow.svelte");
+  assert.match(row, /<RowContextMenu/);
+  assert.match(row, /<Checkbox.Root/);
+  // Every Agent session row (recent list, full history, search browser) keeps
+  // the three right-click actions: copy session path, reveal in Finder, delete.
+  assert.match(row, /onCopyPath/);
+  assert.match(row, /onRevealInFinder/);
+  assert.match(row, /复制 session 路径/);
+  assert.match(row, /从 Finder 打开/);
+  assert.match(row, /删除对话/);
+  const home = read("./lib/chat/AgentHome.svelte");
+  assert.match(home, /onCopyPath=\{onCopyPath/);
+  assert.match(home, /onRevealInFinder=\{onRevealInFinder/);
+  assert.match(view, /onCopyPath=\{copySessionPath\} onRevealInFinder=\{revealSessionInFinder\}/);
+  const browser = read("./lib/chat/ConversationBrowserDialog.svelte");
+  assert.match(browser, /onCopyPath=\{onCopyPath \? \(\) => onCopyPath\(item\) : undefined\}/);
+  assert.match(browser, /deleteConversationSelection\(endpoint, ids\)/);
+  assert.match(read("./lib/chat/deleteConversationSelection.ts"), /kind: "delete"/);
+  assert.doesNotMatch(read("./lib/chat/deleteConversationSelection.ts"), /purge/);
 });
 
 test("channel and Web Profile settings use a concrete Momo identity instead of an empty global option", () => {
@@ -6136,4 +6158,329 @@ test("channel and Web Profile settings use a concrete Momo identity instead of a
     assert.doesNotMatch(selector, /<NativeSelectOption value="">/);
     assert.match(page, /agentId: "default"/);
   }
+});
+
+test("pending storage is an explicit recoverable main-screen state, never service startup or a hidden notice", () => {
+  const chat = read("./ChatView.svelte");
+  const app = read("./App.svelte");
+  const migration = read("./lib/components/AgentStorageMigration.svelte");
+  assert.ok(chat.indexOf('{#if storageMigrationPending}') >= 0);
+  assert.ok(chat.indexOf('{#if storageMigrationPending}') < chat.indexOf('{:else if startupPending}', chat.indexOf('{#if storageMigrationPending}')));
+  assert.match(chat, /onclick=\{openStorageMigration\}/);
+  assert.match(app, /bind:open=\{storageMigrationOpen\}/);
+  assert.match(app, /onPending=\{\(pending\) => storageMigrationPending = pending\}/);
+  assert.doesNotMatch(migration, /"稍后"|"Later"|storage-migration-notice/);
+});
+
+test("storage detection waits for service readiness and closes during disconnection", () => {
+  const app = read("./App.svelte");
+  const migration = read("./lib/components/AgentStorageMigration.svelte");
+  assert.match(app, /serviceAvailable=\{status\?\.service\.state === "ready"\}/);
+  assert.match(migration, /if \(!serviceAvailable \|\| !endpoint\)/);
+  assert.match(migration, /checked = "";\s*open = false;/);
+  assert.doesNotMatch(migration, /catch \(cause\) \{[^}]*open = true/);
+});
+
+test("every migration response is scoped to the current service generation", () => {
+  const migration = read("./lib/components/AgentStorageMigration.svelte");
+  for (const operation of ["assignBot", "ignoreResource", "confirm"]) {
+    const body = migration.split(`async function ${operation}(`)[1]?.split(/\n  (?:async function|\$effect|function)|\n<\/script>/)[0] ?? "";
+    assert.match(body, /const target = endpoint/);
+    assert.match(body, /const generation = \+\+requestGeneration/);
+    assert.match(body, /currentRequest\(generation, target\)/);
+    assert.doesNotMatch(body, /status = await/);
+  }
+  assert.match(migration, /if \(stopped \|\| !currentRequest\(generation, target\)\) return/);
+  assert.match(migration, /!migrationRunning && !\(busy && !previewing\)/);
+  assert.match(migration, /timer = setTimeout\(poll, 1000\)/);
+  assert.doesNotMatch(migration, /setInterval\(/);
+});
+
+test("External transcript scroll follows the visible session", () => {
+  assert.match(view, /use:stickToBottom=\{\{ key: activeExternalSessionId \}\}/);
+  assert.match(view, /externalTranscriptLoader\.select\(connectedEndpoint, sessionId/);
+  assert.match(view, /function closeExternalTranscript\(\): void \{\s*externalTranscriptLoader\.close\(\)/);
+});
+
+
+test("Agent history opens in the workspace and keeps its Agent scope through pagination", () => {
+  const browser = read("./lib/chat/ConversationBrowserDialog.svelte");
+  const openHistory = view.slice(view.indexOf("function openAgentHistory"), view.indexOf("async function refreshAgentSessions"));
+  assert.match(openHistory, /agentHistoryActive = true/);
+  assert.match(openHistory, /browserOpen = false/);
+  assert.match(view, /else if agentHistoryActive}[\s\S]*?<ConversationBrowserDialog[\s\S]*?page[\s\S]*?agentId=\{historyAgentId\}/);
+  assert.match(browser, /if page}[\s\S]*?class="agent-history-page"/);
+  assert.match(browser, /PRIMARY_SCOPES\.filter\(value => value !== "project"\)/);
+  assert.match(browser, /searchDesktopConversations\(endpoint, \{[\s\S]*?agentId, includeArchived/);
+  assert.match(browser, /agentId !== requestedAgent/);
+});
+
+
+test("Agent history shares source icons and right-aligned times in two columns", () => {
+  const browser = read("./lib/chat/ConversationBrowserDialog.svelte");
+  assert.match(browser, /class="agent-history-columns"/);
+  const row = read("./lib/chat/AgentConversationRow.svelte");
+  assert.match(row, /class="agent-history-conversation-copy"/);
+  assert.doesNotMatch(row, /class="agent-history-source"/);
+  assert.match(row, /item\.readOnly/);
+  assert.match(browser, /<SelectControl value=\{scope\}/);
+  assert.match(row, /<time datetime=\{item\.updatedAt\}/);
+  assert.match(styles, /\.agent-history-columns, \.agent-history-row \{[^}]*grid-template-columns/);
+  assert.match(styles, /\.agent-history-row time \{[^}]*text-align: right/);
+  assert.doesNotMatch(styles, /\.agent-history-conversation \{ grid-column: 1 \/ -1/);
+});
+
+
+test("Agent history title icon reuses the sidebar's bundled channel logos", () => {
+  const browser = read("./lib/chat/ConversationBrowserDialog.svelte");
+  assert.match(read("./lib/chat/AgentConversationRow.svelte"), /class="agent-history-conversation-icon"[\s\S]*?<img class="channel-logo" src=\{CHANNEL_LOGOS\[source\]\}/);
+});
+
+
+test("Agent history toolbar shares one explicit control height", () => {
+  assert.match(styles, /\.agent-history-toolbar > \.secondary-button, \.agent-history-toolbar \.select-control-trigger \{ height: 40px; min-height: 40px; box-sizing: border-box;/);
+  assert.match(styles, /\.agent-history-toolbar \.browser-search \{ height: 40px; box-sizing: border-box;/);
+});
+
+test("startup header shows service state and waits for initial navigation", () => {
+  assert.match(view, /\$: startupPending = serviceState !== "ready" \|\| !connectionReady \|\| loading/);
+  assert.match(view, /title=\{startupPending \? startupHeaderTitle :/);
+  assert.match(view, /initialNavigationPending = true;\s*void selectDefaultSession\(generation\)/);
+  const connect = view.slice(view.indexOf("async function connect("), view.indexOf("$: if (draftMode)"));
+  assert.match(connect, /finally\(\(\) => \{\s*if \(generation === connectionGeneration\) initialNavigationPending = false/);
+});
+
+test("initial navigation falls back to Momo and can restore an external session", async () => {
+  const source = view.slice(view.indexOf("async function selectDefaultSession"), view.indexOf("async function loadChannel"));
+  const body = source.slice(source.indexOf("{") + 1, source.lastIndexOf("}")).replace(/ as Exclude<ChatWorkspacePaneName, "chat">/g, "");
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const run = new AsyncFunction("generation", "connectionGeneration", "restoreSidebarTree", "refreshAgentSessions", "agentNavigation", "ordinarySessions", "listDesktopConversations", "connectedEndpoint", "openRoom", "selectProject", "selectProjectSession", "openWorkspacePane", "openSession", "openAgentChat", "onboardingAgents", "defaultAgentId", body);
+  async function restore(saved, items) {
+    const opened = [];
+    const noop = async () => {};
+    await run(1, 1, noop, noop, saved, [], async (_endpoint, query) => {
+      assert.equal(query.allAgents, true);
+      assert.equal(query.sessionId, saved.sessionId);
+      return { items };
+    }, "http://example.test", noop, noop, noop, noop, item => opened.push(item.sessionId), id => opened.push(id), [{ id: "other", enabled: false }], "default");
+    return opened;
+  }
+  assert.deepEqual(await restore({ page: "session", agentId: "other", sessionId: "gone" }, []), ["default"]);
+  assert.deepEqual(await restore({ page: "session", agentId: "default", sessionId: "external" }, [{ sessionId: "external", channel: "telegram" }]), ["external"]);
+});
+
+test("Agent home and full history share the conversation row", () => {
+  const home = read("./lib/chat/AgentHome.svelte");
+  const browser = read("./lib/chat/ConversationBrowserDialog.svelte");
+  const row = read("./lib/chat/AgentConversationRow.svelte");
+  assert.match(home, /<AgentConversationRow \{item\} source=\{item.channel\}/);
+  assert.match(browser, /<AgentConversationRow \{item\} source=\{item.source\}/);
+  assert.match(row, /class="agent-history-row" onclick=\{onSelect\}/);
+  assert.doesNotMatch(home, /agent-home-session/);
+  assert.doesNotMatch(styles, /\.agent-home-session/);
+});
+
+
+test("new conversation centers the real composer above compact suggestions and three recent sessions", () => {
+  const home = read("./lib/chat/AgentHome.svelte");
+  assert.match(view, /<AgentHome [\s\S]*?composer=\{conversationComposer\}[\s\S]*?sessions=\{agentHomeSessions.slice\(0, 3\)\}/);
+  assert.match(view, /floating=\{!draftMode\}/);
+  assert.ok(home.indexOf("{@render composer()}") < home.indexOf('class="agent-home-tasks"'));
+  assert.ok(home.indexOf('class="agent-home-tasks"') < home.indexOf('class="agent-home-history"'));
+  assert.doesNotMatch(home, /agent-home-description|agent-home-task-hint/);
+  assert.match(view, /class="chat-start-page"[\s\S]*?{:else}\s*<ChatMessagesPane/);
+});
+
+test("new conversation identity is centered and Agent settings belong to the window header", () => {
+  const home = read("./lib/chat/AgentHome.svelte");
+  assert.match(home, /<h1>\{agent.name\}<\/h1>/);
+  assert.match(home, /agent-home-greeting/);
+  assert.doesNotMatch(home, /onSettings|agent-home-settings/);
+  assert.match(view, /snippet actions\(\)[\s\S]*?draftMode && selectedAgent[\s\S]*?openAgentSettings\(selectedAgentId\)/);
+  assert.match(styles, /\.agent-home-identity \{[^}]*flex-direction: column;[^}]*align-items: center/);
+  assert.match(styles, /\.agent-home-tasks \{[^}]*justify-content: center/);
+});
+
+test("Agent avatars share the account logo when missing or unavailable", () => {
+  const avatar = read("./lib/components/ui/AgentAvatar.svelte");
+  assert.match(avatar, /src.trim\(\) \|\| "\/molibot-icon.png"/);
+  assert.match(avatar, /<Avatar.Image src=\{avatarSrc\}/);
+  assert.match(avatar, /<Avatar.Fallback[^>]*><img src="\/molibot-icon.png"/);
+  assert.doesNotMatch(avatar, /name.slice/);
+  assert.match(read("./lib/chat/AgentHome.svelte"), /agent.description\?\.trim\(\)/);
+  assert.match(styles, /\.agent-home-identity \.agent-avatar \{[^}]*width: 96px;[^}]*border-radius: 50%/);
+});
+
+test("Agent sidebar opens home without loading or rendering conversations", () => {
+  const navigation = read("./lib/chat/AgentNavigation.svelte");
+  assert.match(navigation, /<GroupHeader label=\{agent.name \|\| agent.id\}/);
+  assert.match(navigation, /onToggle=\{\(\) => agent.enabled \? onAgent\(agent.id\) : onHistory\(agent.id\)\}/);
+  assert.doesNotMatch(navigation, /ConversationRow|listDesktopConversations|expanded|loadMore/);
+});
+
+ test("Room entry shares the Agent homepage and creates sessions only on send", () => {
+  const room = read("./lib/chat/RoomWorkspace.svelte");
+  assert.match(room, /<AgentHome /);
+  assert.match(room, /homeSessions.slice\(0, 3\)/);
+  assert.match(room, /showHome = !sessionId/);
+  assert.doesNotMatch(room, /room-session-picker|savedSession|rememberSession/);
+  const newConversation = room.slice(room.indexOf("function newConversation()"), room.indexOf("async function action("));
+  assert.doesNotMatch(newConversation, /actOnDesktopRoom/);
+  const send = room.slice(room.indexOf("async function send()"), room.indexOf("async function approve("));
+  assert.match(send, /if \(showHome\)/);
+  assert.ok(send.indexOf('action: "new_session"') < send.indexOf('action: "send"'));
+  assert.match(send, /if \(current !== generation \|\| destroyed\) return/);
+});
+
+
+test("Agent icon actions inherit shared theme controls without local chrome overrides", () => {
+  const button = read("./lib/components/ui/Button.svelte");
+  assert.match(button, /variant === "icon" \? "icon-button"/);
+  assert.match(view, /<Button variant="icon" title=[^\n]*openAgentSettings/);
+  const rule = styles.match(/\.agent-icon-action \{([^}]+)\}/)?.[1];
+  assert.ok(rule);
+  assert.doesNotMatch(rule, /background|color|border|box-shadow/);
+  assert.doesNotMatch(styles, /\.agent-icon-action[^\n]*:hover/);
+});
+
+test("Room homepage send keeps its draft on creation failure and ignores a switched room", async () => {
+  const source = read("./lib/chat/RoomWorkspace.svelte");
+  const body = source.slice(source.indexOf("  async function send() {"), source.indexOf("  async function approve(")).replace("async function send()", "async function run()");
+  for (const switched of [false, true]) {
+    const state = {
+      input: "hello", files: [], submitting: false, showHome: true, generation: 1,
+      error: "", locale: "en", endpoint: "test", selected: "room-a", destroyed: false,
+      selectedSession: "old", draftStore: { update() { throw new Error("Must preserve draft"); } },
+      async actOnDesktopRoom() {
+        if (switched) { state.generation++; state.selected = "room-b"; return {session: {id: "new"}}; }
+        throw new Error("offline");
+      },
+    };
+    const run = new Function("state", `with (state) { ${body}; return run(); }`);
+    await run(state);
+    assert.equal(state.input, "hello");
+    assert.equal(state.selectedSession, "old");
+    assert.equal(state.showHome, true);
+    assert.equal(state.submitting, false);
+    assert.equal(state.error, switched ? "" : "Error: offline");
+  }
+});
+
+ test("Room management stays in sidebar while conversation header uses icons", () => {
+  const room = read("./lib/chat/RoomWorkspace.svelte");
+  const header = room.slice(room.indexOf("{#if selected && !editing}"), room.indexOf("  {:else}", room.indexOf("{#if selected && !editing}")));
+  assert.doesNotMatch(header, /OverflowMenu|words.edit|words.remove|words.back/);
+  assert.match(header, /if !showHome/);
+  assert.match(header, /<House size/);
+  assert.match(header, /<ChatPlus size/);
+  const sidebar = read("./lib/chat/SidebarLists.svelte");
+  assert.match(sidebar, /<RowContextMenu items=/);
+  assert.match(sidebar, /onEditRoom\(room.id\)/);
+  assert.match(sidebar, /onDeleteRoom\(room.id\)/);
+});
+
+test("Room has one entry after catalog initialization so cold edit is not overwritten", () => {
+  const room = read("./lib/chat/RoomWorkspace.svelte");
+  const initialize = room.slice(room.indexOf("async function initialize()"), room.indexOf("function closeStream()"));
+  assert.doesNotMatch(initialize, /await open\(/);
+  assert.match(initialize, /catalogEndpoint = currentEndpoint/);
+  assert.match(room, /endpoint === catalogEndpoint && \(requestedRoomId !== applied/);
+});
+
+
+test("Agent navigation unifies overview, identity and status without a second workspace entry", () => {
+  const navigation = read("./lib/chat/AgentNavigation.svelte");
+  assert.doesNotMatch(chatSidebar, /key: "agents"/);
+  assert.match(sidebarLists, /<span>\{copy.agentsNav\}<\/span>/);
+  assert.ok(chatSidebar.indexOf('<nav class="sidebar-nav"') < chatSidebar.indexOf('sections={["conversations", "rooms", "projects"]}'));
+  assert.match(navigation, /label=\{copy.agentOverview\}/);
+  assert.match(navigation, /selectedAgentId === agent.id/);
+  assert.match(navigation, /agentActivityLabel/);
+  assert.match(navigation, /role="img" aria-label=\{label\}/);
+  assert.match(navigation, /<StatusIcon size=\{14\}/);
+  assert.match(styles, /agent-navigation-status\[data-status="working"\][^}]*animation: agent-navigation-working/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.agent-navigation-status\[data-status="working"\] \{ animation: none/);
+  assert.doesNotMatch(navigation, />\{label\}<\/span>/);
+  assert.match(agentStudio, /function handleSelect[\s\S]*?onOpenAgentChat\(floor.agent.id\)/);
+  assert.match(view, /stopAgentActivityPolling\(\);\s*stopAutomationUnreadPolling/);
+  assert.match(read("./lib/chat/AgentHome.svelte"), /onclick=\{onActivity\}/);
+});
+
+
+test("unassigned history is only shown when the scoped history query finds a conversation", () => {
+  assert.match(read("./lib/chat/AgentNavigation.svelte"), /hasUnassignedHistory \? \[/);
+  assert.match(view, /agentId: "__unassigned__", limit: 1, includeArchived: true/);
+  assert.match(view, /hasUnassignedHistory = unassigned.items.length > 0/);
+  assert.match(view, /<AgentNavigation [^>]*\{hasUnassignedHistory\}/);
+});
+
+
+test("Agent home uses a cropped status avatar as its single overview action", () => {
+  const home = read("./lib/chat/AgentHome.svelte");
+  assert.match(home, /class="agent-home-avatar-action" data-status=\{activityStatus\} title=\{activityTitle\} aria-label=\{activityTitle\} onclick=\{onActivity\}/);
+  assert.match(home, /agent.enabled === false \? "disabled" : !activityReady \? "unknown" : activity\?\.status \?\? "idle"/);
+  assert.match(home, /const StatusIcon = \$derived/);
+  assert.doesNotMatch(home, /agent-home-activity|<Button onclick=\{onActivity\}/);
+  assert.match(styles, /\.agent-home-identity \.agent-avatar-image \{ transform: scale\(1\.42\)/);
+  assert.match(styles, /agent-home-avatar-action:focus-visible/);
+});
+
+
+test("Idle Agent rests while working Agent runs, without pause semantics", () => {
+  const home = read("./lib/chat/AgentHome.svelte");
+  assert.match(home, /activityStatus === "working" \? Run/);
+  assert.match(home, /CircleInfo : MoonSleep\)/);
+  assert.doesNotMatch(home, /icons\/Pause|icons\/Clock2/);
+});
+
+
+test("Sidebar keeps new chat first and workspace actions before projects in both modes", () => {
+  const collapsed = chatSidebar.slice(chatSidebar.indexOf('{#if collapsed}'), chatSidebar.indexOf('  {:else}', chatSidebar.indexOf('{#if collapsed}')));
+  const expanded = chatSidebar.slice(chatSidebar.indexOf('  {:else}', chatSidebar.indexOf('{#if collapsed}')));
+  assert.ok(collapsed.indexOf('aria-label={copy.newChat}') < collapsed.indexOf('aria-label={copy.agentsNav}'));
+  assert.ok(collapsed.indexOf('{#each workspaceItems') < collapsed.indexOf('aria-label={copy.agentsNav}'));
+  assert.ok(collapsed.indexOf('{#each workspaceItems') < collapsed.indexOf('aria-label={copy.projects}'));
+  assert.ok(collapsed.indexOf('aria-label={roomsLabel}') < collapsed.indexOf('aria-label={copy.projects}'));
+  assert.ok(expanded.indexOf('<span>{copy.newChat}</span>') < expanded.indexOf('sections={["conversations", "rooms", "projects"]}'));
+  assert.ok(expanded.indexOf('{#each workspaceItems') < expanded.indexOf('sections={["conversations", "rooms", "projects"]}'));
+  assert.ok(expanded.indexOf('{#each workspaceItems') < expanded.indexOf('sections={["conversations", "rooms", "projects"]}'));
+});
+
+
+test("Agent header and context menu open files, history and settings", () => {
+  const navigation = read("./lib/chat/AgentNavigation.svelte");
+  assert.match(navigation, /<RowContextMenu items=/);
+  assert.match(navigation, /onHistory\(agent.id\)[\s\S]*onFiles\(agent.id\)[\s\S]*onSettings\(agent.id\)/);
+  assert.match(view, /onclick=\{\(\) => openAgentFiles\(selectedAgentId\)\}/);
+  assert.match(view, /<AgentFilesPage endpoint=\{connectedEndpoint\} agentId=\{selectedAgentId\}/);
+  const page = read("./lib/chat/AgentFilesPage.svelte");
+  assert.match(page, /sessionId=\{selected.conversation.sessionId\}/);
+  assert.match(page, /sessionFile=\{selected.file\}/);
+  assert.match(page, /onConversation\(row.conversation\)/);
+});
+
+
+test("Sidebar sections share one scrolling tree, toggle clicks and sticky primary headings", () => {
+  assert.doesNotMatch(chatSidebar, /sidebar-agent-group/);
+  assert.match(chatSidebar, /sections=\{\["conversations", "rooms", "projects"\]\}/);
+  assert.match(sidebarLists, /aria-expanded=\{conversationsOpen\} onclick=\{onToggleConversations\}/);
+  assert.match(sidebarLists, /aria-expanded=\{roomsOpen\} onclick=\{onToggleRooms\}/);
+  assert.match(sidebarLists, /onOpen=\{onToggleProjects\}/);
+  assert.match(styles, /\.sidebar-channels \.sidebar-section-head \{ position: sticky; top: 0;/);
+  // Pinned titles mask scrolled rows with backdrop blur and paint no band of
+  // their own: the sidebar material composites the wallpaper through a
+  // translucent tint, so any painted color surfaces as a floating card there.
+  // isolation would make the head its own backdrop root and blind the blur.
+  const pinnedHead = styles.match(/\.sidebar-channels \.sidebar-section-head \{[^}]*\}/);
+  assert.ok(pinnedHead, "the pinned section head rule went missing");
+  assert.match(pinnedHead[0], /backdrop-filter:\s*blur\(/);
+  assert.doesNotMatch(pinnedHead[0], /background:/);
+  assert.doesNotMatch(pinnedHead[0], /isolation:/);
+  assert.match(
+    styles,
+    /html\[data-increased-contrast="true"\] \.sidebar-channels \.sidebar-section-head \{[^}]*background:\s*var\(--sidebar-bg\)[^}]*backdrop-filter:\s*none/,
+    "blur-free modes lost their opaque pinned-title fallback"
+  );
+  assert.match(styles, /\.sidebar-section-action \{ opacity: 0; pointer-events: none;/);
+  assert.doesNotMatch(styles, /max-height: 45%/);
 });

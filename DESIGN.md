@@ -915,6 +915,14 @@ block, status color, and sidebar tint must resolve through the same family block
   the system-dark media rule makes dark-variant tints transparent so native dark
   material is not veiled. Reduced transparency, increased contrast, and
   low-performance modes remove the blur and use the opaque sidebar surface.
+- Pinned section titles in the session list (Agent / Agent Team / 项目) mask
+  scrolling rows with a plain backdrop blur (`blur(14px)`) and paint no band of
+  their own: the sidebar surface is a material (tint composited over the native
+  window material and the wallpaper behind it), so any painted color — opaque or
+  translucent — surfaces as a floating card in some family. The head must not
+  set `isolation`, which would make it its own backdrop root and blind the blur.
+  The blur-free modes above fall back to the opaque `--sidebar-bg` surface.
+  Guarded in `chat-ui.test.mjs`.
 
 ### Imported themes (VSCode JSON)
 
@@ -1057,18 +1065,18 @@ the same regardless of the window's activation state and of what is behind it.
   actions, and one compact auto-growing composer.
 - Collapsing Chat keeps navigation on screen: the sidebar folds to a 48px icon rail
   (the first grid track never reserves zero width) that still reaches every
-  destination. The three list destinations — 对话, 项目 and Agent Team — open an on-demand
+  destination. The three list destinations — Agent, 项目 and Agent Team — open an on-demand
   flyout column beside the rail, rendering the exact same `SidebarLists` component as
   the expanded sidebar so channel filtering, project groups, room rows, row actions,
   and pagination cannot drift. The flyout reuses the remembered expanded width, closes
   on Escape, on picking another destination, or on clicking its rail icon again, and
-  stays open when an item is selected. A workspace destination (自动任务, 技能, Agent,
+  stays open when an item is selected. A workspace destination (自动任务, 技能,
   计划, 小程序) opens its existing pane and closes the flyout instead of adding a
   column. The rail carries no 新对话 entry: that action stays in the window title-bar
-  cluster while collapsed, and 对话/项目/Agent Team replace it at the top of the rail.
-- A list-section heading is navigation, not just a disclosure. Clicking the 对话,
-  项目 or Agent Team label returns the right pane to that section's content — the
-  reader's last conversation, last project session, or last room — and expands the
+  cluster while collapsed, and Agent/项目/Agent Team replace it at the top of the rail.
+- The Agent heading opens its overview and expands the identity list; its caret
+  independently collapses the list. Project and Agent Team headings return the right
+  pane to the last project session or room and expand the
   section, so a workspace destination can never trap them away from their work.
   Clicking that same heading again while its section is already showing collapses the
   list, so the whole row reads as one disclosure instead of "expand-only"; the separate
@@ -1639,9 +1647,91 @@ Room model previews use the backend-resolved per-member model keys. Completed tr
 
 ## Personal Agent Desktop
 
-普通对话的左栏以 Agent 为主入口。默认 Agent 始终显示并置于首位，标明“默认 / Default”；全局新对话进入默认 Agent。每个启用的 Agent 在名称旁提供独立“＋”新对话按钮，按钮只进入该 Agent 草稿，不提前创建空 Session。头像、名称和描述进入 Agent 首页，独立箭头展开历史；多个 Agent 可同时展开，首次默认收起。首页展示身份与填写草稿的建议，发送后沿用紧凑聊天头部、输入区和 Inspector。模型仅在输入区选择。历史展示来源，未归属与已删除 Agent 的记录可只读查看；管理入口保持可见。导航、首页和历史使用共享控件、语义 CSS 与主题 token，支持中英和窄宽度。
+普通对话的左栏以 Agent 为主入口。默认 Agent 始终显示；Agent 按全部渠道最新对话更新时间倒序，同一时间按名称首字母（中文按拼音）排序，无对话的排在后方；编辑配置不改变对话时间，全局新对话进入默认 Agent。左侧只显示 Agent 身份入口，点击名称进入该 Agent 首页，名称旁的独立“＋”进入同一草稿；不展开会话列表，也不请求侧栏会话分页。已删除 Agent 和未归属历史入口打开右侧完整历史；未归属历史仅在存在未归属对话时显示，查询包含归档记录并排除回收站。首页顶部窗口标题显示 Agent 名称；新对话页以开始对话为主：身份区采用居中的 96px 圆形头像，下方依次为 Agent 名称和简介，无简介时显示简短提示；真实输入区位于页面视觉中心，下方三个紧凑推荐按钮居中排列，最近对话只展示三条。简介使用次级文字并限制宽度，Agent 设置放在窗口 Header。所有 Agent 未设置头像或图片加载失败时，共享 AgentAvatar 使用与侧栏“我的”相同的 Molibot logo。短窗口允许滚动，避免内容裁切。首页最近对话与完整历史复用同一个 AgentConversationRow 组件，统一来源图标＋标题/预览、右对齐更新时间两列布局；来源图标位于标题左侧，来源名称与只读状态通过图标提示及无障碍名称保留，不占独立列、细分隔线、整行点击、键盘焦点和窄窗口保持两列布局。提供当前 Agent 的完整历史入口；完整历史在主内容区显示，搜索与来源下拉筛选在上，搜索、来源选择器与返回按钮统一为 40px，来源图标＋标题/预览与最后更新时间按两列对齐，时间始终右对齐，来源图标复用旧 Session 侧栏的本地渠道 Logo，行间使用细分隔线，窄窗口保持两列并截断长标题；顶部标明 Agent 与“全部对话”，提供返回首页、搜索、来源筛选和分页，查询始终限定该 Agent，不使用全局搜索弹窗；无历史时显示开始提示。已有 Session 的输入区保持底部浮动；新对话页输入区在内容流中，推荐按钮在窄窗口换行。发送后沿用紧凑聊天头部、输入区和 Inspector。模型仅在输入区选择。历史展示来源，未归属与已删除 Agent 的记录可只读查看；管理通过已有 Agent 导航入口进入，侧栏不重复显示搜索与管理按钮。导航、首页和历史使用共享控件、语义 CSS 与主题 token，支持中英和窄宽度。
 
+
+### Agent 统一入口与总览
+
+侧栏以一个 Agent 分组承载身份、状态和交互：首项“总览 / Overview”打开动画状态页，其下直接列出 Agent；移除独立 Agent 工作区按钮和“对话”分组。分组先于自动任务、技能等工作区入口，折叠侧栏通过一个 Agent 图标打开同一列表。Agent 行仅用图标表示需要关注的状态：执行中用带轻微呼吸动画的 Run（减少动态效果或低性能模式下静态）、完成用 Check、失败用 X、停用用 Minus；空闲或数据未就绪时不显示状态，悬浮提示和无障碍名称保留中英状态说明。状态归属使用本次运行的 Agent 身份。选中状态跟随首页、历史和会话的 Agent 身份。点击名称或动画中的 Agent 进入同一首页；独立“＋”开启该 Agent 草稿。首页身份区显示状态和当前任务摘要，查看运行情况返回总览并定位该 Agent。列表、首页和总览共用运行状态数据，服务断连后不显示过期的空闲状态。全局新对话仍进入默认 Agent。
 
 ### Agent 选择的一致语义
 
 渠道 Bot 与 Web Profile 必须显示明确的 Agent 身份。初始选择 Momo（稳定 ID `default`），不提供“无 Agent／全局兜底”这一空身份选项。global 指共享配置和规则的作用域；新对话的默认 Agent 是独立偏好，不改变既有 Bot 或 Session 的身份。Desktop 与独立 Web 设置页使用同一规则。
+
+
+### Agent 存储迁移弹窗
+
+使用 Desktop Dialog 和共享 Button。标题、状态摘要和操作底栏固定在弹窗内；只有中间正文滚动，展开诊断不产生嵌套滚动区。底栏通过不可收缩的布局保留完整按钮，不依赖内容高度或滚到末尾。窗口高度与可视区域绑定，窄窗口允许操作换行。
+
+迁移摘要使用并列数字与次级标签；冲突按平面分隔行展示，标题说明原因，正文说明所需处理。会话数量默认显示，完整 ID 与原始诊断折叠到详情；路径使用等宽字体并允许折行。缺失 Bot 的迁移归属使用共享 SelectControl，并提供“不迁移此 Bot 的旧数据”；不迁移选择说明会话、资源与事件的范围及原文件保留，支持确认前撤销；选择后展示所选归属并支持撤销，有阻塞项显示“需要处理”，全部解决后才显示“等待确认”。迁移开始后说明归属锁定与重试行为。跳过与恢复按钮使用原有控制尺寸，所有颜色、字号和表面使用主题 token。
+
+
+冲突行中的目标 Agent 选择器与“不迁移”按钮使用同一个左对齐操作组；宽窗口并排，窄窗口纵向排列并保持共同左边线。选择器局部覆盖设置页的右对齐布局，详情与资源忽略操作沿同一左边线排列；固定底栏仍右对齐。
+
+迁移检测必须等待服务就绪，服务启动或暂时不可达时不弹空白迁移错误窗口。迁移未完成且弹窗关闭时，在主会话区域显示明确的阻塞原因和处理入口，不用服务启动文案代替。弹窗不提供只关闭却暗示可跳过的“稍后”操作；忽略按钮只针对服务确认可排除的数据显示，选择区说明确认后才生效。
+
+
+### Agent City 启动画面
+
+服务未就绪时，主区域展示等距微缩城市：功能建筑、协作站和沿街移动的机器人。插画使用本地 SVG 与 CSS，无服务请求或额外资源加载；插画色彩限定在场景内，底座与状态文字沿用主题 token。状态来自启动协调器，不显示推算百分比；异常时暂停场景并保留重连、诊断及日志入口。减少动态效果时显示静态场景，窄窗口与短窗口保留状态及操作的滚动空间。
+
+启动顶栏显示当前服务状态；服务就绪但初始导航尚未恢复时显示加载状态，不提前显示“对话”。恢复有效的上次 Session（包含外部渠道）；无有效恢复目标时进入默认 Agent 首页。初始导航加载不阻塞侧栏操作。
+
+### Agent 设置页面
+
+单个 Agent 的创建与编辑使用主内容区内的二级页面，应用主侧栏始终保留。Agent 首页的设置按钮只替换当前主区域；从通用 Settings 的 Agent 列表进入时，最左侧始终保留设置导航，Agent 编辑作为右侧内容区的二级页面，内部使用 Agent 分类导航；返回入口明确标为“返回 Agent 列表”。已有 Agent 管理位于模板之前，使用“编辑”入口；默认 Agent 等实际全局选项在列表上方的“全局设置”组中，不添加没有实际配置的入口。内层顶部按“基础信息、角色与规则、模型与能力、技能与工具、记忆与知识、绑定的机器人、高级设置”分类，右侧保持宽松表单和稳定阅读列。选中导航使用浅强调色底与强调色文字；基础信息显示头像选择、名称和简介；头像提供随包内置图案、本地上传和恢复默认，不要求填写地址。角色与规则独立分类，采用文件选择器、用途说明与单一 Markdown 编辑区，集中编辑 AGENTS.md、IDENTITY.md、SOUL.md 和 SONG.md；共享和渠道文件留在各自作用域。未保存草稿跨分类保留，保存/创建与取消使用固定 `.settings-footbar`；错误留在页面并保留草稿。
+
+共享 Provider、模型资源、技能安装、MCP 连接、记忆服务、执行隔离和渠道账号留在通用设置。Agent 页面只编辑当前 Agent 的选择、工具可用性、共享记忆授权、知识和 Bot 绑定；说明绑定对已有对话与原 Agent 的影响。使用共享 Button、SelectControl、Switch、Avatar 和主题 token；支持中英即时切换、明暗主题与窄窗，窄窗缩减导航和表单留白，不隐藏分类与固定操作区。
+
+Agent 的“记忆与知识”复用记忆记录服务，默认显示当前 Agent 的专属记录；已授权共享个人记忆通过独立切换入口显示，提供搜索、来源数量、归属与状态。不得用 Markdown 编辑器代替记忆；后端、向量模型、候选审核与全局维护保留在通用记忆中心。新建 Agent 保存后才能读取其记忆。
+
+项目二级会话使用 ConversationRow。Agent 的会话仅在主内容区首页和完整历史中展示。Agent 设置与首页查看全部使用带中英提示和无障碍名称的图标按钮。会话来源使用标题与日期之间的 13px 单色渠道图标，沿用次级文字 token，悬停显示渠道名称，不使用强调色或彩色底。
+
+Agent 设置组件以嵌套容器布局，不使用全屏覆盖或替换应用导航。返回/取消回到入口页面，保存成功返回 Agent 首页或管理列表；主侧栏可切换 Agent、会话及其他功能。内层分类使用横向可滚动导航；固定保存栏只占本内容区。
+
+### Agent 房间首页
+
+Agent 房间与单 Agent 复用 AgentHome、AgentConversationRow、ChatInputArea 和聊天展示组件。点击房间进入首页，身份区显示房间名称和成员，输入区开启新对话，下方展示最近三条对话与全部历史入口。打开历史会话后，顶部提供返回首页；移除顶部会话下拉。新对话入口只进入草稿，首次发送才创建会话。房间成员选择、讨论与审批沿用房间运行语义。
+
+图标操作通过共享 Button 的 icon 变体复用 `.icon-button`，正文紧凑按钮复用 secondary 变体。调用方只调整尺寸与排版，不覆盖背景、文字色、边框、阴影或 hover，确保主题 family 与 recipe 的控件样式即时生效。
+
+### Agent 导航与列表管理
+
+左侧 Agent 只提供身份入口，点击进入首页，不展开会话列表。最近与全部会话行复用右键删除菜单；全部列表提供多选、选择当前已加载条目与批量删除。删除走共享会话回收站服务，逐项反馈失败，保留未成功条目。房间首页不显示新对话按钮；会话顶栏只保留首页和新对话图标，提供中英悬浮提示。房间编辑与删除位于侧栏房间右键菜单，不放在会话顶栏。
+
+### 房间设置页
+
+房间首页与会话顶栏提供带悬浮提示的设置图标。设置图标和侧栏编辑菜单进入同一个主内容区设置页，保留应用侧栏；侧栏编辑成员直接定位成员分类。设置页复用 Agent 设置的分类导航、表单阅读列、主题控件和固定保存栏，分类为房间信息、成员、协作方式。切换分类保留草稿；保存通过当前房间 API，失败保留草稿，取消回到进入设置前的首页或会话。创建房间继续复用同一字段表单。窄内容区导航转为横向排列，支持中英即时切换和明暗主题。
+
+Agent 首页圆形头像以放大方图后裁切填满圆形，不露出内嵌方图边缘。头像本身是总览入口，右下角用次级待命/未知/停用图标、强调色执行图标、完成勾和失败叉表示真实运行状态；悬停与无障碍名称说明状态、当前任务及总览入口，不另设运行状态文字与查看按钮。图标形状和颜色共同区分状态，所有颜色沿用主题 token。
+
+Agent 首页空闲角标使用 MoonSleep 睡眠图标，执行中使用 Run 奔跑图标；空闲不表示暂停，不能使用暂停符号。角标保持静态、紧凑，颜色继承现有状态 token。
+
+侧栏展开与折叠使用同一导航顺序：新对话、自动任务、技能、计划、小程序、Agent、Agent Team、项目。新对话始终保留在侧栏第一位，顶部快捷按钮不替代侧栏入口。
+
+### Agent 文件与附件入口
+
+Agent 首页 header 提供一个文件图标按钮，打开主内容区的“文件与附件”页。左侧有效 Agent 右键菜单依次为全部对话、文件与附件、设置；已删除及未归属入口仅提供全部对话。文件页按当前 Agent 的来源对话分页加载，包含生成文件与上传附件，不显示未经区分的产出总数；每项提供预览及返回来源对话。预览复用 ArtifactPanel，窄窗切换到预览并提供返回文件列表。所有操作使用共享控件、主题 token 和中英文字。
+
+侧栏快捷入口固定且不收缩。Agent、Agent Team、项目在同一个 SidebarLists 滚动容器内上下联动，不设置分区限高或嵌套滚动。一级标题点击只切换展开状态，不切换页面或创建对象；箭头与新增操作在悬停或键盘聚焦时出现。仅一级标题在所属分区内吸顶，后续分区标题自然接替，不让二级目录吸顶。
+
+侧栏一级标题保持原字号与左缘；Agent（含总览）、Agent Team 和项目的二级内容统一使用 `.sidebar-tree-children`，向行内起始方向缩进 12px。缩进不建立额外滚动容器，不改变一级标题吸顶。
+
+
+### Agent 配置范围与文件卡片
+
+通用设置的共享配置目录称为“全局 Agent 的设置”。单 Agent 编辑页标题显示其名称与专属范围；技能先显示 Agent 工作区技能与数量，再显示继承的共享技能与数量，开关只影响当前 Agent。记忆数量分别显示 Agent 专属与已授权共享记录，不把全局资源呈现为专属内容。
+
+文件页按“生成内容、上传附件、来源待确认”分区，每区按图片、视频、音频、代码、文本、文档及其他文件分组，组内按文件时间倒序。采用自适应卡片网格，图片显示缩略图，其余类型显示文件类型；卡片展示文件名、渠道、来源对话及完整日期时间，保留预览和来源对话操作。分页提示明确数量仅来自已加载对话；无法从历史记录确认来源的文件保留在待确认分区。颜色、表面、控件沿用共享主题 token，支持中英、明暗和窄窗。
+
+### Agent 绑定的机器人
+
+Agent 设置分类称为“绑定的机器人”，默认列表仅显示草稿中归属当前 Agent 的机器人，展示渠道和负责新对话的含义，不使用启停开关。通过“绑定其他机器人”展开共享选择器，选项注明渠道与原 Agent；选择后说明改绑影响，点击绑定只更新草稿。非默认 Agent 提供“移交给 Momo”；Momo 的机器人通过目标 Agent 的绑定入口转交，不提供空身份解绑。待保存变更列出原负责人、目标负责人及撤销操作；分类切换保留草稿，固定底栏保存后生效，历史对话归属不变。复用 SettingRow、SelectControl、Button 与主题 token，支持中英和窄窗。
+
+### 设置页阅读层级
+
+设置采用克制的编辑式布局：最左导航保持稳定，分组标签与选中项明确区分；内容标题与表单共享阅读列，减少标题的双重内边距。设置组使用已有卡片表面、清楚的组标题和细分隔线，不新增装饰阴影或主题配色。Agent 二级编辑保留全局导航，内部分类使用顶部横向导航，避免三个纵向导航栏压缩表单；身份标题含小头像、当前分类与 Agent 名称，正文限定阅读宽度，头像编辑左对齐。保存栏始终固定并注明保存生效，长内容留在正文滚动区。沿用现有控件、字体 token 和动效系统，支持中英、明暗以及窄窗导航滚动。
+
+### 共享 Agent 配置的作用域
+
+设置导航使用“助手”，不以分组名称暗示所有子页面操作都作用于所有 Agent。Agent 管理上方的“共享配置”提供共享规则编辑与默认新对话 Agent。共享规则是真实的全局 AGENTS.md，所有 Agent 都读取，专属规则在其后补充；模型、身份等明确选择优先于共享默认。编辑共享规则只保存该文件，使用固定底栏，保留最左设置导航。

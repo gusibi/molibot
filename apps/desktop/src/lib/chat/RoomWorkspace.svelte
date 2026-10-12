@@ -1,4 +1,11 @@
 <script lang="ts">
+  import Gear from "reicon-svelte/icons/Gear";
+  import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
+  import User from "reicon-svelte/icons/User";
+  import Users from "reicon-svelte/icons/Users";
+  import House from "reicon-svelte/icons/House";
+  import ChatPlus from "reicon-svelte/icons/ChatPlus";
+  import AgentHome from "./AgentHome.svelte";
   import { onDestroy } from "svelte";
   import type { AgentRoom, RoomExecution, RoomView, RoomPermissionMode } from "@molibot/shared/rooms";
   import { DESKTOP_THINKING_LEVELS, type DesktopModelOption, type DesktopThinkingSelection, type DesktopAgentItem } from "@molibot/desktop-contract";
@@ -48,7 +55,11 @@
   export let copy: Translation;
   export let locale: Locale;
   export let requestedRoomId = "";
+  export let navigationRevision = 0;
+  let appliedNavigationRevision = 0;
   export let startInCreate = false;
+  export let editRequested = false;
+  export let onEditConsumed: () => void = () => {};
   export let onSelectRoom: (roomId: string) => void = () => {};
   export let onExit: () => void = () => {};
   export let onSessionChanged: () => void = () => {};
@@ -58,12 +69,16 @@
   let view: RoomView | null = null;
   let selected = "";
   let selectedSession = "";
-  const selectionStorageKey = "molibot-desktop-room-sessions";
+  let showHome = true;
+  let historyExpanded = false;
   let applied = "";
   let loadedEndpoint = "";
+  let catalogEndpoint = "";
   let error = "";
   let reconnecting = false;
   let editing = startInCreate;
+  let settingsSection = "basic";
+  $: settingsSections = [{id:"basic", label:words.basics, icon:User}, {id:"members", label:words.members, icon:Users}, {id:"behavior", label:words.behavior, icon:Gear}];
   let title = "";
   let members: string[] = [];
   let primary = "";
@@ -92,7 +107,7 @@
   $: attachmentActions = makeAttachmentActions(transcript, mediaUrls, mediaLoading, mediaFailed);
   function clearMedia() { for (const url of mediaUrls.values()) URL.revokeObjectURL(url); mediaUrls = new Map(); mediaLoading = new Set(); mediaFailed = new Set(); }
   function makeAttachmentActions(messages: TranscriptMessage[], urls: Map<string, string>, loading: Set<string>, failed: Set<string>): TranscriptAttachmentActions {
-    const filesByLocal = new Map(messages.flatMap(message => (message.attachments ?? []).filter(a => a.local).map(a => [a.local!, {...a, id: a.local!, local: a.local!, size: a.size ?? 0, createdAt: message.createdAt ?? ""}] as const)));
+    const filesByLocal = new Map(messages.flatMap(message => (message.attachments ?? []).filter(a => a.local).map(a => [a.local!, {...a, origin: message.role === "user" ? "uploaded" as const : "generated" as const, id: a.local!, local: a.local!, size: a.size ?? 0, createdAt: message.createdAt ?? ""}] as const)));
     return { filesByLocal, mediaUrls: urls, mediaLoading: loading, mediaFailed: failed, loadMedia: file => {
       const current = generation; const roomId = selected;
       mediaLoading = new Set([...mediaLoading, file.local]);
@@ -137,7 +152,7 @@
   $: effectiveThinking = resolveComposerThinking(thinking ?? defaultThinking, thinkingOptions);
   $: thinkingLabel = thinkingSelectionLabel(copy, effectiveThinking);
   $: if (view && selected && !editing) {
-    const key = sessionDraftKey("room", selectedSession);
+    const key = sessionDraftKey("room", showHome ? `draft:${selected}` : selectedSession);
     if (key !== activeDraftKey) {
       activeDraftKey = key;
       if (draftStore.has(key)) {
@@ -146,26 +161,30 @@
       }
     }
   } else activeDraftKey = "";
-  $: if (view && !editing && activeDraftKey === sessionDraftKey("room", selectedSession)) {
+  $: if (view && !editing && activeDraftKey === sessionDraftKey("room", showHome ? `draft:${selected}` : selectedSession)) {
     draftStore.update(activeDraftKey, { text: input, files, thinkingLevel: thinking ?? defaultThinking, modelKey });
   }
-  $: sessionOptions = (view?.sessions ?? []).map((session, index, sessions) => ({ value: session.id,
-    label: session.title || `${words.conversation} ${sessions.length - index}` }));
+  $: homeSessions = (view?.sessions ?? []).map((session, index, sessions) => ({
+    sessionId: session.id, title: session.title || `${words.conversation} ${sessions.length - index}`,
+    updatedAt: session.createdAt, botId: selected, botName: view?.room.title ?? "", botDeleted: false,
+    channel: "web" as const, purpose: "conversation" as const, readOnly: false,
+  }));
   $: reply = view?.messages.find(m => m.id === replyToId);
   $: active = view?.executions.filter(e => ["running", "waiting_approval", "cancelling", "queued", "paused"].includes(e.status)) ?? [];
   $: if (endpoint && endpoint !== loadedEndpoint) { loadedEndpoint = endpoint; void initialize(); }
-  $: if (requestedRoomId !== applied) { applied = requestedRoomId; if (requestedRoomId && endpoint) void open(requestedRoomId); }
+  $: if (endpoint === catalogEndpoint && (requestedRoomId !== applied || navigationRevision !== appliedNavigationRevision || editRequested)) { appliedNavigationRevision = navigationRevision; applied = requestedRoomId; if (requestedRoomId && endpoint) { const editOnOpen = editRequested; if (editOnOpen) onEditConsumed(); void open(requestedRoomId, "", editOnOpen); } }
   // The sidebar's "+" raises `startInCreate`; a change enters the create form
   // without touching the (now sidebar-owned) room list.
   $: if (startInCreate !== appliedStartInCreate) { appliedStartInCreate = startInCreate; if (startInCreate) beginCreate(); }
 
   async function initialize() {
     const currentEndpoint = endpoint;
+    catalogEndpoint = ""; applied = "";
     try {
       const [catalog, p] = await Promise.all([loadDesktopAgents(endpoint), loadDesktopProjects(endpoint)]);
       if (destroyed || currentEndpoint !== endpoint) return;
       agents = catalog.items; projects = p; error = ""; reconnecting = false;
-      if (requestedRoomId) await open(requestedRoomId);
+      catalogEndpoint = currentEndpoint;
     } catch (e) {
       if (destroyed || currentEndpoint !== endpoint) return;
       error = String(e); reconnecting = true;
@@ -182,19 +201,13 @@
     if (current === generation && selected === id && selectedSession === sessionId && !destroyed) { view = fresh; error = ""; }
     return fresh;
   }
-  function savedSession(id: string): string {
-    try { return JSON.parse(localStorage.getItem(selectionStorageKey) || "{}")[id] ?? ""; } catch { return ""; }
-  }
-  function rememberSession(id: string, sessionId: string) {
-    try { const saved = JSON.parse(localStorage.getItem(selectionStorageKey) || "{}"); saved[id] = sessionId;
-      localStorage.setItem(selectionStorageKey, JSON.stringify(saved)); } catch { /* Selection persistence is optional. */ }
-  }
-  async function open(id: string, sessionId = savedSession(id)) {
+  async function open(id: string, sessionId = "", editOnOpen = false) {
     if (activeDraftKey) draftStore.update(activeDraftKey, { text: input, files, thinkingLevel: thinking ?? defaultThinking, modelKey });
+    showHome = !sessionId; historyExpanded = false;
     selectedSession = sessionId;
     closeStream(); clearMedia(); executionActivities = {}; selected = id; applied = id; onSelectRoom(id); editing = false; error = ""; targets = []; replyToId = ""; input = ""; files = []; pendingSend = undefined; view = null; cursor = 0; modelKey = ""; thinking = undefined;
     const runGeneration = generation;
-    try { const fresh = await loadDesktopRoom(endpoint, id, sessionId); if (runGeneration === generation) { selectedSession = fresh.session.id; rememberSession(id, selectedSession); modelKey = fresh.composerSelection?.modelKey ?? ""; thinking = fresh.composerSelection?.thinkingLevel; view = fresh; void watch(id, runGeneration); } }
+    try { const fresh = await loadDesktopRoom(endpoint, id, sessionId); if (runGeneration === generation) { selectedSession = fresh.session.id; modelKey = fresh.composerSelection?.modelKey ?? ""; thinking = fresh.composerSelection?.thinkingLevel; view = fresh; if (editOnOpen) { setup(fresh.room); settingsSection = "members"; } void watch(id, runGeneration); } }
     catch (e) { if (runGeneration === generation) { error = String(e); void watch(id, runGeneration); } }
   }
   async function watch(id: string, current: number) {
@@ -230,7 +243,7 @@
     finally { if (current === generation) reloadPending = false; }
   }
   function setup(room?: AgentRoom) {
-    editing = true; title = room?.title ?? ""; members = room?.participants.filter(p => p.active).map(p => p.agentId) ?? [];
+    settingsSection = "basic"; editing = true; title = room?.title ?? ""; members = room?.participants.filter(p => p.active).map(p => p.agentId) ?? [];
     primary = room?.primaryAgentId ?? ""; projectId = room?.projectId ?? ""; permission = room?.permissionMode ?? "";
   }
   function beginCreate() { closeStream(); clearMedia(); selected = ""; view = null; editing = false; targets = []; replyToId = ""; input = ""; files = []; setup(); }
@@ -244,16 +257,10 @@
       if (result.room) await open(result.room.id);
     } catch (e) { error = String(e); } finally { submitting = false; }
   }
-  async function newConversation() {
-    if (submitting) return;
-    const roomId = selected; const current = generation;
-    submitting = true; error = "";
-    try {
-      const result = await actOnDesktopRoom(endpoint, { action: "new_session", roomId });
-      if (current === generation && result.session) await open(roomId, result.session.id);
-      onSessionChanged();
-    } catch (cause) { if (current === generation) error = String(cause); }
-    finally { submitting = false; }
+  function newConversation() {
+    if (submitting || showHome) return;
+    if (activeDraftKey) draftStore.update(activeDraftKey, { text: input, files, thinkingLevel: thinking ?? defaultThinking, modelKey });
+    showHome = true; historyExpanded = false; replyToId = ""; targets = []; input = ""; files = []; pendingSend = undefined;
   }
   async function action(action: string, e?: RoomExecution) {
     const current = generation;
@@ -268,6 +275,21 @@
   }
   async function send() {
     if ((!input.trim() && !files.length) || submitting) return;
+    if (showHome) {
+      const current = generation;
+      submitting = true; error = "";
+      try {
+        const result = await actOnDesktopRoom(endpoint, { action: "new_session", roomId: selected });
+        if (current !== generation || destroyed) return;
+        if (!result.session) throw new Error(locale === "zh-CN" ? "无法创建对话" : "Could not create conversation");
+        selectedSession = result.session.id; showHome = false;
+        draftStore.update(sessionDraftKey("room", selectedSession), { text: input, files, thinkingLevel: thinking ?? defaultThinking, modelKey });
+        draftStore.update(sessionDraftKey("room", `draft:${selected}`), { text: "", files: [], thinkingLevel: thinking ?? defaultThinking, modelKey });
+        await reload();
+        if (current !== generation || destroyed) return;
+      } catch (cause) { if (current === generation) error = String(cause); return; }
+      finally { submitting = false; }
+    }
     const draft = { endpoint, roomId: selected, sessionId: selectedSession, text: input, targets: [...explicitRecipients], replyToId, files: [...files], modelKey, thinkingLevel: effectiveThinking, generation };
     const key = JSON.stringify([draft.roomId, draft.sessionId, draft.text, draft.targets, draft.replyToId, draft.files.map(f => [f.name, f.size, f.lastModified]), draft.modelKey, draft.thinkingLevel]);
     const isCurrent = () => !destroyed && generation === draft.generation && selected === draft.roomId && selectedSession === draft.sessionId && endpoint === draft.endpoint;
@@ -293,11 +315,6 @@
     try { await actOnDesktopRoom(endpoint, { action: "approve", roomId: selected, executionId: e.id, decision }); await reload(); }
     catch (e) { error = String(e); }
   }
-  async function remove() {
-    try { await actOnDesktopRoom(endpoint, { action: "delete", roomId: selected }); closeStream(); selected = ""; view = null; onSessionChanged(); onExit(); }
-    catch (e) { error = String(e); }
-  }
-  function back() { closeStream(); selected = ""; applied = ""; onSelectRoom(""); view = null; editing = false; onExit(); }
   onDestroy(() => { destroyed = true; closeStream(); clearMedia(); });
 </script>
 
@@ -305,59 +322,65 @@
   {#if selected && !editing}
     <ChatHeader title={view?.room.title ?? words.title} subtitle={` · ${reconnecting ? words.reconnecting : participants.map(agent => agent.name).join(" · ")}`}>
       {#snippet actions()}
-        <div class="room-session-picker"><SelectControl value={selectedSession} options={sessionOptions} ariaLabel={words.conversations}
-          disabled={submitting || !view} onChange={sessionId => { if (sessionId !== selectedSession) void open(selected, sessionId); }} /></div>
-        <Button class="secondary-button" disabled={submitting || !view} onclick={() => void newConversation()}>{words.newConversation}</Button>
-        <OverflowMenu label={words.title}>
-        <button type="button" class="overflow-menu-item" onclick={back}>{words.back}</button>
-        <button type="button" class="overflow-menu-item" onclick={() => view && setup(view.room)}>{words.edit}</button>
-        <button type="button" class="overflow-menu-item danger" onclick={() => void remove()}>{words.remove}</button>
-      </OverflowMenu>
+        <Button variant="icon" title={words.settings} disabled={!view || submitting} onclick={() => view && setup(view.room)}><Gear size={16} aria-hidden="true" /></Button>
+        {#if !showHome}
+          <Button class="agent-icon-action" title={locale === "zh-CN" ? "返回首页" : "Back to home"} ariaLabel={locale === "zh-CN" ? "返回首页" : "Back to home"} disabled={submitting} onclick={newConversation}><House size={16} aria-hidden="true" /></Button>
+          <Button class="agent-icon-action" title={words.newConversation} ariaLabel={words.newConversation} disabled={submitting} onclick={newConversation}><ChatPlus size={16} aria-hidden="true" /></Button>
+        {/if}
       {/snippet}
     </ChatHeader>
   {:else}
-    <ChatHeader title={editing ? (selected ? words.editTitle : words.createTitle) : view?.room.title ?? words.title}>
+    <ChatHeader title={editing ? (selected ? words.settings : words.createTitle) : view?.room.title ?? words.title}>
       {#snippet actions()}
-        {#if editing}<Button class="secondary-button" onclick={cancelEdit}>{words.cancel}</Button>
-        {:else if selected}<Button class="secondary-button" onclick={back}>{words.back}</Button><Button class="secondary-button" onclick={() => view && setup(view.room)}>{words.edit}</Button><Button class="secondary-button" danger onclick={() => void remove()}>{words.remove}</Button>{/if}
+        {#if editing && !selected}<Button class="secondary-button" onclick={cancelEdit}>{words.cancel}</Button>
+        {/if}
       {/snippet}
     </ChatHeader>
   {/if}
   {#if error && (editing || !selected || !view)}<p class="onboarding-error" role="alert">{error}</p>{/if}
   {#if editing}
-    <div class="room-setup">
-      <p class="room-setup-description">{words.setupDescription}</p>
-      <SettingGroup title={words.basics} description={words.basicsDescription}>
-        <SettingRow title={words.name} stacked>
-          <label class="settings-field room-name-field"><input aria-label={words.name} placeholder={words.namePlaceholder} bind:value={title} maxlength="120" /></label>
-        </SettingRow>
-      </SettingGroup>
-      <section class="room-members-section" aria-label={words.members}>
-        <header class="section-header"><div><h3>{words.members}</h3><p>{words.membersDescription}</p></div><span class="room-member-count">{members.length} {words.selectedCount}</span></header>
-        {#if !enabled.length}<p class="room-members-empty">{words.noMembers}</p>{/if}
-        <div class="room-member-grid">
-          {#each enabled as agent (agent.id)}
-            <div class="room-member-card" class:room-member-selected={members.includes(agent.id)}>
-              <BotAvatar botId={agent.id} name={agent.name} size={36} />
-              <div class="room-member-copy"><strong>{agent.name}</strong><p>{agent.description || words.agentDescription}</p></div>
-              <IosSwitch checked={members.includes(agent.id)} ariaLabel={agent.name} onCheckedChange={checked => toggle(agent.id, checked)} />
+    {#if selected}
+      <div class="agent-settings-shell">
+        <div class="agent-settings-layout">
+          <aside class="settings-sidebar agent-settings-sidebar">
+            <button class="settings-back" type="button" disabled={submitting} onclick={cancelEdit}><ArrowLeft size={16} aria-hidden="true" /><span>{words.settingsBack}</span></button>
+            <nav class="settings-nav-list" aria-label={words.settings}>
+              {#each settingsSections as section (section.id)}
+                {@const Icon = section.icon}
+                <button type="button" class="settings-nav" class:active={settingsSection === section.id} aria-current={settingsSection === section.id ? "page" : undefined} onclick={() => settingsSection = section.id}><Icon size={18} aria-hidden="true" /><span>{section.label}</span></button>
+              {/each}
+            </nav>
+          </aside>
+          <form class="agent-settings-page" onsubmit={event => { event.preventDefault(); void save(); }}>
+            <header class="agent-settings-head"><h1>{words.settings}</h1><span>{view?.room.title}</span></header>
+            <div class="agent-settings-body" inert={submitting}>
+              {@render roomFields(settingsSection)}
             </div>
-          {/each}
+            <footer class="settings-footbar agent-settings-foot">
+              <span class="settings-footbar-label">{members.length} {words.selectedCount}</span>
+              <div class="settings-footbar-actions"><Button disabled={submitting} onclick={cancelEdit}>{words.cancel}</Button><Button variant="primary" type="submit" disabled={submitting || !title.trim() || !members.length}>{submitting ? words.saving : words.save}</Button></div>
+            </footer>
+          </form>
         </div>
-      </section>
-      <SettingGroup title={words.behavior} description={words.behaviorDescription}>
-        <SettingRow title={words.primary} description={words.primaryDescription}><SelectControl value={primary} options={primaryOptions} disabled={!members.length} ariaLabel={words.primary} onChange={value => primary = value} /></SettingRow>
-        {#if !selected}<SettingRow title={words.project} description={words.projectDescription}><SelectControl value={projectId} options={projectOptions} ariaLabel={words.project} onChange={value => projectId = value} /></SettingRow>{/if}
-        <SettingRow title={words.permission} description={words.permissionDescription}><SelectControl value={permission} options={modeOptions} ariaLabel={words.permission} onChange={value => permission = value} /></SettingRow>
-      </SettingGroup>
-    </div>
+      </div>
+    {:else}
+      <div class="room-setup">{@render roomFields("")}</div>
     <div class="settings-footbar room-setup-footbar">
       <div class="room-team-summary"><div class="room-team-avatars">{#each selectedMembers.slice(0, 4) as agent (agent.id)}<BotAvatar botId={agent.id} name={agent.name} size={24} />{/each}</div><span class="settings-footbar-label">{members.length ? `${members.length} ${words.teamReady}` : words.chooseMembers}</span></div>
       <div class="settings-footbar-actions"><Button class="primary-button" variant="primary" disabled={submitting || !title.trim() || !members.length} onclick={() => void save()}>{submitting ? words.saving : selected ? words.save : words.create}</Button></div>
     </div>
+    {/if}
   {:else if !selected}
     <div class="room-empty"><p class="room-metadata">{words.empty}</p></div>
   {:else if view}
+    {#if showHome}
+      <div class="chat-start-page">
+        <AgentHome agent={{name: view.room.title, description: participants.map(agent => agent.name).join(" · ")}}
+          sessions={historyExpanded ? homeSessions : homeSessions.slice(0, 3)} {historyExpanded} {locale} {copy} actions={[]}
+          composer={roomComposer} onPrompt={prompt => input = prompt} onSession={item => open(selected, item.sessionId)}
+          onHistory={() => historyExpanded = !historyExpanded} formatTime={value => formatMessageTime(value, copy.groupYesterday)} />
+      </div>
+    {:else}
     <ChatMessagesPane messages={transcript} {copy} {endpoint} stickKey={selectedSession}
       formatTime={value => formatMessageTime(value, copy.groupYesterday)}
       {liveResponses} sending={active.length > 0} emptyTitle={view.room.title} emptyHint={words.placeholder}
@@ -385,15 +408,22 @@
         {/if}
       {/each}
     </ChatMessagesPane>
+    {@render roomComposer()}
+    {/if}
+  {/if}
+</section>
+
+{#snippet roomComposer()}
+  {#if view}
     <input type="file" multiple hidden bind:this={fileInput} onchange={() => { addFiles(Array.from(fileInput.files ?? [])); fileInput.value = ""; }} />
-    <ChatInputArea floating={true} {mentionSuggestions} {copy} {locale} {endpoint} projectId={view.room.projectId ?? ""} bind:value={input}
+    <ChatInputArea floating={!showHome} {mentionSuggestions} {copy} {locale} {endpoint} projectId={view.room.projectId ?? ""} bind:value={input}
       pendingFiles={files} {pendingAudioUrls} {inferAttachmentKind} {recording} {recordingSeconds} {recordingError}
       {onToggleRecording} {onFinishRecording} {onDismissRecordingError} {onOpenSettings}
       modelOptions={roomModelOptions} activeModelKey={modelKey} {activeModelLabel}
       activeModelTitle={activeModel?.label || words.memberModels} thinkingLevel={effectiveThinking} thinkingLevelOptions={thinkingOptions} thinkingLevelLabel={thinkingLabel} {autoAvailable}
       onChangeModel={value => modelKey = value} onChangeThinking={value => thinking = value}
       canSend={Boolean(input.trim() || files.length) && !submitting} disabled={submitting}
-      sending={active.some(e => e.status === "running" || e.status === "waiting_approval")}
+      sending={!showHome && active.some(e => e.status === "running" || e.status === "waiting_approval")}
       fileToolDisabled={submitting} recordingToolDisabled={submitting} placeholder={words.placeholder}
       onSend={() => void send()} onStop={() => void action("stop")}
       onKeydown={event => { if (shouldSubmitComposer(event)) { event.preventDefault(); void send(); } }}
@@ -408,4 +438,38 @@
       {#if reply}<div class="composer-edit-banner"><span class="room-quote">{reply.content.slice(0, 160)}</span><Button class="secondary-button" onclick={() => replyToId = ""}>{words.cancelReply}</Button></div>{/if}
     </ChatInputArea>
   {/if}
-</section>
+{/snippet}
+
+{#snippet roomFields(section: string)}
+      <p class="room-setup-description">{words.setupDescription}</p>
+      {#if !section || section === "basic"}
+      <SettingGroup title={words.basics} description={words.basicsDescription}>
+        <SettingRow title={words.name} stacked>
+          <label class="settings-field room-name-field"><input aria-label={words.name} placeholder={words.namePlaceholder} bind:value={title} maxlength="120" /></label>
+        </SettingRow>
+      </SettingGroup>
+      {/if}
+      {#if !section || section === "members"}
+      <section class="room-members-section" aria-label={words.members}>
+        <header class="section-header"><div><h3>{words.members}</h3><p>{words.membersDescription}</p></div><span class="room-member-count">{members.length} {words.selectedCount}</span></header>
+        {#if !enabled.length}<p class="room-members-empty">{words.noMembers}</p>{/if}
+        <div class="room-member-grid">
+          {#each enabled as agent (agent.id)}
+            <div class="room-member-card" class:room-member-selected={members.includes(agent.id)}>
+              <BotAvatar botId={agent.id} name={agent.name} size={36} />
+              <div class="room-member-copy"><strong>{agent.name}</strong><p>{agent.description || words.agentDescription}</p></div>
+              <IosSwitch checked={members.includes(agent.id)} ariaLabel={agent.name} onCheckedChange={checked => toggle(agent.id, checked)} />
+            </div>
+          {/each}
+        </div>
+      </section>
+      {/if}
+      {#if !section || section === "behavior"}
+      <SettingGroup title={words.behavior} description={words.behaviorDescription}>
+        <SettingRow title={words.primary} description={words.primaryDescription}><SelectControl value={primary} options={primaryOptions} disabled={!members.length} ariaLabel={words.primary} onChange={value => primary = value} /></SettingRow>
+        {#if !selected}<SettingRow title={words.project} description={words.projectDescription}><SelectControl value={projectId} options={projectOptions} ariaLabel={words.project} onChange={value => projectId = value} /></SettingRow>{/if}
+        <SettingRow title={words.permission} description={words.permissionDescription}><SelectControl value={permission} options={modeOptions} ariaLabel={words.permission} onChange={value => permission = value} /></SettingRow>
+      </SettingGroup>
+
+      {/if}
+{/snippet}

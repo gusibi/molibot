@@ -22,7 +22,7 @@ export class WebManager extends BaseChannelRuntime {
   ) {
     super({
       channel: "web",
-      defaultWorkspaceName: "moli-w",
+      defaultWorkspaceName: "channels/web",
       getSettings,
       updateSettings,
       sessionStore: deps.sessions,
@@ -64,7 +64,7 @@ export class WebManager extends BaseChannelRuntime {
   private appendDirectEventMessage(event: MomEvent, runId: string, filename: string): void {
     const messageId = Date.now();
     const sessionId = this.persistDirectEventMessage(event, runId);
-    this.store.logBotResponse(event.chatId, event.text, messageId);
+    this.eventStore({ isEvent: true, agentId: event.agentId }).logBotResponse(event.chatId, event.text, messageId);
     this.appendConversationMessage(
       "web",
       `bot:${this.instanceId}:chat:${event.chatId}:${sessionId}`,
@@ -115,6 +115,7 @@ export class WebManager extends BaseChannelRuntime {
         imageContents: [],
         isEvent: true,
         taskId: task.taskId,
+                agentId: task.agentId,
         sessionId: task.sessionId,
         sessionMode: resolveEventSessionMode(task),
         runId
@@ -125,7 +126,7 @@ export class WebManager extends BaseChannelRuntime {
         response: {
           sendText: async () => ({ messageId: Date.now() }),
           respondInThread: async (text) => {
-            this.store.logBotResponse(task.chatId, text, Date.now());
+            this.eventStore({ isEvent: true, agentId: task.agentId }).logBotResponse(task.chatId, text, Date.now());
           }
         },
         onSessionAppendWarning: (error) => {

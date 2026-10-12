@@ -1,4 +1,7 @@
 <script lang="ts">
+  import Gear from "reicon-svelte/icons/Gear";
+  import Button from "./lib/components/ui/Button.svelte";
+  import AgentCityStartup from "./lib/chat/AgentCityStartup.svelte";
   import { isActiveDurableExecution, isOpenDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Layers from "./lib/icons/duotone/components/Layers.svelte";
@@ -18,6 +21,7 @@
     type DesktopThinkingSelection,
     type DesktopModelOption,
     type DesktopAgentItem,
+    type DesktopAgentActivityItem,
     type DesktopChannelsSummary,
     type DesktopApprovalDecision,
     type DesktopApprovalOwner,
@@ -40,7 +44,7 @@
     type DesktopWebProfile
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
-  import { beginAgentEdit, loadAgents as loadAgentsSettings } from "./lib/stores/agents.svelte";
+  import { agentsStore, cancelAgentEdit, beginAgentEdit, loadAgents as loadAgentsSettings } from "./lib/stores/agents.svelte";
   import IosSwitch from "./lib/components/ui/IosSwitch.svelte";
   import SelectControl from "./lib/components/ui/SelectControl.svelte";
   import {
@@ -57,6 +61,7 @@
     renameDesktopConversation,
     listDesktopSessionFiles,
     loadDesktopAgents,
+    loadDesktopAgentActivity,
     loadDesktopAgentFiles,
     loadDesktopBootstrap,
     loadDesktopChannels,
@@ -115,6 +120,11 @@
   let permissionHydrationSession = "";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
   import ChatHeader from "./lib/chat/ChatHeader.svelte";
+  import AgentSettingsPage from "./lib/settings/AgentSettingsPage.svelte";
+  import { deleteConversationSelection } from "./lib/chat/deleteConversationSelection";
+  import AgentFilesPage from "./lib/chat/AgentFilesPage.svelte";
+  import AgentFilesIcon from "./lib/icons/duotone/components/FolderOpen.svelte";
+  import AgentHome from "./lib/chat/AgentHome.svelte";
   import { windowHeader } from "./lib/chat/windowHeader";
   import { saveBlobAsFile } from "./lib/saveFile";
   import { formatMessageTime } from "./lib/chat/messageTime";
@@ -136,7 +146,7 @@
   import RoomWorkspace from "./lib/chat/RoomWorkspace.svelte";
   import { roomsCopy } from "./lib/chat/roomsCopy";
   import type { AgentRoom } from "@molibot/shared/rooms";
-  import { loadDesktopRooms } from "./lib/api";
+  import { loadDesktopRooms, actOnDesktopRoom } from "./lib/api";
   import AgentNavigation from "./lib/chat/AgentNavigation.svelte";
   import AgentAvatar from "./lib/components/ui/AgentAvatar.svelte";
   import { loadDesktopAgentNavigation, saveDesktopAgentNavigation, claimDesktopSessionAgent, type DesktopAgentNavigation } from "./lib/api";
@@ -152,12 +162,13 @@
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
   import MiniAppsQuickMenu from "./lib/miniapps/MiniAppsQuickMenu.svelte";
   import { projectsStore, projectsView, refreshProjectSessionList, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
-  import { SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
+  import { session, SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
   import ConversationBrowserDialog from "./lib/chat/ConversationBrowserDialog.svelte";
   import { checkForUpdates, initUpdater } from "./lib/stores/updater.svelte";
   import BotMention from "./lib/chat/BotMention.svelte";
+  import { ExternalTranscriptLoader } from "./lib/chat/externalTranscriptLoader";
   import { ChatSessionStore } from "./lib/chat/chatSessionStore.svelte";
   import { projectChatStore } from "./lib/projects/projectChatStore.svelte";
   import {
@@ -197,7 +208,7 @@
     type CommandUsage
   } from "./lib/native/commandPalette";
   import { DirectManipulation } from "./lib/native/directManipulation";
-  import { ActivityScheduler, backgroundActivityPolicy, documentActivityVisibility, reconnectActivityPolicy } from "./lib/native/activityScheduler";
+  import { ActivityScheduler, agentActivityPolicy, backgroundActivityPolicy, documentActivityVisibility, reconnectActivityPolicy } from "./lib/native/activityScheduler";
   import MemoryTraceDrawer from "./lib/chat/MemoryTraceDrawer.svelte";
   import { miniAppsCatalog, clearMiniAppBadge } from "./lib/stores/miniapps.svelte";
   import { catalogMessageActions, invokeTranscriptMessageAction } from "./lib/miniapps/messageActions";
@@ -211,6 +222,8 @@
   export let serviceState: "disconnected" | "ready" | "incompatible" | "error";
   export let startupPhase: "checking" | "starting" | "delayed" | "ready" | "error" | "retrying" = "checking";
   export let startupError = "";
+  export let storageMigrationPending = false;
+  export let openStorageMigration: () => void = () => {};
   export let retryStartup: () => void = () => {};
   export let openStartupDiagnostics: () => void = () => {};
   export let openStartupLogs: () => void = () => {};
@@ -222,6 +235,7 @@
   export let onCommandResult: (result: CommandExecution) => void = () => {};
   export let onFeedback: (event: FeedbackEvent) => void = () => {};
   export let openSettings: (section?: string) => void;
+  export let settingsVisible = false;
   export let requestedWorkspacePane: ChatWorkspacePaneName = "chat";
 
   const PROFILE_STORAGE_KEY = "molibot-desktop-profile";
@@ -266,6 +280,7 @@
   let connectedEndpoint = "";
   let connectionReady = false;
   let loading = false;
+  let initialNavigationPending = false;
   let error = "";
   let connectionGeneration = 0;
 
@@ -360,6 +375,7 @@
 
   // Read-only external transcript view (plan §3.3): opened from an external
   // channel's session row; never goes through the registry.
+  const externalTranscriptLoader = new ExternalTranscriptLoader(loadDesktopExternalTranscript);
   let externalTranscript: DesktopExternalTranscript | null = null;
   let externalTranscriptLoading = false;
   let externalTranscriptError = "";
@@ -373,8 +389,56 @@
   let roomWorkspace: RoomWorkspace;
   let roomPaneActive = false;
   let requestedRoomId = "";
+  let roomEditRequested = false;
+  let roomNavigationRevision = 0;
   let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
+  let agentActivities: DesktopAgentActivityItem[] = [];
+  let agentActivityReady = false;
+  let agentActivityError = "";
+  let agentActivityScheduler: ActivityScheduler | null = null;
+  let overviewAgentId = "";
+
+  async function refreshAgentActivity(): Promise<void> {
+    const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
+    if (!connectionReady || !endpoint) return;
+    try {
+      const items = await loadDesktopAgentActivity(endpoint);
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      agentActivities = items;
+      agentActivityReady = true;
+      agentActivityError = "";
+    } catch (cause) {
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
+      agentActivities = [];
+      agentActivityReady = false;
+      agentActivityError = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  function stopAgentActivityPolling(): void {
+    agentActivityScheduler?.dispose();
+    agentActivityScheduler = null;
+    agentActivities = [];
+    agentActivityReady = false;
+    agentActivityError = "";
+  }
+
+  function startAgentActivityPolling(): void {
+    stopAgentActivityPolling();
+    agentActivityScheduler = new ActivityScheduler(agentActivityPolicy, refreshAgentActivity, documentActivityVisibility);
+    agentActivityScheduler.start();
+  }
+
+  function openAgentOverview(agentId = ""): void {
+    conversationsExpanded = true;
+    persistSidebarTree();
+    overviewAgentId = agentId;
+    openWorkspacePane("agents");
+    agentActivityScheduler?.wake("manual");
+  }
+
   let automationUnreadCount = 0;
   let automationUnreadScheduler: ActivityScheduler | null = null;
   let durableExecutions: DesktopDurableExecutionItem[] = [];
@@ -876,24 +940,55 @@
   let selectedAgentId = "";
   let deletedAgentIds: string[] = [];
   let historyAgentId: string | undefined;
-  let agentRefresh = 0;
+  let agentSettingsActive = false;
+  let agentSettingsLoading = false;
+  let agentSettingsRequest = 0;
+  $: if (agentSettingsActive && (settingsVisible || workspacePane !== "chat" || projectPaneActive || roomPaneActive)) closeAgentSettings();
+  let agentFilesActive = false;
+  $: if (agentFilesActive && (workspacePane !== "chat" || projectPaneActive || roomPaneActive || settingsVisible)) agentFilesActive = false;
+  let agentHistoryActive = false;
   let ordinarySessions: DesktopConversationItem[] = [];
+  let hasUnassignedHistory = false;
+  let agentSessionsRequest = 0;
   $: selectedAgent = onboardingAgents.find(agent => agent.id === selectedAgentId);
   $: agentCanExecute = Boolean(selectedAgent?.enabled);
+  $: agentHomeSessions = ordinarySessions.filter(item => item.agentId === selectedAgentId).slice(0, 5);
   function persistAgentNavigation(): void {
     if (connectedEndpoint) void saveDesktopAgentNavigation(connectedEndpoint, agentNavigation).catch(cause => chatStore.setActiveError(String(cause)));
   }
-  function toggleAgent(id: string): void {
-    const expanded = agentNavigation.expandedAgentIds;
-    agentNavigation = { ...agentNavigation, expandedAgentIds: expanded.includes(id) ? expanded.filter(item => item !== id) : [...expanded, id] };
-    persistAgentNavigation();
+  function openAgentHistory(id?: string): void {
+    closeAgentSettings();
+    historyAgentId = id ?? selectedAgentId;
+    selectedAgentId = historyAgentId === "__unassigned__" ? "" : historyAgentId;
+    agentFilesActive = false;
+    agentHistoryActive = true;
+    browserOpen = false;
+    roomPaneActive = false;
+    projectPaneActive = false;
+    workspacePane = "chat";
+    clearInspector();
+    searchOpen = false;
   }
-  function openAgentHistory(id?: string): void { historyAgentId = id ?? "__all__"; browserOpen = true; }
+  function openAgentFiles(id: string): void {
+    openAgentChat(id);
+    agentFilesActive = true;
+    clearInspector();
+    searchOpen = false;
+  }
+  let latestConversationAtByAgent: Record<string, number> = {};
   async function refreshAgentSessions(): Promise<void> {
-    if (!connectedEndpoint) return;
-    const result = await listDesktopConversations(connectedEndpoint, { channel: "web", allAgents: true, limit: 100, includeArchived: true });
+    const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
+    const request = ++agentSessionsRequest;
+    if (!endpoint) return;
+    const [result, unassigned] = await Promise.all([
+      listDesktopConversations(endpoint, { channel: "web", allAgents: true, limit: 100, includeArchived: true }),
+      listDesktopConversations(endpoint, { channel: "web", agentId: "__unassigned__", limit: 1, includeArchived: true })
+    ]);
+    if (endpoint !== connectedEndpoint || generation !== connectionGeneration || request !== agentSessionsRequest) return;
     ordinarySessions = result.items;
-    agentRefresh += 1;
+    latestConversationAtByAgent = result.latestConversationAtByAgent ?? {};
+    hasUnassignedHistory = unassigned.items.length > 0;
   }
   async function claimActiveSession(id: string): Promise<void> {
     const sessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
@@ -1085,7 +1180,9 @@
   $: activeExternalSessionItem = ordinarySessions.find((item) => item.sessionId === activeExternalSessionId);
   $: activeHeaderChannel = viewMode === "external" ? activeExternalChannel : (activeSessionItem?.channel ?? "web");
   $: activeHeaderSourceLabel = sidebarChannels.find((channel) => channel.id === activeHeaderChannel)?.name ?? activeHeaderChannel;
-  $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (activeSessionItem?.title || copy.chat);
+  $: startupPending = serviceState !== "ready" || !connectionReady || loading || initialNavigationPending;
+  $: startupHeaderTitle = startupPhase === "error" || error ? copy.diagStateError : serviceState !== "ready" ? copy.serviceStarting : copy.loading;
+  $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (draftMode && selectedAgent ? selectedAgent.name : activeSessionItem?.title || copy.chat);
   // Assistant identity shows the thing you are talking to (Web Profile / channel
   // Bot / app name) plus the Agent it runs as. A channel with no explicit Agent
   // binding inherits the default one. Instance ids repeat across channels, so the
@@ -1133,6 +1230,7 @@
     connectionGeneration += 1;
     connectedEndpoint = "";
     connectionReady = false;
+    stopAgentActivityPolling();
     stopAutomationUnreadPolling();
     stopDurableExecutionPolling();
     stopReconnectPoll();
@@ -1143,6 +1241,7 @@
     profiles = [];
     onboardingProfiles = [];
     onboardingAgents = [];
+    hasUnassignedHistory = false;
     onboardingChannels = { rows: [], connectedCount: 0 };
     onboardingDiagnostics = { serviceReady: false, depsInstalled: 0, depsTotal: 0, missingDependencyNames: [] };
     onboardingProfileId = "";
@@ -1177,6 +1276,9 @@
     viewMode = "local";
     externalTranscript = null;
     sessionFiles = [];
+    externalTranscriptLoader.clear();
+    externalTranscriptLoading = false;
+    externalTranscriptError = "";
     chatStore.disposeAll();
     projectChatStore.disposeAll();
     closePreview();
@@ -1386,7 +1488,7 @@
       globalAutoAvailable = nextAdaptiveThinking.autoAvailable;
       activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       onboardingProfiles = nextWebProfiles;
-      if (nextAgents) { onboardingAgents = nextAgents.items; agentNavigation = { ...agentNavigation, expandedAgentIds: agentNavigation.expandedAgentIds.filter(id => !nextAgents.items.some(agent => agent.id === id && !agent.enabled)) }; defaultAgentId = nextAgents.defaultAgentId ?? "default"; deletedAgentIds = nextAgents.deletedAgentIds ?? []; agentRefresh += 1; }
+      if (nextAgents) { onboardingAgents = nextAgents.items; agentNavigation = { ...agentNavigation, expandedAgentIds: agentNavigation.expandedAgentIds.filter(id => !nextAgents.items.some(agent => agent.id === id && !agent.enabled)) }; defaultAgentId = nextAgents.defaultAgentId ?? "default"; deletedAgentIds = nextAgents.deletedAgentIds ?? []; }
       if (nextChannels) {
         channelSummary = nextChannels;
         onboardingChannels = summarizeOnboardingChannels(nextChannels);
@@ -1413,6 +1515,7 @@
     const generation = ++connectionGeneration;
     connectedEndpoint = endpoint;
     connectionReady = false;
+    initialNavigationPending = false;
     loading = true;
     error = "";
     try {
@@ -1512,6 +1615,7 @@
       connectionReady = true;
       loading = false;
       void loadRooms();
+      startAgentActivityPolling();
       startAutomationUnreadPolling();
       startDurableExecutionPolling();
       const restoreView = reconnectRestore;
@@ -1522,7 +1626,12 @@
         if (generation !== connectionGeneration) return;
         restoreView();
       } else {
-        void selectDefaultSession(generation);
+        initialNavigationPending = true;
+        void selectDefaultSession(generation).catch(cause => {
+          if (generation === connectionGeneration) error = cause instanceof Error ? cause.message : String(cause);
+        }).finally(() => {
+          if (generation === connectionGeneration) initialNavigationPending = false;
+        });
       }
       void chatStore.reconnect();
       startReconnectPoll();
@@ -1632,6 +1741,11 @@
   }
 
   function openRoom(roomId: string): void {
+    roomEditRequested = false;
+    roomNavigationRevision += 1;
+    closeAgentSettings();
+    agentFilesActive = false;
+    agentHistoryActive = false;
     agentNavigation = { ...agentNavigation, page: "room", roomId, sessionId: "" }; persistAgentNavigation();
     browserOpen = false;
     closeExternalTranscript();
@@ -1645,7 +1759,17 @@
     if (item) persistSelected(item.botId, item.sessionId);
   }
 
+  function editRoom(roomId: string): void { openRoom(roomId); roomEditRequested = true; }
+  async function deleteRoom(roomId: string): Promise<void> {
+    try {
+      await actOnDesktopRoom(connectedEndpoint, { action: "delete", roomId });
+      if (requestedRoomId === roomId) { roomPaneActive = false; requestedRoomId = ""; openAgentChat(defaultAgentId); }
+      await loadRooms(); await refreshAgentSessions();
+    } catch (cause) { error = String(cause); }
+  }
   function createRoom(): void {
+    agentFilesActive = false;
+    agentHistoryActive = false;
     browserOpen = false;
     closeExternalTranscript();
     roomPaneActive = true;
@@ -1656,31 +1780,8 @@
     viewMode = "local";
   }
 
-  // Clicking a list section's heading returns to that section's content (not
-  // just expanding the list), so a workspace destination like 技能 never traps
-  // the reader away from their last conversation/project/room. Clicking the
-  // heading again once its section is already showing collapses the list, so
-  // the whole row reads as one disclosure instead of "expand-only". Collapsing
-  // stays on the caret too.
-  function openConversationsSection(): void {
-    if (!sidebarCollapsed && workspacePane === "chat" && !projectPaneActive && !roomPaneActive && conversationsExpanded) {
-      conversationsExpanded = false;
-      persistSidebarTree();
-      return;
-    }
-    if (!conversationsExpanded) { conversationsExpanded = true; persistSidebarTree(); }
-    roomPaneActive = false;
-    projectPaneActive = false;
-    collapsedFlyout = null;
-    workspacePane = "chat";
-    viewMode = "local";
-    closeExternalTranscript();
-    if (!activeSessionId) {
-      openAgentChat(selectedAgentId || defaultAgentId);
-    }
-  }
-
   function openProjectsSection(): void {
+    closeAgentSettings();
     if (!sidebarCollapsed && projectPaneActive && projectsExpanded) {
       projectsExpanded = false;
       persistSidebarTree();
@@ -1708,6 +1809,7 @@
   }
 
   function openRoomsSection(): void {
+    closeAgentSettings();
     if (!sidebarCollapsed && roomPaneActive && roomsExpanded) {
       roomsExpanded = false;
       persistSidebarTree();
@@ -1766,10 +1868,10 @@
   }
 
   async function selectDefaultSession(generation = connectionGeneration): Promise<void> {
+    const saved = agentNavigation;
     restoreSidebarTree();
     await refreshAgentSessions();
-    if (generation !== connectionGeneration) return;
-    const saved = agentNavigation;
+    if (generation !== connectionGeneration || agentNavigation !== saved) return;
     if (saved.page === "room" && saved.roomId) { openRoom(saved.roomId); return; }
     if (saved.page === "project" && saved.projectId) {
       await selectProject(saved.projectId);
@@ -1783,9 +1885,9 @@
       target = result.items[0];
       if (target) ordinarySessions = [...ordinarySessions, target];
     }
-    if (generation !== connectionGeneration) return;
+    if (generation !== connectionGeneration || agentNavigation !== saved) return;
     if (target) openSession(target);
-    else openAgentChat(onboardingAgents.some(agent => agent.id === saved.agentId) ? saved.agentId : defaultAgentId);
+    else openAgentChat(defaultAgentId);
   }
 
   async function loadChannel(channel: DesktopConversationChannel, showLoading = true): Promise<void> {
@@ -1874,6 +1976,9 @@
   }
 
   function newConversationWithBot(botId: string): void {
+    closeAgentSettings();
+    agentFilesActive = false;
+    agentHistoryActive = false;
     if (!connectedEndpoint) return;
     workspacePane = "chat";
     viewMode = "local";
@@ -1897,14 +2002,34 @@
     openAgentChat(defaultAgentId);
   }
 
+  function closeAgentSettings(): void {
+    if (!agentSettingsActive) return;
+    agentSettingsRequest++;
+    agentSettingsActive = false;
+    agentSettingsLoading = false;
+    cancelAgentEdit();
+  }
+
   async function openAgentSettings(agentId?: string): Promise<void> {
-    openSettings("agents");
-    if (!agentId || !connectedEndpoint) return;
-    await loadAgentsSettings(connectedEndpoint);
-    await beginAgentEdit(agentId);
+    if (!agentId || !connectedEndpoint || agentsStore.saving) return;
+    openAgentChat(agentId);
+    const request = ++agentSettingsRequest;
+    agentSettingsActive = true;
+    agentSettingsLoading = true;
+    clearInspector();
+    try {
+      await loadAgentsSettings(connectedEndpoint);
+      if (request !== agentSettingsRequest) return;
+      await beginAgentEdit(agentId);
+    } finally {
+      if (request === agentSettingsRequest) agentSettingsLoading = false;
+    }
   }
 
   function openAgentChat(agentId: string): void {
+    closeAgentSettings();
+    agentFilesActive = false;
+    agentHistoryActive = false;
     selectedAgentId = agentId;
     roomPaneActive = false;
     newConversationWithBot(`agent-${agentId}`);
@@ -1920,6 +2045,9 @@
   }
 
   function openSession(item: DesktopConversationItem): void {
+    closeAgentSettings();
+    agentFilesActive = false;
+    agentHistoryActive = false;
     selectedAgentId = item.agentId ?? "";
     agentNavigation = { ...agentNavigation, page: item.channel === "web" ? "session" : "external", agentId: selectedAgentId, sessionId: item.sessionId };
     persistAgentNavigation();
@@ -1964,6 +2092,17 @@
     }
   }
 
+  let agentDeleteBusy = false;
+  async function deleteAgentConversation(item: DesktopConversationItem): Promise<void> {
+    if (agentDeleteBusy) return;
+    agentDeleteBusy = true;
+    try {
+      const result = await deleteConversationSelection(connectedEndpoint, [item.sessionId]);
+      if (result.deletedIds.length) { chatStore.disposeSession(item.botId, item.sessionId); await refreshAgentSessions(); }
+      error = result.error;
+    } catch (cause) { error = String(cause); }
+    finally { agentDeleteBusy = false; }
+  }
   async function deleteSession(item: DesktopConversationItem): Promise<void> {
     // Confirmation happens inline in the row menu (native window.confirm is
     // unreliable in the Tauri webview), so this just performs the delete.
@@ -1983,10 +2122,10 @@
     }
   }
 
-  async function copySessionPath(item: DesktopConversationItem): Promise<void> {
+  async function copySessionPath(item: { sessionId: string; projectId?: string }): Promise<void> {
     if (!connectedEndpoint) return;
     try {
-      const sessionPath = await getDesktopSessionPath(connectedEndpoint, { sessionId: item.sessionId });
+      const sessionPath = await getDesktopSessionPath(connectedEndpoint, { sessionId: item.sessionId, projectId: item.projectId });
       await navigator.clipboard.writeText(sessionPath);
       showMiniAppFeedback(copy.sessionPathCopied);
     } catch (cause) {
@@ -1994,10 +2133,10 @@
     }
   }
 
-  async function revealSessionInFinder(item: DesktopConversationItem): Promise<void> {
+  async function revealSessionInFinder(item: { sessionId: string; projectId?: string }): Promise<void> {
     if (!connectedEndpoint) return;
     try {
-      await revealDesktopSession(connectedEndpoint, { sessionId: item.sessionId });
+      await revealDesktopSession(connectedEndpoint, { sessionId: item.sessionId, projectId: item.projectId });
     } catch (cause) {
       showMiniAppFeedback(cause instanceof Error ? cause.message : copy.sessionRevealFailed);
     }
@@ -2043,27 +2182,23 @@
   }
 
   async function openExternalTranscript(sessionId: string, channel: string, title: string, botName: string): Promise<void> {
-    if (!connectedEndpoint || sessionId === activeExternalSessionId) return;
+    if (!connectedEndpoint) return;
     workspacePane = "chat";
     viewMode = "external";
     activeExternalSessionId = sessionId;
     activeExternalTitle = title;
     activeExternalChannel = channel;
     activeExternalBotName = botName;
-    externalTranscript = null;
-    externalTranscriptError = "";
-    externalTranscriptLoading = true;
-    try {
-      externalTranscript = await loadDesktopExternalTranscript(connectedEndpoint, sessionId);
-    } catch (cause) {
-      externalTranscript = null;
-      externalTranscriptError = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      externalTranscriptLoading = false;
-    }
+    await externalTranscriptLoader.select(connectedEndpoint, sessionId, (state) => {
+      externalTranscript = state.transcript;
+      externalTranscriptError = state.error;
+      externalTranscriptLoading = state.loading;
+    });
   }
 
   function closeExternalTranscript(): void {
+    externalTranscriptLoader.close();
+    externalTranscriptLoading = false;
     externalTranscript = null;
     externalTranscriptError = "";
     activeExternalSessionId = "";
@@ -3260,6 +3395,9 @@
   }
 
   function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
+    closeAgentSettings();
+    agentFilesActive = false;
+    agentHistoryActive = false;
     agentNavigation = { ...agentNavigation, page: pane, sessionId: "" }; persistAgentNavigation();
     roomPaneActive = false;
     collapsedFlyout = null;
@@ -3463,6 +3601,8 @@
   }
 
   onDestroy(() => {
+    closeAgentSettings();
+    externalTranscriptLoader.clear();
     nativeCommandUnlisten?.();
     nativeCommandUnlisten = null;
     themeObserver?.disconnect();
@@ -3473,6 +3613,7 @@
     connectionGeneration += 1;
     stopSidebarResize();
     stopReconnectPoll();
+    stopAgentActivityPolling();
     stopAutomationUnreadPolling();
     stopDurableExecutionPolling();
     chatStore.disposeAll();
@@ -3489,6 +3630,87 @@
     window.removeEventListener(SETTINGS_CHANGED_EVENT, requestSettingsRefresh);
   });
 </script>
+
+{#snippet conversationComposer()}
+      <ChatInputArea
+        bind:this={chatInputArea}
+        bind:value={messageInput}
+        floating={!draftMode}
+        thinkingLevel={clampedThinkingLevel}
+        autoAvailable={globalAutoAvailable}
+        {thinkingLevelOptions}
+        endpoint={connectedEndpoint}
+        {copy}
+        {locale}
+        contextUsage={composerContextUsage}
+        {sessionUsage}
+        {sending}
+        disabled={!modelReady || !agentCanExecute || (!draftMode && !activeSessionId) || modelSelectionHydrating}
+        canSend={agentCanExecute && Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
+        placeholder={sending ? copy.queueHint : copy.enterHint}
+        {modelReady}
+        {modelOptions}
+        {activeModelKey}
+        {activeModelLabel}
+        activeModelTitle={activeModelFullLabel}
+        thinkingLevelLabel={thinkingLabel}
+        changingModel={changingModel || modelSelectionHydrating}
+        error={error || chatError}
+        {recordingError}
+        {queuedMessages}
+        {pendingFiles}
+        {pendingAudioUrls}
+        {recording}
+        {recordingSeconds}
+        showSettingsAction={true}
+        fileToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady || modelSelectionHydrating}
+        recordingToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady || modelSelectionHydrating}
+        inferAttachmentKind={inferAttachmentKind}
+        onSend={sendMessage}
+        onStop={stopRun}
+        onKeydown={handleComposerKeydown}
+        onPasteFiles={addPastedFiles}
+        onPickFiles={() => fileInput?.click()}
+        onToggleRecording={toggleRecording}
+        onFinishRecording={(send) => void finishRecording(send)}
+        onRemoveQueued={removeQueued}
+        onSteerQueued={(index) => void steerQueued(index)}
+        onRemoveFile={removePendingFile}
+        onDismissError={() => { error = ""; chatStore.clearActiveError?.(); }}
+        onDismissRecordingError={() => (recordingError = "")}
+        onOpenSettings={() => openSettings()}
+        onChangeModel={changeModel}
+        onChangeThinking={changeThinking}
+        {permissionMode}
+        {permissionModeOptions}
+        permissionModeSource={permissionModeSource}
+        onChangePermissionMode={changePermissionMode}
+      >
+        <svelte:fragment slot="mention">
+          {#if !draftMode && onboardingAgents.length > 0 && activeSessionId}
+            <!-- Sessions keep a read-only bot badge; agent switching lives in the
+               sidebar, so the composer no longer duplicates it on agent homes. -->
+            <BotMention
+              mode="locked"
+              bots={botOptions}
+              selectedId={`agent-${selectedAgentId}`}
+              onSelect={(id) => openAgentChat(id.slice(6))}
+              labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
+            />
+          {/if}
+        </svelte:fragment>
+        {#if editingMessageId}
+          <div class="composer-edit-banner" role="status">
+            <Pen size={16} aria-hidden="true" />
+            <span>{copy.editingMessage}</span>
+            <button type="button" aria-label={copy.cancelEdit} title={copy.cancelEdit} onclick={cancelEditMessage}>
+              <X size={16} aria-hidden="true" />{copy.cancelEdit}
+            </button>
+          </div>
+        {/if}
+      </ChatInputArea>
+{/snippet}
+
 
 <svelte:window onkeydown={onChatShortcut} bind:innerWidth={viewportWidth} />
 
@@ -3597,7 +3819,7 @@
     </div>
   {/if}
   {#snippet agentConversationContent()}
-    <AgentNavigation endpoint={connectedEndpoint} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} expanded={agentNavigation.expandedAgentIds} activeAgentId={selectedAgentId} {activeSessionId} refresh={agentRefresh} {locale} {copy} {statusDots} formatTime={formatListTime} onAgent={openAgentChat} onToggle={toggleAgent} onSelect={openSession} onHistory={openAgentHistory} onManage={() => openAgentSettings()} onRename={renameSession} onDelete={deleteSession} onCopySessionPath={copySessionPath} onRevealSessionInFinder={revealSessionInFinder} />
+    <AgentNavigation {latestConversationAtByAgent} {hasUnassignedHistory} activities={agentActivities} activityReady={agentActivityReady} selectedAgentId={workspacePane === "chat" && !roomPaneActive && !projectPaneActive ? selectedAgentId : ""} overviewActive={workspacePane === "agents"} onOverview={() => openAgentOverview()} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} {locale} {copy} onAgent={openAgentChat} onHistory={openAgentHistory} onFiles={openAgentFiles} onSettings={(id) => void openAgentSettings(id)} />
   {/snippet}
   <ChatSidebar
     conversationContent={agentConversationContent}
@@ -3628,13 +3850,14 @@
     onNewConversation={newConversation}
     roomsLabel={roomsCopy[locale].title}
     roomsCreateLabel={roomsCopy[locale].newRoom}
+    roomsEditLabel={roomsCopy[locale].edit}
+    roomsDeleteLabel={roomsCopy[locale].remove}
     roomsEmptyLabel={roomsCopy[locale].empty}
     onOpenAutoTasks={() => openWorkspacePane("automations")}
     onOpenSkills={() => openWorkspacePane("skills")}
-    onOpenAgents={() => openWorkspacePane("agents")}
     onOpenPlans={() => openWorkspacePane("plans")}
     onOpenSettings={() => openSettings()}
-    onOpenConversations={openConversationsSection}
+    onOpenConversations={() => openAgentOverview()}
     onOpenProjects={openProjectsSection}
     onOpenRooms={openRoomsSection}
     onToggleConversations={toggleConversations}
@@ -3643,6 +3866,8 @@
     onToggleChannel={(channel) => toggleChannel(channel as DesktopConversationChannel)}
     onSelectSession={openSession}
     onSelectRoom={openRoom}
+    onEditRoom={editRoom}
+    onDeleteRoom={id => void deleteRoom(id)}
     onCreateRoom={createRoom}
     onMoreChannel={(channel) => void loadMoreChannel(channel as DesktopConversationChannel)}
     onRenameSession={renameSession}
@@ -3684,9 +3909,20 @@
   ></div>
 
   <div class="workspace-main">
-  {#if roomPaneActive}
+  {#if agentSettingsActive}
+    {#if !agentSettingsLoading && agentsStore.agentEdit}
+      <AgentSettingsPage onClose={closeAgentSettings} backLabel={locale === "zh-CN" ? "返回 Agent" : "Back to Agent"} />
+    {:else}
+      <section class="agent-settings-loading" aria-busy={agentSettingsLoading}>
+        <Button onclick={closeAgentSettings}>{locale === "zh-CN" ? "返回 Agent" : "Back to Agent"}</Button>
+        {#if agentSettingsLoading}<p>{copy.loading}</p>{:else}<p role="alert">{session.error || (locale === "zh-CN" ? "无法加载 Agent 设置。" : "Unable to load Agent settings.")}</p><Button onclick={() => void openAgentSettings(selectedAgentId)}>{locale === "zh-CN" ? "重试" : "Retry"}</Button>{/if}
+      </section>
+    {/if}
+  {:else if roomPaneActive}
     <RoomWorkspace bind:this={roomWorkspace} draftStore={chatStore.draftStore} endpoint={connectedEndpoint} {copy} {locale} {requestedRoomId}
       startInCreate={roomStartEditing}
+      navigationRevision={roomNavigationRevision}
+      editRequested={roomEditRequested} onEditConsumed={() => roomEditRequested = false}
       onSelectRoom={id => {
         requestedRoomId = id;
         roomStartEditing = false;
@@ -3718,6 +3954,11 @@
         serviceError={error}
         onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
         onOpenAgentSettings={(agentId) => { void openAgentSettings(agentId); }}
+        agents={onboardingAgents}
+        activities={agentActivities}
+        activityReady={agentActivityReady}
+        activityError={agentActivityError}
+        focusedAgentId={overviewAgentId}
         onOpenAgentChat={openAgentChat}
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
@@ -3727,11 +3968,15 @@
       />
     {:else}
     <ChatHeader
-      title={activeHeaderTitle}
-      sourceLabel={activeHeaderChannel !== "web" ? activeHeaderSourceLabel : ""}
+      title={startupPending ? startupHeaderTitle : agentFilesActive ? `${selectedAgent?.name || selectedAgentId} · ${locale === "zh-CN" ? "文件与附件" : "Files and attachments"}` : agentHistoryActive ? `${selectedAgent?.name || (locale === "zh-CN" ? "未归属历史" : "Unassigned history")} · ${locale === "zh-CN" ? "全部对话" : "All conversations"}` : activeHeaderTitle}
+      sourceLabel={!agentFilesActive && !agentHistoryActive && activeHeaderChannel !== "web" ? activeHeaderSourceLabel : ""}
       searching={searchOpen}
     >
       {#snippet actions()}
+        {#if !startupPending && draftMode && selectedAgent && !agentFilesActive && !agentHistoryActive}
+          <Button variant="icon" title={locale === "zh-CN" ? "文件与附件" : "Files and attachments"} onclick={() => openAgentFiles(selectedAgentId)}><AgentFilesIcon size={16} aria-hidden="true" /></Button>
+          <Button variant="icon" title={locale === "zh-CN" ? "Agent 设置" : "Agent settings"} onclick={() => void openAgentSettings(selectedAgentId)}><Gear size={16} aria-hidden="true" /></Button>
+        {/if}
         {#if durableActiveCount > 0}
           <button
             type="button"
@@ -3744,7 +3989,7 @@
             <span>{durableActiveCount > 99 ? "99+" : durableActiveCount}</span>
           </button>
         {/if}
-        {#if serviceState === "ready" && onboardingAgents.length > 0}
+        {#if !agentFilesActive && !agentHistoryActive && serviceState === "ready" && onboardingAgents.length > 0}
           <TranscriptSearch
             bind:value={searchQuery}
             open={searchOpen}
@@ -3792,23 +4037,63 @@
       {/snippet}
     </ChatHeader>
 
-    {#if serviceState !== "ready"}
+    {#if storageMigrationPending}
       <div class="empty-state" aria-live="polite">
-        {#if startupPhase === "checking" || startupPhase === "starting" || startupPhase === "retrying"}
-          <div class="service-starting-spinner" aria-hidden="true"><img src="/molibot-icon.png" alt="" width="32" height="32" /><span></span></div>
-        {:else}
-          <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" width="32" height="32" /></div>
-        {/if}
-        <h2>{startupPhase === "delayed" ? copy.serviceStarting : startupPhase === "error" ? copy.diagStateError : copy.serviceStarting}</h2>
-        <p>{startupError || (serviceEndpoint ? copy.serviceLaunching : copy.serviceChecking)}</p>
-        {#if startupPhase === "delayed" || startupPhase === "error"}
-          <div class="startup-recovery-actions">
-            <button class="secondary-button" type="button" onclick={retryStartup}>{copy.reconnectService}</button>
-            <button class="secondary-button" type="button" onclick={openStartupDiagnostics}>{copy.diagnostics}</button>
-            <button class="secondary-button" type="button" onclick={openStartupLogs}>{copy.openLogFile}</button>
-          </div>
-        {/if}
+        <h2>{locale === "zh-CN" ? "会话数据尚未处理" : "Session data needs a decision"}</h2>
+        <p>{locale === "zh-CN" ? "旧数据还没有完成处理，运行与任务已暂停。可选择迁移，或排除不需要的旧 Bot 数据，再确认应用选择。" : "Old data has not been processed. Runs and tasks are paused. Migrate it or exclude unwanted old Bot data, then confirm your choices."}</p>
+        <Button onclick={openStorageMigration}>{locale === "zh-CN" ? "处理会话数据" : "Review session data"}</Button>
       </div>
+    {:else if startupPending}
+      <div class="startup-city-state">
+        <AgentCityStartup paused={startupPhase === "error"} />
+        <div class="startup-city-status" role="status" aria-live="polite">
+          <h2>{startupHeaderTitle}</h2>
+          <p>{startupError || error || (serviceState === "ready" ? copy.loading : serviceEndpoint ? copy.serviceLaunching : copy.serviceChecking)}</p>
+          {#if startupPhase === "delayed" || startupPhase === "error" || error}
+            <div class="startup-recovery-actions">
+              <Button variant="secondary" onclick={retryStartup}>{copy.reconnectService}</Button>
+              <Button variant="secondary" onclick={openStartupDiagnostics}>{copy.diagnostics}</Button>
+              <Button variant="secondary" onclick={openStartupLogs}>{copy.openLogFile}</Button>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {:else if agentFilesActive}
+      <AgentFilesPage endpoint={connectedEndpoint} agentId={selectedAgentId} {locale} {copy} theme={resolvedTheme} formatTime={formatListTime} onClose={() => openAgentChat(selectedAgentId)} onConversation={(item) => void openSearchResult(item)} />
+    {:else if agentHistoryActive}
+      <ConversationBrowserDialog
+        endpoint={connectedEndpoint}
+        page
+        {locale}
+        open={true}
+        agentId={historyAgentId}
+        onDeleted={() => { void refreshAgentSessions().catch(cause => error = String(cause)); }}
+        onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}
+        includeArchived={true}
+        labels={{
+          search: copy.searchConversations,
+          searchEmpty: copy.searchEmpty,
+          loading: copy.loading,
+          loadMore: copy.loadMore,
+          empty: copy.noConversations,
+          close: locale === "zh-CN" ? "返回 Agent 首页" : "Back to Agent home",
+          all: copy.searchScopeAll,
+          web: copy.channelWeb,
+          project: copy.projects,
+          channels: copy.searchScopeChannels,
+          allChannels: copy.searchScopeAllChannels,
+          scopeFilter: copy.searchScopeFilter,
+          clearSearch: `${copy.channelQrClear} ${copy.search}`.trim(),
+          telegram: copy.channelTelegram,
+          feishu: copy.channelFeishu,
+          qq: copy.channelQq,
+          weixin: copy.channelWeixin,
+          unknownBot: copy.unknownBot
+        }}
+        formatTime={formatListTime}
+        onSelect={(item) => void openSearchResult(item)}
+        onClose={() => historyAgentId === "__unassigned__" ? (agentHistoryActive = false) : openAgentChat(historyAgentId || defaultAgentId)}
+      />
     {:else if loading}
       <div class="empty-state"><p>{copy.loadingChat}</p></div>
     {:else if onboardingAgents.length === 0}
@@ -3828,7 +4113,7 @@
         class:has-prompt-navigator={(externalTranscript?.messages.filter((message) => message.role === "user" && Boolean(message.id?.trim())).length ?? 0) >= PROMPT_NAVIGATOR_MIN_TURNS}
         class="chat-messages-frame"
       >
-        <div class="messages" bind:this={messagesElement} use:stickToBottom={{ key: activeSessionId }} aria-live="polite">
+        <div class="messages" bind:this={messagesElement} use:stickToBottom={{ key: activeExternalSessionId }} aria-live="polite">
           {#if externalTranscriptLoading}
             <div class="conversation-empty">
               <h2>{copy.loading}</h2>
@@ -3868,8 +4153,18 @@
           {#each onboardingAgents.filter(agent => agent.enabled) as agent}<button type="button" class="secondary-button" onclick={() => claimActiveSession(agent.id)}>{agent.name}</button>{/each}
         </div>
       {/if}
+      {#if draftMode && selectedAgent}
+        <div class="chat-start-page">
+            <AgentHome activity={agentActivities.find(item => item.agentId === selectedAgentId)} activityReady={agentActivityReady} onActivity={() => openAgentOverview(selectedAgentId)} composer={conversationComposer} agent={selectedAgent} sessions={agentHomeSessions.slice(0, 3)} {locale} {copy}
+              actions={agentCanExecute ? emptyQuickStarts(copy) : []}
+              onPrompt={fillEmptyPrompt} onSession={openSession} onDelete={deleteAgentConversation}
+              onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}
+              onHistory={() => openAgentHistory(selectedAgentId)} formatTime={formatListTime} />
+        </div>
+      {:else}
       <ChatMessagesPane
         bind:messagesElement
+        customHome={draftMode && Boolean(selectedAgent)}
         {messages}
         {copy}
         formatTime={formatSessionTime}
@@ -3899,27 +4194,17 @@
         attentionLabel={copy.pendingApprovalNotice}
         attentionAction={copy.pendingApprovalJump}
       >
-        <svelte:fragment slot="home">
-          {#if draftMode && selectedAgent}
-            <div class="agent-home-identity"><AgentAvatar name={selectedAgent.name} src={selectedAgent.avatar ?? ""} /></div>
-            {#if ordinarySessions.some(item => item.agentId === selectedAgentId)}
-              <div class="agent-home-recent"><span>{locale === "zh-CN" ? "最近对话" : "Recent conversations"}</span>
-                {#each ordinarySessions.filter(item => item.agentId === selectedAgentId).slice(0, 3) as item (item.sessionId)}
-                  <button class="secondary-button" type="button" onclick={() => openSession(item)}>{item.title}</button>
-                {/each}
-              </div>
-            {/if}
-          {/if}
-        </svelte:fragment>
+
         {#if pendingApproval}
+          {@const isRecoveryReview = pendingApproval.command === "recovery_review"}
           <!-- The wrapper exists so the pane can watch this card without knowing
                what it is; `bind:this` on the component would hand over the
                instance, not a node an IntersectionObserver can take. -->
           <div bind:this={approvalElement}>
             <ApprovalCard
               cardId={pendingApproval.requestId}
-              title={copy.approvalTitle}
-              subtitle={[pendingApproval.displayName ?? "", pendingApprovals.length > 1 ? copy.approvalQueuePosition.replace("{index}", "1").replace("{total}", String(pendingApprovals.length)) : ""].filter(Boolean).join(" · ")}
+              title={isRecoveryReview ? copy.approvalRecoveryReviewTitle : copy.approvalTitle}
+              subtitle={[isRecoveryReview ? copy.approvalRecoveryReviewSubtitle : (pendingApproval.displayName ?? ""), pendingApprovals.length > 1 ? copy.approvalQueuePosition.replace("{index}", "1").replace("{total}", String(pendingApprovals.length)) : ""].filter(Boolean).join(" · ")}
               reasonLabel={copy.approvalReason}
               command={pendingApproval.command}
               reason={pendingApproval.reason}
@@ -3945,6 +4230,7 @@
           />
         {/if}
       </ChatMessagesPane>
+      {/if}
       <input
         bind:this={fileInput}
         type="file"
@@ -3952,81 +4238,7 @@
         hidden
         onchange={onFilesPicked}
       />
-      <ChatInputArea
-        bind:this={chatInputArea}
-        bind:value={messageInput}
-        floating
-        thinkingLevel={clampedThinkingLevel}
-        autoAvailable={globalAutoAvailable}
-        {thinkingLevelOptions}
-        endpoint={connectedEndpoint}
-        {copy}
-        {locale}
-        contextUsage={composerContextUsage}
-        {sessionUsage}
-        {sending}
-        disabled={!modelReady || !agentCanExecute || (!draftMode && !activeSessionId) || modelSelectionHydrating}
-        canSend={agentCanExecute && Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
-        placeholder={sending ? copy.queueHint : copy.enterHint}
-        {modelReady}
-        {modelOptions}
-        {activeModelKey}
-        {activeModelLabel}
-        activeModelTitle={activeModelFullLabel}
-        thinkingLevelLabel={thinkingLabel}
-        changingModel={changingModel || modelSelectionHydrating}
-        error={error || chatError}
-        {recordingError}
-        {queuedMessages}
-        {pendingFiles}
-        {pendingAudioUrls}
-        {recording}
-        {recordingSeconds}
-        showSettingsAction={true}
-        fileToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady || modelSelectionHydrating}
-        recordingToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady || modelSelectionHydrating}
-        inferAttachmentKind={inferAttachmentKind}
-        onSend={sendMessage}
-        onStop={stopRun}
-        onKeydown={handleComposerKeydown}
-        onPasteFiles={addPastedFiles}
-        onPickFiles={() => fileInput?.click()}
-        onToggleRecording={toggleRecording}
-        onFinishRecording={(send) => void finishRecording(send)}
-        onRemoveQueued={removeQueued}
-        onSteerQueued={(index) => void steerQueued(index)}
-        onRemoveFile={removePendingFile}
-        onDismissError={() => { error = ""; chatStore.clearActiveError?.(); }}
-        onDismissRecordingError={() => (recordingError = "")}
-        onOpenSettings={() => openSettings()}
-        onChangeModel={changeModel}
-        onChangeThinking={changeThinking}
-        {permissionMode}
-        {permissionModeOptions}
-        permissionModeSource={permissionModeSource}
-        onChangePermissionMode={changePermissionMode}
-      >
-        <svelte:fragment slot="mention">
-          {#if onboardingAgents.length > 0 && (draftMode || activeSessionId)}
-            <BotMention
-              mode={draftMode ? "select" : "locked"}
-              bots={botOptions}
-              selectedId={`agent-${selectedAgentId}`}
-              onSelect={(id) => openAgentChat(id.slice(6))}
-              labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
-            />
-          {/if}
-        </svelte:fragment>
-        {#if editingMessageId}
-          <div class="composer-edit-banner" role="status">
-            <Pen size={16} aria-hidden="true" />
-            <span>{copy.editingMessage}</span>
-            <button type="button" aria-label={copy.cancelEdit} title={copy.cancelEdit} onclick={cancelEditMessage}>
-              <X size={16} aria-hidden="true" />{copy.cancelEdit}
-            </button>
-          </div>
-        {/if}
-      </ChatInputArea>
+      {#if !draftMode || !selectedAgent}{@render conversationComposer()}{/if}
     {/if}
     {/if}
     {#if miniAppActionFeedback}
@@ -4123,6 +4335,7 @@
     open={browserOpen}
     agentId={historyAgentId}
     includeArchived={true}
+    onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}
     labels={{
       search: copy.searchConversations,
       searchEmpty: copy.searchEmpty,

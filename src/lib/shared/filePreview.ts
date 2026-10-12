@@ -138,6 +138,8 @@ export function classifyFilePreview(input: {
     return "office";
   }
 
+  if ([".txt", ".log"].includes(ext)) return "text";
+
   if (TEXT_DOTFILES.has(String(input.name ?? "").trim().toLowerCase())) return "text";
 
   return "binary";

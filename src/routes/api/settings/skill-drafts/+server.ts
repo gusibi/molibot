@@ -66,7 +66,7 @@ function parseTemplateOption(
 function readTemplateSkillOptions(dataRoot: string): SkillTemplateOption[] {
   const items: SkillTemplateOption[] = [];
   const globalSkillsDir = resolve(dataRoot, "skills");
-  const botsRoot = resolve(dataRoot, "moli-t", "bots");
+  const botsRoot = resolve(dataRoot, "sessions");
 
   if (existsSync(globalSkillsDir)) {
     const files: string[] = [];
@@ -92,19 +92,7 @@ function readTemplateSkillOptions(dataRoot: string): SkillTemplateOption[] {
         }
       }
 
-      const chatEntries = readdirSync(botDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && entry.name !== "skills");
-      for (const chatEntry of chatEntries) {
-        const chatId = chatEntry.name;
-        const chatSkillsDir = resolve(botDir, chatId, "skills");
-        if (!existsSync(chatSkillsDir)) continue;
-        const files: string[] = [];
-        collectSkillFiles(chatSkillsDir, files);
-        for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
-          const item = parseTemplateOption(filePath, "chat", botId, chatId);
-          if (item) items.push(item);
-        }
-      }
+
     }
   }
 
@@ -113,14 +101,14 @@ function readTemplateSkillOptions(dataRoot: string): SkillTemplateOption[] {
 
 function isAllowedDraftPath(dataRoot: string, filePath: string): boolean {
   const normalized = resolve(filePath);
-  const allowedRoot = resolve(dataRoot, "moli-t", "bots");
-  return normalized.startsWith(allowedRoot) && normalized.includes("/skill-drafts/") && normalized.endsWith(".md");
+  const allowedRoot = resolve(dataRoot, "sessions");
+  return normalized.startsWith(allowedRoot + "/") && normalized.includes("/skill-drafts/") && normalized.endsWith(".md");
 }
 
 function isAllowedWorkspaceDir(dataRoot: string, workspaceDir: string): boolean {
   const normalized = resolve(workspaceDir);
-  const allowedRoot = resolve(dataRoot, "moli-t", "bots");
-  return normalized.startsWith(allowedRoot);
+  const allowedRoot = resolve(dataRoot, "sessions");
+  return normalized.startsWith(allowedRoot + "/");
 }
 
 export const GET: RequestHandler = async () => {

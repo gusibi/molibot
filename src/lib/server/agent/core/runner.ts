@@ -1,6 +1,6 @@
 import { requireEnabledAgent } from "$lib/server/sessions/sessionAgentService.js";
 import { PiRecoveryStore } from "./piRecoveryStore.js";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { type AgentEvent } from "@earendil-works/pi-agent-core";
 import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
@@ -33,6 +33,8 @@ import { permissionModeInstructionsFor } from "$lib/server/agent/prompts/modeIns
 import { resolveToolFileTarget } from "$lib/server/app/toolFilePaths.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
+import { buildPiExtensionRuntimeSnapshot } from "$lib/server/plugins/piExtensions/runtimeSnapshot.js";
+import { createPiExtensionModelCatalog } from "$lib/server/plugins/piExtensions/modelCatalog.js";
 import { getMcpServerStatuses, getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
 import { effectiveMcpServers, hasConfiguredMcpServers } from "$lib/server/settings/openConnector.js";
 import { resolveEffectiveExecutionPolicy, type ExecutionTarget } from "$lib/server/agent/permissions/resolvePermissionMode.js";
@@ -69,6 +71,7 @@ import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { getModelThinkingLevels, resolveModelThinkingLevel } from "$lib/server/providers/modelThinking.js";
 import { hasPiProviderAuth, streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
+import { getPiModels } from "$lib/server/providers/piRegistry.js";
 import { createPiTelemetryContext } from "$lib/server/providers/piTelemetry.js";
 import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
@@ -172,6 +175,13 @@ const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
 // Stable placeholder: the real snapshot is injected per turn via the user
 // message envelope so the system prompt never varies with memory contents.
 const SYSTEM_PROMPT_MEMORY_PLACEHOLDER = "(working memory is provided per turn in the user message envelope)";
+
+// Model discovery for pi extension contexts, over the process-wide Models facade
+// (its per-provider credential cache then survives across runs).
+let piExtensionModelCatalog: ReturnType<typeof createPiExtensionModelCatalog> | undefined;
+function getPiExtensionModelCatalog(): ReturnType<typeof createPiExtensionModelCatalog> {
+  return (piExtensionModelCatalog ??= createPiExtensionModelCatalog(getPiModels()));
+}
 const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
 
 type ToolCallTrackingContext = {
@@ -290,7 +300,7 @@ export class MomRunner implements RunnerLike {
 
   private getExecutionTarget(): ExecutionTarget {
     if (this.activeExecutionPolicy) return this.activeExecutionPolicy.executionTarget;
-    const botId = basename(this.store.getWorkspaceDir()) || "unknown";
+    const botId = this.store.getBotId();
     return resolveEffectiveExecutionPolicy({
       getSettings: this.getSettings,
       chatId: this.chatId,
@@ -364,7 +374,7 @@ export class MomRunner implements RunnerLike {
     if (!runtimeIdentity?.roomId) {
       const baseGetSettings = this.getSettings;
       this.getSettings = () => applyAgentModelRoutingOverride(
-        baseGetSettings(), this.channel, basename(this.store.getWorkspaceDir()) || "unknown", this.runtimeIdentity?.agentId
+        baseGetSettings(), this.channel, this.store.getBotId(), this.runtimeIdentity?.agentId
       );
     }
     const settings = this.getSettings();
@@ -379,6 +389,7 @@ export class MomRunner implements RunnerLike {
         timezone: settings.timezone,
         settings,
         agentId: this.runtimeIdentity?.agentId,
+        botProfileDir: this.store.getBotProfileDir(),
         miniApps: promptMiniApps()
       },
     );
@@ -751,7 +762,7 @@ export class MomRunner implements RunnerLike {
     return {
       channel: this.activeHookContext?.channel ?? this.channel,
       ...(this.runtimeIdentity?.agentId ? { agentId: this.runtimeIdentity.agentId } : {}),
-      botId: this.activeHookContext?.botId ?? (basename(this.store.getWorkspaceDir()) || "unknown"),
+      botId: this.activeHookContext?.botId ?? (this.store.getBotId()),
       chatId: this.chatId,
       sessionId: this.sessionId
     };
@@ -926,7 +937,7 @@ export class MomRunner implements RunnerLike {
     // last_heartbeat written by prepareTurn.
     let stopTurnHeartbeat: (() => void) | undefined;
 
-    const botId = basename(this.store.getWorkspaceDir()) || "unknown";
+    const botId = this.store.getBotId();
     this.modelCallSeq = 0;
     this.nativeModelTaskId = undefined;
     this.budgetBlockedToolCallIds.clear();
@@ -1253,7 +1264,7 @@ export class MomRunner implements RunnerLike {
       this.memory,
       { sessionId: executionScopeSessionId }
     );
-    const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
+    const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getBotProfileDir());
     // The per-turn memory snapshot and query are intentionally NOT part of this
     // key: the snapshot travels in the user-message envelope, so the system
     // prompt only changes when settings/channel/project actually change and
@@ -1274,6 +1285,7 @@ export class MomRunner implements RunnerLike {
           timezone: settings.timezone,
           settings,
           agentId: this.runtimeIdentity?.agentId,
+          botProfileDir: this.store.getBotProfileDir(),
           project: ctx.project,
           miniApps: promptMiniApps()
         },
@@ -1334,6 +1346,7 @@ export class MomRunner implements RunnerLike {
 
     const { skills } = loadSkillsFromWorkspace(this.store.getWorkspaceDir(), this.chatId, {
       disabledSkillPaths: settings.disabledSkillPaths,
+      agentDisabledSkillPaths: settings.agents.find(agent => agent.id === this.runtimeIdentity?.agentId)?.disabledSkillPaths,
       workspaceId,
       projectRoot: ctx.project?.rootPath
     });
@@ -1448,10 +1461,55 @@ export class MomRunner implements RunnerLike {
       sessionPlanProgress: ctx.sessionPlanProgress,
       agentId: this.runtimeIdentity?.agentId,
       roomId: this.runtimeIdentity?.roomId,
-      runNestedToolCall: async (tool, id, args, signal) => {
+      modelOperationDeps: executionPolicy.readOnly || permissionMode === "plan" ? undefined : {
+    models: getPiModels(),
+    authorize: (operation) => {
+      this.activeToolAuthority?.(operation === "classify" ? "modelsClassify" : "modelsGenerateImages", {});
+    },
+    beforeCall: (operation) => {
+      const started = budget.tryStartModelTurn(`pi:${runId}:codemode:model:${operation}`);
+      if (!started.ok) throw new Error(started.reason);
+    },
+    onUsage: (receipt) => {
+      const usage = receipt.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number } | undefined;
+      if (!usage) return;
+      this.usageTracker.record({ requestId: `pi:${runId}:codemode:model:${randomUUID()}`,
+        channel: this.channel, botId, agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId,
+        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: receipt.provider, model: receipt.model,
+        inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
+        cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
+    }
+  },
+  // Chat streaming for extensions: same shared Models facade, authority and
+  // budget as Codemode model work; provider events are forwarded as they arrive.
+  extensionModelStream: executionPolicy.readOnly || permissionMode === "plan" ? undefined : async (input, emit, signal) => {
+    const models = getPiModels();
+    const model = models.getModel(input.model.provider, input.model.id);
+    if (!model) throw new Error(`Unknown chat model: ${input.model.provider}/${input.model.id}`);
+    this.activeToolAuthority?.("modelsStream", {});
+    const started = budget.tryStartModelTurn(`pi:${runId}:extension:model:chat:${input.model.provider}/${input.model.id}`);
+    if (!started.ok) throw new Error(started.reason);
+    const context = input.context as Parameters<typeof models.stream>[1];
+    const streamOptions = { ...((input.options ?? {}) as Record<string, unknown>), signal } as Parameters<typeof models.stream>[2];
+    const stream = input.simple
+      ? models.streamSimple(model, context, streamOptions as Parameters<typeof models.streamSimple>[2])
+      : models.stream(model, context, streamOptions);
+    for await (const event of stream) emit(event);
+    const message = await stream.result();
+    const usage = message.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number } | undefined;
+    if (usage) {
+      this.usageTracker.record({ requestId: `pi:${runId}:extension:model:${randomUUID()}`,
+        channel: this.channel, botId, agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId,
+        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: message.provider, model: message.model,
+        inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
+        cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
+    }
+    return { message };
+  },
+  runNestedToolCall: async (tool, id, args, signal) => {
         signal.throwIfAborted();
         const invocation = currentPiInvocation();
-        if (!invocation) throw new Error("Codemode requires a native execution owner.");
+        if (!invocation) throw new Error("Nested tool execution requires a native execution owner.");
         const outcome = await invocation.nested(tool, id, args);
         const assistantMessage = this.agent.toolOriginFor(id);
         const blocked = this.budgetBlockedToolCallIds.has(id);
@@ -1462,6 +1520,26 @@ export class MomRunner implements RunnerLike {
         return outcome;
       },
       executionPolicy,
+      extensionAbort: () => this.agent.abort(),
+      // Compaction costs tokens, so it is unavailable in Plan / read-only runs.
+      extensionCompact: executionPolicy.readOnly || permissionMode === "plan" ? undefined : () => this.agent.compact(),
+      piExtensionRuntime: async () => {
+        const cwd = this.currentWorkingDir();
+        const session = await this.agent.extensionSessionSource();
+        return buildPiExtensionRuntimeSnapshot({
+          cwd,
+          systemPrompt: this.renderedSystemPrompt,
+          sessionId: this.sessionId,
+          model: this.agent.state.model,
+          thinkingLevel: this.agent.state.thinkingLevel,
+          // No per-session model scoping is configured, so the usable set is unrestricted.
+          scopedModels: [],
+          isIdle: false,
+          pendingMessages: this.agent.pendingMessageCount(),
+          models: await getPiExtensionModelCatalog()(),
+          session: { ...session, cwd }
+        });
+      },
       assertToolAuthority: ctx.assertToolAuthority,
       approvalWaitTimeoutMs: ctx.approvalWaitTimeoutMs,
       awaitToolQuiescence: ctx.awaitToolQuiescence,
@@ -2095,6 +2173,7 @@ export class MomRunner implements RunnerLike {
         },
         assertAuthority: (name, args) => this.activeToolAuthority?.(name, args),
         childCompaction: { enabled: settings.subagentRuntime.compactionEnabled, reserveTokens: settings.compaction.reserveTokens, keepRecentTokens: settings.compaction.keepRecentTokens },
+        approvedRecoveryCallIds: ctx.approvedRecoveryCallIds,
         childBudgetLimits: { maxToolCalls: settings.subagentRuntime.maxToolCalls, maxToolFailures: settings.subagentRuntime.maxToolFailures, maxModelAttempts: settings.subagentRuntime.maxModelRetries },
         childTools: () => (localTools as unknown as { getChildTools: () => AgentTool[] }).getChildTools(),
         beforeChildTool: taskId => {

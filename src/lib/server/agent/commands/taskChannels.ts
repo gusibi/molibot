@@ -5,13 +5,15 @@ export interface TaskChannelRoot {
   dir: string;
 }
 
-export const TASK_CHANNEL_ROOTS: TaskChannelRoot[] = [
+export const LEGACY_CHANNEL_ROOTS: TaskChannelRoot[] = [
   { channel: "web", dir: "moli-w" },
   { channel: "telegram", dir: "moli-t" },
   { channel: "feishu", dir: "moli-f" },
   { channel: "qq", dir: "moli-q" },
   { channel: "weixin", dir: "moli-wx" },
 ];
+
+export const TASK_CHANNEL_ROOTS: TaskChannelRoot[] = LEGACY_CHANNEL_ROOTS.map(({ channel }) => ({ channel, dir: `channels/${channel}` }));
 
 export const SYSTEM_TASK_CHANNEL = "system" as const;
 export const SYSTEM_TASK_OWNER_ID = "owner";

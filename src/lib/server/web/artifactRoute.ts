@@ -267,5 +267,7 @@ async function resolveSessionArtifactTarget(rawToken: string, rest: string): Pro
   });
   if (!resolved) throw new ArtifactNotFoundError("Unknown session.");
 
-  return resolveArtifactFile({ rootPath: resolved.workspaceDir }, rest);
+  const { resolveAgentFileReference } = await import("$lib/server/sessions/agentFileReferences.js");
+  const target = resolveAgentFileReference(resolved.workspaceDir, rest, { channel: "web", chatId: resolved.externalUserId });
+  return resolveArtifactFile({ rootPath: resolved.workspaceDir }, path.relative(resolved.workspaceDir, target));
 }

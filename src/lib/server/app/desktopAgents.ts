@@ -28,6 +28,8 @@ export function buildDesktopAgentItem(agent: AgentSettings): DesktopAgentItem {
     visible: agent.visible !== false,
     avatar: agent.avatar ?? "",
     shareOwnerMemory: agent.shareOwnerMemory !== false,
+    disabledSkillPaths: agent.disabledSkillPaths ?? [],
+    disabledTools: agent.disabledTools ?? [],
     permissionMode: agent.permissionMode ?? null,
     modelOverrides: countModelOverrides(agent),
     modelRouting: {
@@ -49,6 +51,8 @@ export function saveDesktopAgent(settings: RuntimeSettings, request: DesktopAgen
     description: String(request.description ?? "").trim(),
     enabled: request.enabled !== false,
     visible: request.visible !== false, avatar: request.avatar ?? "", shareOwnerMemory: request.shareOwnerMemory !== false,
+    disabledSkillPaths: request.disabledSkillPaths ?? [],
+    disabledTools: request.disabledTools ?? [],
     permissionMode: request.permissionMode === null ? undefined : request.permissionMode,
     modelRouting: sanitizeAgentModelRouting(request.modelRouting)
   };

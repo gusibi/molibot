@@ -1,3 +1,4 @@
+import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ test("forkSessionWith creates one restart-safe child and preserves the parent", 
   try {
     storagePaths.webWorkspaceDir = join(root, "web");
     storagePaths.sessionsDir = join(root, "legacy");
-    storagePaths.sessionsIndexFile = join(root, "legacy-index.json");
+    storagePaths.dataDir = sessionDataRoot(storagePaths.sessionsDir);
     const owner = "web:personal:web-anonymous";
     const sessions = new SessionStore();
     const parent = sessions.createWebConversation(owner);

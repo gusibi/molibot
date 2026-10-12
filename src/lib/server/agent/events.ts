@@ -57,6 +57,8 @@ export function isDirectEventDelivery(delivery: EventDeliveryMode): boolean {
 }
 
 interface EventBase {
+  agentId?: string;
+  deliveryTarget?: { channel: string; instanceId: string; chatId: string };
   taskId?: string;
   managed?: ManagedEventMetadata;
   // Missing keeps historical event files enabled.
@@ -581,7 +583,7 @@ export class EventsWatcher {
     if (skipReason) {
       const triggerSlot = slotKey ?? this.buildTriggerSlot(event, filename);
       const settings = this.getExecutionSettings();
-      this.getLeaseStore().recordSkipped({ leaseScope: this.getLeaseScope(), eventFile: filename, eventType: event.type, triggerSlot, chatId: event.chatId, sessionId: event.sessionId ?? event.chatId, channel: this.options.channel, taskId: event.taskId ?? `${this.getLeaseScope()}:${filename}`, runId: this.createRunId(filename), maxAttempts: settings.maxAttempts, timeoutMs: settings.executionTimeoutMs, eventPayloadJson: JSON.stringify(event), reason: skipReason });
+      this.getLeaseStore().recordSkipped({ leaseScope: this.getLeaseScope(), eventFile: filename, eventType: event.type, triggerSlot, chatId: event.chatId, sessionId: event.sessionId ?? event.chatId, channel: event.deliveryTarget?.channel ?? this.options.channel, taskId: event.taskId ?? `${this.getLeaseScope()}:${filename}`, runId: this.createRunId(filename), maxAttempts: settings.maxAttempts, timeoutMs: settings.executionTimeoutMs, eventPayloadJson: JSON.stringify(event), reason: skipReason });
       this.markSkipped(filename, event, skipReason, triggerSlot);
       return;
     }
@@ -616,7 +618,7 @@ export class EventsWatcher {
         triggerSlot,
         chatId: event.chatId,
         sessionId: event.sessionId ?? event.chatId,
-        channel: this.options.channel,
+        channel: event.deliveryTarget?.channel ?? this.options.channel,
         taskId,
         runId: currentRunId,
         maxAttempts: settings.maxAttempts,
@@ -639,7 +641,7 @@ export class EventsWatcher {
         triggerSlot,
         chatId: event.chatId,
         sessionId: event.sessionId ?? event.chatId,
-        channel: this.options.channel,
+        channel: event.deliveryTarget?.channel ?? this.options.channel,
         taskId,
         runId: currentRunId,
         maxAttempts: settings.maxAttempts,

@@ -24,10 +24,21 @@ process.on("message", async message => {
     });
   } }));
   const metadata = tools.map(({ execute, ...tool }) => tool);
+  // Model globals re-enter the host through the same request/reply channel as tools.
+  const modelGlobals = (message.models ?? []).map(model => ({ name: model.name, description: model.description, signature: model.signature,
+    execute(args, { signal }) {
+      const id = ++sequence;
+      return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        signal.addEventListener("abort", () => send({ kind: "cancel", id }), { once: true });
+        send({ kind: "call", id, name: model.name, args });
+      });
+    } }));
   const sandbox = new CodemodeSandbox({ tools, timeoutMs: message.timeoutMs, memoryLimitBytes: 64 * 1024 * 1024,
     globals: [
       { name: "searchTools", execute: query => metadata.filter(tool => `${tool.name} ${tool.description}`.toLowerCase().includes(String(query).toLowerCase())).map(({ name, description }) => ({ name, description })) },
-      { name: "describeTool", execute: name => { const tool = metadata.find(tool => tool.name === name); return tool ? renderDeclarations({ tools: [{ ...tool, execute() {} }] }) : null; } }
+      { name: "describeTool", execute: name => { const tool = metadata.find(tool => tool.name === name); return tool ? renderDeclarations({ tools: [{ ...tool, execute() {} }] }) : null; } },
+      ...modelGlobals
     ] });
   try {
     const result = await sandbox.execute(message.code, { signal: controller.signal });
@@ -39,7 +50,8 @@ process.on("message", async message => {
     if (truncated) await writeFile(message.outputPath, full, { mode: 0o600 });
     send({ kind: "result", ok: result.ok, errorKind: result.ok ? undefined : result.error.kind,
       text: truncated ? `${full.slice(0, message.maxChars)}\n[Output truncated; full output: ${message.outputRef}]` : full,
-      calls: result.calls, truncated });
+      calls: result.calls, truncated,
+      images: result.output.filter(block => block.type === "image") });
   } catch (error) {
     send({ kind: "result", ok: false, errorKind: "sandbox", text: `Script failed: ${error.message}` });
   } finally {

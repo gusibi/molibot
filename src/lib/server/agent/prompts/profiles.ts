@@ -1,5 +1,7 @@
+import { channelDataDir } from "$lib/server/sessions/agentStorage.js";
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_AGENT_ID } from "$lib/server/settings/schema.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import agentsTemplate from "./templates/AGENTS.template.md?raw";
@@ -36,11 +38,20 @@ const TEMPLATE_MAP: Record<string, string> = {
   "USER.md": userTemplate
 };
 
+// The global profile layer lives inside the default agent's directory: Momo is
+// the canonical global identity, so her profile files ARE the shared baseline
+// every Agent reads for collaboration rules and inherits for identity defaults. There is no copy at the data
+// root and no fallback to one.
+export function getGlobalProfileDir(dataDir = storagePaths.dataDir): string {
+  return path.join(dataDir, "agents", DEFAULT_AGENT_ID);
+}
+
 export function ensureGlobalProfileDefaults(dataDir = storagePaths.dataDir): string[] {
-  fs.mkdirSync(dataDir, { recursive: true });
+  const globalDir = getGlobalProfileDir(dataDir);
+  fs.mkdirSync(globalDir, { recursive: true });
   const created: string[] = [];
   for (const [fileName, template] of Object.entries(TEMPLATE_MAP)) {
-    const filePath = path.join(dataDir, fileName);
+    const filePath = path.join(globalDir, fileName);
     if (fs.existsSync(filePath)) continue;
     fs.writeFileSync(filePath, template.endsWith("\n") ? template : `${template}\n`, "utf8");
     created.push(filePath);
@@ -132,18 +143,7 @@ export function getBotDir(channel: string, botId: string): string {
   if (!normalizedChannel || !normalizedBotId) {
     throw new Error("channel and botId are required");
   }
-  const channelDir = normalizedChannel === "telegram"
-    ? "moli-t"
-    : normalizedChannel === "feishu"
-      ? "moli-f"
-      : normalizedChannel === "qq"
-        ? "moli-q"
-      : normalizedChannel === "weixin"
-        ? "moli-wx"
-      : normalizedChannel === "web"
-        ? "moli-w"
-      : normalizedChannel;
-  return path.join(storagePaths.dataDir, channelDir, "bots", normalizedBotId);
+  return channelDataDir(storagePaths.dataDir, normalizedChannel, normalizedBotId);
 }
 
 export function listProfileFiles(scope: ProfileScope): readonly string[] {
@@ -184,7 +184,7 @@ function resolveProfileBaseDir(params: {
   channel?: string;
   botId?: string;
 }): string {
-  if (params.scope === "global") return storagePaths.dataDir;
+  if (params.scope === "global") return getGlobalProfileDir();
   if (params.scope === "agent") return getAgentDir(params.agentId ?? "");
   return getBotDir(params.channel ?? "", params.botId ?? "");
 }

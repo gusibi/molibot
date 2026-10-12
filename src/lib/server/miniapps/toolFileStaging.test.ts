@@ -9,7 +9,7 @@ import type { MiniAppToolFileParamManifest } from "$lib/server/miniapps/types.js
 
 function setup() {
   const root = mkdtempSync(join(tmpdir(), "molibot-tool-staging-"));
-  const workspaceDir = join(root, "data", "moli-t", "demo", "scratch");
+  const workspaceDir = join(root, "data", "sessions", "demo", "scratch");
   const dataRoot = join(root, "miniapp-data");
   const outside = mkdtempSync(join(tmpdir(), "molibot-tool-staging-out-"));
   mkdirSync(workspaceDir, { recursive: true });

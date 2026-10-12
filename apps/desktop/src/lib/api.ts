@@ -9,6 +9,7 @@ import type {
   DesktopAgentsSummary,
   DesktopAgentItem,
   DesktopAgentSaveRequest,
+  DesktopMcpOAuthResponse,
   DesktopMcpResponse,
   DesktopMcpSummary,
   DesktopMcpSaveRequest,
@@ -1747,6 +1748,23 @@ export async function reconnectAllDesktopMcp(endpoint: string): Promise<DesktopM
   return payload.summary;
 }
 
+export async function oauthLoginDesktopMcp(endpoint: string, id: string, reauthorize: boolean): Promise<DesktopMcpOAuthResponse> {
+  return requestJson<DesktopMcpOAuthResponse>(endpoint, "/api/desktop/mcp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, action: reauthorize ? "oauth_reauthorize" : "oauth_login" })
+  });
+}
+
+export async function oauthLogoutDesktopMcp(endpoint: string, id: string): Promise<DesktopMcpSummary> {
+  const payload = await requestJson<DesktopMcpResponse>(endpoint, "/api/desktop/mcp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, action: "oauth_logout" })
+  });
+  return payload.summary;
+}
+
 export async function loadDesktopOpenConnector(endpoint: string): Promise<DesktopOpenConnectorSummary> {
   const payload = await requestJson<DesktopOpenConnectorResponse>(endpoint, "/api/desktop/open-connector");
   return payload.summary;
@@ -2309,11 +2327,13 @@ export async function loadDesktopExternalSessions(
 
 export async function loadDesktopExternalTranscript(
   endpoint: string,
-  sessionId: string
+  sessionId: string,
+  signal?: AbortSignal
 ): Promise<DesktopExternalTranscript> {
   const payload = await requestJson<DesktopExternalTranscriptResponse>(
     endpoint,
-    `/api/desktop/external-sessions/${encodeURIComponent(sessionId)}`
+    `/api/desktop/external-sessions/${encodeURIComponent(sessionId)}`,
+    { signal }
   );
   return payload.transcript;
 }
@@ -4332,4 +4352,67 @@ export function setDesktopDefaultAgent(endpoint: string, defaultAgentId: string)
 }
 export function claimDesktopSessionAgent(endpoint: string, conversationId: string, agentId: string): Promise<unknown> {
   return requestJson(endpoint, "/api/desktop/session-agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId, agentId }) });
+}
+
+export interface AgentStorageBotAssignment { channel: string; botId: string; agentId: string | null; }
+
+export interface AgentStorageMigrationStatus {
+  files: number;
+  publishedFiles: number;
+  copiedFiles: number;
+  needed: boolean;
+  sessions: number;
+  conflicts: string[];
+  conflictItems: Array<{ message: string; path?: string; canSkip?: boolean; skipBlockedReason?: string; reason?: "missing-bot" | "missing-agent"; channel?: string; botId?: string; agentId?: string; sessionIds?: string[]; details?: string[] }>;
+  ignoredPaths: string[];
+  botAssignments: AgentStorageBotAssignment[];
+  availableAgents: Array<{ id: string; name: string }>;
+  fixedBotAssignments: AgentStorageBotAssignment[];
+  automaticSkippedPaths: string[];
+  phase: string;
+  running: boolean;
+  error?: string;
+}
+export function loadAgentStorageMigration(endpoint: string): Promise<AgentStorageMigrationStatus> {
+  return requestJson(endpoint, "/api/desktop/storage-migration");
+}
+export function confirmAgentStorageMigration(endpoint: string, ignoredPaths: string[] = [], botAssignments: AgentStorageBotAssignment[] = []): Promise<AgentStorageMigrationStatus> {
+  return requestJson(endpoint, "/api/desktop/storage-migration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "confirm", ignoredPaths, botAssignments }) });
+}
+
+export function previewAgentStorageMigration(endpoint: string, ignoredPaths: string[], botAssignments: AgentStorageBotAssignment[] = []): Promise<AgentStorageMigrationStatus> {
+  return requestJson(endpoint, "/api/desktop/storage-migration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "preview", ignoredPaths, botAssignments }) });
+}
+
+export interface DesktopAgentSkillOption { name: string; description: string; path: string; scope: string }
+export async function loadDesktopAgentSkills(endpoint: string, agentId: string): Promise<DesktopAgentSkillOption[]> {
+  const payload = await requestJson<{ ok: true; skills: DesktopAgentSkillOption[] }>(endpoint, `/api/desktop/agent-skills?agentId=${encodeURIComponent(agentId)}`);
+  return payload.skills;
+}
+
+export interface DesktopAgentBinding { channel: string; id: string; name: string; agentId: string }
+export type DesktopAgentBindingChange = Pick<DesktopAgentBinding, "channel" | "id" | "agentId">;
+export async function loadDesktopAgentBindings(endpoint: string): Promise<DesktopAgentBinding[]> {
+  return (await requestJson<{ ok: true; items: DesktopAgentBinding[] }>(endpoint, "/api/desktop/agent-bindings")).items;
+}
+export async function saveDesktopAgentBinding(endpoint: string, change: DesktopAgentBindingChange): Promise<void> {
+  await requestJson(endpoint, "/api/desktop/agent-bindings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
+}
+
+export async function uploadDesktopAgentAvatar(endpoint: string, agentId: string, file: File): Promise<string> {
+  const payload = await requestJson<{ ok: true; avatar: string }>(endpoint, `/api/desktop/agent-avatar?id=${encodeURIComponent(agentId)}`, { method: "POST", body: new Uint8Array(await file.arrayBuffer()), headers: { "Content-Type": file.type || "application/octet-stream" } });
+  return payload.avatar;
+}
+
+export async function loadDesktopSharedAgentRules(endpoint: string): Promise<string> {
+  const payload = await requestJson<DesktopProfileFilesResponse>(endpoint, "/api/settings/profile-files?scope=global");
+  return payload.files["AGENTS.md"] ?? "";
+}
+
+export async function saveDesktopSharedAgentRules(endpoint: string, rules: string): Promise<string> {
+  const payload = await requestJson<DesktopProfileFilesResponse>(endpoint, "/api/settings/profile-files", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scope: "global", files: { "AGENTS.md": rules } })
+  });
+  return payload.files["AGENTS.md"] ?? "";
 }

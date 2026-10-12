@@ -8,6 +8,8 @@ import type {
 } from "$lib/server/agent/hooks/types.js";
 import { createHeadlessExtensionContext } from "$lib/server/plugins/piExtensions/context.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
+import { bindPiExtensionHostSession } from "$lib/server/plugins/piExtensions/toolBridge.js";
+import { getPiExtensionRunHost } from "$lib/server/plugins/piExtensions/runHost.js";
 import type { LoadedPiExtension } from "$lib/server/plugins/piExtensions/types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
@@ -46,7 +48,8 @@ type HandlerFn = (event: unknown, ctx: unknown) => Promise<unknown> | unknown;
 
 function handlersFor(
   extensions: LoadedPiExtension[],
-  event: SupportedPiEvent
+  event: SupportedPiEvent,
+  runId?: string
 ): Array<{ extension: LoadedPiExtension; handler: HandlerFn }> {
   const out: Array<{ extension: LoadedPiExtension; handler: HandlerFn }> = [];
   for (const extension of extensions) {
@@ -54,23 +57,40 @@ function handlersFor(
       const count = Math.max(1, extension.eventHandlerCounts?.[event] ?? 1);
       for (let handlerIndex = 0; handlerIndex < count; handlerIndex += 1) {
         out.push({ extension, handler: async (payload, ctx: any) => {
-          const result = await extension.client!.request("invokeEvent", {
-            extensionId: extension.id,
-            event,
-            handlerIndex,
-            payload,
-            cwd: ctx.cwd,
-            systemPrompt: ctx.getSystemPrompt?.() ?? ""
-          }, ctx.signal);
-          if (payload && typeof payload === "object" && result.payload && typeof result.payload === "object") {
-            const current = payload as Record<string, unknown>;
-            const returned = result.payload as Record<string, unknown>;
-            if (current.input && typeof current.input === "object" && returned.input && typeof returned.input === "object") {
-              Object.assign(current.input as Record<string, unknown>, returned.input as Record<string, unknown>);
+          const client = extension.client!;
+          // During a run an event handler gets the same real state and callbacks
+          // as a tool; outside a run it degrades to cwd + system prompt.
+          const host = getPiExtensionRunHost(runId);
+          const hostToken = host && ctx ? bindPiExtensionHostSession(client, {
+            executeTool: host.executeTool, modelOperations: host.modelOperations, streamModel: host.streamModel,
+            abort: host.abort, compact: host.compact
+          }, ctx.signal, `event:${event}`) : undefined;
+          try {
+            const runtime = host?.runtime ? await host.runtime() : undefined;
+            const tools = host?.toolCatalog?.();
+            const result = await client.request("invokeEvent", {
+              extensionId: extension.id,
+              event,
+              handlerIndex,
+              payload,
+              cwd: ctx.cwd,
+              systemPrompt: ctx.getSystemPrompt?.() ?? "",
+              ...(runtime ? { runtime } : {}),
+              ...(tools ? { tools } : {}),
+              ...(hostToken ? { hostToken } : {})
+            }, ctx.signal);
+            if (payload && typeof payload === "object" && result.payload && typeof result.payload === "object") {
+              const current = payload as Record<string, unknown>;
+              const returned = result.payload as Record<string, unknown>;
+              if (current.input && typeof current.input === "object" && returned.input && typeof returned.input === "object") {
+                Object.assign(current.input as Record<string, unknown>, returned.input as Record<string, unknown>);
+              }
+              Object.assign(current, { ...returned, ...(current.input ? { input: current.input } : {}) });
             }
-            Object.assign(current, { ...returned, ...(current.input ? { input: current.input } : {}) });
+            return result.results?.[0];
+          } finally {
+            if (hostToken) client.releaseHostSession(hostToken);
           }
-          return result.results?.[0];
         }});
       }
       continue;
@@ -112,7 +132,7 @@ export function createPiExtensionHookPlugin(deps: EventBridgeDeps): HookPlugin {
     onResult?: (result: any, extension: LoadedPiExtension) => void
   ): Promise<void> => {
     const extensions = getExtensions(deps.getSettings(), botIdFrom(hookEvent));
-    for (const { extension, handler } of handlersFor(extensions, event)) {
+    for (const { extension, handler } of handlersFor(extensions, event, hookEvent.context.runId)) {
       try {
         const result = await handler({ type: event, ...payload }, contextFor(extension, hookEvent));
         if (result && onResult) onResult(result, extension);
@@ -155,7 +175,7 @@ export function createPiExtensionHookPlugin(deps: EventBridgeDeps): HookPlugin {
       async handle(hookEvent): Promise<GateDecision> {
         const payload = hookEvent.payload as { toolName: string; toolCallId: string; args?: unknown };
         const extensions = getExtensions(deps.getSettings(), botIdFrom(hookEvent));
-        const handlers = handlersFor(extensions, "tool_call");
+        const handlers = handlersFor(extensions, "tool_call", hookEvent.context.runId);
         if (handlers.length === 0) return { type: "allow" };
 
         // `input` is the live arguments object: pi extensions patch tool

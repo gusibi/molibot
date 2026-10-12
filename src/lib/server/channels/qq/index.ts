@@ -122,7 +122,7 @@ export const qqChannelPlugin: ChannelPlugin<QQConfig> = {
       )
       .map((instance) => ({
         id: instance.id,
-        workspaceDir: resolve(config.dataDir, "moli-q", "bots", instance.id),
+        workspaceDir: resolve(config.dataDir, "channels", "qq", "bots", instance.id),
         config: {
           appId: instance.credentials.appId,
           clientSecret: instance.credentials.clientSecret,

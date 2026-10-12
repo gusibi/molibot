@@ -1,3 +1,4 @@
+import { createMcpInvokeTool } from "./mcpInvoke.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -1107,4 +1108,36 @@ test("a source change during a read prevents caching that result", async () => {
   assert.equal(reads, 2);
   assert.equal(textOf(second), "new");
   assert.equal(second.metadata?.resultReused, undefined);
+});
+
+
+test("mcpInvoke delegates to a protected MCP leaf without holding its effect lock", { timeout: 2000 }, async () => {
+  const registry = new ToolRegistry();
+  const phases: string[] = [];
+  const ctx = { ...context(), workspaceId: "",
+    onSideEffectPreflight: async (effect: { toolId: string }) => { phases.push(`intent:${effect.toolId}`); },
+    onSideEffectReceipt: async (effect: { toolId: string }) => { phases.push(`receipt:${effect.toolId}`); } };
+  let denyLeaf = false;
+  const runtime = new ToolRuntime(registry, { executionTimeoutMs: 100, decidePolicy: (definition) =>
+    denyLeaf && definition.id === "mcp__tdx__query" ? { type: "deny", reason: "MCP denied" } : { type: "allow" } });
+  registry.register(tool({ id: "mcp__tdx__query", source: "mcp", handler: async () => ({ ok: true, content: [{ type: "text", text: "quotes" }] }) }));
+  const dispatcher = createMcpInvokeTool({ getLoadedMcpTools: () => [{
+    name: "mcp__tdx__query", label: "query", description: "query", parameters: {},
+    execute: async (toolCallId, input, signal) => {
+      const result = await runtime.executeToolCall({ toolId: "mcp__tdx__query", input, context: { ...ctx, toolCallId, signal } });
+      if (!result.ok) throw new Error(result.error);
+      return { content: result.content as any, details: {} };
+    }
+  }] });
+  registry.register(tool({ id: "mcpInvoke", handler: async (input, execution) => {
+    const result = await dispatcher.execute("dispatch", input as any, execution.signal);
+    return { ok: true, content: result.content };
+  } }));
+  const result = await runtime.executeToolCall({ toolId: "mcpInvoke", input: { action: "call", serverId: "tdx", toolName: "query" }, context: ctx });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.content, [{ type: "text", text: "quotes" }]);
+  assert.deepEqual(phases, ["intent:mcp__tdx__query", "receipt:mcp__tdx__query"]);
+  denyLeaf = true;
+  await assert.rejects(runtime.executeToolCall({ toolId: "mcpInvoke", input: { action: "call", serverId: "tdx", toolName: "query" }, context: ctx }), /MCP denied/);
+  assert.deepEqual(phases, ["intent:mcp__tdx__query", "receipt:mcp__tdx__query"]);
 });

@@ -1,8 +1,10 @@
-## Molibot 当前落地结论（2026-02-28）
+- 共享 AGENTS.md 与 Agent AGENTS.md 按共享在前、专属在后叠加，BOT.md 再补充机器人规则；同名身份文件继续按更具体的作用域优先。Momo 与共享基线使用同一文件，只注入一次。
+## Molibot 当前落地结论（2026-02-28，2026-10-11 更新路径）
 - `src/lib/server/agent/prompt.ts` 负责构建 runtime-owned system prompt，承载环境、工具、技能、事件、memory 等系统级规则。
 - `src/lib/server/agent/prompts/AGENTS.template.md` 作为默认 bootstrap `AGENTS.md` 模板，同时也是无任何外部 profile 文件时的运行时兜底 `AGENTS` 上下文来源，聚焦行为规则、文件职责、更新策略。
-- `~/.molibot/AGENTS.md` 应只保留长期行为规则与协作约束，不应继续堆放运行时环境、工具、事件协议等 system prompt 级内容。
-- `~/.molibot/SOUL.md`、`TOOLS.md`、`IDENTITY.md`、`USER.md`、`BOOTSTRAP.md` 应各自保持单一职责，避免让 `AGENTS.md` 一份文件承担全部 profile 信息。
+- 全局 profile 层目录是 `~/.molibot/agents/default/`（`getGlobalProfileDir()`）：Momo 即全局默认身份，她的 profile 文件就是所有 Agent 回退共享的基线；数据目录根下不再放置任何 profile 文件，也没有根目录回退。
+- `agents/default/AGENTS.md` 应只保留长期行为规则与协作约束，不应继续堆放运行时环境、工具、事件协议等 system prompt 级内容。
+- `agents/default/` 下的 `SOUL.md`、`TOOLS.md`、`IDENTITY.md`、`USER.md`、`BOOTSTRAP.md` 应各自保持单一职责，避免让 `AGENTS.md` 一份文件承担全部 profile 信息。
 
 ## 总结 system 、agent.md、soul.md tools.md identity.md user.md bootstrap.md memory.md 的定位 加载时机，更新机制
 ## 一句话总结

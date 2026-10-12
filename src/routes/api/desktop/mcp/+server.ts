@@ -5,6 +5,7 @@ import { buildDesktopMcpSummary, deleteDesktopMcpServer, saveDesktopMcpServer } 
 import { replaceMcpServers } from "$lib/server/settings/handlers/mcp";
 import { config } from "$lib/server/app/env";
 import { getMcpServerStatuses, reconcileMcpServers, reconnectMcpServer } from "$lib/server/agent/tools/mcp";
+import { getMcpOAuthManager } from "$lib/server/agent/mcp/oauthRuntime";
 import { effectiveMcpServers } from "$lib/server/settings/openConnector";
 import type { DesktopMcpResponse, DesktopMcpSaveRequest, DesktopMcpToggleRequest } from "$lib/shared/desktop";
 
@@ -64,9 +65,14 @@ export const PATCH: RequestHandler = async ({ request }) => {
 export const POST: RequestHandler = async ({ request }) => {
   try {
     const runtime = getRuntime();
-    const body = await request.json() as { id?: string; action?: string };
+    const body = await request.json() as { id?: string; action?: string; loginId?: string };
     const action = String(body.action ?? "").trim();
     const id = String(body.id ?? "").trim();
+    const manager = getMcpOAuthManager();
+    if (action === "oauth_cancel") {
+      await manager.closeLogin(String(body.loginId ?? "").trim());
+      return json({ ok: true, summary: await liveSummary(runtime) } satisfies DesktopMcpResponse);
+    }
     if (action === "reconnectAll") {
       // Reuse the shared boot-time reconcile primitive: connect every enabled
       // server (idempotent - already-connected servers are skipped), then return
@@ -74,6 +80,17 @@ export const POST: RequestHandler = async ({ request }) => {
       // auto-connect without the user clicking Reconnect for each one. Kept off
       // the GET path so a misconfigured server cannot stall the list load.
       return json({ ok: true, summary: await liveSummary(runtime, true) } satisfies DesktopMcpResponse);
+    }
+    if (action === "oauth_login" || action === "oauth_reauthorize" || action === "oauth_logout") {
+      const server = effectiveMcpServers(runtime.getSettings()).find((item) => item.id === id);
+      if (!server) throw new Error(`Unknown MCP server: ${id}`);
+      if (action === "oauth_logout") {
+        await manager.logout(server);
+        return json({ ok: true, summary: await liveSummary(runtime) } satisfies DesktopMcpResponse);
+      }
+      if (!server.enabled) throw new Error(`MCP server is disabled: ${id}`);
+      const { session } = await manager.beginLogin(server, { force: action === "oauth_reauthorize" });
+      return json({ ok: true, loginId: session.id, authorizationUrl: session.authorizationUrl, summary: await liveSummary(runtime) });
     }
     if (action !== "reconnect") throw new Error("Unsupported MCP action");
     const server = effectiveMcpServers(runtime.getSettings()).find((item) => item.id === id);

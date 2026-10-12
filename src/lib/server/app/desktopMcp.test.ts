@@ -25,6 +25,7 @@ function stdioServer(overrides: Partial<McpServerConfig> = {}): McpServerConfig 
 function httpServer(overrides: Partial<McpServerConfig> = {}): McpServerConfig {
   return {
     id: "remote",
+    timeoutMs: 45_000,
     name: "Remote",
     enabled: true,
     transport: "http",
@@ -91,6 +92,7 @@ test("saveDesktopMcpServer preserves hidden values unless explicitly replaced or
 
 test("saveDesktopMcpServer creates HTTP servers and delete removes exactly one", () => {
   const created = saveDesktopMcpServer({ mcpServers: [] } as unknown as RuntimeSettings, {
+    timeoutMs: 45_000,
     id: "remote",
     name: "Remote",
     enabled: true,
@@ -101,6 +103,8 @@ test("saveDesktopMcpServer creates HTTP servers and delete removes exactly one",
     headerValues: { Authorization: "Bearer secret" }
   });
   assert.equal(created[0].http.headers.Authorization, "Bearer secret");
+  assert.equal(created[0].timeoutMs, 45_000);
+  assert.equal(buildDesktopMcpItem(created[0]).timeoutMs, 45_000);
   assert.deepEqual(deleteDesktopMcpServer({ mcpServers: created } as RuntimeSettings, "remote"), []);
   assert.throws(() => deleteDesktopMcpServer({ mcpServers: created } as RuntimeSettings, "missing"), /Unknown MCP server/);
 });
