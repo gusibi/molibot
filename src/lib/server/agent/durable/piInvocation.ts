@@ -24,10 +24,11 @@ export interface NativeChildSession {
   dispose(): Promise<void>;
 }
 export interface NativeInvocation {
+  storagePath: string;
   api: ToolExecutionApi;
   context: Context;
   child(options: NativeChildOptions): Promise<NativeChildSession>;
-  nested(tool: import("@earendil-works/pi-agent-core").AgentTool, id: string, args: unknown): Promise<{ result: import("@earendil-works/pi-agent-core").AgentToolResult<unknown>; isError: boolean }>;
+  nested(tool: import("@earendil-works/pi-agent-core").AgentTool, id: string, args: unknown, signal?: AbortSignal): Promise<{ result: import("@earendil-works/pi-agent-core").AgentToolResult<unknown>; isError: boolean }>;
 }
 const invocation = new AsyncLocalStorage<NativeInvocation>();
 export const currentPiInvocation = (): NativeInvocation | undefined => invocation.getStore();

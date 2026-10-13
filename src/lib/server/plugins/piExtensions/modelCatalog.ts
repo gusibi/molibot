@@ -20,10 +20,11 @@ export function createPiExtensionModelCatalog(models: Models): () => Promise<PiE
     const classifier = models.getModelsOfType("classifier").map(ref);
     const image = models.getModelsOfType("image").map(ref);
     const providerAuth: Record<string, boolean> = {};
+    const providerOAuth: Record<string, boolean> = {};
     await Promise.all([...new Set([...chat, ...classifier, ...image].map((model) => model.provider))].map(async (provider) => {
-      try { providerAuth[provider] = (await models.checkAuth(provider)) !== undefined; }
+      try { const auth = await models.checkAuth(provider); providerAuth[provider] = auth !== undefined; providerOAuth[provider] = auth?.type === "oauth"; }
       catch { providerAuth[provider] = false; }
     }));
-    return { chat, classifier, image, providerAuth };
+    return { chat, classifier, image, providerAuth, providerOAuth };
   };
 }

@@ -12,7 +12,8 @@ export const mcpStore = $state({
   mcpEdit: null as McpEditor | null,
   saving: false,
   busyId: "",
-  actionMessage: ""
+  actionMessageKey: "" as "" | "mcpAuthPending" | "mcpAuthAuthorized" | "mcpAuthSignedOut" | "mcpAuthError" | "mcpAuthExpired" | "mcpSaved" | "mcpDeleted" | "mcpEnabledMessage" | "mcpDisabledMessage" | "mcpReconnectFinished",
+  oauthServerId: ""
 });
 
 // The loopback callback completes in the system browser; poll the status until
@@ -43,6 +44,7 @@ function startMcpOauthPoll(id: string): void {
       const server = summary.items.find((item) => item.id === id);
       if (server && server.authState !== "authorized" && server.authState !== "error" && server.authState !== "expired") return;
       stopMcpOauthPoll();
+      mcpStore.actionMessageKey = server?.authState === "authorized" ? "mcpAuthAuthorized" : server?.authState === "error" ? "mcpAuthError" : server?.authState === "expired" ? "mcpAuthExpired" : "";
       // Authorized but still offline: reuse the shared idempotent reconcile so the
       // new credentials are picked up and the tools appear without a manual reconnect.
       if (server?.authState === "authorized" && server.enabled && server.connectionState !== "connected") {
@@ -65,7 +67,8 @@ export async function oauthMcpLogin(id: string, reauthorize: boolean): Promise<s
     mcpStore.mcp = response.summary;
     // A re-authorization can settle from a stored refresh token without a browser;
     // only announce the browser step when there is actually a URL to open.
-    mcpStore.actionMessage = response.authorizationUrl ? session.text.mcpAuthPending : "";
+    mcpStore.actionMessageKey = response.authorizationUrl ? "mcpAuthPending" : "";
+    mcpStore.oauthServerId = id;
     startMcpOauthPoll(id);
     return response.authorizationUrl ?? "";
   } catch (cause) {
@@ -84,7 +87,7 @@ export async function oauthMcpLogout(id: string): Promise<void> {
   session.error = "";
   try {
     mcpStore.mcp = await oauthLogoutDesktopMcp(endpoint, id);
-    mcpStore.actionMessage = session.text.mcpAuthSignedOut;
+    mcpStore.actionMessageKey = "mcpAuthSignedOut";
   } catch (cause) {
     setError(cause);
   } finally {
@@ -99,6 +102,10 @@ export async function loadMcp(endpoint: string): Promise<void> {
   session.error = "";
   try {
     mcpStore.mcp = await loadDesktopMcp(endpoint);
+    if (mcpStore.actionMessageKey === "mcpAuthPending") {
+      const state = mcpStore.mcp.items.find(server => server.id === mcpStore.oauthServerId)?.authState;
+      if (state !== "authorizing") mcpStore.actionMessageKey = state === "authorized" ? "mcpAuthAuthorized" : state === "error" ? "mcpAuthError" : state === "expired" ? "mcpAuthExpired" : "";
+    }
     // Auto-reconnect enabled servers that are not connected on app reopen, so
     // MCP comes back online without the user clicking Reconnect for each one.
     // Fire-and-forget: the list is already shown; the summary updates when the
@@ -119,12 +126,12 @@ export async function loadMcp(endpoint: string): Promise<void> {
 
 export function beginNewMcp(): void {
   mcpStore.mcpEdit = { isNew: true, id: `mcp-${Math.random().toString(36).slice(2, 10)}`, name: "", enabled: true, transport: "stdio", toolNamePrefix: "", timeoutMs: 120_000, command: "", url: "", argsDraft: "", envDraft: "", headerDraft: "", authMode: "headers", authServerMetadataUrl: "", clientName: "", clearEnvKeys: [], clearHeaderKeys: [] };
-  mcpStore.actionMessage = "";
+  mcpStore.actionMessageKey = "";
 }
 
 export function beginMcpEdit(server: DesktopMcpItem): void {
   mcpStore.mcpEdit = { isNew: false, previousId: server.id, id: server.id, name: server.name, enabled: server.enabled, transport: server.transport, toolNamePrefix: server.toolNamePrefix, timeoutMs: server.timeoutMs ?? 120_000, command: server.command, url: server.url, argsDraft: "", envDraft: "", headerDraft: "", authMode: server.authMode, authServerMetadataUrl: "", clientName: "", clearEnvKeys: [], clearHeaderKeys: [] };
-  mcpStore.actionMessage = "";
+  mcpStore.actionMessageKey = "";
 }
 
 export function updateMcpEdit(updater: (draft: McpEditor) => McpEditor): void {
@@ -171,7 +178,7 @@ export async function saveMcpEditor(): Promise<void> {
       ...(mcpEdit.clientName?.trim() ? { clientName: mcpEdit.clientName.trim() } : {})
     });
     mcpStore.mcpEdit = null;
-    mcpStore.actionMessage = session.text.mcpSaved;
+    mcpStore.actionMessageKey = "mcpSaved";
   } catch (cause) {
     setError(cause);
   } finally {
@@ -186,7 +193,7 @@ export async function removeMcpServer(id: string): Promise<void> {
   try {
     mcpStore.mcp = await deleteDesktopMcp(endpoint, id);
     if (mcpStore.mcpEdit?.previousId === id) mcpStore.mcpEdit = null;
-    mcpStore.actionMessage = session.text.mcpDeleted;
+    mcpStore.actionMessageKey = "mcpDeleted";
   } catch (cause) {
     setError(cause);
   } finally {
@@ -201,7 +208,7 @@ export async function toggleMcpServer(id: string, enabled: boolean): Promise<voi
   session.error = "";
   try {
     mcpStore.mcp = await toggleDesktopMcp(endpoint, id, enabled);
-    mcpStore.actionMessage = enabled ? session.text.mcpEnabledMessage : session.text.mcpDisabledMessage;
+    mcpStore.actionMessageKey = enabled ? "mcpEnabledMessage" : "mcpDisabledMessage";
   } catch (cause) {
     setError(cause);
   } finally {
@@ -216,7 +223,7 @@ export async function reconnectMcp(id: string): Promise<void> {
   session.error = "";
   try {
     mcpStore.mcp = await reconnectDesktopMcp(endpoint, id);
-    mcpStore.actionMessage = session.text.mcpReconnectFinished;
+    mcpStore.actionMessageKey = "mcpReconnectFinished";
   } catch (cause) {
     setError(cause);
   } finally {

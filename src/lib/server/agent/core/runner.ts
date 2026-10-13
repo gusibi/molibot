@@ -1,3 +1,5 @@
+import { nativeModelResult } from "$lib/server/agent/models/nativeModelResult.js";
+import { clearPiExtensionRunHost } from "$lib/server/plugins/piExtensions/runHost.js";
 import { requireEnabledAgent } from "$lib/server/sessions/sessionAgentService.js";
 import { PiRecoveryStore } from "./piRecoveryStore.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -266,6 +268,16 @@ export class MomRunner implements RunnerLike {
    * The call's own input side (not the turn aggregate) is what equals the
    * context size the panel displays.
    */
+  async runExtensionCommand(input: { toolName: string; args: string; command: string; respond: (text: string) => Promise<void> }): Promise<RunResult> {
+    return this.run({
+      channel: this.channel, workspaceDir: this.store.getWorkspaceDir(), chatDir: this.store.getChatDir(this.chatId),
+      nativeToolCall: { name: input.toolName, args: { args: input.args } },
+      message: { chatId: this.chatId, sessionId: this.sessionId, userId: this.chatId, text: `/${input.command} ${input.args}`.trim(), messageId: Date.now(), ts: String(Date.now() / 1000), attachments: [], imageContents: [], chatType: "private" },
+      respond: async text => { await input.respond(text); }, replaceMessage: input.respond, respondInThread: input.respond,
+      setWorking: async () => {}, setTyping: async () => {}, deleteMessage: async () => {}, uploadFile: async () => {}
+    });
+  }
+
   private contextSnapshotFor(message: AgentMessage): SessionContextSnapshot | undefined {
     const estimate = this.activeContextEstimate;
     const usage = (message as { usage?: { input?: unknown; cacheRead?: unknown; cacheWrite?: unknown } }).usage;
@@ -1409,6 +1421,7 @@ export class MomRunner implements RunnerLike {
     }> => {
       const scoped = resolveScopedMcpServers();
       const mcpTools = await getMcpToolsForRuntime(scoped, {
+        allowInteractiveAuthorization: !ctx.message.isEvent,
         workspaceDir: this.store.getWorkspaceDir(),
         onWarn: (event, extra) => {
           momWarn("runner", event, {
@@ -1466,16 +1479,17 @@ export class MomRunner implements RunnerLike {
     authorize: (operation) => {
       this.activeToolAuthority?.(operation === "classify" ? "modelsClassify" : "modelsGenerateImages", {});
     },
-    beforeCall: (operation) => {
-      const started = budget.tryStartModelTurn(`pi:${runId}:codemode:model:${operation}`);
+    beforeCall: (_operation, details) => {
+      const started = budget.tryStartModelTurn(`pi:${runId}:model:${details.id}`);
       if (!started.ok) throw new Error(started.reason);
     },
     onUsage: (receipt) => {
-      const usage = receipt.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number } | undefined;
+      if (receipt.kind === "generateImages") return; // Media tasks own image usage and provenance.
+      const usage = receipt.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { total?: number } } | undefined;
       if (!usage) return;
-      this.usageTracker.record({ requestId: `pi:${runId}:codemode:model:${randomUUID()}`,
+      this.usageTracker.record({ requestId: `pi:${runId}:model:${receipt.id}`,
         channel: this.channel, botId, agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId,
-        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: receipt.provider, model: receipt.model,
+        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: receipt.provider, model: receipt.model, api: receipt.api, estimatedCostUsd: usage.cost?.total,
         inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
         cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
     }
@@ -1487,33 +1501,59 @@ export class MomRunner implements RunnerLike {
     const model = models.getModel(input.model.provider, input.model.id);
     if (!model) throw new Error(`Unknown chat model: ${input.model.provider}/${input.model.id}`);
     this.activeToolAuthority?.("modelsStream", {});
-    const started = budget.tryStartModelTurn(`pi:${runId}:extension:model:chat:${input.model.provider}/${input.model.id}`);
+    const started = budget.tryStartModelTurn(`pi:${runId}:extension:model:${input.callId}`);
     if (!started.ok) throw new Error(started.reason);
+    const allowedOptions = new Set(["deferred", "temperature", "maxTokens", "reasoning", "thinkingBudgets", "toolChoice", "metadata", "timeoutMs", "transport", "cacheRetention", "retryDelayMs", "maxRetries", "signal"]);
+    for (const key of Object.keys((input.options ?? {}) as object)) if (!allowedOptions.has(key)) throw new Error(`Extension stream option ${key} is not supported; credentials and endpoints are host-owned.`);
     const context = input.context as Parameters<typeof models.stream>[1];
-    const streamOptions = { ...((input.options ?? {}) as Record<string, unknown>), signal } as Parameters<typeof models.stream>[2];
-    const stream = input.simple
-      ? models.streamSimple(model, context, streamOptions as Parameters<typeof models.streamSimple>[2])
-      : models.stream(model, context, streamOptions);
-    for await (const event of stream) emit(event);
-    const message = await stream.result();
-    const usage = message.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number } | undefined;
+    const account = (message: import("@earendil-works/pi-ai").AssistantMessage) => {
+      if (message.stopReason === "deferred") return;
+    const usage = message.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { total?: number } } | undefined;
     if (usage) {
-      this.usageTracker.record({ requestId: `pi:${runId}:extension:model:${randomUUID()}`,
+      this.usageTracker.record({ requestId: `pi:${runId}:extension:model:${input.callId}`,
         channel: this.channel, botId, agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId,
-        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: message.provider, model: message.model,
+        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: message.provider, model: message.model, api: message.api, estimatedCostUsd: usage.cost?.total,
         inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
         cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
     }
+    };
+    const streamOptions = { ...((input.options ?? {}) as Record<string, unknown>), signal, maxRetries: 0 } as Parameters<typeof models.stream>[2];
+    let message = await nativeModelResult({ model: input.model, context: input.context, options: input.options, simple: input.simple }, async () => {
+      const stream = input.simple ? models.streamSimple(model, context, streamOptions as Parameters<typeof models.streamSimple>[2]) : models.stream(model, context, streamOptions);
+      for await (const event of stream) emit(event);
+      return stream.result();
+    }, account);
+    let poll = 0;
+    try {
+      while (message.stopReason === "deferred" && message.deferred) {
+        signal.throwIfAborted();
+        const handle = message.deferred;
+        if (handle.expiresAt && handle.expiresAt <= Date.now()) throw new Error("Deferred model result expired; the original billed request is not resent.");
+        await import("node:timers/promises").then(({ setTimeout }) => setTimeout(Math.max(1, handle.pollAfterMs ?? 1000), undefined, { signal }));
+        message = await nativeModelResult({ handle }, () => models.fetchDeferred(model, handle, { signal }), account, `poll:${poll++}`);
+      }
+    } catch (error) {
+      if (signal.aborted && message.deferred) {
+        try { await models.cancelDeferred(model, message.deferred); }
+        catch { throw new Error("Stopped locally; the provider could not confirm remote cancellation and may still charge for the request."); }
+      }
+      throw error;
+    }
     return { message };
   },
-  runNestedToolCall: async (tool, id, args, signal) => {
+  runNestedToolCall: async (tool, id, args, signal, onUpdate) => {
         signal.throwIfAborted();
         const invocation = currentPiInvocation();
         if (!invocation) throw new Error("Nested tool execution requires a native execution owner.");
-        const outcome = await invocation.nested(tool, id, args);
+        const unsubscribe = onUpdate ? this.agent.subscribe(event => {
+          if (event.type === "tool_execution_update" && event.toolCallId === id) onUpdate(event.partialResult);
+        }) : undefined;
+        let outcome;
+        try { outcome = await invocation.nested(tool, id, args, signal); }
+        finally { unsubscribe?.(); }
         const assistantMessage = this.agent.toolOriginFor(id);
         const blocked = this.budgetBlockedToolCallIds.has(id);
-        budget.recordToolResult(shouldCountToolResultAsFailure(outcome.isError, blocked), this.toolBudgetKeys.get(id) ?? this.toolBudgetKey(id, assistantMessage));
+        budget.recordToolResult(shouldCountToolResultAsFailure(outcome.isError, blocked), this.toolBudgetKeys.get(id) ?? (assistantMessage ? this.toolBudgetKey(id, assistantMessage) : `pi:${runId}:nested:${invocation.api.taskId}:${id}`));
         if (budget.getExceededReason()) {
           return { result: { ...outcome.result, terminate: true } as typeof outcome.result, isError: outcome.isError };
         }
@@ -1522,7 +1562,7 @@ export class MomRunner implements RunnerLike {
       executionPolicy,
       extensionAbort: () => this.agent.abort(),
       // Compaction costs tokens, so it is unavailable in Plan / read-only runs.
-      extensionCompact: executionPolicy.readOnly || permissionMode === "plan" ? undefined : () => this.agent.compact(),
+      extensionCompact: executionPolicy.readOnly || permissionMode === "plan" ? undefined : instructions => this.agent.compact(instructions),
       piExtensionRuntime: async () => {
         const cwd = this.currentWorkingDir();
         const session = await this.agent.extensionSessionSource();
@@ -1534,8 +1574,9 @@ export class MomRunner implements RunnerLike {
           thinkingLevel: this.agent.state.thinkingLevel,
           // No per-session model scoping is configured, so the usable set is unrestricted.
           scopedModels: [],
-          isIdle: false,
+          isIdle: !this.agent.state.isStreaming,
           pendingMessages: this.agent.pendingMessageCount(),
+          contextUsage: { tokens: this.activeContextEstimate?.estimatedTokens ?? null, contextWindow: this.agent.state.model.contextWindow },
           models: await getPiExtensionModelCatalog()(),
           session: { ...session, cwd }
         });
@@ -1658,6 +1699,7 @@ export class MomRunner implements RunnerLike {
     const scopedMcpServers = resolveScopedMcpServers();
 
     const mcpTools = await getMcpToolsForRuntime(scopedMcpServers, {
+      allowInteractiveAuthorization: !ctx.message.isEvent,
       workspaceDir: this.store.getWorkspaceDir(),
       onWarn: (event, extra) => {
         momWarn("runner", event, {
@@ -2157,7 +2199,7 @@ export class MomRunner implements RunnerLike {
           sessionId: this.sessionId, channel: this.channel, actor: ctx.message.userId, workspaceId,
           budgetId: ctx.message.budgetId, runtimeIdentity: this.runtimeIdentity,
           context: { project: ctx.project, modelKeyOverride: ctx.modelKeyOverride, retention: turnRetention, executionPolicy,
-            roomRouting: ctx.roomRouting },
+            roomRouting: ctx.roomRouting, nativeToolCall: ctx.nativeToolCall },
           transport: ctx.deliveryTarget,
           models: modelCandidates.map(({ model }) => { const { headers: _headers, ...safe } = model; return safe as Model<any>; }), deferred: false });
       } finally { admissionStore.close(); }
@@ -2205,9 +2247,13 @@ export class MomRunner implements RunnerLike {
             agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId,
             sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: receipt.provider, model: receipt.model, api: receipt.api,
             inputTokens: receipt.usage.input, outputTokens: receipt.usage.output, cacheReadTokens: receipt.usage.cacheRead,
-            cacheWriteTokens: receipt.usage.cacheWrite, totalTokens: receipt.usage.totalTokens });
+            cacheWriteTokens: receipt.usage.cacheWrite, totalTokens: receipt.usage.totalTokens, estimatedCostUsd: receipt.usage.cost?.total });
         },
         onChildTrace: (stage, data) => { if (this.activeHookContext) this.hookManager.emit(stage, this.activeHookContext, data); },
+        beforeCompaction: taskId => {
+          const started = budget.tryStartModelTurn(taskId);
+          if (!started.ok) throw new Error(started.reason);
+        },
         beforeGeneration: taskId => {
           if (!taskId.includes(":child:")) this.nativeModelTaskId = taskId;
           if (budget.getExceededKind() === "modelFailures") throw new Error(budget.getExceededReason());
@@ -2216,6 +2262,8 @@ export class MomRunner implements RunnerLike {
           // A failed generation reserves one retry; successful tool rounds spend none.
           budget.tryRecordModelFailure(taskId);
         },
+        nativeToolCall: nativeRecovery?.context.nativeToolCall ?? ctx.nativeToolCall,
+        nativeTools: () => (localTools as unknown as { getNativeTools: () => AgentTool[] }).getNativeTools(),
         recoverTools: async names => {
           this.selectedMcpServerIds = new Set(Array.isArray(nativeRecovery?.mcpServerIds ?? recoveringSuspension?.mcpServerIds)
             ? (nativeRecovery?.mcpServerIds ?? recoveringSuspension!.mcpServerIds as unknown[]).filter((id): id is string => typeof id === "string") : []);
@@ -2233,7 +2281,7 @@ export class MomRunner implements RunnerLike {
             const load = (localTools as unknown as { loadDeferredTools?: (names: string[]) => string[] }).loadDeferredTools;
             load?.(missing);
           }
-          return this.agent.state.tools;
+          return [...this.agent.state.tools, ...(localTools as unknown as { getNativeTools: () => AgentTool[] }).getNativeTools()];
         }
       });
       this.agent.state.messages = prepareMessagesForModelContext(
@@ -3816,6 +3864,7 @@ export class MomRunner implements RunnerLike {
       }
       return { runId, workspaceId, stopReason: "error", errorMessage: message, usage: finalUsage };
     } finally {
+      clearPiExtensionRunHost(runId);
       ctx.clientSignal?.removeEventListener("abort", onClientDisconnect);
       const owners = new PiRecoveryStore(resolveDataRootFromWorkspacePath(this.store.getWorkspaceDir()));
       try { if (stopReason !== "waiting_for_approval") owners.remove(runId); }

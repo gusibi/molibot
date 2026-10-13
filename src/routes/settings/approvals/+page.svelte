@@ -107,6 +107,8 @@
       modeSession: "Session 授权",
       btnRefresh: "刷新",
       pendingTitle: "待审批记录",
+      recoveryReview: "等待核对",
+      recoveryReason: "外部结果未知。请在原会话核对后批准继续，或拒绝停止。",
       pendingDesc: "只读查看。实际批准/拒绝在对应聊天会话中完成。",
       loading: "正在加载审批数据...",
       colTime: "时间",
@@ -164,6 +166,8 @@
       modeSession: "Session",
       btnRefresh: "Refresh",
       pendingTitle: "Pending Approvals",
+      recoveryReview: "Awaiting recovery review",
+      recoveryReason: "The remote outcome is unknown. Review it in the original chat, then approve to continue or reject to stop.",
       pendingDesc: "Read-only audit view. Approvals resolve in chat environments.",
       loading: "Loading approval data...",
       colTime: "Time",
@@ -485,13 +489,13 @@
                     </Badge>
                   </TableCell>
                   <TableCell class="font-medium text-xs text-[var(--foreground)]">
-                    {item.displayName || item.toolId}
+                    {item.toolId === "recovery_review" ? t("recoveryReview") : item.displayName || item.toolId}
                   </TableCell>
                   <TableCell class="text-xs text-[var(--muted-foreground)]">
                     {getModeLabel(item.approvalMode)}
                   </TableCell>
-                  <TableCell class="max-w-xs truncate font-mono text-xs text-[var(--foreground)]" title={item.command}>
-                    {item.command || item.payload?.path || item.toolId}
+                  <TableCell class="max-w-xs truncate font-mono text-xs text-[var(--foreground)]" title={item.toolId === "recovery_review" ? t("recoveryReason") : item.command}>
+                    {item.toolId === "recovery_review" ? t("recoveryReason") : item.command || item.payload?.path || item.toolId}
                   </TableCell>
                   <TableCell class="whitespace-nowrap text-xs text-[var(--muted-foreground)]">
                     {item.channel || "web"} / {item.chatId || "-"}
@@ -540,9 +544,9 @@
                     </Badge>
                   </TableCell>
                   <TableCell class="font-medium text-xs text-[var(--foreground)]">
-                    {item.displayName || item.toolId}
+                    {item.toolId === "recovery_review" ? t("recoveryReview") : item.displayName || item.toolId}
                   </TableCell>
-                  <TableCell class="max-w-xs truncate font-mono text-xs text-[var(--foreground)]" title={item.command}>
+                  <TableCell class="max-w-xs truncate font-mono text-xs text-[var(--foreground)]" title={item.toolId === "recovery_review" ? t("recoveryReason") : item.command}>
                     {item.command || item.toolId}
                   </TableCell>
                   <TableCell class="whitespace-nowrap text-xs text-[var(--muted-foreground)]">
@@ -626,7 +630,7 @@
                     </Badge>
                   </TableCell>
                   <TableCell class="font-medium text-xs text-[var(--foreground)]">
-                    {item.displayName || item.toolId}
+                    {item.toolId === "recovery_review" ? t("recoveryReview") : item.displayName || item.toolId}
                   </TableCell>
                   <TableCell class="text-xs text-[var(--muted-foreground)]">
                     {getModeLabel(item.approvalMode)}
@@ -636,8 +640,8 @@
                       {item.status}
                     </Badge>
                   </TableCell>
-                  <TableCell class="max-w-xs truncate font-mono text-xs text-[var(--foreground)]" title={item.command}>
-                    {item.command || item.payload?.path || item.toolId}
+                  <TableCell class="max-w-xs truncate font-mono text-xs text-[var(--foreground)]" title={item.toolId === "recovery_review" ? t("recoveryReason") : item.command}>
+                    {item.toolId === "recovery_review" ? t("recoveryReason") : item.command || item.payload?.path || item.toolId}
                   </TableCell>
                   <TableCell class="max-w-xs truncate text-xs text-[var(--muted-foreground)]" title={item.errorText || item.reason}>
                     {item.errorText ? `❌ ${item.errorText}` : item.reason || "-"}

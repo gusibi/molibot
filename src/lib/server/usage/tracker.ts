@@ -314,6 +314,7 @@ export class AiUsageTracker {
     totalTokens?: number;
     appId?: string;
     capability?: "text" | "transcription" | "image";
+    estimatedCostUsd?: number;
     status?: "success" | "error";
     durationMs?: number;
     audioSeconds?: number;
@@ -338,6 +339,7 @@ export class AiUsageTracker {
       totalTokens: toInt(input.totalTokens),
       ...(input.appId ? { appId: String(input.appId).trim() } : {}),
       ...(input.capability ? { capability: input.capability } : {}),
+      ...(typeof input.estimatedCostUsd === "number" && Number.isFinite(input.estimatedCostUsd) && input.estimatedCostUsd >= 0 ? { estimatedCostUsd: input.estimatedCostUsd } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(input.durationMs !== undefined ? { durationMs: toInt(input.durationMs) } : {}),
       ...(input.audioSeconds !== undefined ? { audioSeconds: Math.max(0, Number(input.audioSeconds) || 0) } : {}),
@@ -391,6 +393,7 @@ export class AiUsageTracker {
           provider: String(parsed.provider),
           model: String(parsed.model),
           api: String(parsed.api ?? "unknown"),
+          ...(typeof parsed.estimatedCostUsd === "number" && Number.isFinite(parsed.estimatedCostUsd) && parsed.estimatedCostUsd >= 0 ? { estimatedCostUsd: parsed.estimatedCostUsd } : {}),
           inputTokens: toInt(parsed.inputTokens),
           outputTokens: toInt(parsed.outputTokens),
           cacheReadTokens: toInt(parsed.cacheReadTokens),

@@ -1,3 +1,8 @@
+import { Type } from "@sinclair/typebox";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { PiExtensionToolOptions } from "./toolBridge.js";
+import { getPiExtensionRunHost } from "./runHost.js";
+import { bindPiExtensionHostSession } from "./toolBridge.js";
 import { momError, momWarn } from "$lib/server/agent/common/log.js";
 import { createHeadlessExtensionContext } from "$lib/server/plugins/piExtensions/context.js";
 import type { LoadedPiExtension } from "$lib/server/plugins/piExtensions/types.js";
@@ -14,6 +19,8 @@ export interface PiExtensionCommandOptions {
   extensions: LoadedPiExtension[];
   cwd: string;
   signal?: AbortSignal;
+  runId?: string;
+  sessionId?: string;
 }
 
 /**
@@ -54,15 +61,22 @@ export async function runPiExtensionCommand(
 
     try {
       if (extension.client) {
+        const host = getPiExtensionRunHost(options.runId);
+        const runtime = await host?.runtime?.();
+        if (runtime && options.sessionId && runtime.sessionId !== options.sessionId) throw new Error("The extension command belongs to a different Session.");
+        const hostToken = host ? bindPiExtensionHostSession(extension.client, host, options.signal, `command:${name}`) : undefined;
+        try {
         const result = await extension.client.request("invokeCommand", {
           extensionId: extension.id,
           command: name,
           args,
-          cwd: options.cwd
+          cwd: options.cwd,
+          runtime, tools: host?.toolCatalog?.(), hostToken
         }, options.signal);
         for (const notification of result.notifications ?? []) {
           ctx.ui.notify(notification.message, notification.type);
         }
+        } finally { if (hostToken) extension.client.releaseHostSession(hostToken); }
       } else {
         await (command as any).handler(args, ctx as any);
       }
@@ -104,4 +118,27 @@ export function listPiExtensionCommands(
     }
   }
   return out;
+}
+
+
+export function piExtensionCommandToolName(extensionId: string, command: string): string {
+  return `piCommand__${extensionId}__${command}`;
+}
+
+/** Commands reuse the production process and the same invocation capabilities as extension tools. */
+export function createPiExtensionCommandTools(extensions: LoadedPiExtension[], options: PiExtensionToolOptions): AgentTool<any>[] {
+  return extensions.flatMap(extension => (extension.commands ?? []).map(command => ({
+    name: piExtensionCommandToolName(extension.id, command.name), label: `/${command.name}`, description: command.description ?? "Installed extension command",
+    parameters: Type.Object({ args: Type.String() }),
+    async execute(id: string, args: any, signal?: AbortSignal) {
+      if (!extension.client) throw new Error("An installed command requires the isolated extension host.");
+      const runtime = await options.runtime?.();
+      const hostToken = bindPiExtensionHostSession(extension.client, options, signal, id);
+      try {
+        const result = await extension.client.request("invokeCommand", { extensionId: extension.id, command: command.name, args: args.args, cwd: options.cwd, runtime, tools: options.toolCatalog?.(), hostToken }, signal);
+        const text = (result.notifications ?? []).map((item: { message: string; type: string }) => item.type === "info" ? item.message : `[${item.type}] ${item.message}`).join("\n");
+        return { content: [{ type: "text" as const, text: text || "Extension command completed." }], details: {} };
+      } finally { if (hostToken) extension.client.releaseHostSession(hostToken); }
+    }
+  })));
 }

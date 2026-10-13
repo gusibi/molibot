@@ -215,6 +215,8 @@ export type RunnerUiEvent =
     };
 
 export interface MomContext {
+  /** Explicit installed command admitted by the shared command service, never supplied by a model. */
+  nativeToolCall?: { name: string; args: unknown };
   /** Transport cancellation belongs only to this foreground run. */
   clientSignal?: AbortSignal;
   /** Hold execution ownership until a cancelled tool handler settles. */

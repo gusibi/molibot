@@ -36,8 +36,8 @@ test("python tooling defaults to data-dir tooling/python", () => {
     MOLIBOT_PYTHON_TOOLING_DIR: undefined,
     MOLIBOT_VENV_DIR: undefined
   }, () => {
-    assert.match(getPythonToolingDir(), /\/\.molibot\/tooling\/python$/);
-    assert.match(getSandboxVenvDir(), /\/\.molibot\/tooling\/python\/venv$/);
+    assert.equal(getPythonToolingDir(), join(storagePaths.dataDir, "tooling", "python"));
+    assert.equal(getSandboxVenvDir(), join(storagePaths.dataDir, "tooling", "python", "venv"));
   });
 });
 

@@ -13,7 +13,7 @@ export interface PiRecoveryRecord {
   channel: string;
   transport?: MomContext["deliveryTarget"];
   runtimeIdentity?: ({ agentId: string; roomId: string; executionId: string } | { agentId: string; roomId?: undefined; executionId?: undefined });
-  context: Pick<MomContext, 'project' | 'modelKeyOverride' | 'retention' | 'executionPolicy' | 'roomRouting' | 'approvedRecoveryCallIds'>;
+  context: Pick<MomContext, 'project' | 'modelKeyOverride' | 'retention' | 'executionPolicy' | 'roomRouting' | 'approvedRecoveryCallIds' | 'nativeToolCall'>;
   actor: string;
   workspaceId: string;
   budgetId?: string;

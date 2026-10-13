@@ -1,3 +1,39 @@
+## 2026-10-13 — 修复版本审查发现的五项问题（已交付）
+
+扩展 `stream.result()` 等待模型终态，即使不消费事件也返回完整结果或失败。参考图下载按流累计限额，超限立即取消；内联参考图同样执行 10 MiB 校验。事件子调用身份包含扩展、handler、原生父任务及父工具，区分独立请求并保持恢复稳定。MCP 授权等待使用工具的实际期限与取消信号，超时后的授权不能重发原调用。桌面共享规则复用已授权的 Desktop profile API，全局保存只更新提交的文件。
+
+五项故障的回归均在修复前失败，161 项相关回归连续 5 轮通过；核心 812 项通过、1 项缺少 fd 跳过，桌面 327 项及 Rust 70 项通过，类型与构建通过。共享规则 UI 在 Chromium/WebKit 各 5 次通过；原生 App 首次加载、保存、页面/Session 切换、托管服务重启和中断恢复完成。详细根因、守卫和边界见[审查修复记录](docs/work/progress/pi-capability-completion/review-fixes.md)。
+
+## 2026-10-13 — Pi 能力补齐：恢复、授权、模型与扩展运行（本地已交付）
+
+普通渠道任务在恢复核对后继续原执行，批准/拒绝通过真实启动和审批路径验证，Web 明确显示核对原因。MCP OAuth 支持部署回调、共享刷新和追加 scopes；交互式调用等待授权，安全读继续，未知外部操作不自动重放。桌面授权消息随语言即时切换，切换页面和服务重启后按实际授权状态刷新。
+
+Codemode 与扩展的分类、图片及 chat 请求由原生子任务拥有，使用共享权限、审批、预算和稳定用量收据；图片进入共享媒体任务，保存失败仍保留已发生的费用。恢复复用已提交响应，未知收费请求不能换 call ID 重试。扩展支持原执行 signal、命令、嵌套工具的进度/取消和显式原生压缩；迟到结果不能跨运行使用。
+
+接口范围见[扩展运行说明](docs/guides/pi-extension-runtime.md)，实际验证与限制见[验收记录](docs/work/progress/pi-capability-completion/validation.md)。真实第三方 OAuth 和付费模型验收按用户决定跳过。
+
+## 2026-10-12 — 协作规则：测试用例的添加、更新与执行时机（规则调整）
+
+AGENTS.md 新增「测试用例维护与执行」：新增用户可见行为、修 Bug（先写复现用例）、改持久化或运行时、改原生链路时必须添加用例；产品行为有意变化、定位失效、功能删除、出现不稳定用例时按规则更新，禁止靠放宽断言、加等待或重试让测试通过；实现单元完成后跑相关测试，交付前使用仓库已有验证入口（没有 `verify:feature` 时按 AGENTS.md 中的验证范围手动运行并列出），运行时与原生改动分别扩大到核心回归和原生测试，环境缺失标为“未验证”。规则直接写在 AGENTS.md 中，不依赖需求规格文档。
+
+## 2026-10-12 — Codemode 大图精确制品引用 + 大结果 IPC 丢失修复（已交付）
+
+Codemode 脚本用 `image()` 展示的超大生成图片，文本引用现在带**精确的工作区相对路径**，不再是「已保存到本运行制品」的模糊说明。修了两个根因：① 沙箱 `image()` 只保留 `data`/`mimeType`、丢弃 ModelOperations 给的 `ref`，主机侧改为按图片字节记录 `models.generateImages` 的制品路径并在结果装配时回填；② `modelOperations.generateImages` 的 `ref` 原用 `workspaceDir/name` 拼接，而文件实际写在 `artifactDir` 下，路径指向不存在的文件——改为按实际落盘位置计算，并在其中位于工作区时给出工作区相对路径（在工作区外退回绝对路径）。顺带修一个真实数据丢失：大结果经 IPC 回传时，worker 紧随其后的 `process.disconnect()` 会丢掉尚未冲刷的消息，导致整个脚本结果丢失（宿主报 “exited without a result”）；现在 `send` 在 `process.send` 回调后才 resolve，结果发送改为 await，宿主 fallback 从 `exit` 改到 `close`。
+
+验证：`modelOperations.test.ts` 新增「工作区内→相对 ref / 工作区外→绝对 ref」；`codemode.integration.test.ts` 增至 14 项，新增「超大展示图带精确制品引用」（修复前失败：文本无路径；IPC 修复前宿主报 exited without a result），连跑 5 次全绿；`codemode.test.ts`、`piExtensions/modelRegistry.test.ts` 回归通过；根 `check` 未引入新错误、`build` 通过。
+
+未验收：真实 Runner 中的多图/参考图/伴随文本与费用归属（需真实或更完整的模拟 classify/image Provider）。
+
+## 2026-10-12 — Room 恢复核对运行时装线端到端 + 续跑幂等根修（已交付）
+
+补上 A 单元最后一块运行时装线验收：新增 `piRecovery.roomReview.test.ts` 与 fixture `evals/fixtures/pi-room-review-worker.ts`。首启让真实 Room 执行打到进程内 provider 后被杀，制造 Pi `request` 阶段的活请求；重启经真实启动协调器分类为 `review`，`failPiRecoveryReview` 把 Room 执行停在 `waiting_approval` 并挂共享 Decision Request（`recovery-review:<runId>`，capability `recovery_review`），且**在人工决定前不再重发**；再经真实 Desktop 审批入口批准 → `onApprovalResolved` → `resumePiRecoveryOwner` → `resumeNativeExecution` 续跑并完成（恰好一次重发），拒绝 → run `aborted`、执行 `failed`、恢复记录清除。
+
+过程中拦下一个真实根因：`RoomStore.recordContextRun` 用普通 `INSERT`，恢复执行以同一 execution id 重新进入 runner 时会撞 `UNIQUE constraint failed: room_context_runs.execution_id`，导致批准后续跑直接失败。改为 `INSERT OR IGNORE`（该映射幂等），在共享 store 层根修。
+
+验证：`piRecovery.roomReview.test.ts` 2 项（approve/reject 全链路）；`rooms/service.test.ts` 31 项、`rooms/runtime.integration.test.ts`、`piRecovery.ordinary.test.ts`、`piRecovery.windows.test.ts`、`piRecovery.classification.test.ts`、`recoveryReview.test.ts`、`replaySafety.test.ts`、`piRecovery.continuity.test.ts`、`backgroundConversation.test.ts` 回归全通过；`test:service-bootstrap` 21、`test:desktop-chat` 305、`test:projects` 86、`test:decision` 50；根 `check` 未引入新错误（仅剩既有错误）、`build` 通过。
+
+未验收：非 Room（渠道投递）的 `resumePiOwner`/`runBackgroundConversation` 续跑路径仍无运行时装线端到端（`piRecovery.ordinary.test.ts` 只覆盖分类，不覆盖续跑）。
+
 ## 2026-10-11 — 内置头像选择器改为目录派生，scifi 头像集入库（已交付）
 
 Agent 设置页"内置头像"网格原来写死 12 个 `pattern-*.svg`，导致后来放入 `static/agent-avatars/` 的 12 个 `scifi-*.svg` 永远不出现在选择器里（且 `static/` 根目录这份拷贝在代码中零引用，真正被服务的是 `apps/desktop/public/agent-avatars/`）。根修：资产收敛到 `apps/desktop/public/agent-avatars/` 单一目录（删除根目录 `static/`），新增 `agentAvatarPresets.ts` 在构建时用 `readdirSync` 派生列表（扩展名过滤 + 自然排序 + 中英标签），经 Vite 虚拟模块 `virtual:agent-avatars` 注入 `AgentSettingsPage.svelte`——以后往目录里加图片文件即自动出现在选择器，列表不再可能与目录脱节。头像 URL 格式不变（`/agent-avatars/<文件名>`），已保存的 Agent 头像继续有效。

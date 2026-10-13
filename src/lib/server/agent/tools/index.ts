@@ -1,3 +1,6 @@
+import { createPiExtensionCommandTools } from "$lib/server/plugins/piExtensions/commandBridge.js";
+import { SqliteImageTaskStore } from "$lib/server/agent/imageGenerate/imageTaskStore.js";
+import { createOwnedModelOperations, createOwnedModelStream } from "$lib/server/agent/models/ownedModelOperations.js";
 import { createCodemodeTool } from "./codemode.js";
 import { createPiModelOperations } from "$lib/server/agent/models/modelOperations.js";
 import { isReplaySafeTool } from "$lib/server/agent/tools/sideEffectClassification.js";
@@ -149,7 +152,7 @@ function createDeferredToolEntry(options: {
 export function createMomTools(options: {
   agentId?: string;
   roomId?: string;
-  runNestedToolCall?: (tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal) => Promise<{ result: import("@earendil-works/pi-agent-core").AgentToolResult<unknown>; isError: boolean }>;
+  runNestedToolCall?: (tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal, onUpdate?: (result: import("@earendil-works/pi-agent-core").AgentToolResult<unknown>) => void) => Promise<{ result: import("@earendil-works/pi-agent-core").AgentToolResult<unknown>; isError: boolean }>;
 
   executionPolicy?: EffectiveExecutionPolicy;
   /** Hold execution ownership until a cancelled tool handler settles. */
@@ -203,7 +206,7 @@ export function createMomTools(options: {
   /** Abort the run from a pi extension (`ctx.abort()`). */
   extensionAbort?: () => void;
   /** Trigger compaction from a pi extension (`ctx.compact()`). */
-  extensionCompact?: () => void | Promise<void>;
+  extensionCompact?: (instructions?: string) => void | Promise<void>;
 }): AgentTool<any>[] {
   // Tools a pi extension may invoke through `ctx.executeTool()`: exactly the set
   // the model can call, so permission/approval/budget apply the same way.
@@ -319,7 +322,9 @@ export function createMomTools(options: {
     outputLayout,
     uploadFile: options.uploadFile
   }));
+  const imageTaskStore = new SqliteImageTaskStore();
   const imageGenerateRuntimeTool = wrapSerializedTool(createImageGenerateTool({
+    taskStore: imageTaskStore,
     getSettings: options.getSettings,
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
@@ -578,6 +583,7 @@ export function createMomTools(options: {
         name: originalTool.label ?? originalTool.name,
         description: originalTool.description,
         inputSchema: originalTool.parameters,
+        delegatesEffects: piExtensionToolNames.has(originalTool.name),
         risk,
         source,
         effect,
@@ -708,9 +714,19 @@ export function createMomTools(options: {
     }
     return [wrapWithToolRuntime(codemodeTool), ...scopedTools.map(tool => wrapWithToolRuntime(tool)).filter(tool => !policy.readOnly || isReadOnlyTool(tool.name, registry.get(tool.name)!.effect)), ...(options.sessionPlanProgress && !policy.readOnly ? [createUpdatePlanTool(options.sessionPlanProgress)] : [])];
   };
-  const codemodeModels = options.modelOperationDeps
-    ? createPiModelOperations({ ...options.modelOperationDeps, artifactDir: outputLayout.scratchRoot, workspaceDir: options.workspaceDir })
+  const rawModels = options.modelOperationDeps
+    ? createPiModelOperations({ ...options.modelOperationDeps, artifactDir: outputLayout.scratchRoot, workspaceDir: options.workspaceDir, media: { store: imageTaskStore, sessionId: options.sessionId, runId: options.runId ?? "default-run", usageScope: { channel: options.channel, botId: options.store.getBotId(), agentId: options.agentId, roomId: options.roomId } } })
     : undefined;
+  const invokeOwned = async (tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal) => {
+    if (!options.runNestedToolCall) throw new Error("Model calls require an active native execution owner.");
+    nestedToolCallIds.add(id);
+    try { return await options.runNestedToolCall(tool, id, args, signal); }
+    finally { nestedToolCallIds.delete(id); }
+  };
+  const ownedModels = rawModels ? createOwnedModelOperations(rawModels, { wrap: wrapWithToolRuntime, invoke: invokeOwned }) : undefined;
+  const codemodeModels = ownedModels?.models;
+  const ownedStream = options.extensionModelStream ? createOwnedModelStream(options.extensionModelStream, { wrap: wrapWithToolRuntime, invoke: invokeOwned }) : undefined;
+  const extensionStream = ownedStream?.stream;
   const codemodeTool = createCodemodeTool({
     getTools: runtimeCallableTools,
     artifactDir: outputLayout.scratchRoot,
@@ -1041,14 +1057,14 @@ export function createMomTools(options: {
   }));
 
   const executeExtensionTool = options.runNestedToolCall
-    ? async (name: string, args: unknown, signal: AbortSignal | undefined, callerId: string): Promise<AgentToolCallOutcome> => {
+    ? async (name: string, args: unknown, signal: AbortSignal | undefined, callerId: string, onUpdate?: (event: unknown) => void): Promise<AgentToolCallOutcome> => {
       const tool = runtimeCallableTools().find((candidate) => candidate.name === name);
       const callId = `${callerId}/${name}`;
       const toolCall = { type: "toolCall" as const, id: callId, name, arguments: (args ?? {}) as any };
       if (!tool) return { toolCall, result: { content: [{ type: "text", text: `Unknown tool: ${name}` }], details: {} }, isError: true };
       nestedToolCallIds.add(callId);
       try {
-        const outcome = await options.runNestedToolCall!(tool, callId, args, signal ?? new AbortController().signal);
+        const outcome = await options.runNestedToolCall!(tool, callId, args, signal ?? new AbortController().signal, onUpdate);
         return { toolCall, result: outcome.result, isError: outcome.isError };
       } finally {
         nestedToolCallIds.delete(callId);
@@ -1063,7 +1079,7 @@ export function createMomTools(options: {
       runtime: options.piExtensionRuntime,
       executeTool: executeExtensionTool,
       modelOperations: codemodeModels,
-      streamModel: options.extensionModelStream,
+      streamModel: extensionStream,
       toolCatalog: extensionToolCatalog,
       abort: options.extensionAbort,
       compact: options.extensionCompact
@@ -1078,7 +1094,7 @@ export function createMomTools(options: {
       ...(options.piExtensionRuntime ? { runtime: options.piExtensionRuntime } : {}),
       ...(executeExtensionTool ? { executeTool: executeExtensionTool } : {}),
       ...(codemodeModels ? { modelOperations: codemodeModels } : {}),
-      ...(options.extensionModelStream ? { streamModel: options.extensionModelStream } : {}),
+      ...(extensionStream ? { streamModel: extensionStream } : {}),
       ...(options.extensionAbort ? { abort: options.extensionAbort } : {}),
       ...(options.extensionCompact ? { compact: options.extensionCompact } : {}),
       toolCatalog: extensionToolCatalog,
@@ -1093,7 +1109,15 @@ export function createMomTools(options: {
   piExtensionTools = piResult.tools.map((tool) => wrapSerializedTool(tool));
   for (const tool of piExtensionTools) piExtensionToolNames.add(tool.name);
 
+  const commandTools = createPiExtensionCommandTools(piHost.getActiveExtensions(options.getSettings(), botId), {
+    cwd: options.cwd, reservedToolNames: new Set(), runtime: options.piExtensionRuntime,
+    executeTool: executeExtensionTool, modelOperations: codemodeModels, streamModel: extensionStream,
+    abort: options.extensionAbort, compact: options.extensionCompact, toolCatalog: extensionToolCatalog
+  });
+  for (const tool of commandTools) piExtensionToolNames.add(tool.name);
+  const nativeCommandTools = commandTools.map(wrapWithToolRuntime);
   const resultTools = getActiveTools();
+  (resultTools as any).getNativeTools = () => [...(ownedModels?.tools ?? []), ...(ownedStream ? [ownedStream.tool] : []), ...nativeCommandTools];
   (resultTools as any).wrapTool = wrapWithToolRuntime;
   (resultTools as any).loadDeferredTools = loadDeferredTools;
   (resultTools as any).getChildTools = () => [readToolDef, bashToolDef, editToolDef, writeToolDef].filter(tool => !agentDisabledTools.has(tool.id)).map(toAgentTool);

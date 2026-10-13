@@ -8,6 +8,13 @@ import { buildPiExtensionRuntimeSnapshot } from "$lib/server/plugins/piExtension
 
 const FIXTURE = `import { Type } from "@sinclair/typebox";
 export default function chat(pi: any) {
+  pi.registerTool({ name: "result_only", label: "Result only", description: "Wait for the final result without consuming events", parameters: Type.Object({}),
+    async execute(_id: string, _args: unknown, _signal: AbortSignal, _update: unknown, ctx: any) {
+      try { const final = await ctx.modelRegistry.stream(ctx.modelRegistry.getAll()[0], { messages: [] }).result();
+        return { content: [{ type: "text", text: JSON.stringify({ final }) }], details: {} }; }
+      catch (error) { return { content: [{ type: "text", text: JSON.stringify({ error: (error as Error).message }) }], details: {} }; }
+    }
+  });
   const model = (ctx: any) => ctx.modelRegistry.getAll()[0];
   pi.registerTool({
     name: "chat",
@@ -160,5 +167,25 @@ test("aborting from the extension cancels the stream and notifies the host", asy
     client.releaseHostSession("tok-5");
     assert.match(payload.streamError, /stopped by extension/);
     assert.ok(seen.includes("modelRegistry.streamAbort"), `expected a streamAbort, saw ${seen.join(",")}`);
+  });
+});
+
+
+for (const fails of [false, true]) test(`result() waits for the host terminal ${fails ? "failure" : "message"} without draining events`, async () => {
+  await withFixture(async (client, dataDir) => {
+    let started!: () => void; let release!: () => void;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    client.registerHostSession("result-only", async (_method, _input, emit) => {
+      started(); await barrier;
+      if (fails) throw new Error("terminal provider failure");
+      emit({ type: "done" }); return { message: { model: "gpt", content: [{ type: "text", text: "complete" }] } };
+    });
+    const pending = invoke(client, dataDir, "result_only", {}, "result-only");
+    await entered; release();
+    const value = await pending;
+    if (fails) assert.equal(value.error, "terminal provider failure");
+    else assert.equal(value.final?.content[0].text, "complete");
+    client.releaseHostSession("result-only");
   });
 });

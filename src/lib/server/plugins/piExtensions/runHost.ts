@@ -15,7 +15,7 @@ export interface PiExtensionRunHost {
   streamModel?: (input: PiExtensionStreamInput, emit: (event: unknown) => void, signal: AbortSignal) => Promise<unknown>;
   toolCatalog?: () => Array<{ name: string; label: string; description: string; parameters: unknown }>;
   abort?: () => void;
-  compact?: () => void | Promise<void>;
+  compact?: (instructions?: string) => void | Promise<void>;
 }
 
 // Bounded: a finished run's host is dropped when a new one is registered or the

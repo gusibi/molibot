@@ -65,7 +65,7 @@ export class SqliteImageTaskStore {
   }
 
   public recordArtifact(taskId: string, artifact: ImageTaskArtifact): void {
-    this.db.prepare("INSERT INTO image_task_artifacts (task_id, output_index, path, mime_type, byte_length) SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM image_task_deletions WHERE task_id = ?)")
+    this.db.prepare("INSERT INTO image_task_artifacts (task_id, output_index, path, mime_type, byte_length) SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM image_task_deletions WHERE task_id = ?) ON CONFLICT(task_id, output_index) DO UPDATE SET path=excluded.path, mime_type=excluded.mime_type, byte_length=excluded.byte_length")
       .run(taskId, artifact.index, artifact.path, artifact.mimeType, artifact.byteLength, taskId);
   }
 

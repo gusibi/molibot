@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -60,4 +60,19 @@ test("committed response usage is counted once across tracker reopen and rejects
   assert.equal(first.getSessionUsage("s-1").requests, 2);
   reopened.record({ ...input, sessionId: "s-2" });
   assert.equal(reopened.getSessionUsage("s-2").requests, 1);
+});
+
+test("explicit provider costs survive tracker reopen while absent prices stay unknown", () => {
+  const usageDir = mkdtempSync(join(tmpdir(), "molibot-cost-receipts-"));
+  try {
+    const tracker = new AiUsageTracker({ usageDir });
+    const paid = { requestId: "paid", channel: "web", botId: "owner", provider: "fixture", model: "classifier", totalTokens: 4, estimatedCostUsd: 0.03 };
+    tracker.record(paid);
+    tracker.record({ ...paid, requestId: "unknown", estimatedCostUsd: undefined });
+    const reopened = new AiUsageTracker({ usageDir });
+    reopened.record(paid);
+    assert.equal(reopened.list().length, 2);
+    assert.equal(reopened.list().find(row => row.requestId === "paid")!.estimatedCostUsd, 0.03);
+    assert.equal(reopened.list().find(row => row.requestId === "unknown")!.estimatedCostUsd, undefined);
+  } finally { rmSync(usageDir, { recursive: true, force: true }); }
 });

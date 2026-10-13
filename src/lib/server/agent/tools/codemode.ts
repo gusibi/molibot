@@ -25,10 +25,10 @@ const MODEL_DECLARATIONS = [
   { name: "models.generateImages", description: "Generate images from a prompt with optional reference images. Pass a returned image to image() to display it.", signature: "(input: { model?: string; prompt: string; images?: string[] }): Promise<{ model: string; images: Array<{ type: \"image\"; ref: string; mimeType: string; data: string }>; text?: string; usage?: unknown }>" }
 ] as const;
 
-async function invokeModelOperation(models: ModelOperations, member: string, args: unknown, signal: AbortSignal): Promise<unknown> {
+async function invokeModelOperation(models: ModelOperations, member: string, args: unknown, signal: AbortSignal, callId: string): Promise<unknown> {
   if (member === "list") return models.catalog();
-  if (member === "classify") return models.classify(args as Parameters<ModelOperations["classify"]>[0], signal);
-  if (member === "generateImages") return models.generateImages(args as Parameters<ModelOperations["generateImages"]>[0], signal);
+  if (member === "classify") return models.classify(args as Parameters<ModelOperations["classify"]>[0], signal, callId);
+  if (member === "generateImages") return models.generateImages(args as Parameters<ModelOperations["generateImages"]>[0], signal, callId);
   throw new Error(`Unknown model operation: models.${member}`);
 }
 
@@ -53,6 +53,11 @@ export function inlineOrReferenceImages(
   return out;
 }
 
+/** Match a displayed image to the artifact the host persisted: the sandbox strips whitespace from base64. */
+function imageKey(data: string): string {
+  return data.replace(/\s+/g, "");
+}
+
 export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof schema> {
   return {
     name: "codemode", label: "Codemode",
@@ -67,6 +72,9 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof s
       const maxChars = Math.min(parsed.options.maxOutputTokens ?? 2_000, 8_000) * 4;
       const catalog = options.getTools().filter(tool => tool.name !== "codemode");
       const calls = new Map<number, { controller: AbortController; promise: Promise<void> }>();
+      // Artifact paths of generated images, keyed by their bytes: the sandbox
+      // `image()` helper keeps only data+mimeType, so the path is reattached here.
+      const generatedImageRefs = new Map<string, string>();
       const invocationIds: string[] = [];
       let terminal = false;
       let suspension: Record<string, any> | undefined;
@@ -97,7 +105,7 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof s
       signal?.addEventListener("abort", abort, { once: true });
       const timer = setTimeout(() => stop({ ok: false, errorKind: "timeout", text: "Codemode deadline exceeded. Completed tool operations were not rolled back." }, true), timeoutMs + 2_000);
       child.on("error", error => stop({ ok: false, errorKind: "sandbox", text: error.message }));
-      child.on("exit", () => requestedStop ? finalize(requestedStop) : stop({ ok: false, errorKind: "sandbox", text: "Codemode process exited without a result. Inspect completed tool receipts before replanning." }));
+      child.on("close", () => requestedStop ? finalize(requestedStop) : stop({ ok: false, errorKind: "sandbox", text: "Codemode process exited without a result. Inspect completed tool receipts before replanning." }));
       child.on("message", (message: any) => {
         if (message.kind === "result" && requestedStop) {
           finalize({ ...message, ...requestedStop, text: [message.text, requestedStop.text].filter(Boolean).join("\n") });
@@ -114,7 +122,12 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof s
           try {
             if (typeof message.name === "string" && message.name.startsWith("models.")) {
               if (!options.models) throw new Error("Model operations are not available to this script.");
-              const value = await invokeModelOperation(options.models, message.name.slice("models.".length), message.args, controller.signal);
+              const value = await invokeModelOperation(options.models, message.name.slice("models.".length), message.args, controller.signal, id);
+              if (message.name === "models.generateImages" && value && typeof value === "object") {
+                for (const image of (value as { images?: Array<{ data?: unknown; ref?: unknown }> }).images ?? []) {
+                  if (typeof image.data === "string" && typeof image.ref === "string") generatedImageRefs.set(imageKey(image.data), image.ref);
+                }
+              }
               if (!terminal && child.connected) child.send({ kind: "reply", id: message.id, value });
               return;
             }
@@ -131,6 +144,12 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof s
             if (outcome.isError || result.error) throw new Error(result.error || result.content.filter(block => block.type === "text").map(block => block.text).join("\n") || "Tool call failed.");
             if (!terminal && child.connected) child.send({ kind: "reply", id: message.id, value: result });
           } catch (error) {
+            const suspended = (error as { suspendedResult?: AgentToolResult<unknown> & { metadata?: Record<string, unknown> } }).suspendedResult;
+            if (suspended) {
+              suspension = { details: suspended.details, metadata: suspended.metadata };
+              stop({ ok: false, text: `${error instanceof Error ? error.message : String(error)}\nModel operation awaits a decision. Completed receipts are retained; replan remaining work.` }, true);
+              return;
+            }
             if (!terminal && child.connected) child.send({ kind: "reply", id: message.id, error: error instanceof Error ? error.message : String(error) });
           }
         })();
@@ -146,7 +165,8 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof s
         await Promise.allSettled([...calls.values()].map(call => call.promise));
         await exited;
         const displayImages = Array.isArray(result.images)
-          ? inlineOrReferenceImages(result.images as Array<{ type: "image"; ref?: string; data: string; mimeType: string }>)
+          ? inlineOrReferenceImages((result.images as Array<{ type: "image"; ref?: string; data: string; mimeType: string }>)
+              .map(image => ({ ...image, ref: image.ref ?? generatedImageRefs.get(imageKey(image.data)) })))
           : [];
         return { content: [{ type: "text", text: result.text || "Script completed." }, ...displayImages],
           details: { ...suspension?.details, invocationIds, calls: result.calls ?? [], errorKind: result.errorKind,

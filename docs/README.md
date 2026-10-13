@@ -68,6 +68,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Research](research/) — memory systems, market positioning, Hermes/OpenClaw notes
 - [Sandbox designs](designs/sandbox/)
 - [Plugin guides](guides/plugins/) — [manifest design](designs/plugins/plugin-manifest.md), [plugin contract](guides/plugins/authoring.md), [plugin authoring](guides/plugins/plugin-authoring.md)
+- [Pi extension server runtime](guides/pi-extension-runtime.md) — supported methods, ownership, cancellation and model-call limits
 - [Subagent execution and failure recovery](guides/subagent-execution.md)
 - [Deferred tool guide](guides/tools/deferred-tool-authoring.md)
 - [Permission modes × sandbox policy](guides/permission-and-sandbox-modes.md)

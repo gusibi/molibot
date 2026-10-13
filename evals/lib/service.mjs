@@ -81,7 +81,7 @@ export async function startScratchService({
   dataDir,
   port,
   readyTimeoutMs = 90_000,
-  onLog = () => {}
+  onLog = /** @type {(chunk: string) => void} */ (() => {})
 }) {
   const env = {
     ...process.env,
@@ -116,7 +116,7 @@ export async function startScratchService({
   const exitInfo = () => exited;
   for (const stream of [child.stdout, child.stderr]) {
     stream.setEncoding("utf8");
-    stream.on("data", (chunk) => onLog(chunk));
+    stream.on("data", (chunk) => onLog(String(chunk)));
   }
 
   const endpoint = `http://127.0.0.1:${port}`;

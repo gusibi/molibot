@@ -213,7 +213,7 @@ async function failPiRecoveryReview(inspection: PiRecoveryInspection, managers: 
   const { record: owner, disposition } = inspection;
   const detail = inspection.reason ?? "The original execution could not be inspected.";
   const text = disposition === "review"
-    ? `Automatic recovery paused: ${detail} The original request was not resent; review the pending operation, then resend it if it should continue.`
+    ? `Automatic recovery paused: ${detail} The original request was not resent. Review the pending operation, then approve to continue the original execution or reject to stop it.`
     : `Automatic recovery is unavailable: ${detail} Resend the request to run it again.`;
   const store = new MomRuntimeStore(owner.workspaceDir);
   try {

@@ -48,7 +48,7 @@ export interface PiExtensionProcessDescriptor extends Omit<LoadedPiExtension, "e
  * Handles one worker-originated request (for example `executeTool`). A streaming
  * request pushes events through `emit` before returning its final value.
  */
-export type PiExtensionHostRequestHandler = (method: string, input: any, emit: (event: unknown) => void) => Promise<any>;
+export type PiExtensionHostRequestHandler = (method: string, input: any, emit: (event: unknown) => void, signal?: AbortSignal) => Promise<any>;
 
 export interface PiExtensionProcessClient {
   request(method: string, input: unknown, signal?: AbortSignal): Promise<any>;
@@ -120,6 +120,7 @@ export interface PiExtensionModelCatalog {
   image: PiExtensionModelRef[];
   /** Provider id -> credentials configured. Availability, not permission. */
   providerAuth: Record<string, boolean>;
+  providerOAuth?: Record<string, boolean>;
 }
 
 export const EMPTY_PI_EXTENSION_MODELS: PiExtensionModelCatalog = { chat: [], classifier: [], image: [], providerAuth: {} };

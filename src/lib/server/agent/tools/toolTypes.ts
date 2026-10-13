@@ -135,6 +135,8 @@ export interface ToolDefinition {
    * rather than assuming anything.
    */
   effect?: ToolEffect;
+  /** Composite execution delegates serialized effects to its owned nested tasks. This does not make replay safe. */
+  delegatesEffects?: boolean;
   /** Third party's own declaration, for `third_party` effects. */
   thirdPartyHint?: ThirdPartyHint;
   /** Explicit recovery semantics. Omitted third-party tools are conservative. */

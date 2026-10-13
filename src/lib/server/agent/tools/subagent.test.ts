@@ -681,7 +681,7 @@ test("createSubagentTool rejects a provider disabled after the tool was created"
 
 test("native child tools come from the shared runtime permission boundary", () => {
   const source = fs.readFileSync(path.resolve("src/lib/server/agent/tools/index.ts"), "utf8");
-  assert.match(source, /getChildTools = \(\) => \[readToolDef, bashToolDef, editToolDef, writeToolDef\]\.map\(toAgentTool\)/);
+  assert.match(source, /getChildTools = \(\) => \[readToolDef, bashToolDef, editToolDef, writeToolDef\]\.filter\(tool => !agentDisabledTools\.has\(tool\.id\)\)\.map\(toAgentTool\)/);
 });
 
 test("standalone skill drafter runs in a native owner and keeps a readable public transcript", { timeout: 10000 }, async () => {

@@ -56,7 +56,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
   }
 };
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, url }) => {
   try {
     const runtime = getRuntime();
     const body = await request.json() as { id?: string; action?: string; loginId?: string };
@@ -70,7 +70,7 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!server) throw new Error(`Unknown MCP server: ${id}`);
     if (body.action === "oauth_login" || body.action === "oauth_reauthorize") {
       if (!server.enabled) throw new Error(`MCP server is disabled: ${id}`);
-      const { session } = await manager.beginLogin(server, { force: body.action === "oauth_reauthorize" });
+      const { session } = await manager.beginLogin(server, { force: body.action === "oauth_reauthorize", callbackOrigin: url.origin });
       return json({ ...await responsePayload(), loginId: session.id, authorizationUrl: session.authorizationUrl });
     }
     if (body.action === "oauth_logout") {

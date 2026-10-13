@@ -1,4 +1,6 @@
 import { momError, momWarn } from "$lib/server/agent/common/log.js";
+import { createHash } from "node:crypto";
+import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
 import type {
   GateDecision,
   HookEvent,
@@ -61,10 +63,13 @@ function handlersFor(
           // During a run an event handler gets the same real state and callbacks
           // as a tool; outside a run it degrades to cwd + system prompt.
           const host = getPiExtensionRunHost(runId);
+          const parent = currentPiInvocation()?.api.taskId;
+          const call = payload as { toolCallId?: string };
+          const callerId = `event:${createHash("sha256").update(JSON.stringify([runId, extension.id, event, handlerIndex, parent, call.toolCallId])).digest("hex")}`;
           const hostToken = host && ctx ? bindPiExtensionHostSession(client, {
             executeTool: host.executeTool, modelOperations: host.modelOperations, streamModel: host.streamModel,
             abort: host.abort, compact: host.compact
-          }, ctx.signal, `event:${event}`) : undefined;
+          }, ctx.signal, callerId) : undefined;
           try {
             const runtime = host?.runtime ? await host.runtime() : undefined;
             const tools = host?.toolCatalog?.();

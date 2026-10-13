@@ -19,8 +19,11 @@ export interface PiRunBinding {
   assertStorageOwnership: () => void;
   assertAuthority: PiConversationOptions["assertAuthority"];
   recoverTools?: PiConversationOptions["recoverTools"];
+  nativeTools?: () => readonly AgentTool[];
+  nativeToolCall?: { name: string; args: unknown };
   approvedRecoveryCallIds?: readonly string[];
   beforeGeneration?: (taskId: string) => void;
+  beforeCompaction?: (taskId: string) => void;
   onGenerationError?: (taskId: string) => void;
   onDeferredCancel?: (outcome: "requested" | "unsupported" | "failed") => Promise<void>;
   onDeferred?: (pollAt: number, taskId?: string) => Promise<void>;
@@ -206,10 +209,15 @@ export class PiRunSession {
           if (!admitted) this.ownedModels.push(model);
           this.registerProvider?.(model.provider);
         },
+        beforeCompact: async (_compaction, api, context) => {
+          this.controller.signal.throwIfAborted(); context.abortSignal?.throwIfAborted();
+          this.binding!.beforeCompaction?.(`pi:${this.binding!.requestId}:compaction:${api.taskId}`);
+          return undefined;
+        },
         beforeChildGeneration: taskId => this.binding!.beforeGeneration?.(`pi:${this.binding!.requestId}:${taskId}`),
         onChildDeferred: async pollAt => { this.hasDeferred = true; await this.binding?.onDeferred?.(pollAt); },
         onChildTrace: this.binding.onChildTrace, onChildUsage: this.binding.onChildUsage, beforeChildTool: this.binding.beforeChildTool, afterChildTool: this.binding.afterChildTool, model: { provider: model.provider, modelId: model.id },
-        allowedModels, instructions: this.state.systemPrompt, tools: this.state.tools, initialMessages,
+        allowedModels, instructions: this.state.systemPrompt, tools: [...this.state.tools, ...(this.binding.nativeTools?.() ?? [])], visibleTools: this.state.tools.map(tool => tool.name), initialMessages,
         afterResponse: async (message, api) => {
           if (message.stopReason === "deferred") this.hasDeferred = true;
           if (message.stopReason === "error") {
@@ -280,7 +288,8 @@ export class PiRunSession {
         this.controller.signal.throwIfAborted();
         await this.runtime.configure({ thinkingLevel: this.state.thinkingLevel });
         this.controller.signal.throwIfAborted();
-        await this.runtime.runInput(async () => { this.primaryAdmitted = true; await this.flushQueued(); });
+        if (this.binding.nativeToolCall) await this.runtime.runToolCall(this.binding.nativeToolCall);
+        else await this.runtime.runInput(async () => { this.primaryAdmitted = true; await this.flushQueued(); });
         await this.refresh();
       } finally { this.controller.signal.removeEventListener("abort", abort); await this.emit({ type: "agent_end", messages: this.state.messages }); }
     } else {

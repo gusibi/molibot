@@ -19,11 +19,16 @@ export default function models(pi: any) {
       const probe = (name: string, fn: () => unknown) => { try { fn(); errors[name] = ""; } catch (error) { errors[name] = (error as Error).message; } };
       probe("apiKey", () => registry.getApiKeyForProvider("openai"));
       probe("register", () => registry.registerProvider("x", {}));
+      probe("providerConfig", () => registry.getRegisteredProviderConfig("openai"));
+      probe("nativeProvider", () => registry.getRegisteredNativeProvider("openai"));
       const classifier = registry.getModelsOfType("classifier")[0];
       const image = registry.getModelsOfType("image")[0];
       const classified = await registry.classify(classifier, { state: { a: 1 }, questions: { q: { type: "bool" } } });
       const generated = await registry.generateImages(image, { input: [{ type: "text", text: "a cat" }] });
       return { content: [{ type: "text", text: JSON.stringify({
+        availableTypes: (await registry.getAvailableOfType("classifier", "openai")).map((entry: any) => entry.id),
+        providerIds: registry.getRegisteredProviderIds(),
+        rejectedImage: await registry.generateImages(image, { input: [] }, { seed: 1 }),
         all: registry.getAll().map((entry: any) => entry.id),
         available: registry.getAvailable().map((entry: any) => entry.id),
         typesafe: registry.getModelOfType("classifier", "openai", "typesafe")?.id,
@@ -101,6 +106,10 @@ test("ctx.modelRegistry lists models and routes classify/image through the host"
       method: "modelRegistry.generateImages",
       input: { key: "image|openai|dalle", prompt: "a cat", images: [] }
     });
+    assert.deepEqual(payload.availableTypes, ["typesafe"]);
+    assert.deepEqual(payload.providerIds, ["openai"]);
+    assert.equal(payload.rejectedImage.stopReason, "error");
+    assert.match(payload.rejectedImage.errorMessage, /option seed/);
     assert.equal(payload.classified.stopReason, "stop");
     assert.deepEqual(payload.classified.answers, { q: { type: "bool", value: true } });
     assert.equal(payload.generated.stopReason, "stop");
@@ -118,6 +127,8 @@ test("credential and registration interfaces are rejected explicitly", async () 
     client.releaseHostSession("tok-2");
     assert.match(payload.errors.apiKey, /never exposed/);
     assert.match(payload.errors.register, /cannot modify providers/);
+    assert.match(payload.errors.providerConfig, /configuration may contain credentials/);
+    assert.match(payload.errors.nativeProvider, /Provider objects are host-owned/);
   });
 });
 

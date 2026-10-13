@@ -73,18 +73,34 @@ test("a denied authorization prevents the classify request", async () => {
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("generateImages persists the image and returns a reference plus display data", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "molibot-model-image-"));
+test("generateImages persists the image and returns a file-tool-usable reference plus display data", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "molibot-model-image-"));
+  const artifactDir = join(workspace, "artifacts");
   try {
     const calls: string[] = [];
-    const operations = createPiModelOperations({ models: fixtureModels(calls), artifactDir: directory, workspaceDir: "/workspace" });
+    const operations = createPiModelOperations({ models: fixtureModels(calls), artifactDir, workspaceDir: workspace });
     const result = await operations.generateImages({ prompt: "a cat" });
     assert.equal(result.images.length, 1);
     assert.equal(result.images[0].mimeType, "image/png");
     assert.equal(Buffer.from(result.images[0].data, "base64").toString(), "png-bytes");
-    assert.match(result.images[0].ref, /^\/workspace\/codemode-image-[a-f0-9]+\.png$/);
-    assert.equal(readFileSync(join(directory, result.images[0].ref.split("/").pop()!), "utf8"), "png-bytes");
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+    // The ref is the real persisted artifact, relative to the workspace so the
+    // model's file tools can open it.
+    assert.match(result.images[0].ref, /^artifacts\/codemode-image-[a-f0-9]+\.png$/);
+    assert.equal(readFileSync(join(workspace, result.images[0].ref), "utf8"), "png-bytes");
+  } finally { rmSync(workspace, { recursive: true, force: true }); }
+});
+
+test("an artifact persisted outside the workspace keeps an absolute reference", async () => {
+  const artifactDir = mkdtempSync(join(tmpdir(), "molibot-model-image-outside-"));
+  const workspace = mkdtempSync(join(tmpdir(), "molibot-model-image-ws-"));
+  try {
+    const operations = createPiModelOperations({ models: fixtureModels([]), artifactDir, workspaceDir: workspace });
+    const result = await operations.generateImages({ prompt: "a cat" });
+    assert.equal(result.images[0].ref, join(artifactDir, result.images[0].ref.split("/").pop()!));
+  } finally {
+    rmSync(artifactDir, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
+  }
 });
 
 test("an unknown model key fails with catalog guidance instead of a guessed model", async () => {
@@ -93,5 +109,57 @@ test("an unknown model key fails with catalog guidance instead of a guessed mode
     const operations = createPiModelOperations({ models: fixtureModels([]), artifactDir: directory, workspaceDir: directory });
     await assert.rejects(() => operations.classify({ model: "classifier|missing|x", state: {}, questions: {} }), /models\.list/);
     await assert.rejects(() => operations.generateImages({ model: "image|missing|x", prompt: "x" }), /models\.list/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("billed image usage survives artifact failure and keeps its call identity", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "molibot-model-failure-"));
+  try {
+    const receipts: ModelUsageReceipt[] = [];
+    const calls: string[] = [];
+    const { writeFileSync } = await import("node:fs");
+    const artifactDir = join(workspace, "blocked");
+    writeFileSync(artifactDir, "not a directory");
+    const operations = createPiModelOperations({ models: fixtureModels(calls), artifactDir, workspaceDir: workspace,
+      onUsage: receipt => receipts.push(receipt) });
+    await assert.rejects(() => operations.generateImages({ prompt: "cat" }, undefined, "original-image-call"));
+    assert.deepEqual(calls, ["generateImages"]);
+    assert.equal(receipts.length, 1);
+    assert.equal(receipts[0].id, "original-image-call");
+  } finally { rmSync(workspace, { recursive: true, force: true }); }
+});
+
+test("distinct model calls reserve distinct identities, while reuse keeps its identity", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "molibot-model-identities-"));
+  try {
+    const identities: string[] = [];
+    const operations = createPiModelOperations({ models: fixtureModels([]), artifactDir: workspace, workspaceDir: workspace,
+      beforeCall: (_operation, details) => identities.push(details.id) });
+    const input = { state: {}, questions: { flag: { type: "bool" as const, instructions: "yes?", criteria: { true: "yes", false: "no" } } } };
+    await operations.classify(input, undefined, "first");
+    await operations.classify(input, undefined, "second");
+    assert.deepEqual(identities, ["first", "second"]);
+  } finally { rmSync(workspace, { recursive: true, force: true }); }
+});
+
+
+test("oversized inline references are rejected before any billed request", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "model-reference-inline-")); const calls: string[] = [];
+  try {
+    const operations = createPiModelOperations({ models: fixtureModels(calls), artifactDir: directory, workspaceDir: directory });
+    await assert.rejects(operations.generateImages({ prompt: "reference", images: [`data:image/png;base64,${Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64")}`] }), /exceeds 10 MiB/);
+    assert.deepEqual(calls, []);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("oversized downloads cancel the body before reading the remaining chunks", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "model-reference-stream-")); const calls: string[] = [];
+  let pulls = 0; let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({ pull(controller) { pulls++; controller.enqueue(new Uint8Array(1024 * 1024)); if (pulls === 12) controller.close(); }, cancel() { cancelled = true; } }, { highWaterMark: 0 });
+  try {
+    const operations = createPiModelOperations({ models: fixtureModels(calls), artifactDir: directory, workspaceDir: directory,
+      fetch: async () => new Response(body, { headers: { "content-type": "image/png" } }) });
+    await assert.rejects(operations.generateImages({ prompt: "reference", images: ["https://fixture.invalid/large.png"] }), /exceeds 10 MiB/);
+    assert.equal(cancelled, true); assert.equal(pulls, 11); assert.deepEqual(calls, []);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

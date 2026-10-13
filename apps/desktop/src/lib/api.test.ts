@@ -2406,7 +2406,8 @@ test("shared Agent rules read the global scope and save only AGENTS.md", async (
   try {
     assert.equal(await loadDesktopSharedAgentRules("http://localhost:3040"), "shared rules");
     assert.equal(await saveDesktopSharedAgentRules("http://localhost:3040", "new rules"), "shared rules");
-    assert.match(requests[0].url, /scope=global$/);
+    assert.equal(requests[0].url, "http://localhost:3040/api/desktop/profile-files?scope=global");
+    assert.equal(requests[1].url, "http://localhost:3040/api/desktop/profile-files");
     assert.deepEqual(requests[1].body, { scope: "global", files: { "AGENTS.md": "new rules" } });
   } finally { globalThis.fetch = original; }
 });

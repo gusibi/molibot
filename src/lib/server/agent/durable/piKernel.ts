@@ -24,7 +24,7 @@ export function claimPiStorage(path: string): () => void {
 }
 
 export interface PiDurableKernelOptions {
-  nested?: (invocation: Pick<NativeInvocation, "api" | "context">, tool: AgentTool, id: string, args: unknown) => ReturnType<NativeInvocation["nested"]>;
+  nested?: (invocation: Pick<NativeInvocation, "api" | "context">, tool: AgentTool, id: string, args: unknown, signal?: AbortSignal) => ReturnType<NativeInvocation["nested"]>;
   extensionName?: string;
   child?: (invocation: Pick<NativeInvocation, "api" | "context">, options: Parameters<NativeInvocation["child"]>[0]) => ReturnType<NativeInvocation["child"]>;
   storagePath: string;
@@ -313,12 +313,12 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
           const execute = async () => prepared
             ? "execute" in prepared ? await prepared.execute() : prepared
             : await tool.execute(api.callId, args, context.abortSignal, onUpdate);
-          result = await withPiInvocation({ api, context, child: child => {
+          result = await withPiInvocation({ storagePath: options.storagePath, api, context, child: child => {
             if (!options.child) throw new Error("Native child execution is unavailable.");
             return options.child({ api, context }, child);
-          }, nested: (target, id, input) => {
+          }, nested: (target, id, input, signal) => {
             if (!options.nested) throw new Error("Native nested execution is unavailable.");
-            return options.nested({ api, context }, target, id, input);
+            return options.nested({ api, context }, target, id, input, signal);
           } }, execute);
         } catch (cause) {
           if (cause instanceof PiPreparationRecoveryError) {

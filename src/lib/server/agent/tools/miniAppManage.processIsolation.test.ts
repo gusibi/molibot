@@ -1,3 +1,4 @@
+import { isolatedDataEnv } from "../../../../../evals/lib/isolatedEnv.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -64,6 +65,8 @@ if (process.env[HARNESS_ENV] === "1") {
   await runHarness();
 } else {
   test("miniAppManage contains a candidate process exit during validation", async () => {
+    const dataRoot = mkdtempSync(path.join(tmpdir(), "molibot-miniapp-process-"));
+    try {
     const testFile = fileURLToPath(import.meta.url);
     const repoRoot = path.resolve(path.dirname(testFile), "../../../../..");
     const child = spawn(process.execPath, [
@@ -72,7 +75,7 @@ if (process.env[HARNESS_ENV] === "1") {
       testFile
     ], {
       cwd: repoRoot,
-      env: { ...process.env, [HARNESS_ENV]: "1" },
+      env: { ...isolatedDataEnv(dataRoot), [HARNESS_ENV]: "1" },
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stderr = "";
@@ -81,5 +84,6 @@ if (process.env[HARNESS_ENV] === "1") {
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
     assert.deepEqual(result, { code: 0, signal: null }, stderr);
+    } finally { rmSync(dataRoot, { recursive: true, force: true }); }
   });
 }

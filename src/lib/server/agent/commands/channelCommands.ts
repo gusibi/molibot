@@ -43,7 +43,7 @@ import { formatRunLogText } from "$lib/server/agent/session/runDetail.js";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import type { ProjectRecord } from "$lib/server/projects/store.js";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
-import { listPiExtensionCommands, runPiExtensionCommand } from "$lib/server/plugins/piExtensions/commandBridge.js";
+import { listPiExtensionCommands, piExtensionCommandToolName } from "$lib/server/plugins/piExtensions/commandBridge.js";
 import { getMiniAppHost } from "$lib/server/miniapps/registry.js";
 import { formatMiniAppList } from "$lib/server/miniapps/invocation.js";
 import { DurableChannelCommandService } from "$lib/server/agent/durable/channelCommands.js";
@@ -2143,25 +2143,17 @@ export class SharedRuntimeCommandService<TTarget> {
     const extensions = this.activeExtensions();
     if (extensions.length === 0) return false;
 
-    const result = await runPiExtensionCommand(cmd, rawArg, {
-      extensions,
-      cwd: this.options.workspaceDir
-    });
-    if (!result.handled) return false;
-
-    if (result.error) {
-      await this.options.sendText(
-        input.target,
-        this.text(`Extension command failed: ${result.error}`, `扩展命令执行失败：${result.error}`)
-      );
+    const name = cmd.replace(/^\//, "");
+    const extension = extensions.find(item => item.commandNames.includes(name));
+    if (!extension) return false;
+    if (this.options.isRunning(input.scopeId)) {
+      await this.options.sendText(input.target, this.text("The current execution is busy. Stop it or wait before running this extension command.", "当前执行忙碌。请等待完成或停止后再运行扩展命令。"));
       return true;
     }
-
-    await this.options.sendText(
-      input.target,
-      result.output
-        ?? this.text(`Command ${cmd} finished.`, `命令 ${cmd} 已执行完成。`)
-    );
+    const sessionId = this.options.store.getActiveSession(input.scopeId);
+    const runner = this.options.runners.get(input.scopeId, sessionId);
+    await runner.runExtensionCommand({ toolName: piExtensionCommandToolName(extension.id, name), command: name, args: rawArg,
+      respond: text => this.options.sendText(input.target, text) });
     return true;
   }
 

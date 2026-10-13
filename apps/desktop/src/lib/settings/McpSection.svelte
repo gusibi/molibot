@@ -26,6 +26,7 @@
     updateMcpEdit
   } from "../stores/mcp.svelte";
 
+  let actionMessage = $derived(mcpStore.actionMessageKey ? session.text[mcpStore.actionMessageKey] : "");
   let deletingMcpServer = $state<NonNullable<typeof mcpStore.mcp>["items"][number] | null>(null);
 
   function statusLabel(state: string): string {
@@ -69,7 +70,7 @@
   }
 
   $effect(() => {
-    if (session.serviceReady && session.endpoint && session.endpoint !== mcpStore.endpoint) {
+    if (session.serviceReady && session.endpoint) {
       void loadMcp(session.endpoint);
     }
   });
@@ -97,7 +98,7 @@
       <EmptyState title={session.text.mcpEmpty} description={session.text.mcpHint} icon="plugs-connected" />
     {:else}
       {#each mcpStore.mcp.items as server (server.id)}
-        <div class="settings-row" in:listIn out:listOut animate:listFlip>
+        <div class="settings-row mcp-server-row" in:listIn out:listOut animate:listFlip>
           <div class="profile-info">
             <strong>{server.name}</strong>
             {#if server.transport === "stdio"}
@@ -186,5 +187,5 @@
     </AlertDialog>
   {/if}
 
-  {#if mcpStore.actionMessage}<p class="settings-action-message" aria-live="polite">{mcpStore.actionMessage}</p>{/if}
+  {#if actionMessage}<p class="settings-action-message" aria-live="polite">{actionMessage}</p>{/if}
 {/if}

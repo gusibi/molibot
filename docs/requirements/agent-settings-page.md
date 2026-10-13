@@ -102,3 +102,7 @@
 ### 2026-10-11 — 共享规则生效范围（已交付）
 
 导航分组使用“助手”。Agent 管理上方的共享规则编辑读写真实全局 AGENTS.md；所有 Agent 均叠加共享规则与自己的规则，Momo 的同一文件只注入一次。身份和模型等明确设置继续优先于默认值。共享编辑只保存 AGENTS.md，保留其它 profile 文件。
+
+### 2026-10-13 — 原生共享规则读写（已验证）
+
+共享规则使用 Tauri 已授权的 `/api/desktop/profile-files`，显式传 `scope=global`；保存只提交 AGENTS.md，保留其它 profile 文件。接口回读、HTTP scope 守卫、两种浏览器各 5 次及隔离原生 App 的保存/重启/中断恢复已验证。没有扩大 Tauri 的 HTTP 白名单。

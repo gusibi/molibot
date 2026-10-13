@@ -4,7 +4,15 @@ import { writeFile } from "node:fs/promises";
 const pending = new Map();
 let sequence = 0;
 const controller = new AbortController();
-const send = value => { if (process.connected) process.send(value); };
+// Resolves once the message is flushed to the channel. A large result (for
+// example an image the host must re-reference) must not be discarded by a
+// disconnect that races the write.
+const send = value => {
+  if (!process.connected) return Promise.resolve();
+  return new Promise(resolve => {
+    try { process.send(value, undefined, undefined, () => resolve()); } catch { resolve(); }
+  });
+};
 process.on("message", async message => {
   if (message.kind === "abort") { controller.abort(); return; }
   if (message.kind === "reply") {
@@ -48,12 +56,12 @@ process.on("message", async message => {
     const full = text.join("\n");
     const truncated = full.length > message.maxChars;
     if (truncated) await writeFile(message.outputPath, full, { mode: 0o600 });
-    send({ kind: "result", ok: result.ok, errorKind: result.ok ? undefined : result.error.kind,
+    await send({ kind: "result", ok: result.ok, errorKind: result.ok ? undefined : result.error.kind,
       text: truncated ? `${full.slice(0, message.maxChars)}\n[Output truncated; full output: ${message.outputRef}]` : full,
       calls: result.calls, truncated,
       images: result.output.filter(block => block.type === "image") });
   } catch (error) {
-    send({ kind: "result", ok: false, errorKind: "sandbox", text: `Script failed: ${error.message}` });
+    await send({ kind: "result", ok: false, errorKind: "sandbox", text: `Script failed: ${error.message}` });
   } finally {
     await sandbox.close();
     process.disconnect();

@@ -26,6 +26,8 @@ const ChildBinding = defineEntry<{ taskId: number; key: string; conversationId: 
 const Binding = defineEntry<{ key: string; requestId: string; content: JsonValue; runId: string }>("molibot.runner-binding");
 const History = defineEntry("molibot.runner-history");
 const Continuation = defineEntry<{ requestId: string; taskId: TaskId }>("molibot.runner-continuation");
+const NativeCall = defineEntry<{ requestId: string; fingerprint: string; taskId: number }>("molibot.native-call");
+const NativeReply = defineEntry<{ requestId: string }>("molibot.native-reply");
 const Control = defineEntry<{ requestId: string; mode: "steer" | "followUp" }>("molibot.runner-control");
 
 /**
@@ -78,6 +80,7 @@ export class PiConversationRuntime {
   private timer?: ReturnType<typeof setInterval>;
   private ownershipError?: unknown;
   private aborting?: Promise<void>;
+  private explicitCompaction = false;
   private releaseStorage?: () => void;
   private suspensionFailure?: unknown;
   private projection: Promise<void> = Promise.resolve();
@@ -103,7 +106,10 @@ export class PiConversationRuntime {
     this.suspended = new Promise(resolve => { this.suspend = requestId => resolve({ requestId }); });
     try {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      this.registryTools = createPiToolRegistry({ ...this.options, beforeCompact: () => ({ decline: true }), child: (invocation, child) => this.childSession(invocation, child), nested: (invocation, tool, id, args) => this.nestedCall(invocation, tool, id, args), onRecoveryRequired: cause => {
+      this.registryTools = createPiToolRegistry({ ...this.options, beforeCompact: async (compaction, api, context) => {
+        if (!this.explicitCompaction) return { decline: true };
+        return this.options.beforeCompact?.(compaction, api, context);
+      }, child: (invocation, child) => this.childSession(invocation, child), nested: (invocation, tool, id, args, signal) => this.nestedCall(invocation, tool, id, args, signal), onRecoveryRequired: cause => {
         this.options.onRecoveryRequired?.(cause);
         this.suspendFailure(cause);
       } }, (requestId, detail) => {
@@ -238,7 +244,8 @@ export class PiConversationRuntime {
     return assistant;
   }
 
-  private async nestedCall(invocation: Pick<NativeInvocation, "api" | "context">, tool: import("@earendil-works/pi-agent-core").AgentTool, id: string, args: unknown) {
+  private async nestedCall(invocation: Pick<NativeInvocation, "api" | "context">, tool: import("@earendil-works/pi-agent-core").AgentTool, id: string, args: unknown, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     const { api, context } = invocation;
     this.options.assertStorageOwnership();
     this.options.assertAuthority(tool.name, args);
@@ -266,9 +273,17 @@ export class PiConversationRuntime {
       await tx.appendEntry(NestedCall, api.conversationId, { data: { owner: api.taskId, id, fingerprint, taskId } });
       return taskId;
     }, context);
-    const settled = await api.waitForTask(taskId, context);
-    if (settled.state.outcome.status !== "completed") throw new Error(`Native nested tool did not commit a receipt: ${JSON.stringify(settled.state.outcome)}`);
-    const entryId = settled.state.outcome.result.entryId;
+    const abort = () => { void this.harness!.abortTask(taskId, BACKGROUND_CONTEXT).catch(cause => this.suspendFailure(cause)); };
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    let settled;
+    try { settled = await api.waitForTask(taskId, context); }
+    finally { signal?.removeEventListener("abort", abort); }
+    signal?.throwIfAborted();
+    const outcome = settled.state.outcome;
+    const committed = "result" in outcome ? outcome.result : undefined;
+    if (!committed || typeof committed !== "object" || !("entryId" in committed)) throw new Error(`Native nested tool did not commit a receipt: ${JSON.stringify(outcome)}`);
+    const entryId = committed.entryId as EntryId;
     const entry = await api.commit(tx => tx.entry(entryId), context);
     const result = entry?.model?.find(message => message.role === "toolResult");
     if (!result) throw new Error("Native nested tool receipt is missing.");
@@ -293,10 +308,10 @@ export class PiConversationRuntime {
     } finally { store.close(); }
   }
 
-  private async projectChildUsage(child: Conversation): Promise<void> {
+  private async projectChildUsage(child: Conversation, compactionOnly = false): Promise<void> {
     if (!this.options.onChildUsage) return;
     const receipts = await child.commit(async tx => {
-      const ledger = await tx.doc(UsageDoc, child.id);
+      const ledger = JSON.parse(JSON.stringify(await tx.doc(UsageDoc, child.id))) as import("@earendil-works/pi-durable").UsageState;
       const projected = await tx.doc(ChildUsageProjection, child.id);
       const entries: EntryRecord[] = [];
       let cursor: Cursor | undefined;
@@ -304,6 +319,16 @@ export class PiConversationRuntime {
         const page = await tx.scanEntries({ conversationId: child.id }, 64, cursor);
         entries.push(...page.items); cursor = page.next;
       } while (cursor !== undefined);
+      if (compactionOnly) for (const entry of entries) {
+        if (!AssistantEntry.is(entry)) continue;
+        for (const message of entry.model ?? []) {
+          if (message.role !== "assistant") continue;
+          const total = ledger.models[`${message.provider}/${message.model}`];
+          if (!total) continue;
+          for (const counter of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) total[counter] -= message.usage[counter];
+          for (const counter of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[counter] -= message.usage.cost[counter];
+        }
+      }
       for (const [key, total] of Object.entries(ledger.models)) {
         const previous = projected.models[key];
         const delta = JSON.parse(JSON.stringify(total)) as import("@earendil-works/pi-ai").Usage;
@@ -323,7 +348,7 @@ export class PiConversationRuntime {
       return entries;
     }, BACKGROUND_CONTEXT);
     for (const entry of receipts) if (ChildUsageReceipt.is(entry) && !this.projectedChildUsage.has(entry.id)) {
-      await this.options.onChildUsage({ id: `pi:${createHash("sha256").update(this.options.storagePath).digest("hex")}:child:${child.id}:usage:${entry.id}`, ...entry.data,
+      await this.options.onChildUsage({ id: `pi:${createHash("sha256").update(this.options.storagePath).digest("hex")}:${compactionOnly ? "compaction" : "child"}:${child.id}:usage:${entry.id}`, ...entry.data,
         usage: entry.data.usage as unknown as import("@earendil-works/pi-ai").Usage });
       this.projectedChildUsage.add(entry.id);
     }
@@ -598,6 +623,51 @@ export class PiConversationRuntime {
     return this.wait(async () => { await submission.wait(BACKGROUND_CONTEXT); await conversation.waitForIdle(BACKGROUND_CONTEXT); });
   }
 
+  /** Admit an explicit installed command as an owned tool, without asking a model to dispatch it. */
+  async runToolCall(call: { name: string; args: unknown }) {
+    const conversation = this.requireConversation();
+    await this.assertRecovery();
+    const fingerprint = createHash("sha256").update(JSON.stringify(call)).digest("hex");
+    const agent = await conversation.agent(BACKGROUND_CONTEXT);
+    await conversation.configure({ tools: this.visible([...new Set([...agent.tools.map(tool => tool.name), call.name])]) }, BACKGROUND_CONTEXT);
+    const taskId = await conversation.commit(async tx => {
+      let cursor: Cursor | undefined;
+      do {
+        const page = await tx.scanEntries({ conversationId: conversation.id }, 64, cursor);
+        const binding = page.items.find(entry => NativeCall.is(entry) && entry.data.requestId === this.requestId);
+        if (binding && NativeCall.is(binding)) {
+          if (binding.data.fingerprint !== fingerprint) throw new Error("The admitted command changed during recovery.");
+          return binding.data.taskId as TaskId<import("@earendil-works/pi-durable").ToolTaskResult>;
+        }
+        cursor = page.next;
+      } while (cursor !== undefined);
+      await tx.appendEntry(History, conversation.id, { model: [{ role: "user", content: typeof this.admitted === "string" ? this.admitted : this.admitted!, timestamp: Date.now() }] });
+      const assistant = await tx.appendEntry(AssistantEntry, conversation.id, { model: [{ role: "assistant", provider: "molibot", api: "openai-completions", model: "extension-command", timestamp: Date.now(), stopReason: "toolUse",
+        content: [{ type: "toolCall", id: `command:${this.requestId}`, name: call.name, arguments: JSON.parse(JSON.stringify(call.args)) }], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }] });
+      const task = await tx.createTask(ToolTask, { assistant: assistant.id, callId: `command:${this.requestId}` }, { ownership: { kind: "conversation" } });
+      await tx.appendEntry(NativeCall, conversation.id, { data: { requestId: this.requestId!, fingerprint, taskId: task } });
+      return task;
+    }, BACKGROUND_CONTEXT);
+    return this.wait(async () => {
+      const settled = await this.harness!.waitForTask(taskId, BACKGROUND_CONTEXT);
+      const outcome = settled.state.outcome;
+      const committed = "result" in outcome ? outcome.result : undefined;
+      if (!committed || typeof committed !== "object" || !("entryId" in committed)) throw new Error("The command has no committed result.");
+      await conversation.commit(async tx => {
+        let cursor: Cursor | undefined;
+        do {
+          const page = await tx.scanEntries({ conversationId: conversation.id }, 64, cursor);
+          if (page.items.some(entry => NativeReply.is(entry) && entry.data.requestId === this.requestId)) return;
+          cursor = page.next;
+        } while (cursor !== undefined);
+        const entry = await tx.entry(committed.entryId as EntryId);
+        const reply = entry?.model?.find(message => message.role === "toolResult");
+        if (!reply || reply.role !== "toolResult") throw new Error("The command result is unreadable.");
+        await tx.appendEntry(NativeReply, conversation.id, { data: { requestId: this.requestId! }, model: [{ role: "assistant", api: "openai-completions", provider: "molibot", model: "extension-command", timestamp: Date.now(), stopReason: reply.isError ? "error" : "stop", content: reply.content.filter(block => block.type === "text"), usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }] });
+      }, BACKGROUND_CONTEXT);
+    });
+  }
+
   /** A native generation from committed context, with no synthetic user turn or transcript rollback. */
   async continue(requestId: string) {
     const conversation = this.requireConversation();
@@ -669,6 +739,7 @@ export class PiConversationRuntime {
   }
 
   private async project(entries: readonly EntryRecord[]): Promise<void> {
+    await this.projectChildUsage(this.requireConversation(), true);
     for (const entry of entries) if (entry.model?.length && !History.is(entry)) {
       this.options.assertStorageOwnership();
       let input: { primary: boolean; mode?: "steer" | "followUp" } | undefined;
@@ -704,9 +775,14 @@ export class PiConversationRuntime {
   }
 
   async compact(instructions?: string) {
-    const task = await this.requireConversation().compact(instructions, BACKGROUND_CONTEXT);
-    await this.harness!.waitForTask(task, BACKGROUND_CONTEXT);
-    await this.serializeProjection(async () => this.project((await this.context()).entries));
+    if (this.explicitCompaction) throw new Error("Compaction is already running for this Session.");
+    this.explicitCompaction = true;
+    try {
+      const task = await this.requireConversation().compact(instructions, BACKGROUND_CONTEXT);
+      const settled = await this.harness!.waitForTask(task, BACKGROUND_CONTEXT);
+      if (!("result" in settled.state.outcome)) throw new Error("Native compaction did not complete.");
+      await this.serializeProjection(async () => this.project((await this.context()).entries));
+    } finally { this.explicitCompaction = false; }
   }
 
   async abort(): Promise<void> {

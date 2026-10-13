@@ -19,7 +19,7 @@ export interface PiExtensionToolOptions {
    * Run a nested tool through the shared ToolRuntime (permissions, approvals,
    * budgets). Omitted when the caller has no shared dispatcher.
    */
-  executeTool?: (name: string, args: unknown, signal: AbortSignal | undefined, callerId: string) => Promise<AgentToolCallOutcome>;
+  executeTool?: (name: string, args: unknown, signal: AbortSignal | undefined, callerId: string, onUpdate?: (event: unknown) => void) => Promise<AgentToolCallOutcome>;
   /**
    * Tools an extension may call, as `ctx.tools`. Exactly the set the model can
    * call, so an extension discovers what `executeTool` accepts.
@@ -28,7 +28,7 @@ export interface PiExtensionToolOptions {
   /** Abort the current run, for `ctx.abort()`. Available in every mode. */
   abort?: () => void;
   /** Trigger compaction for `ctx.compact()`, reusing the run's budget. */
-  compact?: () => void | Promise<void>;
+  compact?: (instructions?: string) => void | Promise<void>;
   /**
    * Model work behind `ctx.modelRegistry.classify`/`generateImages`; the shared
    * `ModelOperations` entry. Omitted when the caller cannot authorize it.
@@ -43,6 +43,7 @@ export interface PiExtensionToolOptions {
 }
 
 export interface PiExtensionStreamInput {
+  callId?: string;
   model: { provider: string; id: string };
   context: unknown;
   options: unknown;
@@ -65,29 +66,37 @@ export function bindPiExtensionHostSession(
   const token = randomUUID();
   // One AbortController per in-flight stream so the extension can cancel it.
   const streams = new Map<string, AbortController>();
-  client.registerHostSession(token, async (method, input, emit) => {
+  let sequence = 0;
+  client.registerHostSession(token, async (method, input, emit, callSignal) => {
+    signal?.throwIfAborted();
+    const ownedSignal = signal && callSignal ? AbortSignal.any([signal, callSignal]) : signal ?? callSignal;
+    ownedSignal?.throwIfAborted();
+    const callId = `${callerId}:extension:${sequence++}`;
     if (method === "executeTool" && options.executeTool) {
-      return options.executeTool(String(input?.toolName ?? ""), input?.args, signal, callerId);
+      return options.executeTool(String(input?.toolName ?? ""), input?.args, ownedSignal, callId, emit);
     }
     if (method === "modelRegistry.classify" && options.modelOperations) {
-      return options.modelOperations.classify({ model: input?.key, state: input?.state ?? {}, questions: input?.questions ?? {} }, signal);
+      return options.modelOperations.classify({ model: input?.key, state: input?.state ?? {}, questions: input?.questions ?? {} }, ownedSignal, callId);
     }
     if (method === "modelRegistry.generateImages" && options.modelOperations) {
-      return options.modelOperations.generateImages({ model: input?.key, prompt: String(input?.prompt ?? ""), images: input?.images }, signal);
+      return options.modelOperations.generateImages({ model: input?.key, prompt: String(input?.prompt ?? ""), images: input?.images }, ownedSignal, callId);
     }
     if (method === "modelRegistry.stream" && options.streamModel) {
       const streamId = String(input?.streamId ?? randomUUID());
       const controller = new AbortController();
-      if (signal) signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+      const abort = () => controller.abort(ownedSignal?.reason);
+      if (ownedSignal) ownedSignal.addEventListener("abort", abort, { once: true });
       streams.set(streamId, controller);
       try {
         return await options.streamModel({
+          callId,
           model: { provider: String(input?.model?.provider ?? ""), id: String(input?.model?.id ?? "") },
           context: input?.context,
           options: input?.options,
           simple: Boolean(input?.simple)
         }, emit, controller.signal);
       } finally {
+        ownedSignal?.removeEventListener("abort", abort);
         streams.delete(streamId);
       }
     }
@@ -100,7 +109,7 @@ export function bindPiExtensionHostSession(
       return null;
     }
     if (method === "compact" && options.compact) {
-      await options.compact();
+      await options.compact(typeof input?.customInstructions === "string" ? input.customInstructions : undefined);
       return null;
     }
     throw new Error(`Unsupported extension host method: ${method}`);

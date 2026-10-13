@@ -1,3 +1,4 @@
+import { withMcpOAuthCall, withMcpOAuthSignal } from "$lib/server/agent/mcp/oauth.js";
 import {
   McpClient,
   StdioTransport,
@@ -24,6 +25,7 @@ import {
 
 export interface McpRegistryOptions {
   workspaceDir: string;
+  allowInteractiveAuthorization?: boolean;
   onWarn?: (message: string, extra?: Record<string, unknown>) => void;
 }
 
@@ -85,7 +87,7 @@ export async function callMcpToolWithTimeout(
   });
   try {
     return await Promise.race([
-      client.callTool(name, args, { signal: executionSignal, timeoutMs }),
+      withMcpOAuthSignal(executionSignal, () => client.callTool(name, args, { signal: executionSignal, timeoutMs })),
       interrupted
     ]);
   } finally {
@@ -286,7 +288,7 @@ export class McpToolRegistry {
       parameters,
       execute: async (_toolCallId, params, signal): Promise<{ content: Array<TextContent | ImageContent>; details: McpToolDetails }> => {
         const toolArgs = params && typeof params === "object" ? params as Record<string, unknown> : {};
-        const result = await callMcpToolWithTimeout(client, remote.name, toolArgs, signal, server.timeoutMs);
+        const result = await withMcpOAuthCall({ signal, interactive: options.allowInteractiveAuthorization === true, replaySafe: remote.annotations?.readOnlyHint === true }, () => callMcpToolWithTimeout(client, remote.name, toolArgs, signal, server.timeoutMs));
         const converted = toLlmContent(result);
         // Pi maps a content-less result (no blocks, no `structuredContent`) to
         // an empty array; keep the explicit placeholder so the model sees that
@@ -456,6 +458,10 @@ export class McpToolRegistry {
       const configured = new Map(servers.map((server) => [server.id, server]));
       for (const [key, existing] of this.servers) {
         const next = configured.get(existing.config.id);
+        const authScope = (server: McpServerConfig) => JSON.stringify([server.transport, server.http.url, server.auth?.mode, server.auth?.mode === "oauth" ? server.auth.oauth.authServerMetadataUrl : undefined]);
+        if (next && authScope(next) !== authScope(existing.config) && existing.config.auth?.mode === "oauth") {
+          this.oauthManager.forgetServer(existing.config.id);
+        }
         if (next?.enabled) continue;
         await this.closeServer(existing, next ? "disabled" : "disconnected");
         if (!next) {

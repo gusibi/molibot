@@ -257,7 +257,10 @@ export class RoomStore {
     return row ? String(row.run_id) : undefined;
   }
   recordContextRun(executionId: string, runId: string) {
-    this.db.prepare("INSERT INTO room_context_runs VALUES(?,?)").run(executionId, runId);
+    // A recovered Room execution re-enters the runner with the same id, so the
+    // mapping is written again; recording it must be idempotent.
+    this.db.prepare("INSERT INTO room_context_runs VALUES(?,?) ON CONFLICT(execution_id) DO UPDATE SET run_id=excluded.run_id")
+      .run(executionId, runId);
   }
   contextSourceDispatches(roomId: string, contextId: string, presentRunIds: Set<string>): Set<string> {
     const rows = this.db.prepare("SELECT e.dispatch_id,r.run_id FROM room_executions e JOIN room_context_runs r ON e.id=r.execution_id WHERE e.room_id=? AND e.context_id=?").all(roomId, contextId) as Row[];

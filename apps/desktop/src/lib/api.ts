@@ -4405,12 +4405,12 @@ export async function uploadDesktopAgentAvatar(endpoint: string, agentId: string
 }
 
 export async function loadDesktopSharedAgentRules(endpoint: string): Promise<string> {
-  const payload = await requestJson<DesktopProfileFilesResponse>(endpoint, "/api/settings/profile-files?scope=global");
+  const payload = await requestJson<DesktopProfileFilesResponse>(endpoint, "/api/desktop/profile-files?scope=global");
   return payload.files["AGENTS.md"] ?? "";
 }
 
 export async function saveDesktopSharedAgentRules(endpoint: string, rules: string): Promise<string> {
-  const payload = await requestJson<DesktopProfileFilesResponse>(endpoint, "/api/settings/profile-files", {
+  const payload = await requestJson<DesktopProfileFilesResponse>(endpoint, "/api/desktop/profile-files", {
     method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope: "global", files: { "AGENTS.md": rules } })
   });

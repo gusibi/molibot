@@ -375,7 +375,7 @@ export class ToolRuntime {
   private async executeAuthorizedToolCall(call: ToolCallInput, tool: ToolDefinition, invocation?: PreparedToolInvocation): Promise<ToolResult> {
     const sideEffect = classifyToolSideEffect(tool.id, call.input, call.context.toolCallId, tool.sideEffectClass);
     const hasSideEffectBoundary = sideEffect.sideEffectClass !== "pure";
-    const releaseSideEffectSlot = hasSideEffectBoundary
+    const releaseSideEffectSlot = hasSideEffectBoundary && !tool.delegatesEffects
       ? await this.acquireSideEffectSlot(call.context.signal)
       : undefined;
     try {

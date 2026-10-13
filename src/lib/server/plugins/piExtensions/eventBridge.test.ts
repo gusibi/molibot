@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { registerPiExtensionRunHost, clearPiExtensionRunHost } from "./runHost.js";
 import { DefaultHookManager } from "$lib/server/agent/hooks/manager.js";
 import type { HookContext } from "$lib/server/agent/hooks/types.js";
 import { createPiExtensionHookPlugin } from "$lib/server/plugins/piExtensions/eventBridge.js";
@@ -207,4 +208,22 @@ test("session_start fires once per session, not once per turn", async () => {
   await manager.flush({ runId: "run-3" });
 
   assert.equal(starts, 2);
+});
+
+
+test("event handlers retain distinct and replay-stable child identities for each parent call", async () => {
+  const ids: string[] = []; const sessions = new Map<string, any>();
+  const client = {
+    registerHostSession: (token: string, handler: any) => sessions.set(token, handler),
+    releaseHostSession: (token: string) => sessions.delete(token),
+    request: async (_method: string, input: any) => { await sessions.get(input.hostToken)("modelRegistry.classify", { key: "classifier|fixture|one" }, () => {}); return { results: [undefined] }; }
+  };
+  const extensions = ["one", "two"].map(id => ({ ...fakeExtension(id, {}), extension: undefined, client, eventNames: ["tool_call"], eventHandlerCounts: { tool_call: 2 } }) as unknown as LoadedPiExtension);
+  registerPiExtensionRunHost("run-1", { modelOperations: { classify: async (_input, _signal, id) => { ids.push(id!); return { model: "one", answers: {} }; }, generateImages: async () => { throw new Error("Not used"); } } });
+  try {
+    const manager = managerWith(extensions);
+    for (const parent of ["parent-one", "parent-two", "parent-one"]) await manager.gate("tool.call.before", hookContext(), { toolName: "read", toolCallId: parent, args: { path: "fixture.txt" } });
+    assert.equal(ids.length, 12); assert.equal(new Set(ids.slice(0, 8)).size, 8);
+    assert.deepEqual(ids.slice(8), ids.slice(0, 4)); assert.equal(sessions.size, 0);
+  } finally { clearPiExtensionRunHost("run-1"); }
 });

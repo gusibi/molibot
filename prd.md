@@ -1,3 +1,7 @@
+## Feature 开发验证自动化（2026-10-12，P0，草案待实施）
+
+每个 feature 完成后由 `verify:feature` 按改动自动选择并运行验证：隔离的 Molibot 实例（临时数据目录与 HOME、独立应用标识、环境变量白名单、按用例预设回复的本地模型服务），Playwright（WebKit 为主）驱动浏览器 UI，WebdriverIO 加 Tauri 内置驱动只覆盖原生链路，断言同时检查界面、业务状态和实际结果。只在开发流程运行，不接发布流程。阶段 1 验收：发送、允许/拒绝审批、Stop、服务恢复在 WebKit 上连续 5 次通过，原生测试构建能和真实 App 同时运行并完成一次流式回复。范围、决策和 P0/P1 清单见 [规格](docs/requirements/feature-verification-spec.md)；工作区现有原型不算验收证据。
+
 ## 2026-10-11 — MCP 卡住与超时配置（P0，实现完成）
 
 验收：`mcpInvoke` 嵌套调用不争用父调用持有的执行锁；内部工具保留权限和副作用保护，分发调用不自动重放。每服务 `timeoutMs` 为 1000–3600000 毫秒，默认 120000，Desktop 以秒编辑，Web JSON 以毫秒编辑，保存后重启回读保留。超时传递取消并结束本地等待，进度不能续期，后续调用仍可执行。源码回归和隔离实例冷路径已验证；真实服务已获授权重启，健康检查正常，tdx 返回 120000 毫秒超时；原 session 保留且没有活动运行记录。
@@ -18,13 +22,13 @@
 
 上方快捷入口固定，Agent、Agent Team、项目共用滚动容器；一级标题点击展开/折叠，箭头和新增按钮在悬停或聚焦时显示，仅一级标题吸顶。真实服务前端预览已验证，原生冷启动与断连恢复待验证。
 
-## Pi 1.0 能力补齐（2026-10-11，A 部分交付，B/C/D 待实施）
+## Pi 1.0 能力补齐（2026-10-13，本地实现与验收已补齐）
 
-用户已批准四项范围：普通任务安全断点恢复、MCP OAuth、Codemode 模型 API、Pi 扩展只读会话及受控运行接口。验证边界已确认，复用真实 Runner/服务生命周期、临时数据库、模拟 Provider/MCP 与真实子进程强杀，补充 OAuth 和 Desktop 冷路径。可靠恢复优先，其余按依赖交付。实施范围和验收以 [补齐规格](docs/requirements/pi-capability-completion-spec.md) 为准；旧 Pi 分阶段记录不再用于重新安排已完成的生产接线。
+用户已批准 A/B/C/D 全部实施。普通任务与渠道恢复核对、MCP OAuth 部署回调和 step-up、原生 owned 模型操作、扩展的 signal/命令/嵌套工具/显式压缩均已接通。规格、边界及证据见 [Pi 能力补齐规格](docs/requirements/pi-capability-completion-spec.md)、[接口说明](docs/guides/pi-extension-runtime.md)和[验收记录](docs/work/progress/pi-capability-completion/validation.md)。
 
-A（普通任务恢复）、B（MCP OAuth）、C（Codemode 模型 API）已交付首片，B 另补本地端到端协议验证与 Desktop OAuth 控件，D（扩展运行接口）已交付首片（真实运行状态 + 明确不支持报错）。实施范围和验收以 [补齐规格](docs/requirements/pi-capability-completion-spec.md) 为准；旧 Pi 分阶段记录不再用于重新安排已完成的生产接线。
+2026-10-13 整体版本审查发现的 5 项缺陷已修复并补回归，包含原生共享规则入口；详见[修复记录](docs/work/progress/pi-capability-completion/review-fixes.md)。
 
-A 首片：启动恢复按原生 task 记录分类（`resume` / `review` / `unavailable`），安全断点续跑普通任务、缺失/损坏记录或未提交的远端请求与不可重放外部操作明确暂停，且重启后答案只投影一次；补全安全读取（纯读取）中断后的自动恢复、把未知外部操作的原执行置于独立非终态的「等待核对」并通过共享审批卡片核对后继续原执行（不重放未知操作），并用受控 barrier 强杀覆盖 intent 前 / 外部成功未提交 / 结果提交未投影三个窗口，补齐服务租约与预算保持的专项验证。B 首片：MCP 服务器显式选择手动 headers 或 OAuth，OAuth 凭据按服务器身份隔离存入受保护文件，设置页可查看授权状态并登录/重新授权/退出，传输经 Pi 公共 OAuth 客户端刷新。C 首片：Codemode 脚本可经共享模型操作服务发现模型、调用分类与图片生成并用 `image()` 展示结果，调用受权限、预算与用量合计约束。B 已补本地（进程内授权服务器 + 本地 HTTP MCP）端到端协议验证、Desktop 原生 OAuth 控件与重新授权 scope 保留，并修复授权码交换丢失元数据地址、登录尝试滞留两个根因；D 首片让真正运行扩展的子进程读取真实运行状态（model/thinking/scopedModels/idle/pending/contextUsage/systemPrompt）并对未接线接口明确报错，随后补上 worker→主机双向 IPC 与 `ctx.executeTool()`（经共享 ToolRuntime，未知工具/失败返回 isError），`ctx.modelRegistry` 的模型发现与 classify/generateImages（经共享 ModelOperations，凭据/注册明确拒绝），流式 chat（`stream`/`streamSimple`/`complete`，事件有界回传 + 取消通知）与只读 `ctx.sessionManager`（身份/记录/分支/上下文投影，来自原生日志）；ctx.tools 目录、真实 abort/compact 留待后续。各片剩余验收（父子任务强杀矩阵、Decision Request 核对状态、远端 Web 回调与原生桌面首次授权走查、step-up 自动续权与真实第三方账号验收、真实 Runner 模型端到端、D 的 session/model/executeTool 接口）见规格交付记录。
+真实第三方 OAuth、分类/图片模型和付费 Provider 验收按用户决定跳过。它们需要未来提供具体服务及费用授权，不计入本地通过结果，也不据此新排期。工作/生活能力的整体状态仍以能力矩阵为准。
 
 ## Agent 机器人绑定交互（2026-10-11，P1，实现已交付）
 

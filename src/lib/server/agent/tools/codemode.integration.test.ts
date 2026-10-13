@@ -12,7 +12,7 @@ const root = mkdtempSync(join(tmpdir(), "molibot-codemode-assembly-"));
 process.env.DATA_DIR = root;
 after(() => rmSync(root, { recursive: true, force: true }));
 
-async function fixture(readOnly = false, delay = 0, approval?: "defer" | "deny", maxCalls = Infinity, disabledTools: string[] = [], modelCalls?: string[]) {
+async function fixture(readOnly = false, delay = 0, approval?: "defer" | "deny", maxCalls = Infinity, disabledTools: string[] = [], modelCalls?: string[], imageData?: string) {
   const [{ createMomTools }, { MomRuntimeStore }, { defaultRuntimeSettings }] = await Promise.all([
     import("./index.js"), import("$lib/server/agent/session/store.js"), import("$lib/server/settings/defaults.js")
   ]);
@@ -48,7 +48,7 @@ async function fixture(readOnly = false, delay = 0, approval?: "defer" | "deny",
     runNestedToolCall: (tool, id, args, signal) => runToolCall({ type: "toolCall", id, name: tool.name, arguments: args as never },
       { tools: [tool], assistantMessage, context: { messages: [assistantMessage], tools: [tool] }, signal,
         beforeToolCall: async () => { const started = budget.tryStartTool(); return started.ok ? undefined : { block: true, reason: started.reason }; } }),
-    ...(modelCalls ? { modelOperationDeps: { models: modelFixture(modelCalls) } } : {})
+    ...(modelCalls ? { modelOperationDeps: { models: modelFixture(modelCalls, imageData) } } : {})
   });
   return { tools, tool: tools.find(tool => tool.name === "codemode")!, workspace, effects, ids, requests, start, budget };
 }
@@ -143,7 +143,9 @@ test("Agent tool exclusions apply to direct, deferred and nested Codemode calls"
   assert.ok(other.tools.some(tool => tool.name === "bash"), "another Agent retains its own tools");
 });
 
-function modelFixture(calls: string[]) {
+const TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+function modelFixture(calls: string[], imageData: string = TINY_PNG) {
   const classifier = { type: "classifier" as const, provider: "alpha", id: "cls", name: "Alpha classifier", api: "fixture", baseUrl: "", contextWindow: 4096 };
   const image = { type: "image" as const, provider: "alpha", id: "img", name: "Alpha image", api: "fixture", baseUrl: "", input: ["text", "image"], output: ["image"] };
   return {
@@ -152,7 +154,7 @@ function modelFixture(calls: string[]) {
     checkAuth: async () => ({ type: "api_key" as const }),
     classify: async () => { calls.push("classify"); return { api: "fixture", provider: "alpha", model: "cls", answers: { flag: { type: "bool", probability: 0.8 } }, stopReason: "stop" as const, timestamp: 1 }; },
     generateImages: async () => { calls.push("generateImages"); return { api: "fixture", provider: "alpha", model: "img",
-      output: [{ type: "image" as const, mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" }], stopReason: "stop" as const, timestamp: 1 }; }
+      output: [{ type: "image" as const, mimeType: "image/png", data: imageData }], stopReason: "stop" as const, timestamp: 1 }; }
   } as never;
 }
 
@@ -185,6 +187,25 @@ test("an oversized generated image is referenced instead of inlined", async () =
   assert.equal(rendered.length, 1);
   assert.equal(rendered[0].type, "text");
   assert.match((rendered[0] as { text: string }).text, /too large to inline.*runs\/large\.png/);
+});
+
+test("an oversized displayed image keeps a precise workspace artifact reference", async () => {
+  // Base64 over the 700k inline cap, prefixed with the PNG signature so the
+  // sandbox image() validator accepts it; the bytes never come back to us intact.
+  const data = `iVBORw0KGgo${"A".repeat(699_993)}`;
+  assert.equal(data.length % 4, 0);
+  assert.ok(data.length > 700_000);
+  const { tool, workspace } = await fixture(false, 0, undefined, Infinity, [], ["generateImages"], data);
+  const result = await tool.execute("big-image", { code: 'const gen = await models.generateImages({ prompt: "a cat" }); image(gen.images[0]);' });
+  assert.equal((result as any).error, undefined);
+  const text = (result.content as Array<{ type: string; text?: string }>).filter(b => b.type === "text").map(b => b.text).join("\n");
+  assert.match(text, /too large to inline/);
+  // The sandbox dropped the ref; the host reattaches the persisted artifact path.
+  const ref = /saved to this run's workspace artifacts: (\S+codemode-image-[a-f0-9]+\.png)\.\]/.exec(text)?.[1];
+  assert.ok(ref, `expected a precise artifact reference, got: ${text.slice(0, 200)}`);
+  assert.ok(!text.includes(data), "the base64 must not be inlined");
+  assert.deepEqual((result.content as Array<{ type: string }>).filter(b => b.type === "image"), []);
+  assert.ok(readFileSync(join(workspace, ref), "utf8").length > 0, "the referenced artifact exists");
 });
 
 test("model operations are absent when the caller cannot authorize them", async () => {

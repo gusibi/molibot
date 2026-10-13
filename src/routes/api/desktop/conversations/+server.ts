@@ -37,9 +37,10 @@ export const GET: RequestHandler = async ({ url }) => {
   const query = url.searchParams.get("query") || "";
   const botId = url.searchParams.get("botId") || "";
 
-  const result = url.searchParams.has("agentId") || url.searchParams.has("allAgents")
+  const agentResult = url.searchParams.has("agentId") || url.searchParams.has("allAgents")
     ? listDesktopAgentConversations({ sessionId: url.searchParams.get("sessionId") ?? undefined, agentId: url.searchParams.get("agentId") ?? undefined, limit, cursor, query, includeArchived: url.searchParams.get("includeArchived") === "true" })
-    : listDesktopConversations({
+    : undefined;
+  const result = agentResult ?? listDesktopConversations({
     channel,
     limit,
     cursor,
@@ -51,7 +52,7 @@ export const GET: RequestHandler = async ({ url }) => {
     ok: true,
     channel,
     items: result.items,
-    ...("latestConversationAtByAgent" in result ? { latestConversationAtByAgent: result.latestConversationAtByAgent } : {}),
+    ...(agentResult ? { latestConversationAtByAgent: agentResult.latestConversationAtByAgent } : {}),
     nextCursor: result.nextCursor,
     hasMore: result.hasMore
   };
