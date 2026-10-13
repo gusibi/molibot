@@ -77,7 +77,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="approval-card decision-card" aria-label={title} bind:this={cardElement}>
+<div data-testid="decision-card" data-decision-id={id} class="approval-card decision-card" aria-label={title} bind:this={cardElement}>
   <div class="approval-head">
     <strong class="approval-title">{title}</strong>
     {#if subtitle}<span class="approval-subtitle">{subtitle}</span>{/if}

@@ -77,6 +77,7 @@
       <div class="composer-highlight" bind:this={highlight} aria-hidden="true">{#each segments as segment}{#if segment.kind}<span class="composer-token" data-kind={segment.kind}>{segment.text}</span>{:else}{segment.text}{/if}{/each}</div>
     {/if}
     <textarea
+      data-testid="chat-composer"
       bind:this={textarea}
       bind:value
       rows="2"

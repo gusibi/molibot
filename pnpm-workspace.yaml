@@ -7,6 +7,8 @@ allowBuilds:
   '@astryxdesign/core': false
   '@google/genai': true
   esbuild: true
+  edgedriver: false
+  geckodriver: false
   koffi: true
   protobufjs: true
 

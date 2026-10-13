@@ -7932,6 +7932,9 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head { b
 @media (max-width: 600px) {
   .settings-layout { --settings-col: min(calc(100% - 32px), var(--settings-content-width)); }
   .settings-layout .settings-page-header { padding-inline: 0; }
+  .mcp-server-row { flex-direction: column; align-items: stretch; }
+  .mcp-server-row .profile-info { overflow-wrap: anywhere; }
+  .mcp-server-row .settings-row-actions { justify-content: flex-start; }
 }
 
 .shared-agent-rules-editor { padding: 20px; }
