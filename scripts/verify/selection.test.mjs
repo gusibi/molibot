@@ -27,6 +27,12 @@ test("tauri and transport paths require native tests", () => {
   }
 });
 
+test("a test file next to a transport module does not require native tests", () => {
+  const scope = selectScope(["apps/desktop/src/lib/api.test.ts"]);
+  assert.equal(scope.native, false);
+  assert.equal(scope.fallback, true);
+});
+
 test("settings paths select the settings tag and a round-trip", () => {
   const scope = selectScope(["src/lib/server/settings/store.ts", "apps/desktop/src/lib/settings/systemConfig.ts"]);
   assert.ok(scope.uiTags.includes("@settings"));

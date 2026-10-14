@@ -68,7 +68,7 @@ const RULES = [
 
 /**
  * @param {string[]} changedPaths repo-relative paths (POSIX separators)
- * @returns {{ tags: string[], uiTags: string[], fullCore: boolean, native: boolean, settingsRoundTrip: boolean, matchedRules: string[], fallback: boolean }}
+ * @returns {{ uiTags: string[], fullCore: boolean, native: boolean, settingsRoundTrip: boolean, matchedRules: string[], fallback: boolean }}
  */
 export function selectScope(changedPaths) {
   const tags = new Set();
@@ -78,6 +78,9 @@ export function selectScope(changedPaths) {
   let settingsRoundTrip = false;
 
   for (const path of changedPaths) {
+    // A test file is not product code: changing it must not pull in product
+    // rules (native tests, runtime scope) just because it shares a directory.
+    if (/\.(test|spec)\.[a-z]+$/.test(path)) continue;
     for (const rule of RULES) {
       if (!rule.match.test(path)) continue;
       if (!matchedRules.includes(rule.id)) matchedRules.push(rule.id);
