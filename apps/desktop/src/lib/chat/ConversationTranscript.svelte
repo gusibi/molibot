@@ -31,6 +31,7 @@
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
   import ChatMarkdown from "./ChatMarkdown.svelte";
+  import { chatImageResolver } from "./markdownImages";
   import TurnFilesCard from "./TurnFilesCard.svelte";
   import { collectTurnFiles, type TurnFileItem } from "./turnFiles";
 
@@ -58,6 +59,7 @@
 
   // Controls the renderer emits into every code block. Declared once so the
   // cache key stays stable across renders of the same message.
+  $: imageResolvers = messages.map(message => chatImageResolver(message, attachmentActions));
   $: markdownOptions = { labels: { wrapLines: copy.wrapLines } };
 
   function messageKey(message: TranscriptMessage, index: number): string {
@@ -135,6 +137,7 @@
   {@const displayContent = transcriptDisplayContent(message, copy.chatAssistantError)}
   {@const invocation = message.role === "user" ? classifyComposerInvocation(displayContent) : null}
   {@const canForkAssistant = Boolean(message.role === "assistant" && message.id && messageActions?.onForkAssistant && !message.id.startsWith("pending-"))}
+  {@const resolveImage = imageResolvers[index]}
   {@const canShowActions = Boolean(messageActions && (displayContent || message.attachments?.length || canForkAssistant))}
   {@const isCopied = Boolean(message.id && messageActions?.copiedId === message.id)}
   {@const isEditing = Boolean(message.id && messageActions?.editingId === message.id)}
@@ -198,12 +201,12 @@
                 </button>
               {/if}
             </div>
-            {#if displayContent.slice(invocation.consumedLength).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.consumedLength).trim(), copy.copyCode, markdownOptions)}</div>{/if}
+            {#if displayContent.slice(invocation.consumedLength).trim()}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="markdown-body" onclick={handleMarkdownClick}>{@html renderMarkdown(displayContent.slice(invocation.consumedLength).trim(), copy.copyCode, { ...markdownOptions, resolveImage })}</div>{/if}
           </div>
         {:else}
           <div class="user-message-shell">
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <ChatMarkdown source={displayContent} {copy} {endpoint} className={`message-bubble markdown-body user-message-content${isLongUserMessage && !isExpanded ? " collapsed" : ""}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
+            <ChatMarkdown {resolveImage} source={displayContent} {copy} {endpoint} className={`message-bubble markdown-body user-message-content${isLongUserMessage && !isExpanded ? " collapsed" : ""}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
             {#if isLongUserMessage}
               <button class="message-expand" type="button" aria-expanded={isExpanded} onclick={() => toggleMessage(key)}>{isExpanded ? copy.collapseMessage : copy.expandMessage}</button>
             {/if}
@@ -286,6 +289,7 @@
         {#if turnSections.process.length}
           <TurnProcess
             blocks={turnSections.process}
+            {resolveImage}
             {copy}
             stateKey={`${key}:process`}
             onOpenPath={onOpenActivityPath}
@@ -302,7 +306,7 @@
             <RunActivity activities={finalizeTranscriptActivities(block.activities) ?? []} {copy} onOpenPath={onOpenActivityPath} failed={assistantStatus === "error" || assistantStatus === "aborted"} stateKey={`${key}:${block.id}`} />
           {:else if block.content}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <ChatMarkdown source={block.content} {copy} {endpoint} contentKey={`${key}-${block.id}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
+            <ChatMarkdown {resolveImage} source={block.content} {copy} {endpoint} contentKey={`${key}-${block.id}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
           {/if}
         {/each}
         {#if assistantError}

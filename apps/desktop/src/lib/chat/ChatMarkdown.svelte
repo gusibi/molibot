@@ -13,6 +13,7 @@
   export let onContextMenu: ((event: MouseEvent) => void) | undefined = undefined;
   export let contentKey = "answer";
   export let endpoint = "";
+  export let resolveImage: ((href: string) => string | undefined) | undefined = undefined;
 
   let dark = false;
   let diagrams = new Map<string, { status: "ok"; svg: string } | { status: "failed" }>();
@@ -70,12 +71,12 @@
     })();
   }
 
-  function html(content: string, segmentIndex: number): string {
+  function html(content: string, segmentIndex: number, imageResolver: typeof resolveImage): string {
     return renderMarkdown(content, copy.copyCode, { labels: {
       wrapLines: copy.wrapLines,
       previewArtifact: copy.markdownPreviewArtifact,
       openTable: copy.markdownOpenTable
-    }, headingPrefix: `${contentKey}-${segmentIndex}` });
+    }, resolveImage: imageResolver, headingPrefix: `${contentKey}-${segmentIndex}` });
   }
 
   function jumpToHeading(index: number): void {
@@ -93,7 +94,7 @@
   {/if}
   {#each segments as segment, index (`${segment.kind}-${index}`)}
     {#if segment.kind === "markdown"}
-      <div class="chat-markdown-segment">{@html html(segment.content, index)}</div>
+      <div class="chat-markdown-segment">{@html html(segment.content, index, resolveImage)}</div>
     {:else}
       {#if segment.kind === "mermaid"}
         {@const rendered = diagrams.get(segment.id)}

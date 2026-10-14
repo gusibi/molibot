@@ -1348,11 +1348,13 @@ test("Window header owns its grid row and the transcript is not reserved beneath
   // the chat content's left edge; collapsed, it falls back to one flex row.
   assert.match(styles, /\.chat-header \{[^}]*grid-template-columns:\s*var\(--sidebar-w, var\(--sidebar-nav-w\)\) minmax\(0, 1fr\)/s);
   assert.match(styles, /\.window-header-page \{[^}]*grid-column:\s*2;[^}]*display:\s*flex;/s);
-  assert.match(styles, /\.window-header-page \{[^}]*border-left:\s*1px solid var\(--content-frame-edge\)/s);
+  assert.match(styles, /\.window-header-page::before,\s*\.workspace-inspector \.file-panel-head::before \{[^}]*top:\s*50%;[^}]*transform:\s*translateY\(-50%\);[^}]*width:\s*1px;[^}]*height:\s*var\(--fs-label\);[^}]*background:\s*var\(--content-frame-edge\);[^}]*opacity:\s*\.65;/s);
+  assert.match(styles, /\.workspace-inspector \.file-panel \{[^}]*border-left-color:\s*transparent;/s);
+  assert.match(styles, /\.workspace-inspector \.file-panel::before \{[^}]*top:\s*var\(--chat-header-h\);[^}]*bottom:\s*0;/s);
   assert.match(styles, /--content-frame-edge:/);
   assert.match(styles, /\.titlebar-cluster \{[^}]*grid-column:\s*1;[^}]*padding-left:\s*84px;/s);
   assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header \{[^}]*display:\s*flex;/s);
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.window-header-page \{[^}]*border-left:\s*0;/s);
+  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.window-header-page::before \{[^}]*display:\s*none;/s);
   assert.match(view, /<div class="window-header-page">[\s\S]*class="chat-title-block"[\s\S]*class="header-actions"/);
   assert.match(styles, /\.composer-wrap\.is-floating \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
   assert.match(styles, /--chat-header-h:\s*42px;/);

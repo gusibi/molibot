@@ -16,6 +16,7 @@
   export let live = false;
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
   export let endpoint = "";
+  export let resolveImage: ((href: string) => string | undefined) | undefined = undefined;
 
   function groupLabel(item: Extract<ActivityTimelineItem, { kind: "group" }>): string {
     const count = item.activities.length;
@@ -71,7 +72,7 @@
     {:else if block.content}
       <div class="process-timeline-entry process-timeline-text">
         <ChatLine size={14} aria-hidden="true" />
-        <ChatMarkdown source={block.content} {copy} {endpoint} className="turn-process-text markdown-body" contentKey={`${stateKey}-${block.id}`} />
+        <ChatMarkdown {resolveImage} source={block.content} {copy} {endpoint} className="turn-process-text markdown-body" contentKey={`${stateKey}-${block.id}`} />
       </div>
     {/if}
   {/each}

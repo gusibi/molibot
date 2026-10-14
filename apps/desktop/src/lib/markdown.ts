@@ -69,8 +69,12 @@ function sanitizeChatHtml(html: string): string {
   if (!katexSanitizeHooked) {
     katexSanitizeHooked = true;
     DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
-      if (data.attrName !== "style") return;
       const element = node as Element | null;
+      if (element?.tagName === "IMG" && data.attrName === "src" && data.attrValue.startsWith("blob:")) {
+        data.forceKeepAttr = true;
+        return;
+      }
+      if (data.attrName !== "style") return;
       if (!element || typeof element.closest !== "function" || !element.closest(".katex")) {
         data.keepAttr = false;
       }
@@ -98,9 +102,9 @@ export interface RenderMarkdownOptions {
    * Rewrites a markdown image's href into a loadable URL. The file preview
    * panel resolves sibling images against the open file's own directory and
    * streams them through the file routes; returning null keeps the original
-   * href (absolute URLs, data URIs). Callers that don't know the source file's
-   * location — the chat transcript — leave it unset, and hrefs render as
-   * written.
+   * href (absolute URLs, data URIs). An empty string renders the image's
+   * alternative text while a local image is unavailable. Chat resolves recorded
+   * attachments through their shared Blob loader.
    */
   resolveImage?: (href: string) => string | null | undefined;
   /**
@@ -195,6 +199,7 @@ export function renderMarkdown(source: string, copyCodeLabel = "Copy code", opti
   renderer.image = function ({ href, title, text, tokens }): string {
     const alt = tokens ? this.parser.parseInline(tokens, this.parser.textRenderer) : text;
     const src = resolveImage ? resolveImage(String(href ?? "")) ?? String(href ?? "") : String(href ?? "");
+    if (!src) return `<span role="img" aria-label="${escapeHtml(String(alt ?? ""))}">${escapeHtml(String(alt ?? ""))}</span>`;
     return `<img src="${escapeHtml(src)}" alt="${escapeHtml(String(alt ?? ""))}"${title ? ` title="${escapeHtml(String(title))}"` : ""}>`;
   };
   const html = marked.parse(String(source ?? ""), { async: false, renderer }) as string;

@@ -3239,6 +3239,7 @@ a:focus-visible {
 .markdown-body th { background: var(--fill); font-weight: 600; white-space: nowrap; }
 .markdown-body hr { height: 1px; margin: 14px 0; border: 0; background: var(--separator); }
 .markdown-body img { display: block; max-width: 100%; height: auto; border-radius: var(--rounded-md); cursor: zoom-in; }
+.chat-markdown-segment img { width: auto; height: auto; max-width: min(100%, 480px); max-height: 360px; object-fit: contain; }
 .markdown-body a img { cursor: pointer; }
 
 /* Image viewer. Attached to <body> by `imageLightbox`, so it is never clipped

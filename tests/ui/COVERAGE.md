@@ -54,3 +54,5 @@
 - 原生 App 测试（`pnpm test:app`）尚未建设：需要默认关闭的 Cargo 编译开关、独立应用标识、隔离的 HOME/DATA_DIR。`verify:feature` 在涉及原生路径时输出「原生：未验证」。
 - OpenAI 兼容以外的模型协议未覆盖。
 - macOS 系统界面自动化（文件选择器、通知、权限弹窗、录音设备）不建设。
+
+正文 Markdown 本地图片：`markdown-images.spec.ts` 在真实共享 transcript 组件中覆盖生成图路径到附件、异步 Blob 更新、图片解码、360px/480px 预览上限、原比例、窄宽度、点击放大和读取失败；`markdownImages.test.ts` 覆盖加载去重与同名歧义。使用临时实例和本地 PNG，组件用例模拟图片 HTTP 响应，不调用真实图片 Provider。

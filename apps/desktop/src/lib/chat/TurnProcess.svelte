@@ -18,6 +18,7 @@
   export let failed = false;
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
   export let endpoint = "";
+  export let resolveImage: ((href: string) => string | undefined) | undefined = undefined;
 
   let opened = false;
   let now = Date.now();
@@ -42,7 +43,7 @@
 {#if live}
   <div class="turn-process-overview">
     {#each presentation.commentary as block (block.id)}
-      <ChatMarkdown source={block.content} {copy} {endpoint} className="turn-progress-commentary markdown-body" contentKey={`${stateKey}-progress-${block.id}`} />
+      <ChatMarkdown {resolveImage} source={block.content} {copy} {endpoint} className="turn-progress-commentary markdown-body" contentKey={`${stateKey}-progress-${block.id}`} />
     {/each}
     <div class="turn-progress-current" role="status">
       <span>{presentation.status}</span>
@@ -71,7 +72,7 @@
   </summary>
   {#if opened}
     <div class="turn-process-body">
-      <ProcessTimeline blocks={displayBlocks} {copy} {stateKey} {live} {onOpenPath} {endpoint} />
+      <ProcessTimeline {resolveImage} blocks={displayBlocks} {copy} {stateKey} {live} {onOpenPath} {endpoint} />
     </div>
   {/if}
 </details>
