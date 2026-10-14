@@ -2,7 +2,7 @@
 
 日期：2026-10-12
 
-文档状态：阶段 1 的浏览器部分与阶段 2 的验证基础设施已交付（2026-10-14）；原生 App 测试未建设。测试接缝已与用户确认，仓库未配置 issue tracker，暂不发布 issue。覆盖清单见 [tests/ui/COVERAGE.md](../../tests/ui/COVERAGE.md)；当前状态与未验证项见 prd.md。
+文档状态：阶段 1 的浏览器部分、阶段 2 的验证基础设施与 P0 浏览器场景已交付（2026-10-14）；P0「刷新接续」因现有 `reconnect()` 按设计中止孤儿运行而阻塞，待产品决策；原生 App 测试未建设。测试接缝已与用户确认，仓库未配置 issue tracker，暂不发布 issue。覆盖清单见 [tests/ui/COVERAGE.md](../../tests/ui/COVERAGE.md)；当前状态与未验证项见 prd.md。
 
 ## Problem Statement
 

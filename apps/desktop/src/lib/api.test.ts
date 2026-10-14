@@ -19,6 +19,7 @@ import {
   classifyFirstLaunch,
   buildOnboardingHealthCheck,
   consumeDesktopSse,
+  DesktopSseIdleTimeoutError,
   desktopFileContentUrl,
   desktopProjectRawFileUrl,
   filterDesktopFiles,
@@ -469,6 +470,20 @@ test("desktop SSE parsing preserves events split across arbitrary chunks", async
     { event: "token", data: { delta: "hello" } },
     { event: "done", data: { response: "hello" } }
   ]);
+});
+
+test("desktop SSE idle watchdog rejects when no event arrives", async () => {
+  // A stream that stays open without sending anything must not hang the turn:
+  // the watchdog rejects with the timeout so the caller can surface it.
+  const response = new Response(new ReadableStream<Uint8Array>({
+    start() {
+      // Intentionally never enqueue or close.
+    }
+  }));
+  await assert.rejects(
+    () => consumeDesktopSse(response, () => undefined, 30),
+    (error: unknown) => error instanceof DesktopSseIdleTimeoutError
+  );
 });
 
 test("filterDesktopFiles returns all files when the filter is 'all'", () => {
