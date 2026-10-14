@@ -1192,6 +1192,10 @@ the same regardless of the window's activation state and of what is behind it.
   take pointer events and remain clickable; every empty pixel and the passive
   title/source text fall through to the window drag mask, so the row drags the
   window consistently. The header element itself never becomes a backdrop root.
+- Header column dividers use the same centered, text-height hairline at both
+  the sidebar/title and title/Inspector boundaries: `--fs-label` high, 1px wide,
+  with `--content-frame-edge` at 65% opacity. Inspector body rules retain their
+  full height below the header; the sidebar divider hides when collapsed.
 - Chat opens at most one right-side Inspector at a time. The File Inspector and the
   Mini App Inspector are two adapters of one seam: they share the grid track, the
   stored width, the resize handle, the minimum width, and the narrow-screen rules.

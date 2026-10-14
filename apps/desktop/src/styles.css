@@ -1162,6 +1162,7 @@ a:focus-visible {
    sidebar and the page's title/actions start at the chat column's left edge, so
    the title lines up with the content below it. */
 .window-header-page {
+  position: relative;
   grid-column: 2;
   display: flex;
   align-items: center;
@@ -1169,10 +1170,32 @@ a:focus-visible {
   gap: 8px;
   min-width: 0;
   padding-left: 12px;
-  /* A hairline column rule in the frame's own edge tone: it reads as the
-     content frame's left edge continuing up through the header, rather than a
-     divider fighting the chrome. */
-  border-left: 1px solid var(--content-frame-edge);
+}
+.window-header-page::before,
+.workspace-inspector .file-panel-head::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: var(--fs-label);
+  background: var(--content-frame-edge);
+  opacity: .65;
+  pointer-events: none;
+}
+.workspace-inspector .file-panel-head { position: relative; }
+.workspace-inspector .file-panel-head::before { left: -1px; }
+.workspace-inspector .file-panel { border-left-color: transparent; }
+.workspace-inspector .file-panel::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: var(--chat-header-h);
+  bottom: 0;
+  width: 1px;
+  background: var(--artifact-border, var(--separator));
+  pointer-events: none;
 }
 /* Collapsed, the controls need more room than the rail, so the header falls
    back to the single flex row (cluster, then title/actions) and drops the rule. */
@@ -1185,8 +1208,8 @@ a:focus-visible {
 .chat-layout.sidebar-collapsed .window-header-page {
   flex: 1 1 auto;
   padding-left: 0;
-  border-left: 0;
 }
+.chat-layout.sidebar-collapsed .window-header-page::before { display: none; }
 .page-header { min-height: 82px; padding: 28px 28px 18px; background: var(--chrome-header-bg); border-bottom-color: var(--chrome-border); }
 .settings-page-header {
   position: relative;
