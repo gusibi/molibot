@@ -44,6 +44,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Pi capabilities integration spec](requirements/pi-capabilities-integration-spec.md) — phased Durable kernel replacement, Deferred responses, Codemode and optional image backend
 - [Pi capability completion spec](requirements/pi-capability-completion-spec.md) — approved ordinary-task recovery, MCP OAuth, Codemode model API and extension runtime interfaces; [Issue #64](https://github.com/gusibi/molibot/issues/64)
 - [Permission Modes PRD](requirements/permission-modes-prd.md) — Plan/Manual/Accept/Auto session scope
+- [Feature verification automation](requirements/feature-verification-spec.md) — isolated instance, scripted model, `verify:feature`, and the [UI/native coverage manifest](../tests/ui/COVERAGE.md)
 - [Project Automations PRD](requirements/project-automations-prd.md) — Project-scoped periodic Runtime Tasks
 - [Artifact Panel PRD](requirements/artifact-panel-prd.md) — shared artifact registry and inspection
 - [Plugin-owned Settings PRD](requirements/plugin-owned-settings-prd.md) — plugin contract reference migration

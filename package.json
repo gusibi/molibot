@@ -40,7 +40,10 @@
     "mory:test": "corepack pnpm --dir package/mory run test",
     "mory:smoke": "corepack pnpm --dir package/mory run smoke",
     "evals": "node evals/run.mjs",
-    "test:evals": "node --test evals/client.test.mjs evals/harness.test.mjs scripts/maintenance/clean-data-dir.test.mjs scripts/maintenance/capability-matrix.test.mjs"
+    "verify:feature": "node scripts/verify-feature.mjs",
+    "test:ui": "node node_modules/@playwright/test/cli.js test --config tests/ui/playwright.config.ts --project=webkit",
+    "test:app": "node scripts/verify/native.mjs",
+    "test:evals": "node --test evals/client.test.mjs evals/harness.test.mjs scripts/maintenance/clean-data-dir.test.mjs scripts/maintenance/capability-matrix.test.mjs scripts/verify/selection.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.26",

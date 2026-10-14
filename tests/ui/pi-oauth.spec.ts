@@ -2,13 +2,13 @@ import { test, expect } from './support/fixtures';
 import { openChat, openSettings } from './support/actions';
 import { startFixture, oauthServer } from '../../evals/lib/oauthFixture';
 
-test('OAuth survives page changes, locale changes and isolated service restart', async ({ page, context, harness }) => {
+test('OAuth survives page changes, locale changes and isolated service restart', async ({ page, context, instance }) => {
   let entered!: () => void; let release!: () => void;
   const exchange = new Promise<void>(resolve => { entered = resolve; });
   const barrier = new Promise<void>(resolve => { release = resolve; });
   const fixture = await startFixture({ beforeTokenExchange: async () => { entered(); await barrier; } });
   try {
-    const response = await context.request.put(`${harness.endpoint}/api/settings/mcp`, { headers: { Origin: harness.endpoint }, data: { mcpServers: [oauthServer('pi-ui', fixture.mcpUrl)] } });
+    const response = await context.request.put(`${instance.endpoint}/api/settings/mcp`, { headers: { Origin: instance.endpoint }, data: { mcpServers: [oauthServer('pi-ui', fixture.mcpUrl)] } });
     expect(response.ok(), await response.text()).toBe(true);
     await openChat(page); await openSettings(page);
     await page.getByRole('button', { name: 'MCP', exact: true }).click();
@@ -31,7 +31,7 @@ test('OAuth survives page changes, locale changes and isolated service restart',
     await page.getByRole('button', { name: 'MCP', exact: true }).click();
     await expect(page.getByText('Authorized', { exact: true })).toBeVisible();
     await expect(page.getByText('Loaded tools: 2', { exact: true })).toBeVisible();
-    await harness.restartService();
+    await instance.restartService();
     await page.reload();
     await openSettings(page); await page.getByRole('button', { name: 'MCP', exact: true }).click();
     await expect(page.getByText('OAuth authorization: Authorized', { exact: true })).toBeVisible();

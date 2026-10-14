@@ -1,14 +1,34 @@
+import { resolve } from 'node:path';
 import { defaultRuntimeSettings } from '../../../src/lib/server/settings/defaults.js';
 import { SettingsStore } from '../../../src/lib/server/settings/store.js';
-import { storagePaths, ensureStorageDirs } from '../../../src/lib/server/infra/db/storage.js';
-import { resolve } from 'node:path';
+import { storagePaths, ensureStorageDirs, requiredStorageDirs } from '../../../src/lib/server/infra/db/storage.js';
+import { assertIsolatedDataDir, assertLoopbackUrl, assertOutsideDir, isInsideDir } from './guard.js';
 
+/**
+ * Runs inside the whitelisted child environment and is the instance's own
+ * isolation guard: it refuses to seed (so the service never starts) whenever a
+ * resolved storage path could leave the throwaway data directory.
+ */
 const dataDir = process.env.DATA_DIR;
 const providerUrl = process.env.UI_TEST_PROVIDER_URL;
-if (!dataDir || !providerUrl || !dataDir.includes('molibot-ui-') || storagePaths.dataDir !== resolve(dataDir)) {
-  throw new Error('UI seed requires an isolated molibot-ui data directory and local Provider');
+const forbiddenDir = process.env.UI_TEST_FORBIDDEN_DIR;
+if (!dataDir || !providerUrl || !forbiddenDir) {
+  throw new Error('UI seed requires DATA_DIR, UI_TEST_PROVIDER_URL and UI_TEST_FORBIDDEN_DIR');
 }
-if (new URL(providerUrl).hostname !== '127.0.0.1') throw new Error('UI Provider must be loopback');
+assertIsolatedDataDir(dataDir, 'UI');
+assertLoopbackUrl(providerUrl, 'UI provider');
+if (storagePaths.dataDir !== resolve(dataDir)) {
+  throw new Error(`storage resolves to ${storagePaths.dataDir}, expected ${resolve(dataDir)}`);
+}
+const resolved = Object.fromEntries(requiredStorageDirs().map((dir, index) => [`dir#${index}`, dir]));
+// path.resolve normalizes symlinked /var → /private/var; compare against the resolved root.
+assertOutsideDir(resolved, forbiddenDir, 'UI seed');
+for (const dir of requiredStorageDirs()) {
+  if (!isInsideDir(dataDir, dir)) {
+    throw new Error(`required storage dir ${dir} escapes DATA_DIR ${dataDir}`);
+  }
+}
+
 ensureStorageDirs();
 const settings = structuredClone(defaultRuntimeSettings);
 settings.providerMode = 'custom';

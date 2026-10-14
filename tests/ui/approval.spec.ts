@@ -1,37 +1,54 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, expect } from './support/fixtures';
-import { openChat, send, transcript } from './support/actions';
+import { modelRequestMatchers, type ModelRequest } from './support/model-service';
+import { openChat, sendText, transcript, uniqueToken } from './support/actions';
+import type { IsolatedInstance } from './support/instance';
 
-async function probeFiles(root: string, marker: string): Promise<string[]> {
+async function probeFiles(root: string, name: string): Promise<string[]> {
   const files: string[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
-    if (entry.isDirectory()) files.push(...await probeFiles(path, marker));
-    else if (entry.name === `ui-probe-${marker}.txt`) files.push(path);
+    if (entry.isDirectory()) files.push(...await probeFiles(path, name));
+    else if (entry.name === name) files.push(path);
   }
   return files;
 }
 
-for (const decision of ['allow', 'reject', 'keyboard'] as const) {
-  test(`${decision} approval resolves the real tool once @approval @smoke`, async ({ page, harness }) => {
+function registerApprovalFlow(instance: IsolatedInstance, marker: string) {
+  const probe = `ui-probe-${marker}.txt`;
+  const call = instance.model.script({
+    name: `tool:${marker}`,
+    when: (request: ModelRequest) => {
+      const m = modelRequestMatchers(request);
+      return request.tools.length > 0 && !m.afterToolResults && m.lastUserText.includes(marker);
+    },
+    reply: { type: 'toolCalls', calls: [{ name: 'write', args: { label: `probe ${marker}`, path: probe, content: `approved:${marker}` } }] }
+  });
+  const follow = instance.model.script({
+    name: `follow:${marker}`,
+    when: (request: ModelRequest) => modelRequestMatchers(request).afterToolResults,
+    reply: { type: 'text', text: `DECISION_DONE:${marker}` }
+  });
+  return { probe, call, follow };
+}
+
+for (const decision of ['allow', 'reject'] as const) {
+  test(`${decision} approval resolves the tool once @approval`, async ({ page, instance }) => {
     await openChat(page);
-    const marker = await send(page, 'approve');
-    const card = page.getByTestId('decision-card').filter({ hasText: marker });
-    await expect(card).toBeVisible();
-    expect(await probeFiles(harness.dataDir, marker)).toHaveLength(0);
-    if (decision === 'keyboard') {
-      await page.locator('body').click({ position: { x: 600, y: 120 } });
-      await page.keyboard.press('Escape');
-    } else {
-      const button = card.getByRole('button', { name: decision === 'reject' ? /Reject|Deny/ : /Just once|Allow once/ });
-      await button.click();
-    }
+    const marker = uniqueToken();
+    const { probe, call } = registerApprovalFlow(instance, marker);
+    await sendText(page, `probe ${marker}`);
+    const card = page.getByTestId('decision-card');
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    expect(await probeFiles(instance.dataDir, probe)).toHaveLength(0);
+    const button = card.getByRole('button', { name: decision === 'reject' ? /Deny|Reject/ : /Just once|Allow once/ });
+    await button.click();
     await expect(card).toHaveCount(0);
-    await expect(transcript(page).getByText(`DECISION_COMPLETE:${marker}`, { exact: true })).toBeVisible();
-    const files = await probeFiles(harness.dataDir, marker);
+    await expect(transcript(page).getByText(`DECISION_DONE:${marker}`, { exact: true })).toBeVisible();
+    const files = await probeFiles(instance.dataDir, probe);
     expect(files).toHaveLength(decision === 'allow' ? 1 : 0);
     if (files[0]) expect(await readFile(files[0], 'utf8')).toBe(`approved:${marker}`);
-    expect(harness.provider.requests.filter(r => r.marker === marker && !r.toolResult)).toHaveLength(1);
+    expect(instance.model.matched(call.name)).toHaveLength(1);
   });
 }

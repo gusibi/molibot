@@ -2,7 +2,7 @@
 
 日期：2026-10-12
 
-文档状态：草案；测试接缝已与用户确认，暂不发布 issue（仓库未配置 issue tracker）。本文定义待实现行为，不声明任何部分已交付。工作区现有的初步实现（浏览器测试目录、少量 UI 定位属性、测试依赖）只作为原型参考，不作为验收证据。
+文档状态：阶段 1 的浏览器部分与阶段 2 的验证基础设施已交付（2026-10-14）；原生 App 测试未建设。测试接缝已与用户确认，仓库未配置 issue tracker，暂不发布 issue。覆盖清单见 [tests/ui/COVERAGE.md](../../tests/ui/COVERAGE.md)；当前状态与未验证项见 prd.md。
 
 ## Problem Statement
 
@@ -228,7 +228,8 @@
 
 ## Further Notes
 
-- 工作区原型状态：单条消息浏览器测试曾通过；审批测试未通过，原因未定位。以下是在评审中看到的可能原因，**都未经验证**，阶段 1 先逐一排除：查找产物文件只搜了数据目录，而 `write` 工具写入的工作区可能不在那里；当前权限设置下 `write` 可能不需要审批；Esc 键是否等于"拒绝"还没确认。
-- 原型的模型服务用消息内标记控制回复、工具调用一次性整段发出、只记录标记不记录请求体，原型的隔离实例透传了全部环境变量。这些都要按本文决策修正，不在原型基础上继续叠加。
-- 原型已把 WebdriverIO 依赖加到仓库根目录的包配置里，按本文决策应在原生可行性验证通过后改放到桌面 App 包内。
-- 验证 Tauri 内置驱动在 macOS 上的可行性和稳定性，是阶段 1 的首要技术风险。参考：[WebdriverIO Tauri 平台支持](https://webdriver.io/docs/desktop-testing/tauri/platform-support)。
+- 工作区原型已被替换：模型服务改为按用例脚本匹配（不再用消息内标记）、工具调用参数分段发出、记录完整请求体；隔离实例改为环境变量白名单并加启动前守卫。`tests/ui/support/provider.ts`、`harness.ts` 等原型文件已删除，不在原型基础上叠加。
+- 审批链路沿用共享的决策卡：模型调用会产生 `approval_required` 的 `write` 工具时，批准前不落盘、批准后恰好执行一次，拒绝则不执行。`tests/ui/approval.spec.ts` 覆盖允许和拒绝两条路径。
+- WebdriverIO 依赖仍在仓库根目录包配置里；原生可行性验证通过后按本文决策改放到桌面 App 包内。
+- 验证 Tauri 内置驱动在 macOS 上的可行性和稳定性，仍是唯一未建设项（阶段 2 的剩余部分）。参考：[WebdriverIO Tauri 平台支持](https://webdriver.io/docs/desktop-testing/tauri/platform-support)。
+- 已观察到一个与本文范围无关的运行时现象：流式回复期间首个文本增量不出现在实时流（最终正文完整）。已在 [tests/ui/COVERAGE.md](../../tests/ui/COVERAGE.md) 记录，未在本次范围内修改运行时。

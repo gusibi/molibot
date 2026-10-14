@@ -143,3 +143,4 @@ Use cases, documentation improvements, bug fixes, and code contributions are wel
 - [Delivery record](features.md) · [Requirements and plans](prd.md)
 - [Skills, tools, and MCP](docs/features/tools-skills-and-mcp.md) · [Plugin development](docs/guides/plugins/plugin-authoring.md)
 - [Architecture decisions](docs/adr/) · [Agent development series](docs/agent-dev-series/README.md)
+- [Feature verification automation](docs/requirements/feature-verification-spec.md) · [UI/native coverage](tests/ui/COVERAGE.md)
