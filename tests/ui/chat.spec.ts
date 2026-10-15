@@ -350,3 +350,120 @@ test('an approval and a queued follow-up both advance @chat @approval @queue', a
   expect(instance.model.matched(follow.name).length).toBeGreaterThanOrEqual(1);
   expect(instance.model.matched(queuedScript.name)[0].index).toBeGreaterThan(instance.model.matched(follow.name)[0].index);
 });
+
+/** Capture each turn's stream POST body: it carries the conversation and profile the UI chose. */
+function captureStreamTurns(page: import('@playwright/test').Page): Array<{ conversationId: string; profileId: string; message: string }> {
+  const turns: Array<{ conversationId: string; profileId: string; message: string }> = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'POST' || !request.url().endsWith('/api/stream')) return;
+    try {
+      turns.push(JSON.parse(request.postData() ?? '{}'));
+    } catch {
+      // A non-JSON body is not a chat turn.
+    }
+  });
+  return turns;
+}
+
+/** Read a conversation back from the server's storage, not from the rendered DOM. */
+async function readStoredSession(instance: { endpoint: string }, conversationId: string, profileId: string): Promise<string> {
+  const url = `${instance.endpoint}/api/sessions/${encodeURIComponent(conversationId)}?profileId=${encodeURIComponent(profileId)}`;
+  const response = await fetch(url);
+  expect(response.ok, `session read-back failed: HTTP ${response.status}`).toBe(true);
+  return JSON.stringify(await response.json());
+}
+
+test('each conversation persists its own messages (storage read-back) @navigation @chat', async ({ page, instance }) => {
+  const turns = captureStreamTurns(page);
+  await openChat(page);
+  const momo = uniqueToken();
+  replyTo(instance.model, `persist-momo ${momo}`, { type: 'text', text: `MOMO_REPLY:${momo}` });
+  await sendText(page, `persist-momo ${momo}`);
+  await expectReply(page, `MOMO_REPLY:${momo}`);
+
+  await page.getByRole('button', { name: 'UI Second', exact: true }).click();
+  await expect(composer(page)).toBeEnabled();
+  const second = uniqueToken();
+  replyTo(instance.model, `persist-second ${second}`, { type: 'text', text: `SECOND_REPLY:${second}` });
+  await sendText(page, `persist-second ${second}`);
+  await expectReply(page, `SECOND_REPLY:${second}`);
+
+  const momoTurn = turns.find((turn) => turn.message === `persist-momo ${momo}`);
+  const secondTurn = turns.find((turn) => turn.message === `persist-second ${second}`);
+  expect(momoTurn).toBeTruthy();
+  expect(secondTurn).toBeTruthy();
+  expect(momoTurn!.conversationId).not.toBe(secondTurn!.conversationId);
+
+  // Business state: each turn landed in its own conversation on disk.
+  const momoStored = await readStoredSession(instance, momoTurn!.conversationId, momoTurn!.profileId);
+  const secondStored = await readStoredSession(instance, secondTurn!.conversationId, secondTurn!.profileId);
+  expect(momoStored).toContain(`MOMO_REPLY:${momo}`);
+  expect(momoStored).not.toContain(`SECOND_REPLY:${second}`);
+  expect(secondStored).toContain(`SECOND_REPLY:${second}`);
+  expect(secondStored).not.toContain(`MOMO_REPLY:${momo}`);
+});
+
+test('a reply that finishes in the background persists to its originating conversation @navigation @chat', async ({ page, instance }) => {
+  const turns = captureStreamTurns(page);
+  await openChat(page);
+  const holding = uniqueToken();
+  replyTo(instance.model, `bg-persist ${holding}`, { type: 'hold', text: `WAITING:${holding}`, key: holding, tail: `\n\nBG_REPLY:${holding}`, delayMs: 100 });
+  await sendText(page, `bg-persist ${holding}`);
+  await expect(stopButton(page)).toBeVisible();
+
+  // Leave the running conversation for another Agent before the reply is ready;
+  // the in-flight content must not appear under the other Agent.
+  await page.getByRole('button', { name: 'UI Second', exact: true }).click();
+  await expect(transcript(page)).toHaveCount(0);
+
+  instance.model.release(holding);
+  const bgTurn = turns.find((turn) => turn.message === `bg-persist ${holding}`);
+  expect(bgTurn).toBeTruthy();
+  await expect.poll(async () => {
+    const stored = await readStoredSession(instance, bgTurn!.conversationId, bgTurn!.profileId);
+    return stored.includes(`BG_REPLY:${holding}`);
+  }, { message: 'the background reply must land in its own conversation storage' }).toBe(true);
+
+  // Back on the originating Agent the reply is attached to its conversation.
+  await page.getByRole('button', { name: /^Momo/ }).click();
+  const row = page.locator('.agent-history-row').filter({ hasText: `bg-persist ${holding}` });
+  if (await row.count()) await row.first().click();
+  await expectReply(page, `BG_REPLY:${holding}`);
+});
+
+test('a stalled stream surfaces the idle timeout and permits another turn @chat @failure', async ({ page, instance }) => {
+  test.setTimeout(120_000);
+  // Fake page timers so the fixed 90s transport watchdog can be reached without
+  // waiting it out; the network is real and the message is never answered.
+  await page.clock.install();
+  await openChat(page);
+  const holding = uniqueToken();
+  replyTo(instance.model, `timeout ${holding}`, { type: 'hold', text: `WAITING:${holding}`, key: holding, tail: `\n\nREPLY:${holding}`, delayMs: 50 });
+
+  const streamStarted = page.waitForResponse(response => response.url().endsWith('/api/stream') && response.request().method() === 'POST');
+  await sendText(page, `timeout ${holding}`);
+  await streamStarted;
+  await expect(stopButton(page)).toBeVisible();
+
+  // No frame arrives past the watchdog window: the turn must not hang forever.
+  await page.clock.fastForward(95_000);
+
+  const banner = page.locator('.composer-error');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText(/idle/i);
+  await expect(stopButton(page)).toHaveCount(0);
+
+  // The task may still be finishing server-side; let it settle, then the user
+  // can send again rather than facing a permanently blocked composer.
+  instance.model.release(holding);
+  await expect.poll(async () => {
+    const response = await fetch(`${instance.endpoint}/api/desktop/session-runs`);
+    const body = (await response.json()) as { runs?: unknown[] };
+    return body.runs?.length ?? 0;
+  }, { message: 'the held run must settle before the next turn' }).toBe(0);
+
+  const next = uniqueToken();
+  replyTo(instance.model, `after-timeout ${next}`, { type: 'text', text: `REPLY:${next}` });
+  await sendText(page, `after-timeout ${next}`);
+  await expectReply(page, `REPLY:${next}`);
+});

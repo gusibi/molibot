@@ -333,3 +333,95 @@ test("re-opening a session adopts the server's pending approval exactly once", a
     globalThis.fetch = oldFetch;
   }
 });
+
+function sseDone(text = "ok"): string {
+  return `event: done\ndata: ${JSON.stringify({ response: text, thinkingText: "" })}\n\n`;
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+/**
+ * Fake the desktop transport at the single `fetch` boundary the controller and
+ * Agent loop share. Each `/api/stream` POST is one turn; the message is pushed
+ * to `streamed` so a test can count executions, and `gate` lets it hold the
+ * first turn open while follow-ups queue behind it.
+ */
+function installQueueTransport(input: {
+  streamed: string[];
+  gate?: { message: string; release: Promise<void> };
+}): () => void {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = (async (request: string | URL | Request, init?: RequestInit) => {
+    const url = String(request);
+    if (url.endsWith("/api/stream")) {
+      const body = JSON.parse(String(init?.body)) as { message: string };
+      input.streamed.push(body.message);
+      if (input.gate && body.message === input.gate.message) await input.gate.release;
+      return new Response(sseDone(), { status: 200, headers: { "content-type": "text/event-stream" } });
+    }
+    if (url.endsWith("/session-runs")) return jsonResponse({ ok: true, runs: [] });
+    const body = JSON.parse(String(init?.body ?? "{}")) as { action?: string };
+    if (body.action === "list_pending") return jsonResponse({ ok: true, approvals: [] });
+    return jsonResponse({ ok: true });
+  }) as typeof fetch;
+  return () => { globalThis.fetch = oldFetch; };
+}
+
+async function until(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("condition not reached within timeout");
+}
+
+test("queued follow-ups drain in order and each runs exactly once", async () => {
+  const streamed: string[] = [];
+  let releaseFirst: (() => void) | undefined;
+  const release = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const restore = installQueueTransport({ streamed, gate: { message: "hold", release } });
+  try {
+    const controller = await createControllerHarness({
+      endpoint: () => "http://localhost:9999",
+      sessionId: () => "session"
+    }) as unknown as ConversationController;
+    const first = controller.send({ message: "hold" });
+    // While the first turn is still in flight, the user lines up two follow-ups.
+    assert.equal(controller.enqueue("second"), true);
+    assert.equal(controller.enqueue("third"), true);
+    releaseFirst!();
+    await first;
+    await until(() => streamed.length === 3 && controller.sending === false);
+
+    assert.deepEqual(streamed, ["hold", "second", "third"], "queue drains once, in order");
+    assert.deepEqual(controller.queue, [], "the queue is empty, not replayed");
+  } finally {
+    restore();
+  }
+});
+
+test("a queued follow-up is not sent twice when the drain is entered concurrently", async () => {
+  const streamed: string[] = [];
+  const restore = installQueueTransport({ streamed });
+  try {
+    const controller = await createControllerHarness({
+      endpoint: () => "http://localhost:9999",
+      sessionId: () => "session"
+    }) as unknown as ConversationController;
+    controller.enqueue("only-once");
+    // Entering the drain from two paths (turn end and stop) must not double-send.
+    const drain = (controller as unknown as { drainQueue(): void }).drainQueue.bind(controller);
+    drain();
+    drain();
+    await until(() => streamed.length === 1 && controller.sending === false);
+    // Give a would-be second send a chance to surface before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(streamed, ["only-once"]);
+    assert.deepEqual(controller.queue, []);
+  } finally {
+    restore();
+  }
+});
