@@ -373,7 +373,11 @@ export const POST: RequestHandler = async ({ request }) => {
             writeEvent(controller, encoder, "plan_progress", { ...sessionPlan, status: "executing", updatedAt: new Date().toISOString() });
           }
           const result = await runner.run({
-            clientSignal: request.signal,
+            // Deliberately no `clientSignal`: a page refresh or dropped
+            // connection must not abort the turn. The server owns the run to
+            // completion and persists its answer; the Desktop reattaches via
+            // reconnect() and recovers the result. An explicit Stop still goes
+            // through /api/stream/stop.
             executionHistory,
             readDurableEvidence: linkedExecution && coordinator ? async (evidenceId) => coordinator.readEvidence("owner", linkedExecution.execution.id, evidenceId, evidenceManager?.readDurableRunDetail?.bind(evidenceManager)) : undefined,
             sessionPlanProgress: sessionPlan ? {

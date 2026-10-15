@@ -6,9 +6,9 @@ globals.$state = Object.assign((value: unknown) => value, { raw: (value: unknown
 globals.$derived = Object.assign((value: unknown) => value, { by: (read: () => unknown) => read() });
 const { ChatSessionStore } = await import("./chatSessionStore.svelte");
 
-test("reconnect binds cancellation to the listed run and counts only actual stops", async () => {
+test("reconnect adopts orphaned runs for recovery instead of aborting them", async () => {
   const originalFetch = globalThis.fetch;
-  const calls: any[] = [];
+  const stops: any[] = [];
   let available = false;
   globalThis.fetch = async (input, init) => {
     if (!available) throw new Error("isolated service unavailable");
@@ -17,22 +17,26 @@ test("reconnect binds cancellation to the listed run and counts only actual stop
       { profileId: "default", sessionId: "orphan-session", runId: "orphan-turn" },
       { profileId: "default", sessionId: "missing-identity" }
     ] }));
-    const body = JSON.parse(String(init?.body));
-    calls.push(body);
-    return new Response(JSON.stringify({ ok: true, stopped: body.recoveryRunId === "orphan-turn" }));
+    stops.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ ok: true }));
   };
   try {
     const store = new ChatSessionStore();
     store.init({ endpoint: () => "http://isolated.invalid", modelReady: () => true,
       labels: () => ({} as any), loadTranscript: async () => [] });
+    // The recovery loop polls with timers; stub the controller's entry point so
+    // the store contract (who gets adopted, and that nothing is aborted) is what
+    // this test asserts.
+    const recovered: string[] = [];
+    (store.registry as any).getOrCreate = (_profileId: string, sessionId: string) => ({
+      controller: { sending: false, recoverRunningTurn: async () => { recovered.push(sessionId); } }
+    });
     assert.equal(await store.reconnect(), 0);
-    assert.deepEqual(calls, []);
+    assert.deepEqual(stops, []);
     available = true;
-    assert.equal(await store.reconnect(), 1);
-    assert.deepEqual(calls, [
-      { profileId: "default", conversationId: "background-session", recoveryRunId: "background-attempt" },
-      { profileId: "default", conversationId: "orphan-session", recoveryRunId: "orphan-turn" }
-    ]);
+    assert.equal(await store.reconnect(), 2);
+    assert.deepEqual(recovered, ["background-session", "orphan-session"], "runs with identity are adopted");
+    assert.deepEqual(stops, [], "reconnect must not abort the runs it adopts");
   } finally { globalThis.fetch = originalFetch; }
 });
 

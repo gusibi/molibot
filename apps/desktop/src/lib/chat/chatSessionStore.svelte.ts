@@ -24,7 +24,6 @@ import {
   createDesktopSession,
   listDesktopSessionRuns,
   loadDesktopSession,
-  stopDesktopChat,
   type DesktopActivityEntry
 } from "../api";
 
@@ -288,12 +287,12 @@ export class ChatSessionStore {
 
   /**
    * Reconnect recovery (plan §11). A crashed/disconnected Desktop can't resume
-   * the dead SSE stream of a server-side run, so an orphaned run's live output
-   * is unreachable - and the server keeps the session locked (the next send is
-   * rejected as "Already working"). Rather than restore a phantom "running"
-   * dot and leave the session blocked, abort each orphaned run server-side so
-   * the user can start a new turn. Runs this Desktop is actively driving (a live
-   * client turn) are left alone. Returns the count of aborted orphaned runs.
+   * the dead SSE stream of a server-side run, but the server keeps the run alive
+   * and will persist its answer. Rather than aborting the orphan (the old
+   * behaviour, which discarded an in-flight reply), adopt each orphan into its
+   * session and let the controller recover to the final result; the user can
+   * still Stop it. Runs this Desktop is actively driving are left alone. Returns
+   * the count of runs now being recovered.
    */
   async reconnect(): Promise<number> {
     const deps = this.deps;
@@ -307,18 +306,16 @@ export class ChatSessionStore {
     } catch {
       return 0;
     }
-    let aborted = 0;
+    let recovering = 0;
     for (const run of runs) {
       if (!run.profileId || !run.sessionId || !run.runId) continue;
       const existing = this.registry.get(run.profileId, run.sessionId);
       if (existing?.controller.sending) continue;
-      try {
-        if (await stopDesktopChat(endpoint, run.profileId, run.sessionId, run.runId)) aborted += 1;
-      } catch {
-        // Leave it; the next poll retries the abort.
-      }
+      const entry = this.registry.getOrCreate(run.profileId, run.sessionId);
+      void entry.controller.recoverRunningTurn();
+      recovering += 1;
     }
-    return aborted;
+    return recovering;
   }
 
   disposeAll(): void {

@@ -97,6 +97,14 @@ async function assertNoUnexpectedSignals(input: {
   testInfo: TestInfo;
 }) {
   const unmatched = input.instance.model.unmatched.slice(input.unmatchedBaseline);
+  // A test may declare navigation-cancelled errors it deliberately provokes
+  // (e.g. a reload mid-stream cancels the in-flight fetches). The allowance is
+  // per-test and explicit, never a global silence.
+  const ignored = input.testInfo.annotations
+    .filter((annotation) => annotation.type === "expected-page-error")
+    .map((annotation) => annotation.description ?? "")
+    .filter(Boolean);
+  const errors = input.errors.filter((error) => !ignored.some((needle) => error.includes(needle)));
   const failures: string[] = [];
   if (unmatched.length > 0) {
     failures.push(`${unmatched.length} unmatched model request(s):\n${JSON.stringify(unmatched.map(request => ({
@@ -105,11 +113,11 @@ async function assertNoUnexpectedSignals(input: {
       system: request.system.slice(0, 200)
     })), null, 2)}`);
   }
-  if (input.errors.length > 0) {
-    failures.push(`page errors:\n${input.errors.join('\n')}`);
+  if (errors.length > 0) {
+    failures.push(`page errors:\n${errors.join('\n')}`);
   }
   if (failures.length > 0) {
-    await attachEvidence({ ...input, logBaseline: 0 });
+    await attachEvidence({ ...input, errors, logBaseline: 0 });
     throw new Error(`test produced unexpected signals:\n${failures.join('\n\n')}`);
   }
 }

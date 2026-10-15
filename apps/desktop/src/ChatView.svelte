@@ -981,14 +981,21 @@
     const generation = connectionGeneration;
     const request = ++agentSessionsRequest;
     if (!endpoint) return;
-    const [result, unassigned] = await Promise.all([
-      listDesktopConversations(endpoint, { channel: "web", allAgents: true, limit: 100, includeArchived: true }),
-      listDesktopConversations(endpoint, { channel: "web", agentId: "__unassigned__", limit: 1, includeArchived: true })
-    ]);
-    if (endpoint !== connectedEndpoint || generation !== connectionGeneration || request !== agentSessionsRequest) return;
-    ordinarySessions = result.items;
-    latestConversationAtByAgent = result.latestConversationAtByAgent ?? {};
-    hasUnassignedHistory = unassigned.items.length > 0;
+    try {
+      const [result, unassigned] = await Promise.all([
+        listDesktopConversations(endpoint, { channel: "web", allAgents: true, limit: 100, includeArchived: true }),
+        listDesktopConversations(endpoint, { channel: "web", agentId: "__unassigned__", limit: 1, includeArchived: true })
+      ]);
+      if (endpoint !== connectedEndpoint || generation !== connectionGeneration || request !== agentSessionsRequest) return;
+      ordinarySessions = result.items;
+      latestConversationAtByAgent = result.latestConversationAtByAgent ?? {};
+      hasUnassignedHistory = unassigned.items.length > 0;
+    } catch {
+      // A refresh losing the race with a navigation/reload (the fetch is
+      // cancelled) is not a failure; keep the previous list and let the next
+      // refresh retry. Without this the cancellation surfaced as an unhandled
+      // rejection on every mid-turn reload.
+    }
   }
   async function claimActiveSession(id: string): Promise<void> {
     const sessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;

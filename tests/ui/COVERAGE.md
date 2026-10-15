@@ -41,7 +41,7 @@
 | 排队时审批 | 已实现 | 浏览器 | `chat.spec.ts`（审批与排队按顺序推进） |
 | 设置保存（保存、离开返回、重启回读、不覆盖其他配置） | 已实现 | 集成 + 浏览器 | `settings.spec.ts`（默认执行模式字段级 round-trip + 不覆盖 Agents）+ `shared-rules.spec.ts`（共享规则保存与重启）+ `settings/*Roundtrip.test.ts`（整对象 round-trip） |
 | 服务恢复（停启后无永久加载、无重复） | 部分交付 | 浏览器 + 原生 | `chat.spec.ts`（service restart）。原生中断恢复未验证 |
-| 刷新接续（生成中刷新接上回复） | 未开始 | 浏览器 | **阻塞（已决策）**：现有 `chatSessionStore.reconnect()` 按设计中止孤儿运行（无法恢复已断开的 SSE），刷新会得到「Interrupted」并丢失进行中的回复。用户已决定暂标为阻塞、另立 spec 实现运行态重新订阅后再启用；设计与待确认决策见 [session-run-reattach-spec](../../docs/requirements/session-run-reattach-spec.md) |
+| 刷新接续（生成中刷新接上回复） | 已实现 | 浏览器 | `chat.spec.ts`（生成中刷新后恢复运行、恰好一次、无重复发送）。阶段 1：服务端不再断开即中止、客户端恢复结果；刷新后继续接收逐字实时增量属阶段 2，见 [session-run-reattach-spec](../../docs/requirements/session-run-reattach-spec.md) |
 | 原生传输（流式、二进制下载、握手、崩溃恢复） | 环境受限 | 原生 | 需要带 Tauri 驱动的测试构建 |
 
 ## P1 待覆盖

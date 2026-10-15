@@ -431,6 +431,30 @@ test('a reply that finishes in the background persists to its originating conver
   await expectReply(page, `BG_REPLY:${holding}`);
 });
 
+test('refreshing mid-generation resumes the run without losing or duplicating the reply @recovery @chat', async ({ page, instance }) => {
+  // Reloading mid-stream deliberately cancels the in-flight fetches; WebKit
+  // reports the cancellations as page errors. They are the price of the
+  // navigation under test, not a product failure.
+  test.info().annotations.push({ type: 'expected-page-error', description: 'due to access control checks' });
+  test.info().annotations.push({ type: 'expected-page-error', description: 'Unhandled Promise Rejection: TypeError: Load failed' });
+  await openChat(page);
+  const holding = uniqueToken();
+  const script = replyTo(instance.model, `refresh ${holding}`, { type: 'hold', text: `WAITING:${holding}`, key: holding, tail: `\n\nREPLY:${holding}`, delayMs: 100 });
+  await sendText(page, `refresh ${holding}`);
+  await expect(stopButton(page)).toBeVisible();
+
+  // Refresh while the turn is generating. The server keeps the run (it is no
+  // longer tied to this request); the Desktop reattaches instead of aborting.
+  await page.reload();
+  await expect(stopButton(page)).toBeVisible({ timeout: 20_000 });
+
+  instance.model.release(holding);
+  // The reply lands exactly once, with no message re-sent to the model.
+  await expectReply(page, `REPLY:${holding}`);
+  await expect(transcript(page).getByText(`REPLY:${holding}`, { exact: true })).toHaveCount(1);
+  expect(instance.model.matched(script.name)).toHaveLength(1);
+});
+
 test('a stalled stream surfaces the idle timeout and permits another turn @chat @failure', async ({ page, instance }) => {
   test.setTimeout(120_000);
   // Fake page timers so the fixed 90s transport watchdog can be reached without

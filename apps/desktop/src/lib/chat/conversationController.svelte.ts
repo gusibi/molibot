@@ -156,6 +156,8 @@ export class ConversationController {
   private stopRequested = false;
   /** True while stop() is unwinding the turn; it owns the queue drain in that window. */
   private stopInFlight = false;
+  /** True while recovering a run this client stopped watching (see recoverRunningTurn). */
+  private recovering = false;
 
   /**
    * Streaming deltas are buffered here and flushed to the reactive fields at
@@ -304,6 +306,9 @@ export class ConversationController {
   dispose(): void {
     this.abort?.abort();
     this.abort = null;
+    // End a recovery poll loop too: once this controller is gone nobody will
+    // consume its result, and the loop would otherwise poll for up to an hour.
+    this.recovering = false;
   }
 
   /** Queue a follow-up while a turn is in flight. Returns true when accepted. */
@@ -552,6 +557,48 @@ export class ConversationController {
     const deadline = Date.now() + timeoutMs;
     while (this.sending && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  /**
+   * Reattach to a run this client stopped watching — a page refresh or a
+   * transport drop while the server kept the turn alive. The server owns the run
+   * now and will persist its final answer, so instead of aborting it (the old
+   * reconnect behaviour, which lost the reply) this shows a "resuming" state and
+   * polls until the run settles, then reloads the transcript. The reply lands
+   * exactly once because nothing is re-sent.
+   */
+  async recoverRunningTurn(): Promise<void> {
+    if (this.recovering || this.sending) return;
+    const endpoint = this.host.endpoint();
+    const sessionId = this.host.sessionId();
+    if (!endpoint || !sessionId) return;
+    const labels = this.host.labels();
+    this.recovering = true;
+    this.sending = true;
+    this.turnSessionId = sessionId;
+    this.activity = labels.resuming;
+    this.host.afterMutate?.();
+    try {
+      while (this.recovering) {
+        let running = true;
+        try {
+          running = (await listDesktopSessionRuns(endpoint)).runs.some((run) => run.sessionId === sessionId);
+        } catch {
+          // A transient service hiccup must not end recovery; retry.
+        }
+        if (!running) break;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+    } finally {
+      this.recovering = false;
+      this.sending = false;
+      this.activity = "";
+      await this.host.reload(sessionId);
+      await this.host.refreshSessions?.();
+      this.host.afterMutate?.();
+      // stop() owns the drain in its window, exactly like a normal turn.
+      if (!this.stopInFlight) this.drainQueue();
     }
   }
 
