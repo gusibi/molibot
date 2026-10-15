@@ -99,7 +99,10 @@ test("forkSessionWith rejects running sources and compensates a visible-store fa
         id: "entry",
         parentId: null,
         timestamp: "2026-07-26T00:00:00.000Z",
-        message: message("user", "fork here")
+        // The projected turn time comes from the message timestamp (a number)
+        // when present, so it must line up with the metadata's `createdAt` or
+        // the id match is rejected as a different turn.
+        message: { ...message("user", "fork here"), timestamp: Date.parse("2026-07-26T00:00:00.000Z") }
       }],
       forkSessionBeforeEntry: () => { agentForks += 1; return "child"; },
       deleteSessionArtifacts: () => { agentDeletes += 1; return true; }
@@ -168,7 +171,7 @@ test("forkSessionWith treats a concurrent matching visible child as idempotent s
       id: "entry",
       parentId: null,
       timestamp: "2026-07-26T00:00:00.000Z",
-      message: message("user", "fork here")
+      message: { ...message("user", "fork here"), timestamp: Date.parse("2026-07-26T00:00:00.000Z") }
     }],
     forkSessionBeforeEntry: () => "child",
     deleteSessionArtifacts: () => { agentDeletes += 1; return true; }

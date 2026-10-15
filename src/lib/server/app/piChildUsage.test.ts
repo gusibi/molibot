@@ -4,6 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAssistantMessageEventStream, getCurrentTools, type AssistantMessage } from "@earendil-works/pi-ai";
+import { config } from "$lib/server/app/env.js";
+import { resetServiceOwnershipCache } from "$lib/server/app/serviceOwnership.js";
 import { MomRunner } from "$lib/server/agent/core/runner.js";
 import { PiRunSession } from "$lib/server/agent/core/piRunSession.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
@@ -13,6 +15,12 @@ import { AiUsageTracker } from "$lib/server/usage/tracker.js";
 
 test("production Runner records child generation and compaction once across native reopen", { timeout: 15000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "molibot-pi-child-usage-runner-"));
+  // The runner asserts service ownership against `config.dataDir`. Left at the
+  // real `~/.molibot` it reads the owner's live lease and fails whenever the App
+  // is running; point it at the throwaway directory so the lease is our own.
+  const originalDataDir = config.dataDir;
+  config.dataDir = directory;
+  resetServiceOwnershipCache();
   const workspace = join(directory, "moli-web", "fixture");
   mkdirSync(workspace, { recursive: true }); writeFileSync(join(workspace, "fixture.txt"), "Read fixture");
   const settings: RuntimeSettings = { ...defaultRuntimeSettings, providerMode: "custom" as const, defaultCustomProviderId: "child-usage-fixture",
@@ -63,5 +71,5 @@ test("production Runner records child generation and compaction once across nati
     agent.startTurn(); originalBind(admission!); await agent.prompt("Inspect with scout"); await agent.close();
     assert.equal(new AiUsageTracker({ usageDir: join(directory, "usage") }).getSessionUsage("session").totalTokens, before);
     assert.equal(summaries, 1); assert.equal(childRequests, 2);
-  } finally { await agent.close(); rmSync(directory, { recursive: true, force: true }); }
+  } finally { await agent.close(); resetServiceOwnershipCache(); config.dataDir = originalDataDir; rmSync(directory, { recursive: true, force: true }); }
 });
