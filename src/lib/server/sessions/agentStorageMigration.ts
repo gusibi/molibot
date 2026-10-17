@@ -51,6 +51,8 @@ export interface MigratingRoute {
 
 export interface AgentStoragePreparation {
   version: 1;
+  force?: boolean;
+  skippedIssues?: string[];
   phase: "copying" | "prepared" | "committing" | "completed";
   published?: Record<string, string>;
   copiedFiles?: number;
@@ -65,6 +67,7 @@ export interface AgentStoragePreparation {
 }
 
 export interface MigrationStatus {
+  skippedIssues?: string[];
   needed: boolean;
   sessions: number;
   conflicts: string[];
@@ -109,17 +112,20 @@ export class AgentStorageMigration {
   private readonly ignoredPaths: string[];
   private readonly botAssignments: MigrationBotAssignment[];
   private readonly exclusionsChanged: boolean;
+  private readonly force: boolean;
+  private skippedIssues: string[] = [];
   private automaticSkippedPaths = new Set<string>();
   private sourceIssues: Array<{ message: string; path: string }> = [];
   private ownershipIssues: Array<{ message: string; reason: "missing-bot" | "missing-agent"; channel: string; botId: string; scope: string; sessionId: string; agentId?: string }> = [];
 
-  constructor(dataRoot: string, private readonly ownership: MigrationOwnership, ignoredPaths?: string[], botAssignments?: MigrationBotAssignment[]) {
+  constructor(dataRoot: string, private readonly ownership: MigrationOwnership, ignoredPaths?: string[], botAssignments?: MigrationBotAssignment[], force?: boolean) {
     this.root = resolve(dataRoot);
     this.stagingDir = join(this.root, "runtime", "agent-storage-migration");
     this.manifestFile = join(this.stagingDir, "manifest.json");
     const policy = join(this.stagingDir, "ignored-sources.json");
     this.checkPath(policy);
     const saved = existsSync(policy) ? JSON.parse(readFileSync(policy, "utf8")) : {};
+    this.force = force ?? saved.force ?? false;
     const savedPaths = saved.paths ?? [];
     const paths = ignoredPaths ?? savedPaths;
     if (!Array.isArray(paths) || paths.length > 256 || paths.some(value => typeof value !== "string" || isAbsolute(value) || value.split(/[\\/]/).some(part => !part || part === "." || part === "..") || !resourceSourcePath(value))) throw new Error("Only relative legacy resource paths can be ignored; Context and identity data must be preserved");
@@ -130,7 +136,9 @@ export class AgentStorageMigration {
     if (botAssignments?.some(item => this.ownership.bots.some(bot => bot.channel === item.channel && bot.botId === item.botId))) throw new Error("Only missing Bots can be assigned during migration");
     if (new Set(assignments.map(item => JSON.stringify([item.channel, item.botId]))).size !== assignments.length) throw new Error("Duplicate migration Bot assignment");
     this.botAssignments = assignments.map(({ channel, botId, agentId }) => ({ channel, botId, agentId })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    const fixed = this.readManifest()?.botAssignments ?? [];
+    const previous = this.readManifest();
+    this.skippedIssues = previous?.skippedIssues ?? [];
+    const fixed = previous?.botAssignments ?? [];
     if (fixed.some(item => this.botAssignments.find(assignment => assignment.channel === item.channel && assignment.botId === item.botId)?.agentId !== item.agentId)) throw new Error("Migration ownership is already prepared. Keep the confirmed Bot assignments to retry.");
     this.exclusionsChanged = JSON.stringify(this.ignoredPaths) !== JSON.stringify([...new Set(savedPaths)].sort())
       || JSON.stringify(this.botAssignments) !== JSON.stringify(saved.botAssignments ?? []);
@@ -169,7 +177,7 @@ export class AgentStorageMigration {
     const file = join(this.stagingDir, "ignored-sources.json");
     this.checkPath(file); this.checkPath(`${file}.tmp`);
     mkdirSync(this.stagingDir, { recursive: true });
-    writeFileSync(`${file}.tmp`, JSON.stringify({ paths: this.ignoredPaths, botAssignments: this.botAssignments }, null, 2));
+    writeFileSync(`${file}.tmp`, JSON.stringify({ paths: this.ignoredPaths, botAssignments: this.botAssignments, force: this.force }, null, 2));
     renameSync(`${file}.tmp`, file);
   }
 
@@ -191,11 +199,14 @@ export class AgentStorageMigration {
   private directories(dir: string): string[] {
     if (this.isIgnored(dir)) return [];
     if (!existsSync(dir)) return [];
-    return readdirSync(dir, { withFileTypes: true }).filter(entry => {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); }
+    catch (error) { if (!this.force) throw error; this.recordSourceIssue(dir, error); return []; }
+    return entries.filter(entry => {
       const file = join(dir, entry.name);
       if (this.isIgnored(file)) return false;
       if (entry.isSymbolicLink()) {
-        if (!resourceSourcePath(relative(this.root, file))) this.checkPath(file);
+        if (!this.force && !resourceSourcePath(relative(this.root, file))) this.checkPath(file);
         this.recordSourceIssue(file, new Error(`Symbolic link in migration path: ${relative(this.root, file)}`));
         return false;
       }
@@ -224,84 +235,96 @@ export class AgentStorageMigration {
       }
     }
     for (const { channel, dir } of LEGACY_CHANNEL_ROOTS) {
-      const bots = join(this.root, dir, "bots");
-      this.checkPath(bots);
-      for (const botId of this.directories(bots)) {
-        const bot = this.botFor(channel, botId);
-        const botDir = join(bots, botId);
-        botScopes.push({ channel, botId, botDir, agentId: bot ? bot.agentId || "default" : undefined });
-        for (const chatId of this.directories(botDir)) {
-          if (["skills", "events", "skill-drafts", "attachments", "scratch", "run-details"].includes(chatId)) continue;
-          chatScopes.push({ chatDir: join(botDir, chatId), agentId: bot ? bot.agentId || "default" : undefined });
-          const contexts = join(botDir, chatId, "contexts");
-          this.checkPath(contexts);
-          const legacyContext = join(botDir, chatId, "context.json");
-          this.checkPath(legacyContext);
-          if (!existsSync(contexts) && !existsSync(legacyContext)) continue;
-          const names = existsSync(contexts) ? readdirSync(contexts).sort() : [];
-          if (existsSync(legacyContext)) {
-            if (names.some(name => name === "default.json" || name === "default.jsonl")) {
-              conflicts.push(`Legacy Context conflicts with default Session: ${relative(this.root, legacyContext)}`);
-            } else names.push("default.json");
-          }
-          const ids = [...new Set(names.filter(name => /\.(json|jsonl)$/.test(name) && !name.endsWith(".meta.json")).map(name => name.replace(/\.jsonl?$/, "")))];
-          for (const sessionId of ids) {
-            const source = { channel, botId, chatId, sessionId };
-            if (!safePart(sessionId)) {
-              conflicts.push(`Invalid Session ID: ${relative(this.root, join(contexts, sessionId))}`);
-              continue;
-            }
-            const metaFile = join(contexts, `${sessionId}.meta.json`);
-            this.checkPath(metaFile);
-            let metadata: Record<string, unknown> = {};
-            let pinned: string | undefined;
-            if (existsSync(metaFile)) {
-              try {
-                metadata = JSON.parse(readFileSync(metaFile, "utf8"));
-                if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("Invalid metadata");
-                pinned = metadata.agentId as string | undefined;
+      try {
+        const bots = join(this.root, dir, "bots");
+        this.checkPath(bots);
+        for (const botId of this.directories(bots)) {
+          const bot = this.botFor(channel, botId);
+          const botDir = join(bots, botId);
+          botScopes.push({ channel, botId, botDir, agentId: bot ? bot.agentId || "default" : undefined });
+          for (const chatId of this.directories(botDir)) {
+            try {
+              if (["skills", "events", "skill-drafts", "attachments", "scratch", "run-details"].includes(chatId)) continue;
+              chatScopes.push({ chatDir: join(botDir, chatId), agentId: bot ? bot.agentId || "default" : undefined });
+              const contexts = join(botDir, chatId, "contexts");
+              this.checkPath(contexts);
+              const legacyContext = join(botDir, chatId, "context.json");
+              this.checkPath(legacyContext);
+              if (!existsSync(contexts) && !existsSync(legacyContext)) continue;
+              const names = existsSync(contexts) ? readdirSync(contexts).sort() : [];
+              if (existsSync(legacyContext)) {
+                if (names.some(name => name === "default.json" || name === "default.jsonl")) {
+                  conflicts.push(`Legacy Context conflicts with default Session: ${relative(this.root, legacyContext)}`);
+                } else names.push("default.json");
               }
-              catch { conflicts.push(`Invalid Session metadata: ${relative(this.root, metaFile)}`); continue; }
-            }
-            const identity = JSON.stringify(source);
-            const saved = previous?.sessions.find(item => JSON.stringify(item.source) === identity);
-            const agentId = pinned ?? saved?.agentId ?? (bot ? bot.agentId || "default" : undefined);
-            if (!agentId || !this.ownership.agents.includes(agentId)) {
-              const message = `Unresolved Agent: ${relative(this.root, join(contexts, sessionId))}`;
-              conflicts.push(message);
-              this.ownershipIssues.push({ message, reason: !bot && !agentId ? "missing-bot" : "missing-agent", channel, botId,
-                scope: relative(this.root, join(botDir, chatId)), sessionId, ...(typeof agentId === "string" ? { agentId } : {}) });
-              continue;
-            }
-            if (saved && saved.agentId !== agentId) {
-              conflicts.push(`Agent ownership changed: ${identity}`);
-              continue;
-            }
-            let targetId = saved?.targetId ?? sessionId;
-            if (!saved && used.has(targetId)) targetId = `${sessionId}-${hash(identity).slice(0, 16)}`;
-            if (!saved && used.has(targetId)) {
-              conflicts.push(`Target Session already exists: ${agentId}/${targetId}`);
-              continue;
-            }
-            used.add(targetId);
-            sessions.push({ source, agentId, targetId });
-            for (const suffix of [".json", ".jsonl"]) {
-              const file = sessionId === "default" && suffix === ".json" && existsSync(legacyContext)
-                && !existsSync(join(contexts, "default.json")) ? legacyContext : join(contexts, `${sessionId}${suffix}`);
-              this.checkPath(file);
-              if (!existsSync(file)) continue;
-              if (!lstatSync(file).isFile()) { conflicts.push(`Not a regular file: ${relative(this.root, file)}`); continue; }
-              files.push(this.copyFile(file, join("sessions", agentId, "contexts", `${targetId}${suffix}`)));
-            }
-            const content = `${JSON.stringify({ ...metadata, agentId, source }, null, 2)}\n`;
-            files.push({
-              ...(existsSync(metaFile) ? { source: relative(this.root, metaFile), sourceDigest: hash(readFileSync(metaFile)) } : {}),
-              target: join("sessions", agentId, "contexts", `${targetId}.meta.json`),
-              digest: hash(content), content
-            });
+              const ids = [...new Set(names.filter(name => /\.(json|jsonl)$/.test(name) && !name.endsWith(".meta.json")).map(name => name.replace(/\.jsonl?$/, "")))];
+              for (const sessionId of ids) {
+                const sessionCount = sessions.length;
+                const fileCount = files.length;
+                try {
+                  const source = { channel, botId, chatId, sessionId };
+                  if (!safePart(sessionId)) {
+                    conflicts.push(`Invalid Session ID: ${relative(this.root, join(contexts, sessionId))}`);
+                    continue;
+                  }
+                  const metaFile = join(contexts, `${sessionId}.meta.json`);
+                  this.checkPath(metaFile);
+                  let metadata: Record<string, unknown> = {};
+                  let pinned: string | undefined;
+                  if (existsSync(metaFile)) {
+                    try {
+                      metadata = JSON.parse(readFileSync(metaFile, "utf8"));
+                      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("Invalid metadata");
+                      pinned = metadata.agentId as string | undefined;
+                    }
+                    catch { conflicts.push(`Invalid Session metadata: ${relative(this.root, metaFile)}`); continue; }
+                  }
+                  const identity = JSON.stringify(source);
+                  const saved = previous?.sessions.find(item => JSON.stringify(item.source) === identity);
+                  const agentId = pinned ?? saved?.agentId ?? (bot ? bot.agentId || "default" : undefined);
+                  if (!agentId || !this.ownership.agents.includes(agentId)) {
+                    const message = `Unresolved Agent: ${relative(this.root, join(contexts, sessionId))}`;
+                    conflicts.push(message);
+                    this.ownershipIssues.push({ message, reason: !bot && !agentId ? "missing-bot" : "missing-agent", channel, botId,
+                      scope: relative(this.root, join(botDir, chatId)), sessionId, ...(typeof agentId === "string" ? { agentId } : {}) });
+                    continue;
+                  }
+                  if (saved && saved.agentId !== agentId) {
+                    conflicts.push(`Agent ownership changed: ${identity}`);
+                    continue;
+                  }
+                  let targetId = saved?.targetId ?? sessionId;
+                  if (!saved && used.has(targetId)) targetId = `${sessionId}-${hash(identity).slice(0, 16)}`;
+                  if (!saved && used.has(targetId)) {
+                    conflicts.push(`Target Session already exists: ${agentId}/${targetId}`);
+                    continue;
+                  }
+                  used.add(targetId);
+                  sessions.push({ source, agentId, targetId });
+                  for (const suffix of [".json", ".jsonl"]) {
+                    const file = sessionId === "default" && suffix === ".json" && existsSync(legacyContext)
+                      && !existsSync(join(contexts, "default.json")) ? legacyContext : join(contexts, `${sessionId}${suffix}`);
+                    this.checkPath(file);
+                    if (!existsSync(file)) continue;
+                    if (!lstatSync(file).isFile()) { conflicts.push(`Not a regular file: ${relative(this.root, file)}`); continue; }
+                    files.push(...this.copyFile(file, join("sessions", agentId, "contexts", `${targetId}${suffix}`)));
+                  }
+                  const content = `${JSON.stringify({ ...metadata, agentId, source }, null, 2)}\n`;
+                  files.push({
+                    ...(existsSync(metaFile) ? { source: relative(this.root, metaFile), sourceDigest: hash(readFileSync(metaFile)) } : {}),
+                    target: join("sessions", agentId, "contexts", `${targetId}.meta.json`),
+                    digest: hash(content), content
+                  });
+                } catch (error) {
+                  if (!this.force) throw error;
+                  sessions.splice(sessionCount); files.splice(fileCount);
+                  this.recordSourceIssue(join(contexts, sessionId), error);
+                }
+              }
+            } catch (error) { if (!this.force) throw error; this.recordSourceIssue(join(botDir, chatId), error); }
           }
         }
-      }
+      } catch (error) { if (!this.force) throw error; this.recordSourceIssue(join(this.root, dir), error); }
     }
     const scopes = new Map<string, MigratingSession[]>();
     for (const session of sessions) {
@@ -314,41 +337,43 @@ export class AgentStorageMigration {
       if (!scopes.has(chatDir)) scopes.set(chatDir, []);
     }
     for (const [chatDir, scopeSessions] of scopes) {
-      const namespace = hash(relative(this.root, chatDir)).slice(0, 16);
-      const agents = new Set(scopeSessions.map(session => session.agentId));
-      const configured = chatScopes.find(scope => scope.chatDir === chatDir)?.agentId;
-      if (!agents.size && configured && this.ownership.agents.includes(configured)) agents.add(configured);
-      const histories = ["run-summaries.jsonl", "log.jsonl"].map(name => join(chatDir, name)).filter(file => {
-        this.checkPath(file);
-        return existsSync(file);
-      });
-      const resourceFiles = [...histories, ...["attachments", "scratch", "run-details"].flatMap(kind => this.listFiles(join(chatDir, kind)))];
-      if (!agents.size && resourceFiles.length) conflicts.push(`Unresolved resource Agent: ${relative(this.root, chatDir)}`);
-      for (const agentId of agents) {
-        for (const kind of ["attachments", "scratch", "run-details"]) {
-          for (const source of this.listFiles(join(chatDir, kind))) {
-            const target = join("sessions", agentId, kind, namespace, relative(join(chatDir, kind), source));
-            if (kind !== "scratch" || !relative(join(chatDir, kind), source).startsWith(`events${sep}`)) files.push(this.copyFile(source, target));
+      try {
+        const namespace = hash(relative(this.root, chatDir)).slice(0, 16);
+        const agents = new Set(scopeSessions.map(session => session.agentId));
+        const configured = chatScopes.find(scope => scope.chatDir === chatDir)?.agentId;
+        if (!agents.size && configured && this.ownership.agents.includes(configured)) agents.add(configured);
+        const histories = ["run-summaries.jsonl", "log.jsonl"].map(name => join(chatDir, name)).filter(file => {
+          this.checkPath(file);
+          return existsSync(file);
+        });
+        const resourceFiles = [...histories, ...["attachments", "scratch", "run-details"].flatMap(kind => this.listFiles(join(chatDir, kind)))];
+        if (!agents.size && resourceFiles.length) conflicts.push(`Unresolved resource Agent: ${relative(this.root, chatDir)}`);
+        for (const agentId of agents) {
+          for (const kind of ["attachments", "scratch", "run-details"]) {
+            for (const source of this.listFiles(join(chatDir, kind))) {
+              const target = join("sessions", agentId, kind, namespace, relative(join(chatDir, kind), source));
+              if (kind !== "scratch" || !relative(join(chatDir, kind), source).startsWith(`events${sep}`)) files.push(...this.copyFile(source, target));
+            }
+          }
+          for (const history of histories) {
+            files.push(...this.copyFile(history, join("sessions", agentId, "run-history", namespace, relative(chatDir, history))));
           }
         }
-        for (const history of histories) {
-          files.push(this.copyFile(history, join("sessions", agentId, "run-history", namespace, relative(chatDir, history))));
+        const activeFile = join(chatDir, "active_session.txt");
+        this.checkPath(activeFile);
+        if (existsSync(activeFile)) {
+          const bytes = readFileSync(activeFile);
+          const activeId = bytes.toString("utf8").trim();
+          const session = scopeSessions.find(item => item.source.sessionId === activeId);
+          if (!session) conflicts.push(`Active Session not found: ${relative(this.root, activeFile)}`);
+          else {
+            const { channel, botId, chatId } = session.source;
+            routes.push({ channel, botId, chatId, agentId: session.agentId, sessionId: session.targetId });
+            files.push({ source: relative(this.root, activeFile), sourceDigest: hash(bytes), target: join("runtime", "agent-storage-migration", "routes", `${namespace}.json`),
+              content: `${JSON.stringify(routes[routes.length - 1])}\n`, digest: hash(`${JSON.stringify(routes[routes.length - 1])}\n`) });
+          }
         }
-      }
-      const activeFile = join(chatDir, "active_session.txt");
-      this.checkPath(activeFile);
-      if (existsSync(activeFile)) {
-        const bytes = readFileSync(activeFile);
-        const activeId = bytes.toString("utf8").trim();
-        const session = scopeSessions.find(item => item.source.sessionId === activeId);
-        if (!session) conflicts.push(`Active Session not found: ${relative(this.root, activeFile)}`);
-        else {
-          const { channel, botId, chatId } = session.source;
-          routes.push({ channel, botId, chatId, agentId: session.agentId, sessionId: session.targetId });
-          files.push({ source: relative(this.root, activeFile), sourceDigest: hash(bytes), target: join("runtime", "agent-storage-migration", "routes", `${namespace}.json`),
-            content: `${JSON.stringify(routes[routes.length - 1])}\n`, digest: hash(`${JSON.stringify(routes[routes.length - 1])}\n`) });
-        }
-      }
+      } catch (error) { if (!this.force) throw error; this.recordSourceIssue(chatDir, error); }
     }
     const eventSources = botScopes.flatMap(scope => [
       ...this.listFiles(join(scope.botDir, "events")).map(source => ({ ...scope, source })),
@@ -363,23 +388,25 @@ export class AgentStorageMigration {
       try { this.checkPath(skillsRoot); } catch (error) { this.recordSourceIssue(skillsRoot, error); continue; }
       for (const skill of this.directories(skillsRoot)) {
         const skillDir = join(skillsRoot, skill);
-        const sources = this.listFiles(skillDir);
-        if (!skillAgentId || !this.ownership.agents.includes(skillAgentId)) {
-          conflicts.push(`Unresolved Skill Agent: ${relative(this.root, skillDir)}`);
-          continue;
-        }
-        const targetDir = join("sessions", skillAgentId!, "skills", skill);
-        const signature = this.treeDigest(skillDir);
-        const liveDir = join(this.root, targetDir);
-        this.checkPath(liveDir);
-        const existing = skills.get(targetDir) ?? (existsSync(liveDir) ? this.treeDigest(liveDir) : undefined);
-        const alreadyPublished = previous?.phase === "completed" && previous.files.some(file => file.source?.startsWith(relative(this.root, skillDir)));
-        if (!alreadyPublished && existing !== undefined && existing !== signature) {
-          conflicts.push(`Skill conflict: ${relative(this.root, skillDir)} -> ${targetDir}`);
-          continue;
-        }
-        skills.set(targetDir, signature);
-        for (const source of sources) files.push(this.copyFile(source, join(targetDir, relative(skillDir, source))));
+        try {
+          const sources = this.listFiles(skillDir);
+          if (!skillAgentId || !this.ownership.agents.includes(skillAgentId)) {
+            conflicts.push(`Unresolved Skill Agent: ${relative(this.root, skillDir)}`);
+            continue;
+          }
+          const targetDir = join("sessions", skillAgentId!, "skills", skill);
+          const signature = this.treeDigest(skillDir);
+          const liveDir = join(this.root, targetDir);
+          this.checkPath(liveDir);
+          const existing = skills.get(targetDir) ?? (existsSync(liveDir) ? this.treeDigest(liveDir) : undefined);
+          const alreadyPublished = previous?.phase === "completed" && previous.files.some(file => file.source?.startsWith(relative(this.root, skillDir)));
+          if (!alreadyPublished && existing !== undefined && existing !== signature) {
+            conflicts.push(`Skill conflict: ${relative(this.root, skillDir)} -> ${targetDir}`);
+            continue;
+          }
+          skills.set(targetDir, signature);
+          for (const source of sources) files.push(...this.copyFile(source, join(targetDir, relative(skillDir, source))));
+        } catch (error) { if (!this.force) throw error; this.recordSourceIssue(skillDir, error); }
       }
     }
     for (const { botDir, agentId } of botScopes) {
@@ -388,7 +415,7 @@ export class AgentStorageMigration {
       const owner = stored?.target.split(sep)[1] ?? agentId;
       for (const source of this.listFiles(draftsRoot)) {
         if (!owner || !this.ownership.agents.includes(owner)) { conflicts.push(`Unresolved Skill draft Agent: ${relative(this.root, source)}`); continue; }
-        files.push(this.copyFile(source, join("sessions", owner, "skill-drafts", relative(draftsRoot, source))));
+        files.push(...this.copyFile(source, join("sessions", owner, "skill-drafts", relative(draftsRoot, source))));
       }
     }
     for (const { botDir, agentId } of botScopes) {
@@ -399,7 +426,7 @@ export class AgentStorageMigration {
         for (const source of this.listFiles(resourceRoot)) {
           if (!owner || !this.ownership.agents.includes(owner)) { conflicts.push(`Unresolved resource Agent: ${relative(this.root, source)}`); continue; }
           const namespace = hash(relative(this.root, botDir)).slice(0, 16);
-          files.push(this.copyFile(source, join("sessions", owner, kind, namespace, relative(resourceRoot, source))));
+          files.push(...this.copyFile(source, join("sessions", owner, kind, namespace, relative(resourceRoot, source))));
         }
       }
     }
@@ -411,62 +438,65 @@ export class AgentStorageMigration {
     }
     const coveredSources = new Set(files.flatMap(file => file.source ? [file.source] : []));
     for (const { channel, dir, source } of legacyFiles) {
-      const local = relative(this.root, source);
-      if (coveredSources.has(local) || eventSources.some(event => event.source === source)) continue;
-      let ui: any;
-      if (channel === "web" && source.endsWith(".json")) {
-        try { const parsed = JSON.parse(readFileSync(source, "utf8")); if (parsed?.conversation) ui = parsed; } catch {}
-      }
-      if (ui && !ui.conversation.projectId) {
-        const owner = String(ui.conversation.externalUserId ?? "");
-        const botId = owner.split(":")[1];
-        if (!ui.conversation.roomId && this.isBotSkipped("web", botId)) continue;
-        const originalId = String(ui.conversation.id ?? "");
-        let session = sessions.find(item => item.source.channel === "web" && item.source.botId === botId && item.source.chatId === owner && item.source.sessionId === originalId);
-        const configured = this.botFor("web", botId);
-        const agentId = ui.conversation.agentId ?? session?.agentId ?? (configured ? configured.agentId || "default" : undefined);
-        if (!safePart(originalId) || !agentId || !this.ownership.agents.includes(agentId) || (session && session.agentId !== agentId)) {
-          const message = `Unresolved Web Session Agent: ${local}`;
-          conflicts.push(message);
-          if (botId && safePart(originalId) && (!agentId || !this.ownership.agents.includes(agentId))) this.ownershipIssues.push({ message, reason: !configured && !agentId ? "missing-bot" : "missing-agent", channel: "web", botId,
-            scope: join("moli-w", "bots", botId, owner), sessionId: originalId, ...(typeof agentId === "string" ? { agentId } : {}) });
-          continue;
+      const fileCount = files.length;
+      try {
+        const local = relative(this.root, source);
+        if (coveredSources.has(local) || eventSources.some(event => event.source === source)) continue;
+        let ui: any;
+        if (channel === "web" && source.endsWith(".json")) {
+          try { const parsed = JSON.parse(readFileSync(source, "utf8")); if (parsed?.conversation) ui = parsed; } catch {}
         }
-        if (!session) {
-          const origin = { channel: "web", botId, chatId: owner, sessionId: originalId };
-          session = previous?.sessions.find(item => JSON.stringify(item.source) === JSON.stringify(origin));
-          if (!session) {
-            let targetId = originalId;
-            if (used.has(targetId)) targetId = `${originalId}-${hash(JSON.stringify(origin)).slice(0, 16)}`;
-            session = { source: origin, agentId, targetId };
+        if (ui && !ui.conversation.projectId) {
+          const owner = String(ui.conversation.externalUserId ?? "");
+          const botId = owner.split(":")[1];
+          if (!ui.conversation.roomId && this.isBotSkipped("web", botId)) continue;
+          const originalId = String(ui.conversation.id ?? "");
+          let session = sessions.find(item => item.source.channel === "web" && item.source.botId === botId && item.source.chatId === owner && item.source.sessionId === originalId);
+          const configured = this.botFor("web", botId);
+          const agentId = ui.conversation.agentId ?? session?.agentId ?? (configured ? configured.agentId || "default" : undefined);
+          if (!safePart(originalId) || !agentId || !this.ownership.agents.includes(agentId) || (session && session.agentId !== agentId)) {
+            const message = `Unresolved Web Session Agent: ${local}`;
+            conflicts.push(message);
+            if (botId && safePart(originalId) && (!agentId || !this.ownership.agents.includes(agentId))) this.ownershipIssues.push({ message, reason: !configured && !agentId ? "missing-bot" : "missing-agent", channel: "web", botId,
+              scope: join("moli-w", "bots", botId, owner), sessionId: originalId, ...(typeof agentId === "string" ? { agentId } : {}) });
+            continue;
           }
-          sessions.push(session);
-          used.add(session.targetId);
+          if (!session) {
+            const origin = { channel: "web", botId, chatId: owner, sessionId: originalId };
+            session = previous?.sessions.find(item => JSON.stringify(item.source) === JSON.stringify(origin));
+            if (!session) {
+              let targetId = originalId;
+              if (used.has(targetId)) targetId = `${originalId}-${hash(JSON.stringify(origin)).slice(0, 16)}`;
+              session = { source: origin, agentId, targetId };
+            }
+            sessions.push(session);
+            used.add(session.targetId);
+          }
+          ui.conversation.id = session.targetId;
+          ui.conversation.agentId = agentId;
+          const target = join("sessions", agentId, "contexts", `${session.targetId}.meta.json`);
+          const existing = files.find(file => file.target === target);
+          const metadata = existing?.content ? JSON.parse(existing.content) : { agentId, source: session.source };
+          const content = `${JSON.stringify({ ...metadata, ui }, null, 2)}\n`;
+          if (existing) {
+            existing.content = content; existing.digest = hash(content);
+            const snapshot = readFileSync(source);
+            files.push({ source: local, sourceDigest: hash(snapshot), target: join("runtime", "agent-storage-migration", "sources", `${hash(local).slice(0, 16)}.json`), digest: hash(snapshot) });
+          }
+          files.push({ source: local, sourceDigest: hash(readFileSync(source)), target, content, digest: hash(content) });
+          uiConversations.push({ externalUserId: owner, id: session.targetId });
+          if (!files.some(file => file.target === join("sessions", agentId, "contexts", `${session.targetId}.json`) || file.target === join("sessions", agentId, "contexts", `${session.targetId}.jsonl`))) {
+            const messages = (ui.messages ?? ui.messageMetadata ?? []).filter((message: any) => ["user", "assistant"].includes(message.role) && typeof message.content === "string").map((message: any) => ({ role: message.role, content: message.content, timestamp: Date.parse(message.createdAt) || 0 }));
+            const content = `${JSON.stringify(messages)}\n`;
+            files.push({ target: join("sessions", agentId, "contexts", `${session.targetId}.json`), content, digest: hash(content) });
+          }
+          coveredSources.add(local);
+        } else {
+          if (!local.startsWith(join("moli-w", "rooms") + sep) && (local.includes(`${sep}contexts${sep}`) || source.endsWith(`${sep}context.json`))) { conflicts.push(`Unresolved Context location: ${local}`); continue; }
+          files.push(...this.copyFile(source, join("channels", channel, relative(join(this.root, dir), source))));
+          coveredSources.add(local);
         }
-        ui.conversation.id = session.targetId;
-        ui.conversation.agentId = agentId;
-        const target = join("sessions", agentId, "contexts", `${session.targetId}.meta.json`);
-        const existing = files.find(file => file.target === target);
-        const metadata = existing?.content ? JSON.parse(existing.content) : { agentId, source: session.source };
-        const content = `${JSON.stringify({ ...metadata, ui }, null, 2)}\n`;
-        if (existing) {
-          existing.content = content; existing.digest = hash(content);
-          const snapshot = readFileSync(source);
-          files.push({ source: local, sourceDigest: hash(snapshot), target: join("runtime", "agent-storage-migration", "sources", `${hash(local).slice(0, 16)}.json`), digest: hash(snapshot) });
-        }
-        files.push({ source: local, sourceDigest: hash(readFileSync(source)), target, content, digest: hash(content) });
-        uiConversations.push({ externalUserId: owner, id: session.targetId });
-        if (!files.some(file => file.target === join("sessions", agentId, "contexts", `${session.targetId}.json`) || file.target === join("sessions", agentId, "contexts", `${session.targetId}.jsonl`))) {
-          const messages = (ui.messages ?? ui.messageMetadata ?? []).filter((message: any) => ["user", "assistant"].includes(message.role) && typeof message.content === "string").map((message: any) => ({ role: message.role, content: message.content, timestamp: Date.parse(message.createdAt) || 0 }));
-          const content = `${JSON.stringify(messages)}\n`;
-          files.push({ target: join("sessions", agentId, "contexts", `${session.targetId}.json`), content, digest: hash(content) });
-        }
-        coveredSources.add(local);
-      } else {
-        if (!local.startsWith(join("moli-w", "rooms") + sep) && (local.includes(`${sep}contexts${sep}`) || source.endsWith(`${sep}context.json`))) { conflicts.push(`Unresolved Context location: ${local}`); continue; }
-        files.push(this.copyFile(source, join("channels", channel, relative(join(this.root, dir), source))));
-        coveredSources.add(local);
-      }
+      } catch (error) { if (!this.force) throw error; files.splice(fileCount); this.recordSourceIssue(source, error); }
     }
     for (const session of sessions.filter(item => item.source.channel === "web")) {
       if (uiConversations.some(item => item.id === session.targetId)) continue;
@@ -517,30 +547,45 @@ export class AgentStorageMigration {
       const current = files.find(file => file.source === old.source);
       if ((!current && previous?.phase !== "completed") || (current && current.sourceDigest !== old.sourceDigest)) conflicts.push(`Source changed since preparation: ${old.source}`);
     }
+    const skippedTargets = new Set<string>();
     const targetDigests = new Map<string, string>();
     for (const file of files) {
-      if (targetDigests.has(file.target) && targetDigests.get(file.target) !== file.digest) conflicts.push(`Target collision: ${file.target}`);
+      if (targetDigests.has(file.target) && targetDigests.get(file.target) !== file.digest) { conflicts.push(`Target collision: ${file.target}`); skippedTargets.add(file.target); }
       targetDigests.set(file.target, file.digest);
       const target = join(this.root, file.target);
-      this.checkPath(target);
-      if (!previous?.published?.[file.target] && existsSync(target) && hash(readFileSync(target)) !== file.digest) conflicts.push(`Live target conflict: ${file.target}`);
+      try {
+        this.checkPath(target);
+        if (!previous?.published?.[file.target] && existsSync(target) && hash(readFileSync(target)) !== file.digest) {
+          conflicts.push(`Live target conflict: ${file.target}`); skippedTargets.add(file.target);
+        }
+      } catch (error) { if (!this.force) throw error; skippedTargets.add(file.target); this.recordSourceIssue(target, error); }
     }
+    if (this.force) {
+      for (let i = files.length - 1; i >= 0; i--) if (skippedTargets.has(files[i].target)) files.splice(i, 1);
+    }
+    const result = { sessions, routes, files, conflicts: [] as string[], uiConversations };
+    if (this.force) this.pruneSkippedSessions(result);
     const completedSources = previous?.phase === "completed" && !this.exclusionsChanged
       && files.every(file => previous.published?.[file.target] === file.digest);
     // After cutover, databases belong to the new runtime, not the legacy ID map.
-    if (!conflicts.length && !completedSources) {
-      try { migrateStorageReferences(this.root, { version: 1, phase: "prepared", stagingDir: this.stagingDir, sessions, routes, files, ignoredPaths: this.ignoredPaths, botAssignments: this.botAssignments }, true); }
+    if ((!conflicts.length || this.force) && !completedSources) {
+      try { migrateStorageReferences(this.root, { version: 1, phase: "prepared", stagingDir: this.stagingDir, sessions: result.sessions, routes: result.routes, files: result.files, ignoredPaths: this.ignoredPaths, botAssignments: this.botAssignments, force: this.force, skippedIssues: this.skippedIssues }, true); }
       catch (error) { conflicts.push(`Persistent reference conflict: ${(error as Error).message}`); }
     }
     conflicts.push(...this.sourceIssues.map(item => item.message));
-    return { sessions, routes, files, conflicts: [...new Set(conflicts)], uiConversations };
+    if (this.force) this.skippedIssues = [...new Set([...this.skippedIssues, ...conflicts])];
+    result.conflicts = [...new Set(conflicts)];
+    return result;
   }
 
   private listFiles(dir: string): string[] {
     if (this.isIgnored(dir)) return [];
     try { this.checkPath(dir); } catch (error) { this.recordSourceIssue(dir, error); return []; }
     if (!existsSync(dir)) return [];
-    return readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap(entry => {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); }
+    catch (error) { this.recordSourceIssue(dir, error); return []; }
+    return entries.sort((a, b) => a.name.localeCompare(b.name)).flatMap(entry => {
       const file = join(dir, entry.name);
       if (this.isIgnored(file)) return [];
       if (SCRATCH_GENERATED_DIRECTORIES.has(entry.name) && relative(this.root, dir).split(sep).includes("scratch")) {
@@ -558,16 +603,20 @@ export class AgentStorageMigration {
     return hash(JSON.stringify(this.listFiles(dir).map(file => [relative(dir, file), hash(readFileSync(file))])));
   }
 
-  private copyFile(source: string, target: string): MigratingFile {
-    this.checkPath(source);
-    const digest = hash(readFileSync(source));
-    return { source: relative(this.root, source), target, sourceDigest: digest, digest };
+  private copyFile(source: string, target: string): MigratingFile[] {
+    try {
+      this.checkPath(source);
+      const digest = hash(readFileSync(source));
+      return [{ source: relative(this.root, source), target, sourceDigest: digest, digest }];
+    } catch (error) { if (!this.force) throw error; this.recordSourceIssue(source, error); return []; }
   }
 
   status(progressOnly = false): MigrationStatus {
+    const completed = this.readManifest();
+    if (completed?.force && completed.phase === "completed") progressOnly = true;
     if (progressOnly) {
       const manifest = this.readManifest();
-      if (manifest) return { needed: manifest.phase !== "completed", sessions: manifest.sessions.length, files: manifest.files.length,
+      if (manifest) return { skippedIssues: manifest.skippedIssues, needed: manifest.phase !== "completed", sessions: manifest.sessions.length, files: manifest.files.length,
         copiedFiles: manifest.copiedFiles ?? 0, publishedFiles: manifest.files.filter(file => manifest.published?.[file.target]).length,
         conflicts: [], conflictItems: [], ignoredPaths: this.ignoredPaths, botAssignments: this.botAssignments,
         fixedBotAssignments: manifest.botAssignments ?? [], availableAgents: this.ownership.agents.map(id => ({ id, name: this.ownership.agentOptions?.find(agent => agent.id === id)?.name ?? id })),
@@ -587,7 +636,7 @@ export class AgentStorageMigration {
       }
     });
     const unchanged = !scan.conflicts.length && !this.exclusionsChanged && previous?.phase === "completed" && scan.files.every(file => previous.published?.[file.target] === file.digest);
-    return { needed: this.exclusionsChanged || scan.conflicts.length > 0 || (!unchanged && scan.files.length > 0), sessions: scan.sessions.length,
+    return { skippedIssues: this.skippedIssues, needed: this.exclusionsChanged || scan.conflicts.length > 0 || (!unchanged && scan.files.length > 0), sessions: scan.sessions.length,
       files: scan.files.length, copiedFiles: previous?.copiedFiles ?? 0, publishedFiles: scan.files.filter(file => previous?.published?.[file.target]).length,
       conflicts: scan.conflicts,
       conflictItems,
@@ -621,6 +670,18 @@ export class AgentStorageMigration {
         agentId: issue.agentId, sessionIds: [issue.sessionId] } : {}) });
     }
     return items;
+  }
+
+  private pruneSkippedSessions(plan: Pick<AgentStoragePreparation, "sessions" | "files" | "routes" | "uiConversations">): void {
+    const missing = plan.sessions.filter(session => !plan.files.some(file =>
+      [".json", ".jsonl"].some(suffix => file.target === join("sessions", session.agentId, "contexts", session.targetId + suffix)))
+      || !plan.files.some(file => file.target === join("sessions", session.agentId, "contexts", session.targetId + ".meta.json")));
+    const ids = new Set(missing.map(session => session.targetId));
+    plan.sessions = plan.sessions.filter(session => !ids.has(session.targetId));
+    plan.routes = plan.routes.filter(route => !ids.has(route.sessionId));
+    plan.uiConversations = plan.uiConversations?.filter(item => !ids.has(item.id));
+    plan.files = plan.files.filter(file => !missing.some(session => [".json", ".jsonl", ".meta.json"].some(suffix =>
+      file.target === join("sessions", session.agentId, "contexts", session.targetId + suffix))));
   }
 
   private readManifest(): AgentStoragePreparation | undefined {
@@ -658,16 +719,26 @@ export class AgentStorageMigration {
   /** Requires the caller to stop affected writers first. Reuses verified copies on retry. */
   private *prepareCopies(): Generator<void, AgentStoragePreparation> {
     const scan = this.scan();
-    if (scan.conflicts.length) throw new Error(scan.conflicts.join("\n"));
+    if (scan.conflicts.length && !this.force) throw new Error(scan.conflicts.join("\n"));
     const manifest: AgentStoragePreparation = { version: 1, phase: "copying", stagingDir: this.stagingDir, sessions: scan.sessions, routes: scan.routes, files: scan.files,
-      copiedFiles: 0, ignoredPaths: this.ignoredPaths, botAssignments: this.botAssignments, automaticSkippedPaths: [...this.automaticSkippedPaths].sort(), uiConversations: scan.uiConversations, published: this.readManifest()?.published ?? {} };
+      force: this.force, skippedIssues: this.skippedIssues, copiedFiles: 0, ignoredPaths: this.ignoredPaths, botAssignments: this.botAssignments, automaticSkippedPaths: [...this.automaticSkippedPaths].sort(), uiConversations: scan.uiConversations, published: this.readManifest()?.published ?? {} };
     this.saveManifest(manifest);
+    const copied = new Set<MigratingFile>();
     for (const file of manifest.files) {
       const source = file.source ? join(this.root, file.source) : undefined;
       const target = join(this.stagingDir, file.target);
-      this.checkPath(target);
-      if (source) this.checkPath(source);
-      const sourceBytes = source ? readFileSync(source) : undefined;
+      let sourceBytes: Buffer | undefined;
+      try {
+        this.checkPath(target);
+        if (source) this.checkPath(source);
+        sourceBytes = source ? readFileSync(source) : undefined;
+        if (sourceBytes && hash(sourceBytes) !== file.sourceDigest) throw new Error(`Source changed during migration: ${file.source}`);
+        if (existsSync(target) && hash(readFileSync(target)) !== file.digest) throw new Error(`Staged copy differs: ${file.target}`);
+      } catch (error) {
+        if (!this.force) throw error;
+        manifest.skippedIssues!.push(error instanceof Error ? error.message : String(error));
+        continue;
+      }
       const bytes = file.content !== undefined ? Buffer.from(file.content) : sourceBytes!;
       if (sourceBytes && hash(sourceBytes) !== file.sourceDigest) throw new Error(`Source changed during migration: ${file.source}`);
       if (existsSync(target)) {
@@ -682,10 +753,15 @@ export class AgentStorageMigration {
         unlinkSync(temporary);
       }
       if (hash(readFileSync(target)) !== file.digest) throw new Error(`Copy verification failed: ${file.target}`);
+      copied.add(file);
       manifest.copiedFiles! += 1;
       // Retries verify every staged file, including files copied after the last checkpoint.
       if (manifest.copiedFiles! % 32 === 0) this.saveManifest(manifest);
       yield;
+    }
+    if (this.force) {
+      manifest.files = manifest.files.filter(file => copied.has(file));
+      this.pruneSkippedSessions(manifest);
     }
     manifest.phase = "prepared";
     this.saveManifest(manifest);
@@ -700,7 +776,7 @@ export class AgentStorageMigration {
 
   /** Called only after user confirmation, while Runtime admission and consumers are stopped. */
   async execute(): Promise<AgentStoragePreparation> {
-    if (!this.status().needed) return this.readManifest() ?? this.prepare();
+    if (!this.force && !this.status().needed) return this.readManifest() ?? this.prepare();
     const copies = this.prepareCopies();
     let step = copies.next();
     while (!step.done) { await new Promise<void>(resolve => setImmediate(resolve)); step = copies.next(); }

@@ -113,8 +113,13 @@
       } catch (error) { session.error = String(error); return; }
       finally { avatarUploading = false; }
     }
-    await saveAgentEditor(changes);
-    if (!agentsStore.agentEdit) onClose();
+    if (await saveAgentEditor(changes)) {
+      channels = channels.map(item => {
+        const change = changes.find(change => change.channel === item.channel && change.id === item.id);
+        return change ? { ...item, agentId: change.agentId } : item;
+      });
+      bindings = {};
+    }
   }
 </script>
 
@@ -206,7 +211,7 @@
     {/if}
     </div>
   </div>
-  <footer class="settings-footbar agent-settings-foot"><p class="settings-footbar-label">{zh ? "更改将在保存后生效" : "Changes apply after saving"}</p><Button disabled={agentsStore.saving || avatarUploading} onclick={onClose}>{session.text.cancel}</Button><Button variant="primary" type="submit" disabled={agentsStore.saving || avatarUploading || !session.serviceReady || !draft.id.trim()}>{agentsStore.saving || avatarUploading ? session.text.onboardingProviderSaving : draft.isNew ? (zh ? "创建" : "Create") : session.text.save}</Button></footer>
+  <footer class="settings-footbar agent-settings-foot"><p class="settings-footbar-label" class:agent-settings-feedback={!!agentsStore.actionMessage} role="status">{agentsStore.actionMessage || (zh ? "更改将在保存后生效" : "Changes apply after saving")}</p><Button disabled={agentsStore.saving || avatarUploading} onclick={onClose}>{session.text.cancel}</Button><Button variant="primary" type="submit" disabled={agentsStore.saving || avatarUploading || !session.serviceReady || !draft.id.trim()}>{agentsStore.saving || avatarUploading ? session.text.onboardingProviderSaving : draft.isNew ? (zh ? "创建" : "Create") : session.text.save}</Button></footer>
 </form>
 
 </div>

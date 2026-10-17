@@ -159,20 +159,24 @@ export async function beginAgentEdit(agentId: string): Promise<void> {
 }
 
 export function updateAgentEdit(updater: (draft: AgentEditor) => AgentEditor): void {
-  if (agentsStore.agentEdit) agentsStore.agentEdit = updater(agentsStore.agentEdit);
+  if (agentsStore.agentEdit) {
+    agentsStore.agentEdit = updater(agentsStore.agentEdit);
+    agentsStore.actionMessage = "";
+  }
 }
 
-export async function saveAgentEditor(bindings: DesktopAgentBindingChange[] = []): Promise<void> {
+export async function saveAgentEditor(bindings: DesktopAgentBindingChange[] = []): Promise<boolean> {
   const endpoint = session.endpoint;
   const agentEdit = agentsStore.agentEdit;
-  if (!endpoint || !agentEdit || agentsStore.saving || !agentEdit.id.trim()) return;
+  if (!endpoint || !agentEdit || agentsStore.saving || !agentEdit.id.trim()) return false;
   if (agentEdit.isNew && agentsStore.agents?.items.some(agent => agent.id === agentEdit.id.trim())) {
     session.error = session.locale === "zh-CN" ? "Agent ID 已存在，请使用其它 ID。" : "Agent ID already exists. Choose another ID.";
-    return;
+    return false;
   }
   let metadataSaved = false;
   agentsStore.saving = true;
   session.error = "";
+  agentsStore.actionMessage = "";
   try {
     agentsStore.agents = await saveDesktopAgent(endpoint, {
       previousId: agentEdit.isNew ? undefined : agentEdit.previousId,
@@ -189,12 +193,13 @@ export async function saveAgentEditor(bindings: DesktopAgentBindingChange[] = []
     agentsStore.agentEdit = { ...agentEdit, isNew: false, previousId: agentEdit.id.trim(), id: agentEdit.id.trim() };
     await saveDesktopAgentFiles(endpoint, agentEdit.id.trim(), agentEdit.files);
     for (const binding of bindings) await saveDesktopAgentBinding(endpoint, binding);
-    agentsStore.agentEdit = null;
     agentsStore.actionMessage = session.text.agentSaved;
     notifySettingsChanged();
+    return true;
   } catch (cause) {
     setError(cause);
     if (metadataSaved) session.error = `${session.locale === "zh-CN" ? "部分配置已保存；请重试完成剩余保存。" : "Some settings were saved; retry to finish the remaining changes."} ${session.error}`;
+    return false;
   } finally {
     agentsStore.saving = false;
   }

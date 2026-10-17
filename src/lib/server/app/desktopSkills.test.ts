@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildDesktopSkillSearchSettings,
   buildDesktopSkillItem,
+  buildDesktopSkillDetail,
+  desktopSkillId,
   buildDesktopSkillsSummary,
+  flattenSkillFrontmatter,
+  listSkillDirectory,
+  readSkillFileContent,
   resolveDesktopSkillPath
 } from "./desktopSkills";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
@@ -93,14 +101,102 @@ test("buildDesktopSkillsSummary counts by scope and drops the skill-search api k
 test("buildDesktopSkillsSummary carries built-in Skill version state through", () => {
   const summary = buildDesktopSkillsSummary(
     { items: [item({ scope: "global" })] } as Parameters<typeof buildDesktopSkillsSummary>[0],
-    [{ id: "miniapp-creator", version: "1.3.0", installedVersion: "1.2.0", installed: true, updateAvailable: true, modified: false }]
+    [{ id: "miniapp-creator", skillId: "builtin-opaque-id", version: "1.3.0", installedVersion: "1.2.0", installed: true, updateAvailable: true, modified: false }]
   );
   assert.deepEqual(summary.builtins, [
-    { id: "miniapp-creator", version: "1.3.0", installedVersion: "1.2.0", installed: true, updateAvailable: true, modified: false }
+    { id: "miniapp-creator", skillId: "builtin-opaque-id", version: "1.3.0", installedVersion: "1.2.0", installed: true, updateAvailable: true, modified: false }
   ]);
   // Omitting the argument must not produce `undefined` for a field the UI maps over.
   assert.deepEqual(
     buildDesktopSkillsSummary({ items: [] } as Parameters<typeof buildDesktopSkillsSummary>[0]).builtins,
     []
   );
+});
+
+test("built-in workspace identity matches the discovered copy without relying on its display name", () => {
+  const filePath = "/tmp/skill-identity/skills/miniapp-creator/SKILL.md";
+  const builtinId = desktopSkillId(filePath);
+  assert.equal(buildDesktopSkillItem(item({ filePath, name: "Renamed by owner" })).id, builtinId);
+  assert.notEqual(buildDesktopSkillItem(item({ filePath: "/tmp/skill-identity/bots/other/skills/miniapp-creator/SKILL.md", name: "Renamed by owner", scope: "bot" })).id, builtinId);
+  assert.match(builtinId, /^[a-f0-9]{16}$/);
+});
+
+test("flattenSkillFrontmatter expands nested maps to dotted keys and keeps scalars", () => {
+  // The frontmatter parser stringifies nested YAML, so the detail mapper has to
+  // expand those strings back into readable rows.
+  const rows = flattenSkillFrontmatter({
+    name: "a-share-paper-trading",
+    "metadata": JSON.stringify({ openclaw: { emoji: "📈", requires: { bins: ["python3"] } } }),
+    aliases: JSON.stringify(["a-share", "paper"]),
+    "read_when": JSON.stringify(["pricing", "orders"]),
+    plain: "1.2.3"
+  });
+  assert.deepEqual(rows, [
+    { key: "name", value: "a-share-paper-trading" },
+    { key: "metadata.openclaw.emoji", value: "📈" },
+    { key: "metadata.openclaw.requires.bins", value: "python3" },
+    { key: "aliases", value: "a-share, paper" },
+    { key: "read_when", value: "pricing, orders" },
+    { key: "plain", value: "1.2.3" }
+  ]);
+  assert.deepEqual(flattenSkillFrontmatter(null), []);
+});
+
+test("buildDesktopSkillDetail carries the path, frontmatter, version and directory listing", () => {
+  const detail = buildDesktopSkillDetail({
+    item: {
+      name: "grabby",
+      description: "抓取网页内容",
+      scope: "global",
+      enabled: false,
+      mcpServers: ["fs"],
+      filePath: "/tmp/skills/grabby/SKILL.md",
+      baseDir: "/tmp/skills/grabby"
+    },
+    frontmatter: { name: "grabby", version: "2.1.0", metadata: JSON.stringify({ clawdbot: { emoji: "🕸" } }) },
+    updatedAt: "2026-02-12T00:00:00.000Z",
+    files: [{ path: "SKILL.md", kind: "file", size: 12 }],
+    builtin: null
+  });
+
+  assert.equal(detail.id, desktopSkillId("/tmp/skills/grabby/SKILL.md"));
+  assert.equal(detail.baseDir, "/tmp/skills/grabby");
+  assert.equal(detail.filePath, "/tmp/skills/grabby/SKILL.md");
+  assert.equal(detail.version, "2.1.0");
+  assert.equal(detail.enabled, false);
+  assert.equal(detail.updatedAt, "2026-02-12T00:00:00.000Z");
+  assert.deepEqual(detail.mcpServers, ["fs"]);
+  assert.deepEqual(detail.files, [{ path: "SKILL.md", kind: "file", size: 12 }]);
+  assert.ok(detail.frontmatter.some((row) => row.key === "metadata.clawdbot.emoji" && row.value === "🕸"));
+});
+
+test("listSkillDirectory and readSkillFileContent stay inside the Skill directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-skill-detail-"));
+  const outside = join(root, "..", `molibot-outside-${Date.now()}.txt`);
+  try {
+    mkdirSync(join(root, "scripts"));
+    mkdirSync(join(root, "references"));
+    writeFileSync(join(root, "SKILL.md"), "---\nname: demo\n---\nbody");
+    writeFileSync(join(root, "scripts", "run.mjs"), "console.log(1)");
+    writeFileSync(join(root, "references", "doc.md"), "# doc");
+    writeFileSync(join(root, "blob.bin"), Buffer.from([0, 1, 2, 3]));
+    writeFileSync(outside, "secret");
+
+    const files = listSkillDirectory(root);
+    assert.deepEqual(
+      files.map((entry) => `${entry.kind}:${entry.path}`),
+      ["dir:references", "dir:scripts", "file:blob.bin", "file:references/doc.md", "file:scripts/run.mjs", "file:SKILL.md"]
+    );
+    assert.equal(files.find((entry) => entry.path === "SKILL.md")?.size, Buffer.byteLength("---\nname: demo\n---\nbody"));
+    assert.equal(files.find((entry) => entry.path === "references/doc.md")?.size, 5);
+
+    assert.equal(readSkillFileContent(root, "SKILL.md").content, "---\nname: demo\n---\nbody");
+    assert.equal(readSkillFileContent(root, "blob.bin").binary, true);
+    assert.throws(() => readSkillFileContent(root, outside), /escapes the Skill directory/);
+    assert.throws(() => readSkillFileContent(root, "references"), /Not a file/);
+    assert.throws(() => readSkillFileContent(root, "missing.md"), /File not found/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { force: true });
+  }
 });

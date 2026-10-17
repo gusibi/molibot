@@ -5,11 +5,9 @@
   import SelectControl from "../components/ui/SelectControl.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
-  import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
-  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { trackUnsaved } from "../unsavedGuard";
-  import { skillsStore, discardSkillsSearch, loadSkills, saveSkillsSearch, toggleSkill, updateBuiltinSkill } from "../stores/skills.svelte";
+  import { skillsStore, discardSkillsSearch, loadSkills, saveSkillsSearch } from "../stores/skills.svelte";
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== skillsStore.endpoint) {
@@ -27,52 +25,6 @@
 {:else if skillsStore.loading || !skillsStore.skills}
   <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else}
-  <SettingGroup ariaLabel={session.text.skillsTotal}>
-    <SettingRow title={session.text.skillsTotal}>
-      <span class="diag-value">{skillsStore.skills.counts.total} · {session.text.agentsEnabledCount}: {skillsStore.skills.counts.enabled} · {session.text.skillScopeGlobal}: {skillsStore.skills.counts.global} · {session.text.skillScopeBot}: {skillsStore.skills.counts.bot} · {session.text.skillScopeChat}: {skillsStore.skills.counts.chat}</span>
-    </SettingRow>
-  </SettingGroup>
-  {#if skillsStore.skills.builtins.length > 0}
-    <SettingGroup title={session.text.skillBuiltins} description={session.text.skillBuiltinsHint}>
-      {#each skillsStore.skills.builtins as builtin (builtin.id)}
-        <div class="settings-row" in:listIn out:listOut animate:listFlip>
-          <div class="profile-info">
-            <strong>{builtin.id}</strong>
-            <p>
-              v{builtin.version}
-              {#if builtin.installed && builtin.installedVersion && builtin.installedVersion !== builtin.version}
-                · {session.text.agentTemplateInstalledVersion}: v{builtin.installedVersion}
-              {/if}
-              {#if !builtin.installed}
-                · {session.text.skillBuiltinRemoved}
-              {:else if builtin.modified}
-                · {session.text.agentTemplateModified}
-              {/if}
-            </p>
-          </div>
-          {#if builtin.updateAvailable || !builtin.installed}
-            <span class="status-badge" data-state="warning">{builtin.installed ? session.text.agentTemplateUpdateAvailable : session.text.skillBuiltinRemoved}</span>
-          {/if}
-          <div class="settings-row-actions">
-            <button
-              class="secondary-button"
-              type="button"
-              disabled={builtin.installed && !builtin.updateAvailable && !builtin.modified || Boolean(skillsStore.updatingBuiltinId)}
-              onclick={() => void updateBuiltinSkill(builtin.id)}
-            >
-              {skillsStore.updatingBuiltinId === builtin.id
-                ? session.text.agentTemplateUpdating
-                : !builtin.installed
-                  ? session.text.agentTemplateInstall
-                  : builtin.updateAvailable || builtin.modified
-                    ? session.text.agentTemplateUpdate
-                    : session.text.agentTemplateInstalled}
-            </button>
-          </div>
-        </div>
-      {/each}
-    </SettingGroup>
-  {/if}
   {#if skillsStore.searchDraft}
     {@const selectedSkillProvider = skillsStore.searchDraft.providers.find((provider) => provider.id === skillsStore.searchDraft?.apiProvider)}
     <details class="skills-search-config settings-card">
@@ -97,23 +49,7 @@
       </form>
     </details>
   {/if}
-  {#if skillsStore.skills.counts.total === 0}
-    <EmptyState title={session.text.skillsEmpty} description={session.text.skillsHint} icon="sparkle" />
-  {:else}
-    <SettingGroup ariaLabel={session.text.skillsTotal}>
-      {#each skillsStore.skills.items as skill (skill.id)}
-        <div class="settings-row" in:listIn out:listOut animate:listFlip>
-          <div class="profile-info">
-            <strong>{skill.name}</strong>
-            {#if skill.description}<p>{skill.description}</p>{/if}
-            <p>{skill.scope === "global" ? session.text.skillScopeGlobal : skill.scope === "bot" ? session.text.skillScopeBot : session.text.skillScopeChat}{skill.botId ? ` · ${skill.botId}` : ""}{skill.chatId ? ` / ${skill.chatId}` : ""}{skill.mcpServerCount > 0 ? ` · ${session.text.skillMcpServers}: ${skill.mcpServerCount}` : ""}</p>
-          </div>
-          <IosSwitch checked={skill.enabled} ariaLabel={skill.name} disabled={skillsStore.savingId === skill.id} onCheckedChange={(checked) => void toggleSkill(skill.id, checked)} />
-        </div>
-      {/each}
-    </SettingGroup>
-  {/if}
-  {#if skillsStore.actionMessage}<p class="settings-action-message" aria-live="polite">{skillsStore.actionMessage}</p>{/if}
+  {#if skillsStore.searchSaved}<p class="settings-action-message" aria-live="polite">{session.text.skillsSearchSaved}</p>{/if}
 {/if}
 
 {#if skillsSearchDirty}

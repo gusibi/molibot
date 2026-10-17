@@ -75,7 +75,7 @@ export const POST: RequestHandler = async ({ request }) => {
         return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
       }
       case "revise": {
-        const item = plans.revise({ ...(body as unknown as RevisePlanInput), ownerId: owner });
+        const item = plans.revise({ ...(body as unknown as RevisePlanInput), ownerId: owner, author: "user" });
         return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
       }
       case "start":

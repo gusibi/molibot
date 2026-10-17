@@ -1725,11 +1725,13 @@ export interface DesktopSkillSearch {
  * A Skill that ships with Molibot and was materialised into the workspace.
  *
  * The loader only ever reads the owner's workspace, so a bundled Skill exists
- * on disk as the owner's copy. This is what lets Settings say which version is
+ * on disk as the owner's copy. This is what lets the Skills workspace show which version is
  * installed, and offer to write the shipped one over it.
  */
 export interface DesktopBuiltinSkillState {
   id: string;
+  /** Opaque identity of the workspace copy, including when it is not installed. */
+  skillId: string;
   version: string;
   installedVersion: string;
   installed: boolean;
@@ -1754,6 +1756,63 @@ export interface DesktopSkillsSummary {
 export interface DesktopSkillsResponse {
   ok: true;
   summary: DesktopSkillsSummary;
+}
+
+/** One entry in a Skill's on-disk directory, relative to the Skill directory. */
+export interface DesktopSkillFileEntry {
+  path: string;
+  kind: "file" | "dir";
+  size: number;
+}
+
+/**
+ * Full detail for one Skill, fetched only when the owner opens it.
+ *
+ * The list projection ({@link DesktopSkillItem}) deliberately drops on-disk
+ * paths because it is loaded for every Skill on every visit. This is the
+ * narrow, on-demand exception: one Skill the owner explicitly selected, so it
+ * may carry the path and directory listing the detail pane renders.
+ */
+export interface DesktopSkillDetail {
+  id: string;
+  name: string;
+  description: string;
+  scope: DesktopSkillScope;
+  enabled: boolean;
+  botId: string;
+  chatId: string;
+  mcpServers: string[];
+  /** Absolute path of the Skill's SKILL.md. */
+  filePath: string;
+  /** Absolute path of the Skill directory. */
+  baseDir: string;
+  /** Frontmatter as an ordered flat list; nested maps become dotted keys. */
+  frontmatter: Array<{ key: string; value: string }>;
+  /** SKILL.md last-modified time, ISO-8601. */
+  updatedAt: string;
+  /** Frontmatter `version` when the Skill declares one, else "". */
+  version: string;
+  builtin: DesktopBuiltinSkillState | null;
+  files: DesktopSkillFileEntry[];
+}
+
+export interface DesktopSkillDetailResponse {
+  ok: true;
+  detail: DesktopSkillDetail;
+}
+
+export interface DesktopSkillFileResponse {
+  ok: true;
+  path: string;
+  content: string;
+  /** The file was larger than the preview cap and was truncated. */
+  truncated: boolean;
+  /** The file is not text and has no preview. */
+  binary: boolean;
+}
+
+export interface DesktopSkillRevealRequest {
+  id: string;
 }
 
 export interface DesktopMemoryCapabilities {

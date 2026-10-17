@@ -4,6 +4,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
+import { isSkillBackupDirectory } from "$lib/server/agent/skills/skills.js";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import { isKnownProvider } from "$lib/server/settings";
 import { updateSkillsConfig } from "$lib/server/settings/handlers/skills";
@@ -34,6 +35,7 @@ function collectSkillFiles(rootDir: string, out: string[]): void {
   for (const entry of entries) {
     const fullPath = join(rootDir, entry.name);
     if (entry.isDirectory()) {
+      if (isSkillBackupDirectory(entry.name)) continue;
       collectSkillFiles(fullPath, out);
       continue;
     }

@@ -59,8 +59,8 @@
 
 {#key pane}
   <div class="workspace-motion-stage" data-motion-surface="workspace">
-  <ChatHeader title={workspaceTitle} />
-  <p class="workspace-description">{workspaceDescription}</p>
+  {#if !serviceReady || pane === "agents"}<ChatHeader title={workspaceTitle} />{/if}
+  {#if pane === "agents"}<p class="workspace-description">{workspaceDescription}</p>{/if}
   
   <div
     class="workspace-scroll"

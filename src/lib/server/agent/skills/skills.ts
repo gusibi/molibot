@@ -262,6 +262,11 @@ function resolveExplicitInvocationMatches(skills: LoadedSkill[], inputText: stri
   return Array.from(matched.values());
 }
 
+/** Materialized skill backups are retained for recovery, never loaded as skills. */
+export function isSkillBackupDirectory(name: string): boolean {
+  return /\.backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/.test(name);
+}
+
 function findSkillFiles(rootDir: string, out: string[]): void {
   let entries: Dirent[];
   try {
@@ -277,7 +282,7 @@ function findSkillFiles(rootDir: string, out: string[]): void {
     const fullPath = join(rootDir, entry.name);
     if (entry.isDirectory()) {
       // Nobody keeps skills inside dependencies, and walking them can be huge.
-      if (entry.name === "node_modules") continue;
+      if (entry.name === "node_modules" || isSkillBackupDirectory(entry.name)) continue;
       findSkillFiles(fullPath, out);
       continue;
     }

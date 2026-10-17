@@ -1,0 +1,123 @@
+import { readFile, writeFile, readdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { test, expect } from './support/fixtures';
+import { openChat, openSettings } from './support/actions';
+
+test('skill management stays in workspace cards and search settings stay in Settings @workspace @settings', async ({ page, request, instance }, testInfo) => {
+  const summary = async () => (await (await request.get(instance.endpoint + '/api/desktop/skills')).json()).summary;
+  const initial = await summary();
+  const builtin = initial.builtins.find((item: { id: string }) => item.id === 'miniapp-creator');
+  expect(builtin.skillId).toMatch(/^[a-f0-9]{16}$/);
+  expect(initial.items.find((item: { id: string }) => item.id === builtin.skillId)?.name).toBe('miniapp-creator');
+  const root = join(instance.dataDir, 'skills');
+  const directory = join(root, builtin.id);
+  const original = await readFile(join(directory, 'SKILL.md'), 'utf8');
+  await rm(directory, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 940 });
+  await openChat(page);
+  const nav = page.getByRole('navigation', { name: 'Chat', exact: true });
+  const openSkills = async () => {
+    await nav.getByRole('button', { name: 'Auto tasks', exact: true }).click();
+    await nav.getByRole('button', { name: 'Skills', exact: true }).click();
+    await page.getByRole('group', { name: 'Scope', exact: true }).getByRole('button', { name: /^Built-in Skills/ }).click();
+  };
+  await openSkills();
+  const planNavBox = await nav.getByRole('button', { name: 'Plans', exact: true }).boundingBox();
+  const skillNavBox = await nav.getByRole('button', { name: 'Skills', exact: true }).boundingBox();
+  expect(planNavBox!.y).toBeLessThan(skillNavBox!.y);
+  const card = page.locator('.installed-skill-card').filter({ hasText: 'miniapp-creator' });
+  const applyUpdate = async () => {
+    const response = page.waitForResponse(result => result.url().endsWith('/api/desktop/skills') && result.request().method() === 'PUT');
+    await card.getByRole('button', { name: 'Update', exact: true }).click();
+    expect((await response).ok()).toBe(true);
+    await expect(card.getByRole('button', { name: 'Update', exact: true })).toHaveCount(0);
+  };
+  await expect(card).toHaveCount(1);
+  await expect(card.getByRole('checkbox')).toHaveCount(0);
+  await card.getByRole('button', { name: 'Install', exact: true }).click();
+  await expect(card.getByRole('checkbox')).toBeVisible();
+  await expect.poll(async () => (await summary()).builtins.find((item: { id: string }) => item.id === builtin.id)?.installed).toBe(true);
+  expect(await readFile(join(directory, 'SKILL.md'), 'utf8')).toBe(original);
+
+  const detailPane = page.locator('.skills-detail');
+  const openDetail = async () => {
+    await card.click();
+    await expect(detailPane).toBeVisible();
+  };
+  const closeDetail = async () => {
+    await detailPane.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(detailPane).toHaveCount(0);
+  };
+
+  const edited = original + '\nLocal owner customization for the isolated UI test.\n';
+  await writeFile(join(directory, 'SKILL.md'), edited);
+  await openSkills();
+  await expect(card.getByRole('button', { name: 'Update', exact: true })).toBeVisible();
+  await openDetail();
+  await expect(detailPane.getByText(/Edited locally/)).toBeVisible();
+  await closeDetail();
+  await applyUpdate();
+  expect(await readFile(join(directory, 'SKILL.md'), 'utf8')).toBe(original);
+  const backup = (await readdir(root)).find(name => name.startsWith(builtin.id + '.backup-'));
+  expect(backup).toBeTruthy();
+  expect(await readFile(join(root, backup!, 'SKILL.md'), 'utf8')).toBe(edited);
+  expect((await summary()).items.filter((item: { name: string }) => item.name === 'miniapp-creator')).toHaveLength(1);
+
+  const ledgerPath = join(root, '.builtin-skills.json');
+  const ledger = JSON.parse(await readFile(ledgerPath, 'utf8'));
+  ledger[builtin.id].version = '0.0.0';
+  await writeFile(ledgerPath, JSON.stringify(ledger));
+  await openSkills();
+  await openDetail();
+  await expect(detailPane.getByText('v0.0.0', { exact: true })).toBeVisible();
+  await closeDetail();
+  await applyUpdate();
+  expect((await summary()).builtins.find((item: { id: string }) => item.id === builtin.id)?.installedVersion).toBe(builtin.version);
+  await page.screenshot({ path: testInfo.outputPath('skills-management.png') });
+
+  await openSettings(page);
+  const settingsNav = page.locator('.settings-sidebar');
+  await settingsNav.getByRole('button', { name: 'Skills', exact: true }).click();
+  const settings = page.locator('.settings-content');
+  await expect(settings.getByText('Total skills', { exact: true })).toHaveCount(0);
+  await expect(settings.getByText('Built-in Skills', { exact: true })).toHaveCount(0);
+  await expect(settings.getByRole('checkbox', { name: 'miniapp-creator' })).toHaveCount(0);
+  await settings.getByText('Skill search configuration', { exact: true }).click();
+  const local = settings.getByRole('checkbox', { name: 'Local search', exact: true });
+  const before = (await summary()).search.localEnabled;
+  await local.focus();
+  await local.press("Space");
+  await expect(local).toBeChecked({ checked: !before });
+  await settings.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await summary()).search.localEnabled).toBe(!before);
+  await expect(settings.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+  await settingsNav.getByRole('button', { name: 'General', exact: true }).click();
+  await settingsNav.getByRole('button', { name: 'Skills', exact: true }).click();
+  await settings.getByText('Skill search configuration', { exact: true }).click();
+  await expect(local).toBeChecked({ checked: !before });
+  await page.setViewportSize({ width: 860, height: 620 });
+  await page.screenshot({ path: testInfo.outputPath('skill-search-settings.png') });
+  expect(await settings.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+  await local.focus();
+  await local.press("Space");
+  await expect(local).toBeChecked({ checked: before });
+  await settings.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await summary()).search.localEnabled).toBe(before);
+  await expect(settings.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+  await instance.restartService();
+  expect((await summary()).search).toEqual(initial.search);
+  expect((await summary()).builtins.find((item: { id: string }) => item.id === builtin.id)?.installedVersion).toBe(builtin.version);
+  await page.evaluate(() => {
+    document.documentElement.dataset.resolvedAppearance = 'dark';
+    window.dispatchEvent(new StorageEvent('storage', { key: 'molibot-desktop-locale', newValue: 'zh-CN' }));
+  });
+  await expect(settings.getByText('技能搜索配置', { exact: true })).toBeVisible();
+  await expect(settings.getByText('技能搜索配置已保存。', { exact: true })).toBeVisible();
+  await expect(settings.getByRole('checkbox', { name: '本地搜索', exact: true })).toBeChecked({ checked: before });
+  await settingsNav.getByRole('button', { name: '返回', exact: true }).click();
+  await page.getByRole('group', { name: '作用域', exact: true }).getByRole('button', { name: /^内置 Skill/ }).click();
+  await expect(card).toHaveCount(1);
+  await expect(page.getByRole('status').getByText('Skill 已更新: miniapp-creator', { exact: true })).toBeVisible();
+  expect(await page.locator('.workspace-scroll').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('skills-management-zh-dark.png') });
+});

@@ -1,13 +1,13 @@
 <script lang="ts">
   import Archive from "reicon-svelte/icons/Archive";
-  import ArrowRight from "reicon-svelte/icons/ArrowRight";
+  import Gear from "reicon-svelte/icons/Gear";
+  import Button from "../components/ui/Button.svelte";
   import Magnifier from "reicon-svelte/icons/Magnifier";
   import Play from "reicon-svelte/icons/Play";
   import PlusCircle from "reicon-svelte/icons/PlusCircle";
   import Refresh from "reicon-svelte/icons/Refresh";
   import ShieldAlert from "reicon-svelte/icons/ShieldAlert";
   import Trash from "reicon-svelte/icons/Trash";
-  import Tuning from "reicon-svelte/icons/Tuning";
   import X from "reicon-svelte/icons/X";
   import { invoke } from "@tauri-apps/api/core";
   import { tablist } from "../a11y/tablist";
@@ -49,10 +49,7 @@
     onOpenAiSettings
   }: {
     onOpenApp?: (appId: string) => void;
-    /**
-     * Opens Settings at the Mini App AI section. Absent on the Settings mount,
-     * where that section is already on screen.
-     */
+    /** Opens Settings at the Mini App AI section. */
     onOpenAiSettings?: () => void;
   } = $props();
 
@@ -155,11 +152,6 @@
     return app.updateAvailable ? "disconnected" : "ready";
   }
 
-  const installedCount = $derived(miniAppsStore.items.length);
-  const activeCount = $derived(
-    miniAppsStore.items.filter((app) => app.enabled && app.status === "active").length
-  );
-  const errorCount = $derived(miniAppsStore.items.filter((app) => app.status === "error").length);
 
   let searchQuery = $state("");
   let installDialogOpen = $state(false);
@@ -188,11 +180,9 @@
     </label>
 
     <div class="miniapps-toolbar-actions">
-      <p class="miniapps-counts">
-        {session.text.miniAppCountInstalled.replace("{n}", String(installedCount))}
-        · {session.text.miniAppCountActive.replace("{n}", String(activeCount))}
-        {#if errorCount > 0}· <span class="miniapps-error">{session.text.miniAppCountError.replace("{n}", String(errorCount))}</span>{/if}
-      </p>
+      {#if onOpenAiSettings}
+        <Button variant="icon" ariaLabel={session.text.miniAppAiTitle} title={`${session.text.miniAppAiTitle} — ${session.text.miniAppAiHint}`} onclick={onOpenAiSettings}><Gear size={16} aria-hidden="true" /></Button>
+      {/if}
 
       <button
         type="button"
@@ -204,24 +194,6 @@
       </button>
     </div>
   </div>
-
-  {#if onOpenAiSettings}
-    <!--
-      The AI capability settings themselves live in Settings › Models (one
-      global decision about the owner's model configuration, edited in one
-      place, next to every other route). This row is only a signpost, and it is
-      rendered ONLY when a caller injects a way to get there, so the component
-      needs no "am I inside Settings?" branch (pitfall #7).
-    -->
-    <button type="button" class="miniapps-ai-link" onclick={onOpenAiSettings}>
-      <span aria-hidden="true"><Tuning size={18} aria-hidden="true" /></span>
-      <span class="miniapps-ai-link-text">
-        <strong>{session.text.miniAppAiTitle}</strong>
-        <small>{session.text.miniAppAiHint}</small>
-      </span>
-      <ArrowRight class="miniapps-ai-link-arrow" size={14} aria-hidden="true" />
-    </button>
-  {/if}
 
   {#if miniAppsStore.loading && miniAppsStore.items.length === 0}
     <div class="workspace-empty"><p>{session.text.loading}</p></div>

@@ -89,6 +89,10 @@ import type {
   DesktopSkillsResponse,
   DesktopSkillsSummary,
   DesktopSkillsUpdateRequest,
+  DesktopSkillDetail,
+  DesktopSkillDetailResponse,
+  DesktopSkillFileResponse,
+  DesktopSkillRevealRequest,
   DesktopComposerSuggestion,
   DesktopApprovalDecision,
   DesktopApprovalOption,
@@ -1812,6 +1816,19 @@ export async function loadDesktopComposerSuggestions(endpoint: string, projectId
 export async function updateDesktopSkills(endpoint: string, input: DesktopSkillsUpdateRequest): Promise<DesktopSkillsSummary> {
   const payload = await requestJson<DesktopSkillsResponse>(endpoint, "/api/desktop/skills", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return payload.summary;
+}
+
+export async function loadDesktopSkillDetail(endpoint: string, id: string): Promise<DesktopSkillDetail> {
+  const payload = await requestJson<DesktopSkillDetailResponse>(endpoint, `/api/desktop/skills/detail?id=${encodeURIComponent(id)}`);
+  return payload.detail;
+}
+
+export async function loadDesktopSkillFile(endpoint: string, id: string, path: string): Promise<DesktopSkillFileResponse> {
+  return requestJson<DesktopSkillFileResponse>(endpoint, `/api/desktop/skills/file?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
+}
+
+export async function revealDesktopSkill(endpoint: string, input: DesktopSkillRevealRequest): Promise<void> {
+  await requestJson<{ ok: true }>(endpoint, "/api/desktop/skills/reveal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 }
 
 export async function loadDesktopMemory(endpoint: string): Promise<DesktopMemorySummary> {
@@ -4357,6 +4374,7 @@ export function claimDesktopSessionAgent(endpoint: string, conversationId: strin
 export interface AgentStorageBotAssignment { channel: string; botId: string; agentId: string | null; }
 
 export interface AgentStorageMigrationStatus {
+  skippedIssues?: string[];
   files: number;
   publishedFiles: number;
   copiedFiles: number;
@@ -4376,8 +4394,8 @@ export interface AgentStorageMigrationStatus {
 export function loadAgentStorageMigration(endpoint: string): Promise<AgentStorageMigrationStatus> {
   return requestJson(endpoint, "/api/desktop/storage-migration");
 }
-export function confirmAgentStorageMigration(endpoint: string, ignoredPaths: string[] = [], botAssignments: AgentStorageBotAssignment[] = []): Promise<AgentStorageMigrationStatus> {
-  return requestJson(endpoint, "/api/desktop/storage-migration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "confirm", ignoredPaths, botAssignments }) });
+export function confirmAgentStorageMigration(endpoint: string, ignoredPaths: string[] = [], botAssignments: AgentStorageBotAssignment[] = [], force = false): Promise<AgentStorageMigrationStatus> {
+  return requestJson(endpoint, "/api/desktop/storage-migration", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "confirm", ignoredPaths, botAssignments, force }) });
 }
 
 export function previewAgentStorageMigration(endpoint: string, ignoredPaths: string[], botAssignments: AgentStorageBotAssignment[] = []): Promise<AgentStorageMigrationStatus> {

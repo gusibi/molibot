@@ -130,8 +130,8 @@
 
   const workspaceItems = $derived([
     { key: "automations", label: copy.autoTasks, icon: SendClock, active: activeWorkspacePane === "automations", badge: automationUnreadCount, onSelect: onOpenAutoTasks },
-    { key: "skills", label: copy.skillsSquare, icon: RulerPen, active: activeWorkspacePane === "skills", badge: 0, onSelect: onOpenSkills },
     { key: "plans", label: copy.planBoardNav, icon: Bulb2, active: activeWorkspacePane === "plans", badge: 0, onSelect: onOpenPlans },
+    { key: "skills", label: copy.skillsSquare, icon: RulerPen, active: activeWorkspacePane === "skills", badge: 0, onSelect: onOpenSkills },
     { key: "miniapps", label: copy.miniAppsNav, icon: Widget2, active: activeWorkspacePane === "miniapps", badge: 0, onSelect: onOpenMiniApps }
   ]);
 

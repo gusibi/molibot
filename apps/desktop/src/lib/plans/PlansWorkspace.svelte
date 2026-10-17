@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Layers from "../icons/duotone/components/Layers.svelte";
-  import Magnifier from "../icons/duotone/components/Magnifier.svelte";
+  import ChatHeader from "../chat/ChatHeader.svelte";
+  import WorkspaceSearch from "../components/ui/WorkspaceSearch.svelte";
+  import WorkspaceEmpty from "../components/ui/WorkspaceEmpty.svelte";
+  import Button from "../components/ui/Button.svelte";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Help from "reicon-svelte/icons/Help";
   import Loader from "reicon-svelte/icons/Loader";
@@ -26,7 +29,14 @@
 
   type FilterBucket = "all" | DesktopPlanStatus;
 
-  const filterOptions: FilterBucket[] = ["all", "not_started", "in_progress", "needs_attention", "finished", "archived"];
+  const filterOptions: Array<{ value: FilterBucket; key: keyof Translation }> = [
+    { value: "all", key: "planBoardFilterAll" },
+    { value: "not_started", key: "planBoardFilterNotStarted" },
+    { value: "in_progress", key: "planBoardFilterInProgress" },
+    { value: "needs_attention", key: "planBoardFilterAttention" },
+    { value: "finished", key: "planBoardFilterFinished" },
+    { value: "archived", key: "planBoardFilterArchived" }
+  ];
   const planStatusKeys: Record<DesktopPlanStatus, keyof Translation> = {
     not_started: "planBoardStatusNotStarted",
     in_progress: "planBoardStatusInProgress",
@@ -59,12 +69,16 @@
   let reworkError = "";
   let requestSeq = 0;
 
-  $: visibleItems = items.filter((item) => {
-    if (filter !== "all" && item.planStatus !== filter) return false;
+  $: searchItems = items.filter((item) => {
     const query = search.trim().toLowerCase();
-    if (!query) return true;
-    return item.title.toLowerCase().includes(query) || item.planId.toLowerCase().includes(query);
+    return !query || item.title.toLowerCase().includes(query) || item.planId.toLowerCase().includes(query);
   });
+  $: visibleItems = searchItems.filter((item) => filter === "all" || item.planStatus === filter);
+  $: filterItems = filterOptions.map(({ value, key }) => ({
+    value, label: copy[key], count: searchItems.filter((item) => value === "all" || item.planStatus === value).length
+  }));
+  $: hasIncompleteRework = reworkTasks.some((task) => !task.title.trim() || !task.steps.split("\n").some((line) => line.trim()));
+  $: canSaveRework = reworkTasks.length > 0 && !hasIncompleteRework;
   $: currentVersion = detail?.execution.currentPlanVersion ?? -1;
   $: currentCriteria = detail?.acceptanceCriteria.filter((criterion) => criterion.planVersion === currentVersion) ?? [];
   $: completedCount = detail?.projection.progress.completed ?? 0;
@@ -95,7 +109,6 @@
       const next = await loadDesktopPlans(endpoint, { includeArchived: true, limit: 200 });
       items = next;
       listError = "";
-      if (!selectedId && next.length > 0) await selectPlan(next[0].planId);
     } catch (cause) {
       if (!silent) listError = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -107,6 +120,7 @@
     if (selectedId === planId && detail) return;
     selectedId = planId;
     editorOpen = false;
+    reworkTasks = [];
     reworkError = "";
     actionError = "";
     await loadDetail(planId);
@@ -168,12 +182,21 @@
   }
 
   function openEditor(): void {
+    if (busy || editorOpen || !canRework) return;
     editorOpen = true;
     reworkError = "";
-    if (reworkTasks.length === 0) reworkTasks = [{ title: "", steps: "" }];
+    reworkTasks = [{ title: "", steps: "" }];
+  }
+
+  function cancelEditor(): void {
+    if (busy) return;
+    editorOpen = false;
+    reworkTasks = [];
+    reworkError = "";
   }
 
   function addReworkTask(): void {
+    if (busy || !editorOpen || hasIncompleteRework) return;
     reworkTasks = [...reworkTasks, { title: "", steps: "" }];
   }
 
@@ -183,16 +206,15 @@
 
   async function saveRework(): Promise<void> {
     if (!detail || busy) return;
+    if (!canSaveRework) {
+      reworkError = copy.planBoardReworkEmpty;
+      return;
+    }
     const addTasks: DesktopPlanTaskInput[] = [];
     for (const task of reworkTasks) {
       const title = task.title.trim();
       const steps = task.steps.split("\n").map((line) => line.trim()).filter(Boolean);
-      if (!title || steps.length === 0) continue;
       addTasks.push({ title, steps: steps.map((stepTitle) => ({ title: stepTitle })) });
-    }
-    if (addTasks.length === 0) {
-      reworkError = copy.planBoardReworkEmpty;
-      return;
     }
     busy = true;
     reworkError = "";
@@ -207,7 +229,7 @@
       });
       if (response.item) detail = response.item;
       editorOpen = false;
-      reworkTasks = [{ title: "", steps: "" }];
+      reworkTasks = [];
       await refreshList(true);
     } catch (cause) {
       reworkError = cause instanceof Error ? cause.message : String(cause);
@@ -222,17 +244,6 @@
 
   function stepStatusLabel(status: string): string {
     return copy[stepStatusKeys[status] ?? "durableStatusPlanned"];
-  }
-
-  function filterLabel(option: FilterBucket): string {
-    switch (option) {
-      case "all": return copy.planBoardFilterAll;
-      case "not_started": return copy.planBoardFilterNotStarted;
-      case "in_progress": return copy.planBoardFilterInProgress;
-      case "needs_attention": return copy.planBoardFilterAttention;
-      case "finished": return copy.planBoardFilterFinished;
-      case "archived": return copy.planBoardFilterArchived;
-    }
   }
 
   function statusBucket(status: DesktopDurableExecutionStatus): DesktopPlanStatus {
@@ -275,34 +286,22 @@
   }
 </script>
 
+{#snippet headerActions()}
+  <div class="workspace-header-tools"><WorkspaceSearch value={search} label={copy.planBoardSearchLabel} placeholder={copy.planBoardSearchPlaceholder} closeLabel={copy.closeSearch} onInput={(value) => (search = value)} /></div>
+{/snippet}
+<ChatHeader title={copy.planBoardTitle} actions={headerActions} />
+
 <div class="plans-shell">
-  <div class="plans-workspace" class:detail-open={showDetailPane}>
-  <aside class="plans-rail" aria-label={copy.planBoardTitle}>
-    <div class="plans-toolbar">
-      <label class="plans-search">
-        <Magnifier size={14} aria-hidden="true" />
-        <input
-          type="search"
-          name="plan-search"
-          autocomplete="off"
-          spellcheck="false"
-          value={search}
-          placeholder={copy.planBoardSearchPlaceholder}
-          aria-label={copy.planBoardSearchLabel}
-          oninput={(event) => (search = (event.currentTarget as HTMLInputElement).value)}
-        />
-      </label>
-      <div class="plans-filters" role="group" aria-label={copy.planBoardTitle}>
-        {#each filterOptions as option (option)}
-          <button
-            type="button"
-            aria-pressed={filter === option}
-            class:active={filter === option}
-            onclick={() => (filter = option)}
-          >{filterLabel(option)}</button>
-        {/each}
-      </div>
+  <p class="workspace-description" title={copy.planBoardHint}>{copy.planBoardHint}</p>
+  <div class="workspace-filterbar">
+    <div class="segmented workspace-plan-filters" role="group" aria-label={copy.tasksByStatus}>
+      {#each filterItems as item (item.value)}
+        <Button class={`segmented-item${filter === item.value ? " active" : ""}`} aria-pressed={filter === item.value} onclick={() => (filter = item.value)}>{item.label} <span class="workspace-category-count">{item.count}</span></Button>
+      {/each}
     </div>
+  </div>
+  <div class="plans-workspace workspace-master-detail" class:detail-open={showDetailPane}>
+  <aside class="plans-rail" aria-label={copy.planBoardTitle}>
 
     {#if listLoading && items.length === 0}
       <div class="plans-state" role="status">{copy.loading}</div>
@@ -345,7 +344,7 @@
     {#if detailLoading && !detail}
       <div class="plans-state" role="status"><Loader size={16} aria-hidden="true" />{copy.loading}</div>
     {:else if !detail}
-      <div class="plans-state"><Layers size={26} aria-hidden="true" /><p>{copy.planBoardSelectHint}</p></div>
+      <WorkspaceEmpty title={copy.planBoardSelectHint} />
     {:else}
       <header class="plans-detail-head">
         <button type="button" class="plans-back" aria-label={copy.planBoardTitle} onclick={() => { selectedId = ""; detail = null; }}><X size={15} aria-hidden="true" /></button>
@@ -364,7 +363,51 @@
         </div>
       </header>
 
+      <div class="plans-actions">
+        <div class="plans-actions-leading">
+          {#if canRework}<Button disabled={busy || editorOpen} onclick={openEditor}>{copy.planBoardRework}</Button>{/if}
+        </div>
+        <div class="plans-actions-trailing">
+          {#if canDelete}<Button danger disabled={busy} onclick={() => void deletePlan()}>{copy.planBoardDelete}</Button>{/if}
+          {#if canComplete}<Button disabled={busy} onclick={() => void completePlan()}>{copy.planBoardMarkComplete}</Button>{/if}
+          {#if canOpenSession}<Button onclick={() => continuePlan(false)}>{copy.planBoardOpenSession}</Button>{/if}
+          {#if canContinue}<Button variant="primary" onclick={() => continuePlan(detail?.execution.status === "planned")}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</Button>{/if}
+        </div>
+      </div>
+
       <div class="plans-detail-scroll">
+        {#if editorOpen && canRework}
+          <section class="plans-card plans-rework" aria-label={copy.planBoardRework}>
+            <h3 class="plans-section-title">{copy.planBoardRework}</h3>
+            {#each reworkTasks as task, index (index)}
+              <div class="plans-rework-task">
+                <div class="plans-rework-head">
+                  <input
+                    type="text"
+                    value={task.title}
+                    placeholder={copy.planBoardReworkTitle}
+                    aria-label={copy.planBoardReworkTitle}
+                    oninput={(event) => (reworkTasks = reworkTasks.map((entry, current) => current === index ? { ...entry, title: (event.currentTarget as HTMLInputElement).value } : entry))}
+                  />
+                  {#if reworkTasks.length > 1}<button type="button" class="plans-remove" onclick={() => removeReworkTask(index)}>{copy.planBoardReworkRemove}</button>{/if}
+                </div>
+                <textarea
+                  rows="3"
+                  value={task.steps}
+                  placeholder={copy.planBoardReworkSteps}
+                  aria-label={copy.planBoardReworkSteps}
+                  oninput={(event) => (reworkTasks = reworkTasks.map((entry, current) => current === index ? { ...entry, steps: (event.currentTarget as HTMLTextAreaElement).value } : entry))}
+                ></textarea>
+              </div>
+            {/each}
+            {#if reworkError}<p class="plans-error-alert" role="alert">{reworkError}</p>{/if}
+            <div class="plans-rework-actions">
+              <Button disabled={busy} onclick={cancelEditor}>{copy.cancel}</Button>
+              <Button disabled={busy || hasIncompleteRework} onclick={addReworkTask}>{copy.planBoardReworkAdd}</Button>
+              <Button variant="primary" disabled={busy || !canSaveRework} onclick={() => void saveRework()}>{busy ? copy.planBoardRevising : copy.planBoardReworkSave}</Button>
+            </div>
+          </section>
+        {/if}
         <section class="plans-card plans-overview">
           {#if detail.meta.summary}<p class="plans-summary-text">{detail.meta.summary}</p>{/if}
           <div class="plans-progress">
@@ -431,301 +474,12 @@
           </section>
         {/if}
 
-        {#if editorOpen && canRework}
-          <section class="plans-card plans-rework">
-            <h3 class="plans-section-title">{copy.planBoardRework}</h3>
-            {#each reworkTasks as task, index (index)}
-              <div class="plans-rework-task">
-                <div class="plans-rework-head">
-                  <input
-                    type="text"
-                    value={task.title}
-                    placeholder={copy.planBoardReworkTitle}
-                    aria-label={copy.planBoardReworkTitle}
-                    oninput={(event) => (reworkTasks = reworkTasks.map((entry, current) => current === index ? { ...entry, title: (event.currentTarget as HTMLInputElement).value } : entry))}
-                  />
-                  {#if reworkTasks.length > 1}<button type="button" class="plans-remove" onclick={() => removeReworkTask(index)}>{copy.planBoardReworkRemove}</button>{/if}
-                </div>
-                <textarea
-                  rows="3"
-                  value={task.steps}
-                  placeholder={copy.planBoardReworkSteps}
-                  aria-label={copy.planBoardReworkSteps}
-                  oninput={(event) => (reworkTasks = reworkTasks.map((entry, current) => current === index ? { ...entry, steps: (event.currentTarget as HTMLTextAreaElement).value } : entry))}
-                ></textarea>
-              </div>
-            {/each}
-            {#if reworkError}<p class="plans-error-alert" role="alert">{reworkError}</p>{/if}
-            <div class="plans-rework-actions">
-              <button type="button" class="secondary-button" onclick={addReworkTask}>{copy.planBoardReworkAdd}</button>
-              <button type="button" class="primary-button" disabled={busy} onclick={() => void saveRework()}>{busy ? copy.planBoardRevising : copy.planBoardReworkSave}</button>
-            </div>
-          </section>
-        {/if}
+
       </div>
 
       {#if actionError}<p class="plans-action-error" role="alert">{actionError}</p>{/if}
-      <footer class="plans-actions">
-        <div class="plans-actions-leading">
-          {#if canRework && !editorOpen}<button type="button" class="secondary-button" disabled={busy} onclick={openEditor}>{copy.planBoardRework}</button>{/if}
-        </div>
-        <div class="plans-actions-trailing">
-          {#if canDelete}<button type="button" class="secondary-button danger-action" disabled={busy} onclick={() => void deletePlan()}>{copy.planBoardDelete}</button>{/if}
-          {#if canComplete}<button type="button" class="secondary-button" disabled={busy} onclick={() => void completePlan()}>{copy.planBoardMarkComplete}</button>{/if}
-          {#if canOpenSession}<button type="button" class="secondary-button" onclick={() => continuePlan(false)}>{copy.planBoardOpenSession}</button>{/if}
-          {#if canContinue}<button type="button" class="primary-button" onclick={() => continuePlan(detail?.execution.status === "planned")}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</button>{/if}
-        </div>
-      </footer>
+
     {/if}
   </section>
   </div>
 </div>
-
-<style>
-  .plans-shell { width: var(--workspace-col); height: 100%; margin: 0 auto; }
-  .plans-workspace {
-    display: grid;
-    grid-template-columns: minmax(280px, 336px) minmax(0, 1fr);
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
-    border: 1px solid var(--separator);
-    border-radius: var(--rounded-md);
-    background: var(--card-bg);
-  }
-
-  /* Left rail */
-  .plans-rail {
-    display: flex;
-    min-width: 0;
-    min-height: 0;
-    flex-direction: column;
-    border-right: 1px solid var(--separator);
-    background: var(--surface-secondary);
-  }
-  .plans-toolbar {
-    display: grid;
-    gap: 10px;
-    padding: 12px 12px 10px;
-    border-bottom: 1px solid var(--separator);
-  }
-  .plans-search {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid var(--control-border);
-    border-radius: var(--rounded-sm);
-    background: var(--card-bg);
-    color: var(--label-tertiary);
-  }
-  .plans-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .plans-search input {
-    min-width: 0;
-    flex: 1;
-    border: 0;
-    background: transparent;
-    color: var(--label-primary);
-    font: var(--fs-label)/var(--lh-label) var(--font-ui);
-    outline: none;
-  }
-  .plans-filters { display: flex; flex-wrap: wrap; gap: 5px; }
-  .plans-filters button {
-    height: 25px;
-    padding: 0 10px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-full);
-    background: transparent;
-    color: var(--label-secondary);
-    font: 500 var(--fs-meta)/var(--lh-meta) var(--font-ui);
-    cursor: pointer;
-    transition: background var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard);
-  }
-  .plans-filters button:hover { background: var(--fill); color: var(--label-primary); }
-  .plans-filters button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
-  .plans-filters button.active { background: var(--accent-soft); color: var(--accent); }
-  .plans-list {
-    display: grid;
-    align-content: start;
-    gap: 2px;
-    min-height: 0;
-    flex: 1 1 auto;
-    margin: 0;
-    padding: 8px;
-    list-style: none;
-    overflow-y: auto;
-    overflow-x: hidden;
-    overscroll-behavior: contain;
-  }
-  .plans-list > li { min-width: 0; }
-  .plans-row {
-    display: grid;
-    gap: 4px;
-    width: 100%;
-    min-width: 0;
-    padding: 9px 10px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--label-primary);
-    text-align: left;
-    cursor: pointer;
-    transition: background var(--duration-instant) var(--ease-standard), border-color var(--duration-instant) var(--ease-standard);
-  }
-  .plans-row:hover { background: var(--fill); }
-  .plans-row:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
-  .plans-row.active { background: var(--card-bg); border-color: var(--separator); }
-  .plans-row-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-width: 0; }
-  .plans-row-top strong { min-width: 0; overflow: hidden; font-size: var(--fs-label); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-  .plans-row-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; overflow: hidden; color: var(--label-tertiary); font-size: var(--fs-meta); }
-  .plans-row-step { overflow: hidden; color: var(--label-secondary); font-size: var(--fs-meta); text-overflow: ellipsis; white-space: nowrap; }
-  .plans-mono, .plans-row-sub .plans-mono { font-family: var(--font-mono); }
-  .plans-count { font-variant-numeric: tabular-nums; }
-  .plans-dot { color: var(--label-tertiary); }
-
-  .plans-chip {
-    flex: none;
-    padding: 2px 8px;
-    border-radius: var(--radius-full);
-    background: var(--fill);
-    color: var(--label-secondary);
-    font-size: var(--fs-meta);
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .plans-chip[data-plan-status="in_progress"] { background: var(--accent-soft); color: var(--accent); }
-  .plans-chip[data-plan-status="needs_attention"] { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
-  .plans-chip[data-plan-status="archived"] { background: color-mix(in srgb, var(--online) 16%, transparent); color: var(--online); }
-
-  /* Detail */
-  .plans-detail { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--card-bg); }
-  .plans-detail-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--separator);
-    background: var(--card-bg);
-  }
-  .plans-back {
-    display: none;
-    flex: none;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border: 1px solid var(--control-border);
-    border-radius: var(--radius-small);
-    background: var(--card-bg);
-    color: var(--label-secondary);
-    cursor: pointer;
-  }
-  .plans-back:hover { color: var(--label-primary); }
-  .plans-detail-title { min-width: 0; flex: 1; }
-  .plans-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .plans-title-row h2 { overflow: hidden; margin: 0; font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-  .plans-subtitle { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-
-  .plans-detail-scroll {
-    display: grid;
-    align-content: start;
-    gap: 14px;
-    min-height: 0;
-    flex: 1;
-    padding: 16px 18px 18px;
-    overflow: auto;
-    overscroll-behavior: contain;
-  }
-  .plans-card {
-    border: 1px solid var(--separator);
-    border-radius: var(--radius-panel);
-    background: var(--card-bg);
-    padding: 14px 16px;
-  }
-  .plans-card.plans-overview { display: grid; gap: 12px; }
-  .plans-summary-text { margin: 0; color: var(--label-secondary); font-size: var(--fs-label); line-height: var(--lh-label); }
-  .plans-progress { display: flex; align-items: center; gap: 12px; }
-  .plans-progress-track { flex: 1; height: 5px; overflow: hidden; border-radius: var(--radius-full); background: var(--fill); }
-  .plans-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left; transition: transform 180ms var(--ease-standard); }
-  .plans-progress-count { color: var(--label-secondary); font-size: var(--fs-label); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-  .plans-current { display: flex; gap: 6px; margin: 0; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-  .plans-current span { color: var(--label-tertiary); }
-  .plans-waiting { margin: 0; padding: 9px 11px; border-radius: var(--radius-control); background: color-mix(in srgb, var(--warning) 10%, transparent); color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-  .plans-waiting strong { display: block; margin-bottom: 2px; color: var(--label-primary); }
-  .plans-error-alert { margin: 0; padding: 9px 11px; border-radius: var(--radius-control); background: color-mix(in srgb, var(--danger) 9%, transparent); color: var(--danger); font-size: var(--fs-meta); line-height: var(--lh-meta); overflow-wrap: anywhere; }
-
-  .plans-section-title { margin: 0 0 12px; color: var(--label-secondary); font-size: var(--fs-meta); font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; }
-  .plans-tasks { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
-  .plans-task { display: grid; gap: 8px; }
-  .plans-task-head { display: flex; align-items: baseline; gap: 8px; justify-content: space-between; }
-  .plans-task-head strong { font-size: var(--fs-label); font-weight: 600; }
-  .plans-task-head span { color: var(--label-tertiary); font-family: var(--font-mono); font-size: var(--fs-meta); }
-  .plans-task-desc { margin: 0; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-  .plans-steps { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-  .plans-step { display: flex; align-items: flex-start; gap: 10px; padding: 6px 8px; border-radius: var(--radius-small); }
-  .plans-step + .plans-step { border-top: 1px solid color-mix(in srgb, var(--separator) 55%, transparent); }
-  .plans-step-marker { display: grid; flex: none; place-items: center; width: 18px; height: 20px; color: var(--label-tertiary); }
-  .plans-step[data-status="completed"] .plans-step-marker, .plans-step[data-status="skipped"] .plans-step-marker { color: var(--online); }
-  .plans-step[data-status="running"] .plans-step-marker { color: var(--accent); }
-  .plans-step[data-status="blocked"] .plans-step-marker, .plans-step[data-status="failed"] .plans-step-marker, .plans-step[data-status="uncertain"] .plans-step-marker { color: var(--warning); }
-  .plans-step-body { display: grid; min-width: 0; flex: 1; gap: 2px; }
-  .plans-step-body strong { font-size: var(--fs-label); font-weight: 500; }
-  .plans-step-body small { color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); overflow-wrap: anywhere; }
-  .plans-step-status { flex: none; color: var(--label-tertiary); font-size: var(--fs-meta); white-space: nowrap; }
-
-  .plans-criteria { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
-  .plans-criterion { display: flex; align-items: flex-start; gap: 10px; padding: 6px 8px; border-radius: var(--radius-small); }
-  .plans-criterion + .plans-criterion { border-top: 1px solid color-mix(in srgb, var(--separator) 55%, transparent); }
-  .plans-criterion-marker { display: grid; flex: none; place-items: center; width: 18px; color: var(--label-tertiary); }
-  .plans-criterion[data-result="passed"] .plans-criterion-marker { color: var(--online); }
-  .plans-criterion[data-result="failed"] .plans-criterion-marker { color: var(--danger); }
-  .plans-criterion[data-result="unproven"] .plans-criterion-marker { color: var(--warning); }
-  .plans-criterion-text { min-width: 0; flex: 1; color: var(--label-secondary); font-size: var(--fs-label); line-height: var(--lh-label); overflow-wrap: anywhere; }
-  .plans-criterion-result { flex: none; color: var(--label-tertiary); font-size: var(--fs-meta); white-space: nowrap; }
-
-  .plans-rework-task { display: grid; gap: 8px; margin-bottom: 12px; }
-  .plans-rework-head { display: flex; align-items: center; gap: 8px; }
-  .plans-rework-task input, .plans-rework-task textarea {
-    width: 100%;
-    padding: 8px 10px;
-    border: 1px solid var(--control-border);
-    border-radius: var(--rounded-sm);
-    background: var(--content-bg);
-    color: var(--label-primary);
-    font: var(--fs-label)/var(--lh-label) var(--font-ui);
-    outline: none;
-    resize: vertical;
-  }
-  .plans-rework-task input:focus-visible, .plans-rework-task textarea:focus-visible { border-color: var(--accent); }
-  .plans-remove { flex: none; padding: 0; border: 0; background: transparent; color: var(--label-tertiary); font: var(--fs-meta)/var(--lh-meta) var(--font-ui); cursor: pointer; }
-  .plans-remove:hover { color: var(--danger); }
-  .plans-remove:focus-visible { outline: none; color: var(--danger); text-decoration: underline; }
-  .plans-rework-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-
-  .plans-state { display: grid; place-items: center; align-content: center; gap: 10px; height: 100%; min-height: 180px; padding: 24px; color: var(--label-secondary); text-align: center; }
-  .plans-state p { margin: 0; font-size: var(--fs-label); }
-  .plans-state small { max-width: 300px; overflow-wrap: anywhere; color: var(--label-tertiary); }
-  .plans-state :global(svg) { color: var(--label-tertiary); }
-
-  .plans-action-error { margin: 0; padding: 8px 18px; color: var(--danger); font-size: var(--fs-meta); }
-  .plans-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 18px;
-    border-top: 1px solid var(--separator);
-    background: var(--card-bg);
-  }
-  .plans-actions-leading { display: flex; gap: 8px; }
-  .plans-actions-trailing { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-
-  @media (max-width: 900px) {
-    .plans-workspace { grid-template-columns: 1fr; }
-    .plans-workspace.detail-open .plans-rail { display: none; }
-    .plans-workspace:not(.detail-open) .plans-detail { display: none; }
-    .plans-back { display: grid; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .plans-progress-track span { transition: none; }
-  }
-</style>

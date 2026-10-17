@@ -1,6 +1,8 @@
 <script lang="ts">
   import ChevronLeft from "reicon-svelte/icons/ChevronLeft";
-  import Magnifier from "reicon-svelte/icons/Magnifier";
+  import ChatHeader from "../chat/ChatHeader.svelte";
+  import WorkspaceSearch from "../components/ui/WorkspaceSearch.svelte";
+  import Button from "../components/ui/Button.svelte";
   import PlusCircle from "reicon-svelte/icons/PlusCircle";
   import Tuning from "reicon-svelte/icons/Tuning";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -21,7 +23,7 @@
     onOpenAiSettings
   }: {
     onOpenApp?: (appId: string) => void;
-    /** Forwarded to the manager, which owns the AI-routing signpost. */
+    /** Forwarded to the manager, which owns the AI settings shortcut. */
     onOpenAiSettings?: () => void;
   } = $props();
 
@@ -36,10 +38,6 @@
   });
 
   const normalizedQuery = $derived(searchQuery.trim().toLowerCase());
-  const installedCount = $derived(miniAppsStore.items.length);
-  const activeCount = $derived(
-    miniAppsStore.items.filter((app) => app.enabled && app.status === "active").length
-  );
   const errorCount = $derived(miniAppsStore.items.filter((app) => app.status === "error").length);
   const launchpadApps = $derived(
     miniAppsStore.items.filter(
@@ -51,42 +49,30 @@
   );
 </script>
 
+{#snippet headerActions()}
+  <div class="workspace-header-tools">
+    {#if view === "launchpad"}
+      <WorkspaceSearch value={searchQuery} label={session.text.miniAppsSearchPlaceholder} placeholder={session.text.miniAppsSearchPlaceholder} closeLabel={session.text.closeSearch} onInput={(value) => (searchQuery = value)} />
+    {/if}
+  </div>
+{/snippet}
+<ChatHeader title={session.text.miniAppsNav} actions={headerActions} />
+<div class="workspace-collection">
+<p class="workspace-description">{session.text.miniAppsHint}</p>
+{#if errorCount > 0}<p class="workspace-inline-warning" role="status">{session.text.miniAppCountError.replace("{n}", String(errorCount))}</p>{/if}
+
 <section class="miniapps-launchpad">
+  <div class="workspace-filterbar workspace-collection-filterbar miniapps-launchpad-toolbar">
+    <span class="workspace-filter-count">{session.text.miniAppCountInstalled.replace("{n}", String(miniAppsStore.items.length))} · {session.text.miniAppCountActive.replace("{n}", String(miniAppsStore.items.filter((app) => app.enabled && app.status === "active").length))}</span>
+    {#if view === "manage"}
+      <Button variant="icon" title={session.text.miniAppsBackToLaunchpad} onclick={() => (view = "launchpad")}><ChevronLeft size={16} aria-hidden="true" /></Button>
+    {:else}
+      <Button variant="icon" title={session.text.miniAppsSettingsTitle} onclick={() => (view = "manage")}><Tuning size={16} aria-hidden="true" /></Button>
+    {/if}
+  </div>
   {#if view === "manage"}
-    <div class="miniapps-launchpad-backbar">
-      <button type="button" class="miniapps-launchpad-back" onclick={() => (view = "launchpad")}>
-        <ChevronLeft size={15} aria-hidden="true" />
-        <span>{session.text.miniAppsBackToLaunchpad}</span>
-      </button>
-    </div>
     <MiniAppsManager {onOpenApp} {onOpenAiSettings} />
   {:else}
-    <div class="miniapps-toolbar">
-      <label class="miniapps-search">
-        <Magnifier size={14} aria-hidden="true" />
-        <input
-          bind:value={searchQuery}
-          autocomplete="off"
-          spellcheck="false"
-          aria-label={session.text.miniAppsSearchPlaceholder}
-          placeholder={session.text.miniAppsSearchPlaceholder}
-        />
-      </label>
-
-      <div class="miniapps-toolbar-actions">
-        <p class="miniapps-counts">
-          {session.text.miniAppCountInstalled.replace("{n}", String(installedCount))}
-          · {session.text.miniAppCountActive.replace("{n}", String(activeCount))}
-          {#if errorCount > 0}· <span class="miniapps-error">{session.text.miniAppCountError.replace("{n}", String(errorCount))}</span>{/if}
-        </p>
-
-        <button type="button" class="primary-button miniapp-install-btn" onclick={() => (view = "manage")}>
-          <Tuning size={15} aria-hidden="true" />
-          <span>{session.text.miniAppsSettingsTitle}</span>
-        </button>
-      </div>
-    </div>
-
     {#if miniAppsStore.loading && miniAppsStore.items.length === 0}
       <div class="workspace-empty"><p>{session.text.loading}</p></div>
     {:else if miniAppsStore.items.length === 0}
@@ -136,3 +122,4 @@
     {/if}
   {/if}
 </section>
+</div>

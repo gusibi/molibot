@@ -119,17 +119,17 @@
     } catch (cause) { if (currentRequest(generation, target)) error = cause instanceof Error ? cause.message : String(cause); }
     finally { if (currentRequest(generation, target)) { busy = false; previewing = false; } }
   }
-  async function confirm() {
+  async function confirm(force = false) {
     if (!serviceAvailable || !endpoint || busy || migrationRunning || !status) return;
     const target = endpoint;
     const generation = ++requestGeneration;
     busy = true;
     error = "";
     try {
-      const next = await confirmAgentStorageMigration(target, status.ignoredPaths, status.botAssignments);
+      const next = await confirmAgentStorageMigration(target, status.ignoredPaths, status.botAssignments, force);
       if (!currentRequest(generation, target)) return;
       status = next;
-      open = status.needed;
+      open = status.needed || Boolean(force && status.skippedIssues?.length);
       onPending(status.needed);
       onReady(!status.needed);
     } catch (cause) { if (currentRequest(generation, target)) error = cause instanceof Error ? cause.message : String(cause); }
@@ -159,7 +159,7 @@
             <h3 id="storage-migration-conflicts">{zh ? "需要处理" : "Needs attention"}</h3>
             <span>{status.conflictItems.length}</span>
           </div>
-          <p class="storage-migration-help">{zh ? "资源冲突可忽略后继续；会话归属和运行引用需先解决。" : "Resource conflicts can be skipped. Resolve session ownership and execution references first."}</p>
+          <p class="storage-migration-help">{zh ? "可逐项处理，或点击底部“强制迁移”自动跳过异常项。异常源文件保留；无法关联的运行记录会备份并停止恢复。" : "Resolve items individually, or use “Force migration” below to skip errors automatically. Original source files are kept; unresolved execution records are backed up and excluded from recovery."}</p>
           <ul class="storage-migration-list">
             {#each status.conflictItems as conflict (conflict.message)}
               <li class="storage-migration-issue">
@@ -194,8 +194,15 @@
         </section>
       {:else}
         <section class="storage-migration-ready">
-          <h3>{(busy && !previewing) || migrationRunning ? (zh ? "正在迁移" : "Migration in progress") : (zh ? "可以开始迁移" : "Ready to migrate")}</h3>
-          <p>{zh ? "确认后将复制、校验并切换存储。完成前运行与自动任务保持暂停。" : "Confirm to copy, verify and switch storage. Runs and automated tasks stay paused until completion."}</p>
+          <h3>{(busy && !previewing) || migrationRunning ? (zh ? "正在迁移" : "Migration in progress") : (status.needed ? (zh ? "可以开始迁移" : "Ready to migrate") : (zh ? "迁移完成" : "Migration complete"))}</h3>
+          <p>{status.needed ? (zh ? "确认后将复制、校验并切换存储。完成前运行与自动任务保持暂停。" : "Confirm to copy, verify and switch storage. Runs and automated tasks stay paused until completion.") : (zh ? "存储已切换，可以进入应用。" : "Storage has switched. You can open the app.")}</p>
+        </section>
+      {/if}
+      {#if status.skippedIssues?.length}
+        <section aria-labelledby="storage-migration-errors-skipped">
+          <div class="storage-migration-section-head"><h3 id="storage-migration-errors-skipped">{zh ? "已跳过的异常项" : "Skipped items"}</h3><span>{status.skippedIssues.length}</span></div>
+          <p class="storage-migration-help">{zh ? "异常源文件保留；无法关联的数据库记录备份在 agent_storage_skipped_rows 表中，无法读取的数据库整库备份。跳过的任务不再自动恢复，详情包含备份位置。" : "Original source files are kept. Unresolved records are backed up in agent_storage_skipped_rows; unreadable databases are backed up in full. Skipped tasks will not resume. Details include backup locations."}</p>
+          <details class="storage-migration-details"><summary>{zh ? "查看跳过记录" : "View skipped items"}</summary><ul>{#each status.skippedIssues as issue}<li>{issue}</li>{/each}</ul></details>
         </section>
       {/if}
       {#if status.botAssignments.length}
@@ -234,7 +241,14 @@
     <div class="storage-migration-actions">
       <div>
         {#if error || status?.conflicts.length}<Button disabled={busy || migrationRunning} onclick={() => endpoint && check(endpoint)}>{zh ? "重新检测" : "Check again"}</Button>{/if}
-        <Button variant="primary" disabled={busy || migrationRunning || !status || status.conflicts.length > 0} onclick={confirm}>{error ? (zh ? "重试迁移" : "Retry migration") : ((status?.ignoredPaths.length || status?.botAssignments.some(item => item.agentId === null)) ? (zh ? "迁移其余数据" : "Migrate remaining data") : (zh ? "确认迁移" : "Confirm migration"))}</Button>
+        {#if status?.needed}
+          <Button disabled={busy || migrationRunning} onclick={() => confirm(true)}>{zh ? "强制迁移（跳过异常项）" : "Force migration (skip errors)"}</Button>
+        {/if}
+        {#if status && !status.needed}
+          <Button variant="primary" onclick={() => { open = false; }}>{zh ? "完成，进入应用" : "Done, open app"}</Button>
+        {:else}
+        <Button variant="primary" disabled={busy || migrationRunning || !status || status.conflicts.length > 0} onclick={() => confirm()}>{error ? (zh ? "重试迁移" : "Retry migration") : ((status?.ignoredPaths.length || status?.botAssignments.some(item => item.agentId === null)) ? (zh ? "迁移其余数据" : "Migrate remaining data") : (zh ? "确认迁移" : "Confirm migration"))}</Button>
+        {/if}
       </div>
     </div>
   </footer>

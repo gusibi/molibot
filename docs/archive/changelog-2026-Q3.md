@@ -2381,3 +2381,1609 @@ Four connected additions from `docs/requirements/miniapp-platform-extension-road
 - Verification: Mini App server + route suites 187/187 (including new deep-link 10, card 10, bridge v2 10, attach 7, badge 4), desktop unit 145/145 + structural 173/173 + Rust 52/52, `svelte-check` 0 errors / 0 warnings, root and desktop `vite build` clean. Two real defects were caught by the new guards and fixed before delivery: the `..`-normalization cross-app routing bug above, and an undefined `--radius-medium` token (pitfall #5) flagged by the existing CSS variable guard.
 
 ---
+
+
+<!-- Additional root records archived on 2026-10-15; original text preserved. -->
+
+### Fixed: built-in SiliconFlow no longer shows Remove（2026-09-25）
+
+The existing first SiliconFlow configuration stays as the third built-in decision model with an enable switch. Its saved Host, model, key, and Auto selection remain intact; additional SiliconFlow instances can still be removed.
+
+### Changed: decision models have individual switches and custom Jev entries（2026-09-25）
+
+TypeSafe Jev, LLM text, and SiliconFlow now remain visible as three built-in decision models, each with its own enable switch. Users can also add named Jev/System One models with a custom Host, model ID, and API key. Disabled models are excluded from Auto selection.
+
+### Fixed: Auto thinking keeps one decision per logical Turn（2026-09-25）
+
+Approval continuation now reuses the saved Auto decision and policy. An unresolved request after recovery falls back without making a second decision request. Auto also skips classification when no candidate model has a meaningful choice, and failures honor the configured fallback level.
+
+### Fixed: Auto thinking runs the decision model on the first Desktop turn（2026-09-25）
+
+The first message in a new Desktop session now keeps the selected Auto mode. Decision outcomes, skips, and fallback reasons appear in the call trace, alongside the actual thinking level used by the main model. The default fallback remains medium effort.
+
+### Added: SiliconFlow decision models（2026-09-25）
+
+硅基流动决策模型现在支持独立配置 API Host、模型 ID 与 API Key，并通过 SiliconFlow 的 System One API 测试和运行。请求复用可自定义 `baseURL` 的 TypeSafe SDK 与 Jev 协议；`diffusiongemma`、`Kev-4b`、`SemIf` 不再误发到 Chat Completions。
+
+### Improved: decision-model settings stay compact with multiple models（2026-09-25）
+
+Configured decision models now appear as a single-open list with a brief summary for each model. The selected model opens by default, and test results keep their full input and output behind a separate disclosure.
+
+### Added: decision-model tests cover all three Jev question modes（2026-09-24）
+
+Decision-model settings now run concrete support-ticket cases for Noul, Choice, and Score. TypeSafe Jev, Cloudflare Jev, and configured text models receive the same state and questions, and their structured answers are validated and shown per mode for comparison.
+
+### Fixed: LLM decision-model connection tests no longer inherit the Auto timeout（2026-09-24）
+
+Testing a text decision model previously reused the per-turn Auto deadline, so the default 1000 ms setting could cancel a healthy model request and show `LLM decision request was aborted`. Connection tests now have a separate 30-second deadline; the Auto decision timeout still applies when the model is used during a conversation.
+
+### Fixed: rebuilds no longer remove chunks used by a running service（2026-09-24）
+
+The production build previously deleted `build/` before the adapter could publish its staged output. A running server that had already loaded the old manifest then failed when a settings route was first requested. Builds now keep the live output in place so the adapter can publish new chunks before switching manifests, preserving lazy-loaded routes across a rebuild.
+
+### Changed: Jev adapters reuse the TypeSafe SDK（2026-09-24）
+
+TypeSafe Jev and Cloudflare Jev now live under the decision model's `jev/` module and share an exported decision-provider contract. The direct TypeSafe adapter uses the official JavaScript SDK for `choice()` and `systemOne()` requests; Cloudflare keeps its Workers AI transport while reusing the same question and response validation.
+
+### Added: Cloudflare Workers AI Jev 决策模型接入（2026-09-24）
+
+决策模型设置页支持配置 Cloudflare Account ID 与 API Token，并通过 Workers AI 调用固定模型 `typesafe/jev`。Token 仅保存在服务端；保存后，同一账号可直接复用已保存 Token 测试连接。
+
+### Changed: Telegram / 飞书交互控制完成真实平台验收（2026-09-23）
+
+Bot Interaction 2.0（issue #57 / PR #58）的统一 `/menu`、Model/Session/Project/Thinking/Skills/Queue/Status 原生控件、回复绑定输入与运行控制已在真实 Telegram 和飞书完成产品负责人走查，覆盖首次打开、topic/thread 绑定、重启后旧按钮失效和服务中断恢复。能力矩阵对应行状态从“待验证”更新为“已交付”。
+
+### Changed: 多个决策模型可分别配置并按场景选择（2026-09-23）
+
+设置入口从“自适应思考”调整为“决策模型”，首个使用场景是思考力度自动选择。现支持 TypeSafe Jev、Cloudflare Workers AI 上的 Jev 和 LLM：分别通过 Host/API Key、Account ID/API Token 与已有文本模型凭据接入。策略从已配置的决策模型中单独选择一项。未启用或所选接入不可用时，Desktop Chat、Project Chat 和项目默认思考等级设置都不能新选 Auto，固定等级与确定性回退仍可使用。
+
+### Fixed: Auto 思考模式仍可切回固定等级（2026-09-23）
+
+聊天思考菜单选择 Auto 后，固定等级滑块此前会被隐藏，用户无法从该菜单切回低、中或高等级。现在 Auto 与固定等级选项同时可选；单等级模型也能通过菜单里的固定等级项退出 Auto。Desktop Chat 与 Project Chat 共用该菜单，因此两处一并修复。
+
+### Fixed: Telegram 交互菜单正文不再挤成一整段（2026-09-19）
+
+`/menu → 模型` 等交互菜单的正文此前在 Telegram 里被折成一大段：模型列表的行与行之间只剩空格，长列表很难读。原因是交互视图以 Telegram rich message 的 Markdown 发送，该格式按 GitHub Flavored Markdown 解析，单个换行是会被渲染成空格的 soft break。现在渲染改用空行分块、列表行改用 GFM 列表项，每项稳定独占一行；按钮布局不变。真实 Telegram 复测通过前状态为“待验证”。
+
+### Changed: App 会话列表不再为列表加载聊天正文（2026-09-19）
+
+展开 Web 或外部渠道的会话列表以前会为每个会话读取并投影聊天正文，只为算出一行预览，列表因此要等约一秒。现在普通列表只读会话元数据：Web 走既有的元数据查询，外部渠道读取 Agent 存储随会话维护的 `<sessionId>.meta.json` 展示字段，历史会话的这份派生索引在服务启动时一次性建立。只有搜索弹窗和显式带关键词的查询仍会读取正文并显示预览；普通列表响应不再包含预览字段。过滤、排序、游标分页、归档/回收站排除、Bot 归属与搜索匹配行为不变。隔离数据实测外部列表约 14.7ms 降到 0.8ms、Web 列表约 23.7ms 降到 4.5ms（合成数据，真实运行时的投影额外开销更大）。
+
+### Fixed: 飞书卡片里的 Markdown 表格不再显示为源码（2026-09-19）
+
+`/menu → 帮助` 里的命令表格此前在飞书卡片中直接显示成 `| 项目 | 值 |` 这样的原始管道符源码。原因是卡片的 markdown 元素不支持 Markdown 表格（表格要用卡片 2.0 的 table 组件）。现在卡片渲染会把表格摊平成 `**命令**: 说明` 的键值列表，和 `/status` 已有的列表形态一致；帮助卡片在飞书里可读，其他视角正文若有表格也不会再泄漏源码。
+
+### Fixed: 飞书 /menu 卡片按钮点击无反应（2026-09-19）
+
+Telegram / 飞书 的 `/menu` 卡片能正常显示，但点击按钮没有任何反应。原因是飞书长连接推送的是新版卡片回调（`card.action.trigger`），它的响应体必须把卡片包在 `card: { type: "raw", data }` 里；此前直接返回裸卡片（旧版回调的格式），客户端判定响应体不合法后丢弃，于是纯导航按钮看起来完全没反应（一次性按钮因为还有后台更新源卡片的补偿，视觉上能变化）。现在 WebSocket 回调统一返回新版响应结构，旧版 HTTP 回调路径不变，并区分记录回调来源。真实飞书复测通过前能力状态仍为“待验证”。
+
+### Fixed: Telegram / 飞书交互的 Stop 目标一致性与输入终态（2026-09-19）
+
+PR #58 审查复现了两处控制面缺陷。其一，Stop 在等待队列查询之后不再核对绑定运行：如果查询期间旧运行结束、新运行启动，确认过的 Stop 会错误地停掉新运行，同时按 scope 全清队列，把用户没确认过的待执行任务一并删除。现在 Stop 在每次异步等待后、真正停止前重新校验绑定运行身份，并且只清除用户已确认的那批队列 ID——集合在确认后变了就整单失效，要求重新确认；`/stop` 保持原有“停止并清空待执行队列”的命令语义。其二，取消输入请求后回复原提示会被当成普通消息，可能悄悄变成新的 Agent 任务。现在取消、过期、目标变化和成功提交都留下终态标记，迟到回复会被明确拒绝；输入提示记录还会持久化到每个 bot 的本地库，服务重启后回复重启前的旧提示同样被判定为失效，而不是另起一个任务。普通消息与回复非输入提示的消息仍按原路径处理。真实 Telegram / 飞书走查完成前，该能力状态仍为“待验证”。
+### Fixed: Agent City hover 卡片不再周期闪烁、房间阴影不再自遮挡，master 测试套件恢复绿灯（2026-09-19）
+
+Agent City 面板在指针停在一个房间上时，信息卡会大约每 2.5 秒闪一下。原因是活动轮询和主题切换都会重建房间的拾取目标，而画布每次都先把 hover 清空再重新命中，卡片被迫消失又出现。现在画布记住指针位置，重建后重新做一次命中检测，指针不动时卡片保持稳定。
+
+另外修掉了房间放大的阴影异常：太阳阴影贴图此前没有 set bias，GLTF 房间会整体自遮挡成黑墙黑顶，逐帧重算的阴影 acne 还会缓慢爬动，看起来像持续闪烁；现在补上 `bias` 与 `normalBias`，墙面和屋顶恢复正常的明暗过渡。
+
+同时把 `master` 上因上一轮主题家族重构而失效的 9 条测试断言对齐到当前实现（拾取频率、Worker 角色参数、天空色读取方式、区域钩子、排版例外等），测试套件重新全绿。
+
+### Fixed: Agent Community 跟随主题家族，近景房间不再持续闪烁（2026-09-19）
+
+Agent Community 之前虽然会跟随明暗模式和天空背景，但 Three.js 房屋、道路、plaza、Community Hub 与状态灯仍大量使用固定颜色，所以切换 Raft、Cyberpunk、Windows 98、Candy 等主题时 3D 社区看起来几乎还是同一套。现在 WebGL 场景会读取当前主题家族/recipe 的真实 CSS token，并解析嵌套 `var(...)` / `color-mix(...)`：房间墙面与 trim、GLTF kit、HQ、Worker Camp、Hub、地面/道路/绿化、Working 路线与状态色都随主题变化；不同 recipe 还会改变粗糙度、金属感、发光、fog 与曝光，而不只是简单换 accent。导入的 VS Code 主题同样走这条 token 管线。
+
+房间放大时的“持续闪”也根修了。原来的城市总览为了让 Working/Error 状态远距离可见，会让整片窗户、任务板、屏幕、外围线框不断做 emissive pulse；GLTF 房间放大后这些大面积发光面把微动画变成了明显闪屏。现在远景只保留幅度更小、速度更慢的呼吸，进入 detail distance 或聚焦房间后直接固定亮度，窗户、任务板、Worker 屏、Working perimeter 与选中框都不再持续闪烁。
+
+### Fixed: Agent Community 主题联动与聚焦房间闪烁（2026-09-19)
+
+Agent Community 不再只是统一配色的 3D 场景：它会读取当前主题 family/recipe 和真实 CSS token，把建筑、家具、道路、广场、植被、灯具以及 Momo 背心一起换成对应主题语言；Blueprint/Cyberpunk 等 Technical 主题带 drafting grid，Win98/System 6/Terminal 等 Retro 主题使用更硬的线条和材质，Raft/Brutalism 的 Editorial 语言更扁平，Candy/Cartoon 的 Expressive 主题更强调柔和 accent。与此同时修掉房间放大后每 2.5 秒闪一次的问题：Activity poll 不再重复重置 emissive animation，聚焦视图保持稳定亮度，只在真实状态变化时更新。
+
+### Changed: Agent Community Phase 5 — Live Inspector 与快速对话（2026-09-19）
+
+Agent City 现在从“可看”进入“可操作”的工作台阶段。点击任意 Agent 房间会从右侧打开 Live Inspector，分为概览、Worker、运行信息三页：当前任务、Bot/Channel 来源、模型/权限、Run ID、开始/结束时间、Worker role 聚合与完整实例状态都会随着 Agent Activity 轮询实时刷新。相同 Inspector 同时支持 3D WebGL 与 2D fallback，不再让节能模式退化成只有 tooltip 的只读视图。
+
+Inspector 底部加入三个实际动作：直接与该 Agent 开启 Web 对话、镜头对准房间、进入 Agent 设置。新建对话会选择绑定该 Agent 的 Web Profile；Momo/default 会优先使用默认 Profile；找不到绑定关系时转到 Profiles 设置，避免静默用错 Bot。Agent 搜索也扩展到 Worker role、Bot 名称和当前任务摘要，能直接搜索“scan”“reviewer”或任务关键词定位正在工作的团队。
+
+旧的左下角 `.agent-city-detail` 小卡片已删除，宽屏搜索框会在 Inspector 打开时自动让位，窄屏保持可覆盖操作；Escape 仍统一退出当前选择。机器守卫覆盖 Inspector 三个 tab、Worker/runtime 数据、2D fallback 选择、ChatView 的 Agent→Profile→draft 链路以及旧 detail 样式不得回归。
+
+
+### Fixed: 思考档位刻度点击无反应的加固、支持拖拽并改为进度条样式（2026-09-18）
+
+输入框模型菜单里的「思考档位」刻度在一份长时间运行的桌面实例里出现点击和拖拽都毫无反应的情况——菜单能打开（`toggle` 事件是直连监听器），但刻度按钮的 `onclick` 走 Svelte 5 挂在应用根上的委托事件表，长寿命 webview 在热更新链路损坏后委托表会整体静默失效，直连监听器却仍存活。现在整个菜单的交互不再依赖委托通道：弹层内点击、键盘导航、禁用保护全部改为 `addEventListener` 直连监听器，机器守卫禁止该组件再出现委托式 `onclick`；顺手把档位刻度补成完整滑块交互——点击轨道任意位置选最近档位、按住左右拖动实时跟随、释放即定格，触控与防误选一并处理。选中态也从「孤零零一个高亮点」改为参考主流实现的进度条语言：轨道从起点到滑块填充主题主色，已选区间的点反色显示，滑块（knob）落在填充末端，`关闭` 档无填充；全部主题（含 Raft 信号黄）自动适配。Chromium 与 WebKit 双引擎、亮暗两套外观 + Raft 主题实测：点击、轨道点选、拖到两端、模型子页导航、Escape/点击外部关闭全部正常；桌面 `svelte-check` 0 错 0 警、`chat-ui.test.mjs` 274/274。（该提交 09-19 00:01 曾随 master reset 移出主线，当日已从 `backup/master-composer-slider` 补回。）补修：按住/拖动时被按压的刻度点会下坠约 11px——全局按钮按压规则 `transform: scale(.98)` 在 `:active` 期间替换了刻度按钮用 `transform` 做的居中定位；刻度定位改用独立的 `translate` 属性后按压不再掉位（真实浏览器实测旧写法按压 +11px、新写法 0），守卫测试已拦该类回归。
+
+### Changed: Agent Community 完成 Momo 与模块化建筑资产化（2026-09-18）
+
+Agent 页这一轮把前两版「结构已经对，但看起来还像积木」的问题继续做完。Default Agent 现在是社区中央的 Momo HQ，Sub-agent 是可重复派生的 Worker Swarm；`scan ×10` 这样的并行团队保留完整 runtime 实例，只在 Three.js 渲染层做 LOD。
+
+角色层正式切到生产 GLB：仓库直接提交新的圆润 Momo `momo.glb`，主 Agent 和 Worker 都通过 `GLTFLoader + AnimationMixer` 使用同一个角色资产，带 Idle / Walk / Typing / Thinking / Scan / Reading / Reviewing / Phone / Sleep / Celebrate / Error / Wave / Coffee 13 个动作。旧验证模型的方块比例已重做为大头、短鼻、黑面罩、眼白高光、短腿和卷尾的 mascot 轮廓；scan / planner / reviewer 的配件继续由 runtime 叠加，visor 会跟随 GLTF HeadPivot。低画质时临时 Worker 自动降回轻量 rig，避免多人并行把帧率拖垮。
+
+建筑层也不再只靠 BoxGeometry：新增并提交 `community-kit.glb`，Momo HQ、普通 Studio、室内静态陈设和 Community Hub 都从模块化 GLB kit hydrate；失败时才退回 procedural fallback。GLTF 窗户仍接入 Working / Idle / Error 实时亮度，任务板、Worker Camp、显示器、路线、庆祝/告警等实时 UI 保持 Three.js 驱动。有 Worker 时休息区会自动收起，临时工位与 Camp 改为圆角几何；社区中央补上 plaza、树、长椅和路灯，渲染加入 ACES filmic tone mapping、软阴影和克制 rim light。
+
+同时补齐可重建的 Blender source pipeline：`scripts/blender/build_agent_community_assets.py` 可生成 Momo 与 Agent Community Kit 的可编辑 `.blend` 源并导出 runtime GLB，严格的 `export_momo.py` 继续校验 MomoRoot / MomoRig 与动作 contract。测试会直接检查两个 GLB 二进制、fallback 资产组件与全部动作，防止资产文件缺失或重新退回占位模型。
+
+### Fixed: 文件面板提示统一为居中空状态（2026-09-17）
+
+文件面板「变更 → 本次会话」和「附件」页此前在列表上方各有一条左上角对齐的说明文字，与下方居中的空状态并排显得杂乱。现在这些说明统一并入居中的空状态——图标、主文案、小字说明居中成一列，与「Git 不可用」空状态同一套样式；列表有内容时说明随提示一起消失，筛选范围由分段控件标签本身说明。
+
+### Fixed: Intel 打包不再阻塞更新清单 latest.json（2026-09-17）
+
+自动更新检测此前反复失效的根因找到了：GitHub 已退役 `macos-13`（最后一个免费 Intel macOS 镜像），Intel 构建任务排不上队、一挂就是 24 小时，而生成 latest.json 的任务要等整条流水线结束才肯开始，于是更新清单被永远发布不出来（v2.9.58 就这样漏发了）。现在 Apple Silicon 与 Intel 拆成两个独立构建任务，Intel 迁到仍在维护的 `macos-15-intel` 镜像；latest.json 只等 Apple Silicon 构建，Intel 构建成功后再补一份含双平台的清单，坏数据或空清单会被拒绝发布。v2.9.58 的更新清单已补齐，已安装客户端的「检查更新」即刻恢复可用。
+
+### Changed: 侧边栏折叠按钮固定在红绿灯右侧，折叠态一键新建对话（2026-09-17）
+
+侧边栏的折叠按钮和搜索按钮此前位于侧栏右上角，点击折叠后按钮会跳到窗口右上角，位置跳变。现在它们是一组固定在 macOS 红绿灯右侧的窗口级按钮：展开时是「折叠 + 搜索会话」，折叠后按钮原地不动、搜索换成「新对话」，点击即新建对话并展开侧边栏。对话页、Agent / 技能 / 计划等工作台页和项目页统一遵循同一位置，折叠后的页面标题会自动避让按钮组，全部主题自动适配。
+
+### Fixed: 「项目」维度的顶部工具栏没有主题色（2026-09-17）
+
+在「项目」维度里，右上角那排工具栏按钮不像对话维度那样带主题强调色——因为项目维度复用的是共享 header 组件，而它没有挂上主题的区域标记，所有主题对顶部工具栏和画布的适配到项目维度就断了。现在共享 header 与项目面板都挂上了对应标记，两个维度的工具栏与画布表现一致。
+
+### Fixed: 文件面板 tab 条被长列表压扁、工具按钮计数徽章与按钮粘连（2026-09-17）
+
+文件面板切到「变更 → 全部改动」或切到「文件」时，下方内容会把「文件 / 变更 / 附件」这一行压扁并盖住。原因是这一行是面板里唯一被显式清零了最小高度的固定高度行，而它的兄弟是滚动面板：列表一长，滚动面板的完整内容高度就把这一行按比例压扁，行内按钮溢出后被列表覆盖。现在它和面板里其它固定行一样不参与伸缩，无论列表多长（实测 5 条 / 207 条 / 80 行文件树）高度都稳定，不再被盖住。另外工具按钮右下角的计数徽章不再和按钮同色粘成一块：徽章改为始终取按钮的反色——按钮黄底时是墨底黄字，按钮按下变墨底时翻成黄底墨字，两种状态都不再混成一团。
+
+### Changed: Raft 等硬边主题的导航/画布分面、主色上控件与底部区域清理（2026-09-17）
+
+Raft 主题此前导航与聊天区同色、信号黄只在悬停时才露面、选中项只靠背景没有浮起感。现在 Raft 以及同为硬边海报语言的「野兽派 / Blueprint / System 6 / Terminal / Windows 98」都做了同一套处理：导航与画布分成两个平面；顶部工具栏按钮、选中的导航项和侧栏底部的设置齿轮都铺上主题主色，并带上输入框同款的硬偏移描边，悬停与按下反馈明确；Raft 的聊天画布恢复纯白，与奶油色导航形成区分。System 6 只有黑白两个结构色、给不出第三级平面，保持单一表面。左侧导航底部头像/设置区的分割线已移除，「在线」文字并入头像上的状态点（文案仍保留给读屏软件），设置齿轮在其余主题里也调到看得清的对比度，全部主题生效。
+
+### Changed: 文件面板 tab 与筛选器统一为分段控件风格（2026-09-16）
+
+文件面板（右侧检查器）顶部的「本轮文件 / 文件」tab 和「全部 / 图片 / 视频 / 音频 / 文档」筛选器此前各自沿用一套下划线 tab 与描边方块的风格，与技能、自动任务页的分段控件不一致，激活态也不明显。现在统一为同一套分段控件语言：轨道底色、激活段以卡片浮起、计数徽章走强选中配色（Raft 下粉底墨字）；亮暗与全部主题自动适配。
+
+### Fixed: 弹窗尺寸层叠根修与 D2/Mermaid 放大弹窗近全屏（2026-09-16）
+
+D2 图表与 Mermaid 图表的放大弹窗此前被静默压到 560px 的默认宽度，内容即使放大也看不清；根因是共享的弹窗基础样式与各弹窗变体同为单类选择器，而基础样式声明在文件更靠后，按声明顺序反过来盖住了更早声明的变体。现在基础样式改为零特异性默认，任何弹窗变体无论声明位置都能生效——D2/Mermaid 放大弹窗与表格、HTML 一致铺满窗口（保留标题栏与缩放工具栏），同时一并恢复了一批被同一问题压小的弹窗（任务历史、任务会话、服务日志详情、模型发现、小程序安装、Provider 授权、已安装 Skill、预览卡、确认框）的原本尺寸。新增机器守卫防止这类层叠回归再次发生。
+
+### Fixed: Raft 主题细节修正（2026-09-16）
+
+左侧导航的选中项改为信号黄实色（黄=主、粉=选中的原站配色分工），行内未读徽章反色保持可见；激活 tab 的计数徽章换成强选中配色（Raft 下粉底墨字），修掉了浅色强调色主题里数字看不清的问题，自动任务页同步受益；输入框补回四边细描边——之前上、左两条边被不透明的玻璃底层盖住，只有右下角看得到阴影线，现在四边都有细线且阴影恢复单层。同样的输入框描边修复也应用到了野兽派、Windows 98 和 System 6 三个主题（Win98 的凸起浮雕也因此真实可见）；其余主题不受影响。
+
+### Changed: Momo 更温暖自然的朋友型助手（2026-09-16）
+
+默认 Momo 人设升级至 1.1.1：保留办事可靠、有判断的特点，也能自然闲聊、回应情绪、适度开玩笑，并结合用户的处境、兴趣与目标自然关心，不限于作息和身体状态。提醒不过度重复，不擅自发送定时问候；已有用户可通过内置 Agent 更新入口应用新模板。
+
+### Fixed: 技能页 Type 切换选中态与新的强选中语义（2026-09-16）
+
+技能页的 Type 切换（全部 / 内置 Skill / 工作区 / Agent）此前选中后几乎看不出变化——共用样式要求按钮带一个 class，技能页复制这段界面时把它弄丢了，选中规则从未生效；现在与自动任务页观感一致。同时引入了全局的「强选中」语义：点选的卡片/列表项走一对新的主题 token（默认取强调色，Raft 主题下是它的配对粉红色，黄色留给主动作和 tab）。技能页点击卡片即选中（支持键盘），Raft 主题下侧栏选中的会话行也统一为粉色；其余主题行为不变。
+
+### Fixed: 提示词规则冲突与项目上下文误拦截（2026-09-16）
+
+统一指令优先级和工具选择顺序，减少重复提示与固定子代理流程；项目文档不再因为包含攻击示例、特定语言关键词或零宽字符而整篇被丢弃。执行权限与审批机制保持不变。
+
+历史条目：[2026 Q3 归档](docs/archive/changelog-2026-Q3.md)。
+
+### Added: 新增 Raft 主题（2026-09-16）
+
+设置 → 外观 → 主题家族新增「Raft」，复刻 raft.build 的视觉语言：奶油色画布、暖墨色文字与描边、信号黄作为唯一焦点色，配合无模糊的硬偏移阴影和全站直角，亮色「奶油」与暗色「墨黑」双变体独立于明暗模式生效。代码块沿用该站的糖果色语法高亮（粉/青柠/黄/橙/薰衣草），图表配色同源。
+
+### Fixed: 导入的编辑器主题不再被应用自己的玻璃层冲淡（2026-09-16）
+
+导入 VSCode 主题后，左侧导航发灰、输入框像一个被冲淡的空盒——因为侧栏和输入框一直是应用自己的半透明玻璃层（叠在 macOS 原生窗口材质上），主题真正的颜色根本到不了屏幕。现在导入主题自绘平面界面：侧栏、顶栏、输入框都是主题的真实颜色，不再随窗口是否激活、窗口后面是什么而变灰；导航的悬停/选中改用主题自己的高亮色，次级文字直接取自主题为低强调文本设计的颜色，而不是把正文色往背景里淡。输入框四边边框也恢复一致：之前顶边被一条深色高光线压着、其余三边只有极细的描边，看起来像只有上边有边框。内置的 24 款主题外观完全不变。
+
+### Fixed: 自动更新检查失败的发布管线修复（2026-09-16）
+
+「检查更新」此前一直报错，共三个叠加原因：GitHub 的 latest release 解析会跳过 pre-release，而发布流程把每个版本都标成了 pre-release；Intel 构建失败会连带跳过更新清单 latest.json 的生成与上传；更新包下载地址错误地用 App 版本号（v0.9.x）拼 release tag（实际为 v2.9.x）。现在版本发布改为正式 release，Intel 构建失败不再阻塞更新清单发布，下载地址改用真实 release tag，并已为 v2.9.56 补齐更新清单——已安装客户端的「检查更新」即刻恢复可用，后续版本自动走新流程。
+
+### Fixed: 中文「**标签：**正文」加粗正确渲染（2026-09-16）
+
+聊天回复里 `**特点：**典型秋高气爽` 这类以全角标点收尾的加粗之前会显示成原始星号——这是 CommonMark 规范对 CJK 文本的已知缺陷（加粗闭合标记紧跟标点且后面直接接汉字时无法闭合）。现在共享 Markdown 管线接入了 cjk-friendly 修复，聊天记录、流式回复和 Artifact 预览里所有这类加粗都正常生效；中文、日文、韩文以外文本的渲染行为完全不变。
+
+### Added: macOS 客户端支持自动下载与重启更新（2026-09-15）
+
+macOS 客户端现已支持应用内自动更新。每次 GitHub 发布新版本后，桌面端会在启动后静默检测或通过「系统菜单 / 托盘菜单 / 设置面板 / 快捷命令」手动触发「检查更新」。发现新版本时，弹窗将展示新版本号、发布日志与下载进度；下载完成后点击「立即重启」即可自动替换并重启进入新版本，无需每次手动下载 DMG 覆盖安装。底层利用 Ed25519 签名替代苹果公证，解决无开发者证书下的安全防篡改校验，并在重启前优雅退出伴生服务确保数据完整性。
+
+### Added: 运行中的三个入口加上发光边缘转圈（2026-09-15）
+
+一轮对话进行中时，「正在执行…」胶囊、聊天区上滑后出现的「回到最新」按钮、以及输入框里的停止按钮，现在都有一道发光沿着边框转圈，表达「正在运行」。这道光用当前主题的强调色（不是固定彩虹），所以每套主题、明暗外观下都协调；开启「减弱动态效果」或低性能模式时会停在边缘不转，而不是消失。原来胶囊上的横向流光被这道边框光取代，同一处不再出现两种动效。
+
+### Added: 执行中的会话行显示旋转粒子球（2026-09-15）
+
+左侧会话列表里正在执行的会话，之前的圆点换成了一个持续旋转的粒子球：一组小点在三维球面上转动，靠透视产生近大远小的深度感，直观地表达「正在执行」。执行完成、等待审批和失败仍然是原来的静态圆点（绿色/黄色/红色）。这个球体是纯 CSS/DOM 实现的，不依赖 canvas 或第三方库，因此同时有多个会话在跑也不会额外开销；开启「减弱动态效果」或低性能模式时它会停在一个静止的球体姿态，而不是继续旋转或消失。
+
+### Fixed: 新对话在首轮执行时不出现在侧栏（2026-09-15）
+
+从「新对话」发出第一条消息后，聊天区已经在执行，但左侧会话列表整轮都不显示这条新会话，要等这轮跑完才冒出来。原因是侧栏刷新被挂在「整轮结束」之后，而运行期间唯一的刷新机会（标题摘要事件）可能失败、也可能被并发刷新守卫丢掉。现在会话一创建就立即通知侧栏刷新，新会话在第一条消息开始执行时就会出现在列表里，标题随后由摘要/轮次结束刷新收敛。
+
+### Changed: 会话树全部左对齐，会话行去掉头像（2026-09-15）
+
+侧边栏的「对话 / 项目」区块头、渠道（Web/Telegram/飞书/QQ/微信）行与项目行现在共用同一条左对齐基线，不再逐级缩进。每个会话行去掉了前面的 bot 头像，标题与所在渠道 / 项目的名称对齐；运行状态点和分支标记移到行首预留的位置。项目文件夹图标随展开 / 折叠在「打开的文件夹」和「普通文件夹」之间切换；渠道与项目行的「新建会话」按钮换成对话气泡加号图标，行尾的折叠箭头移除——点击整行即可折叠或展开。
+
+### Fixed: 切换会话时聊天记录从头滚到底（2026-09-15）
+
+切换会话时聊天记录会先显示顶部再快速滚到底部。原因是滚动容器上残留的 `scroll-behavior: smooth` 把「切换会话直接落到底部」的瞬时跳转也交给了浏览器做平滑动画，与聊天自带的弹簧跟滚机制冲突。现在切换会话（及空闲重载）直接停在最新内容、不再出现滚动过程；实时流式回复的弹簧跟随、导航跳转的平滑滚动均保持不变。
+
+### Fixed: 消息内容与输入框对齐、全屏图片预览补上关闭图标（2026-09-15）
+
+聊天正文此前会比下方输入框整体左偏几像素：转写区有滚动条而输入框没有，居中的阅读列被滚动条挤得不对称。现在转写区左右各预留一条对称的滚动条沟槽，正文、图片和输入框共用同一条中线。另外，点击图片打开的全屏预览右上角关闭按钮之前只有一个圆形背景、看不到图标，现在换成 duotone 的 close-circle 图标，并让图标填满按钮（内圆约占按钮 80%+），不再是大背景里一个小圈；HTML/表格全屏预览的关闭按钮也统一为同一个。
+
+### Fixed: 文件面板不再隐藏左侧导航，拖面板只改面板（2026-09-15）
+
+窗口较窄时打开右侧文件面板，左侧导航不再被自动隐藏（之前 `<= 1000px` 会用 CSS 把侧栏整个藏掉）；导航只收窄、不消失，仍然只在点击折叠按钮或拖动分割线时才收起。另外，拖动文件面板的宽度只改变文件面板本身，左侧导航保持你设定的宽度，聊天区吸收剩余空间。
+
+### Fixed: 左侧 nav 不再自己折叠（2026-09-15）
+
+左侧导航之前会在窗口收窄到一定程度时自动收起，并把收起状态记下来，重启后看起来就像「自己关掉了」。现在导航只会因为点击折叠按钮、键盘快捷键，或把分割线拖过阈值而收起；窄窗口只把导航收窄，不再折叠。
+
+### Changed: 右侧文件面板去掉最大宽度，窗口缩放由面板吸收（2026-09-15）
+
+右侧文件 / Artifact 面板不再有固定的最大宽度，唯一的约束是它不能把聊天区压到不可读，因此可以一直拖宽来放大正在查看的文件。面板打开时，拖动窗口最右侧边缘放大窗口会把这些宽度给到面板，左侧导航和聊天区宽度保持不变——查看文件时放大窗口就是放大文件。未打开面板时聊天区照旧吸收窗口变化。
+
+### Fixed: 左侧导航分割线偏亮，与文件面板不一致（2026-09-15）
+
+Chat 与设置页左侧导航和右侧内容之间的竖直分割线比右侧文件面板的亮。除了颜色 token 不同，更根本的原因是这条线画在元素的 `border-right` 上，而侧栏的玻璃材质层只覆盖到内边距、不覆盖那 1px 边框，于是边框直接叠在透出壁纸的原生侧栏材质上，比叠在不透明面板底色上的文件面板边框亮得多。现在两者统一用同一个 `--separator` 细线，并且分割线改画在侧栏的材质层上，两条窗格分界线亮度一致；只有在拖动侧栏分割线时导航边才会临时提亮，拖动文件面板不会误亮。
+
+### Changed: 助手消息身份行对齐输入框、去掉冗余标签（2026-09-15）
+
+助手回复不再为空头像留出左侧栏：头像移到身份行内联显示，正文与输入框左缘对齐、同宽。身份行去掉没有信息量的静态「Agent」字样与重复的「回答完成」文字药丸——渠道会话改为显示当前绑定的 Agent 名（Web Profile / 渠道 Bot · Agent），Project 会话不显示 Agent；一轮成功结束改用安静的绿色双勾表示。
+
+### Changed: feishu 主题对齐真实飞书（2026-09-14）
+
+暗色外观更贴近真实飞书：聊天画布比侧栏更深一层、会话选中改为柔和的蓝色底色（亮色同样生效）、助手回复保持飞书标志性的白色卡片配深色正文——卡内行内代码、引用、表格、diff 标签同步使用浅色可读值，代码块保持深色。
+
+### Fixed: 主题下侧栏「对话/项目」标题默认带背景（2026-09-14）
+
+多款主题把侧栏「对话」「项目」分节标题画成了默认的强调色药丸，看起来像一直处于选中态。现在所有主题统一为静止透明、悬浮时才显示各自品牌的背景色，选中会话的高亮不受影响；并加了守卫防止主题再把静止态涂上背景。
+
+### Fixed: Project 会话与任务会话不显示调用链入口（2026-09-14）
+
+Project 会话的调用链数据一直在正常记录（与 Web 会话共用同一执行与投影链路），只是对话容器漏传了服务 endpoint，前端拿不到插件启用状态、「查看调用链」按钮不渲染。修复后 Project 会话与运行历史的任务会话详情和 Web 会话一样显示调用链入口。
+
+### Fixed: 内置插件在新设备上缺失（2026-09-14）
+
+修复发布包遗漏内置插件清单，导致「Call Trace / 调用链」在新设备上不出现的问题：发布脚本与内置插件清单恢复同步（新增自动守卫，两份清单再次漂移时构建测试直接失败），启动时缺失随包插件会在日志显式告警；插件设置页中随包分发的内置插件现在正确显示「内置」而非「外置目录」。此前版本发布时不带该插件的设备，升级到含此修复的版本并重启后即可看到。
+
+### Added: 桌面「计划」看板——计划保存、审批与执行落地（2026-09-13）
+
+Session 里让 AI 制定计划后，计划会保存为带稳定 ID 的记录并进入桌面「计划」列表：新增两层详情面板查看步骤与真实进度，接受后执行回到来源 Session 的普通轮次（保留模型、工具与产出记录），首次批准接入 Durable Execution，中断/重启后可恢复、待审批状态真实可见。配套修复了一批看板与审批问题：持久审批被重复请求、重启后残留失效审批卡、计划卡进度不随执行同步、durable 续跑事件污染自动任务未读等。
+
+### Fixed: Bash 审批提示请求已失效（2026-09-13）
+
+修复通用 Bash 审批与 Host Bash 审批标识冲突，导致待审批请求无法读取、点击允许时报请求已失效的问题。新请求可正常批准并复用长期授权。
+
+### Fixed: 计划批准后无法继续执行（2026-09-13）
+
+修复计划中的工具审批通过后仍卡在第一步的问题：批准时同步恢复步骤状态，续跑可继续执行。步骤启动失败也会正确结束当前尝试并记录原因，不再一直显示执行中。
+
+### Added: 主题可改写现有界面结构（不再只是换色）（2026-09-13）
+
+主题家族现在能真正"改形态"，而不只是换颜色：顶部标题栏、左侧会话列表、聊天区、输入框、右侧文件面板这些已有区域都开放了固定的适配入口，主题可以在不改布局的前提下重画它们的渐变、边框、圆角、阴影和分组样式。QQ、微信、Telegram、Discord、飞书、WhatsApp、Facebook、Google、iOS、Android、Office、WPS、Rosé Pine、Catppuccin、Midnight 以及终端、野兽派、蓝图、System 6、赛博朋克、糖果、卡通、Windows 98 共 23 款主题都已按各自的品牌语言改写这些区域（微信绿、Telegram 蓝、Discord blurple、Office 蓝、WPS 红、Win98 深蓝、System 6 黑白反转等）；默认的 macOS 主题保持原有玻璃质感。
+
+### Fixed: QQ 主题品牌色偏灰、Agent City 不跟随主题（2026-09-13）
+
+QQ 主题此前用的是发灰的深青蓝强调色和偏饱和的中蓝画布，看起来像普通蓝色聊天软件而不是 QQ；现在换成通透的 QQ 天蓝——强调色、发出气泡、画布与侧栏一并重调，暗色态改为 QQ NT 那种冷静蓝灰，蓝色只留在气泡与强调色上。另外，Agent City 面板此前永远是一块固定的蓝灰，在 System 6、Windows 98、终端、糖果、卡通等主题里明显跑题；现在它的天空色跟随每个主题的聊天画布（单一事实来源：外壳与 3D 画布读同一个 token），面板与页面融为一体，所有主题下都不再露缝。
+
+### Added: 14 款生活化与品牌主题（2026-09-13）
+
+外观设置的「主题家族」新增 14 款主题，补齐此前只有原生/开发/复古风与柔和配色的空白：iOS、Android（Material You）、Office、WPS、WhatsApp、微信、Telegram、Discord、Facebook、Google、飞书、QQ、糖果（马卡龙）、卡通（儿童）。每款都是一整套视觉语言：整幅窗口画布换成品牌底色（QQ 全蓝、糖果全粉、卡通暖黄、飞书灰蓝等），而不是只改几处强调色。聊天类主题里，你自己发出的消息和助手回复都会包进气泡并按品牌上色（微信绿、WhatsApp 绿、飞书/iMessage/Facebook 蓝白字等），工具与思考过程仍保持无框；文档类主题（Office、WPS、Google）保持清爽的裸文回复。新增主题共 24 款，可直接在设置 → 外观切换。
+
+### Fixed: 导入主题对比度低、输入框上方多出阴影（2026-09-13）
+
+导入 VSCode 主题后，若主题自身文字偏淡（如 Solarized Light），界面会整体发灰、侧栏几乎看不清；现在对标题、次级文字、按钮文字与代码文字施加最低对比度，保证可读。同时修复导入主题时聊天输入框上方出现一条更亮阴影带的问题（工具栏与聊天画布此前取了不同颜色）。另外，导入的主题现在保存原始主题文件，后续配色映射的改进会对已导入主题自动生效，无需重新导入。
+
+### Added: 导入主题支持一键打开主题目录（2026-09-13）
+
+导入主题的说明区新增「打开内置主题目录 / 打开已装扩展目录」按钮，可一键在访达中打开 VS Code、VS Code Insiders、Antigravity、Cursor、VSCodium、Windsurf 的主题文件夹。只显示真正含配色主题的文件夹，鼠标悬停可看到完整路径；只有装了市场主题扩展后，「已装扩展目录」按钮才会出现。
+
+### Added: 导入 VSCode 主题（2026-09-13）
+
+外观设置新增「导入的主题」：可以直接导入 VSCode / Cursor / VSCodium 的配色主题 JSON（`*.json`），把工作台配色映射成 Molibot 的界面颜色与代码高亮，界面结构与 macOS 系统保持一致。导入的主题以单变体保存（明暗由主题自身声明），一个主题一个文件存放在应用数据目录，可随时切换、删除，重启后依然生效。导入入口内附说明：支持的类型、在哪里下载主题、以及在 VS Code 里如何找到主题 JSON 文件。暂不支持 `.vsix` 扩展包与 `.tmTheme`。
+
+### Fixed: 调用链报告不遵守主题（2026-09-13）
+
+调用链弹窗此前是一份自带硬编码调色板的独立 HTML，只认明暗、不认主题家族，看起来像外挂页面。现在报告改用应用的语义 token（颜色、字体、字号、圆角、代码块），弹窗把当前主题的实时取值注入进去，切换家族即时生效；公开发布的快照仍使用内置兜底配色。
+
+### Added: 六款大胆主题家族（2026-09-13）
+
+外观设置新增六款非传统主题家族，每款同时重写配色、字体、圆角与阴影，而不只是换颜色：Windows 98（灰色 3D 桌面、深蓝选中、方块直角、Tahoma 字体、立体凸起/凹陷按钮与输入框）、终端（等宽字体、黑底荧光绿、零圆角零阴影）、野兽派（纸底黑描边、硬偏移实心阴影、钴蓝/电黄强调色）、蓝图（工程蓝底、青色线稿、等宽展示字）、System 6（纯黑白单色、像素直角、硬边阴影）、赛博朋克（紫黑底、品红/青霓虹发光、锐利直角）。每个家族都有认真设计的明暗两个变体，与现有 macOS / Rosé Pine / Catppuccin / Midnight 并列，可在「设置 → 外观 → 主题家族」直接切换。主题样式也做了结构拆分：通用系统留在 `styles.css`，每个家族独立成 `src/themes/<family>.css`，由 `themes/index.css` 统一引入，新增主题不再往单文件里堆行数。
+
+### Added: Project 模式下 /sessions 列出并切换项目会话（2026-09-13）
+
+飞书、Telegram 在 `/project` 模式下输入 `/sessions` 现在展示该 Project 的会话列表（含 Desktop 端创建的会话），并标注当前处于哪个项目、正在使用哪个会话。`/sessions <编号|id>` 可切换项目会话并持久记住选择，之后的消息续写到所选会话，与 Desktop 共享同一份上下文。`/new` 在项目内新建项目会话；`/delete_sessions` 提示到 Desktop 管理，避免误删。
+
+### Added: 对话调用链报告（2026-09-13）
+
+新增可启用的 Call Trace 内置插件。从 APP 回复菜单查看模型、工具和内置子 Agent 的调用树、耗时与 token，并可通过现有 Cloudflare HTML Publish 发布精简 HTML 快照。Telegram、飞书可请求上一轮或指定消息的报告。小程序入口留待后续单独实现。
+
+### Fixed: 设置「执行与权限」保存永远失败（2026-09-12）
+
+桌面端「执行与权限」页保存默认执行模式总是提示「保存失败，请重试。」，且页面显示的「已保存模式」其实从未真实加载过。根因：该页用原生 fetch 直连服务 API，在 Tauri webview 里属跨域请求，而服务端不带 CORS 头（PATCH 预检 405）；curl、服务端直测、同源浏览器全部正常，唯独 app 内必挂。现已改走与其他设置页一致的共享请求通道（Tauri 内由 Rust 侧发请求，不受跨域限制），加载失败从静默改为可见报错，并新增机器守卫（`api-transport-guard.test.mjs`）禁止组件层再直接调用 fetch。
+
+### Fixed: 思考档位选择器错位（2026-09-12）
+
+修复模型菜单中档位刻度挤在一起、与滑块脱离的问题。补充首尾档位标签，明确当前选择，并支持左右方向键切换。
+
+# Molibot ChangeLog
+
+### Added: 输入框统计面板展示 Session 累计用量（2026-09-12）
+
+聊天输入框的用量面板改为以整个会话的累计用量为主数字（总 tokens、输入/输出、缓存读取/写入、按累计计算的缓存命中率），并以「当前上下文」单列展示当前已使用的上下文（最后一次请求输入 + 该次回复输出，即下一次发送的起点）与组成估算。累计来自本地用量账本按会话的服务端聚合：压缩上下文、删除部分消息、切换模型或重启都不会扣减已发生的用量；账本读取失败显示「统计暂不可用」，不与零用量混淆。此前面板只显示最近一次请求的输入（如「2.49万」），与回复下方本轮用量（如「51.1k tokens」，含两次模型调用重复计入的共享上下文）口径混淆，易被误读为数据对不上；命中率也从「每轮平均」改为累计口径，不再出现按轮平均的偏差。主聊天与 Project 聊天一致。
+
+### Added: 模型请求携带会话亲和头（2026-09-12）
+
+聊天会话内的模型请求现在自动带上 `x-molibot-session` 会话标识头（值为会话 ID），会话级代理（如 cli-proxy-api → opencode Go）可据此做会话粘性路由与提示缓存亲和。opencode Go 等要求会话头的上游不再报 `MissingSessionID` 400；代理侧通过映射规则把该头转换为各上游需要的头名。会话外的调用（设置页连通性测试、owner 级助手）不受影响。
+
+### Added: 用量账本支持会话维度统计（2026-09-12）
+
+AI 用量账本（「用量」页的数据源）每条记录现在可选携带会话 id：聊天会话内的模型调用自动归入所属会话，Mini App 等非会话调用不变。「用量」页排行榜新增「会话」维度，可按时间范围查看每个会话的请求次数与 token 消耗。这为后续的会话级用量限额/预算控制打下账本基础——控制将直接读取这份统一账目，不再另建统计体系。
+
+### Added: Chat 输入框上下文用量面板（2026-09-12）
+
+Chat 与项目会话的输入框底栏新增上下文容量仪表：弹出面板展示上下文容量（已用/窗口 + 进度条）、消息 / MCP 工具 / 系统工具 / 系统提示词 / 技能 / 其他六类占比，以及平均缓存命中率。数据来自 runner 每次 dispatch 时的分类估算（与真实报回的 token 用量在 assistant 消息上合成快照持久化），会话有第一条回复后面板自动出现；中英文、明暗主题与降透明度降级齐备。
+
+### Changed: Desktop Chat 页图标升级为 Reicon Duotone 字重（2026-09-12）
+
+Chat 页可见的图标 chrome——侧栏导航（新对话/自动任务/技能/Agent/小程序）、侧栏搜索与折叠按钮、会话行悬停操作（重命名/复制/打开目录/删除）、输入区附件与录音按钮、发送/停止按钮、权限与模型菜单、分组头、会话搜索、转写工具栏、技能面板、Agent 城市工具栏、记忆抽屉、header 小程序快捷菜单（搜索、行箭头、收藏星标、"全部小程序"入口改用 list 字形）、项目会话 header（搜索/文件面板/设置）及文件树与项目菜单等 20+ 组件——从线性 Outline 切换为 Reicon 官方 Duotone 字重（50% 双层着色，继承主题色）。多处字形由用户逐项指定：发送为纸飞机（plane2）、技能为 reorder2、Agent 为 vacuum2、设置入口为 tuning-square2、计划模式为 circle-arrows-down、手动模式为 handshake；其余用精确 duotone 或目检过的同概念替代。无官方 duotone 字形的（Check/X/加号/箭头/加载指示/取消星标 StarOff 等）与对话流内的状态信号（成功/失败/警告标记、activity 工具类型小图标）按 DESIGN.md 字重规则保留线性；XCircle 保留线性以使搜索清除按钮与设置页一致。替换走的是既有的 `scripts/generate-duotone-icons.mjs` 生成管线：manifest 为唯一采用入口（当前 71 项），并新增产出与 reicon-svelte 同 props 契约的 per-icon duotone 组件，chat 组件仅切换 import 路径。验证：生成器通过、`svelte-check` 0 错误 0 警告、desktop vite build 通过、UI 契约测试全绿、隔离预览实例实测侧栏导航、发送/停止按钮、项目会话 header 与小程序快捷菜单渲染正常。
+
+### Improved: 对话顶部信息层级（2026-09-12）
+
+会话标题优先展示，外部渠道名称和项目名移到标题后方；移除 Web 来源、斜杠及重复的项目类型标签，让顶部更简洁。
+
+### Fixed: 会话右键菜单被聊天区域遮挡（2026-09-12）
+
+会话菜单及关闭遮罩移至页面顶层，解决菜单右半部分被聊天区域覆盖、无法点击的问题。
+
+### Fixed: 侧栏右键菜单被侧栏边缘裁剪，浮回窗口最上层 (2026-09-12)
+
+左侧会话列表的右键菜单在侧栏右边缘被硬裁掉，右半截不可见。根因是玻璃材质改动把 `backdrop-filter` 直接挂在 `.chat-sidebar` 元素上：带该属性的元素会成为 `position: fixed` 后代的 containing block，并以自身 `overflow: hidden` 裁剪它们，于是按视口坐标定位的菜单被困在侧栏盒子里（低性能/减弱透明度模式下 filter 为 none，菜单反而正常——行为随模式漂移）。侧栏材质现移到 `::before` 层（元素显式 `z-index: 0` 保持原 stacking 语义，先模糊后叠 tint 的合成结果不变），三处降级覆盖同步改指向 `::before`；菜单恢复按视口定位浮在包括聊天区在内的整个窗口之上。守卫断言钉住「侧栏元素本体不得携带 backdrop-filter」。验证：`chat-ui.test.mjs` 240/240、`svelte-check` 0 错误、build 通过；无头 Chrome 结构 harness 截图确认菜单完整浮出侧栏边缘，`::before` 去留对照像素 diff 42% 确认材质仍在渲染。
+
+### Fixed: 运行中不再「Thinking...」胶囊与思考过程上下重复显示 (2026-09-12)
+
+回合运行时状态胶囊显示硬编码英文「Thinking...」，而紧挨其下的「运行进度」卡片里就是正在流式输出的思考原文——同一状态上下说两遍。根因在 SSE 桥接层：`setTyping` 被照搬成文本 `status` 帧（打字指示本是 Telegram/微信等频道适配器概念），工具/子代理进度也以 `_→ label_` 文本帧重复发给已经用结构化活动渲染同一信息的桌面端（Web 端从未消费这些帧）。现在 SSE 路径不再发出文本 `status` 帧，桌面端删除对应的死处理；状态胶囊只在已发送但过程卡片尚无内容的空窗期显示本地化阶段文案，思考或工具活动一旦出现即由卡片接管。验证：桌面测试三批 281/250/289 全过、`svelte-check` 0 错误、双端 build 通过；契约用例钉住胶囊门控与「不再发出 status 帧」。
+
+### Fixed: 自动任务会话只剩输入没有输出、空气泡竖线、卡审批却报已完成 (2026-09-12)
+
+自动任务页的会话弹窗把一次真实的自动化执行显示成了"只有一个输入"：会话投影曾把 toolCall/toolResult 全部过滤掉，而 08:30 的 Project 日报任务恰好卡在 Host Bash 审批上（`stopReason=waiting_for_approval`，最终文本从未产生），于是弹窗里除了输入什么都不剩。现在会话投影把整次运行的工具调用与结果配对成活动轨迹（与聊天页一致的过程卡 + 答复），thinking 与工具参数依旧不外泄；挂起的执行在租约里记为新的 `waiting_approval` 状态并显示"等待审批"，不再谎报已完成，定时排程照常继续；更重要的是无人值守的定时任务不再挂起成僵尸——审批闸门在自动化运行中直接拒绝（Host Bash 与通用 broker 双路），模型继续执行并在最终答复里报告被跳过的步骤，需要常驻放行的命令走白名单。同屏的另一个症状——assistant 回复塌缩成空气泡加一条竖线——是会话弹窗 flex column 下 `width:auto` 行收缩把滚动代码块压成 1 字符宽的 Layout 塌陷（pitfall 16c 变体），assistant 行已固定全宽并加了结构守卫。验证：相关服务端套件 92/92、`test:desktop-chat` 289/289、`svelte-check` 0 错误、双端 build 通过，并用真实运行归档与无头浏览器截图做了修复前后对比。
+
+### Changed: 玻璃材质统一为三档磨砂玻璃，移除液态折射位移，面板边缘恢复直线 (2026-09-12)
+
+此前尝试的"液态玻璃"位移方案整体撤回：`feDisplacementMap` 滤镜通过 `filter` 套在材质层上，会把面板自己的直边一起扭成波浪（顶栏底边、底部输入卡、各卡片边缘均呈波纹，即用户报告的"上下栏不是直线"）。标准修法"位移进 `backdrop-filter`、只扭曲透过的背景"在 WKWebView 上不可用——WebKit 会解析 `backdrop-filter: … url(#f)`（`CSS.supports` 返回 true，`@supports` 探测不到）但渲染时丢弃整条链，连 blur 一起失效（bugs.webkit.org/245510，已用离屏 WKWebView 对照样张实测）。玻璃材质回归统一的 `--glass-*` 三档体系：surface 74% + blur 32px（审批/计划/思维卡）、popover 80% + blur 28px（右键菜单、会话菜单、导航预览等文字面）、chrome 80% + blur 40px（顶栏与底部输入卡），统一携带边缘高光与两档阴影；完成态推理块（`.turn-process`）维持无边框透明折叠条的既有设计。顺带清理：删除 `LiquidGlassFilters.svelte`、`--liquid-glass-*` 双主题变量与一处 `TEMP DIAGNOSTIC` 临时覆盖。按反馈追加：对话内文件结果卡（`.turn-files-card`）接入 popover 档材质，与输入框同色（80% elevated 底 + blur28），不再隐入背景；修复提示导航预览卡 blur 失效——其根因是导航主机的 `opacity:.38/.72` 构成 backdrop root，预览卡的 backdrop-filter 只能采样到空内容，现将透明度下放到标记子元素，预览卡恢复全不透明度与真实磨砂。验证：`chat-ui.test.mjs` 240/240（此前被违反的 5 条材质守卫全数恢复）、桌面 node 批次 250/250、相关 tsx 逻辑测试 199/199、`svelte-check` 0 错误、vite build 通过；离屏 WKWebView（与桌面壳同引擎）对真实 dev server 与磨砂材质 harness 截图确认各面板边缘为直线、磨砂与边缘高光正常。
+
+### Fixed: Pasted screenshots attach once and every pasted image gets its own name (2026-09-12)
+
+Pasting a screenshot into the composer produced two attachments, both labelled `image.png`, and pasting a second image reused that same name — the two chips were indistinguishable and read as one overwriting the other. The browser invents that name for clipboard *data*: a screenshot has no filename, and macOS hands one picture over in 9 formats (verified on the pasteboard: png, avif, gif, jpeg, tiff, bmp, jp2, 8BPS, TPIC), each surfacing as its own file item named `image.<ext>`. The previous dedup only recognised the *empty*-name case, so both entries were taken as two different images. `clipboardImageFiles` now keys on whether a name can prove identity at all: unnamed entries and `image.<ext>` placeholders are format representations of one pasted image, of which the best renderable one is kept (png > jpeg > webp > gif > other), while entries carrying a real filename are separate files and all survive — so pasting several copied files still attaches every one of them, and a pasted file now wins over the pasteboard's copy of its own bytes instead of doubling it. Representations are named from a per-session sequence (`image-1.png`, `image-2.png`, …), real filenames are preserved and only disambiguated (`-2`, `-3`) when one paste repeats a name, and extensions now follow the MIME type, so a lone TIFF is no longer mislabelled `.png`. Attachment paths are not overwritten either way — `saveAttachment` already reserves a distinct path per name — but identical names made the attachments indistinguishable in the composer and in the transcript. Pinned by seven clipboard cases in `apps/desktop/src/lib/api.test.ts`.
+
+### Changed: The chat page's transient surfaces are one glass material, and the toolbar and composer float over the transcript (2026-09-12)
+
+The Desktop chat page read as loose opaque cards: every popup, approval prompt, plan card and status row was the same `--card-bg` rectangle with a different shadow, so elevation was noise rather than hierarchy, and nothing ever passed behind anything. It now runs on one material system. Cards, popovers, menus and the running-turn pill take a shared translucent surface with a real backdrop blur, a bright top rim (`--glass-edge`) and two depth tiers — bigger surfaces read as thicker — while static prose, message bubbles, the sidebar and settings stay opaque. The rim rides the per-family, per-brightness `--glass-border-light` rather than a baked white, so the same declaration is correct on all four theme families in both appearances, and glass depth is keyed on brightness alone. The toolbar and the composer are no longer opaque strips consuming the top and bottom of the column: both were lifted out of flow to float over the transcript, so content genuinely travels underneath the blur, with a fade band above the composer and no bottom border under the toolbar. Because they overlap it, the transcript reserves their heights — and the composer's is a live measurement rather than a constant, since the stack grows with every line of input, queued follow-up, attachment and banner. Two behaviours that were silently dropped in the same pass were restored: the toolbar still projects the window-activation tint, and the command palette and prompt preview still dim with an inactive window. Motion is entrance-only and honest about it — glass surfaces materialize with opacity, scale and blur resolving together, exits stay instant because the surfaces are conditionally rendered and there is nothing left to transition — and every tier that strips the blur (reduced transparency, low performance, increased contrast) now also takes the surfaces opaque, since translucent bars over moving text are worse than either extreme. The running turn also stopped saying one thing twice: the pulsing status dot competed with a separately animated wave in the process card below it, so the row is now a single glass pill with a travelling sheen (transform-only) and the wave belongs to the steps it describes, with reduced motion holding a still crest instead of freezing mid-animation. Two corrections followed the first cut. The material was far too thin at 78% — a menu over the transcript was unreadable and read as plain translucency — and the frosted read in macOS comes from a hard blur over a high-opacity surface (90-97% for anything carrying text), not from letting content through; the tiers are now 90/93/92% at 24-36px and both bounds are guarded so they cannot drift back. And the sharpest bug was structural: a `backdrop-filter` element is a backdrop root, so a descendant's own filter may only sample what is painted inside it. Putting the material on the composer and the toolbar made exactly the wrong surfaces lose their blur — the model menu, the permission menu and the slash suggestions (inside the composer) and the Mini Apps quick menu (inside the toolbar) all hang outside their parent's box over the transcript, found nothing to blur, and degraded to translucent panes with text sharp behind them. Those two hosts now carry their background, filter and shadow on a `::before` layer so the element itself creates no backdrop root, with `z-index: 0` supplying the stacking context (not `isolation: isolate`, which is itself on the backdrop-root list) and the layer sized to the border box so a translucent border cannot composite over raw content.
+
+### Changed: One set of execution permission modes; Auto is now Full Access (2026-09-11)
+
+Molibot previously exposed two competing four-level controls: permission modes in the conversation window and a separate sandbox ladder (locked/read-only/standard/full) with its own enable override. There is now a single set of modes — Plan, Manual, Accept Edits, and Auto — shared by the settings default and the per-conversation override, resolved through the same five-level precedence with its source surfaced in the UI. Auto has become Full Access: it removes every Molibot approval gate (host commands, out-of-root writes, MCP/third-party calls, plugin and Mini App management) and executes directly on the host from the start — the old behavior of lifting sandbox domains and re-running on the host after parsing a sandbox denial is gone, so a command can no longer fail once inside the sandbox and repeat its side effects outside. Whether the sandbox participates now follows the mode (Manual/Accept Edits → sandbox, Auto → host, Plan → no execution); the four sandbox presets and the independent enable toggle were removed, and domain/filesystem/env settings moved into a collapsed "Execution environment" advanced section that explicitly does not apply during Auto. A shared execution-backend boundary (`agent/exec/executionBackend.ts`) binds a backend and workspace to each attempt, so a future sandbox can be integrated without touching conversation or channel logic; internal subagents inherit the parent's effective policy, and external Codex/Claude Code adapters translate it (unsupported modes report clearly instead of silently waiting or widening). Messaging channels now receive the resolved mode honestly — Plan stays read-only, Manual suspends for approval — instead of being clamped up to Accept Edits. The channel `/sandbox` command is replaced by `/mode`. Existing sessions that had explicitly selected Auto gain the new full-access semantics.
+
+### Fixed: Approval waits are now explicit pause/resume states in the shared runtime (2026-09-10)
+
+A run that hit an approval — Host Bash or a generic tool — used to keep making model rounds while the card sat unanswered: the Host Bash wait's timeout result omitted the loop-stopping `terminate` flag, and in mixed tool batches a sibling tool's normal result diluted the suspension entirely, so one unanswered card could escalate into an endless loop of model calls each raising a fresh approval request (the "请批准却无卡可点 / 连续审批" reports). The shared runtime now treats an approval wait as a first-class suspension: every waiting tool result carries `terminate` plus the persisted request id, the runner installs a before-tool barrier (blocked calls cannot start, sequential batches included) and a `shouldStopAfterTurn` exit so no model round — steering-included — starts while a decision is pending, and the run row commits as `waiting_for_approval` with the attempt's steps kept intact for the resume to rewrite, instead of being rolled back as an "empty response" and re-prompted. Host Bash shares one handshake-window constant and one suspension-result builder with the broker path, rejections/expiries report their real terminal status rather than masquerading as still-waiting, broker pending requests expire on read like Host Bash's (one shared TTL), a Stop during a wait expires the pending request so a late decision cannot resurrect an ended run, stale `executing` records are recovered as an explicit outcome-unknown failure (verify, never blind re-run), and the Web/Desktop approval handler now claims execution atomically so an in-window approve and the out-of-band handler each run the command exactly once. On the Desktop, the approval card stays until the server confirms the decision — a network failure keeps the card with a retry (submitting state disables buttons and shortcuts, so double-clicks submit once) — multiple pending approvals keep a stable queue, and re-opening a session re-adopts the server's pending card. Only confirmed sandbox signatures escalate into host approvals; connection refusals and other network failures surface their real diagnostics. Behavior is pinned end-to-end by `approvalSuspension.test.ts` (real runner + agent loop + broker on a temp data directory: suspend → decide → resume → exactly-once execution, rejection, and mixed-batch cases), `bashApprovalWait.test.ts`, extended controller and structural suites.
+
+### Added: Duotone Reicon icons for showcase surfaces (2026-09-09)
+
+Empty states, the project welcome panel, and the Artifact panel's empty file lists now render Reicon's duotone weight — a two-tone treatment that inherits theme colors across light/dark and every theme family — through a local generated `DuotoneIcon` component, while functional and status icons at 16px and below stay linear Outline. The duotone bodies are generated from the official Reicon icon data by `scripts/generate-duotone-icons.mjs` (adopt icons by extending its manifest; same-concept substitutes such as Stopwatch for Timer are explicit, reviewed entries), so glyphs that have no official duotone — plain Check, X, Loader, chevrons — fall back to Outline instead of faking it. The hybrid weight rule is documented in DESIGN.md's Foundations.
+
+### Fixed: Dollar amounts no longer render as math formulas (2026-09-09)
+
+Any line with two `$` signs — "订阅费每月 $10，一年 $120", a table cell "$10/月，年付 $100" — used to have the text between the dollars swallowed into a KaTeX formula, because the chat renderer enabled the math extension's non-standard single-dollar rule; the same blanket sanitizer rules also stripped the inline styles and MathML layer that real formulas need, so genuine math rendered misaligned. The renderer now uses the library's standard delimiters — `$x$` and `$$…$$` still render as math while price shapes survive verbatim — and the sanitizer keeps KaTeX's styles scoped to `.katex` subtrees, so raw HTML in model output still cannot carry styling or scripts.
+
+### Changed: Composer invocation tokens render as rich kind-tinted pills (2026-09-09)
+
+Slash commands, Skills, `@miniapp` selectors and persisted `@[file](path)` / `[$Skill](…/SKILL.md)` references in the input box now show as clearly visible pills — tinted and ringed in the entity's hue (command blue, Skill purple, Mini App teal, files neutral) — instead of the barely-there highlight that previously left pasted file references as raw unstyled Markdown. The overlay stays strictly paint-only, so caret and CJK input remain untouched.
+
+### Added: Open Mini Apps without leaving the conversation (2026-09-09)
+
+Chat and Project headers now offer a searchable Mini App quick menu with icons, favorites, recent apps, loading/error states, and a link back to the full Launchpad. Persisted `@app-id` invocations also expose a localized Open button. Both routes reuse the existing right-side Inspector, preserve the current conversation state, and keep quick-access preferences scoped to the connected service.
+
+### Fixed: Typed composer input can no longer be lost by a session switch (2026-09-09)
+
+Whether an unsent composer draft survived a session switch used to depend on every switch path remembering to sync it manually — the connect-time default selection didn't, and text typed into a session was overwritten for good. The per-session draft store is now the composer's single source of truth: one reactive mirror loads the incoming session's draft whenever the active session changes and writes every composer change straight back, so text, attachments and thinking level survive any switch, a reconnect, or the first message turning a draft into a session. The draft-key rule lives in one shared function used by both sides.
+
+### Fixed: Deleting from the trash now actually removes sessions (2026-09-08)
+
+Clicking Delete on sessions in the trash did nothing: the bulk "delete" operation was an idempotent no-op for already-trashed sessions, reporting success while the sessions stayed in the trash forever (only the scheduled 30-day sweep ever removed anything). The trash view now sends an explicit purge operation that runs the same cross-store cleanup as the scheduled sweep — search projection, session file and Agent Context — with the usual ownership, retention-marker and busy gates, and the confirmation dialog says plainly that the sessions will be purged immediately and cannot be undone. Plain delete keeps its recoverable trash semantics everywhere else, and purge intent is preserved across operation retries.
+
+### Fixed: Mini Chat input corruption and frequent reply interruptions (2026-09-08)
+
+Mini Chat replies no longer die mid-generation: the send/retry endpoints now return immediately and generation continues in the app's background process, so long replies stop hitting the desktop transport's 30s request timeout and the 60s app-process watchdog that used to kill the whole app (surfacing as "Could not reach the Molibot service." / "回复已中断"). The UI tracks the generating conversation directly — streaming via polling, releasing on terminal status, and letting other conversations, new chats and settings be used while one reply is still generating — and provider failures now persist a readable `error_message` on the failed row instead of vanishing with the aborted request. The composer's Chinese-input corruption (raw pinyin like "wff" left in the box) came from the vendored UI library lacking IME-composition guards; `@astryxdesign/core`/`theme-neutral` move 0.1.4 → 0.5.4 (with `@stylexjs/stylex` 0.19), rebuilding the mini-chat and prompt-box bundles — both built-in apps bump to v1.2.0 so existing installs receive the update.
+
+### Fixed: Session previews open in a dialog that restores the real chat UI (2026-09-08)
+
+The "View" action in Session management no longer appends a plain-text transcript below the list — it now opens a modal that renders the conversation exactly like chat: message bubbles, markdown, and visible image/audio/video attachments. The preview API returns the same projected messages the chat renders (attachments, thinking, and tool steps included) instead of a bare role/content/date triple, and the desktop dialog reuses the full transcript renderer with real attachment bytes. This also fixes the "url not allowed on the configured scope" error on every auto-archive policy action (the desktop HTTP scope was missing that API), lets browser-created sessions load their attachments (owner resolution now matches the sessions read API), and extracts a shared markdown renderer with safe image support used by both chat and settings.
+
+### Fixed: Session management production wiring — real busy guard, external sessions, trash schedule (2026-09-08)
+
+Archive and delete now genuinely refuse sessions with live work: the production lifecycle is assembled with a real busy probe (running agent turns, pending approvals, nonterminal linked tasks) instead of a constant-false check. External-channel conversations appear in management as read-only (listed, searchable by title, previewable) while every lifecycle mutation honestly reports "exists but read-only" instead of "not found". Expired trash purges on its own daily watched-event schedule with startup reconciliation, and editing the auto-archive policy round-trips the whole settings object without dropping provider or assistant configuration. The management tabs also stop double-driving their selection state, and extraction namespaces now follow each session's own assistant.
+
+### Added: Session management can extract value before archiving (2026-09-08)
+
+The Session management page now offers "Extract & archive" bulk processing: valuable preferences, facts, decisions and artifacts are distilled into memories (or linked artifacts) and the Session archives only when everything succeeded with nothing awaiting review. Per-session extraction states, a processed-but-not-archived filter, exact source ranges and links to retained information make it clear what still needs cleanup; failed or concurrently-messaged Sessions stay put with an explicit reason, and extraction never deletes anything.
+
+### Fixed: Project session titles no longer revert and lists no longer go blank (2026-09-07)
+
+Project session lists lived in two places — the sidebar tree kept its own cache while the store held a second copy for the open project — so a freshly generated title could revert after switching sessions, and a successful list request could still leave the sidebar empty. Both surfaces now read and write the single per-project list in the shared store: the sidebar keeps only display state (expand/collapse, paging), and every create/rename/delete/turn-complete refresh goes through the store, which deduplicates in-flight requests and only lets the latest one publish, so stale responses can no longer undo a rename or deletion. Background refreshes keep existing rows mounted (open row menus survive), failures show an inline alert with retry instead of wiping the list, and newly created sessions appear immediately and stay visible even when their follow-up list refresh fails.
+
+### Fixed: Pasting several images no longer keeps only the last one (2026-09-07)
+
+Pasting multiple images into a conversation (screenshots arrive all named `image.png`) silently kept only the final one: attachment files are stored under `<chatId>/attachments/<millis>_<filename>`, and the chat endpoints stamped every file of one message with the same timestamp, so same-named images wrote to the identical path and each overwrote the previous. The shared attachment store now detects the collision and suffixes `-2`, `-3`, … before the extension, so every attachment keeps its own bytes — this protects every channel (web, desktop, Feishu, QQ, Telegram, Weixin) at once. Pasting multiple image files in one go now attaches all of them instead of just the first, while multi-format representations of a single pasted image (e.g. Safari's png + tiff) still collapse to one attachment.
+
+### Fixed: HTML previews stay readable in dark mode (2026-09-06)
+
+Previewing an `.html` file in the project files panel — a Hugo template partial, for example — painted default black text over the dark panel and was unreadable. The artifact preview route now injects a theme-aware base style (driven by the `theme` hint the panel already sends) ahead of every served document's own styles, so template text and unstyled pages render light-on-dark in dark appearance and unchanged in light. Documents that are actually templates (`{{ }}`, `{% %}`, `<% %>`, PHP tags) now open as syntax-highlighted source instead of a broken "rendered" view, with a toggle to switch back; real styled pages render exactly as authored.
+
+### Changed: Workspace pages adopt the Settings page header (2026-09-06)
+
+Automations, Skills, Agents, and Mini Apps now open with the same header pattern as Settings — a centered title with a one-line description on the shared content column — instead of a bare left-aligned title in a narrow bar. Each page explains its scope in both languages, the header stays aligned with the content column while scrolling, and the sidebar-restore control moves to the header's right edge so it never collides with the title.
+
+### Fixed: Mini App toasts dismiss themselves again (2026-09-06)
+
+The "Added to the composer" toast (and its siblings for attachments, read-only composers, and missing sessions) stayed on screen forever until manually closed: only one code path ever scheduled the auto-dismiss timer while the rest assigned the toast text directly. Every Mini App toast now flows through a single helper that owns the 3-second self-clear, with a guard test that fails if any code path ever bypasses it again. Toasts carrying a readable result card keep their stay-until-dismissed behavior.
+
+### Fixed: Clicking a session no longer lands on a new conversation (2026-09-06)
+
+Three root causes fixed together. A service reconnect no longer resets the view to a default conversation: the app now snapshots what you are reading when the service drops and restores exactly that on reconnect (previously every service restart could yank the pane to a brand-new draft). Sessions created by other surfaces (e.g. the browser Web UI) now open from the Desktop sidebar — reads, sends, stops and steers resolve the conversation's recorded owner instead of trusting the caller's identity, which also stops sends from silently continuing a different session. Session titles that failed their one-shot auto-summary no longer stay "New Session" forever: summarization retries on later turns while the title is still the default and never touches a renamed session.
+
+### Changed: Project settings dialog keeps one fixed size across tabs (2026-09-06)
+
+The project settings dialog no longer resizes when switching between General and Automations: width and height are set by the window, and the panel bodies scroll. The Automations tab inside the dialog also adopts the dialog presentation — shadow-floating task cards without visible borders, a 22px dialog title with 19px section headlines and 14.5px body/date text (two new type-scale tokens, guarded by the typography test), 38px pill buttons with an inset highlight, and 1px separator dividers.
+
+### Changed: Built-in Agent templates clarify task scope and evidence (2026-09-06)
+
+Eight templates now distinguish quick answers from full workflows, clarify research and calculation evidence, and resolve Mini App tooling from its actual location. Investment research removes fictional career credentials and personal position directives. Updated template versions are offered through the existing backup-preserving update flow.
+
+### Documentation: Clarify contributor autonomy and approval boundaries (2026-09-06)
+
+Contributor instructions now distinguish routine implementation from decisions requiring approval, preserve authorization across execution steps, and define completion and blocked-validation reporting. Documentation updates follow actual impact.
+
+### Changed: The Mini Apps destination opens on a macOS-style Launchpad (2026-09-06)
+
+The Mini Apps page now opens as a Launchpad: a grid of icon-and-name tiles for enabled, healthy apps only, one click to launch. Search, live counts, and a "Manage" CTA stay in the workspace toolbar; every lifecycle control (install, enable/disable, update, uninstall, AI routing) moved one click into a manage view that reuses the existing manager unchanged, so the launcher stays a launcher.
+
+### Fixed: Prompt Box deletions survive cloud sync, plus a real icon (2026-09-06)
+
+Deleting a prompt in Prompt Box never stuck: the remote pb.onlinestool.com API has no delete endpoint, so every sync re-imported exactly what the owner had just removed. Deletions of cloud-synced prompts now record a local tombstone that sync skips (surfaced as `skippedDeletedCount`), and prompt listings shown to the agent now carry their ids so agent-driven delete/update/get actually work. The app also gets a meaningful icon — an open box with rising sparkles and a terminal prompt glyph, in the same flat style as the other built-in Mini Apps — replacing the abstract "PB" badge in the header as well. Manifest bumped to 1.1.0 so installed copies are offered the update (the previous 1.0.7 UI fixes never shipped to installed copies because the version was never bumped).
+
+### Fixed: Desktop file downloads open the native save dialog (2026-09-06)
+
+Every download button in the desktop shell (project files, session file tabs, attachments in chat) silently did nothing: Tauri's WKWebView drops `<a download>` clicks because no `on_download` handler is registered. All download paths now route through one shared helper that, inside Tauri, hands the bytes to the existing native `save_file_dialog` command (the same channel Mini App image saving uses) so the system save panel appears; plain-browser dev keeps the anchor fallback. Attachment downloads also stop hard-coding the `personal` profile, fixing downloads in conversations owned by other bots. A machine guard test forbids reintroducing hand-rolled anchor downloads.
+
+### Changed: Enter sends, Shift+Enter breaks the line (2026-09-06)
+
+The chat composer (main sessions and Project chat) now sends with Enter and inserts a newline with Shift+Enter, matching every mainstream chat app. The IME confirm keystroke commits the composition instead of sending: the guard also checks `keyCode 229`, which WebKit still reports after `compositionend`, so confirming Chinese/English input no longer fires the message. Composer placeholder hints were updated in both languages.
+
+### Fixed: Desktop approval continuation transcript and completion tracking (2026-09-06)
+
+Background approval turns now keep tool progress in structured activities and persist one answer linked to the Agent transcript. Desktop follows server run status beyond fifteen seconds, handles subsequent approvals, and displays continuation execution time without counting the earlier approval wait.
+
+### Fixed: Host Bash approvals execute and return results after Desktop approval (2026-09-06)
+
+Host Bash requests now remain owned by their executor when sharing the approvals database with the generic broker. Approved command results are matched to the suspended tool result by request ID, including commands with arguments and repeated commands.
+
+### Fixed: Sandbox localhost access and approval card reachability (2026-09-06)
+
+Commands in the OS sandbox could never reach localhost services: the sandbox runtime tells HTTP clients to bypass its proxy for loopback (`NO_PROXY`) while the seatbelt profile only permits the proxy ports, so direct loopback connects were denied with a "Couldn't connect to server" that is indistinguishable from a dead service. The sandbox now always allows loopback outbound/bind, keeping domain filtering for external hosts. Missed Host Bash approval cards are no longer lost either: pending approvals can be resolved from the Settings approval list (approve once / always allow / reject), opening or switching to a session re-adopts its pending card, and one malformed SSE frame no longer starves later frames such as an approval push.
+
+### Changed: Mini Apps have a single sidebar entry (2026-09-06)
+
+The sidebar now offers Mini Apps only as the primary nav destination that opens the full manager. The redundant recent-apps tree section below the Projects tree is removed together with its recency tracking, badge rendering, and locale strings; the server-side `ctx.badge` capability and its retire-on-open flow are untouched.
+
+### Fixed: Session Plan execution continuity and status clarity (2026-09-05)
+
+Accepted Plans now execute and continue inside their originating Session, with the right panel acting as a progress view. Review-ready work leaves the running list, completion removes pause/cancel actions, later feedback returns to the same conversation, stable Plan ids prevent second-Plan acceptance failures, and one user turn renders as one answer without losing supplemental text or tool history. The reasoning disclosure is compact and borderless again.
+
+### Changed: Desktop numeric typography (2026-09-04)
+
+All data numerals now render with tabular figures via one shared rule on `body`, so counts, durations, sizes, and table columns no longer shift width as values change; rendered prose keeps proportional figures. A machine guard test (`numeric-typography.test.mjs`) protects the shared block and any future proportional opt-out.
+
+### Changed: Desktop conversation presentation (2026-09-04)
+
+Refined the welcome, composer, execution disclosure, and file receipts with clearer hierarchy and restrained depth. A single output now appears as one actionable row; existing task execution and file-opening behavior remain intact.
+
+### Documentation: Desktop visual direction (2026-09-04)
+
+Defined a Wealthsimple-inspired direction for future Desktop UI work: clear hierarchy, selective tactile depth, and continuous state changes within the existing macOS component system. Product restyling remains subject to visual validation.
+
+### Fixed: Desktop numeric settings fields (2026-09-04)
+
+Search limits and model timeout inputs retain enough width for complete values and native stepper buttons, including when cleared.
+
+### Fixed: Desktop 设置页记忆高级管理弹窗与全局 Modal 滚动与排版重塑
+
+- **WebKit 顺畅上下滚动与弹性压缩根治**：
+  - 根因定位：`.memory-advanced-body` 原本使用了 `display: grid; align-content: start;`。在 macOS WKWebView 中，带有 `align-content: start` 的 Grid 滚动容器在触控板与鼠标滚轮事件命中测试（Hit Testing）时无法正确派发滚轮事件，导致用户滚轮“滚不动”；且父容器缺少明确高度预算。
+  - 禁止卡片被 Flex 压扁：声明 `.memory-advanced-body > .settings-card { flex: none; }` 及直属子项 `flex-shrink: 0;`。根治因 `.settings-card` 的 `overflow: hidden` 使 Flexbox 强制收缩子项至 50px、将多行诊断压缩切片、导致弹窗无溢出且滚不动的关键缺陷。
+  - 标准 Flex 纵向滚动：将 `.memory-advanced-body` 改为标准 Flex 纵向容器：`display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;`；
+  - 弹窗整体纵向滚动：外层声明 `width: min(680px, calc(100vw - 48px)); max-height: min(85vh, calc(100vh - 48px), 760px);`，内部 4 张卡片自然铺开，超出部分由外层 `.memory-advanced-body` 顺畅上下滚动；
+  - 共享层根治：在全局 `.modal-body` 中保持 `flex: 1 1 auto; min-height: 0; overflow-y: auto;`。
+- **桌面级原生精致排版重构**：
+  - 只读诊断行收敛：重写 `.memory-advanced-body .settings-row`，行高从 50px 降为 32px，标题字号从 14px 粗体降为 13px `var(--fs-label)`（500 字重，二级色），数值 13px，状态 badge 收敛为 20px 紧凑胶囊（11px `var(--fs-meta)`）；
+  - 运维表单与按钮：工具栏标题统一为 13px，输入框继承 `--control-h: 28px`，6 个运维操作按钮高度统一下调至 28px（`var(--control-h)`），内边距 `0 12px`，字体 13px，紧凑整齐；
+  - 拒绝记录列表：搜索框统一为 28px 高度，记录项重构为清晰紧凑图文行（标题 13px，元信息 11px，内容 11px），单项高度腰斩，消除臃肿感；
+  - 弹窗副标题排版：统一 `.entity-editor-head p` 样式为 11px `var(--fs-meta)`。
+- **防复发机器测试守卫**：
+  - 更新 `CLAUDE.md` Pitfall 16(c)；
+  - 在 `apps/desktop/src/chat-ui.test.mjs` 中添加针对 `.memory-advanced-modal` 明确高度、`.memory-advanced-body` 纵向 Flex 滚动、`flex: none` 卡片防收缩、32px 紧凑行高与 13px 字体规范的自动化测试守卫。
+- **验证**：`svelte-check` 0 error/0 warning，Desktop 229 项单元与结构测试全绿。
+
+### Changed: Desktop 设置页控件标准化与下拉菜单轻量原生重构
+
+- **全局统一控件尺寸 Token（消除 Hard-coded 尺寸）**：
+  - 在 `:root` 中确立原生 macOS 桌面端控件尺寸变量：`--control-h: 28px`（表单输入与下拉菜单触发器）、`--control-h-button: 32px`（按钮与独立搜索框）、`--control-h-compact: 24px`（密集表格与分页器）。
+  - 下拉菜单专项变量：`--select-trigger-h: var(--control-h)`（28px）、`--select-item-h: 24px`、`--select-min-w: 130px`、`--select-max-w: 260px`、`--select-popover-min-w: 140px`、`--select-popover-max-w: min(380px, calc(100vw - 24px))`。
+- **根治下拉菜单（SelectControl）“大、宽、高”问题**：
+  - **高度精简**：触发器高度从 40px 大幅降至 28px（`var(--select-trigger-h)`），菜单选项高度从 34px 降至 24px（`var(--select-item-h)`），与 22px 的 Switch 和 32px 的按钮形成优雅和谐的桌面层级。
+  - **宽度自适应（Content-adaptive）**：在设置行中彻底废除硬编码 `width: 320px; flex: 0 1 320px; max-width: 58%` 的粗暴霸屏规则，改为 `min-width: 130px; max-width: 260px; width: auto;`。短选项（如“简体中文 / English”）紧凑贴合内容靠右对齐，长选项平滑展开并优雅省略，释放左侧标题与说明空间。
+  - **弹层浮窗智能收敛**：浮窗宽度采用 `min(max(var(--select-popover-min-w), var(--bits-select-anchor-width)), var(--select-popover-max-w))`，内边距收敛至 4px，视口上限收敛，彻底杜绝了 320px~450px 笨重黑块弹出的突兀感。
+- **全局表单输入控件统一归拢**：
+  - 同步重构 `.settings-field input`、`.row-input`、`.provider-input`、`.observatory-field input/select`、`.connector-filter-toolbar .select-control-trigger`，全面继承 `--control-h: 28px`，根治此前不同页面各写 40px、36px、34px、32px、30px 零碎覆盖补丁的架构问题。
+- **规范与测试守卫同步对齐**：
+  - 修正 [DESIGN.md](file:///Users/gusi/Github/molipibot/DESIGN.md) 中误套用 Web Geist 40px 的条款，在 macOS product layer 正式确立 `--control-h: 28px` 规范；同步更新 `chat-ui.test.mjs` 中的静态测试断言。
+- **验证**：`svelte-check` 0 error/0 warning，Desktop 229 项单元与结构测试全量通过。
+
+### Changed: Desktop 自动任务窄屏自适应与工作区顶栏排版根治
+
+- **工作区顶栏标题定位修复**：给 `.workspace-header` 明确指定 `justify-content: flex-start; gap: 12px;`，根治侧边栏折叠时标题“自动任务”被抛至视口最右侧的布局问题，恢复标准 macOS 顶栏左对齐体验。
+- **搜索框与工具栏尺寸防变形**：给 `.search-field` 锁定 `height: 32px; min-height: 32px; max-height: 32px; box-sizing: border-box;`，移除窄屏媒体查询中导致搜索框主轴误拉伸为 200px 巨型白块的 `flex-direction: column`；窄屏下搜索框与创建按钮并排于 Row 1，统计指标并排于 Row 2。
+- **分类 Tab 防折行平滑滚动**：为分类 Tab 按钮设置 `white-space: nowrap; flex: none;`，分类条容器开启静默水平滑动（`overflow-x: auto; scrollbar-width: none;`），彻底杜绝窄屏下“Project 自动化任务”被生硬压成两行碎字的排版瑕疵。
+- **窄屏 Master-Detail 钻取规范**：在窄屏视口（`< 760px`）下，点击任务查看详情时列表平滑隐藏并由详情卡片全宽呈现，避免卡片列表与详情纵向生硬挤压；点击 `X` 或按 `Escape` 瞬间切回列表。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）。
+
+### Changed: Desktop 自动任务详情面板统一平铺分栏与丝滑交互重构
+
+- **根治平铺与覆盖逻辑不一致**：彻底移除 `@container (max-width: 880px)` 导致的临界突变规则与半屏遮挡弹层，在桌面端统一为纯粹自洽的左右平铺分栏（Split View）。左栏（280px~320px）收敛为任务导览列，右栏自适应展开为详情工作台。
+- **剔除移动端拖拽把手与遮罩**：彻底移除怪异的手机端拖拽把手 `—`（`automation-detail-drag-handle`）与局部遮罩（`automation-detail-scrim`），消除一切视线遮挡；左侧卡片始终可见并支持一键切换。
+- **丝滑过渡动画与快捷键**：详情面板新增 200ms 平滑滑入淡入动画（`automation-detail-slide-in`），支持点击常驻 `X` 按钮或键盘 `Escape` 瞬间退出并平滑恢复为三列 Bento 网格。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）。
+
+### Changed: Desktop 自动任务与技能面板全系统主题动态配色适配
+
+- **彻底清除 Hard-coded 颜色**：清查并移除了状态胶囊（`.row-outcome`）、任务行状态标记（`.automation-task-row-mark`）与技能图标（`.installed-skill-icon`）中误引入的所有硬编码 Hex / 自定义私有颜色（`#EDF3EC`、`#346538`、`#FBF3DB`、`#9F2F2D`、`#E1F3FE` 等）。
+- **100% 遵从系统主题 Token 与动态计算**：
+  - 严格映射至系统主题语义变量（`var(--online)` 完成、`var(--danger)` 失败、`var(--accent)` 运行/代码、`var(--warning)`/`var(--warning-text)` 待办/文档、`var(--skill-accent)` 设计/技能）。
+  - 通过 `color-mix(in srgb, var(...) %, var(--fill))` 基于当前主题表面基底动态混合，去除多余的 `[data-theme="dark"]` 人工硬写色块，完美自适应系统所有主题（macOS Light/Dark、Rose Pine Dawn/Moon、Catppuccin Latte/Frappé、Midnight）。
+- **静态机器守卫拦截**：在 `chat-ui.test.mjs` 中固化测试守卫，确保未来任何针对状态胶囊与技能色相的提交无法带入硬编码 Hex 颜色。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）。
+
+### Changed: Desktop 工作区技能面板分类分流与精细化卡片重构
+
+- **技能分类分流 Tab**：在技能中心顶栏引入 macOS 风格的分段控制分类栏（`.automation-category-tabs`），按「全部」、「内置 Skill」、「工作区」与「Agent 专有」四个维度实时统计与过滤技能，解决过去所有来源技能混杂平铺且难以检索的问题。
+- **差异化语义图标与视觉层级**：消除所有卡片清一色 MagicWand 图标的视觉单调感，根据技能属性智能分配代码（Code/蓝色）、文档规范（FileText/橙色）、设计排版（Palette/紫色）、运行时与 Agent（Cpu/绿色）等语义图标与柔和背景色相；卡片增加来源与 MCP 服务徽标。
+- **开关统一靠右对齐与冗余徽标精简**：移除卡片内与开关重复的「已启用/已禁用」文字 Badge，消除视觉干扰与错位；技能开关通过 `margin-left: auto` 统一严格对齐到卡片右上边缘。
+- **就地启停与详情弹窗**：
+  - 每个技能卡片集成原生无障碍 `IosSwitch`，支持在工作区内直接就地启停技能；内置技能有新版本时直接提供一键「更新」按钮。
+  - 新增「详情」模态对话框（`<Dialog>`），清晰展示完整说明、作用域、挂载 Bot/Chat、MCP 服务以及版本状态。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）。
+
+### Changed: Desktop 工作区外壳几何统一与小程序应用启动台卡片重构
+
+- **工作区几何统一**：Desktop 核心工作区（自动任务、技能、小程序）从过去 1240px、全宽无限制拉伸、720px 窄条的分裂状态，统一对齐至 `--workspace-col: min(1240px, calc(100% - 48px))` 居中布局，消除侧边栏切换时的视口跳跃与呼吸感撕裂。
+- **小程序应用启动台（A+A 模式）**：
+  - **首屏重构**：将小程序页面从过去被开发者安装表单霸占首屏的表单列表，重构为现代 App Launcher 卡片网格（突出应用图标、名称、版本、运行状态徽章与一键「打开应用」主操作按钮）。
+  - **安装器模态收敛**：右上角提供清晰的「+ 安装小程序」主操作，点击呼出原生 Dialog 对话框（包含内置推荐一键安装、本地目录导入、ZIP 文件解压与 GitHub 仓库安装），不再常驻霸占日常使用空间。
+  - **安全与卸载交互原生化**：卸载应用（保留数据/清理数据）全面采用桌面端无障碍 `<AlertDialog>` 确认框，彻底替代了侵入式阻塞主线程的浏览器 `window.confirm`。
+- **验证**：`svelte-check` 0/0、Desktop 结构与单元测试（223 项全量通过）、`chat-ui.test.mjs` 守卫同步更新并通过。
+
+### Fixed: Project 会话内打开本轮文件不再丢失文件列表
+
+- 在 Project 会话里点击"本轮文件"卡片（或其中的 scratch 文件，如生成的图片）时，右侧面板此前会整体切到 Session 作用域，只剩"本轮文件/文件"两个页签，文件树/变更/附件全部消失且无法返回。
+- 现在面板作用域恒随会话面板：Project 作用域保持完整页签，Session 产物以自身作用域的页签在预览区打开（会话身份随面板传入 store，经既有授权路由加载）。面板内两套按作用域复制的预览区合并为按页签 scope 渲染的一套；store 仅在表面身份变化时整体重置，Project 内切换会话只回收上一会话的 Session 页签。
+- 验证：`chat-ui.test.mjs` 作用域模型结构守卫重写（229 项通过）、`svelte-check` 0/0、production build 通过。
+
+### Fixed: 文件树右键菜单 + 右键菜单支持复制绝对路径
+
+- 文件树的行此前从未绑定 `oncontextmenu`（菜单回调传进了组件却没有接到元素上），右键一直无响应；现在文件树与变更列表共用同一套菜单。
+- 右键菜单在"复制路径"（相对路径）旁新增"复制绝对路径"，由项目规范根目录拼接，根目录未知时置灰。
+- 验证：`svelte-check` 0/0、Desktop 结构测试、production build 通过。
+
+### Changed: 文件面板头部移除手动刷新按钮
+
+- 文件树与 Git 状态本就实时监听自动同步（面板底部有状态提示），手动刷新按钮从未被使用，连同 store 的 `refreshAll()` 与双语文案一起删除；搜索（⌘P）与"跟随 Agent 改动"开关保留。
+- 验证：`svelte-check` 0/0、Desktop 结构测试与单元测试、production build 通过。
+
+### Fixed: 文件预览页签条右侧动作按钮统一靠右
+
+- 折叠文件树与关闭全部页签两个按钮此前各自带 `margin-left: auto`，把页签条剩余宽度平分了；改为仅第一个动作吸收自由空间，两个作用域统一靠右排列。
+- 验证：`svelte-check` 0/0、Desktop 结构测试、production build 通过。
+
+### Fixed: 切换会话后右侧文件面板跟随新会话，不再残留上一会话状态
+
+- 从 Project 会话切到 Web 会话时，右侧 Artifact 面板此前仍显示上一会话的本轮文件和 Project 作用域，点击旧文件会以空 Project id 请求接口、把路由 404 的整页 HTML 画进错误卡片。
+- 现在 `ChatView` 以会话上下文 key 的响应式守卫"移植"打开中的 Inspector：文件/本轮文件/附件打开请求随上下文重置、scope 按当前面板重新派生，Mini App 面板存活语义不变；Project 身份读取 `projectsView` 投影避免 legacy `$:` 失踪跟踪（pitfall #2）。面板 turn 页签在列表清空时回退文件页签；`requestJson` 对非 JSON 错误体统一为简短的状态码信息。
+- 验证：`chat-ui.test.mjs` 新增结构回归守卫；Desktop 全量测试（228 结构 + 全部单元）、`svelte-check` 0/0、production build 通过。
+
+### Fixed: Artifact 面板 Markdown 预览的相对图片可正常显示
+
+- leaf-bundle 形态的 markdown（`index.md` 与图片同目录，`![alt](xxx.png)` 相对引用）在右侧面板预览时图片不再破图：预览把相对图片引用解析到 markdown 文件所在目录，Project scope 经既有 raw 文件路由流式返回字节，Session scope 经 HTML 预览同款 artifact 路由，CSP `img-src` 相应放行 `molibot-artifact`。
+- 绝对 URL、data URI、逃逸根目录的引用保持原样不重写；带 resolver 的渲染绕过 markdown 渲染缓存，避免不同目录的同内容文件互相污染图片。
+- 验证：新增 `markdownImages.test.ts` 路径解析单测，完整 Desktop 测试（242 + 227 项）、`svelte-check` 0/0、production build 通过。
+
+### Changed: Desktop 设置页内容列宽度对齐 Chat（576px → 720px）
+
+- 设置中心所有页面（含通用设置、供应商工作台、数据页和记忆中心）的内容列从 576px 标准列统一放宽到与 Chat 会话列一致的 720px，页头标题与内容卡共享同一左边缘；窄窗口下仍按 `min(calc(100% - 56px), 720px)` 自适应收缩。
+- 顺带把 6 处手抄的 `min(calc(100% - 56px), var(--settings-content-width))` 收敛为共享 token `--settings-col`，消除宽度表达式漂移的隐患；`DESIGN.md` 宽度规范同步更新。
+- 验证：完整 Desktop 测试（含 UI 结构断言更新与 60 项 Rust 测试）、`svelte-check` 0/0 通过。
+
+### Fixed: Project 受保护目录访问与本轮图片预览
+
+- Project 根目录位于 iCloud、桌面或文稿等 macOS 受保护位置且访问被拒绝时，右侧 Artifact Inspector 提供原生目录重新授权；只能重新选择同一根目录，不会在修复权限时改写 Project。
+- Project 会话中生成到 Session scratch 的图片保留 Session 文件作用域；本轮文件投影会在去重前合并工具回执的 scratch 文件名与自动上传附件的 `fileId/local`，再进入既有授权图片流，不再显示“文件当前不可用”。
+- 新增真实生成图片双身份、目录权限分类、同目录校验和 Project-hosted Session 产物作用域回归测试；完整 Desktop 测试（含 60 项 Rust 测试）、`svelte-check` 0/0、production build 和服务重启恢复检查通过。
+
+### Added: AI 供应商设置页自动替换品牌 Logo
+
+- Desktop 设置中心的“AI 供应商”页面支持根据供应商的 ID 和名称自动匹配并渲染官方品牌 SVG Logo，覆盖 OpenAI、Anthropic / Claude、DeepSeek、Google / Gemini、Moonshot / Kimi、MiniMax、Qwen、Z.AI / 智谱、xAI、Groq、Mistral、OpenRouter、Together、Fireworks、Cloudflare、GitHub、Hugging Face、NVIDIA、Ollama、Bedrock、Azure、SiliconFlow 等数十种常见服务商。
+- 未匹配品牌时无缝 fallback 回原有的彩色首字母圆形徽标，确保第三方或私有中转站点显示正常。
+- 验证：`providerLogos.test.ts` 单元测试通过、Desktop UI 结构测试、`svelte-check` 0/0、Desktop production build 通过。
+
+### Changed: Desktop Chat 渠道使用 Reicon 品牌 Logo
+
+- Chat 左侧 Session 列表为 Telegram、QQ、微信和飞书使用对应的本地 Reicon SVG Logo（飞书使用 Doubao Logo），保持现有 16px 图标槽位和列表交互。
+- 验证：Desktop UI 结构测试 219/219、`svelte-check` 0/0、Desktop production build 通过。
+
+### Changed: Desktop Chat Web 使用 Safari 风格自制 SVG Logo
+
+- Chat 左侧 Session 列表的 Web 渠道改用随包本地的彩色指南针 SVG，采用蓝青渐变和红白指针表现 Safari 风格，保持 16px 图标槽位与现有列表交互。
+- 验证：Desktop UI 结构测试 219/219、`svelte-check` 0/0、Desktop production build 通过。
+
+### Changed: Desktop 图标库统一迁移到 Reicon
+
+- Desktop 外壳、聊天、设置、项目、Artifact、Mini Apps 与原始 DOM/HTML 图标边界统一从 Phosphor CSS 字体迁移为 `reicon-svelte`，保留状态、尺寸、颜色、动效和无障碍语义。
+- 移除 Phosphor 字体入口、CSS 规则、依赖和 lockfile 记录；所有 Reicon 图标使用子路径导入，避免上游 barrel 的重复导出缺陷。
+- 验证：Desktop UI 结构测试 219/219、完整 Desktop 测试、`svelte-check` 0/0、Desktop 与 root production build 通过。
+
+### Changed: 用量 / Trace / 服务日志设置页宽度对齐标准列
+
+- 三个页面从 720px"data page"宽列收回至与其它设置页一致的 576px 标准列（页头、KPI 卡、图表、过滤器全部对齐；服务日志页此前页头 720px / 卡片 576px 自身不一致的问题一并解决）；记忆中心保留 720px 数据列。`DESIGN.md` 宽度规范同步更新。
+
+### Fixed: Desktop 沙箱设置页预设卡片布局
+
+- 修复沙箱设置页"沙箱严格程度"预设卡片竖向堆叠、宽窄不一的样式错乱：上一轮设置页重构时组件 class 名更新（`sandbox-tier-grid` 等）但 `styles.css` 未同步，网格布局整体丢失。现已补齐卡片/标题/网格样式并删除全部旧名死规则；预设卡片默认 2×2 网格，窄窗口降为单列。
+
+### Changed: Desktop Web Interface Guidelines 合规第二轮（键盘导航 / 读屏 / Intl / 未保存守卫）
+
+- 全仓 a11y 合规第二轮：新增共享 `tablist` 键盘导航 action 应用到 18 处 tabs 与 2 处 radiogroup（方向键/Home/End + tabpanel 关联），约 35 处异步反馈补 `aria-live`，清理无效 listbox/tree/alertdialog 角色，`ConversationRow` 重构消除嵌套交互，右键菜单补键盘替代。
+- 数字/日期全面走 `Intl`（新增共享 `formatTimestamp`/`formatDuration`），10 处手搓日期与 8 处 `toFixed` 替换；弹层补 `overscroll-behavior: contain`；`prefers-reduced-motion` 块补齐 6 个遗漏动画；生图/视频任务删除与排队消息移除改两步确认；新增 `unsavedGuard` 让 9 个设置页在窗口关闭/刷新前确认未保存更改；22 处 modal 关闭按钮 aria-label 从"取消"改为"关闭"（新增 `dialogClose` key）。
+- 顺带修复 `RunActivity` 真实逻辑 bug：`isFailed` 恒 false 导致活动级失败状态永不显示。
+- 验证：svelte-check 0/0，tsx 单测 233/233，node UI 测试 224/224，`vite build` 通过。
+
+### Changed: Web 端与 Mini Apps 图标库统一切换为 Reicon
+
+- Web 主应用（Svelte）从 `@lucide/svelte` 迁移到 `reicon-svelte`，Mini Apps（mini-chat / prompt-box）从 `@heroicons/react` 迁移到 `reicon-react`，两端统一为同一图标视觉体系（Solar 风格、Outline/Filled 双字重、MIT 许可）。
+- 因 `reicon-svelte` 上游 barrel 存在 `Icon` 重复导出缺陷（会让生产构建失败），全部图标使用子路径导入（`reicon-svelte/icons/*`），约束记入 CLAUDE.md pitfall 45。
+- 旧图标依赖已移除；Mini App 的 THIRD_PARTY_NOTICES 补充 Reicon 与 Solar Icons（CC BY 4.0）署名。
+- Desktop 端 Phosphor（CSS 字体方案）迁移另行立项（prd.md §3.129），本轮未改动。
+
+### Changed: Desktop 设置与客户端界面设计规范全面对齐（P0 / P1 / P2）
+
+- **Web Interface Guidelines 全局审计与修复**：对照 Web Interface Guidelines 与 `DESIGN.md`，对 `apps/desktop` 全仓进行合规审计与修复：密码/API Key 输入框统一显式标注 `autocomplete="new-password"` 与 `spellcheck="false"`；技术/配置/搜索输入框标注 `autocomplete="off"`；装饰性图标元素补齐 `aria-hidden="true"`；遮罩与装饰层标注 `role="presentation"`；排版规范中省略号统一为 Unicode `…`；静态与头像图片补齐显式 `width`/`height` 防止布局偏移（CLS）。
+- **设置容器宽度校准**：按照 `DESIGN.md` §420 布局规范，将 Desktop 设置页内容容器宽度 `--settings-content-width` 从 720px 统一校准为 576px，保留数据与图表视图 `--data-content-width: 720px`。
+- **设置组件标准化**：全面迁移 Desktop 设置子页面中的零散 `.settings-card` 结构，统一采用标准化语义容器 `<SettingGroup>` / `<SettingRow>`，包含生图、视频、语音、搜索、Agent、Web Profile、Channels、MCP、Runtime 环境、Sandbox、Skills 以及诊断面板。
+- **文案国际化修复**：修复生图、视频生成、语音合成设置页面中因复制粘贴导致的 `webSearchEnabled`、`webSearchDefaultEngine`、`webSearchApiKey` 错乱问题，补齐独立本地化字段（`imageGenerateEnabled`、`imageDefaultEngine`、`videoGenerateEnabled`、`videoDefaultEngine`、`videoTestEngine`、`ttsGenerateEnabled`、`toolApiKey`）。
+- **Switch 控件统一**：彻底移除 `ModelsSection.svelte`（模型上下文压缩）与 `ChatView.svelte`（开机自启引导）中残留的手写 `<button class="switch">`，统一迁移至共享的 `<IosSwitch>` 组件。
+- **状态指示本地化**：`ProvidersSection` 中的状态指示（`ON` / `OFF`）支持中英文国际化本地化显示（`providerStateOn` / `providerStateOff`）。
+
+### Changed: 隔离预览重构为全屏灯箱
+
+- 聊天气泡的「隔离预览 HTML / SVG」与表格查看器不再弹 900×720 的小窗，改为与图片灯箱一致的深色全屏观感：近全屏浮动舞台、悬浮格式标签与圆形关闭按钮、弹性缩放入场，并随系统减弱动态效果降级。
+- 表格查看器按全屏阅读尺寸排版（13px、更宽松的行距与内边距），Inspector 内的同一查看器保持原有紧凑密度。
+- 表格查看器支持点击表头排序：升序 → 降序 → 取消，带 `aria-sort` 与方向指示；百分比、千分位数字按数值比较，其余按本地化字符串比较（排序逻辑位于共享 `csvTable.ts` 并有回归测试）。
+- 聊天 Markdown 表格的「在表格查看器中打开」不再作为表格上方的独立按钮，改为注入表格表头行末单元格的图标按钮（带本地化 aria-label 与 tooltip），点击行为不变。
+
+### Fixed: 隔离预览 HTML 的脚本可正常运行
+
+- 聊天气泡中“隔离预览 HTML / SVG”打开的预览 iframe 之前使用空 `sandbox`，导致页面 JS 全部失效；现在改为 `sandbox="allow-scripts"`，脚本可以执行，同时仍不带 `allow-same-origin`，预览页无法访问宿主 DOM、Cookie 与存储。
+
+### Fixed: 本轮文件点击不再被面板初始化刷新误判为不可用
+
+- Artifact Inspector 同时进行挂载刷新和点击刷新时，文件点击现在使用本次请求返回的 Session 文件记录；代次守卫仍只控制可见列表更新，不再丢弃调用方已经取得的结果。
+- 修复了文件随后已出现在面板计数中，但首次点击仍提示“文件当前不可用”的竞态。
+
+### Added: Desktop 会话搜索入口与轻量 Agent 快速开始
+
+- 左侧栏折叠按钮旁新增唯一的全局搜索入口，统一检索 Web、Project、Telegram、飞书、QQ 与微信会话。
+- 搜索支持“全部 / Web / 项目 / 其他渠道”范围筛选，外部渠道可继续细分；结果按来源分组并各自以 10 条为一页加载。
+- 结果可直接进入对应 Web、Project 或只读外部会话，并显示所属上下文、匹配摘要和时间；标记为不可搜索的消息不会进入摘要匹配。
+- 空白 Agent 会话新增三个轻量快速开始选项；选择后只填入并聚焦输入框，不会自动发送或覆盖已有草稿。
+
+### Changed: “更多对话”按 10 条原地展开
+
+- 各会话渠道默认显示 10 条记录；“更多对话”现在通过服务端游标追加下一批 10 条，不再跳转搜索界面。
+- 后台列表重载会保留用户已展开的记录数量，追加加载期间也不会清空已有列表。
+- 搜索界面升级为统一会话搜索后，旧的按 Bot 分组浏览器接口（`/api/desktop/conversations/groups`）已删除，统一走 `/api/desktop/conversations/search`。
+
+### Added: Pi Provider Registry、请求级 Sampling 与 Telemetry Trace
+
+- Web 与 Desktop 的 Provider 候选和内置模型目录改为由 Pi registry 派生，不再手工维护易漂移的静态清单。
+- 自定义模型支持按请求传入 JSON sampling 参数，经细粒度设置、SQLite 持久化和 Pi runtime 原样传递；Web 与 Desktop 编辑器均提供中英文校验。
+- Pi telemetry context 接入现有 Run/Trace，记录 Provider、模型、API、用量、首 chunk 耗时、终止原因和错误；`rawStopReason` / `endTurn` 同步保留在模型调用 Trace 中。
+
+### Changed: Pi Runtime 升级到 0.84.3
+
+- `pi-ai`、`pi-agent-core` 与 `pi-coding-agent` 从 0.82.0 整体升级到 0.84.3，继续通过共享 PiRuntime 服务主 Agent、子 Agent、认证、模型路由与 compaction。
+- 获得上游 OAuth 提前刷新与取消、模型目录竞态、严格工具 schema、reasoning/tool replay、截断恢复及模型目录更新；无关直接依赖保持原解析版本。
+- OAuth 并发回归更新为使用越过 5 分钟提前刷新窗口的替换凭证；聚焦运行时测试与生产构建通过。
+
+### Fixed: Chat 仅恢复 AI 消息的 Fork 操作
+
+- AI 回复下方重新显示分叉按钮，可从该回复复制出独立子 Session；用户消息仍只保留复制与编辑。
+- 主 Chat 与 Project Chat 共用同一角色边界，并恢复请求在途防重复、运行中与过期消息提示。
+
+### Fixed: 普通 Session scratch 产物无需 attach 即可展示
+
+- 普通 Session 的成功 `write/edit` 现在直接产生可持久化的 Session 文件回执；回复下方和右侧 Artifact Inspector 会展示并打开最终磁盘内容。
+- `attach` 继续只负责发送附件。Agent 仅保存 HTML 并回复路径时，HTML 也会进入本轮产物列表并可预览。
+- 文件服务只接受当前 Session scratch 根内、真实存在且被成功回执引用的文件。
+
+### Added: 回复内本轮文件产物清单
+
+- Agent 完成回复后，以单一列表展示本轮创建或更新的文件，并可直接在右侧 Artifact Inspector 打开最终内容。
+- 清单基于持久化的工具产物回执和普通 Session 生成附件，不依赖 Git 快照；失败写入会被排除，同一文件会自动去重。
+- 回复卡片与右侧面板复用同一列表组件，支持中英文和明暗主题。
+- 修复同一生成附件同时出现在本轮文件卡片和旧附件条的问题，只保留本轮文件卡片。
+- 修复普通 Session HTML 被原生 Artifact transport 当作无效请求拒绝的问题；Session scope 与真实长度的安全 token 现在可以转发，未知 scope 和超长 token 仍会被拒绝。
+
+### Fixed: HTML 产物预览空白与 Session 列表每轮闪烁
+
+- 新写入的 HTML 现在从活动卡片和 follow-the-agent 直接进入 Artifact Inspector 的沙箱页面预览；其它文件写入仍默认展示 Git diff。
+- 自动 Session Title 总结只在第一条用户消息后运行，后续轮次不会因标题仍为默认值而重复调用模型。
+- Desktop 后台刷新 Session 标题、排序和时间时保留现有列表行，不再短暂替换为加载占位。
+- 增加 HTML 打开策略、非首轮标题跳过和静默列表刷新的回归守卫。
+
+### Changed: 服务器默认端口由 3000 调整为 3040
+
+- **统一默认服务端口**：将服务端运行时、设置默认值、桌面 Supervisor 守护进程、开发环境配置及相关文档中的默认端口从 `3000` 调整为 `3040`；
+- **配置与多端对齐**：
+  - `src/lib/server/app/env.ts` 与 `src/lib/server/settings/defaults.ts` 中的 `serverPort` / `PORT` 默认回退值更新为 `3040`；
+  - `scripts/runtime/service-port.mjs` 中的 `DEFAULT_SERVICE_PORT` 更新为 `3040`；
+  - `apps/desktop/src-tauri/src/supervisor.rs` 中的 `DEFAULT_PORT` 更新为 `3040`；
+  - Web 系统设置页面（`src/routes/settings/system/+page.svelte`）与桌面端设置（`App.svelte` / `i18n.ts`）中文/英文提示文案同步更新；
+  - `vite.config.ts`、`bin/molibot-manage.js`、`docker-compose.yml`、`Dockerfile`、`.env.example` 以及 `readme.md` / `readme.zh-CN.md` 中的默认端口全面对齐至 `3040`。
+
+### Fixed: 项目文件面板图片与媒体即时更新及缓存击穿修复
+
+- 修复在 Project 维度覆盖生成图片（例如 `1.png`）后，Finder 中文件已更新但从右侧文件面板打开仍显示旧图的问题；
+- **Tab 动态版本戳与重载打通**：在 `ArtifactTab` 中添加 `version` 戳，在文件变更（Watcher 捕获）、用户从文件树再次点击或手动刷新时自动更新，确保磁盘最新变更即时同步；
+- **URL Cache Buster 动态透传**：`desktopProjectRawFileUrl` 与 `desktopFileContentUrl` 支持透传版本参数 `&v=${version}`，`ArtifactPanel.svelte` 中的 `rawUrl` 与 `sessionStreamUrl` 基于 `activeTab.version` 动态派生，彻底击穿 WebKit `<img src>` 内存解码缓存；
+- **强化流式响应缓存头**：`streamFileWithRange` 将 `Cache-Control` 设置为 `no-cache, no-store, must-revalidate`；
+- **Web 端文件面板同步升级**：Web 界面 `buildPersistedFileUrl` 同步附带文件更新时间戳参数 `&v=...`。
+
+### Added: Prompt Box（提示词箱）详情弹窗统一滚动与底栏按钮常驻修复 (v1.0.7)
+
+- **详情弹窗统一平滑滚动**：将详情与编辑弹窗的 Astryx `Layout` 调整为 `height="fill"`，取消正文区域的独立 `max-height` 限制，使图片、标签与 Markdown 内容在 `LayoutContent` 内共同平滑滚动；
+- **操作底栏始终固定可见**：确保弹窗底部的【编辑】、【复制】与【填入输入框】操作栏（`LayoutFooter`）牢固固定在弹窗底部，不再被超长图片或提示词遮挡；
+- **外链图片全量正常渲染**：通过移除 `crossOrigin="anonymous"` 与放通宿主 CSP `img-src`，所有云端图片均正常且高清呈现；
+- **图片即时解析与防盗链支持**：
+  - 后端增加正文/描述图片兜底提取层，无需等待重新同步即可展示历史本地提示词的图片；
+  - 为所有图片加载添加 `referrerPolicy="no-referrer"`，彻底解决外链图片 403 防盗链拦截；
+  - 卡片右侧展示 `62x62px` 优雅圆角缩略图，点击即时弹出高清 Lightbox 大图预览；
+- **多标签筛选与 5 维本地秒级排序**：支持多标签组合筛选（带标签提示词数量统计），支持按最近更新、最近创建、标题 A-Z / Z-A、内容长度等 5 种维度纯本地秒级排序；
+- **创作与编辑体验优化**：
+  - **标签 Chip 管理与常用标签推荐**：支持按键自动成词与标签删除，下方聚合展示已有标签，支持一键点击快选；
+  - **Markdown 快捷模板工具栏**：支持一键在光标处插入动态变量 `{{variable}}`、图片模板 `![图片](url)`、链接、代码块与角色预设；
+  - **编辑/实时预览双模式切换**：支持在【编辑】与【Markdown 实时渲染预览】间秒级切换；
+  - **实时字符与词数统计 & 快捷键保存**：支持实时字数统计与 `⌘ + Enter` / `Ctrl + Enter` 一键保存；
+- **一键填入聊天输入框**：支持在小程序卡片或详情页点击【填入输入框】，通过宿主 Bridge（`composer.insert`）无缝将提示词正文追加至主聊天输入框；
+- **AI 消息右键存为提示词**：注册 `contributions.messageActions`（`save_prompt`），在聊天消息气泡右键或悬浮菜单提供【存为提示词】功能，自动提取消息/选区内容并生成带深度链接的反馈卡片；
+- **现代响应式 Astryx UI**：使用 `@astryxdesign/core` + `@astryxdesign/theme-neutral` 全套组件构建，支持中英双语与明暗主题自适应。
+
+### Fixed: 项目会话模型别名与设置变更实时同步修复
+
+- 修复在“设置 › 供应商 / 模型”中修改模型别名或调整模型列表后，项目对话（Project Chat）及项目设置弹窗仍显示修改前旧别名的问题；
+- **项目会话接入设置事件**：在 `ProjectChat.svelte` 与 `ProjectDetail.svelte` 中挂载 `SETTINGS_CHANGED_EVENT` 监听，设置保存后自动拉取最新模型列表，无需重启应用即可实时刷新；
+- **激活模型标签别名优先**：`ProjectChat.svelte` 底部输入框当前激活模型标签优先读取 `activeModelOption?.alias`，与主会话保持一致；
+- **服务端 textOptions 补充 alias**：修复 `desktopModels.ts` 中 `textOptions` 构造时遗漏 `alias` 字段的缺陷。
+
+### Fixed: 项目大文件与未跟踪文件性能熔断及 UI 响应优化
+
+- 修复在包含较多未跟踪文件（例如 454 个文件）的项目中打开大文件（例如 6.9MB 文本）时导致整个桌面应用卡死、窗口顶部无法拖拽的严重性能问题；
+- **后端 Git Status 遍历熔断**：为未跟踪文件引入 256 KB 统计上限（`MAX_UNTRACKED_STAT_BYTES`），超大文件直接跳过内容读取并显示为 `+—`；小于 256 KB 的文件采用 Buffer 原生零分配字节扫描 `countBufferLines`，并采用 16 路并发批次处理；
+- **前端代码与大文本安全降级**：超过 256 KB 的分片文本跳过 heavy 正则高亮，降级为纯文本转义；对单行超过 4,000 字符的极端长行做安全截断；将初次 DOM 渲染批次 `CHUNK_LINES` 调整为 500，全面释放 WebView 主线程；
+- 保证大文件加载时事件循环随时响应，macOS 顶栏拖拽流畅无阻。
+
+### Fixed: Note 便签明暗主题文字对比度与分享按钮样式修复 (v1.8.10)
+
+- 修复信纸主题下底栏【分享】按钮在亮色主题下文字发白看不清的问题：调整为高对比度的棕黑文字 `#4a3828`、白色渐变背景与微投影，与纸张底色完美融合并保证清晰可读；
+- 修复暗色主题下便签标题与搜索框、输入框文字颜色发暗看不清的问题：为暗色主题补充完整的 `.editor-title-input`、`.note-search`、`.note-input-title` 浅色高对比度样式（`#e6ded6`）与金色光标；
+- 为暗色主题下的分享预览弹窗操作按钮（【复制文本】、【复制图片】、【保存图片】）补充深色拟物按压样式，提升各明暗主题下的可读性与质感；
+- `manifest.json` 版本升级至 `1.8.10`。
+
+### Fixed: Note 便签分享卡片品牌署名统一为 Moli Note 与宿主原生文件保存支持 (v1.8.9)
+
+- 将 Note 便签分享卡片（Keep 主题与锤子/信纸主题）右下角与底部的品牌署名统一为 `Moli Note`，移除原 `Smartisan Notes` 与 `Note` 差异；
+- 新增 `fileSave` 宿主能力协议（`molibot-miniapp-host-capability`），Mini App 点击【保存图片】通过 postMessage 请求宿主 Agent / Desktop 原生桥调用 `save_file_dialog` 弹出原生系统保存对话框，真实将 PNG 图片文件写入本地磁盘指定路径；
+- `manifest.json` 声明 `host.capabilities: ["fileSave"]` 并升级版本至 `1.8.9`。
+
+### Fixed: Desktop 左侧栏顶部红绿灯与工具栏区域窗口拖拽响应修复
+
+- 修复 Desktop 端左侧侧边栏顶部区域（macOS 红绿灯及折叠按钮周围）无法点击拖动窗口的问题。
+- 根因定位：`.sidebar-top-bar` 样式阻断（`pointer-events: none`）导致内部未显式设置 `pointer-events: auto` 的 `.sidebar-titlebar-drag` 无法捕获鼠标事件，且底层容器无拖拽绑定。
+- 解决方案：为 `.sidebar-titlebar-drag` 补充 `pointer-events: auto` 与 `height: 42px` 铺满顶栏，并在 `ChatSidebar.svelte` 与 `SidebarShell.svelte` 中挂载原生 `startDragging()` 事件，实现顶部空白区域流畅拖动。
+
+### Fixed: disabled External Subagent providers can no longer execute
+
+- Codex and Claude Code provider switches are now enforced again immediately before `subagent` execution, including existing tool instances, direct provider tools, parallel tasks, and chains. A disabled provider is rejected before any child process starts.
+- External Subagent prompt sections now mention only providers that are actually enabled, preventing stale or mixed-provider guidance from asking the Agent to call a disabled runtime.
+- Added regression coverage for disabling Claude Code after tool creation and for the final rendered system prompt when only Codex is enabled.
+
+### Fixed: Note 便签分享保存图片多重降级与剪贴板双保险
+
+- 解决沙箱 iframe / 桌面端 WebView 拦截常规 a download 导致点击保存无反应的问题，采用二进制 Blob 下载与自动写入系统剪贴板双重保障；
+- 增加保存/复制操作后的即时成功高亮反馈与右键/长按另存指引。
+
+### Fixed: Note 便签分享图零留白无缝贴合与弹窗自适应包裹
+
+- 移除分享图生成器中多余的外层背景 padding 和额外高度偏移，生成图直接作为 360px 便签纸卡片输出；
+- 弹窗宽度调整为自适应紧贴卡片（最大 384px），弹窗 body 背景设为透明，彻底消除锤子与 Keep 主题下右侧和下方的多余突出与色差留白。
+
+### Fixed: Note 便签编辑页 Markdown 预览内容被截断修复
+
+- 修复编辑页 Markdown 预览误继承列表卡片 `line-clamp` 截断样式的缺陷，收紧卡片样式作用域并为 `.editor-preview-content` 赋予独立完整排版规则，确保预览时完整展示全部内容与滚动。
+
+### Fixed: Note 便签分享弹窗层级与卡片紧凑排版
+
+- 修复编辑页点击【分享】被遮挡在全屏编辑弹窗后方的层级问题，将分享弹窗 `z-index` 调整为 `2000` 并提供生成中按钮反馈。
+- 分享卡片宽度从 `480px` 收窄至 `380px`，移除冗余线框与多余留白，文字左右居中对称、排版饱满紧凑。
+
+### Fixed: Note 便签列表视图三行布局（一行标题、一行内容、一行标签）
+
+- Note 列表视图重构为紧凑的 3 行卡片结构：标题单行截断、正文单行摘要（限高 20px / 24px）、标签栏单行横排，解决此前多段落撑高卡片的问题。
+
+### Fixed: Chat 用户消息气泡上下留白对称性修复与操作栏 Fork 按钮移除
+
+- **修复用户消息气泡上下留白不对称**：为 `.markdown-body` 补全 `.chat-markdown-segment:last-child > :last-child` 与 `:first-child` 的边距归零规则，消除 Markdown 内部段落末尾残留的 `10px` 下外边距，使用户消息气泡上下内边距达到完全一致对称的视觉效果。
+- **移除用户消息操作栏 Fork 按钮**：移除用户消息 hover 操作栏上的分叉（`ph-git-branch`）按钮与无用分支绑定，仅保留复制与编辑，界面更加简洁。
+
+### Added: Note 便签全屏编辑页 Markdown 渲染预览与模式切换
+
+- Note 编辑页顶部动作栏新增 Markdown 预览切换按钮，支持在可编辑输入框与渲染后的富文本 Markdown 视图之间平滑切换。
+- 预览模式即时渲染标题、代码高亮、表格、引用块、列表及富文本样式，并深度适配默认浅色/深色主题与 Smartisan 锤子信纸风格。
+
+### Fixed: Note 便签小程序全屏编辑页光标过大与字号行高优化
+
+- 修复 Note 小程序全屏编辑页正文 textarea 硬编码 `line-height: 32px` 导致光标被拉伸过大的问题；统一接入语义 token `var(--md-body-md-lh)`（20px/24px），光标高度精准自然。
+- 将标题输入框从 `title-lg`（22px）优化为 `title-md`（16px），光标高度收紧至 20px。
+- Smartisan 信纸主题横线网格与行高从 28px/32px 统一调整为 24px 精致网格，实现信纸横线、文字基线与光标的精准贴合。
+
+### Fixed: Mini App 桌面路由防御性异常捕获与版本号对齐
+
+- 在 `src/routes/api/desktop/miniapps/+server.ts` 的 `GET` 处理函数与 `badge/+server.ts` 的 `POST` 处理函数中接入细粒度 `try ... catch` 异常守卫与状态码映射，防止底层临时抖动时 SvelteKit 未捕获异常导致前端收到 500 Internal Server Error。
+- 将 `builtin/meeting-notes/manifest.json` 版本号提升至 `2.3.0`，与用户磁盘已安装版本严格对齐，确保更新与加载校验正确。
+
+### Fixed: External Subagent 设置页主题、高度与 Codex 安装状态
+
+- Desktop 与 Web 插件宿主现在向自带设置页同步当前明暗模式和语义主题色；插件内容通过受校验的 resize 消息驱动 iframe 高度，不再使用固定 `520px` 高度和内层滚动区。
+- Codex 与 Claude Code 的 Provider 开关默认锁定，加载设置后自动检测环境；检测失败或自定义路径变化会立即关闭并锁定对应开关，只有检测通过后才允许启用。
+- 修复插件独立数据目录尚不存在时安装进程以该目录作为 `cwd` 而失败的问题；安装前会创建目录，并且 UI 只在 `{ success: true }` 后提示成功。失败原因直接展示，不再先误报安装完成、随后又提示 Codex 未安装。
+- 修复 Desktop 将 Svelte 响应式代理直接传入插件 iframe、触发 `The object can not be cloned.` 并让已保存 Provider 开关显示为空的问题；设置值和密钥状态现在以可克隆快照跨越 WebView 边界。
+- External Subagent 升级到 `0.2.2`；随包插件升级覆盖代码前保留带时间戳的 owner 副本，配置与数据目录不参与替换。
+
+### Fixed: 测试环境持久化工作区隔离修复与根目录残留清理
+
+- **单元测试隔离修复 ([runner.test.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/core/runner.test.ts)、[self-evolution.test.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/skills/self-evolution.test.ts))**：
+  - 修复 `runner.test.ts` 中 `createRunnerForHookTest` 与 Hook 测试未指定独立临时目录导致回退到 `process.cwd()` 并直接在项目根目录生成 `chat-*` 文件夹的问题；
+  - 为所有 Runner Hook 测试用例接入系统临时目录 `tmpdir()` 并在测试后安全隔离；
+  - 移除 [.gitignore](file:///Users/gusi/Github/molipibot/.gitignore) 中针对 12 个泄漏测试目录的临时 ignore 补丁规则；
+  - 彻底清理项目根目录遗留的所有 `chat-*` 测试文件夹。
+
+### Improved: Note 便签标签收纳至顶栏下拉菜单与高度抖动修复
+
+- **Note 便签小程序 (v1.8.0)**：
+  - 移除主界面常驻横向标签栏，彻底消除点击不同标签时标签栏的高度伸缩与样式抖动；
+  - 将标签筛选能力完整收纳进顶栏“笔记 / 归档”切换下拉菜单中，支持分类显示【笔记】、【归档】与动态【标签】列表；
+  - 菜单项高度严格统一（`36px`），点击选中任意标签后顶栏标题联动，可一键随时切回全部笔记。
+
+### Improved: 内置小程序体验增强（Todo 待办快捷日期与一键清空、MD Preview 公众号新主题与字数统计）
+
+- **Todo 待办小程序 (v1.8.0)**：
+  - 新增【今天】、【明天】、【下周一】快捷截止日期胶囊，点击一键自动填入，免除繁琐展开日历选择；
+  - 已完成列表新增【清空】快捷操作按钮，提供 `POST /todos/clear-completed` 路由与 `clear_completed` Agent 工具，支持一键清空已完成待办；
+  - 样式全面统一至 Material 3 语义 token 与明暗模式自适应。
+- **MD Preview 公众号排版小程序 (v1.2.0)**：
+  - 新增 `geek-mint` (极客薄荷) 与 `warm-amber` (暖橙知秋) 两款流行排版主题；
+  - 顶栏增加实时文章字数与预计阅读时间（分/秒）统计指示胶囊；
+  - 优化公众号富文本复制与主题选择指示。
+- **Mini Chat 轻量对话小程序 (v1.1.0)**：
+  - 更新版本号并优化跨端通信与交互。
+
+### Fixed: 服务启动时 sanitizePluginEntries 缺失引用导致的崩溃问题
+
+- **修复模块导入缺失**：
+  - 修复 `src/lib/server/settings/store.ts` 在加载和序列化插件配置时调用 `sanitizePluginEntries` 但未从 `$lib/server/settings/sanitize.js` 导入的问题，彻底解决服务启动时 `ReferenceError: sanitizePluginEntries is not defined` 导致的桌面与后台服务 crash。
+  - 清理 `src/lib/server/settings/handlers/plugins.ts` 中多余的未用导入，修复 `src/lib/server/settings/store.test.ts` 中的测试用例与清理残余代码。
+  - 修复桌面前端 `PluginsSection.svelte` 与 `api.ts` 的类型定义与组件属性检查，确保 `svelte-check` 0 错误 0 警告。
+
+### Improved: 思考过程状态解耦与会话切换触底定位优化
+
+- **思考过程宏微观状态解耦**：
+  - 顶层折叠卡片状态改由整轮交付结果驱动，单步探索性试错（如尝试读取不存在的文件）只要最终顺利产出回答，顶层摘要始终显示 `✓ 已完成操作`，杜绝误报警告；
+  - 展开后依然诚实保留每一步工具的详细执行与报错状态；仅在整轮真正硬性报错或中断时才显示 `⚠ 操作遇到问题`。
+- **会话切换默认瞬时触底**：
+  - 引入会话切换锁，在切换会话时立即瞬移到底部并抑制布局计算产生的 synthetic 滚动，杜绝“回到最新”悬浮按钮闪现，确保每次打开任意会话永远直接落在最新一行。
+- **自动化测试**：
+  - `stickToBottom.test.ts` 与 `transcript.test.ts` 单测全量通过；`chat-ui.test.mjs` 桌面测试 214 项 + 56 项 Rust 测试全量通过。
+
+### Improved: 工具执行波浪律动动画与工具类型专属图标
+
+- **优雅波浪等待动画**：
+  - 彻底替换原先在时间线上偏心旋转晃动的“转圈圈”动画；
+  - 引入专为时间线节点设计的 `.timeline-wave-node` 3 柱律动波浪动画，在时间线节点上完美居中起伏；
+  - 在 `TurnProcess` live 过程摘要与 `RunActivity` 中全面应用，并在减弱动态效果（reduced motion）模式下优雅降级。
+- **工具类型专属 Icon**：
+  - 在 `activityView.ts` 中实现 `activityToolIcon`，精准映射终端命令（`ph-terminal-window`）、文件写入（`ph-pencil-simple-line`）、文件读取（`ph-file-text`）、搜索（`ph-magnifying-glass`）、目录（`ph-folder-open`）、网络（`ph-globe`）、记忆（`ph-brain`）、子代理（`ph-tree-structure`）、小程序（`ph-cube`）、MCP（`ph-plug`）等工具类型；
+  - 在 `ProcessActivityItem` 与 `RunActivity` 的操作标题前展示对应语义图标，执行中呈现品牌高亮。
+- **自动化测试**：
+  - `activityView.test.ts` 新增 17 项工具图标映射单测全部通过；`chat-ui.test.mjs` 桌面测试 214 项 + 56 项 Rust 测试全量通过。
+
+### Improved: 内置小程序体验全面优化（Note 便签与 Meeting Notes 会议纪要）
+
+- **Note 小程序 (v1.7.0)**：
+  - 修复便签编辑页光标过大问题（行高与内边距调整为 24px/28px 与文字基线对齐）；
+  - 修复分享图片在桌面 Webview 无法保存问题，新增【保存图片】、【复制图片】与【复制文本】操作按钮；
+  - 新增标签胶囊筛选栏（`#tag-filter-bar`）与实时字数统计。
+- **Meeting Notes 会议纪要 (v1.3.0)**：
+  - 新增 `GET /meetings/:id/audio` 音频流服务与现代卡片式音频播放器（支持播放/暂停、进度拖动、倍速 1.0x-2.0x 切换）；
+  - 新增逐字稿音字同步高亮与单句点击跳转播放；
+  - 新增语音识别错误归因与一键重试全部转写（`POST /meetings/:id/retry-transcription`）；
+  - 支持一键下载完整 `.wav` 会议录音与导出 `.md` 会议纪要文件。
+
+### Improved: Chat 思考内容展示逻辑优化（默认折叠、流式自展开、回复后收起与会话切换保持）
+
+- **历史与切换会话默认折叠**：
+  - 移除已完成回合 `<TurnProcess>` 的 `forceOpen` 强制展开判定，确保历史消息以及切换会话重新挂载时思考过程始终保持默认折叠状态（`opened = false`）；
+  - 避免因个别步骤带有异常状态标记而导致整个卡片被强行撑开的问题。
+- **流式回复时按需主动展开与正文出现后平滑收起**：
+  - 仅在 Live 流式且未产生回答正文时（`!liveSections.response.length`）才主动打开展示思考时序，一旦正文回答或 Plan 块开始输出即刻平滑折叠；
+  - Web 端 `switchSession` 彻底重置残留的流式思考与诊断状态，避免跨会话切换后流式思考块污染。
+- **支持随时手动展开/折叠**：
+  - 用户随时可点击思考摘要卡片自主查看完整的思考与工具执行详情。
+- **自动化测试**：
+  - `chat-ui.test.mjs` 新增针对 Transcript 中已完成消息保持默认折叠、Live 视图按需展开的回归断言；214 项桌面测试全部通过，`desktop:check` 0 错误 0 警告。
+
+### Added: Desktop 端侧边栏折叠按钮、变窄自动吸附折叠与平滑过渡动画
+
+- **顶部折叠与展开按钮**：
+  - 在左侧侧边栏顶部（与 macOS 红绿灯同高度右侧）添加折叠按钮（`ph-sidebar-simple`），点击即可平滑收起侧栏；
+  - 侧边栏折叠时，在主内容区顶部标题栏（`chat-header`、`workspace-header`、`ProjectDetail` 头部）左侧（已为 macOS 红绿灯留出 84px 安全边距）展示展开按钮，点击即可平滑展开；
+  - 新增全局快捷键 `Cmd+B` / `Ctrl+B` 快速切换侧边栏折叠状态。
+- **Title 栏与控制按钮垂直对齐 macOS 红绿灯**：
+  - 将 `chat-header`、`window-drag-mask` 及侧栏顶部从臃肿的 60px 收敛为精致统一的 42px 高度；
+  - 修复 `window-drag-mask` 遮挡按钮点击事件的层级问题，确保折叠/展开按钮、Title 及所有操作区 100% 可点击响应；
+  - 微调 macOS 原生红绿灯按钮垂直坐标（`trafficLightPosition: { x: 18, y: 20 }`），将系统三色控制按钮与右侧折叠按钮（`sidebar-collapse-btn`）、展开按钮、Title 标题文字及操作按钮精准拉平在同一水平中心线（y: 21px），解决系统按钮偏上、高低错落的问题。
+- **拖拽至最小宽度防挤压与平滑吸附折叠**：
+  - 手动向左拖拽侧边栏分割条（`sidebar-resizer`）达到最小宽度（228px）时，侧边栏宽度稳固锁在 228px，坚决不再单独往内挤压变形（防止文字折行、图标挤压）；继续向左拖拽越过触发阈值（160px）时，直接平滑触发整栏收起折叠动画；
+  - 重新展开时自动恢复用户原本设定的理想宽度（默认 228px 或最后设定的宽度）；
+  - 窗口尺寸缩窄至 `<= 820px` 紧凑模式时自动折叠侧边栏以保障会话区域宽度，拉宽窗口时自动恢复；
+  - 记忆用户折叠状态（`molibot-desktop-sidebar-collapsed`）。
+- **流畅过渡动画与直接操控零延迟**：
+  - CSS Grid 轨道与 `transform: translateX(-100%)` / `opacity` 联动硬件加速，带来丝滑顺畅的展开/折叠过渡动画；
+  - 拖拽调整宽度时（`resizingSidebar`）自动关闭 transition（`transition: none !important`），确保 120fps/60fps 实时跟手零延迟。
+- **右侧面板 Header 高度统一为 42px**：
+  - 将右侧文件/小程序面板（`.file-panel-head`、`.artifact-panel .file-panel-head`）以及任务检查面板（`.durable-inspector-head`）的头部高度从 60px/68px 统一缩减为 42px（垂直居中 y: 21px），与左侧 Chat 标题栏、侧栏顶部及 macOS 红绿灯无缝在一条水平线上对齐，消除下坠错落感。
+- **彻底解决变窄时 Chat 区域被隐藏与空白列问题**：
+  - 根因：媒体查询 `@media (max-width: 1000px)` 将 `.chat-sidebar` 置为 `display: none`，但 `.chat-layout.sidebar-collapsed.with-files` 复合选择器因高特异性仍强制应用 3 列 Grid，导致第一列（0px）吞掉了 Chat 区域，第二列渲染文件面板，第三列变为空白列；
+  - 修复：统一在窄屏媒体查询中声明双列自适应 Grid `minmax(0, 1fr) minmax(var(--files-min-w), var(--files-w, 280px))`，确保 Chat 区域任何时候绝对不会被隐藏或遮挡，始终占据可用空间。
+- **文件面板默认宽度与紧凑调整**：
+  - 将文件面板首次打开的初始默认宽度从过宽的 `380px` 调整为适中的 `280px`（最小 `240px`，最大 `720px`），大幅减少对中间 Chat 区域的压迫感，并持续支持拖拽分割条自定义调整。
+- **左右两侧面板丝滑过渡与无缝直接铺展**：
+  - **左侧导航平滑折叠/展开**：重构 `.chat-sidebar` 的宽度与透明度过渡体系（`width/max-width/padding 240ms cubic-bezier(0.2, 0, 0, 1)` + `opacity 180ms ease`），彻底移除导致首帧瞬间消失的无序隐藏，实现左侧导航栏像抽屉般自然平滑地折叠收起与滑出展开；
+  - **右侧文件/小程序面板关闭直接铺展**：彻底移除退出延迟定时器与中间空白过渡态，关闭面板时左侧 Chat 内容区瞬间无缝铺满整屏，杜绝任何透明幽灵留白与视觉停顿。
+- **自动化测试**：
+  - `chat-ui.test.mjs` 新增针对折叠按钮、展开按钮、吸附阈值（160px）、快捷键（`Cmd+B`）及两侧面板平滑动画 CSS 规则的回归测试；214 项桌面测试 + 56 项 Rust 测试全量通过，`desktop:check` 0 错误 0 警告。
+
+### Improved: Desktop 端思考流自动折叠与屏幕变窄视口底部自动吸附（防跑焦）
+
+- **屏幕变窄视口底部自动锚定**：
+  - 在 `stickToBottom.ts` 中引入 `ResizeObserver` 监听滚动容器几何重排与尺寸变化；
+  - 窗口变窄、侧边栏拖拽或多栏分屏导致文字折行、内容总高 `scrollHeight` 增加时，只要用户处于底部（`pinned === true`），即刻自动同步更新滚动高度 `scrollTop = scrollHeight - clientHeight`，保证视口永远牢牢吸附在最后一行，彻底消除焦点下坠与内容丢失问题。
+- **思考流时序收起与完成折叠**：
+  - 在 `conversationController.svelte.ts` 的 `onDone` 中兜底同步正文与思考步骤至 `liveSteps`，确保在任何返回形态下 `liveSections.response` 均能触发 `TurnProcess` 自动收起；
+  - 同步优化 Web 端 `+page.svelte` 在 `phase: "end"` 及 `done` 时的思考块折叠标记。
+- **自动化测试**：
+  - `stickToBottom.test.ts` 新增针对 `ResizeObserver` 尺寸变化时自动吸附与非锁定态不干扰的回归测试；全端 213 项桌面测试通过。
+
+### Fixed: plugin catalog blank state and External Subagent package-owned settings
+
+- Fixed the contract plugin APIs to use the live Runtime settings interface. Server failures now surface in the Web page instead of being swallowed as an empty plugin list.
+- Fixed the Web catalog crash caused by calling the nonexistent `locale.get()` method on a Svelte writable store; the real page now renders returned plugins instead of remaining blank.
+- Replaced inline plugin forms with a compact catalog and dedicated pages while preserving pi extension install/reload/toggle/uninstall management. Memory and Daily Materials are visible as auto-installed built-ins with dedicated settings routes, while Cloudflare HTML and External Subagent are discovered from package directories.
+- External Subagent now ships its own bilingual custom settings UI and declared detect/install/test actions, built as a self-contained release artifact. Its enablement stays in host settings; its fields and runtime files live under isolated plugin config/data roots and survive a cold restart.
+- Fixed the native Desktop catalog to merge core and contract plugin APIs instead of reading only contract packages. The packaged app now shows Memory, Daily Materials, Cloudflare HTML, and External Subagent, and opens each configuration in an in-app detail page.
+- Added the narrow Tauri HTTP capabilities required by both plugin API families and a `molibot-plugin://` UI-only transport for package-provided settings. The CSP names that fixed origin without granting iframe access to arbitrary localhost services.
+- Added Web/Desktop custom-UI bridges, manifest action allowlists, disabled-action enforcement, payload validation, atomic owner-only secrets, and regression coverage for the real HTTP, persistence, worker, Tauri, and cold-start seams.
+
+### Documented: plugin-owned settings and independent storage
+
+- Added a planned PRD for replacing accordion plugin forms with dedicated plugin routes, allowing enhanced pi/Molibot packages to ship their own settings UI and actions without Core-specific code.
+- The proposed persistence contract keeps only plugin enablement in global RuntimeSettings and separates replaceable code, durable configuration, durable domain data, and disposable cache under the owner-global `DATA_DIR`. External Subagent is the first required migration; no runtime behavior changed in this documentation-only slice.
+
+## 2026-08-21
+
+### Added: External Subagent 一键真实可用性测试（Test Run）
+
+- **问题**：「检测环境」只证明二进制存在，不证明能跑；已出现检测显示可用、执行时失败的假可用（协议不兼容 / 认证缺失 / 二进制损坏）。
+- **修复**：Web 与 Desktop 设置页 Codex / Claude Code 行新增「测试运行」按钮 -- 复用 `tools.ts` 共享的 `ExternalSubagentRuntime`（pitfall 21：探活必须走真实运行时），在 `mkdtemp` 隔离目录跑一次最小真实任务（`Reply with exactly: OK`），完整经过 wire 协议 + 认证 + provider 选择，120s 上限（`PROBE_TIMEOUT_MS`）。只有 `stopReason === "completed"` 且有输出才算通过；测试失败时徽章强制显示红色「测试失败」+ diagnostic，覆盖绿色检测态；传输层异常同样判失败。
+- **接口**：两端 `POST /api/{settings,desktop}/plugins/external-subagent` 支持 `action:"test"`（缺省仍为 install，向后兼容），permissionMode 取自已保存设置，自定义路径接受表单未保存值（与检测语义一致）。
+- **验证**：`probe.test.ts` 4 用例全过（通过判定 / error 失败 / not_installed+timeout / 异常时清理临时目录）；`svelte-check` 0 错误 0 警告；`vite build` 通过。
+
+### Optimized: 桌面端与发布包体积缩减 90% & 全局 Source Map 源码防泄露
+
+- **构建产物清理**：`clean` 仍用于显式清理；普通 `build` 不再预先删除活动 `build/`，因为运行中的服务会按旧 manifest 延迟加载 hashed chunks。adapter 在新 chunks 发布后再替换 manifest；需要彻底清理时，应先停止使用该构建目录的服务再执行 `pnpm clean`。
+- **Source Map 源码防泄露**：
+  - `vite.config.ts` 中显式配置 `sourcemap: false` 与 `minify: "esbuild"` 代码压缩；
+  - `bin/molibot-release.sh` 中在生产打包完成后全局清理所有 `.map` 文件（包括 node_modules 第三方 map），彻底杜绝从安装包逆向出原始 TypeScript 源码的风险。
+- **恢复 `--no-optional` 精简依赖**：在发布包的 `pnpm install --prod` 中恢复 `--no-optional`，精简多余的跨平台 native binding。
+- **实测成果**：`molibot-runtime.tar.gz` 从 **555 MB** 降低到 **51 MB**；生产解压目录从 **2.7 GB** 降低到 **319 MB**；产物中 `.map` 源码映射文件彻底清零。
+
+### Fixed: External Subagent 一键安装在 .app / 桌面上下文下报 `spawn npm ENOENT`
+
+- **症状**：Desktop 一键安装 Codex / Claude Code 时，install endpoint 抛出 `Failed to spawn npm: spawn npm ENOENT`，终端里 `which npm` 正常。原因是 Tauri `.app` 启动的 Node 进程不继承用户 shell 的 `PATH`，homebrew / nvm / fnm / asdf 安装的 `npm` 都解析不到。
+- **修复**：在 `package/external-subagent/src/resolver.ts` 模块加载时调用 `fix-path`（sindresorhus，macOS 读登录 shell、Linux/终端 no-op、Win 读注册表 App Paths），补齐 `process.env.PATH`。这样 `findExecutableInPath("codex")`、`pnpm --version` 探测、最终 `installProviderRuntime` 的 `spawn(packageManager, …)` 全部用上修复后的 PATH。
+- **结构保护**：新增 `package/external-subagent/test/resolver.test.ts` 守住三件事 —— 模块顶部导入并调用 `fixPath()`；`installProviderRuntime` 的 spawn 仍传 `env: process.env`（不丢 PATH）；`fixPath()` 幂等不破坏已存在 PATH。任何回归（删 import / 改 env / 改调用位置）任一断言失败即知。
+- **没改 `bin/molibot.js`**：那里 `spawn("npm", …)` 是 `pnpm run dev` 的入口，只在终端跑，自带完整 PATH，不踩此坑。
+
+### Improved: Web 聊天界面 Agent 多轮思考流式分段与完成自动折叠
+
+- **彻底消除视口跳动**：将思考、工具活动与正文输出重构为自上而下单向生长的独立时序块（Streaming Blocks），单向追加，杜绝顶部大框反复伸缩对正文的挤压。
+- **完成即自动折叠**：思考流式生成时实时展开展示；进入工具执行或正式输出正文时，前面的思考块自动收起为精致小胶囊（`🧠 已完成思考 · 点击展开`），固定高度并支持随时手动展开。
+- **后端完整多轮思考保真**：后端 `/api/stream` 支持多轮 Agent 循环中多次思考的完整拼接与 `thinking_state` 显式事件通知。
+
+## 2026-08-20
+
+### Added: External Subagent 内置插件（OpenAI Codex & Claude Code 一体化子 Agent）
+
+- **独立子包与运行时解耦**：创建独立包 `package/external-subagent`（`#external-subagent`），提供进程生命周期管理 `ManagedProcess`、`JsonRpcLineTransport`、Codex wire 适配器与 Claude Code SDK/CLI 适配器。主 Molibot 依然保持在 pi runtime 上，现有 pi `subagent` 行为不变。
+- **按需与动态解析机制（方案 3）**：SDK 不强行内置打包 500MB+ 原生二进制文件，支持检测系统 PATH（`codex` / `claude` CLI）、自定义路径、或按需安装到 `~/.molibot/runtimes/external-subagent`。
+- **全生命周期安全与进程树隔离**：
+  - 环境变量白名单过滤（`environment.ts`），严格阻断不相关的认证凭据（Telegram, Feishu, QQ, 数据库, MCP 等）；
+  - 全进程树级终止（POSIX 进程组 / Windows `taskkill /T /F`），先 SIGTERM（grace 3000ms）后 SIGKILL，杜绝孤儿/僵尸进程；
+  - 统一超时与取消机制，精确区分用户取消（`aborted`）与超时（`timeout`）；
+  - 仅返回首尾压缩文本（最大 ~6000 字符）与结构化诊断，防止原始 stderr、协议交互与多轮思考污染主模型上下文。
+- **深度整合至内置 `subagent` 工具**：
+  - 将 `claude-code` 与 `codex` 作为一等公民角色（First-class Roles）直接接入内置的 `subagent` 工具；
+  - 主模型无需额外多记工具，只需调用 `subagent({ agent: "claude-code", task: "..." })` 或 `subagent({ agent: "codex", task: "..." })`；
+  - 原生支持链式协作流水线（如 `chain: [scout -> claude-code -> reviewer]`）；
+  - Plan 模式自动过滤写操作外部子 Agent，维持安全只读边界；
+  - Web 与 Desktop 均提供运行时环境探测卡片与一键安装，设置支持 SQLite round-trip 持久化。
+- **发布打包**：`bin/molibot-release.sh` 移除 `--no-optional`，确保可选平台二进制依赖正常支持。
+
+### Added: 按需图片识别与多 API 引擎路由
+
+- 图片不再在入站解析时一次性转成文字：视觉主模型直接读取原图，纯文本模型通过 `read(path, prompt)` 按需、可重复识别。
+- 新增独立图片识别模块和有序 API 引擎故障切换；PDF OCR 同步复用该模块，旧 `imageAnalyze`/`visionAnalysis` 路径已删除。
+- Web 与 Desktop 图片设置页新增“图片识别”Tab，可配置多个引擎、优先级、默认模式并上传图片测试；Desktop 使用安全投影、精确网络权限和可恢复的断线状态；CLI adapter 计划在第二期启用。
+- Feishu、Telegram、QQ、微信和 Web 统一为附件持久化/规范化职责，识别逻辑留在共享 Agent 层。
+
+### Fixed: Desktop 图片识别引擎编辑与 Tab 对齐
+
+- 修复第二个及后续识别引擎在输入名称时自动折叠：展开状态现在独立于会被输入更新替换的引擎数据，新添加的引擎会持续保持展开。
+- 图片生成/识别 Tab 使用与设置卡片相同的共享内容列宽，宽屏和窄屏下左右边界保持一致。
+- 增加结构守卫，防止再次使用数组位置直接控制响应式 disclosure 的展开状态。
+
+
+### Improved: 优化 AI 回复底部状态条（总耗时精确计算、Token 紧凑展示与纯净模型名）
+
+- **总耗时端到端精确统计**：重构 `transcriptTurnSummary` 计算逻辑，精准计算从对应用户提问发出到 AI 回复生成的端到端总时间，彻底解决原先仅累加 Tool Activities 导致耗时显示偏少的问题；
+- **Token 紧凑易读格式**：引入 `formatCompactTokens`，将原本显示为长串数字的 Token 计数自动精简为 `17k`、`1m`、`3.6m tokens`，大幅提升状态条整洁度；
+- **纯净模型名称展示**：底部信息栏自动去除服务商前缀（如 `Cli Proxy API · `），与聊天输入框保持一致只展示纯净模型名（如 `Gemini 3.7 Flash High`）。
+
+## 2026-08-19
+
+### Improved: 统一右侧 MiniApp 面板与全局滚动条为极简细窄风格
+
+- **问题与根因**：右侧小程序面板（如便签 Note、待办 Todo 等）运行于独立的 iframe 沙箱中，此前未定义滚动条 CSS 规则，导致在 WebKit / WebView 环境下直接渲染了 15~16px 宽度的原生厚重滚动条；而主应用的文件面板与聊天窗采用的是 4~6px 的半透明细窄滚动条，视觉风格割裂且右侧遮挡内容较多。
+- **优化方案**：
+  - 将各 Mini App 顶层 `html, body` 锁定为 `height: 100%; overflow: hidden;`，完全交由小程序内部的主体容器（便签列表、全屏编辑框、会议记录列表等）自主管理滚动，彻底消除外层 iframe 的冗余外层滚动条；
+  - 在 Mini App 共享设计基线以及所有内置小程序（Note、Todo、Meeting Notes、MD Preview、Mini Chat 及 miniapp-creator 模板）中注入统一的极简细窄滚动条样式（`6px` 槽宽、透明轨道、圆角全胶囊半透明滑块、悬停高亮、明暗及暖色主题自适应）；
+  - 将 Desktop 主应用全局滚动条样式同步收窄优化至 `6px`；
+  - 升级所有内置 Mini App 的 patch 版本，并在 `uiDesignBaseline.test.ts` 与 `chat-ui.test.mjs` 中加入自动化守卫断言。
+
+### Fixed: 修复 Desktop 切换/打开历史会话时短暂闪烁「未配置可用文本模型」警告的问题
+
+- **问题根因**：`ChatView.svelte` 在响应式计算 `modelReady` 时将 `&& !modelSelectionHydrating` 耦合在一起。当用户点击打开历史 Session 时，前端异步请求该 Session 的独立模型配置，期间 `modelSelectionHydrating` 为 `true`，导致 `modelReady` 被计算为 `false`，使得输入框上方的 `ChatInputArea` 误认为全局未配置模型并短暂弹出了警告横幅。
+- **修复方案**：解耦 `modelReady` 与 `modelSelectionHydrating`，`modelReady` 仅严格表达系统是否存在合法模型配置；`modelSelectionHydrating` 独立负责禁用输入组件、选择器和 `sendMessage` 守卫，避免竞态与误报。
+- **验证**：Desktop 单元测试全部通过，`svelte-check` 0 错误 0 警告。
+
+## 2026-08-18
+
+### Fixed: 审批等待改为挂起与异步恢复机制，消除内联等待超时与卡死
+
+- **问题根因**：
+  - 审批等待（如 MCP 工具）此前直接阻塞在内联 5 分钟轮询中，且整个等待时间被外层工具超时（如 `mcpInvoke` 的 300s 预算）计入；当用户超过 5 分钟未审批时，外层时钟超时直接杀掉当前 Run，但前端卡片仍显示为 pending，用户后续点击批准也无法唤醒已被杀死的 Run（Session `s-20260818-vtjv`）。
+  - 处于等待中的 Run 被取消时，审批请求未落盘终态，导致死 Run 的审批永远 pending。
+  - 聚合审批请求生成的 Grant 强行绑定了包含批次指纹的 `actionFingerprint`，导致后续单次调用的指纹永远无法命中，使得用户选的「本会话允许」反复失效。
+- **架构重构与修复**：
+  - **30 秒短握手窗口**：`ToolRuntime` 审批等待缩短为 30 秒（`BROKER_APPROVAL_INLINE_WINDOW_MS = 30s`）。用户即时点击在 30 秒内直接内联执行；超过 30 秒则将当前 Run 干净挂起为 `waiting_for_approval` 状态并退出，释放所有连接和租约，不再消耗工具超时。
+  - **异步恢复（`brokerApprovalResume.ts`）**：在用户通过 Web (`/api/chat` 的 `/hosttools`)、Desktop (`/api/desktop/host-bash`) 或 Channel 回调异步批准后，自动改写上下文中的挂起 `toolResult` 并复用原 `runId` 发起恢复轮次，无缝继续任务。
+  - **请求终态管理**：Abort / 取消时通过 `ApprovalService.expireRequest` 将请求标记为 `expired`。
+  - **Grant 匹配粒度修正**：非 write 类工具的 Grant 仅按 capability + actor + scope 匹配，彻底修复制聚合卡片批准后后续调用无法复用的问题。
+- **验证**：`toolRuntime.test.ts`、`approvalBroker.test.ts`、`brokerApprovalResume.test.ts` 全部测试通过，SvelteCheck 0 错误。
+
+### Improved: 审批中心全面重构（Host Bash 泛化为全能力统一审批与白名单中心）
+
+- **需求背景**：原 Host Bash 审批系统仅检索和展示命令行操作（硬编码 `capability LIKE 'bash:%'`），导致用户在 Auto/Sandbox 模式下审批通过的 MCP 工具调用（如 OpenConnector）、文件修改（`write`/`edit`）和应用插件操作无法在设置页查看、管理长期白名单和审计历史。
+- **架构与服务端重构**：
+  - **全动作分类推断与聚合**：`HostBashStore` 升级为通用审批存储层，支持全量动作分类（`bash` / `mcp` / `file_write` / `miniapp`），自动推断动作类型与结构化参数（`payload.path`、`payload.diff`、`payload.parameters`）。
+  - **全能查询与白名单支持**：移除所有 SQL 强制 `bash:%` 前缀过滤，`listPending`、`listWhitelist`、`listHistory`、`hasAnyData` 支持按分类（`category`）、状态（`status`，含 `expired` 超时态）、模式（`approvalMode`）与关键词联合查询。
+  - **卡片持久化 Scope 解锁**：`toolRuntime.ts` 与 `approval.ts` 优化，根据 Tool Policy 的 `scopeOptions`（`["once", "session", "persistent"]`）为 MCP、文件修改等工具开放持久化选项（`approve_persistent`），支持“本 Bot 一直允许 / 本项目一直允许”。
+  - **统一 API 接口**：新增 `/api/settings/approvals` 统一接口，保留 `/api/settings/host-bash` 并增加 `category` 筛选支持。
+- **Web 端与 Desktop 界面升级**：
+  - **Web 端 (`/settings/approvals`)**：侧边栏更名为「审批管理」，提供全部/命令行/MCP工具/文件修改/应用插件分类切换，定制化彩色徽标与参数展示，`/settings/host-bash` 自动平滑重定向。
+  - **Desktop 桌面端 (`HostBashSection.svelte`)**：多语言更名为「审批管理 (Approvals)」，在筛选栏新增分类下拉控制器（`categoryFilter`），支持按分类检索与徽标渲染。
+- **验证**：`store.test.ts`、`approval.test.ts`、`desktopHostBash.test.ts`、`desktop api.test.ts` 全部 104 项单元测试通过；Desktop `svelte-check` 0 错误 0 警告；`npm run build` 打包构建成功。
+
+
+### Added: MD Preview 小程序新增「Macaron · 甜彩微排」主题与体验优化
+
+- **新增 Macaron（甜彩微排）主题**：
+  - 汲取微排（Punk微排）版式特色，摒弃原站黄色，定制了清新舒缓的马卡龙色系（薄荷绿 `#38A3A5` + 甜桃粉 `#FF9AA2` + 香芋紫 `#9B89B3` + 奶泡白 `#FAFDFB`）。
+  - 支持 macOS 窗口风格代码框（粉/黄/绿三色圆点 + CODE 栏）、H1 居中带粉色指示条、H2 居中带下划装饰、柔和薄荷阴影引用卡片与定制表格。
+  - 全内联样式渲染，直接 Cmd/Ctrl + V 粘贴到微信公众号后台即可呈现。
+- **小程序交互体验提升**：
+  - **右下角固定悬浮主题切换**：主题切换器由顶部 nav 移至右下角固定悬浮按钮（FAB），点击向上弹出主题选择菜单，操作更便捷，顶部导航更清爽。
+  - **主题偏好本地记忆**：使用 `localStorage` 记录用户上次选择的主题，切换文档与刷新不重置。
+  - **空状态排版示例**：新增「加载排版示例」一键按钮，方便免导入即时体验全功能排版。
+  - **主题选择器**：下拉菜单提供 Macaron 主题专属多色 Swatch 色块与描述。
+  - 版本 bump 至 `1.1.1`（修复右下角悬浮按钮与向上菜单的定位冲突及层叠上下文）。
+- **验证**：`mdPreview.test.ts`、`uiDesignBaseline.test.ts`、`bootstrap.test.ts` 30 项测试全绿，`npm run build` 通过。
+
+
+### Improved: 沙箱安全策略预设 UI 重构与设计打磨
+
+- 优化背景：沙箱预设原采用简陋单轴滑块搭配混乱的 Emoji 缩写（`🌐❌ · ✏️❌`），视觉层次扁平、信息传达晦涩且在多端字体环境下参差不齐。
+- 升级改进：
+  1. **4 档专业安全卡片矩阵**：重构为包含专属矢量图标、级别徽标（`最高隔离`、`安全探索`、`推荐开发`、`完全信任`）与语义化胶囊标签（网络 / 文件系统 / 环境变量三维支持）的现代化交互卡片。
+  2. **双向联动的严格度光谱滑条**：在卡片下方保留「最严格 🛡️ ➔ 最宽松 ⚡」两极提示的平滑轨道与刻度定位点，支持卡片选择、滑块拖动及键盘无障碍控制。
+  3. **自定义状态反馈与一键重置**：当在下方高级配置中微调规则导致偏离预设时，优雅呼出「当前为自定义策略」提示卡片并支持一键重置回标准预设。
+  4. **全端设计规范与多主题适配**：严格遵循 `DESIGN.md` 与语义色彩系统，零硬编码颜色；桌面端与 Web 端同步升级，完美自适应浅色、深色、macOS 毛玻璃主题与自适应栅格断点。
+- 验证：Desktop `svelte-check` 0 错误 0 警告；`chat-ui.test.mjs` 211 项测试全绿；`npm run desktop:test` 全部通过。
+
+### Fixed: Trace 活跃运行（Active Runs）永久残留「未关联会话」孤儿记录与 Runner 重试生命周期 Hook 修复
+
+- 症状：Trace 页面下方「正在执行」列表中堆积大量很久以前早已结束的历史运行记录，显示为「未关联会话（orphan）」且时间持续增长（如“1 天 11 小时”）。
+- 根因：
+  1. Runner 在遇到上游错误（如 502/空回复）触发重试或模型降级（Fallback）时，第一轮尝试的 `agent_end` 过早调用了 `finishHookRun()`，将内部标志位 `hookRunFinished` 设为了 `true` 并发出了 `run.finished`。
+  2. 随后下一轮重试（Candidate 2）触发 `agent_start` 发出了 `run.started`，`TraceRecorderHook` 将 SQLite `agent_trace_facts` 中的状态重新覆盖改写回了 `"started"`。
+  3. 当任务最终成功或结束退出时，`finishHookRun()` 因 `hookRunFinished === true` 拦截跳过，不再发出终态 `run.finished`，导致事实表永久停留在 `started`，成为僵尸孤儿记录。
+- 修复：
+  1. `runner.ts` 将 `run.started` 加守卫为单次发射；移除单轮 prompt 的 `agent_end` 对全局 `finishHookRun()` 的触发，确保仅在整个 Runner turn 真正结束（`finally`）时发射带有最终状态的 `run.finished`。
+  2. `SqliteTraceStore.upsertFact` 增加终态保护，禁止处于 `success`/`error`/`aborted` 终态的事实记录被非终态的 `started`/`waiting` 倒退覆盖。
+  3. `SqliteTraceStore` 引入 `reconcileStaleOrphanRuns()`，在获取 active-runs 列表时自动清理超时的非活跃孤儿记录；一并清理了数据库中历史遗留的 125 条孤儿记录。
+- 验证：`traceRecorderHook.test.ts` 22/22 全绿；`desktopTrace.test.ts` 全绿；`runner.test.ts` 36/36 全绿；数据库 unfinished run facts 降为 0。
+
+### Fixed: macOS Desktop 运行历史打开空白卡死、多渠道聚合、Bot 筛选与分页
+
+- 症状：桌面端打开「运行历史 (Run History)」面板时长时间无限卡在「正在加载…」，无法查看历史记录或错误信息；且后端即便扫描也只能看到 Telegram 记录，桌面主会话、飞书、QQ、微信与 Projects 的运行历史全部缺失；多记录时缺乏分页且只能关键词模糊搜索。
+- 根因：
+  1. 前端 Svelte 5 `$effect` 未使用 `untrack()` 进行依赖隔离，`runHistoryStore.svelte.ts` 在加载失败时将 `endpoint` 重置为 `""`，引发毫秒级死循环重试，`loading` 始终被置为 `true`。
+  2. 后端 `reviewData.ts` 中的 `listAgentWorkspaces` 硬编码了 `moli-t/bots` 扫描路径，完全忽略了 `moli-w`（桌面/Web）、`moli-f`（飞书）、`moli-q`（QQ）、`moli-wx`（微信）、`system/bots` 与 `projects/*/runtime` 中的 `run-summaries.jsonl`，且原逻辑把 `events` / `skill-drafts` 等非会话目录也误判为会话。
+- 修复：
+  1. 服务端打通多渠道与项目工作区全量扫描（引入 `TASK_CHANNEL_ROOTS`、`system/bots`、`projects/*/runtime` 并精准过滤保留目录）。
+  2. 前端 `RunHistorySection.svelte` 的 `$effect` 引入 `untrack()`，`runHistoryStore` 增加代际控制与刷新状态，错误时不触发重试循环；`#each` 采用复合唯一键避免追加重复 key 报错。
+  3. UI 升级遵循 `DESIGN.md`：接入 `SkeletonRows` 骨架屏、`EmptyState` 规范空状态、手动刷新按钮、Bot 原生下拉选择器（`SelectControl`）与客户端分页控制器（支持 10/20/50/100 条每页切换）。
+- 验证：`reviewData.test.ts` 2/2 全绿；Desktop `api.test.ts` 87/87 全绿；Desktop `chat-ui.test.mjs` 211/211 全绿；Desktop `svelte-check` 0 错误 0 警告。
+
+### Added: macOS Desktop Host Bash 审批与白名单管理设置页
+
+- 概述：在 macOS 桌面端（`apps/desktop`）新增完整的 Host Bash 设置页（`HostBashSection.svelte`），归入侧边栏「活动 (Activity)」分类下，对齐 Web 端 `/settings/host-bash` 的全部审计与管理能力。
+- 功能点：
+  - 4 档顶部指标卡片（待审批、白名单总数、生效中、历史记录）与快捷分段筛选。
+  - 待审批列表展示（实时审查会话中等待用户确认的工具调用与安全权限）。
+  - 长期白名单管理（支持 iOS 开关即时启用/禁用、权限摘要展示以及带安全确认弹窗的删除操作）。
+  - 审批历史记录审计（支持按已批准/已拒绝/已执行/失败状态、单次/会话/持久模式以及关键词全局搜索）。
+- 设计规范：严格遵守 `DESIGN.md`，零硬编码颜色，全量基于 CSS 语义变量（`--card-bg`, `--surface`, `--surface-secondary`, `--label-primary`, `--label-secondary`, `--separator`, `--accent`, `--danger`, `--online`, `--warning`），浅色、深色及多主题完美自适应。
+- 验证：Desktop `svelte-check` 0 错误；`chat-ui.test.mjs` 211 项测试全绿（包含 Geist CSS 变量完整性及 settings 分组结构断言）；生产构建通过。
+
+### Fixed: macOS Desktop 聊天页滑到底部/点击“回到最新”后按钮不消失，且 AI 回复停止自动滚动
+
+- 症状：macOS App 聊天页滑到最底或点击“回到最新”后按钮不消失；且在 AI 流式生成新回答时页面偶发停止自动滚屏。
+- 根因：macOS 触控板滑到底部的惯性橡皮筋回弹向上微移（`moved < 0`）与高分屏浮点计算误差（`dist <= 0.5px`）无条件将内部 `pinned`（吸底跟随）状态置为 `false`；而 `MutationObserver` 在 `!pinned` 时跳过自动跟随，`TranscriptDock` 也在 `!pinned` 时展示按钮；点击按钮时未主动派发 `resumeStickToBottom` 唤醒跟随状态。
+- 修复：放宽吸底亚像素判定阈值至 2px，触底区内的向上微移保护为回弹而不解绑跟随；`TranscriptDock` 点击按钮时显式调用 `resumeStickToBottom` 触发物理弹簧并重置跟随状态。
+- 验证：新增 `stickToBottom.test.ts` 单元测试；`chat-ui.test.mjs` 207 项全通；Desktop `svelte-check` 0 错误；生产构建全通过。
+
+### Added: Web 聊天页面审批卡片 UI（`host_bash_approval` 实时交互与一键解决）
+
+- 症状（Session `s-20260818-shhs`）：Web 聊天中触发需要审批的操作（如 `miniAppManage` 或非 Auto 模式下的 Host Bash）时，后端 SSE 正确发送了 `host_bash_approval` 事件，但 Web 页面前端丢弃了该事件，导致用户看不到审批按钮，任务等待超时失败。
+- 修复：Web 聊天页面（`src/routes/+page.svelte`）接入 `host_bash_approval` SSE 事件监听与状态管理；在聊天消息流式区域底部渲染交互式审批卡片（包含工具名称、完整命令、原因说明），提供「拒绝」「本会话允许」「仅此一次」三个操作按钮；点击后通过 `/api/chat` 的 `/hosttools` 命令实时提交审批结果并自动刷新会话消息。
+- 验证：中英双语、明暗主题适配；`npm run build` 和 host bash / chat web commands 测试套件全数通过。
+
+### Fixed: 微信/QQ 触发模型降级后用户只收到 "Internal error."，真实回复被吞（归档通知闭包引用未定义 `scopeId`）
+
+- 症状（微信 Session `s-20260818-wnjk`）：主模型 `cli-proxy-api/mimo-v2.5-pro` 连续 502、运行时自动切换到 deepseek 并正常生成回答（run-detail 显示 `Run finished successfully`，session 里也有完整回复），但用户在微信里只收到 "Internal error."；`/models` 等命令回复正常，切走主模型后恢复。QQ 渠道同款代码同样中招（尚未被触发过）。
+- 根因：6-16 的 runlog 归档通知功能（3596e0552）在 weixin / qq `processEvent` 的 `onRunComplete` 闭包里写了 `this.commandService.shouldSendRunArchiveNotice(scopeId)`，而 `scopeId` 在该作用域未定义。`&&` 链短路导致它只在 `threadEventCount > 0` 时求值--而 `respondInThread` 目前唯一的调用方恰是**模型降级通知**，于是异常精确地只在降级 run 的收尾阶段抛出，冒泡到 InboundTaskCoordinator 的兜底 catch，给用户补发 "Internal error."，缓冲区里的真实回复从未 flush。feishu / telegram 同款代码各自定义了 `scopeId`，未受影响。
+- 教训：`tsc` 其实一直在报这两个 `TS2304: Cannot find name 'scopeId'`（weixin:520 / qq:508），但全项目存量 tsc 噪音（400+）把新错误淹没了；且该分支只在降级路径执行，单靠"平时能跑"永远发现不了。
+- 修复与机器守卫：新增共享 helper `createRunArchiveNoticeOnComplete()`（`channels/shared/runArchiveNotice.ts`），`scopeId` 作为**必填构造参数**（结构上杜绝再引用环境变量名），weixin / qq 统一接入；单测驱动降级形态（`threadEventCount > 0`、无 thread 事件 / 无 runId / 非正常结束 / runlog 关闭四个反例）。
+- 验证：`runArchiveNotice.test.ts` 3/3、`weixin/runtime.test.ts` 2/2 通过；tsc 触碰文件新增 0 错误（weixin:520 / qq:508 的 TS2304 消失，剩余 hookManager 报错为存量）。
+
+## 2026-08-17
+
+### Added: Auto 权限模式真·全自动 —— 沙箱网络全放行 + 沙箱拒绝自动升级放行
+
+- 选 Auto 模式后不再被审批卡打断：session 有效沙箱网络自动提为全放行（域名白名单不再静默杀命令），沙箱权限拒绝后的 host bash 升级自动通过（标注 `[AUTO]`）；第三方代码安装/执行（manage 类）仍会询问。主链路、subagent、消息渠道统一走共享层实现。
+- 沙箱设置页预设重设计：observe/build/strict 卡片改为单轴严格度滑条（锁定/只读/标准/全开，锁定绿、全开红，主题 token 配色，明暗主题与移动宽度适配），微调细节仍自动落「自定义」。
+- 两轴关系（权限模式 × 沙箱策略）官方口径见 `docs/guides/permission-and-sandbox-modes.md`。
+
+### Fixed: 点名 MCP server 却提示 MCP 工具缺失（`loadMcp` 注册门控与 prompt 宣传脱节，改为按配置常驻）
+
+- 症状（Session `s-20260817-ztfk`）：用户消息「使用 open-connector 查询…」点名了已启用的 MCP server，system prompt 的 `<mcp-access>` 段也列出 `tdx` / `open-connector` 并指示用 `loadMcp` 加载，但 `loadMcp` / `mcpInvoke` 根本没注册进工具集--`toolSearch` 返回 `No deferred tool matched`，模型被迫用 bash/find/curl 乱试后给出「环境缺少 loadMcp 支持」的错误诊断。
+- 根因定性：用「猜用户这句话算不算点名 MCP」来决定工具是否存在，把能力开关建立在脆弱的自然语言匹配上，且 prompt 宣传与注册门槛用两套词表，永远对不齐。第一次修复（把 server id/name 加进词表）仍是同族--修 NLU 的办法不是把 NLU 写得更全，是不再需要它。
+- 结构性修复：`loadMcp` / `mcpInvoke` 的注册与 prompt `<mcp-access>` 段现在派生自**同一个谓词** `hasConfiguredMcpServers(settings)`（`openConnector.ts`）--配置了任意 MCP server 即常驻注册（含 disabled，`loadMcp` 能解释缺什么），零配置则两侧都不出现。`hasExplicitMcpInvocation()` 及其词表匹配整体删除；「是否加载某个 server」完全交给模型经 `loadMcp` 决定，prompt 里「仅显式要求时用 MCP」降级为成本建议（避免投机加载）。
+- 机器守卫：`prompt.test.ts` 新增不变量测试--prompt 出现 `<mcp-access>` ⟺ `hasConfiguredMcpServers` 为真（enabled / disabled / 零配置三档），并结构化断言 `runner.ts` 的门控必须写 `exposeLoadMcpTool = hasConfiguredMcpServers(settings)`、不得再引用 `hasExplicitMcpInvocation`。
+- 验证：`prompt.test.ts` 33/33、`runnerHelpers.test.ts` 7/7、`runner.test.ts` + `loadMcp` / `mcp` / `toolClassification` 65/65；tsc 触碰文件 0 错误。
+
+## 2026-08-16
+
+### Added: Project-scoped scheduled automations
+
+- Projects can now own periodic automations that execute with the Project's current Agent context, workspace, rules, Skills, Memory, model, and Sandbox settings.
+- Project automation results stay inside the app: every trigger uses the existing fresh task-session semantics, records inspectable run history and transcript, and never sends through a Bot or external Channel.
+- The Desktop Automations workspace now includes a Project category, while Project Settings includes a locked Automations tab that reuses the same create, edit, schedule, run-now, pause, delete, history, and transcript flow.
+- Project events use the existing watched JSON/runtime lease system; Project creation and deletion refresh watcher registration, and deleting a Project prevents orphan task dispatch without deleting its working directory.
+
+### Updated: MD Preview 内置小程序 Icon 视觉重构
+
+- 将 `md-preview` 的图标重构为暖橙色调立体双色圆形徽章（`#FB8C00` 活力橙基底 + 右侧 `#E65100` 深橙半弧阴影 + 居中精准对齐的 `#FFE0B2` 浅橙 Markdown `M↓` 专有标志），独立于 `todo` 的方形卡片造型，同时与 `note` / `meeting-notes` / `mini-chat` 保持统一的色彩丰富度与双层矢量设计语言。
+- 内置小程序版本 bump 至 1.0.4（同步备份旧文件覆盖离线工作区副本）。
+
+### Fixed: MD Preview R2 测试连接报 SignatureDoesNotMatch（SigV4 scope 区域写死 `$`）
+
+- `server/index.mjs` 的 `signRequest` 把 credential scope 区域硬编码为 `$`（`20260816/$/s3/aws4_request`），而派生签名密钥用的是真实 region——签名与凭证不一致，R2/AWS 验签必然失败；其他客户端正常正是因为它们用真实区域（R2 为 `auto`）签名。已改为 `${dateStamp}/${region}/s3/aws4_request`。
+- 测试连接（GET LIST）另有一个签名头不匹配：`content-type: application/xml` 被纳入 SignedHeaders 但实际请求没发送该头——SigV4 要求每个签名头必须真实携带，已补上。
+- 用 aws4（成熟参考实现）交叉验证：上传 PUT 与连接测试 GET 的签名逐字节一致，scope 为 `auto/s3`；mdPreview/httpRoute/bootstrap/manifest 46/46 pass。内置小程序版本 bump 至 1.0.3。
+
+### Fixed: MD Preview R2 设置无法保存（PUT 被宿主两层 405 拦截）＋ 主题下拉左对齐
+
+- R2 配置点保存后并不落库、点测试报 "Bucket 没有配置"、禁用重开后配置丢失：根因是面板保存走 `PUT /api/settings`，而宿主 HTTP 门禁（`host.handleHttp` 的方法白名单）与 SvelteKit 路由（`src/routes/miniapps/[appId]/[...path]/+server.ts`）都只允许 `GET/POST/PATCH/DELETE`，PUT 在到达应用 SQLite 前被 405 拒绝——主题切换的 PUT 同样一直静默失败。已在两处门禁放行 PUT，并新增 httpRoute 回归测试（PUT 全链路透传 + 落盘 + 同一 dataRoot 重启后仍在）。
+- 主题下拉菜单改为与触发器左边缘对齐（`left: 0; right: auto`），不再向左溢出覆盖文档标题区。
+- 内置小程序版本 bump 至 1.0.2。
+- 验证：httpRoute/host/mdPreview/bootstrap/manifest/uiDesignBaseline/processIsolation/invocation 共 103/103 pass；真实宿主端到端走查——面板形状 PUT → 200 且全字段落库、GET 回读一致、disable/re-enable（新 host 同 dataRoot）后配置仍在。
+
+### Fixed: MD Preview 主题下拉点击后只出蒙版、菜单不可见（模块级崩溃）
+
+- `ui/app.js` 仍引用旧 tab 设计的 `#tab-momo` / `#tab-vercel`（HTML 已改为 `#theme-trigger` + `#theme-menu` 下拉），模块求值到该处即抛 `TypeError`，`boot()` 及后续全部逻辑失效——上传、设置、文档加载都不再工作。
+- 主题下拉从未接线：补齐 trigger 开合（含 backdrop 蒙版）、菜单项选择（更新 trigger 标签/色块/选中态并持久化）、`closeAllPopovers` 关闭与 `aria-expanded` 同步；`renderChrome` 改为同步主题下拉状态。
+- 内置小程序版本 bump 至 1.0.1，触发现有安装的副本更新。
+- 验证：miniapps 相关套件 37/37 pass；DOM 桩冷启动冒烟：模块无崩溃、boot 完整走完、trigger 点击开菜单+蒙版、doc/theme 菜单互斥切换、选择主题后标签与 PUT 持久化正确。
+
+### Added: MD Preview built-in Mini App (Markdown 预览 + 公众号复制 + R2 图床)
+
+- New opt-in built-in Mini App `md-preview`: render a Markdown document with switchable themes (Momo Paper 暖米书卷 / Vercel Geist 极简, both with matched code-highlight palettes) in the desktop panel, and copy it as WeChat Official Account (公众号) rich text with fully inline styles - preview DOM is the copy content, WYSIWYG.
+- Agent tool `preview` takes a workspace Markdown file plus its locally-referenced images through `fileParams` host staging (zero-token file passing); unresolved local image references are reported back so the Agent can supply the files on a retry. The tool result card deep-links into the panel.
+- Cloudflare R2 image hosting: settings page (Account ID / Endpoint / Region / Bucket / Access Key / write-only Secret / public base URL / key prefix, with connection test), content-addressed uploads (`sha256.ext` keys, deduped across documents via the mapping table), AWS SigV4 signing on node:crypto in the app's own process. Generic S3-compatible endpoints work by setting Endpoint.
+- The upload mapping lives in the app's DB only: the Markdown source (on disk and in the document record) keeps its local image paths; URLs are substituted at copy time. Copy with pending local images asks first (上传 / 仍要复制 / 取消).
+- Panel niceties: local .md file picker, document list with delete, remote-image preview through a server-side data-URI proxy (the iframe CSP allows only `'self'` + `data:`), theme preference persisted in settings.
+- Vendor: `marked` + `prismjs` (core + 14 languages) inlined at build time with a THIRD_PARTY_NOTICES entry; prism runs manual so `render.js` owns highlighting.
+- Verified: `src/lib/server/miniapps/mdPreview.test.ts` (manifest + fileParams, image-ref matching, unresolved-ref reporting, SigV4 PUT shape with content-addressed keys, source-markdown-untouched-by-upload, cross-document upload reuse, settings masking, proxy validation), `uiDesignBaseline` and `bootstrap` builtin assertions updated.
+
+### Added: dynamic custom engines for Agent image generation
+
+- Image settings in Web and Desktop can add multiple custom engines with a display name and a one-time protocol choice: `images/generations` or `chat/completions`.
+- Custom engines route through the matching generic provider, support credential-safe Desktop editing, can be selected as the default or tested independently, and can be removed without being reintroduced by settings sanitization.
+- Existing custom protocols are locked in the shared settings layer, reserved `auto` ids are rejected, and custom engine name/protocol/base URL/model/API key survive a fresh `SettingsStore` load.
+- Verification: focused image/settings suite 55/55, root production build, Desktop `svelte-check` 0 errors/0 warnings, and Desktop Vite build passed. The broader Desktop suite remains 263/264 because its existing SessionStore test still fails on SQLite `bm25` context usage.
+
+## 2026-08-15
+
+### Added: Mini App tool fileParams with host staging (zero-token file passing)
+
+- Mini App tools can declare `fileParams` in `manifest.json` (`accepts: ["file"|"image"]`, optional `maxBytes` up to 64 MiB, optional `multiple: true`).
+- The Agent passes ordinary workspace-relative file paths using the file tools' exact path semantics (`resolveToolPath` with home-prefix expansion and shared allowed-roots guard).
+- The host validates existence, kind and size before copying files into the app's `dataDir/incoming/`, rewrites parameters in place to dataDir-relative paths (`incoming/...`), and passes metadata via `context.stagedFiles`.
+- Subprocess worker runtime marshals `stagedFiles` across the IPC boundary so isolated handlers receive complete staging context.
+- Prevents full document text from consuming LLM output tokens during tool invocations, and allows apps to receive referenced local files (e.g. images).
+- Verified: `npx tsc --noEmit` 0 errors; 73/73 tests in miniapps suite (manifest validation, staging semantics, process isolation round-trip) and 45/45 tests in service bootstrap pass.
+
+### Fixed: conversation auto title summarization never ran (TypeError: settings.get is not a function)
+
+- `tryAutoSummarizeConversationTitleAsync` destructured `settings` from `getRuntime()` and called `settings.get()`, but the runtime exposes `getSettings()`; every background run threw immediately and titles stayed as the default/truncated snippet.
+- Now reads the live settings snapshot through `getSettings()`.
+- Added a regression test that injects a fake `__molibotRuntime` and asserts the wrapper reads settings via `getSettings()` and performs the rename (the previous tests only covered the pure `summarizeSessionTitleWithLlm`, which is why the broken seam shipped). Verified: title summarizer test suite passes.
+
+## 2026-08-14
+
+## 2026-08-14
+
+### Release: v2.9.25 / Desktop v0.9.22
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: Mini Chat conversation deletion works inside the app sandbox
+
+- Replaced the blocked browser `window.confirm()` dependency with an Astryx confirmation dialog, so the top-right delete action now opens reliably and deletes the selected conversation and its messages.
+- Bumped the built-in Mini Chat package to v1.0.5 so existing installations receive the UI fix.
+
+### Fixed: Mini Chat honors its selected model
+
+- A Mini Chat per-request model selection now overrides the configured global text route, so choosing a PI or custom model sends the request to that exact model instead of silently falling back to the default.
+- Added a real routing regression that covers a non-empty global `textModelKey`, the condition missed by the earlier model-selection tests.
+
+### Improved: Chat transcript follows new content on a physics spring
+
+- Transcript auto-scroll no longer teleports on every streamed frame: `stickToBottom` now glides to the newest content on an interruptible, frame-rate-independent rAF spring that retargets as content grows.
+- The reader's first upward wheel or touch cancels the glide and hands scroll ownership back; returning near the bottom re-arms following. Session switches still land on the tail instantly, and `prefers-reduced-motion` / low-performance modes keep the instant behavior.
+- Added a Motion section to DESIGN.md fixing the app-wide motion tokens, the opacity/transform-only rule, and the "what never animates" list.
+
+### Fixed: the finished reply no longer blinks out at end of turn
+
+- The end-of-turn transcript reload re-keys message rows in the same frame the streaming bubble is removed; those rows now mount fully opaque instead of fading in from zero, so the reply the reader was watching hands over to its persisted row with no visible swap.
+
+### Changed: chat composer focus loses its tinted border
+
+- Clicking into the chat input no longer paints a bright accent border around the whole composer area; focus is signaled by a faint neutral glow only.
+
+### Improved: the reasoning card folds as soon as the answer starts
+
+- While the model reasons or runs tools with no answer yet, the live process card stays open; the moment the first answer content streams, it now collapses by itself so the answer leads instead of waiting for the turn to end. A manual re-expand afterwards is respected.
+- Collapsed summaries, failure/interruption behavior, and the committed transcript treatment are unchanged.
+
+### Release: v2.9.24 / Desktop v0.9.21
+- Synchronized the root and Desktop package versions for the new release.
+
+### Added: Mini Chat for lightweight, prompt-free conversations
+
+- Added the optional built-in Mini Chat app, using the Astryx `ai-chat` interface with responsive Chinese/English and light/dark presentation.
+- Mini Chat stores conversations in its own SQLite database and sends only its bounded user/assistant history through the Mini App AI route; it does not enter the Agent Runtime or inherit Agent prompts, memory, Skills, or tools.
+- Added host-level structured chat and cancellation support, with persistent interrupted/failed receipts, retry, copy, conversation deletion, and restart recovery.
+
+### Fixed: Mini Chat uses supported reasoning and explains request failures
+
+- Mini Chat text requests now use the `low` reasoning level instead of `off`, matching Providers that require an enabled reasoning level.
+- Provider errors now reach Mini Chat as a short, credential-redacted description with the upstream HTTP status when available, so configuration and model capability problems are actionable.
+
+### Improved: Mini Chat streams replies and preserves narrow-screen width
+
+- Mini App text generation can now forward Provider text deltas across the app process boundary while retaining the same final result, cancellation, usage, and error contracts.
+- Mini Chat renders those deltas while generation is active, persists only the completed reply, and removes the oversized assistant initials avatar.
+- At 390px wide, the assistant message column now uses 327px with no avatar reservation or horizontal overflow.
+
+### Improved: Mini Chat adds per-app model and prompt settings
+
+- Mini Chat now offers a compact settings dialog for choosing any configured text model or following the Mini App default, plus an optional short system prompt stored only in Mini Chat's own data directory.
+- Model discovery returns only routed model identifiers and display labels; Provider credentials remain inside the host. The selected model and prompt cross the child-process bridge without entering the Agent Runtime.
+- Assistant metadata now shares the reply bubble's content inset so timestamps and copy actions align with the answer, and the hidden mobile conversation rail no longer casts a visible left-edge shadow.
+
+### Improved: Mini Chat has a distinctive built-in app icon
+
+- Replaced the generic black chat tile with a compact teal two-bubble mark, using the same primary/deep/highlight color construction as the Note, Todo, and Meeting Notes icons.
+
+### Improved: repeated Chat actions collapse into readable groups
+
+- Completed adjacent reads, file changes, searches, and shell commands now condense into one plain-language action row while preserving their original position in the reasoning timeline.
+- Expanding a group reveals every original tool call and its payload. Running, failed, and unknown tools always remain separate so active work and diagnostics are never hidden.
+- Chat and Project Chat share the same projection, with Chinese/English summaries for action count, unique file count, and elapsed time.
+
+### Improved: Chat process is one Codex-style ordered timeline
+
+- Live Chat and Project Chat now keep the current reasoning/tool process expanded; successful turns collapse to one quiet summary, while failures and interruptions remain open.
+- Expanding a process shows one chronological timeline instead of separate reasoning and tool sections. Each tool call owns one lifecycle record and only its payload expands.
+- Tool start/end events now pair by the runtime's real `toolCallId`, fixing parallel same-name calls and preserving the specific start label. Summaries use elapsed time, tool count, and changed-file count rather than unstable reasoning chunk counts.
+
+### Improved: AI provider model families use the first name prefix
+
+- Desktop Settings → AI Providers now groups both the configured model inventory and the discovery dialog by the text before the first `-` in the model name, so `gemini-3.5-*` and `gemini-3.6-*` appear together under `gemini`.
+- Model IDs, ordering, search, sorting, collapsing, and add/remove behavior are unchanged.
+
+### Fixed: live Chat keeps reasoning and tool events in arrival order
+
+- Desktop Chat and Project Chat no longer let a tool call jump ahead of reasoning that arrived earlier in the same animation frame, or render answer text before the final reasoning chunk.
+- The shared conversation controller now batches one ordered stream of text/reasoning chunks and flushes it at tool and Plan boundaries; persisted transcript projection remains unchanged.
+- The ordering feature shipped in v2.9.17, but its first implementation combined the pre-existing frame buffer with immediate tool insertion and therefore contained this timing-dependent regression from that release onward. Controller-level regression tests now cover both boundary cases.
+
+### Release: v2.9.23 / Desktop v0.9.20
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: Settings page edit dialogs, Memory cold-start, MCP auto-connect, and media test surfaces
+
+- Entity edit dialogs (Agent / Web Profile / Channels / MCP) rendered cramped at 560px because `.entity-editor-dialog` lost the CSS cascade to the later base `.desktop-dialog-content` (both single-class selectors on the same element); switched to a compound `.desktop-dialog-content.entity-editor-dialog` selector so the 720px / 86vh override is immune to source order. Added a base `.provider-editor-toolbar` rule so file-section headers align with the 16px-padded fields below and the Channels test button shares its row instead of wrapping.
+- Sandbox policy cards were 664px left-aligned with an asymmetric right gap because `.sandbox-policy-grid .settings-card` reset `margin` without `width`; cards now fill their grid cell.
+- Skills search-config disclosure summary inherited UA 16px bold and zero vertical padding, reading as "错乱" next to its neighbors; aligned to the settings-row typography and box. The collapse itself was already test-guarded.
+- Memory overview stayed blank for seconds because `loadMemory` gated records / candidates / rejections behind the slow LLM-synthesized profile inside one `Promise.allSettled`; the fast datasets now paint first and the profile settles after.
+- MCP servers no longer auto-connect when the app reopens. Added a `reconnectAll` action that reuses the shared boot-time `reconcileMcpServers` primitive (idempotent — already-connected servers are skipped), fired from `loadMcp` when an enabled-but-disconnected server is found. Kept off the GET list path so a misconfigured server cannot stall the list load.
+- Image test section was cramped / misaligned: the Test button now aligns left with the form fields and has top padding. Voice test audio element bumped from 34px to 40px so native controls are not clipped (matches the web UI).
+
+### Improved: Meeting Notes recording studio and history interactions
+
+- Refined Live into a quiet recording-studio surface with an active-time focal clock, state orbit, audio activity, explicit microphone/save health, clearer pause/resume hierarchy, and a keyboard-cancellable end-meeting confirmation.
+- History now shows its result count and All / Processing / Complete / Needs attention filters. Search is debounced and rejects stale responses instead of allowing slower old queries to replace current results.
+- Background refresh no longer dismisses an open end confirmation or overwrites a meeting title while it is being edited. Meeting Notes is bumped to `2.2.0`.
+
+### Fixed: Meeting Notes is now a usable recorder and meeting library
+
+- Added native pause/resume for the same disk-backed capture. Pausing flushes the current partial block, stops the effective meeting clock, and remains resumable after the Mini App panel is closed and reopened.
+- Replaced the mixed banner/list/detail layout with separate Live and History surfaces. Live owns the timer and capture controls; History provides server-side search across titles, notes, and transcript text, date grouping, duration/status metadata, and a clear list-detail return path.
+- Added idempotent `paused` meeting state, active-meeting guards, and service-restart reconciliation against the Desktop host's surviving native capture. Meeting Notes is bumped to `2.1.0`.
+
+### Fixed: Meeting Notes audio chunks pass the production service boundary
+- Raised adapter-node's bounded request limit before server startup so a 10-second PCM WAV encoded as Base64 JSON is no longer rejected by the framework's 512 KiB default.
+- Oversize-body failures now return a specific 413 upload-limit message instead of the misleading “Request body must be JSON”; transcription and summary failures are logged with safe meeting/chunk identifiers and shown in the meeting UI with an actionable Mini App AI settings path.
+- The meeting page now keeps polling while final notes are summarizing. Meeting Notes is bumped to `2.0.1` so installed copies receive the diagnostic UI.
+
+### Added: production-ready live Meeting Notes V1
+- Meeting recording now runs in the Desktop host as bounded 10-second WAV chunks, so closing the Mini App panel no longer owns or ends the capture lifecycle.
+- Transcription appears on a live timeline, provisional notes update from bounded one-minute evidence windows, and stopping performs a hierarchical final summary instead of uploading or prompting with an hour-long file/transcript.
+- Track/sequence barriers, idempotent uploads, retained audio, missing/failed chunk visibility, restart recovery, and partial-result marking make interruptions explicit and recoverable.
+- Meeting Notes is now `2.0.1`; V1 ships the in-room microphone adapter on a multi-track architecture ready for a later system-audio source.
+
+## 2026-08-13
+
+### Improved: Settings model selectors are grouped and refresh after Provider saves
+- Settings → Models now groups text, vision, transcription, subagent, advanced-routing, compaction, and Mini App AI model choices by provider, with one compact row per model.
+- Returning from AI Providers now reloads the model inventory even when the service endpoint is unchanged, so newly saved models appear immediately without restarting or manually refreshing.
+- The regression guard covers the previously missed lifecycle boundary where the Models section was unmounted when the Provider change event fired.
+
+### Improved: Chat model selection is grouped by provider
+- Desktop Chat and Project Chat now group the shared model menu by provider instead of mixing every configured model into one flat list.
+- Each model occupies one compact row using its alias or readable name; the full provider/model label remains available as a tooltip, with Session routing and keyboard selection unchanged.
+
+### Release: v2.9.22 / Desktop v0.9.19
+- Synchronized the root and Desktop package versions for the new release.
+
+### Added: AI-powered one-sentence session title summarization
+- First-message session creation now automatically generates a concise title using a background LLM request, with locale-aware System Prompt (`zh-CN` / `en-US`) and `reasoning: "off"`.
+- Updated `/api/stream` and `/api/chat` with `tryAutoSummarizeConversationTitleAsync` and SSE `session_title_updated` event for instant UI sidebar updates.
+
+### Fixed: Note stays current and renders Markdown
+- An already-open Note panel now watches the shared Mini App revision while visible, so Agent-created or edited notes appear without switching panels or manually refreshing.
+- Note card bodies render safe GitHub-flavored Markdown, including headings, emphasis, lists, quotes, code, links, and tables. Raw HTML, remote images, and unsafe link protocols remain inert; editing continues to expose the original Markdown source.
+- Note was bumped to v1.4.0 so installed copies can receive the bundled UI and renderer update.
+
+### Fixed: built-in Provider tests and model discovery use their native path
+- Built-in Providers such as OpenCode no longer require a self-hosted `baseUrl` or call a custom `/models` endpoint. Model discovery now returns the packaged Pi catalog directly.
+- Connectivity tests now send one minimal request through the same Pi runtime used by the Agent, including a saved settings API-key override, so failures distinguish missing local configuration from the upstream account response.
+- Verified the current OpenCode setup reaches the upstream service; its remaining response is an account `Insufficient balance` error, not the previous local `baseUrl` guard.
+
+## 2026-08-12
+
+### Release: v2.9.21 / Desktop v0.9.18
+- Synchronized the root and Desktop package versions for the new release.
+
+### Added: server-rendered D2 diagrams and fixed CJK Markdown tables
+- Complete `d2` fenced blocks now render through the Desktop server's D2/Kroki endpoint with bounded source/output sizes, timeout protection, small response caching, theme forwarding, and a readable source fallback.
+- Chat Markdown table previews now use the UTF-8 CSV viewer instead of the binary workbook parser, so Chinese headers and cells no longer become mojibake.
+- Sticky sidebar section headers use the same quiet `var(--fill)` surface as hovered Sessions while retaining the existing blur and accessibility/performance fallbacks.
+
+### Fixed: Todo list actions no longer squeeze task titles
+- Built-in Todo row actions now float over the row's right edge instead of reserving a permanent flex slot, so long task titles use the full available width.
+- The floating action surface remains readable in Light/Dark themes and keeps hover, touch, keyboard focus, and anchored menus working. Todo was bumped to v1.7.0 so installed copies can receive the UI fix.
+
+### Fixed: Message menu placement and File Inspector theme sync
+- Assistant message overflow actions now open upward from the bottom of the reading column, keeping the composer visually clear while preserving the shared keyboard/focus behavior.
+- File / Artifact Inspector chrome now derives canvas, surfaces, borders, labels, accent, and status roles from the active Desktop theme family and resolved brightness instead of a separate hard-coded Primer palette.
+
+### Added: Independent brightness and theme families
+- Desktop Settings → General → Appearance now separates Brightness (`Light` / `Dark` / `System`) from Theme family (`Minimal (macOS)` / `Rosé Pine` / `Catppuccin` / `Midnight`), with independent persistence and live system-following updates.
+- Added Rosé Pine Dawn/Moon, Catppuccin Latte/Macchiato, and Midnight's Daybreak light companion. Shared semantic tokens keep Chat, Settings, Agent City, Artifact previews, and syntax colors aligned across all family/brightness combinations.
+- The native macOS sidebar glass contract now uses each family's translucent tint with the shared `blur(18px) saturate(160%)` layer, while accessibility and low-performance fallbacks remain opaque by design.
+
+### Release: v2.9.20 / Desktop v0.9.17
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: Desktop sidebar glass restoration
+- Restored the Chat and Settings sidebar's translucent theme tint plus `blur(18px) saturate(160%)` while keeping the native macOS `sidebar` window effect. Light, Dark, Midnight, and System now retain visible material depth; reduced-transparency, increased-contrast, and low-performance paths use the opaque fallback.
+
+### Added: Desktop Midnight theme
+- Desktop Settings → General → Appearance now offers a fourth, deep-blue Midnight theme alongside Light, Dark, and System. The choice persists across restarts and maps its native macOS window material to the dark appearance without losing the Midnight CSS palette.
+- Chat Markdown, Agent City, Artifact Inspector, PPTX/Mermaid previews, and system-following dark rules now resolve Midnight consistently instead of falling back to Light or System.
+
+### Fixed: Plan completion, decision placement, and read-only delegation
+- A successful `exitPlan` is now a terminal structured result, so the Runner no longer retries it as an empty answer, duplicates terminal messages, or burns the remaining tool budget after the Plan already exists.
+- Persisted Plans are projected once from their canonical metadata and proposed Plans remain the final visible item in the completed turn, below later reasoning or activity blocks and immediately beside their confirmation actions.
+- Plan mode can delegate substantial repository analysis to Scout and Planner Subagents. The mode rejects write-capable roles and removes delegated Bash, while ordinary permission modes retain their existing Subagent capabilities.
+
+## 2026-08-11
+
+### Release: v2.9.19 / Desktop v0.9.16
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: Desktop settings editors, loading, and cold-start connectivity
+- Agent, Web Profile, Channel, and MCP editors now use the shared accessible dialog shell with a bounded scrolling body and fixed header/footer. The shell explicitly portals to `body`, so an editor always opens as a centered top-layer modal instead of inheriting its list position or appearing below a long settings page.
+- Skill search configuration is collapsed by default; image/TTS test fields and Sandbox policy groups use balanced settings layouts across wide and narrow windows.
+- Memory Center paints its summary as soon as the primary request completes instead of waiting for four slower datasets. Enabled MCP servers now reconnect during runtime cold start, including the managed OpenConnector server.
+
+### Improved: Chat code follows the Inspector theme and reply metadata stays quiet
+- Chat and Project Chat Markdown code blocks now share the Artifact Inspector's GitHub/Primer syntax tokens, including light, explicit-dark, and system-dark palettes, instead of forcing dark code surfaces in a light transcript.
+- Completed assistant replies keep metadata inline at normal message-column widths. Only a genuinely narrow column folds technical details and Mini App actions into one right-aligned ellipsis; the pointer-opened popover closes when the pointer leaves its complete region.
+
+### Improved: compact Bot identity and Project Session disclosure
+- The Desktop composer Bot control now uses one initial instead of `@` plus the full Agent name, while keeping the complete identity in its tooltip, accessible label, and selection menu.
+- The adjacent permission-mode control no longer spends horizontal space on a trailing dropdown arrow; its icon, label, hover/open states, and keyboard-accessible menu remain unchanged.
+- Bot badges use a restrained subset of the documented palette on quieter fills; adjacent picker options are distinct, and channel glyphs use the same low-emphasis outline treatment as primary navigation.
+- Each expanded Project initially shows 10 Sessions. “More conversations” reveals the next 10 instead of letting one Project consume the sidebar.
+
+### Release: v2.9.18 / Desktop v0.9.15
+- Synchronized the root and Desktop package versions for the new release.
+
+### Improved: Mermaid diagrams expose source and a zoomable preview
+- Every rendered Mermaid block in Chat, Project Chat, and Markdown artifacts now has a persistent Preview / Source switch. Source mode is selectable and includes an explicit copy action.
+- Preview mode can open the shared image viewer for zoom, reset, and drag-to-pan without changing the diagram's secure rendering path.
+
+### Fixed: malformed Mermaid diagrams stay inside their message
+- A Mermaid syntax error no longer leaves the library's temporary 2412×512 error SVG attached directly to `document.body`, where it could displace the Desktop window until restart. Chat and Artifact Markdown both suppress Mermaid's own error drawing while preserving Molibot's localized failure note and source fallback.
+- A browser regression reproduced the leaked body child and extra page height before the fix, then verified zero leaked nodes and unchanged viewport height after it. A structural guard now covers every Svelte Mermaid renderer.
+
+## 2026-08-10
+
+### Release: v2.9.17 / Desktop v0.9.14
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: wide message content stays inside the reading column
+- Desktop Chat and Project Chat no longer let an unbreakable rendered block widen the whole transcript. Prose and paths wrap inside the bounded message column, while tables, code, math, diagrams, and diffs keep layout through their own horizontal scrollers.
+- Persisted explicit Skill references now render with the Skill invocation card instead of expanding their local `SKILL.md` path as an ordinary Markdown link; only the Skill identity and the user's remaining request are visible.
+- A real browser layout probe reduced a 760px transcript's `scrollWidth` from 1380px to 760px while preserving a 1342px module's local overflow; structural regressions cover the complete shrink chain and scroll ownership.
+
+### Added: Web sidebar shortcut for a new Session
+- The Desktop Web channel row now has its own accessible plus action immediately before the disclosure arrow; like Project actions, it stays hidden until row hover or keyboard focus and reuses the primary New chat flow without toggling the channel accordion.
+- Telegram, Feishu, QQ, and Weixin remain unchanged.
+
+### Improved: accepted Plans execute durably, one step at a time
+- Accepting an editable Session Plan now creates one idempotent, multi-step Durable Execution instead of resuming one ordinary all-at-once Run.
+- Each attempt completes only its current accepted step, records inspectable run evidence, queues the next step, and projects progress back into the Plan card; retrying acceptance cannot duplicate the task and can recover the create-before-queue crash window.
+- Plan, Manual, Accept edits, and Auto now have an independent composer control immediately to the right of Attach; the model menu is limited to model and thinking choices.
+- Focused Durable tests (17), Desktop UI structure tests (186), Svelte diagnostics, production build, and whitespace checks pass. The broader Desktop chat suite remains at 250/252 because of two pre-existing harness failures (`$derived` in direct Node execution and SQLite FTS `bm25`).
+
+### Improved: completed Chat reasoning folds into one process row
+- Once a turn finishes, its reasoning, pre-tool narration, and tool activity collapse behind one compact “Thinking · N steps · duration” disclosure, leaving the final answer immediately readable.
+- Live work remains visible, failed or aborted work opens automatically, and Plan cards stay outside the disclosure so required decisions cannot be hidden.
+
+### Added: ordered Chat runs, complete Plan workflow, and rich Markdown
+- Chat transcripts preserve the real interleaving of reasoning, tool calls, plans, and answer text, with per-step metadata and compact turn summaries.
+- Desktop Plan mode now narrows tools before inference, emits an editable artifact-backed Plan card, and continues accepted work in the same Session.
+- Approval and Plan choices share one DecisionCard; approvals carry structured diffs and support multiple pending requests.
+- Chat Markdown supports Mermaid, KaTeX, isolated HTML/SVG previews, table-viewer handoff, answer outlines, and paged long transcripts.
+
+### Release: v2.9.16 / Desktop v0.9.13
+- Synchronized the root and Desktop package versions for the new release.
+
+### Added: session permission modes (Plan / Manual / Accept edits / Auto), slices 0 and 1
+
+- Molibot had three gates that did not know about each other, and between them "what may this touch" and "do we ask first" had collapsed into one boolean: `bashPolicy` returned `allow` the moment the sandbox was off, `write`/`edit` were never gated at all, and `toolSandbox.filesystem.denyWrite` — a setting the operator can configure today — did nothing to the file tools. Permission mode is now a second axis, orthogonal to the sandbox: Plan ⊂ Manual ⊂ Accept edits (default) ⊂ Auto, with no Bypass.
+- **The gate is one pure function with its whole matrix under test.** `decidePolicy` used to be an anonymous closure whose only rule was `risk === high || critical`, and it could not be tested at all. `decidePermission(mode, effect, containment, hint)` is now tested cell by cell against a hand-written table — a test that recomputed the decision would pass against any bug the implementation has. Three invariants are asserted separately: `manage` asks in every mode including Auto, `deny` appears only in Plan, and `host` containment never auto-allows, so a sandbox that failed to start cannot silently become "run it on the host".
+- **`effect` exists because `risk` cannot express the gate.** `write`(medium) sits beside `webSearch`(medium) and `bash`(high) beside `miniapp__x.delete`(high), so "auto-approve file writes but keep asking before running commands" was unsayable. Classification returns `effect` alongside the unchanged `risk`, which keeps its display and audit duty.
+- **Installed apps and external services are trusted differently.** Wiring the gate revealed that a single `third_party` cell would put an approval card in front of every call to an installed Mini App — three installed apps means a card on every note and every expense, which the PRD's migration section never admitted. The owner installed those explicitly and that install already passed `manage`; an external MCP server is a *connection* whose contents can change and whose annotations are self-reported. So `installed_app` runs without a card from Accept edits up, `destructiveHint` still asks, and `manage` still asks in every mode so the trust cannot become circular.
+- **Automation suspends instead of blocking.** An unattended run that waits on an approval holds its execution lease in `running`, which `hasActiveForTask` reads as a live owner — every later run of that task is then suppressed as `task_already_running` and the task goes quiet permanently (pitfall 23). Risk now decides *how* we ask (an individual card, or the 1.5s debounced batch) and never *whether* the caller may decline to wait. The lease guard asserts both halves, because either alone is insufficient: the suspended lease is not `running`, **and** the next dispatch is not suppressed — `retry_wait` also leaves `running` and still counts as occupancy.
+- **`denyWrite` binds the file tools.** It is necessarily a second enforcement point (the sandbox enforces it in the OS around a *process*, and there is no process when `write` goes through `fs`), so the module says so rather than implying one mechanism, and shares gitignore semantics through the `ignore` package. `allowWrite` is accepted but never grants: letting a policy string widen where the file tools may write would make it a second, weaker path guard.
+- **One override chain, not two.** `resolveSessionScopedOverride` owns the five levels (session → project → instance → agent → global) and the sandbox is now a caller rather than a hand-written copy. `null`/`undefined` mean "keep looking"; `false` is a value, not an absence — treating it as unset would make "off here" silently inherit "on" from above.
+- The settings round-trip found **four** hand-written projections that had to carry the new field — two in `sanitize.ts` and two duplicate local copies in `store.ts` that shadow them. The agent-level value was written to SQLite correctly and dropped on load by the shadowing copy, the exact silent reset pitfall 11 describes. `sandboxOverride` had no round-trip coverage at all and is covered now, including the case where writing one axis must not drop the other from the shared preferences container.
+- Permission mode is a third page inside the existing composer menu, not a second dropdown: model, thinking level and mode all answer "how should this conversation run", and a separate control would fork the trigger, the keyboard handling and the outside-click logic. Every mode carries a sentence saying what actually changes; a host that does not offer the axis gets no row rather than a disabled one. Channels see Plan and Manual clamped to Accept edits — neither has an interaction surface there.
+- Approval cards now offer a `persistent` grant, so a strict mode is livable rather than an endless prompt. Installs are excluded: a lasting grant there would let one approval authorize every future install.
+- **Slice 3 closed two gaps the convergence work had left.** `bash` returned from `decidePolicy` *before* the gate ran, so Manual — the mode whose point is "ask before you run things" — silently did not apply to the one tool a user most expects it to cover. It now delegates the ask/allow call to the mode, while keeping the two decisions only it knows: the file-tool redirect, and an approved Host Bash grant. A host command stays `allow` here on purpose, because the bash handler owns that conversation and gating twice would double-prompt; a sandboxed command has no second conversation, so an `ask` there must be honoured or the mode does nothing. Separately, the "always allow" chain (card offers the scope → desktop maps the decision → broker records a grant → `checkGrant` matches it) existed piece by piece but was never asserted end to end; six cases now cover it, including that a session grant must not leak into another session and that approving one write must not grant every future write.
+- The rest of what slice 3 asked for was already done: the two approval tables were merged in 2026-06 and the hand-written cross-store bridge deleted, so "converge HostBash into ApprovalService" needed no new adapter. One correction recorded in that plan: its justification for deleting the bridge ("no built-in tool ever creates a broker request") no longer holds now that MCP asks in the default mode and Manual asks before `write`/`edit` — the deletion is still right, but for a different reason.
+- Verification: permissions 26/26 + gate 14/14 + matrix 11/11, bashPolicy 11/11, grant round trip 6/6, lease guard 4/4, settings round-trip 15/15, full server suites 584/584, desktop `svelte-check` 0 errors 0 warnings, `vite build` clean, desktop structural guards 185/186 (the one failure is a pre-existing Phosphor path mismatch, confirmed by stashing and re-running). Slice 2 (Plan mode) remains: the gate can already `deny`, but the tool list is not yet narrowed before the model sees it, so Plan is not exposed.
+
+### Release: v2.9.15 / Desktop v0.9.12
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: a delivered reminder killed every model in that Session with `Cannot read properties of undefined (reading 'totalTokens')`
+
+- The symptom read as a provider outage: every candidate in the fallback chain failed instantly with the same `type=request_error`, across three different providers and base URLs, and no HTTP request was ever sent. `totalTokens` is not a new field — it belongs to `@earendil-works/pi-ai@0.82.0`, whose version did not change.
+- Root cause is a null dereference on our own data, on the pre-dispatch path shared by every API. `buildBaseOptions` → `clampMaxTokensToContext` → `estimateContextTokens` → `calculateContextTokens(assistant.usage)` reads `usage.totalTokens` with no guard (pi-agent-core's copy of the same function has one, which is why nothing else caught it). One assistant message without a `usage` block therefore throws before the request is built, identically for every model.
+- The message came from `appendDirectEventContextMessage`: a `delivery=text` automation (a fired reminder) is persisted into the Agent Context as an assistant message, and it never went through a provider, so it carried `role`/`content`/`timestamp` only. Every later turn of that Session re-read it and died — a permanent, per-Session failure, confirmed in live data (`moli-t/.../contexts/s-mmat4fav.jsonl` and several `[Molibot reminder acceptance ...] delivered` archives).
+- Fixed at both ends, because one end alone is not enough: the write site now attaches `zeroAssistantUsage()`, and `prepareMessagesForModelContext` — the single funnel into `agent.state.messages` — normalizes any assistant message that still arrives without one, so Sessions already poisoned on disk recover instead of waiting for compaction.
+- Guarded against the vendor module itself rather than a hand-written stub: `runnerHelpers.test.ts` asserts pi-ai's real `clampMaxTokensToContext` throws on the unrepaired message and returns a number on the prepared one, so a future pi bump that changes this contract fails in the suite; `directEventPersistence.test.ts` asserts the persisted delivery carries the usage block.
+- Verification: agent core + session + shared-channel suites 176/176, `tsc` clean on the touched files.
+
+### Added: a runnable cold-start acceptance for Durable Execution
+
+- PRD §430 asks for a harness that "can stop the scratch service at a declared fault point, restart it with the same temporary data directory, and continue through the public API". That walk had been done once by hand and written up in `findings.md`, which proves it worked that day and nothing about tomorrow. `node evals/durable-restart-live.mjs` is the same walk as a script: 14 checks, no model calls, reusing `evals/lib/service.mjs` so the lease, signal handling and external-channel kill switch are the real ones.
+- It leaves behind what a crash actually leaves behind — a `running` execution holding an **unexpired** lease owned by a process id that is gone — then restarts and asserts startup reconcile reclaims it by ownership: execution → `recovery_required`, orphaned attempt → `interrupted`, running step → `uncertain`. The lease being 10 minutes from expiry is the point: a timeout-based sweep would leave it pinned as `running` forever, which is the production bug pitfall #23 came from.
+- Two ordering traps are recorded in the script because both were hit while writing it. The first version left the probe in `queued` holding no lease, so it reached `recovery_required` through the missed-continuation seam instead — and every check still passed with `reconcile()` stubbed to `return 0`. A harness that stays green against a stubbed-out mechanism is asserting nothing, so the startup pass now has to report the count it reclaimed. The second: `create` + `activate` dispatches a real attempt that keeps writing after the API call returns, so the injection happens only after the service is stopped and is read back before continuing.
+- Phase 4 covers the other half of the contract — a recovered execution stays operable: it can still be cancelled through the public API, cancellation is terminal and persisted, and replaying the same `actionId` leaves it cancelled rather than producing a second transition.
+
+### Fixed: the eval harness reported "cannot ingest documents" when only its own upload was broken
+
+- Every attachment task in the golden set (B2 PDF, B3 image, B4 unreadable-input honesty, B5 spreadsheet, B6 vision-on-history) errored in ~0s with `chat request failed: Invalid request body`, and the 2026-08-10 full run scored 23/31 with the B group at 1/6. Read at face value that is "document ingestion is dead" — a P0-shaped capability regression.
+- The product path was never broken. `sendTurn` posts through undici's `fetch` (the global one takes no `dispatcher`, which is how a run gets an HTTP timeout longer than a task — pitfall #25's transport-timeout rule), but built the body with Node's **global** `FormData`. Those come from two different undici instances, and undici detects a form body by an internal brand it stamps only on its own class. The foreign form failed that check, fell through to generic body handling, and reached the service as something `parseRequest` could not read. Proven against a live service, not by inspection: global `FormData` + undici `fetch` = 400, undici `FormData` + undici `fetch` = 200, global + global = 200.
+- The form is now built with undici's `FormData`. Only that class has to match the sender — undici does not export `Blob`, and does not need to, because it brands the *form*, not its parts. After the fix the B group re-ran 6/6 against a real provider.
+- Guarded by a new `evals/client.test.mjs` case that drives `runTaskTurns` against a real HTTP server and asserts what the wire actually carries: a `multipart/form-data; boundary=` content-type, the file's own bytes, and the `files`/`message` parts. Verified by reverting the fix and watching the guard go red, so a future upload call site cannot reintroduce the realm mismatch.
+- A2 (edit an existing file) failed on that run and passed on re-run — non-deterministic model behaviour, not a regression. A5 stays `baseline: unknown` by design: the sandbox blocks egress, so the Agent correctly asks for Host approval and an unattended run stops there.
+- Full set re-run after the fix: **30/31**, 0 errors, 0 unproven, A5 the only failure. The capability matrix now records that as the confirmed baseline instead of the 24/31 待验证 entry.
+
+### Release: v2.9.14 / Desktop v0.9.11
+- Synchronized the root and Desktop package versions for the new release.
+
+### Fixed: runner helper fixtures retain canonical model capability types
+- The two unsupported-developer-role fixtures now use the canonical `RuntimeSettings` shape. This keeps custom provider `tags` and `supportedRoles` as their literal capability types, so settings-shape drift is caught by the type guard without producing a false production failure.
+- Verification: `runnerHelpers.test.ts` 5/5, Desktop structural guards 183/183, no remaining root type-check diagnostic points at `runnerHelpers.test.ts`, and `git diff --check` clean. The repository-wide TypeScript baseline still contains unrelated pre-existing diagnostics outside this fix.
+
+### Improved: Durable Execution recovery, evidence, and channel controls
+- Queryable recovery now probes external state before deciding whether to retry; missing, failed, or unknown probes open an explicit recovery review instead of replaying a possible side effect.
+- Durable attempts can read only their own attached evidence through a bounded `durableEvidence` tool. Run-detail reads enforce the source chat/Project/Session boundary, fail soft when the target is gone, and label returned content as untrusted.
+- Approval requests, repeat counts, one-time/session/persistent scopes, source-channel notices, and shared `/durable` short-handle commands now use the Durable aggregate. QQ and Weixin route replies through the remembered source message; Desktop uses the same inspector state.
+- Web Chat requests whose profile id is not a materialized channel instance now resolve to an active Web manager before Durable activation. A real `/api/chat` request with a virtual `personal` profile reached the local provider and recovered as `recovery_required` after same-database service restart.
+- Focused recovery/evidence/approval/channel tests pass. Full cold-start/cross-channel acceptance and equivalent external-provider live coverage remain the release gate.
+
+### Changed: Agent Community Phase 5 完整工作台（2026-09-19）
+
+Agent Inspector 现在补齐最近运行时间线与同 Agent 并发 run，可查看近 24 小时最多 8 条运行记录；打开 Agent 设置会直接进入当前选中 Agent 的编辑器。临时 Worker 不再瞬移到工位，而是从房间入口进入 Worker Camp，完成/失败后离场。空闲的 Momo 与地面层 Agent 会错峰前往社区 plaza 短暂停留并互动，再返回各自工作室；低动态模式会关闭这些空间移动。

@@ -1,4 +1,4 @@
-// Skills settings — state + orchestration.
+// Shared skill management and search settings state.
 import { loadDesktopSkills, updateDesktopSkills } from "../api";
 import type { DesktopSkillsSummary } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
@@ -14,12 +14,15 @@ export const skillsStore = $state({
   updatingBuiltinId: "",
   // Pristine snapshot so the sticky save bar only appears on real changes.
   searchPristine: "",
-  actionMessage: ""
+  actionResult: null as { kind: "skill" | "builtin"; id: string } | null,
+  searchSaved: false
 });
 
 export async function loadSkills(endpoint: string): Promise<void> {
   skillsStore.endpoint = endpoint;
   skillsStore.loading = true;
+  skillsStore.searchSaved = false;
+  skillsStore.actionResult = null;
   skillsStore.error = "";
   session.error = "";
   try {
@@ -39,12 +42,15 @@ export async function toggleSkill(id: string, enabled: boolean): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint || skillsStore.savingId) return;
   skillsStore.savingId = id;
+  skillsStore.error = "";
+  skillsStore.actionResult = null;
   session.error = "";
   try {
     skillsStore.skills = await updateDesktopSkills(endpoint, { kind: "skill", id, enabled });
-    skillsStore.actionMessage = session.text.skillsStatusSaved;
+    skillsStore.actionResult = { kind: "skill", id };
   } catch (cause) {
     setError(cause);
+    skillsStore.error = session.error;
   } finally {
     skillsStore.savingId = "";
   }
@@ -61,12 +67,15 @@ export async function updateBuiltinSkill(id: string): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint || skillsStore.updatingBuiltinId) return;
   skillsStore.updatingBuiltinId = id;
+  skillsStore.error = "";
+  skillsStore.actionResult = null;
   session.error = "";
   try {
     skillsStore.skills = await updateDesktopSkills(endpoint, { kind: "builtin", id });
-    skillsStore.actionMessage = `${session.text.skillBuiltinUpdated}: ${id}`;
+    skillsStore.actionResult = { kind: "builtin", id };
   } catch (cause) {
     setError(cause);
+    skillsStore.error = session.error;
   } finally {
     skillsStore.updatingBuiltinId = "";
   }
@@ -77,14 +86,16 @@ export async function saveSkillsSearch(): Promise<void> {
   const draft = skillsStore.searchDraft;
   if (!endpoint || !draft || skillsStore.saving) return;
   skillsStore.saving = true;
+  skillsStore.searchSaved = false;
   session.error = "";
   try {
     skillsStore.skills = await updateDesktopSkills(endpoint, { kind: "search", localEnabled: draft.localEnabled, apiEnabled: draft.apiEnabled, apiProvider: draft.apiProvider, apiModel: draft.apiModel, maxTokens: draft.maxTokens, temperature: draft.temperature, timeoutMs: draft.timeoutMs, minConfidence: draft.minConfidence });
     skillsStore.searchDraft = { ...skillsStore.skills.search, providers: skillsStore.skills.search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
     skillsStore.searchPristine = JSON.stringify(skillsStore.searchDraft);
-    skillsStore.actionMessage = session.text.skillsSearchSaved;
+    skillsStore.searchSaved = true;
   } catch (cause) {
     setError(cause);
+    skillsStore.error = session.error;
   } finally {
     skillsStore.saving = false;
   }
@@ -92,5 +103,5 @@ export async function saveSkillsSearch(): Promise<void> {
 
 export function discardSkillsSearch(): void {
   if (skillsStore.searchPristine) skillsStore.searchDraft = JSON.parse(skillsStore.searchPristine);
-  skillsStore.actionMessage = "";
+  skillsStore.searchSaved = false;
 }

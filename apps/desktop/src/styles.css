@@ -1380,9 +1380,9 @@ a:focus-visible {
 .installed-skills-summary span { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
 .installed-skills-summary strong { color: var(--label-primary); font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
 .installed-skills-categories { display: flex; width: var(--workspace-col); margin: 0 auto 14px; }
-.installed-skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; width: var(--workspace-col); margin: 0 auto; }
-.installed-skill-card { display: flex; flex-direction: column; align-self: start; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02); cursor: pointer; transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
-.installed-skill-card:hover { border-color: color-mix(in srgb, var(--separator) 40%, var(--label-tertiary) 60%); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04); }
+.installed-skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 16px; width: var(--workspace-col); margin: 20px auto 0; }
+.installed-skill-card { display: flex; flex-direction: column; align-self: start; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: none; cursor: pointer; transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.installed-skill-card:hover { border-color: var(--control-border-strong); }
 /* Selected card paints the strong-selection pair; inner labels flip to the
    on-selection ramp so they stay readable on the saturated fill. Controls
    (switch, detail button) keep the shared rest state. */
@@ -1414,18 +1414,9 @@ a:focus-visible {
 .installed-skill-meta-pill.builtin { background: color-mix(in srgb, var(--accent) 12%, var(--fill)); color: var(--accent); }
 .installed-skill-meta-pill.mcp { background: color-mix(in srgb, var(--warning) 12%, var(--fill)); color: var(--warning-text); }
 .installed-skill-expand { display: inline-flex; align-items: center; gap: 4px; width: fit-content; min-height: 28px; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: var(--fs-meta); font-weight: 500; cursor: pointer; }
-.installed-skill-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--hairline); margin-top: auto; }
+.installed-skill-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: auto; padding-top: 8px; }
 .installed-skill-id-badge { font: var(--fs-meta)/var(--lh-meta) var(--font-mono); color: var(--label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .installed-skill-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.installed-skill-detail-btn { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; font-size: var(--fs-meta); cursor: pointer; }
-.installed-skill-dialog { width: min(calc(100% - 32px), 580px); max-height: min(85vh, 680px); }
-.installed-skill-dialog .modal-body { display: flex; flex-direction: column; gap: 16px; padding: 20px; overflow-y: auto; }
-.installed-skill-dialog-section { display: flex; flex-direction: column; gap: 6px; }
-.installed-skill-dialog-section strong { font-size: var(--fs-label); font-weight: 600; color: var(--label-primary); }
-.installed-skill-dialog-section p { margin: 0; color: var(--label-secondary); font-size: var(--fs-meta); line-height: 1.6; }
-.installed-skill-dialog-props { display: grid; grid-template-columns: 120px 1fr; gap: 8px 12px; margin: 0; padding: 12px; border-radius: var(--rounded-sm); background: var(--fill); font-size: var(--fs-meta); }
-.installed-skill-dialog-props dt { color: var(--label-tertiary); }
-.installed-skill-dialog-props dd { margin: 0; color: var(--label-primary); font-weight: 500; }
 .workspace-empty.compact { margin-top: 12vh; }
 /* Category switch is a single macOS segmented control: one rounded fill,
    segments share the compact 6px radius, the active segment lifts on the card
@@ -1481,20 +1472,20 @@ a:focus-visible {
    thing on the page. */
 .automation-workspace-toolbar .search-field { flex: 1 1 200px; min-width: 0; max-width: 320px; height: 32px; min-height: 32px; max-height: 32px; box-sizing: border-box; }
 .automation-workspace-create { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 32px; padding-inline: 14px; }
-.automation-workspace-layout { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; }
-.automation-workspace-layout.detail-open { position: relative; grid-template-columns: minmax(280px, 320px) minmax(0, 1fr); min-height: min(560px, calc(100vh - 220px)); height: calc(100vh - 220px); border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); overflow: hidden; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03); }
-.automation-workspace-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); align-content: start; gap: 12px; min-width: 0; overflow-y: visible; padding: 0; }
-.automation-workspace-layout.detail-open .automation-workspace-list { display: block; overflow-y: auto; padding: 10px; border-right: 1px solid var(--separator); background: var(--card-bg); }
-.automation-task-row { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; width: 100%; min-height: 112px; padding: 14px 16px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02); color: var(--label-primary); text-align: left; cursor: pointer; transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard); }
-.automation-workspace-layout.detail-open .automation-task-row { min-height: auto; padding: 12px 14px; gap: 8px; margin-bottom: 8px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); box-shadow: none; }
-.automation-workspace-layout.detail-open .automation-task-row.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--card-bg)); box-shadow: 0 0 0 1px var(--accent); }
-.automation-task-row:hover { border-color: color-mix(in srgb, var(--separator) 40%, var(--label-tertiary) 60%); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04); }
-.automation-task-row.active { background: var(--fill); }
-.automation-task-row.paused { opacity: .62; }
+.automation-workspace-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 520px; height: 100%; overflow: hidden; }
+.automation-workspace-layout.detail-open { position: relative; grid-template-columns: 320px minmax(0, 1fr); min-height: 520px; height: 100%; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.automation-workspace-list { display: block; min-width: 0; min-height: 0; overflow-y: auto; padding: 0 12px 20px; border-right: 1px solid var(--separator); }
+.automation-workspace-layout.detail-open .automation-workspace-list { display: block; overflow-y: auto; padding: 0 12px 20px; border-right: 1px solid var(--separator); background: transparent; }
+.automation-task-row { display: flex; flex-direction: column; justify-content: center; gap: 7px; width: 100%; min-height: 68px; padding: 12px; border: 0; border-bottom: 1px solid var(--separator); border-radius: 0; background: transparent; box-shadow: none; color: var(--label-primary); text-align: left; cursor: pointer; transition: background var(--duration-fast) var(--ease-standard); }
+.automation-workspace-layout.detail-open .automation-task-row { min-height: 68px; padding: 12px; gap: 7px; margin: 0; border: 0; border-bottom: 1px solid var(--separator); border-radius: 0; background: transparent; box-shadow: none; }
+.automation-workspace-layout.detail-open .automation-task-row.active { background: var(--selection-bg); color: var(--on-selection); box-shadow: none; }
+.automation-task-row:hover { background: var(--fill); box-shadow: none; }
+.automation-task-row.active { background: var(--selection-bg); color: var(--on-selection); }
+.automation-task-row.paused { color: var(--label-secondary); }
 .automation-task-row.unread { border-color: color-mix(in srgb, var(--accent) 40%, var(--separator)); background: color-mix(in srgb, var(--accent) 3%, var(--card-bg)); }
 .automation-task-row:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
 .automation-task-card-top { display: flex; align-items: center; gap: 8px; width: 100%; }
-.automation-task-card-title { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 600; letter-spacing: var(--tracking-tight, -0.01em); color: var(--label-primary); text-overflow: ellipsis; white-space: nowrap; }
+.automation-task-card-title { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 600; letter-spacing: normal; color: var(--label-primary); text-overflow: ellipsis; white-space: nowrap; }
 .automation-task-row-mark { display: grid; place-items: center; width: 14px; height: 14px; flex: none; }
 .automation-task-row-mark .automation-spinner { width: var(--icon-sm); height: var(--icon-sm); color: var(--accent); }
 .automation-task-row-mark .one-shot-mark-completed { color: var(--online); }
@@ -1527,7 +1518,7 @@ a:focus-visible {
 .automation-detail-scrim { display: none !important; }
 .automation-task-detail-head { display: flex; flex-direction: column; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--separator); }
 .automation-task-detail-topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.automation-task-detail-head h2 { margin: 0 0 4px; overflow-wrap: anywhere; font-size: var(--fs-heading); line-height: var(--lh-heading); letter-spacing: var(--tracking-tight); }
+.automation-task-detail-head h2 { margin: 0 0 4px; overflow-wrap: anywhere; font-size: var(--fs-heading); line-height: var(--lh-heading); letter-spacing: normal; }
 .automation-task-detail-head p { margin: 0; overflow: hidden; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); text-overflow: ellipsis; white-space: nowrap; }
 .automation-task-detail-actions { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .automation-status.paused { color: var(--label-secondary); }
@@ -1830,19 +1821,18 @@ a:focus-visible {
 .miniapp-icon-tab { width: 14px; height: 14px; border-radius: 3px; }
 .miniapp-icon-tab .reicon { width: var(--icon-xs); height: var(--icon-xs); }
 
-.miniapp-icon-launchpad { width: 64px; height: 64px; border-radius: 14px; background: var(--fill); }
+.miniapp-icon-launchpad { width: 72px; height: 72px; border-radius: var(--rounded-md); background: var(--fill); }
 .miniapp-icon-launchpad img { width: 100%; height: 100%; }
 .miniapp-icon-launchpad .reicon { width: 30px; height: 30px; }
 
 /* Mini App launchpad (sidebar destination) + its manage view */
-.workspace-scroll[data-workspace-pane="miniapps"] { padding-top: 12px; }
+.workspace-scroll[data-workspace-pane="miniapps"] { padding: 0; }
 /* The Plans board fills the workspace exactly; rail/detail own their scrolling
    so the page itself never shows a scrollbar. The bottom gap keeps the panel
    off the window edge, matching the sidebar footer divider. */
 .workspace-scroll[data-workspace-pane="plans"] { padding: 0 0 12px; overflow: hidden; }
-.workspace-scroll[data-workspace-pane="miniapps"] > .miniapps-launchpad { width: var(--workspace-col); margin: 0 auto; }
 .miniapps-launchpad { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.miniapps-launchpad-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px 12px; margin: 0; padding: 0; list-style: none; }
+.miniapps-launchpad-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 20px 16px; margin: 24px 0 0; padding: 0; list-style: none; }
 .miniapps-launchpad-cell { animation: miniapps-launchpad-in var(--duration-normal) var(--ease-standard) both; animation-delay: calc(min(var(--stagger, 0), 12) * 24ms); }
 .miniapps-launchpad-item { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; padding: 14px 8px 12px; border: 0; border-radius: var(--rounded-md); background: transparent; color: inherit; }
 .miniapps-launchpad-item:hover { background: var(--fill); }
@@ -1887,7 +1877,6 @@ a:focus-visible {
 .miniapps-manager-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 0 2px; }
 .miniapps-manager-head h2 { margin: 0; font-size: var(--fs-heading); font-weight: 600; letter-spacing: var(--tracking-tight); }
 .miniapps-manager-head p { max-width: 560px; margin: 4px 0 0; color: var(--label-secondary); font-size: var(--fs-meta); line-height: 1.5; }
-.miniapps-counts { flex: none; color: var(--label-secondary); font-size: var(--fs-meta); white-space: nowrap; }
 .miniapps-install {
   display: flex;
   flex-direction: column;
@@ -1936,40 +1925,6 @@ a:focus-visible {
 .miniapps-trust { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: 1.45; }
 .miniapps-trust .reicon { flex: none; width: var(--fs-label); height: var(--fs-label); margin-top: 2px; color: var(--warning-text); }
 .miniapps-provenance { color: var(--label-tertiary); font-size: var(--fs-meta); }
-
-/*
- * Signpost to the AI capability settings, which live in Settings. A row, not a
- * card: it holds no state and must not read as a section you can edit here.
- */
-.miniapps-ai-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border: 0.5px solid var(--separator);
-  border-radius: var(--rounded-sm);
-  background: var(--card-bg);
-  color: var(--label-primary);
-  text-align: left;
-  cursor: pointer;
-}
-.miniapps-ai-link:hover { background: var(--fill); }
-.miniapps-ai-link:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--accent); }
-.miniapps-ai-link > span[aria-hidden] {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  flex: 0 0 auto;
-  border-radius: var(--rounded-sm);
-  background: var(--fill);
-  color: var(--label-secondary);
-}
-.miniapps-ai-link-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
-.miniapps-ai-link-text strong { font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 600; }
-.miniapps-ai-link-text small { color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-.miniapps-ai-link-arrow { flex: 0 0 auto; width: var(--icon-sm); height: var(--icon-sm); color: var(--label-tertiary); }
 
 .miniapps-library { overflow: visible; border: 0.5px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); }
 /* Mini App AI section, mounted inside a Settings › Models `SettingGroup` card.
@@ -2047,7 +2002,6 @@ a:focus-visible {
 @media (max-width: 600px) {
   .miniapps-manager-head, .miniapps-library-head { align-items: flex-start; flex-direction: column; gap: 5px; }
   .miniapps-library-head { padding-block: 11px; }
-  .miniapps-counts { white-space: normal; }
   .miniapps-install-tabs { width: 100%; }
   .miniapps-install-tabs button { flex: 1; padding-inline: 6px; }
   .miniapps-install-row { align-items: stretch; flex-direction: column; }
@@ -5306,10 +5260,6 @@ select.provider-input { padding-right: 6px; }
   .automation-workspace-toolbar .search-field { flex: 1 1 auto; min-width: 140px; max-width: none; height: 32px; max-height: 32px; }
   .automation-workspace-create { flex: 0 0 auto; height: 32px; padding-inline: 12px; }
   .automation-workspace-summary { flex-basis: 100%; margin: 0; gap: 6px 14px; }
-  .automation-workspace-layout { grid-template-columns: 1fr; min-height: 0; }
-  .automation-workspace-layout.detail-open { grid-template-columns: 1fr; min-height: 0; height: auto; border: none; background: transparent; box-shadow: none; }
-  .automation-workspace-layout.detail-open .automation-workspace-list { display: none; }
-  .automation-workspace-layout.detail-open .automation-task-detail { border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03); min-height: min(520px, calc(100vh - 220px)); height: calc(100vh - 220px); padding: 18px; }
   .automation-task-detail-topbar { flex-direction: column; align-items: stretch; }
   .automation-task-detail-actions { justify-content: flex-start; }
   .automation-task-facts { grid-template-columns: 1fr; }
@@ -7085,7 +7035,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .workspace-motion-stage {
   min-width: 0;
   min-height: 0;
-  animation: motion-surface-in var(--duration-normal) var(--ease-standard) both;
+  animation: motion-surface-in var(--duration-fast) var(--ease-standard) both;
 }
 .settings-motion-stage {
   display: flex;
@@ -7219,8 +7169,8 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 }
 
 @keyframes motion-surface-in {
-  from { opacity: 0; translate: 0 6px; }
-  to { opacity: 1; translate: 0 0; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @keyframes motion-settings-shell-in {
   from { opacity: 0; translate: 10px 0; }
@@ -7503,6 +7453,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .error-message,
   .miniapps-grid,
   .installed-skills-grid,
+  .skills-detail,
   .automation-workspace-layout,
   .status-badge,
   .status-symbol,
@@ -7547,6 +7498,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .error-message,
   .miniapps-grid,
   .installed-skills-grid,
+  .skills-detail,
   .automation-workspace-layout
 ) {
   animation: none !important;
@@ -7814,6 +7766,8 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .agent-settings-body { padding: 0 16px 88px; }
   .agent-settings-foot { padding: 12px 16px; }
   .agent-settings-foot .settings-footbar-label { display: none; }
+  .agent-settings-foot:has(.agent-settings-feedback) { flex-wrap: wrap; }
+  .agent-settings-foot .agent-settings-feedback { display: block; flex-basis: 100%; }
   .agent-settings-avatar { padding: 16px; flex-wrap: wrap; gap: 12px; }
 }
 

@@ -5,7 +5,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { applyBuiltinSkill, ensureBuiltinSkills, listBuiltinSkillStates, type BuiltinSkill } from "$lib/server/agent/skills/bootstrap.js";
-import { loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
+import { formatSkillsForPrompt, isSkillBackupDirectory, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
+
+import { buildSystemPrompt } from "$lib/server/agent/prompts/prompt.js";
 
 function tempRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "molibot-skill-bootstrap-"));
@@ -321,6 +323,18 @@ test("applying a built-in skill on request repairs an edited copy at the same ve
 
     [state] = listBuiltinSkillStates({ skillsRoot, skills: sample });
     assert.equal(state.modified, false);
+    const workspaceDir = path.join(root, "moli-w", "chat");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    const loaded = loadSkillsFromWorkspace(workspaceDir, "").skills;
+    assert.equal(loaded.filter((skill) => skill.name === "sample-skill").length, 1);
+    assert.equal(loaded.find((skill) => skill.name === "sample-skill")?.baseDir, skillDir);
+    const catalogue = formatSkillsForPrompt(loaded);
+    assert.doesNotMatch(catalogue, /Mine\.|\.backup-/);
+    const prompt = buildSystemPrompt(workspaceDir, "", "backup-regression", "(none)", { timezone: "UTC" });
+    const available = prompt.match(/<available-skills>[\s\S]*?<\/available-skills>/)?.[0] ?? "";
+    assert.equal(available.match(/sample-skill/g)?.length, 1);
+    assert.doesNotMatch(available, /Mine\.|\.backup-/);
+    assert.match(fs.readFileSync(path.join(applied.backupDir!, "SKILL.md"), "utf8"), /Mine\./);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -362,4 +376,10 @@ test("an unknown built-in skill id is refused rather than materialising a direct
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("only materialized backup timestamps are excluded from skill discovery", () => {
+  assert.equal(isSkillBackupDirectory("sample.backup-2026-10-16T00-54-53-963Z"), true);
+  assert.equal(isSkillBackupDirectory("sample.backup-notes"), false);
+  assert.equal(isSkillBackupDirectory("backup-tools"), false);
 });

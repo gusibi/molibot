@@ -72,3 +72,44 @@ export function listFlip(node: Element, { from, to }: FlipRects, options: Motion
     }
   };
 }
+
+/** Snapshot element rects before a layout change, keyed by element. */
+export function captureRectMap(nodes: Iterable<Element>): Map<Element, DOMRect> {
+  const map = new Map<Element, DOMRect>();
+  for (const node of nodes) map.set(node, node.getBoundingClientRect());
+  return map;
+}
+
+/** Svelte's `cubicOut` expressed for the Web Animations API. */
+const CUBIC_OUT = "cubic-bezier(0.215, 0.61, 0.355, 1)";
+
+/**
+ * FLIP elements between two measured layouts.
+ *
+ * `animate:listFlip` only runs when a keyed each block reorders; this covers
+ * the other case — the container's own layout changes (grid ⇄ vertical list) —
+ * by transforming each element from its previous box onto its current one.
+ * Transform origin is top-left so the box maps exactly onto the old rect.
+ */
+export function playLayoutFlip(before: Map<Element, DOMRect>): void {
+  if (motionDisabled()) return;
+  for (const [node, from] of before) {
+    if (!(node instanceof HTMLElement) || !node.isConnected) continue;
+    const to = node.getBoundingClientRect();
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    const sx = to.width ? from.width / to.width : 1;
+    const sy = to.height ? from.height / to.height : 1;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) continue;
+    const duration = tokenDuration(node, "--duration-normal");
+    if (!duration) continue;
+    node.style.transformOrigin = "top left";
+    node.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` },
+        { transform: "none" }
+      ],
+      { duration, easing: CUBIC_OUT }
+    );
+  }
+}

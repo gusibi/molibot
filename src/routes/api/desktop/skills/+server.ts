@@ -1,6 +1,7 @@
+import path from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { buildDesktopSkillSearchSettings, buildDesktopSkillsSummary, resolveDesktopSkillPath } from "$lib/server/app/desktopSkills";
+import { buildDesktopSkillSearchSettings, buildDesktopSkillsSummary, desktopSkillId, resolveDesktopSkillPath } from "$lib/server/app/desktopSkills";
 import { getRuntime } from "$lib/server/app/runtime";
 import { applyBuiltinSkill, listBuiltinSkillStates } from "$lib/server/agent/skills/bootstrap";
 import { storagePaths } from "$lib/server/infra/db/storage";
@@ -23,7 +24,10 @@ export const GET: RequestHandler = async () => {
 
   const summary = buildDesktopSkillsSummary(
     payload as Parameters<typeof buildDesktopSkillsSummary>[0],
-    listBuiltinSkillStates({ skillsRoot: storagePaths.globalSkillsDir })
+    listBuiltinSkillStates({ skillsRoot: storagePaths.globalSkillsDir }).map((builtin) => ({
+      ...builtin,
+      skillId: desktopSkillId(path.join(storagePaths.globalSkillsDir, builtin.id, "SKILL.md"))
+    }))
   );
   const response: DesktopSkillsResponse = { ok: true, summary };
   return json(response, { headers: { "Cache-Control": "no-store" } });

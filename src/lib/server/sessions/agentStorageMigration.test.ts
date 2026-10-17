@@ -1058,3 +1058,107 @@ test("batched checkpoints resume files published since the last saved receipt", 
     for (const file of finished.files) assert.equal(readFileSync(join(f.root, file.target), "utf8"), file.content ?? readFileSync(join(f.root, file.source!), "utf8"));
   } finally { f.dispose(); }
 });
+
+test("forced migration skips conflicting sources and quarantines ambiguous references across restart", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const f = fixture();
+  try {
+    f.put("moli-t/bots/one/chat/contexts/same.json", "[]");
+    f.put("moli-q/bots/two/chat/contexts/same.json", "[]");
+    f.put("moli-t/bots/one/chat/contexts/broken.json", "[]");
+    f.put("moli-t/bots/one/chat/contexts/broken.meta.json", "invalid");
+    f.put("db/sessions.db", "");
+    const db = new DatabaseSync(join(f.root, "db/sessions.db"));
+    db.exec("CREATE TABLE session_lifecycle(session_id TEXT PRIMARY KEY); INSERT INTO session_lifecycle VALUES ('same'); CREATE TABLE runs(id TEXT PRIMARY KEY, session_id TEXT, status TEXT); INSERT INTO runs VALUES ('pending', 'same', 'running'); INSERT INTO runs VALUES ('missing', 'orphan', 'pending')");
+    assert.ok(f.migration().status().conflicts.length);
+    const forced = new AgentStorageMigration(f.root, { agents: ["assistant"], bots: [{ channel: "telegram", botId: "one", agentId: "assistant" }, { channel: "qq", botId: "two", agentId: "assistant" }] }, [], [], true);
+    forced.saveSelections();
+    const plan = await forced.execute();
+    assert.equal(plan.phase, "completed");
+    assert.equal(plan.sessions.length, 2);
+    assert.ok(plan.skippedIssues!.some(issue => issue.includes("metadata")));
+    assert.equal(db.prepare("SELECT count(*) AS n FROM session_lifecycle").get()!.n, 0);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM runs").get()!.n, 0);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM agent_storage_skipped_rows").get()!.n, 3);
+    assert.equal(JSON.parse(String(db.prepare("SELECT record FROM agent_storage_skipped_rows WHERE table_name='runs' AND row_key=?").get(JSON.stringify(["pending"]))!.record)).status, "running");
+    db.close();
+    assert.equal(f.migration().status().needed, false);
+    assert.equal(f.migration().status().phase, "completed");
+    assert.equal(readFileSync(join(f.root, "moli-t/bots/one/chat/contexts/broken.meta.json"), "utf8"), "invalid");
+    assert.equal(readFileSync(join(f.root, "sessions/assistant/contexts/same.json"), "utf8"), "[]");
+  } finally { f.dispose(); }
+});
+
+test("forced migration preserves unreadable databases and completes with no valid sessions", async () => {
+  const { existsSync, readdirSync } = await import("node:fs");
+  const f = fixture();
+  try {
+    f.put("db/broken.sqlite", "not a database");
+    assert.match(f.migration().status().conflicts.join("\n"), /Invalid SQLite database/);
+    const service = new AgentStorageMigration(f.root, { agents: ["assistant"], bots: [] }, [], [], true);
+    service.saveSelections();
+    const plan = await service.execute();
+    assert.equal(plan.phase, "completed");
+    assert.equal(plan.sessions.length, 0);
+    assert.equal(existsSync(join(f.root, "db/broken.sqlite")), false);
+    const backupRoot = join(plan.stagingDir, "skipped-databases");
+    const backup = join(backupRoot, readdirSync(backupRoot)[0], "db/broken.sqlite");
+    assert.equal(readFileSync(backup, "utf8"), "not a database");
+    assert.ok(plan.skippedIssues!.some(issue => issue.includes("Database preserved at:")));
+    assert.equal(f.migration().status().needed, false);
+  } finally { f.dispose(); }
+});
+
+test("forced migration skips conflicting staged contexts without publishing their routes or UI", async () => {
+  const { existsSync, symlinkSync } = await import("node:fs");
+  for (const suffix of [".json", ".meta.json"]) {
+    const f = fixture();
+    try {
+      f.put("moli-w/bots/personal/web:personal:owner/contexts/history.json", "[]");
+      f.put("moli-w/bots/personal/web:personal:owner/active_session.txt", "history");
+      f.put("moli-t/bots/one/chat/contexts/valid.json", "[]");
+      f.put("moli-t/bots/one/chat/contexts/broken.json", "[]");
+      const { unlinkSync } = await import("node:fs");
+      unlinkSync(join(f.root, "moli-t/bots/one/chat/contexts/broken.json"));
+      symlinkSync("/unavailable/context", join(f.root, "moli-t/bots/one/chat/contexts/broken.json"));
+      const ownership = { agents: ["assistant"], bots: [{ channel: "web", botId: "personal", agentId: "assistant" }, { channel: "telegram", botId: "one", agentId: "assistant" }] };
+      const service = new AgentStorageMigration(f.root, ownership, [], [], true);
+      const prepared = service.prepare();
+      const staged = join(prepared.stagingDir, `sessions/assistant/contexts/history${suffix}`);
+      writeFileSync(staged, "user edit");
+      service.saveSelections();
+      const plan = await service.execute();
+      assert.equal(plan.phase, "completed");
+      assert.deepEqual(plan.sessions.map(item => item.targetId), ["valid"]);
+      assert.deepEqual(plan.routes, []);
+      assert.deepEqual(plan.uiConversations, []);
+      assert.equal(existsSync(join(f.root, "sessions/assistant/contexts/history.meta.json")), false);
+      assert.equal(existsSync(join(f.root, "sessions/assistant/contexts/history.json")), false);
+      assert.equal(readFileSync(staged, "utf8"), "user edit");
+      assert.ok(plan.skippedIssues!.some(issue => issue.includes("Staged copy differs")));
+      assert.equal(new AgentStorageMigration(f.root, ownership).status().needed, false);
+    } finally { f.dispose(); }
+  }
+});
+
+test("forced migration does not discard a locked database or report completion", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { existsSync } = await import("node:fs");
+  const f = fixture();
+  try {
+    f.put("moli-t/bots/one/chat/contexts/valid.json", "[]");
+    f.put("db/locked.sqlite", "");
+    const db = new DatabaseSync(join(f.root, "db/locked.sqlite"));
+    db.exec("CREATE TABLE runs(id TEXT PRIMARY KEY, session_id TEXT); INSERT INTO runs VALUES ('run', 'valid')");
+    const forced = new AgentStorageMigration(f.root, { agents: ["assistant"], bots: [{ channel: "telegram", botId: "one", agentId: "assistant" }] }, [], [], true);
+    forced.saveSelections();
+    db.exec("BEGIN IMMEDIATE");
+    try { await assert.rejects(forced.execute(), /locked/); }
+    finally { db.exec("ROLLBACK"); }
+    assert.equal(existsSync(join(f.root, "db/locked.sqlite")), true);
+    assert.equal(db.prepare("SELECT session_id FROM runs WHERE id='run'").get()!.session_id, "valid");
+    db.close();
+    assert.notEqual(JSON.parse(readFileSync(join(f.root, "runtime/agent-storage-migration/manifest.json"), "utf8")).phase, "completed");
+    assert.equal((await forced.execute()).phase, "completed");
+  } finally { f.dispose(); }
+});

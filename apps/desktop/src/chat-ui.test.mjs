@@ -23,7 +23,7 @@ const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(
 const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
 const i18n = read("./lib/i18n.ts");
-const styles = baseStyles + "\n" + themeStyles + "\n" + recipeStyles;
+const styles = baseStyles + "\n" + read("./plans.css") + "\n" + read("./workspaces.css") + "\n" + themeStyles + "\n" + recipeStyles;
 
 test("compact numeric settings do not shrink inside auto-sized control wrappers", () => {
   const rule = styles.match(/\.model-number-input\s*\{([^}]+)\}/)?.[1] ?? "";
@@ -1091,15 +1091,15 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.match(sections.tasks, /taskScheduleStatusText/);
   assert.match(sections.tasks, /taskExecutionStatusText/);
   assert.match(sections.tasks, /taskLatestResultText/);
-  assert.match(sections.tasks, /<OverflowMenu label=\{session\.text\.more\}>/);
+  assert.match(sections.tasks, /<OverflowMenu label=\{session\.text\.workspaceMore\}>/);
   assert.match(sections.tasks, /formatNaturalSchedule\(task\.scheduleText, session\.locale\)/);
   assert.match(sections.tasks, /stopTaskRun\(selectedTask\.id/);
   assert.match(chatWorkspace, /<TasksSection presentation="workspace"/);
-  assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*minmax\(280px, 320px\) minmax\(0, 1fr\)/s);
+  assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*320px minmax\(0, 1fr\)/s);
   // The detail pane maintains unified split view on desktop with smooth slide-in,
   // completely eliminating jarring 880px overlay mutation.
   assert.match(styles, /\.automation-workspace\s*\{[^}]*container-type:\s*inline-size/s);
-  assert.match(styles, /\.automation-task-detail\s*\{[^}]*animation:\s*automation-detail-slide-in/s);
+  assert.match(read("./workspaces.css"), /\.automation-task-detail\s*\{[^}]*animation:\s*none/s);
   // Status outcomes and tone indicators strictly use dynamic theme tokens with zero hardcoded colors
   assert.doesNotMatch(styles, /\.row-outcome[^{]*\{[^}]*#[0-9a-fA-F]{3,6}/s);
   assert.doesNotMatch(styles, /\.automation-task-row-mark[^{]*\{[^}]*#[0-9a-fA-F]{3,6}/s);
@@ -1114,7 +1114,7 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.match(styles, /\.workspace-description\s*\{[^}]*width:\s*var\(--workspace-col\)/s);
   assert.match(styles, /\.automation-workspace-toolbar \.search-field\s*\{[^}]*height:\s*32px/s);
   assert.match(styles, /\.automation-category-tabs button\s*\{[^}]*white-space:\s*nowrap/s);
-  assert.match(styles, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.automation-workspace-layout\.detail-open \.automation-workspace-list\s*\{[^}]*display:\s*none/s);
+  assert.match(styles, /@container\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.automation-workspace-layout\.detail-open \.automation-workspace-list\s*\{[^}]*display:\s*none/s);
 });
 
 test("issue 13 Chat renders an Agent message unit and a compact 720px composer", () => {
@@ -2780,33 +2780,26 @@ test("automation status chips follow Geist tokens and stay legible in CJK", () =
   assert.match(styles, /\.execution-state\.state-interrupted\b/);
 });
 
-test("automation workspace keeps each task in a bounded card while retaining task details", () => {
-  const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
-  assert.match(workspacePane, /<TasksSection presentation="workspace"/);
-  assert.match(sections.tasks, /presentation\?: "settings" \| "workspace" \| "project"/);
+test("automation workspace keeps a stable list and detail without row cards", () => {
   assert.match(sections.tasks, /class="automation-workspace-layout"/);
-  assert.match(sections.tasks, /class="automation-task-row"/);
-  assert.match(sections.tasks, /class="automation-task-detail"/);
-  // Cards stretch to fill the full workspace row instead of capping at 480px.
-  assert.match(styles, /\.automation-workspace-list\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(min\(100%, 360px\), 1fr\)\)/s);
-  assert.match(styles, /\.automation-task-row\s*\{[^}]*border:\s*1px solid var\(--separator\)[^}]*border-radius:\s*var\(--rounded-md\)[^}]*background:\s*var\(--card-bg\)/s);
+  assert.match(sections.tasks, /class="workspace-detail-placeholder"/);
+  assert.match(styles, /\.automation-workspace-layout\s*\{[^}]*grid-template-columns:\s*320px minmax\(0, 1fr\)/s);
+  assert.match(styles, /\.automation-task-row\s*\{[^}]*border:\s*0;[^}]*border-bottom:\s*1px solid var\(--separator\)/s);
+  assert.match(styles, /\.automation-task-row\.active\s*\{[^}]*var\(--selection-bg\)[^}]*var\(--on-selection\)/s);
 });
 
-test("automation workspace separates user, Project, one-shot, and system tasks with accessible tabs", () => {
-  assert.match(sections.tasks, /role="tablist"/);
-  assert.match(sections.tasks, /session\.text\.tasksUserTab/);
-  assert.match(sections.tasks, /session\.text\.tasksProjectTab/);
-  assert.match(sections.tasks, /session\.text\.tasksOneShotTab/);
+test("task and skill categories use shared accessible selectors within independent pages", () => {
+  assert.match(sections.tasks, /class="segmented workspace-task-filters" role="group"/);
+  assert.match(sections.tasks, /aria-pressed=\{activeTaskView === item.value\}/);
+  assert.doesNotMatch(sections.tasks, /<SelectControl value=\{activeTaskView\}/);
+  for (const key of ["tasksUserTab", "tasksProjectTab", "tasksOneShotTab", "tasksSystemTab"]) assert.match(sections.tasks, new RegExp(`session\\.text\\.${key}`));
   assert.match(sections.tasks, /markOneShotTasksRead/);
-  assert.match(sections.tasks, /session\.text\.tasksSystemTab/);
   assert.match(sections.tasks, /item\.category === activeTaskView/);
-  assert.match(styles, /\.automation-category-tabs\s*\{/s);
-  assert.match(styles, /\.automation-category-tab\.active\s*\{/s);
-  // The skills pane hosts the same segmented control. Its buttons must carry the
-  // shared segment class — without it the `.active` rule never fires and the
-  // selected tab renders identically to the rest (skills shipped this way for
-  // weeks because only the container class was copied over).
-  assert.match(sections.skills, /class="automation-category-tab"/);
+  assert.match(sections.skills, /class="segmented workspace-skill-filters" role="group"/);
+  assert.match(sections.skills, /aria-pressed=\{selectedCategory === category.value\}/);
+  assert.doesNotMatch(sections.skills, /SelectControl/);
+  assert.doesNotMatch(styles, /\.installed-skill-card\.enabled\s*\{/);
+  assert.doesNotMatch(sections.skills, /role="tablist"/);
 });
 
 // Strong selection (a picked card/row) is a shared semantic, not a per-page
@@ -2978,28 +2971,17 @@ test("Project settings reuses the automation workspace behind a locked Project t
 // slab with three tabs huddled at its left end) and left it flush against the
 // scroll edge while the task grid below stayed centred. Alignment belongs to a
 // block-level bar; the control keeps `fit-content`.
-test("automation header shares one content column and the segmented control hugs its tabs", () => {
-  assert.match(sections.tasks, /class="automation-category-bar"/);
-  assert.match(sections.tasks, /class:workspace=\{presentation === "workspace"\} class="automation-category-bar"/);
-
-  const tabs = styles.match(/\.automation-category-tabs \{([^}]*)\}/)?.[1] ?? "";
-  assert.match(tabs, /width:\s*fit-content/, "the control must hug its segments, never carry the column width");
-  assert.doesNotMatch(tabs, /margin:\s*0 auto/, "an inline-level box cannot centre itself with auto margins");
-  assert.doesNotMatch(styles, /\.automation-category-tabs\.workspace\s*\{/, "the width override moved to the bar");
-
-  // One token, three blocks: tab bar, toolbar and grid must not drift apart.
-  assert.match(styles, /--automation-col:\s*min\(1240px, calc\(100% - 48px\)\);/);
-  assert.match(styles, /\.automation-category-bar\.workspace \{[^}]*width:\s*var\(--automation-col\)[^}]*margin:\s*0 auto/s);
-  assert.match(styles, /\.automation-workspace \{[^}]*width:\s*var\(--automation-col\)/s);
-
-  // Search, create and the run totals are one band: an uncapped `flex: 1`
-  // search across the column is ~900px of empty field with the action stranded
-  // at the far edge, and the totals then cost a third stacked header row.
-  assert.match(styles, /\.automation-workspace-toolbar \.search-field \{[^}]*max-width:\s*320px/s);
-  assert.match(styles, /\.automation-workspace-summary \{[^}]*margin:\s*0 0 0 auto/s);
-  assert.match(sections.tasks, /class="automation-workspace-toolbar">[\s\S]{0,900}?class="automation-workspace-summary"[\s\S]{0,1200}?<\/div>\s*<\/div>/);
-  // Wrapped totals must fall back to the grid's left edge, not stay right.
-  assert.match(styles, /@container \(max-width: 560px\) \{[^}]*\.automation-workspace-summary \{[^}]*margin-left:\s*0/s);
+test("workspace titlebar owns expandable search and creation; filters stay below", () => {
+  assert.match(sections.tasks, /<ChatHeader title=\{session.text.autoTasks\} actions=\{taskActions\}/);
+  assert.match(sections.tasks, /<WorkspaceSearch value=\{tasksStore.query\}/);
+  assert.match(sections.tasks, /class="workspace-filterbar"/);
+  const actions = sections.tasks.split("{#snippet taskActions()}")[1].split("{/snippet}")[0];
+  assert.match(actions, /variant="icon" title=\{session.text.tasksCreate\}/);
+  assert.match(actions, /variant="icon" title=\{session.text.workspaceRefresh\}/);
+  assert.doesNotMatch(actions, /OverflowMenu/);
+  assert.doesNotMatch(sections.tasks, /class="automation-workspace-toolbar"/);
+  assert.match(read("./workspaces.css"), /workspace-header-tools/);
+  assert.match(read("./workspaces.css"), /@container \(max-width: 760px\)/);
 });
 
 test("automation details are opt-in and execution state stays task-scoped", () => {
@@ -3096,10 +3078,11 @@ test("automation and skills shortcuts reflect the active workspace pane", () => 
 });
 
 test("chat workspace design constraints cover skills, errors, focus, and reachable narrow widths", () => {
-  assert.match(sections.skills, /class="installed-skills-search"/);
-  assert.match(sections.skills, /class:expanded=\{expandedIds\.has\(skill\.id\)\}/);
+  assert.match(sections.skills, /<WorkspaceSearch value=\{query\}/);
+  assert.match(sections.skills, /onclick=\{\(event\) => openSkillFromEvent\(skill\.id, event\)\}/);
+  assert.match(sections.skills, /class:detail-open=\{detailOpen\}/);
   assert.match(styles, /\.installed-skill-card\s*\{[^}]*align-self:\s*start/s);
-  assert.match(styles, /\.installed-skill-copy p\s*\{[^}]*-webkit-line-clamp:\s*3/s);
+  assert.match(read("./workspaces.css"), /\.installed-skill-copy p\s*\{[^}]*-webkit-line-clamp:\s*2/s);
   assert.match(chatInputArea, /class="composer-error" role="alert"/);
   assert.doesNotMatch(view, /messageMediaFailed = failed;\s*error = cause instanceof Error/s);
   assert.match(styles, /button:focus-visible,[\s\S]*box-shadow:\s*0 0 0 2px var\(--card-bg\), 0 0 0 4px var\(--accent\)/);
@@ -5204,17 +5187,15 @@ test("Mini App AI settings are edited in exactly one place, and the app page onl
   // It renders a signpost only when a caller injects a way to get there, so the
   // component needs no "am I inside Settings?" branch (pitfall #7)...
   assert.match(miniAppManager, /\{#if onOpenAiSettings\}/);
-  assert.match(miniAppManager, /class="miniapps-ai-link"[\s\S]{0,200}onclick=\{onOpenAiSettings\}/);
+  assert.match(miniAppManager, /<Button variant="icon" ariaLabel=\{session.text.miniAppAiTitle\} title=\{`[\s\S]{0,200}onclick=\{onOpenAiSettings\}/);
   // The sidebar destination injects one, wired to Settings › Models — the
   // screen that actually holds the controls.
   assert.match(workspacePane, /onOpenAiSettings=\{onOpenMiniAppAiSettings\}/);
   assert.match(view, /onOpenMiniAppAiSettings=\{\(\) => openSettings\("models"\)\}/);
 
-  // The signpost is a row, not a card: it holds no state and must not read as
-  // something editable in place.
-  assert.match(styles, /\.miniapps-ai-link \{[^}]*cursor: pointer/s);
-  assert.match(styles, /\.miniapps-ai-link:focus-visible \{[^}]*var\(--accent\)/s);
-  assert.match(styles, /\.miniapps-ai-link-text strong \{[^}]*font-size: var\(--fs-label\)/s);
+  assert.doesNotMatch(miniAppManager, /miniapps-ai-link/);
+  assert.doesNotMatch(styles, /\.miniapps-ai-link/);
+
 });
 
 test("Mini App icons are inlined so no CSP or path leak is needed", () => {
@@ -5238,7 +5219,7 @@ test("Mini App icons are inlined so no CSP or path leak is needed", () => {
 test("the Mini App launchpad follows the unified workspace layout", () => {
   // The launchpad owns the destination's container geometry; the manager is
   // nested inside it in the manage view and inherits the same column.
-  assert.match(styles, /\.workspace-scroll\[data-workspace-pane="miniapps"\] > \.miniapps-launchpad \{[^}]*var\(--workspace-col\)[^}]*margin: 0 auto/s);
+  assert.match(read("./workspaces.css"), /\.workspace-scroll \.workspace-collection \{[^}]*var\(--workspace-col\)[^}]*margin: 0 auto/s);
   assert.match(styles, /\.miniapps-settings-row \{[^}]*grid-template-columns: 40px minmax\(0, 1fr\) auto/s);
   assert.match(styles, /@media \(max-width: 600px\)[\s\S]*\.miniapps-settings-row \{[^}]*grid-template-columns: 40px minmax\(0, 1fr\)/s);
 });
@@ -5958,7 +5939,6 @@ test("desktop motion completion covers list mutation, controls, disclosures, and
   const profiles = read("./lib/settings/ProfilesSection.svelte");
   const channels = read("./lib/settings/ChannelsSection.svelte");
   const mcp = read("./lib/settings/McpSection.svelte");
-  const skills = read("./lib/settings/SkillsSection.svelte");
   const tasks = read("./lib/settings/TasksSection.svelte");
   const providers = read("./lib/settings/ProvidersSection.svelte");
   const d2 = read("./lib/artifacts/D2Diagram.svelte");
@@ -5974,8 +5954,14 @@ test("desktop motion completion covers list mutation, controls, disclosures, and
   assert.match(listMotion, /export function listIn/);
   assert.match(listMotion, /export function listOut/);
   assert.match(listMotion, /export function listFlip/);
+  assert.match(listMotion, /export function captureRectMap/);
+  assert.match(listMotion, /export function playLayoutFlip/);
+  // The skills grid ⇄ list change is not a keyed-each reorder, so it needs the
+  // measured-layout flip the keyed `animate:` directive cannot drive.
+  assert.match(installedSkills, /captureRectMap\(/);
+  assert.match(installedSkills, /playLayoutFlip\(/);
 
-  for (const source of [agents, profiles, channels, mcp, skills, channelAccordion, projectTree]) {
+  for (const source of [agents, profiles, channels, mcp, sections.skills, channelAccordion, projectTree]) {
     assert.match(source, /in:listIn/);
     assert.match(source, /out:listOut/);
     assert.match(source, /animate:listFlip/);
@@ -6485,4 +6471,28 @@ test("Sidebar sections share one scrolling tree, toggle clicks and sticky primar
   );
   assert.match(styles, /\.sidebar-section-action \{ opacity: 0; pointer-events: none;/);
   assert.doesNotMatch(styles, /max-height: 45%/);
+});
+
+test("skill management has one workspace while Settings retains search configuration", () => {
+  assert.doesNotMatch(settingsSkills, /toggleSkill|updateBuiltinSkill|skillsStore\.skills\.(items|builtins|counts)/);
+  assert.match(settingsSkills, /desktop-skills-search-form/);
+  assert.match(settingsSkills, /settings-footbar/);
+  assert.match(sections.skills, /\[b\.skillId, b\]/);
+  assert.match(sections.skills, /updateBuiltinSkill\(builtinState\.id\)/);
+  assert.match(sections.skills, /builtinState\.modified/);
+});
+
+// The card's detail view is an in-page master-detail (list · content · files),
+// not the old modal: the Skill directory needs a column of its own, and the
+// frontmatter/path/dependency data has to actually round-trip from the detail
+// endpoint.
+test("skill detail is an in-page pane with path, frontmatter and directory", () => {
+  assert.match(sections.skills, /loadDesktopSkillDetail/);
+  assert.match(sections.skills, /loadDesktopSkillFile/);
+  assert.match(sections.skills, /copy\.skillDetailPath/);
+  assert.match(sections.skills, /copy\.skillDetailMetadata/);
+  assert.match(sections.skills, /detail\.frontmatter/);
+  assert.match(sections.skills, /class="skills-detail-files"/);
+  assert.doesNotMatch(sections.skills, /installed-skill-dialog/);
+  assert.doesNotMatch(sections.skills, /<Dialog/);
 });
