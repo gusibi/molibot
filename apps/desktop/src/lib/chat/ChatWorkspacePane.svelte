@@ -27,6 +27,7 @@
   /** Opens Settings at the Mini App AI section; the pane only signposts it. */
   export let onOpenMiniAppAiSettings: () => void = () => {};
   export let formatTime: (iso: string) => string = (iso) => iso;
+  export let targetSessionId = "";
   export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
 
   interface AgentStudioProps {
@@ -81,7 +82,7 @@
     {:else if pane === "miniapps"}
       <MiniAppsLaunchpad onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
     {:else if pane === "plans"}
-      <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} />
+      <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} {targetSessionId} />
     {:else if AgentStudioComponent}
       <AgentStudioComponent {agents} {activities} {activityReady} {activityError} {focusedAgentId} {copy} {serviceReady} {onOpenAgentSettings} {onOpenAgentChat} />
     {:else}

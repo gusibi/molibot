@@ -238,77 +238,50 @@ test('skills, plans and launcher remain separate pages with real actions and emp
   await expect(page.locator('.chat-header').getByRole('button', { name: 'Search Mini Apps', exact: true })).toBeVisible();
 });
 
-test('plan rework can be cancelled and cannot add or save incomplete drafts @workspace @plans', async ({ page, request, instance }, testInfo) => {
-  const planId = `rework-${randomUUID().slice(0, 8)}`;
-  const title = `Rework plan ${planId}`;
-  const created = await post(request, instance.endpoint, '/api/desktop/plans', {
-    action: 'create', planId, botId: 'default', title,
-    tasks: [{ title: 'Original task', steps: [{ title: 'Original step' }] }]
-  });
+test('plan revisions preserve drafts, reject conflicts and survive cold recovery @workspace @plans @recovery', async ({ page, request, instance }, testInfo) => {
+  const planId = `edit-${randomUUID().slice(0, 8)}`;
+  const title = `Plan ${planId}`;
+  await post(request, instance.endpoint, '/api/desktop/plans', { action: 'create', planId, agentId: 'default', botId: 'default', title, tasks: [{ title: 'Original task', steps: [{ title: 'Original step' }] }] });
   const readPlan = async () => (await (await request.get(instance.endpoint + `/api/desktop/plans?id=${planId}`)).json()).item;
-  await page.setViewportSize({ width: 1440, height: 940 });
   await openChat(page);
   await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
   const row = page.locator('.plans-list').getByRole('button', { name: new RegExp(title) });
   await row.click();
-  const openEditor = page.getByRole('button', { name: 'Add rework task', exact: true });
-  await openEditor.click();
-  const add = page.getByRole('button', { name: 'Add task', exact: true });
-  const save = page.getByRole('button', { name: 'Save rework', exact: true });
-  await expect(add).toBeDisabled();
-  await expect(save).toBeDisabled();
-  await expect(openEditor).toBeDisabled();
-  await page.getByRole('textbox', { name: 'Task name', exact: true }).fill('Discard this draft');
-  await expect(add).toBeDisabled();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveCount(0);
-  expect((await readPlan()).execution.currentPlanVersion).toBe(created.item.execution.currentPlanVersion);
-  expect((await readPlan()).tasks).toHaveLength(1);
-
-  const filters = page.getByRole('group', { name: 'By status', exact: true });
-  await filters.getByRole('button', { name: /^Archived\s+\d+$/ }).click();
-  await expect(row).toHaveCount(0);
-  await filters.getByRole('button', { name: /^All\s+\d+$/ }).click();
-  await expect(row).toBeVisible();
-  const actionsBox = await page.locator('.plans-actions').boundingBox();
-  const overviewBox = await page.locator('.plans-overview').boundingBox();
-  expect(actionsBox!.y + actionsBox!.height).toBeLessThanOrEqual(overviewBox!.y);
-  await openEditor.click();
-  const names = page.getByRole('textbox', { name: 'Task name', exact: true });
-  const steps = page.getByRole('textbox', { name: 'Steps (one per line)', exact: true });
-  await expect(names).toHaveValue('');
-  await names.fill('Verify revision');
-  await steps.fill('Check local output');
-  await expect(add).toBeEnabled();
-  await add.click();
-  await expect(names).toHaveCount(2);
-  await expect(add).toBeDisabled();
-  await expect(save).toBeDisabled();
-  await names.nth(1).fill('  ');
-  await steps.nth(1).fill('\n');
-  await expect(add).toBeDisabled();
-  await page.getByRole('button', { name: 'Remove', exact: true }).last().click();
-  await expect(names).toHaveCount(1);
-  await expect(save).toBeEnabled();
-  await page.screenshot({ path: testInfo.outputPath('plan-rework.png') });
-  await save.click();
-  await expect(names).toHaveCount(0);
-  await expect(page.getByText('Verify revision', { exact: true })).toBeVisible();
-  const revised = await readPlan();
-  expect(revised.execution.currentPlanVersion).toBe(created.item.execution.currentPlanVersion + 1);
-  expect(revised.tasks.map((task: { title: string }) => task.title)).toEqual(['Original task', 'Verify revision']);
-  await page.setViewportSize({ width: 860, height: 620 });
-  await expect(openEditor).toBeVisible();
+  await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Plan name', exact: true }).fill('Owner draft');
+  await page.getByRole('button', { name: 'Add step', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Preview changes', exact: true })).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Step 2', exact: true }).fill('Check output');
+  await expect(page.getByRole('button', { name: 'Preview changes', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Keep draft and close', exact: true }).click();
+  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
+  await row.click();
+  await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Plan name', exact: true })).toHaveValue('Owner draft');
+  const before = await readPlan();
+  await post(request, instance.endpoint, '/api/desktop/plans', { action: 'edit', executionId: planId, expectedVersion: before.execution.version, title, summary: 'Changed elsewhere', tasks: before.tasks, acceptanceCriteria: [{ description: 'Owner checks output' }] });
+  await expect(page.getByRole('alert')).toContainText('The plan has changed');
+  await expect(page.getByRole('textbox', { name: 'Plan name', exact: true })).toHaveValue('Owner draft');
+  await page.getByRole('button', { name: 'Review against latest version', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Preview changes', exact: true })).toContainText('Owner draft');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Owner draft', exact: true })).toBeVisible();
+  expect((await readPlan()).tasks[0].steps).toHaveLength(2);
+  expect((await readPlan()).execution.status).toBe('planned');
+  await page.setViewportSize({ width: 390, height: 740 });
+  await page.evaluate(() => { document.documentElement.dataset.resolvedAppearance = 'dark'; window.dispatchEvent(new StorageEvent('storage', { key: 'molibot-desktop-locale', newValue: 'zh-CN' })); });
+  await page.getByRole('button', { name: '编辑计划', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '计划名称', exact: true })).toHaveValue('Owner draft');
   expect(await page.locator('.plans-detail').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
-  await page.evaluate(() => {
-    document.documentElement.dataset.resolvedAppearance = 'dark';
-    window.dispatchEvent(new StorageEvent('storage', { key: 'molibot-desktop-locale', newValue: 'zh-CN' }));
-  });
-  await expect(page.getByRole('group', { name: '按状态', exact: true }).getByRole('button', { name: /^未开始\s+\d+$/ })).toBeVisible();
-  await page.getByRole('button', { name: '新增返工任务', exact: true }).click();
-  await expect(page.getByRole('button', { name: '添加任务', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: '取消', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: '任务名称', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('plan-editor-zh-dark-narrow.png') });
+  await page.getByRole('button', { name: '保留草稿并关闭', exact: true }).click();
+  await instance.restartService();
+  await expect(page.getByRole('heading', { name: 'Owner draft', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '编辑计划', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '计划名称', exact: true })).toHaveValue('Owner draft');
+  await page.getByRole('button', { name: '丢弃草稿', exact: true }).click();
+  expect((await readPlan()).meta.title).toBe('Owner draft');
 });
 
 test('plans, skills and auto tasks align their top sections and count each filter @workspace @smoke', async ({ page, request, instance }, testInfo) => {

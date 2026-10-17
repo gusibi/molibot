@@ -99,7 +99,7 @@ test("plan list searches by title and id, filters by status, and hides archived 
 
     // Completing a plan archives it and removes it from the default list.
     let current = store.getById("plan-a")!;
-    current = store.transitionStatus("plan-a", current.version, "queued");
+    current = store.bindPlan({ ownerId: "owner", planId: "plan-a", expectedVersion: current.version, sessionId: "receiver", agentId: "default", mode: "manual" });
     current = store.transitionStatus("plan-a", current.version, "running");
     current = store.transitionStatus("plan-a", current.version, "verifying");
     store.transitionStatus("plan-a", current.version, "completed");
@@ -113,11 +113,11 @@ test("plan list searches by title and id, filters by status, and hides archived 
   }
 });
 
-test("start moves a planned plan to queued and enqueues one durable event", () => {
+test("approval moves a planned plan to queued and enqueues one durable event", () => {
   const { root, service, cleanup } = makeService();
   try {
     const created = service.create(planInput());
-    const started = service.start({ ownerId: "owner", planId: "plan-test-1", expectedVersion: created.execution.version });
+    const started = service.approve({ ownerId: "owner", planId: "plan-test-1", expectedVersion: created.execution.version, sessionId: "receiver", agentId: "default", mode: "manual" });
     assert.equal(started.execution.status, "queued");
     const events = readdirSync(durableExecutionEventsDir(root));
     assert.equal(events.filter((file) => file.startsWith("durable-execution-plan-test-1-")).length, 1);
@@ -130,9 +130,9 @@ test("revising a plan appends tasks, preserves completed results, and re-enters 
   const { store, service, cleanup } = makeService();
   try {
     const created = service.create(planInput());
-    service.start({ ownerId: "owner", planId: "plan-test-1", expectedVersion: created.execution.version });
+    service.approve({ ownerId: "owner", planId: "plan-test-1", expectedVersion: created.execution.version, sessionId: "receiver", agentId: "default", mode: "manual" });
     const queued = store.getById("plan-test-1")!;
-    store.claimAttempt({
+    const claim = store.claimAttempt({
       executionId: "plan-test-1",
       expectedVersion: queued.version,
       processOwnerId: "test-process",
@@ -155,12 +155,16 @@ test("revising a plan appends tasks, preserves completed results, and re-enters 
 
     // Executing plans must be safely paused before a revision is applied.
     const paused = service.pause({ ownerId: "owner", planId: "plan-test-1", expectedVersion: execution.version, actionId: "pause-revise" });
-    assert.equal(paused.execution.status, "paused");
+    assert.equal(paused.execution.status, "running");
+    assert.equal(paused.controlRequest, "pause");
+    store.finishAttempt({ executionId: "plan-test-1", attemptId: claim.attempt.id, expectedVersion: execution.version, processOwnerId: "test-process", status: "completed", nextExecutionStatus: "paused" });
+    store.settleControl("plan-test-1");
+    const stopped = service.read("owner", "plan-test-1");
 
     const revised = service.revise({
       executionId: "plan-test-1",
       ownerId: "owner",
-      expectedVersion: paused.execution.version,
+      expectedVersion: stopped.execution.version,
       reason: "owner rework",
       author: "user",
       title: "翻译产品文档 v2",
@@ -181,7 +185,7 @@ test("revising a plan appends tasks, preserves completed results, and re-enters 
     assert.equal(read?.outputSummary, "已读取原文");
     const reworked = flat.find((step) => step.title === "补充翻译");
     assert.equal(reworked?.status, "pending");
-    assert.equal(revised.execution.version, paused.execution.version + 1);
+    assert.equal(revised.execution.version, stopped.execution.version + 1);
   } finally {
     cleanup();
   }
@@ -215,55 +219,11 @@ test("creating the same deterministic plan id is idempotent", () => {
   }
 });
 
-test("in-session plan progress mirrors into the durable record", () => {
-  const { service, cleanup } = makeService();
-  try {
-    service.create(planInput());
-    const base = {
-      title: "翻译产品文档",
-      summary: "把文档翻成中英双语",
-      artifactPath: "plans/p.md",
-      recommendedMode: "accept_edits" as const,
-      durableExecutionId: "plan-test-1"
-    };
-    service.mirrorFromConversationPlan({
-      ...base,
-      id: "plan-test-1",
-      status: "executing",
-      steps: [
-        { id: "s1", text: "读取原文", status: "completed" },
-        { id: "s2", text: "翻译", status: "in_progress" },
-        { id: "s3", text: "整理术语", status: "pending" }
-      ]
-    });
-    const running = service.read("owner", "plan-test-1");
-    assert.equal(running.execution.status, "running");
-    assert.deepEqual(
-      running.steps.filter((step) => step.planVersion === 1).map((step) => step.status),
-      ["completed", "running", "pending"]
-    );
-
-    service.mirrorFromConversationPlan({
-      ...base,
-      id: "plan-test-1",
-      status: "completed",
-      steps: [
-        { id: "s1", text: "读取原文", status: "completed" },
-        { id: "s2", text: "翻译", status: "completed" },
-        { id: "s3", text: "整理术语", status: "completed" }
-      ]
-    });
-    assert.equal(service.read("owner", "plan-test-1").execution.status, "completed");
-  } finally {
-    cleanup();
-  }
-});
-
 test("only an active attempt blocks plan deletion; paused plans are deletable", () => {
   const { service, cleanup } = makeService();
   try {
     const created = service.create(planInput());
-    const started = service.start({ ownerId: "owner", planId: "plan-test-1", expectedVersion: created.execution.version });
+    const started = service.approve({ ownerId: "owner", planId: "plan-test-1", expectedVersion: created.execution.version, sessionId: "receiver", agentId: "default", mode: "manual" });
     assert.equal(started.execution.status, "queued");
     assert.throws(() => service.delete({ ownerId: "owner", planId: "plan-test-1" }), /Illegal Durable Execution transition/);
     const paused = service.pause({ ownerId: "owner", planId: "plan-test-1", expectedVersion: started.execution.version, actionId: "pause-1" });
@@ -283,4 +243,73 @@ test("plans are isolated by owner", () => {
   } finally {
     cleanup();
   }
+});
+
+test("plan search and project filtering happen before pagination across the whole collection", () => {
+  const { service, cleanup } = makeService();
+  try {
+    for (let index = 0; index < 205; index++) service.create(planInput({ planId: `page-${String(index).padStart(3, "0")}`, title: `Item ${index}`, sourceProjectId: index % 2 ? "project-a" : "project-b" }));
+    const matches = service.listPage({ ownerId: "owner", search: "Item 204", limit: 10 });
+    assert.equal(matches.total, 1);
+    assert.equal(matches.items[0].planId, "page-204");
+    const page = service.listPage({ ownerId: "owner", projectId: "project-a", limit: 10, offset: 100 });
+    assert.equal(page.total, 102);
+    assert.equal(page.items.length, 2);
+    assert.ok(page.items.every(item => item.projectId === "project-a"));
+    assert.deepEqual(service.listPage({ ownerId: "other", limit: 10 }).items, []);
+  } finally { cleanup(); }
+});
+
+test("paused plan editing preserves stable completed work and immutable version history", () => {
+  const { service, store, cleanup } = makeService();
+  try {
+    const first = service.create(planInput());
+    const steps = first.tasks.flatMap(task => task.steps);
+    const approved = service.approve({ ownerId: "owner", planId: first.execution.id, expectedVersion: first.execution.version, sessionId: "b", agentId: "default", mode: "manual" });
+    const claim = store.claimAttempt({ executionId: first.execution.id, expectedVersion: approved.execution.version, processOwnerId: "test", runId: "test-run", contextSessionId: "archive", leaseDurationMs: 10000 });
+    store.markStepRunning(first.execution.id, steps[0].id, claim.execution.version, "test");
+    store.completeStep({ executionId: first.execution.id, stepId: steps[0].id, expectedVersion: store.getById(first.execution.id)!.version, processOwnerId: "test", outputSummary: "Original completed result" });
+    store.finishAttempt({ executionId: first.execution.id, attemptId: claim.attempt.id, expectedVersion: store.getById(first.execution.id)!.version, processOwnerId: "test", status: "completed", nextExecutionStatus: "paused" });
+    const before = service.read("owner", first.execution.id);
+    const input = { ownerId: "owner", executionId: first.execution.id, expectedVersion: before.execution.version, author: "user" as const, title: "Revised", tasks: before.tasks.map(task => ({ ...task, steps: task.steps.map(step => ({ ...step, title: step.status === "completed" ? step.title : `${step.title} revised` })) })), acceptanceCriteria: [{ description: "Owner checks output" }] };
+    const edited = service.edit(input);
+    assert.equal(edited.execution.status, "planned");
+    assert.equal(edited.tasks[0].id, before.tasks[0].id);
+    assert.equal(edited.tasks[0].steps[0].id, steps[0].id);
+    assert.equal(edited.tasks[0].steps[0].status, "completed");
+    assert.equal(service.read("owner", first.execution.id, 1).tasks[0].steps[1].title, "翻译");
+    assert.throws(() => service.edit(input), /version/i);
+    assert.throws(() => service.edit({ ...input, expectedVersion: edited.execution.version, tasks: [{ ...input.tasks[0], steps: [{ ...input.tasks[0].steps[0], title: "Rewrite done work" }] }] }), /completed/i);
+    assert.equal(service.read("owner", first.execution.id).meta.title, "Revised");
+  } finally { store.close(); cleanup(); }
+});
+
+test("approved plan binds receiving Session atomically, keeps source, and rejects concurrent handoff", () => {
+  const { service, store, root, cleanup } = makeService();
+  try {
+    const created = service.create(planInput());
+    const input = { ownerId: "owner", planId: created.execution.id, expectedVersion: created.execution.version, sessionId: "sess-b", agentId: "agent-a", mode: "manual" as const };
+    const approved = service.approve(input);
+    assert.equal(approved.execution.status, "queued");
+    assert.equal(approved.execution.sourceUiSessionId, "sess-a");
+    assert.equal(approved.binding?.sessionId, "sess-b");
+    assert.equal(approved.binding?.mode, "manual");
+    assert.equal(readdirSync(durableExecutionEventsDir(root)).length, 1);
+    assert.throws(() => service.approve({ ...input, sessionId: "sess-c" }), /version|transition/i);
+    assert.equal(service.read("owner", input.planId).binding?.sessionId, "sess-b");
+  } finally { store.close(); cleanup(); }
+});
+
+test("shared resume and claim reject changed content under an old approval", () => {
+  const { store, service, cleanup, root } = makeService();
+  try {
+    const initial = service.create(planInput());
+    const approved = service.approve({ ownerId: "owner", planId: initial.execution.id, expectedVersion: initial.execution.version, sessionId: "b", agentId: "default", mode: "manual" });
+    const paused = store.pause(initial.execution.id, approved.execution.version);
+    const changed = service.edit({ ownerId: "owner", executionId: initial.execution.id, expectedVersion: paused.version, author: "user", tasks: [{ title: "Changed", steps: [{ title: "Changed instruction" }] }] });
+    const pausedAgain = store.pause(initial.execution.id, changed.execution.version);
+    const coordinator = new DurableExecutionCoordinator(store, "test", root);
+    assert.throws(() => coordinator.resume({ ownerId: "owner", executionId: initial.execution.id, expectedVersion: pausedAgain.version, actionId: "stale" }), /approv/i);
+    assert.throws(() => store.claimAttempt({ executionId: initial.execution.id, expectedVersion: pausedAgain.version, processOwnerId: "test", runId: "test-run", contextSessionId: "archive", leaseDurationMs: 10000 }), /approv/i);
+  } finally { cleanup(); }
 });

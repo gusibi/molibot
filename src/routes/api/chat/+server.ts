@@ -818,6 +818,12 @@ export const POST: RequestHandler = async ({ request }) => {
       if (event.type === "plan_proposal") {
         planProposal = ensureSessionPlanRecord({
           plan: event.plan,
+          agentId: conversation.agentId ?? "default",
+          inputSnapshot: {
+            workspaceDir: store.getWorkspaceDir(),
+            text: runtime.sessions.listMessages(conversation.id).filter(entry => entry.role === "user" && entry.retention !== "turn_only").map(entry => entry.content).join("\n\n"),
+            attachments: runtime.sessions.listMessages(conversation.id).filter(entry => entry.retention !== "turn_only").flatMap(entry => (entry.attachments ?? []).map(file => ({ ...file, isImage: file.mediaType === "image", isAudio: file.mediaType === "audio", isVideo: file.mediaType === "video" })))
+          },
           botId: durableBotId,
           sourceChannel: "web",
           sourceChatId: runnerChatId,

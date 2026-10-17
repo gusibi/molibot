@@ -1339,6 +1339,7 @@
         profileId: activeProfileId,
         conversationId: activeSessionId,
         planId: plan.id,
+        expectedVersion: plan.durableVersion,
         decision,
         ...edits
       });
@@ -1352,20 +1353,12 @@
         });
       }
       await entry?.reloadFromServer();
-      // Plans execute as the next ordinary Session turn, including saved
-      // (durable-backed) plans, so the owner sees streaming thinking/tools and
-      // uses the standard chat approval cards.
-      if (decision === "accept") await entry?.controller.resumePlan(plan.id);
+      if (decision === "accept" && !resolved.plan.durableExecutionId) await entry?.controller.resumePlan(plan.id);
     } catch (cause) {
       chatStore.setActiveError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
-  /**
-   * The Plan Board's start/continue opens the plan's source Session and runs the
-   * plan as the next ordinary turn. Execution then streams in chat with standard
-   * approval cards instead of running out-of-band through the Durable runtime.
-   */
   async function continuePlan(input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }): Promise<void> {
     if (!connectedEndpoint || !input.planId) return;
     try {
@@ -3971,6 +3964,7 @@
         onOpenMiniApp={openMiniAppInspector}
         onOpenMiniAppAiSettings={() => openSettings("models")}
         formatTime={formatListTime}
+        targetSessionId={projectPaneActive ? activeProjectSessionId : activeSessionId}
         onContinuePlan={continuePlan}
       />
     {:else}

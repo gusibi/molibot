@@ -89,6 +89,7 @@ export interface ConversationPlan {
   artifactPath: string;
   /** Durable Execution created from this accepted plan, if execution has started. */
   durableExecutionId?: string;
+  durableVersion?: number;
 }
 
 export type ConversationStep =

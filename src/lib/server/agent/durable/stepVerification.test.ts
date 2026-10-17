@@ -16,6 +16,16 @@ function fixture() {
   return { root, store, coordinator };
 }
 
+/** Plans only run after the owner approves the current version into a Session. */
+function approveAndActivate(
+  store: DurableExecutionStore,
+  coordinator: DurableExecutionCoordinator,
+  execution: { id: string; version: number }
+): void {
+  const approved = store.bindPlan({ ownerId: "owner-1", planId: execution.id, expectedVersion: execution.version, sessionId: "session-1", agentId: "agent-1", mode: "manual" });
+  coordinator.activate({ ownerId: "owner-1", executionId: execution.id, expectedVersion: approved.version });
+}
+
 async function runNext(
   runtime: DurableExecutionRuntime,
   store: DurableExecutionStore,
@@ -112,7 +122,7 @@ test("a completed-in-name step without its required output is rejected and block
         }
       ]
     });
-    coordinator.activate({ ownerId: "owner-1", executionId: execution.id, expectedVersion: execution.version });
+    approveAndActivate(store, coordinator, execution);
     const runtime = new DurableExecutionRuntime({
       store,
       processOwnerId: "process-a",
@@ -156,7 +166,7 @@ test("a step whose required output is produced passes verification and advances"
         }
       ]
     });
-    coordinator.activate({ ownerId: "owner-1", executionId: execution.id, expectedVersion: execution.version });
+    approveAndActivate(store, coordinator, execution);
     const runtime = new DurableExecutionRuntime({
       store,
       processOwnerId: "process-a",
@@ -198,7 +208,7 @@ test("a multi-step plan advances across attempts to completion without user cont
       ],
       acceptanceCriteria: [{ description: "All steps are complete", checkerType: "deterministic", checkerKey: "steps_completed" }]
     });
-    coordinator.activate({ ownerId: "owner-1", executionId: execution.id, expectedVersion: execution.version });
+    approveAndActivate(store, coordinator, execution);
     let attempts = 0;
     const runtime = new DurableExecutionRuntime({
       store,
@@ -243,7 +253,7 @@ test("a step with a retry rule is re-queued instead of blocked", async () => {
         }
       ]
     });
-    coordinator.activate({ ownerId: "owner-1", executionId: execution.id, expectedVersion: execution.version });
+    approveAndActivate(store, coordinator, execution);
     const runtime = new DurableExecutionRuntime({
       store,
       processOwnerId: "process-a",

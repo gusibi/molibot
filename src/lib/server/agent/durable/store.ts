@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import {
@@ -27,6 +28,7 @@ import {
   type FinishAttemptInput,
   type PlanCriterionInput,
   type PlanMeta,
+  type PlanListFilter,
   type PlanTask,
   type PlanTaskInput,
   type PlanVersion,
@@ -624,14 +626,102 @@ function normalizeCriteria(input: AcceptanceCriterionInput[]): AcceptanceCriteri
   });
 }
 
+const planChanges = new EventEmitter();
+planChanges.setMaxListeners(0);
+
 export class DurableExecutionStore {
+  private readonly changeKey: string;
   private readonly db: DatabaseSync;
 
   constructor(dbFile = storagePaths.durableExecutionDbFile) {
+    this.changeKey = dbFile;
     ensureSqliteParentDir(dbFile);
     this.db = new DatabaseSync(dbFile);
     this.db.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
     this.ensureSchema();
+  }
+
+  subscribe(listener: () => void): () => void {
+    planChanges.on(this.changeKey, listener);
+    return () => { planChanges.off(this.changeKey, listener); };
+  }
+
+  private notify(): void {
+    for (const listener of planChanges.listeners(this.changeKey)) {
+      try { listener(); } catch (error) { console.error("Plan change listener failed", error); }
+    }
+  }
+
+  recordPlanDelivery(input: { executionId: string; sessionId: string; runId: string; text: string }): void {
+    this.db.prepare("INSERT OR IGNORE INTO durable_plan_deliveries (run_id, execution_id, session_id, response_text) VALUES (?, ?, ?, ?)").run(input.runId, input.executionId, input.sessionId, input.text);
+  }
+
+  pendingPlanDeliveries(): Array<{ executionId: string; sessionId: string; runId: string; text: string }> {
+    const rows = this.db.prepare("SELECT * FROM durable_plan_deliveries WHERE delivered_at IS NULL").all() as Array<{ execution_id: string; session_id: string; run_id: string; response_text: string }>;
+    return rows.map(row => ({ executionId: row.execution_id, sessionId: row.session_id, runId: row.run_id, text: row.response_text }));
+  }
+
+  markPlanDelivered(runId: string): void {
+    this.db.prepare("UPDATE durable_plan_deliveries SET delivered_at = ? WHERE run_id = ?").run(nowIso(), runId);
+  }
+
+  getPlanAgent(executionId: string): string | undefined {
+    return (this.db.prepare("SELECT agent_id FROM durable_plan_origins WHERE execution_id = ?").get(executionId) as { agent_id: string } | undefined)?.agent_id;
+  }
+
+  getPlanBinding(executionId: string): import("./types.js").PlanBinding | undefined {
+    const row = this.db.prepare("SELECT * FROM durable_plan_bindings WHERE execution_id = ?").get(executionId) as { session_id: string; agent_id: string; mode: "manual" | "accept_edits"; approved_version: number } | undefined;
+    return row ? { sessionId: row.session_id, agentId: row.agent_id, mode: row.mode, approvedVersion: row.approved_version } : undefined;
+  }
+
+  bindPlan(input: { ownerId: string; planId: string; expectedVersion: number; sessionId: string; agentId: string; mode: "manual" | "accept_edits" }): DurableExecution {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.requireRow(input.planId);
+      if (current.owner_id !== input.ownerId) throw new DurableExecutionNotFoundError(input.planId);
+      this.assertVersion(current, input.expectedVersion);
+      if (!["planned", "paused", "recovery_required", "failed"].includes(current.status)) throw new DurableExecutionTransitionError(current.status, "queued");
+      const binding = this.getPlanBinding(input.planId);
+      if ((this.getPlanAgent(input.planId) && this.getPlanAgent(input.planId) !== input.agentId) || (binding && binding.agentId !== input.agentId)) throw new Error("A plan must keep its original Agent.");
+      this.db.prepare("INSERT INTO durable_plan_bindings VALUES (?, ?, ?, ?, ?) ON CONFLICT(execution_id) DO UPDATE SET session_id = excluded.session_id, mode = excluded.mode, approved_version = excluded.approved_version")
+        .run(input.planId, input.sessionId, input.agentId, input.mode, current.current_plan_version);
+      this.db.prepare("INSERT INTO durable_plan_handoffs (id, execution_id, session_id, plan_version, created_at) VALUES (?, ?, ?, ?, ?)").run(id("handoff"), input.planId, input.sessionId, current.current_plan_version, nowIso());
+      this.db.prepare("UPDATE durable_executions SET status = 'queued', version = version + 1, updated_at = ?, terminal_at = NULL, waiting_kind = NULL, waiting_reason = NULL WHERE id = ?").run(nowIso(), input.planId);
+      this.db.exec("COMMIT"); this.notify();
+      return this.getById(input.planId)!;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+
+  getControlRequest(executionId: string): "pause" | "cancel" | undefined {
+    return (this.db.prepare("SELECT action FROM durable_execution_controls WHERE execution_id = ?").get(executionId) as { action: "pause" | "cancel" } | undefined)?.action;
+  }
+
+  requestControl(executionId: string, expectedVersion: number, action: "pause" | "cancel"): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.requireRow(executionId); this.assertVersion(current, expectedVersion);
+      if (current.status !== "running") throw new DurableExecutionTransitionError(current.status, action === "pause" ? "paused" : "cancelled");
+      this.db.prepare("INSERT INTO durable_execution_controls VALUES (?, ?) ON CONFLICT(execution_id) DO UPDATE SET action = CASE WHEN action = 'cancel' THEN action ELSE excluded.action END").run(executionId, action);
+      this.db.exec("COMMIT"); this.notify();
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+
+  settleControl(executionId: string): void {
+    const action = this.getControlRequest(executionId);
+    if (!action) return;
+    const current = this.getById(executionId);
+    if (!current || current.status === "running") return;
+    if (!["completed", "cancelled"].includes(current.status)) {
+      try {
+        this.transitionStatus(executionId, current.version, action === "pause" ? "paused" : "cancelled");
+      } catch {
+        // The attempt already settled this execution in a state that no longer
+        // accepts the transition (or the version moved on); the request is moot
+        // and must not survive to confuse the next attempt.
+      }
+    }
+    this.db.prepare("DELETE FROM durable_execution_controls WHERE execution_id = ?").run(executionId);
+    this.notify();
   }
 
   close(): void {
@@ -741,7 +831,7 @@ export class DurableExecutionStore {
         criterion.author === "user" ? 1 : 0, createdAt, createdAt
       ));
 
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToExecution(execution);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -861,7 +951,7 @@ export class DurableExecutionStore {
 
       this.db.prepare("UPDATE durable_executions SET version = version + 1, updated_at = ? WHERE id = ? AND version = ?").run(timestamp, executionId, expectedVersion);
       const next = rowToExecution(this.requireRow(executionId));
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return next;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -912,6 +1002,31 @@ export class DurableExecutionStore {
     return rows.map(rowToExecution);
   }
 
+  queryPlans(filter: PlanListFilter): { executions: DurableExecution[]; total: number; projectIds: string[]; statusCounts: Record<string, number> } {
+    const clauses = ["e.owner_id = ?", "e.activation_reason = 'plan'"];
+    const params: Array<string | number> = [filter.ownerId];
+    if (filter.botId) { clauses.push("e.bot_id = ?"); params.push(filter.botId); }
+    if (filter.projectId) { clauses.push("e.source_project_id = ?"); params.push(filter.projectId); }
+    if (!filter.includeArchived) clauses.push("e.status <> 'completed'");
+    if (filter.search?.trim()) {
+      clauses.push("(instr(lower(COALESCE(m.title, e.goal)), lower(?)) > 0 OR instr(lower(e.id), lower(?)) > 0)");
+      params.push(filter.search.trim(), filter.search.trim());
+    }
+    const countRows = this.db.prepare(`SELECT e.status, COUNT(*) AS count FROM durable_executions e LEFT JOIN durable_plan_meta m ON m.execution_id = e.id WHERE ${clauses.join(" AND ")} GROUP BY e.status`).all(...params) as Array<{ status: string; count: number }>;
+    const statusCounts = Object.fromEntries(countRows.map(row => [row.status, Number(row.count)]));
+    if (filter.statuses?.length) {
+      clauses.push(`e.status IN (${filter.statuses.map(() => "?").join(",")})`);
+      params.push(...filter.statuses);
+    }
+    const from = `FROM durable_executions e LEFT JOIN durable_plan_meta m ON m.execution_id = e.id WHERE ${clauses.join(" AND ")}`;
+    const total = Number((this.db.prepare(`SELECT COUNT(*) AS count ${from}`).get(...params) as { count: number }).count);
+    const limit = Math.max(1, Math.min(200, Math.floor(filter.limit ?? 50)));
+    const offset = Math.max(0, Math.floor(filter.offset ?? 0));
+    const rows = this.db.prepare(`SELECT e.* ${from} ORDER BY e.updated_at DESC, e.id ASC LIMIT ? OFFSET ?`).all(...params, limit, offset) as unknown as ExecutionRow[];
+    const projects = this.db.prepare("SELECT DISTINCT source_project_id AS id FROM durable_executions WHERE owner_id = ? AND activation_reason = 'plan' AND source_project_id IS NOT NULL ORDER BY source_project_id").all(filter.ownerId) as Array<{ id: string }>;
+    return { executions: rows.map(rowToExecution), total, projectIds: projects.map(row => row.id), statusCounts };
+  }
+
   countUnfinished(ownerId: string): number {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM durable_executions WHERE owner_id = ? AND status NOT IN ('partial', 'completed', 'failed', 'cancelled')").get(text(ownerId)) as { count: number };
     return Number(row?.count ?? 0);
@@ -933,9 +1048,10 @@ export class DurableExecutionStore {
         AND (
           source_ui_session_id = ?
           OR id IN (SELECT execution_id FROM durable_attempts WHERE context_session_id = ?)
+          OR id IN (SELECT execution_id FROM durable_plan_bindings WHERE session_id = ?)
         )
       LIMIT 1
-    `).get(id, id) as { found?: number } | undefined;
+    `).get(id, id, id) as { found?: number } | undefined;
     return Number(row?.found ?? 0) === 1;
   }
 
@@ -1090,9 +1206,11 @@ export class DurableExecutionStore {
       this.db.prepare("INSERT INTO durable_plan_versions (execution_id, plan_version, revision_reason, author, created_at) VALUES (?, 1, ?, 'model', ?)")
         .run(executionId, "initial plan", createdAt);
       this.writePlanContentInTransaction(executionId, 1, tasks, criteria, createdAt);
+      if (input.inputSnapshot) this.db.prepare("INSERT INTO durable_plan_inputs VALUES (?, ?)").run(executionId, JSON.stringify(input.inputSnapshot));
+      if (input.agentId) this.db.prepare("INSERT INTO durable_plan_origins VALUES (?, ?)").run(executionId, input.agentId);
       this.db.prepare("INSERT INTO durable_plan_meta (execution_id, title, summary, updated_at) VALUES (?, ?, ?, ?)")
         .run(executionId, title, summary, createdAt);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToExecution(execution);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1246,7 +1364,7 @@ export class DurableExecutionStore {
         WHERE id = ? AND version = ?
       `).run(title, nextVersion, timestamp, current.id, input.expectedVersion);
       const next = this.requireRow(current.id);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToExecution(next);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1284,7 +1402,7 @@ export class DurableExecutionStore {
       this.db.prepare("UPDATE durable_executions SET goal = ?, current_plan_version = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?")
         .run(title, nextVersion, timestamp, current.id, input.expectedVersion);
       const next = this.requireRow(current.id);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToExecution(next);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1292,38 +1410,70 @@ export class DurableExecutionStore {
     }
   }
 
-  /**
-   * Mirrors in-Session plan execution into the durable record. Plans execute as
-   * ordinary Session turns, so this record is a projection target rather than a
-   * lease-holding executor: no version CAS or lease is required, and the caller
-   * (the Session progress callback) owns ordering.
-   */
-  syncPlanProgress(input: {
-    executionId: string;
-    status: DurableExecutionStatus;
-    steps: Array<{ index: number; status: ExecutionStepStatus }>;
-    now?: Date;
-  }): DurableExecution {
+  getPlanSnapshot(executionId: string, version: number): import("./types.js").PlanDetail | null {
+    const row = this.db.prepare("SELECT snapshot_json FROM durable_plan_snapshots WHERE execution_id = ? AND plan_version = ?").get(executionId, version) as { snapshot_json: string } | undefined;
+    return row ? JSON.parse(row.snapshot_json) : null;
+  }
+
+  /** Edits stopped work atomically; completed step identities and receipts survive every revision. */
+  editPlanContent(input: ReplacePlanContentInput, snapshot: import("./types.js").PlanDetail): DurableExecution {
+    if (Buffer.byteLength(JSON.stringify(input)) > 1024 * 1024) throw new Error("Plan revision exceeds 1 MiB; split the revision into smaller requests.");
+    const tasks = normalizePlanContent(input);
+    if (!tasks.length) throw new Error("A plan requires at least one task.");
+    const previousTasks = new Map(snapshot.tasks.map(task => [task.id, task]));
+    const previousSteps = new Map(snapshot.tasks.flatMap(task => task.steps).map(step => [step.id, step]));
+    const used = new Set<string>();
+    input.tasks.forEach((task, index) => {
+      if (task.id) {
+        if (!previousTasks.has(task.id) || used.has(task.id)) throw new Error("Invalid or duplicate plan task identity.");
+        tasks[index].id = task.id; used.add(task.id);
+      }
+      task.steps.forEach((step, position) => {
+        if (!step.id) return;
+        const before = previousSteps.get(step.id);
+        if (!before || used.has(step.id)) throw new Error("Invalid or duplicate plan step identity.");
+        if (before.status === "completed" && (step.title.trim() !== before.title || (step.description ?? "") !== before.description)) throw new Error("Completed work is read-only; add a rework step.");
+        tasks[index].steps[position] = { ...tasks[index].steps[position], id: step.id, sideEffectClass: before.sideEffectClass, idempotencyKey: before.idempotencyKey, inputSummary: before.inputSummary, verification: before.verification ?? DEFAULT_STEP_VERIFICATION };
+        used.add(step.id);
+      });
+    });
+    for (const step of previousSteps.values()) if (step.status === "completed" && !used.has(step.id)) throw new Error("Completed work cannot be removed; add rework instead.");
+    const criteria = normalizePlanCriteria(input.acceptanceCriteria);
     const timestamp = nowIso(input.now);
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const current = this.requireRow(input.executionId);
-      const version = Number(current.current_plan_version);
-      this.db.prepare(`
-        UPDATE durable_executions
-        SET status = ?, version = version + 1, updated_at = ?, lease_owner_id = NULL,
-          lease_expires_at = NULL, waiting_kind = NULL, waiting_reason = NULL
-        WHERE id = ?
-      `).run(input.status, timestamp, input.executionId);
-      const updateStep = this.db.prepare("UPDATE durable_steps SET status = ?, updated_at = ? WHERE execution_id = ? AND plan_version = ? AND step_index = ?");
-      for (const step of input.steps) updateStep.run(step.status, timestamp, input.executionId, version, step.index);
-      const next = rowToExecution(this.requireRow(input.executionId));
-      this.db.exec("COMMIT");
-      return next;
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+      if (current.owner_id !== input.ownerId) throw new DurableExecutionNotFoundError(input.executionId);
+      this.assertVersion(current, input.expectedVersion);
+      if (["queued", "running", "verifying", "waiting_for_approval", "cancelled"].includes(current.status)) throw new DurableExecutionTransitionError(current.status, "planned");
+      const version = Number(current.current_plan_version) + 1;
+      this.db.prepare("UPDATE durable_decisions SET status = 'cancelled' WHERE execution_id = ? AND status = 'open'").run(current.id);
+      this.db.prepare("INSERT OR IGNORE INTO durable_plan_snapshots VALUES (?, ?, ?)").run(current.id, current.current_plan_version, JSON.stringify(snapshot));
+      this.db.prepare("INSERT INTO durable_plan_versions VALUES (?, ?, ?, ?, ?)").run(current.id, version, text(input.reason) || "plan revision", input.author, timestamp);
+      this.db.prepare("DELETE FROM durable_task_steps WHERE execution_id = ? AND plan_version = ?").run(current.id, current.current_plan_version);
+      let stepIndex = 0;
+      tasks.forEach((task, taskIndex) => {
+        this.db.prepare(`INSERT INTO durable_tasks (id, execution_id, plan_version, task_index, title, description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET plan_version = excluded.plan_version, task_index = excluded.task_index, title = excluded.title, description = excluded.description, updated_at = excluded.updated_at`)
+          .run(task.id, current.id, version, taskIndex, task.title, task.description, timestamp, timestamp);
+        task.steps.forEach((step, position) => {
+          this.db.prepare(`INSERT INTO durable_steps (id, execution_id, plan_version, step_index, title, description, status, side_effect_class, idempotency_key, input_summary, attempt_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?, ?) ON CONFLICT(id) DO UPDATE SET plan_version = excluded.plan_version, step_index = excluded.step_index, title = excluded.title, description = excluded.description, updated_at = excluded.updated_at`)
+            .run(step.id, current.id, version, stepIndex++, step.title, step.description, step.sideEffectClass, step.idempotencyKey ?? null, step.inputSummary ?? null, timestamp, timestamp);
+          this.insertStepRule(current.id, version, step.id, step.verification, timestamp);
+          this.db.prepare("INSERT INTO durable_task_steps VALUES (?, ?, ?, ?, ?)").run(current.id, version, task.id, step.id, position);
+        });
+      });
+      criteria.forEach(criterion => this.db.prepare(`INSERT INTO durable_acceptance_criteria (id, execution_id, plan_version, description, required, checker_type, checker_key, author, result, user_edited, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'user', 'unproven', 1, ?, ?)`)
+        .run(criterion.id ?? id("criterion"), current.id, version, criterion.description, criterion.required !== false ? 1 : 0, criterion.checkerType ?? "subjective", criterion.checkerKey ?? null, timestamp, timestamp));
+      const title = text(input.title) || snapshot.meta.title;
+      const summary = input.summary === undefined ? snapshot.meta.summary : text(input.summary);
+      this.db.prepare("UPDATE durable_plan_meta SET title = ?, summary = ?, updated_at = ? WHERE execution_id = ?").run(title, summary, timestamp, current.id);
+      this.db.prepare("UPDATE durable_executions SET goal = ?, status = 'planned', current_plan_version = ?, version = version + 1, updated_at = ?, terminal_at = NULL, waiting_kind = NULL, waiting_reason = NULL WHERE id = ?").run(title, version, timestamp, current.id);
+      this.db.exec("COMMIT"); this.notify();
+      return this.getById(current.id)!;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
 
   /**
@@ -1339,18 +1489,16 @@ export class DurableExecutionStore {
     try {
       const row = this.db.prepare("SELECT * FROM durable_executions WHERE id = ?").get(executionId) as unknown as ExecutionRow | undefined;
       if (!row) {
-        this.db.exec("COMMIT");
+        this.db.exec("COMMIT"); this.notify();
         return false;
       }
       if (text(input.ownerId) && row.owner_id !== text(input.ownerId)) throw new DurableExecutionNotFoundError(executionId);
       if (input.expectedVersion !== undefined) this.assertVersion(row, input.expectedVersion);
-      // Only a live durable attempt blocks deletion. Plans execute as ordinary
-      // Session turns, so their paused/waiting rows are records — not active
-      // work — and must stay deletable.
+      // Active attempts must settle before their ledger can be deleted.
       if (["queued", "running", "verifying"].includes(row.status)) {
         throw new DurableExecutionTransitionError(row.status, "cancelled");
       }
-      if (row.activation_reason !== "plan") {
+      {
         const pendingApproval = this.db.prepare("SELECT 1 AS found FROM durable_approval_requests WHERE execution_id = ? AND status = 'pending' LIMIT 1").get(executionId) as { found?: number } | undefined;
         if (Number(pendingApproval?.found ?? 0) === 1) {
           throw new DurableExecutionTransitionError(row.status, "cancelled");
@@ -1359,7 +1507,7 @@ export class DurableExecutionStore {
       this.db.prepare("INSERT OR REPLACE INTO durable_plan_tombstones (execution_id, owner_id, title, deleted_at) VALUES (?, ?, ?, ?)")
         .run(executionId, row.owner_id, this.getPlanMeta(executionId)?.title ?? row.goal, timestamp);
       this.db.prepare("DELETE FROM durable_executions WHERE id = ?").run(executionId);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return true;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1423,7 +1571,7 @@ export class DurableExecutionStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const next = this.transitionStatusInTransaction(idValue, expectedVersion, nextStatus, patch);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return next;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1453,7 +1601,7 @@ export class DurableExecutionStore {
         if (existing.action !== input.action) throw new Error(`Action ID already used for ${existing.action}.`);
         const replayed = parseJson<DurableExecution | null>(existing.result_json, null);
         if (!replayed) throw new Error(`Action receipt is invalid: ${actionId}`);
-        this.db.exec("COMMIT");
+        this.db.exec("COMMIT"); this.notify();
         return replayed;
       }
 
@@ -1469,12 +1617,23 @@ export class DurableExecutionStore {
       this.db.prepare("INSERT INTO durable_action_receipts (action_id, execution_id, action, result_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
         actionId, input.executionId, input.action, JSON.stringify(next), nowIso(input.now)
       );
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return next;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  private assertPlanApproval(current: ExecutionRow): void {
+    if (current.activation_reason !== "plan") return;
+    const binding = this.getPlanBinding(current.id);
+    if (!binding || binding.approvedVersion !== current.current_plan_version) throw new Error("The current plan version requires owner approval.");
+  }
+
+  getPlanInput(executionId: string): import("../plans/input.js").PlanInputSnapshot | undefined {
+    const row = this.db.prepare("SELECT input_json FROM durable_plan_inputs WHERE execution_id = ?").get(executionId) as { input_json: string } | undefined;
+    return row ? JSON.parse(row.input_json) : undefined;
   }
 
   claimAttempt(input: ClaimAttemptInput): ClaimedAttempt {
@@ -1485,6 +1644,7 @@ export class DurableExecutionStore {
     try {
       const current = this.requireRow(input.executionId);
       this.assertVersion(current, input.expectedVersion);
+      this.assertPlanApproval(current);
       if (TERMINAL_STATUSES.has(current.status) || current.status === "paused" || current.status === "waiting_for_user" || current.status === "waiting_for_approval") {
         throw new DurableExecutionTransitionError(current.status, "running");
       }
@@ -1523,7 +1683,7 @@ export class DurableExecutionStore {
       `).run(nextStatus, input.processOwnerId, leaseExpiresAt, countTowardsAttemptBudget ? 1 : 0, startedAt, startedAt, input.executionId, input.expectedVersion);
       const execution = rowToExecution(this.requireRow(input.executionId));
       const attempt = rowToAttempt(this.db.prepare("SELECT * FROM durable_attempts WHERE id = ?").get(attemptId) as unknown as AttemptRow);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return { execution, attempt };
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1561,7 +1721,7 @@ export class DurableExecutionStore {
       const nextRunAt = new Date(now.getTime() + Math.max(250, Math.round(delayMs))).toISOString();
       this.db.prepare("UPDATE durable_executions SET version = version + 1, next_run_at = ?, updated_at = ?, last_error = NULL WHERE id = ? AND version = ?").run(nextRunAt, timestamp, executionId, expectedVersion);
       const next = rowToExecution(this.requireRow(executionId));
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return next;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1599,7 +1759,7 @@ export class DurableExecutionStore {
         waitingKind ?? null, waitingReason, lastError, input.executionId, input.expectedVersion
       );
       const execution = rowToExecution(this.requireRow(input.executionId));
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return execution;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1616,7 +1776,7 @@ export class DurableExecutionStore {
       const criterion = this.db.prepare("SELECT * FROM durable_acceptance_criteria WHERE id = ? AND execution_id = ?").get(input.criterionId, input.executionId) as CriterionRow | undefined;
       if (!criterion) throw new Error(`Acceptance criterion not found: ${input.criterionId}`);
       if (criterion.user_edited) {
-        this.db.exec("COMMIT");
+        this.db.exec("COMMIT"); this.notify();
         return rowToCriterion(criterion);
       }
       const timestamp = nowIso(input.now);
@@ -1629,7 +1789,7 @@ export class DurableExecutionStore {
       );
       this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
       const next = this.db.prepare("SELECT * FROM durable_acceptance_criteria WHERE id = ? AND execution_id = ?").get(input.criterionId, input.executionId) as unknown as CriterionRow;
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToCriterion(next);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1644,6 +1804,7 @@ export class DurableExecutionStore {
       const rows = this.db.prepare("SELECT * FROM durable_executions WHERE status IN ('running', 'verifying') AND lease_owner_id IS NOT NULL AND lease_owner_id != ?").all(processOwnerId) as unknown as ExecutionRow[];
       for (const row of rows) {
         const isVerifying = row.status === "verifying";
+        const control = this.getControlRequest(row.id);
         if (!isVerifying) {
           this.db.prepare("UPDATE durable_steps SET status = 'uncertain', updated_at = ? WHERE execution_id = ? AND status = 'running'").run(timestamp, row.id);
         }
@@ -1653,14 +1814,18 @@ export class DurableExecutionStore {
         // whose buttons can only return "no longer pending".
         this.expireAttemptApprovals(row.id, timestamp);
         this.db.prepare(`UPDATE durable_executions SET status = ?, version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = ?, waiting_reason = ?, last_error = ?, updated_at = ? WHERE id = ? AND version = ?`).run(
-          isVerifying ? "verifying" : "recovery_required",
-          isVerifying ? null : "recovery",
-          isVerifying ? null : "An active step has uncertain external state.",
+          control === "pause" ? "paused" : control === "cancel" ? "cancelled" : isVerifying ? "verifying" : "recovery_required",
+          control || isVerifying ? null : "recovery",
+          control || isVerifying ? null : "An active step has uncertain external state.",
           isVerifying ? "Verification was interrupted and will be recomputed." : "An active step has uncertain external state.",
           timestamp, row.id, row.version
         );
+        if (control) {
+          this.db.prepare("DELETE FROM durable_execution_controls WHERE execution_id = ?").run(row.id);
+          if (control === "cancel") this.db.prepare("UPDATE durable_executions SET terminal_at = ? WHERE id = ?").run(timestamp, row.id);
+        }
       }
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rows.length;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1680,7 +1845,7 @@ export class DurableExecutionStore {
       this.db.prepare("UPDATE durable_steps SET status = 'running', attempt_count = attempt_count + 1, started_at = ?, completed_at = NULL, last_error = NULL, updated_at = ? WHERE id = ? AND execution_id = ?").run(timestamp, timestamp, stepId, executionId);
       this.bumpExecution(executionId, expectedVersion, timestamp);
       const next = this.requireStep(executionId, stepId);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToStep(next);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1702,7 +1867,7 @@ export class DurableExecutionStore {
       );
       this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
       const next = this.requireStep(input.executionId, input.stepId);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToStep(next);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1739,7 +1904,7 @@ export class DurableExecutionStore {
       );
       this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
       const next = this.requireStep(input.executionId, input.stepId);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToStep(next);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1792,7 +1957,7 @@ export class DurableExecutionStore {
       }
       this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
       const next = rowToExecution(this.requireRow(input.executionId));
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return next;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1817,7 +1982,7 @@ export class DurableExecutionStore {
       this.requireStep(input.executionId, input.stepId);
       const existing = this.db.prepare("SELECT * FROM durable_side_effects WHERE execution_id = ? AND step_id = ? AND phase = ? AND idempotency_key = ?").get(input.executionId, input.stepId, phase, text(input.idempotencyKey)) as SideEffectRow | undefined;
       if (existing) {
-        this.db.exec("COMMIT");
+        this.db.exec("COMMIT"); this.notify();
         return rowToSideEffect(existing);
       }
       const timestamp = nowIso(input.now);
@@ -1829,7 +1994,7 @@ export class DurableExecutionStore {
       );
       this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
       const record = this.db.prepare("SELECT * FROM durable_side_effects WHERE id = ?").get(recordId) as unknown as SideEffectRow;
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToSideEffect(record);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1852,7 +2017,7 @@ export class DurableExecutionStore {
       this.db.prepare("UPDATE durable_attempts SET status = 'waiting', finished_at = ?, end_reason = 'waiting_for_user' WHERE execution_id = ? AND status = 'running'").run(timestamp, input.executionId);
       this.db.prepare("UPDATE durable_executions SET status = 'waiting_for_user', version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = 'user', waiting_reason = ?, updated_at = ? WHERE id = ? AND version = ?").run(question, timestamp, input.executionId, input.expectedVersion);
       const row = this.db.prepare("SELECT * FROM durable_decisions WHERE id = ?").get(decisionId) as unknown as DecisionRow;
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToDecision(row);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1878,7 +2043,7 @@ export class DurableExecutionStore {
         question, timestamp, input.executionId, input.expectedVersion
       );
       const row = this.db.prepare("SELECT * FROM durable_decisions WHERE id = ?").get(decisionId) as unknown as DecisionRow;
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToDecision(row);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1890,7 +2055,7 @@ export class DurableExecutionStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const next = this.answerDecisionInTransaction(input);
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return next;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1919,7 +2084,7 @@ export class DurableExecutionStore {
       this.assertLease(current, input.processOwnerId);
       const existing = this.db.prepare("SELECT * FROM durable_approval_requests WHERE execution_id = ? AND request_id = ?").get(input.executionId, text(input.requestId)) as ApprovalRow | undefined;
       if (existing) {
-        this.db.exec("COMMIT");
+        this.db.exec("COMMIT"); this.notify();
         return rowToApproval(existing);
       }
       const previous = this.db.prepare("SELECT COALESCE(MAX(repeat_count), 0) AS repeat_count FROM durable_approval_requests WHERE execution_id = ? AND action_key = ?").get(input.executionId, text(input.actionKey)) as { repeat_count: number };
@@ -1946,7 +2111,7 @@ export class DurableExecutionStore {
       );
       this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
       const row = this.db.prepare("SELECT * FROM durable_approval_requests WHERE id = ?").get(approvalId) as unknown as ApprovalRow;
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToApproval(row);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1967,7 +2132,7 @@ export class DurableExecutionStore {
       this.assertLease(current, input.processOwnerId);
       const approval = this.db.prepare("SELECT * FROM durable_approval_requests WHERE id = ? AND execution_id = ?").get(input.approvalId, input.executionId) as ApprovalRow | undefined;
       if (!approval || approval.status !== "approved") {
-        this.db.exec("COMMIT");
+        this.db.exec("COMMIT"); this.notify();
         return null;
       }
       const scope = approval.selected_scope ?? "once";
@@ -1980,7 +2145,7 @@ export class DurableExecutionStore {
         this.bumpExecution(input.executionId, input.expectedVersion, timestamp);
       }
       const row = this.db.prepare("SELECT * FROM durable_approval_requests WHERE id = ?").get(input.approvalId) as unknown as ApprovalRow;
-      this.db.exec("COMMIT");
+      this.db.exec("COMMIT"); this.notify();
       return rowToApproval(row);
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -2063,6 +2228,7 @@ export class DurableExecutionStore {
   ): DurableExecution {
     const current = this.requireRow(idValue);
     this.assertVersion(current, expectedVersion);
+    if (["queued", "running", "verifying"].includes(nextStatus)) this.assertPlanApproval(current);
     if (current.status === "waiting_for_approval" && nextStatus === "queued") {
       throw new DurableExecutionTransitionError(current.status, nextStatus);
     }
@@ -2078,6 +2244,10 @@ export class DurableExecutionStore {
           timestamp, patch.lastError ?? patch.waitingReason ?? `execution_${nextStatus}`, idValue
         );
       }
+    }
+    if (nextStatus === "cancelled" || nextStatus === "paused") {
+      this.db.prepare("UPDATE durable_approval_requests SET status = 'expired', resolved_at = ? WHERE execution_id = ? AND status = 'pending'").run(timestamp, idValue);
+      this.db.prepare("UPDATE durable_decisions SET status = 'cancelled' WHERE execution_id = ? AND status = 'open'").run(idValue);
     }
     const terminalAt = TERMINAL_STATUSES.has(nextStatus) ? timestamp : null;
     this.db.prepare(`
@@ -2442,6 +2612,39 @@ export class DurableExecutionStore {
         PRIMARY KEY (execution_id, plan_version, step_id)
       );
       CREATE INDEX IF NOT EXISTS idx_durable_task_steps_task ON durable_task_steps(task_id, position);
+      CREATE TABLE IF NOT EXISTS durable_plan_deliveries (
+        run_id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL, response_text TEXT NOT NULL, delivered_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS durable_plan_inputs (
+        execution_id TEXT PRIMARY KEY REFERENCES durable_executions(id) ON DELETE CASCADE,
+        input_json TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS durable_plan_origins (
+        execution_id TEXT PRIMARY KEY REFERENCES durable_executions(id) ON DELETE CASCADE,
+        agent_id TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS durable_plan_bindings (
+        execution_id TEXT PRIMARY KEY REFERENCES durable_executions(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL, agent_id TEXT NOT NULL, mode TEXT NOT NULL,
+        approved_version INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS durable_plan_handoffs (
+        id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL, plan_version INTEGER NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS durable_execution_controls (
+        execution_id TEXT PRIMARY KEY REFERENCES durable_executions(id) ON DELETE CASCADE,
+        action TEXT NOT NULL CHECK(action IN ('pause','cancel'))
+      );
+      CREATE TABLE IF NOT EXISTS durable_plan_snapshots (
+        execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
+        plan_version INTEGER NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        PRIMARY KEY (execution_id, plan_version)
+      );
       CREATE TABLE IF NOT EXISTS durable_plan_tombstones (
         execution_id TEXT PRIMARY KEY,
         owner_id TEXT NOT NULL,

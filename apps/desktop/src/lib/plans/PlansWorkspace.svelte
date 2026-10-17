@@ -5,80 +5,44 @@
   import WorkspaceSearch from "../components/ui/WorkspaceSearch.svelte";
   import WorkspaceEmpty from "../components/ui/WorkspaceEmpty.svelte";
   import Button from "../components/ui/Button.svelte";
+  import SelectControl from "../components/ui/SelectControl.svelte";
+  import PlanEditor from "./PlanEditor.svelte";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Help from "reicon-svelte/icons/Help";
   import Loader from "reicon-svelte/icons/Loader";
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import X from "reicon-svelte/icons/X";
-  import type {
-    DesktopDurableExecutionStatus,
-    DesktopPlanDetail,
-    DesktopPlanListItem,
-    DesktopPlanStatus,
-    DesktopPlanTaskInput
-  } from "@molibot/desktop-contract";
-  import { loadDesktopPlan, loadDesktopPlans, runDesktopPlanAction } from "../api";
+  import type { DesktopDurableExecutionStatus, DesktopPlanDetail, DesktopPlanListItem, DesktopPlanStatus, DesktopPlanActionRequest } from "@molibot/desktop-contract";
+  import { loadDesktopPlan, loadDesktopPlans, runDesktopPlanAction, streamDesktopPlans } from "../api";
   import type { Translation } from "../i18n";
 
   export let copy: Translation;
   export let endpoint: string;
+  export let targetSessionId = "";
   export let formatTime: (iso: string) => string = (iso) => iso;
-  /** Plans execute as ordinary Session turns, so "start/continue" opens the
-   *  source Session and resumes there instead of running the Durable runtime. */
   export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
-
   type FilterBucket = "all" | DesktopPlanStatus;
-
   const filterOptions: Array<{ value: FilterBucket; key: keyof Translation }> = [
-    { value: "all", key: "planBoardFilterAll" },
-    { value: "not_started", key: "planBoardFilterNotStarted" },
-    { value: "in_progress", key: "planBoardFilterInProgress" },
-    { value: "needs_attention", key: "planBoardFilterAttention" },
-    { value: "finished", key: "planBoardFilterFinished" },
-    { value: "archived", key: "planBoardFilterArchived" }
+    { value: "all", key: "planBoardFilterAll" }, { value: "not_started", key: "planBoardFilterNotStarted" },
+    { value: "in_progress", key: "planBoardFilterInProgress" }, { value: "needs_attention", key: "planBoardFilterAttention" },
+    { value: "finished", key: "planBoardFilterFinished" }, { value: "archived", key: "planBoardFilterArchived" }
   ];
-  const planStatusKeys: Record<DesktopPlanStatus, keyof Translation> = {
-    not_started: "planBoardStatusNotStarted",
-    in_progress: "planBoardStatusInProgress",
-    needs_attention: "planBoardStatusAttention",
-    finished: "planBoardStatusFinished",
-    archived: "planBoardStatusArchived"
-  };
-  const stepStatusKeys: Record<string, keyof Translation> = {
-    pending: "durableStatusPlanned",
-    running: "planStatusExecuting",
-    completed: "planStatusCompleted",
-    skipped: "planStatusCompleted",
-    uncertain: "planStatusBlocked",
-    blocked: "planStatusBlocked",
-    failed: "planStatusBlocked"
-  };
-
+  const planStatusKeys: Record<DesktopPlanStatus, keyof Translation> = { not_started: "planBoardStatusNotStarted", in_progress: "planBoardStatusInProgress", needs_attention: "planBoardStatusAttention", finished: "planBoardStatusFinished", archived: "planBoardStatusArchived" };
+  const stepStatusKeys: Record<string, keyof Translation> = { pending: "durableStatusPlanned", running: "planStatusExecuting", completed: "planStatusCompleted", skipped: "planEditorSkipped", uncertain: "planStatusBlocked", blocked: "planStatusBlocked", failed: "planStatusBlocked" };
   let items: DesktopPlanListItem[] = [];
-  let listLoading = true;
-  let listError = "";
-  let search = "";
-  let filter: FilterBucket = "all";
-  let selectedId = "";
+  let listLoading = true, listError = "", search = "", selectedId = "", detailLoading = false, busy = false, actionError = "", editorOpen = false;
   let detail: DesktopPlanDetail | null = null;
-  let detailLoading = false;
-  let busy = false;
-  let actionError = "";
-  let editorOpen = false;
-  let reworkTasks: Array<{ title: string; steps: string }> = [];
-  let reworkError = "";
-  let requestSeq = 0;
-
-  $: searchItems = items.filter((item) => {
-    const query = search.trim().toLowerCase();
-    return !query || item.title.toLowerCase().includes(query) || item.planId.toLowerCase().includes(query);
-  });
-  $: visibleItems = searchItems.filter((item) => filter === "all" || item.planStatus === filter);
-  $: filterItems = filterOptions.map(({ value, key }) => ({
-    value, label: copy[key], count: searchItems.filter((item) => value === "all" || item.planStatus === value).length
-  }));
-  $: hasIncompleteRework = reworkTasks.some((task) => !task.title.trim() || !task.steps.split("\n").some((line) => line.trim()));
-  $: canSaveRework = reworkTasks.length > 0 && !hasIncompleteRework;
+  let filter: FilterBucket = "all";
+  let offset = 0, total = 0, projectId = "", mounted = false, online = false, lastUpdated = "", listSeq = 0, requestSeq = 0;
+  let projectIds: string[] = [];
+  let mode: "manual" | "accept_edits" = "manual";
+  let receiver = "current";
+  let counts: Record<string, number> = {};
+  $: visibleItems = items;
+  $: filterItems = filterOptions.map(({ value, key }) => ({ value, label: copy[key], count: counts[value] ?? 0 }));
+  $: statuses = filter === "all" ? undefined : Object.entries({ planned: "not_started", queued: "in_progress", running: "in_progress", verifying: "in_progress", completed: "archived", cancelled: "finished", paused: "needs_attention", waiting_for_user: "needs_attention", waiting_for_approval: "needs_attention", recovery_required: "needs_attention", partial: "needs_attention", failed: "needs_attention" }).filter(([, bucket]) => bucket === filter).map(([status]) => status);
+  $: queryKey = JSON.stringify([search, filter, projectId, offset]);
+  $: if (mounted && queryKey) void refreshList();
   $: currentVersion = detail?.execution.currentPlanVersion ?? -1;
   $: currentCriteria = detail?.acceptanceCriteria.filter((criterion) => criterion.planVersion === currentVersion) ?? [];
   $: completedCount = detail?.projection.progress.completed ?? 0;
@@ -86,231 +50,117 @@
   $: progressPercent = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
   $: waitingText = detail ? resolveWaitingText(detail) : "";
   $: showDetailPane = detailLoading || Boolean(detail) || Boolean(selectedId);
-  $: canContinue = Boolean(detail?.execution.sourceUiSessionId) && ["planned", "paused", "recovery_required", "waiting_for_user", "waiting_for_approval"].includes(detail?.execution.status ?? "");
-  $: canOpenSession = Boolean(detail?.execution.sourceUiSessionId);
-  $: canRework = detail !== null && !["queued", "running", "verifying", "waiting_for_user", "waiting_for_approval", "cancelled"].includes(detail.execution.status);
-  $: canDelete = detail !== null && !["queued", "running", "verifying"].includes(detail.execution.status);
-  $: canComplete = detail !== null && totalCount > 0 && completedCount === totalCount && !["completed", "cancelled"].includes(detail.execution.status);
+  $: canContinue = detail !== null && ["planned", "paused", "recovery_required", "failed"].includes(detail.execution.status);
+  $: canOpenSession = Boolean(detail?.binding?.sessionId ?? detail?.execution.sourceUiSessionId);
+  $: canRework = detail !== null && detail.execution.status !== "cancelled";
+  $: canDelete = detail !== null && !["queued", "running", "verifying", "waiting_for_approval"].includes(detail.execution.status);
+  $: canComplete = detail?.decisions.some(item => item.status === "open" && item.options.includes("confirm_completion")) ?? false;
 
   onMount(() => {
-    void refreshList();
-    const timer = setInterval(() => {
-      if (document.hidden) return;
-      void refreshList(true);
-      if (selectedId && !busy) void loadDetail(selectedId, true);
-    }, 5000);
-    return () => clearInterval(timer);
+    mounted = true;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const connect = async () => {
+      try {
+        await streamDesktopPlans(endpoint, controller.signal, event => {
+          online = true;
+          if (event.type !== "heartbeat") { void refreshList(true); if (selectedId) void loadDetail(selectedId, true); }
+        });
+      } catch { /* Keep the last persisted snapshot visible during reconnection. */ }
+      if (!controller.signal.aborted) { online = false; timer = setTimeout(() => void connect(), 1000); }
+    };
+    void connect();
+    return () => { mounted = false; controller.abort(); clearTimeout(timer); };
   });
-
   async function refreshList(silent = false): Promise<void> {
     if (!endpoint) return;
+    const seq = ++listSeq;
     if (!silent && items.length === 0) listLoading = true;
     try {
-      const next = await loadDesktopPlans(endpoint, { includeArchived: true, limit: 200 });
-      items = next;
-      listError = "";
-    } catch (cause) {
-      if (!silent) listError = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      listLoading = false;
-    }
+      const next = await loadDesktopPlans(endpoint, { includeArchived: true, limit: 25, offset, search, projectId, statuses });
+      if (seq !== listSeq) return;
+      items = next.items; total = next.total; counts = next.counts; projectIds = next.projectIds; lastUpdated = new Date().toISOString(); listError = "";
+    } catch (cause) { if (seq === listSeq) { listError = String(cause instanceof Error ? cause.message : cause); online = false; } }
+    finally { if (seq === listSeq) listLoading = false; }
   }
-
   async function selectPlan(planId: string): Promise<void> {
     if (selectedId === planId && detail) return;
-    selectedId = planId;
-    editorOpen = false;
-    reworkTasks = [];
-    reworkError = "";
-    actionError = "";
+    selectedId = planId; detail = null; editorOpen = false; actionError = "";
     await loadDetail(planId);
   }
-
   async function loadDetail(planId: string, silent = false): Promise<void> {
-    if (!endpoint) return;
     const seq = ++requestSeq;
     if (!silent) detailLoading = true;
     try {
       const next = await loadDesktopPlan(endpoint, planId);
-      if (seq === requestSeq && selectedId === planId) { detail = next; actionError = ""; }
-    } catch (cause) {
-      if (!silent && seq === requestSeq) { detail = null; actionError = cause instanceof Error ? cause.message : String(cause); }
-    } finally {
-      if (seq === requestSeq) detailLoading = false;
-    }
+      if (seq === requestSeq && selectedId === planId && (!detail || next.execution.version >= detail.execution.version)) detail = next;
+    } catch (cause) { if (!silent && seq === requestSeq) actionError = String(cause instanceof Error ? cause.message : cause); }
+    finally { if (seq === requestSeq) detailLoading = false; }
   }
-
-  async function completePlan(): Promise<void> {
-    if (!detail || busy) return;
-    busy = true;
-    actionError = "";
-    try {
-      const response = await runDesktopPlanAction(endpoint, { action: "complete", planId: detail.execution.id });
-      if (response.item) detail = response.item;
-      await refreshList(true);
-    } catch (cause) {
-      actionError = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      busy = false;
-    }
-  }
-
-  function continuePlan(resume: boolean): void {    if (!detail?.execution.sourceUiSessionId) return;
-    onContinuePlan({
-      planId: detail.execution.id,
-      sessionId: detail.execution.sourceUiSessionId,
-      projectId: detail.execution.sourceProjectId,
-      resume
-    });
-  }
-
-  async function deletePlan(): Promise<void> {
-    if (!detail || busy) return;
-    if (!window.confirm(copy.planBoardDeleteConfirm)) return;
-    busy = true;
-    actionError = "";
-    try {
-      await runDesktopPlanAction(endpoint, { action: "delete", planId: detail.execution.id, expectedVersion: detail.execution.version });
-      detail = null;
-      selectedId = "";
-      await refreshList(true);
-    } catch (cause) {
-      actionError = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      busy = false;
-    }
-  }
-
-  function openEditor(): void {
-    if (busy || editorOpen || !canRework) return;
-    editorOpen = true;
-    reworkError = "";
-    reworkTasks = [{ title: "", steps: "" }];
-  }
-
-  function cancelEditor(): void {
+  async function action(input: DesktopPlanActionRequest): Promise<void> {
     if (busy) return;
-    editorOpen = false;
-    reworkTasks = [];
-    reworkError = "";
-  }
-
-  function addReworkTask(): void {
-    if (busy || !editorOpen || hasIncompleteRework) return;
-    reworkTasks = [...reworkTasks, { title: "", steps: "" }];
-  }
-
-  function removeReworkTask(index: number): void {
-    reworkTasks = reworkTasks.filter((_, current) => current !== index);
-  }
-
-  async function saveRework(): Promise<void> {
-    if (!detail || busy) return;
-    if (!canSaveRework) {
-      reworkError = copy.planBoardReworkEmpty;
-      return;
-    }
-    const addTasks: DesktopPlanTaskInput[] = [];
-    for (const task of reworkTasks) {
-      const title = task.title.trim();
-      const steps = task.steps.split("\n").map((line) => line.trim()).filter(Boolean);
-      addTasks.push({ title, steps: steps.map((stepTitle) => ({ title: stepTitle })) });
-    }
-    busy = true;
-    reworkError = "";
-    actionError = "";
+    busy = true; actionError = "";
     try {
-      const response = await runDesktopPlanAction(endpoint, {
-        action: "revise",
-        executionId: detail.execution.id,
-        expectedVersion: detail.execution.version,
-        reason: "desktop rework",
-        addTasks
-      });
-      if (response.item) detail = response.item;
-      editorOpen = false;
-      reworkTasks = [];
+      const response = await runDesktopPlanAction(endpoint, input);
+      if (response.item && selectedId === response.item.execution.id && (!detail || response.item.execution.version >= detail.execution.version)) detail = response.item;
+      if (response.deleted && "planId" in input && selectedId === input.planId) { detail = null; selectedId = ""; }
       await refreshList(true);
-    } catch (cause) {
-      reworkError = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      busy = false;
-    }
+    } catch (cause) { actionError = String(cause instanceof Error ? cause.message : cause); }
+    finally { busy = false; }
   }
-
-  function planStatusLabel(status: DesktopPlanStatus): string {
-    return copy[planStatusKeys[status]];
+  async function completePlan() { if (detail) await action({ action: "complete", planId: detail.execution.id, expectedVersion: detail.execution.version, actionId: crypto.randomUUID() }); }
+  async function deletePlan() { if (detail && window.confirm(copy.planBoardDeleteConfirm)) await action({ action: "delete", planId: detail.execution.id, expectedVersion: detail.execution.version }); }
+  async function control(kind: "pause" | "cancel") { if (detail) await action({ action: kind, planId: detail.execution.id, expectedVersion: detail.execution.version, actionId: crypto.randomUUID() }); }
+  async function continuePlan(resume: boolean) {
+    if (!detail) return;
+    if (!resume) { onContinuePlan({ planId: detail.execution.id, sessionId: detail.binding?.sessionId ?? detail.execution.sourceUiSessionId, projectId: detail.execution.sourceProjectId, resume: false }); return; }
+    const sessionId = receiver === "current" ? targetSessionId : receiver === "source" ? detail.binding?.sessionId ?? detail.execution.sourceUiSessionId : undefined;
+    await action({ action: "approve", planId: detail.execution.id, expectedVersion: detail.execution.version, sessionId: sessionId || undefined, mode });
   }
-
-  function stepStatusLabel(status: string): string {
-    return copy[stepStatusKeys[status] ?? "durableStatusPlanned"];
+  async function decide(kind: "approval" | "answer", id: string, value: string) {
+    if (!detail) return;
+    const common = { planId: detail.execution.id, expectedVersion: detail.execution.version, actionId: crypto.randomUUID() };
+    await action(kind === "approval" ? { ...common, action: "approval", approvalId: id, status: value as "approved" | "rejected" } : { ...common, action: "answer", decisionId: id, answer: value });
   }
-
+  function planStatusLabel(status: DesktopPlanStatus): string { return copy[planStatusKeys[status]]; }
+  function stepStatusLabel(status: string): string { return copy[stepStatusKeys[status] ?? "durableStatusPlanned"]; }
   function statusBucket(status: DesktopDurableExecutionStatus): DesktopPlanStatus {
-    if (status === "planned") return "not_started";
-    if (status === "completed") return "archived";
-    if (status === "cancelled") return "finished";
-    if (["queued", "running", "verifying"].includes(status)) return "in_progress";
-    return "needs_attention";
+    if (status === "planned") return "not_started"; if (status === "completed") return "archived"; if (status === "cancelled") return "finished";
+    return ["queued", "running", "verifying"].includes(status) ? "in_progress" : "needs_attention";
   }
-
-  function taskProgress(task: DesktopPlanDetail["tasks"][number]): string {
-    const done = task.steps.filter((step) => step.status === "completed" || step.status === "skipped").length;
-    return copy.planBoardStepsCount.replace("{done}", String(done)).replace("{total}", String(task.steps.length));
-  }
-
-  /** Runtime-authored English markers must not leak into the localized board. */
-  function stepOutputSummary(summary: string | undefined): string {
-    if (!summary) return "";
-    if (summary === "The bounded Agent attempt completed this plan step.") return copy.durableStepAttemptCompleted;
-    if (summary.startsWith("Run detail for completed step")) return copy.durableEvidence;
-    return summary;
-  }
-
-  function criterionLabel(description: string): string {
-    if (description === "The plan's requested outcome is verified.") return copy.planBoardDefaultCriterion;
-    if (description === "Every step in the accepted plan has completed.") return copy.durableCriterionAllStepsComplete;
-    return description;
-  }
-
-  function criterionResultLabel(result: "unproven" | "passed" | "failed"): string {
-    return result === "passed" ? copy.planStatusCompleted : result === "failed" ? copy.planStatusBlocked : copy.durableStatusPlanned;
-  }
-
-  /** Runtime waiting text is English; known kinds render localized copy instead. */
-  function resolveWaitingText(plan: DesktopPlanDetail): string {
-    const waiting = plan.projection.waiting;
-    if (waiting?.kind === "review") return copy.planReviewPrompt;
-    if (waiting?.kind === "recovery") return copy.planBoardRecoveryReason;
-    return plan.execution.waitingReason ?? "";
-  }
+  function taskProgress(task: DesktopPlanDetail["tasks"][number]) { return copy.planBoardStepsCount.replace("{done}", String(task.steps.filter(step => step.status === "completed").length)).replace("{total}", String(task.steps.length)); }
+  function stepOutputSummary(summary?: string) { return summary === "The bounded Agent attempt completed this plan step." ? copy.durableStepAttemptCompleted : summary?.startsWith("Run detail for completed step") ? copy.durableEvidence : summary ?? ""; }
+  function criterionLabel(description: string) { return description === "The plan's requested outcome is verified." ? copy.planBoardDefaultCriterion : description === "Every step in the accepted plan has completed." ? copy.durableCriterionAllStepsComplete : description; }
+  function criterionResultLabel(result: "unproven" | "passed" | "failed") { return result === "passed" ? copy.planStatusCompleted : result === "failed" ? copy.planStatusBlocked : copy.durableStatusPlanned; }
+  function resolveWaitingText(plan: DesktopPlanDetail) { return plan.projection.waiting?.kind === "review" ? copy.planReviewPrompt : plan.projection.waiting?.kind === "recovery" ? copy.planBoardRecoveryReason : plan.execution.waitingReason ?? ""; }
 </script>
 
 {#snippet headerActions()}
-  <div class="workspace-header-tools"><WorkspaceSearch value={search} label={copy.planBoardSearchLabel} placeholder={copy.planBoardSearchPlaceholder} closeLabel={copy.closeSearch} onInput={(value) => (search = value)} /></div>
+  <div class="workspace-header-tools"><WorkspaceSearch value={search} label={copy.planBoardSearchLabel} placeholder={copy.planBoardSearchPlaceholder} closeLabel={copy.closeSearch} onInput={(value) => { search = value; offset = 0; }} /></div>
 {/snippet}
 <ChatHeader title={copy.planBoardTitle} actions={headerActions} />
 
 <div class="plans-shell">
   <p class="workspace-description" title={copy.planBoardHint}>{copy.planBoardHint}</p>
   <div class="workspace-filterbar">
+    <SelectControl value={projectId} ariaLabel={copy.projects} options={[{ value: "", label: copy.planEditorAllProjects }, ...projectIds.map(value => ({ value, label: value }))]} onChange={value => { projectId = value; offset = 0; }} />
     <div class="segmented workspace-plan-filters" role="group" aria-label={copy.tasksByStatus}>
       {#each filterItems as item (item.value)}
-        <Button class={`segmented-item${filter === item.value ? " active" : ""}`} aria-pressed={filter === item.value} onclick={() => (filter = item.value)}>{item.label} <span class="workspace-category-count">{item.count}</span></Button>
+        <Button class={`segmented-item${filter === item.value ? " active" : ""}`} aria-pressed={filter === item.value} onclick={() => { filter = item.value; offset = 0; }}>{item.label} <span class="workspace-category-count">{item.count}</span></Button>
       {/each}
     </div>
   </div>
   <div class="plans-workspace workspace-master-detail" class:detail-open={showDetailPane}>
   <aside class="plans-rail" aria-label={copy.planBoardTitle}>
+  <p class="settings-hint" role="status">{online ? copy.planEditorLive : copy.planEditorOffline}{lastUpdated ? ` · ${copy.planBoardUpdated} ${formatTime(lastUpdated)}` : ""}</p>
+
 
     {#if listLoading && items.length === 0}
       <div class="plans-state" role="status">{copy.loading}</div>
-    {:else if listError}
+    {:else if listError && items.length === 0}
       <div class="plans-state" role="alert"><p>{copy.planBoardLoadFailed}</p><small>{listError}</small><button class="secondary-button" type="button" onclick={() => void refreshList()}>{copy.retryLoading}</button></div>
     {:else if items.length === 0}
-      <div class="plans-state"><Layers size={22} aria-hidden="true" /><p>{copy.planBoardEmpty}</p></div>
-    {:else if visibleItems.length === 0}
-      <div class="plans-state"><p>{copy.planBoardNoMatches}</p></div>
+      <div class="plans-state"><Layers size={22} aria-hidden="true" /><p>{search.trim() || projectId || statuses?.length ? copy.planBoardNoMatches : copy.planBoardEmpty}</p></div>
     {:else}
       <ul class="plans-list">
         {#each visibleItems as item (item.planId)}
@@ -338,6 +188,7 @@
         {/each}
       </ul>
     {/if}
+    <div class="plans-pagination"><Button disabled={offset === 0 || listLoading} onclick={() => offset = Math.max(0, offset - 25)}>{copy.planEditorPrevious}</Button><span>{Math.min(offset + 1, total)}–{Math.min(offset + 25, total)} / {total}</span><Button disabled={offset + 25 >= total || listLoading} onclick={() => offset += 25}>{copy.planEditorNext}</Button></div>
   </aside>
 
   <section class="plans-detail" aria-label={detail?.meta.title ?? copy.planBoardTitle}>
@@ -363,51 +214,37 @@
         </div>
       </header>
 
+      {#if canContinue}<div class="plans-execution-options">
+        <SelectControl value={mode} ariaLabel={copy.planEditorMode} options={[{ value: "manual", label: copy.permissionModeManual }, { value: "accept_edits", label: copy.permissionModeAcceptEdits }]} onChange={value => mode = value as typeof mode} />
+        <SelectControl value={receiver} ariaLabel={copy.planEditorReceiver} options={[{ value: "current", label: copy.planEditorCurrentSession, disabled: !targetSessionId }, { value: "source", label: copy.planBoardOpenSession, disabled: !detail.execution.sourceUiSessionId && !detail.binding }, { value: "new", label: copy.planEditorNewSession }]} onChange={value => receiver = value} />
+      </div>{/if}
       <div class="plans-actions">
         <div class="plans-actions-leading">
-          {#if canRework}<Button disabled={busy || editorOpen} onclick={openEditor}>{copy.planBoardRework}</Button>{/if}
+          {#if canRework}<Button disabled={busy || editorOpen} onclick={() => editorOpen = true}>{copy.planEditorTitle}</Button>{/if}
         </div>
         <div class="plans-actions-trailing">
+          {#if detail.controlRequest}<span role="status">{detail.controlRequest === "pause" ? copy.planEditorPausing : copy.planEditorCancelling}</span>{/if}
+          {#if ["queued", "running", "waiting_for_approval", "waiting_for_user", "verifying"].includes(detail.execution.status)}
+            <Button disabled={busy || Boolean(detail.controlRequest)} onclick={() => void control("pause")}>{copy.durablePause}</Button>
+            <Button danger disabled={busy || Boolean(detail.controlRequest)} onclick={() => void control("cancel")}>{copy.durableCancel}</Button>
+          {/if}
           {#if canDelete}<Button danger disabled={busy} onclick={() => void deletePlan()}>{copy.planBoardDelete}</Button>{/if}
           {#if canComplete}<Button disabled={busy} onclick={() => void completePlan()}>{copy.planBoardMarkComplete}</Button>{/if}
-          {#if canOpenSession}<Button onclick={() => continuePlan(false)}>{copy.planBoardOpenSession}</Button>{/if}
-          {#if canContinue}<Button variant="primary" onclick={() => continuePlan(detail?.execution.status === "planned")}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</Button>{/if}
+          {#if canOpenSession}<Button onclick={() => void continuePlan(false)}>{copy.planBoardOpenSession}</Button>{/if}
+          {#if canContinue}<Button variant="primary" disabled={busy || editorOpen} onclick={() => void continuePlan(true)}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</Button>{/if}
         </div>
       </div>
 
       <div class="plans-detail-scroll">
-        {#if editorOpen && canRework}
-          <section class="plans-card plans-rework" aria-label={copy.planBoardRework}>
-            <h3 class="plans-section-title">{copy.planBoardRework}</h3>
-            {#each reworkTasks as task, index (index)}
-              <div class="plans-rework-task">
-                <div class="plans-rework-head">
-                  <input
-                    type="text"
-                    value={task.title}
-                    placeholder={copy.planBoardReworkTitle}
-                    aria-label={copy.planBoardReworkTitle}
-                    oninput={(event) => (reworkTasks = reworkTasks.map((entry, current) => current === index ? { ...entry, title: (event.currentTarget as HTMLInputElement).value } : entry))}
-                  />
-                  {#if reworkTasks.length > 1}<button type="button" class="plans-remove" onclick={() => removeReworkTask(index)}>{copy.planBoardReworkRemove}</button>{/if}
-                </div>
-                <textarea
-                  rows="3"
-                  value={task.steps}
-                  placeholder={copy.planBoardReworkSteps}
-                  aria-label={copy.planBoardReworkSteps}
-                  oninput={(event) => (reworkTasks = reworkTasks.map((entry, current) => current === index ? { ...entry, steps: (event.currentTarget as HTMLTextAreaElement).value } : entry))}
-                ></textarea>
-              </div>
-            {/each}
-            {#if reworkError}<p class="plans-error-alert" role="alert">{reworkError}</p>{/if}
-            <div class="plans-rework-actions">
-              <Button disabled={busy} onclick={cancelEditor}>{copy.cancel}</Button>
-              <Button disabled={busy || hasIncompleteRework} onclick={addReworkTask}>{copy.planBoardReworkAdd}</Button>
-              <Button variant="primary" disabled={busy || !canSaveRework} onclick={() => void saveRework()}>{busy ? copy.planBoardRevising : copy.planBoardReworkSave}</Button>
-            </div>
-          </section>
+        {#if editorOpen}
+          {#key detail.execution.id}<PlanEditor {detail} {endpoint} {copy} onClose={() => editorOpen = false} onSaved={(next) => { if (selectedId === next.execution.id && (!detail || next.execution.version >= detail.execution.version)) { detail = next; editorOpen = false; } void refreshList(true); }} />{/key}
         {/if}
+        {#each detail.approvals.filter(item => item.status === "pending") as approval}
+          <section class="plans-card"><h3>{approval.title}</h3><p>{approval.summary}</p><Button disabled={busy} onclick={() => void decide("approval", approval.id, "rejected")}>{copy.planReject}</Button><Button variant="primary" disabled={busy} onclick={() => void decide("approval", approval.id, "approved")}>{copy.planEditorApproveOnce}</Button></section>
+        {/each}
+        {#each detail.decisions.filter(item => item.status === "open") as decision}
+          <section class="plans-card"><h3>{copy.planBoardStatusAttention}</h3><p>{decision.question}</p>{#each decision.options as answer}<Button disabled={busy} onclick={() => void decide("answer", decision.id, answer)}>{answer === "confirm_completion" ? copy.planBoardMarkComplete : answer === "completed" ? copy.planStatusCompleted : answer === "not_completed" ? copy.continueAction : copy.continueAction}</Button>{/each}</section>
+        {/each}
         <section class="plans-card plans-overview">
           {#if detail.meta.summary}<p class="plans-summary-text">{detail.meta.summary}</p>{/if}
           <div class="plans-progress">

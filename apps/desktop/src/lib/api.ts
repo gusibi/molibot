@@ -988,6 +988,7 @@ export async function resolveDesktopPlan(
     conversationId: string;
     planId: string;
     decision: "accept" | "reject" | "modify" | "complete";
+    expectedVersion?: number;
     mode?: "manual" | "accept_edits";
     title?: string;
     summary?: string;
@@ -1437,17 +1438,18 @@ export async function runDesktopDurableExecutionAction(
 
 export async function loadDesktopPlans(
   endpoint: string,
-  params: { search?: string; statuses?: string[]; includeArchived?: boolean; projectId?: string; limit?: number } = {}
-): Promise<DesktopPlanListItem[]> {
+  params: { search?: string; statuses?: string[]; includeArchived?: boolean; projectId?: string; limit?: number; offset?: number } = {}
+): Promise<DesktopPlanListResponse> {
   const query = new URLSearchParams();
   if (params.search) query.set("search", params.search);
   if (params.statuses && params.statuses.length > 0) query.set("statuses", params.statuses.join(","));
   if (params.includeArchived) query.set("includeArchived", "true");
   if (params.projectId) query.set("projectId", params.projectId);
   if (params.limit) query.set("limit", String(params.limit));
+  if (params.offset) query.set("offset", String(params.offset));
   const suffix = query.toString();
   const payload = await requestJson<DesktopPlanListResponse>(endpoint, "/api/desktop/plans" + (suffix ? `?${suffix}` : ""));
-  return payload.items;
+  return payload;
 }
 
 export async function loadDesktopPlan(endpoint: string, planId: string): Promise<DesktopPlanDetail> {
@@ -4303,10 +4305,16 @@ export function actOnDesktopRoom(endpoint: string, action: Record<string, unknow
   });
 }
 export async function streamDesktopRoom(endpoint: string, roomId: string, after: number, signal: AbortSignal, onEvent: (event: import("@molibot/shared/rooms").RoomEvent) => void) {
+  return streamDesktopUpdates(endpoint, `/api/desktop/rooms/events?roomId=${encodeURIComponent(roomId)}&after=${after}`, signal, onEvent);
+}
+export async function streamDesktopPlans(endpoint: string, signal: AbortSignal, onEvent: (event: { type: string }) => void) {
+  return streamDesktopUpdates(endpoint, "/api/desktop/plans?stream=true", signal, onEvent);
+}
+async function streamDesktopUpdates<T>(endpoint: string, path: string, signal: AbortSignal, onEvent: (event: T) => void) {
   const heartbeatAbort = new AbortController();
   const streamSignal = AbortSignal.any([signal, heartbeatAbort.signal]);
-  const response = await fetchFromDesktop(serviceUrl(endpoint, `/api/desktop/rooms/events?roomId=${encodeURIComponent(roomId)}&after=${after}`), { signal: streamSignal });
-  if (!response.ok || !response.body) throw new Error(`Room stream unavailable (${response.status})`);
+  const response = await fetchFromDesktop(serviceUrl(endpoint, path), { signal: streamSignal });
+  if (!response.ok || !response.body) throw new Error(`Event stream unavailable (${response.status})`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";

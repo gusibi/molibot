@@ -16,6 +16,7 @@ export function projectDurableConversationPlan(
   return {
     ...plan,
     updatedAt: durable.execution.updatedAt,
+    durableVersion: durable.execution.version,
     status: durable.execution.status === "running" ? "executing"
       : durable.execution.status === "waiting_for_user" && durable.steps.every((step) => step.planVersion !== durable.execution.currentPlanVersion || ["completed", "skipped"].includes(step.status)) ? "waiting_review"
       // A saved plan in `planned` has not passed first approval, so the chat
@@ -24,9 +25,8 @@ export function projectDurableConversationPlan(
       : durable.execution.status === "planned" ? "proposed"
       : (durable.execution.status === "partial" || durable.execution.status === "recovery_required") ? "blocked"
       : durable.execution.status,
-    steps: plan.steps.map((step, index) => {
-      const durableStep = currentSteps[index];
-      if (!durableStep) return step;
+    steps: currentSteps.map((durableStep, index) => {
+      const step = plan.steps[index];
       const status = durableStep.status === "completed" || durableStep.status === "skipped"
         ? "completed"
         : durableStep.status === "running"
@@ -34,7 +34,7 @@ export function projectDurableConversationPlan(
           : terminalFailure || STEP_FAILURES.has(durableStep.status)
             ? "blocked"
             : "pending";
-      return { ...step, status };
+      return { id: durableStep.id, text: durableStep.title ?? step?.text ?? "", status };
     })
   };
 }

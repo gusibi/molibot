@@ -5,7 +5,7 @@ const schema = Type.Object({
   steps: Type.Array(Type.Object({
     id: Type.String({ minLength: 1, maxLength: 160 }),
     status: Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("completed"), Type.Literal("blocked")])
-  }), { maxItems: 30 }),
+  }), {}),
   status: Type.Union([Type.Literal("executing"), Type.Literal("waiting_review"), Type.Literal("completed"), Type.Literal("blocked"), Type.Literal("waiting_for_user")]),
   summary: Type.String({ minLength: 1, maxLength: 2000 })
 });

@@ -82,7 +82,7 @@ test("plan content cannot be replaced after execution has started", () => {
   const { service, store, cleanup } = makeService();
   try {
     ensureSessionPlanRecord({ plan: proposal(), botId: "bot" }, service);
-    const queued = service.start({ ownerId: "owner", planId: "plan-call-1", expectedVersion: service.read("owner", "plan-call-1").execution.version });
+    const queued = service.approve({ ownerId: "owner", planId: "plan-call-1", expectedVersion: service.read("owner", "plan-call-1").execution.version, sessionId: "receiver", agentId: "default", mode: "manual" });
     assert.equal(queued.execution.status, "queued");
     assert.throws(() => store.replacePlanContent({
       executionId: "plan-call-1",

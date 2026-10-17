@@ -1,3 +1,4 @@
+import { capturePlanInput, type PlanInputSnapshot } from "./input.js";
 import type { ConversationPlan } from "$lib/shared/types/message.js";
 import { PlanService } from "./service.js";
 import type { PlanTaskInput } from "$lib/server/agent/durable/types.js";
@@ -18,7 +19,9 @@ export function planTasksFromConversationPlan(plan: ConversationPlan): PlanTaskI
  */
 export function ensureSessionPlanRecord(input: {
   plan?: ConversationPlan;
+  inputSnapshot?: PlanInputSnapshot;
   ownerId?: string;
+  agentId?: string;
   botId: string;
   sourceChannel?: string;
   sourceChatId?: string;
@@ -32,6 +35,8 @@ export function ensureSessionPlanRecord(input: {
   try {
     const detail = service.create({
       planId: plan.id,
+      inputSnapshot: input.inputSnapshot ? capturePlanInput(plan.id, input.inputSnapshot) : undefined,
+      agentId: input.agentId,
       ownerId: input.ownerId ?? DEFAULT_OWNER_ID,
       botId: input.botId,
       title: plan.title,
@@ -42,7 +47,7 @@ export function ensureSessionPlanRecord(input: {
       sourceUiSessionId: input.sourceUiSessionId,
       sourceProjectId: input.sourceProjectId
     });
-    return { ...plan, durableExecutionId: detail.execution.id };
+    return { ...plan, durableExecutionId: detail.execution.id, durableVersion: detail.execution.version };
   } catch (error) {
     console.error(`[plans] failed to save Session plan ${plan.id}`, error);
     return plan;
@@ -52,8 +57,7 @@ export function ensureSessionPlanRecord(input: {
 /**
  * First approval binds the accepted content version. Edits made before approval
  * are applied as a new version first, so the executed content is exactly what
- * the owner approved. Execution itself runs as an ordinary Session turn — this
- * never starts the Durable runtime.
+ * the owner approved. Execution starts only after an explicit Durable approval.
  */
 export function applyApprovedPlanContent(input: {
   plan: ConversationPlan;

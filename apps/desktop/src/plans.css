@@ -212,3 +212,14 @@
   @media (prefers-reduced-motion: reduce) {
     .plans-progress-track span { transition: none; }
   }
+
+.plans-execution-options, .plans-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; }
+.plans-execution-options .select-control { min-width: 0; flex: 1 1 180px; }
+.plans-pagination { justify-content: space-between; color: var(--label-secondary); font-size: var(--fs-meta); }
+.plans-editor { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--separator); border-radius: 12px; }
+.plans-editor input, .plans-editor textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.plans-editor-step { padding: 8px 0; }
+.plans-editor-footer { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px; background: var(--content-bg); border-top: 1px solid var(--separator); }
+.plans-diff { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; overflow-wrap: anywhere; }
+.plans-diff ol, .plans-diff ul { padding-inline-start: 20px; }
+.plans-alert { padding: 12px; color: var(--danger); white-space: pre-wrap; overflow-wrap: anywhere; }

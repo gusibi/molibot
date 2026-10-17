@@ -6,7 +6,9 @@ import { resolveEffectivePermissionMode } from "$lib/server/agent/permissions/re
 import { PERMISSION_MODES } from "$lib/server/agent/permissions/decidePermission";
 import { getRuntimeContextForConversation, resolveRunnerChatId } from "$lib/server/web/runtimeContext";
 import { sanitizeWebProfileId, toWebExternalUserId } from "$lib/server/web/identity";
-import { applyApprovedPlanContent } from "$lib/server/agent/plans/sessionIntegration.js";
+import { approveDesktopPlan } from "$lib/server/app/desktopPlans.js";
+import { projectDurableConversationPlan } from "$lib/server/agent/durable/planProjection.js";
+import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { PlanService } from "$lib/server/agent/plans/service.js";
 import type { DesktopPlanDecisionRequest, DesktopSessionPermissionUpdateRequest } from "$lib/shared/desktop";
 
@@ -51,11 +53,37 @@ export const POST: RequestHandler = async ({ request }) => {
 
   if ("planId" in body) {
     const decision = body.decision;
+    const linked = runtime.sessions.updateConversationPlan(conversationId, body.planId, plan => plan);
+    if (linked?.durableExecutionId) {
+      try {
+        const plans = new PlanService();
+        let detail = plans.read("owner", linked.durableExecutionId);
+        if (body.expectedVersion !== detail.execution.version) throw new Error("The plan has changed. Open its current version before deciding.");
+        if (decision === "accept" || decision === "modify") {
+          if (body.title !== undefined || body.summary !== undefined || body.steps !== undefined) {
+            detail = plans.edit({ ownerId: "owner", executionId: detail.execution.id, expectedVersion: detail.execution.version, author: "user", title: body.title ?? detail.meta.title, summary: body.summary ?? detail.meta.summary,
+              tasks: [{ title: body.title ?? detail.meta.title, steps: (body.steps ?? linked.steps.map(step => step.text)).map((title, index) => ({ id: detail.tasks.flatMap(task => task.steps)[index]?.id, title })) }],
+              acceptanceCriteria: detail.acceptanceCriteria.filter(criterion => criterion.planVersion === detail.execution.currentPlanVersion) });
+          }
+          if (decision === "accept") detail = approveDesktopPlan(plans, runtime.sessions, runtime.getSettings(), { planId: detail.execution.id, expectedVersion: detail.execution.version, sessionId: conversationId, mode: body.mode === "manual" ? "manual" : "accept_edits" });
+        } else if (decision === "reject") {
+          detail = plans.cancel({ ownerId: "owner", planId: detail.execution.id, expectedVersion: detail.execution.version, actionId: crypto.randomUUID() });
+        } else if (decision === "complete") {
+          const request = detail.decisions.find(item => item.status === "open" && item.options.includes("confirm_completion"));
+          if (!request) throw new Error("The plan is not awaiting owner acceptance.");
+          new DurableExecutionCoordinator().answerDecision({ ownerId: "owner", executionId: detail.execution.id, expectedVersion: detail.execution.version, actionId: crypto.randomUUID(), decisionId: request.id, answer: "confirm_completion" });
+          detail = plans.read("owner", detail.execution.id);
+        } else throw new Error("Invalid plan decision.");
+        const plan = { ...projectDurableConversationPlan(linked, detail), title: detail.meta.title, summary: detail.meta.summary };
+        runtime.sessions.updateConversationPlan(conversationId, linked.id, () => plan);
+        return json({ ok: true, plan, mode: detail.binding?.mode ?? "plan" });
+      } catch (cause) { return json({ ok: false, error: String(cause instanceof Error ? cause.message : cause) }, { status: 409 }); }
+    }
+
     if (decision === "complete") {
       const current = runtime.sessions.updateConversationPlan(conversationId, body.planId, (plan) => plan);
       if (!current || !["waiting_review", "completed"].includes(current.status)) return json({ ok: false, error: "Plan is not awaiting review." }, { status: 409 });
       const plan = runtime.sessions.updateConversationPlan(conversationId, body.planId, (value) => ({ ...value, status: "completed", progressSummary: undefined, updatedAt: new Date().toISOString() }));
-      if (plan) new PlanService().mirrorFromConversationPlan(plan);
       return json({ ok: true, plan }, { headers: { "Cache-Control": "no-store" } });
     }
     if (!["accept", "reject", "modify"].includes(decision)) return json({ ok: false, error: "Invalid plan decision" }, { status: 400 });
@@ -70,7 +98,7 @@ export const POST: RequestHandler = async ({ request }) => {
       title: String(body.title ?? current.title).trim() || current.title,
       summary: String(body.summary ?? current.summary).trim() || current.summary,
       steps: Array.isArray(body.steps) && body.steps.length
-        ? body.steps.slice(0, 30).map((text, index) => ({
+        ? body.steps.map((text, index) => ({
             id: current.steps[index]?.id ?? `${current.id}-${index + 1}`,
             text: String(text).trim(),
             status: current.steps[index]?.status ?? "pending"
@@ -82,17 +110,6 @@ export const POST: RequestHandler = async ({ request }) => {
     if (decision === "accept") {
       const mode = body.mode === "manual" ? "manual" : "accept_edits";
       runtimeContext.store.setSessionPermissionModeOverride(chatId, conversationId, mode);
-      // A saved plan executes as the next ordinary Session turn (the client
-      // resumes the conversation after accepting); it is not started through the
-      // Durable runtime. Applying the accepted content version keeps the board
-      // record aligned with what the owner approved.
-      if (plan.durableExecutionId) {
-        try {
-          applyApprovedPlanContent({ plan });
-        } catch (cause) {
-          return json({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }, { status: 409 });
-        }
-      }
       return json({ ok: true, plan, mode }, { headers: { "Cache-Control": "no-store" } });
     }
     if (decision === "modify") return json({ ok: true, plan, mode: "plan" }, { headers: { "Cache-Control": "no-store" } });

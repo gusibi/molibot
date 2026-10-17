@@ -325,6 +325,8 @@ export interface PlanCriterionInput {
 }
 
 export interface CreatePlanInput {
+  inputSnapshot?: import("../plans/input.js").PlanInputSnapshot;
+  agentId?: string;
   /** Deterministic id used to make an accepted Session plan idempotent. */
   planId?: string;
   ownerId: string;
@@ -389,13 +391,24 @@ export interface PlanMeta {
   updatedAt: string;
 }
 
+export interface PlanBinding {
+  sessionId: string;
+  agentId: string;
+  mode: "manual" | "accept_edits";
+  approvedVersion: number;
+}
+
 export interface PlanDetail extends DurableExecutionDetail {
+  agentId?: string;
+  binding?: PlanBinding;
+  controlRequest?: "pause" | "cancel";
   meta: PlanMeta;
   tasks: PlanTask[];
   projection: DurableExecutionProjection;
 }
 
 export interface PlanListFilter {
+  offset?: number;
   ownerId: string;
   botId?: string;
   projectId?: string;

@@ -862,12 +862,18 @@ export interface DesktopPlanTask {
 }
 
 export interface DesktopPlanDetail extends DesktopDurableExecutionInspection {
+  agentId?: string;
+  binding?: { sessionId: string; agentId: string; mode: "manual" | "accept_edits"; approvedVersion: number };
+  controlRequest?: "pause" | "cancel";
   meta: DesktopPlanMeta;
   tasks: DesktopPlanTask[];
 }
 
 export interface DesktopPlanListResponse {
   ok: true;
+  total: number;
+  projectIds: string[];
+  counts: Record<string, number>;
   items: DesktopPlanListItem[];
 }
 
@@ -877,9 +883,11 @@ export interface DesktopPlanDetailResponse {
 }
 
 export interface DesktopPlanTaskInput {
+  id?: string;
   title: string;
   description?: string;
   steps: Array<{
+    id?: string;
     title: string;
     description?: string;
     sideEffectClass?: "pure" | "idempotent" | "queryable" | "non_idempotent";
@@ -889,9 +897,14 @@ export interface DesktopPlanTaskInput {
 }
 
 export type DesktopPlanActionRequest =
+  | { action: "approve"; planId: string; expectedVersion: number; sessionId?: string; mode: "manual" | "accept_edits" }
+  | { action: "edit"; executionId: string; expectedVersion: number; title: string; summary: string; tasks: DesktopPlanTaskInput[]; acceptanceCriteria: Array<{ description: string; required?: boolean }> }
+  | { action: "answer"; planId: string; expectedVersion: number; actionId: string; decisionId: string; answer: string }
+  | { action: "approval"; planId: string; expectedVersion: number; actionId: string; approvalId: string; status: "approved" | "rejected" }
+  | { action: "propose"; planId: string; expectedVersion: number; instruction: string }
   | { action: "start" | "pause" | "resume" | "cancel"; ownerId?: string; planId: string; expectedVersion: number; actionId?: string; reason?: string }
   | { action: "delete"; ownerId?: string; planId: string; expectedVersion?: number }
-  | { action: "complete"; ownerId?: string; planId: string }
+  | { action: "complete"; ownerId?: string; planId: string; expectedVersion: number; actionId: string }
   | {
       action: "revise";
       ownerId?: string;
@@ -906,6 +919,8 @@ export type DesktopPlanActionRequest =
 
 export interface DesktopPlanActionResponse {
   ok: true;
+  expectedVersion?: number;
+  draft?: { title: string; summary: string; tasks: DesktopPlanTaskInput[]; acceptanceCriteria: Array<{ description: string; required?: boolean }> };
   item?: DesktopPlanDetail;
   deleted?: boolean;
   title?: string;
@@ -1144,6 +1159,7 @@ export interface DesktopConversationPlan {
   recommendedMode: "manual" | "accept_edits";
   artifactPath: string;
   durableExecutionId?: string;
+  durableVersion?: number;
 }
 
 /**
@@ -1204,6 +1220,7 @@ export interface DesktopSessionPermissionUpdateRequest {
 }
 
 export interface DesktopPlanDecisionRequest {
+  expectedVersion?: number;
   profileId: string;
   conversationId: string;
   planId: string;

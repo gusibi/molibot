@@ -1,4 +1,5 @@
 import { getRoomStore } from "$lib/server/rooms/runtime.js";
+import { PlanService } from "$lib/server/agent/plans/service.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { projectDurableConversationPlan } from "$lib/server/agent/durable/planProjection.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
@@ -82,8 +83,8 @@ export function loadConversationProjection(input: {
     if (!message.plan) continue;
     if (message.plan.durableExecutionId) {
       try {
-        const detail = new DurableExecutionCoordinator().inspect("owner", message.plan.durableExecutionId);
-        if (detail.execution.sourceUiSessionId === input.conversationId) message.plan = projectDurableConversationPlan(message.plan, detail);
+        const detail = new PlanService().read("owner", message.plan.durableExecutionId);
+        if (detail.execution.sourceUiSessionId === input.conversationId || detail.binding?.sessionId === input.conversationId) message.plan = { ...projectDurableConversationPlan(message.plan, detail), title: detail.meta.title, summary: detail.meta.summary };
       } catch {
         message.plan = { ...message.plan, status: "blocked" };
       }

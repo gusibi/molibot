@@ -66,7 +66,7 @@
   }
 
   function splitSteps(): string[] {
-    return steps.split(/\r?\n/).map((step) => step.trim()).filter(Boolean).slice(0, 30);
+    return steps.split(/\r?\n/).map((step) => step.trim()).filter(Boolean);
   }
 </script>
 

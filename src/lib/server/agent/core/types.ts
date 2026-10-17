@@ -88,6 +88,7 @@ export interface RunResult {
 }
 
 export interface DurableAttemptResult {
+  text?: string;
   result: RunResult;
   contextSessionId: string;
   approval?: ToolApprovalRequest;
@@ -107,6 +108,7 @@ export interface DurablePromotionResult {
 }
 
 export interface DurableAttemptHooks {
+  execution?: Pick<MomContext, "clientSignal" | "awaitToolQuiescence" | "executionPolicy" | "assertToolAuthority">;
   onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
   onToolSideEffectPreflight?: ToolExecutionContext["onSideEffectPreflight"];
   onToolSideEffectReceipt?: (effect: ToolSideEffect, result: ToolResult) => Promise<void>;

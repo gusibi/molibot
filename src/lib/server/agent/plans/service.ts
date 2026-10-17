@@ -1,47 +1,16 @@
 import { DurableExecutionCoordinator, projectDurableExecution } from "$lib/server/agent/durable/coordinator.js";
 import { getDurableExecutionStore, type DurableExecutionStore } from "$lib/server/agent/durable/store.js";
-import type { ConversationPlan, ConversationPlanStepStatus } from "$lib/shared/types/message.js";
 import {
   DurableExecutionNotFoundError,
   PlanDeletedError,
   type CreatePlanInput,
   type DurableExecution,
   type DurableExecutionStatus,
-  type ExecutionStepStatus,
   type PlanDetail,
   type PlanListFilter,
   type ReplacePlanContentInput,
   type RevisePlanInput
 } from "$lib/server/agent/durable/types.js";
-
-type ConversationPlanStatus = ConversationPlan["status"];
-
-// In-Session plan statuses project back unchanged through
-// `projectDurableConversationPlan`; `accepted` maps to `queued` so the card
-// shows "queued" instead of falling back to the proposal decision.
-const CONVERSATION_TO_DURABLE_STATUS: Record<ConversationPlanStatus, DurableExecutionStatus> = {
-  proposed: "planned",
-  accepted: "queued",
-  rejected: "cancelled",
-  executing: "running",
-  completed: "completed",
-  blocked: "recovery_required",
-  waiting_review: "waiting_for_user",
-  paused: "paused",
-  queued: "queued",
-  verifying: "verifying",
-  waiting_for_approval: "waiting_for_approval",
-  waiting_for_user: "waiting_for_user",
-  cancelled: "cancelled",
-  failed: "failed"
-};
-
-const CONVERSATION_STEP_TO_DURABLE: Record<ConversationPlanStepStatus, ExecutionStepStatus> = {
-  pending: "pending",
-  in_progress: "running",
-  completed: "completed",
-  blocked: "blocked"
-};
 
 /** Lifecycle buckets the Plan list filters on. Derived from execution truth. */
 export type PlanStatus = "not_started" | "in_progress" | "needs_attention" | "finished" | "archived";
@@ -106,23 +75,18 @@ export class PlanService {
   }
 
   list(filter: PlanListFilter): PlanListItem[] {
-    const executions = this.store.list({ ownerId: filter.ownerId, botId: filter.botId, limit: Math.max(1, Math.min(200, filter.limit ?? 50)) });
-    const search = filter.search?.trim().toLowerCase();
-    const items: PlanListItem[] = [];
-    for (const execution of executions) {
-      const planStatus = planStatusOf(execution.status);
-      if (!filter.includeArchived && planStatus === "archived") continue;
-      if (filter.statuses && filter.statuses.length > 0 && !filter.statuses.includes(execution.status)) continue;
-      if (filter.projectId && execution.sourceProjectId !== filter.projectId) continue;
-      const detail = this.store.getDetail(execution.id, filter.ownerId);
-      if (!detail) continue;
-      const meta = this.store.getPlanMeta(execution.id);
-      const title = meta?.title ?? execution.goal;
-      if (search && !title.toLowerCase().includes(search) && !execution.id.toLowerCase().includes(search)) continue;
-      const projection = projectDurableExecution(detail, this.store.queuePosition(execution.id));
-      items.push(this.toListItem(execution, title, meta?.summary ?? "", projection, execution.sourceProjectId));
-    }
-    return items;
+    return this.listPage(filter).items;
+  }
+
+  listPage(filter: PlanListFilter): { items: PlanListItem[]; total: number; projectIds: string[]; counts: Record<string, number> } {
+    const page = this.store.queryPlans(filter);
+    const items = page.executions.map(execution => {
+      const detail = this.read(filter.ownerId, execution.id);
+      return this.toListItem(execution, detail.meta.title, detail.meta.summary, detail.projection, execution.sourceProjectId);
+    });
+    const counts: Record<string, number> = { all: 0, not_started: 0, in_progress: 0, needs_attention: 0, finished: 0, archived: 0 };
+    for (const [status, count] of Object.entries(page.statusCounts)) { counts[planStatusOf(status as DurableExecutionStatus)] += count; counts.all += count; }
+    return { items, total: page.total, projectIds: page.projectIds, counts };
   }
 
   read(ownerId: string, planId: string, planVersion?: number): PlanDetail {
@@ -132,17 +96,27 @@ export class PlanService {
       throw new DurableExecutionNotFoundError(planId);
     }
     const meta = this.store.getPlanMeta(planId) ?? { executionId: planId, title: detail.execution.goal, summary: "", updatedAt: detail.execution.updatedAt };
+    if (planVersion !== undefined && planVersion !== detail.execution.currentPlanVersion) {
+      const snapshot = this.store.getPlanSnapshot(planId, planVersion);
+      if (snapshot) return snapshot;
+    }
     const version = planVersion ?? detail.execution.currentPlanVersion;
     let tasks = this.store.getPlanTasks(planId, version);
     if (tasks.length === 0) {
       const steps = detail.steps.filter((step) => step.planVersion === version).sort((left, right) => left.index - right.index);
       tasks = [{ id: `${planId}-task-1`, executionId: planId, planVersion: version, index: 0, title: meta.title, description: meta.summary, steps }];
     }
-    return { ...detail, meta, tasks, projection: projectDurableExecution(detail, this.store.queuePosition(planId)) };
+    return { ...detail, meta, tasks, agentId: this.store.getPlanAgent(planId), binding: this.store.getPlanBinding(planId), controlRequest: this.store.getControlRequest(planId), projection: projectDurableExecution(detail, this.store.queuePosition(planId)) };
   }
 
   revise(input: RevisePlanInput): PlanDetail {
-    this.store.revisePlan(input);
+    const current = this.read(input.ownerId, input.executionId);
+    return this.edit({ ...input, tasks: [...current.tasks.map(task => ({ ...task, steps: task.steps })), ...input.addTasks.map(task => ({ ...task, id: undefined, steps: task.steps.map(step => ({ ...step, id: undefined })) }))], acceptanceCriteria: [...current.acceptanceCriteria.filter(criterion => criterion.planVersion === current.execution.currentPlanVersion), ...(input.addCriteria ?? [])] });
+  }
+
+  edit(input: ReplacePlanContentInput): PlanDetail {
+    const snapshot = this.read(input.ownerId, input.executionId);
+    this.store.editPlanContent(input, snapshot);
     return this.read(input.ownerId, input.executionId);
   }
 
@@ -151,31 +125,13 @@ export class PlanService {
     return this.read(input.ownerId, input.executionId);
   }
 
-  /**
-   * Mirrors an in-Session plan execution into its durable record. Plans execute
-   * as ordinary Session turns, so the aggregate is the board's read model and
-   * this is how its status/step progress stays in sync.
-   */
-  mirrorFromConversationPlan(plan: ConversationPlan): void {
-    const executionId = plan.durableExecutionId?.trim();
-    if (!executionId) return;
-    try {
-      this.store.syncPlanProgress({
-        executionId,
-        status: CONVERSATION_TO_DURABLE_STATUS[plan.status] ?? "planned",
-        steps: plan.steps.map((step, index) => ({ index, status: CONVERSATION_STEP_TO_DURABLE[step.status] ?? "pending" }))
-      });
-    } catch (error) {
-      console.error(`[plans] failed to mirror Session progress for ${executionId}`, error);
-    }
-  }
+  subscribe(listener: () => void): () => void { return this.store.subscribe(listener); }
 
-  start(input: PlanStartInput): PlanDetail {
-    const detail = this.read(input.ownerId, input.planId);
-    const execution = detail.execution.status === "planned"
-      ? this.coordinator.activate({ ownerId: input.ownerId, executionId: input.planId, expectedVersion: input.expectedVersion }).execution
-      : detail.execution;
-    return this.read(input.ownerId, execution.id);
+  approve(input: { ownerId: string; planId: string; expectedVersion: number; sessionId: string; agentId: string; mode: "manual" | "accept_edits" }): PlanDetail {
+    this.read(input.ownerId, input.planId);
+    this.store.bindPlan(input);
+    this.coordinator.ensureQueuedEvents(input.ownerId);
+    return this.read(input.ownerId, input.planId);
   }
 
   pause(input: PlanControlInput): PlanDetail {

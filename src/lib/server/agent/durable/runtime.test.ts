@@ -8,6 +8,7 @@ import type { ChannelInboundMessage, DurableAttemptHooks } from "$lib/server/age
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { DurableExecutionRuntime } from "./runtime.js";
 import { DurableExecutionStore } from "./store.js";
+import { durableExecutionEventsDir } from "./events.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-runtime-"));
@@ -622,4 +623,84 @@ test("queryable recovery without a probe waits for an explicit review instead of
     store.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a bound plan uses isolated attempts while its receiving Session is busy and pauses only after quiescence", async () => {
+  const { root, store } = fixture();
+  const { PlanService } = await import("../plans/service.js");
+  try {
+    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const plans = new PlanService(store, coordinator);
+    const plan = plans.create({ ownerId: "owner-1", botId: "bot-1", sourceChannel: "web", sourceChatId: "original-chat", sourceUiSessionId: "session-a", title: "Bound plan", tasks: [{ title: "Task", steps: [{ title: "One" }, { title: "Two" }] }] });
+    const approved = plans.approve({ ownerId: "owner-1", planId: plan.execution.id, expectedVersion: plan.execution.version, sessionId: "busy-session-b", agentId: "agent-a", mode: "manual" });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const runtime = new DurableExecutionRuntime({ store, processOwnerId: "process-a", dataDir: root,
+      channelManagers: new Map([["web", new Map([["bot-1", { runDurableAttempt: async (message: ChannelInboundMessage) => {
+        assert.equal(message.sessionMode, "fresh");
+        assert.equal(message.agentId, "agent-a");
+        assert.equal(message.chatId, "original-chat");
+        assert.notEqual(message.sessionId, "busy-session-b");
+        entered(); await gate;
+        return { result: { stopReason: "stop", runId: message.runId }, contextSessionId: "isolated-attempt" };
+      } }]])]]) as any });
+    const path = join(durableExecutionEventsDir(root), `durable-execution-${plan.execution.id}-v${approved.execution.version}.json`);
+    const running = runtime.run(JSON.parse(readFileSync(path, "utf8")), path);
+    await Promise.race([started, running.then(() => { throw new Error(store.getById(plan.execution.id)?.lastError || "Attempt did not start"); })]);
+    const before = plans.read("owner-1", plan.execution.id);
+    const pausing = plans.pause({ ownerId: "owner-1", planId: plan.execution.id, expectedVersion: before.execution.version, actionId: "pause" });
+    assert.equal(pausing.execution.status, "running");
+    assert.equal(pausing.controlRequest, "pause");
+    assert.throws(() => plans.edit({ ownerId: "owner-1", executionId: plan.execution.id, expectedVersion: pausing.execution.version, author: "user", tasks: [{ title: "Changed", steps: [{ title: "X" }] }] }), /transition/);
+    release(); await running;
+    const paused = plans.read("owner-1", plan.execution.id);
+    assert.equal(paused.execution.status, "paused");
+    assert.equal(paused.controlRequest, undefined);
+    assert.equal(paused.binding?.sessionId, "busy-session-b");
+    assert.equal(paused.tasks[0].steps[0].status, "completed");
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("bound plans retain original input files and summary after source deletion, and retry feedback after restart", async () => {
+  const { root, store } = fixture();
+  const { writeFileSync, mkdirSync } = await import("node:fs");
+  const { capturePlanInput } = await import("../plans/input.js");
+  const { PlanService } = await import("../plans/service.js");
+  try {
+    mkdirSync(join(root, "source")); writeFileSync(join(root, "source", "input.txt"), "original data");
+    const snapshot = capturePlanInput("context-plan", { text: "Use the original figures", workspaceDir: root, attachments: [{ original: "input.txt", local: "source/input.txt", mediaType: "file", isImage: false, isAudio: false }] });
+    const plans = new PlanService(store, new DurableExecutionCoordinator(store, "process-a", root));
+    const plan = plans.create({ planId: "context-plan", inputSnapshot: snapshot, ownerId: "owner-1", botId: "bot-1", sourceChannel: "web", sourceChatId: "original", sourceUiSessionId: "deleted-source", title: "Context", summary: "Preserve currencies", tasks: [{ title: "Task", description: "Use decimal units", steps: [{ title: "Read" }] }] });
+    rmSync(join(root, "source"), { recursive: true });
+    const approved = plans.approve({ ownerId: "owner-1", planId: plan.execution.id, expectedVersion: plan.execution.version, sessionId: "receiver", agentId: "default", mode: "manual" });
+    let delivered = 0;
+    const options = { store, processOwnerId: "process-a", dataDir: root, channelManagers: new Map([["web", new Map([["bot-1", { runDurableAttempt: async (message: ChannelInboundMessage) => {
+      assert.match(message.text, /Use the original figures/); assert.match(message.text, /Preserve currencies/); assert.match(message.text, /Use decimal units/);
+      assert.equal(readFileSync(join(root, message.attachments![0].local), "utf8"), "original data");
+      return { result: { stopReason: "stop", runId: message.runId }, text: "Actual result" };
+    } }]])]]) as any };
+    const runtime = new DurableExecutionRuntime({ ...options, onPlanAttempt: () => { throw new Error("offline feedback"); } });
+    const file = join(durableExecutionEventsDir(root), `durable-execution-${plan.execution.id}-v${approved.execution.version}.json`);
+    await runtime.run(JSON.parse(readFileSync(file, "utf8")), file);
+    assert.equal(store.pendingPlanDeliveries().length, 1);
+    const restarted = new DurableExecutionRuntime({ ...options, onPlanAttempt: input => { assert.equal(input.text, "Actual result"); assert.equal(input.binding.sessionId, "receiver"); delivered++; } });
+    await restarted.reconcilePlanDeliveries(); await restarted.reconcilePlanDeliveries();
+    assert.equal(delivered, 1); assert.equal(store.pendingPlanDeliveries().length, 0);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const action of ["pause", "cancel"] as const) test(`restart settles a persisted ${action} request without stopping a later attempt`, () => {
+  const { root, store, input } = fixture();
+  try {
+    const execution = store.create(input);
+    const queued = store.transitionStatus(execution.id, execution.version, "queued");
+    store.claimAttempt({ executionId: execution.id, expectedVersion: queued.version, processOwnerId: "dead-process", runId: "dead-run", contextSessionId: "dead-context", leaseDurationMs: 10000 });
+    store.requestControl(execution.id, store.getById(execution.id)!.version, action);
+    const runtime = new DurableExecutionRuntime({ store, processOwnerId: "new-process", dataDir: root, channelManagers: new Map() });
+    runtime.reconcile();
+    assert.equal(store.getById(execution.id)!.status, action === "pause" ? "paused" : "cancelled");
+    assert.equal(store.getControlRequest(execution.id), undefined);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
 });

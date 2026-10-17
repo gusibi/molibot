@@ -1,3 +1,23 @@
+## 2026-10-17 — 计划改为 Durable 执行器统一执行与跨 Session 接续（#65 A 项）
+
+按所有者决策重写计划执行架构：计划不再作为来源 Session 的普通轮次执行，统一交给现有 Durable Execution 执行器；Session 只承接计划记录、执行反馈和后续要求。`DESIGN.md` 的执行约定段落已同步重写。
+
+服务端（共享层，非 Channel 层）：
+
+- **Durable 计划执行**（`durable/runtime.ts`、`store.ts`）：绑定的计划以隔离上下文逐尝试执行（`sessionMode: fresh` + 每步新 attempt），控制请求（暂停/取消）经 SQLite 控制表 + 100ms 轮询转成 AbortSignal，工具静默后安全停止；每计划独立认领（`bindPlan`，原子事务 + 版本 CAS + 原 Agent 独占），`claimAttempt` 拒绝未经当前版本批准的执行。并发上限放开为按计划并行，`ensureQueuedEvents` 入队全部就绪候选。
+- **承接与投递**（`plans/sessionDelivery.ts`、`app/desktopPlans.ts`）：批准时原子绑定承接 Session（可选当前会话或新建），保留原 Agent/Project/输入/版本；输入附件复制到计划自有的 `.plans/<hash>/inputs/`（路径穿越防护），来源会话删除后仍可重放。每步结果以 `durable-plan:<executionId>:<runId>` 幂等投递到承接 Session（重启后 `reconcilePlanDeliveries` 补投）。
+- **修订与审批**（`plans/revision.ts`、`store.editPlanContent`）：完整增删改排序（保任务/步骤身份，已完成只读不可删）、验收要求编辑、自然语言修订草稿（只产草稿不落盘）；编辑前快照整版本，旧版本可完整读回。审批、待验收确认、工具审批经共享 Durable 决策/审批链路。
+- **查询与事件**（`store.queryPlans`、`plans/+server.ts`）：搜索/项目/状态筛选先于分页在服务端完成（覆盖全部可访问计划），SSE 变更通知 + 心跳，断线重连先订阅再取快照。
+- **旧架构清理**：删除 `syncPlanProgress`/`mirrorFromConversationPlan` 镜像链路与 `start` 动作；`stream` 路由不再把绑定计划当 Session 轮次执行。
+- Pi 运行时依赖 `@earendil-works/*` 1.0.0 → 1.3.0（新增 `DurableAttemptHooks.execution` 钩子面所需）。
+
+桌面端：
+
+- 计划工作区（`PlansWorkspace.svelte` + 新 `PlanEditor.svelte`）：SSE 实时刷新替代 5 秒轮询、服务端分页（上/下一页）、项目筛选、断线提示与最后更新；详情内完成批准（权限选择 + 承接会话选择：当前会话/新建）、编辑（草稿 localStorage 保留、版本冲突提示与以最新版本重览、差异预览、中英文案）、暂停/取消/继续/验收/返工/删除。`>30` 步计划不再截断（`exitPlan`/`updatePlan`/`PlanCard` 移除 30 步上限）。
+
+验证（隔离实例、临时数据库、本地夹具）：plans/durable/mcp 相关 62 项五连跑全绿（含 MCP 多页工具发现新回归）；`claimAttempt` 批准守卫故障注入可复现失败；`plans/server.test.ts` 公共 API 2/2；`workspaces.spec.ts` 修订/草稿/冲突/重启用例与 `plans.spec.ts` 31 步计划忙碌 Session 接续用例通过；`verify:feature` 全绿（原生 App 测试环境缺失记「未验证」）；svelte-check 0 错误、根构建通过。全量核心回归 2745 项中 3 项并发负载下偶发失败，干净 HEAD 基线同负载同样出现随机失败（不同用例），单跑均通过，判定为既有并发 flaky，非本次引入。原生 App（Tauri 窗口）完整链路走查未做（`tests/pi/issue65-native-harness.ts` 已备好隔离夹具待用）。
+
+
 ## 2026-10-17 — 工作区页面切换消除垂直位移与抖动（纯平滑淡入）
 
 用户反馈计划、任务、技能、小程序页面切换时存在页面抖动感。代码排查发现：

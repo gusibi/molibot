@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { PROCESS_OWNER_ID } from "$lib/server/agent/eventsLeaseStore.js";
@@ -19,6 +21,8 @@ export interface DurableExecutionRuntimeOptions {
   leaseDurationMs?: number;
   dataDir?: string;
   maxActiveExecutions?: number;
+  resolvePlanPolicy?: (execution: DurableExecution, binding: import("./types.js").PlanBinding) => import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
+  onPlanAttempt?: (input: { execution: DurableExecution; binding: import("./types.js").PlanBinding; runId: string; text: string }) => void | Promise<void>;
   queryableProbes?: Record<string, DurableQueryableProbe>;
 }
 
@@ -185,12 +189,25 @@ export class DurableExecutionRuntime {
     this.store = options.store ?? new DurableExecutionStore();
     this.processOwnerId = options.processOwnerId ?? PROCESS_OWNER_ID;
     this.leaseDurationMs = Math.max(1000, Math.round(options.leaseDurationMs ?? 600_000));
-    this.maxActiveExecutions = Math.max(1, Math.round(options.maxActiveExecutions ?? 1));
+    this.maxActiveExecutions = Math.max(1, Math.round(options.maxActiveExecutions ?? Number.MAX_SAFE_INTEGER));
     this.coordinator = new DurableExecutionCoordinator(this.store, this.processOwnerId, options.dataDir ?? config.dataDir);
   }
 
   reconcile(): number {
     return this.store.reconcileOrphanedAttempts(this.processOwnerId);
+  }
+
+  async reconcilePlanDeliveries(): Promise<void> {
+    if (!this.options.onPlanAttempt) return;
+    for (const pending of this.store.pendingPlanDeliveries()) {
+      const execution = this.store.getById(pending.executionId);
+      const binding = this.store.getPlanBinding(pending.executionId);
+      if (!execution || !binding) continue;
+      try {
+        await this.options.onPlanAttempt({ execution, binding: { ...binding, sessionId: pending.sessionId }, runId: pending.runId, text: pending.text });
+        this.store.markPlanDelivered(pending.runId);
+      } catch (error) { momWarn("durableExecution", "plan_feedback_failed", { executionId: execution.id, error: String(error) }); }
+    }
   }
 
   ensureQueuedEvents(ownerId = "owner"): number {
@@ -285,7 +302,7 @@ export class DurableExecutionRuntime {
       return { kind: "durable-execution" };
     }
     let expectedVersionForAttempt = input.expectedVersion;
-    if (detail.execution.status === "recovery_required") {
+    if (detail.execution.status === "recovery_required" || detail.steps.some(step => step.planVersion === detail!.execution.currentPlanVersion && step.status === "uncertain")) {
       const recovery = await this.prepareRecovery(detail, filename);
       if (recovery.kind === "stopped") return { kind: "durable-execution" };
       expectedVersionForAttempt = recovery.expectedVersion;
@@ -365,20 +382,25 @@ export class DurableExecutionRuntime {
     // conversation they came from so the owner can see the LLM calls, tool
     // activity and output in the same Session. Only work without a source
     // Session (scheduled/Project tasks) runs in a fresh task archive.
-    const sourceUiSessionId = detail.execution.sourceUiSessionId?.trim();
+    const binding = this.store.getPlanBinding(detail.execution.id);
+    const savedInput = binding ? this.store.getPlanInput(detail.execution.id) : undefined;
+    const meta = binding ? this.store.getPlanMeta(detail.execution.id) : undefined;
+    const task = binding ? this.store.getPlanTasks(detail.execution.id, detail.execution.currentPlanVersion).find(task => task.steps.some(item => item.id === step.id)) : undefined;
+    const sourceUiSessionId = binding ? undefined : detail.execution.sourceUiSessionId?.trim();
     const inbound: ChannelInboundMessage = {
       chatId: sourceChatId,
       chatType: "private",
       messageId: Date.now(),
       userId: "DURABLE_EXECUTION",
       userName: "DURABLE_EXECUTION",
-      text: taskEvent.text,
+      text: [taskEvent.text, meta?.summary ? `Plan summary:\n${meta.summary}` : "", task?.description ? `Task description:\n${task.description}` : "", savedInput?.text ? `Original input:\n${savedInput.text}` : "", ...detail.steps.filter(item => item.status === "completed").map(item => `Completed ${item.title}: ${item.outputSummary ?? item.evidenceSummary ?? ""}`)].filter(Boolean).join("\n\n"),
       ts: (Date.now() / 1000).toFixed(6),
-      attachments: [],
+      attachments: savedInput?.attachments ?? [],
       imageContents: [],
       isEvent: true,
-      taskId: taskEvent.taskId,
+      taskId: binding ? `durable-plan:${detail.execution.id}:${step.id}` : taskEvent.taskId,
       projectId: detail.execution.sourceProjectId,
+      agentId: binding?.agentId,
       ...(sourceUiSessionId ? { sessionId: sourceUiSessionId } : {}),
       sessionMode: sourceUiSessionId ? "chat" : "fresh",
       runId,
@@ -453,10 +475,20 @@ export class DurableExecutionRuntime {
       });
     };
 
+    const control = new AbortController();
+    const checkControl = () => { if (this.store.getControlRequest(input.executionId)) control.abort(); };
+    const controlTimer = setInterval(checkControl, 100);
     try {
       this.store.markStepRunning(input.executionId, step.id, expectedVersion, this.processOwnerId);
       expectedVersion = this.store.getById(input.executionId)!.version;
+      const policy = binding ? this.options.resolvePlanPolicy?.(detail.execution, binding) : undefined;
       const attemptHooks: DurableAttemptHooks = {
+        execution: { clientSignal: control.signal, awaitToolQuiescence: true, ...(policy ? { executionPolicy: policy } : {}),
+          assertToolAuthority: binding && this.options.resolvePlanPolicy ? () => {
+            const currentPolicy = this.options.resolvePlanPolicy!(detail!.execution, binding);
+            if (currentPolicy.mode !== policy?.mode) throw new Error("Plan authorization changed; stop and approve the current permissions before continuing.");
+            control.signal.throwIfAborted();
+          } : () => control.signal.throwIfAborted() },
         onRunnerEvent: async (runnerEvent) => {
           if (runnerEvent.type === "tool_execution_start" || runnerEvent.type === "tool_execution_end") {
             momLog("durableExecution", "attempt_tool", {
@@ -547,8 +579,13 @@ export class DurableExecutionRuntime {
         },
         readDurableEvidence: readEvidenceForAttempt
       };
+      inbound.imageContents = savedInput?.attachments.filter(item => item.isImage).map(item => ({ type: "image" as const, mimeType: item.mimeType ?? "image/jpeg", data: readFileSync(resolve(savedInput.workspaceDir, item.local)).toString("base64") })) ?? [];
       const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
       const result = attemptResult.result;
+      if (binding && attemptResult.text && this.options.onPlanAttempt) {
+        this.store.recordPlanDelivery({ executionId: detail.execution.id, sessionId: binding.sessionId, runId, text: attemptResult.text });
+        await this.reconcilePlanDeliveries();
+      }
       if (attemptResult.contextSessionId) {
         this.store.setAttemptContextSession(input.executionId, claimed.attempt.id, this.processOwnerId, attemptResult.contextSessionId);
       }
@@ -607,7 +644,7 @@ export class DurableExecutionRuntime {
             stepId: step.id,
             expectedVersion,
             processOwnerId: this.processOwnerId,
-            outputSummary: "The bounded Agent attempt completed this plan step.",
+            outputSummary: attemptResult.text?.slice(0, 8000) || "The bounded Agent attempt completed this plan step.",
             outputRef: result.runId,
             evidenceSummary: rule ? `Step verification passed: ${verdict.summary}` : "The attempt run detail is available for inspection."
           });
@@ -702,6 +739,9 @@ export class DurableExecutionRuntime {
         });
       }
       this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
+    } finally {
+      clearInterval(controlTimer);
+      this.store.settleControl(input.executionId);
     }
     return { kind: "durable-execution" };
   }

@@ -7,7 +7,7 @@ import type { ConversationPlan } from "$lib/shared/types/message.js";
 const schema = Type.Object({
   title: Type.String({ minLength: 1, maxLength: 160 }),
   summary: Type.String({ minLength: 1, maxLength: 4_000 }),
-  steps: Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { minItems: 1, maxItems: 30 }),
+  steps: Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { minItems: 1 }),
   recommendedMode: Type.Optional(Type.Union([Type.Literal("manual"), Type.Literal("accept_edits")]))
 });
 

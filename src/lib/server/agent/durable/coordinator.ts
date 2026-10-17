@@ -156,6 +156,11 @@ export class DurableExecutionCoordinator {
   }
 
   pause(input: { ownerId: string; executionId: string; expectedVersion: number; actionId: string; reason?: string }): DurableExecutionListItem {
+    const current = this.inspect(input.ownerId, input.executionId);
+    if (current.execution.status === "running") {
+      this.store.requestControl(input.executionId, input.expectedVersion, "pause");
+      return this.projectOwned(input.executionId, input.ownerId);
+    }
     const result = this.manage(input, () => this.store.runControlAction({
       actionId: input.actionId,
       executionId: input.executionId,
@@ -178,6 +183,11 @@ export class DurableExecutionCoordinator {
   }
 
   cancel(input: { ownerId: string; executionId: string; expectedVersion: number; actionId: string; reason?: string }): DurableExecutionListItem {
+    const current = this.inspect(input.ownerId, input.executionId);
+    if (current.execution.status === "running") {
+      this.store.requestControl(input.executionId, input.expectedVersion, "cancel");
+      return this.projectOwned(input.executionId, input.ownerId);
+    }
     const result = this.manage(input, () => this.store.runControlAction({
       actionId: input.actionId,
       executionId: input.executionId,
@@ -231,14 +241,14 @@ export class DurableExecutionCoordinator {
         if (leftVerifier !== rightVerifier) return leftVerifier - rightVerifier;
         return (left.projection.queuePosition ?? Number.MAX_SAFE_INTEGER) - (right.projection.queuePosition ?? Number.MAX_SAFE_INTEGER);
       });
-    const item = candidates[0];
-    if (!item) return 0;
-    enqueueDurableExecutionEvent({
-      executionId: item.execution.id,
-      expectedVersion: item.execution.version,
-      runAt: item.execution.nextRunAt ? new Date(item.execution.nextRunAt) : undefined
-    }, this.dataDir);
-    return 1;
+    for (const item of candidates) {
+      enqueueDurableExecutionEvent({
+        executionId: item.execution.id,
+        expectedVersion: item.execution.version,
+        runAt: item.execution.nextRunAt ? new Date(item.execution.nextRunAt) : undefined
+      }, this.dataDir);
+    }
+    return candidates.length;
   }
 
   countUnfinished(ownerId: string): number {

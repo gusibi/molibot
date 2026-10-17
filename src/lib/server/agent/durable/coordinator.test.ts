@@ -98,7 +98,7 @@ test("queued projection exposes creation-order position", () => {
     const secondQueued = coordinator.activate({ ownerId: "owner-1", executionId: second.execution.id, expectedVersion: second.execution.version });
     assert.equal(firstQueued.projection.queuePosition, 1);
     assert.equal(secondQueued.projection.queuePosition, 2);
-    assert.equal(existsSync(join(database.root, "system", "bots", "owner", "events", `durable-execution-${second.execution.id}-v${secondQueued.execution.version}.json`)), false);
+    assert.equal(existsSync(join(database.root, "system", "bots", "owner", "events", `durable-execution-${second.execution.id}-v${secondQueued.execution.version}.json`)), true);
   } finally {
     store.close();
     database.cleanup();

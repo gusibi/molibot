@@ -183,6 +183,15 @@ export const POST: RequestHandler = async ({ request }) => {
   } catch (cause) {
     return new Response(JSON.stringify({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }), { status: 409, headers: { "Content-Type": "application/json" } });
   }
+  if (resumePlanId) {
+    try {
+      const detail = new PlanService().read("owner", resumePlanId);
+      if (detail.binding) {
+        if (detail.binding.sessionId !== conversation.id) return new Response(JSON.stringify({ ok: false, error: "Plan belongs to another receiving Session." }), { status: 409 });
+        return new Response(`event: done\ndata: ${JSON.stringify({ ok: true, response: "", conversationId: conversation.id, profileId, stopReason: "stop" })}\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+      }
+    } catch { /* Unlinked Session proposals retain their existing validation below. */ }
+  }
   const { store, pool } = resolveRuntimeContext({ profileId: identity.profileId, projectId: project?.id, agentId: conversation.agentId });
   // The runner is always keyed by the conversation's own identity (project or
   // Web owner) so the turn reopens the exact agent context that wrote this
@@ -229,7 +238,7 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   }
   const sessionPlan = acceptedPlan ?? runtime.sessions.listMessages(conversation.id)
-    .map((entry) => entry.plan).filter((plan): plan is ConversationPlan => Boolean(plan && !["proposed", "rejected", "cancelled"].includes(plan.status))).at(-1);
+    .map((entry) => entry.plan).filter((plan): plan is ConversationPlan => Boolean(plan && !plan.durableExecutionId && !["proposed", "rejected", "cancelled"].includes(plan.status))).at(-1);
   const planService = new PlanService();
   const linkedPlan = runtime.sessions.listMessages(conversation.id).map((entry) => entry.plan).filter((plan) => plan?.durableExecutionId).at(-1);
   const coordinator = linkedPlan ? new DurableExecutionCoordinator() : undefined;
@@ -369,7 +378,6 @@ export const POST: RequestHandler = async ({ request }) => {
         try {
           if (sessionPlan && !["completed", "waiting_review"].includes(sessionPlan.status)) {
             const executingPlan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (plan) => ({ ...plan, status: "executing", updatedAt: new Date().toISOString() }));
-            if (executingPlan) planService.mirrorFromConversationPlan(executingPlan);
             writeEvent(controller, encoder, "plan_progress", { ...sessionPlan, status: "executing", updatedAt: new Date().toISOString() });
           }
           const result = await runner.run({
@@ -385,7 +393,6 @@ export const POST: RequestHandler = async ({ request }) => {
               update: async (update) => {
                 const plan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => applyPlanProgress(current, update));
                 if (!plan) throw new Error("Session plan no longer exists.");
-                planService.mirrorFromConversationPlan(plan);
                 writeEvent(controller, encoder, "plan_progress", plan);
               }
             } : undefined,
@@ -484,6 +491,12 @@ export const POST: RequestHandler = async ({ request }) => {
               if (event.type === "plan_proposal") {
                 planProposal = ensureSessionPlanRecord({
                   plan: event.plan,
+                  inputSnapshot: {
+                    workspaceDir: store.getWorkspaceDir(),
+                    text: runtime.sessions.listMessages(conversation.id).filter(entry => entry.role === "user" && entry.retention !== "turn_only").map(entry => entry.content).join("\n\n"),
+                    attachments: runtime.sessions.listMessages(conversation.id).filter(entry => entry.retention !== "turn_only").flatMap(entry => (entry.attachments ?? []).map(file => ({ ...file, isImage: file.mediaType === "image", isAudio: file.mediaType === "audio", isVideo: file.mediaType === "video" })))
+                  },
+                  agentId: conversation.agentId ?? "default",
                   botId: durableBotId,
                   sourceChannel: "web",
                   sourceChatId: runnerChatId,
@@ -534,7 +547,6 @@ export const POST: RequestHandler = async ({ request }) => {
 
           if (sessionPlan) {
             const finishedPlan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, result.stopReason));
-            if (finishedPlan) planService.mirrorFromConversationPlan(finishedPlan);
             writeEvent(controller, encoder, "plan_progress", finishedPlan);
           }
           const assistantText =
@@ -570,7 +582,6 @@ export const POST: RequestHandler = async ({ request }) => {
         } catch (error) {
           if (sessionPlan) {
             const failedPlan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, "error"));
-            if (failedPlan) planService.mirrorFromConversationPlan(failedPlan);
             writeEvent(controller, encoder, "plan_progress", failedPlan);
           }
           const messageText = error instanceof Error ? error.message : String(error);

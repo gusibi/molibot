@@ -586,6 +586,7 @@ export abstract class BaseChannelRuntime {
     scopeId: string,
     event: ChannelInboundMessage,
     options: {
+      execution?: DurableAttemptHooks["execution"];
       createBotMessageId: () => number;
       response: ChannelResponseHandle<TSent>;
       normalizeText?: (text: string) => string;
@@ -839,6 +840,7 @@ export abstract class BaseChannelRuntime {
     let runStopReason: "stop" | "aborted" | "error" | "waiting_for_approval" | undefined;
     let runResult: RunResult | undefined;
     try {
+      Object.assign(ctx, options.execution);
       const result = await runner.run(ctx);
       runResult = result;
       runStopReason = result.stopReason;
@@ -876,11 +878,13 @@ export abstract class BaseChannelRuntime {
     hooks: DurableAttemptHooks = {}
   ): Promise<DurableAttemptResult> {
     let contextSessionId = "";
+    let text = "";
     let approval: DurableAttemptResult["approval"];
     return this.runSharedTextTask<{ messageId: number }>(event.chatId, event, {
+      execution: hooks.execution,
       createBotMessageId: () => Date.now(),
       response: {
-        sendText: async () => null,
+        sendText: async (value) => { text = value; return null; },
         respondInThread: async () => {}
       },
       onRunnerEvent: hooks.onRunnerEvent,
@@ -902,7 +906,7 @@ export abstract class BaseChannelRuntime {
           error: error instanceof Error ? error.message : String(error)
         });
       }
-    }).then((result) => ({ result, contextSessionId, approval }));
+    }).then((result) => ({ result, contextSessionId, approval, text }));
   }
 
   public readDurableRunDetail(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[] {

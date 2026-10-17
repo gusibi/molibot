@@ -62,6 +62,7 @@ import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInter
 import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
 import { MemoryMaintenanceService, MemoryMaintenanceStore, type MemoryMaintenanceTarget } from "$lib/server/memory/maintenance.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
+import { planExecutionPolicy, deliverPlanAttempt } from "$lib/server/agent/plans/sessionDelivery.js";
 import { DurableExecutionRuntime } from "$lib/server/agent/durable/runtime.js";
 import { getMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 import {
@@ -744,9 +745,12 @@ function initializeRuntime(): RuntimeState {
 
     durableExecutionRuntime = new DurableExecutionRuntime({
       channelManagers: state.channelManagers,
-      leaseDurationMs: state.settings.events.executionTimeoutMs
+      leaseDurationMs: state.settings.events.executionTimeoutMs,
+      resolvePlanPolicy: (_execution, binding) => planExecutionPolicy(state.settings, binding),
+      onPlanAttempt: input => deliverPlanAttempt(state.sessions, input)
     });
     const recoveredDurableAttempts = durableExecutionRuntime.reconcile();
+    void durableExecutionRuntime.reconcilePlanDeliveries();
     const queuedDurableEvents = durableExecutionRuntime.ensureQueuedEvents("owner");
     if (recoveredDurableAttempts > 0 || queuedDurableEvents > 0) {
       console.log(`[runtime] durable_execution_reconciled attempts=${recoveredDurableAttempts} queued_events=${queuedDurableEvents}`);

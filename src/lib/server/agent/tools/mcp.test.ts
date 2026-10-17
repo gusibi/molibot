@@ -411,3 +411,30 @@ test("an HTTP MCP server connects, lists and calls with the configured headers",
     "the configured Authorization header must reach every HTTP request"
   );
 });
+
+test("Pi discovers every tool across cursor pages and reconnect preserves scoped invocation", async (t) => {
+  const registry = new McpToolRegistry();
+  t.after(() => registry.closeAll());
+  const config = server("pages");
+  config.stdio.args = ["--input-type=module", "-e", `
+    import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+    import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+    import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+    const server = new Server({name:'paged-fixture',version:'1'}, {capabilities:{tools:{}}});
+    server.setRequestHandler(ListToolsRequestSchema, async request => ({
+      tools: [{name: request.params?.cursor === 'second' ? 'last' : 'first', inputSchema:{type:'object',properties:{}}}],
+      ...(request.params?.cursor ? {} : {nextCursor:'second'})
+    }));
+    server.setRequestHandler(CallToolRequestSchema, async request => ({content:[{type:'text',text:'called '+request.params.name}]}));
+    await server.connect(new StdioServerTransport());
+  `];
+  const tools = await registry.getTools([config], { workspaceDir: process.cwd() });
+  assert.deepEqual(tools.map(item => item.name).sort(), ["mcp__pages__first", "mcp__pages__last"]);
+  assert.equal(await invoke(tool(tools, "first")), "called first");
+  assert.equal(await invoke(tool(tools, "last")), "called last");
+  await registry.closeAll();
+  assert.equal(registry.getStatuses([config], process.cwd())[0].state, "disconnected");
+  const reloaded = await registry.getTools([config], { workspaceDir: process.cwd() });
+  assert.equal(await invoke(tool(reloaded, "last")), "called last");
+  assert.deepEqual(await registry.getTools([], { workspaceDir: process.cwd() }), []);
+});
