@@ -151,6 +151,8 @@ function createDeferredToolEntry(options: {
 
 export function createMomTools(options: {
   agentId?: string;
+  /** Ledger attribution for usage records (media usageScope); falls back to `agentId`. Project runs pass "project". */
+  usageAgentId?: string;
   roomId?: string;
   runNestedToolCall?: (tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal, onUpdate?: (result: import("@earendil-works/pi-agent-core").AgentToolResult<unknown>) => void) => Promise<{ result: import("@earendil-works/pi-agent-core").AgentToolResult<unknown>; isError: boolean }>;
 
@@ -332,7 +334,7 @@ export function createMomTools(options: {
     outputLayout,
     uploadFile: options.uploadFile,
     sessionId: options.sessionId,
-    usageScope: { channel: options.channel, botId: options.store.getBotId(), agentId: options.agentId, roomId: options.roomId }
+    usageScope: { channel: options.channel, botId: options.store.getBotId(), agentId: options.usageAgentId ?? options.agentId, roomId: options.roomId }
   }));
   const videoGenerateRuntimeTool = wrapSerializedTool(createVideoGenerateTool({
     getSettings: options.getSettings,
@@ -715,7 +717,7 @@ export function createMomTools(options: {
     return [wrapWithToolRuntime(codemodeTool), ...scopedTools.map(tool => wrapWithToolRuntime(tool)).filter(tool => !policy.readOnly || isReadOnlyTool(tool.name, registry.get(tool.name)!.effect)), ...(options.sessionPlanProgress && !policy.readOnly ? [createUpdatePlanTool(options.sessionPlanProgress)] : [])];
   };
   const rawModels = options.modelOperationDeps
-    ? createPiModelOperations({ ...options.modelOperationDeps, artifactDir: outputLayout.scratchRoot, workspaceDir: options.workspaceDir, media: { store: imageTaskStore, sessionId: options.sessionId, runId: options.runId ?? "default-run", usageScope: { channel: options.channel, botId: options.store.getBotId(), agentId: options.agentId, roomId: options.roomId } } })
+    ? createPiModelOperations({ ...options.modelOperationDeps, artifactDir: outputLayout.scratchRoot, workspaceDir: options.workspaceDir, media: { store: imageTaskStore, sessionId: options.sessionId, runId: options.runId ?? "default-run", usageScope: { channel: options.channel, botId: options.store.getBotId(), agentId: options.usageAgentId ?? options.agentId, roomId: options.roomId } } })
     : undefined;
   const invokeOwned = async (tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal) => {
     if (!options.runNestedToolCall) throw new Error("Model calls require an active native execution owner.");

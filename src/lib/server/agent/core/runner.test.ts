@@ -14,6 +14,7 @@ import { RunnerPool, snapshotAllRuntimeRuns } from "$lib/server/agent/core/runne
 import { PiPreparationRecoveryError } from "$lib/server/agent/durable/piPreparationEffects.js";
 
 const nativeTestLifecycle = {
+  messagesAddedSince: function(this: { state: { messages: unknown[] } }, checkpoint: unknown[]) { return this.state.messages.slice(checkpoint.length); },
   startTurn: () => {}, bindRun: () => {}, close: async () => {}, sourceIdFor: () => undefined, steer: () => true,
   replaceContext: async function(this: { state: { messages: unknown[] } }, messages: unknown[]) { this.state.messages = messages; }
 };
@@ -52,6 +53,22 @@ function createRunnerTestSettings(): RuntimeSettings {
     ]
   };
 }
+
+test("a failed candidate cannot complete through leftover window text", () => {
+  const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
+  // The attempt window must be anchored on the checkpoint array. A captured
+  // index goes stale when refresh() rebases the array, and a window landing in
+  // history made a previous turn's reply read as this attempt's answer
+  // (2026-10-18, failover stopped at candidate 2 of 21).
+  assert.match(source, /this\.agent\.messagesAddedSince\(beforeAttempt\)/);
+  // The error branch must drop candidateFinalText when no tools ran — otherwise
+  // the candidate-loop success check reads the leftover text as a completed
+  // answer and never advances to the next candidate.
+  assert.match(source, /if \(!attemptExecutedTools\) candidateFinalText = "";[\s\S]{0,120}if \(decision\.kind === "retryable_error"\)/);
+  // Attempts that ran tools keep their text: it is the best partial answer the
+  // run may still deliver without replaying side effects.
+  assert.match(source, /A failed attempt owns no final answer/);
+});
 
 test("runtime corrective notices steer the active tool loop instead of queuing a post-completion reply", () => {
   const source = readFileSync(new URL("./runner.ts", import.meta.url), "utf8");
@@ -2390,5 +2407,58 @@ for (const isEvent of [false, true]) {
     disconnected.signal.dispatchEvent(new Event("abort"));
     assert.deepEqual(aborted, isEvent ? [] : ["orphan_recovery", "client_disconnect"]);
     state.running = false;
+  });
+}
+
+for (const fallbackSucceeds of [false, true]) {
+  test(`real Runner never resends historical replies when fallback ${fallbackSucceeds ? "succeeds" : "fails"}`, { timeout: 20000 }, async () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-history-boundary-"));
+    let runner: MomRunner | undefined;
+    try {
+      const chatId = "history-boundary";
+      runner = await createRunnerForHookTest({ chatId, workspaceDir, hookManager: createRunnerHookManager([]) });
+      const settings = createRunnerTestSettings();
+      settings.customProviders[0]!.models.push({ ...settings.customProviders[0]!.models[0]!, id: "fallback-model" });
+      (runner as any).getSettings = () => settings;
+      const agent = (runner as any).agent;
+      const store = (runner as any).store;
+      const sessionId = (runner as any).sessionId;
+      const history = Array.from({ length: 7 }, (_, index) => ({
+        role: "assistant", api: "openai-completions", provider: "runner-test", model: "fake-model",
+        content: [{ type: "text", text: `HISTORICAL ANSWER ${index}` }], stopReason: "stop", timestamp: index + 1,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+      }));
+      for (const message of history) store.appendContextMessage(chatId, message, sessionId);
+      agent.state.messages = [...history];
+      const requested: string[] = [];
+      agent.streamFunction = (model: any) => {
+        requested.push(model.id);
+        const success = fallbackSucceeds && model.id === "fallback-model";
+        const message = { ...history[0], model: model.id, timestamp: Date.now(),
+          content: success ? [{ type: "text", text: "CURRENT TURN ANSWER" }] : [],
+          stopReason: success ? "stop" : "error", errorMessage: success ? undefined : model.id === "fake-model" ? "401: API key expired" : "402: Insufficient Balance" };
+        const stream = createAssistantMessageEventStream();
+        stream.push(success ? { type: "done", reason: "stop", message } as any : { type: "error", reason: "error", error: message } as any);
+        stream.end(); return stream;
+      };
+      const sent: string[] = [];
+      const context = createRunnerContext("A new question");
+      context.respond = context.respondInThread = context.replaceMessage = async (text: string) => { sent.push(text); };
+      const result = await runner.run(context);
+      assert.deepEqual(requested, ["fake-model", "fallback-model"]);
+      assert.equal(result.stopReason, fallbackSucceeds ? "stop" : "error");
+      assert.doesNotMatch(sent.join("\n"), /HISTORICAL ANSWER/);
+      const summaries = readFileSync(store.getRunSummaryLogPath(chatId), "utf8").trim().split("\n").map(line => JSON.parse(line));
+      assert.doesNotMatch(summaries.at(-1).finalText, /HISTORICAL ANSWER/);
+      const appended = store.loadContext(chatId, sessionId).slice(history.length);
+      if (fallbackSucceeds) {
+        assert.ok(sent.includes("CURRENT TURN ANSWER"));
+        assert.match(JSON.stringify(appended), /CURRENT TURN ANSWER/);
+      } else {
+        assert.ok(sent.length > 0, "the failure must be visible");
+        assert.equal(summaries.at(-1).stopReason, "error");
+        assert.ok(appended.some((message: any) => message.role === "assistant" && message.stopReason === "error"));
+      }
+    } finally { await (runner as any)?.agent.close(); rmSync(workspaceDir, { recursive: true, force: true }); }
   });
 }

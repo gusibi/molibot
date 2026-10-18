@@ -10,6 +10,7 @@
   import SendClock from "reicon-svelte/icons/SendClock";
   import Settings2 from "reicon-svelte/icons/Settings2";
   import SidebarLists, { type SidebarListSection } from "./SidebarLists.svelte";
+  import AppFooterMark from "../components/AppFooterMark.svelte";
   import type { ChannelDescriptor } from "./ChannelAccordion.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { AgentRoom } from "@molibot/shared/rooms";
@@ -250,9 +251,7 @@
           title={copy.goToSettings}
           onclick={onOpenSettings}
         >
-          <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
-            <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
-          </span>
+          <AppFooterMark copy={copy} serviceState={serviceState} showName={false} />
         </button>
       </nav>
       {#if collapsedFlyout}
@@ -281,9 +280,9 @@
 
     <SidebarLists {...listProps} sections={["conversations", "rooms", "projects"]} variant="sidebar" />
 
-    <!-- The avatar's status dot already carries the service state visually, so the
-         redundant 在线/离线 line is gone; its text stays as the button's
-         accessible name so status never depends on colour alone. -->
+    <!-- The shared AppFooterMark carries the status dot on the logo itself, so
+         the redundant 在线/离线 line stays gone; its text lives on in the
+         button's accessible name so status never depends on colour alone. -->
     <button
       type="button"
       class="sidebar-footer"
@@ -291,10 +290,7 @@
       onclick={onOpenSettings}
       title={copy.goToSettings}
     >
-      <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
-        <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" width="20" height="20" />
-      </span>
-      <span class="sidebar-footer-copy"><strong>{copy.appName}</strong></span>
+      <AppFooterMark copy={copy} serviceState={serviceState} />
       <Settings2 class="sidebar-footer-gear" size={16} weight="Filled" aria-hidden="true" />
     </button>
   {/if}
@@ -413,36 +409,6 @@
     text-align: left;
   }
   .sidebar-footer:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
-  .sidebar-footer-logo-wrap {
-    position: relative;
-    flex: 0 0 auto;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-  }
-  .sidebar-footer-logo-wrap::after {
-    content: "";
-    position: absolute;
-    right: -1px;
-    bottom: -1px;
-    width: 8px;
-    height: 8px;
-    border: 2px solid var(--sidebar-bg, #fff);
-    border-radius: 50%;
-    background: var(--gray-700, #8a8a8a);
-  }
-  .sidebar-footer-logo-wrap[data-state="ready"]::after { background: var(--online, #28a745); }
-  .sidebar-footer-logo-wrap[data-state="error"]::after,
-  .sidebar-footer-logo-wrap[data-state="incompatible"]::after { background: var(--danger, #ff453a); }
-  .sidebar-footer-logo {
-    display: block;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    object-fit: cover;
-  }
-  .sidebar-footer-copy { display: grid; flex: 1 1 auto; gap: 1px; min-width: 0; }
-  .sidebar-footer-copy strong { overflow: hidden; font-weight: 600; font-size: var(--fs-label); text-overflow: ellipsis; white-space: nowrap; }
   /* The gear is a control, not metadata: it reads at the secondary label rank at
      full strength so it stops disappearing into the footer. */
   .sidebar-footer :global(.sidebar-footer-gear) { color: var(--label-secondary, #666); opacity: 1; }

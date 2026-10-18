@@ -53,7 +53,7 @@
     cursor: pointer;
     transition: background var(--duration-instant) var(--ease-standard), border-color var(--duration-instant) var(--ease-standard);
   }
-  .plans-row:hover { background: var(--fill); }
+  .plans-row:not(.active):hover { background: var(--fill); }
   .plans-row:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
   .plans-row.active { background: var(--selection-bg); color: var(--on-selection); border-color: transparent; }
   .plans-row.active :is(strong, .plans-row-sub, .plans-row-step, .plans-chip) { color: var(--on-selection); }

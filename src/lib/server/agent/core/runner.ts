@@ -892,6 +892,15 @@ export class MomRunner implements RunnerLike {
 
   get sessionAgentId(): string | undefined { return this.runtimeIdentity?.agentId; }
 
+  /**
+   * Ledger attribution for this run's model usage. Project-mode runs carry no
+   * Agent identity (no runtimeIdentity, no session origin); without this
+   * fallback their usage lands in the "未记录 Agent" bucket.
+   */
+  private get usageAgentId(): string | undefined {
+    return this.runtimeIdentity?.agentId ?? (this.activeProject ? "project" : undefined);
+  }
+
   async run(ctx: MomContext): Promise<RunResult> {
     if (this.runtimeIdentity?.agentId && !this.runtimeIdentity.roomId && !ctx.project) {
       const persisted = this.store.readSessionOrigin(this.chatId, this.sessionId)?.agentId;
@@ -1473,6 +1482,7 @@ export class MomRunner implements RunnerLike {
       onTrace: (stage, payload) => { if (traceContext) this.hookManager.emit(stage, traceContext, payload); },
       sessionPlanProgress: ctx.sessionPlanProgress,
       agentId: this.runtimeIdentity?.agentId,
+      usageAgentId: this.usageAgentId,
       roomId: this.runtimeIdentity?.roomId,
       modelOperationDeps: executionPolicy.readOnly || permissionMode === "plan" ? undefined : {
     models: getPiModels(),
@@ -1488,7 +1498,7 @@ export class MomRunner implements RunnerLike {
       const usage = receipt.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { total?: number } } | undefined;
       if (!usage) return;
       this.usageTracker.record({ requestId: `pi:${runId}:model:${receipt.id}`,
-        channel: this.channel, botId, agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId,
+        channel: this.channel, botId, agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
         sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: receipt.provider, model: receipt.model, api: receipt.api, estimatedCostUsd: usage.cost?.total,
         inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
         cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
@@ -1511,7 +1521,7 @@ export class MomRunner implements RunnerLike {
     const usage = message.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { total?: number } } | undefined;
     if (usage) {
       this.usageTracker.record({ requestId: `pi:${runId}:extension:model:${input.callId}`,
-        channel: this.channel, botId, agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId,
+        channel: this.channel, botId, agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
         sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: message.provider, model: message.model, api: message.api, estimatedCostUsd: usage.cost?.total,
         inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
         cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
@@ -2134,7 +2144,7 @@ export class MomRunner implements RunnerLike {
             requestId: assistantSourceEntryId,
             channel: this.channel,
             botId,
-            agentId: this.runtimeIdentity?.agentId,
+            agentId: this.usageAgentId,
             roomId: this.runtimeIdentity?.roomId,
             sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
             provider: msg.provider ?? activeSelection.model.provider,
@@ -2244,7 +2254,7 @@ export class MomRunner implements RunnerLike {
         },
         onChildUsage: receipt => {
           this.usageTracker.record({ requestId: receipt.id, channel: this.channel, botId,
-            agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId,
+            agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
             sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: receipt.provider, model: receipt.model, api: receipt.api,
             inputTokens: receipt.usage.input, outputTokens: receipt.usage.output, cacheReadTokens: receipt.usage.cacheRead,
             cacheWriteTokens: receipt.usage.cacheWrite, totalTokens: receipt.usage.totalTokens, estimatedCostUsd: receipt.usage.cost?.total });
@@ -2917,12 +2927,11 @@ export class MomRunner implements RunnerLike {
 
 
 
-            const messages = this.agent.state.messages as AgentMessage[];
             if (this.activeApprovalSuspension) {
               // The native owner resumes the original approval call from its private ledger.
               break;
             }
-            const attemptMessages = messages.slice(beforeAttempt.length);
+            const attemptMessages = this.agent.messagesAddedSince(beforeAttempt);
             const terminalAssistants = attemptMessages
               .filter((item) => {
                 const row = item as { role?: string; stopReason?: string };
@@ -3187,6 +3196,12 @@ export class MomRunner implements RunnerLike {
                 error: decision.message
               });
               // Native receipts remain canonical across any subsequent model request.
+              // A failed attempt owns no final answer: any candidateFinalText left
+              // here is a stale-window artifact, and carrying it past the break
+              // would mark this candidate successful and stop failover. Attempts
+              // that ran tools keep their text — it is the best partial answer the
+              // run may still deliver without replaying side effects.
+              if (!attemptExecutedTools) candidateFinalText = "";
               if (decision.kind === "retryable_error") {
                 attemptCount += 1;
                 continue;
@@ -3700,7 +3715,7 @@ export class MomRunner implements RunnerLike {
           chatId: this.chatId,
           settings, executionPolicy, signal: this.agent.signal,
           onChildUsage: receipt => this.usageTracker.record({ requestId: receipt.id, channel: this.channel, botId,
-            agentId: this.runtimeIdentity?.agentId, roomId: this.runtimeIdentity?.roomId, sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
+            agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId, sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
             provider: receipt.provider, model: receipt.model, api: receipt.api, inputTokens: receipt.usage.input, outputTokens: receipt.usage.output,
             cacheReadTokens: receipt.usage.cacheRead, cacheWriteTokens: receipt.usage.cacheWrite, totalTokens: receipt.usage.totalTokens }),
           childTools: () => (localTools as unknown as { getChildTools: () => AgentTool[] }).getChildTools(),

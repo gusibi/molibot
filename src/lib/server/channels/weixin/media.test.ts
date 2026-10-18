@@ -20,7 +20,7 @@ function buildIncomingMessage(overrides: Array<InboundMediaItem & { file_item?: 
     _contextToken: "ctx-1",
     timestamp: new Date("2026-03-26T12:00:00.000Z"),
     raw: {
-      message_id: 1001,
+      message_id: "1001",
       from_user_id: "wx-user-1",
       to_user_id: "bot-1",
       client_id: "client-1",

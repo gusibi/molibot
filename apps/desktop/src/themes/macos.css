@@ -182,3 +182,40 @@
 .theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="dark"] .tp-body { background: linear-gradient(135deg, #2b2b2e, #1f1f22); }
 .theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="system"] .tp-side { background: linear-gradient(135deg, #e8ecf5 0 50%, #3a3a3c 50%); }
 .theme-swatch[data-theme-family-preview="macos"][data-theme-preview-appearance="system"] .tp-body { background: linear-gradient(135deg, #f6f8fc 0 50%, #2b2b2e 50%); }
+
+
+
+
+/* This family's workspace rendering, adapted through the documented chat
+   content region the workspace panes render in. Two moves:
+   1. Soft selection — every picked workspace item (skill card, open file row,
+      automation task row, plan row) renders as a quiet wash of --selection-bg
+      plus a hairline ring of the same hue, labels on the shared label ramp.
+      The solid pair floods surfaces this large, and recolouring every child is
+      what made a picked card read as a foreign component. Hover rules exclude
+      the picked item so pointer travel never repaints a selection.
+   2. One list language — the three workspace rails (automations, plans,
+      skills) render as the same component: flat rows on the rail plane with
+      hairline dividers and a rounded interaction shape. The shared sheet
+      ships them as three anatomies (square flat rows, rounded rows, card
+      tiles); skills keeps its card tile only in the closed grid, where
+      elevation communicates the grid. Every other family keeps the shared
+      sheet rendering untouched. Loaded last via themes/index.css. */
+:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row { border-radius: var(--rounded-sm); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skills-grid.list-mode { gap: 2px; }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skills-grid.list-mode .installed-skill-card:not(.selected) { background: transparent; border: 0; border-bottom: 1px solid var(--separator); border-radius: var(--rounded-sm); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skills-grid.list-mode .installed-skill-card.selected { background: color-mix(in srgb, var(--selection-bg) 16%, transparent); border: 0; border-bottom: 1px solid transparent; border-radius: var(--rounded-sm); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection-bg) 40%, transparent); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skill-card.selected .installed-skill-icon { background: color-mix(in srgb, var(--selection-bg) 12%, var(--fill)); color: var(--selection-bg); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skill-card.selected .installed-skill-title strong { color: var(--label-primary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skill-card.selected .installed-skill-copy p { color: var(--label-secondary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .skills-file-row.active { background: color-mix(in srgb, var(--selection-bg) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection-bg) 40%, transparent); color: var(--label-primary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .skills-file-row.active .skills-file-size { color: var(--label-tertiary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active,
+:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-workspace-layout.detail-open .automation-task-row.active { background: color-mix(in srgb, var(--selection-bg) 16%, transparent); color: var(--label-primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection-bg) 40%, transparent); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active .automation-task-card-title { color: var(--label-primary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active :is(.row-outcome, .task-schedule-line, .task-target-pill) { color: var(--label-secondary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active .workspace-row-error { color: var(--danger); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .plans-row.active { background: color-mix(in srgb, var(--selection-bg) 16%, transparent); color: var(--label-primary); border-color: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection-bg) 40%, transparent); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .plans-row.active strong { color: var(--label-primary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .plans-row.active :is(.plans-row-sub, .plans-row-step) { color: var(--label-secondary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .plans-row.active .plans-chip { color: var(--label-secondary); background: var(--fill); }

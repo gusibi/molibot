@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
-import { sanitizeImageGenerateSettings, sanitizeImageRecognitionSettings, sanitizeMcpServers, sanitizeSettings } from "$lib/server/settings/sanitize.js";
+import { sanitizeChannelInstanceDisplaySettings, sanitizeImageGenerateSettings, sanitizeImageRecognitionSettings, sanitizeMcpServers, sanitizeSettings } from "$lib/server/settings/sanitize.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 
 test("sanitizeSettings backfills imageGenerate for legacy settings", () => {
@@ -378,4 +378,15 @@ test("MCP tool deadlines retain defaults and bound configured values", () => {
     const [server] = sanitizeMcpServers([{ id: "test", url: "https://mcp.example.com", timeoutMs: raw }]);
     assert.equal(server.timeoutMs, expected);
   }
+});
+
+test("channel instance display sanitizer treats null as follow-global, not as a concrete value", () => {
+  assert.deepEqual(
+    sanitizeChannelInstanceDisplaySettings({ toolProgress: "off", showReasoning: null, gatewayNotifyInterval: null, runLogNotice: null }),
+    { toolProgress: "off" }
+  );
+  assert.deepEqual(sanitizeChannelInstanceDisplaySettings({ gatewayNotifyInterval: 30 }), { gatewayNotifyInterval: 30 });
+  assert.deepEqual(sanitizeChannelInstanceDisplaySettings({ runLogNotice: false }), { runLogNotice: false });
+  assert.equal(sanitizeChannelInstanceDisplaySettings({ toolProgress: "shout", showReasoning: "maybe" }), undefined);
+  assert.equal(sanitizeChannelInstanceDisplaySettings(null), undefined);
 });

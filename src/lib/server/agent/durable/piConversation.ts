@@ -227,7 +227,12 @@ export class PiConversationRuntime {
   }
 
   async agent() { return this.requireConversation().agent(BACKGROUND_CONTEXT); }
-  async context() { return this.requireConversation().context(BACKGROUND_CONTEXT); }
+  async context() {
+    const view = await this.requireConversation().context(BACKGROUND_CONTEXT);
+    const importedMessageCount = view.entries.filter(History.is)
+      .flatMap(entry => entry.model ?? []).filter(message => message.role !== "system").length;
+    return { ...view, importedMessageCount };
+  }
 
   async toolOrigin(taskId: TaskId, callId: string) {
     this.requireConversation();
@@ -269,7 +274,7 @@ export class PiConversationRuntime {
         provider: "molibot", api: "openai-completions", model: "nested-tool", timestamp: Date.now(), stopReason: "toolUse",
         content: [{ type: "toolCall", id, name: tool.name, arguments: JSON.parse(JSON.stringify(args)) }],
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }] });
-      const taskId = await tx.createTask(ToolTask, { assistant: assistant.id, callId: id }, { conversationId: child.id, ownership: { kind: "conversation" } });
+      const taskId = await tx.createTask(ToolTask, { kind: "model", assistant: assistant.id, callId: id }, { conversationId: child.id, ownership: { kind: "conversation" } });
       await tx.appendEntry(NestedCall, api.conversationId, { data: { owner: api.taskId, id, fingerprint, taskId } });
       return taskId;
     }, context);
@@ -393,7 +398,7 @@ export class PiConversationRuntime {
         afterTool: async (call, result, api) => {
           this.options.onChildTrace?.(result.isError ? "tool.call.error" : "tool.call.after", {
             toolCallId: `pi:child:${api.conversationId}:tool:${api.taskId}`, toolName: call.name,
-            parentFactId: `subagent_task:${this.childParents.get(api.conversationId)}`, resultPreview: JSON.stringify(result.content).slice(0, 1000) });
+            parentFactId: `subagent_task:${this.childParents.get(api.conversationId)}`, resultPreview: JSON.stringify(result.output).slice(0, 1000) });
           this.childBudget(api, "result", Boolean(result.isError));
           this.options.afterChildTool?.(`child:${api.conversationId}:tool:${api.taskId}`, Boolean(result.isError));
         },
@@ -644,7 +649,7 @@ export class PiConversationRuntime {
       await tx.appendEntry(History, conversation.id, { model: [{ role: "user", content: typeof this.admitted === "string" ? this.admitted : this.admitted!, timestamp: Date.now() }] });
       const assistant = await tx.appendEntry(AssistantEntry, conversation.id, { model: [{ role: "assistant", provider: "molibot", api: "openai-completions", model: "extension-command", timestamp: Date.now(), stopReason: "toolUse",
         content: [{ type: "toolCall", id: `command:${this.requestId}`, name: call.name, arguments: JSON.parse(JSON.stringify(call.args)) }], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }] });
-      const task = await tx.createTask(ToolTask, { assistant: assistant.id, callId: `command:${this.requestId}` }, { ownership: { kind: "conversation" } });
+      const task = await tx.createTask(ToolTask, { kind: "model", assistant: assistant.id, callId: `command:${this.requestId}` }, { ownership: { kind: "conversation" } });
       await tx.appendEntry(NativeCall, conversation.id, { data: { requestId: this.requestId!, fingerprint, taskId: task } });
       return task;
     }, BACKGROUND_CONTEXT);

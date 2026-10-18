@@ -1,8 +1,11 @@
 <script lang="ts">
+  import ConversationStatus from "./ConversationStatus.svelte";
+  import { isStatusOnlyMessage, transcriptTurnStatuses } from "./transcriptStatus";
   import BotAvatar from "./BotAvatar.svelte";
   import TraceReportDrawer from "./TraceReportDrawer.svelte";
   import { loadTraceViewerEnabled } from "../api";
   import { session } from "../stores/session.svelte";
+  import { appLogo } from "../stores/appLogo.svelte";
   import UsbSquare from "../icons/duotone/components/UsbSquare.svelte";
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
   import Check from "reicon-svelte/icons/Check";
@@ -14,8 +17,6 @@
   import Loader from "reicon-svelte/icons/Loader";
   import More from "reicon-svelte/icons/More";
   import PenLine from "reicon-svelte/icons/PenLine";
-  import StopCircle from "reicon-svelte/icons/StopCircle";
-  import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import { contributionIcon, INVOCATION_ICONS } from "./activityIcons";
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
@@ -36,6 +37,8 @@
   import { collectTurnFiles, type TurnFileItem } from "./turnFiles";
 
   export let messages: TranscriptMessage[];
+  export let showUnresolvedStatus = false;
+  $: turnStatuses = transcriptTurnStatuses(messages, showUnresolvedStatus);
   export let copy: Translation;
   export let formatTime: (value: string) => string;
   export let assistantName: string = copy.appName;
@@ -159,16 +162,8 @@
         : message.stopReason === "stop"
           ? "complete"
           : ""}
-  <!-- The error is status, never the body: a turn that answered and was then
-       interrupted keeps its answer above and carries the reason underneath.
-       Suppressed when the projection already had to use it as the body (a turn
-       that produced no text at all), so it is never printed twice. -->
-  {@const assistantError = message.role === "assistant"
-    && message.errorMessage
-    && !displayContent.includes(message.errorMessage.trim())
-    ? message.errorMessage
-    : ""}
   {@const turnFiles = message.role === "assistant" ? collectTurnFiles(message, attachmentActions?.filesByLocal) : []}
+  {#if !isStatusOnlyMessage(message)}
   <article
     class:mine={message.role === "user"}
     class:assistant={message.role !== "user"}
@@ -277,14 +272,9 @@
       <div class="assistant-layout">
         <div class="message-stack">
         <div class="assistant-identity">
-          {#if message.authorAgentId}<BotAvatar botId={message.authorAgentId} name={message.authorName ?? assistantName} size={22} />{:else}<img class="assistant-avatar" src="/molibot-icon.png" alt="" width="22" height="22" />{/if}
+          {#if message.authorAgentId}<BotAvatar botId={message.authorAgentId} name={message.authorName ?? assistantName} size={22} />{:else}<img class="assistant-avatar" src={appLogo.src} alt="" width="22" height="22" />{/if}
           <strong>{message.authorName ?? assistantName}</strong>
           {#if agentName}<span>{agentName}</span>{/if}
-          {#if assistantStatus === "complete"}
-            <CheckRead class="assistant-status-check" size={14} role="img" aria-label={copy.assistantStatusComplete} title={copy.assistantStatusComplete} />
-          {:else if assistantStatus}
-            <span class={`assistant-status ${assistantStatus}`}>{#if assistantStatus === "error"}<TriangleWarning size={12} aria-hidden="true" />{:else}<StopCircle size={12} aria-hidden="true" />{/if}{assistantStatus === "error" ? copy.assistantStatusError : copy.assistantStatusAborted}</span>
-          {/if}
         </div>
         {#if turnSections.process.length}
           <TurnProcess
@@ -309,9 +299,7 @@
             <ChatMarkdown {resolveImage} source={block.content} {copy} {endpoint} contentKey={`${key}-${block.id}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
           {/if}
         {/each}
-        {#if assistantError}
-          <div class="assistant-error-note"><TriangleWarning size={14} aria-hidden="true" /><span class="assistant-error-label">{copy.assistantErrorLabel}</span><span class="assistant-error-text">{assistantError}</span></div>
-        {/if}
+
         {#if turnFiles.length && onOpenTurnFiles}
           <TurnFilesCard files={turnFiles} {copy} onOpen={onOpenTurnFiles} />
         {/if}
@@ -416,6 +404,8 @@
       </div>
     {/if}
   </article>
+  {/if}
+  {#if turnStatuses.has(index)}<ConversationStatus status={turnStatuses.get(index)!} {copy} />{/if}
 {/each}
 
 {#if selectionMenu && messageActions?.contributions}

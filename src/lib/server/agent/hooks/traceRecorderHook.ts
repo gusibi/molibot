@@ -449,7 +449,7 @@ export class TraceRecorderHook implements RuntimeHook {
       durationMs: timing.durationMs ?? durationMs(startedAt, finishedAt),
       errorPreview: status === "error" ? stringField(payload, "errorMessage") ?? stringField(payload, "message") : undefined,
       resultPreview: stringField(payload, "resultPreview") ?? stringField(payload, "message"),
-      payload: sanitizePayload(payload),
+      payload: sanitizePayload({ ...payload, agentId: event.context.agentId }),
       createdAt: startedAt ?? event.timestamp,
       updatedAt: event.timestamp
     });
@@ -493,7 +493,7 @@ export class TraceRecorderHook implements RuntimeHook {
       errorPreview: status === "error" ? stringField(payload, "resultPreview") : undefined,
       argsPreview: stringField(payload, "argsPreview"),
       resultPreview: stringField(payload, "resultPreview"),
-      payload: sanitizePayload(payload),
+      payload: sanitizePayload({ ...payload, agentId: event.context.agentId }),
       createdAt: startedAt ?? event.timestamp,
       updatedAt: event.timestamp
     });
@@ -518,6 +518,8 @@ export class TraceRecorderHook implements RuntimeHook {
       facts.delete(key);
     }
     const tokens = usageTokens(payload.usage);
+    const usage = payload.usage as { cost?: { total?: unknown } } | undefined;
+    const cost = usage?.cost?.total;
 
     this.store.upsertFact({
       id,
@@ -542,7 +544,7 @@ export class TraceRecorderHook implements RuntimeHook {
       cacheReadTokens: tokens.cacheReadTokens,
       cacheWriteTokens: tokens.cacheWriteTokens,
       totalTokens: tokens.totalTokens,
-      payload: sanitizePayload(payload),
+      payload: sanitizePayload({ ...payload, agentId: event.context.agentId, estimatedCostUsd: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined }),
       createdAt: startedAt ?? event.timestamp,
       updatedAt: event.timestamp
     });

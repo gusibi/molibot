@@ -58,3 +58,18 @@ test("closing or disconnecting invalidates in-flight results; a failed selection
   await retry;
   assert.equal(h.state()?.transcript, "recovered");
 });
+
+test("a failed refresh preserves cached messages and reports the failure, then recovers", async () => {
+  const h = harness();
+  const first = h.loader.select("server", "qq", h.publish);
+  h.requests[0].resolve("yesterday");
+  await first;
+  const refresh = h.loader.select("server", "qq", h.publish);
+  h.requests[1].reject(new Error("Service unavailable"));
+  await refresh;
+  assert.deepEqual(h.state(), { transcript: "yesterday", loading: false, error: "Service unavailable" });
+  const recovery = h.loader.select("server", "qq", h.publish);
+  h.requests[2].resolve("today");
+  await recovery;
+  assert.deepEqual(h.state(), { transcript: "today", loading: false, error: "" });
+});

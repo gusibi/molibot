@@ -279,6 +279,7 @@ export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFa
       options.usageTracker?.record({
         channel: "miniapp",
         botId: "miniapp",
+        agentId: "miniapp",
         appId: options.appId,
         capability: "text",
         status: "success",
@@ -300,6 +301,7 @@ export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFa
       options.usageTracker?.record({
         channel: "miniapp",
         botId: "miniapp",
+        agentId: "miniapp",
         appId: options.appId,
         capability: "text",
         status: "error",
@@ -397,7 +399,7 @@ export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFa
         });
         if (!result.text) throw new MiniAppAiError("provider_failed", "The transcription provider could not complete the request.");
         options.usageTracker?.record({
-          channel: "miniapp", botId: "miniapp", appId: options.appId, capability: "transcription",
+          channel: "miniapp", botId: "miniapp", agentId: "miniapp", appId: options.appId, capability: "transcription",
           status: "success", durationMs: Date.now() - startedAt, audioSeconds: durationSeconds,
           provider: target.providerId, model: target.model, api: "audio-transcriptions"
         });
@@ -409,7 +411,7 @@ export function createMiniAppAiFacade(options: CreateFacadeOptions): MiniAppAiFa
             ? new MiniAppAiError("aborted", "The AI request was aborted.")
             : new MiniAppAiError("provider_failed", "The transcription provider could not complete the request.");
         options.usageTracker?.record({
-          channel: "miniapp", botId: "miniapp", appId: options.appId, capability: "transcription",
+          channel: "miniapp", botId: "miniapp", agentId: "miniapp", appId: options.appId, capability: "transcription",
           status: "error", durationMs: Date.now() - startedAt, audioSeconds: durationSeconds, errorCode: error.code,
           provider: "unknown", model: "unknown", api: "audio-transcriptions"
         });

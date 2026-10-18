@@ -49,13 +49,34 @@ function fixture(): UsageStatsResponse {
 
 test("sanitizeDesktopUsageQuery clamps pagination and normalizes filters", () => {
   assert.deepEqual(sanitizeDesktopUsageQuery({ range: "bogus", page: -2, pageSize: 500, modelId: "", botId: " alpha " }), {
-    range: "last30Days",
+    range: "today",
     modelId: "all",
+    agentId: "all",
     botId: "alpha",
     channel: "all",
     page: 1,
     pageSize: 100
   });
+});
+
+test("usage ranks recorded Agents separately from Bots and keeps missing attribution explicit", () => {
+  const stats = fixture();
+  stats.records = stats.records.map((record, i) => ({ ...record, agentId: i === 0 ? "researcher" : undefined }));
+  const summary = buildDesktopUsageSummary(stats, { range: "today" });
+  assert.deepEqual(summary.rankings.agents.map(row => [row.id, row.totalTokens]), [["researcher", 200], ["unknown", 90]]);
+  assert.equal(summary.rankings.bots[0].id, "alpha");
+  assert.equal(summary.records.items[0].agentId, undefined);
+  assert.equal(summary.records.items[1].agentId, "researcher");
+});
+
+test("one model using two APIs stays one model ranking while API totals remain separate", () => {
+  const stats = fixture();
+  stats.records = [records[0], { ...records[0], api: "responses" }];
+  const summary = buildDesktopUsageSummary(stats, { range: "today" });
+  assert.equal(summary.rankings.models.length, 1);
+  assert.equal(summary.rankings.models[0].requests, 2);
+  assert.equal(summary.rankings.models[0].totalTokens, 400);
+  assert.equal(summary.rankings.apis.length, 2);
 });
 
 test("buildDesktopUsageSummary filters range and dimensions into totals, trend, and rankings", () => {

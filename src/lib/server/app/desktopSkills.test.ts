@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -68,12 +68,21 @@ test("buildDesktopSkillItem coerces unknown scope to global", () => {
   assert.equal(buildDesktopSkillItem(item({ scope: "weird" })).scope, "global");
 });
 
+// The runtime tags the workspace layer "bot" for agent AND channel-bot
+// workspaces; the Desktop only projects the owner's agent workspaces, so the
+// boundary maps it to the agent scope instead of leaking the runtime word.
+test("buildDesktopSkillItem maps the runtime workspace layer to the agent scope", () => {
+  const desktop = buildDesktopSkillItem(item({ scope: "bot", agentId: "momo" }));
+  assert.equal(desktop.scope, "agent");
+  assert.equal(desktop.agentId, "momo");
+});
+
 test("buildDesktopSkillsSummary counts by scope and drops the skill-search api key", () => {
   const summary = buildDesktopSkillsSummary({
     items: [
       item({ scope: "global" }),
-      item({ name: "b", scope: "bot", enabled: false, botId: "default" }),
-      item({ name: "c", scope: "chat", botId: "default", chatId: "c1" })
+      item({ name: "b", scope: "agent", enabled: false, agentId: "momo" }),
+      item({ name: "c", scope: "chat", agentId: "momo", chatId: "c1" })
     ],
     skillSearch: {
       local: { enabled: true },
@@ -84,8 +93,8 @@ test("buildDesktopSkillsSummary counts by scope and drops the skill-search api k
   assert.equal(summary.counts.total, 3);
   assert.equal(summary.counts.enabled, 2);
   assert.deepEqual(
-    { global: summary.counts.global, bot: summary.counts.bot, chat: summary.counts.chat },
-    { global: 1, bot: 1, chat: 1 }
+    { global: summary.counts.global, agent: summary.counts.agent, chat: summary.counts.chat },
+    { global: 1, agent: 1, chat: 1 }
   );
   assert.equal(summary.search.localEnabled, true);
   assert.equal(summary.search.apiEnabled, true);
@@ -117,7 +126,7 @@ test("built-in workspace identity matches the discovered copy without relying on
   const filePath = "/tmp/skill-identity/skills/miniapp-creator/SKILL.md";
   const builtinId = desktopSkillId(filePath);
   assert.equal(buildDesktopSkillItem(item({ filePath, name: "Renamed by owner" })).id, builtinId);
-  assert.notEqual(buildDesktopSkillItem(item({ filePath: "/tmp/skill-identity/bots/other/skills/miniapp-creator/SKILL.md", name: "Renamed by owner", scope: "bot" })).id, builtinId);
+  assert.notEqual(buildDesktopSkillItem(item({ filePath: "/tmp/skill-identity/sessions/momo/skills/miniapp-creator/SKILL.md", name: "Renamed by owner", scope: "agent" })).id, builtinId);
   assert.match(builtinId, /^[a-f0-9]{16}$/);
 });
 
@@ -199,4 +208,18 @@ test("listSkillDirectory and readSkillFileContent stay inside the Skill director
     rmSync(root, { recursive: true, force: true });
     rmSync(outside, { force: true });
   }
+});
+
+test("preview reads a bounded prefix even when the file exceeds Node's whole-file limit", () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-skill-preview-"));
+  try {
+    const fd = openSync(join(root, "large.bin"), "w");
+    // Sparse allocation exercises the read bound without allocating gigabytes.
+    try { ftruncateSync(fd, 2 ** 31); } finally { closeSync(fd); }
+    assert.deepEqual(readSkillFileContent(root, "large.bin"), { content: "", truncated: true, binary: true });
+    writeFileSync(join(root, "exact.txt"), "a".repeat(256 * 1024));
+    const exact = readSkillFileContent(root, "exact.txt");
+    assert.equal(exact.truncated, false);
+    assert.equal(exact.content.length, 256 * 1024);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

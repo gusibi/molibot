@@ -1,18 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DurableExecutionStore } from "../durable/store.js";
 import { DurableExecutionCoordinator } from "../durable/coordinator.js";
-import { durableExecutionEventsDir } from "../durable/events.js";
 import { PlanService } from "./service.js";
 import type { CreatePlanInput, PlanTaskInput } from "../durable/types.js";
 
 function makeService(): { root: string; store: DurableExecutionStore; service: PlanService; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "molibot-plan-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
-  const coordinator = new DurableExecutionCoordinator(store, "test-process", root);
+  const coordinator = new DurableExecutionCoordinator(store, "test-process");
   const service = new PlanService(store, coordinator);
   return { root, store, service, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -113,14 +112,14 @@ test("plan list searches by title and id, filters by status, and hides archived 
   }
 });
 
-test("approval moves a planned plan to queued and enqueues one durable event", () => {
-  const { root, service, cleanup } = makeService();
+test("approval moves a planned plan to queued and enqueues one wakeup", () => {
+  const { store, service, cleanup } = makeService();
   try {
     const created = service.create(planInput());
     const started = service.approve({ ownerId: "owner", planId: "plan-test-1", expectedVersion: created.execution.version, sessionId: "receiver", agentId: "default", mode: "manual" });
     assert.equal(started.execution.status, "queued");
-    const events = readdirSync(durableExecutionEventsDir(root));
-    assert.equal(events.filter((file) => file.startsWith("durable-execution-plan-test-1-")).length, 1);
+    const wakeups = store.pendingWakeups("plan-test-1");
+    assert.deepEqual(wakeups.map((wakeup) => [wakeup.expectedVersion, wakeup.reason]), [[started.execution.version, "resume"]]);
   } finally {
     cleanup();
   }
@@ -285,7 +284,7 @@ test("paused plan editing preserves stable completed work and immutable version 
 });
 
 test("approved plan binds receiving Session atomically, keeps source, and rejects concurrent handoff", () => {
-  const { service, store, root, cleanup } = makeService();
+  const { service, store, cleanup } = makeService();
   try {
     const created = service.create(planInput());
     const input = { ownerId: "owner", planId: created.execution.id, expectedVersion: created.execution.version, sessionId: "sess-b", agentId: "agent-a", mode: "manual" as const };
@@ -294,21 +293,21 @@ test("approved plan binds receiving Session atomically, keeps source, and reject
     assert.equal(approved.execution.sourceUiSessionId, "sess-a");
     assert.equal(approved.binding?.sessionId, "sess-b");
     assert.equal(approved.binding?.mode, "manual");
-    assert.equal(readdirSync(durableExecutionEventsDir(root)).length, 1);
+    assert.equal(store.pendingWakeups(created.execution.id).length, 1);
     assert.throws(() => service.approve({ ...input, sessionId: "sess-c" }), /version|transition/i);
     assert.equal(service.read("owner", input.planId).binding?.sessionId, "sess-b");
   } finally { store.close(); cleanup(); }
 });
 
 test("shared resume and claim reject changed content under an old approval", () => {
-  const { store, service, cleanup, root } = makeService();
+  const { store, service, cleanup } = makeService();
   try {
     const initial = service.create(planInput());
     const approved = service.approve({ ownerId: "owner", planId: initial.execution.id, expectedVersion: initial.execution.version, sessionId: "b", agentId: "default", mode: "manual" });
     const paused = store.pause(initial.execution.id, approved.execution.version);
     const changed = service.edit({ ownerId: "owner", executionId: initial.execution.id, expectedVersion: paused.version, author: "user", tasks: [{ title: "Changed", steps: [{ title: "Changed instruction" }] }] });
     const pausedAgain = store.pause(initial.execution.id, changed.execution.version);
-    const coordinator = new DurableExecutionCoordinator(store, "test", root);
+    const coordinator = new DurableExecutionCoordinator(store, "test");
     assert.throws(() => coordinator.resume({ ownerId: "owner", executionId: initial.execution.id, expectedVersion: pausedAgain.version, actionId: "stale" }), /approv/i);
     assert.throws(() => store.claimAttempt({ executionId: initial.execution.id, expectedVersion: pausedAgain.version, processOwnerId: "test", runId: "test-run", contextSessionId: "archive", leaseDurationMs: 10000 }), /approv/i);
   } finally { cleanup(); }

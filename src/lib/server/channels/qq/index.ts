@@ -1,23 +1,18 @@
 /**
- * QQ Bot SDK 适配器 - 为 molipibot 提供兼容层
- * 使用 package/qqbot 中的 SDK 实现
+ * QQ 渠道插件 — 把 molipibot 的渠道配置转换为 package/qqbot 适配层的账户结构。
  */
 
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { ChannelPlugin, ChannelPluginInstance } from "$lib/server/channels/registry.js";
 import { config } from "$lib/server/app/env.js";
 import { resolve } from "node:path";
-import type { ResolvedQQBotAccount, QQBotAccountConfig } from "#qqbot/src/types.js";
-import { sendText, sendMedia, sendProactiveMessage, type OutboundResult } from "#qqbot/src/outbound.js";
-import { getAccessToken, initApiConfig } from "#qqbot/src/api.js";
+import type { ResolvedQQBotAccount } from "#qqbot/src/types.js";
 import { QQManager } from "$lib/server/channels/qq/runtime.js";
 
 export interface QQConfig {
   appId: string;
   clientSecret: string;
   allowedChatIds: string[];
-  /** @deprecated 使用多账户配置 */
-  accountId?: string;
 }
 
 /**
@@ -41,71 +36,6 @@ function toSDKAccount(instance: ChannelPluginInstance<QQConfig>): ResolvedQQBotA
     }
   };
 }
-
-/**
- * 使用 SDK 发送消息
- */
-export async function sdkSendText(
-  account: ResolvedQQBotAccount,
-  to: string,
-  text: string,
-  replyToId?: string
-): Promise<OutboundResult> {
-  return sendText({
-    to,
-    text,
-    accountId: account.accountId,
-    replyToId: replyToId ?? null,
-    account
-  });
-}
-
-/**
- * 使用 SDK 发送主动消息
- */
-export async function sdkSendProactiveMessage(
-  account: ResolvedQQBotAccount,
-  to: string,
-  text: string
-): Promise<OutboundResult> {
-  return sendProactiveMessage(account, to, text);
-}
-
-/**
- * 使用 SDK 发送媒体
- */
-export async function sdkSendMedia(
-  account: ResolvedQQBotAccount,
-  to: string,
-  mediaUrl: string,
-  text?: string,
-  replyToId?: string
-): Promise<OutboundResult> {
-  return sendMedia({
-    to,
-    mediaUrl,
-    text: text ?? "",
-    accountId: account.accountId,
-    replyToId: replyToId ?? null,
-    account
-  });
-}
-
-/**
- * 使用 SDK 获取访问令牌
- */
-export async function sdkGetAccessToken(appId: string, clientSecret: string): Promise<string> {
-  return getAccessToken(appId, clientSecret);
-}
-
-/**
- * 初始化 API 配置（markdown 支持等）
- */
-export function sdkInitApiConfig(options: { markdownSupport?: boolean; appId?: string }): void {
-  initApiConfig(options);
-}
-
-// ============ Channel Plugin 导出 ============
 
 export const qqChannelPlugin: ChannelPlugin<QQConfig> = {
   key: "qq",
@@ -132,9 +62,6 @@ export const qqChannelPlugin: ChannelPlugin<QQConfig> = {
   },
 
   createManager(instance, deps) {
-    // 转换为 SDK 账户格式
-    const sdkAccount = toSDKAccount(instance as ChannelPluginInstance<QQConfig>);
-
     return new QQManager(
       deps.getSettings,
       deps.updateSettings,
@@ -146,19 +73,8 @@ export const qqChannelPlugin: ChannelPlugin<QQConfig> = {
         usageTracker: deps.usageTracker,
         modelErrorTracker: deps.modelErrorTracker,
         hookManager: deps.hookManager,
-        // 使用 SDK 账户配置
-        sdkAccount
+        sdkAccount: toSDKAccount(instance as ChannelPluginInstance<QQConfig>)
       }
     );
   }
 };
-
-// ============ 类型重新导出 ============
-export type { ResolvedQQBotAccount, QQBotAccountConfig } from "#qqbot/src/types.js";
-export type { OutboundResult, OutboundContext, MediaOutboundContext } from "#qqbot/src/outbound.js";
-export { MediaFileType } from "#qqbot/src/api.js";
-export type { UploadMediaResponse } from "#qqbot/src/api.js";
-
-// ============ 向后兼容导出 ============
-export { clearTokenCache } from "#qqbot/src/api.js";
-export { checkMessageReplyLimit, recordMessageReply, getMessageReplyConfig } from "#qqbot/src/outbound.js";

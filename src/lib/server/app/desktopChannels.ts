@@ -1,5 +1,7 @@
 import type { ChannelInstanceSettings, RuntimeSettings } from "$lib/server/settings/schema";
+import { sanitizeChannelInstanceDisplaySettings } from "$lib/server/settings/sanitize";
 import type {
+  DesktopChannelDisplaySettings,
   DesktopChannelGroup,
   DesktopChannelInstance,
   DesktopChannelSaveRequest,
@@ -7,15 +9,15 @@ import type {
   DesktopChannelsSummary
 } from "$lib/shared/desktop";
 
-// Web is surfaced by the dedicated Web Profiles section, so it is excluded here.
-// Known external channels are listed first; any other non-web channel follows
-// in insertion order.
-const KNOWN_CHANNEL_ORDER = ["telegram", "feishu", "qq", "weixin"] as const;
+// Web is the app's own channel and comes first; known external channels follow,
+// any other non-web channel in insertion order.
+const KNOWN_CHANNEL_ORDER = ["web", "telegram", "feishu", "qq", "weixin"] as const;
 const CHANNEL_FIELDS: Record<DesktopExternalChannel, { visible: string[]; secret: string[] }> = {
   telegram: { visible: ["streamOutput"], secret: ["token"] },
   feishu: { visible: ["appId", "streamOutput"], secret: ["appSecret", "verificationToken", "encryptKey"] },
   qq: { visible: ["appId"], secret: ["clientSecret"] },
-  weixin: { visible: ["baseUrl"], secret: [] }
+  weixin: { visible: ["baseUrl"], secret: [] },
+  web: { visible: [], secret: [] }
 };
 
 function isDesktopChannel(channel: string): channel is DesktopExternalChannel {
@@ -43,13 +45,14 @@ export function buildDesktopChannelInstance(
     allowedChatIds: Array.isArray(instance.allowedChatIds) ? instance.allowedChatIds.map(String) : [],
     permissionMode: instance.permissionMode ?? null,
     fields: Object.fromEntries(policy.visible.map((key) => [key, String(credentials[key] ?? "")])) ,
-    configuredSecrets: policy.secret.filter((key) => String(credentials[key] ?? "").trim().length > 0)
+    configuredSecrets: policy.secret.filter((key) => String(credentials[key] ?? "").trim().length > 0),
+    display: instance.display ?? null
   };
 }
 
 export function buildDesktopChannelsSummary(settings: RuntimeSettings): DesktopChannelsSummary {
   const channels = settings.channels ?? {};
-  const keys = Object.keys(channels).filter((key) => key !== "web");
+  const keys = Object.keys(channels);
   keys.sort((a, b) => {
     const ai = KNOWN_CHANNEL_ORDER.indexOf(a as (typeof KNOWN_CHANNEL_ORDER)[number]);
     const bi = KNOWN_CHANNEL_ORDER.indexOf(b as (typeof KNOWN_CHANNEL_ORDER)[number]);
@@ -67,7 +70,7 @@ export function buildDesktopChannelsSummary(settings: RuntimeSettings): DesktopC
     return { channel, total: instances.length, enabled, instances };
   });
 
-  return { groups, counts: { totalInstances, enabledInstances } };
+  return { groups, counts: { totalInstances, enabledInstances }, defaults: settings.display ?? {} };
 }
 
 export function saveDesktopChannelInstance(settings: RuntimeSettings, request: DesktopChannelSaveRequest): ChannelInstanceSettings[] {
@@ -96,7 +99,8 @@ export function saveDesktopChannelInstance(settings: RuntimeSettings, request: D
     agentId,
     permissionMode: request.permissionMode === null ? undefined : request.permissionMode,
     credentials,
-    allowedChatIds: Array.from(new Set((request.allowedChatIds ?? []).map((value) => String(value).trim()).filter(Boolean)))
+    allowedChatIds: Array.from(new Set((request.allowedChatIds ?? []).map((value) => String(value).trim()).filter(Boolean))),
+    display: sanitizeChannelInstanceDisplaySettings(request.display)
   };
   return [...instances.filter((instance) => instance.id !== id && instance.id !== previousId), next];
 }

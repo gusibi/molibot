@@ -1,3 +1,198 @@
+## 2026-10-18 — 用量归属补齐：Project 与 Mini App 伪 Agent（实现完成）
+
+症状：用量页 Agent 筛选出现「未记录 Agent」，当天请求消耗无法归属。根因是两类记账路径缺少 `agentId`：Project 模式会话在共享层三处都不携带 Agent 身份（project 池构造不传 runtimeIdentity、runner 对 `ctx.project` 不写 session origin、会话记录本身无 agentId 字段），其全部模型调用（含子代理、扩展流、图片生成 usageScope）落入未归属；Mini App AI 调用（`miniapps/aiFacade.ts` 四处）按设计只有 appId，从不带 agentId。
+
+修法（不引入假 Agent 进语义身份）：`MomRunner` 新增 `usageAgentId` 派生 getter——`runtimeIdentity?.agentId ?? (activeProject ? "project" : undefined)`，五个记账点全部改用；`createMomTools` 新增独立的 `usageAgentId` 选项（仅进媒体 usageScope，语义 `agentId` 继续喂 disabledTools/actor 等，不泄漏伪 Agent）；Mini App 四处记账补 `agentId: "miniapp"`。用量维度里 Project 会话归到 `project`、Mini App 归到 `miniapp`；历史无归属记录维持「未记录 Agent」不变。定时任务路径经 `admitStoredAgentSession` 本就有归属，未改动；Trace 页是另一条 fact 管线（有自己的 bot→default 兜底），未在本次范围。
+
+验证：新增 `piProjectUsage.test.ts`（project 运行记录全带 `"project"`、run 结束 activeProject 清空、非 project 会话保持无归属）与 aiFacade 归属用例，均先证修复前失败（`[null]`）、修复后通过，并连续 5 次通过；`piChildUsage` / `tracker.miniapps` / `desktopUsage` / `desktopMediaTasks` 共 11 项通过；`pnpm check` 通过。服务端改动需 `pnpm build` + 重启服务后生效。
+
+## 2026-10-18 — 桌面服务孤儿 sidecar 自愈（实现完成）
+
+症状与根因链：上一轮桌面进程树被硬杀，supervisor 来不及 SIGTERM 它的 sidecar，服务进程（PPID 1）成为孤儿并继续持有 `service.lock` 与 3040 端口；用户重开 App 时，supervisor 只在启动时读一次 `service-state.json` 并给 2 秒握手窗口去收养，当时孤儿服务事件循环卡顿未应答，窗口永久错过；此后 supervisor 进入 `supervise()` 拉新循环——`choose_port` 避开被占端口、子进程撞租约 exit 73、按崩溃退避重试，永不回到发现/收养路径，App 界面永远无法就绪。
+
+三处根修（`apps/desktop/src-tauri/src/supervisor.rs` + `scripts/runtime/parent-watchdog.mjs`）：
+
+1. 租约冲突（子进程 exit 73）触发 `rediscover_conflicting_owner`：命令感知地等待记录所有者的握手（≤15s），按 `conflicting_owner_action` 处置——兼容托管服务直接收养并移交 `supervise_adopted`（其既有深度健康探测继续兜底"收养到僵死服务"的情形）；版本旧于随包构建的托管服务先停后接管；外部服务与不兼容服务按启动路径同样的规则上报状态。决策纯函数与启动等待窗口（存活所有者 15s / 死亡 pid 立即回落 2s）均有单元测试。
+2. 启动收养窗口由固定 2 秒改为按所有者存活状态分级，消除"一次慢应答永久错过收养"的触发条件。
+3. 桌面托管 sidecar（`MOLIBOT_DESKTOP_MANAGED=1`）安装父进程守望：每 5 秒检查 ppid，reparent 到 1 即自发 SIGTERM 走既有 shutdown（释放租约、500ms 强退），单次信号后停止轮询；standalone/CLI 不受影响。模块经可选加载器接入，缺失时降级为一条 stderr 日志。
+
+验证：cargo supervisor 单元测试 26 项通过（新增 5 项守卫：冲突收养/替换/外部不误杀/无应答继续拉新/收养窗口分级）；`parent-watchdog.test.mjs` 4 项通过并入 `test:service-bootstrap`；真实进程端到端——临时数据目录 + 短命父进程硬杀后 sidecar 约 1 秒自行退出且服务曾完整启动至 ready；修复后真实 App 冷启动恢复、sidecar 日志无 exit-73 事件；隔离实例 Usage/Trace 浏览器用例 2/2。运行中的服务已带新启动器重启一轮确认。
+
+## 2026-10-18 — Trace 调用趋势与 Agent 执行表现（实现完成，原生验收待验证）
+
+Desktop Trace 顶部优先展示运行次数、运行完成成功率、已记录模型美元估算和缓存命中率。Agent 对比表直接显示同一组指标，点击 Agent 或使用现有筛选会同步更新指标、曲线与列表。运行成功率仅使用明确成功/失败的运行记录，不混用模型请求结果，也不代表任务质量评分；取消、等待与未完成排除在分母外。
+
+新增模型、普通工具、MCP 三条调用次数曲线：今天/昨天按本地小时，近 7/30 天按本地日期，空桶补零；按调用开始时间归桶，明细分页不截断趋势。MCP 按运行时规范的 `mcp__` 工具标识单列，普通工具曲线不含这些 MCP 调用。图例可隐藏曲线并自动调整纵轴，悬停或键盘聚焦时间点查看精确次数；线型与主题颜色共同区分系列。
+
+模型调用事实在脱敏前提取数值费用估算，SQLite 分析投影只读取该数值，不暴露原始 usage 对象。费用只合计已记录的模型估算并显示覆盖次数；无费用记录显示未知，明确记录的零费用保留零。历史记录可能缺少估算，不包含工具/MCP 外部服务费。缓存命中率按缓存读取 ÷（普通输入 + 缓存读取 + 缓存写入）计算，无输入分母显示未知。
+
+## 2026-10-18 — Desktop 用量与 Trace 展示及查询优化（实现完成，原生窗口验收待验证）
+
+用量默认查看今天，用横向指标条展示 Token 总量、请求数、缓存读取和命中率；主趋势图带刻度，环图区分普通输入、缓存读取、缓存写入和输出。模型、Agent、Bot、渠道列表默认展开，以对齐的数值和占比列比较，支持点击筛选和展开完整排行；API、Session 与逐条请求保留在详情中。同一 Provider / 模型跨 API 合并排行，API 仍单独统计。缺失历史 Agent 归属明确显示未记录，不以当前 Bot 绑定推断。
+
+Trace 首屏展示模型请求总数、成功、失败、成功率与全部结果构成，并提供模型、Agent、渠道和 Bot 来源排行；有数据时工具、技能汇总直接展示，逐条请求与诊断默认折叠。成功率只使用成功与失败请求，取消、阻止和未完成另列；重试按独立请求计数。统计覆盖完整所选日期范围，明细分页不截断汇总，不再使用最近 5,000 条作为统计来源。历史 Agent 可从该次运行已记录的身份关联，仍缺失的保持未知。
+
+时间范围使用分段按钮，筛选标签与选择控件在同一行对齐；窄窗自动换列。两页复用语义主题 token、中英文和紧凑数字，精确数值保留在提示中；重新进入页面刷新统计，刷新失败保留已显示数据并提供重试。用量账本按文件变化复用解析结果，图片用量继续实时合并；Desktop 不计算无关周/月汇总，并复用查询内的时区日期转换。3,500 条临时记录的统计层对比为约 603ms → 31ms，总量一致；这不是原生窗口完整打开耗时。
+
+定向集成和展示计算 46 项连续 5 次通过；Desktop 查询参数编码回归通过。界面验证覆盖两页的筛选、错误恢复、隔离服务重启，以及 25 个内置主题的明暗布局、中英即时切换、860px 窄窗和代表性导入配色。新版两项 UI 场景连续 5 次通过，筛选错行故障注入可触发守卫。趋势曲线控制点限制在相邻数据范围，修复零值附近出现负值假象；回归先失败后连续 5 次通过。原生 Tauri 窗口与 HTTP 插件链路仍需原生验收；覆盖与运行方式见 `tests/ui/COVERAGE.md`。
+
+## 2026-10-18 — Desktop Logo 同步原生图标（实现完成，原生验收待验证）
+
+通用设置的 17 个 Logo 同时用于应用内形象、运行中的 macOS 应用图标和菜单栏图标。Dock 图标保留原图的透明异形轮廓和完整构图，仅等比缩放，不添加背景、底板或蒙版，菜单栏使用独立透明小尺寸 PNG；设置网格预览 Dock 版本，聊天头像保留原图。桌面选择由原生偏好保存，应用 Ready 时恢复，不依赖设置页或本地服务连接；原生更新和持久化全部成功后页面确认选择，失败尝试恢复原图标并显示错误。Finder / 安装包仍使用默认打包图标。原先仅存在于 WebView localStorage 的选择不导入原生偏好，首次使用新版需重新选择；浏览器预览继续按浏览器保存。
+
+资源清单由前端与原生构建共享，生成入口为 `python3 scripts/generate-desktop-logo-icons.py`（Pillow）；默认打包资源保持原样。针对性回归覆盖原生调用、失败反馈、并发提交、临时目录偏好整对象保存/重新加载、原生失败回滚与所有 PNG 解码。前端状态 5 项、原生 Logo 逻辑 5 项及浏览器 UI 场景均连续 5 次通过；其他桌面偏好现有 5 项回归通过，Svelte 检查 0 错误（保留既有 1 条无障碍告警），前端构建通过。真实打包 App 的 Dock / Command + Tab、菜单栏即时变化、退出重开及服务中断恢复仍待原生验收，见 `tests/ui/COVERAGE.md`。
+
+通用外观区域按“主题选择 → 主题导入 → Logo”排列，主题相关操作保持相邻；页面回归断言主题导入位于 Logo 之前。
+
+## 2026-10-18 — Web 并入渠道设置，渠道入口移入助手分组（已交付）
+
+设置导航取消独立「渠道」分组：「渠道」页面移入「助手」分组、紧跟 Agent 之后；原「Web Profiles」独立页面删除，Web 作为渠道的一种并入渠道设置页，分组排序为 Web、Telegram、飞书、QQ、微信。Web 实例使用精简编辑器（基础信息：ID、名称、关联 Agent、权限模式、启停 + Bot Markdown 覆盖文件），不提供放行会话、显示与通知、平台凭据——Web 页面本身在 App 内直接操作，无独立显示配置（DESIGN.md 设置导航分组与渠道身份条目同步更新）。编辑弹窗行结构抽取为 Svelte snippet 复用，列表行「显示自定义」标记仅对外部渠道显示。
+
+实现：契约 `DesktopExternalChannel` 增加 `"web"`，渠道 summary 纳入 web（排第一），`saveDesktopChannelInstance`/`deleteDesktopChannelInstance` 支持 web（无凭据字段策略）；删除 ProfilesSection.svelte、profiles.svelte.ts、无消费方的 profiles API（save/delete/loadDesktopProfileFiles/saveDesktopProfileFiles/hasEnabledWebProfile/sanitizeWebProfileName，含原生命令面板 profiles 目的地与 16 组孤儿 i18n key）；新手引导保留 GET/PATCH web profiles API（`desktopProfiles.ts` 收敛为 resolve/patch/summarize），原服务端 PUT/DELETE 路由分支删除，不留兼容层。
+
+测试：desktopChannels.test.ts 改断言（summary 含 web 排第一）并新增 web 保存/删除用例 32/32；api.test.ts 清理死函数 111/111；desktopProfiles.test.ts 删除已删函数用例 5/5；chat-ui.test.mjs 与导航守卫同步 316/317（1 项为既有 App.svelte 失败，与本条目无关）；settings.spec 新增导航位置断言（Channels 紧跟 Agents、无「Web Profiles」入口、无独立分组标签）与 web 实例精简编辑器走查（新建→分区裁剪断言→保存→重启持久化），双浏览器 10/10、chromium 5 连跑全绿。根 `tsc` 与桌面 `svelte-check` 0 错误（保留 1 条既有告警）；`pnpm build` 完成，重启服务后生效。浏览器验证经隔离实例完成，未触碰真实数据；全量预留 `pnpm verify:feature`、`pnpm test:ui`，本次未执行。
+
+## 2026-10-18 — 渠道 Bot 显示配置进入桌面设置页（已交付）
+
+设置 → 渠道的实例编辑弹窗新增「显示与通知 / Display & notifications」分区：工具进度、思考过程、自动 Runlog 通知、渠道通知间隔（秒）四项均可按 Bot 单独配置，选项含「跟随全局（当前值）」；此前这四项（`ChannelInstanceSettings.display`）只能靠聊天命令 `/toolprogress`、`/showreasoning`、`/runlog status bot` 修改，页面看不到也改不了。实例列表行仅在有覆盖时追加「显示自定义」标记，默认态保持安静；表单补齐「基础信息」分区头，与凭据、Bot 文件分区结构一致。全局与 Bot 两处显示选项标签收敛到共享模块 `displaySettings.ts`，不再两处硬编码。
+
+链路：契约（`DesktopChannelInstance.display`、`DesktopChannelSaveRequest.display`、`DesktopChannelsSummary.defaults`）→ 服务端 `saveDesktopChannelInstance` 经 `sanitizeChannelInstanceDisplaySettings` 落库、summary 携带全局默认值供继承选项显示生效值 → 桌面 store 编辑器携带 display 随保存提交。顺带修复共享层两个真实缺陷：display sanitizer 此前把 `null` 当具体值（`gatewayNotifyInterval: null` 变成 0、`runLogNotice: null` 变成 false）而非「清除覆盖」，且返回对象带 undefined 空键——现按 `sanitizeAgentModelRouting` 风格只收非空键；UI 走查发现测试 harness pageerror 收集器用 `??` 导致空 stack 错误丢失 message，改 `||` 回退。
+
+新增回归 9 项（服务端 display 读写/清空/非法值 6 项、sanitizer null 语义 1 项、UI 结构断言 1 项、浏览器冷路径行为 1 项），其中 2 项在根修前实测失败；服务端用例连续 5 次全绿，浏览器用例 chromium 5 次全绿、webkit 通过，settings.spec 双浏览器 8/8。定向测试 31+113+16 通过；根 `tsc` 与桌面 `svelte-check` 0 错误（保留 1 条既有 AgentCityInspector 告警）；`pnpm build` 完成，重启服务后生效。既有失败说明：`chat-ui.test.mjs` 的「Agent navigation unifies…」用例在本工作区（会话开始前 App.svelte 已有未提交改动）失败，与本条目改动无关，未处理。UI 走查经隔离实例（临时 DATA_DIR/HOME）完成，未触碰真实用户数据，未重放真实渠道消息。全量预留 `pnpm verify:feature`、`pnpm test:ui`，本次未执行。
+
+## 2026-10-18 — 渠道错误兜底不再追加在正常回复之后（已交付）
+
+QQ 私聊中，带失败工具调用的轮次会在正常文本回复后面收到 `Error: <工具输出前 200 字>`（实例：agent 查找 tts-voice 技能时拼装的 `ls` 命令因目标目录不存在 exit 1，输出为技能目录清单，被当作错误正文发出）。桌面端不可见：该通知以 `shouldLog=false` 发出、不写入 session，仅渠道侧投递。
+
+根因是 26f283c4 引入的「本轮已有可见回复就不补发缓冲错误」守卫只统计 `sendVisibleText` 路径：QQ 私聊流式与微信的最终主回答经 `commitMainAnswer → replaceWithoutEdit` 直接送出，文件经 `uploadFile`/`uploadWithoutHandle` 送出，均不置位 `hasVisibleNonErrorReply`，收尾判定误认为「本轮无任何正常回复」，把 `lastBufferedError` 追加进流尾——错误因此恰好出现在最终回复之后的同一气泡里。该洞在 HEAD 已存在，非本次工作区改动引入；微信 `runtime.ts` 为同一份拷贝、同病。
+
+修复：QQ/weixin 的 `replaceWithoutEdit` 与文件投递成功处在送达非错误正文时置位该标记，共 4 处各一行；缓冲错误仅在轮次确实没有任何可见回复时按原设计补发。按流程先写复现回归（QQ 流式主回答、QQ 仅文件投递、微信主回答共 3 项，修复前全部失败且失败输出与线上症状一致），另加 2 项边界用例锁定「静默轮必须补发错误」不被误伤；修复后两文件 12/12 通过并连续 5 次全绿，`tsc --noEmit` 通过，`pnpm build` 重建后经新旧 chunk 压缩码 diff 逐点确认 4 处修复进入新构建。此类送达路径旁路由本次回归守卫，不新增长期规则。
+
+未重启用户正在使用的服务，运行中的服务仍加载 10:11 旧构建，重启后生效；未重放真实 QQ/微信消息。全量预留 `pnpm verify:feature`，本次未执行。
+
+## 2026-10-18 — 模型失败判定与候选切换窗口加固（已交付）
+
+共享 Runner 的失败语义收紧：模型响应带错误时（如 401/402）本轮判定为失败并切换下一个候选模型，不再把任何残留文本（旧窗口遗留、流式部分输出）当作成功答案发送给用户；仅当终态工具已产出用户可见回执（如 Plan 提案）时保持完成语义，避免在备用模型上重复执行。attempt 消息窗口由固定下标改为以 checkpoint 尾消息为锚点读取，投影数组在执行中途被重排（恢复导入、分支投影、压缩）时不再把历史回复扫进本轮窗口。
+
+此前的 `runner-message-boundary` 修复解决了恢复误判把消息起点清零的根因，但错误决策仍存在"finalText 非空即成功"的短路：故障注入证明在同一源码树上，窗口一旦有残留文本（steer 回复、未来任何窗口回归），候选链仍会在第一个报错候选上假成功。本轮补上这层判定防线并移除下标依赖。新增 Runner 决策、锚点窗口与结构守卫回归 7 项，修复前 7 项失败、修复后通过，连续 5 次全绿；改动文件相关测试 48/48，Runner 套件 54/54，受影响 TypeScript 检查通过，`pnpm build` 完成。
+
+正在运行的服务仍加载旧构建，重启后本修复与 `runner-message-boundary` 修复一同生效；未重放真实渠道消息。模型失败重试预算仍为 `maxModelAttempts`（默认 6，环境变量 `MOLIBOT_MAX_MODEL_ATTEMPTS` 或设置可调 1–100），候选链长度由启用的 Provider/模型决定。全量预留 `pnpm verify:feature`，本次未执行。
+
+## 2026-10-18 — 模型降级与恢复不再重发历史回复（已交付）
+
+共享 Runner 将导入的会话历史与本轮执行结果分开读取。主备模型均失败时保留失败状态并输出本轮错误；备用模型成功时只发送并写入本轮新答案；重新打开已完成任务时恢复该任务的结果，不把早期会话回复当成主答案或补充消息。各渠道共用这一结果边界。
+
+根因是恢复判定随 SQLite 文件创建而变化：正常执行创建文件后，模型降级误判为恢复，将消息起点清零。恢复状态现于执行绑定时确定，原生执行打开后消耗；结果读取同时排除原生日志标记的导入历史。原有重试与恢复回归没有会话历史，未覆盖这一组合。新增真实 Runner 的主备失败/备用成功场景和带历史的原生恢复场景，断言发送内容、运行状态、落盘答案与摘要；修复前真实 Runner 两项均因重发历史失败，移除历史保护的故障注入也使恢复用例失败。新增用例连续通过 5 次，直接相关 Runner/适配器/持久会话测试 84/84，受影响 TypeScript 检查通过。此类状态和结果归属问题由机器回归守卫，不重复增加长期规则。
+
+所有验证使用临时数据目录和模拟模型，未重放真实 QQ 消息、未修改历史记录、未重启用户服务。未改动 UI/原生桌面代码；全量预留 `pnpm verify:feature`，本次未执行。
+
+## 2026-10-18 — 外部会话刷新、最近对话排序与音频附件（已交付）
+
+Agent 首页和外部只读会话的标题栏提供「刷新对话 / Refresh conversations」按钮。共享刷新任务更新最近对话、Agent 最新对话时间、当前外部消息与音频文件索引；可见时按既有退避策略自动刷新，恢复可见时立即刷新。默认 Agent 仍置顶，其余 Agent 与最近对话按最新会话时间排序。刷新不改变当前会话；请求失败保留缓存并显示错误，过期请求不能覆盖新连接或较新的文件索引。
+
+外部会话投影复用 `decodePiToolDetails` 解析工具回执，并将 TTS 音频与图像、视频一起恢复为可查看的附件；文件引用仍受会话工作区路径校验约束。根因分别为页面仅在进入时取数、缓存刷新隐藏错误，以及投影漏解码当前回执格式且缺少 TTS 分支。原有回归覆盖重新进入与历史图像回执，未覆盖留在页面时的新消息、当前封装回执和音频。新增守卫覆盖这些场景，以及刷新失败恢复、连接/会话切换、文件索引乱序与越界文件；定向测试 58/58 连续通过 5 次，相关静态 UI 用例 10/10。定向后端 TypeScript 检查与桌面 build 通过；桌面 svelte-check 0 错误，保留 1 条既有 AgentCityInspector 无障碍告警。隔离浏览器验证手动/自动刷新、真实本地 OGG 加载、排序、切换与接口中断恢复，以及中英、明暗和 620px 宽度；不使用真实 Provider 或渠道。此类异步问题由回归测试守卫，不重复增加长期规则。
+
+指定 QQ 会话的当天请求在文本模型阶段遇到凭据过期与余额不足，未执行 TTS；修复展示与刷新不等于恢复模型服务。未替换已安装原生 App，真实 QQ 投递与原生 App 验证留待专项验收；全量预留 `pnpm verify:feature`、`pnpm test:ui`、`pnpm test:app`。
+
+## 2026-10-18 — 持久任务恢复、并发调度与输出交付修复
+
+持久执行器遇到有效的其他实例租约时自动重试启动；实例心跳与过期孤儿回收独立于任务执行，长任务不会阻断续期或其他空闲执行槽。回收保留活跃尝试和当前 worker 的在途认领；数据库认领错误在 worker 内处理，存储忙等待下一轮，致命存储错误停止认领。
+
+整步恢复检查该步骤全部副作用；工具完成检查点只用于诊断，不能授权重放不可幂等操作，已有回执也不能保证重新执行整步安全。QQ 私聊流式更新或最终提交失败时补发完整答案；技能文件预览最多读取 256 KiB，大型二进制附件不会被整文件读入内存。
+
+回归覆盖启动冲突后重试、启动后租约过期、长任务心跳与认领保护、独立任务补位、认领错误、并行工具恢复、QQ 部分帧/最终提交失败和超过 Node 整文件读取上限的稀疏文件。验证记录见 [本轮记录](docs/work/progress/unreleased-hardening-fixes/progress.md)。能力矩阵状态与使用入口不变。
+
+## 2026-10-18 — TTS OGG 转码路径修复（已交付）
+
+内置 `ttsGenerate` 按供应商返回的实际扩展名保存音频字节，再生成 OGG/Opus。请求文件名为 `hello.ogg` 时，小米原始 WAV/MP3 与 OGG 输出使用不同路径，避免 ffmpeg 拒绝原地覆盖。转码失败或 ffmpeg 不可用时，保留的原始音频扩展名与实际格式一致。
+
+根因是文件名与音频格式混用；原测试只使用 `.wav` 文件名，模拟 ffmpeg 也未拒绝同路径输入输出。共享测试 helper 现已模拟这一限制，新增 9 个组合场景覆盖 WAV/MP3/OGG 格式请求与转码成功、失败、不可用，断言工具提示、格式状态、上传路径及文件内容。新增用例修复前 9/9 失败；TTS 工具与供应商测试 25/25 连续通过 5 次。本机真实 ffmpeg 配合本地模拟音频验证 OGG 文件头与发送回调；未访问真实 Provider 或渠道。定向 TypeScript 检查未通过：依赖模块 `prompts/profiles.ts` 的 6 个 `*.template.md?raw` 导入无法解析，改动文件无诊断。此类问题由定向回归守卫，无需新增长期协作规则。全量回归预留 `pnpm verify:feature`，未执行。
+
+## 2026-10-17 — 设置导航按单一轴线重组为 8 组
+
+设置侧栏原来混用三条分类轴（"配的是什么对象" / "它能干什么" / "发生过什么"），于是总出现"这页放哪都说得通"的页面。现在只按一条轴分组——"这一页配置的是什么"，收敛为 8 组：通用、模型（模型 / AI 服务商 / 决策模型）、助手（Agent / 技能检索 / 记忆）、能力（搜索 / 图像 / 视频 / 语音 / MCP / 连接器 / 插件）、渠道（渠道 / Web Profile）、数据与历史（会话管理 / 运行历史 / 用量 / Trace / 服务日志）、安全与权限（执行与权限 / 审批管理）、系统（系统 / 运行环境 / 诊断）。净变化：移动 4 页（会话管理 助手→数据与历史、审批管理 活动→安全与权限、执行与权限 系统→安全与权限、插件 系统→能力）、改名 3 组（工具→能力、活动→数据与历史、总览→通用）与 1 页（技能→技能检索），并删掉只用于排序的 `additionalSections` 字段。设置里的「技能检索」只配置检索的服务商/模型/参数，技能目录仍在主侧栏工作区入口。
+
+新增导航守卫用例 `apps/desktop/src/settings-navigation.test.mjs`：断言 `SettingsSection` 联合类型、`SETTINGS_NAV` 图标与 `SETTINGS_GROUPS` 分组三者一一对应（每页恰好属于一个组、恰好有一个图标、无空组），漏归组或多归组直接失败；已做故障注入验证（删掉一条分组条目即变红，恢复后转绿）。`chat-ui.test.mjs` 里两条把旧分组字面量写死的断言改为语义断言（"共享资源仍可在设置中到达""连接器与 MCP 同级"），分组归属交给新守卫。DESIGN.md 新增「设置导航分类」条目。
+
+验证：`settings-navigation.test.mjs` + `chat-ui.test.mjs` 316/316 通过（含守卫故障注入）；`apps/desktop` svelte-check 0 错误（1 条既有无关告警：AgentCityInspector 的 `<nav>` tablist）；隔离 vite 实例冷路径走查（独立端口 5199、无后端、不触碰运行中的服务与真实设置）：首次打开设置 → 中英双语 + 明暗主题下分组与顺序正确 → 逐个点击迁移页（会话管理 / 审批管理 / 插件 / 技能检索 / 诊断）均正确挂载 → 侧栏滚动到底部可达最后一项、footer 不遮挡。预留未执行：`pnpm verify:feature` 全量回归与原生 App 测试——本次只改静态导航与文案，无运行时链路改动。
+
+## 2026-10-17 — 技能目录 Agent 化：Bot 作用域更名为 Agent，工作区筛选更名全局
+
+技能页筛选分类与数据模型对齐 Agent 中心存储（session 已按 Agent 存放，`sessions/<agentId>/` 即 Agent 工作区）：原 "Bot" 分类实际扫描 `sessions/<agentId>/skills`（Agent 专属技能，目录名即 agentId），更名为 **Agent**；原 "工作区" 分类实际扫描 `~/.molibot/skills`（对所有 Agent 生效的全局技能，与卡片上的"全局"pill 同一事物），更名为**全局**，消除"工作区/Bot/全局"三个名字指两件事的混乱。改动：
+
+- **契约**（`src/lib/shared/desktop.ts`）：`DesktopSkillScope` 的 `"bot"` 更名 `"agent"`，`DesktopSkillItem`/`DesktopSkillDetail` 的 `botId` 更名 `agentId`（附语义注释），`DesktopSkillsSummary.counts.bot` → `counts.agent`。
+- **扫描路由**（`/api/settings/skills`）：`sessions/` 扫描段按 agent 语义输出（scope `"agent"` + `agentId`）。
+- **桌面映射**（`desktopSkills.ts`）：`coerceScope` 把运行时的工作区层值 `"bot"` 映射为 `"agent"`——运行时对 Agent 工作区和渠道 bot 工作区共用一个工作区层作用域值，桌面端只投影 owner 的 Agent 工作区与全局目录，因此在边界转换而不是泄漏运行时词汇；运行时 `SkillScope` 枚举不动（渠道 bot 工作场景下"workspace 层"仍属实义）。`agent-skills` 路由（定义即"单个 Agent 的技能"）同点映射；Agent 设置页"Agent 专属技能"分组的过滤值从 `"bot"` 对齐为 `"agent"`（该页文案原本就已称 Agent，数据词汇此番补齐）。
+- **UI**（InstalledSkillsPane + i18n 中英）：筛选 tab "Bot"→"Agent"、"工作区"→"全局"（复用 `skillScopeGlobal`，与卡片 pill 一致）；作用域 pill 与详情"Bot"事实行显示 agentId、标签用 `skillScopeAgent`。
+- **分类修正（用户反馈）**：内置 Skill 会物化到全局技能目录，既是内置也是全局——原分类是"内置优先"的互斥分区（`isWorkspace = !isBuiltin && !isAgent`），导致已安装的内置技能（如 miniapp-creator）从全局分类消失。改为按属性过滤：内置/全局/Agent 三个分类各自独立判定（全局 = `scope === "global"`），计数允许交叉（内置 1 + 全局 20 + Agent 10 > 全部 30 属预期）；内置技能在"内置"分类保留版本/更新控件，在"全局"分类按普通全局技能呈现。
+
+验证：根 `tsc` 0 错误、desktop `svelte-check` 0 错误（1 个 AgentCityInspector 既有 warning，与本次无关）；`desktopSkills.test.ts` + `composerSuggestions.test.ts` 16/16（新增"运行时工作区层映射为 agent 作用域"守卫）、`chat-ui.test.mjs` 315/315、`settings-navigation` 守卫通过。未验证：真实桌面端渲染——后端跑预构建产物，需 `pnpm build` + 重启后在技能页确认分类计数与 Agent pill。
+
+## 2026-10-17 — 默认主题工作区统一：软选中 + 三列表一行语言（技能/自动任务/计划）
+
+按用户反馈两步走，全部只作用于默认 macOS 主题，其他主题（Win98/Raft/导入主题等）保持共享样式表的实色选中渲染不变：
+
+**① 选中配色**：技能选中卡从实色 `--selection-bg` 整卡填充改为**软选中**——16% 淡染 + 同色 40% 1px 内描边，文字保持画布色阶（实色大面积铺开过艳、子元素整体重着色让选中卡像异质组件）。用户随后要求计划与自动任务同款，并明确"其他主题不要这么改"——落为 `themes/macos.css` 内经 `[data-theme-region="chat"]` 钩子（工作区页面挂在 chat 内容区内，家族文件只允许经 region 钩子改 chrome，有守卫测试）作用域的软选中块，覆盖技能卡、当前文件行、自动任务行、计划行四类表面；基础实色规则原样保留给所有其他主题。同时修复悬浮层叠 bug：`workspaces.css` 后加载且特异性更高，悬浮到选中项会把选中色洗成灰色——技能行/文件行/自动任务行/计划行悬浮规则统一加 `:not(.selected)` / `:not(.active)` 守卫（纯防洗掉，不改各主题观感）。
+
+**② 三列表一行语言**：默认主题下自动任务（直角平面）、计划（圆角行）、技能（卡片 tile）三种风格统一为计划页的行列语言——平面行 + 发丝分隔线 + `--rounded-sm` 圆角交互形 + 软选中；技能列表模式的卡片 tile 摊平为行（`background: transparent` + 底部分隔线），卡片只保留在关闭详情的网格视图（高程在那里表达网格语义）；摊平后悬浮回到与另外两个列表一致的 `--fill`。摊平与选中规则写成互斥对（`:not(.selected)` / `.selected`、相同解剖结构），避免同块内特异性压过导致半选中状态（开发中实际出现过，已修）。DESIGN.md 选中语言小节与工作区主从布局小节落相应规范。
+
+验证：`chat-ui.test.mjs` 315 项中 313 通过，2 项失败为 `App.svelte` 并行修改导致的既有失败（settings 导航 sections 断言，与本次无关）；更新"strong selection"守卫断言为双层语义（基础实色 + macOS 软选中经 region 钩子）并新增列表语言断言；故障注入验证新守卫能被对应故障弄失败。真实浏览器加载线上 CSS 的静态校验页走查：macOS 暗色下四类选中面计算样式均为 16% 淡染+描边、三列表行语言一致；Win98 亮色下技能卡/文件行/任务行/计划行保持海军蓝实色选中、自动任务行 0px 圆角，主题特色未受影响。
+
+## 2026-10-17 — 协作规则调整：精简测试验证流程（定向验证 + 全量预留）
+
+优化 `AGENTS.md` 测试用例执行规则，避免日常小需求过度验证（动辄耗时数十分钟）：
+- **定向精准验证**：日常开发与代码修改后，仅执行与改动直接相关的测试（对应单测、受影响模块局部集成测试、设置字段 round-trip）和局部类型检查；未改动部分不跑验证。
+- **全量回归预留**：全量核心回归（`pnpm verify:feature`、全量核心套件、Playwright UI 测试、原生 App 测试等）降级为阶段验收/发版预留命令，日常不自动执行，在交付说明中提供命令提示供用户按需主动触发。
+
+## 2026-10-17 — 侧栏 footer 统一：共享 AppFooterMark + 设置页 Agent 入口
+
+聊天侧栏与设置侧栏左下角的应用标识统一为一个共享组件 `AppFooterMark`（`src/lib/components/AppFooterMark.svelte`）：应用 logo + 叠在 logo 角上的服务状态环点 + 应用名文字，常态不再显示"已就绪/Online"之类的状态行（状态只由点的颜色承载，可访问名称保留）。聊天页 footer 结构不变（整行点击进设置 + 设置齿轮）；设置页 footer 换成同一 mark，尾部控件由独立状态点改为 Agent 图标按钮（users2-duotone，与侧栏 Agent 条目同形，"前往 Agent"），点击后关闭设置并落到默认 Agent（Momo）首页（`ChatView.openDefaultAgentPage` 以实例方法暴露给设置层，走既有 `openAgentChat(defaultAgentId)` 路径）。删除设置页 footer 旧实现（`settings-sidebar-footer-copy`、`settings-footer-avatar`、独立 `status-dot`）及无使用者的全局 `.status-dot` 规则。DESIGN.md 落相应条目。
+
+验证：见交付说明（svelte-check、chat-ui 结构守卫、settings UI 用例）。
+
+## 2026-10-17 — QQ 渠道接入富消息类型（语音/审批按钮/C2C 流式/输入中/唤醒消息，qqbot 2.0 → 2.1）
+
+接入 `@tencent-connect/qqbot-nodejs` 已提供但未使用的消息能力。适配层（`package/qqbot` 2.1.0）新增 `sendTextWithKeyboard`/`sendTyping`/`openC2cStream`/`acknowledgeInteraction`/`resolveProactiveMode`（C2C 无 `replyToId` 推送自动走 `is_wakeup` 唤醒消息）、gateway `onInteraction` 转发、`sendMedia` 显式 `fileType` 覆盖。渠道层：
+
+- **审批按钮卡**（`approvalButtons.ts`，新模块）：host-bash 审批以按钮卡下发（批准一次/本会话/持久 + 拒绝两行布局，`hta:` token ≤32 字节、`click_limit: 1`），点击经 `onInteraction` → 白名单校验（不过回执 code 4）→ token/会话匹配（失效回执 code 1 + 指引文本）→ 5 秒内 ACK code 0 → `SharedRuntimeCommandService` 审批 → 结果文本回执；token 一次性消耗。键盘发送失败降级 `buildNonInteractiveHostBashApprovalText` 纯文本。对齐 Telegram 渠道的 `hta:` 模式。
+- **C2C 流式回复**（`runtime.ts` processEvent）：私聊且有可引用入站消息时，回合内容经 `StreamSession`（replace 语义、500ms 节流）打字机刷新，进度/错误缓冲语义不变；打开失败（如 5 分钟被动窗口过期）或中途出错自动降级为一次性合并发送；异常路径 `complete()` 定格已出内容。群聊维持合并发送。
+- **输入中提示**：私聊处理期间 `sendTyping` 30 秒 + 25 秒周期续期，回合结束停止；失败仅告警。
+- **语音双向**：出站（`voice.ts`，新模块）音频按 QQ 语音消息发送——原生 wav/mp3/silk 或 SILK 魔数直传，其余 ffmpeg→24kHz 单声道 s16le PCM→silk-wasm 编码（复用共享 `transcodeAudio` 与根依赖 `silk-wasm`），任一步失败显式走 FILE 通道；入站（`inboundText.ts`，新模块）优先用户文字，其次 QQ 平台转写 `asr_refer_text`（多段换行拼接），最后附件占位。
+- **主动消息分路**：C2C 主动推送（提醒、事件任务、被动限流降级）改走唤醒消息（用户互动后 30 天窗口），群主动消息不变。
+
+验证：`package/qqbot` `tsc` 0 错误、`outbound.test.ts` 7/7（新增主动路由决策、键盘凭证守卫）连续 5 次通过；渠道层新增 `inboundText.test.ts`(3)、`voice.test.ts`(3，含降级链路触达证明)、`approvalButtons.test.ts`(6，成功/拒绝/token 消耗/白名单拒绝/跨会话 token/群场景) 合计 12/12 连续 5 次通过；根 `pnpm check` 0 错误、`pnpm build` 通过；冷启动冒烟（隔离数据目录）`qq:active` 装配正常。`verify:feature`：type check、desktop check、desktop 单测、WebKit UI 45/45、Chromium 冒烟 6/6 通过；全量核心回归 2747 项中 1 项失败（`codemode.test.ts` stop 取消用例，与微信 SDK 同步时相同的既有并发 flaky，单跑 10/10 通过，与本次 QQ 改动无关）。未验证：真实 QQ 账号下语音下发、按钮点击、流式帧、唤醒消息额度行为——需真实凭证专项验收。
+
+## 2026-10-17 — QQ Bot SDK 底座更换为腾讯官方 qqbot-nodejs（fork 1.7.1 → 2.0.0）
+
+官方插件 `@tencent-connect/openclaw-qqbot` 已从 1.7.1 升级到 2.0.3：上游在 2.0 重构中删除了全部手写协议层（WS 网关、token 管理、富媒体上传），改由腾讯官方 SDK `@tencent-connect/qqbot-nodejs` 承载。本地 `package/qqbot`（fork 自 1.7.1、仅定制 gateway onEvent 模式等 3 处）的协议层已冻结无上游支持，据此把底座更换为官方 SDK，本包重建为薄适配层（34 个源文件 → 5 个）：
+
+- **`gateway.ts` 重写**：`QQBot` 实例生命周期 + 会话持久化（`FileKVStore` → `~/.molibot/qqbot/<accountId>/session.json`），SDK 的 `InboundMessage` 逐字段映射为 1.x 同形的 `GatewayEvent`（含 `attachments.voice_wav_url`/`asr_refer_text`），READY/RESUMED 都触发 `onReady`，`abortSignal` 贯穿 `bot.start(signal)`；群非 @ 消息照旧投递（`GROUP_MESSAGE_CREATE` 与 `GROUP_AT_MESSAGE_CREATE` 均映射 `kind:"group"`），@/白名单过滤仍归 `QQManager`。
+- **`outbound.ts` 重写**：`sendText`/`sendMedia`/`sendProactiveMessage` 走 `bot.send*`；保留目标地址解析（`qqbot:c2c:`/`c2c:`/`group:`/`channel:`/裸 openid）、被动回复限流（1 小时 4 次超限降级主动消息）、语音失败降级文件发送、`OutboundResult`（`error`/`errorCode`/`qqBizCode`/`refIdx`）与稳定用户文案；媒体路由 MIME 优先、扩展名回退，未知扩展名走文件通道。
+- **`api.ts` 收缩**：bot 实例注册表（appId → `QQBot`，出站复用网关连接与 token；网关未启动时按需建仅发送实例，等价旧无状态 REST 发送）+ `initApiConfig`/`clearTokenCache`/`getAccessToken` 兼容入口。
+- **删除**：fork 的全套协议层与 openclaw 插件代码 29 个文件（审批/斜杠指令/流式/STT/图床/群历史/引用索引等，onEvent 模式本就旁路）；依赖 `ws`/`silk-wasm`/`mpg123-decoder` → `@tencent-connect/qqbot-nodejs ^1.0.5`。
+- **协议层修复随之获得**（qqbot-nodejs 1.0.1→1.0.5）：token 刷新竞态与获取超时、重连风暴/握手静默丢弃/误判永久错误、启动 fail-fast、断线原因上报、COS 分片上传走 https、每日额度结构化错误。
+- **下游适配**：`channels/qq/index.ts` 精简为插件注册 + `toSDKAccount`；删除无调用方的向后兼容层 `channels/qq/api.ts`、`sdk-adapter.ts`（`runtime.ts` 改直连 `#qqbot/src/*`）；根 `tsconfig.json` 移除已删的 `openclaw-plugin-sdk.d.ts` 引用。`runtime.ts` 消费面零改动。
+- **行为变化**：会话持久化位置从 `~/.openclaw/qqbot/` 迁到 `~/.molibot/qqbot/`；重连无硬编码次数上限（SDK 默认无限退避重试）；SDK 层群消息合并队列移除（molipibot `InboundTaskCoordinator` 本就按会话排队，原先双层排队）。
+
+验证：`package/qqbot` `tsc` 0 错误、`outbound.test.ts` 5/5（目标解析全格式、媒体类型推断 MIME/扩展名/未知扩展走文件、凭证守卫、错误文案）连续 5 次通过；根 `pnpm check` 0 错误、`pnpm build` 通过且产物含新适配层；冷启动冒烟（隔离临时数据目录）`qq:active` 渠道装配正常、无凭证不报错、首页 200。`verify:feature`：type check、desktop check、desktop 单测、WebKit UI 45/45、Chromium 冒烟 6/6 通过；全量核心回归首跑 1 项失败，同命令重跑 2747 项 0 失败（既有并发 flaky 模式，与本次改动无关）。真实 QQ 连接（登录、收发、断线重连）未验证——需真实凭证专项验收。
+
+## 2026-10-17 — vendored weixin-agent-sdk 同步上游 2.4.10 适用子集（fork 0.3.1 → 0.4.0）
+
+基于官方 SDK 2.4.4 改造的 `package/weixin-agent-sdk` 与上游 2.4.10（本地官方仓库 HEAD=2.4.4、工作区=2.4.10，diff 即精确上游增量）逐 hunk 比对后移植适用改动：
+
+- **uint64 消息 ID 无损解析**（上游 2.4.9-beta）：新增 `parseWeixinApiJson` 在 `JSON.parse` 前给 `message_id`/`msg_id`/`svr_id` 加引号，修复超出 `Number.MAX_SAFE_INTEGER` 的消息 ID（实测 `8421831295061105778` 会静默取整成 `8421831295061106000`）；`WeixinMessage.message_id` 与 `SendMessageResp.message_id` 类型改 `string`，`getUpdates`/`sendMessage` 走无损解析。
+- **网络错误分类**（上游 2.4.6）：`classifyFetchError` 按 `dns`/`tcp`/`tls`/`timeout`/`unknown` 分类 fetch 级错误；三个 API fetch 封装、monitor getUpdates 异常、CDN 上传重试、`downloadRemoteImageToTemp` 失败日志全部带分类 + 脱敏 URL + cause。
+- **`sendMessage` 返回 `SendMessageResp`**（上游 2.4.6）：可拿到服务端分配的 `message_id`；非零 ret/errcode 抛错行为不变（fork 先前已有等价校验）。
+- **`SESSION_EXPIRED_ERRCODE` → `STALE_TOKEN_ERRCODE`**（上游 2.4.6）：更名以贴合 -14 的真实语义（token 失效）。
+- **删除无调用方的 allowFrom 写入器**（上游 2.4.10）：`registerUserInAllowFromStore` 全仓库零调用方，与上游同步删除；读取侧行为不变。
+- **协议类型对齐**：`RefMessage.svr_id`/`partial_text` + `PartialText`（为后续引用消息还原铺路的 wire 类型，无行为变化）。
+
+明确不移植：引用消息还原全功能（quote-store/partial-quote/ReplyTo 上下文/出站缓存，依赖 `node:sqlite` + Node ≥22.13 + OpenClaw 消息模型，属新功能待决策）；OpenClaw 宿主兼容修复（2.4.7/2.4.9/2.4.10 的 plugin SDK 适配，fork 无宿主）；纯格式化 diff。详见 `package/weixin-agent-sdk/README.md` 同步记录。
+
+下游适配：`channels/weixin/media.ts` 三个附件文件名构造函数接受 `number | string` ID（运行时去重键本就走 `String()`，自动变为无损）；`media.test.ts` 夹具改字符串 ID。
+
+验证：SDK `tsc --noEmit` 0 错误；SDK 测试 11/11（新增 6 个回归用例：uint64 无损、字符串内容不误改写、非 ID 数字字段不动、错误分类 ×4 场景、sendMessage/getUpdates 无损端到端；已证实裸 `JSON.parse` 下用例必失败）；weixin channel 测试 11/11；根 `pnpm run check` 0 错误。`verify:feature`：type check、desktop check、desktop 单测、WebKit UI 45/45、Chromium 冒烟 6/6 全绿；全量核心 2747 项中 1 项（`codemode.test.ts` stop 取消用例）并发负载下失败，单跑通过，与本次微信链路改动无关，判定为既有并发 flaky。
+
 ## 2026-10-17 — 计划改为 Durable 执行器统一执行与跨 Session 接续（#65 A 项）
 
 按所有者决策重写计划执行架构：计划不再作为来源 Session 的普通轮次执行，统一交给现有 Durable Execution 执行器；Session 只承接计划记录、执行反馈和后续要求。`DESIGN.md` 的执行约定段落已同步重写。
@@ -17,6 +212,15 @@
 
 验证（隔离实例、临时数据库、本地夹具）：plans/durable/mcp 相关 62 项五连跑全绿（含 MCP 多页工具发现新回归）；`claimAttempt` 批准守卫故障注入可复现失败；`plans/server.test.ts` 公共 API 2/2；`workspaces.spec.ts` 修订/草稿/冲突/重启用例与 `plans.spec.ts` 31 步计划忙碌 Session 接续用例通过；`verify:feature` 全绿（原生 App 测试环境缺失记「未验证」）；svelte-check 0 错误、根构建通过。全量核心回归 2745 项中 3 项并发负载下偶发失败，干净 HEAD 基线同负载同样出现随机失败（不同用例），单跑均通过，判定为既有并发 flaky，非本次引入。原生 App（Tauri 窗口）完整链路走查未做（`tests/pi/issue65-native-harness.ts` 已备好隔离夹具待用）。
 
+## 2026-10-17 — 应用 Logo 抠图集与设置页切换器
+
+用户放入 `apps/desktop/public/logos/` 的 16 张徽章式 logo（1254×1254、每张约 2MB）完成三步处理并接入应用：
+
+1. **抠图去背景**：8 张奶油底 RGB 图通过边缘泛洪 + 抗锯齿羽化 + 颜色反混去底；8 张自带 alpha 的圆形徽章对半透明边缘做去奶油晕处理（深色背景下验证无晕边、浅色下无底色残留）。16 张全部经浅色/深色双背景拼贴视觉审查通过。
+2. **压缩**：统一裁到内容包围盒、居中方形画布、512px WebP（q85），单张 47-70KB（合计约 950KB，原 32MB，压缩率 97%）。原图移至 `apps/desktop/logos-src/` 保留，满意后可删。
+3. **切换功能**：新增 `lib/stores/appLogo.svelte.ts`（17 项清单含默认图标 + `$state` store + localStorage `molibot-desktop-app-logo` + `storage` 事件跨窗口同步），与外观/主题同机制：即时生效、无需保存、无服务端往返。设置 → 通用 → 外观的「应用 Logo」区块提供棋盘底缩略图网格（复用 theme-swatch 壳、token 化配色适配明暗主题、中英文案、窄窗自动换行）。原先硬编码 `/molibot-icon.png` 的 9 处（聊天侧栏 ×2、设置页脚、外部渠道空态、转录/流式助手头像、项目侧栏、AgentAvatar fallback ×2）全部改读 store。
+
+验证：`appLogo.test.ts`（持久化、非法 id 回退默认、清单资产在盘校验；故障注入可复现失败）；`settings.spec.ts` 新增切换用例（即时换标、冷 reload 持久、恢复默认）连续 5 次通过；中/英 × 亮/暗 × 760px 窄宽截图走查通过；`chat-ui` + 反应式守卫 318/318；`svelte-check` 对本次改动文件 0 错误（工作区中另有一批 plans WIP 改动自带 2 个既有错误，非本次引入）。
 
 ## 2026-10-17 — 工作区页面切换消除垂直位移与抖动（纯平滑淡入）
 

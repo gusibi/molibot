@@ -708,7 +708,8 @@ function initializeRuntime(): RuntimeState {
     };
     const dailyMaterialsBackfill = new DailyMaterialsBackfillJob(dailyMaterialsService);
     const taskScheduler = new TaskScheduler(runInternalEvent, (event, filename, reason) => {
-      durableExecutionRuntime?.handleSkippedEvent(event, reason);
+      // Durable Execution no longer depends on this file: its trigger lives in
+      // the wakeup table, so a skipped event file only affects other kinds.
       momLog("runtime", "internal_event_skipped", { filename, reason, kind: event.internal?.kind });
     });
     state = {
@@ -745,15 +746,27 @@ function initializeRuntime(): RuntimeState {
 
     durableExecutionRuntime = new DurableExecutionRuntime({
       channelManagers: state.channelManagers,
-      leaseDurationMs: state.settings.events.executionTimeoutMs,
+      leaseDurationMs: state.settings.durable.leaseDurationMs,
+      wakeupMode: state.settings.durable.wakeupMode,
+      wakeupRetentionDays: state.settings.durable.wakeupRetentionDays,
+      instanceGuard: state.settings.durable.instanceGuard,
+      onStoreFatal: (error) => {
+        console.error(`${runtimeLabel("runtime")} durable_execution_store_fatal ${error.message}`);
+      },
       resolvePlanPolicy: (_execution, binding) => planExecutionPolicy(state.settings, binding),
       onPlanAttempt: input => deliverPlanAttempt(state.sessions, input)
     });
-    const recoveredDurableAttempts = durableExecutionRuntime.reconcile();
+    const durableStartup = durableExecutionRuntime.start();
     void durableExecutionRuntime.reconcilePlanDeliveries();
-    const queuedDurableEvents = durableExecutionRuntime.ensureQueuedEvents("owner");
-    if (recoveredDurableAttempts > 0 || queuedDurableEvents > 0) {
-      console.log(`[runtime] durable_execution_reconciled attempts=${recoveredDurableAttempts} queued_events=${queuedDurableEvents}`);
+    if (durableStartup.started) {
+      console.log(
+        `[runtime] durable_execution_started reconciled=${durableStartup.reconciled} enqueued=${durableStartup.enqueued}`
+        + ` recovered_claims=${durableStartup.recoveredClaims} pruned_wakeups=${durableStartup.prunedWakeups}`
+        + ` wakeup_mode=${state.settings.durable.wakeupMode}`
+        + (durableStartup.fileMigration ? ` migration=${JSON.stringify(durableStartup.fileMigration)}` : "")
+      );
+    } else if (durableStartup.reason) {
+      console.warn(`[runtime] durable_execution_not_started ${durableStartup.reason}`);
     }
     // Startup reconciliation for expired trash: retries recorded cleanup
     // intents from an interrupted purge, then sweeps trash past the recovery

@@ -1,6 +1,6 @@
 import { loadDesktopTrace, type DesktopTraceQuery } from "../api";
 import type { DesktopTraceFactType, DesktopTraceRange, DesktopTraceSummary } from "@molibot/desktop-contract";
-import { session, setError } from "./session.svelte";
+import { session } from "./session.svelte";
 
 export const TRACE_RANGES: DesktopTraceRange[] = ["today", "yesterday", "last7Days", "last30Days"];
 export const TRACE_FACT_TYPES: DesktopTraceFactType[] = ["all", "run", "tool_call", "model_call", "skill_usage", "subagent_task", "runtime_notice", "approval", "input_enrichment"];
@@ -9,6 +9,7 @@ export const traceStore = $state({
   trace: null as DesktopTraceSummary | null,
   loading: false,
   refreshing: false,
+  error: "",
   endpoint: "",
   generation: 0,
   query: {
@@ -19,7 +20,8 @@ export const traceStore = $state({
     chatId: "",
     sessionId: "",
     runId: "",
-    sourceLimit: 5000,
+    agentId: "",
+    modelId: "",
     page: 1,
     pageSize: 20
   } satisfies DesktopTraceQuery
@@ -36,7 +38,7 @@ export async function loadTrace(endpoint: string): Promise<void> {
   const generation = ++traceStore.generation;
   traceStore.loading = !traceStore.trace;
   traceStore.refreshing = Boolean(traceStore.trace);
-  session.error = "";
+  traceStore.error = "";
   try {
     const trace = await loadDesktopTrace(endpoint, { ...traceStore.query });
     if (generation !== traceStore.generation) return;
@@ -44,7 +46,7 @@ export async function loadTrace(endpoint: string): Promise<void> {
     traceStore.endpoint = endpoint;
   } catch (cause) {
     if (generation !== traceStore.generation) return;
-    setError(cause);
+    traceStore.error = cause instanceof Error ? cause.message : String(cause);
   } finally {
     if (generation === traceStore.generation) {
       traceStore.loading = false;
@@ -60,6 +62,6 @@ export function updateTraceQuery(patch: Partial<DesktopTraceQuery>, resetPage = 
 }
 
 export function resetTraceFilters(): void {
-  Object.assign(traceStore.query, { factType: "all", botId: "", channel: "", chatId: "", sessionId: "", runId: "", sourceLimit: 5000, page: 1 });
+  Object.assign(traceStore.query, { factType: "all", botId: "", channel: "", chatId: "", sessionId: "", runId: "", agentId: "", modelId: "", page: 1 });
   if (session.endpoint) void loadTrace(session.endpoint);
 }

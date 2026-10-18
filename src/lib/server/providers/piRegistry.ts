@@ -29,3 +29,18 @@ export function getPiProviders(): readonly PiProviderDescriptor[] {
 export function isPiProvider(value: string): value is KnownProvider {
   return models.getModels(value).length > 0;
 }
+
+/**
+ * Provider ids pi has renamed. Settings written before a rename keep the old id,
+ * so they are translated to the current id when they are read.
+ */
+const LEGACY_PROVIDER_ALIASES: Record<string, string> = {
+  // pi 1.0.3 renamed the Azure provider (`azure-openai-responses` -> `azure`).
+  "azure-openai-responses": "azure"
+};
+
+/** Translates a provider id written before a pi rename to the id pi uses now. */
+export function normalizePiProviderId(value: string): string {
+  const raw = String(value ?? "").trim();
+  return LEGACY_PROVIDER_ALIASES[raw] ?? raw;
+}

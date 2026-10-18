@@ -379,3 +379,32 @@ test("transcription validates declaration, containment, language, abort, and aud
   const undeclared = createMiniAppAiFacade({ appId: "plain", dataDir, capabilities: [], getSettings: () => defaultRuntimeSettings });
   await assert.rejects(() => undeclared.transcribe({ path: "segment.wav" }), (cause: unknown) => cause instanceof MiniAppAiError && cause.code === "capability_not_declared");
 });
+
+test("usage records carry the miniapp pseudo-agent on success and failure", async () => {
+  const recorded: Array<Record<string, unknown>> = [];
+  const usageTracker = { record: (input: Record<string, unknown>) => recorded.push(input) } as never;
+  const ok = createMiniAppAiFacade({
+    appId: "writer",
+    dataDir: ".",
+    capabilities: ["text"],
+    getSettings: () => defaultRuntimeSettings,
+    executeText: async () => ({ text: "done", usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 }, provider: "fake", model: "fake", api: "fake" }),
+    usageTracker
+  });
+  await ok.generateText({ prompt: "hello" });
+
+  const failing = createMiniAppAiFacade({
+    appId: "writer",
+    dataDir: ".",
+    capabilities: ["text"],
+    getSettings: () => defaultRuntimeSettings,
+    executeText: async () => { throw new Error("provider down"); },
+    usageTracker
+  });
+  await assert.rejects(() => failing.generateText({ prompt: "hello" }));
+
+  assert.equal(recorded.length, 2);
+  assert.ok(recorded.every(input => input.agentId === "miniapp"), "every miniapp usage record must be attributed to the miniapp pseudo-agent");
+  assert.equal(recorded.filter(input => input.status === "success").length, 1);
+  assert.equal(recorded.filter(input => input.status === "error").length, 1);
+});

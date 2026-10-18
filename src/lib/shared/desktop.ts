@@ -31,16 +31,6 @@ export interface DesktopWebProfilePatch {
   agentId?: string;
 }
 
-export interface DesktopWebProfileSaveRequest {
-  previousId?: string;
-  id: string;
-  name: string;
-  enabled: boolean;
-  agentId: string;
-  /** null = inherit from the override chain; never "off". */
-  permissionMode?: "plan" | "manual" | "accept_edits" | "auto" | null;
-}
-
 export interface DesktopProfileFilesResponse {
   ok: true;
   fileNames: readonly string[];
@@ -91,6 +81,7 @@ export interface DesktopUsageDimensionRow extends DesktopUsageTotals {
 }
 
 export interface DesktopUsageRecord extends DesktopUsageTotals {
+  agentId?: string;
   requestId?: string;
   ts: string;
   channel: string;
@@ -105,9 +96,10 @@ export interface DesktopUsageSummary {
   generatedAt: string;
   range: DesktopUsageRange;
   window: { startDate: string; endDate: string };
-  filters: { modelId: string; botId: string; channel: string };
+  filters: { modelId: string; agentId: string; botId: string; channel: string };
   options: {
     models: { id: string; label: string }[];
+    agents: { id: string; label: string }[];
     bots: string[];
     channels: string[];
   };
@@ -117,6 +109,7 @@ export interface DesktopUsageSummary {
   trend: DesktopUsageTrendPoint[];
   rankings: {
     models: DesktopUsageModelRow[];
+    agents: DesktopUsageDimensionRow[];
     apis: DesktopUsageDimensionRow[];
     bots: DesktopUsageDimensionRow[];
     channels: DesktopUsageDimensionRow[];
@@ -164,7 +157,35 @@ export type DesktopTraceRange = "today" | "yesterday" | "last7Days" | "last30Day
 export type DesktopTraceFactType = "all" | "run" | "model_call" | "tool_call" | "skill_usage" | "subagent_task" | "runtime_notice" | "approval" | "input_enrichment";
 export type DesktopTraceStatus = "started" | "success" | "error" | "blocked" | "waiting" | "aborted" | "info" | "warning";
 
-export interface DesktopTraceTotals {
+export interface DesktopModelOutcomes {
+  success: number;
+  error: number;
+  pending: number;
+  aborted: number;
+  blocked: number;
+  other: number;
+}
+
+export interface DesktopTracePerformance {
+  runOutcomes: DesktopModelOutcomes;
+  estimatedCostUsd: number | null;
+  pricedModelCalls: number;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+export interface DesktopTraceTrendPoint {
+  key: string;
+  label: string;
+  modelCalls: number;
+  toolCalls: number;
+  mcpCalls: number;
+}
+
+export interface DesktopTraceTotals extends DesktopTracePerformance {
+  mcpCalls: number;
+  modelOutcomes: DesktopModelOutcomes;
   facts: number;
   toolCalls: number;
   executedToolCalls: number;
@@ -208,6 +229,7 @@ export interface DesktopTraceSkillRow {
 }
 
 export interface DesktopTraceModelRow extends DesktopUsageTotals {
+  outcomes: DesktopModelOutcomes;
   id: string;
   provider: string;
   model: string;
@@ -215,7 +237,8 @@ export interface DesktopTraceModelRow extends DesktopUsageTotals {
   avgDurationMs: number;
 }
 
-export interface DesktopTraceEntityRow {
+export interface DesktopTraceEntityRow extends DesktopTracePerformance {
+  outcomes: DesktopModelOutcomes;
   id: string;
   label: string;
   secondary: string;
@@ -228,6 +251,7 @@ export interface DesktopTraceEntityRow {
 }
 
 export interface DesktopTraceFact {
+  agentId?: string;
   id: string;
   factType: Exclude<DesktopTraceFactType, "all">;
   runId: string;
@@ -256,19 +280,23 @@ export interface DesktopTraceSummary {
   window: { startDate: string; endDate: string };
   filters: {
     factType: DesktopTraceFactType;
+    agentId: string;
+    modelId: string;
     botId: string;
     channel: string;
     chatId: string;
     sessionId: string;
     runId: string;
-    sourceLimit: number;
   };
-  options: { bots: string[]; channels: string[] };
+  options: { models: { value: string; label: string }[]; agents: { id: string; label: string }[]; bots: string[]; channels: string[] };
   totals: DesktopTraceTotals;
+  trend: DesktopTraceTrendPoint[];
   rankings: {
     tools: DesktopTraceToolRow[];
     skills: DesktopTraceSkillRow[];
     models: DesktopTraceModelRow[];
+    agents: DesktopTraceEntityRow[];
+    channels: DesktopTraceEntityRow[];
     bots: DesktopTraceEntityRow[];
     chats: DesktopTraceEntityRow[];
     sessions: DesktopTraceEntityRow[];
@@ -880,6 +908,46 @@ export interface DesktopPlanListResponse {
 export interface DesktopPlanDetailResponse {
   ok: true;
   item: DesktopPlanDetail;
+}
+
+/**
+ * Read-only executor diagnostics for the plan detail page: lease ownership and
+ * remaining time, wakeup rows, the last confirmed tool boundary and a
+ * human-readable blocked reason.
+ */
+export interface DesktopPlanDiagnostics {
+  execution: DesktopPlanDetail["execution"];
+  attempt?: DesktopPlanDetail["attempts"][number];
+  lease?: { ownerId: string; expiresAt: string; remainingMs: number };
+  wakeups: Array<{
+    id: string;
+    expectedVersion: number;
+    reason: "advance" | "verify" | "capacity" | "resume" | "control" | "retry";
+    runAt: string;
+    status: "pending" | "claimed" | "done" | "discarded" | "failed";
+    attempts: number;
+    maxAttempts: number;
+    claimedBy?: string;
+    lastError?: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  uncertainSteps: Array<{ id: string; title: string; reason?: string }>;
+  blockedReason?: string;
+  queuePosition?: number;
+  nextRunAt?: string;
+  progress: {
+    attemptId?: string;
+    lastCompletedTool?: { toolCallId: string; toolId: string; status: "completed" | "failed"; summary?: string; createdAt: string };
+    pendingTools: Array<{ toolCallId: string; toolId: string; status: "completed" | "failed"; summary?: string; createdAt: string }>;
+  };
+  scheduler: { ownerId: string; fatalError?: string };
+  migration?: { scanned: number; enqueued: number; stale: number; discarded: number; failed: number };
+}
+
+export interface DesktopPlanDiagnosticsResponse {
+  ok: true;
+  diagnostics: DesktopPlanDiagnostics;
 }
 
 export interface DesktopPlanTaskInput {
@@ -1713,7 +1781,14 @@ export interface DesktopOpenConnectorSaveRequest {
   clearRuntimeToken?: boolean;
 }
 
-export type DesktopSkillScope = "global" | "bot" | "chat" | "project";
+/**
+ * Where a Skill lives. `agent` skills sit in one Agent's workspace `skills/`
+ * directory (`sessions/<agentId>/skills` — sessions are stored per Agent) and
+ * apply to that Agent only; `global` skills sit in the data root and apply to
+ * every Agent; `chat` is the legacy per-chat layer; `project` is a project's
+ * `.agents/skills`.
+ */
+export type DesktopSkillScope = "global" | "agent" | "chat" | "project";
 
 export interface DesktopSkillItem {
   id: string;
@@ -1722,7 +1797,8 @@ export interface DesktopSkillItem {
   scope: DesktopSkillScope;
   enabled: boolean;
   mcpServerCount: number;
-  botId: string;
+  /** The owning Agent's id when `scope` is `"agent"` (the `sessions/` directory name). */
+  agentId: string;
   chatId: string;
 }
 
@@ -1764,7 +1840,7 @@ export type DesktopSkillsUpdateRequest =
 
 export interface DesktopSkillsSummary {
   items: DesktopSkillItem[];
-  counts: { total: number; enabled: number; global: number; bot: number; chat: number };
+  counts: { total: number; enabled: number; global: number; agent: number; chat: number };
   search: DesktopSkillSearch;
   /** Built-in Skills and their installed-vs-shipped version state. */
   builtins: DesktopBuiltinSkillState[];
@@ -1796,7 +1872,8 @@ export interface DesktopSkillDetail {
   description: string;
   scope: DesktopSkillScope;
   enabled: boolean;
-  botId: string;
+  /** The owning Agent's id when `scope` is `"agent"`. */
+  agentId: string;
   chatId: string;
   mcpServers: string[];
   /** Absolute path of the Skill's SKILL.md. */
@@ -1940,6 +2017,14 @@ export interface DesktopMemoryActionResponse { ok: true; profile?: DesktopMemory
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
 export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }
 
+/** Per-bot display overrides; absent fields follow the global display settings. */
+export interface DesktopChannelDisplaySettings {
+  toolProgress?: "off" | "new" | "all" | "verbose";
+  showReasoning?: "off" | "on" | "stream" | "new";
+  gatewayNotifyInterval?: number;
+  runLogNotice?: boolean;
+}
+
 export interface DesktopChannelInstance {
   id: string;
   name: string;
@@ -1951,9 +2036,12 @@ export interface DesktopChannelInstance {
   permissionMode: "plan" | "manual" | "accept_edits" | "auto" | null;
   fields: Record<string, string>;
   configuredSecrets: string[];
+  /** null = every display field follows the global settings. */
+  display: DesktopChannelDisplaySettings | null;
 }
 
-export type DesktopExternalChannel = "telegram" | "feishu" | "qq" | "weixin";
+/** Web is a channel too — the app's own, with a reduced settings form. */
+export type DesktopExternalChannel = "telegram" | "feishu" | "qq" | "weixin" | "web";
 
 export interface DesktopChannelSaveRequest {
   channel: DesktopExternalChannel;
@@ -1968,6 +2056,8 @@ export interface DesktopChannelSaveRequest {
   fields: Record<string, string>;
   secretValues?: Record<string, string>;
   clearSecrets?: string[];
+  /** null/absent clears per-bot display overrides so every field follows global. */
+  display?: DesktopChannelDisplaySettings | null;
 }
 
 export interface DesktopChannelTestRequest {
@@ -1993,6 +2083,8 @@ export interface DesktopChannelGroup {
 export interface DesktopChannelsSummary {
   groups: DesktopChannelGroup[];
   counts: { totalInstances: number; enabledInstances: number };
+  /** Global display settings, so inherit options in editors can show the effective value. */
+  defaults: DesktopChannelDisplaySettings;
 }
 
 export interface DesktopChannelsResponse {
@@ -2513,11 +2605,11 @@ export interface DesktopExternalSessionsResponse {
 }
 
 /**
- * A read-only external-channel transcript message (plan §7.2). External
- * attachments cannot be previewed through the Web file endpoint, so only the
- * display-safe attachment fields are kept — the on-disk `local` path is dropped.
+ * A read-only external-channel message with display status and workspace-relative attachments.
  */
 export interface DesktopExternalTranscriptMessage {
+  stopReason?: string;
+  errorMessage?: string;
   id: string;
   role: "user" | "assistant";
   content: string;

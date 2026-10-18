@@ -50,7 +50,7 @@ export const GET: RequestHandler = async ({ url }) => {
       scope: source.scope,
       enabled: source.enabled !== false,
       mcpServers: source.mcpServers,
-      botId: source.botId,
+      agentId: source.agentId,
       chatId: source.chatId,
       filePath: source.filePath,
       baseDir

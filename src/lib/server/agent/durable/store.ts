@@ -2,11 +2,13 @@ import { EventEmitter } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import {
+  DURABLE_ENGINE_VERSION,
   DURABLE_EXECUTION_STATUSES,
   EXECUTION_STEP_STATUSES,
   SIDE_EFFECT_CLASSES,
   type AcceptanceCriterion,
   type AcceptanceCriterionInput,
+  type AttemptProgress,
   type AttemptStatus,
   type ClaimAttemptInput,
   type ClaimedAttempt,
@@ -15,11 +17,13 @@ import {
   type DecisionRequest,
   type DurableExecution,
   type DurableExecutionDetail,
+  type DurableExecutionDiagnostics,
   type DurableApprovalRequest,
   type DurableApprovalStatus,
   type DurableExecutionListFilter,
   type DurableExecutionStatus,
   type DurablePrefixEntry,
+  type DurableWakeup,
   type EvidenceRef,
   type ExecutionAttempt,
   type ExecutionStep,
@@ -39,18 +43,42 @@ import {
   type SideEffectInput,
   type SideEffectRecord,
   type StepVerificationRule,
+  type WakeupReason,
   DurableExecutionBudgetError,
   DurableExecutionConflictError,
+  DurableExecutionEngineVersionError,
   DurableExecutionLeaseError,
   DurableExecutionNotFoundError,
+  DurableExecutionStoreFailedError,
   DurableExecutionTransitionError
 } from "./types.js";
+import {
+  attemptProgress,
+  backoffWakeup,
+  claimDueWakeups,
+  claimRuntimeInstance,
+  discardPendingWakeupsInTransaction,
+  duePendingWakeups,
+  enqueueWakeupInTransaction,
+  ensureWakeupSchema,
+  latestAttemptProgress,
+  listWakeups,
+  pendingWakeupsForExecution,
+  pruneWakeups,
+  recordAttemptProgress,
+  recoverStaleClaims,
+  refreshRuntimeInstance,
+  releaseRuntimeInstance,
+  settleWakeup
+} from "./wakeupStore.js";
 
 export {
   DurableExecutionBudgetError,
   DurableExecutionConflictError,
+  DurableExecutionEngineVersionError,
   DurableExecutionLeaseError,
   DurableExecutionNotFoundError,
+  DurableExecutionStoreFailedError,
   DurableExecutionTransitionError
 } from "./types.js";
 
@@ -114,6 +142,7 @@ interface ExecutionRow {
   status: DurableExecutionStatus;
   version: number;
   current_plan_version: number;
+  engine_version: number;
   lease_owner_id: string | null;
   lease_expires_at: string | null;
   budget_token_limit: number | null;
@@ -348,6 +377,7 @@ function rowToExecution(row: ExecutionRow): DurableExecution {
     status: row.status,
     version: Number(row.version),
     currentPlanVersion: Number(row.current_plan_version),
+    engineVersion: Number(row.engine_version ?? DURABLE_ENGINE_VERSION),
     ...(row.lease_owner_id ? { leaseOwnerId: row.lease_owner_id } : {}),
     ...(row.lease_expires_at ? { leaseExpiresAt: row.lease_expires_at } : {}),
     ...(row.budget_token_limit ? { budgetTokenLimit: Number(row.budget_token_limit) } : {}),
@@ -632,13 +662,51 @@ planChanges.setMaxListeners(0);
 export class DurableExecutionStore {
   private readonly changeKey: string;
   private readonly db: DatabaseSync;
+  private fatalErrorValue: Error | null = null;
+  private readonly closedDeferred = (() => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    return { promise, resolve };
+  })();
 
   constructor(dbFile = storagePaths.durableExecutionDbFile) {
     this.changeKey = dbFile;
     ensureSqliteParentDir(dbFile);
     this.db = new DatabaseSync(dbFile);
-    this.db.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
+    // WAL keeps readers (plan list, diagnostics) from blocking the executor's
+    // write transactions. NORMAL trades a crash of the last transaction for far
+    // less fsync pressure; a corrupted database is never an accepted outcome of
+    // this trade (SQLite's WAL still guarantees consistency).
+    this.db.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
     this.ensureSchema();
+    this.ensureColumn("durable_executions", "engine_version", "INTEGER NOT NULL DEFAULT 1");
+    ensureWakeupSchema(this.db);
+  }
+
+  /** The store stopped accepting work after an unrecoverable storage error. */
+  get fatalError(): Error | null {
+    return this.fatalErrorValue;
+  }
+
+  get closed(): Promise<void> {
+    return this.closedDeferred.promise;
+  }
+
+  markFatal(error: unknown): void {
+    if (this.fatalErrorValue) return;
+    this.fatalErrorValue = error instanceof Error ? error : new Error(String(error));
+    this.closedDeferred.resolve();
+    this.notify();
+  }
+
+  private assertHealthy(): void {
+    if (this.fatalErrorValue) throw new DurableExecutionStoreFailedError(this.fatalErrorValue.message);
+  }
+
+  private ensureColumn(table: string, column: string, definition: string): void {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (columns.some((item) => item.name === column)) return;
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 
   subscribe(listener: () => void): () => void {
@@ -687,6 +755,11 @@ export class DurableExecutionStore {
         .run(input.planId, input.sessionId, input.agentId, input.mode, current.current_plan_version);
       this.db.prepare("INSERT INTO durable_plan_handoffs (id, execution_id, session_id, plan_version, created_at) VALUES (?, ?, ?, ?, ?)").run(id("handoff"), input.planId, input.sessionId, current.current_plan_version, nowIso());
       this.db.prepare("UPDATE durable_executions SET status = 'queued', version = version + 1, updated_at = ?, terminal_at = NULL, waiting_kind = NULL, waiting_reason = NULL WHERE id = ?").run(nowIso(), input.planId);
+      enqueueWakeupInTransaction(this.db, {
+        executionId: input.planId,
+        expectedVersion: Number(current.version) + 1,
+        reason: "resume"
+      });
       this.db.exec("COMMIT"); this.notify();
       return this.getById(input.planId)!;
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
@@ -721,11 +794,181 @@ export class DurableExecutionStore {
       }
     }
     this.db.prepare("DELETE FROM durable_execution_controls WHERE execution_id = ?").run(executionId);
+    discardPendingWakeupsInTransaction(this.db, executionId, `control_${action}`);
     this.notify();
   }
 
   close(): void {
     this.db.close();
+  }
+
+  // ---- Wakeup queue -------------------------------------------------------
+  //
+  // Every method that makes an execution runnable again writes the wakeup in
+  // the same transaction as the state change. Callers must never schedule
+  // separately: a missing trigger is indistinguishable from a lost plan.
+
+  enqueueWakeupInTransaction(input: { executionId: string; expectedVersion: number; reason: WakeupReason; runAt?: Date }, now = new Date()): boolean {
+    return enqueueWakeupInTransaction(this.db, input, now);
+  }
+
+  enqueueWakeup(input: { executionId: string; expectedVersion: number; reason: WakeupReason; runAt?: Date }, now = new Date()): boolean {
+    this.assertHealthy();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const inserted = enqueueWakeupInTransaction(this.db, input, now);
+      this.db.exec("COMMIT"); this.notify();
+      return inserted;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Startup fallback and drift check: enqueue one wakeup for every execution
+   * that says it should run but has no live trigger. Normal write paths already
+   * did this transactionally, so a non-zero result here is a repair.
+   */
+  enqueueDueWakeups(ownerId?: string, now = new Date()): number {
+    this.assertHealthy();
+    const clauses = ["status IN ('queued','verifying','recovery_required')"];
+    const params: string[] = [];
+    if (ownerId) { clauses.push("owner_id = ?"); params.push(ownerId); }
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.db.prepare(`SELECT * FROM durable_executions WHERE ${clauses.join(" AND ")} ORDER BY updated_at ASC`)
+        .all(...params) as unknown as ExecutionRow[];
+      let inserted = 0;
+      for (const row of rows) {
+        const reason: WakeupReason = row.status === "verifying"
+          ? "verify"
+          : row.status === "recovery_required" ? "resume" : "advance";
+        const runAt = row.next_run_at ? new Date(row.next_run_at) : now;
+        if (enqueueWakeupInTransaction(this.db, {
+          executionId: row.id,
+          expectedVersion: Number(row.version),
+          reason,
+          runAt: Number.isFinite(runAt.getTime()) ? runAt : now
+        }, now)) inserted += 1;
+      }
+      this.db.exec("COMMIT"); this.notify();
+      return inserted;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  claimDueWakeups(ownerId: string, limit: number, now = new Date()): DurableWakeup[] {
+    this.assertHealthy();
+    return claimDueWakeups(this.db, ownerId, limit, now);
+  }
+
+  settleWakeup(wakeupId: string, outcome: { status: "done" | "discarded" | "failed"; error?: string }, now = new Date()): void {
+    settleWakeup(this.db, wakeupId, outcome, now);
+    this.notify();
+  }
+
+  backoffWakeup(wakeup: DurableWakeup, error: string, now = new Date(), random = Math.random): { status: "pending" | "failed"; runAt: string } {
+    const result = backoffWakeup(this.db, wakeup, error, now, random);
+    this.notify();
+    return result;
+  }
+
+  recoverStaleClaims(leaseMs: number, now = new Date(), activeOwnerId?: string): number {
+    this.assertHealthy();
+    return recoverStaleClaims(this.db, leaseMs, now, activeOwnerId);
+  }
+
+  pruneWakeups(retentionDays: number, now = new Date()): number {
+    return pruneWakeups(this.db, retentionDays, now);
+  }
+
+  pendingWakeups(executionId: string): DurableWakeup[] {
+    return pendingWakeupsForExecution(this.db, executionId);
+  }
+
+  wakeups(executionId: string, limit = 20): DurableWakeup[] {
+    return listWakeups(this.db, executionId, limit);
+  }
+
+  /** Pending rows that are due, used by the legacy file mirror only. */
+  dueWakeups(now = new Date(), limit = 200): DurableWakeup[] {
+    return duePendingWakeups(this.db, now, limit);
+  }
+
+  claimRuntimeInstance(ownerId: string, ttlMs: number, now = new Date()) {
+    return claimRuntimeInstance(this.db, { ownerId, pid: process.pid, ttlMs, now });
+  }
+
+  refreshRuntimeInstance(ownerId: string, ttlMs: number, now = new Date()): boolean {
+    return refreshRuntimeInstance(this.db, ownerId, ttlMs, now);
+  }
+
+  releaseRuntimeInstance(ownerId: string): void {
+    releaseRuntimeInstance(this.db, ownerId);
+  }
+
+  recordAttemptProgress(input: { attemptId: string; toolCallId: string; toolId: string; status: "completed" | "failed"; summary?: string }, now = new Date()): void {
+    recordAttemptProgress(this.db, input, now);
+  }
+
+  attemptProgress(attemptId: string): AttemptProgress[] {
+    return attemptProgress(this.db, attemptId);
+  }
+
+  latestAttemptProgress(executionId: string): AttemptProgress[] {
+    return latestAttemptProgress(this.db, executionId);
+  }
+
+  /**
+   * Read-only operator view. It answers "why is this not moving" without
+   * requiring a log timeline: lease ownership, wakeups, uncertain work and the
+   * last confirmed tool call.
+   */
+  inspect(executionId: string, options: { ownerId?: string; now?: Date; ownerProcessId?: string; migration?: import("./types.js").WakeupMigrationSummary } = {}): DurableExecutionDiagnostics | null {
+    const execution = this.getById(executionId, options.ownerId);
+    if (!execution) return null;
+    const now = options.now ?? new Date();
+    const attemptRow = this.db.prepare(`
+      SELECT * FROM durable_attempts WHERE execution_id = ?
+      ORDER BY started_at DESC LIMIT 1
+    `).get(execution.id) as unknown as AttemptRow | undefined;
+    const attempt = attemptRow ? rowToAttempt(attemptRow) : undefined;
+    const leaseExpires = execution.leaseExpiresAt ? Date.parse(execution.leaseExpiresAt) : NaN;
+    const progress = latestAttemptProgress(this.db, execution.id);
+    const completed = progress.filter((item) => item.status === "completed");
+    const uncertainSteps = (this.db.prepare(`
+      SELECT id, title, last_error FROM durable_steps
+      WHERE execution_id = ? AND plan_version = ? AND status IN ('uncertain','running')
+      ORDER BY step_index ASC
+    `).all(execution.id, execution.currentPlanVersion) as Array<{ id: string; title: string; last_error: string | null }>)
+      .map((row) => ({ id: row.id, title: row.title, ...(row.last_error ? { reason: row.last_error } : {}) }));
+    const blockedReason = execution.waitingReason ?? execution.lastError
+      ?? (execution.status === "recovery_required" ? "The last attempt left uncertain external state." : undefined);
+    return {
+      execution,
+      ...(attempt ? { attempt } : {}),
+      ...(execution.leaseOwnerId && execution.leaseExpiresAt && Number.isFinite(leaseExpires)
+        ? { lease: { ownerId: execution.leaseOwnerId, expiresAt: execution.leaseExpiresAt, remainingMs: Math.max(0, leaseExpires - now.getTime()) } }
+        : {}),
+      wakeups: listWakeups(this.db, execution.id),
+      uncertainSteps,
+      ...(blockedReason ? { blockedReason } : {}),
+      ...(this.queuePosition(execution.id) !== undefined ? { queuePosition: this.queuePosition(execution.id) } : {}),
+      ...(execution.nextRunAt ? { nextRunAt: execution.nextRunAt } : {}),
+      progress: {
+        ...(attempt ? { attemptId: attempt.id } : {}),
+        ...(completed.length > 0 ? { lastCompletedTool: completed[completed.length - 1] } : {}),
+        pendingTools: progress.filter((item) => item.status === "failed")
+      },
+      scheduler: {
+        ownerId: options.ownerProcessId ?? "unknown",
+        ...(this.fatalErrorValue ? { fatalError: this.fatalErrorValue.message } : {})
+      },
+      ...(options.migration ? { migration: options.migration } : {})
+    };
   }
 
   create(input: CreateDurableExecutionInput): DurableExecution {
@@ -764,6 +1007,7 @@ export class DurableExecutionStore {
         status: "planned",
         version: 1,
         current_plan_version: 1,
+        engine_version: DURABLE_ENGINE_VERSION,
         lease_owner_id: null,
         lease_expires_at: null,
         budget_token_limit: tokenLimit ?? null,
@@ -1124,6 +1368,77 @@ export class DurableExecutionStore {
   }
 
   /**
+   * Hot-path reads. `getDetail` is for UI and acceptance; the executor only
+   * needs a version, the current steps or one attempt, and loading every child
+   * table for those made a long plan slower on each step.
+   */
+  getVersion(executionId: string): number | null {
+    const row = this.db.prepare("SELECT version FROM durable_executions WHERE id = ?").get(text(executionId)) as { version: number } | undefined;
+    return row ? Number(row.version) : null;
+  }
+
+  getCurrentSteps(executionId: string, planVersion?: number): ExecutionStep[] {
+    const execution = this.getById(executionId);
+    if (!execution) return [];
+    const version = planVersion ?? execution.currentPlanVersion;
+    const rows = this.db.prepare(`
+      SELECT * FROM durable_steps WHERE execution_id = ? AND plan_version = ? ORDER BY step_index ASC
+    `).all(execution.id, version) as unknown as StepRow[];
+    const steps = rows.map(rowToStep);
+    this.attachStepRules(execution.id, steps);
+    return steps;
+  }
+
+  getCurrentCriteria(executionId: string, planVersion?: number): AcceptanceCriterion[] {
+    const execution = this.getById(executionId);
+    if (!execution) return [];
+    return (this.db.prepare(`
+      SELECT * FROM durable_acceptance_criteria WHERE execution_id = ? AND plan_version = ? ORDER BY created_at ASC
+    `).all(execution.id, planVersion ?? execution.currentPlanVersion) as unknown as CriterionRow[]).map(rowToCriterion);
+  }
+
+  getAttempt(attemptId: string): ExecutionAttempt | null {
+    const row = this.db.prepare("SELECT * FROM durable_attempts WHERE id = ?").get(text(attemptId)) as AttemptRow | undefined;
+    return row ? rowToAttempt(row) : null;
+  }
+
+  runningAttempt(executionId: string): ExecutionAttempt | null {
+    const row = this.db.prepare(`
+      SELECT * FROM durable_attempts WHERE execution_id = ? AND status = 'running'
+      ORDER BY started_at DESC LIMIT 1
+    `).get(text(executionId)) as AttemptRow | undefined;
+    return row ? rowToAttempt(row) : null;
+  }
+
+  getOpenApproval(executionId: string, requestId: string): DurableApprovalRequest | null {
+    const row = this.db.prepare(`
+      SELECT * FROM durable_approval_requests WHERE execution_id = ? AND request_id = ?
+      ORDER BY requested_at DESC LIMIT 1
+    `).get(text(executionId), text(requestId)) as ApprovalRow | undefined;
+    return row ? rowToApproval(row) : null;
+  }
+
+  /** Approved action matching one tool request, newest first. */
+  getApprovalForKey(executionId: string, backend: "approval_broker" | "host_bash", actionKey: string): DurableApprovalRequest | null {
+    const row = this.db.prepare(`
+      SELECT * FROM durable_approval_requests
+      WHERE execution_id = ? AND backend = ? AND action_key = ? AND status = 'approved'
+      ORDER BY requested_at DESC LIMIT 1
+    `).get(text(executionId), backend, text(actionKey)) as ApprovalRow | undefined;
+    return row ? rowToApproval(row) : null;
+  }
+
+  /** Fail closed when a persisted execution uses newer semantics than this build. */
+  assertSupportedEngine(executionId: string): void {
+    const row = this.db.prepare("SELECT id, engine_version FROM durable_executions WHERE id = ?").get(text(executionId)) as { id: string; engine_version: number } | undefined;
+    if (!row) throw new DurableExecutionNotFoundError(executionId);
+    const engineVersion = Number(row.engine_version ?? DURABLE_ENGINE_VERSION);
+    if (engineVersion > DURABLE_ENGINE_VERSION) {
+      throw new DurableExecutionEngineVersionError(row.id, engineVersion, DURABLE_ENGINE_VERSION);
+    }
+  }
+
+  /**
    * Plan creation shares the durable aggregate so a plan never grows a second
    * progress store: the execution row, version, criteria and two-layer task
    * structure are written in one transaction and start in `planned`.
@@ -1166,6 +1481,7 @@ export class DurableExecutionStore {
         status: "planned",
         version: 1,
         current_plan_version: 1,
+        engine_version: DURABLE_ENGINE_VERSION,
         lease_owner_id: null,
         lease_expires_at: null,
         budget_token_limit: null,
@@ -1644,6 +1960,9 @@ export class DurableExecutionStore {
     try {
       const current = this.requireRow(input.executionId);
       this.assertVersion(current, input.expectedVersion);
+      if (Number(current.engine_version ?? DURABLE_ENGINE_VERSION) > DURABLE_ENGINE_VERSION) {
+        throw new DurableExecutionEngineVersionError(current.id, Number(current.engine_version), DURABLE_ENGINE_VERSION);
+      }
       this.assertPlanApproval(current);
       if (TERMINAL_STATUSES.has(current.status) || current.status === "paused" || current.status === "waiting_for_user" || current.status === "waiting_for_approval") {
         throw new DurableExecutionTransitionError(current.status, "running");
@@ -1681,6 +2000,9 @@ export class DurableExecutionStore {
             updated_at = ?, waiting_kind = NULL, waiting_reason = NULL, next_run_at = NULL, last_error = NULL
         WHERE id = ? AND version = ?
       `).run(nextStatus, input.processOwnerId, leaseExpiresAt, countTowardsAttemptBudget ? 1 : 0, startedAt, startedAt, input.executionId, input.expectedVersion);
+      // The attempt about to run consumes this execution version; any pending
+      // trigger for an older version can never make progress.
+      discardPendingWakeupsInTransaction(this.db, input.executionId, "attempt_claimed", now);
       const execution = rowToExecution(this.requireRow(input.executionId));
       const attempt = rowToAttempt(this.db.prepare("SELECT * FROM durable_attempts WHERE id = ?").get(attemptId) as unknown as AttemptRow);
       this.db.exec("COMMIT"); this.notify();
@@ -1720,6 +2042,12 @@ export class DurableExecutionStore {
       const timestamp = nowIso(now);
       const nextRunAt = new Date(now.getTime() + Math.max(250, Math.round(delayMs))).toISOString();
       this.db.prepare("UPDATE durable_executions SET version = version + 1, next_run_at = ?, updated_at = ?, last_error = NULL WHERE id = ? AND version = ?").run(nextRunAt, timestamp, executionId, expectedVersion);
+      enqueueWakeupInTransaction(this.db, {
+        executionId,
+        expectedVersion: Number(expectedVersion) + 1,
+        reason: "capacity",
+        runAt: new Date(nextRunAt)
+      }, now);
       const next = rowToExecution(this.requireRow(executionId));
       this.db.exec("COMMIT"); this.notify();
       return next;
@@ -1758,6 +2086,24 @@ export class DurableExecutionStore {
         TERMINAL_STATUSES.has(input.nextExecutionStatus) ? timestamp : null,
         waitingKind ?? null, waitingReason, lastError, input.executionId, input.expectedVersion
       );
+      // Same transaction as the state change: the next step can never be
+      // committed as runnable without the row that will actually run it.
+      const advancedVersion = input.expectedVersion + 1;
+      if (input.nextExecutionStatus === "queued") {
+        enqueueWakeupInTransaction(this.db, {
+          executionId: input.executionId,
+          expectedVersion: advancedVersion,
+          reason: "advance"
+        }, input.now);
+      } else if (input.nextExecutionStatus === "verifying") {
+        enqueueWakeupInTransaction(this.db, {
+          executionId: input.executionId,
+          expectedVersion: advancedVersion,
+          reason: "verify"
+        }, input.now);
+      } else {
+        discardPendingWakeupsInTransaction(this.db, input.executionId, `execution_${input.nextExecutionStatus}`, input.now);
+      }
       const execution = rowToExecution(this.requireRow(input.executionId));
       this.db.exec("COMMIT"); this.notify();
       return execution;
@@ -1797,39 +2143,85 @@ export class DurableExecutionStore {
     }
   }
 
+  /**
+   * Recover attempts that cannot still be running. Only an expired lease held
+   * by another process is evidence of a dead executor: a second process that
+   * starts while the first is mid-step must not kill that step.
+   */
   reconcileOrphanedAttempts(processOwnerId: string, now = new Date()): number {
     const timestamp = nowIso(now);
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const rows = this.db.prepare("SELECT * FROM durable_executions WHERE status IN ('running', 'verifying') AND lease_owner_id IS NOT NULL AND lease_owner_id != ?").all(processOwnerId) as unknown as ExecutionRow[];
-      for (const row of rows) {
-        const isVerifying = row.status === "verifying";
-        const control = this.getControlRequest(row.id);
-        if (!isVerifying) {
-          this.db.prepare("UPDATE durable_steps SET status = 'uncertain', updated_at = ? WHERE execution_id = ? AND status = 'running'").run(timestamp, row.id);
-        }
-        this.db.prepare("UPDATE durable_attempts SET status = 'interrupted', finished_at = ?, end_reason = ? WHERE execution_id = ? AND status = 'running'").run(timestamp, isVerifying ? "verification_interrupted" : "service_restarted", row.id);
-        // Broker requests are in-memory, so a restart makes every pending
-        // approval unanswerable. Expire them here instead of showing a card
-        // whose buttons can only return "no longer pending".
-        this.expireAttemptApprovals(row.id, timestamp);
-        this.db.prepare(`UPDATE durable_executions SET status = ?, version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = ?, waiting_reason = ?, last_error = ?, updated_at = ? WHERE id = ? AND version = ?`).run(
-          control === "pause" ? "paused" : control === "cancel" ? "cancelled" : isVerifying ? "verifying" : "recovery_required",
-          control || isVerifying ? null : "recovery",
-          control || isVerifying ? null : "An active step has uncertain external state.",
-          isVerifying ? "Verification was interrupted and will be recomputed." : "An active step has uncertain external state.",
-          timestamp, row.id, row.version
-        );
-        if (control) {
-          this.db.prepare("DELETE FROM durable_execution_controls WHERE execution_id = ?").run(row.id);
-          if (control === "cancel") this.db.prepare("UPDATE durable_executions SET terminal_at = ? WHERE id = ?").run(timestamp, row.id);
-        }
-      }
+      const rows = this.db.prepare(`
+        SELECT * FROM durable_executions
+        WHERE status IN ('running', 'verifying')
+          AND lease_owner_id IS NOT NULL
+          AND lease_owner_id != ?
+          AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+      `).all(processOwnerId, timestamp) as unknown as ExecutionRow[];
+      for (const row of rows) this.reclaimAttemptInTransaction(row, timestamp, "service_restarted");
+      this.db.exec("COMMIT");
+      if (rows.length > 0) this.notify();
+      return rows.length;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Graceful shutdown: give our own leases back immediately so a restart does
+   * not have to wait for them to expire. In-flight work becomes uncertain, not
+   * silently complete, because the external side effect may or may not have
+   * landed before the process stopped.
+   */
+  releaseOwnedAttempts(processOwnerId: string, now = new Date()): number {
+    const timestamp = nowIso(now);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.db.prepare(`
+        SELECT * FROM durable_executions
+        WHERE status IN ('running', 'verifying') AND lease_owner_id = ?
+      `).all(processOwnerId) as unknown as ExecutionRow[];
+      for (const row of rows) this.reclaimAttemptInTransaction(row, timestamp, "service_stopped");
       this.db.exec("COMMIT"); this.notify();
       return rows.length;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
+    }
+  }
+
+  private reclaimAttemptInTransaction(row: ExecutionRow, timestamp: string, endReason: string): void {
+    const isVerifying = row.status === "verifying";
+    const control = this.getControlRequest(row.id);
+    if (!isVerifying) {
+      this.db.prepare("UPDATE durable_steps SET status = 'uncertain', updated_at = ? WHERE execution_id = ? AND status = 'running'").run(timestamp, row.id);
+    }
+    this.db.prepare("UPDATE durable_attempts SET status = 'interrupted', finished_at = ?, end_reason = ? WHERE execution_id = ? AND status = 'running'").run(timestamp, isVerifying ? "verification_interrupted" : endReason, row.id);
+    // Broker requests are in-memory, so a restart makes every pending
+    // approval unanswerable. Expire them here instead of showing a card
+    // whose buttons can only return "no longer pending".
+    this.expireAttemptApprovals(row.id, timestamp);
+    const nextStatus = control === "pause" ? "paused" : control === "cancel" ? "cancelled" : isVerifying ? "verifying" : "recovery_required";
+    this.db.prepare(`UPDATE durable_executions SET status = ?, version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = ?, waiting_reason = ?, last_error = ?, updated_at = ? WHERE id = ? AND version = ?`).run(
+      nextStatus,
+      control || isVerifying ? null : "recovery",
+      control || isVerifying ? null : "An active step has uncertain external state.",
+      isVerifying ? "Verification was interrupted and will be recomputed." : "An active step has uncertain external state.",
+      timestamp, row.id, row.version
+    );
+    if (control) {
+      this.db.prepare("DELETE FROM durable_execution_controls WHERE execution_id = ?").run(row.id);
+      if (control === "cancel") this.db.prepare("UPDATE durable_executions SET terminal_at = ? WHERE id = ?").run(timestamp, row.id);
+    }
+    const advancedVersion = Number(row.version) + 1;
+    if (nextStatus === "verifying") {
+      enqueueWakeupInTransaction(this.db, { executionId: row.id, expectedVersion: advancedVersion, reason: "verify" });
+    } else if (nextStatus === "recovery_required") {
+      enqueueWakeupInTransaction(this.db, { executionId: row.id, expectedVersion: advancedVersion, reason: "resume" });
+    } else {
+      discardPendingWakeupsInTransaction(this.db, row.id, `execution_${nextStatus}`);
     }
   }
 
@@ -2016,6 +2408,7 @@ export class DurableExecutionStore {
       this.db.prepare("INSERT INTO durable_decisions (id, execution_id, plan_version, question, options_json, status, answer, answered_by, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'open', NULL, NULL, ?, NULL)").run(decisionId, input.executionId, input.planVersion ?? current.current_plan_version, question, JSON.stringify(options), timestamp);
       this.db.prepare("UPDATE durable_attempts SET status = 'waiting', finished_at = ?, end_reason = 'waiting_for_user' WHERE execution_id = ? AND status = 'running'").run(timestamp, input.executionId);
       this.db.prepare("UPDATE durable_executions SET status = 'waiting_for_user', version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = 'user', waiting_reason = ?, updated_at = ? WHERE id = ? AND version = ?").run(question, timestamp, input.executionId, input.expectedVersion);
+      discardPendingWakeupsInTransaction(this.db, input.executionId, "waiting_for_user", input.now);
       const row = this.db.prepare("SELECT * FROM durable_decisions WHERE id = ?").get(decisionId) as unknown as DecisionRow;
       this.db.exec("COMMIT"); this.notify();
       return rowToDecision(row);
@@ -2042,6 +2435,7 @@ export class DurableExecutionStore {
       this.db.prepare("UPDATE durable_executions SET status = 'waiting_for_user', version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = 'recovery', waiting_reason = ?, updated_at = ? WHERE id = ? AND version = ?").run(
         question, timestamp, input.executionId, input.expectedVersion
       );
+      discardPendingWakeupsInTransaction(this.db, input.executionId, "waiting_for_recovery_decision", input.now);
       const row = this.db.prepare("SELECT * FROM durable_decisions WHERE id = ?").get(decisionId) as unknown as DecisionRow;
       this.db.exec("COMMIT"); this.notify();
       return rowToDecision(row);
@@ -2192,6 +2586,15 @@ export class DurableExecutionStore {
       input.executionId,
       input.expectedVersion
     );
+    if (nextStatus === "queued") {
+      enqueueWakeupInTransaction(this.db, {
+        executionId: input.executionId,
+        expectedVersion: Number(input.expectedVersion) + 1,
+        reason: "resume"
+      }, input.now);
+    } else {
+      discardPendingWakeupsInTransaction(this.db, input.executionId, `execution_${nextStatus}`, input.now);
+    }
     return rowToExecution(this.requireRow(input.executionId));
   }
 
@@ -2269,6 +2672,19 @@ export class DurableExecutionStore {
       idValue,
       expectedVersion
     );
+    const advancedVersion = Number(expectedVersion) + 1;
+    if (nextStatus === "queued") {
+      enqueueWakeupInTransaction(this.db, {
+        executionId: idValue,
+        expectedVersion: advancedVersion,
+        reason: "resume",
+        ...(patch.nextRunAt ? { runAt: new Date(patch.nextRunAt) } : {})
+      });
+    } else if (nextStatus === "verifying") {
+      enqueueWakeupInTransaction(this.db, { executionId: idValue, expectedVersion: advancedVersion, reason: "verify" });
+    } else {
+      discardPendingWakeupsInTransaction(this.db, idValue, `execution_${nextStatus}`);
+    }
     return rowToExecution(this.requireRow(idValue));
   }
 
@@ -2304,6 +2720,15 @@ export class DurableExecutionStore {
     this.db.prepare("UPDATE durable_executions SET status = ?, version = version + 1, lease_owner_id = NULL, lease_expires_at = NULL, waiting_kind = NULL, waiting_reason = NULL, next_run_at = NULL, last_error = NULL, updated_at = ? WHERE id = ? AND version = ?").run(
       nextStatus, timestamp, input.executionId, input.expectedVersion
     );
+    if (nextStatus === "queued") {
+      enqueueWakeupInTransaction(this.db, {
+        executionId: input.executionId,
+        expectedVersion: Number(input.expectedVersion) + 1,
+        reason: "resume"
+      }, input.now);
+    } else {
+      discardPendingWakeupsInTransaction(this.db, input.executionId, `execution_${nextStatus}`, input.now);
+    }
     return rowToExecution(this.requireRow(input.executionId));
   }
 
@@ -2421,6 +2846,7 @@ export class DurableExecutionStore {
         status TEXT NOT NULL CHECK (status IN ('planned','queued','running','verifying','waiting_for_user','waiting_for_approval','paused','recovery_required','partial','completed','failed','cancelled')),
         version INTEGER NOT NULL,
         current_plan_version INTEGER NOT NULL,
+        engine_version INTEGER NOT NULL DEFAULT 1,
         lease_owner_id TEXT,
         lease_expires_at TEXT,
         budget_token_limit INTEGER,

@@ -3,7 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { promises as fs } from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { basename, dirname, extname } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { describeFileToolResult, type RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
@@ -186,14 +186,17 @@ export function createTtsGenerateTool(options: {
         signal
       });
 
-      // Write provider output to disk
       let intermediateFilePath = result.outputPath ?? filePath;
       if (result.audioBuffer) {
-        intermediateFilePath = result.outputPath ?? filePath;
+        // Provider bytes must use their actual extension, independent of the requested file name.
+        intermediateFilePath = join(
+          dirname(intermediateFilePath),
+          `${basename(intermediateFilePath, extname(intermediateFilePath))}.${result.extension}`
+        );
+        ensureAllowedPath(intermediateFilePath);
         await fs.mkdir(dirname(intermediateFilePath), { recursive: true });
         await fs.writeFile(intermediateFilePath, result.audioBuffer);
       }
-      // If provider wrote directly (e.g. macOS say), intermediateFilePath is already set
 
       // Try to convert to OGG/Opus for unified output
       let finalFilePath = intermediateFilePath;

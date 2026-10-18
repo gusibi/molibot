@@ -7,12 +7,12 @@ import type {
   DesktopSkillsSummary
 } from "$lib/shared/desktop";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync, readdirSync, realpathSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 
-const KNOWN_SCOPES: readonly DesktopSkillScope[] = ["global", "bot", "chat", "project"];
+const KNOWN_SCOPES: readonly DesktopSkillScope[] = ["global", "agent", "chat", "project"];
 
 /** Preview cap for a Skill file. Larger text is truncated, never streamed whole. */
 const MAX_PREVIEW_BYTES = 256 * 1024;
@@ -32,7 +32,7 @@ export interface SharedSkillItem {
   scope: string;
   enabled: boolean;
   mcpServers?: string[];
-  botId?: string;
+  agentId?: string;
   chatId?: string;
   filePath?: string;
   baseDir?: string;
@@ -58,6 +58,11 @@ export function desktopSkillId(filePath: string): string {
 }
 
 function coerceScope(value: string): DesktopSkillScope {
+  // The runtime tags the workspace layer "bot" for both Agent workspaces and
+  // channel-bot runtimes. The Desktop only ever projects the owner's Agent
+  // workspaces and global dirs, so a workspace-layer skill here is the Agent's
+  // own skill — map the boundary, don't leak the runtime vocabulary.
+  if (value === "bot") return "agent";
   return (KNOWN_SCOPES as readonly string[]).includes(value) ? (value as DesktopSkillScope) : "global";
 }
 
@@ -69,13 +74,13 @@ function coerceScope(value: string): DesktopSkillScope {
  */
 export function buildDesktopSkillItem(item: SharedSkillItem): DesktopSkillItem {
   return {
-    id: desktopSkillId(item.filePath ?? `${item.scope}:${item.botId ?? ""}:${item.chatId ?? ""}:${item.name}`),
+    id: desktopSkillId(item.filePath ?? `${item.scope}:${item.agentId ?? ""}:${item.chatId ?? ""}:${item.name}`),
     name: item.name,
     description: item.description ?? "",
     scope: coerceScope(item.scope),
     enabled: item.enabled !== false,
     mcpServerCount: Array.isArray(item.mcpServers) ? item.mcpServers.length : 0,
-    botId: item.botId ?? "",
+    agentId: item.agentId ?? "",
     chatId: item.chatId ?? ""
   };
 }
@@ -98,7 +103,7 @@ export function buildDesktopSkillsSummary(
       total: items.length,
       enabled: items.filter((item) => item.enabled).length,
       global: items.filter((item) => item.scope === "global").length,
-      bot: items.filter((item) => item.scope === "bot").length,
+      agent: items.filter((item) => item.scope === "agent").length,
       chat: items.filter((item) => item.scope === "chat").length
     },
     search: {
@@ -218,13 +223,21 @@ export function readSkillFileContent(baseDir: string, relativePath: string): { c
     throw new Error("File not found");
   }
   if (real !== root && !real.startsWith(root + sep)) throw new Error("Path escapes the Skill directory");
-  const stat = statSync(real);
-  if (!stat.isFile()) throw new Error("Not a file");
-  const truncated = stat.size > MAX_PREVIEW_BYTES;
-  const buffer = readFileSync(real);
-  const slice = truncated ? buffer.subarray(0, MAX_PREVIEW_BYTES) : buffer;
-  const binary = slice.includes(0);
-  return { content: binary ? "" : slice.toString("utf8"), truncated, binary };
+  const descriptor = openSync(real, "r");
+  try {
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile()) throw new Error("Not a file");
+    const buffer = Buffer.alloc(Math.min(stat.size, MAX_PREVIEW_BYTES));
+    let length = 0;
+    while (length < buffer.length) {
+      const read = readSync(descriptor, buffer, length, buffer.length - length, length);
+      if (read === 0) break;
+      length += read;
+    }
+    const slice = buffer.subarray(0, length);
+    const binary = slice.includes(0);
+    return { content: binary ? "" : slice.toString("utf8"), truncated: stat.size > MAX_PREVIEW_BYTES, binary };
+  } finally { closeSync(descriptor); }
 }
 
 export interface SkillDetailSource {
@@ -233,7 +246,7 @@ export interface SkillDetailSource {
   scope: string;
   enabled: boolean;
   mcpServers?: string[];
-  botId?: string;
+  agentId?: string;
   chatId?: string;
   filePath: string;
   baseDir: string;
@@ -258,7 +271,7 @@ export function buildDesktopSkillDetail(input: {
     description: item.description ?? "",
     scope: coerceScope(item.scope),
     enabled: item.enabled !== false,
-    botId: item.botId ?? "",
+    agentId: item.agentId ?? "",
     chatId: item.chatId ?? "",
     mcpServers: Array.isArray(item.mcpServers) ? item.mcpServers.map((server) => String(server)) : [],
     filePath: item.filePath,

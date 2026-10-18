@@ -284,3 +284,51 @@ test("model failure retries use their configured limit independently from empty 
   assert.equal(resolvePromptAttemptDecision({ ...input, attemptCount: 6 }).kind, "terminal_error");
   assert.equal(resolvePromptAttemptDecision({ ...input, stopReason: "stop", errorMessage: undefined, attemptCount: 2 }).kind, "terminal_empty");
 });
+
+test("an error response is authoritative even when the attempt window carries leftover text", () => {
+  // 2026-10-18: a rebased message window surfaced a previous turn's reply as
+  // candidateFinalText, the decision read it as success, and model failover
+  // stopped at candidate 2 of 21 while the user was shown the stale text.
+  const staleWindowText = "几点，供参考：**关于做东西：** 能跑比完美重要。";
+  const result = resolvePromptAttemptDecision({
+    stopReason: "error",
+    errorMessage: "402: {\"message\":\"Insufficient Balance\",\"code\":\"invalid_request_error\"}",
+    finalText: staleWindowText,
+    attemptCount: 0,
+    maxModelRetries: 2,
+    maxEmptyRetries: 2
+  });
+
+  assert.equal(result.kind, "terminal_error");
+  assert.match((result as { message: string }).message, /Insufficient Balance/);
+});
+
+test("a transient error with leftover window text still retries instead of succeeding", () => {
+  const result = resolvePromptAttemptDecision({
+    stopReason: "error",
+    errorMessage: "socket hang up",
+    finalText: "上一轮的旧回复",
+    attemptCount: 0,
+    maxModelRetries: 2,
+    maxEmptyRetries: 2,
+    attemptExecutedTools: false
+  });
+
+  assert.deepEqual(result, { kind: "retryable_error", message: "socket hang up" });
+});
+
+test("a structured completion still reads as success when a later round errors", () => {
+  // The terminal tool already delivered the user-facing receipt; re-running the
+  // attempt on another model would execute it twice.
+  const result = resolvePromptAttemptDecision({
+    stopReason: "error",
+    errorMessage: "Chat upstream returned 429",
+    finalText: "",
+    attemptCount: 0,
+    maxModelRetries: 2,
+    maxEmptyRetries: 2,
+    completedWithoutText: true
+  });
+
+  assert.deepEqual(result, { kind: "success" });
+});

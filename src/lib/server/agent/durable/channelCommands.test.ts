@@ -26,7 +26,7 @@ test("channel commands authorize by source chat before resolving a durable appro
   } as unknown as HostBashStore;
 
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", db.root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create({
       ownerId: "owner",
       botId: "bot-1",

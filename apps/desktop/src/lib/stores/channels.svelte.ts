@@ -1,25 +1,35 @@
 // External channel (bot instance) settings — state + orchestration.
 import { deleteDesktopChannel, loadDesktopBotFiles, loadDesktopChannels, saveDesktopBotFiles, saveDesktopChannel, testDesktopChannel } from "../api";
-import type { DesktopChannelSaveRequest, DesktopChannelsSummary, DesktopExternalChannel } from "@molibot/desktop-contract";
+import type { DesktopChannelDisplaySettings, DesktopChannelSaveRequest, DesktopChannelsSummary, DesktopExternalChannel } from "@molibot/desktop-contract";
 import type { Locale } from "../i18n";
 import { emptyProfileFiles } from "../settings/profileFiles";
 import { session, setError } from "./session.svelte";
 
 export const DESKTOP_CHANNELS: DesktopExternalChannel[] = ["telegram", "feishu", "qq", "weixin"];
+/** Web is the app's own channel: rendered in the same settings, with a reduced form. */
+export const WEB_CHANNEL: DesktopExternalChannel = "web";
 
 export const CHANNEL_FIELD_CONFIG: Record<DesktopExternalChannel, { visible: string[]; secret: string[] }> = {
   telegram: { visible: ["streamOutput"], secret: ["token"] },
   feishu: { visible: ["appId", "streamOutput"], secret: ["appSecret", "verificationToken", "encryptKey"] },
   qq: { visible: ["appId"], secret: ["clientSecret"] },
-  weixin: { visible: ["baseUrl"], secret: [] }
+  weixin: { visible: ["baseUrl"], secret: [] },
+  web: { visible: [], secret: [] }
 };
 
-export type ChannelEditor = DesktopChannelSaveRequest & { isNew: boolean; files: Record<string, string> };
+// The editor always carries a display object (empty = follow global), while the
+// wire request keeps it optional/null so absent clears every override.
+export type ChannelEditor = Omit<DesktopChannelSaveRequest, "display"> & {
+  display: DesktopChannelDisplaySettings;
+  isNew: boolean;
+  files: Record<string, string>;
+};
 type QrModule = { toDataURL: (text: string, options?: Record<string, unknown>) => Promise<string> };
 
 export function externalChannelLabel(channel: DesktopExternalChannel, currentLocale: Locale): string {
   if (channel === "weixin") return currentLocale === "zh-CN" ? "微信" : "WeChat";
   if (channel === "feishu") return currentLocale === "zh-CN" ? "飞书" : "Feishu";
+  if (channel === "web") return "Web";
   if (channel === "qq") return "QQ";
   return "Telegram";
 }
@@ -65,9 +75,9 @@ export function beginNewChannel(channel: DesktopExternalChannel): void {
     agentId: "default",
     permissionMode: null as "plan" | "manual" | "accept_edits" | "auto" | null,
     allowedChatIds: [],
-    fields: channel === "weixin" ? { baseUrl: "https://ilinkai.weixin.qq.com" } : channel === "telegram" || channel === "feishu" ? { streamOutput: "true" } : {},
-    secretValues: {},
+    fields: channel === "weixin" ? { baseUrl: "https://ilinkai.weixin.qq.com" } : channel === "telegram" || channel === "feishu" ? { streamOutput: "true" } : {},    secretValues: {},
     clearSecrets: [],
+    display: {} as DesktopChannelDisplaySettings,
     files: emptyProfileFiles()
   };
   channelsStore.actionMessage = "";
@@ -92,6 +102,7 @@ export async function beginChannelEdit(channel: DesktopExternalChannel, instance
       fields: { ...instance.fields },
       secretValues: {},
       clearSecrets: [],
+      display: { ...(instance.display ?? {}) },
       files: { ...emptyProfileFiles(), ...(await loadDesktopBotFiles(endpoint, channel, instance.id)) }
     };
     channelsStore.actionMessage = "";
@@ -133,7 +144,8 @@ export async function saveChannelEditor(): Promise<void> {
       allowedChatIds: channelEdit.allowedChatIds,
       fields: channelEdit.fields,
       secretValues: channelEdit.secretValues,
-      clearSecrets: channelEdit.clearSecrets
+      clearSecrets: channelEdit.clearSecrets,
+      display: channelEdit.display
     });
     await saveDesktopBotFiles(endpoint, channelEdit.channel, channelEdit.id.trim(), channelEdit.files);
     channelsStore.channelEdit = null;

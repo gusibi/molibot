@@ -1,7 +1,6 @@
 <script lang="ts">
   import AddCircle from "reicon-svelte/icons/AddCircle";
   import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
-  import Card from "reicon-svelte/icons/Card";
   import Chart from "reicon-svelte/icons/Chart";
   import Cpu from "reicon-svelte/icons/Cpu";
   import Database from "reicon-svelte/icons/Database";
@@ -31,6 +30,8 @@
   import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
   import { onMount } from "svelte";
   import ChatView from "./ChatView.svelte";
+  import AppFooterMark from "./lib/components/AppFooterMark.svelte";
+  import Users2 from "./lib/icons/duotone/components/Users2.svelte";
   import { tablist } from "./lib/a11y/tablist";
   import ExecutionPermissionsSection from "./lib/settings/ExecutionPermissionsSection.svelte";
   import HostBashSection from "./lib/settings/HostBashSection.svelte";
@@ -47,7 +48,6 @@
   import MemorySection from "./lib/settings/MemorySection.svelte";
   import SessionManagementSection from "./lib/settings/SessionManagementSection.svelte";
   import ChannelsSection from "./lib/settings/ChannelsSection.svelte";
-  import ProfilesSection from "./lib/settings/ProfilesSection.svelte";
   import PluginsSection from "./lib/settings/PluginsSection.svelte";
   import ProvidersSection from "./lib/settings/ProvidersSection.svelte";
   import UsageSection from "./lib/settings/UsageSection.svelte";
@@ -59,6 +59,7 @@
   import VideoGenerateSection from "./lib/settings/VideoGenerateSection.svelte";
   import TtsGenerateSection from "./lib/settings/TtsGenerateSection.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
+  import { APP_LOGOS, appLogo, appLogoLabel, initializeAppLogo, setAppLogo } from "./lib/stores/appLogo.svelte";
   import AgentStorageMigration from "./lib/components/AgentStorageMigration.svelte";
   import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import {
@@ -146,7 +147,7 @@
     hapticPreference: HapticPreference;
   };
 
-  type SettingsSection = "system" | "general" | "models" | "decisionModels" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "system" | "general" | "models" | "decisionModels" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -574,7 +575,6 @@
     { id: "imageGenerate", icon: Image },
     { id: "videoGenerate", icon: Film },
     { id: "ttsGenerate", icon: Soundwave },
-    { id: "profiles", icon: Card },
     { id: "usage", icon: Chart },
     { id: "runHistory", icon: History },
     { id: "logs", icon: Reorder },
@@ -586,14 +586,17 @@
     { id: "runtimeEnv", icon: CodeSquare }
   ];
 
-  const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "tools" | "channels" | "activity" | "system"; sections: SettingsSection[]; additionalSections?: SettingsSection[] }[] = [
+  // Groups follow one axis: what the pages in them configure. Every section belongs to
+  // exactly one group, and the group answers a single question (see DESIGN.md, settings
+  // navigation taxonomy). A guard test keeps the coverage total and exclusive.
+  const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "capabilities" | "data" | "permissions" | "system"; sections: SettingsSection[] }[] = [
     { id: "general", sections: ["general"] },
-    { id: "models", sections: ["models", "providers"], additionalSections: ["decisionModels"] },
-    { id: "assistant", sections: ["agents", "skills", "memory", "sessionManagement"] },
-    { id: "tools", sections: ["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
-    { id: "channels", sections: ["profiles", "channels"] },
-    { id: "activity", sections: ["runHistory", "usage", "trace", "logs", "hostBash"] },
-    { id: "system", sections: ["system", "runtimeEnv", "executionPermissions", "plugins", "diagnostics"] }
+    { id: "models", sections: ["models", "providers", "decisionModels"] },
+    { id: "assistant", sections: ["agents", "channels", "skills", "memory"] },
+    { id: "capabilities", sections: ["webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "mcp", "openConnector", "plugins"] },
+    { id: "data", sections: ["sessionManagement", "runHistory", "usage", "trace", "logs"] },
+    { id: "permissions", sections: ["executionPermissions", "hostBash"] },
+    { id: "system", sections: ["system", "runtimeEnv", "diagnostics"] }
   ];
 
   let settingsFilter = "";
@@ -609,18 +612,18 @@
   $: localizedSettingsGroups = SETTINGS_GROUPS.map((group) => ({
     ...group,
     label: settingsGroupLabel(group.id, locale),
-    items: [...group.sections, ...(group.additionalSections ?? [])].map((section) => filteredSettingsNav.find((item) => item.id === section)).filter((item): item is (typeof localizedSettingsNav)[number] => Boolean(item))
+    items: group.sections.map((section) => filteredSettingsNav.find((item) => item.id === section)).filter((item): item is (typeof localizedSettingsNav)[number] => Boolean(item))
   })).filter((group) => group.items.length > 0);
 
   function settingsGroupLabel(group: (typeof SETTINGS_GROUPS)[number]["id"], currentLocale: Locale): string {
     const zh = currentLocale === "zh-CN";
     if (group === "models") return zh ? "模型" : "Models";
     if (group === "assistant") return zh ? "助手" : "Assistant";
-    if (group === "tools") return zh ? "工具" : "Tools";
-    if (group === "channels") return zh ? "渠道" : "Channels";
-    if (group === "activity") return zh ? "活动" : "Activity";
+    if (group === "capabilities") return zh ? "能力" : "Capabilities";
+    if (group === "data") return zh ? "数据与历史" : "Data & History";
+    if (group === "permissions") return zh ? "安全与权限" : "Security & Permissions";
     if (group === "system") return zh ? "系统" : "System";
-    return zh ? "总览" : "General";
+    return zh ? "通用" : "General";
   }
 
   function sectionLabel(section: SettingsSection, copy: typeof text): string {
@@ -640,7 +643,6 @@
       case "imageGenerate": return copy.imageGenerate;
       case "videoGenerate": return copy.videoGenerate;
       case "ttsGenerate": return copy.ttsGenerate;
-      case "profiles": return copy.profiles;
       case "usage": return copy.usage;
       case "runHistory": return copy.runHistory;
       case "logs": return copy.logs;
@@ -671,7 +673,6 @@
       case "imageGenerate": return copy.imageGenerateHint;
       case "videoGenerate": return copy.videoGenerateHint;
       case "ttsGenerate": return copy.ttsGenerateHint;
-      case "profiles": return copy.profilesHint;
       case "usage": return copy.usageHint;
       case "runHistory": return copy.runHistoryHint;
       case "logs": return copy.logsHint;
@@ -701,6 +702,7 @@
   // conversation. There is no longer a dedicated settings window.
   let settingsOpen = false;
   let settingsClosing = false;
+  let chatView: ChatView;
 
   function serviceStateLabel(state: "disconnected" | "ready" | "incompatible" | "error" | undefined, copy: typeof text): string {
     if (state === "ready") return copy.diagStateReady;
@@ -1047,6 +1049,14 @@
     settingsClosing = true;
   }
 
+  // The settings footer's "A" control mirrors the chat footer's settings entry:
+  // it leaves settings for the default agent's page, the page this app is built
+  // around.
+  function openAgentsFromSettings(): void {
+    chatView?.openDefaultAgentPage();
+    closeSettings();
+  }
+
   function finishSettingsClose(event: AnimationEvent): void {
     if (!settingsClosing || event.target !== event.currentTarget || event.animationName !== "motion-settings-shell-out") return;
     settingsOpen = false;
@@ -1091,6 +1101,7 @@
     void startWindowState();
     void startFeedback();
     void startHaptics();
+    void initializeAppLogo();
     void loadImportedThemes();
     void loadThemeDirectories();
     const onSettingsChanged = () => {
@@ -1162,7 +1173,7 @@
 {/if}
 
 <div class="chat-host" class:is-hidden={settingsOpen}>
-  <ChatView
+  <ChatView bind:this={chatView}
     copy={text}
     {locale}
     {storageMigrationPending}
@@ -1219,9 +1230,10 @@
         {/each}
       </nav>
       <div class="settings-sidebar-footer">
-        <img class="settings-footer-avatar" src="/molibot-icon.png" alt="" width="28" height="28" />
-        <div class="settings-sidebar-footer-copy"><strong>{text.appName}</strong><small>{serviceStateLabel(status?.service.state, text)}</small></div>
-        <span class="status-dot" data-state={status?.service.state ?? "disconnected"} aria-hidden="true"></span>
+        <AppFooterMark copy={text} serviceState={status?.service.state ?? "disconnected"} />
+        <button type="button" class="settings-footer-agents" aria-label={text.goToAgents} title={text.goToAgents} onclick={openAgentsFromSettings}>
+          <Users2 size={16} />
+        </button>
       </div>
     </aside>
     <section class="settings-content">
@@ -1434,6 +1446,26 @@
               </div>
             </details>
           </div>
+          <div class="appearance-block">
+            <p class="appearance-label">{text.appLogo}</p>
+            <p class="appearance-description">{text.appLogoDescription}</p>
+            {#if appLogo.error}<p class="appearance-description settings-error-copy" role="alert">{text.appLogoError}: {appLogo.error}</p>{/if}
+            <div class="logo-grid" role="group" aria-label={text.appLogo} aria-busy={appLogo.busy}>
+              {#each APP_LOGOS as logo (logo.id)}
+                <button
+                  type="button"
+                  class="logo-swatch"
+                  class:active={appLogo.id === logo.id}
+                  aria-pressed={appLogo.id === logo.id}
+                  disabled={!appLogo.ready || appLogo.busy}
+                  onclick={() => void setAppLogo(logo.id)}
+                >
+                  <span class="logo-preview" aria-hidden="true"><img src={`/app-icons/${logo.id}.png`} alt="" width="44" height="44" /></span>
+                  <span class="logo-name">{appLogoLabel(logo, locale)}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
         </SettingGroup>
 
         <SettingGroup title={text.service}>
@@ -1466,8 +1498,6 @@
         <DecisionModelsSection />
       {:else if activeSection === "providers"}
         <ProvidersSection />
-      {:else if activeSection === "profiles"}
-        <ProfilesSection />
       {:else if activeSection === "skills"}
         <SkillsSection />
       {:else if activeSection === "agents"}

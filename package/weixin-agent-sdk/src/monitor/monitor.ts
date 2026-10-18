@@ -1,7 +1,7 @@
 import type { Agent } from "../agent/interface.js";
-import { getUpdates } from "../api/api.js";
+import { getUpdates, classifyFetchError } from "../api/api.js";
 import { WeixinConfigManager } from "../api/config-cache.js";
-import { SESSION_EXPIRED_ERRCODE, pauseSession, getRemainingPauseMs } from "../api/session-guard.js";
+import { STALE_TOKEN_ERRCODE, pauseSession, getRemainingPauseMs } from "../api/session-guard.js";
 import { processOneMessage } from "../messaging/process-message.js";
 import { getSyncBufFilePath, loadGetUpdatesBuf, saveGetUpdatesBuf } from "../storage/sync-buf.js";
 import { logger } from "../util/logger.js";
@@ -81,14 +81,14 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
         (resp.errcode !== undefined && resp.errcode !== 0);
 
       if (isApiError) {
-        const isSessionExpired =
-          resp.errcode === SESSION_EXPIRED_ERRCODE || resp.ret === SESSION_EXPIRED_ERRCODE;
+        const isStaleToken =
+          resp.errcode === STALE_TOKEN_ERRCODE || resp.ret === STALE_TOKEN_ERRCODE;
 
-        if (isSessionExpired) {
+        if (isStaleToken) {
           pauseSession(accountId);
           const pauseMs = getRemainingPauseMs(accountId);
           errLog(
-            `[weixin] session expired (errcode ${SESSION_EXPIRED_ERRCODE}), pausing for ${Math.ceil(pauseMs / 60_000)} min`,
+            `[weixin] bot token is stale (errcode ${STALE_TOKEN_ERRCODE}), pausing for ${Math.ceil(pauseMs / 60_000)} min`,
           );
           consecutiveFailures = 0;
           await sleep(pauseMs, abortSignal);
@@ -142,8 +142,9 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
         return;
       }
       consecutiveFailures += 1;
+      const classified = classifyFetchError(err);
       errLog(
-        `[weixin] getUpdates error (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}): ${String(err)}`,
+        `[weixin] getUpdates error (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}): ${String(err)} type=${classified.type} description=${classified.description}${classified.code ? ` code=${classified.code}` : ""}`,
       );
       if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
         consecutiveFailures = 0;

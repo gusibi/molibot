@@ -684,7 +684,11 @@ with content moving behind it reads as depth.
   is the other deliberate non-duotone exception: it renders the Filled
   `Settings2` glyph (sidebar footer
   and the Project header settings button), because the owner chose a solid gear
-  over a duotone tuning-square.
+  over a duotone tuning-square. The settings sidebar's footer composes the same
+  shared mark with the inverse entry: the duotone `Users2` agent glyph — the very
+  glyph the sidebar's Agent entry and section head use (secondary label rank,
+  darkens on hover, labelled "前往 Agent"/"Go to Agents") — and it leaves
+  settings for the default agent's home page.
   Still linear Outline everywhere — including inside duotone surfaces — are the
   small functional and status glyphs: spinners, done/failed/warning markers,
   read receipts, activity tool-type icons, and the bare `Check` / `X` / `Plus` /
@@ -883,7 +887,14 @@ block, status color, and sidebar tint must resolve through the same family block
   number stays legible on light accents where accent-on-accent-soft washed out.
   Anything selected (selectable cards, list rows styled
   through a family's region layer) must read from this pair so one selection
-  semantic spans the app.
+  semantic spans the app, and hover states must never repaint a picked item
+  (scope hover fills with `:not(.selected)` / `:not(.active)`). The default
+  macOS family renders every workspace pick — skill cards, the open file row,
+  automation task rows, plan rows — as a quiet wash of the pair plus a hairline
+  ring of the same hue (`color-mix(in srgb, var(--selection-bg) 16% / 40%)`)
+  with labels on the shared ramp, scoped through the chat content region hook
+  in `themes/macos.css`; every other family keeps the solid-pair rendering
+  above.
 - Structural dark surfaces must never use `#000000` or near-black `#0A0A0A`.
   Pure black is reserved for media/code content that intentionally needs it.
 - Chat's transcript workspace and headers use the window role, and the sidebar
@@ -1022,6 +1033,21 @@ the same regardless of the window's activation state and of what is behind it.
 - Data pages (usage, trace, service logs) use the standard 720px settings column,
   the same width as the chat transcript column, with compact metric cards,
   semantic charts, and human-readable labels before technical identifiers.
+- Desktop Usage and Trace default to today. A compact horizontal metric strip leads
+  into the primary chart. Usage shows a time trend and cache composition; Trace shows
+  model/tool/MCP invocation trends and model request outcomes. Today/yesterday use hourly buckets; longer windows use zero-filled daily buckets in the configured timezone. MCP calls are separate from ordinary tool calls. Agent filters update charts and metrics together. A distinct Agent performance summary shows run completion success, recorded model cost in USD with pricing coverage, and token cache hit rate; missing prices remain unknown. Run completion success describes execution status, not semantic task quality. Model, Agent, Bot and channel lists stay visible, as do
+  available tool and skill summaries. Only request rows, exact identifiers and
+  diagnostic details collapse. Filters keep each label beside its control, with
+  explicit grid tracks and stretched select wrappers; time ranges use a segmented
+  group on the same shallow toolbar as refresh. Summary lists use aligned numeric
+  columns and separators rather than a progress bar per row. All counts cover the selected time window; pagination only
+  limits detail rows. Agent, Bot and channel are distinct dimensions; missing Agent
+  attribution is explicit. Charts pair semantic theme colors with text and numbers.
+  Cache-read and unfinished-request segments also use a texture so coinciding
+  palette colors remain distinguishable. Compact values expose exact counts,
+  and zero denominators display no data. Layout,
+  controls and type use shared tokens across every theme family, recipe and imported
+  palette. Narrow columns stack ranking panels without horizontal page overflow.
 - Data-page filters use a compact toolbar: keep common dimensions visible in one row,
   place diagnostic or exact-ID fields behind an accessible disclosure, and show the
   effective time window as quiet metadata. On the settings column, actions occupy a
@@ -1340,6 +1366,14 @@ the same regardless of the window's activation state and of what is behind it.
 - Reuse shared semantic components for PageHeader, SettingGroup, search, select,
   switch, badge, cards, overflow menus, empty states, MessageItem, and composer.
   Page-local copies of these controls are not permitted.
+- Sidebar footers share one identity mark, `AppFooterMark`: the app logo with the
+  service state as a ring dot punched into the logo corner, plus the app name as
+  the only text. Idle status lines ("已就绪"/"Online") never render beside it —
+  the dot colour is the status and the host row keeps it in an accessible name.
+  The chat footer composes the mark with the Filled `Settings2` entry (whole row
+  opens settings); the settings footer composes it with the duotone `Users2`
+  Agent entry that returns to the default agent's home page. A new sidebar
+  reuses the mark rather than growing its own footer avatar.
 - Standard control metrics follow macOS desktop roles through unified tokens
   (`--control-h: 28px`, `--control-h-button: 32px`, `--control-h-compact: 24px`):
   settings form text, number, and select controls use `--control-h` (28px); action
@@ -1653,7 +1687,7 @@ Room model previews use the backend-resolved per-member model keys. Completed tr
 
 ## Personal Agent Desktop
 
-普通对话的左栏以 Agent 为主入口。默认 Agent 始终显示；Agent 按全部渠道最新对话更新时间倒序，同一时间按名称首字母（中文按拼音）排序，无对话的排在后方；编辑配置不改变对话时间，全局新对话进入默认 Agent。左侧只显示 Agent 身份入口，点击名称进入该 Agent 首页，名称旁的独立“＋”进入同一草稿；不展开会话列表，也不请求侧栏会话分页。已删除 Agent 和未归属历史入口打开右侧完整历史；未归属历史仅在存在未归属对话时显示，查询包含归档记录并排除回收站。首页顶部窗口标题显示 Agent 名称；新对话页以开始对话为主：身份区采用居中的 96px 圆形头像，下方依次为 Agent 名称和简介，无简介时显示简短提示；真实输入区位于页面视觉中心，下方三个紧凑推荐按钮居中排列，最近对话只展示三条。简介使用次级文字并限制宽度，Agent 设置放在窗口 Header。所有 Agent 未设置头像或图片加载失败时，共享 AgentAvatar 使用与侧栏“我的”相同的 Molibot logo。短窗口允许滚动，避免内容裁切。首页最近对话与完整历史复用同一个 AgentConversationRow 组件，统一来源图标＋标题/预览、右对齐更新时间两列布局；来源图标位于标题左侧，来源名称与只读状态通过图标提示及无障碍名称保留，不占独立列、细分隔线、整行点击、键盘焦点和窄窗口保持两列布局。提供当前 Agent 的完整历史入口；完整历史在主内容区显示，搜索与来源下拉筛选在上，搜索、来源选择器与返回按钮统一为 40px，来源图标＋标题/预览与最后更新时间按两列对齐，时间始终右对齐，来源图标复用旧 Session 侧栏的本地渠道 Logo，行间使用细分隔线，窄窗口保持两列并截断长标题；顶部标明 Agent 与“全部对话”，提供返回首页、搜索、来源筛选和分页，查询始终限定该 Agent，不使用全局搜索弹窗；无历史时显示开始提示。已有 Session 的输入区保持底部浮动；新对话页输入区在内容流中，推荐按钮在窄窗口换行。发送后沿用紧凑聊天头部、输入区和 Inspector。模型仅在输入区选择。历史展示来源，未归属与已删除 Agent 的记录可只读查看；管理通过已有 Agent 导航入口进入，侧栏不重复显示搜索与管理按钮。导航、首页和历史使用共享控件、语义 CSS 与主题 token，支持中英和窄宽度。
+普通对话的左栏以 Agent 为主入口。默认 Agent 始终显示；Agent 按全部渠道最新对话更新时间倒序，同一时间按名称首字母（中文按拼音）排序，无对话的排在后方；编辑配置不改变对话时间，全局新对话进入默认 Agent。左侧只显示 Agent 身份入口，点击名称进入该 Agent 首页，名称旁的独立“＋”进入同一草稿；不展开会话列表，也不请求侧栏会话分页。已删除 Agent 和未归属历史入口打开右侧完整历史；未归属历史仅在存在未归属对话时显示，查询包含归档记录并排除回收站。首页顶部窗口标题显示 Agent 名称；新对话页以开始对话为主：身份区采用居中的 96px 圆形头像，下方依次为 Agent 名称和简介，无简介时显示简短提示；真实输入区位于页面视觉中心，下方三个紧凑推荐按钮居中排列，最近对话只展示三条。简介使用次级文字并限制宽度，Agent 设置放在窗口 Header。所有 Agent 未设置头像或图片加载失败时，共享 AgentAvatar 使用与侧栏“我的”相同的 Molibot logo。短窗口允许滚动，避免内容裁切。Agent 首页和外部只读会话的窗口标题栏提供刷新图标按钮，刷新时禁用，悬浮提示与无障碍名称支持中英；可见页面自动刷新最近对话及当前外部会话，恢复可见时立即刷新。刷新保留已有内容与当前选择，失败提示可见，恢复后清除；列表按最新对话时间重新排序。首页最近对话与完整历史复用同一个 AgentConversationRow 组件，统一来源图标＋标题/预览、右对齐更新时间两列布局；来源图标位于标题左侧，来源名称与只读状态通过图标提示及无障碍名称保留，不占独立列、细分隔线、整行点击、键盘焦点和窄窗口保持两列布局。提供当前 Agent 的完整历史入口；完整历史在主内容区显示，搜索与来源下拉筛选在上，搜索、来源选择器与返回按钮统一为 40px，来源图标＋标题/预览与最后更新时间按两列对齐，时间始终右对齐，来源图标复用旧 Session 侧栏的本地渠道 Logo，行间使用细分隔线，窄窗口保持两列并截断长标题；顶部标明 Agent 与“全部对话”，提供返回首页、搜索、来源筛选和分页，查询始终限定该 Agent，不使用全局搜索弹窗；无历史时显示开始提示。已有 Session 的输入区保持底部浮动；新对话页输入区在内容流中，推荐按钮在窄窗口换行。发送后沿用紧凑聊天头部、输入区和 Inspector。模型仅在输入区选择。历史展示来源，未归属与已删除 Agent 的记录可只读查看；管理通过已有 Agent 导航入口进入，侧栏不重复显示搜索与管理按钮。导航、首页和历史使用共享控件、语义 CSS 与主题 token，支持中英和窄宽度。
 
 
 ### Agent 统一入口与总览
@@ -1662,7 +1696,7 @@ Room model previews use the backend-resolved per-member model keys. Completed tr
 
 ### Agent 选择的一致语义
 
-渠道 Bot 与 Web Profile 必须显示明确的 Agent 身份。初始选择 Momo（稳定 ID `default`），不提供“无 Agent／全局兜底”这一空身份选项。global 指共享配置和规则的作用域；新对话的默认 Agent 是独立偏好，不改变既有 Bot 或 Session 的身份。Desktop 与独立 Web 设置页使用同一规则。
+渠道 Bot 与 Web Profile（Web 渠道实例）必须显示明确的 Agent 身份，两者在渠道设置的同一编辑器内管理：外部渠道展示完整配置（凭据、放行会话、权限模式、显示与通知、Bot Markdown 文件），Web 实例是精简形态，只保留基础信息（ID、名称、关联 Agent、权限模式、启停）与 Bot Markdown 文件——Web 页面本身在 App 内直接操作，不提供独立的显示与通知配置。初始选择 Momo（稳定 ID `default`），不提供“无 Agent／全局兜底”这一空身份选项。global 指共享配置和规则的作用域；新对话的默认 Agent 是独立偏好，不改变既有 Bot 或 Session 的身份。Desktop 与独立 Web 设置页使用同一规则。
 
 
 ### Agent 存储迁移弹窗
@@ -1740,6 +1774,12 @@ Agent 设置分类称为“绑定的机器人”，默认列表仅显示草稿�
 
 设置采用克制的编辑式布局：最左导航保持稳定，分组标签与选中项明确区分；内容标题与表单共享阅读列，减少标题的双重内边距。设置组使用已有卡片表面、清楚的组标题和细分隔线，不新增装饰阴影或主题配色。Agent 二级编辑保留全局导航，内部分类使用顶部横向导航，避免三个纵向导航栏压缩表单；身份标题含小头像、当前分类与 Agent 名称，正文限定阅读宽度，头像编辑左对齐。保存栏始终固定并注明保存生效，长内容留在正文滚动区。沿用现有控件、字体 token 和动效系统，支持中英、明暗以及窄窗导航滚动。
 
+### 设置导航分类
+
+设置导航按唯一轴线分组：一页属于哪一组，只看“这一页配置的是什么”，不与会话内容、运行记录或系统层级混用。分组依次为「通用」（App 自身的外观与行为）、「模型」（模型来源与路由：模型、AI 服务商、决策模型）、「助手」（助手的身份与知识：Agent、渠道、技能检索、记忆；渠道是助手在哪里对话的入口，紧跟 Agent 之后）、「能力」（助手可调用的外部能力：搜索、图像、视频、语音、MCP、连接器、插件）、「数据与历史」（发生过什么：会话管理、运行历史、用量、Trace、服务日志）、「安全与权限」（什么需要批准、边界在哪：执行与权限、审批管理）、「系统」（怎么运行与排障：系统、运行环境、诊断）。渠道设置只有一个菜单：Web 是渠道的一种，与外部渠道同页管理，不设独立分类和独立“Web Profile”页面。每个 section 恰好属于一个组，组名为中英双语文案；导航守卫用例断言 section、图标与分组三者一一对应，新增页面漏归组会直接失败。
+
+设置里的「技能检索」只配置技能搜索的服务商、模型与参数；技能目录是主侧栏的工作区入口，不在设置页重复。
+
 ### 共享 Agent 配置的作用域
 
 设置导航使用“助手”，不以分组名称暗示所有子页面操作都作用于所有 Agent。Agent 管理上方的“共享配置”提供共享规则编辑与默认新对话 Agent。共享规则是真实的全局 AGENTS.md，所有 Agent 都读取，专属规则在其后补充；模型、身份等明确选择优先于共享默认。编辑共享规则只保存该文件，使用固定底栏，保留最左设置导航。
@@ -1753,8 +1793,16 @@ Agent 设置分类称为“绑定的机器人”，默认列表仅显示草稿�
 
 四个功能保持独立侧栏入口，默认顺序为自动任务、计划、技能、小程序，不在内容区重复为跨页面 tabs。窗口标题栏保持 42px 与原生窗口按钮位置；页面通过 ChatHeader 发布标题及主要操作。四页搜索统一为标题栏图标，点击原位展开并聚焦，关闭或 Esc 清空搜索、收起输入框并还焦点给图标；保留的有效搜索在重新进入页面时展开，避免隐藏筛选条件。标题栏各操作仅显示单个图标，并提供中英悬浮提示与无障碍名称；创建保留在标题栏，小程序管理放在内容区数量行右侧。仅含刷新操作时直接显示刷新图标，不使用更多菜单。分类、筛选与数量显示在内容区顶部，自动任务分类、技能范围和计划状态使用直接可点的共享分段按钮，不用下拉；各筛选项直接显示对应数量，全部显示总数。自动任务与计划顶部使用相同的两行说明占位和单行筛选栏，分隔线位置跨页一致；窄窗筛选项横向滚动，统计摘要可收缩并通过悬浮提示保留全文，不因换行推高筛选栏。
 
-自动任务与计划采用稳定主从布局：左列固定 320px，选中前后与宽窗缩放时不改变列宽。普通行共用平面和细分隔线；详情通过标题、事实、正文和记录的排版层级区分。按工作区可用宽度切换列表/详情单列，提供返回入口；单列使用可用宽度。返回列表保留搜索和滚动位置，计划后台刷新不重新选中已关闭的详情。未选中对象时，右侧复用启动页 Agent City 插画与简短引导。计划状态筛选使用直接可点的共享分段按钮；详情操作栏位于标题下、正文上方，随详情标题保留在可见区域。返工编辑器在正文顶部展开，提供取消；取消丢弃本次草稿。任一返工任务缺少名称或有效步骤时，不允许添加下一项或保存，避免空任务堆积和静默忽略未填完整的任务。
+自动任务与计划采用稳定主从布局：左列固定 320px，选中前后与宽窗缩放时不改变列宽。普通行共用平面和细分隔线；详情通过标题、事实、正文和记录的排版层级区分。按工作区可用宽度切换列表/详情单列，提供返回入口；单列使用可用宽度。返回列表保留搜索和滚动位置，计划后台刷新不重新选中已关闭的详情。未选中对象时，右侧复用启动页 Agent City 插画与简短引导。计划状态筛选使用直接可点的共享分段按钮；详情操作栏位于标题下、正文上方，随详情标题保留在可见区域。返工编辑器在正文顶部展开，提供取消；取消丢弃本次草稿。任一返工任务缺少名称或有效步骤时，不允许添加下一项或保存，避免空任务堆积和静默忽略未填完整的任务。默认主题下三个工作区左列（自动任务、计划、技能列表模式）共用同一行语言：平面行、发丝分隔线、圆角交互形与软选中（见选中语言小节），技能卡片只保留在关闭详情的网格视图中，高程在那里表达网格语义；其他主题保持共享样式表的各自渲染。
 
 技能使用与其他工作区一致的中性卡片表面，不使用绿色侧边线或额外状态强调；启停由共享开关表达。技能使用紧凑卡片网格，正文为标题与两行短说明，底部整合范围、启停状态、开关及内置更新入口；完整说明、路径和内部 ID 只在详情展示。点击卡片（或聚焦后 Enter/空格）就地展开技能详情：卡片网格 FLIP 成 320px 竖向列表，右侧详情按「列表 · 内容 · 目录」三区布局——中列自上而下是标题、完整说明、路径与 YAML 元信息（嵌套项以点号展开为独立行）、版本与文件修改时间、内置版本状态，以及所选文件内容；右列是技能目录树，显示相对路径与大小、目录优先，缩进表达层级。目录中的文本文件可在中列只读预览，Markdown 渲染、其它文本用等宽只读框，超过 256 KB 截断，二进制文件明确说明无法预览。关闭详情后卡片再 FLIP 回原网格位置；窄窗折叠为单列并在详情内提供返回入口。详情数据按需从单个技能的详情接口读取，列表接口继续保持无路径。技能管理统一在此页面：内置技能的安装、更新和覆盖本地修改复用现有卡片操作位，版本与备份说明留在详情；未安装的内置技能同样以现有卡片呈现，不另设管理面板。设置中的 Skills 入口只保留技能搜索配置及其固定保存栏。四页均在内容区顶部展示页面说明，使用共享说明样式与本地化文案。技能与自动任务、计划一样使用全宽内容区，不收窄到 1240px 内容列：说明、筛选栏分隔线和卡片网格左右边界一致地铺满可用宽度，只在左右各留统一页面内边距。小程序说明、数量横线、启动台与管理页必须处于同一限宽容器，容器沿用 1240px 内容列上限，不随宽窗口铺满整页。小程序保持图标启动台，数量行左侧显示已安装与启用数量，右侧显示管理图标，标题栏只保留搜索；进入管理页后，原管理图标位置切换为返回启动台图标；数量与返回共用同一工具栏，不移到标题栏。小程序 AI 入口使用管理工具栏中的设置图标按钮，悬浮显示名称与路由说明，不使用通栏卡片。调度启停、当前执行与最近结果分别表达，不将周期任务上次成功等同于整个任务完成；异常反馈保持可见。
 
 结构、操作顺序和信息层级跨主题一致；字体、圆角、边框、阴影和材质沿用共享 token。选中背景与文字分别使用 --selection-bg 和 --on-selection，状态配文字或图标。允许主题字体和中英文引起正常换行；中文标题不使用负字距，时间使用表格数字。验证覆盖 macOS 明暗、Terminal、Windows 98、Brutalism、浅色强调与导入主题，以及窄窗和键盘操作。
+
+### 会话系统状态条
+
+桌面对话时间线将运行结果显示为居中的系统状态条，以细分隔线、状态图标及明确文字区分已完成、失败、已停止和等待审批。每个用户回合汇总一条最终状态；有对应运行回执时，以该渠道、会话及 run 的最终结果为准，不用回执中的 finalText 补造缺失正文。请求失败后成功的回合标记已完成并保留恢复诊断，不把中间请求失败误标为整轮失败。错误以纯文本展示在状态条下，长文本换行；不采用助手头像或消息气泡。只有状态的消息不生成空白助手行。已完成但没有可展示回复时说明缺失正文；外部回合只有输入且无结果时显示尚未收到运行结果，不能推断正在执行或已经失败。对话读取失败单独显示为加载错误，保留缓存。普通、项目、房间及外部对话复用共享时间线；中英、明暗主题与窄窗口保持一致。状态是展示数据，不以模型 system 消息注入或回灌。
+
+### Desktop application identity
+
+通用设置中的 Logo 选择同时控制应用内形象、运行中的 macOS 应用图标（Dock / 应用切换器）和菜单栏图标。17 个形象均保留：系统大图标保留每张原图的异形轮廓、透明度和完整构图，仅等比缩放，不添加背景、圆角底板、蒙版或裁切；菜单栏使用独立透明小尺寸彩色版本（44px 资源，由系统托盘库显示为 18pt），不带大图标底板。通用外观区域依次排列主题选择、主题导入、Logo，主题相关设置保持相邻。设置网格预览系统大图标；聊天头像保留透明原图。选择按设备保存在桌面偏好中，原生启动即恢复；更新期间禁用重复提交，失败保留已确认选择并提供中英错误提示。Finder / 安装包图标由打包资源决定。

@@ -1,8 +1,7 @@
 import type { RuntimeSettings, ChannelInstanceSettings } from "$lib/server/settings";
 import type {
   DesktopWebProfile,
-  DesktopWebProfilePatch,
-  DesktopWebProfileSaveRequest
+  DesktopWebProfilePatch
 } from "$lib/shared/desktop";
 
 /**
@@ -16,38 +15,6 @@ export function resolveDesktopWebProfiles(settings: RuntimeSettings): DesktopWeb
   const agents = Array.isArray(settings.agents) ? settings.agents : [];
 
   return instances.map((instance) => summarizeDesktopWebProfile(instance, agents));
-}
-
-export function saveDesktopWebProfile(
-  settings: RuntimeSettings,
-  request: DesktopWebProfileSaveRequest
-): ChannelInstanceSettings[] {
-  const id = String(request.id ?? "").trim();
-  const previousId = String(request.previousId ?? "").trim();
-  const agentId = String(request.agentId ?? "").trim();
-  if (!id) throw new Error("profileId is required");
-  if (agentId && !settings.agents.some((agent) => agent.id === agentId)) throw new Error(`Agent not found: ${agentId}`);
-  const instances = Array.isArray(settings.channels?.web?.instances) ? settings.channels.web.instances : [];
-  const current = instances.find((instance) => instance.id === (previousId || id));
-  const next: ChannelInstanceSettings = {
-    ...(current ?? { credentials: {}, allowedChatIds: [] }),
-    id,
-    name: String(request.name ?? "").trim() || id,
-    enabled: request.enabled !== false,
-    agentId,
-    permissionMode: request.permissionMode === null || request.permissionMode === undefined
-      ? undefined
-      : request.permissionMode
-  };
-  return [...instances.filter((instance) => instance.id !== id && instance.id !== previousId), next];
-}
-
-export function deleteDesktopWebProfile(settings: RuntimeSettings, profileId: string): ChannelInstanceSettings[] {
-  const id = String(profileId ?? "").trim();
-  if (!id) throw new Error("profileId is required");
-  const instances = Array.isArray(settings.channels?.web?.instances) ? settings.channels.web.instances : [];
-  if (!instances.some((instance) => instance.id === id)) throw new Error(`Web profile not found: ${id}`);
-  return instances.filter((instance) => instance.id !== id);
 }
 
 /**

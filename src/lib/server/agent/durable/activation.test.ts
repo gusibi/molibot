@@ -38,7 +38,7 @@ test("activation persists the source link and starts through the versioned queue
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-activation-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const activated = await activateDurableExecution({
       message: "Keep working across sessions on the launch plan.",
       ownerId: "owner-1",
@@ -65,7 +65,7 @@ test("automatic activation respects the unfinished-task quota while explicit for
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-quota-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const request = {
       message: "Keep working across sessions on the launch plan.",
       ownerId: "owner-1",

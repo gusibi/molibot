@@ -257,7 +257,7 @@
                         "本页只维护模型清单、能力标注和默认模型。"
                     ]
                 },
-                "azure-openai-responses": {
+                "azure": {
                     modeLabel: "平台凭据",
                     summary: "Azure OpenAI 通常需要 endpoint + deployment + key/credential 组合，不是单一 API Key。",
                     steps: [
@@ -431,7 +431,7 @@
                         "Maintain model listings, capability tags, and default model here."
                     ]
                 },
-                "azure-openai-responses": {
+                "azure": {
                     modeLabel: "Credentials",
                     summary: "Azure OpenAI requires endpoint + deployment + key/credential, not a single API Key.",
                     steps: [
@@ -608,11 +608,11 @@
             : providerId === "google-gemini-cli" ? guides["google-gemini-cli"]
             : providerId === "google-antigravity" ? guides["google-antigravity"]
             : providerId === "github-copilot" ? guides["github-copilot"]
-            : providerId === "azure-openai-responses" ? guides["azure-openai-responses"]
+            : providerId === "azure" ? guides["azure"]
             : null;
 
         if (guideTemplate) {
-            const mode = providerId === "azure-openai-responses" ? "platform" : "oauth";
+            const mode = providerId === "azure" ? "platform" : "oauth";
             return {
                 mode,
                 modeLabel: guideTemplate.modeLabel,
@@ -624,7 +624,7 @@
                      : providerId === "google-gemini-cli" ? [{ label: "Google AI Studio", url: "https://aistudio.google.com/" }]
                      : providerId === "google-antigravity" ? [{ label: "Google Cloud", url: "https://console.cloud.google.com/" }]
                      : providerId === "github-copilot" ? [{ label: "GitHub Copilot", url: "https://github.com/features/copilot" }]
-                     : providerId === "azure-openai-responses" ? [{ label: "Azure OpenAI Docs", url: "https://learn.microsoft.com/azure/ai-services/openai/" }]
+                     : providerId === "azure" ? [{ label: "Azure OpenAI Docs", url: "https://learn.microsoft.com/azure/ai-services/openai/" }]
                      : undefined
             };
         }

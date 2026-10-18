@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,7 +7,7 @@ const root = mkdtempSync(join(tmpdir(), "molibot-plan-api-"));
 Object.assign(process.env, { DATA_DIR: root, DB_DIR: join(root, "db"), SETTINGS_DB_FILE: join(root, "settings.sqlite"), SETTINGS_FILE: join(root, "settings.json"), SESSIONS_DIR: join(root, "sessions"), SESSIONS_INDEX_FILE: join(root, "sessions", "index.json"), WEB_WORKSPACE_DIR: join(root, "web"), PI_CODING_AGENT_DIR: join(root, "pi"), MOLIBOT_DISABLE_EXTERNAL_CHANNELS: "1" });
 const { GET, POST } = await import("./+server.js");
 const { getRuntime } = await import("$lib/server/app/runtime.js");
-const { durableExecutionEventsDir } = await import("$lib/server/agent/durable/events.js");
+const { getDurableExecutionStore } = await import("$lib/server/agent/durable/store.js");
 const { config } = await import("$lib/server/app/env.js");
 assert.equal(config.dataDir, root);
 const { storageMigrationStatus, confirmStorageMigration } = await import("$lib/server/sessions/agentStorageLifecycle.js");
@@ -43,7 +43,7 @@ test("public plan API saves 31 steps, previews a version, approves once into B S
   assert.equal(saved.binding.sessionId, receiver.id);
   assert.equal(saved.execution.sourceUiSessionId, source.id);
   assert.equal(saved.tasks[0].steps.length, 31);
-  assert.equal(readdirSync(durableExecutionEventsDir(root)).filter(name => name.includes(item.execution.id)).length, 1);
+  assert.equal(getDurableExecutionStore().pendingWakeups(item.execution.id).length, 1);
   const cancel = await post({ action: "cancel", planId: item.execution.id, expectedVersion: saved.execution.version, actionId: "cancel-api-plan" });
   assert.equal(cancel.body.item.execution.status, "cancelled");
   const removed = await post({ action: "delete", planId: item.execution.id, expectedVersion: cancel.body.item.execution.version });

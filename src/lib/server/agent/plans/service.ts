@@ -127,10 +127,14 @@ export class PlanService {
 
   subscribe(listener: () => void): () => void { return this.store.subscribe(listener); }
 
+  /** Read-only executor diagnostics for the plan detail page. */
+  diagnostics(ownerId: string, planId: string) {
+    return this.coordinator.diagnostics(ownerId, planId);
+  }
+
   approve(input: { ownerId: string; planId: string; expectedVersion: number; sessionId: string; agentId: string; mode: "manual" | "accept_edits" }): PlanDetail {
     this.read(input.ownerId, input.planId);
     this.store.bindPlan(input);
-    this.coordinator.ensureQueuedEvents(input.ownerId);
     return this.read(input.ownerId, input.planId);
   }
 

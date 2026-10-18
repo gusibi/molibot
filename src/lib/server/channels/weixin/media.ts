@@ -200,15 +200,15 @@ function extensionFromMime(mimeType: string): string {
   return match?.[0] ?? ".bin";
 }
 
-function buildImageFilename(messageId: number | undefined, index: number, mimeType: string): string {
+function buildImageFilename(messageId: number | string | undefined, index: number, mimeType: string): string {
   return `weixin_${messageId}_${index}${extensionFromMime(mimeType)}`;
 }
 
-function buildVoiceFilename(messageId: number | undefined, index: number): string {
+function buildVoiceFilename(messageId: number | string | undefined, index: number): string {
   return `weixin_${messageId}_${index}.silk`;
 }
 
-function buildVideoFilename(messageId: number | undefined, index: number): string {
+function buildVideoFilename(messageId: number | string | undefined, index: number): string {
   return `weixin_${messageId}_${index}.mp4`;
 }
 

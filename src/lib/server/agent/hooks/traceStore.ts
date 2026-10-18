@@ -364,6 +364,32 @@ export class SqliteTraceStore {
     return this.listFactsByColumn("session_id", sessionId);
   }
 
+  /** Complete date-window projection for analytics; excludes previews and raw payloads. */
+  listAnalyticsFacts(startDate: string, endDate: string, timeZone: string): TraceFactRecord[] {
+    const shift = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+    const formatter = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+    // The indexed UTC candidate range includes both sides of every supported timezone.
+    const rows = this.db.prepare(`
+      SELECT f.id, f.fact_type, f.run_id, f.fact_id, f.channel, f.bot_id, f.chat_id, f.session_id,
+        f.name, f.provider, f.model, f.api, f.status, f.duration_ms,
+        f.input_tokens, f.output_tokens, f.cache_read_tokens, f.cache_write_tokens, f.total_tokens,
+        f.created_at, f.updated_at,
+        json_object('estimatedCostUsd', json_extract(f.payload_json, '$.estimatedCostUsd'),
+          'level', json_extract(f.payload_json, '$.level'),
+          'scope', json_extract(f.payload_json, '$.scope'),
+          'agentId', COALESCE(NULLIF(json_extract(f.payload_json, '$.agentId'), ''),
+            (SELECT json_extract(r.payload_json, '$.agentId') FROM agent_trace_facts r
+             WHERE r.run_id = f.run_id AND r.fact_type = 'run' LIMIT 1))) AS payload_json
+      FROM agent_trace_facts f
+      WHERE f.created_at >= ? AND f.created_at < ?
+      ORDER BY f.created_at DESC, f.seq DESC
+    `).all(`${shift(startDate, -1)}T00:00:00.000Z`, `${shift(endDate, 2)}T00:00:00.000Z`) as TraceFactRow[];
+    return rows.filter(row => {
+      const day = formatter.format(new Date(row.created_at));
+      return day >= startDate && day <= endDate;
+    }).map(row => this.mapFactRow(row));
+  }
+
   listRecentFacts(limit = 5000): TraceFactRecord[] {
     const safeLimit = Math.max(1, Math.min(10000, Math.trunc(limit)));
     const rows = this.db.prepare(`

@@ -6,6 +6,7 @@
   import Gear from "reicon-svelte/icons/Gear";
   import { tick } from "svelte";
   import type { Translation } from "../i18n";
+  import { appLogo } from "../stores/appLogo.svelte";
   import ConversationRow from "../chat/ConversationRow.svelte";
   import GroupHeader from "../chat/GroupHeader.svelte";
   import SidebarShell from "../chat/SidebarShell.svelte";
@@ -168,7 +169,7 @@
       <span>{copy.chat}</span>
     </button>
     <button class="sidebar-footer" type="button" onclick={openSettings}>
-      <img class="sidebar-avatar" src="/molibot-icon.png" alt="" aria-hidden="true" width="20" height="20" />
+      <img class="sidebar-avatar" src={appLogo.src} alt="" aria-hidden="true" width="20" height="20" />
       <span class="sidebar-footer-info">Molibot</span>
       <Gear size={16} aria-hidden="true" />
     </button>

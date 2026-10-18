@@ -1,3 +1,5 @@
+import { dateKeys, shiftDateKey } from "$lib/server/usage/timeWindow";
+import type { DesktopModelOutcomes } from "$lib/shared/desktop";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import type {
   DesktopAgentActivityItem,
@@ -11,7 +13,9 @@ import type {
   DesktopTraceSkillRow,
   DesktopTraceSummary,
   DesktopTraceToolRow,
-  DesktopTraceTotals
+  DesktopTraceTotals,
+  DesktopTracePerformance,
+  DesktopTraceTrendPoint
 } from "$lib/shared/desktop";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 
@@ -26,7 +30,8 @@ export interface DesktopTraceQuery {
   chatId: string;
   sessionId: string;
   runId: string;
-  sourceLimit: number;
+  agentId: string;
+  modelId: string;
   page: number;
   pageSize: number;
 }
@@ -46,7 +51,8 @@ export function sanitizeDesktopTraceQuery(input: Partial<Record<keyof DesktopTra
     chatId: String(input.chatId ?? "").trim(),
     sessionId: String(input.sessionId ?? "").trim(),
     runId: String(input.runId ?? "").trim(),
-    sourceLimit: Math.max(1000, Math.min(10000, Math.round(Number(input.sourceLimit) || 5000))),
+    agentId: String(input.agentId ?? "").trim(),
+    modelId: String(input.modelId ?? "").trim(),
     page: Math.max(1, Math.round(Number(input.page) || 1)),
     pageSize: Math.max(10, Math.min(100, Math.round(Number(input.pageSize) || 20)))
   };
@@ -56,18 +62,8 @@ function safeString(value: string | undefined, fallback = "unknown"): string {
   return String(value ?? "").trim() || fallback;
 }
 
-function localDateKey(value: string | Date, timeZone: string): string {
-  const date = typeof value === "string" ? new Date(value) : value;
-  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-}
-
-function shiftDateKey(dateKey: string, deltaDays: number): string {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day + deltaDays)).toISOString().slice(0, 10);
-}
-
 export function resolveDesktopTraceWindow(range: DesktopTraceRange, timeZone: string): { startDate: string; endDate: string } {
-  const today = localDateKey(new Date(), timeZone);
+  const today = dateKeys(timeZone)(new Date());
   if (range === "today") return { startDate: today, endDate: today };
   if (range === "yesterday") {
     const yesterday = shiftDateKey(today, -1);
@@ -88,12 +84,78 @@ function skillLevel(fact: TraceFactRecord): "triggered" | "loaded" | "executed" 
   return "triggered";
 }
 
+function countOutcomes(facts: TraceFactRecord[]): DesktopModelOutcomes {
+  const counts: DesktopModelOutcomes = { success: 0, error: 0, pending: 0, aborted: 0, blocked: 0, other: 0 };
+  for (const fact of facts) {
+    const key = fact.status === "started" || fact.status === "waiting" ? "pending" : fact.status === "info" || fact.status === "warning" ? "other" : fact.status;
+    counts[key] += 1;
+  }
+  return counts;
+}
+
+export function modelOutcomes(facts: TraceFactRecord[]): DesktopModelOutcomes {
+  return countOutcomes(facts.filter(fact => fact.factType === "model_call"));
+}
+
+function tracePerformance(facts: TraceFactRecord[]): DesktopTracePerformance {
+  const runs = new Map<string, TraceFactRecord>();
+  const result: DesktopTracePerformance = { runOutcomes: modelOutcomes([]), estimatedCostUsd: null, pricedModelCalls: 0, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  for (const fact of facts) {
+    if (fact.factType === "run") {
+      const previous = runs.get(fact.runId);
+      if (!previous || previous.updatedAt < fact.updatedAt) runs.set(fact.runId, fact);
+    }
+    if (fact.factType !== "model_call") continue;
+    result.inputTokens += fact.inputTokens ?? 0;
+    result.cacheReadTokens += fact.cacheReadTokens ?? 0;
+    result.cacheWriteTokens += fact.cacheWriteTokens ?? 0;
+    const cost = fact.payload.estimatedCostUsd;
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
+      result.estimatedCostUsd = (result.estimatedCostUsd ?? 0) + cost;
+      result.pricedModelCalls += 1;
+    }
+  }
+  result.runOutcomes = countOutcomes([...runs.values()]);
+  return result;
+}
+
+function isMcpCall(fact: TraceFactRecord): boolean {
+  return fact.factType === "tool_call" && Boolean(fact.name?.startsWith("mcp__"));
+}
+
+function buildTraceTrend(facts: TraceFactRecord[], window: { startDate: string; endDate: string }, timeZone: string): DesktopTraceTrendPoint[] {
+  const hourly = window.startDate === window.endDate;
+  const localDay = dateKeys(timeZone);
+  const hour = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", hourCycle: "h23" });
+  const points = new Map<string, DesktopTraceTrendPoint>();
+  if (hourly) {
+    for (let h = 0; h < 24; h += 1) {
+      const label = `${String(h).padStart(2, "0")}:00`;
+      const key = `${window.startDate}T${label}`;
+      points.set(key, { key, label, modelCalls: 0, toolCalls: 0, mcpCalls: 0 });
+    }
+  } else {
+    for (let day = window.startDate; day <= window.endDate; day = shiftDateKey(day, 1)) points.set(day, { key: day, label: day.slice(5), modelCalls: 0, toolCalls: 0, mcpCalls: 0 });
+  }
+  for (const fact of facts) {
+    const day = localDay(fact.createdAt);
+    const point = points.get(hourly ? `${day}T${hour.format(new Date(fact.createdAt))}:00` : day);
+    if (!point) continue;
+    if (fact.factType === "model_call") point.modelCalls += 1;
+    if (fact.factType === "tool_call") point[isMcpCall(fact) ? "mcpCalls" : "toolCalls"] += 1;
+  }
+  return [...points.values()];
+}
+
 export function computeDesktopTraceTotals(facts: TraceFactRecord[]): DesktopTraceTotals {
   const toolFacts = facts.filter((fact) => fact.factType === "tool_call");
   const modelFacts = facts.filter((fact) => fact.factType === "model_call");
   const skillFacts = facts.filter((fact) => fact.factType === "skill_usage");
   const executedToolFacts = toolFacts.filter((fact) => fact.status === "success" || fact.status === "error");
   return {
+    ...tracePerformance(facts),
+    mcpCalls: toolFacts.filter(isMcpCall).length,
+    modelOutcomes: modelOutcomes(modelFacts),
     facts: facts.length,
     toolCalls: toolFacts.length,
     executedToolCalls: executedToolFacts.length,
@@ -147,13 +209,16 @@ function buildSkillRows(facts: TraceFactRecord[]): DesktopTraceSkillRow[] {
 }
 
 function buildModelRows(facts: TraceFactRecord[]): DesktopTraceModelRow[] {
-  const rows = new Map<string, DesktopTraceModelRow & { durationSum: number; durationCount: number }>();
+  const rows = new Map<string, DesktopTraceModelRow & { durationSum: number; durationCount: number; apis: Set<string> }>();
   for (const fact of facts.filter((item) => item.factType === "model_call")) {
     const provider = safeString(fact.provider);
     const model = safeString(fact.model);
     const api = safeString(fact.api);
-    const id = `${provider}::${model}::${api}`;
-    const row = rows.get(id) ?? { id, provider, model, api, requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, avgDurationMs: 0, durationSum: 0, durationCount: 0 };
+    const id = `${provider}::${model}`;
+    const row = rows.get(id) ?? { id, outcomes: modelOutcomes([]), provider, model, api, apis: new Set<string>(), requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, avgDurationMs: 0, durationSum: 0, durationCount: 0 };
+    const outcomes = modelOutcomes([fact]);
+    for (const key of Object.keys(outcomes) as (keyof DesktopModelOutcomes)[]) row.outcomes[key] += outcomes[key];
+    row.apis.add(api);
     row.requests += 1;
     row.inputTokens += fact.inputTokens ?? 0;
     row.outputTokens += fact.outputTokens ?? 0;
@@ -163,29 +228,34 @@ function buildModelRows(facts: TraceFactRecord[]): DesktopTraceModelRow[] {
     if (typeof fact.durationMs === "number") { row.durationSum += fact.durationMs; row.durationCount += 1; }
     rows.set(id, row);
   }
-  return [...rows.values()].map(({ durationSum, durationCount, ...row }) => ({ ...row, avgDurationMs: durationCount ? Math.round(durationSum / durationCount) : 0 })).sort((a, b) => b.requests - a.requests || a.model.localeCompare(b.model));
+  return [...rows.values()].map(({ durationSum, durationCount, apis, ...row }) => ({ ...row, api: [...apis].sort().join(", "), avgDurationMs: durationCount ? Math.round(durationSum / durationCount) : 0 })).sort((a, b) => b.requests - a.requests || a.model.localeCompare(b.model));
 }
 
-type EntityAccumulator = DesktopTraceEntityRow & { runIds: Set<string>; tools: Set<string> };
+type EntityAccumulator = DesktopTraceEntityRow & { facts: TraceFactRecord[]; runIds: Set<string>; tools: Set<string> };
 
-function buildEntityRows(facts: TraceFactRecord[], kind: "bot" | "chat" | "session" | "run"): DesktopTraceEntityRow[] {
+function buildEntityRows(facts: TraceFactRecord[], kind: "agent" | "channel" | "bot" | "chat" | "session" | "run"): DesktopTraceEntityRow[] {
   const rows = new Map<string, EntityAccumulator>();
   for (const fact of facts) {
-    const id = kind === "bot" ? safeString(fact.botId) : kind === "chat" ? `${fact.channel}:${fact.chatId}` : kind === "session" ? fact.sessionId : fact.runId;
+    const id = kind === "agent" ? safeString(String(fact.payload?.agentId ?? "")) : kind === "channel" ? fact.channel : kind === "bot" ? safeString(fact.botId) : kind === "chat" ? `${fact.channel}:${fact.chatId}` : kind === "session" ? fact.sessionId : fact.runId;
     const label = kind === "chat" ? fact.chatId : id;
     const secondary = kind === "bot" ? fact.channel : kind === "chat" ? fact.channel : kind === "run" ? fact.sessionId : "";
-    const row = rows.get(id) ?? { id, label, secondary, runs: 0, toolCalls: 0, modelCalls: 0, distinctTools: 0, totalTokens: 0, lastAt: fact.updatedAt, runIds: new Set(), tools: new Set() };
+    const row = rows.get(id) ?? { ...tracePerformance([]), facts: [], id, label, secondary, outcomes: modelOutcomes([]), runs: 0, toolCalls: 0, modelCalls: 0, distinctTools: 0, totalTokens: 0, lastAt: fact.updatedAt, runIds: new Set(), tools: new Set() };
     row.runIds.add(fact.runId);
+    row.facts.push(fact);
     if (fact.factType === "tool_call") { row.toolCalls += 1; row.tools.add(safeString(fact.name)); }
-    if (fact.factType === "model_call") { row.modelCalls += 1; row.totalTokens += fact.totalTokens ?? 0; }
+    if (fact.factType === "model_call") {
+      const outcomes = modelOutcomes([fact]);
+      for (const key of Object.keys(outcomes) as (keyof DesktopModelOutcomes)[]) row.outcomes[key] += outcomes[key];
+      row.modelCalls += 1; row.totalTokens += fact.totalTokens ?? 0; }
     if (fact.updatedAt > row.lastAt) row.lastAt = fact.updatedAt;
     rows.set(id, row);
   }
-  return [...rows.values()].map(({ runIds, tools, ...row }) => ({ ...row, runs: runIds.size, distinctTools: tools.size })).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  return [...rows.values()].map(({ runIds, tools, facts, ...row }) => ({ ...row, ...tracePerformance(facts), runs: runIds.size, distinctTools: tools.size })).sort((a, b) => (kind === "agent" || kind === "channel" ? b.modelCalls - a.modelCalls : 0) || b.lastAt.localeCompare(a.lastAt));
 }
 
 function projectFact(fact: TraceFactRecord): DesktopTraceFact {
   return {
+    ...(fact.payload?.agentId ? { agentId: String(fact.payload.agentId) } : {}),
     id: fact.id,
     factType: fact.factType,
     runId: fact.runId,
@@ -211,11 +281,14 @@ function projectFact(fact: TraceFactRecord): DesktopTraceFact {
 export function buildDesktopTraceSummary(timeZone: string, rawQuery: Partial<DesktopTraceQuery>, sourceFacts: TraceFactRecord[]): DesktopTraceSummary {
   const query = sanitizeDesktopTraceQuery(rawQuery);
   const window = resolveDesktopTraceWindow(query.range, timeZone);
+  const localDateKey = dateKeys(timeZone);
   const windowFacts = sourceFacts.filter((fact) => {
-    const day = localDateKey(fact.createdAt, timeZone);
+    const day = localDateKey(fact.createdAt);
     return day >= window.startDate && day <= window.endDate;
   });
   const filtered = windowFacts.filter((fact) => {
+    if (query.agentId && safeString(String(fact.payload?.agentId ?? "")) !== query.agentId) return false;
+    if (query.modelId && `${safeString(fact.provider)}::${safeString(fact.model)}` !== query.modelId) return false;
     if (query.factType !== "all" && fact.factType !== query.factType) return false;
     if (query.botId && fact.botId !== query.botId) return false;
     if (query.channel && fact.channel !== query.channel) return false;
@@ -230,16 +303,21 @@ export function buildDesktopTraceSummary(timeZone: string, rawQuery: Partial<Des
     generatedAt: new Date().toISOString(),
     range: query.range,
     window,
-    filters: { factType: query.factType, botId: query.botId, channel: query.channel, chatId: query.chatId, sessionId: query.sessionId, runId: query.runId, sourceLimit: query.sourceLimit },
+    filters: { factType: query.factType, agentId: query.agentId, modelId: query.modelId, botId: query.botId, channel: query.channel, chatId: query.chatId, sessionId: query.sessionId, runId: query.runId },
     options: {
+      models: [...new Map(windowFacts.filter(fact => fact.factType === "model_call").map(fact => [`${safeString(fact.provider)}::${safeString(fact.model)}`, `${safeString(fact.provider)} / ${safeString(fact.model)}`])).entries()].map(([value, label]) => ({ value, label })),
+      agents: [...new Set(windowFacts.map(fact => safeString(String(fact.payload?.agentId ?? ""))))].sort().map(id => ({ id, label: id })),
       bots: [...new Set(windowFacts.map((fact) => safeString(fact.botId)))].sort(),
       channels: [...new Set(windowFacts.map((fact) => fact.channel))].sort()
     },
     totals: computeDesktopTraceTotals(filtered),
+    trend: buildTraceTrend(filtered, window, timeZone),
     rankings: {
       tools: buildToolRows(filtered),
       skills: buildSkillRows(filtered),
       models: buildModelRows(filtered),
+      agents: buildEntityRows(filtered, "agent"),
+      channels: buildEntityRows(filtered, "channel"),
       bots: buildEntityRows(filtered, "bot"),
       chats: buildEntityRows(filtered, "chat"),
       sessions: buildEntityRows(filtered, "session"),

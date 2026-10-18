@@ -27,6 +27,7 @@ async function loadOptionalRuntimeModule(specifier, exportName) {
 
 const installFileLogger = await loadOptionalRuntimeModule("./runtime/file-logger.mjs", "installFileLogger");
 const installCrashHandlers = await loadOptionalRuntimeModule("./runtime/crash-report.mjs", "installCrashHandlers");
+const installParentWatchdog = await loadOptionalRuntimeModule("./runtime/parent-watchdog.mjs", "installParentWatchdog");
 
 // Publish the OS environment layer before merging any `.env`.
 //
@@ -122,6 +123,16 @@ process.once("exit", cleanup);
 process.once("sveltekit:shutdown", shutdown);
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
+
+// After the SIGTERM handler exists, so a sidecar whose supervisor is already
+// gone shuts down through the same lease-releasing path as a normal quit.
+if (process.env.MOLIBOT_DESKTOP_MANAGED === "1") {
+  try {
+    installParentWatchdog?.({ managed: true });
+  } catch (error) {
+    console.error(`[molibot] failed to start parent watchdog: ${error?.message ?? error}`);
+  }
+}
 
 try {
   writeServiceState(lease, {

@@ -9,6 +9,21 @@ import { decodePiToolDetails, encodePiToolDetails } from "$lib/server/agent/dura
 import { getPiModels, SESSION_AFFINITY_HEADER } from "$lib/server/providers/piRuntime.js";
 import { stripTransientRuntimeNoticesFromMessages } from "./runtimeNotices.js";
 
+/**
+ * Identity for attempt-window anchoring. Projection refreshes rebuild message
+ * objects, so a checkpoint message and its rebased copy compare equal only by
+ * structure: role, timestamp, and content size.
+ */
+function attemptAnchorKey(message: AgentMessage): string {
+  const content = (message as { content?: unknown }).content;
+  const size = Array.isArray(content) ? JSON.stringify(content).length : String(content ?? "").length;
+  return `${message.role}:${String((message as { timestamp?: unknown }).timestamp ?? "")}:${size}`;
+}
+
+function sameAttemptMessage(a: AgentMessage, b: AgentMessage): boolean {
+  return a === b || attemptAnchorKey(a) === attemptAnchorKey(b);
+}
+
 export interface PiRunBinding {
   storagePath: string;
   requestId: string;
@@ -47,6 +62,8 @@ export class PiRunSession {
   onPayload: AgentOptions["onPayload"];
   onResponse: AgentOptions["onResponse"];
   private binding?: PiRunBinding;
+  private recovering = false;
+  private importedMessageCount = 0;
   private runtime?: PiConversationRuntime;
   private listeners = new Set<(event: AgentEvent, signal: AbortSignal) => void | Promise<void>>();
   private controller = new AbortController();
@@ -79,7 +96,14 @@ export class PiRunSession {
 
   get signal(): AbortSignal { return this.controller.signal; }
   startTurn(): void { this.accepting = true; this.controller = new AbortController(); }
-  bindRun(binding: PiRunBinding): void { this.binding = binding; this.primaryAdmitted = false; this.hasDeferred = false; }
+  bindRun(binding: PiRunBinding): void {
+    this.binding = binding;
+    // Recovery is fixed at admission; creating storage during this run cannot change it.
+    this.recovering = existsSync(binding.storagePath);
+    this.importedMessageCount = 0;
+    this.primaryAdmitted = false;
+    this.hasDeferred = false;
+  }
   get projectionRunId(): string | undefined { return this.runtime?.projectionRunId; }
   /** Messages queued for this run (steering and follow-ups) that have not been delivered. */
   pendingMessageCount(): number { return this.queued.length + this.transient.length; }
@@ -102,7 +126,28 @@ export class PiRunSession {
       }))
     };
   }
-  get isRecovering(): boolean { return Boolean(this.binding && existsSync(this.binding.storagePath)); }
+  get isRecovering(): boolean { return this.recovering; }
+
+  /**
+   * Messages appended after a checkpoint, however the live array was rebased in
+   * between. The checkpoint is the message array captured before a prompt; a
+   * captured INDEX goes stale the moment refresh() replaces the array (recovery
+   * import, branch projection), and an index landing inside history makes old
+   * messages read as this attempt's output. Anchor on the checkpoint's tail
+   * instead and return everything after its newest occurrence. When no tail is
+   * recognizable the array was rewritten wholesale, so fall back to the imported
+   * history boundary, which still excludes imported conversation history.
+   */
+  messagesAddedSince(checkpoint: readonly AgentMessage[]): AgentMessage[] {
+    const current = this.state.messages;
+    for (let depth = 1; depth <= Math.min(checkpoint.length, 8); depth += 1) {
+      const anchor = checkpoint[checkpoint.length - depth];
+      for (let index = current.length - 1; index >= 0; index -= 1) {
+        if (sameAttemptMessage(current[index], anchor)) return current.slice(index + 1);
+      }
+    }
+    return current.slice(this.importedMessageCount);
+  }
   toolOriginFor(callId: string): AssistantMessage | undefined { return this.toolOrigins.get(callId); }
   sourceIdFor(message: AgentMessage): string | undefined { return this.sourceIds.get(message); }
   subscribe(listener: (event: AgentEvent, signal: AbortSignal) => void | Promise<void>): () => void {
@@ -125,6 +170,7 @@ export class PiRunSession {
   private async refresh(): Promise<void> {
     if (!this.runtime) return;
     const context = await this.runtime.context();
+    this.importedMessageCount = context.importedMessageCount;
     this.state.messages = context.entries.flatMap(entry => entry.model ?? []).filter(message => message.role !== "system") as AgentMessage[];
   }
 
@@ -250,13 +296,14 @@ export class PiRunSession {
         afterTool: async (call, result, api) => {
           await this.refresh();
           const assistantMessage = await this.runtime!.toolOrigin(api.taskId, call.id);
-          const hostResult = { content: result.content ?? [], ...decodePiToolDetails(result.details), usage: result.usage, isError: result.isError };
+          // pi-durable 1.3 renamed ToolExecutionResult.content to output.
+          const hostResult = { content: result.output ?? [], ...decodePiToolDetails(result.details), usage: result.usage, isError: result.isError };
           const override = await this.afterToolCall?.({ assistantMessage, toolCall: call, args: call.arguments, context: this.state,
             result: hostResult, isError: Boolean(result.isError) }, this.controller.signal);
           await this.updateTools(this.state.tools);
           if (override) {
             const merged = { ...hostResult, ...override };
-            return { ...result, content: merged.content, details: encodePiToolDetails(merged), usage: merged.usage,
+            return { ...result, output: merged.content, details: encodePiToolDetails(merged), usage: merged.usage,
               isError: merged.isError, control: { ...result.control, terminate: merged.terminate ? true as const : undefined } };
           }
         },
@@ -285,6 +332,7 @@ export class PiRunSession {
       this.controller.signal.addEventListener("abort", abort, { once: true });
       try {
         await this.runtime.open({ requestId: this.binding.requestId, content, resume: this.isRecovering });
+        this.recovering = false;
         this.controller.signal.throwIfAborted();
         await this.runtime.configure({ thinkingLevel: this.state.thinkingLevel });
         this.controller.signal.throwIfAborted();
@@ -385,6 +433,6 @@ export class PiRunSession {
     (this.state as { isStreaming: boolean }).isStreaming = false;
     this.clearAllQueues();
     try { await this.runtime?.close(); }
-    finally { this.runtime = undefined; this.binding = undefined; this.projected.clear(); this.partial = undefined; this.toolArgs.clear(); this.toolOrigins.clear(); this.primaryAdmitted = false; this.configuration = Promise.resolve(); this.ownedModels = []; this.registerProvider = undefined; }
+    finally { this.runtime = undefined; this.binding = undefined; this.recovering = false; this.importedMessageCount = 0; this.projected.clear(); this.partial = undefined; this.toolArgs.clear(); this.toolOrigins.clear(); this.primaryAdmitted = false; this.configuration = Promise.resolve(); this.ownedModels = []; this.registerProvider = undefined; }
   }
 }

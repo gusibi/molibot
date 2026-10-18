@@ -67,6 +67,9 @@ export const GET: RequestHandler = async ({ url, request }) => {
     if (url.searchParams.has("ownerId") && url.searchParams.get("ownerId") !== owner) throw new Error("Unknown plan owner.");
     const planId = String(url.searchParams.get("id") ?? "").trim();
     if (planId) {
+      if (url.searchParams.get("diagnostics") === "true") {
+        return json({ ok: true, diagnostics: plans.diagnostics(owner, planId) }, { headers: { "Cache-Control": "no-store" } });
+      }
       const planVersion = Number(url.searchParams.get("planVersion") ?? "");
       const item = plans.read(owner, planId, Number.isFinite(planVersion) && planVersion > 0 ? planVersion : undefined);
       return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });

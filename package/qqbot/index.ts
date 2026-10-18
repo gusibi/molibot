@@ -1,27 +1,23 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-
-import { qqbotPlugin } from "./src/channel.js";
-import { setQQBotRuntime } from "./src/runtime.js";
-
-const plugin = {
-  id: "qqbot",
-  name: "QQ Bot",
-  description: "QQ Bot channel plugin",
-  configSchema: emptyPluginConfigSchema(),
-  register(api: OpenClawPluginApi) {
-    setQQBotRuntime(api.runtime);
-    api.registerChannel({ plugin: qqbotPlugin });
-  },
-};
-
-export default plugin;
-
-export { qqbotPlugin } from "./src/channel.js";
-export { setQQBotRuntime, getQQBotRuntime } from "./src/runtime.js";
-export { qqbotOnboardingAdapter } from "./src/onboarding.js";
-export * from "./src/types.js";
-export * from "./src/api.js";
-export * from "./src/config.js";
-export * from "./src/gateway.js";
-export * from "./src/outbound.js";
+/**
+ * @molipibot/qqbot — QQ Bot 渠道适配层
+ *
+ * 基于 @tencent-connect/qqbot-nodejs（腾讯官方协议层 SDK）封装，
+ * 为 molipibot 提供网关事件流（onEvent 模式）与出站发送能力。
+ */
+export { ADAPTER_VERSION } from "./src/types.js";
+export type { QQBotAccountConfig, ResolvedQQBotAccount } from "./src/types.js";
+export { startGateway } from "./src/gateway.js";
+export type { GatewayContext, GatewayEvent } from "./src/gateway.js";
+export {
+  sendText,
+  sendMedia,
+  sendProactiveMessage,
+  parseTarget,
+  inferMediaFileType,
+  resolveUserFacingMediaError,
+  OUTBOUND_ERROR_CODES,
+  DEFAULT_MEDIA_SEND_ERROR,
+} from "./src/outbound.js";
+export type { OutboundContext, MediaOutboundContext, OutboundResult, OutboundErrorCode } from "./src/outbound.js";
+export { initApiConfig, clearTokenCache, getAccessToken, MediaFileType } from "./src/api.js";
+export type { UploadMediaResponse } from "./src/api.js";

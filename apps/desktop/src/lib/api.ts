@@ -157,6 +157,8 @@ import type {
   DesktopPlanActionResponse,
   DesktopPlanDetail,
   DesktopPlanDetailResponse,
+  DesktopPlanDiagnostics,
+  DesktopPlanDiagnosticsResponse,
   DesktopPlanListItem,
   DesktopPlanListResponse,
   DesktopThinkingLevel,
@@ -170,7 +172,6 @@ import type {
   DesktopUsageSummary,
   DesktopWebProfile,
   DesktopWebProfilePatch,
-  DesktopWebProfileSaveRequest,
   DesktopWebProfilesResponse
 } from "@molibot/desktop-contract";
 
@@ -1041,22 +1042,6 @@ export async function patchDesktopWebProfile(
   return payload.profile;
 }
 
-export async function saveDesktopWebProfile(
-  endpoint: string,
-  profile: DesktopWebProfileSaveRequest
-): Promise<DesktopWebProfile> {
-  const payload = await requestJson<{ ok: true; profile: DesktopWebProfile }>(endpoint, "/api/desktop/profiles", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(profile)
-  });
-  return payload.profile;
-}
-
-export async function deleteDesktopWebProfile(endpoint: string, profileId: string): Promise<void> {
-  await requestJson<{ ok: true }>(endpoint, `/api/desktop/profiles?id=${encodeURIComponent(profileId)}`, { method: "DELETE" });
-}
-
 export interface InferredModelMatchResponse {
   ok: boolean;
   matched: boolean;
@@ -1090,39 +1075,10 @@ export async function matchModelCapabilities(
 }
 
 
-export async function loadDesktopProfileFiles(endpoint: string, profileId: string): Promise<Record<string, string>> {
-  const query = new URLSearchParams({ profileId });
-  const payload = await requestJson<DesktopProfileFilesResponse>(endpoint, `/api/desktop/profile-files?${query.toString()}`);
-  return payload.files;
-}
-
-export async function saveDesktopProfileFiles(
-  endpoint: string,
-  profileId: string,
-  files: Record<string, string>
-): Promise<Record<string, string>> {
-  const payload = await requestJson<DesktopProfileFilesResponse>(endpoint, "/api/desktop/profile-files", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profileId, files })
-  });
-  return payload.files;
-}
-
-/** True when at least one Web Profile is enabled — the precondition for Chat. */
-export function hasEnabledWebProfile(profiles: DesktopWebProfile[]): boolean {
-  return profiles.some((profile) => profile.enabled);
-}
-
-/** Normalizes a profile name, falling back to the id when blank. */
-export function sanitizeWebProfileName(name: string, fallbackId: string): string {
-  const trimmed = String(name ?? "").trim();
-  return trimmed || fallbackId;
-}
-
 export interface DesktopUsageQuery {
   range: DesktopUsageRange;
   modelId: string;
+  agentId: string;
   botId: string;
   channel: string;
   page: number;
@@ -1133,6 +1089,7 @@ export async function loadDesktopUsage(endpoint: string, query: DesktopUsageQuer
   const params = new URLSearchParams({
     range: query.range,
     modelId: query.modelId,
+    agentId: query.agentId,
     botId: query.botId,
     channel: query.channel,
     page: String(Math.max(1, query.page)),
@@ -1195,7 +1152,8 @@ export interface DesktopTraceQuery {
   chatId: string;
   sessionId: string;
   runId: string;
-  sourceLimit: number;
+  agentId: string;
+  modelId: string;
   page: number;
   pageSize: number;
 }
@@ -1209,7 +1167,8 @@ export async function loadDesktopTrace(endpoint: string, query: DesktopTraceQuer
     chatId: query.chatId,
     sessionId: query.sessionId,
     runId: query.runId,
-    sourceLimit: String(Math.max(1000, Math.min(10000, query.sourceLimit))),
+    agentId: query.agentId,
+    modelId: query.modelId,
     page: String(Math.max(1, query.page)),
     pageSize: String(Math.max(10, Math.min(100, query.pageSize)))
   });
@@ -1455,6 +1414,14 @@ export async function loadDesktopPlans(
 export async function loadDesktopPlan(endpoint: string, planId: string): Promise<DesktopPlanDetail> {
   const payload = await requestJson<DesktopPlanDetailResponse>(endpoint, "/api/desktop/plans?id=" + encodeURIComponent(planId));
   return payload.item;
+}
+
+export async function loadDesktopPlanDiagnostics(endpoint: string, planId: string): Promise<DesktopPlanDiagnostics> {
+  const payload = await requestJson<DesktopPlanDiagnosticsResponse>(
+    endpoint,
+    "/api/desktop/plans?diagnostics=true&id=" + encodeURIComponent(planId)
+  );
+  return payload.diagnostics;
 }
 
 export async function runDesktopPlanAction(endpoint: string, input: DesktopPlanActionRequest): Promise<DesktopPlanActionResponse> {

@@ -22,6 +22,7 @@ const listSvelteSources = (dir = new URL("./", import.meta.url)) => readdirSync(
 });
 const view = read("./ChatView.svelte");
 const app = read("./App.svelte");
+const appFooterMark = read("./lib/components/AppFooterMark.svelte");
 const i18n = read("./lib/i18n.ts");
 const styles = baseStyles + "\n" + read("./plans.css") + "\n" + read("./workspaces.css") + "\n" + themeStyles + "\n" + recipeStyles;
 
@@ -51,7 +52,6 @@ const sections = {
   mcp: read("./lib/settings/McpSection.svelte"),
   openConnector: read("./lib/settings/OpenConnectorSection.svelte"),
   channels: read("./lib/settings/ChannelsSection.svelte"),
-  profiles: read("./lib/settings/ProfilesSection.svelte"),
   tasks: read("./lib/settings/TasksSection.svelte"),
   skills: read("./lib/chat/InstalledSkillsPane.svelte"),
   memory: read("./lib/settings/MemorySection.svelte"),
@@ -263,7 +263,6 @@ test("reported Desktop settings pages use the shared macOS-style IosSwitch", () 
     "VideoGenerateSection",
     "TtsGenerateSection",
     "HostBashSection",
-    "ProfilesSection",
     "WebSearchSection",
     "PluginsSection"
   ];
@@ -298,7 +297,6 @@ test("entity settings editors use the shared dialog shell with a dedicated scrol
   assert.match(styles, /:where\(\.desktop-dialog-overlay\)\s*\{[^}]*position:\s*fixed[^}]*inset:\s*0/s);
   assert.match(styles, /:where\(\.desktop-dialog-content\)\s*\{[^}]*position:\s*fixed[^}]*left:\s*50%[^}]*top:\s*50%[^}]*transform:\s*translate\(-50%,\s*-50%\)/s);
   for (const [name, section] of Object.entries({
-    Profile: sections.profiles,
     Channel: sections.channels,
     MCP: sections.mcp
   })) {
@@ -310,6 +308,23 @@ test("entity settings editors use the shared dialog shell with a dedicated scrol
   // The 720px/86vh override rides the same zero-specificity base as every other
   // dialog variant, so it needs no compound selector.
   assert.match(styles, /\.entity-editor-dialog\s*\{[^}]*width:\s*min\(720px/s);
+});
+
+test("the channel bot editor configures per-bot display overrides with follow-global defaults", () => {
+  const store = read("./lib/stores/channels.svelte.ts");
+  // Every display field edits the instance display override; inherit clears it.
+  assert.match(sections.channels, /channelDisplaySection/);
+  assert.match(sections.channels, /channelEdit\.display\.toolProgress \?\? "inherit"/);
+  assert.match(sections.channels, /channelEdit\.display\.showReasoning \?\? "inherit"/);
+  assert.match(sections.channels, /channelEdit\.display\.runLogNotice === undefined \? "inherit"/);
+  assert.match(sections.channels, /channelEdit\.display\.gatewayNotifyInterval \?\? ""/);
+  // Inherit options surface the current global value instead of a blind choice.
+  assert.match(sections.channels, /channelsStore\.channels\?\.defaults/);
+  assert.match(sections.channels, /channelFollowGlobal/);
+  // The editor round-trips display: opened from the instance, saved with the request.
+  assert.match(store, /display: \{ \.\.\.\(instance\.display \?\? \{\}\) \}/);
+  assert.match(store, /display: channelEdit\.display/);
+  assert.match(store, /display: \{\} as DesktopChannelDisplaySettings/);
 });
 
 test("the dialog base defaults stay zero-specificity so contentClass variants win the cascade", () => {
@@ -996,7 +1011,7 @@ test("installed Skills recomputes its card list when async store data arrives", 
   assert.doesNotMatch(sections.skills, /\$: filteredSkills/);
 });
 
-const formSectionKey = { mcp: "mcp", channel: "channels", profile: "profiles", task: "tasks", memory: "memory" };
+const formSectionKey = { mcp: "mcp", channel: "channels", task: "tasks", memory: "memory" };
 
 test("chat composer keeps keyboard guidance in the textarea placeholder", () => {
   assert.match(view, /placeholder=\{sending \? copy\.queueHint : copy\.enterHint\}/);
@@ -1047,7 +1062,14 @@ test("issue 13 settings pages share a title and product description header", () 
   assert.match(app, /sectionDescription\(activeSection, text\)/);
   assert.match(app, /<PageHeader[^>]*description=\{sectionDescription\(activeSection, text\)\}/);
   assert.match(pageHeader, /class="toolbar-edge"/);
-  assert.match(app, /settings-sidebar-footer-copy[\s\S]*serviceStateLabel/);
+  // The settings sidebar footer mirrors the chat sidebar's: the shared
+  // AppFooterMark (status dot on the logo, no idle status line) plus a single
+  // trailing control — the Agent glyph (same users2-duotone as the sidebar's
+  // Agent entry) that leaves settings for the default agent's page.
+  assert.match(app, /settings-sidebar-footer[\s\S]*?<AppFooterMark copy=\{text\} serviceState=\{status\?\.service\.state \?\? "disconnected"\} \/>[\s\S]*?goToAgents/);
+  assert.match(app, /<Users2 size=\{16\} \/>/);
+  assert.match(app, /function openAgentsFromSettings/);
+  assert.match(app, /chatView\?\.openDefaultAgentPage\(\)/);
 });
 
 test("decision model settings keep provider integrations separate from use-case selection", () => {
@@ -1137,11 +1159,8 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   assert.match(view, /agentName=\{activeExternalAgentName\}/);
   assert.match(chatMessagesPane, /export let agentName = ""/);
   assert.doesNotMatch(projectChat, /agentName=/);
-  // A completed turn is a quiet double-check, not a text badge that restates the
-  // turn summary one line below.
-  assert.match(transcript, /assistantStatus === "complete"[\s\S]*?class="assistant-status-check"[\s\S]*?copy\.assistantStatusComplete/);
-  assert.match(styles, /\.assistant-status-check \{[^}]*color: var\(--online\)/);
-  assert.doesNotMatch(styles, /\.assistant-status\.complete/);
+  assert.match(transcript, /<ConversationStatus status=\{turnStatuses.get\(index\)!\}/);
+  assert.match(styles, /\.conversation-system-status-line::before/);
   // The composer content column still caps at the 720px reading width, but the
   // wrap carries the same horizontal inset as .messages so it never sits flush
   // against the pane edges on narrower surfaces (e.g. project chat).
@@ -2585,8 +2604,11 @@ test("chat header is single-line and service status lives on the sidebar logo", 
   assert.doesNotMatch(view, /class="chat-title-sub"[\s\S]*copy\.statusOnline/);
   assert.doesNotMatch(view, /aria-label=\{copy\.openSettings\} title=\{copy\.openSettings\}/);
   assert.match(view, /serviceState=\{serviceState\}/);
-  assert.match(chatSidebar, /sidebar-footer-logo-wrap/);
-  assert.match(chatSidebar, /data-state=\{serviceState\}/);
+  // The status-dot logo lives once, in the shared AppFooterMark; the sidebar
+  // only composes it.
+  assert.match(appFooterMark, /sidebar-footer-logo-wrap/);
+  assert.match(appFooterMark, /data-state=\{serviceState\}/);
+  assert.match(chatSidebar, /<AppFooterMark copy=\{copy\} serviceState=\{serviceState\} \/>/);
 });
 
 // The sidebar footer is a control, not a status panel: the avatar's dot already
@@ -2605,6 +2627,11 @@ test("sidebar footer drops the divider and status line but keeps status accessib
   const sharedFooterRule = styles.match(/\.sidebar-footer \{([^}]*)\}/)?.[1] ?? "";
   assert.doesNotMatch(sharedFooterRule, /border-top:/, "the shared footer rule must stay divider-free");
   assert.match(chatSidebar, /\.sidebar-footer :global\(\.sidebar-footer-gear\) \{ color: var\(--label-secondary/, "the settings gear must read at the secondary label rank");
+  // The logo + status-dot treatment is the shared mark's job: no per-panel copy
+  // may re-introduce it in the shared sheet (that drift is what this component
+  // exists to prevent).
+  assert.doesNotMatch(styles, /sidebar-footer-logo-wrap/, "the status-dot logo must stay in the shared AppFooterMark, not per-panel sheets");
+  assert.doesNotMatch(app, /settings-sidebar-footer-copy/, "the settings footer must not grow its own status line");
 });
 
 test("external transcripts merge source and read-only status into the footer", () => {
@@ -2802,20 +2829,59 @@ test("task and skill categories use shared accessible selectors within independe
   assert.doesNotMatch(sections.skills, /role="tablist"/);
 });
 
-// Strong selection (a picked card/row) is a shared semantic, not a per-page
-// colour: it resolves through --selection-bg / --on-selection, defaults to the
-// accent pair, and a family may remap it — Raft paints its pairing pink.
+// Strong selection (a picked row) is a shared semantic, not a per-page colour:
+// it resolves through --selection-bg / --on-selection, defaults to the accent
+// pair, and a family may remap it — Raft paints its pairing pink. Every theme
+// keeps that solid rendering (character families own their picked-item look);
+// the default macOS family alone re-renders workspace selections as a soft
+// wash + hairline ring derived from the same pair, labels on the canvas ramp.
 test("strong selection resolves through tokens; Raft maps it to the pairing pink", () => {
   assert.match(styles, /--selection-bg:\s*var\(--accent\)/);
   assert.match(styles, /--on-selection:\s*var\(--on-accent\)/);
+  // Cross-theme base: the solid pair, labels flipped to the on-selection ramp.
   const selectedRule = styles.match(/\.installed-skill-card\.selected[^{]*\{[^}]*\}/)?.[0] ?? "";
-  assert.match(selectedRule, /var\(--selection-bg\)/);
+  assert.match(selectedRule, /background:\s*var\(--selection-bg\)/);
   assert.match(
     styles,
     /\.installed-skill-card\.selected \.installed-skill-title strong \{ color: var\(--on-selection\); \}/,
     "selected-card labels must flip to the on-selection ramp, not stay canvas-colored"
   );
   assert.doesNotMatch(styles, /\.installed-skill-card\.selected[^{]*\{[^}]*#[0-9a-f]{3,8}/i);
+  // Default-family override, scoped to the chat content region the workspace
+  // panes render in (the only channel a family file may adapt chrome through):
+  // soft wash + ring from the same pair, labels on the shared ramp; every
+  // other family keeps the solid rendering above.
+  const macosSheet = read("./themes/macos.css");
+  const macosSelected = macosSheet.match(/:root\[data-theme-family="macos"\] [^{]*\.installed-skill-card\.selected[^{]*\{[^}]*\}/)?.[0] ?? "";
+  assert.match(macosSelected, /color-mix\(in srgb, var\(--selection-bg\) 16%, transparent\)/);
+  assert.match(macosSelected, /inset 0 0 0 1px color-mix\(in srgb, var\(--selection-bg\) 40%, transparent\)/);
+  for (const [surface, active] of [["automation-task-row", "\\.active"], ["plans-row", "\\.active"], ["skills-file-row", ""]]) {
+    assert.match(
+      macosSheet,
+      new RegExp(`:root\\[data-theme-family="macos"\\] \\[data-theme-region="chat"\\] [^{]*\\.${surface}${active}[^{]*\\{[^}]*color-mix\\(in srgb, var\\(--selection-bg\\) 16%`),
+      `${surface} must get the macOS soft selection through the chat region hook`
+    );
+  }
+  // One list language: the three workspace rails render as flat rounded rows
+  // with hairline dividers in this family; the skills card tile only survives
+  // in the closed grid. The flat and picked rules are written disjointly
+  // (:not(.selected) / .selected) and with the same anatomy so neither can
+  // out-specify the other into a half-selected state.
+  assert.match(macosSheet, /\[data-theme-region="chat"\] \.automation-task-row \{ border-radius: var\(--rounded-sm\); \}/);
+  assert.match(macosSheet, /\[data-theme-region="chat"\] \.installed-skills-grid\.list-mode \.installed-skill-card:not\(\.selected\) \{ background: transparent; border: 0; border-bottom: 1px solid var\(--separator\); border-radius: var\(--rounded-sm\); \}/);
+  assert.match(macosSheet, /\[data-theme-region="chat"\] \.installed-skills-grid\.list-mode \.installed-skill-card\.selected \{ background: color-mix\(in srgb, var\(--selection-bg\) 16%, transparent\); border: 0; border-bottom: 1px solid transparent; border-radius: var\(--rounded-sm\); box-shadow: inset 0 0 0 1px color-mix\(in srgb, var\(--selection-bg\) 40%, transparent\); \}/);
+  assert.doesNotMatch(styles, /:root\[data-theme-family="macos"\] \.installed-skill-card\.selected \.installed-skill-title strong \{ color: var\(--on-selection\)/);
+  // Hover rules load after the base sheet with a higher specificity (or share
+  // its specificity later in source); without the :not() guards hovering the
+  // picked item paints the hover fill over its selection.
+  const workspaces = read("./workspaces.css");
+  const plans = read("./plans.css");
+  assert.match(workspaces, /\.installed-skills-grid\.list-mode \.installed-skill-card:not\(\.selected\):hover/);
+  assert.match(workspaces, /\.skills-file-row:not\(:disabled\):not\(\.active\):hover/);
+  assert.match(workspaces, /\.skills-file-row\.active \{ background: var\(--selection-bg\)/);
+  assert.match(styles, /\.automation-task-row:not\(\.active\):hover/);
+  assert.match(plans, /\.plans-row:not\(\.active\):hover/);
+  assert.match(plans, /\.plans-row\.active \{ background: var\(--selection-bg\)/);
   const raft = read("./themes/raft.css");
   const raftVariants = raft.match(/:root\[data-theme-family="raft"\]\[data-resolved-appearance="(?:light|dark)"\]\s*\{[\s\S]*?\n\}/g) ?? [];
   assert.equal(raftVariants.length, 2, "raft.css must own both variants");
@@ -4235,13 +4301,13 @@ test("a draft session only writes a permission override when the user explicitly
 });
 
 test("settings navigation keeps shared resources and uses a dedicated Agent settings page", () => {
-  assert.match(app, /id: "general", sections: \["general"\]/);
-  assert.match(app, /id: "models", sections: \["models", "providers"\]/);
-  assert.match(app, /id: "assistant", sections: \["agents", "skills", "memory", "sessionManagement"\]/);
-  assert.match(app, /id: "tools", sections: \["mcp", "openConnector", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
-  assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
-  assert.match(app, /id: "activity", sections: \["runHistory", "usage", "trace", "logs", "hostBash"\]/);
-  assert.match(app, /id: "system", sections: \["system", "runtimeEnv", "executionPermissions", "plugins", "diagnostics"\]/);
+  const grouped = [...app.match(/const SETTINGS_GROUPS[^=]*=\s*\[([\s\S]*?)\n  \];/)[1].matchAll(/sections:\s*\[([^\]]*)\]/g)]
+    .flatMap((match) => [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]));
+  // Shared resources stay reachable from Settings. Which group holds them is owned by
+  // settings-navigation.test.mjs, so this test asserts reachability instead of pinning groups.
+  for (const shared of ["general", "models", "providers", "decisionModels", "agents", "skills", "memory", "sessionManagement", "channels", "plugins", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "usage", "runHistory", "logs", "trace", "executionPermissions", "hostBash", "diagnostics", "system", "runtimeEnv", "mcp", "openConnector"]) {
+    assert.ok(grouped.includes(shared), `Settings navigation lost shared section: ${shared}`);
+  }
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
     assert.match(sections[key], /import Dialog from "\.\.\/components\/ui\/Dialog\.svelte"/);
@@ -4660,7 +4726,7 @@ test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed s
   const connector = sections.openConnector;
   const connectorStore = read("./lib/stores/openConnector.svelte.ts");
   assert.match(app, /\{ id: "mcp"[\s\S]*\{ id: "openConnector"/);
-  assert.match(app, /sections: \["mcp", "openConnector"/);
+  assert.match(app, /sections: \[[^\]]*"mcp", "openConnector"[^\]]*\]/);
   assert.match(app, /activeSection === "openConnector"[\s\S]*<OpenConnectorSection/);
   assert.match(connector, /SearchField/);
   assert.match(connector, /SelectControl/);
@@ -5336,23 +5402,18 @@ test("Mini App copy exists in both locales", () => {
   }
 });
 
-test("an interrupted turn keeps its answer and shows why it stopped as a separate note", () => {
+test("interrupted turns retain their answers and expose a centered system status", () => {
   const transcript = read("./lib/chat/ConversationTranscript.svelte");
-
-  // The error is status, never the bubble body. A run killed by the tool-failure
-  // budget used to render nothing but "Request aborted" because the projection
-  // let the error string overwrite the answer the same turn had produced.
-  assert.match(transcript, /assistantError = message\.role === "assistant"/);
-  assert.match(transcript, /!displayContent\.includes\(message\.errorMessage\.trim\(\)\)/);
-  assert.match(transcript, /class="assistant-error-note"/);
-  assert.match(transcript, /copy\.assistantErrorLabel/);
-
-  // "aborted" is its own status: a stopped turn is not a failed one, and it must
-  // not fall through to the unlabelled default the way it used to.
-  assert.match(transcript, /message\.stopReason === "aborted"/);
-  assert.match(transcript, /copy\.assistantStatusAborted/);
-  assert.match(styles, /\.assistant-error-note \{/);
-  assert.match(styles, /\.assistant-status\.aborted \{/);
+  const status = read("./lib/chat/ConversationStatus.svelte");
+  assert.match(transcript, /\{#if !isStatusOnlyMessage\(message\)\}/);
+  assert.match(transcript, /transcriptTurnStatuses\(messages, showUnresolvedStatus\)/);
+  assert.match(transcript, /<ConversationStatus status=\{turnStatuses.get\(index\)!\}/);
+  assert.match(status, /role="status"/);
+  assert.match(status, /\{status.error\}/);
+  assert.doesNotMatch(status, /@html|renderMarkdown/);
+  assert.match(status, /copy.sessionStatusStopped/);
+  assert.match(styles, /\.conversation-system-status\[data-status="failed"\]/);
+  assert.match(view, /<ConversationTranscript showUnresolvedStatus messages=\{externalTranscript.messages\}/);
 });
 
 // ------------------------------------------- Mini App platform §2.2-§2.5
@@ -5936,7 +5997,6 @@ test("desktop motion completion covers list mutation, controls, disclosures, and
   const channelAccordion = read("./lib/chat/ChannelAccordion.svelte");
   const projectTree = read("./lib/projects/ProjectTree.svelte");
   const agents = read("./lib/settings/AgentsSection.svelte");
-  const profiles = read("./lib/settings/ProfilesSection.svelte");
   const channels = read("./lib/settings/ChannelsSection.svelte");
   const mcp = read("./lib/settings/McpSection.svelte");
   const tasks = read("./lib/settings/TasksSection.svelte");
@@ -5961,7 +6021,7 @@ test("desktop motion completion covers list mutation, controls, disclosures, and
   assert.match(installedSkills, /captureRectMap\(/);
   assert.match(installedSkills, /playLayoutFlip\(/);
 
-  for (const source of [agents, profiles, channels, mcp, sections.skills, channelAccordion, projectTree]) {
+  for (const source of [agents, channels, mcp, sections.skills, channelAccordion, projectTree]) {
     assert.match(source, /in:listIn/);
     assert.match(source, /out:listOut/);
     assert.match(source, /animate:listFlip/);
@@ -6131,11 +6191,10 @@ test("Agent recent and full history share deletion and explicit selection", () =
   assert.doesNotMatch(read("./lib/chat/deleteConversationSelection.ts"), /purge/);
 });
 
-test("channel and Web Profile settings use a concrete Momo identity instead of an empty global option", () => {
-  for (const section of ["ChannelsSection", "ProfilesSection"]) {
-    assert.doesNotMatch(read(`./lib/settings/${section}.svelte`), /profileNoAgent|value: ""/);
-  }
-  for (const store of ["channels", "profiles"]) {
+test("channel settings use a concrete Momo identity instead of an empty global option", () => {
+  assert.doesNotMatch(read("./lib/settings/ChannelsSection.svelte"), /profileNoAgent|value: ""/);
+  {
+    const store = "channels";
     assert.match(read(`./lib/stores/${store}.svelte.ts`), /agentId: "default"/);
   }
   for (const channel of ["telegram", "feishu", "qq", "weixin", "web"]) {
@@ -6291,9 +6350,10 @@ test("new conversation identity is centered and Agent settings belong to the win
 
 test("Agent avatars share the account logo when missing or unavailable", () => {
   const avatar = read("./lib/components/ui/AgentAvatar.svelte");
-  assert.match(avatar, /src.trim\(\) \|\| "\/molibot-icon.png"/);
+  assert.match(avatar, /src.trim\(\) \|\| appLogo.src/);
   assert.match(avatar, /<Avatar.Image src=\{avatarSrc\}/);
-  assert.match(avatar, /<Avatar.Fallback[^>]*><img src="\/molibot-icon.png"/);
+  assert.match(avatar, /<Avatar.Fallback[^>]*><img src=\{appLogo.src\}/);
+  assert.match(avatar, /import \{ appLogo \} from "\.\.\/\.\.\/stores\/appLogo.svelte"/);
   assert.doesNotMatch(avatar, /name.slice/);
   assert.match(read("./lib/chat/AgentHome.svelte"), /agent.description\?\.trim\(\)/);
   assert.match(styles, /\.agent-home-identity \.agent-avatar \{[^}]*width: 96px;[^}]*border-radius: 50%/);
@@ -6480,6 +6540,14 @@ test("skill management has one workspace while Settings retains search configura
   assert.match(sections.skills, /\[b\.skillId, b\]/);
   assert.match(sections.skills, /updateBuiltinSkill\(builtinState\.id\)/);
   assert.match(sections.skills, /builtinState\.modified/);
+  // A bundled Skill materialises into the global skills directory, so it is
+  // both built-in and global: the category tabs filter by attribute instead of
+  // partitioning the catalogue. The builtin-first partition is what made an
+  // installed bundled Skill vanish from the 全局 tab.
+  assert.match(sections.skills, /function isWorkspace\(skill: DesktopSkillItem\): boolean \{\n\s*\/\/ Global and built-in are not exclusive/);
+  assert.match(sections.skills, /return skill\.scope === "global";/);
+  assert.doesNotMatch(sections.skills, /!isBuiltin\(skill\) && !isAgent\(skill\)/);
+  assert.doesNotMatch(sections.skills, /if \(isBuiltin\(item\)\) builtin\+\+;\s*\n\s*else if/);
 });
 
 // The card's detail view is an in-page master-detail (list · content · files),

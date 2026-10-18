@@ -119,8 +119,10 @@
   const sessionPermissionModes = new Map<string, PermissionMode>();
   let permissionHydrationSession = "";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
+  import Refresh from "reicon-svelte/icons/Refresh";
   import ChatHeader from "./lib/chat/ChatHeader.svelte";
   import AgentSettingsPage from "./lib/settings/AgentSettingsPage.svelte";
+  import { appLogo } from "./lib/stores/appLogo.svelte";
   import { deleteConversationSelection } from "./lib/chat/deleteConversationSelection";
   import AgentFilesPage from "./lib/chat/AgentFilesPage.svelte";
   import AgentFilesIcon from "./lib/icons/duotone/components/FolderOpen.svelte";
@@ -429,6 +431,43 @@
     stopAgentActivityPolling();
     agentActivityScheduler = new ActivityScheduler(agentActivityPolicy, refreshAgentActivity, documentActivityVisibility);
     agentActivityScheduler.start();
+  }
+
+  let conversationScheduler: ActivityScheduler | null = null;
+  let conversationRefreshing = false;
+  let conversationRefreshError = "";
+
+  async function refreshConversations(): Promise<void> {
+    const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
+    if (!connectionReady || !endpoint) return;
+    conversationRefreshing = true;
+    conversationRefreshError = "";
+    try {
+      await Promise.all([
+        refreshAgentSessions(),
+        viewMode === "external" ? refreshExternalTranscript() : Promise.resolve()
+      ]);
+    } catch (cause) {
+      if (endpoint === connectedEndpoint && generation === connectionGeneration) {
+        conversationRefreshError = cause instanceof Error ? cause.message : String(cause);
+      }
+    } finally {
+      if (endpoint === connectedEndpoint && generation === connectionGeneration) conversationRefreshing = false;
+    }
+  }
+
+  function startConversationPolling(): void {
+    stopConversationPolling();
+    conversationScheduler = new ActivityScheduler(agentActivityPolicy, refreshConversations, documentActivityVisibility);
+    conversationScheduler.start();
+  }
+
+  function stopConversationPolling(): void {
+    conversationScheduler?.dispose();
+    conversationScheduler = null;
+    conversationRefreshing = false;
+    conversationRefreshError = "";
   }
 
   function openAgentOverview(agentId = ""): void {
@@ -990,11 +1029,13 @@
       ordinarySessions = result.items;
       latestConversationAtByAgent = result.latestConversationAtByAgent ?? {};
       hasUnassignedHistory = unassigned.items.length > 0;
-    } catch {
-      // A refresh losing the race with a navigation/reload (the fetch is
-      // cancelled) is not a failure; keep the previous list and let the next
-      // refresh retry. Without this the cancellation surfaced as an unhandled
-      // rejection on every mid-turn reload.
+    } catch (cause) {
+      // Cancelled requests belong to an older selection; other failures must be visible.
+      if (endpoint === connectedEndpoint && generation === connectionGeneration && request === agentSessionsRequest) {
+        if (!(cause instanceof Error && cause.name === "AbortError")) {
+          conversationRefreshError = cause instanceof Error ? cause.message : String(cause);
+        }
+      }
     }
   }
   async function claimActiveSession(id: string): Promise<void> {
@@ -1238,6 +1279,7 @@
     connectedEndpoint = "";
     connectionReady = false;
     stopAgentActivityPolling();
+    stopConversationPolling();
     stopAutomationUnreadPolling();
     stopDurableExecutionPolling();
     stopReconnectPoll();
@@ -1616,6 +1658,7 @@
       loading = false;
       void loadRooms();
       startAgentActivityPolling();
+      startConversationPolling();
       startAutomationUnreadPolling();
       startDurableExecutionPolling();
       const restoreView = reconnectRestore;
@@ -2042,6 +2085,13 @@
     activeModelKey = draftModelKey || onboardingAgents.find(agent => agent.id === agentId)?.modelRouting.textModelKey || globalModelKey;
     agentNavigation = { ...agentNavigation, page: "agent", agentId, sessionId: "" };
     persistAgentNavigation();
+    conversationScheduler?.wake("manual");
+  }
+
+  // Exposed for the settings overlay: its footer "A" control lands on the
+  // default agent's home page — where the app opens — without a sidebar detour.
+  export function openDefaultAgentPage(): void {
+    openAgentChat(defaultAgentId);
   }
 
   function openSession(item: DesktopConversationItem): void {
@@ -2189,11 +2239,22 @@
     activeExternalTitle = title;
     activeExternalChannel = channel;
     activeExternalBotName = botName;
+    await refreshExternalTranscript();
+  }
+
+  async function refreshExternalTranscript(): Promise<void> {
+    const sessionId = activeExternalSessionId;
+    if (!connectedEndpoint || viewMode !== "external" || !sessionId) return;
     await externalTranscriptLoader.select(connectedEndpoint, sessionId, (state) => {
       externalTranscript = state.transcript;
       externalTranscriptError = state.error;
       externalTranscriptLoading = state.loading;
+      if (state.transcript) activeExternalTitle = state.transcript.title;
     });
+    const profileId = ordinarySessions.find(item => item.sessionId === sessionId)?.botId;
+    if (profileId && !externalTranscriptError && viewMode === "external" && activeExternalSessionId === sessionId) {
+      await refreshFiles(profileId, sessionId);
+    }
   }
 
   function closeExternalTranscript(): void {
@@ -2423,16 +2484,22 @@
       : chatStore.registry.active?.profileId === profileId && chatStore.registry.active?.sessionId === sessionId;
   }
 
+  let filesRequest = 0;
   async function refreshFiles(profileId: string, sessionId: string): Promise<void> {
-    if (!connectedEndpoint || !profileId || !sessionId) {
+    const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
+    const request = ++filesRequest;
+    if (!endpoint || !profileId || !sessionId) {
       sessionFiles = [];
       return;
     }
     try {
-      const files = await listDesktopSessionFiles(connectedEndpoint, profileId, sessionId);
-      if (isCurrentFileSession(profileId, sessionId)) sessionFiles = files;
-    } catch {
-      if (isCurrentFileSession(profileId, sessionId)) sessionFiles = [];
+      const files = await listDesktopSessionFiles(endpoint, profileId, sessionId);
+      if (endpoint === connectedEndpoint && generation === connectionGeneration && request === filesRequest && isCurrentFileSession(profileId, sessionId)) sessionFiles = files;
+    } catch (cause) {
+      if (endpoint === connectedEndpoint && generation === connectionGeneration && request === filesRequest && isCurrentFileSession(profileId, sessionId)) {
+        conversationRefreshError = cause instanceof Error ? cause.message : String(cause);
+      }
     }
   }
 
@@ -3614,6 +3681,7 @@
     stopSidebarResize();
     stopReconnectPoll();
     stopAgentActivityPolling();
+    stopConversationPolling();
     stopAutomationUnreadPolling();
     stopDurableExecutionPolling();
     chatStore.disposeAll();
@@ -3974,6 +4042,9 @@
       searching={searchOpen}
     >
       {#snippet actions()}
+        {#if !startupPending && connectionReady && !agentFilesActive && !agentHistoryActive && (viewMode === "external" || draftMode)}
+          <Button variant="icon" title={copy.conversationRefresh} disabled={conversationRefreshing || externalTranscriptLoading} onclick={() => conversationScheduler?.wake("manual")}><Refresh size={16} aria-hidden="true" /></Button>
+        {/if}
         {#if !startupPending && draftMode && selectedAgent && !agentFilesActive && !agentHistoryActive}
           <Button variant="icon" title={locale === "zh-CN" ? "文件与附件" : "Files and attachments"} onclick={() => openAgentFiles(selectedAgentId)}><AgentFilesIcon size={16} aria-hidden="true" /></Button>
           <Button variant="icon" title={locale === "zh-CN" ? "Agent 设置" : "Agent settings"} onclick={() => void openAgentSettings(selectedAgentId)}><Gear size={16} aria-hidden="true" /></Button>
@@ -4038,6 +4109,7 @@
       {/snippet}
     </ChatHeader>
 
+    {#if conversationRefreshError}<p class="onboarding-error" role="status">{conversationRefreshError}</p>{/if}
     {#if storageMigrationPending}
       <div class="empty-state" aria-live="polite">
         <h2>{locale === "zh-CN" ? "会话数据尚未处理" : "Session data needs a decision"}</h2>
@@ -4105,7 +4177,7 @@
       </div>
     {:else if viewMode === "external" && !activeExternalSessionId}
       <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" width="32" height="32" /></div>
+        <div class="empty-icon" aria-hidden="true"><img src={appLogo.src} alt="" width="32" height="32" /></div>
         <h2>{copy.chat}</h2>
         <p>{copy.externalChannelsHint}</p>
       </div>
@@ -4119,11 +4191,12 @@
             <div class="conversation-empty">
               <h2>{copy.loading}</h2>
             </div>
-          {:else if externalTranscriptError}
+          {:else if externalTranscriptError && !externalTranscript}
             <div class="conversation-empty">
               <p class="onboarding-error">{externalTranscriptError}</p>
             </div>
           {:else if externalTranscript}
+            {#if externalTranscriptError}<p class="onboarding-error" role="status">{externalTranscriptError}</p>{/if}
             {#if externalTranscript.messages.length === 0}
               <div class="conversation-empty">
                 <h2>{copy.noExternalSessions}</h2>
@@ -4134,7 +4207,7 @@
               {#each onboardingAgents.filter(agent => agent.enabled) as agent}<button type="button" class="secondary-button" onclick={() => claimActiveSession(agent.id)}>{agent.name}</button>{/each}
             </div>
           {/if}
-          <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} agentName={activeExternalAgentName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
+          <ConversationTranscript showUnresolvedStatus messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} agentName={activeExternalAgentName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
           {/if}
         </div>
         {#if externalTranscript && !externalTranscriptLoading && !externalTranscriptError}

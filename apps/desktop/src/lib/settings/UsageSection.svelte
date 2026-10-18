@@ -3,6 +3,7 @@
   import { untrack } from "svelte";
   import type { DesktopUsageRange } from "@molibot/desktop-contract";
   import { formatTokenCount } from "../api";
+  import Button from "../components/ui/Button.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
@@ -10,136 +11,106 @@
   import { session } from "../stores/session.svelte";
   import { tablist } from "../a11y/tablist";
   import { USAGE_RANGES, loadUsage, resetUsageFilters, updateUsageQuery, usageStore, usageWindowLabel } from "../stores/usage.svelte";
-  import { DONUT_R, donutSegments, percentOf, trendAreaPath, trendLinePath } from "./charts";
+  import { trendLinePath } from "./charts";
+  import { cacheHitRate, compactCount, percentage } from "./analytics";
+  import AnalyticsRanking from "./AnalyticsRanking.svelte";
+  import AnalyticsComposition from "./AnalyticsComposition.svelte";
 
-  type RankingView = "apis" | "models" | "bots" | "channels" | "sessions";
-  let rankingView = $state<RankingView>("models");
-
+  type RankingView = "apis" | "sessions";
+  let rankingView = $state<RankingView>("apis");
   $effect(() => {
     const endpoint = session.serviceReady ? session.endpoint : null;
-    if (endpoint) untrack(() => {
-      if (endpoint !== usageStore.endpoint) void loadUsage(endpoint);
-    });
+    if (endpoint) untrack(() => { void loadUsage(endpoint); });
   });
-
   const usage = $derived(usageStore.usage);
   const trend = $derived(usage?.trend ?? []);
-  const tokenMax = $derived(Math.max(1, ...trend.map((point) => point.totalTokens)));
-  const requestMax = $derived(Math.max(1, ...trend.map((point) => point.requests)));
-  const cacheRatios = $derived(trend.map((point) => {
-    const base = point.inputTokens + point.cacheReadTokens;
-    return base > 0 ? Math.round(point.cacheReadTokens / base * 100) : 0;
-  }));
-  const tokenLine = $derived(trendLinePath(trend.map((point) => point.totalTokens), tokenMax));
-  const tokenArea = $derived(trendAreaPath(tokenLine));
-  const requestLine = $derived(trendLinePath(trend.map((point) => point.requests), requestMax));
-  const cacheLine = $derived(trendLinePath(cacheRatios, 100));
-  const cacheArea = $derived(trendAreaPath(cacheLine));
-  const distribution = $derived(usage ? [
-    { key: "input", label: session.text.usageInput, value: usage.totals.inputTokens, color: "var(--chart-blue)" },
-    { key: "output", label: session.text.usageOutput, value: usage.totals.outputTokens, color: "var(--chart-teal)" },
-    { key: "cacheRead", label: session.text.usageCacheRead, value: usage.totals.cacheReadTokens, color: "var(--chart-purple)" },
-    { key: "cacheWrite", label: session.text.usageCacheWrite, value: usage.totals.cacheWriteTokens, color: "var(--chart-orange)" }
-  ] : []);
-  const distributionTotal = $derived(distribution.reduce((sum, item) => sum + item.value, 0));
-  const distributionSegments = $derived(donutSegments(distribution));
-  const cacheBase = $derived(usage ? usage.totals.inputTokens + usage.totals.cacheReadTokens : 0);
-  const cacheHit = $derived(usage && cacheBase > 0 ? Math.round(usage.totals.cacheReadTokens / cacheBase * 100) : 0);
-  const windowMax = $derived(usage ? Math.max(1, ...usage.windows.map((window) => window.totalTokens)) : 1);
-  const averagePerDay = $derived(usage && trend.length > 0 ? usage.totals.totalTokens / trend.length : 0);
+  const tokenMax = $derived(Math.max(1, ...trend.map(point => point.totalTokens)));
+  const tokenLine = $derived(trendLinePath(trend.map(point => point.totalTokens), tokenMax));
   const totalPages = $derived(usage ? Math.max(1, Math.ceil(usage.records.total / usage.records.pageSize)) : 1);
-  const rankingRows = $derived(usage ? usage.rankings[rankingView] : []);
-
+  const cacheHit = $derived(usage ? cacheHitRate(usage.totals) : null);
+  const distribution = $derived(usage ? [
+    { key: "input", label: session.text.analyticsUncachedInput, value: usage.totals.inputTokens, color: "var(--chart-blue)" },
+    { key: "cacheRead", label: session.text.usageCacheRead, value: usage.totals.cacheReadTokens, color: "var(--chart-teal)" },
+    { key: "cacheWrite", label: session.text.usageCacheWrite, value: usage.totals.cacheWriteTokens, color: "var(--chart-orange)" },
+    { key: "output", label: session.text.usageOutput, value: usage.totals.outputTokens, color: "var(--label-secondary)" },
+    { key: "unknown", label: session.text.analyticsUnknownTokens, value: Math.max(0, usage.totals.totalTokens - usage.totals.inputTokens - usage.totals.outputTokens - usage.totals.cacheReadTokens - usage.totals.cacheWriteTokens), color: "var(--label-tertiary)" }
+  ].filter(item => item.key !== "unknown" || item.value > 0) : []);
+  const modelRows = $derived(usage?.rankings.models.map(row => ({ id: row.id, label: humanizeModelOption(`${row.provider}/${row.model}`, row.id).label, secondary: `${row.provider} · ${compactCount(row.requests)} ${session.text.usageRequests}`, value: row.totalTokens })) ?? []);
+  const botRows = $derived(usage?.rankings.bots.map(row => ({ id: row.id, label: row.label, secondary: `${compactCount(row.requests)} ${session.text.usageRequests}`, value: row.totalTokens })) ?? []);
+  const channelRows = $derived(usage?.rankings.channels.map(row => ({ id: row.id, label: row.label, secondary: `${compactCount(row.requests)} ${session.text.usageRequests}`, value: row.totalTokens })) ?? []);
+  const agentRows = $derived(usage?.rankings.agents.map(row => ({ id: row.id, label: row.id === "unknown" ? session.text.analyticsUnattributed : row.label, secondary: `${compactCount(row.requests)} ${session.text.usageRequests}`, value: row.totalTokens })) ?? []);
   const rankingTabs = $derived([
-    { id: "models" as const, label: session.text.usageRankModel },
     { id: "apis" as const, label: session.text.usageRankApi },
-    { id: "bots" as const, label: session.text.usageRankBot },
-    { id: "channels" as const, label: session.text.usageRankChannel },
     { id: "sessions" as const, label: session.text.usageRankSession }
   ]);
-
-  function formatDate(value: string): string {
-    return formatNaturalDateTime(value, session.locale);
-  }
-
-  function rankingTitle(row: (typeof rankingRows)[number]): string {
-    return "model" in row ? humanizeModelOption(`${row.provider}/${row.model}`, row.id).label : row.label;
-  }
-
-  function rankingSubtitle(row: (typeof rankingRows)[number]): string {
-    return "model" in row ? `${row.provider} · ${row.api}` : `${formatTokenCount(row.requests)} ${session.text.usageRequests}`;
-  }
+  const otherRows = $derived(usage?.rankings[rankingView].map(row => ({ id: row.id, label: row.label, secondary: `${compactCount(row.requests)} ${session.text.usageRequests}`, value: row.totalTokens })) ?? []);
+  function formatDate(value: string): string { return formatNaturalDateTime(value, session.locale); }
 </script>
 
+{#if usageStore.error}
+  <div class="settings-card analytics-error" role="alert"><p>{usageStore.error}</p><Button onclick={() => session.endpoint && loadUsage(session.endpoint)}>{session.text.analyticsRetry}</Button></div>
+{/if}
 {#if !session.serviceReady}
   <div class="settings-card"><EmptyState title={session.text.usageUnavailable} icon="chart-line" /></div>
 {:else if usageStore.loading}
-  <div class="settings-card"><SkeletonRows count={5} label={session.text.loading} /></div>
-{:else if !usage}
-  <div class="settings-card"><EmptyState title={session.text.usageEmpty} icon="chart-line" /></div>
-{:else}
-  <div class="settings-card observatory-filter-card">
-    <div class="observatory-filter-toolbar" role="group" aria-label={session.text.usageFilters}>
-      <div class="observatory-filter-headline">
-        <div class="observatory-filter-title"><strong>{session.text.usageFilters}</strong><p>{usage.window.startDate} → {usage.window.endDate} · {usage.timezone} · {session.text.usageUpdatedAt} {formatDate(usage.generatedAt)}</p></div>
-        <div class="observatory-filter-actions">
-          <button class="tertiary-button observatory-reset-button" type="button" onclick={resetUsageFilters}>{session.text.usageClearFilters}</button>
-          <button class="icon-button observatory-refresh-button" type="button" aria-label={session.text.usageRefresh} title={session.text.usageRefresh} disabled={usageStore.refreshing} onclick={() => session.endpoint && loadUsage(session.endpoint)}><Refresh size={16} aria-hidden="true" /></button>
-        </div>
+  <div class="settings-card analytics-loading"><SkeletonRows count={7} label={session.text.loading} /></div>
+{:else if usage}
+  <div class="analytics-dashboard" aria-busy={usageStore.refreshing}>
+    <section class="settings-card analytics-overview" aria-label={session.text.analyticsOverview}>
+      <dl class="analytics-summary">
+        <div><dt>{usageWindowLabel(usage.range, session.text)} · {session.text.usageTokens}</dt><dd title={formatTokenCount(usage.totals.totalTokens)}>{compactCount(usage.totals.totalTokens)}</dd></div>
+        <div><dt>{session.text.usageRequests}</dt><dd title={formatTokenCount(usage.totals.requests)}>{compactCount(usage.totals.requests)}</dd></div>
+        <div><dt>{session.text.usageCacheRead}</dt><dd title={formatTokenCount(usage.totals.cacheReadTokens)}>{compactCount(usage.totals.cacheReadTokens)}</dd></div>
+        <div><dt>{session.text.usageCacheHitRatio}</dt><dd title={session.text.analyticsCacheHint}>{percentage(cacheHit)}</dd></div>
+      </dl>
+    </section>
+    <div class="settings-card analytics-filter-panel" role="group" aria-label={session.text.usageFilters}>
+      <div class="analytics-toolbar-top">
+        <div class="analytics-range-tabs" role="group" aria-label={session.text.traceRange}>{#each USAGE_RANGES as range}<Button class="analytics-range-button" aria-pressed={usageStore.query.range === range} onclick={() => updateUsageQuery({ range })}>{usageWindowLabel(range, session.text)}</Button>{/each}</div>
+        <div class="observatory-filter-actions"><Button onclick={resetUsageFilters}>{session.text.usageClearFilters}</Button><Button variant="icon" title={session.text.usageRefresh} disabled={usageStore.refreshing} onclick={() => session.endpoint && loadUsage(session.endpoint)}><Refresh size={16} aria-hidden="true" /></Button></div>
       </div>
-      <div class="observatory-filter-fields usage-filter-fields">
-        <label class="observatory-field"><span>{session.text.traceRange}</span><SelectControl value={usageStore.query.range} ariaLabel={session.text.traceRange} options={USAGE_RANGES.map((range) => ({ value: range, label: usageWindowLabel(range, session.text) }))} onChange={(value) => updateUsageQuery({ range: value as DesktopUsageRange })} /></label>
-        <label class="observatory-field"><span>{session.text.usageModel}</span><SelectControl value={usageStore.query.modelId} ariaLabel={session.text.usageModel} options={[{ value: "all", label: session.text.usageAllModels }, ...usage.options.models.map((item) => ({ value: item.id, label: humanizeModelOption(item.label, item.id).label }))]} onChange={(modelId) => updateUsageQuery({ modelId })} /></label>
-        <label class="observatory-field"><span>{session.text.usageBot}</span><SelectControl value={usageStore.query.botId} ariaLabel={session.text.usageBot} options={[{ value: "all", label: session.text.usageAllBots }, ...usage.options.bots.map((bot) => ({ value: bot, label: bot }))]} onChange={(botId) => updateUsageQuery({ botId })} /></label>
-        <label class="observatory-field"><span>{session.text.usageChannel}</span><SelectControl value={usageStore.query.channel} ariaLabel={session.text.usageChannel} options={[{ value: "all", label: session.text.usageAllChannels }, ...usage.options.channels.map((channel) => ({ value: channel, label: channel }))]} onChange={(channel) => updateUsageQuery({ channel })} /></label>
+      <div class="analytics-filters">
+        <label class="analytics-filter"><span>{session.text.usageModel}</span><SelectControl value={usageStore.query.modelId} ariaLabel={session.text.usageModel} options={[{ value: "all", label: session.text.usageAllModels }, ...usage.options.models.map(item => ({ value: item.id, label: humanizeModelOption(item.label, item.id).label }))]} onChange={modelId => updateUsageQuery({ modelId })} /></label>
+        <label class="analytics-filter"><span>{session.text.analyticsAgent}</span><SelectControl value={usageStore.query.agentId} ariaLabel={session.text.analyticsAgent} options={[{ value: "all", label: session.text.analyticsAllAgents }, ...usage.options.agents.map(item => ({ value: item.id, label: item.id === "unknown" ? session.text.analyticsUnattributed : item.label }))]} onChange={agentId => updateUsageQuery({ agentId })} /></label>
+        <label class="analytics-filter"><span>{session.text.usageChannel}</span><SelectControl value={usageStore.query.channel} ariaLabel={session.text.usageChannel} options={[{ value: "all", label: session.text.usageAllChannels }, ...usage.options.channels.map(channel => ({ value: channel, label: channel }))]} onChange={channel => updateUsageQuery({ channel })} /></label>
       </div>
     </div>
-  </div>
-
-  {#if usage.totals.imageCostKnownRequests || usage.totals.imageCostUnknownRequests}
-    <div class="settings-row"><span>{session.text.mediaTaskEstimatedCost}</span><strong>{usage.totals.imageEstimatedCostUsd === undefined ? session.text.mediaTaskCostUnknown : `$${usage.totals.imageEstimatedCostUsd.toFixed(6)}`}{#if usage.totals.imageCostUnknownRequests} · {session.text.mediaTaskCostUnknown}: {usage.totals.imageCostUnknownRequests}{/if}</strong></div>
-  {/if}
-  <div class="chart-kpi-grid">
-    <div class="chart-kpi" style="--kpi-accent:var(--chart-blue)"><span class="chart-kpi-label">{session.text.usageRequests}</span><strong class="chart-kpi-value">{formatTokenCount(usage.totals.requests)}</strong><span class="chart-kpi-foot">{usageWindowLabel(usage.range, session.text)}</span></div>
-    <div class="chart-kpi" style="--kpi-accent:var(--chart-teal)"><span class="chart-kpi-label">{session.text.usageTotalTokens}</span><strong class="chart-kpi-value">{formatTokenCount(usage.totals.totalTokens)}</strong><span class="chart-kpi-foot">{session.text.usageInput} {formatTokenCount(usage.totals.inputTokens)} · {session.text.usageOutput} {formatTokenCount(usage.totals.outputTokens)}</span></div>
-    <div class="chart-kpi" style="--kpi-accent:var(--chart-purple)"><span class="chart-kpi-label">{session.text.usageCacheHitRatio}</span><strong class="chart-kpi-value">{cacheHit}%</strong><span class="chart-kpi-foot">{session.text.usageCacheRead} {formatTokenCount(usage.totals.cacheReadTokens)}</span></div>
-    <div class="chart-kpi" style="--kpi-accent:var(--chart-orange)"><span class="chart-kpi-label">{session.text.usageAvgPerDay}</span><strong class="chart-kpi-value">{formatTokenCount(averagePerDay)}</strong><span class="chart-kpi-foot">{usageWindowLabel(usage.range, session.text)}</span></div>
-  </div>
-
-  <div class="settings-card chart-card">
-    <div class="chart-card-head"><div><strong>{session.text.usageTrendTitle}</strong><p>{usage.range === "today" || usage.range === "yesterday" ? session.text.usageRequestTrend : usageWindowLabel(usage.range, session.text)}</p></div><div class="chart-legend-inline"><span class="legend-chip"><span class="legend-line" style="--dot:var(--chart-blue)"></span>{session.text.usageTotalTokens}</span><span class="legend-chip"><span class="legend-line legend-line-dash" style="--dot:var(--chart-teal)"></span>{session.text.usageRequests}</span></div></div>
-    {#if trend.length > 0}
-      <div class="trend-wrap"><svg class="trend-svg" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="usageFilteredFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--chart-blue)" stop-opacity="0.26" /><stop offset="100%" stop-color="var(--chart-blue)" stop-opacity="0" /></linearGradient></defs><line class="trend-grid" x1="0" y1="5" x2="100" y2="5" vector-effect="non-scaling-stroke" /><line class="trend-grid" x1="0" y1="24.5" x2="100" y2="24.5" vector-effect="non-scaling-stroke" /><line class="trend-grid" x1="0" y1="40" x2="100" y2="40" vector-effect="non-scaling-stroke" /><path class="trend-area" d={tokenArea} fill="url(#usageFilteredFill)" /><path class="trend-line trend-line-req" d={requestLine} vector-effect="non-scaling-stroke" /><path class="trend-line trend-line-token" d={tokenLine} vector-effect="non-scaling-stroke" /></svg><div class="trend-axis"><span>{trend[0]?.label}</span><span>{trend[trend.length - 1]?.label}</span></div></div>
-    {:else}<p class="chart-empty">{session.text.usageNoTrend}</p>{/if}
-  </div>
-
-  <div class="usage-detail-grid">
-    <div class="settings-card chart-card">
-      <div class="chart-card-head"><div><strong>{session.text.usageCacheTrend}</strong><p>{session.text.usageCacheTrendDesc}</p></div></div>
-      <div class="trend-wrap compact-trend"><svg class="trend-svg" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="usageCacheFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--chart-purple)" stop-opacity="0.24" /><stop offset="100%" stop-color="var(--chart-purple)" stop-opacity="0" /></linearGradient></defs><line class="trend-grid" x1="0" y1="5" x2="100" y2="5" vector-effect="non-scaling-stroke" /><line class="trend-grid" x1="0" y1="40" x2="100" y2="40" vector-effect="non-scaling-stroke" /><path class="trend-area" d={cacheArea} fill="url(#usageCacheFill)" /><path class="trend-line usage-cache-line" d={cacheLine} vector-effect="non-scaling-stroke" /></svg><div class="trend-axis"><span>0%</span><span>100%</span></div></div>
+    <div class="analytics-status"><span>{usage.window.startDate} → {usage.window.endDate} · {usage.timezone}</span><span role="status">{usageStore.refreshing ? session.text.traceRefreshing : `${session.text.usageUpdatedAt} ${formatDate(usage.generatedAt)}`}</span></div>
+    <section class="settings-card analytics-trend" aria-label={session.text.analyticsTrend}>
+      <header class="analytics-panel-head"><strong>{session.text.analyticsTrend}</strong><span>{usageWindowLabel(usage.range, session.text)}</span></header>
+      <div class="analytics-trend-plot"><div class="analytics-trend-scale" aria-hidden="true"><span>{usage.totals.totalTokens > 0 ? compactCount(tokenMax) : "0"}</span><span>{usage.totals.totalTokens > 0 ? compactCount(tokenMax / 2) : "0"}</span><span>0</span></div><div class="trend-wrap"><svg class="trend-svg" viewBox="0 0 100 44" preserveAspectRatio="none" role="img" aria-label={session.text.analyticsTrend}><title>{trend.map(point => `${point.label}: ${formatTokenCount(point.totalTokens)}`).join('; ')}</title>{#each [5, 22.5, 40] as y}<line class="trend-grid" x1="0" y1={y} x2="100" y2={y} vector-effect="non-scaling-stroke" />{/each}<path class="analytics-trend-line" d={tokenLine} vector-effect="non-scaling-stroke" /></svg><div class="trend-axis">{#each trend.filter((_, i) => i === 0 || i === Math.floor(trend.length / 2) || i === trend.length - 1) as point}<span>{point.label}</span>{/each}</div></div></div>
+    </section>
+    <section class="settings-card analytics-chart-panel" aria-label={session.text.analyticsCache}>
+      <header class="analytics-panel-head"><strong>{session.text.analyticsCache}</strong><span>{session.text.usageCacheHitRatio} {percentage(cacheHit)}</span></header>
+      <AnalyticsComposition title={session.text.analyticsCache} items={distribution} />
+      <p class="analytics-caption">{cacheHit === null ? session.text.analyticsNoCache : session.text.analyticsCacheHint}</p>
+    </section>
+    <AnalyticsRanking title={session.text.analyticsModels} rows={modelRows} unit={session.text.usageTokens} total={usage.totals.totalTokens} onselect={id => updateUsageQuery({ modelId: id.split("::").slice(0, 2).join("::") })} />
+    <div class="analytics-ranking-grid">
+      <AnalyticsRanking title={session.text.analyticsAgents} rows={agentRows} unit={session.text.usageTokens} total={usage.totals.totalTokens} onselect={agentId => updateUsageQuery({ agentId })} />
+      <AnalyticsRanking title={session.text.analyticsBots} rows={botRows} unit={session.text.usageTokens} total={usage.totals.totalTokens} onselect={botId => updateUsageQuery({ botId })} />
     </div>
-    <div class="settings-card chart-card">
-      <div class="chart-card-head"><div><strong>{session.text.usageDistribution}</strong></div></div>
-      <div class="donut-block"><div class="donut-wrap"><svg class="donut-svg" viewBox="0 0 42 42" role="img" aria-label={session.text.usageDistribution}><circle class="donut-track" cx="21" cy="21" r={DONUT_R} />{#each distributionSegments as segment (segment.key)}<circle class="donut-seg" cx="21" cy="21" r={DONUT_R} stroke={segment.color} stroke-dasharray="{segment.len} {100 - segment.len}" stroke-dashoffset={segment.offset} />{/each}</svg><div class="donut-center"><strong>{formatTokenCount(usage.totals.totalTokens)}</strong><small>{session.text.usageTokens}</small></div></div><ul class="chart-legend">{#each distribution as item (item.key)}<li><span class="legend-dot" style="background:{item.color}"></span><span class="legend-name">{item.label}</span><span class="legend-value">{formatTokenCount(item.value)}<em>{percentOf(item.value, distributionTotal)}%</em></span></li>{/each}</ul></div>
-    </div>
-  </div>
-
-  <div class="settings-card chart-card">
-    <div class="chart-card-head"><div><strong>{session.text.usageWindowCompare}</strong></div></div>
-    <div class="window-bars">{#each usage.windows as window (window.label)}<div class="window-bar-row"><div class="window-bar-meta"><strong>{usageWindowLabel(window.label, session.text)}</strong><span>{formatTokenCount(window.requests)} {session.text.usageRequests}</span></div><div class="window-bar-track"><span class="window-seg" style="width:{percentOf(window.inputTokens, windowMax)}%;background:var(--chart-blue)"></span><span class="window-seg" style="width:{percentOf(window.outputTokens, windowMax)}%;background:var(--chart-teal)"></span><span class="window-seg" style="width:{percentOf(window.cacheReadTokens, windowMax)}%;background:var(--chart-purple)"></span><span class="window-seg" style="width:{percentOf(window.cacheWriteTokens, windowMax)}%;background:var(--chart-orange)"></span></div><span class="window-bar-total">{formatTokenCount(window.totalTokens)}</span></div>{/each}</div>
-  </div>
-
-  <div class="settings-card observatory-data-card" id="usage-ranking-panel" role="tabpanel" aria-labelledby={`usage-ranking-tab-${rankingView}`}>
-    <div class="observatory-section-head"><div><strong>{session.text.usageRankings}</strong></div><div class="observatory-tabs" role="tablist" aria-label={session.text.usageRankings} use:tablist>{#each rankingTabs as tab (tab.id)}<button type="button" role="tab" id={`usage-ranking-tab-${tab.id}`} aria-selected={rankingView === tab.id} aria-controls="usage-ranking-panel" class:active={rankingView === tab.id} onclick={() => rankingView = tab.id}>{tab.label}</button>{/each}</div></div>
-    {#if rankingRows.length === 0}<EmptyState title={session.text.usageNoRankings} icon="ranking" />{:else}<div class="observatory-ranking-list">{#each rankingRows.slice(0, 12) as row (row.id)}<div class="observatory-ranking-row"><div class="observatory-ranking-copy"><strong>{rankingTitle(row)}</strong><span>{rankingSubtitle(row)}</span></div><div class="observatory-ranking-meter"><span style="width:{percentOf(row.totalTokens, rankingRows[0]?.totalTokens ?? 1)}%"></span></div><div class="observatory-ranking-value"><strong>{formatTokenCount(row.totalTokens)}</strong><span>{session.text.usageTokens}</span></div></div>{/each}</div>{/if}
-  </div>
-
+    <AnalyticsRanking title={session.text.analyticsChannels} rows={channelRows} unit={session.text.usageTokens} total={usage.totals.totalTokens} onselect={channel => updateUsageQuery({ channel })} />
+    {#if usage.totals.imageCostKnownRequests || usage.totals.imageCostUnknownRequests}
+      <div class="settings-card settings-row"><span>{session.text.mediaTaskEstimatedCost}</span><strong>{usage.totals.imageEstimatedCostUsd === undefined ? session.text.mediaTaskCostUnknown : `$${usage.totals.imageEstimatedCostUsd.toFixed(6)}`}{#if usage.totals.imageCostUnknownRequests} · {session.text.mediaTaskCostUnknown}: {usage.totals.imageCostUnknownRequests}{/if}</strong></div>
+    {/if}
+    <details class="analytics-details"><summary>{session.text.analyticsRequestDetails}</summary>
+      <div class="analytics-detail-content">
+        <section class="settings-card analytics-ranking" aria-label={session.text.usageWindowCompare}>
+          <header class="analytics-panel-head"><strong>{session.text.usageWindowCompare}</strong></header>
+          <dl class="analytics-composition-legend">{#each usage.windows as window}<div><dt>{usageWindowLabel(window.label, session.text)}</dt><dd title={formatTokenCount(window.totalTokens)}>{compactCount(window.totalTokens)}<small>{compactCount(window.requests)} {session.text.usageRequests}</small></dd></div>{/each}</dl>
+        </section>
+        <div class="analytics-detail-tabs" role="tablist" aria-label={session.text.usageRankings} use:tablist>{#each rankingTabs as tab}<button role="tab" type="button" id={`usage-dimension-${tab.id}`} aria-controls="usage-dimension-panel" aria-selected={rankingView === tab.id} class:active={rankingView === tab.id} onclick={() => rankingView = tab.id}>{tab.label}</button>{/each}</div>
+        <div id="usage-dimension-panel" role="tabpanel" aria-labelledby={`usage-dimension-${rankingView}`}><AnalyticsRanking title={session.text.usageRankings} rows={otherRows} unit={session.text.usageTokens} total={usage.totals.totalTokens} /></div>
   <div class="settings-card observatory-data-card">
     <div class="observatory-section-head"><div><strong>{session.text.usageRecentRequests}</strong><p>{session.text.usageRecentRequestsHint}</p></div></div>
     {#if usage.records.items.length === 0}<EmptyState title={session.text.usageNoRecords} icon="list-magnifying-glass" />{:else}
-      <div class="observatory-table-wrap"><table class="observatory-table"><thead><tr><th>{session.text.usageTime}</th><th>{session.text.usageModel}</th><th>{session.text.usageChannel}</th><th>{session.text.usageBot}</th><th>{session.text.usageRankApi}</th><th>{session.text.usageInput}</th><th>{session.text.usageOutput}</th><th>{session.text.usageCache}</th><th>{session.text.usageTotalTokens}</th></tr></thead><tbody>{#each usage.records.items as record (record.requestId ?? record.ts + record.botId + record.model)}<tr><td>{formatDate(record.ts)}</td><td><strong>{humanizeModelOption(`${record.provider}/${record.model}`, `${record.provider}::${record.model}`).label}</strong><small>{record.provider}</small></td><td>{record.channel}</td><td class="observatory-id">{record.botId}</td><td class="observatory-id">{record.api}</td><td>{formatTokenCount(record.inputTokens)}</td><td>{formatTokenCount(record.outputTokens)}</td><td>{formatTokenCount(record.cacheReadTokens + record.cacheWriteTokens)}</td><td><strong>{formatTokenCount(record.totalTokens)}</strong></td></tr>{/each}</tbody></table></div>
+      <div class="observatory-table-wrap"><table class="observatory-table"><thead><tr><th>{session.text.usageTime}</th><th>{session.text.usageModel}</th><th>{session.text.usageChannel}</th><th>{session.text.analyticsAgent}</th><th>{session.text.usageBot}</th><th>{session.text.usageRankApi}</th><th>{session.text.usageInput}</th><th>{session.text.usageOutput}</th><th>{session.text.usageCache}</th><th>{session.text.usageTotalTokens}</th></tr></thead><tbody>{#each usage.records.items as record (record.requestId ?? record.ts + record.botId + record.model)}<tr><td>{formatDate(record.ts)}</td><td><strong>{humanizeModelOption(`${record.provider}/${record.model}`, `${record.provider}::${record.model}`).label}</strong><small>{record.provider}</small></td><td>{record.channel}</td><td>{usage.options.agents.find(agent => agent.id === record.agentId)?.label ?? session.text.analyticsUnattributed}</td><td class="observatory-id">{record.botId}</td><td class="observatory-id">{record.api}</td><td>{formatTokenCount(record.inputTokens)}</td><td>{formatTokenCount(record.outputTokens)}</td><td>{formatTokenCount(record.cacheReadTokens + record.cacheWriteTokens)}</td><td><strong>{formatTokenCount(record.totalTokens)}</strong></td></tr>{/each}</tbody></table></div>
       <div class="observatory-mobile-list">{#each usage.records.items as record (record.requestId ?? record.ts + record.botId + record.model)}<article><header><strong>{humanizeModelOption(`${record.provider}/${record.model}`, `${record.provider}::${record.model}`).label}</strong><span>{formatTokenCount(record.totalTokens)} {session.text.usageTokens}</span></header><p>{formatDate(record.ts)} · {record.channel} · {record.botId}</p><dl><div><dt>{session.text.usageInput}</dt><dd>{formatTokenCount(record.inputTokens)}</dd></div><div><dt>{session.text.usageOutput}</dt><dd>{formatTokenCount(record.outputTokens)}</dd></div><div><dt>{session.text.usageCache}</dt><dd>{formatTokenCount(record.cacheReadTokens + record.cacheWriteTokens)}</dd></div><div><dt>{session.text.usageRankApi}</dt><dd>{record.api}</dd></div></dl></article>{/each}</div>
     {/if}
     <div class="observatory-pagination"><span>{session.text.usagePage.replace("{page}", String(usage.records.page)).replace("{pages}", String(totalPages)).replace("{total}", String(usage.records.total))}</span><div><label>{session.text.usagePageSize}<SelectControl value={String(usageStore.query.pageSize)} ariaLabel={session.text.usagePageSize} options={[10, 20, 50, 100].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => updateUsageQuery({ pageSize: Number(value) })} /></label><button class="secondary-button" type="button" disabled={usage.records.page <= 1 || usageStore.refreshing} onclick={() => updateUsageQuery({ page: usage.records.page - 1 }, false)}>{session.text.usagePrevious}</button><button class="secondary-button" type="button" disabled={usage.records.page >= totalPages || usageStore.refreshing} onclick={() => updateUsageQuery({ page: usage.records.page + 1 }, false)}>{session.text.usageNext}</button></div></div>
+  </div>
+      </div>
+    </details>
   </div>
 {/if}

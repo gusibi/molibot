@@ -24,6 +24,37 @@
 | 预设回复模型服务（分段工具调用拼接、多工具调用、暂停释放、未匹配记录并失败） | 已实现 | `tests/ui/support/model-service.test.ts` |
 | 自动选择映射（路径 → 标签，原生路径必选原生） | 已实现 | `scripts/verify/selection.test.mjs` |
 
+## Desktop Logo 统一（2026-10-18）
+
+| 场景 | 状态 | 负责层 | 用例 |
+|---|---|---|---|
+| 原生选择确认、恢复、失败反馈、更新期间禁止重复提交 | 已实现 | 前端状态 | `apps/desktop/src/lib/stores/appLogo.test.ts` |
+| 原始图像 RGBA 保留（不加背景/蒙版/裁切） | 已实现 | 图标资源 | `python3 scripts/generate-desktop-logo-icons.test.py`；修复前 17 项失败，修复后连续 5 次通过 |
+| 临时桌面偏好整对象 round-trip、其他偏好保留、失败回滚、全部图标解码 | 已实现 | 原生逻辑 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib app_logo::tests` |
+| 主题导入排在 Logo 之前、页面选择、跨窗口同步、刷新恢复、失败保留选择、中英即时切换、明暗与窄窗口 | 已实现 | 浏览器 UI（无后端预览） | `pnpm --dir apps/desktop test:logo-ui` |
+| Dock / Command + Tab、菜单栏即时变化、退出重开、服务断开恢复 | 待验证 | 原生 App | 缺少隔离原生驱动构建；`pnpm test:app` 尚为占位入口，浏览器与 Rust 单元测试不替代系统界面验证 |
+
+## 桌面外部会话刷新（2026-10-18）
+
+| 场景 | 状态 | 负责层 | 用例 |
+|---|---|---|---|
+| 手动/自动刷新、最近对话与 Agent 排序、失败保留缓存及恢复、连接/会话切换、文件索引乱序 | 已实现 | 桌面逻辑 + 数据投影 | `agentActivityPolling.test.ts`、`externalTranscriptLoader.test.ts`、`desktopConversations.test.ts`；隔离预览走查中英/明暗/窄窗，原生包未验证 |
+| 当前封装回执中的 TTS/图像/视频附件及路径校验 | 已实现 | 数据投影 + 桌面展示 | `externalSessionsFromContexts.test.ts`、`desktopExternalSessions.test.ts`；隔离预览验证本地 OGG 加载，真实渠道投递未验证 |
+
+## Desktop 用量与 Trace（2026-10-18）
+
+| 场景 | 状态 | 负责层 | 用例 |
+|---|---|---|---|
+| 今日总量、模型跨 API 合并、Agent/Bot 分离、完整时间范围超过 5,000 条、时区边界、模型全部结果分组 | 已实现 | 共享统计 + 临时 SQLite/账本 | `desktopUsage.test.ts`、`desktopTrace.test.ts`、`tracker.analytics.test.ts`、`traceRecorderHook.test.ts` |
+| 缓存完整输入分母、无分母显示未知、成功率排除取消及未完成、紧凑数字、趋势插值不越过相邻数据范围 | 已实现 | Desktop 展示计算 | `apps/desktop/src/lib/settings/analytics.test.ts` |
+| 首次打开、跨页刷新、排行筛选与完整展开、Bot/渠道/Agent 与工具技能汇总直显、诊断默认折叠、筛选同行对齐及错行故障注入、刷新失败保留数据及重试、隔离服务停止/恢复 | 已实现 | Desktop 前端 + 隔离服务 | `desktop-observatory.spec.ts`，仅执行 `@observatory` 定向场景 |
+| 25 个内置主题 × 明暗 × 两页布局、中英即时切换、860px 窄窗、代表性导入配色 | 已实现 | Desktop 前端布局 | `desktop-observatory.spec.ts`；自动检查面板边界并保存代表性截图，不宣称完整无障碍合规 |
+| Trace 小时/每日补零与时区边界、普通工具/MCP 分开、Agent 运行结果、费用覆盖/零费用/未知费用、缓存分母 | 已实现 | 共享统计与临时 SQLite | `desktopTrace.test.ts`、`traceRecorderHook.test.ts`、`analytics.test.ts` |
+| Trace 图例隐藏恢复、键盘时间点、7 天/今天切换、Agent 联动曲线/成功率/费用/缓存 | 已实现 | Desktop 前端 + 隔离服务 | `desktop-observatory.spec.ts` |
+| 原生窗口首次打开、切换 Session、HTTP 插件链路与服务恢复 | 待验证 | 原生 App | 缺少隔离原生驱动测试构建；浏览器承载的是 Desktop 组件，不是独立 Web 设置页，也不能替代原生验收 |
+
+定向执行：`node node_modules/@playwright/test/cli.js test --config tests/ui/playwright.config.ts --project=webkit tests/ui/desktop-observatory.spec.ts`。
+
 ## P0 场景
 
 | 场景 | 状态 | 负责层 | 用例 |
@@ -41,6 +72,8 @@
 | 队列与插话（入队、顺序、取消、清空、插话） | 已实现 | 集成 + 浏览器 | `chat.spec.ts`（queue+remove、顺序执行、清空不执行、插话投递）+ `conversationController.test.ts`（出队顺序与恰好一次、并发出队不重复发送） |
 | 排队时审批 | 已实现 | 浏览器 | `chat.spec.ts`（审批与排队按顺序推进） |
 | 设置保存（保存、离开返回、重启回读、不覆盖其他配置） | 已实现 | 集成 + 浏览器 | `agent-settings.spec.ts`（保存留在当前分类与文件、连续保存、失败重试、返回与重启回读、中英明暗窄窗）+ `settings.spec.ts`（默认执行模式字段级 round-trip + 不覆盖 Agents）+ `shared-rules.spec.ts`（共享规则保存与重启）+ `settings/*Roundtrip.test.ts`（整对象 round-trip） |
+| 应用 Logo 切换（即时生效、冷加载持久） | 已实现 | 单元 + 浏览器 | `settings.spec.ts`（选择徽章后设置页脚与聊天侧栏即时换标、reload 后持久、恢复默认）+ `appLogo.test.ts`（选择持久化、非法 id 回退默认、清单资产在盘校验） |
+| 侧栏 footer 统一（共享标识 mark、状态环点、设置页 Agent 入口） | 已实现 | 单元 + 浏览器 | `chat-ui.test.mjs`（AppFooterMark 共享、聊天 footer 无状态行守卫、设置 footer 组合 mark 与 A 入口）+ `settings.spec.ts`（设置页 footer 的 Agent 控件关闭设置并落到默认 Agent 首页、footer 无常态状态文字） |
 | 服务恢复（停启后无永久加载、无重复） | 部分交付 | 浏览器 + 原生 | `chat.spec.ts`（service restart）。原生中断恢复未验证 |
 | 刷新接续（生成中刷新接上回复） | 已实现 | 浏览器 | `chat.spec.ts`（生成中刷新后恢复运行、恰好一次、无重复发送）。阶段 1：服务端不再断开即中止、客户端恢复结果；刷新后继续接收逐字实时增量属阶段 2，见 [session-run-reattach-spec](../../docs/requirements/session-run-reattach-spec.md) |
 | 原生传输（流式、二进制下载、握手、崩溃恢复） | 环境受限 | 原生 | 需要带 Tauri 驱动的测试构建 |

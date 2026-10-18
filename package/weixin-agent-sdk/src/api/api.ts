@@ -210,6 +210,56 @@ function buildHeaders(opts: { token?: string }): Record<string, string> {
 }
 
 /**
+ * Classify a fetch-level error into a category for logging / diagnostics.
+ * This does NOT cover HTTP-level errors (4xx/5xx) — those are thrown separately.
+ */
+export function classifyFetchError(err: unknown): {
+  type: "dns" | "tcp" | "tls" | "timeout" | "unknown";
+  description: string;
+  code?: string;
+} {
+  if (err instanceof Error && err.name === "AbortError") {
+    return { type: "timeout", description: "request timeout" };
+  }
+
+  const cause = (err as NodeJS.ErrnoException)?.cause;
+  const causeCode = (cause as { code?: string })?.code ?? "";
+  const causeStr = String(cause ?? err ?? "") + " " + String(causeCode);
+  const matchedCode = causeCode || (typeof cause === "string" ? cause : "");
+
+  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(causeStr)) {
+    return {
+      type: "dns",
+      description: "DNS resolution failed, check DNS configuration",
+      ...(matchedCode ? { code: matchedCode } : {}),
+    };
+  }
+  if (/ECONNREFUSED/i.test(causeStr)) {
+    return {
+      type: "tcp",
+      description: "TCP connection refused",
+      ...(matchedCode ? { code: matchedCode } : {}),
+    };
+  }
+  if (/UND_ERR_CONNECT_TIMEOUT|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH/i.test(causeStr)) {
+    return {
+      type: "tcp",
+      description: "TCP connection timeout or unreachable",
+      ...(matchedCode ? { code: matchedCode } : {}),
+    };
+  }
+  if (/UND_ERR_SOCKET|SSL|TLS|CERT|UNABLE_TO_VERIFY|DEPTH_ZERO/i.test(causeStr)) {
+    return {
+      type: "tls",
+      description: "TLS handshake error",
+      ...(matchedCode ? { code: matchedCode } : {}),
+    };
+  }
+
+  return { type: "unknown", description: "network request failed" };
+}
+
+/**
  * Common fetch wrapper: POST JSON to a Weixin API endpoint with timeout + abort.
  * Returns the raw response text on success; throws on HTTP error or timeout.
  */
@@ -250,6 +300,10 @@ async function apiFetch(params: {
     return rawText;
   } catch (err) {
     clearTimeout(t);
+    const classified = classifyFetchError(err);
+    logger.error(
+      `${params.label}: POST fetch failed url=${redactUrl(url.toString())} timeoutMs=${params.timeoutMs} type=${classified.type} description=${classified.description}${classified.code ? ` code=${classified.code}` : ""} error=${String(err)}`,
+    );
     throw err;
   } finally {
     params.abortSignal?.removeEventListener("abort", onAbort);
@@ -293,6 +347,10 @@ export async function apiGetFetch(params: {
     return rawText;
   } catch (err) {
     if (timer !== undefined) clearTimeout(timer);
+    const classified = classifyFetchError(err);
+    logger.error(
+      `${params.label}: GET fetch failed url=${redactUrl(url.toString())} timeoutMs=${params.timeoutMs ?? "none"} type=${classified.type} description=${classified.description}${classified.code ? ` code=${classified.code}` : ""} error=${String(err)}`,
+    );
     throw err;
   }
 }
@@ -364,6 +422,10 @@ export async function apiPostFetch(params: {
     return rawText;
   } catch (err) {
     if (timer !== undefined) clearTimeout(timer);
+    const classified = classifyFetchError(err);
+    logger.error(
+      `${params.label}: POST fetch failed url=${redactUrl(url.toString())} timeoutMs=${params.timeoutMs ?? "none"} type=${classified.type} description=${classified.description}${classified.code ? ` code=${classified.code}` : ""} error=${String(err)}`,
+    );
     throw err;
   } finally {
     cleanup();
@@ -399,7 +461,7 @@ export async function getUpdates(
       label: "getUpdates",
       abortSignal: params.abortSignal,
     });
-    const resp: GetUpdatesResp = JSON.parse(rawText);
+    const resp = parseWeixinApiJson<GetUpdatesResp>(rawText);
     return resp;
   } catch (err) {
     // Long-poll timeout is normal; return empty response so caller can retry
@@ -440,10 +502,71 @@ export async function getUploadUrl(
   return resp;
 }
 
-/** Send a single message downstream. */
+const LOSSLESS_ID_FIELDS = new Set(["message_id", "msg_id", "svr_id"]);
+
+/**
+ * Quote uint64 message identifiers before JSON.parse sees them. This scanner
+ * only rewrites actual object properties, never matching text inside JSON strings.
+ */
+export function parseWeixinApiJson<T>(rawText: string): T {
+  let output = "";
+  let index = 0;
+  while (index < rawText.length) {
+    if (rawText[index] !== '"') {
+      output += rawText[index++];
+      continue;
+    }
+
+    const stringStart = index;
+    index++;
+    let escaped = false;
+    while (index < rawText.length) {
+      const char = rawText[index++];
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        break;
+      }
+    }
+    const stringToken = rawText.slice(stringStart, index);
+    output += stringToken;
+
+    let cursor = index;
+    while (/\s/.test(rawText[cursor] ?? "")) cursor++;
+    if (rawText[cursor] !== ":") continue;
+
+    let key: unknown;
+    try {
+      key = JSON.parse(stringToken);
+    } catch {
+      continue;
+    }
+    if (typeof key !== "string" || !LOSSLESS_ID_FIELDS.has(key)) continue;
+
+    output += rawText.slice(index, cursor + 1);
+    cursor++;
+    while (/\s/.test(rawText[cursor] ?? "")) {
+      output += rawText[cursor++];
+    }
+    const numberStart = cursor;
+    if (rawText[cursor] === "-") cursor++;
+    while (/\d/.test(rawText[cursor] ?? "")) cursor++;
+    if (cursor > numberStart && !(cursor === numberStart + 1 && rawText[numberStart] === "-")) {
+      output += `"${rawText.slice(numberStart, cursor)}"`;
+      index = cursor;
+    } else {
+      index = numberStart;
+    }
+  }
+  return JSON.parse(output) as T;
+}
+
+/** Send a single message downstream and return the server-assigned message ID. */
 export async function sendMessage(
   params: WeixinApiOptions & { body: SendMessageReq },
-): Promise<void> {
+): Promise<SendMessageResp> {
   const rawText = await apiFetch({
     baseUrl: params.baseUrl,
     endpoint: "ilink/bot/sendmessage",
@@ -452,17 +575,18 @@ export async function sendMessage(
     timeoutMs: params.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
     label: "sendMessage",
   });
-  if (!rawText.trim()) return;
+  if (!rawText.trim()) return {};
   let resp: SendMessageResp;
   try {
-    resp = JSON.parse(rawText) as SendMessageResp;
+    resp = parseWeixinApiJson<SendMessageResp>(rawText);
   } catch {
-    return;
+    return {};
   }
   const code = typeof resp.errcode === "number" ? resp.errcode : (typeof resp.ret === "number" ? resp.ret : 0);
   if (code !== 0) {
     throw new Error(`sendMessage failed: code=${code} errmsg=${resp.errmsg ?? ""}`.trim());
   }
+  return resp;
 }
 
 /** Fetch bot config (includes typing_ticket) for a given user. */

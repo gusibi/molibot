@@ -191,3 +191,10 @@ test("buildDesktopExternalTranscript projects session metadata and ordered messa
   assert.deepEqual(transcript.messages.map((m) => m.id), ["m1", "m3"]);
   assert.deepEqual(transcript.messages.map((m) => m.role), ["user", "assistant"]);
 });
+
+test("external transcript exposes display status separately from model system messages", () => {
+  const result = buildDesktopExternalTranscriptMessage({ id: "failed", conversationId: "session", role: "assistant", content: "", createdAt: "2026-10-18T01:00:00.000Z", stopReason: "error", errorMessage: "402: Insufficient Balance" });
+  assert.equal(result?.content, "");
+  assert.equal(result?.stopReason, "error");
+  assert.equal(result?.errorMessage, "402: Insufficient Balance");
+});

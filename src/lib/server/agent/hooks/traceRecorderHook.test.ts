@@ -39,6 +39,23 @@ test("TraceRecorderHook writes sanitized trace events to SQLite", async () => {
   store.close();
 });
 
+test("model and tool facts retain the executing Agent independently of Bot assignment", async () => {
+  const store = new SqliteTraceStore(":memory:");
+  const manager = new DefaultHookManager();
+  manager.register(new TraceRecorderHook(store));
+  const ctx = { ...context("agent-attribution"), agentId: "researcher" };
+  try {
+    manager.emit("model.call.before", ctx, { modelAttemptId: "model-1", model: "fixture" });
+    manager.emit("model.call.after", ctx, { modelAttemptId: "model-1", model: "fixture", usage: { input: 3, output: 2 } });
+    manager.emit("tool.call.after", ctx, { toolName: "read", toolCallId: "tool-1" });
+    await manager.flush({ timeoutMs: 1000 });
+    const facts = store.listFactsByRunId(ctx.runId);
+    assert.equal(facts.length, 2);
+    assert.ok(facts.every(fact => fact.payload.agentId === "researcher"));
+    assert.ok(facts.every(fact => fact.botId === "web-profile-1"));
+  } finally { store.close(); }
+});
+
 test("TraceRecorderHook isolates run state and purges it on run.finished", async () => {
   const store = new SqliteTraceStore(":memory:");
   const hook = new TraceRecorderHook(store);
@@ -475,4 +492,24 @@ test("SqliteTraceStore reconcileStaleOrphanRuns marks dead orphan runs as aborte
   assert.equal(liveRun?.status, "started");
 
   store.close();
+});
+
+
+test("model costs survive sanitized persistence and the lean analytics projection; missing prices stay unknown", async () => {
+  const store = new SqliteTraceStore(":memory:");
+  const manager = new DefaultHookManager();
+  manager.register(new TraceRecorderHook(store));
+  try {
+    for (const [id, cost] of [["priced", 0.025], ["free", 0], ["unknown", undefined], ["invalid", -1]] as const) {
+      manager.emit("model.call.after", context("cost-run"), { modelAttemptId: id, usage: { input: 5, cost: cost === undefined ? undefined : { total: cost } } });
+    }
+    await manager.flush({ timeoutMs: 1000 });
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = store.listAnalyticsFacts(today, today, "UTC");
+    assert.equal(rows.find(row => row.factId === "priced")?.payload.estimatedCostUsd, 0.025);
+    assert.equal(rows.find(row => row.factId === "free")?.payload.estimatedCostUsd, 0);
+    assert.equal(rows.find(row => row.factId === "unknown")?.payload.estimatedCostUsd, null);
+    assert.equal(rows.find(row => row.factId === "invalid")?.payload.estimatedCostUsd, null);
+    assert.equal(store.listFactsByRunId("cost-run")[0].payload.usage, "[object]");
+  } finally { store.close(); }
 });

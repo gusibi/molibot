@@ -16,7 +16,6 @@ export type SettingsDestination =
   | "imageGenerate"
   | "videoGenerate"
   | "ttsGenerate"
-  | "profiles"
   | "usage"
   | "runHistory"
   | "logs"
@@ -84,7 +83,7 @@ type CommandDefinition = {
 
 export const settingsDestinations: SettingsDestination[] = [
   "general", "models", "providers", "agents", "mcp", "openConnector", "skills", "memory", "channels", "plugins",
-  "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "profiles", "usage", "runHistory",
+  "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "usage", "runHistory",
   "logs", "trace", "executionPermissions", "hostBash", "diagnostics", "runtimeEnv"
 ];
 
@@ -108,7 +107,6 @@ function sectionLabel(destination: SettingsDestination, locale: Locale): string 
     case "imageGenerate": return copy.imageGenerate;
     case "videoGenerate": return copy.videoGenerate;
     case "ttsGenerate": return copy.ttsGenerate;
-    case "profiles": return copy.profiles;
     case "usage": return copy.usage;
     case "runHistory": return copy.runHistory;
     case "logs": return copy.logs;

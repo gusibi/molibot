@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { MomEvent } from "$lib/server/agent/events.js";
 import type { ChannelInboundMessage, DurableAttemptHooks } from "$lib/server/agent/core/types.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { DurableExecutionRuntime } from "./runtime.js";
 import { DurableExecutionStore } from "./store.js";
+import { runNextWakeup } from "./testSupport.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-verify-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
-  const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+  const coordinator = new DurableExecutionCoordinator(store, "process-a");
   return { root, store, coordinator };
 }
 
@@ -29,12 +29,10 @@ function approveAndActivate(
 async function runNext(
   runtime: DurableExecutionRuntime,
   store: DurableExecutionStore,
-  root: string,
-  executionId: string
+  _root: string,
+  _executionId: string
 ): Promise<void> {
-  const version = store.getById(executionId)!.version;
-  const file = join(root, "system", "bots", "owner", "events", `durable-execution-${executionId}-v${version}.json`);
-  await runtime.run(JSON.parse(readFileSync(file, "utf8")) as MomEvent, file);
+  await runNextWakeup(runtime, store, "process-a");
 }
 
 test("plan work items carry a verification rule and default to run-detail evidence", () => {

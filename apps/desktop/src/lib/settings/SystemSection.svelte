@@ -8,9 +8,10 @@
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import { loadDesktopSystem, saveDesktopSystem } from "../api";
   import { session, setError, notifySettingsChanged } from "../stores/session.svelte";
-  import { trackUnsaved } from "../unsavedGuard";
-  import { buildDesktopSystemPatch } from "./systemConfig";
-  import { timezoneOptions } from "./timezones";
+import { trackUnsaved } from "../unsavedGuard";
+import { buildDesktopSystemPatch } from "./systemConfig";
+import { labeledOptions, progressOptionLabels, reasoningOptionLabels } from "./displaySettings";
+import { timezoneOptions } from "./timezones";
 
   let saved = $state<DesktopSystemConfig | null>(null);
   let draft = $state<DesktopSystemConfig | null>(null);
@@ -34,14 +35,8 @@
     { key: "maxTasks" as const, label: session.text.systemMaxTasks, min: 1, max: 16 },
     { key: "maxConcurrency" as const, label: session.text.systemMaxConcurrency, min: 1, max: 4 }
   ]);
-  const progressOptions = $derived([
-    { value: "off", label: session.text.systemProgressOff }, { value: "new", label: session.text.systemProgressNew },
-    { value: "all", label: session.text.systemProgressAll }, { value: "verbose", label: session.text.systemProgressVerbose }
-  ]);
-  const reasoningOptions = $derived([
-    { value: "off", label: session.text.systemReasoningOff }, { value: "on", label: session.text.systemReasoningOn },
-    { value: "stream", label: session.text.systemReasoningStream }, { value: "new", label: session.text.systemReasoningNew }
-  ]);
+  const progressOptions = $derived(labeledOptions(progressOptionLabels(session.text)));
+  const reasoningOptions = $derived(labeledOptions(reasoningOptionLabels(session.text)));
 
   $effect(() => {
     const endpoint = session.endpoint;

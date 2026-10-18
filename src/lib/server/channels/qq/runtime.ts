@@ -4,6 +4,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { isDirectEventDelivery, resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
+import type { HostBashApprovalPrompt } from "$lib/server/hostBash/types.js";
 import { createRunArchiveNoticeOnComplete } from "$lib/server/channels/shared/runArchiveNotice.js";
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
 import type { ChannelInboundMessage, FileAttachment } from "$lib/server/agent/core/types.js";
@@ -16,9 +17,22 @@ import { imageContentFromSavedAttachment, rebuildImageContentsFromAttachments } 
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
-import { type ResolvedQQBotAccount, initApiConfig, clearTokenCache } from "$lib/server/channels/qq/sdk-adapter.js";
-import { sendText, sendMedia, type OutboundResult } from "#qqbot/src/outbound.js";
-import { startGateway, type GatewayContext } from "#qqbot/src/gateway.js";
+import { type ResolvedQQBotAccount } from "#qqbot/src/types.js";
+import { initApiConfig, clearTokenCache } from "#qqbot/src/api.js";
+import {
+  sendText,
+  sendMedia,
+  sendTextWithKeyboard,
+  sendTyping,
+  openC2cStream,
+  acknowledgeInteraction,
+  type OutboundResult,
+  type StreamSession
+} from "#qqbot/src/outbound.js";
+import { startGateway, type GatewayContext, type GatewayInteractionEvent } from "#qqbot/src/gateway.js";
+import { sendQqVoice, isAudioSource } from "$lib/server/channels/qq/voice.js";
+import { QqApprovalInteractions } from "$lib/server/channels/qq/approvalButtons.js";
+import { buildInboundText } from "$lib/server/channels/qq/inboundText.js";
 
 export interface QQConfig {
   appId: string;
@@ -42,7 +56,13 @@ interface GatewayEvent {
   channelId?: string;
   guildId?: string;
   groupOpenid?: string;
-  attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string }>;
+  attachments?: Array<{
+    content_type: string;
+    url: string;
+    filename?: string;
+    voice_wav_url?: string;
+    asr_refer_text?: string;
+  }>;
 }
 
 interface QQQueuedTaskPayload {
@@ -92,11 +112,13 @@ export class QQManager extends BaseChannelRuntime {
   private currentAppId = "";
   private currentClientSecret = "";
   private currentAllowedChatIdsKey = "";
+  private currentAllowed = new Set<string>();
   private gatewayAbortController: AbortController | null = null;
   private gatewayRunning = false;
   private aborted = false;
   private sdkAccount: ResolvedQQBotAccount | null = null;
   private readonly sourceTargets = new Map<string, SendTarget>();
+  private readonly approvals: QqApprovalInteractions;
 
   constructor(
     getSettings: () => RuntimeSettings,
@@ -172,6 +194,15 @@ export class QQManager extends BaseChannelRuntime {
         }
         return result;
       }
+    });
+    this.approvals = new QqApprovalInteractions({
+      commandService: this.commandService,
+      sendText: (target, text) => this.replyCommand(target, text),
+      acknowledge: (interactionId, code) =>
+        this.sdkAccount
+          ? acknowledgeInteraction(this.sdkAccount, interactionId, code)
+          : Promise.resolve(),
+      isChatAllowed: (chatId) => this.currentAllowed.size === 0 || this.currentAllowed.has(chatId)
     });
   }
 
@@ -285,6 +316,8 @@ export class QQManager extends BaseChannelRuntime {
       return;
     }
 
+    this.currentAllowed = new Set(allowed);
+
     try {
       const gatewayAbortController = new AbortController();
       this.gatewayAbortController = gatewayAbortController;
@@ -300,6 +333,9 @@ export class QQManager extends BaseChannelRuntime {
         },
         onEvent: async (event) => {
           await this.handleGatewayEvent(event, allowed);
+        },
+        onInteraction: async (event: GatewayInteractionEvent) => {
+          await this.approvals.handleInteraction(event);
         },
         onError: (error) => {
           momError("qq", "gateway_error", { botId: this.instanceId, error: error.message });
@@ -345,8 +381,8 @@ export class QQManager extends BaseChannelRuntime {
       return;
     }
 
-    const attachmentResult = await this.extractInboundAttachments(chatId, event);
-    const text = String(event.content ?? "").trim() || fallbackTextForAttachments(event.attachments ?? []);
+      const attachmentResult = await this.extractInboundAttachments(chatId, event);
+      const text = buildInboundText(event.content, event.attachments ?? []);
     const inboundEvent: ChannelInboundMessage = {
       chatId,
       chatType,
@@ -419,6 +455,70 @@ export class QQManager extends BaseChannelRuntime {
 
     const messagesBuffer: string[] = [];
 
+    // ============ C2C 流式消息（打字机效果）============
+    // 私聊且有可引用的入站消息时启用：内容以 stream 会话 replace 语义逐帧刷新，
+    // 失败（如 5 分钟被动窗口过期）自动降级为原有的一次性合并发送。
+    const useStream = target.mode === "c2c" && Boolean(target.replyToId) && Boolean(this.sdkAccount);
+    const streamParts: string[] = [];
+    const streamState: { session: StreamSession | null; broken: boolean; completed: boolean } = {
+      session: null,
+      broken: false,
+      completed: false
+    };
+
+    const fullStreamText = (): string =>
+      [...streamParts, ...messagesBuffer]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join("\n\n");
+
+    const syncStream = async (): Promise<void> => {
+      if (!useStream || streamState.broken) return;
+      const text = fullStreamText();
+      if (!text) return;
+      try {
+        streamState.session ??= openC2cStream(this.sdkAccount!, target.id, target.replyToId!);
+        await streamState.session.update(text);
+      } catch (error) {
+        streamState.broken = true;
+        streamState.session?.cancel();
+        streamState.session = null;
+        momWarn("qq", "stream_update_failed", {
+          botId: this.instanceId,
+          chatId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    };
+
+    const finishStream = async (): Promise<void> => {
+      if (!useStream) return;
+      if (!streamState.broken) {
+        if (messagesBuffer.length > 0) {
+          streamParts.push(...messagesBuffer);
+          messagesBuffer.length = 0;
+        }
+        await syncStream();
+        if (streamState.session) {
+          try {
+            await streamState.session.complete();
+            streamState.completed = true;
+          } catch (error) {
+            momWarn("qq", "stream_complete_failed", {
+              botId: this.instanceId,
+              chatId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+          streamState.session = null;
+        }
+      }
+      if (!streamState.completed && fullStreamText()) {
+        // A partial frame is not a final-delivery acknowledgement.
+        await sendRawText(fullStreamText());
+      }
+    };
+
     const sendRawText = async (text: string): Promise<{ messageId: string | number } | null> => {
       const result = await this.sendText(target, text, target.replyToId);
       return result.messageId ? { messageId: result.messageId } : null;
@@ -426,6 +526,13 @@ export class QQManager extends BaseChannelRuntime {
 
     const flushBuffer = async (): Promise<{ messageId: string | number } | null> => {
       if (messagesBuffer.length === 0) return null;
+      if (useStream && !streamState.broken) {
+        // 流式模式下缓冲内容由 stream 会话承载：并入流文本后同步一帧
+        streamParts.push(...messagesBuffer);
+        messagesBuffer.length = 0;
+        await syncStream();
+        return { messageId: "stream" };
+      }
       const combinedText = messagesBuffer.join("\n\n").trim();
       messagesBuffer.length = 0;
       if (combinedText) {
@@ -444,6 +551,7 @@ export class QQManager extends BaseChannelRuntime {
         }
         const formatted = formatQqToolProgressText(text);
         messagesBuffer.push(formatted);
+        await syncStream();
         return null;
       }
       if (!options?.allowFinalError && bufferIfQqRunnerError(text)) {
@@ -453,6 +561,7 @@ export class QQManager extends BaseChannelRuntime {
         hasVisibleNonErrorReply = true;
       }
       messagesBuffer.push(text);
+      await syncStream();
       return null;
     };
 
@@ -467,79 +576,104 @@ export class QQManager extends BaseChannelRuntime {
       return false;
     };
 
-    await this.runSharedTextTask(chatId, event, {
-      response: {
-        sendText: async (text) => {
-          return sendVisibleText(text);
-        },
-        respondInThread: async (text) => {
-          await sendVisibleText(text);
-        },
-        uploadFile: async (filePath, title, text) => {
-          if (!this.sdkAccount) {
-            throw new Error("SDK account not initialized");
-          }
-          await flushBuffer();
-          const result = await sendMedia({
-            to: this.buildTargetAddress(target),
-            mediaUrl: filePath,
-            text: text ?? title ?? "",
-            accountId: this.sdkAccount.accountId,
-            replyToId: target.replyToId ?? null,
-            account: this.sdkAccount
-          });
-          if (result.error) {
-            throw new Error(result.error);
-          }
-        }
-      },
-      createBotMessageId: () => Date.now(),
-      onSessionAppendWarning: (error) => {
-        momWarn("qq", "session_assistant_append_failed", {
-          botId: this.instanceId,
-          chatId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      },
-      onRunnerEvent: async (runnerEvent) => {
-        if (runnerEvent.type !== "tool_execution_end" || !runnerEvent.hostBashApproval) return;
-        await flushBuffer();
-        await sendRawText(buildNonInteractiveHostBashApprovalText(runnerEvent.hostBashApproval));
-      },
-      onRunComplete: createRunArchiveNoticeOnComplete({
-        scopeId: chatId,
-        shouldSend: (scopeId) => this.commandService.shouldSendRunArchiveNotice(scopeId),
-        sendVisibleText
-      }),
-      replaceWithoutEdit: async (text, state) => {
-        if (isTransientRunnerProgress(text)) {
-          await sendVisibleText(text);
-          state.hasResponded = true;
-          state.accumulatedText = text;
-          return;
-        }
-        if (bufferIfQqRunnerError(text)) {
-          state.hasResponded = true;
-          state.accumulatedText = text;
-          return;
-        }
-        if (text === state.accumulatedText.trim()) return;
-        if (state.accumulatedText) {
-          const idx = messagesBuffer.indexOf(state.accumulatedText);
-          if (idx !== -1) {
-            messagesBuffer.splice(idx, 1);
-          }
-        }
-        messagesBuffer.push(text);
-        state.hasResponded = true;
-        state.accumulatedText = text;
-      }
-    });
+    const typing = this.startTypingKeepalive(target);
 
-    if (!hasVisibleNonErrorReply && lastBufferedError) {
-      messagesBuffer.push(lastBufferedError);
+    try {
+      await this.runSharedTextTask(chatId, event, {
+        response: {
+          sendText: async (text) => {
+            return sendVisibleText(text);
+          },
+          respondInThread: async (text) => {
+            await sendVisibleText(text);
+          },
+          uploadFile: async (filePath, title, text) => {
+            await flushBuffer();
+            await this.sendChannelFile(target, filePath, title, text);
+            hasVisibleNonErrorReply = true;
+          }
+        },
+        createBotMessageId: () => Date.now(),
+        onSessionAppendWarning: (error) => {
+          momWarn("qq", "session_assistant_append_failed", {
+            botId: this.instanceId,
+            chatId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        },
+        onRunnerEvent: async (runnerEvent) => {
+          if (runnerEvent.type !== "tool_execution_end" || !runnerEvent.hostBashApproval) return;
+          await flushBuffer();
+          await this.sendApprovalCard(chatId, target, runnerEvent.hostBashApproval, sendRawText);
+        },
+        onRunComplete: createRunArchiveNoticeOnComplete({
+          scopeId: chatId,
+          shouldSend: (scopeId) => this.commandService.shouldSendRunArchiveNotice(scopeId),
+          sendVisibleText
+        }),
+        replaceWithoutEdit: async (text, state) => {
+          if (isTransientRunnerProgress(text)) {
+            await sendVisibleText(text);
+            state.hasResponded = true;
+            state.accumulatedText = text;
+            return;
+          }
+          if (bufferIfQqRunnerError(text)) {
+            state.hasResponded = true;
+            state.accumulatedText = text;
+            return;
+          }
+          if (text === state.accumulatedText.trim()) return;
+          // 已送达的主回答就是可见回复：缓冲的运行错误兜底不能再追加在它后面
+          hasVisibleNonErrorReply = true;
+          if (useStream) {
+            // 流式 replace 语义：直接替换上一段流文本
+            const bufferIdx = messagesBuffer.indexOf(state.accumulatedText);
+            if (state.accumulatedText && bufferIdx !== -1) {
+              messagesBuffer.splice(bufferIdx, 1);
+            } else if (state.accumulatedText && streamParts[streamParts.length - 1] === state.accumulatedText) {
+              streamParts.pop();
+            }
+            streamParts.push(text);
+            state.hasResponded = true;
+            state.accumulatedText = text;
+            await syncStream();
+            return;
+          }
+          if (state.accumulatedText) {
+            const idx = messagesBuffer.indexOf(state.accumulatedText);
+            if (idx !== -1) {
+              messagesBuffer.splice(idx, 1);
+            }
+          }
+          messagesBuffer.push(text);
+          state.hasResponded = true;
+          state.accumulatedText = text;
+        }
+      });
+
+      if (!hasVisibleNonErrorReply && lastBufferedError) {
+        messagesBuffer.push(lastBufferedError);
+      }
+      if (useStream) {
+        await finishStream();
+      } else {
+        await flushBuffer();
+      }
+    } catch (error) {
+      // 异常路径：尽力把已流出的内容定格，再交给上层兜底提示
+      if (streamState.session) {
+        try {
+          await streamState.session.complete();
+        } catch {
+          streamState.session?.cancel();
+        }
+        streamState.session = null;
+      }
+      throw error;
+    } finally {
+      typing?.stop();
     }
-    await flushBuffer();
   }
 
   async triggerTask(event: unknown, _filename: string): Promise<void> {
@@ -604,20 +738,87 @@ export class QQManager extends BaseChannelRuntime {
   }
 
   private async sendCommandFile(target: SendTarget, filePath: string, title?: string, text?: string): Promise<void> {
+    await this.sendChannelFile(target, filePath, title, text);
+  }
+
+  /**
+   * 发送文件：音频走 QQ 语音消息（原生 wav/mp3/silk 直传，其余转 SILK，失败降级文件），
+   * 其他类型走普通媒体发送（图片/视频/文件按类型路由）。
+   */
+  private async sendChannelFile(target: SendTarget, filePath: string, title?: string, text?: string): Promise<void> {
     if (!this.sdkAccount) {
       throw new Error("SDK account not initialized");
     }
-    const result = await sendMedia({
-      to: this.buildTargetAddress(target),
-      mediaUrl: filePath,
-      text: text ?? title ?? "",
-      accountId: this.sdkAccount.accountId,
-      replyToId: target.replyToId ?? null,
-      account: this.sdkAccount
-    });
+    const to = this.buildTargetAddress(target);
+    const result = isAudioSource(filePath)
+      ? await sendQqVoice({
+          account: this.sdkAccount,
+          to,
+          filePath,
+          replyToId: target.replyToId ?? null,
+          text: text ?? title ?? ""
+        })
+      : await sendMedia({
+          to,
+          mediaUrl: filePath,
+          text: text ?? title ?? "",
+          accountId: this.sdkAccount.accountId,
+          replyToId: target.replyToId ?? null,
+          account: this.sdkAccount
+        });
     if (result.error) {
       throw new Error(result.error);
     }
+  }
+
+  /** host-bash 审批发送为按钮卡片；键盘发送失败降级为纯文本指引 */
+  private async sendApprovalCard(
+    chatId: string,
+    target: SendTarget,
+    prompt: HostBashApprovalPrompt,
+    fallbackSend: (text: string) => Promise<unknown>
+  ): Promise<void> {
+    if (!this.sdkAccount) return;
+    try {
+      const result = await sendTextWithKeyboard({
+        to: this.buildTargetAddress(target),
+        text: this.approvals.buildCardText(prompt),
+        accountId: this.sdkAccount.accountId,
+        replyToId: target.replyToId ?? null,
+        account: this.sdkAccount,
+        keyboard: this.approvals.buildKeyboard(chatId, prompt)
+      });
+      if (!result.error) return;
+      momWarn("qq", "approval_card_send_failed", {
+        botId: this.instanceId,
+        chatId,
+        error: result.error
+      });
+    } catch (error) {
+      momWarn("qq", "approval_card_send_failed", {
+        botId: this.instanceId,
+        chatId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    await fallbackSend(buildNonInteractiveHostBashApprovalText(prompt));
+  }
+
+  /** C2C 私聊"输入中"提示，处理期间周期续期；群聊不支持 */
+  private startTypingKeepalive(target: SendTarget): { stop: () => void } | null {
+    if (!this.sdkAccount || target.mode !== "c2c") return null;
+    const to = this.buildTargetAddress(target);
+    const ping = () => {
+      sendTyping(this.sdkAccount!, to, 30).catch((error) => {
+        momWarn("qq", "typing_indicator_failed", {
+          botId: this.instanceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    };
+    ping();
+    const timer = setInterval(ping, 25_000);
+    return { stop: () => clearInterval(timer) };
   }
 
   private rehydrateQueuedEvent(event: ChannelInboundMessage): ChannelInboundMessage {
@@ -738,27 +939,6 @@ function toNumericId(value: string): number {
   return hash || Date.now();
 }
 
-function mapAttachments(
-  attachments: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string }>
-): FileAttachment[] {
-  return attachments.map((attachment) => {
-    const mimeType = attachment.content_type || "";
-    const mediaType = mimeType.startsWith("image/")
-      ? "image"
-      : mimeType.startsWith("audio/")
-        ? "audio"
-        : "file";
-    return {
-      original: attachment.url,
-      local: attachment.voice_wav_url || attachment.url,
-      mediaType,
-      mimeType,
-      isImage: mediaType === "image",
-      isAudio: mediaType === "audio"
-    };
-  });
-}
-
 async function downloadAttachment(url: string): Promise<Buffer> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -823,18 +1003,4 @@ function inferAttachmentExtension(contentType: string, sourceUrl: string): strin
   return ".bin";
 }
 
-function fallbackTextForAttachments(
-  attachments: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string }>
-): string {
-  if (attachments.length === 0) return "";
-  if (attachments.some((attachment) => attachment.content_type?.startsWith("audio/"))) {
-    return "(voice message)";
-  }
-  if (attachments.some((attachment) => attachment.content_type?.startsWith("image/"))) {
-    return "(image attachment)";
-  }
-  return "(attachment)";
-}
-
 export type { ResolvedQQBotAccount };
-export { initApiConfig, clearTokenCache };

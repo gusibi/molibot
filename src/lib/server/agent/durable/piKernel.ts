@@ -331,7 +331,8 @@ export function createPiToolRegistry(options: PiDurableKernelOptions, suspend: (
           finally { try { options.onToolApi?.(api.callId, undefined); } finally { progressSinks.delete(invocationKey); } }
         }
         return {
-          content: result.content,
+          // pi-durable 1.3 reads tool content from `output`; a `content` field would be ignored.
+          output: result.content,
           details: encodePiToolDetails(result),
           isError: result.isError, usage: result.usage,
           control: result.terminate ? { terminate: true as const } : undefined

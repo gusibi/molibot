@@ -39,10 +39,12 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 ### Planned and requirements
 
 - [Assistant Capability Matrix](requirements/personal-assistant-capability-matrix.md) — the single four-state current-status source
+- [Personal Agent：授权事项的持续跟进与交付](requirements/proactive-assistant-v1-spec.md) — 三阶段产品草案：项目跟进、个性化、外部来源与受控执行
 - [Large Autonomous Execution PRD](requirements/large-autonomous-execution-prd.md) — proposed continuous execution, dynamic decomposition and large-batch acceptance
 - [Automatic Durable Execution PRD](requirements/automatic-durable-execution-prd.md) — long-task foundation, partially delivered
 - [Pi capabilities integration spec](requirements/pi-capabilities-integration-spec.md) — phased Durable kernel replacement, Deferred responses, Codemode and optional image backend
 - [Pi capability completion spec](requirements/pi-capability-completion-spec.md) — approved ordinary-task recovery, MCP OAuth, Codemode model API and extension runtime interfaces; [Issue #64](https://github.com/gusibi/molibot/issues/64)
+- [Durable wakeup queue and executor hardening](requirements/durable-wakeup-queue-and-executor-hardening.md) — SQLite 唤醒队列、事务内入队、租约与错误分级；[technical design](designs/agent-runtime/durable-wakeup-queue-and-runtime-hardening-spec.md)
 - [Permission Modes PRD](requirements/permission-modes-prd.md) — Plan/Manual/Accept/Auto session scope
 - [Feature verification automation](requirements/feature-verification-spec.md) — isolated instance, scripted model, `verify:feature`, and the [UI/native coverage manifest](../tests/ui/COVERAGE.md)
 - [Project Automations PRD](requirements/project-automations-prd.md) — Project-scoped periodic Runtime Tasks
@@ -62,6 +64,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [V1 architecture (archived)](archive/designs/v1-architecture.md)
 - [Agent redesign](designs/architecture/agent-redesign-v2.2.md) (earlier revisions archived: [v2.0](archive/designs/agent-redesign-v2.0.md), [v2.1](archive/designs/agent-redesign-v2.1.md))
 - [Agent runtime designs](designs/agent-runtime/) — execution flow, event timeout/retry, approval convergence
+- [Durable wakeup queue and runtime hardening spec](designs/agent-runtime/durable-wakeup-queue-and-runtime-hardening-spec.md) — SQLite 唤醒队列、事务内入队、heartbeat/CAS 硬化与 pi-durable 对照
 - [Memory design](designs/memory/memory-usage-trace-and-feedback.md)
 - [Channel message architecture](designs/channels/message-architecture-and-presentation.md)
 - [Prompt designs](designs/prompt/)

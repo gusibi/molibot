@@ -340,3 +340,86 @@ test("readExternalTranscriptFromContexts recovers user-sent attachments from the
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const toolName of ["ttsGenerate", "imageGenerate", "videoGenerate"]) {
+  test(`external transcript projects canonical ${toolName} media receipts after append`, () => {
+    const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-media-"));
+    try {
+      const dir = contextsDir(root, "moli-f", "bot", "chat");
+      seedSession(dir, "default", [{ role: "user", content: "Generate media", timestamp: "2026-10-17T01:00:00.000Z" }], "2026-10-17T01:00:00.000Z");
+      const id = encodeExternalSessionId({ channel: "feishu", botId: "bot", chatId: "chat", sessionId: "default" });
+      assert.equal(readExternalTranscriptFromContexts(root, id)?.messages.length, 1);
+      const mediaType = toolName === "ttsGenerate" ? "audio" : toolName === "imageGenerate" ? "image" : "video";
+      const ext = { audio: "ogg", image: "png", video: "mp4" }[mediaType];
+      const local = path.join("scratch", `generated.${ext}`);
+      const entries = [
+        { type: "message", id: "tool", parentId: "e0", timestamp: "2026-10-18T01:00:01.000Z", message: {
+          role: "toolResult", toolName, toolCallId: "call", content: [],
+          details: { molibotExecution: { version: 1, details: { filePath: path.join(path.dirname(dir), local), mimeType: `${mediaType}/${ext}`, uploaded: true } } }
+        } },
+        { type: "message", id: "answer", parentId: "tool", timestamp: "2026-10-18T01:00:02.000Z", message: { role: "assistant", content: "Media ready" } }
+      ];
+      const file = path.join(dir, "default.jsonl");
+      writeFileSync(file, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n", { flag: "a" });
+      const result = readExternalTranscriptFromContexts(root, id);
+      assert.equal(result?.conversation.updatedAt, "2026-10-18T01:00:02.000Z");
+      assert.deepEqual(result?.messages.at(-1)?.attachments, [{ original: `generated.${ext}`, local, mediaType }]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+test("canonical TTS receipts cannot expose files outside the session workspace", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-media-guard-"));
+  try {
+    const dir = contextsDir(root, "moli-f", "bot", "chat");
+    seedSession(dir, "default", [{ role: "user", content: "Speak", timestamp: "2026-10-18T01:00:00.000Z" }], "2026-10-18T01:00:00.000Z");
+    const rows = [
+      { type: "message", id: "tool", parentId: "e0", timestamp: "2026-10-18T01:00:01.000Z", message: { role: "toolResult", toolName: "ttsGenerate", toolCallId: "call", content: [], details: { molibotExecution: { version: 1, details: { filePath: path.join(root, "private.ogg") } } } } },
+      { type: "message", id: "answer", parentId: "tool", timestamp: "2026-10-18T01:00:02.000Z", message: { role: "assistant", content: "Done" } }
+    ];
+    writeFileSync(path.join(dir, "default.jsonl"), rows.map(row => JSON.stringify(row)).join("\n") + "\n", { flag: "a" });
+    const id = encodeExternalSessionId({ channel: "feishu", botId: "bot", chatId: "chat", sessionId: "default" });
+    const result = readExternalTranscriptFromContexts(root, id);
+    assert.equal(result?.messages.at(-1)?.content, "Done");
+    assert.equal(result?.messages.at(-1)?.attachments, undefined);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("external transcript retains empty failed requests as display status, including failure followed by success", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-status-"));
+  try {
+    const dir = contextsDir(root, "moli-f", "bot", "chat");
+    seedSession(dir, "default", [{ role: "user", content: "Hello", timestamp: "2026-10-18T01:00:00.000Z" }], "2026-10-18T01:00:00.000Z");
+    const id = encodeExternalSessionId({ channel: "feishu", botId: "bot", chatId: "chat", sessionId: "default" });
+    const rows = [{ type: "message", id: "error", parentId: "e0", timestamp: "2026-10-18T01:00:01.000Z", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "401: API key expired" } }];
+    writeFileSync(path.join(dir, "default.jsonl"), rows.map(row => JSON.stringify(row)).join("\n") + "\n", { flag: "a" });
+    let result = readExternalTranscriptFromContexts(root, id);
+    assert.equal(result?.messages.length, 2);
+    assert.equal(result?.messages[1].content, "");
+    assert.equal(result?.messages[1].stopReason, "error");
+    assert.equal(result?.messages[1].errorMessage, "401: API key expired");
+    writeFileSync(path.join(dir, "default.jsonl"), JSON.stringify({ type: "message", id: "answer", parentId: "error", timestamp: "2026-10-18T01:00:02.000Z", message: { role: "assistant", content: [{ type: "text", text: "Recovered answer" }], stopReason: "stop" } }) + "\n", { flag: "a" });
+    result = readExternalTranscriptFromContexts(root, id);
+    assert.equal(result?.messages.at(-1)?.stopReason, "stop");
+    assert.equal(result?.messages.at(-1)?.content, "Recovered answer");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const outcome of ["stop", "error"]) {
+  test(`external status uses the final ${outcome} run outcome even when the reply projection is missing`, () => {
+    const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-run-status-"));
+    try {
+      const dir = contextsDir(root, "moli-f", "bot", "chat");
+      seedSession(dir, "default", [], "2026-10-18T01:00:00.000Z");
+      writeFileSync(path.join(dir, "default.jsonl"), JSON.stringify({ type: "message", id: "u", runId: "run-1", parentId: null, timestamp: "2026-10-18T01:00:00.000Z", message: { role: "user", content: "Hello" } }) + "\n", { flag: "a" });
+      writeFileSync(path.join(path.dirname(dir), "run-summaries.jsonl"), JSON.stringify({ runId: "run-1", sessionId: "default", source: { channel: "feishu", botId: "bot", chatId: "chat" }, stopReason: outcome, errorMessage: outcome === "error" ? "Finalization failed" : undefined, finalText: "Do not invent this missing reply", createdAt: "2026-10-18T01:00:01.000Z" }) + "\n");
+      const id = encodeExternalSessionId({ channel: "feishu", botId: "bot", chatId: "chat", sessionId: "default" });
+      const result = readExternalTranscriptFromContexts(root, id);
+      assert.equal(result?.messages.at(-1)?.role, "assistant");
+      assert.equal(result?.messages.at(-1)?.stopReason, outcome);
+      assert.equal(result?.messages.at(-1)?.content, "");
+      assert.doesNotMatch(JSON.stringify(result?.messages), /Do not invent this missing reply/);
+      if (outcome === "error") assert.equal(result?.messages.at(-1)?.errorMessage, "Finalization failed");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}

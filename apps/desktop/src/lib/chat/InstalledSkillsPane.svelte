@@ -59,9 +59,9 @@
     }
   });
 
-  function scopeLabel(scope: "global" | "bot" | "chat" | "project"): string {
+  function scopeLabel(scope: "global" | "agent" | "chat" | "project"): string {
     if (scope === "project") return copy.skillScopeProject;
-    if (scope === "bot") return copy.skillScopeBot;
+    if (scope === "agent") return copy.skillScopeAgent;
     if (scope === "chat") return copy.skillScopeChat;
     return copy.skillScopeGlobal;
   }
@@ -75,11 +75,15 @@
   }
 
   function isAgent(skill: DesktopSkillItem): boolean {
-    return skill.scope === "bot" || skill.scope === "chat" || Boolean(skill.botId) || Boolean(skill.chatId);
+    return skill.scope === "agent" || skill.scope === "chat" || Boolean(skill.agentId) || Boolean(skill.chatId);
   }
 
   function isWorkspace(skill: DesktopSkillItem): boolean {
-    return !isBuiltin(skill) && !isAgent(skill);
+    // Global and built-in are not exclusive: a bundled Skill is materialised
+    // into the global skills directory, so it is both. The tabs filter by
+    // attribute instead of partitioning the catalogue — excluding built-ins
+    // here is what made an installed bundled Skill vanish from 全局.
+    return skill.scope === "global";
   }
 
   const discoveredSkillIds = $derived(new Set(skillsStore.skills?.items.map((skill) => skill.id) ?? []));
@@ -92,7 +96,7 @@
       scope: "global",
       enabled: false,
       mcpServerCount: 0,
-      botId: "",
+      agentId: "",
       chatId: ""
     }))
   ]);
@@ -104,8 +108,8 @@
     let agent = 0;
     for (const item of items) {
       if (isBuiltin(item)) builtin++;
-      else if (isAgent(item)) agent++;
-      else workspace++;
+      if (isAgent(item)) agent++;
+      if (isWorkspace(item)) workspace++;
     }
     return { all: items.length, builtin, workspace, agent };
   });
@@ -117,7 +121,7 @@
       if (selectedCategory === "workspace" && !isWorkspace(skill)) return false;
       if (selectedCategory === "agent" && !isAgent(skill)) return false;
       if (!normalizedQuery) return true;
-      return [skill.name, skill.description, skill.scope, skill.botId, skill.chatId, skill.id]
+      return [skill.name, skill.description, skill.scope, skill.agentId, skill.chatId, skill.id]
         .join("\n")
         .toLowerCase()
         .includes(normalizedQuery);
@@ -323,8 +327,8 @@
     {#each [
       { value: "all", label: copy.searchScopeAll, count: categoryCounts.all },
       { value: "builtin", label: copy.skillBuiltins, count: categoryCounts.builtin },
-      { value: "workspace", label: copy.taskScopeWorkspace, count: categoryCounts.workspace },
-      { value: "agent", label: copy.skillScopeBot, count: categoryCounts.agent }
+      { value: "workspace", label: copy.skillScopeGlobal, count: categoryCounts.workspace },
+      { value: "agent", label: copy.skillScopeAgent, count: categoryCounts.agent }
     ] as category (category.value)}
       <Button class={`segmented-item${selectedCategory === category.value ? " active" : ""}`} aria-pressed={selectedCategory === category.value} onclick={() => (selectedCategory = category.value as SkillCategory)}>{category.label} <span class="workspace-category-count">{category.count}</span></Button>
     {/each}
@@ -397,7 +401,7 @@
                   {:else}
                     <span class="installed-skill-meta-pill">{scopeLabel(skill.scope)}</span>
                   {/if}
-                  {#if skill.botId}<span class="installed-skill-meta-pill">{skill.botId}</span>{/if}
+                  {#if skill.agentId}<span class="installed-skill-meta-pill">{skill.agentId}</span>{/if}
                   {#if skill.chatId}<span class="installed-skill-meta-pill">{skill.chatId}</span>{/if}
                   {#if skill.mcpServerCount > 0}<span class="installed-skill-meta-pill mcp">{copy.skillMcpServers}: {skill.mcpServerCount}</span>{/if}
                 </div>
@@ -473,8 +477,8 @@
                     <span>{copy.skillDetailUpdatedAt}</span>
                     <strong>{formatModified(detail.updatedAt)}</strong>
                   </div>
-                  {#if detail.botId}
-                    <div class="skills-detail-fact"><span>Bot</span><strong>{detail.botId}</strong></div>
+                  {#if detail.agentId}
+                    <div class="skills-detail-fact"><span>{copy.skillScopeAgent}</span><strong>{detail.agentId}</strong></div>
                   {/if}
                   {#if detail.chatId}
                     <div class="skills-detail-fact"><span>{copy.skillScopeChat}</span><strong>{detail.chatId}</strong></div>

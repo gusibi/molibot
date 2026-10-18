@@ -200,8 +200,9 @@ test("a built-in provider's settings row cannot override pi's own transport", ()
 
   // Assembling from the row produced api "openai-completions" and baseUrl "/v1",
   // which failed isBuiltinModel and bypassed the credential-resolving path.
-  assert.equal(model.api, "anthropic-messages");
-  assert.equal(model.baseUrl, "https://api.kimi.com/coding");
+  // pi 1.3.0 moved kimi-coding to OpenAI Chat Completions at …/coding/v1.
+  assert.equal(model.api, "openai-completions");
+  assert.equal(model.baseUrl, "https://api.kimi.com/coding/v1");
   assert.equal(model.provider, "kimi-coding");
 });
 

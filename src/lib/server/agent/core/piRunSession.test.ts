@@ -8,6 +8,7 @@ import test from "node:test";
 import { createAssistantMessageEventStream, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { getPiModels, SESSION_AFFINITY_HEADER } from "$lib/server/providers/piRuntime.js";
 import { PiRunSession } from "./piRunSession.js";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { PreparedAgentTool } from "$lib/server/agent/tools/preparedTool.js";
 
 const model: Model<"openai-completions"> = { api: "openai-completions", id: "fixture", provider: "fixture", name: "Fixture",
@@ -644,4 +645,78 @@ test("child tool budget blocks remaining effects in the same model batch and ret
     run.startTurn(); run.bindRun({ ...binding(directory), childTools: () => [write], childBudgetLimits: { maxToolCalls: 1, maxToolFailures: 6, maxModelAttempts: 12 } });
     await run.prompt("Delegate"); assert.equal(writes, 1); assert.match(reason!, /tool calls/); assert.equal(roots, 2);
   } finally { await run.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("the attempt window survives a projection rebase that prepends conversation history", () => {
+  // 2026-10-18: candidate 1 checkpointed a short post-refresh array, its prompt
+  // reloaded the projection with imported history back in front, and the stale
+  // index window swept up seven old replies — one read as this attempt's answer,
+  // model failover stopped at candidate 2 of 21. The window must anchor on the
+  // checkpoint tail instead of a captured index.
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "S", tools: [], messages: [] }, streamFn: () => {
+    const stream = createAssistantMessageEventStream(); stream.end(); return stream;
+  } });
+  const staleReply = { ...answer(), content: [{ type: "text" as const, text: "几点，供参考：旧回复" }], timestamp: 1000 };
+  const boundaryUser = { role: "user" as const, content: [{ type: "text" as const, text: "再说一个" }], timestamp: 2000 };
+  const firstFailure = { ...answer(), content: [], timestamp: 3000, stopReason: "error" as const, errorMessage: "401" };
+  const secondFailure = { ...answer(), content: [], timestamp: 4000, stopReason: "error" as const, errorMessage: "402" };
+  // Candidate 1's checkpoint: the rebased array left behind by candidate 0.
+  const checkpoint: AgentMessage[] = [boundaryUser, firstFailure];
+  // The prompt reloaded the projection: history back in front, one new failure appended.
+  run.state.messages = [staleReply, { ...staleReply }, boundaryUser, firstFailure, secondFailure];
+  const attemptWindow = run.messagesAddedSince(checkpoint);
+  assert.deepEqual(attemptWindow, [secondFailure]);
+});
+
+test("the attempt window returns checkpoint-appended messages in the ordinary append-only case", () => {
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "S", tools: [], messages: [] }, streamFn: () => {
+    const stream = createAssistantMessageEventStream(); stream.end(); return stream;
+  } });
+  const historyA = { role: "user" as const, content: [{ type: "text" as const, text: "history" }], timestamp: 1 };
+  const checkpoint: AgentMessage[] = [historyA];
+  const newUser = { role: "user" as const, content: [{ type: "text" as const, text: "new question" }], timestamp: 2 };
+  const newAnswer = { ...answer(), content: [{ type: "text" as const, text: "Done" }], timestamp: 3 };
+  run.state.messages = [historyA, newUser, newAnswer];
+  assert.deepEqual(run.messagesAddedSince(checkpoint), [newUser, newAnswer]);
+});
+
+test("the attempt window anchors through refreshed message clones", () => {
+  // refresh() rebuilds every message object; identity must survive via structure.
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "S", tools: [], messages: [] }, streamFn: () => {
+    const stream = createAssistantMessageEventStream(); stream.end(); return stream;
+  } });
+  const checkpointTail = { ...answer(), content: [{ type: "text" as const, text: "partial" }], timestamp: 5000, stopReason: "error" as const, errorMessage: "boom" };
+  const checkpoint: AgentMessage[] = [{ role: "user" as const, content: [{ type: "text" as const, text: "q" }], timestamp: 4 }, checkpointTail];
+  const clonedTail = { ...checkpointTail, content: [{ type: "text" as const, text: "partial" }] };
+  const next = { ...answer(), content: [{ type: "text" as const, text: "fresh" }], timestamp: 6000 };
+  run.state.messages = [clonedTail, next];
+  assert.deepEqual(run.messagesAddedSince(checkpoint), [next]);
+});
+
+test("opening an existing run recovers its answer while excluding imported conversation history", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-history-boundary-"));
+  const historical = { ...answer(), content: [{ type: "text" as const, text: "OLD CONVERSATION ANSWER" }] };
+  let requests = 0;
+  const options = { initialState: { model, tools: [], messages: [historical], systemPrompt: "Answer" }, getApiKey: () => "fixture",
+    streamFn: () => { requests++; const stream = createAssistantMessageEventStream();
+      stream.push({ type: "done" as const, reason: "stop" as const, message: answer() }); stream.end(); return stream; } };
+  const first = new PiRunSession(options);
+  let restored: PiRunSession | undefined;
+  try {
+    first.startTurn(); first.bindRun(binding(directory));
+    assert.equal(first.isRecovering, false);
+    await first.prompt("Current question");
+    assert.equal(first.isRecovering, false, "creating run storage does not turn an active run into recovery");
+    await first.close();
+    restored = new PiRunSession(options);
+    restored.startTurn(); restored.bindRun(binding(directory));
+    assert.equal(restored.isRecovering, true);
+    await restored.prompt("Current question");
+    assert.equal(restored.isRecovering, false, "recovery admission is consumed once the native run opens");
+    assert.equal(requests, 1, "a completed run is recovered without a new provider call");
+    assert.match(JSON.stringify(restored.state.messages), /OLD CONVERSATION ANSWER/);
+    const recovered = restored.messagesAddedSince([]);
+    assert.doesNotMatch(JSON.stringify(recovered), /OLD CONVERSATION ANSWER/);
+    assert.match(JSON.stringify(recovered), /Done/);
+  } finally { await first.close(); await restored?.close(); rmSync(directory, { recursive: true, force: true }); }
 });

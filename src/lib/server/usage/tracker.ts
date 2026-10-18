@@ -263,6 +263,8 @@ function bucketize(
 export class AiUsageTracker {
   private readonly usageDir: string;
   private readonly usageFile: string;
+  private ledgerFingerprint = "";
+  private ledgerCache: AiUsageRecord[] = [];
   private receiptFileSize = -1;
   private readonly receipts = new Map<string, string>();
 
@@ -372,6 +374,18 @@ export class AiUsageTracker {
   }
 
   list(): AiUsageRecord[] {
+    const stat = existsSync(this.usageFile) ? statSync(this.usageFile) : null;
+    const fingerprint = stat ? `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : "missing";
+    if (fingerprint !== this.ledgerFingerprint) {
+      this.ledgerCache = this.readLedger();
+      this.ledgerFingerprint = fingerprint;
+    }
+    // Image accounting is live; callers receive owned rows rather than the cached ledger.
+    return [...this.ledgerCache, ...(this.options.imageUsageSource?.() ?? [])]
+      .map(record => ({ ...record })).sort((a, b) => a.ts.localeCompare(b.ts));
+  }
+
+  private readLedger(): AiUsageRecord[] {
     const raw = existsSync(this.usageFile) ? readFileSync(this.usageFile, "utf8") : "";
     const rows = raw
       .split("\n")
@@ -415,8 +429,7 @@ export class AiUsageTracker {
         // ignore malformed lines
       }
     }
-    out.push(...(this.options.imageUsageSource?.() ?? []));
-    return out.sort((a, b) => a.ts.localeCompare(b.ts));
+    return out;
   }
 
   getStats(timeZone: string): UsageStatsResponse {

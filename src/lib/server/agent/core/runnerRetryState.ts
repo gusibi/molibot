@@ -82,7 +82,10 @@ export function resolvePromptAttemptDecision(input: {
     return { kind: "aborted" };
   }
 
-  if (input.finalText.trim() || input.completedWithoutText) {
+  // A terminal tool already produced the user-facing structured result (for
+  // example a Plan proposal): the attempt reads as done even when a later round
+  // errored, so re-running it on another model cannot duplicate the receipt.
+  if (input.completedWithoutText) {
     return { kind: "success" };
   }
 
@@ -90,6 +93,11 @@ export function resolvePromptAttemptDecision(input: {
     input.stopReason === "error"
       ? (input.errorMessage?.trim() || "Model request failed without an explicit error message.")
       : "";
+
+  // An error response is authoritative: whatever finalText is present is a
+  // partial stream or a stale-window artifact, never a completed answer.
+  // Classifying it as success used to end model failover on the first bad
+  // candidate while delivering a previous turn's text to the user.
   if (normalizedError) {
     const canRetry =
       input.attemptCount < input.maxModelRetries &&
@@ -98,6 +106,10 @@ export function resolvePromptAttemptDecision(input: {
     return canRetry
       ? { kind: "retryable_error", message: normalizedError }
       : { kind: "terminal_error", message: normalizedError };
+  }
+
+  if (input.finalText.trim()) {
+    return { kind: "success" };
   }
 
   return input.attemptCount < input.maxEmptyRetries

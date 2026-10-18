@@ -17,6 +17,7 @@ import {
   type FeishuBotConfig,
   type QQBotConfig,
   isKnownProvider,
+  normalizePiProviderId,
   type ProviderMode,
   type RuntimeSettings,
   type WebSearchEngineId,
@@ -189,6 +190,12 @@ interface RawSettings {
     maxAttempts?: number | string;
     retryDelayMs?: number | string;
     taskSessionRetentionDays?: number | string;
+  };
+  durable?: {
+    leaseDurationMs?: number | string;
+    wakeupMode?: string;
+    wakeupRetentionDays?: number | string;
+    instanceGuard?: boolean | string;
   };
   display?: unknown;
   browserAutomation?: {
@@ -495,6 +502,28 @@ function sanitizeEventExecutionSettings(input: unknown): RuntimeSettings["events
   };
 }
 
+function sanitizeDurableExecutionSettings(input: unknown): RuntimeSettings["durable"] {
+  const fallback = defaultRuntimeSettings.durable;
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const leaseRaw = Number(source.leaseDurationMs ?? fallback.leaseDurationMs);
+  const retentionRaw = Number(source.wakeupRetentionDays ?? fallback.wakeupRetentionDays);
+  const mode = String(source.wakeupMode ?? fallback.wakeupMode).trim().toLowerCase();
+  return {
+    leaseDurationMs: Number.isFinite(leaseRaw)
+      ? Math.max(5000, Math.min(24 * 60 * 60 * 1000, Math.round(leaseRaw)))
+      : fallback.leaseDurationMs,
+    wakeupMode: mode === "file" || mode === "both" || mode === "db" ? mode : fallback.wakeupMode,
+    wakeupRetentionDays: Number.isFinite(retentionRaw)
+      ? Math.max(0, Math.min(365, Math.round(retentionRaw)))
+      : fallback.wakeupRetentionDays,
+    instanceGuard: source.instanceGuard === undefined
+      ? fallback.instanceGuard
+      : source.instanceGuard === true || String(source.instanceGuard).trim().toLowerCase() === "true"
+  };
+}
+
 function sanitizeCloudflareHtmlPluginSettings(input: unknown): RuntimeSettings["plugins"]["cloudflareHtml"] {
   const source = input && typeof input === "object"
     ? input as Record<string, unknown>
@@ -670,11 +699,15 @@ function sanitizeModelFallbackSettings(input: unknown): RuntimeSettings["modelFa
 function normalizeBuiltInRouteKey(value: unknown): string {
   const raw = String(value ?? "").trim();
   const [mode, provider, ...rest] = raw.split("|");
-  if (mode !== "custom" || !provider || rest.length === 0) return raw;
-  const providerId = provider.trim();
-  if (!isKnownProvider(providerId)) return raw;
+  if (!provider || rest.length === 0) return raw;
+  if (mode !== "custom" && mode !== "pi") return raw;
+  const providerId = normalizePiProviderId(provider);
   const model = rest.join("|").trim();
-  return model ? `pi|${providerId}|${model}` : raw;
+  if (!model) return raw;
+  // A pi route keeps its mode; a legacy provider id written before a rename is translated.
+  if (mode === "pi") return providerId === provider.trim() ? raw : `pi|${providerId}|${model}`;
+  if (!isKnownProvider(providerId)) return raw;
+  return `pi|${providerId}|${model}`;
 }
 
 function sanitizeCustomProviderProtocol(input: unknown): CustomProviderProtocol {
@@ -987,7 +1020,7 @@ function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
 }
 
 function sanitize(raw: RawSettings): RuntimeSettings {
-  const piProviderRaw = String(raw.piModelProvider ?? defaultRuntimeSettings.piModelProvider).trim();
+  const piProviderRaw = normalizePiProviderId(String(raw.piModelProvider ?? defaultRuntimeSettings.piModelProvider));
   const providers = sanitizeCustomProviders(raw.customProviders);
   const customProviders = providers.length > 0 ? providers : migrateLegacyCustomProvider(raw);
 
@@ -1101,6 +1134,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const budget = sanitizeBudgetSettings(raw.budget);
   const subagentRuntime = sanitizeSubagentRuntimeSettings(raw.subagentRuntime);
   const events = sanitizeEventExecutionSettings(raw.events);
+  const durable = sanitizeDurableExecutionSettings(raw.durable);
   const browserAutomation = sanitizeBrowserAutomationSettings(raw.browserAutomation);
   const sessionAutoArchive = sanitizeSessionAutoArchiveSettings(raw.sessionAutoArchive);
   const displayInput = raw.display ?? defaultRuntimeSettings.display;
@@ -1215,6 +1249,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     budget,
     subagentRuntime,
     events,
+    durable,
     browserAutomation,
     sessionAutoArchive,
     display
@@ -2010,6 +2045,12 @@ export class SettingsStore {
         maxAttempts: settings.events.maxAttempts,
         retryDelayMs: settings.events.retryDelayMs,
         taskSessionRetentionDays: settings.events.taskSessionRetentionDays
+      },
+      durable: {
+        leaseDurationMs: settings.durable.leaseDurationMs,
+        wakeupMode: settings.durable.wakeupMode,
+        wakeupRetentionDays: settings.durable.wakeupRetentionDays,
+        instanceGuard: settings.durable.instanceGuard
       },
       display: settings.display ? {
         toolProgress: settings.display.toolProgress,

@@ -1,0 +1,104 @@
+[
+  {
+    "id": "molibot",
+    "src": "/molibot-icon.png",
+    "labelZh": "默认",
+    "labelEn": "Default"
+  },
+  {
+    "id": "friendly-momo",
+    "src": "/logos/01-friendly-momo.webp",
+    "labelZh": "友好 Momo",
+    "labelEn": "Friendly Momo"
+  },
+  {
+    "id": "sleeping",
+    "src": "/logos/01-sleeping.webp",
+    "labelZh": "打盹",
+    "labelEn": "Sleeping"
+  },
+  {
+    "id": "ai-guardian",
+    "src": "/logos/02-ai-guardian.webp",
+    "labelZh": "AI 守护",
+    "labelEn": "AI Guardian"
+  },
+  {
+    "id": "shocked",
+    "src": "/logos/02-shocked.webp",
+    "labelZh": "惊讶",
+    "labelEn": "Shocked"
+  },
+  {
+    "id": "memory-keeper",
+    "src": "/logos/03-memory-keeper.webp",
+    "labelZh": "记忆管家",
+    "labelEn": "Memory Keeper"
+  },
+  {
+    "id": "sassy",
+    "src": "/logos/03-sassy.webp",
+    "labelZh": "傲娇",
+    "labelEn": "Sassy"
+  },
+  {
+    "id": "serious",
+    "src": "/logos/04-serious.webp",
+    "labelZh": "严肃",
+    "labelEn": "Serious"
+  },
+  {
+    "id": "task-finisher",
+    "src": "/logos/04-task-finisher.webp",
+    "labelZh": "任务达人",
+    "labelEn": "Task Finisher"
+  },
+  {
+    "id": "agent-team",
+    "src": "/logos/05-agent-team.webp",
+    "labelZh": "Agent 小队",
+    "labelEn": "Agent Team"
+  },
+  {
+    "id": "happy",
+    "src": "/logos/05-happy.webp",
+    "labelZh": "开心",
+    "labelEn": "Happy"
+  },
+  {
+    "id": "thinking",
+    "src": "/logos/06-thinking.webp",
+    "labelZh": "思考中",
+    "labelEn": "Thinking"
+  },
+  {
+    "id": "tool-wizard",
+    "src": "/logos/06-tool-wizard.webp",
+    "labelZh": "工具大师",
+    "labelEn": "Tool Wizard"
+  },
+  {
+    "id": "proactive-alert",
+    "src": "/logos/07-proactive-alert.webp",
+    "labelZh": "主动提醒",
+    "labelEn": "Proactive Alert"
+  },
+  {
+    "id": "unimpressed",
+    "src": "/logos/07-unimpressed.webp",
+    "labelZh": "无语",
+    "labelEn": "Unimpressed"
+  },
+  {
+    "id": "explorer",
+    "src": "/logos/08-explorer.webp",
+    "labelZh": "探索家",
+    "labelEn": "Explorer"
+  },
+  {
+    "id": "waving",
+    "src": "/logos/08-waving.webp",
+    "labelZh": "打招呼",
+    "labelEn": "Waving"
+  }
+]

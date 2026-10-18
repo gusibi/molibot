@@ -37,6 +37,9 @@ This is **Molipibot** — a multi-channel bot framework with a settings UI. See 
 
 ## Recurring Pitfalls
 
+- **工具检查点不授权整步重放**：并行调用的完成时间不能证明另一操作已有回执；即使某操作有回执，重新执行整步仍可能再次产生副作用。当前整步恢复必须检查全部 intent，不可幂等操作先核对外部状态或转人工。守卫：`durableHardening.test.ts` 的已完成调用与无关并行读取场景。
+- **租约维护不等待业务完成**：实例续期、过期孤儿回收和启动冲突重试独立于任务等待；认领只占实际空闲槽，单任务完成即可补位。回收不得抢走活跃 lease 或本 worker 在途认领，后台调度异常必须在所属层处理。守卫：`durableHardening.test.ts`、`wakeupWorker.test.ts`、`wakeupStore.test.ts`。
+
 - **强制迁移须隔离无法关联的运行记录**：不能只放行预检错误。源项失败按项保留并跳过，数据库异常记录必须先备份再移出恢复流程；切换完成状态持久化，重启不能用已跳过的旧数据重新阻断。守卫覆盖未知表的引用歧义、孤立运行、损坏数据库、暂存冲突、无有效会话与冷启动。
 
 - **迁移完成后数据库归新运行时所有**：源数据未新增或变化时，不得用旧会话映射重新校验新运行记录并推翻持久化完成状态。搜索历史不作为任务恢复依据；缺少归属时保留原 ID，待恢复任务仍严格校验。守卫覆盖同名旧会话、迁移后新建会话、搜索变更记录、独立进程重启，以及旧源目录保留和删除。
@@ -161,3 +164,5 @@ Each item below caused **multiple** shipped bugs. Check the relevant one before 
 53. **前端热更新与后端生效分别验收**：开发模式的 UI 热更新不会刷新已运行 Node 进程的模块缓存。报告“当前使用中已生效”前，核对实际服务的构建来源、进程启动时间与深度运行时健康状态；隔离测试只证明该测试实例。执行路由的回归同时检查发送目标、真实 Runner 的模型输入及持久化边界，避免组件结构守卫替代端到端证据。
 
 54. **桌面调用经由 `tauriFetch` 的每个 `/api/settings/...` 路由都必须在 Tauri HTTP capability scope 白名单里**（症状：图片设置页打不开、一直停在加载态，2026-10-02）：Pi 图片模型新增 `loadPiImageModels()` 请求 `/api/settings/image-generate/models`，服务端路由正常（curl 200），但 `capabilities/default.json` 只列了同族的 `.../test` 与 `.../image*`，漏了 `.../models`——Tauri 的 Rust 侧 HTTP 客户端在 URL 不在 scope 时直接拒绝，`loadImageGenerate` 的 `Promise.all` 因它 reject 而整体失败并被 catch，`imageGenerateEdit` 保持 null，组件永远走 loading 分支。capability 是第二份手写白名单（同 pitfall 50 的发布清单族）：新增桌面用的 settings 路由必须同一笔改动补白名单，capability 改动需要 Rust 重建 + 重启应用，WebView 热更新不生效。守卫：`apps/desktop/src/http-scope.test.mjs` 现在扫描 `lib/api.ts` 里所有 `/api/settings/...` 路由字面量，要求 127.0.0.1 与 localhost 两个 host 的白名单都覆盖（回放漏掉 `.../models` 会失败）。
+
+55. **租约冲突是「重新发现」信号，不是崩溃；桌面托管 sidecar 不得活得比 supervisor 久**（症状：App 打开永远起不来，sidecar 日志一小时 `exit code 73` 循环，2026-10-18）：上一个桌面进程被硬杀后，其 `start-server.mjs` sidecar 成为孤儿（PPID 1），继续持有 `service.lock` 和端口；新开 App 的收养探测只有启动时一次 2 秒握手窗口，撞上服务事件循环卡顿就永久错过，之后每次重挑端口 spawn、撞租约、exit 73，被当成普通崩溃无限退避——而健康的同胞服务一直在正常服务。规则：(a) 子进程退出码 73 意味着存在活着的所有者，必须重新发现（读 `service-state.json` → 探握手）——兼容的托管服务收养（`supervise_adopted`），旧版本构建的托管服务停掉后接管，外部服务（standalone `pnpm start`）只上报状态、绝不 SIGTERM 不归本 App 管的进程；(b) 启动发现窗口只对「记录的 pid 仍存活」放宽（15s），pid 已死立即回落，冷启动不得被过期状态文件拖慢；(c) 桌面托管 sidecar 安装父进程守望（`MOLIBOT_DESKTOP_MANAGED=1` 门控 `scripts/runtime/parent-watchdog.mjs`）：被 reparent 到 ppid 1 即自发 SIGTERM 走正常 shutdown 释放租约。同 pitfall 23/30 族——活性即所有权。守卫：`apps/desktop/src-tauri/src/supervisor.rs` 单元测试（`conflicting_owner_action` 五分支、`adopt_wait` 窗口）与 `scripts/runtime/parent-watchdog.test.mjs`。

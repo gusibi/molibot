@@ -10,5 +10,7 @@ export const GET: RequestHandler = ({ url }) => {
   if (!/^[a-zA-Z0-9._-]+$/.test(id) || id === "." || id === "..") return json({ ok: false, error: "Invalid Agent ID" }, { status: 400 });
   const settings = getRuntime().getSettings();
   const { skills, diagnostics } = loadSkillsFromWorkspace(agentWorkspaceDir(storagePaths.dataDir, id), undefined, { disabledSkillPaths: settings.disabledSkillPaths });
-  return json({ ok: true, skills: skills.map(skill => ({ name: skill.name, description: skill.description, path: skill.filePath, scope: skill.scope })), diagnostics }, { headers: { "Cache-Control": "no-store" } });
+  // The runtime tags the workspace layer "bot"; this route serves one Agent's
+  // workspace by definition, so the boundary emits the agent scope.
+  return json({ ok: true, skills: skills.map(skill => ({ name: skill.name, description: skill.description, path: skill.filePath, scope: skill.scope === "bot" ? "agent" : skill.scope })), diagnostics }, { headers: { "Cache-Control": "no-store" } });
 };

@@ -9,7 +9,7 @@ import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter
 import { isKnownProvider } from "$lib/server/settings";
 import { updateSkillsConfig } from "$lib/server/settings/handlers/skills";
 
-type SkillScope = "global" | "chat" | "bot";
+type SkillScope = "global" | "agent" | "chat";
 
 interface SkillItem {
   name: string;
@@ -19,7 +19,7 @@ interface SkillItem {
   scope: SkillScope;
   enabled: boolean;
   mcpServers: string[];
-  botId?: string;
+  agentId?: string;
   chatId?: string;
 }
 
@@ -49,7 +49,7 @@ function parseSkillFile(
   filePath: string,
   scope: SkillScope,
   diagnostics: string[],
-  botId?: string,
+  agentId?: string,
   chatId?: string,
 ): SkillItem | null {
   let raw = "";
@@ -92,7 +92,7 @@ function parseSkillFile(
       }
       return raw.split(",").map((item) => item.trim()).filter(Boolean);
     })(),
-    botId,
+    agentId,
     chatId
   };
 }
@@ -103,7 +103,9 @@ export const GET: RequestHandler = async () => {
   const disabledSet = new Set(settings.disabledSkillPaths ?? []);
   const dataRoot = resolve(config.dataDir);
   const globalSkillsDir = join(dataRoot, "skills");
-  const botsRoot = join(dataRoot, "sessions");
+  // Sessions are stored per Agent: each directory under sessions/ is one
+  // Agent's workspace, so its skills/ directory holds that Agent's own skills.
+  const agentsRoot = join(dataRoot, "sessions");
   const diagnostics: string[] = [];
   const items: SkillItem[] = [];
 
@@ -116,18 +118,18 @@ export const GET: RequestHandler = async () => {
     }
   }
 
-  if (existsSync(botsRoot)) {
-    const botEntries = readdirSync(botsRoot, { withFileTypes: true }).filter((e) => e.isDirectory());
-    for (const bot of botEntries) {
-      const botId = bot.name;
-      const botDir = join(botsRoot, botId);
+  if (existsSync(agentsRoot)) {
+    const agentEntries = readdirSync(agentsRoot, { withFileTypes: true }).filter((e) => e.isDirectory());
+    for (const agent of agentEntries) {
+      const agentId = agent.name;
+      const agentDir = join(agentsRoot, agentId);
 
-      const botSkillsDir = join(botDir, "skills");
-      if (existsSync(botSkillsDir)) {
+      const agentSkillsDir = join(agentDir, "skills");
+      if (existsSync(agentSkillsDir)) {
         const files: string[] = [];
-        collectSkillFiles(botSkillsDir, files);
+        collectSkillFiles(agentSkillsDir, files);
         for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
-          const item = parseSkillFile(filePath, "bot", diagnostics, botId);
+          const item = parseSkillFile(filePath, "agent", diagnostics, agentId);
           if (item) items.push(item);
         }
       }
@@ -139,7 +141,7 @@ export const GET: RequestHandler = async () => {
   const count = {
     global: items.filter((i) => i.scope === "global").length,
     chat: items.filter((i) => i.scope === "chat").length,
-    bot: items.filter((i) => i.scope === "bot").length
+    agent: items.filter((i) => i.scope === "agent").length
   };
 
   for (const item of items) {

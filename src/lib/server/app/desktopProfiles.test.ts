@@ -3,10 +3,8 @@ import test from "node:test";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults";
 import type { RuntimeSettings } from "$lib/server/settings";
 import {
-  deleteDesktopWebProfile,
   patchDesktopWebProfile,
-  resolveDesktopWebProfiles,
-  saveDesktopWebProfile
+  resolveDesktopWebProfiles
 } from "./desktopProfiles";
 
 function fixture(): RuntimeSettings {
@@ -104,30 +102,4 @@ test("patchDesktopWebProfile falls back to the id when name is cleared", () => {
   const instances = patchDesktopWebProfile(fixture(), "default", { name: "   " });
   const target = instances.find((instance) => instance.id === "default");
   assert.equal(target?.name, "default");
-});
-
-test("saveDesktopWebProfile creates a profile and preserves server-owned fields on edits", () => {
-  const settings = fixture();
-  const created = saveDesktopWebProfile(settings, {
-    id: "new-profile", name: "New", enabled: true, agentId: "agent-2"
-  });
-  const newProfile = created.find((row) => row.id === "new-profile");
-  assert.deepEqual(newProfile?.credentials, {});
-  assert.deepEqual(newProfile?.allowedChatIds, []);
-  assert.equal(newProfile?.permissionMode ?? null, null);
-
-  const editedSettings = { ...settings, channels: { ...settings.channels, web: { instances: created } } };
-  const edited = saveDesktopWebProfile(editedSettings, {
-    previousId: "default", id: "default", name: "Edited", enabled: false, agentId: "agent-2"
-  });
-  const target = edited.find((row) => row.id === "default");
-  assert.equal(target?.credentials.token, "must-not-leak");
-  assert.deepEqual(target?.allowedChatIds, ["123"]);
-  assert.equal(target?.name, "Edited");
-});
-
-test("deleteDesktopWebProfile removes exactly one profile", () => {
-  const rows = deleteDesktopWebProfile(fixture(), "secondary");
-  assert.deepEqual(rows.map((row) => row.id), ["default"]);
-  assert.throws(() => deleteDesktopWebProfile(fixture(), "missing"), /not found/);
 });

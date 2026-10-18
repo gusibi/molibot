@@ -101,7 +101,6 @@
 .installed-skill-foot .ios-switch { width: 38px; }
 
 .installed-skill-state { flex: none; color: var(--label-secondary); font-size: var(--fs-workspace-meta); }
-.installed-skill-card.selected .installed-skill-state { color: var(--on-selection); }
 
 .workspace-skill-filters, .workspace-plan-filters, .workspace-task-filters { flex-wrap: wrap; max-width: 100%; }
 .workspace-category-count { margin-left: 5px; font-variant-numeric: tabular-nums; }
@@ -123,7 +122,10 @@
    title row and the description on a second line. */
 .installed-skills-grid.list-mode { width: 100%; margin: 12px 0 20px; padding: 0 12px; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .installed-skills-grid.list-mode .installed-skill-card { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; border-color: transparent; }
-.installed-skills-grid.list-mode .installed-skill-card:hover { background: var(--fill); }
+/* Hover lifts the tile and stays off the selected card so hovering never
+   washes the selection out (this sheet loads after styles.css with a higher
+   specificity — without the :not() it painted over the picked item). */
+.installed-skills-grid.list-mode .installed-skill-card:not(.selected):hover { background: var(--fill); }
 .installed-skills-grid.list-mode .installed-skill-header { order: 0; flex: 1 1 0; width: auto; padding: 0; gap: 8px; min-width: 0; }
 .installed-skills-grid.list-mode .installed-skill-copy { order: 2; flex: 1 1 100%; padding: 0; min-height: 0; }
 .installed-skills-grid.list-mode .installed-skill-copy p { -webkit-line-clamp: 1; font-size: var(--fs-meta); }
@@ -170,7 +172,7 @@
 .skills-file-list { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
 .skills-file-row { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 5px 8px 5px calc(8px + var(--skills-file-depth, 0) * 12px); border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); text-align: left; font-size: var(--fs-workspace-meta); }
 .skills-file-row:not(:disabled) { cursor: pointer; }
-.skills-file-row:not(:disabled):hover { background: var(--fill); color: var(--label-primary); }
+.skills-file-row:not(:disabled):not(.active):hover { background: var(--fill); color: var(--label-primary); }
 .skills-file-row.active { background: var(--selection-bg); color: var(--on-selection); }
 .skills-file-row:disabled { color: var(--label-tertiary); }
 .skills-file-row .skills-file-icon { display: inline-flex; flex: none; }

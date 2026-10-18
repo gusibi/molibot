@@ -48,7 +48,7 @@ function mockFfmpegSpawn(conversionBehavior: "success" | "fail" = "success"): ty
 
     if (command === "ffmpeg" && args.includes("-c:a") && args.includes("libopus")) {
       // OGG conversion
-      if (conversionBehavior === "fail") {
+      if (conversionBehavior === "fail" || args[1] === args[args.length - 1]) {
         queueMicrotask(() => {
           child.stderr.emit("data", "Conversion failed");
           child.emit("close", 1);
@@ -132,6 +132,50 @@ test("ttsGenerate converts Xiaomi audio to OGG and uploads", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const format of ["wav", "mp3", "ogg"] as const) {
+  for (const conversion of ["success", "fail", "unavailable"] as const) {
+    test(`ttsGenerate handles .ogg file names with ${format} provider format and ${conversion} conversion`, async () => {
+      const root = mkdtempSync(join(tmpdir(), "molibot-tts-tool-"));
+      const uploaded: string[] = [];
+      const nativeFormat = format === "mp3" ? "mp3" : "wav";
+      try {
+        const tool = createTtsGenerateTool({
+          getSettings: () => settings(),
+          cwd: root,
+          workspaceDir: root,
+          artifactDir: "artifacts",
+          uploadFile: async (filePath) => { uploaded.push(filePath); },
+          fetch: async () => new Response(JSON.stringify({
+            choices: [{ message: { audio: { data: Buffer.from("speech").toString("base64") } } }]
+          }), { status: 200 }),
+          spawn: conversion === "unavailable" ? mockNoFfmpegSpawn() : mockFfmpegSpawn(conversion)
+        });
+
+        const result = await tool.execute("call-1", {
+          text: "hello", provider: "xiaomi", fileName: "hello.ogg", format
+        });
+        const expectedFormat = conversion === "success" ? "ogg" : nativeFormat;
+        const expectedPath = join(root, "artifacts", `hello.${expectedFormat}`);
+        assert.equal(result.details.format, expectedFormat);
+        assert.equal(result.details.mimeType, expectedFormat === "mp3" ? "audio/mpeg" : `audio/${expectedFormat}`);
+        assert.equal(result.details.uploaded, true);
+        assert.deepEqual(uploaded, [expectedPath]);
+        assert.equal(readFileSync(expectedPath, "utf8"), conversion === "success" ? "ogg-audio-data" : "speech");
+        const message = result.content[0];
+        assert.equal(message.type, "text");
+        if (conversion === "success") {
+          assert.doesNotMatch(message.text, /OGG conversion failed/);
+          assert.equal(existsSync(join(root, "artifacts", `hello.${nativeFormat}`)), false);
+        } else {
+          assert.match(message.text, conversion === "fail" ? /OGG conversion failed/ : /ffmpeg not available/);
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+}
 
 test("ttsGenerate falls back to native format when ffmpeg is unavailable", async () => {
   const root = mkdtempSync(join(tmpdir(), "molibot-tts-tool-"));

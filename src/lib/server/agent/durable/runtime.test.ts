@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,7 +8,7 @@ import type { ChannelInboundMessage, DurableAttemptHooks } from "$lib/server/age
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { DurableExecutionRuntime } from "./runtime.js";
 import { DurableExecutionStore } from "./store.js";
-import { durableExecutionEventsDir } from "./events.js";
+import { runNextWakeup } from "./testSupport.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-runtime-"));
@@ -31,7 +31,7 @@ for (const scope of ["once", "session", "persistent"] as const) {
   test(`approved ${scope} execution resumes the suspended step and completes the plan`, async () => {
     const { root, store, input } = fixture();
     try {
-      const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+      const coordinator = new DurableExecutionCoordinator(store, "process-a");
       const created = coordinator.create(input);
       const executionId = created.execution.id;
       coordinator.activate({ ownerId: input.ownerId, executionId, expectedVersion: created.execution.version });
@@ -63,11 +63,7 @@ for (const scope of ["once", "session", "persistent"] as const) {
           }
         }]])]]) as any
       });
-      const runNext = async () => {
-        const version = store.getById(executionId)!.version;
-        const file = join(root, "system", "bots", "owner", "events", `durable-execution-${executionId}-v${version}.json`);
-        await runtime.run(JSON.parse(readFileSync(file, "utf8")) as MomEvent, file);
-      };
+      const runNext = async () => { await runNextWakeup(runtime, store, "process-a"); };
       await runNext();
       const waiting = store.getDetail(executionId)!;
       assert.equal(waiting.execution.status, "waiting_for_approval");
@@ -94,7 +90,7 @@ for (const scope of ["once", "session", "persistent"] as const) {
 test("step startup failure settles the claimed attempt instead of leaving it running", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create(input);
     const executionId = created.execution.id;
     const activated = coordinator.activate({ ownerId: input.ownerId, executionId, expectedVersion: created.execution.version });
@@ -106,8 +102,7 @@ test("step startup failure settles the claimed attempt instead of leaving it run
       }]])]]) as any
     });
     store.markStepRunning = () => { throw new Error("Step startup failed"); };
-    const file = join(root, "system", "bots", "owner", "events", `durable-execution-${executionId}-v${activated.execution.version}.json`);
-    await runtime.run(JSON.parse(readFileSync(file, "utf8")) as MomEvent, file);
+    await runNextWakeup(runtime, store, "process-a");
     const detail = store.getDetail(executionId)!;
     assert.equal(calls, 0);
     assert.equal(detail.execution.status, "recovery_required");
@@ -123,11 +118,9 @@ test("step startup failure settles the claimed attempt instead of leaving it run
 test("watched durable event claims one fresh attempt and leaves verification explicit", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create(input);
     const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
-    const eventFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
-    const event = JSON.parse(readFileSync(eventFile, "utf8")) as MomEvent;
     const runtime = new DurableExecutionRuntime({
       store,
       processOwnerId: "process-a",
@@ -142,7 +135,7 @@ test("watched durable event claims one fresh attempt and leaves verification exp
       ]) as any
     });
 
-    await runtime.run(event, eventFile);
+    await runNextWakeup(runtime, store, "process-a");
     const detail = store.getDetail(created.execution.id)!;
     assert.equal(detail.execution.status, "verifying");
     assert.equal(detail.steps[0].status, "completed");
@@ -150,10 +143,7 @@ test("watched durable event claims one fresh attempt and leaves verification exp
     assert.equal(detail.attempts[0].contextSessionId, "t-archive-durable-attempt");
     assert.equal(detail.acceptanceCriteria[0].result, "unproven");
 
-    const verifyVersion = detail.execution.version;
-    const verifyFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${verifyVersion}.json`);
-    const verifyEvent = JSON.parse(readFileSync(verifyFile, "utf8")) as MomEvent;
-    await runtime.run(verifyEvent, verifyFile);
+    await runNextWakeup(runtime, store, "process-a");
     const completed = store.getDetail(created.execution.id)!;
     assert.equal(completed.execution.status, "completed");
     assert.equal(completed.acceptanceCriteria[0].result, "passed");
@@ -166,7 +156,7 @@ test("watched durable event claims one fresh attempt and leaves verification exp
 test("a linear plan executes one durable step per attempt before task verification", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create({
       ...input,
       steps: [
@@ -193,22 +183,19 @@ test("a linear plan executes one durable step per attempt before task verificati
       ]) as any
     });
 
-    const firstFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
-    await runtime.run(JSON.parse(readFileSync(firstFile, "utf8")) as MomEvent, firstFile);
+    await runNextWakeup(runtime, store, "process-a");
     const afterFirst = store.getDetail(created.execution.id)!;
     assert.equal(afterFirst.execution.status, "queued");
     assert.deepEqual(afterFirst.steps.map((step) => step.status), ["completed", "pending"]);
     assert.equal(afterFirst.evidenceRefs[0]?.referenceType, "run-detail");
 
-    const secondFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${afterFirst.execution.version}.json`);
-    await runtime.run(JSON.parse(readFileSync(secondFile, "utf8")) as MomEvent, secondFile);
+    await runNextWakeup(runtime, store, "process-a");
     const afterSecond = store.getDetail(created.execution.id)!;
     assert.equal(afterSecond.execution.status, "verifying");
     assert.deepEqual(afterSecond.steps.map((step) => step.status), ["completed", "completed"]);
     assert.equal(attempts, 2);
 
-    const verifyFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${afterSecond.execution.version}.json`);
-    await runtime.run(JSON.parse(readFileSync(verifyFile, "utf8")) as MomEvent, verifyFile);
+    await runNextWakeup(runtime, store, "process-a");
     assert.equal(store.getById(created.execution.id)?.status, "completed");
   } finally {
     store.close();
@@ -219,7 +206,7 @@ test("a linear plan executes one durable step per attempt before task verificati
 test("durable attempts expose only attached evidence through the read-only hook", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create(input);
     const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
     const evidence = store.addEvidence({
@@ -228,7 +215,6 @@ test("durable attempts expose only attached evidence through the read-only hook"
       referenceId: "verifier:summary",
       summary: "The stored verifier summary is available to this attempt."
     });
-    const eventFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
     const runtime = new DurableExecutionRuntime({
       store,
       processOwnerId: "process-a",
@@ -245,36 +231,8 @@ test("durable attempts expose only attached evidence through the read-only hook"
       ]) as any
     });
 
-    await runtime.run(JSON.parse(readFileSync(eventFile, "utf8")) as MomEvent, eventFile);
+    await runNextWakeup(runtime, store, "process-a");
     assert.equal(store.getDetail(created.execution.id)?.attempts[0]?.contextSessionId, "t-archive-evidence-attempt");
-  } finally {
-    store.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("a missed durable continuation enters recovery_required without replaying work", () => {
-  const { root, store, input } = fixture();
-  try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
-    const created = coordinator.create(input);
-    const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
-    const eventFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
-    const event = JSON.parse(readFileSync(eventFile, "utf8")) as MomEvent;
-    const runtime = new DurableExecutionRuntime({
-      store,
-      processOwnerId: "process-a",
-      dataDir: root,
-      channelManagers: new Map() as any
-    });
-
-    runtime.handleSkippedEvent(event, "expired_or_invalid_time");
-
-    const detail = store.getDetail(created.execution.id)!;
-    assert.equal(detail.execution.status, "recovery_required");
-    assert.equal(detail.execution.waitingKind, "recovery");
-    assert.match(detail.execution.lastError ?? "", /offline catch-up window/);
-    assert.equal(detail.attempts.length, 0);
   } finally {
     store.close();
     rmSync(root, { recursive: true, force: true });
@@ -284,7 +242,7 @@ test("a missed durable continuation enters recovery_required without replaying w
 test("subjective verification creates a user decision and only explicit confirmation completes", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create({
       ...input,
       acceptanceCriteria: [{
@@ -293,7 +251,6 @@ test("subjective verification creates a user decision and only explicit confirma
       }]
     });
     const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
-    const eventFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
     const runtime = new DurableExecutionRuntime({
       store,
       processOwnerId: "process-a",
@@ -308,10 +265,8 @@ test("subjective verification creates a user decision and only explicit confirma
       ]) as any
     });
 
-    await runtime.run(JSON.parse(readFileSync(eventFile, "utf8")) as MomEvent, eventFile);
-    const verifyVersion = store.getById(created.execution.id)!.version;
-    const verifyFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${verifyVersion}.json`);
-    await runtime.run(JSON.parse(readFileSync(verifyFile, "utf8")) as MomEvent, verifyFile);
+    await runNextWakeup(runtime, store, "process-a");
+    await runNextWakeup(runtime, store, "process-a");
     const waiting = store.getDetail(created.execution.id)!;
     assert.equal(waiting.execution.status, "waiting_for_user");
     assert.equal(waiting.decisions.length, 1);
@@ -327,8 +282,7 @@ test("subjective verification creates a user decision and only explicit confirma
       actionId: "confirm-subjective-1"
     });
     assert.equal(answered.execution.status, "completed");
-    const continuationFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${answered.execution.version}.json`);
-    assert.equal(existsSync(continuationFile), false);
+    assert.deepEqual(store.pendingWakeups(created.execution.id), []);
     const completed = store.getDetail(created.execution.id)!;
     assert.equal(completed.execution.status, "completed");
     assert.equal(completed.acceptanceCriteria[0]?.result, "passed");
@@ -342,13 +296,12 @@ test("subjective verification creates a user decision and only explicit confirma
 test("durable attempts persist one intent and one receipt around a non-pure tool", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create({
       ...input,
       steps: [{ title: "Publish report", sideEffectClass: "non_idempotent" }]
     });
     const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
-    const eventFile = join(root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
     const runtime = new DurableExecutionRuntime({
       store,
       processOwnerId: "process-a",
@@ -375,7 +328,7 @@ test("durable attempts persist one intent and one receipt around a non-pure tool
       ]) as any
     });
 
-    await runtime.run(JSON.parse(readFileSync(eventFile, "utf8")) as MomEvent, eventFile);
+    await runNextWakeup(runtime, store, "process-a");
     const detail = store.getDetail(created.execution.id)!;
     assert.deepEqual(detail.sideEffects.map((effect) => effect.phase), ["intent", "receipt"]);
     assert.equal(detail.sideEffects[0]?.idempotencyKey, "stable-report-write");
@@ -390,7 +343,7 @@ test("durable attempts persist one intent and one receipt around a non-pure tool
 test("recovery_required does not retry an uncertain non-idempotent step without a user decision", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create({
       ...input,
       steps: [{ title: "Publish report", sideEffectClass: "non_idempotent" }]
@@ -417,7 +370,7 @@ test("recovery_required does not retry an uncertain non-idempotent step without 
       targetSummary: "report service",
       contentSummary: "publish report"
     });
-    store.reconcileOrphanedAttempts("process-b");
+    store.reconcileOrphanedAttempts("process-b", new Date(Date.now() + 3_600_000));
     const recovered = store.getById(created.execution.id)!;
     const runtime = new DurableExecutionRuntime({
       store,
@@ -450,7 +403,7 @@ for (const firstEffect of ["non_idempotent", "queryable"] as const) {
   test(`recovery reviews an earlier ${firstEffect} operation even when the last intent is safe`, async () => {
     const { root, store, input } = fixture();
     try {
-      const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+      const coordinator = new DurableExecutionCoordinator(store, "process-a");
       const created = coordinator.create(input);
       const activated = coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
       const claimed = store.claimAttempt({
@@ -468,7 +421,7 @@ for (const firstEffect of ["non_idempotent", "queryable"] as const) {
           contentSummary: sideEffectClass === "idempotent" ? "write report" : "publish report"
         });
       }
-      store.reconcileOrphanedAttempts("process-b");
+      store.reconcileOrphanedAttempts("process-b", new Date(Date.now() + 3_600_000));
       let attempts = 0;
       const runtime = new DurableExecutionRuntime({
         store, processOwnerId: "process-b", dataDir: root,
@@ -494,7 +447,7 @@ for (const firstEffect of ["non_idempotent", "queryable"] as const) {
 test("queryable recovery reconciles completed external state before verification", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create({
       ...input,
       steps: [{ title: "Publish report", sideEffectClass: "queryable", idempotencyKey: "report:weekly" }]
@@ -532,7 +485,7 @@ test("queryable recovery reconciles completed external state before verification
       targetSummary: "report service",
       contentSummary: "publish report"
     });
-    store.reconcileOrphanedAttempts("process-b");
+    store.reconcileOrphanedAttempts("process-b", new Date(Date.now() + 3_600_000));
     const recovered = store.getById(created.execution.id)!;
     let probed = false;
     const runtime = new DurableExecutionRuntime({
@@ -567,7 +520,7 @@ test("queryable recovery reconciles completed external state before verification
 test("queryable recovery without a probe waits for an explicit review instead of retrying", async () => {
   const { root, store, input } = fixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create({
       ...input,
       steps: [{ title: "Publish report", sideEffectClass: "queryable", idempotencyKey: "report:weekly" }]
@@ -594,7 +547,7 @@ test("queryable recovery without a probe waits for an explicit review instead of
       targetSummary: "report service",
       contentSummary: "publish report"
     });
-    store.reconcileOrphanedAttempts("process-b");
+    store.reconcileOrphanedAttempts("process-b", new Date(Date.now() + 3_600_000));
     const recovered = store.getById(created.execution.id)!;
     let attempted = false;
     const runtime = new DurableExecutionRuntime({
@@ -629,7 +582,7 @@ test("a bound plan uses isolated attempts while its receiving Session is busy an
   const { root, store } = fixture();
   const { PlanService } = await import("../plans/service.js");
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const plans = new PlanService(store, coordinator);
     const plan = plans.create({ ownerId: "owner-1", botId: "bot-1", sourceChannel: "web", sourceChatId: "original-chat", sourceUiSessionId: "session-a", title: "Bound plan", tasks: [{ title: "Task", steps: [{ title: "One" }, { title: "Two" }] }] });
     const approved = plans.approve({ ownerId: "owner-1", planId: plan.execution.id, expectedVersion: plan.execution.version, sessionId: "busy-session-b", agentId: "agent-a", mode: "manual" });
@@ -646,8 +599,11 @@ test("a bound plan uses isolated attempts while its receiving Session is busy an
         entered(); await gate;
         return { result: { stopReason: "stop", runId: message.runId }, contextSessionId: "isolated-attempt" };
       } }]])]]) as any });
-    const path = join(durableExecutionEventsDir(root), `durable-execution-${plan.execution.id}-v${approved.execution.version}.json`);
-    const running = runtime.run(JSON.parse(readFileSync(path, "utf8")), path);
+    const running = (async () => {
+      const [wakeup] = store.claimDueWakeups("process-a", 1);
+      assert.ok(wakeup);
+      await runtime.runWakeup(wakeup);
+    })();
     await Promise.race([started, running.then(() => { throw new Error(store.getById(plan.execution.id)?.lastError || "Attempt did not start"); })]);
     const before = plans.read("owner-1", plan.execution.id);
     const pausing = plans.pause({ ownerId: "owner-1", planId: plan.execution.id, expectedVersion: before.execution.version, actionId: "pause" });
@@ -671,7 +627,7 @@ test("bound plans retain original input files and summary after source deletion,
   try {
     mkdirSync(join(root, "source")); writeFileSync(join(root, "source", "input.txt"), "original data");
     const snapshot = capturePlanInput("context-plan", { text: "Use the original figures", workspaceDir: root, attachments: [{ original: "input.txt", local: "source/input.txt", mediaType: "file", isImage: false, isAudio: false }] });
-    const plans = new PlanService(store, new DurableExecutionCoordinator(store, "process-a", root));
+    const plans = new PlanService(store, new DurableExecutionCoordinator(store, "process-a"));
     const plan = plans.create({ planId: "context-plan", inputSnapshot: snapshot, ownerId: "owner-1", botId: "bot-1", sourceChannel: "web", sourceChatId: "original", sourceUiSessionId: "deleted-source", title: "Context", summary: "Preserve currencies", tasks: [{ title: "Task", description: "Use decimal units", steps: [{ title: "Read" }] }] });
     rmSync(join(root, "source"), { recursive: true });
     const approved = plans.approve({ ownerId: "owner-1", planId: plan.execution.id, expectedVersion: plan.execution.version, sessionId: "receiver", agentId: "default", mode: "manual" });
@@ -682,8 +638,7 @@ test("bound plans retain original input files and summary after source deletion,
       return { result: { stopReason: "stop", runId: message.runId }, text: "Actual result" };
     } }]])]]) as any };
     const runtime = new DurableExecutionRuntime({ ...options, onPlanAttempt: () => { throw new Error("offline feedback"); } });
-    const file = join(durableExecutionEventsDir(root), `durable-execution-${plan.execution.id}-v${approved.execution.version}.json`);
-    await runtime.run(JSON.parse(readFileSync(file, "utf8")), file);
+    await runNextWakeup(runtime, store, "process-a");
     assert.equal(store.pendingPlanDeliveries().length, 1);
     const restarted = new DurableExecutionRuntime({ ...options, onPlanAttempt: input => { assert.equal(input.text, "Actual result"); assert.equal(input.binding.sessionId, "receiver"); delivered++; } });
     await restarted.reconcilePlanDeliveries(); await restarted.reconcilePlanDeliveries();
@@ -698,8 +653,9 @@ for (const action of ["pause", "cancel"] as const) test(`restart settles a persi
     const queued = store.transitionStatus(execution.id, execution.version, "queued");
     store.claimAttempt({ executionId: execution.id, expectedVersion: queued.version, processOwnerId: "dead-process", runId: "dead-run", contextSessionId: "dead-context", leaseDurationMs: 10000 });
     store.requestControl(execution.id, store.getById(execution.id)!.version, action);
-    const runtime = new DurableExecutionRuntime({ store, processOwnerId: "new-process", dataDir: root, channelManagers: new Map() });
-    runtime.reconcile();
+    // A crashed owner's lease is reclaimed only after it expires.
+    assert.equal(store.reconcileOrphanedAttempts("new-process"), 0);
+    assert.equal(store.reconcileOrphanedAttempts("new-process", new Date(Date.now() + 60_000)), 1);
     assert.equal(store.getById(execution.id)!.status, action === "pause" ? "paused" : "cancelled");
     assert.equal(store.getControlRequest(execution.id), undefined);
   } finally { store.close(); rmSync(root, { recursive: true, force: true }); }

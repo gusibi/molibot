@@ -1,3 +1,4 @@
+import { decodePiToolDetails } from "$lib/server/agent/durable/piToolResult.js";
 import { resolveAgentFileReference } from "$lib/server/sessions/agentFileReferences.js";
 import { listAgentSessions } from "$lib/server/sessions/agentStorage.js";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
@@ -167,17 +168,16 @@ function conversationFromDisplay(ref: ExternalSessionRef, display: SessionDispla
 }
 
 /**
- * Recovers generated media (image/video tool outputs) from a toolResult message
- * as displayable attachments. The `imageGenerate`/`videoGenerate` tools never
- * write `message.attachments` - the produced file lives only in the toolResult
- * `details` (`filePath`/`videoPath`). Without this, generated images would never
+ * Recovers generated media (image/video/speech tool outputs) from a toolResult message
+ * as displayable attachments. Generation tools persist file references in
+ * toolResult `details` (`filePath`/`videoPath`), rather than `message.attachments`. Without this, generated media would never
  * surface in the external transcript. `local` is the path relative to the session
  * workspace so it matches the file-panel scan in `+/api/web/files`.
  */
 function extractGeneratedAttachments(message: AgentMessage, workspaceDir: string): ConversationAttachment[] {
   const record = message as { role?: string; toolName?: string; details?: unknown };
   if (record.role !== "toolResult") return [];
-  const details = record.details;
+  const details = decodePiToolDetails(record.details as Parameters<typeof decodePiToolDetails>[0]).details;
   if (!details || typeof details !== "object") return [];
   const detailRecord = details as { filePath?: unknown; videoPath?: unknown };
   const pickFile = (value: unknown): string | undefined => {
@@ -186,13 +186,16 @@ function extractGeneratedAttachments(message: AgentMessage, workspaceDir: string
     return trimmed || undefined;
   };
   let filePath: string | undefined;
-  let mediaType: "image" | "video" | undefined;
+  let mediaType: "image" | "video" | "audio" | undefined;
   if (record.toolName === "imageGenerate") {
     filePath = pickFile(detailRecord.filePath);
     mediaType = "image";
   } else if (record.toolName === "videoGenerate") {
     filePath = pickFile(detailRecord.videoPath) ?? pickFile(detailRecord.filePath);
     mediaType = "video";
+  } else if (record.toolName === "ttsGenerate") {
+    filePath = pickFile(detailRecord.filePath);
+    mediaType = "audio";
   }
   if (!filePath || !mediaType) return [];
   const resolved = resolveAgentFileReference(workspaceDir, filePath);
@@ -288,13 +291,18 @@ function buildMessages(ref: ExternalSessionRef, entries: SessionFileEntry[], wor
       pendingAttachments = [];
     }
 
-    if (!displayContent.trim() && attachments.length === 0) continue;
+    const status = entry.message as { stopReason?: string; errorMessage?: string };
+    const hasStatus = role === "assistant" && ["error", "aborted", "stop", "waiting_for_approval"].includes(status.stopReason ?? "");
+    if (!displayContent.trim() && attachments.length === 0 && !hasStatus) continue;
 
     messages.push({
       id: entry.id,
+      traceRunIds: entry.runId ? [entry.runId] : undefined,
       conversationId,
       role,
       content: displayContent,
+      ...(role === "assistant" && status.stopReason ? { stopReason: status.stopReason } : {}),
+      ...(role === "assistant" && status.errorMessage ? { errorMessage: status.errorMessage } : {}),
       createdAt: entry.timestamp,
       attachments: attachments.length > 0 ? attachments : undefined,
       retention: entry.retention
@@ -434,6 +442,35 @@ export function rebuildExternalSessionMetadata(dataRoot: string): { scanned: num
   return { scanned, rebuilt };
 }
 
+/** Final run receipts can explain a missing reply, but cannot manufacture reply content. */
+function applyExternalRunStatuses(ref: ExternalSessionRef, messages: ConversationMessage[], workspaceDir: string): ConversationMessage[] {
+  const file = join(workspaceDir, "run-summaries.jsonl");
+  const runIds = new Set(messages.flatMap(message => message.traceRunIds ?? []));
+  if (!runIds.size || !existsSync(file)) return messages;
+  const summaries = new Map<string, Record<string, unknown>>();
+  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+    try {
+      const row = JSON.parse(line) as Record<string, unknown>;
+      const source = row.source as { channel?: string; botId?: string; chatId?: string } | undefined;
+      if (typeof row.runId === "string" && runIds.has(row.runId) && row.sessionId === ref.sessionId
+        && source?.channel === ref.channel && source.botId === ref.botId && source.chatId === ref.chatId) summaries.set(row.runId, row);
+    } catch { /* Ignore malformed log lines. */ }
+  }
+  const lastIndex = new Map<string, number>();
+  messages.forEach((message, index) => { for (const id of message.traceRunIds ?? []) lastIndex.set(id, index); });
+  return messages.flatMap((message, index) => {
+    const id = message.traceRunIds?.at(-1);
+    const summary = id ? summaries.get(id) : undefined;
+    if (!id || !summary || lastIndex.get(id) !== index || typeof summary.stopReason !== "string"
+      || !["stop", "error", "aborted", "waiting_for_approval"].includes(summary.stopReason)) return [message];
+    const status = { stopReason: summary.stopReason, ...(typeof summary.errorMessage === "string" ? { errorMessage: summary.errorMessage } : {}) };
+    if (message.role === "assistant") return [{ ...message, ...status }];
+    return [message, { id: `run-status:${id}`, conversationId: message.conversationId, role: "assistant" as const,
+      content: "", createdAt: typeof summary.createdAt === "string" ? summary.createdAt : message.createdAt,
+      traceRunIds: [id], ...status }];
+  });
+}
+
 /**
  * Reads a single external session's transcript by its opaque id. Returns null
  * for malformed ids, unknown channels, or a missing session file so callers can
@@ -455,7 +492,7 @@ export function readExternalTranscriptFromContexts(
   const entries = readEntries(contextsDir, ref.sessionId, 16 * 1024 * 1024);
   return {
     conversation: { ...buildConversation(ref, entries), agentId: readSessionMetadataFile(contextsDir, ref.sessionId)?.agentId },
-    messages: buildMessages(ref, entries, workspaceDir)
+    messages: applyExternalRunStatuses(ref, buildMessages(ref, entries, workspaceDir), workspaceDir)
   };
 }
 

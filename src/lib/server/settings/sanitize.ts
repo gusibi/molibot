@@ -6,6 +6,7 @@ import {
   normalizeDefaultAgentSettings,
   defaultRuntimeSettings,
   isKnownProvider,
+  normalizePiProviderId,
   sanitizeAgentModelRouting,
   resolveCustomProviderThinkingFormat,
   sanitizeRuntimeThinkingLevel,
@@ -1179,21 +1180,24 @@ export function sanitizeOpenConnector(input: unknown, current: RuntimeSettings["
 export function sanitizeChannelInstanceDisplaySettings(input: unknown): ChannelInstanceSettings["display"] {
   if (!input || typeof input !== "object") return undefined;
   const raw = input as Record<string, unknown>;
-  const toolProgress = raw.toolProgress !== undefined && ["off", "new", "all", "verbose"].includes(String(raw.toolProgress))
+  const toolProgress = raw.toolProgress != null && ["off", "new", "all", "verbose"].includes(String(raw.toolProgress))
     ? (raw.toolProgress as any)
     : undefined;
-  const showReasoning = raw.showReasoning !== undefined && ["off", "on", "stream", "new"].includes(String(raw.showReasoning))
+  const showReasoning = raw.showReasoning != null && ["off", "on", "stream", "new"].includes(String(raw.showReasoning))
     ? (raw.showReasoning as any)
     : undefined;
-  const gatewayNotifyInterval = raw.gatewayNotifyInterval !== undefined && !isNaN(Number(raw.gatewayNotifyInterval))
+  // `null` means "clear the override / follow global" — never a concrete value.
+  const gatewayNotifyInterval = raw.gatewayNotifyInterval != null && !isNaN(Number(raw.gatewayNotifyInterval))
     ? Number(raw.gatewayNotifyInterval)
     : undefined;
-  const runLogNotice = raw.runLogNotice === undefined ? undefined : Boolean(raw.runLogNotice);
+  const runLogNotice = raw.runLogNotice == null ? undefined : Boolean(raw.runLogNotice);
 
-  if (toolProgress === undefined && showReasoning === undefined && gatewayNotifyInterval === undefined && runLogNotice === undefined) {
-    return undefined;
-  }
-  return { toolProgress, showReasoning, gatewayNotifyInterval, runLogNotice };
+  const out: NonNullable<ChannelInstanceSettings["display"]> = {};
+  if (toolProgress !== undefined) out.toolProgress = toolProgress;
+  if (showReasoning !== undefined) out.showReasoning = showReasoning;
+  if (gatewayNotifyInterval !== undefined) out.gatewayNotifyInterval = gatewayNotifyInterval;
+  if (runLogNotice !== undefined) out.runLogNotice = runLogNotice;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function sanitizeSingleChannelInstance(input: unknown): ChannelInstanceSettings {
@@ -1373,6 +1377,24 @@ export function sanitizeEventExecutionSettings(
   };
 }
 
+export function sanitizeDurableExecutionSettings(
+  input: unknown,
+  fallback: RuntimeSettings["durable"]
+): RuntimeSettings["durable"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const mode = String(source.wakeupMode ?? fallback.wakeupMode).trim().toLowerCase();
+  return {
+    leaseDurationMs: clampNumber(source.leaseDurationMs, fallback.leaseDurationMs, 5_000, 24 * 60 * 60 * 1000),
+    wakeupMode: mode === "file" || mode === "both" || mode === "db" ? mode : fallback.wakeupMode,
+    wakeupRetentionDays: clampNumber(source.wakeupRetentionDays, fallback.wakeupRetentionDays, 0, 365),
+    instanceGuard: source.instanceGuard === undefined
+      ? fallback.instanceGuard
+      : source.instanceGuard === true || String(source.instanceGuard).trim().toLowerCase() === "true"
+  };
+}
+
 export function sanitizeModelRoutingConfig(input: unknown, fallback: ModelRoutingConfig): ModelRoutingConfig {
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   return {
@@ -1438,7 +1460,7 @@ export function sanitizeAiRoutingConfig(input: AiRoutingInput, current: RuntimeS
     patch.providerMode = (mode === "custom" ? "custom" : "pi") as ProviderMode;
   }
   if (input.piModelProvider !== undefined) {
-    const candidate = String(input.piModelProvider ?? "").trim();
+    const candidate = normalizePiProviderId(String(input.piModelProvider ?? ""));
     if (isKnownProvider(candidate)) patch.piModelProvider = candidate;
   }
   if (input.piModelName !== undefined) {
@@ -1477,9 +1499,9 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
   const mode = String(next.providerMode ?? "pi").toLowerCase();
   next.providerMode = (mode === "custom" ? "custom" : "pi") as ProviderMode;
 
-  if (!isKnownProvider(String(next.piModelProvider))) {
-    next.piModelProvider = current.piModelProvider;
-  }
+  const providerCandidate = normalizePiProviderId(String(next.piModelProvider ?? ""));
+  if (isKnownProvider(providerCandidate)) next.piModelProvider = providerCandidate;
+  else next.piModelProvider = current.piModelProvider;
 
   next.piModelName = String(next.piModelName ?? "").trim() || current.piModelName;
   const rows = Array.isArray(next.customProviders) ? next.customProviders : current.customProviders;
@@ -1563,7 +1585,7 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
     customProviders.push({
       id,
       name,
-      enabled: row.enabled === undefined ? !isKnownProvider(id) : Boolean(row.enabled),
+      enabled: row.enabled === undefined ? !isKnownProvider(normalizePiProviderId(id)) : Boolean(row.enabled),
       protocol,
       baseUrl,
       apiKey: String(row.apiKey ?? "").trim(),
@@ -1757,6 +1779,10 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
     current.subagentRuntime
   );
   next.events = sanitizeEventExecutionSettings(next.events ?? current.events, current.events);
+  next.durable = sanitizeDurableExecutionSettings(
+    next.durable ?? current.durable,
+    current.durable ?? defaultRuntimeSettings.durable
+  );
 
   const browserInput = next.browserAutomation ?? current.browserAutomation;
   const browserTimeoutRaw = browserInput?.defaultTimeoutMs;

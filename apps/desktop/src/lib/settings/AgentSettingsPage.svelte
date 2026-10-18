@@ -186,11 +186,11 @@
       {/each}
       <p class="agent-settings-hint">{zh ? "以下配置只影响当前 Agent。专属技能来自这个 Agent 的 skills 目录；共享技能由全局技能中心提供，可在这里单独停用。" : "These settings affect this Agent only. Dedicated skills come from its skills directory; inherited skills come from the global skill center and can be disabled here for this Agent."}</p>
       {#if resourceLoading}<p>{session.text.loading}</p>{:else if resourceError}<p role="alert">{resourceError}</p>{:else}
-        {#each ["bot", "global"] as scope}
+        {#each ["agent", "global"] as scope}
           {@const scopedSkills = skills.filter(skill => skill.scope === scope)}
-          <h2>{scope === "bot" ? (zh ? "Agent 专属技能" : "Agent workspace skills") : (zh ? "继承的共享技能" : "Inherited shared skills")} · {scopedSkills.length}</h2>
+          <h2>{scope === "agent" ? (zh ? "Agent 专属技能" : "Agent workspace skills") : (zh ? "继承的共享技能" : "Inherited shared skills")} · {scopedSkills.length}</h2>
           {#if scope === "global"}<Button aria-expanded={sharedSkillsVisible} onclick={() => sharedSkillsVisible = !sharedSkillsVisible}>{sharedSkillsVisible ? (zh ? "收起共享技能" : "Hide shared skills") : (zh ? "查看共享技能" : "View shared skills")}</Button>{/if}
-          {#if scope === "bot" || sharedSkillsVisible}
+          {#if scope === "agent" || sharedSkillsVisible}
           {#each scopedSkills as skill (skill.path)}<SettingRow title={skill.name} description={skill.description}><IosSwitch checked={!(draft.disabledSkillPaths ?? []).includes(skill.path)} ariaLabel={skill.name} onCheckedChange={enabled => toggleList("disabledSkillPaths", [skill.path], enabled)} /></SettingRow>{:else}<p class="agent-settings-hint">{zh ? "此范围暂无可用技能。" : "No available skills in this scope."}</p>{/each}
           {/if}
         {/each}

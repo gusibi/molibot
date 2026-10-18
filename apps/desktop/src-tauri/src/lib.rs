@@ -1,4 +1,5 @@
 mod app_menu;
+mod app_logo;
 mod audio;
 mod artifact_protocol;
 mod desktop_preferences;
@@ -472,6 +473,8 @@ pub fn run() {
             plugin_protocol::handle(request, endpoint, responder);
         })
         .invoke_handler(tauri::generate_handler![
+            app_logo::get_app_logo,
+            app_logo::set_app_logo,
             execute_native_command,
             sync_native_command_menu,
             show_main_window,
@@ -527,6 +530,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build Molibot desktop host")
         .run(|app, event| {
+            if let RunEvent::Ready = event {
+                if let Err(error) = app_logo::restore(app) {
+                    eprintln!("Application logo restore failed: {error}");
+                }
+            }
             if let RunEvent::Reopen { .. } = event {
                 show_window(app, "chat");
             }

@@ -19,7 +19,7 @@ export function trendLinePath(values: number[], max: number): string {
   const yFor = (v: number) => CHART_PAD_TOP + (1 - Math.min(1, max > 0 ? v / max : 0)) * span;
   if (n === 1) return `M0 ${yFor(values[0]).toFixed(2)} L100 ${yFor(values[0]).toFixed(2)}`;
   const pts: [number, number][] = values.map((v, i) => [(i / (n - 1)) * 100, yFor(v)]);
-  // Catmull-Rom → cubic bezier for a gentle, non-overshooting curve.
+  // Bound the Catmull-Rom controls to each segment's recorded range.
   let d = `M${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`;
   for (let i = 0; i < pts.length - 1; i += 1) {
     const p0 = pts[i - 1] ?? pts[i];
@@ -27,10 +27,11 @@ export function trendLinePath(values: number[], max: number): string {
     const p2 = pts[i + 1];
     const p3 = pts[i + 2] ?? p2;
     const t = 0.16;
+    const boundY = (y: number) => Math.max(Math.min(p1[1], p2[1]), Math.min(Math.max(p1[1], p2[1]), y));
     const c1x = p1[0] + (p2[0] - p0[0]) * t;
-    const c1y = p1[1] + (p2[1] - p0[1]) * t;
+    const c1y = boundY(p1[1] + (p2[1] - p0[1]) * t);
     const c2x = p2[0] - (p3[0] - p1[0]) * t;
-    const c2y = p2[1] - (p3[1] - p1[1]) * t;
+    const c2y = boundY(p2[1] - (p3[1] - p1[1]) * t);
     d += ` C${c1x.toFixed(2)} ${c1y.toFixed(2)} ${c2x.toFixed(2)} ${c2y.toFixed(2)} ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`;
   }
   return d;

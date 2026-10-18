@@ -6,8 +6,6 @@ import { stripMemoryCitations } from "$lib/server/memory/citation.js";
 
 export interface ProjectedConversationMessage extends ConversationMessage {
   thinking?: string;
-  stopReason?: string;
-  errorMessage?: string;
 }
 
 interface AgentDisplayMessage extends ProjectedConversationMessage {
@@ -233,7 +231,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
           content: assistant.content.trim()
         }];
       }
-      if (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim() || assistant.steps?.length) out.push(assistant);
+      if (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim() || assistant.steps?.length || ["stop", "aborted", "waiting_for_approval"].includes(assistant.stopReason ?? "")) out.push(assistant);
     }
     assistant = null;
     terminalCommitted = false;

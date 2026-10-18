@@ -301,6 +301,9 @@ export function createPiExtensionHookPlugin(deps: EventBridgeDeps): HookPlugin {
           hookEvent,
           "before_agent_start",
           {
+            // pi 1.2 turned BeforeAgentStartEvent into a union on `messageType`;
+            // extensions must see the user-prompt variant.
+            messageType: "user",
             prompt: payload.prompt ?? "",
             systemPrompt,
             systemPromptOptions: {}

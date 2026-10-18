@@ -11,10 +11,13 @@
   import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { agentsStore, loadAgents } from "../stores/agents.svelte";
   import { PROFILE_FILE_NAMES } from "./profileFiles";
+  import { labeledOptions, progressOptionLabels, reasoningOptionLabels, type ProgressValue, type ReasoningValue } from "./displaySettings";
+  import type { DesktopChannelDisplaySettings, DesktopChannelInstance, DesktopExternalChannel } from "@molibot/desktop-contract";
   import {
     channelsStore,
     CHANNEL_FIELD_CONFIG,
     DESKTOP_CHANNELS,
+    WEB_CHANNEL,
     beginChannelEdit,
     beginNewChannel,
     clearChannelQr,
@@ -28,7 +31,30 @@
     updateChannelEdit
   } from "../stores/channels.svelte";
 
-  let deletingChannelInstance = $state<{ channel: (typeof DESKTOP_CHANNELS)[number]; id: string; name: string } | null>(null);
+  let deletingChannelInstance = $state<{ channel: DesktopExternalChannel; id: string; name: string } | null>(null);
+
+  // Inherit-first option lists; the inherit label shows the current global value
+  // so "follow global" is never a blind choice.
+  const globalDisplay = $derived(channelsStore.channels?.defaults ?? {});
+  const progressLabels = $derived(progressOptionLabels(session.text));
+  const reasoningLabels = $derived(reasoningOptionLabels(session.text));
+  const followGlobalLabel = $derived((current?: string) => current ? `${session.text.channelFollowGlobal} · ${current}` : session.text.channelFollowGlobal);
+  const toolProgressOptions = $derived([
+    { value: "inherit", label: followGlobalLabel(globalDisplay.toolProgress ? progressLabels[globalDisplay.toolProgress as ProgressValue] : undefined) },
+    ...labeledOptions(progressLabels)
+  ]);
+  const showReasoningOptions = $derived([
+    { value: "inherit", label: followGlobalLabel(globalDisplay.showReasoning ? reasoningLabels[globalDisplay.showReasoning as ReasoningValue] : undefined) },
+    ...labeledOptions(reasoningLabels)
+  ]);
+  const runLogNoticeOptions = $derived([
+    { value: "inherit", label: followGlobalLabel(globalDisplay.runLogNotice === undefined ? undefined : globalDisplay.runLogNotice ? session.text.channelRunLogOn : session.text.channelRunLogOff) },
+    { value: "on", label: session.text.channelRunLogOn },
+    { value: "off", label: session.text.channelRunLogOff }
+  ]);
+  // Web is operated inside the app: basics and Markdown files only — no chat
+  // allowlist, no display overrides, no platform credentials.
+  const editingWeb = $derived(channelsStore.channelEdit?.channel === WEB_CHANNEL);
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== channelsStore.endpoint) {
@@ -50,6 +76,36 @@
   }
 </script>
 
+{#snippet channelInstances(channel: DesktopExternalChannel, instances: DesktopChannelInstance[])}
+  {#each instances as inst (inst.id)}
+    <div class="settings-row" in:listIn out:listOut animate:listFlip>
+      <div class="profile-info">
+        <strong>{inst.name}</strong>
+        <p>{inst.agentId ? `${session.text.channelLinkedAgent}: ${inst.agentId}` : session.text.noLinkedAgent} · {session.text.channelAllowedChats}: {inst.allowedChatCount} · {session.text.channelPermissionMode}: {inst.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[inst.permissionMode]}{#if inst.display && channel !== WEB_CHANNEL} · {session.text.channelDisplayCustom}{/if}</p>
+      </div>
+      <div class="settings-row-actions">
+        <span class="status-badge" data-state={inst.enabled ? "ready" : "disconnected"}>{inst.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
+        <button class="secondary-button" type="button" disabled={channelsStore.editorLoading} onclick={() => void beginChannelEdit(channel, inst.id)}>{session.text.channelEdit}</button>
+        <button class="secondary-button danger-action" type="button" disabled={channelsStore.saving} onclick={() => (deletingChannelInstance = { channel, id: inst.id, name: inst.name })}>{session.text.channelDelete}</button>
+      </div>
+    </div>
+  {/each}
+{/snippet}
+
+{#snippet channelGroup(channel: DesktopExternalChannel)}
+  {@const group = channelsStore.channels?.groups.find((item) => item.channel === channel)}
+  <SettingGroup title={externalChannelLabel(channel, session.locale)} description={`${group?.enabled ?? 0}/${group?.total ?? 0}`}>
+    <svelte:fragment slot="action">
+      <button class="secondary-button" type="button" disabled={channelsStore.channelEdit !== null} onclick={() => beginNewChannel(channel)}>{session.text.channelAdd}</button>
+    </svelte:fragment>
+    {#if !group || group.instances.length === 0}
+      <EmptyState title={session.text.channelsEmpty} icon="chat-circle-dots" />
+    {:else}
+      {@render channelInstances(channel, group.instances)}
+    {/if}
+  </SettingGroup>
+{/snippet}
+
 {#if !session.serviceReady}
   <SettingGroup><EmptyState title={session.text.channelsUnavailable} icon="chat-circle-dots" /></SettingGroup>
 {:else if channelsStore.loading || !channelsStore.channels}
@@ -60,30 +116,9 @@
       <span class="diag-value">{channelsStore.channels.counts.totalInstances} · {session.text.agentsEnabledCount}: {channelsStore.channels.counts.enabledInstances}</span>
     </SettingRow>
   </SettingGroup>
+  {@render channelGroup(WEB_CHANNEL)}
   {#each DESKTOP_CHANNELS as channel (channel)}
-    {@const group = channelsStore.channels.groups.find((item) => item.channel === channel)}
-    <SettingGroup title={externalChannelLabel(channel, session.locale)} description={`${group?.enabled ?? 0}/${group?.total ?? 0}`}>
-      <svelte:fragment slot="action">
-        <button class="secondary-button" type="button" disabled={channelsStore.channelEdit !== null} onclick={() => beginNewChannel(channel)}>{session.text.channelAdd}</button>
-      </svelte:fragment>
-      {#if !group || group.instances.length === 0}
-        <EmptyState title={session.text.channelsEmpty} icon="chat-circle-dots" />
-      {:else}
-        {#each group.instances as inst (inst.id)}
-          <div class="settings-row" in:listIn out:listOut animate:listFlip>
-            <div class="profile-info">
-              <strong>{inst.name}</strong>
-              <p>{inst.agentId ? `${session.text.channelLinkedAgent}: ${inst.agentId}` : session.text.noLinkedAgent} · {session.text.channelAllowedChats}: {inst.allowedChatCount} · {session.text.channelPermissionMode}: {inst.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[inst.permissionMode]}</p>
-            </div>
-            <div class="settings-row-actions">
-              <span class="status-badge" data-state={inst.enabled ? "ready" : "disconnected"}>{inst.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
-              <button class="secondary-button" type="button" disabled={channelsStore.editorLoading} onclick={() => void beginChannelEdit(channel, inst.id)}>{session.text.channelEdit}</button>
-              <button class="secondary-button danger-action" type="button" disabled={channelsStore.saving} onclick={() => (deletingChannelInstance = { channel, id: inst.id, name: inst.name })}>{session.text.channelDelete}</button>
-            </div>
-          </div>
-        {/each}
-      {/if}
-    </SettingGroup>
+    {@render channelGroup(channel)}
   {/each}
   {#if channelsStore.channelEdit}
     {@const savedInstance = channelsStore.channels.groups.find((group) => group.channel === channelsStore.channelEdit?.channel)?.instances.find((instance) => instance.id === channelsStore.channelEdit?.previousId)}
@@ -91,14 +126,23 @@
     <form id="desktop-channel-form" class="entity-editor-form" aria-label={session.text.channels} onsubmit={(event) => { event.preventDefault(); void saveChannelEditor(); }}>
       <header class="entity-editor-head"><strong id="channel-editor-title">{session.text.channels} · {externalChannelLabel(channelsStore.channelEdit.channel, session.locale)}</strong><button class="modal-close" type="button" aria-label={session.text.dialogClose} disabled={channelsStore.saving} onclick={() => (channelsStore.channelEdit = null)}><X size={16} aria-hidden="true" /></button></header>
       <div class="entity-editor-body">
+      <div class="provider-editor-toolbar"><strong>{session.text.channelBasicsSection}</strong></div>
       <div class="settings-form">
         <label class="settings-field"><span>{session.text.channelInstanceId}</span><input value={channelsStore.channelEdit.id} disabled={!channelsStore.channelEdit.isNew} autocomplete="off" spellcheck="false" oninput={(event) => updateChannelEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
         <label class="settings-field"><span>{session.text.channelInstanceName}</span><input value={channelsStore.channelEdit.name} autocomplete="off" oninput={(event) => updateChannelEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
         <label class="settings-field"><span>{session.text.channelLinkedAgent}</span><SelectControl value={channelsStore.channelEdit.agentId} ariaLabel={session.text.channelLinkedAgent} options={agentsStore.agents?.items.filter((agent) => agent.enabled).map((agent) => ({ value: agent.id, label: agent.name })) ?? []} onChange={(value) => updateChannelEdit((draft) => ({ ...draft, agentId: value }))} /></label>
         <label class="settings-field"><span>{session.text.channelPermissionMode}</span><SelectControl value={channelsStore.channelEdit.permissionMode ?? "inherit"} ariaLabel={session.text.channelPermissionMode} options={[{ value: "inherit", label: session.text.agentPermissionModeInherit }, { value: "plan", label: session.text.permissionModePlan }, { value: "manual", label: session.text.permissionModeManual }, { value: "accept_edits", label: session.text.permissionModeAcceptEdits }, { value: "auto", label: session.text.permissionModeAuto }]} onChange={(value) => updateChannelEdit((draft) => ({ ...draft, permissionMode: value === "inherit" ? null : value as "plan" | "manual" | "accept_edits" | "auto" }))} /></label>
-        <label class="settings-field settings-field-wide"><span>{session.text.channelAllowedChatIds}</span><textarea rows="3" value={channelsStore.channelEdit.allowedChatIds.join("\n")} placeholder={session.text.channelAllowedChatHint} autocomplete="off" spellcheck="false" oninput={(event) => updateChannelEdit((draft) => ({ ...draft, allowedChatIds: (event.currentTarget as HTMLTextAreaElement).value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean) }))}></textarea></label>
+        {#if !editingWeb}<label class="settings-field settings-field-wide"><span>{session.text.channelAllowedChatIds}</span><textarea rows="3" value={channelsStore.channelEdit.allowedChatIds.join("\n")} placeholder={session.text.channelAllowedChatHint} autocomplete="off" spellcheck="false" oninput={(event) => updateChannelEdit((draft) => ({ ...draft, allowedChatIds: (event.currentTarget as HTMLTextAreaElement).value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean) }))}></textarea></label>{/if}
       </div>
       <div class="provider-inline-options"><div class="inline-switch-row"><span>{session.text.channelEnabled}</span><IosSwitch checked={channelsStore.channelEdit.enabled} ariaLabel={session.text.channelEnabled} onCheckedChange={(checked) => updateChannelEdit((draft) => ({ ...draft, enabled: checked }))} /></div></div>
+      {#if !editingWeb}
+      <div class="provider-editor-toolbar"><strong>{session.text.channelDisplaySection}</strong></div>
+      <div class="settings-form">
+        <label class="settings-field"><span>{session.text.systemToolProgress}</span><SelectControl value={channelsStore.channelEdit.display.toolProgress ?? "inherit"} ariaLabel={session.text.systemToolProgress} options={toolProgressOptions} onChange={(value) => updateChannelEdit((draft) => ({ ...draft, display: { ...draft.display, toolProgress: value === "inherit" ? undefined : value as DesktopChannelDisplaySettings["toolProgress"] } }))} /></label>
+        <label class="settings-field"><span>{session.text.systemReasoning}</span><SelectControl value={channelsStore.channelEdit.display.showReasoning ?? "inherit"} ariaLabel={session.text.systemReasoning} options={showReasoningOptions} onChange={(value) => updateChannelEdit((draft) => ({ ...draft, display: { ...draft.display, showReasoning: value === "inherit" ? undefined : value as DesktopChannelDisplaySettings["showReasoning"] } }))} /></label>
+        <label class="settings-field"><span>{session.text.systemRunLogNotice}</span><SelectControl value={channelsStore.channelEdit.display.runLogNotice === undefined ? "inherit" : channelsStore.channelEdit.display.runLogNotice ? "on" : "off"} ariaLabel={session.text.systemRunLogNotice} options={runLogNoticeOptions} onChange={(value) => updateChannelEdit((draft) => ({ ...draft, display: { ...draft.display, runLogNotice: value === "inherit" ? undefined : value === "on" } }))} /></label>
+        <label class="settings-field"><span>{session.text.systemNotifyInterval}</span><input type="number" min="0" step="1" value={channelsStore.channelEdit.display.gatewayNotifyInterval ?? ""} placeholder={String(globalDisplay.gatewayNotifyInterval ?? 0)} aria-label={session.text.systemNotifyInterval} oninput={(event) => { const raw = (event.currentTarget as HTMLInputElement).value.trim(); updateChannelEdit((draft) => ({ ...draft, display: { ...draft.display, gatewayNotifyInterval: raw === "" ? undefined : Number(raw) } })); }} /><small>{session.text.channelNotifyEmptyHint}</small></label>
+      </div>
       <div class="provider-editor-toolbar"><strong>{session.text.channelCredentials}</strong>{#if channelsStore.channelEdit.channel === "feishu"}<button class="secondary-button" type="button" disabled={channelsStore.testing} onclick={() => void testChannelEditor()}>{channelsStore.testing ? session.text.loading : session.text.channelTest}</button>{/if}</div>
       <div class="settings-form">
         {#each CHANNEL_FIELD_CONFIG[channelsStore.channelEdit.channel].visible as key (key)}
@@ -116,6 +160,7 @@
           </label>
         {/each}
       </div>
+      {/if}
       <div class="provider-editor-toolbar"><strong>{session.text.channelBotFiles}</strong></div>
       <div class="profile-files-editor">
         {#each PROFILE_FILE_NAMES as fileName (fileName)}

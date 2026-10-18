@@ -537,6 +537,8 @@ export class WeixinManager extends BaseChannelRuntime {
           return;
         }
         if (text === state.accumulatedText.trim()) return;
+        // 已送达的主回答就是可见回复：缓冲的运行错误兜底不能再追加在它后面
+        hasVisibleNonErrorReply = true;
         if (state.accumulatedText) {
           const idx = messagesBuffer.indexOf(state.accumulatedText);
           if (idx !== -1) {
@@ -558,6 +560,7 @@ export class WeixinManager extends BaseChannelRuntime {
             text,
             baseUrlOverride: this.currentBaseUrl || undefined
           });
+          hasVisibleNonErrorReply = true;
           return;
         } catch (error) {
           momWarn("weixin", "upload_file_failed", {

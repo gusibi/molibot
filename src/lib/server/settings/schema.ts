@@ -5,7 +5,9 @@ import type {
   ThinkingStrategy
 } from "$lib/server/settings/thinking.js";
 import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
-import { getPiProviders, isPiProvider } from "$lib/server/providers/piRegistry.js";
+import { getPiProviders, isPiProvider, normalizePiProviderId } from "$lib/server/providers/piRegistry.js";
+
+export { normalizePiProviderId };
 
 export type ProviderMode = "pi" | "custom";
 export type CustomProviderProtocol = "openai-compatible" | "anthropic";
@@ -765,6 +767,22 @@ export interface EventExecutionSettings {
   taskSessionRetentionDays: number;
 }
 
+/**
+ * Durable Execution executor policy. The lease is independent of the generic
+ * event timeout: a durable step can legitimately run longer than a scheduled
+ * event, and sharing one number made long steps lose their lease mid-run.
+ */
+export interface DurableExecutionSettings {
+  /** Execution Attempt lease; renewed every third of this value while running. */
+  leaseDurationMs: number;
+  /** Where scheduling truth lives: the database queue, legacy event files, or both. */
+  wakeupMode: "db" | "file" | "both";
+  /** Days to keep `done`/`discarded` wakeups; failed wakeups are kept. */
+  wakeupRetentionDays: number;
+  /** Refuse to start a second executor against the same data directory. */
+  instanceGuard: boolean;
+}
+
 export interface RunBudgetLimits {
   maxToolCalls: number;
   maxToolFailures: number;
@@ -845,6 +863,7 @@ export interface RuntimeSettings {
   budget: RunBudgetLimits;
   subagentRuntime: SubagentRuntimeSettings;
   events: EventExecutionSettings;
+  durable: DurableExecutionSettings;
   browserAutomation: BrowserAutomationSettings;
   sessionAutoArchive: SessionAutoArchiveSettings;
   display?: GlobalDisplaySettings;

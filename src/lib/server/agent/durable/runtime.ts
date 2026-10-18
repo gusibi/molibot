@@ -1,17 +1,27 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { PROCESS_OWNER_ID } from "$lib/server/agent/eventsLeaseStore.js";
 import { config } from "$lib/server/app/env.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
 import type { ChannelInboundMessage, DurableAttemptHooks } from "$lib/server/agent/core/types.js";
 import type { ToolApprovalRequest, ToolApprovalConsumptionRequest, ToolResult, ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
 import type { ChannelManager } from "$lib/server/channels/registry.js";
-import type { DurableExecution, ExecutionStep, SideEffectRecord, StepVerificationRule } from "./types.js";
+import type { DurableExecution, DurableWakeup, DurableWakeupMode, ExecutionStep, SideEffectRecord, StepVerificationRule } from "./types.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { readDurableEvidence } from "./evidence.js";
-import { DurableExecutionBudgetError, DurableExecutionConflictError, DurableExecutionNotFoundError } from "./store.js";
+import { durableExecutionEventsDir, enqueueDurableExecutionEvent } from "./events.js";
+import { isStorageError, isTransientError } from "./storageErrors.js";
+import { migrateDurableEventFiles, pruneDurableEventFiles } from "./wakeupMigration.js";
+import { DurableWakeupWorker, type WakeupExecutionOutcome } from "./wakeupWorker.js";
+import {
+  DurableExecutionBudgetError,
+  DurableExecutionConflictError,
+  DurableExecutionLeaseError,
+  DurableExecutionNotFoundError,
+  DurableExecutionStoreFailedError
+} from "./store.js";
 import { DurableExecutionStore } from "./store.js";
 
 export interface DurableExecutionRuntimeOptions {
@@ -21,9 +31,27 @@ export interface DurableExecutionRuntimeOptions {
   leaseDurationMs?: number;
   dataDir?: string;
   maxActiveExecutions?: number;
+  wakeupMode?: DurableWakeupMode;
+  wakeupPollIntervalMs?: number;
+  wakeupRetentionDays?: number;
+  instanceGuard?: boolean;
+  /** Hook for the process supervisor; the store is unusable after this fires. */
+  onStoreFatal?: (error: Error) => void;
   resolvePlanPolicy?: (execution: DurableExecution, binding: import("./types.js").PlanBinding) => import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
   onPlanAttempt?: (input: { execution: DurableExecution; binding: import("./types.js").PlanBinding; runId: string; text: string }) => void | Promise<void>;
   queryableProbes?: Record<string, DurableQueryableProbe>;
+}
+
+export interface DurableExecutionRuntimeStartResult {
+  started: boolean;
+  reason?: string;
+  reconciled: number;
+  enqueued: number;
+  recoveredClaims: number;
+  prunedWakeups: number;
+  fileMigration?: import("./types.js").WakeupMigrationSummary;
+  fileMirror: boolean;
+  worker: boolean;
 }
 
 export interface DurableQueryableProbeInput {
@@ -75,10 +103,6 @@ function eventForAttempt(detail: NonNullable<ReturnType<DurableExecutionStore["g
     sessionMode: "fresh",
     status: { state: "running", runId }
   };
-}
-
-function isTerminalOrWaiting(status: string): boolean {
-  return ["partial", "completed", "failed", "cancelled", "paused", "waiting_for_user", "waiting_for_approval"].includes(status);
 }
 
 type StepVerificationVerdict = { result: "passed" | "failed"; summary: string };
@@ -184,13 +208,157 @@ export class DurableExecutionRuntime {
   private readonly leaseDurationMs: number;
   private readonly maxActiveExecutions: number;
   private readonly coordinator: DurableExecutionCoordinator;
+  private readonly wakeupMode: DurableWakeupMode;
+  private readonly wakeupRetentionDays: number;
+  private readonly instanceGuard: boolean;
+  private readonly worker: DurableWakeupWorker;
+  private fileMirrorTimer: ReturnType<typeof setInterval> | null = null;
+  private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
+  private startupRetryTimer: ReturnType<typeof setInterval> | null = null;
+  private started = false;
+  private migrationSummary: import("./types.js").WakeupMigrationSummary | undefined;
 
   constructor(private readonly options: DurableExecutionRuntimeOptions) {
     this.store = options.store ?? new DurableExecutionStore();
     this.processOwnerId = options.processOwnerId ?? PROCESS_OWNER_ID;
     this.leaseDurationMs = Math.max(1000, Math.round(options.leaseDurationMs ?? 600_000));
     this.maxActiveExecutions = Math.max(1, Math.round(options.maxActiveExecutions ?? Number.MAX_SAFE_INTEGER));
-    this.coordinator = new DurableExecutionCoordinator(this.store, this.processOwnerId, options.dataDir ?? config.dataDir);
+    this.wakeupMode = options.wakeupMode ?? "db";
+    this.wakeupRetentionDays = Math.max(0, Math.round(options.wakeupRetentionDays ?? 7));
+    this.instanceGuard = options.instanceGuard ?? true;
+    this.coordinator = new DurableExecutionCoordinator(this.store, this.processOwnerId);
+    this.worker = new DurableWakeupWorker({
+      store: this.store,
+      ownerId: this.processOwnerId,
+      execute: (wakeup) => this.runWakeup(wakeup),
+      intervalMs: options.wakeupPollIntervalMs ?? 1000,
+      batch: 4
+    });
+    this.store.closed.then(() => this.options.onStoreFatal?.(this.store.fatalError ?? new DurableExecutionStoreFailedError("closed")));
+  }
+
+  /**
+   * Startup order matters: assert single ownership first, then reclaim work
+   * nobody is running, then migrate/seed triggers. Reclaiming before the
+   * instance check would let a second process mark the first one's live
+   * attempts as interrupted.
+   */
+  start(): DurableExecutionRuntimeStartResult {
+    const empty: DurableExecutionRuntimeStartResult = {
+      started: false,
+      reconciled: 0,
+      enqueued: 0,
+      recoveredClaims: 0,
+      prunedWakeups: 0,
+      fileMirror: false,
+      worker: false
+    };
+    if (this.started) return { ...empty, started: true };
+    if (this.instanceGuard) {
+      const instance = this.store.claimRuntimeInstance(this.processOwnerId, Math.max(60_000, this.leaseDurationMs));
+      if (!instance.ok) {
+        const detail = `another Durable Execution executor is live (pid ${instance.holder.pid}, owner ${instance.holder.id}, started ${instance.holder.startedAt})`;
+        if (!this.startupRetryTimer) {
+          momWarn("durableExecution", "instance_conflict", { ownerId: this.processOwnerId, detail });
+          this.startupRetryTimer = setInterval(() => {
+            if (this.store.fatalError) return;
+            try { this.start(); } catch (error) { this.handleMaintenanceError(error); }
+          }, Math.max(100, this.options.wakeupPollIntervalMs ?? 1000));
+          this.startupRetryTimer.unref();
+        }
+        return { ...empty, reason: detail };
+      }
+    }
+    if (this.startupRetryTimer) clearInterval(this.startupRetryTimer);
+    this.startupRetryTimer = null;
+    this.started = true;
+    const recoveredClaims = this.store.recoverStaleClaims(this.leaseDurationMs, new Date(), this.processOwnerId);
+    const reconciled = this.store.reconcileOrphanedAttempts(this.processOwnerId);
+    let fileMigration: import("./types.js").WakeupMigrationSummary | undefined;
+    if (this.wakeupMode !== "file") {
+      fileMigration = migrateDurableEventFiles({
+        eventsDir: durableExecutionEventsDir(this.options.dataDir ?? config.dataDir),
+        store: this.store,
+        log: (event, payload) => momLog("durableExecution", event, { ...payload as Record<string, unknown> })
+      });
+      this.migrationSummary = fileMigration;
+    }
+    const enqueued = this.store.enqueueDueWakeups(undefined);
+    const prunedWakeups = this.store.pruneWakeups(this.wakeupRetentionDays);
+    this.maintenanceTimer = setInterval(() => {
+      if (this.store.fatalError) return;
+      try {
+        if (this.instanceGuard && !this.store.refreshRuntimeInstance(this.processOwnerId, Math.max(60_000, this.leaseDurationMs))) {
+          this.store.markFatal(new DurableExecutionStoreFailedError("executor instance ownership was lost"));
+          return;
+        }
+        this.store.recoverStaleClaims(this.leaseDurationMs, new Date(), this.processOwnerId);
+        this.store.reconcileOrphanedAttempts(this.processOwnerId);
+      } catch (error) { this.handleMaintenanceError(error); }
+    }, Math.max(100, Math.min(1000, this.leaseDurationMs / 3, this.options.wakeupPollIntervalMs ?? 1000)));
+    if (this.wakeupMode !== "file") this.worker.start();
+    if (this.wakeupMode !== "db") this.startFileMirror();
+    process.once("exit", () => {
+      try {
+        this.store.releaseOwnedAttempts(this.processOwnerId);
+        this.store.releaseRuntimeInstance(this.processOwnerId);
+      } catch {
+        // Best effort during shutdown; a stale lease is reclaimed on next start.
+      }
+    });
+    return {
+      started: true,
+      reconciled,
+      enqueued,
+      recoveredClaims,
+      prunedWakeups,
+      ...(fileMigration ? { fileMigration } : {}),
+      fileMirror: this.wakeupMode !== "db",
+      worker: this.wakeupMode !== "file"
+    };
+  }
+
+  async stop(): Promise<void> {
+    if (this.startupRetryTimer) clearInterval(this.startupRetryTimer);
+    this.startupRetryTimer = null;
+    if (this.fileMirrorTimer) clearInterval(this.fileMirrorTimer);
+    this.fileMirrorTimer = null;
+    await this.worker.stop();
+    if (this.maintenanceTimer) clearInterval(this.maintenanceTimer);
+    this.maintenanceTimer = null;
+    this.store.releaseOwnedAttempts(this.processOwnerId);
+    this.store.releaseRuntimeInstance(this.processOwnerId);
+    this.started = false;
+  }
+
+  private handleMaintenanceError(error: unknown): void {
+    if (isStorageError(error)) this.store.markFatal(error);
+    momWarn("durableExecution", "maintenance_failed", { error: error instanceof Error ? error.message : String(error) });
+  }
+
+  /** Legacy rollback path: mirror due database wakeups back into event files. */
+  private startFileMirror(): void {
+    if (this.fileMirrorTimer) return;
+    const mirror = () => {
+      if (this.store.fatalError) return;
+      try {
+        pruneDurableEventFiles({
+          eventsDir: durableExecutionEventsDir(this.options.dataDir ?? config.dataDir),
+          store: this.store
+        });
+        for (const wakeup of this.store.dueWakeups()) {
+          enqueueDurableExecutionEvent({
+            executionId: wakeup.executionId,
+            expectedVersion: wakeup.expectedVersion,
+            runAt: new Date(wakeup.runAt)
+          }, this.options.dataDir ?? config.dataDir);
+        }
+      } catch (error) {
+        momWarn("durableExecution", "file_mirror_failed", { error: error instanceof Error ? error.message : String(error) });
+      }
+    };
+    mirror();
+    this.fileMirrorTimer = setInterval(mirror, this.options.wakeupPollIntervalMs ?? 1000);
   }
 
   reconcile(): number {
@@ -210,33 +378,20 @@ export class DurableExecutionRuntime {
     }
   }
 
-  ensureQueuedEvents(ownerId = "owner"): number {
-    return this.coordinator.ensureQueuedEvents(ownerId);
+  /**
+   * Startup/repair helper only. Normal scheduling is a store invariant: the
+   * write that makes an execution runnable also writes its wakeup.
+   */
+  enqueueDueWakeups(ownerId?: string): number {
+    return this.store.enqueueDueWakeups(ownerId);
   }
 
-  handleSkippedEvent(event: MomEvent, reason: string): void {
-    const durable = event.internal?.durable;
-    if (event.internal?.kind !== "durable-execution" || !durable) return;
-    const current = this.store.getById(durable.executionId);
-    if (!current || current.version !== durable.expectedVersion || !["planned", "queued"].includes(current.status)) return;
-    const message = `Continuation event missed the offline catch-up window (${reason}); manual recovery is required.`;
-    try {
-      this.store.transitionStatus(durable.executionId, durable.expectedVersion, "recovery_required", {
-        waitingKind: "recovery",
-        waitingReason: message,
-        lastError: message
-      });
-      momWarn("durableExecution", "continuation_missed_catchup_window", {
-        executionId: durable.executionId,
-        expectedVersion: durable.expectedVersion,
-        reason
-      });
-    } catch (cause) {
-      momWarn("durableExecution", "continuation_missed_recovery_persist_failed", {
-        executionId: durable.executionId,
-        error: cause instanceof Error ? cause.message : String(cause)
-      });
-    }
+  inspect(executionId: string, ownerId?: string) {
+    return this.store.inspect(executionId, {
+      ...(ownerId ? { ownerId } : {}),
+      ownerProcessId: this.processOwnerId,
+      ...(this.migrationSummary ? { migration: this.migrationSummary } : {})
+    });
   }
 
   /**
@@ -278,49 +433,115 @@ export class DurableExecutionRuntime {
     }
   }
 
+  /**
+   * Consume one claimed wakeup. The worker only needs to know how to settle the
+   * queue row; business state was already written by the runtime.
+   */
+  async runWakeup(wakeup: DurableWakeup): Promise<WakeupExecutionOutcome> {
+    try {
+      return await this.execute({
+        executionId: wakeup.executionId,
+        expectedVersion: wakeup.expectedVersion,
+        label: `wakeup:${wakeup.id}`
+      });
+    } catch (cause) {
+      if (cause instanceof DurableExecutionStoreFailedError) {
+        this.store.markFatal(cause);
+        momError("durableExecution", "store_fatal", { executionId: wakeup.executionId, error: cause.message });
+        return { kind: "fatal", error: cause.message };
+      }
+      if (isStorageError(cause)) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.store.markFatal(error);
+        momError("durableExecution", "store_fatal", { executionId: wakeup.executionId, error: error.message });
+        return { kind: "fatal", error: error.message };
+      }
+      if (isTransientError(cause)) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        momWarn("durableExecution", "wakeup_transient_failure", { executionId: wakeup.executionId, error: message });
+        return { kind: "retry", error: message };
+      }
+      // A request-level failure (unknown execution, stale version, illegal
+      // transition) only fails this call; the next trigger can still make
+      // progress with a fresh read.
+      momWarn("durableExecution", "wakeup_request_failure", {
+        executionId: wakeup.executionId,
+        error: cause instanceof Error ? cause.message : String(cause)
+      });
+      return { kind: "discarded" };
+    }
+  }
+
+  /** Legacy event-file entry point. File mode is a rollback path, not the default. */
   async run(event: MomEvent, filename: string): Promise<{ kind: "durable-execution" }> {
     const input = event.internal?.durable;
     if (!input?.executionId || !Number.isFinite(input.expectedVersion)) {
       throw new Error("Durable internal event payload is invalid.");
     }
-    let detail = this.store.getDetail(input.executionId);
-    if (!detail) throw new DurableExecutionNotFoundError(input.executionId);
+    await this.execute({
+      executionId: input.executionId,
+      expectedVersion: input.expectedVersion,
+      label: filename
+    });
+    return { kind: "durable-execution" };
+  }
 
-    // The event file is an idempotent trigger, not the source of truth. A
-    // later version means another attempt/control action already won the CAS.
+  private async execute(input: { executionId: string; expectedVersion: number; label: string }): Promise<WakeupExecutionOutcome> {
+    const filename = input.label;
+    let detail = this.store.getDetail(input.executionId);
+    if (!detail) {
+      momWarn("durableExecution", "execution_missing", { executionId: input.executionId, filename });
+      return { kind: "discarded" };
+    }
+
+    // The trigger is idempotent, not the source of truth. A later version means
+    // another attempt/control action already won the CAS; the current version
+    // has (or will have) its own wakeup.
     if (detail.execution.version !== input.expectedVersion) {
-      if (isTerminalOrWaiting(detail.execution.status) || detail.execution.status === "running" || detail.execution.status === "verifying") {
-        return { kind: "durable-execution" };
+      return { kind: "discarded" };
+    }
+    if (detail.execution.engineVersion > 1) {
+      momWarn("durableExecution", "engine_version_unsupported", {
+        executionId: input.executionId,
+        engineVersion: detail.execution.engineVersion
+      });
+      if (["planned", "queued", "recovery_required"].includes(detail.execution.status)) {
+        this.settleAttemptSafe({
+          executionId: input.executionId,
+          status: "failed",
+          reason: `Execution engine version ${detail.execution.engineVersion} is newer than this build supports.`,
+          nextExecutionStatus: "recovery_required"
+        });
+        momError("durableExecution", "engine_version_blocked", { executionId: input.executionId });
       }
-      throw new DurableExecutionConflictError(input.executionId, input.expectedVersion, detail.execution.version);
+      return { kind: "done" };
     }
     if (detail.execution.status === "verifying") {
       await this.verify(detail, filename);
-      return { kind: "durable-execution" };
+      return { kind: "done" };
     }
     if (!(["planned", "queued", "recovery_required"] as string[]).includes(detail.execution.status)) {
-      return { kind: "durable-execution" };
+      return { kind: "discarded" };
     }
     let expectedVersionForAttempt = input.expectedVersion;
     if (detail.execution.status === "recovery_required" || detail.steps.some(step => step.planVersion === detail!.execution.currentPlanVersion && step.status === "uncertain")) {
       const recovery = await this.prepareRecovery(detail, filename);
-      if (recovery.kind === "stopped") return { kind: "durable-execution" };
+      if (recovery.kind === "stopped") return { kind: "done" };
       expectedVersionForAttempt = recovery.expectedVersion;
       detail = this.store.getDetail(input.executionId);
-      if (!detail) throw new DurableExecutionNotFoundError(input.executionId);
+      if (!detail) return { kind: "discarded" };
     }
 
     const activeExecutions = this.store.countActive(detail.execution.ownerId);
     if (detail.execution.status === "queued" && activeExecutions >= this.maxActiveExecutions) {
       this.store.deferQueued(input.executionId, expectedVersionForAttempt);
-      this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
       momLog("durableExecution", "attempt_queued_for_capacity", {
         executionId: input.executionId,
         ownerId: detail.execution.ownerId,
         active: activeExecutions,
         maxActive: this.maxActiveExecutions
       });
-      return { kind: "durable-execution" };
+      return { kind: "done" };
     }
 
     const sourceChatId = detail.execution.sourceChatId;
@@ -333,7 +554,7 @@ export class DurableExecutionRuntime {
           ? `Durable runner is unavailable for ${detail.execution.sourceChannel}/${detail.execution.botId}.`
           : "Durable Execution needs a source chat before it can run."
       });
-      return { kind: "durable-execution" };
+      return { kind: "done" };
     }
 
     const runId = `durable-attempt-${randomUUID()}`;
@@ -360,22 +581,19 @@ export class DurableExecutionRuntime {
         executionId: input.executionId,
         reason: cause.message
       });
-      return { kind: "durable-execution" };
+      return { kind: "done" };
     }
     let expectedVersion = claimed.execution.version;
     const step = nextStep;
     if (!step) {
-      this.store.finishAttempt({
+      this.settleAttemptSafe({
         executionId: input.executionId,
         attemptId: claimed.attempt.id,
-        expectedVersion,
-        processOwnerId: this.processOwnerId,
         status: "completed",
         nextExecutionStatus: "verifying",
         reason: "All execution steps are ready for verification."
       });
-      this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
-      return { kind: "durable-execution" };
+      return { kind: "done" };
     }
 
     // Session-originated executions (accepted plans, promoted runs) continue the
@@ -476,8 +694,34 @@ export class DurableExecutionRuntime {
     };
 
     const control = new AbortController();
-    const checkControl = () => { if (this.store.getControlRequest(input.executionId)) control.abort(); };
+    let leaseLost = false;
+    const checkControl = () => {
+      if (this.store.fatalError) { leaseLost = true; control.abort(); return; }
+      if (this.store.getControlRequest(input.executionId)) control.abort();
+    };
     const controlTimer = setInterval(checkControl, 100);
+    // A lease that cannot be renewed means another owner (or a recovery sweep)
+    // already took this execution. Stop the attempt immediately and never write
+    // a business terminal state over the new owner's work.
+    const heartbeatTimer = setInterval(() => {
+      try {
+        if (!this.store.heartbeat(input.executionId, this.processOwnerId, this.leaseDurationMs)) {
+          leaseLost = true;
+          control.abort();
+          momWarn("durableExecution", "lease_lost", { executionId: input.executionId, attemptId: claimed.attempt.id });
+        }
+      } catch (error) {
+        if (isStorageError(error)) {
+          leaseLost = true;
+          this.store.markFatal(error);
+          control.abort();
+          momError("durableExecution", "store_fatal", {
+            executionId: input.executionId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    }, Math.max(1000, Math.floor(this.leaseDurationMs / 3)));
     try {
       this.store.markStepRunning(input.executionId, step.id, expectedVersion, this.processOwnerId);
       expectedVersion = this.store.getById(input.executionId)!.version;
@@ -498,21 +742,31 @@ export class DurableExecutionRuntime {
               phase: runnerEvent.type
             });
           }
+          if (runnerEvent.type === "tool_execution_end") {
+            // The attempt-level checkpoint is how recovery knows which call was
+            // the last confirmed one; it deliberately does not bump the
+            // execution version, so parallel tool calls cannot fight over CAS.
+            this.store.recordAttemptProgress({
+              attemptId: claimed.attempt.id,
+              toolCallId: runnerEvent.toolCallId,
+              toolId: runnerEvent.toolName,
+              status: runnerEvent.isError ? "failed" : "completed",
+              summary: runnerEvent.summary
+            });
+          }
         },
         onToolSideEffectPreflight: (effect) => persistSideEffect("intent", effect),
         onToolSideEffectReceipt: (effect, result) => persistSideEffect("receipt", effect, result),
         consumeDurableApproval: async (request: ToolApprovalConsumptionRequest) => serializeSideEffectWrite(() => {
-          const current = this.store.getDetail(input.executionId);
+          const current = this.store.getById(input.executionId);
           if (!current) throw new DurableExecutionNotFoundError(input.executionId);
-          const approval = [...current.approvals]
-            .reverse()
-            .find((item) => item.status === "approved" && item.backend === request.backend && item.actionKey === request.actionKey);
+          const approval = this.store.getApprovalForKey(current.id, request.backend, request.actionKey);
           if (!approval) return false;
           const selectedScope = approval.selectedScope === "session" || approval.selectedScope === "persistent" ? approval.selectedScope : "once";
           const consumed = this.store.consumeApprovedApproval({
             executionId: input.executionId,
             approvalId: approval.id,
-            expectedVersion: current.execution.version,
+            expectedVersion: current.version,
             processOwnerId: this.processOwnerId
           });
           if (!consumed) return false;
@@ -531,7 +785,7 @@ export class DurableExecutionRuntime {
           const current = this.store.getById(input.executionId);
           if (!current) throw new DurableExecutionNotFoundError(input.executionId);
           const prompt = request.prompt;
-          const existing = this.store.getDetail(input.executionId)?.approvals.find((item) => item.requestId === request.requestId);
+          const existing = this.store.getOpenApproval(input.executionId, request.requestId);
           const approval = this.store.recordApprovalRequest({
             executionId: input.executionId,
             attemptId: claimed.attempt.id,
@@ -591,18 +845,15 @@ export class DurableExecutionRuntime {
       }
 
       if (attemptResult.approval || result.stopReason === "waiting_for_approval") {
-        expectedVersion = this.store.getById(input.executionId)!.version;
         const approval = attemptResult.approval
-          ? this.store.getDetail(input.executionId)!.approvals.find((item) => item.requestId === attemptResult.approval!.requestId)
+          ? this.store.getOpenApproval(input.executionId, attemptResult.approval.requestId)
           : undefined;
         const approvalReason = approval
           ? `${approval.title}\n${approval.summary}${approval.repeatCount > 1 ? `\nRepeated approval request #${approval.repeatCount}.` : ""}`
           : "The attempt is waiting for approval before it can continue.";
-        this.store.finishAttempt({
+        this.settleAttemptSafe({
           executionId: input.executionId,
           attemptId: claimed.attempt.id,
-          expectedVersion,
-          processOwnerId: this.processOwnerId,
           status: "waiting",
           nextExecutionStatus: "waiting_for_approval",
           reason: approvalReason,
@@ -649,17 +900,12 @@ export class DurableExecutionRuntime {
             evidenceSummary: rule ? `Step verification passed: ${verdict.summary}` : "The attempt run detail is available for inspection."
           });
           expectedVersion = this.store.getById(input.executionId)!.version;
-          const afterStep = this.store.getDetail(input.executionId)!;
-          const hasRemainingStep = afterStep.steps.some((item) =>
-            item.planVersion === afterStep.execution.currentPlanVersion
-            && item.status !== "completed"
-            && item.status !== "skipped"
+          const hasRemainingStep = this.store.getCurrentSteps(input.executionId).some((item) =>
+            item.status !== "completed" && item.status !== "skipped"
           );
-          this.store.finishAttempt({
+          this.settleAttemptSafe({
             executionId: input.executionId,
             attemptId: claimed.attempt.id,
-            expectedVersion,
-            processOwnerId: this.processOwnerId,
             status: "completed",
             nextExecutionStatus: hasRemainingStep ? "queued" : "verifying",
             reason: hasRemainingStep
@@ -681,22 +927,18 @@ export class DurableExecutionRuntime {
           });
           expectedVersion = this.store.getById(input.executionId)!.version;
           if (canRetry) {
-            this.store.finishAttempt({
+            this.settleAttemptSafe({
               executionId: input.executionId,
               attemptId: claimed.attempt.id,
-              expectedVersion,
-              processOwnerId: this.processOwnerId,
               status: "completed",
               nextExecutionStatus: "queued",
               reason: `Step verification failed; retrying (attempt ${attemptsSoFar}/${maxAttempts}).`,
               tokensUsed: result.usage?.totalTokens
             });
           } else {
-            this.store.finishAttempt({
+            this.settleAttemptSafe({
               executionId: input.executionId,
               attemptId: claimed.attempt.id,
-              expectedVersion,
-              processOwnerId: this.processOwnerId,
               status: "failed",
               nextExecutionStatus: "recovery_required",
               reason: `Step verification failed: ${verdict.summary}`,
@@ -705,45 +947,139 @@ export class DurableExecutionRuntime {
             await this.reportBlockedStep(manager, sourceChatId, input.executionId, step, verdict, filename);
           }
         }
-        this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
       } else {
-        this.store.finishAttempt({
+        this.settleAttemptSafe({
           executionId: input.executionId,
           attemptId: claimed.attempt.id,
-          expectedVersion,
-          processOwnerId: this.processOwnerId,
           status: "failed",
           nextExecutionStatus: "recovery_required",
           reason: result.errorMessage ?? `Durable attempt stopped with ${result.stopReason}.`,
           tokensUsed: result.usage?.totalTokens
         });
-        this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
       }
     } catch (cause) {
+      if (cause instanceof DurableExecutionStoreFailedError) throw cause;
+      if (isStorageError(cause)) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.store.markFatal(error);
+        momError("durableExecution", "store_fatal", { executionId: input.executionId, error: error.message });
+        throw error;
+      }
       const message = cause instanceof Error ? cause.message : String(cause);
       momWarn("durableExecution", "attempt_failed", { executionId: input.executionId, filename, error: message });
-      try {
-        this.store.finishAttempt({
-          executionId: input.executionId,
-          attemptId: claimed.attempt.id,
-          expectedVersion,
-          processOwnerId: this.processOwnerId,
-          status: "failed",
-          nextExecutionStatus: "recovery_required",
-          reason: message
-        });
-      } catch (finishCause) {
-        momWarn("durableExecution", "attempt_failure_persist_failed", {
-          executionId: input.executionId,
-          error: finishCause instanceof Error ? finishCause.message : String(finishCause)
-        });
+      // Losing the lease means another owner is responsible now. Writing a
+      // recovery state here would overwrite its work, so stop silently.
+      if (!leaseLost && !(cause instanceof DurableExecutionLeaseError)) {
+        try {
+          this.settleAttemptSafe({
+            executionId: input.executionId,
+            attemptId: claimed.attempt.id,
+            status: "failed",
+            nextExecutionStatus: "recovery_required",
+            reason: message
+          });
+        } catch (finishCause) {
+          momWarn("durableExecution", "attempt_failure_persist_failed", {
+            executionId: input.executionId,
+            error: finishCause instanceof Error ? finishCause.message : String(finishCause)
+          });
+        }
       }
-      this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
     } finally {
       clearInterval(controlTimer);
+      clearInterval(heartbeatTimer);
+      const controlRequest = this.store.getControlRequest(input.executionId);
+      if (controlRequest) {
+        this.abortDerivedWork(input.executionId, controlRequest === "cancel"
+          ? "The plan was cancelled; derived work is stopping."
+          : "The plan was paused; derived work is stopping.");
+      }
       this.store.settleControl(input.executionId);
     }
-    return { kind: "durable-execution" };
+    return { kind: "done" };
+  }
+
+  /**
+   * Cancel/pause must not leave child Sessions or delegated work running in the
+   * background. The attempt signal already aborts subagents started inside it;
+   * this also reaches Sessions derived from the plan (its bound Session and the
+   * originating one).
+   */
+  private abortDerivedWork(executionId: string, reason: string): number {
+    const execution = this.store.getById(executionId);
+    if (!execution?.sourceChatId) return 0;
+    const manager = this.options.channelManagers.get(execution.sourceChannel)?.get(execution.botId);
+    if (!manager?.abortRun) return 0;
+    const sessions = new Set<string>();
+    if (execution.sourceUiSessionId) sessions.add(execution.sourceUiSessionId);
+    const binding = this.store.getPlanBinding(executionId);
+    if (binding?.sessionId) sessions.add(binding.sessionId);
+    for (const attempt of this.store.getDetail(executionId)?.attempts ?? []) {
+      const sessionId = attempt.contextSessionId?.trim();
+      if (sessionId && !sessionId.startsWith("pending:") && !sessionId.startsWith("verifier:")) sessions.add(sessionId);
+    }
+    let aborted = 0;
+    for (const sessionId of sessions) {
+      try {
+        if (manager.abortRun(execution.sourceChatId, sessionId, reason).aborted) aborted += 1;
+      } catch (error) {
+        momWarn("durableExecution", "derived_abort_failed", {
+          executionId,
+          sessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    if (aborted > 0) momLog("durableExecution", "derived_work_aborted", { executionId, sessions: sessions.size, aborted });
+    return aborted;
+  }
+
+  /**
+   * Persist one attempt outcome. A version conflict means an approval/decision
+   * moved the execution while the attempt was finishing; re-read and retry
+   * instead of leaving the attempt `running` until the next restart.
+   */
+  private settleAttemptSafe(input: {
+    executionId: string;
+    attemptId?: string;
+    status: "completed" | "failed" | "interrupted" | "waiting";
+    nextExecutionStatus: DurableExecution["status"];
+    reason?: string;
+    waitingKind?: DurableExecution["waitingKind"];
+    tokensUsed?: number;
+  }): DurableExecution | null {
+    const attemptId = input.attemptId ?? this.store.runningAttempt(input.executionId)?.id;
+    if (!attemptId) return null;
+    let lastConflict: unknown;
+    for (let index = 0; index < 3; index += 1) {
+      const current = this.store.getById(input.executionId);
+      if (!current) return null;
+      try {
+        return this.store.finishAttempt({
+          executionId: input.executionId,
+          attemptId,
+          expectedVersion: current.version,
+          processOwnerId: this.processOwnerId,
+          status: input.status,
+          nextExecutionStatus: input.nextExecutionStatus,
+          ...(input.reason ? { reason: input.reason } : {}),
+          ...(input.waitingKind ? { waitingKind: input.waitingKind } : {}),
+          ...(input.tokensUsed !== undefined ? { tokensUsed: input.tokensUsed } : {})
+        });
+      } catch (cause) {
+        if (cause instanceof DurableExecutionConflictError) {
+          lastConflict = cause;
+          continue;
+        }
+        throw cause;
+      }
+    }
+    const error = new DurableExecutionStoreFailedError(
+      `attempt ${attemptId} could not be settled after repeated version conflicts: ${lastConflict instanceof Error ? lastConflict.message : String(lastConflict)}`
+    );
+    this.store.markFatal(error);
+    momError("durableExecution", "settle_conflict_fatal", { executionId: input.executionId, error: error.message });
+    throw error;
   }
 
   private async prepareRecovery(
@@ -759,10 +1095,11 @@ export class DurableExecutionRuntime {
     }
 
     const intents = detail.sideEffects.filter((item) => item.stepId === step.id && item.phase === "intent");
-    // A step retry can repeat every operation, not just its most recent call.
+    // Recovery replays the entire step. A checkpoint from another parallel call
+    // proves nothing about this effect; even a receipt cannot prevent a second
+    // external action when the step runs again.
     const intent = intents.find((item) => item.sideEffectClass === "non_idempotent")
       ?? intents.find((item) => item.sideEffectClass === "queryable");
-    // No intent, or only pure/idempotent operations, permits a whole-step retry.
     if (!intent) {
       return { kind: "continue", expectedVersion: detail.execution.version };
     }
@@ -812,7 +1149,6 @@ export class DurableExecutionRuntime {
       this.store.transitionStatus(reconciled.id, reconciled.version, "verifying", {
         waitingReason: "Queryable recovery confirmed the external action; acceptance verification is pending."
       });
-      this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
       momLog("durableExecution", "queryable_recovery_completed", { executionId: detail.execution.id, stepId: step.id, filename });
       return { kind: "stopped" };
     }
@@ -820,7 +1156,6 @@ export class DurableExecutionRuntime {
       waitingReason: undefined,
       lastError: undefined
     });
-    this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
     momLog("durableExecution", "queryable_recovery_retry_queued", {
       executionId: detail.execution.id,
       stepId: step.id,
@@ -925,33 +1260,33 @@ export class DurableExecutionRuntime {
           decisionId: decision.id,
           filename
         });
-        this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
         return;
       }
       const nextExecutionStatus = failed ? "partial" : "completed";
       const reason = failed
         ? "A required acceptance criterion failed."
         : "All required acceptance criteria have deterministic evidence or an explicit user confirmation.";
-      this.store.finishAttempt({
+      this.settleAttemptSafe({
         executionId: detail.execution.id,
         attemptId: claimed.attempt.id,
-        expectedVersion,
-        processOwnerId: this.processOwnerId,
         status: "completed",
         nextExecutionStatus,
         reason
       });
-      this.coordinator.ensureQueuedEvents(detail.execution.ownerId);
       momLog("durableExecution", "verification_finished", { executionId: detail.execution.id, filename, status: nextExecutionStatus });
     } catch (cause) {
+      if (isStorageError(cause)) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.store.markFatal(error);
+        momError("durableExecution", "store_fatal", { executionId: detail.execution.id, error: error.message });
+        throw error;
+      }
       const message = cause instanceof Error ? cause.message : String(cause);
       momWarn("durableExecution", "verification_failed", { executionId: detail.execution.id, filename, error: message });
       try {
-        this.store.finishAttempt({
+        this.settleAttemptSafe({
           executionId: detail.execution.id,
           attemptId: claimed.attempt.id,
-          expectedVersion,
-          processOwnerId: this.processOwnerId,
           status: "failed",
           nextExecutionStatus: "recovery_required",
           waitingKind: "recovery",

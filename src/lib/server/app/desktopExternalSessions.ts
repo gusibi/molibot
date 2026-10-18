@@ -140,7 +140,9 @@ export function buildDesktopExternalTranscriptMessage(
     id: message.id,
     role,
     content: message.content,
-    createdAt: message.createdAt
+    createdAt: message.createdAt,
+    ...(message.stopReason ? { stopReason: message.stopReason } : {}),
+    ...(message.errorMessage ? { errorMessage: message.errorMessage } : {})
   };
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     projected.attachments = message.attachments.map((attachment) => ({

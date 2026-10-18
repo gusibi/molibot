@@ -127,6 +127,9 @@ export interface ConversationContextSnapshot {
 }
 
 export interface ConversationMessage {
+  /** Display status; never a model system instruction. */
+  stopReason?: string;
+  errorMessage?: string;
   traceRunIds?: string[];
   /** Execution duration, excluding time spent waiting before this run started. */
   durationMs?: number;

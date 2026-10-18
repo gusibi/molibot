@@ -33,7 +33,6 @@ import {
   buildExternalChannelNav,
   externalSessionsForBot,
   groupExternalTranscriptByRole,
-  hasEnabledWebProfile,
   missingRuntimeDependencies,
   nextFollowUp,
   advanceOnboardingStep,
@@ -74,7 +73,6 @@ import {
   normalizeDesktopTaskSession,
   loadDesktopModelRouting,
   loadDesktopMediaTasks,
-  sanitizeWebProfileName,
   shouldShowServiceReconnect,
   sendDesktopChatWithFiles,
   submitDesktopProvider,
@@ -255,12 +253,12 @@ test("Desktop observability queries encode filters and clamp pagination", async 
     urls.push(String(url));
     const summary = String(url).includes("/usage")
       ? { timezone: "UTC", generatedAt: "", range: "today", window: { startDate: "", endDate: "" }, filters: { modelId: "all", botId: "all", channel: "all" }, options: { models: [], bots: [], channels: [] }, totals: {}, windows: [], daily: [], trend: [], rankings: { models: [], apis: [], bots: [], channels: [] }, records: { items: [], total: 0, page: 1, pageSize: 100 } }
-      : { timezone: "UTC", generatedAt: "", range: "today", window: { startDate: "", endDate: "" }, filters: { factType: "all", botId: "", channel: "", chatId: "", sessionId: "", runId: "", sourceLimit: 10000 }, options: { bots: [], channels: [] }, totals: {}, rankings: { tools: [], skills: [], models: [], bots: [], chats: [], sessions: [], runs: [] }, facts: { items: [], total: 0, page: 1, pageSize: 10 } };
+      : { timezone: "UTC", generatedAt: "", range: "today", window: { startDate: "", endDate: "" }, filters: { factType: "all", botId: "", channel: "", chatId: "", sessionId: "", runId: "", agentId: "", modelId: "" }, options: { bots: [], channels: [] }, totals: {}, rankings: { tools: [], skills: [], models: [], bots: [], chats: [], sessions: [], runs: [] }, facts: { items: [], total: 0, page: 1, pageSize: 10 } };
     return new Response(JSON.stringify({ ok: true, summary }), { status: 200 });
   }) as typeof globalThis.fetch;
   try {
-    await loadDesktopUsage("http://127.0.0.1:3000", { range: "today", modelId: "anthropic::claude/a", botId: "bot + 1", channel: "web", page: 0, pageSize: 999 });
-    await loadDesktopTrace("http://127.0.0.1:3000", { range: "last7Days", factType: "tool_call", botId: "bot + 1", channel: "feishu", chatId: "chat@id", sessionId: "session:1", runId: "run/1", sourceLimit: 99999, page: 0, pageSize: 1 });
+    await loadDesktopUsage("http://127.0.0.1:3000", { range: "today", modelId: "anthropic::claude/a", agentId: "agent/a", botId: "bot + 1", channel: "web", page: 0, pageSize: 999 });
+    await loadDesktopTrace("http://127.0.0.1:3000", { range: "last7Days", factType: "tool_call", botId: "bot + 1", channel: "feishu", chatId: "chat@id", sessionId: "session:1", runId: "run/1", agentId: "agent/a", modelId: "provider::model", page: 0, pageSize: 1 });
   } finally {
     globalThis.fetch = original;
   }
@@ -273,7 +271,10 @@ test("Desktop observability queries encode filters and clamp pagination", async 
   assert.match(urls[1], /chatId=chat%40id/);
   assert.match(urls[1], /sessionId=session%3A1/);
   assert.match(urls[1], /runId=run%2F1/);
-  assert.match(urls[1], /sourceLimit=10000/);
+  assert.match(urls[0], /agentId=agent%2Fa/);
+  assert.match(urls[1], /agentId=agent%2Fa/);
+  assert.match(urls[1], /modelId=provider%3A%3Amodel/);
+  assert.doesNotMatch(urls[1], /sourceLimit/);
   assert.match(urls[1], /pageSize=10/);
 });
 
@@ -1084,25 +1085,6 @@ test("buildDiagnosticsSummary lists sanitized runtime facts and falls back for m
   assert.match(fallback, /endpoint: n\/a/);
 });
 
-test("hasEnabledWebProfile is true only when a profile is enabled", () => {
-  const off: DesktopWebProfile[] = [
-    { id: "a", name: "A", enabled: false, agentId: "", agentName: "" }
-  ];
-  assert.equal(hasEnabledWebProfile(off), false);
-  assert.equal(hasEnabledWebProfile([]), false);
-  const on: DesktopWebProfile[] = [
-    { id: "a", name: "A", enabled: false, agentId: "", agentName: "" },
-    { id: "b", name: "B", enabled: true, agentId: "x", agentName: "X" }
-  ];
-  assert.equal(hasEnabledWebProfile(on), true);
-});
-
-test("sanitizeWebProfileName trims and falls back to the id when blank", () => {
-  assert.equal(sanitizeWebProfileName("  Helper  ", "a"), "Helper");
-  assert.equal(sanitizeWebProfileName("", "default"), "default");
-  assert.equal(sanitizeWebProfileName("   ", "default"), "default");
-});
-
 test("formatTokenCount rounds and adds thousands separators, guarding non-finite input", () => {
   assert.equal(formatTokenCount(1234567), "1,234,567");
   assert.equal(formatTokenCount(0), "0");
@@ -1165,12 +1147,12 @@ test("buildExternalChannelNav lists every configured Bot per channel with sessio
         total: 2,
         enabled: 2,
         instances: [
-          { id: "tg-sales", name: "Sales Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [] },
-          { id: "tg-support", name: "Support Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [] }
+          { id: "tg-sales", name: "Sales Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [], display: null },
+          { id: "tg-support", name: "Support Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [], display: null }
         ]
       }
     ],
-    counts: { totalInstances: 2, enabledInstances: 2 }
+    counts: { totalInstances: 2, enabledInstances: 2 }, defaults: {}
   };
   const external = {
     groups: [
@@ -1201,11 +1183,11 @@ test("buildExternalChannelNav keeps configured Bots with zero sessions and appen
         total: 1,
         enabled: 1,
         instances: [
-          { id: "tg-idle", name: "Idle Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [] }
+          { id: "tg-idle", name: "Idle Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [], display: null }
         ]
       }
     ],
-    counts: { totalInstances: 1, enabledInstances: 1 }
+    counts: { totalInstances: 1, enabledInstances: 1 }, defaults: {}
   };
   const external = {
     groups: [
@@ -1336,8 +1318,8 @@ test("summarizeOnboardingChannels projects ordered rows and counts connected", (
         total: 2,
         enabled: 1,
         instances: [
-          { id: "t1", name: "Bot 1", enabled: true, agentId: "default", allowedChatCount: 3, allowedChatIds: ["1", "2", "3"], permissionMode: null, fields: {}, configuredSecrets: [] },
-          { id: "t2", name: "Bot 2", enabled: false, agentId: "default", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [] }
+          { id: "t1", name: "Bot 1", enabled: true, agentId: "default", allowedChatCount: 3, allowedChatIds: ["1", "2", "3"], permissionMode: null, fields: {}, configuredSecrets: [], display: null },
+          { id: "t2", name: "Bot 2", enabled: false, agentId: "default", allowedChatCount: 0, allowedChatIds: [], permissionMode: null, fields: {}, configuredSecrets: [], display: null }
         ]
       },
       {
@@ -1345,11 +1327,11 @@ test("summarizeOnboardingChannels projects ordered rows and counts connected", (
         total: 1,
         enabled: 0,
         instances: [
-          { id: "f1", name: "FS", enabled: false, agentId: "default", allowedChatCount: 1, allowedChatIds: ["chat-1"], permissionMode: null, fields: {}, configuredSecrets: [] }
+          { id: "f1", name: "FS", enabled: false, agentId: "default", allowedChatCount: 1, allowedChatIds: ["chat-1"], permissionMode: null, fields: {}, configuredSecrets: [], display: null }
         ]
       }
     ],
-    counts: { totalInstances: 3, enabledInstances: 1 }
+    counts: { totalInstances: 3, enabledInstances: 1 }, defaults: {}
   };
   const view = summarizeOnboardingChannels(summary);
   assert.deepEqual(view.rows, [

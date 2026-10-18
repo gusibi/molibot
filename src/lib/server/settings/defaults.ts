@@ -4,6 +4,7 @@ import {
   DEFAULT_AGENT_ID,
   defaultAgentSettings,
   isKnownProvider,
+  normalizePiProviderId,
   type ChannelInstanceSettings,
   type CustomProviderConfig,
   type FeishuBotConfig,
@@ -49,7 +50,7 @@ function boundedIntegerFromEnv(name: string, fallback: number, min: number, max:
 }
 
 function providerFromEnv(name: string, fallback: KnownProvider): KnownProvider {
-  const raw = (process.env[name] ?? "").trim();
+  const raw = normalizePiProviderId(process.env[name] ?? "");
   if (!raw) return fallback;
   if (isKnownProvider(raw)) return raw;
   console.warn(`[config] Unknown provider '${raw}' in ${name}; fallback to '${fallback}'.`);
@@ -618,6 +619,15 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   },
   browserAutomation: {
     defaultTimeoutMs: Math.max(5000, Number(process.env.AGENT_BROWSER_DEFAULT_TIMEOUT ?? 60000) || 60000)
+  },
+  durable: {
+    leaseDurationMs: boundedIntegerFromEnv("MOLIBOT_DURABLE_LEASE_MS", 600_000, 5_000, 24 * 60 * 60 * 1000),
+    wakeupMode: (() => {
+      const raw = String(process.env.MOLIBOT_DURABLE_WAKEUPS ?? "db").trim().toLowerCase();
+      return raw === "file" || raw === "both" ? raw : "db";
+    })(),
+    wakeupRetentionDays: boundedIntegerFromEnv("MOLIBOT_DURABLE_WAKEUP_RETENTION_DAYS", 7, 0, 365),
+    instanceGuard: String(process.env.MOLIBOT_DURABLE_INSTANCE_GUARD ?? "true").trim().toLowerCase() !== "false"
   },
   sessionAutoArchive: { ...defaultSessionAutoArchiveSettings, bots: {} },
   display: {

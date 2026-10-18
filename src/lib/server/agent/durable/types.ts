@@ -40,6 +40,90 @@ export type SideEffectPhase = "intent" | "receipt";
 export type DurableApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 
 /**
+ * Why a wakeup was written. The reason is observation only: it never selects a
+ * state transition, only a backoff schedule and a diagnostic label.
+ */
+export const WAKEUP_REASONS = ["advance", "verify", "capacity", "resume", "control", "retry"] as const;
+export type WakeupReason = typeof WAKEUP_REASONS[number];
+
+/**
+ * pending -> claimed -> done | discarded | failed, with a retryable failure
+ * returning to pending after a backoff. A wakeup never mutates business state
+ * on its own; it only asks the runtime to look at one execution version.
+ */
+export const WAKEUP_STATUSES = ["pending", "claimed", "done", "discarded", "failed"] as const;
+export type WakeupStatus = typeof WAKEUP_STATUSES[number];
+
+/** Scheduling mode: database queue, legacy event files, or both while migrating. */
+export const DURABLE_WAKEUP_MODES = ["db", "file", "both"] as const;
+export type DurableWakeupMode = typeof DURABLE_WAKEUP_MODES[number];
+
+/**
+ * Semantics version for persisted executions. Bump when attempt/verification
+ * meaning changes; an execution written by a newer engine is rejected instead
+ * of being silently reinterpreted.
+ */
+export const DURABLE_ENGINE_VERSION = 1;
+
+export interface DurableWakeup {
+  id: string;
+  executionId: string;
+  expectedVersion: number;
+  reason: WakeupReason;
+  runAt: string;
+  status: WakeupStatus;
+  attempts: number;
+  maxAttempts: number;
+  claimedBy?: string;
+  claimedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One tool boundary inside a single attempt. Recovery reads the last confirmed
+ * tool instead of treating the whole step as one unknown interval.
+ */
+export interface AttemptProgress {
+  attemptId: string;
+  seq: number;
+  toolCallId: string;
+  toolId: string;
+  status: "completed" | "failed";
+  summary?: string;
+  createdAt: string;
+}
+
+/** Read-only operator view: why an execution is where it is. */
+export interface DurableExecutionDiagnostics {
+  execution: DurableExecution;
+  attempt?: ExecutionAttempt;
+  lease?: { ownerId: string; expiresAt: string; remainingMs: number };
+  wakeups: DurableWakeup[];
+  uncertainSteps: Array<{ id: string; title: string; reason?: string }>;
+  blockedReason?: string;
+  queuePosition?: number;
+  nextRunAt?: string;
+  progress: {
+    attemptId?: string;
+    lastCompletedTool?: AttemptProgress;
+    pendingTools: AttemptProgress[];
+  };
+  scheduler: { ownerId: string; fatalError?: string };
+  migration?: WakeupMigrationSummary;
+}
+
+/** Startup migration counters for legacy durable event files. */
+export interface WakeupMigrationSummary {
+  scanned: number;
+  enqueued: number;
+  stale: number;
+  discarded: number;
+  failed: number;
+}
+
+/**
  * A deterministic acceptance rule bound to one work item. The runtime must
  * satisfy it before the step can be marked completed; the executor's own
  * "done" claim is not a pass condition. `checkerKey` must name a registered
@@ -122,6 +206,8 @@ export interface DurableExecution {
   status: DurableExecutionStatus;
   version: number;
   currentPlanVersion: number;
+  /** Execution semantics version; a newer value is rejected rather than reinterpreted. */
+  engineVersion: number;
   leaseOwnerId?: string;
   leaseExpiresAt?: string;
   budgetTokenLimit?: number;
@@ -519,5 +605,26 @@ export class DurableExecutionQuotaError extends Error {
   constructor(ownerId: string, limit: number) {
     super(`Durable Execution unfinished-task quota reached for ${ownerId}: ${limit}`);
     this.name = "DurableExecutionQuotaError";
+  }
+}
+
+/**
+ * A storage-level failure (I/O, corruption, full disk, read-only file,
+ * undecodable row). These are not business failures: the executor stops
+ * claiming work and hands the process back to its supervisor instead of
+ * writing recovery states onto a store it cannot trust.
+ */
+export class DurableExecutionStoreFailedError extends Error {
+  constructor(message: string) {
+    super(`Durable Execution store is unavailable: ${message}`);
+    this.name = "DurableExecutionStoreFailedError";
+  }
+}
+
+/** An execution persisted by a newer engine than this build understands. */
+export class DurableExecutionEngineVersionError extends Error {
+  constructor(id: string, engineVersion: number, supported: number) {
+    super(`Durable Execution ${id} uses engine version ${engineVersion}; this build supports up to ${supported}.`);
+    this.name = "DurableExecutionEngineVersionError";
   }
 }

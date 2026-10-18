@@ -410,7 +410,7 @@ test("attempt lease, step evidence, and side-effect intent/receipt use versioned
   }
 });
 
-test("startup reconciliation turns an old active step into uncertain recovery", () => {
+test("startup reconciliation only reclaims a lease that has actually expired", () => {
   const database = tempDatabase();
   const store = new DurableExecutionStore(database.file);
   try {
@@ -426,13 +426,19 @@ test("startup reconciliation turns an old active step into uncertain recovery", 
     const step = store.getDetail(created.id)!.steps[0];
     store.markStepRunning(created.id, step.id, claimed.execution.version, "old-process");
 
-    assert.equal(store.reconcileOrphanedAttempts("new-process"), 1);
+    // A second process starting while the first still holds a live lease must
+    // not interrupt it: ownership is evidence, not age.
+    assert.equal(store.reconcileOrphanedAttempts("new-process"), 0);
+    assert.equal(store.getDetail(created.id)!.execution.status, "running");
+
+    assert.equal(store.reconcileOrphanedAttempts("new-process", new Date(Date.now() + 3_600_000)), 1);
     const detail = store.getDetail(created.id)!;
     assert.equal(detail.execution.status, "recovery_required");
     assert.equal(detail.execution.waitingKind, "recovery");
     assert.equal(detail.steps[0].status, "uncertain");
     assert.equal(detail.attempts[0].status, "interrupted");
     assert.equal(detail.execution.leaseOwnerId, undefined);
+    assert.equal(store.pendingWakeups(created.id).length, 1);
   } finally {
     store.close();
     database.cleanup();

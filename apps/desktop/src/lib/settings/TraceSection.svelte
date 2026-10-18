@@ -18,7 +18,11 @@
   import { tablist } from "../a11y/tablist";
   import { ActivityScheduler, documentActivityVisibility, interactiveActivityPolicy } from "../native/activityScheduler";
   import { TRACE_FACT_TYPES, TRACE_RANGES, loadTrace, resetTraceFilters, traceRangeLabel, traceStore, updateTraceQuery } from "../stores/trace.svelte";
-  import { DONUT_R, donutSegments, percentOf } from "./charts";
+  import Button from "../components/ui/Button.svelte";
+  import AnalyticsRanking from "./AnalyticsRanking.svelte";
+  import TraceTrend from "./TraceTrend.svelte";
+  import AnalyticsComposition from "./AnalyticsComposition.svelte";
+  import { cacheHitRate, compactCount, estimatedUsd, modelSuccessRate, percentage } from "./analytics";
 
   type RankingView = "tools" | "skills" | "models" | "bots" | "chats" | "sessions" | "runs";
   let rankingView = $state<RankingView>("tools");
@@ -28,7 +32,7 @@
   let chatId = $state(traceStore.query.chatId);
   let sessionId = $state(traceStore.query.sessionId);
   let runId = $state(traceStore.query.runId);
-  let sourceLimit = $state(String(traceStore.query.sourceLimit));
+  let agentId = $state(traceStore.query.agentId);
   let activeRuns = $state<DesktopActiveRunItem[]>([]);
   let activeRunsLoading = $state(false);
   let activeRunBusy = $state("");
@@ -78,7 +82,7 @@
   }
 
   function applyFilters(): void {
-    updateTraceQuery({ factType, botId: botId.trim(), channel: channel.trim(), chatId: chatId.trim(), sessionId: sessionId.trim(), runId: runId.trim(), sourceLimit: Number(sourceLimit) });
+    updateTraceQuery({ factType, botId: botId.trim(), channel: channel.trim(), chatId: chatId.trim(), sessionId: sessionId.trim(), runId: runId.trim(), agentId });
   }
 
   function clearFilters(): void {
@@ -88,7 +92,7 @@
     chatId = "";
     sessionId = "";
     runId = "";
-    sourceLimit = "5000";
+    agentId = "";
     resetTraceFilters();
   }
 
@@ -149,29 +153,29 @@
   $effect(() => {
     const endpoint = session.serviceReady ? session.endpoint : null;
     if (endpoint) untrack(() => {
-      if (endpoint !== traceStore.endpoint) void loadTrace(endpoint);
+      void loadTrace(endpoint);
       activeRunsScheduler?.wake("manual");
     });
   });
 
   const trace = $derived(traceStore.trace);
-  const activityItems = $derived(trace ? [
-    { key: "tools", label: session.text.traceToolCalls, value: trace.totals.toolCalls, color: "var(--chart-blue)" },
-    { key: "models", label: session.text.traceModelCalls, value: trace.totals.modelCalls, color: "var(--chart-purple)" },
-    { key: "skills", label: session.text.traceSkills, value: trace.totals.skillUsages, color: "var(--chart-teal)" },
-    { key: "runs", label: session.text.traceRuns, value: trace.totals.runs, color: "var(--chart-indigo)" }
+  const outcomes = $derived(trace?.totals.modelOutcomes);
+  const successRate = $derived(outcomes ? modelSuccessRate(outcomes) : null);
+  const outcomeItems = $derived(outcomes ? [
+    { key: "success", label: session.text.traceSucceeded, value: outcomes.success, color: "var(--chart-green)" },
+    { key: "error", label: session.text.traceFailed, value: outcomes.error, color: "var(--chart-red)" },
+    { key: "pending", label: session.text.analyticsPending, value: outcomes.pending, color: "var(--chart-blue)" },
+    { key: "aborted", label: session.text.analyticsCancelled, value: outcomes.aborted, color: "var(--label-secondary)" },
+    { key: "blocked", label: session.text.traceBlocked, value: outcomes.blocked, color: "var(--chart-orange)" },
+    { key: "other", label: session.text.analyticsOther, value: outcomes.other, color: "var(--label-tertiary)" }
   ] : []);
-  const activityMax = $derived(Math.max(1, ...activityItems.map((item) => item.value)));
-  const outcomeItems = $derived(trace ? [
-    { key: "ok", label: session.text.traceSucceeded, value: Math.max(0, trace.totals.executedToolCalls - trace.totals.failedTools), color: "var(--chart-green)" },
-    { key: "failed", label: session.text.traceFailed, value: trace.totals.failedTools, color: "var(--chart-red)" },
-    { key: "blocked", label: session.text.traceBlocked, value: trace.totals.blockedTools, color: "var(--chart-orange)" }
-  ] : []);
-  const outcomeTotal = $derived(outcomeItems.reduce((sum, item) => sum + item.value, 0));
-  const outcomeSegments = $derived(donutSegments(outcomeItems));
-  const durationMax = $derived(trace ? Math.max(1, trace.totals.avgToolDurationMs, trace.totals.avgModelDurationMs) : 1);
+  const modelRows = $derived(trace?.rankings.models.map(row => ({ id: row.id, label: humanizeModelOption(`${row.provider}/${row.model}`, row.id).label, secondary: `${row.provider} · ${row.outcomes.success} ${session.text.traceSucceeded} · ${row.outcomes.error} ${session.text.traceFailed} · ${percentage(modelSuccessRate(row.outcomes))}`, value: row.requests })) ?? []);
+  const botRows = $derived(trace?.rankings.bots.filter(row => row.modelCalls > 0).sort((a, b) => b.modelCalls - a.modelCalls).map(row => ({ id: row.id, label: row.label, secondary: `${row.outcomes.success} ${session.text.traceSucceeded} · ${row.outcomes.error} ${session.text.traceFailed}`, value: row.modelCalls })) ?? []);
+  const channelRows = $derived(trace?.rankings.channels.filter(row => row.modelCalls > 0).map(row => ({ id: row.id, label: row.label, secondary: `${row.outcomes.success} ${session.text.traceSucceeded} · ${row.outcomes.error} ${session.text.traceFailed}`, value: row.modelCalls })) ?? []);
+  const toolRows = $derived(trace?.rankings.tools.map(row => ({ id: row.name, label: humanizeTechnicalName(row.name), secondary: `${row.success} ${session.text.traceSucceeded} · ${row.error} ${session.text.traceFailed}`, value: row.calls })) ?? []);
+  const skillRows = $derived(trace?.rankings.skills.map(row => ({ id: row.name, label: row.name, secondary: `${row.executed} ${session.text.traceExecuted}`, value: row.calls })) ?? []);
   const totalPages = $derived(trace ? Math.max(1, Math.ceil(trace.facts.total / trace.facts.pageSize)) : 1);
-  const advancedFilterCount = $derived([chatId, sessionId, runId].filter((value) => value.trim()).length + (sourceLimit === "5000" ? 0 : 1));
+  const advancedFilterCount = $derived([botId, chatId, sessionId, runId].filter(value => value.trim()).length + (factType === "all" ? 0 : 1));
   const rankingTabs = $derived([
     { id: "tools" as const, label: session.text.traceRankTools },
     { id: "skills" as const, label: session.text.traceRankSkills },
@@ -181,57 +185,68 @@
     { id: "sessions" as const, label: session.text.traceRankSessions },
     { id: "runs" as const, label: session.text.traceRankRuns }
   ]);
+  function selectModel(id: string): void { updateTraceQuery({ modelId: id.split("::").slice(0, 2).join("::") }); }
 </script>
 
+{#if traceStore.error}
+  <div class="settings-card analytics-error" role="alert"><p>{traceStore.error}</p><Button onclick={() => session.endpoint && loadTrace(session.endpoint)}>{session.text.analyticsRetry}</Button></div>
+{/if}
 {#if !session.serviceReady}
-  <div class="settings-card"><EmptyState title={session.text.traceUnavailable} icon="pulse" /></div>
+  <div class="settings-card"><EmptyState title={session.text.traceUnavailable} icon="chart-line" /></div>
 {:else if traceStore.loading}
-  <div class="settings-card"><SkeletonRows count={5} label={session.text.loading} /></div>
-{:else if !trace}
-  <div class="settings-card"><EmptyState title={session.text.traceEmpty} icon="chart-line" /></div>
-{:else}
-  <div class="settings-card observatory-filter-card">
-    <div class="observatory-filter-toolbar" role="group" aria-label={session.text.traceFilters}>
-      <div class="observatory-filter-headline">
-        <div class="observatory-filter-title"><strong>{session.text.traceFilters}</strong><p>{trace.window.startDate} → {trace.window.endDate} · {trace.timezone}</p></div>
-        <div class="observatory-filter-actions">
-          <button class="tertiary-button observatory-reset-button" type="button" onclick={clearFilters}>{session.text.traceResetFilters}</button>
-          <button class="icon-button observatory-refresh-button" type="button" aria-label={session.text.traceRefresh} title={session.text.traceRefresh} disabled={traceStore.refreshing} onclick={() => session.endpoint && loadTrace(session.endpoint)}><Refresh size={16} aria-hidden="true" /></button>
-          <button class="primary-button" type="button" disabled={traceStore.refreshing} onclick={applyFilters}>{traceStore.refreshing ? session.text.traceRefreshing : session.text.traceApplyFilters}</button>
+  <div class="settings-card analytics-loading"><SkeletonRows count={7} label={session.text.loading} /></div>
+{:else if trace && outcomes}
+  <div class="analytics-dashboard" aria-busy={traceStore.refreshing}>
+    <section class="settings-card analytics-overview" aria-label={session.text.analyticsAgentPerformance}>
+      <dl class="analytics-summary">
+        <div><dt>{session.text.analyticsRuns}</dt><dd>{compactCount(Object.values(trace.totals.runOutcomes).reduce((sum, value) => sum + value, 0))}</dd></div>
+        <div><dt>{session.text.analyticsRunSuccess}</dt><dd title={session.text.analyticsRunSuccessHint}>{percentage(modelSuccessRate(trace.totals.runOutcomes))}</dd><small>{session.text.analyticsRunResults.replace("{success}", String(trace.totals.runOutcomes.success)).replace("{error}", String(trace.totals.runOutcomes.error))}</small></div>
+        <div><dt>{session.text.analyticsEstimatedCost}</dt><dd title={session.text.analyticsCostHint}>{estimatedUsd(trace.totals.estimatedCostUsd)}</dd><small>{session.text.analyticsCostCoverage.replace("{known}", String(trace.totals.pricedModelCalls)).replace("{total}", String(trace.totals.modelCalls))}</small></div>
+        <div><dt>{session.text.usageCacheHitRatio}</dt><dd>{percentage(cacheHitRate(trace.totals))}</dd></div>
+      </dl>
+    </section>
+    <div class="settings-card analytics-filter-panel" role="group" aria-label={session.text.traceFilters}>
+      <div class="analytics-toolbar-top"><div class="analytics-range-tabs" role="group" aria-label={session.text.traceRange}>{#each TRACE_RANGES as range}<Button class="analytics-range-button" aria-pressed={traceStore.query.range === range} onclick={() => updateTraceQuery({ range })}>{traceRangeLabel(range, session.text)}</Button>{/each}</div><div class="observatory-filter-actions"><Button onclick={clearFilters}>{session.text.traceResetFilters}</Button><Button variant="icon" title={session.text.traceRefresh} disabled={traceStore.refreshing} onclick={() => session.endpoint && loadTrace(session.endpoint)}><Refresh size={16} aria-hidden="true" /></Button></div></div>
+      <div class="analytics-filters">
+        <label class="analytics-filter"><span>{session.text.analyticsAgent}</span><SelectControl value={traceStore.query.agentId} ariaLabel={session.text.analyticsAgent} options={[{ value: "", label: session.text.analyticsAllAgents }, ...trace.options.agents.map(item => ({ value: item.id, label: item.id === "unknown" ? session.text.analyticsUnattributed : item.label }))]} onChange={value => { agentId = value; updateTraceQuery({ agentId: value }); }} /></label>
+        <label class="analytics-filter"><span>{session.text.usageChannel}</span><SelectControl value={traceStore.query.channel} ariaLabel={session.text.usageChannel} options={[{ value: "", label: session.text.usageAllChannels }, ...trace.options.channels.map(value => ({ value, label: value }))]} onChange={value => { channel = value; updateTraceQuery({ channel: value }); }} /></label>
+        <label class="analytics-filter"><span>{session.text.usageModel}</span><SelectControl value={traceStore.query.modelId} ariaLabel={session.text.usageModel} options={[{ value: "", label: session.text.usageAllModels }, ...trace.options.models]} onChange={modelId => updateTraceQuery({ modelId })} /></label>
+      </div>
+      <details class="observatory-advanced-filters"><summary><span class="observatory-disclosure-label"><Tuning size={16} aria-hidden="true" />{session.text.traceMoreFilters}{#if advancedFilterCount > 0}<em>{advancedFilterCount}</em>{/if}<AngleDown class="observatory-disclosure-icon" size={12} aria-hidden="true" /></span></summary>
+        <div class="observatory-filter-fields trace-advanced-filter-fields">
+          <label class="observatory-field"><span>{session.text.traceFactType}</span><SelectControl value={factType} ariaLabel={session.text.traceFactType} options={TRACE_FACT_TYPES.map(value => ({ value, label: factTypeLabel(value) }))} onChange={value => factType = value as DesktopTraceFactType} /></label>
+          <label class="observatory-field"><span>{session.text.usageBot}</span><SelectControl value={botId} ariaLabel={session.text.usageBot} options={[{ value: "", label: session.text.usageAllBots }, ...trace.options.bots.map(value => ({ value, label: value }))]} onChange={value => botId = value} /></label>
+          <label class="observatory-field"><span>{session.text.traceChatId}</span><input bind:value={chatId} /></label>
+          <label class="observatory-field"><span>{session.text.traceSessionId}</span><input bind:value={sessionId} /></label>
+          <label class="observatory-field"><span>{session.text.traceRunId}</span><input bind:value={runId} /></label>
+          <Button disabled={traceStore.refreshing} onclick={applyFilters}>{session.text.traceApplyFilters}</Button>
         </div>
-      </div>
-      <div class="observatory-filter-fields trace-filter-fields">
-        <label class="observatory-field"><span>{session.text.traceRange}</span><SelectControl value={traceStore.query.range} ariaLabel={session.text.traceRange} options={TRACE_RANGES.map((range) => ({ value: range, label: traceRangeLabel(range, session.text) }))} onChange={(value) => updateTraceQuery({ range: value as DesktopTraceRange })} /></label>
-        <label class="observatory-field"><span>{session.text.traceFactType}</span><SelectControl value={factType} ariaLabel={session.text.traceFactType} options={TRACE_FACT_TYPES.map((value) => ({ value, label: factTypeLabel(value) }))} onChange={(value) => factType = value as DesktopTraceFactType} /></label>
-        <label class="observatory-field"><span>{session.text.usageBot}</span><input bind:value={botId} autocomplete="off" spellcheck="false" list="trace-bots" placeholder={session.text.usageAllBots} /><datalist id="trace-bots">{#each trace.options.bots as value}<option value={value}></option>{/each}</datalist></label>
-        <label class="observatory-field"><span>{session.text.usageChannel}</span><input bind:value={channel} autocomplete="off" spellcheck="false" list="trace-channels" placeholder={session.text.usageAllChannels} /><datalist id="trace-channels">{#each trace.options.channels as value}<option value={value}></option>{/each}</datalist></label>
-      </div>
+      </details>
     </div>
-    <details class="observatory-advanced-filters">
-      <summary><span class="observatory-disclosure-label"><Tuning size={16} aria-hidden="true" />{session.text.traceMoreFilters}{#if advancedFilterCount > 0}<em>{advancedFilterCount}</em>{/if}<AngleDown class="observatory-disclosure-icon" size={12} aria-hidden="true" /></span><span class="observatory-filter-updated">{session.text.usageUpdatedAt} {formatNaturalDateTime(trace.generatedAt, session.locale)}</span></summary>
-      <div class="observatory-filter-fields trace-advanced-filter-fields">
-        <label class="observatory-field"><span>{session.text.traceChatId}</span><input bind:value={chatId} autocomplete="off" spellcheck="false" placeholder={session.text.traceChatId} /></label>
-        <label class="observatory-field"><span>{session.text.traceSessionId}</span><input bind:value={sessionId} autocomplete="off" spellcheck="false" placeholder={session.text.traceSessionId} /></label>
-        <label class="observatory-field"><span>{session.text.traceRunId}</span><input bind:value={runId} autocomplete="off" spellcheck="false" placeholder={session.text.traceRunId} /></label>
-        <label class="observatory-field"><span>{session.text.traceSourceLimit}</span><SelectControl value={sourceLimit} ariaLabel={session.text.traceSourceLimit} options={[1000, 5000, 10000].map((value) => ({ value: String(value), label: formatTokenCount(value) }))} onChange={(value) => sourceLimit = value} /></label>
-      </div>
-    </details>
-  </div>
-
-  <div class="chart-kpi-grid">
-    <div class="chart-kpi" style="--kpi-accent:var(--chart-indigo)"><span class="chart-kpi-label">{session.text.traceFacts}</span><strong class="chart-kpi-value">{formatTokenCount(trace.totals.facts)}</strong><span class="chart-kpi-foot">{formatTokenCount(trace.totals.runs)} {session.text.traceRuns}</span></div>
-    <div class="chart-kpi" style="--kpi-accent:var(--chart-blue)"><span class="chart-kpi-label">{session.text.traceToolCalls}</span><strong class="chart-kpi-value">{formatTokenCount(trace.totals.toolCalls)}</strong><span class="chart-kpi-foot">{session.text.traceFailed} {trace.totals.failedTools} · {session.text.traceBlocked} {trace.totals.blockedTools}</span></div>
-    <div class="chart-kpi" style="--kpi-accent:var(--chart-purple)"><span class="chart-kpi-label">{session.text.traceModelCalls}</span><strong class="chart-kpi-value">{formatTokenCount(trace.totals.modelCalls)}</strong><span class="chart-kpi-foot">{formatTokenCount(trace.totals.totalTokens)} {session.text.usageTokens}</span></div>
-    <div class="chart-kpi" style="--kpi-accent:var(--chart-teal)"><span class="chart-kpi-label">{session.text.traceSkills}</span><strong class="chart-kpi-value">{formatTokenCount(trace.totals.skillUsages)}</strong><span class="chart-kpi-foot">{formatTokenCount(trace.totals.distinctSkills)} {session.text.traceDistinct}</span></div>
-  </div>
-
-  <div class="settings-card chart-card"><div class="chart-card-head"><div><strong>{session.text.traceActivity}</strong></div></div><div class="hbar-list">{#each activityItems as item (item.key)}<div class="hbar-row"><span class="hbar-label">{item.label}</span><div class="hbar-track"><span class="hbar-fill" style="width:{Math.max(2, percentOf(item.value, activityMax))}%;background:{item.color}"></span></div><span class="hbar-value">{formatTokenCount(item.value)}</span></div>{/each}</div></div>
-
-  <div class="chart-split">
-    <div class="settings-card chart-card"><div class="chart-card-head"><div><strong>{session.text.traceToolOutcome}</strong></div></div><div class="donut-block"><div class="donut-wrap"><svg class="donut-svg" viewBox="0 0 42 42" role="img" aria-label={session.text.traceToolOutcome}><circle class="donut-track" cx="21" cy="21" r={DONUT_R} />{#each outcomeSegments as segment (segment.key)}<circle class="donut-seg" cx="21" cy="21" r={DONUT_R} stroke={segment.color} stroke-dasharray="{segment.len} {100 - segment.len}" stroke-dashoffset={segment.offset} />{/each}</svg><div class="donut-center"><strong>{formatTokenCount(trace.totals.toolCalls)}</strong><small>{session.text.traceToolCalls}</small></div></div><ul class="chart-legend">{#each outcomeItems as item (item.key)}<li><span class="legend-dot" style="background:{item.color}"></span><span class="legend-name">{item.label}</span><span class="legend-value">{formatTokenCount(item.value)}<em>{percentOf(item.value, outcomeTotal)}%</em></span></li>{/each}</ul></div></div>
-    <div class="settings-card chart-card"><div class="chart-card-head"><div><strong>{session.text.traceDurationCompare}</strong></div></div><div class="hbar-list"><div class="hbar-row"><span class="hbar-label">{session.text.traceTool}</span><div class="hbar-track"><span class="hbar-fill" style="width:{Math.max(2, percentOf(trace.totals.avgToolDurationMs, durationMax))}%;background:var(--chart-blue)"></span></div><span class="hbar-value">{formatDurationMs(trace.totals.avgToolDurationMs)}</span></div><div class="hbar-row"><span class="hbar-label">{session.text.traceModel}</span><div class="hbar-track"><span class="hbar-fill" style="width:{Math.max(2, percentOf(trace.totals.avgModelDurationMs, durationMax))}%;background:var(--chart-purple)"></span></div><span class="hbar-value">{formatDurationMs(trace.totals.avgModelDurationMs)}</span></div></div></div>
-  </div>
-
+    <div class="analytics-status"><span>{trace.window.startDate} → {trace.window.endDate} · {trace.timezone}</span><span role="status">{traceStore.refreshing ? session.text.traceRefreshing : `${session.text.usageUpdatedAt} ${formatNaturalDateTime(trace.generatedAt, session.locale)}`}</span></div>
+    <TraceTrend points={trace.trend} />
+    <section class="settings-card analytics-ranking" aria-label={session.text.analyticsTraceAgents}>
+      <header class="analytics-panel-head"><strong>{session.text.analyticsAgentPerformance}</strong></header>
+      <div class="observatory-table-wrap"><table class="analytics-rank-table analytics-agent-table"><colgroup><col class="analytics-agent-name" /><col class="analytics-agent-runs" /><col class="analytics-agent-rate" /><col class="analytics-agent-cost" /><col class="analytics-agent-cache" /></colgroup><thead><tr><th scope="col">{session.text.analyticsAgent}</th><th scope="col">{session.text.analyticsRuns}</th><th scope="col" title={session.text.analyticsRunSuccessHint}>{session.text.analyticsRunSuccessShort}</th><th scope="col" title={session.text.analyticsCostHint}>{session.text.analyticsCostShort}</th><th scope="col">{session.text.analyticsCacheShort}</th></tr></thead><tbody>
+        {#each trace.rankings.agents as row (row.id)}<tr><td><button class="analytics-rank-button" type="button" onclick={() => { agentId = row.id; updateTraceQuery({ agentId }); }}><strong>{row.id === "unknown" ? session.text.analyticsUnattributed : row.label}</strong></button><small class="analytics-rank-secondary">{compactCount(row.modelCalls)} {session.text.traceModelCalls}</small></td><td>{Object.values(row.runOutcomes).reduce((sum, value) => sum + value, 0)}</td><td title={session.text.analyticsRunResults.replace("{success}", String(row.runOutcomes.success)).replace("{error}", String(row.runOutcomes.error))}>{percentage(modelSuccessRate(row.runOutcomes))}</td><td>{estimatedUsd(row.estimatedCostUsd)}<small class="analytics-rank-secondary" title={session.text.analyticsCostCoverage.replace("{known}", String(row.pricedModelCalls)).replace("{total}", String(row.modelCalls))}>{row.pricedModelCalls}/{row.modelCalls} {session.text.analyticsCostRecordedShort}</small></td><td>{percentage(cacheHitRate(row))}</td></tr>{/each}
+      </tbody></table></div>
+      {#if trace.rankings.agents.length === 0}<EmptyState title={session.text.analyticsNoData} icon="chart-line" />{/if}
+      <details class="analytics-details"><summary>{session.text.analyticsMetricDefinitions}</summary><p class="analytics-caption">{session.text.analyticsRunSuccessHint}</p><p class="analytics-caption">{session.text.analyticsCostHint}</p></details>
+    </section>
+    <section class="settings-card analytics-overview" aria-label={session.text.analyticsModelResults}>
+      <dl class="analytics-summary"><div><dt>{traceRangeLabel(trace.range, session.text)} · {session.text.traceModelCalls}</dt><dd title={formatTokenCount(trace.totals.modelCalls)}>{compactCount(trace.totals.modelCalls)}</dd></div><div><dt>{session.text.traceSucceeded}</dt><dd title={formatTokenCount(outcomes.success)}>{compactCount(outcomes.success)}</dd></div><div><dt>{session.text.traceFailed}</dt><dd title={formatTokenCount(outcomes.error)}>{compactCount(outcomes.error)}</dd></div><div><dt>{session.text.analyticsSuccessRate}</dt><dd title={session.text.analyticsCompletedHint}>{percentage(successRate)}</dd></div></dl>
+    </section>
+    <section class="settings-card analytics-chart-panel" aria-label={session.text.analyticsResultDistribution}>
+      <header class="analytics-panel-head"><strong>{session.text.analyticsResultDistribution}</strong><span>{session.text.traceAverage} {formatDurationMs(trace.totals.avgModelDurationMs)}</span></header>
+      <AnalyticsComposition title={session.text.analyticsModelResults} items={outcomeItems} unit={session.text.traceRequests} />
+      <p class="analytics-caption">{session.text.analyticsResultsHint} {session.text.analyticsCompletedHint}</p>
+    </section>
+    <AnalyticsRanking title={session.text.analyticsModelRanking} rows={modelRows} total={trace.totals.modelCalls} unit={session.text.traceRequests} onselect={selectModel} />
+    <AnalyticsRanking title={session.text.analyticsTraceBots} rows={botRows} total={trace.totals.modelCalls} unit={session.text.traceRequests} onselect={value => { botId = value; updateTraceQuery({ botId: value }); }} />
+    <AnalyticsRanking title={session.text.analyticsTraceChannels} rows={channelRows} total={trace.totals.modelCalls} unit={session.text.traceRequests} onselect={value => { channel = value; updateTraceQuery({ channel: value }); }} />
+    {#if toolRows.length > 0 || skillRows.length > 0}<div class="analytics-ranking-grid"><AnalyticsRanking title={session.text.traceRankTools} rows={toolRows} total={trace.totals.toolCalls} unit={session.text.traceCalls} /><AnalyticsRanking title={session.text.traceRankSkills} rows={skillRows} total={trace.totals.skillUsages} unit={session.text.traceCalls} /></div>{/if}
+    <p class="analytics-caption analytics-window-note">{session.text.analyticsFullWindow}</p>
+    <details class="analytics-details"><summary>{session.text.analyticsDiagnostics}</summary><div class="analytics-detail-content">
   <div class="settings-card observatory-data-card" id="trace-ranking-panel" role="tabpanel" aria-labelledby={`trace-ranking-tab-${rankingView}`}>
     <div class="observatory-section-head"><div><strong>{session.text.traceRankings}</strong></div><div class="observatory-tabs" role="tablist" aria-label={session.text.traceRankings} use:tablist>{#each rankingTabs as tab (tab.id)}<button type="button" role="tab" id={`trace-ranking-tab-${tab.id}`} aria-selected={rankingView === tab.id} aria-controls="trace-ranking-panel" class:active={rankingView === tab.id} onclick={() => rankingView = tab.id}>{tab.label}</button>{/each}</div></div>
     {#if trace.rankings[rankingView].length === 0}<EmptyState title={session.text.traceNoRankings} icon="ranking" />{:else}
@@ -256,6 +271,7 @@
       <div class="observatory-mobile-list">{#each trace.facts.items as fact (fact.id)}<article><header><strong>{factName(fact)}</strong><StatusBadge label={statusLabel(fact.status)} state={statusState(fact.status)} /></header><p>{formatNaturalDateTime(fact.updatedAt, session.locale)} · {factTypeLabel(fact.factType)} · {fact.channel}</p><dl><div><dt>{session.text.usageBot}</dt><dd title={fact.botId}>{shortId(fact.botId)}</dd></div><div><dt>{session.text.traceRunId}</dt><dd title={fact.runId}>{shortId(fact.runId)}</dd></div><div><dt>{session.text.traceDurations}</dt><dd>{fact.durationMs ? formatDurationMs(fact.durationMs) : "—"}</dd></div><div><dt>{session.text.traceTokens}</dt><dd>{fact.totalTokens ? formatTokenCount(fact.totalTokens) : "—"}</dd></div></dl></article>{/each}</div>
     {/if}
     <div class="observatory-pagination"><span>{session.text.tracePage.replace("{page}", String(trace.facts.page)).replace("{pages}", String(totalPages)).replace("{total}", String(trace.facts.total))}</span><div><label>{session.text.usagePageSize}<SelectControl value={String(traceStore.query.pageSize)} ariaLabel={session.text.usagePageSize} options={[10, 20, 50, 100].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => updateTraceQuery({ pageSize: Number(value) })} /></label><button class="secondary-button" type="button" disabled={trace.facts.page <= 1 || traceStore.refreshing} onclick={() => updateTraceQuery({ page: trace.facts.page - 1 }, false)}>{session.text.usagePrevious}</button><button class="secondary-button" type="button" disabled={trace.facts.page >= totalPages || traceStore.refreshing} onclick={() => updateTraceQuery({ page: trace.facts.page + 1 }, false)}>{session.text.usageNext}</button></div></div>
+  </div>    </div></details>
   </div>
 {/if}
 

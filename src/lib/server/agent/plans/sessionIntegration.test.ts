@@ -12,7 +12,7 @@ import { ensureSessionPlanRecord, applyApprovedPlanContent, planTasksFromConvers
 function makeService(): { store: DurableExecutionStore; service: PlanService; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "molibot-plan-session-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
-  const service = new PlanService(store, new DurableExecutionCoordinator(store, "test-process", root));
+  const service = new PlanService(store, new DurableExecutionCoordinator(store, "test-process"));
   return { store, service, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 

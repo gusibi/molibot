@@ -1,6 +1,6 @@
 import { loadDesktopUsage, type DesktopUsageQuery } from "../api";
 import type { DesktopUsageRange, DesktopUsageSummary } from "@molibot/desktop-contract";
-import { session, setError } from "./session.svelte";
+import { session } from "./session.svelte";
 
 export const USAGE_RANGES: DesktopUsageRange[] = ["today", "yesterday", "last7Days", "last30Days"];
 
@@ -8,11 +8,13 @@ export const usageStore = $state({
   usage: null as DesktopUsageSummary | null,
   loading: false,
   refreshing: false,
+  error: "",
   endpoint: "",
   generation: 0,
   query: {
-    range: "last30Days" as DesktopUsageRange,
+    range: "today" as DesktopUsageRange,
     modelId: "all",
+    agentId: "all",
     botId: "all",
     channel: "all",
     page: 1,
@@ -31,7 +33,7 @@ export async function loadUsage(endpoint: string): Promise<void> {
   const generation = ++usageStore.generation;
   usageStore.loading = !usageStore.usage;
   usageStore.refreshing = Boolean(usageStore.usage);
-  session.error = "";
+  usageStore.error = "";
   try {
     const usage = await loadDesktopUsage(endpoint, { ...usageStore.query });
     if (generation !== usageStore.generation) return;
@@ -40,7 +42,7 @@ export async function loadUsage(endpoint: string): Promise<void> {
   } catch (cause) {
     if (generation !== usageStore.generation) return;
     usageStore.endpoint = "";
-    setError(cause);
+    usageStore.error = cause instanceof Error ? cause.message : String(cause);
   } finally {
     if (generation === usageStore.generation) {
       usageStore.loading = false;
@@ -57,6 +59,7 @@ export function updateUsageQuery(patch: Partial<DesktopUsageQuery>, resetPage = 
 
 export function resetUsageFilters(): void {
   usageStore.query.modelId = "all";
+  usageStore.query.agentId = "all";
   usageStore.query.botId = "all";
   usageStore.query.channel = "all";
   usageStore.query.page = 1;

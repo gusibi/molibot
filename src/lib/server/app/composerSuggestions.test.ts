@@ -5,8 +5,8 @@ import type { DesktopMiniAppItem } from "$lib/shared/desktop.js";
 
 test("composer suggestions merge registered commands with enabled Skills", () => {
   const suggestions = buildComposerSuggestions([
-    { id: "web", name: "web-search", description: "Search", scope: "global", enabled: true, mcpServerCount: 0, botId: "", chatId: "" },
-    { id: "off", name: "disabled", description: "Off", scope: "bot", enabled: false, mcpServerCount: 0, botId: "moli", chatId: "" }
+    { id: "web", name: "web-search", description: "Search", scope: "global", enabled: true, mcpServerCount: 0, agentId: "", chatId: "" },
+    { id: "off", name: "disabled", description: "Off", scope: "agent", enabled: false, mcpServerCount: 0, agentId: "momo", chatId: "" }
   ], "en");
   assert.ok(suggestions.some((item) => item.label === "/models" && item.kind === "command"));
   assert.ok(suggestions.some((item) => item.label === "/web-search" && item.kind === "skill"));

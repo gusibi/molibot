@@ -42,6 +42,64 @@ test("sanitizeDesktopTraceRange accepts known ranges and falls back to today", (
   assert.equal(sanitizeDesktopTraceRange(undefined), "today");
 });
 
+test("model outcomes partition all requests independently of tool failures", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const statuses = ["success", "error", "started", "waiting", "aborted", "blocked", "info"] as const;
+  const facts = statuses.map((status, i) => fact({ id: String(i), factId: String(i), factType: "model_call", status, model: "model", payload: { agentId: "analyst" }, createdAt: `${today}T08:00:00.000Z` }));
+  facts.push(fact({ id: "tool-error", factId: "tool-error", status: "error", createdAt: `${today}T08:00:00.000Z` }));
+  const summary = buildDesktopTraceSummary("UTC", { range: "today" }, facts);
+  assert.deepEqual(summary.totals.modelOutcomes, { success: 1, error: 1, pending: 2, aborted: 1, blocked: 1, other: 1 });
+  assert.equal(Object.values(summary.totals.modelOutcomes).reduce((a, b) => a + b, 0), 7);
+  assert.deepEqual(summary.rankings.models[0].outcomes, summary.totals.modelOutcomes);
+  assert.equal(summary.rankings.agents[0].id, "analyst");
+  assert.equal(summary.rankings.agents[0].modelCalls, 7);
+  assert.equal(summary.rankings.channels[0].modelCalls, 7);
+});
+
+test("model requests aggregate across API protocols with all outcomes retained", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const summary = buildDesktopTraceSummary("UTC", { range: "today" }, [
+    fact({ factType: "model_call", provider: "local", model: "fixture", api: "messages", createdAt: `${today}T00:00:00Z` }),
+    fact({ factType: "model_call", provider: "local", model: "fixture", api: "responses", status: "error", createdAt: `${today}T00:00:00Z` })
+  ]);
+  assert.equal(summary.rankings.models.length, 1);
+  assert.equal(summary.rankings.models[0].requests, 2);
+  assert.equal(summary.rankings.models[0].outcomes.success, 1);
+  assert.equal(summary.rankings.models[0].outcomes.error, 1);
+});
+
+test("trace analytics includes older requests beyond 5000 newer facts and strips previews", () => {
+  const store = new SqliteTraceStore(":memory:");
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    store.upsertFact(fact({ id: "run-agent", factId: "run-1", factType: "run", payload: { agentId: "researcher" }, createdAt: `${today}T00:00:00.000Z` }));
+    store.upsertFact(fact({ id: "old-model", factId: "old-model", factType: "model_call", argsPreview: "secret", payload: { secret: "private" }, createdAt: `${today}T00:00:00.000Z` }));
+    const db = store.getDatabase();
+    db.exec("BEGIN");
+    for (let i = 0; i < 5001; i++) store.upsertFact(fact({ id: `tool-${i}`, factId: `tool-${i}`, createdAt: `${today}T01:00:00.000Z` }));
+    db.exec("COMMIT");
+    const facts = store.listAnalyticsFacts(today, today, "UTC");
+    const summary = buildDesktopTraceSummary("UTC", { range: "today" }, facts);
+    assert.equal(summary.totals.modelCalls, 1);
+    assert.equal(summary.facts.total, 5003);
+    assert.equal(facts.find(row => row.id === "old-model")?.payload?.agentId, "researcher");
+    assert.equal(JSON.stringify(facts).includes("secret"), false);
+    assert.equal(JSON.stringify(facts).includes("private"), false);
+  } finally { store.close(); }
+});
+
+test("analytics queries respect local midnight and do not attribute missing Agents to Bots", () => {
+  const store = new SqliteTraceStore(":memory:");
+  try {
+    for (const [i, createdAt] of ["2026-10-17T15:59:59.999Z", "2026-10-17T16:00:00.000Z", "2026-10-18T15:59:59.999Z", "2026-10-18T16:00:00.000Z"].entries()) {
+      store.upsertFact(fact({ id: `boundary-${i}`, factId: `boundary-${i}`, factType: "model_call", createdAt, payload: {} }));
+    }
+    const facts = store.listAnalyticsFacts("2026-10-18", "2026-10-18", "Asia/Shanghai");
+    assert.deepEqual(facts.map(row => row.id).sort(), ["boundary-1", "boundary-2"]);
+    assert.ok(facts.every(row => row.payload.agentId === null));
+  } finally { store.close(); }
+});
+
 test("resolveDesktopTraceWindow returns a 7-day span for last7Days", () => {
   const win = resolveDesktopTraceWindow("last7Days", "UTC");
   const start = new Date(win.startDate + "T00:00:00Z").getTime();
@@ -84,7 +142,7 @@ test("computeDesktopTraceTotals counts tools, models, skills, and tokens without
 });
 
 test("sanitizeDesktopTraceQuery validates fact type and clamps fetch pagination", () => {
-  assert.deepEqual(sanitizeDesktopTraceQuery({ factType: "unknown", sourceLimit: 99, page: -1, pageSize: 999, botId: " bot " }), {
+  assert.deepEqual(sanitizeDesktopTraceQuery({ factType: "unknown", page: -1, pageSize: 999, botId: " bot " }), {
     range: "today",
     factType: "all",
     botId: "bot",
@@ -92,7 +150,8 @@ test("sanitizeDesktopTraceQuery validates fact type and clamps fetch pagination"
     chatId: "",
     sessionId: "",
     runId: "",
-    sourceLimit: 1000,
+    agentId: "",
+    modelId: "",
     page: 1,
     pageSize: 100
   });
@@ -292,4 +351,52 @@ test("Agent activity uses the recorded run owner across start, completion and Bo
   } finally {
     store.close();
   }
+});
+
+test("trace trend zero-fills local days and separates MCP; Agent performance uses run results and known prices", () => {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+  const at = `${today}T00:30:00+08:00`;
+  const facts = [
+    fact({ id: "model", factType: "model_call", inputTokens: 100, cacheReadTokens: 300, cacheWriteTokens: 100, payload: { agentId: "a", estimatedCostUsd: 0.02 }, createdAt: at }),
+    fact({ id: "unknown-price", factType: "model_call", payload: { agentId: "a" }, createdAt: at }),
+    fact({ id: "mcp", name: "mcp__fixture__read", payload: { agentId: "a" }, createdAt: at }),
+    fact({ id: "tool", name: "read", payload: { agentId: "a" }, createdAt: at }),
+    fact({ id: "run-ok", runId: "ok", factType: "run", status: "success", payload: { agentId: "a" }, createdAt: at }),
+    fact({ id: "run-error", runId: "error", factType: "run", status: "error", payload: { agentId: "a" }, createdAt: at }),
+    fact({ id: "run-wait", runId: "waiting", factType: "run", status: "waiting", payload: { agentId: "a" }, createdAt: at }),
+    fact({ id: "other", factType: "model_call", payload: { agentId: "b", estimatedCostUsd: 9 }, createdAt: at })
+  ];
+  const summary = buildDesktopTraceSummary("Asia/Shanghai", { range: "last7Days", agentId: "a" }, facts);
+  assert.equal(summary.trend.length, 7);
+  assert.equal(summary.trend[0].modelCalls, 0);
+  assert.deepEqual(summary.trend.at(-1), { key: today, label: today.slice(5), modelCalls: 2, toolCalls: 1, mcpCalls: 1 });
+  assert.equal(summary.totals.mcpCalls, 1);
+  assert.equal(summary.totals.estimatedCostUsd, 0.02);
+  assert.equal(summary.totals.pricedModelCalls, 1);
+  assert.equal(summary.totals.cacheReadTokens, 300);
+  assert.deepEqual(summary.totals.runOutcomes, { success: 1, error: 1, pending: 1, aborted: 0, blocked: 0, other: 0 });
+  assert.equal(summary.rankings.agents[0].estimatedCostUsd, 0.02);
+  const hourly = buildDesktopTraceSummary("Asia/Shanghai", { range: "today", agentId: "a" }, facts);
+  assert.equal(hourly.trend.length, 24);
+  assert.equal(hourly.trend[0].modelCalls, 2);
+  const empty = buildDesktopTraceSummary("UTC", { range: "last30Days", agentId: "missing" }, facts);
+  assert.equal(empty.trend.length, 30);
+  assert.ok(empty.trend.every(point => point.modelCalls === 0 && point.toolCalls === 0 && point.mcpCalls === 0));
+  assert.equal(empty.totals.estimatedCostUsd, null);
+});
+
+
+test("Agent completion deduplicates run snapshots and distinguishes zero-cost from missing estimates", () => {
+  const createdAt = new Date().toISOString();
+  const summary = buildDesktopTraceSummary("UTC", { range: "today" }, [
+    fact({ id: "started", factType: "run", runId: "same", status: "started", createdAt, updatedAt: "2026-10-18T00:00:00Z" }),
+    fact({ id: "finished", factType: "run", runId: "same", status: "success", createdAt, updatedAt: "2026-10-18T01:00:00Z" }),
+    fact({ id: "cancelled", factType: "run", runId: "cancelled", status: "aborted", createdAt }),
+    fact({ id: "blocked", factType: "run", runId: "blocked", status: "blocked", createdAt }),
+    fact({ id: "free", factType: "model_call", payload: { estimatedCostUsd: 0 }, createdAt }),
+    fact({ id: "missing", factType: "model_call", payload: {}, createdAt })
+  ]);
+  assert.deepEqual(summary.totals.runOutcomes, { success: 1, error: 0, pending: 0, aborted: 1, blocked: 1, other: 0 });
+  assert.equal(summary.totals.estimatedCostUsd, 0);
+  assert.equal(summary.totals.pricedModelCalls, 1);
 });

@@ -1,11 +1,10 @@
 import { PROCESS_OWNER_ID } from "$lib/server/agent/eventsLeaseStore.js";
-import { config } from "$lib/server/app/env.js";
-import { enqueueDurableExecutionEvent } from "./events.js";
 import {
   DurableExecutionNotFoundError,
   type CreateDurableExecutionInput,
   type DurableExecution,
   type DurableExecutionDetail,
+  type DurableExecutionDiagnostics,
   type DurableExecutionListFilter,
   type DurableExecutionListItem,
   type DurableExecutionProjection,
@@ -48,8 +47,7 @@ function projectDetail(detail: DurableExecutionDetail, queuePosition?: number): 
 export class DurableExecutionCoordinator {
   constructor(
     private readonly store: DurableExecutionStore = getDurableExecutionStore(),
-    private readonly processOwnerId = PROCESS_OWNER_ID,
-    private readonly dataDir = config.dataDir
+    private readonly processOwnerId = PROCESS_OWNER_ID
   ) {}
 
   create(input: CreateDurableExecutionInput): DurableExecutionListItem {
@@ -102,7 +100,6 @@ export class DurableExecutionCoordinator {
     try {
       const absorbed = this.store.absorbPrefix(created.id, created.version, input.prefix);
       const activated = this.store.transitionStatus(absorbed.id, absorbed.version, "queued");
-      this.ensureQueuedEvents(input.ownerId);
       return this.projectOwned(activated.id, input.ownerId);
     } catch (error) {
       const current = this.store.getById(created.id);
@@ -125,10 +122,17 @@ export class DurableExecutionCoordinator {
     const execution = current.execution.status === "planned"
       ? this.store.transitionStatus(current.execution.id, input.expectedVersion, "queued")
       : current.execution;
-    if (execution.status === "queued") {
-      this.ensureQueuedEvents(input.ownerId);
-    }
     return this.projectOwned(execution.id, input.ownerId);
+  }
+
+  /**
+   * Read-only executor diagnostics. The plan detail page uses this to explain a
+   * stuck execution without a log timeline.
+   */
+  diagnostics(ownerId: string, executionId: string, options: { ownerProcessId?: string; now?: Date } = {}): DurableExecutionDiagnostics {
+    const diagnostics = this.store.inspect(executionId, { ownerId, ...options });
+    if (!diagnostics) throw new DurableExecutionNotFoundError(executionId);
+    return diagnostics;
   }
 
   list(filter: DurableExecutionListFilter): DurableExecutionListItem[] {
@@ -168,18 +172,16 @@ export class DurableExecutionCoordinator {
       expectedVersion: input.expectedVersion,
       reason: input.reason
     }));
-    this.ensureQueuedEvents(input.ownerId);
     return result;
   }
 
   resume(input: { ownerId: string; executionId: string; expectedVersion: number; actionId: string }): DurableExecutionListItem {
-    const result = this.manage(input, () => this.store.runControlAction({
+    return this.manage(input, () => this.store.runControlAction({
       actionId: input.actionId,
       executionId: input.executionId,
       action: "resume",
       expectedVersion: input.expectedVersion
     }));
-    return this.ensureQueuedEvent(result, input.ownerId);
   }
 
   cancel(input: { ownerId: string; executionId: string; expectedVersion: number; actionId: string; reason?: string }): DurableExecutionListItem {
@@ -195,7 +197,6 @@ export class DurableExecutionCoordinator {
       expectedVersion: input.expectedVersion,
       reason: input.reason
     }));
-    this.ensureQueuedEvents(input.ownerId);
     return result;
   }
 
@@ -209,7 +210,7 @@ export class DurableExecutionCoordinator {
       answeredBy: input.ownerId,
       expectedVersion: input.expectedVersion
     }));
-    return this.ensureQueuedEvent(result, input.ownerId);
+    return result;
   }
 
   resolveApproval(input: {
@@ -230,25 +231,7 @@ export class DurableExecutionCoordinator {
       selectedScope: input.selectedScope,
       expectedVersion: input.expectedVersion
     }));
-    return this.ensureQueuedEvent(result, input.ownerId);
-  }
-
-  ensureQueuedEvents(ownerId: string): number {
-    const candidates = this.list({ ownerId, statuses: ["queued", "verifying"] })
-      .sort((left, right) => {
-        const leftVerifier = left.execution.status === "verifying" ? 0 : 1;
-        const rightVerifier = right.execution.status === "verifying" ? 0 : 1;
-        if (leftVerifier !== rightVerifier) return leftVerifier - rightVerifier;
-        return (left.projection.queuePosition ?? Number.MAX_SAFE_INTEGER) - (right.projection.queuePosition ?? Number.MAX_SAFE_INTEGER);
-      });
-    for (const item of candidates) {
-      enqueueDurableExecutionEvent({
-        executionId: item.execution.id,
-        expectedVersion: item.execution.version,
-        runAt: item.execution.nextRunAt ? new Date(item.execution.nextRunAt) : undefined
-      }, this.dataDir);
-    }
-    return candidates.length;
+    return result;
   }
 
   countUnfinished(ownerId: string): number {
@@ -281,13 +264,6 @@ export class DurableExecutionCoordinator {
 
   private projectProjection(detail: DurableExecutionDetail): DurableExecutionProjection {
     return projectDetail(detail, this.store.queuePosition(detail.execution.id));
-  }
-
-  private ensureQueuedEvent(item: DurableExecutionListItem, ownerId: string): DurableExecutionListItem {
-    if (item.execution.status === "queued") {
-      this.ensureQueuedEvents(ownerId);
-    }
-    return this.projectOwned(item.execution.id, ownerId);
   }
 
   claimAttempt(input: Parameters<DurableExecutionStore["claimAttempt"]>[0]) {

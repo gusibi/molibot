@@ -25,7 +25,7 @@ export class ExternalTranscriptLoader<T> {
       publish({ transcript, loading: false, error: "" });
     } catch (cause) {
       if (this.request !== request) return;
-      publish({ transcript: cached, loading: false, error: cached ? "" : cause instanceof Error ? cause.message : String(cause) });
+      publish({ transcript: cached, loading: false, error: cause instanceof Error ? cause.message : String(cause) });
     }
   }
 

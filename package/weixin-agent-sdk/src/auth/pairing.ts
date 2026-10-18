@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveStateDir } from "../storage/state-dir.js";
-import { logger } from "../util/logger.js";
 
 /**
  * Resolve the framework credentials directory (mirrors core resolveOAuthDir).
@@ -60,42 +59,3 @@ export function readFrameworkAllowFromList(accountId: string): string[] {
   return [];
 }
 
-/**
- * Register a user ID in the channel allowFrom store.
- */
-export function registerUserInAllowFromStore(params: {
-  accountId: string;
-  userId: string;
-}): { changed: boolean } {
-  const { accountId, userId } = params;
-  const trimmedUserId = userId.trim();
-  if (!trimmedUserId) return { changed: false };
-
-  const filePath = resolveFrameworkAllowFromPath(accountId);
-  const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
-
-  let content: AllowFromFileContent = { version: 1, allowFrom: [] };
-  try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      const parsed = JSON.parse(raw) as AllowFromFileContent;
-      if (Array.isArray(parsed.allowFrom)) {
-        content = parsed;
-      }
-    }
-  } catch {
-    // start fresh
-  }
-
-  if (content.allowFrom.includes(trimmedUserId)) {
-    return { changed: false };
-  }
-
-  content.allowFrom.push(trimmedUserId);
-  fs.writeFileSync(filePath, JSON.stringify(content, null, 2), "utf-8");
-  logger.info(
-    `registerUserInAllowFromStore: added userId=${trimmedUserId} accountId=${accountId} path=${filePath}`,
-  );
-  return { changed: true };
-}

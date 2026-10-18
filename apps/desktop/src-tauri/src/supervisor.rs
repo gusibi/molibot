@@ -56,6 +56,15 @@ const HEALTH_PROBE_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_CONSECUTIVE_UNHEALTHY: usize = 4;
 /// How often an adopted (pre-existing) service is checked for liveness.
 const ADOPTED_PROBE_INTERVAL: Duration = Duration::from_millis(250);
+/// `scripts/start-server.mjs` exits with this when another live process owns
+/// the data directory's service lease. A conflicting owner is not a crash: it
+/// is a sibling to discover, adopt or replace (see
+/// `rediscover_conflicting_owner`).
+const SERVICE_LEASE_CONFLICT_EXIT: i32 = 73;
+/// How long a rediscovery (startup or post-conflict) waits for a live recorded
+/// owner to answer the handshake. Long enough to ride out a wedged event loop,
+/// short enough that a genuinely dead owner only costs this window once.
+const OWNER_HANDSHAKE_WINDOW: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Debug)]
 pub enum ServiceCommand {
@@ -63,7 +72,7 @@ pub enum ServiceCommand {
     Stop(Sender<()>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct RuntimeLayout {
     node_binary: PathBuf,
     runtime_root: PathBuf,
@@ -104,7 +113,9 @@ struct RuntimeSettingsFile {
 enum ChildOutcome {
     Restart,
     Stop,
-    Exited,
+    /// The child exited on its own; the payload is its exit code when the OS
+    /// reported one (0 for children this supervisor stopped itself).
+    Exited(i32),
 }
 
 struct ManagedChild {
@@ -1175,8 +1186,9 @@ fn supervise_adopted(
     endpoint: String,
     pid: u32,
     status: Arc<Mutex<ServiceStatus>>,
-    commands: Receiver<ServiceCommand>,
+    commands: &Receiver<ServiceCommand>,
     log: SupervisorLog,
+    bundled_version: Option<String>,
 ) {
     let mut last_health_probe = Instant::now();
     let mut unhealthy_probes = 0usize;
@@ -1185,7 +1197,7 @@ fn supervise_adopted(
             Ok(ServiceCommand::Restart) => {
                 log_event(&log, "info", "service_restart_requested", &[("mode", "adopted".into())]);
                 stop_process(pid);
-                supervise(&layout, &data_dir, &status, &commands, &log);
+                supervise(&layout, &data_dir, bundled_version.clone(), &status, commands, &log);
                 return;
             }
             Ok(ServiceCommand::Stop(ack)) => {
@@ -1216,7 +1228,7 @@ fn supervise_adopted(
                     version: None,
                 },
             );
-            supervise(&layout, &data_dir, &status, &commands, &log);
+            supervise(&layout, &data_dir, bundled_version.clone(), &status, commands, &log);
             return;
         }
 
@@ -1254,7 +1266,7 @@ fn supervise_adopted(
                 &[("mode", "adopted".into()), ("pid", pid.to_string())],
             );
             stop_process(pid);
-            supervise(&layout, &data_dir, &status, &commands, &log);
+            supervise(&layout, &data_dir, bundled_version.clone(), &status, commands, &log);
             return;
         }
     }
@@ -1326,7 +1338,7 @@ fn supervise_child(
                 "service_exited",
                 &[("phase", "startup".into()), ("reason", describe_exit(&status_code))],
             );
-            return ChildOutcome::Exited;
+            return ChildOutcome::Exited(status_code.code().unwrap_or(0));
         }
         if let Some(handshake) = probe_handshake(endpoint) {
             if !is_compatible_handshake(&handshake, SUPPORTED_PROTOCOL_VERSION) {
@@ -1364,7 +1376,7 @@ fn supervise_child(
             &[("timeoutSeconds", READY_TIMEOUT.as_secs().to_string())],
         );
         stop_child(child);
-        return ChildOutcome::Exited;
+        return ChildOutcome::Exited(0);
     }
 
     let mut last_health_probe = Instant::now();
@@ -1393,7 +1405,7 @@ fn supervise_child(
                 "service_exited",
                 &[("phase", "running".into()), ("reason", describe_exit(&status_code))],
             );
-            return ChildOutcome::Exited;
+            return ChildOutcome::Exited(status_code.code().unwrap_or(0));
         }
 
         if !deep_health || last_health_probe.elapsed() < HEALTH_PROBE_INTERVAL {
@@ -1421,7 +1433,7 @@ fn supervise_child(
                     stop_child(child);
                     // A wedged runtime is a failure, not a clean stop: fall
                     // back into the restart path so backoff and status apply.
-                    return ChildOutcome::Exited;
+                    return ChildOutcome::Exited(0);
                 }
             }
         }
@@ -1435,6 +1447,218 @@ fn backoff_delay(failures: usize) -> Duration {
     Duration::from_secs((1_u64 << failures.saturating_sub(1).min(6)).min(MAX_BACKOFF_SECS))
 }
 
+/// How a conflicting lease owner should be handled once it answers (or fails
+/// to answer) the handshake.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ConflictingOwnerAction {
+    /// Nothing alive answered: the owner died between the lease conflict and
+    /// the probe. A plain respawn will take over.
+    NoOwner,
+    /// A compatible, desktop-managed owner is serving. Adopt it.
+    Adopt,
+    /// A desktop-managed owner is serving, but from a different build than
+    /// this app ships. Stop it so the respawn can run the new build.
+    Replace,
+    /// A compatible but externally owned service (a standalone `pnpm start`)
+    /// holds the lease. Surface it as Ready and wait for the owner to decide.
+    ExternalOwner,
+    /// Something answers but not on our protocol. Report and keep retrying.
+    Unadoptable,
+}
+
+/// Decides what to do about the process that beat us to the service lease.
+///
+/// A lease conflict (child exit 73) used to be treated like any other crash,
+/// which produced the unbounded loop: every respawn picked a free port, hit
+/// the held lease, and exited 73 again, forever, while a perfectly healthy
+/// sibling served the data directory. Now the conflict triggers rediscovery
+/// with the same rules as startup adoption. Ownership gates replacement:
+/// a process this app does not manage is never stopped.
+fn conflicting_owner_action(
+    handshake: Option<&ServiceHandshake>,
+    managed: bool,
+    bundled_version: Option<&str>,
+) -> ConflictingOwnerAction {
+    let Some(handshake) = handshake else {
+        return ConflictingOwnerAction::NoOwner;
+    };
+    if !is_compatible_handshake(handshake, SUPPORTED_PROTOCOL_VERSION) {
+        return ConflictingOwnerAction::Unadoptable;
+    }
+    if !managed {
+        return ConflictingOwnerAction::ExternalOwner;
+    }
+    if should_replace_adopted(&handshake.version, bundled_version) {
+        return ConflictingOwnerAction::Replace;
+    }
+    ConflictingOwnerAction::Adopt
+}
+
+/// How long startup discovery waits for a recorded owner to answer.
+///
+/// The original two-second window was the root cause of the spawn loop: one
+/// slow answer (a wedged event loop, a boot migration) missed adoption, and
+/// nothing ever looked again. A dead owner still falls through immediately —
+/// a cold start with a stale state file must not stall.
+fn adopt_wait(status: &str, pid: Option<u32>, pid_alive: bool) -> Duration {
+    if status == "starting" && pid.is_some() {
+        return Duration::from_secs(20);
+    }
+    if pid.is_some() && pid_alive {
+        return OWNER_HANDSHAKE_WINDOW;
+    }
+    Duration::from_secs(2)
+}
+
+/// What `rediscover_conflicting_owner` did.
+enum Rediscovery {
+    /// Ownership changed hands (adopted or replaced); the caller must return.
+    Settled,
+    /// Nothing to adopt; continue the spawn loop with normal backoff.
+    Retry,
+    /// A Stop arrived while probing; it has been acknowledged. Return.
+    Stop,
+}
+
+/// Finds the live process that beat this supervisor to the lease and applies
+/// `conflicting_owner_action` to it.
+///
+/// Stays responsive to Stop/Restart while waiting for the owner's handshake:
+/// an app quit must not sit out the whole window on a dead endpoint.
+fn rediscover_conflicting_owner(
+    layout: &RuntimeLayout,
+    data_dir: &Path,
+    bundled_version: Option<&str>,
+    status: &Arc<Mutex<ServiceStatus>>,
+    commands: &Receiver<ServiceCommand>,
+    log: &SupervisorLog,
+) -> Rediscovery {
+    let Some(state) = read_runtime_state(data_dir) else {
+        return Rediscovery::Retry;
+    };
+    let Some(pid) = state.pid else {
+        return Rediscovery::Retry;
+    };
+    if !process_is_alive(pid) {
+        return Rediscovery::Retry;
+    }
+
+    let endpoint = state.endpoint.clone();
+    let started = Instant::now();
+    let handshake = loop {
+        if started.elapsed() >= OWNER_HANDSHAKE_WINDOW {
+            log_event(
+                log,
+                "warn",
+                "service_conflict_owner_unreachable",
+                &[("pid", pid.to_string()), ("endpoint", endpoint.clone())],
+            );
+            return Rediscovery::Retry;
+        }
+        match commands.recv_timeout(ADOPTED_PROBE_INTERVAL) {
+            Ok(ServiceCommand::Stop(ack)) => {
+                let _ = ack.send(());
+                return Rediscovery::Stop;
+            }
+            Ok(ServiceCommand::Restart) | Err(RecvTimeoutError::Disconnected) => {
+                return Rediscovery::Retry;
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+        if let Some(handshake) = probe_handshake(&endpoint) {
+            break handshake;
+        }
+    };
+
+    let ownership = discovered_ownership(&state, &handshake);
+    match conflicting_owner_action(Some(&handshake), ownership == ServiceOwnership::Managed, bundled_version) {
+        ConflictingOwnerAction::NoOwner => Rediscovery::Retry,
+        ConflictingOwnerAction::Adopt => {
+            log_event(
+                log,
+                "info",
+                "service_conflict_adopted",
+                &[("pid", pid.to_string()), ("version", handshake.version.clone())],
+            );
+            set_status(
+                status,
+                ServiceStatus {
+                    endpoint: Some(endpoint.clone()),
+                    ownership: Some(ServiceOwnership::Managed),
+                    state: ServiceState::Ready,
+                    version: Some(handshake.version),
+                },
+            );
+            supervise_adopted(
+                layout.clone(),
+                data_dir.to_path_buf(),
+                endpoint,
+                pid,
+                status.clone(),
+                commands,
+                log.clone(),
+                bundled_version.map(str::to_string),
+            );
+            Rediscovery::Settled
+        }
+        ConflictingOwnerAction::Replace => {
+            log_event(
+                log,
+                "info",
+                "adopted_service_version_mismatch",
+                &[
+                    ("running", handshake.version.clone()),
+                    ("bundled", bundled_version.unwrap_or_default().to_string()),
+                ],
+            );
+            stop_process(pid);
+            Rediscovery::Retry
+        }
+        ConflictingOwnerAction::ExternalOwner => {
+            log_event(
+                log,
+                "warn",
+                "service_conflict_external_owner",
+                &[("pid", pid.to_string()), ("endpoint", endpoint.clone())],
+            );
+            set_status(
+                status,
+                ServiceStatus {
+                    endpoint: Some(endpoint),
+                    ownership: Some(ServiceOwnership::External),
+                    state: ServiceState::Ready,
+                    version: Some(handshake.version),
+                },
+            );
+            // Mirrors the startup path for externally owned services: report
+            // and wait. A manual restart re-runs discovery from scratch.
+            if park_for_restart(commands) {
+                Rediscovery::Retry
+            } else {
+                Rediscovery::Stop
+            }
+        }
+        ConflictingOwnerAction::Unadoptable => {
+            log_event(
+                log,
+                "warn",
+                "service_conflict_incompatible",
+                &[("pid", pid.to_string()), ("version", handshake.version.clone())],
+            );
+            set_status(
+                status,
+                ServiceStatus {
+                    endpoint: Some(endpoint),
+                    ownership: Some(ownership),
+                    state: ServiceState::Incompatible,
+                    version: Some(handshake.version),
+                },
+            );
+            Rediscovery::Retry
+        }
+    }
+}
+
 /// Runs an app-owned service, restarting it forever.
 ///
 /// The old contract returned once `MAX_CONSECUTIVE_FAILURES` was hit — and with
@@ -1446,6 +1670,7 @@ fn backoff_delay(failures: usize) -> Duration {
 fn supervise(
     layout: &RuntimeLayout,
     data_dir: &Path,
+    bundled_version: Option<String>,
     status: &Arc<Mutex<ServiceStatus>>,
     commands: &Receiver<ServiceCommand>,
     log: &SupervisorLog,
@@ -1512,7 +1737,24 @@ fn supervise(
                 log_event(log, "info", "service_restart_requested", &[("mode", "managed".into())]);
                 failures = 0;
             }
-            ChildOutcome::Exited => {
+            ChildOutcome::Exited(code) => {
+                if code == SERVICE_LEASE_CONFLICT_EXIT {
+                    // Another live process owns the data directory. Respawning
+                    // into a held lease is how the supervisor once spent hours
+                    // in an exit-73 loop while a healthy sibling served
+                    // correctly; rediscover and adopt (or replace) it instead.
+                    match rediscover_conflicting_owner(
+                        layout,
+                        data_dir,
+                        bundled_version.as_deref(),
+                        status,
+                        commands,
+                        log,
+                    ) {
+                        Rediscovery::Settled | Rediscovery::Stop => return,
+                        Rediscovery::Retry => {}
+                    }
+                }
                 failures = if started.elapsed() >= HEALTHY_RESET_AFTER {
                     1
                 } else {
@@ -1587,11 +1829,11 @@ fn initialize_worker(
     let bundled_version = bundled_runtime_version(&app);
 
     if let Some(runtime_state) = read_runtime_state(&data_dir) {
-        let wait = if runtime_state.status == "starting" && runtime_state.pid.is_some() {
-            Duration::from_secs(20)
-        } else {
-            Duration::from_secs(2)
-        };
+        let wait = adopt_wait(
+            &runtime_state.status,
+            runtime_state.pid,
+            runtime_state.pid.map(process_is_alive).unwrap_or(false),
+        );
         if let Some(handshake) = wait_for_handshake(&runtime_state.endpoint, wait) {
             let compatible = is_compatible_handshake(&handshake, SUPPORTED_PROTOCOL_VERSION);
             let ownership = discovered_ownership(&runtime_state, &handshake);
@@ -1620,7 +1862,7 @@ fn initialize_worker(
                     stop_process(pid);
                 }
                 if let Ok(layout) = runtime_layout(&app, &data_dir) {
-                    supervise(&layout, &data_dir, &status, &commands, &log);
+                    supervise(&layout, &data_dir, bundled_version.clone(), &status, &commands, &log);
                 }
                 return;
             }
@@ -1642,7 +1884,7 @@ fn initialize_worker(
                 if let (Some(pid), Ok(layout)) =
                     (runtime_state.pid, runtime_layout(&app, &data_dir))
                 {
-                    supervise_adopted(layout, data_dir, endpoint, pid, status, commands, log);
+                    supervise_adopted(layout, data_dir, endpoint, pid, status, &commands, log, bundled_version);
                 }
             }
             return;
@@ -1664,13 +1906,13 @@ fn initialize_worker(
             // owner fixes whatever made the runtime unresolvable.
             if park_for_restart(&commands) {
                 if let Ok(layout) = runtime_layout(&app, &data_dir) {
-                    supervise(&layout, &data_dir, &status, &commands, &log);
+                    supervise(&layout, &data_dir, bundled_version.clone(), &status, &commands, &log);
                 }
             }
             return;
         }
     };
-    supervise(&layout, &data_dir, &status, &commands, &log);
+    supervise(&layout, &data_dir, bundled_version.clone(), &status, &commands, &log);
 }
 
 pub fn initialize(app: AppHandle, status: Arc<Mutex<ServiceStatus>>) -> Sender<ServiceCommand> {
@@ -1774,6 +2016,76 @@ mod tests {
         assert!(should_replace_adopted("2.8.8", Some("2.8.9")));
         // An empty bundled version is treated as "unknown", not a mismatch.
         assert!(!should_replace_adopted("2.8.9", Some("")));
+    }
+
+    fn owner_handshake(version: &str, managed: bool) -> ServiceHandshake {
+        ServiceHandshake {
+            service: "molibot".into(),
+            version: version.into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSION,
+            instance_id: None,
+            managed_by_desktop: managed,
+            capabilities: vec!["service-ownership-v1".into()],
+        }
+    }
+
+    #[test]
+    fn lease_conflict_adopts_a_compatible_managed_owner() {
+        // The incident: a healthy sibling held the lease and the app spawned
+        // into it, exit 73 after exit 73, for over an hour. Dev run (nothing
+        // bundled to compare against) adopts, and so does the same build.
+        assert_eq!(
+            conflicting_owner_action(Some(&owner_handshake("2.9.64", true)), true, None),
+            ConflictingOwnerAction::Adopt
+        );
+        assert_eq!(
+            conflicting_owner_action(Some(&owner_handshake("2.9.64", true)), true, Some("2.9.64")),
+            ConflictingOwnerAction::Adopt
+        );
+    }
+
+    #[test]
+    fn lease_conflict_replaces_a_managed_owner_from_another_build() {
+        assert_eq!(
+            conflicting_owner_action(Some(&owner_handshake("2.9.63", true)), true, Some("2.9.64")),
+            ConflictingOwnerAction::Replace
+        );
+    }
+
+    #[test]
+    fn lease_conflict_never_stops_a_process_this_app_does_not_manage() {
+        // A standalone service on the same data directory, even on a
+        // different build, is reported — never SIGTERMed.
+        assert_eq!(
+            conflicting_owner_action(Some(&owner_handshake("2.9.63", false)), false, Some("2.9.64")),
+            ConflictingOwnerAction::ExternalOwner
+        );
+    }
+
+    #[test]
+    fn lease_conflict_without_an_adoptable_owner_keeps_spawning() {
+        assert_eq!(
+            conflicting_owner_action(None, true, None),
+            ConflictingOwnerAction::NoOwner
+        );
+        let mut foreign = owner_handshake("2.9.64", true);
+        foreign.protocol_version = SUPPORTED_PROTOCOL_VERSION + 1;
+        assert_eq!(
+            conflicting_owner_action(Some(&foreign), true, None),
+            ConflictingOwnerAction::Unadoptable
+        );
+    }
+
+    #[test]
+    fn startup_adoption_waits_for_a_live_owner_but_not_a_dead_one() {
+        // Recorded owner still booting keeps its generous window.
+        assert_eq!(adopt_wait("starting", Some(42), true), Duration::from_secs(20));
+        // A ready owner that is alive but slow to answer: the two-second
+        // window that missed adoption and produced the spawn loop is gone.
+        assert_eq!(adopt_wait("ready", Some(42), true), OWNER_HANDSHAKE_WINDOW);
+        // A dead owner (stale state file) must not stall a cold start.
+        assert_eq!(adopt_wait("ready", Some(42), false), Duration::from_secs(2));
+        assert_eq!(adopt_wait("ready", None, false), Duration::from_secs(2));
     }
 
     #[test]

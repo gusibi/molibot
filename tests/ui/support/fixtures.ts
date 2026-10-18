@@ -57,7 +57,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       }
     });
     const errors: string[] = [];
-    context.on('page', page => page.on('pageerror', error => errors.push(error.stack ?? error.message)));
+    context.on('page', page => page.on('pageerror', error => errors.push(error.stack || error.message || String(error))));
     const requestBaseline = instance.model.requests.length;
     const unmatchedBaseline = instance.model.unmatched.length;
     const logBaseline = instance.logs.length;

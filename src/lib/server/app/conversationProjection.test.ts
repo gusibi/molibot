@@ -454,3 +454,12 @@ test("persisted silent parent reply cannot hide the subsequent unfinished-work r
   assert.equal(reply?.stopReason, "error");
   assert.ok(reply?.steps?.every(step => step.kind !== "text" || !step.content.includes("[SILENT]")));
 });
+
+for (const stopReason of ["stop", "aborted", "waiting_for_approval"]) {
+  test(`an empty ${stopReason} result remains available to the system status renderer`, () => {
+    const result = projectConversationMessages({ conversationId: "session", entries: [entry("u", "user", [{ type: "text", text: "hi" }], 0), assistantEntry("status", [], 1, { stopReason })], metadata: [] });
+    assert.equal(result.messages.at(-1)?.role, "assistant");
+    assert.equal(result.messages.at(-1)?.content, "");
+    assert.equal(result.messages.at(-1)?.stopReason, stopReason);
+  });
+}

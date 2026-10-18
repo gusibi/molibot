@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -91,25 +91,28 @@ test("queued projection exposes creation-order position", () => {
   const database = createDatabase();
   const store = new DurableExecutionStore(database.file);
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", database.root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const first = coordinator.create(createInput());
     const second = coordinator.create({ ...createInput(), goal: "Prepare the monthly report" });
     const firstQueued = coordinator.activate({ ownerId: "owner-1", executionId: first.execution.id, expectedVersion: first.execution.version });
     const secondQueued = coordinator.activate({ ownerId: "owner-1", executionId: second.execution.id, expectedVersion: second.execution.version });
     assert.equal(firstQueued.projection.queuePosition, 1);
     assert.equal(secondQueued.projection.queuePosition, 2);
-    assert.equal(existsSync(join(database.root, "system", "bots", "owner", "events", `durable-execution-${second.execution.id}-v${secondQueued.execution.version}.json`)), true);
+    assert.deepEqual(
+      store.pendingWakeups(second.execution.id).map((wakeup) => [wakeup.expectedVersion, wakeup.reason, wakeup.status]),
+      [[secondQueued.execution.version, "resume", "pending"]]
+    );
   } finally {
     store.close();
     database.cleanup();
   }
 });
 
-test("activation writes one versioned watched event and is idempotent", () => {
+test("activation enqueues exactly one versioned wakeup and repeated activation is idempotent", () => {
   const database = createDatabase();
   const store = new DurableExecutionStore(database.file);
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", database.root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create(createInput());
     const activated = coordinator.activate({
       ownerId: "owner-1",
@@ -117,15 +120,12 @@ test("activation writes one versioned watched event and is idempotent", () => {
       expectedVersion: created.execution.version
     });
     assert.equal(activated.execution.status, "queued");
-    const eventFile = join(database.root, "system", "bots", "owner", "events", `durable-execution-${created.execution.id}-v${activated.execution.version}.json`);
-    assert.equal(existsSync(eventFile), true);
-    const first = readFileSync(eventFile, "utf8");
-    coordinator.ensureQueuedEvents("owner-1");
-    assert.equal(readFileSync(eventFile, "utf8"), first);
-    const event = JSON.parse(first) as { execution: string; internal?: { kind?: string; durable?: { executionId?: string; expectedVersion?: number } } };
-    assert.equal(event.execution, "internal");
-    assert.equal(event.internal?.kind, "durable-execution");
-    assert.deepEqual(event.internal?.durable, { executionId: created.execution.id, expectedVersion: activated.execution.version });
+    const wakeups = store.pendingWakeups(created.execution.id);
+    assert.deepEqual(wakeups.map((wakeup) => [wakeup.expectedVersion, wakeup.reason]), [[activated.execution.version, "resume"]]);
+    // Startup repair is idempotent: the transaction already wrote the trigger,
+    // so a second pass finds nothing to enqueue.
+    assert.equal(store.enqueueDueWakeups("owner-1"), 0);
+    assert.equal(store.pendingWakeups(created.execution.id).length, 1);
   } finally {
     store.close();
     database.cleanup();
@@ -136,7 +136,7 @@ test("lazy promotion absorbs the ordinary-run prefix and queues only the next st
   const database = createDatabase();
   const store = new DurableExecutionStore(database.file);
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", database.root);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const promoted = coordinator.promote({
       ownerId: "owner-1",
       botId: "bot-1",
@@ -180,7 +180,10 @@ test("lazy promotion absorbs the ordinary-run prefix and queues only the next st
     assert.equal(detail.evidenceRefs.length, 1);
     assert.equal(promoted.projection.progress.completed, 1);
     assert.equal(promoted.projection.nextStep?.title, "Continue with: bash");
-    assert.equal(existsSync(join(database.root, "system", "bots", "owner", "events", `durable-execution-${promoted.execution.id}-v${promoted.execution.version}.json`)), true);
+    assert.deepEqual(
+      store.pendingWakeups(promoted.execution.id).map((wakeup) => [wakeup.expectedVersion, wakeup.reason]),
+      [[promoted.execution.version, "resume"]]
+    );
   } finally {
     store.close();
     database.cleanup();

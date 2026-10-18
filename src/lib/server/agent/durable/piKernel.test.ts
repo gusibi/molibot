@@ -401,7 +401,7 @@ test("the shared Durable entrance retains approval, receipts and acceptance with
   const businessPath = join(directory, "business.sqlite");
   let store = new DurableExecutionStore(businessPath);
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a", directory);
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const created = coordinator.create({
       ownerId: "owner", botId: "bot", sourceChannel: "web", sourceChatId: "web:owner:bot",
       goal: "Send the approved report", constraints: [], activationPath: "deterministic",
@@ -467,7 +467,7 @@ test("the shared Durable entrance retains approval, receipts and acceptance with
     store.close();
     store = new DurableExecutionStore(businessPath);
     runtime = createRuntime();
-    new DurableExecutionCoordinator(store, "process-a", directory).resolveApproval({
+    new DurableExecutionCoordinator(store, "process-a").resolveApproval({
       ownerId: "owner", executionId: created.execution.id, expectedVersion: waiting.execution.version,
       approvalId: waiting.approvals[0].id, status: "approved", selectedScope: "once", actionId: "approve-send"
     });
