@@ -28,7 +28,8 @@ export interface RoomServiceDeps {
   deleteSession?: (id: string) => void;
   renameSession?: (id: string, title: string) => void;
   assertApprovalAuthority?: (execution: RoomExecution) => void;
-  resolveApproval?: (execution: RoomExecution, decision: "approve_once" | "reject") => void;
+  /** An inactive execution may resolve only its persisted recovery-review request. */
+  resolveApproval?: (execution: RoomExecution, decision: "approve_once" | "reject", live: boolean) => void;
   syncTranscript?: (roomId: string, messages: RoomMessage[]) => void;
   interruptExecution?: (execution: RoomExecution) => void;
   invalidateApprovals?: (execution: RoomExecution) => void;
@@ -262,13 +263,17 @@ export class RoomService {
   }
   resolveApproval(id: string, executionId: string, decision: "approve_once" | "reject") {
     const e = this.deps.store.executions(id).find(x => x.id === executionId);
-    if (!e || e.status !== "waiting_approval" || !this.active.has(e.id)) throw new Error("Approval is no longer live");
+    if (!e || e.status !== "waiting_approval") throw new Error("Approval is no longer live");
     this.assertAuthority(e);
     this.deps.assertApprovalAuthority?.(e);
     if (!this.deps.resolveApproval) throw new Error("Approval resolution unavailable");
-    this.deps.resolveApproval(e, decision);
-    this.deps.store.state(e.id, "running");
-    this.changed(id, e);
+    const live = this.active.has(e.id);
+    this.deps.resolveApproval(e, decision, live);
+    // Recovery decisions settle through the startup recovery owner after the broker emits its event.
+    if (live) {
+      this.deps.store.state(e.id, "running");
+      this.changed(id, e);
+    }
   }
   reconcileOperation(id: string, executionId: string, operationId: string, outcome: "completed" | "failed") {
     this.room(id);

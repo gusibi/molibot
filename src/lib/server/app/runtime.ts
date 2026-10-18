@@ -756,17 +756,19 @@ function initializeRuntime(): RuntimeState {
       resolvePlanPolicy: (_execution, binding) => planExecutionPolicy(state.settings, binding),
       onPlanAttempt: input => deliverPlanAttempt(state.sessions, input)
     });
-    const durableStartup = durableExecutionRuntime.start();
-    void durableExecutionRuntime.reconcilePlanDeliveries();
-    if (durableStartup.started) {
-      console.log(
-        `[runtime] durable_execution_started reconciled=${durableStartup.reconciled} enqueued=${durableStartup.enqueued}`
-        + ` recovered_claims=${durableStartup.recoveredClaims} pruned_wakeups=${durableStartup.prunedWakeups}`
-        + ` wakeup_mode=${state.settings.durable.wakeupMode}`
-        + (durableStartup.fileMigration ? ` migration=${JSON.stringify(durableStartup.fileMigration)}` : "")
-      );
-    } else if (durableStartup.reason) {
-      console.warn(`[runtime] durable_execution_not_started ${durableStartup.reason}`);
+    if (!liveServicesDisabled()) {
+      const durableStartup = durableExecutionRuntime.start();
+      void durableExecutionRuntime.reconcilePlanDeliveries();
+      if (durableStartup.started) {
+        console.log(
+          `[runtime] durable_execution_started reconciled=${durableStartup.reconciled} enqueued=${durableStartup.enqueued}`
+          + ` recovered_claims=${durableStartup.recoveredClaims} pruned_wakeups=${durableStartup.prunedWakeups}`
+          + ` wakeup_mode=${state.settings.durable.wakeupMode}`
+          + (durableStartup.fileMigration ? ` migration=${JSON.stringify(durableStartup.fileMigration)}` : "")
+        );
+      } else if (durableStartup.reason) {
+        console.warn(`[runtime] durable_execution_not_started ${durableStartup.reason}`);
+      }
     }
     // Startup reconciliation for expired trash: retries recorded cleanup
     // intents from an interrupted purge, then sweeps trash past the recovery

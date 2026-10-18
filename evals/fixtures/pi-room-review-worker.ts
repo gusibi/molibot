@@ -9,7 +9,7 @@
  *
  * `resolve` phase: reboots the same data directory, waits for startup to park
  * the Room execution behind a `recovery_review` Decision Request, reports the
- * parked state, then resolves the approval through the real Desktop broker path
+ * parked state, then resolves the approval through the Desktop Room HTTP handler
  * and reports the outcome.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -160,8 +160,26 @@ async function resolvePhase(): Promise<void> {
     approvalCommand: execution.approval?.command, runStatus: getTurnOrchestrator().getRunStatus(execution.id),
     requestStatus: request?.status, requestCapability: request?.capability });
   if (!request) throw new Error("The parked execution has no Decision Request.");
+  if (process.env.PI_ROOM_REVIEW_PARK_ONLY === "1") {
+    await sleep(100);
+    process.kill(process.pid, "SIGKILL");
+    return;
+  }
 
-  const resolved = resolveDesktopBrokerApproval(broker, { sessionId: request.sessionId, requestId: request.id, decision });
+  const { POST } = await import("../../src/routes/api/desktop/rooms/+server.js");
+  const approve = () => POST({ request: new Request("http://localhost/api/desktop/rooms", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "approve", roomId: room.id, executionId: execution.id, decision })
+  }), url: new URL("http://localhost/api/desktop/rooms") } as Parameters<typeof POST>[0]);
+  broker.updateRequest({ ...request, capability: "write" });
+  const inactiveApprovalResponse = await approve();
+  if (inactiveApprovalResponse.status !== 400 || broker.getRequest(request.id)?.status !== "pending") {
+    throw new Error("An inactive ordinary tool approval must remain pending and be rejected by the Room handler.");
+  }
+  broker.updateRequest(request);
+  const approvalResponse = await approve();
+  if (!approvalResponse.ok) throw new Error(`Room approval HTTP ${approvalResponse.status}: ${await approvalResponse.text()}`);
+  const resolved = broker.getRequest(request.id);
 
   const settleDeadline = Date.now() + 40_000;
   while (service.isBusy(room.id)) {
@@ -169,6 +187,7 @@ async function resolvePhase(): Promise<void> {
     await sleep(20);
   }
   execution = service.view(room.id).executions[0];
+  const repeatedApprovalResponse = await approve();
 
   const recovery = new PiRecoveryStore(directory);
   let recordExists = false;
@@ -176,7 +195,9 @@ async function resolvePhase(): Promise<void> {
 
   finished = true;
   report({ type: "resolved", resolved: resolved?.status, executionStatus: execution.status,
-    runStatus: getTurnOrchestrator().getRunStatus(execution.id), recordExists });
+    runStatus: getTurnOrchestrator().getRunStatus(execution.id), recordExists,
+    approvalHttpStatus: approvalResponse.status, repeatedApprovalHttpStatus: repeatedApprovalResponse.status,
+    inactiveApprovalHttpStatus: inactiveApprovalResponse.status });
   await sleep(100);
   process.exit(0);
 }

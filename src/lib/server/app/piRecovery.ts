@@ -40,7 +40,7 @@ export function piRecoveryCandidates(dataRoot: string, status: (runId: string) =
     // admitted identity must survive until that decision arrives.
     const preserved = new Set(['running', 'waiting_for_approval', 'recovery_review']);
     for (const record of candidates) if (!preserved.has(status(record.runId) ?? '')) store.remove(record.runId);
-    return candidates.filter(record => status(record.runId) === 'running');
+    return candidates.filter(record => ['running', 'recovery_review'].includes(status(record.runId) ?? ''));
   } finally { store.close(); }
 }
 

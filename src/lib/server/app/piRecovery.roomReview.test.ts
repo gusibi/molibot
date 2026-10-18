@@ -20,6 +20,9 @@ interface WorkerMessage {
   requestCapability?: string;
   resolved?: string;
   recordExists?: boolean;
+  approvalHttpStatus?: number;
+  repeatedApprovalHttpStatus?: number;
+  inactiveApprovalHttpStatus?: number;
 }
 
 const workerEnv = (directory: string) => {
@@ -87,9 +90,10 @@ const scenarios = [
 ] as const;
 
 for (const scenario of scenarios) {
-  test(`a restart parks a Room execution awaiting review and ${scenario.label} settles it exactly once`, { timeout: 120_000 }, async () => {
+  test(`two restarts preserve Room recovery review and ${scenario.label} through the Room API settles it exactly once`, { timeout: 120_000 }, async () => {
     const directory = mkdtempSync(join(tmpdir(), "molibot-pi-room-review-"));
     let first: ChildProcess | undefined;
+    let parkedWorker: ChildProcess | undefined;
     let second: ChildProcess | undefined;
     try {
       // First boot: the run reaches the provider and the process is killed mid-request.
@@ -103,9 +107,18 @@ for (const scenario of scenarios) {
         `the interrupted run must have submitted exactly one provider request: ${JSON.stringify(firstMessages)}`);
 
       // Second boot: startup must park the run behind a Decision Request, not resend it.
+      const parkedMessages: WorkerMessage[] = [];
+      parkedWorker = spawnWorker("resolve", directory, { PI_ROOM_REVIEW_PORT: String(port), PI_ROOM_REVIEW_PARK_ONLY: "1" }, parkedMessages);
+      const initialReview = await waitForMessage(parkedWorker, parkedMessages, "parked", "the first parked report");
+      await once(parkedWorker, "exit");
+      assert.equal(parkedWorker.signalCode, "SIGKILL");
+      assert.equal(parkedMessages.filter(message => message.type === "request").length, 0);
+
+      // A restart during review must retain the same request and Room write ownership.
       const secondMessages: WorkerMessage[] = [];
       second = spawnWorker("resolve", directory, { PI_ROOM_REVIEW_PORT: String(port), PI_ROOM_REVIEW_DECISION: scenario.decision }, secondMessages);
       const parked = await waitForMessage(second, secondMessages, "parked", "the parked report");
+      assert.equal(parked.approvalId, initialReview.approvalId);
       assert.equal(secondMessages.filter((message) => message.type === "request").length, 0,
         "a parked run must not be resent before a person decides");
       assert.equal(parked.executionStatus, "waiting_approval");
@@ -120,6 +133,9 @@ for (const scenario of scenarios) {
       assert.equal(resolved.executionStatus, scenario.executionStatus, JSON.stringify(secondMessages));
       assert.equal(resolved.runStatus, scenario.runStatus);
       assert.equal(resolved.recordExists, scenario.recordExists);
+      assert.equal(resolved.approvalHttpStatus, 200);
+      assert.equal(resolved.repeatedApprovalHttpStatus, 400);
+      assert.equal(resolved.inactiveApprovalHttpStatus, 400);
       assert.equal(secondMessages.filter((message) => message.type === "request").length, scenario.resends,
         `approval must ${scenario.resends === 1 ? "" : "not "}resend the original request: ${JSON.stringify(secondMessages)}`);
 
@@ -127,7 +143,7 @@ for (const scenario of scenarios) {
       await exit;
       assert.equal(second.exitCode, 0);
     } finally {
-      for (const child of [first, second]) {
+      for (const child of [first, parkedWorker, second]) {
         if (child && child.exitCode === null && child.signalCode === null) {
           const exited = once(child, "exit");
           child.kill("SIGKILL");

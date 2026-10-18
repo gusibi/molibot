@@ -13,6 +13,12 @@ if (!dataDir?.includes("molibot-ui-pi-native-") || resolve(dataDir) !== storageP
 ensureStorageDirs();
 const oauth = await startFixture();
 const provider = await startModelService();
+provider.script({ name: "native-plan", when: request => request.tools.includes("exitPlan") && modelRequestMatchers(request).lastUserText.includes("issue65-plan"),
+  reply: { type: "toolCalls", calls: [{ name: "exitPlan", args: { title: "Issue65 Native Plan", summary: "Verify 31 isolated local fixture items.", steps: Array.from({ length: 31 }, (_, index) => `native-fixture-step ${index + 1}`) } }] } });
+provider.script({ name: "native-plan-step", when: request => modelRequestMatchers(request).lastUserText.includes("Current step: native-fixture-step"),
+  reply: { type: "text", text: "Verified the isolated local fixture item.", chunks: 2, delayMs: 300 } });
+provider.script({ name: "native-hold", when: request => modelRequestMatchers(request).lastUserText.includes("issue65-hold"),
+  reply: { type: "hold", key: "native-hold", text: "Waiting in the isolated native fixture." } });
 provider.script({ name: "native-approval", when: request => modelRequestMatchers(request).lastUserText.includes("approval fixture") && !modelRequestMatchers(request).afterToolResults,
   reply: { type: "toolCalls", calls: [{ name: "write", args: { label: "Native approval fixture", path: "native-approval.txt", content: "Verified isolated native approval" } }] } });
 provider.script({ name: "catch-all", reply: { type: "text", text: "OK" } });
@@ -33,6 +39,7 @@ mkdirSync(".test-tmp/pi", { recursive: true });
 writeFileSync(".test-tmp/pi/native-harness.json", JSON.stringify({ dataDir, frontend, oauthUrl: oauth.asUrl, mcpUrl: oauth.mcpUrl, pid: process.pid }));
 writeFileSync(".test-tmp/pi/native-config.json", JSON.stringify({ identifier: "dev.molibot.issue65-acceptance", productName: "Molibot Issue 65", build: { devUrl: frontend, beforeDevCommand: "" } }));
 console.log(JSON.stringify({ type: "ready", frontend, dataDir }));
+process.on("SIGUSR2", () => provider.release("native-hold"));
 const shutdown = async () => { vite.kill("SIGTERM"); await provider.close(); await oauth.close(); process.exit(0); };
 process.on("SIGTERM", () => { void shutdown(); });
 process.on("SIGINT", () => { void shutdown(); });

@@ -210,7 +210,7 @@ export function getRoomService(): RoomService {
       const current = roomPolicy(runtime.getSettings(), room, agent, e.mode);
       if (current.mode === "plan" || (e.approval?.permissionMode && isStricter(current, { mode: e.approval.permissionMode, source: "agent", executionTarget: "none" }))) throw new Error("Approval authority revoked by current restrictions");
     },
-    resolveApproval: (e, decision) => {
+    resolveApproval: (e, decision, live) => {
       if (!e.approvalId) throw new Error("Approval unavailable");
       const room = roomStore.get(e.roomId);
       const agent = runtime.getSettings().agents.find(a => a.id === e.agentId && a.enabled !== false);
@@ -219,6 +219,7 @@ export function getRoomService(): RoomService {
       if (roomPolicy(runtime.getSettings(), room, agent, e.mode).mode === "plan") throw new Error("Approval authority revoked by Plan mode");
       const broker = getApprovalBroker();
       const request = broker.getRequest(e.approvalId);
+      if (!live && (request?.capability !== "recovery_review" || request.runId !== e.id)) throw new Error("Approval is no longer live");
       if (request) {
         if (request.status !== "pending" || request.actorId !== e.agentId || request.sessionId !== e.contextId) throw new Error("Approval identity mismatch");
         broker.resolveRequest({ requestId: request.id, status: decision === "reject" ? "rejected" : "approved", selectedScope: "once" });

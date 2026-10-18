@@ -11,3 +11,12 @@ Base: 917fc272. Scope: issue #65 A/B; C stays deferred.
 6. Run verify:feature, full tests, type/build; review Standards/Spec; fix findings; commit current branch.
 
 Tests use the public API integration seam agreed in #50 and real isolated desktop flows. Temporary databases/local model fixtures only.
+
+## 2026-10-18 follow-up audit
+
+- Complete: verify the shipped A implementation and MCP pagination guard against current HEAD.
+- Complete: native plan and Room core paths, repeated interruption recovery, member lifecycle, bilingual/theme/minimum-window checks.
+- Complete: fix background test startup, Room recovery approval routing and repeated-review startup ownership; add regression evidence and synchronize documents.
+- Pending user authorization: native microphone recording. Issue #65 stays open; exact scope and limits are in validation-2026-10-18.md.
+
+The existing root planning files belong to other work and are preserved.

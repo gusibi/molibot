@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { mock } from "node:test";
 const root = mkdtempSync(join(tmpdir(), "molibot-plan-api-"));
 Object.assign(process.env, { DATA_DIR: root, DB_DIR: join(root, "db"), SETTINGS_DB_FILE: join(root, "settings.sqlite"), SETTINGS_FILE: join(root, "settings.json"), SESSIONS_DIR: join(root, "sessions"), SESSIONS_INDEX_FILE: join(root, "sessions", "index.json"), WEB_WORKSPACE_DIR: join(root, "web"), PI_CODING_AGENT_DIR: join(root, "pi"), MOLIBOT_DISABLE_EXTERNAL_CHANNELS: "1" });
 const { GET, POST } = await import("./+server.js");
 const { getRuntime } = await import("$lib/server/app/runtime.js");
 const { getDurableExecutionStore } = await import("$lib/server/agent/durable/store.js");
 const { config } = await import("$lib/server/app/env.js");
+const { DurableExecutionRuntime } = await import("$lib/server/agent/durable/runtime.js");
+const startWorker = mock.method(DurableExecutionRuntime.prototype, "start");
+const reconcileDeliveries = mock.method(DurableExecutionRuntime.prototype, "reconcilePlanDeliveries");
 assert.equal(config.dataDir, root);
 const { storageMigrationStatus, confirmStorageMigration } = await import("$lib/server/sessions/agentStorageLifecycle.js");
 if (storageMigrationStatus().needed) await confirmStorageMigration();
@@ -22,6 +25,11 @@ async function read(id: string) {
   const response = await GET({ url, request: new Request(url) } as Parameters<typeof GET>[0]);
   return response.json();
 }
+
+test("plan API bootstrap does not start background execution or delivery reconciliation under node:test", () => {
+  assert.equal(startWorker.mock.callCount(), 0);
+  assert.equal(reconcileDeliveries.mock.callCount(), 0);
+});
 
 test("public plan API saves 31 steps, previews a version, approves once into B Session and rejects stale decisions", async () => {
   const source = runtime.sessions.createWebConversation("web:personal:web-anonymous", undefined, "default");
@@ -64,4 +72,4 @@ test("event connection starts with a reload notification and observes committed 
   assert.equal((await read("event-plan")).item.meta.title, "Event");
 });
 
-test.after(() => { rmSync(root, { recursive: true, force: true }); });
+test.after(() => { mock.restoreAll(); rmSync(root, { recursive: true, force: true }); });

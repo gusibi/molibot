@@ -37,6 +37,10 @@ This is **Molipibot** — a multi-channel bot framework with a settings UI. See 
 
 ## Recurring Pitfalls
 
+- **后台执行器也必须遵守测试模式**：`getRuntime()` 可供 API 测试读取设置与存储，但 `liveServicesDisabled()` 为真时不能启动 Durable worker、租约维护或后台补投。否则批准后的计划会被没有渠道执行器的测试运行时提前消费，后台定时器还会阻止测试退出。守卫：`plans/server.test.ts` 的启动方法调用断言及原子批准后的排队状态断言；执行验收使用显式启动的隔离服务。
+
+- **恢复审核从真实用户入口验证**：重启后待审核的执行由持久化恢复记录持有，可能没有内存中的活跃 runner。审批入口须校验请求身份与恢复所有者，再交回共享恢复链；普通工具审批仍须有活跃执行器。守卫：`piRecovery.roomReview.test.ts` 通过 Room HTTP 入口验证批准、拒绝、重复点击及非活跃普通工具审批，不能以直接调用 Broker 的结果代替。
+
 - **工具检查点不授权整步重放**：并行调用的完成时间不能证明另一操作已有回执；即使某操作有回执，重新执行整步仍可能再次产生副作用。当前整步恢复必须检查全部 intent，不可幂等操作先核对外部状态或转人工。守卫：`durableHardening.test.ts` 的已完成调用与无关并行读取场景。
 - **租约维护不等待业务完成**：实例续期、过期孤儿回收和启动冲突重试独立于任务等待；认领只占实际空闲槽，单任务完成即可补位。回收不得抢走活跃 lease 或本 worker 在途认领，后台调度异常必须在所属层处理。守卫：`durableHardening.test.ts`、`wakeupWorker.test.ts`、`wakeupStore.test.ts`。
 
