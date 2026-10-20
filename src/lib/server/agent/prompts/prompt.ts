@@ -1,4 +1,5 @@
 import { isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
+import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -713,9 +714,7 @@ function resolveAgentIdForWorkspace(
 ): string {
   if (isAgentWorkspace(workspaceDir)) return basename(resolve(workspaceDir));
   if (!settings || !channel) return "";
-  const botId = basename(resolve(workspaceDir));
-  const instances = settings.channels?.[channel]?.instances ?? [];
-  return instances.find((instance) => instance.id === botId)?.agentId?.trim() ?? "";
+  return botAgentId(settings, channel, basename(resolve(workspaceDir))) ?? "";
 }
 
 export function buildSystemPrompt(

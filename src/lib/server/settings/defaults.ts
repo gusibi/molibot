@@ -496,6 +496,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   agents: defaultAgents,
   defaultAgentId: "default",
   deletedAgentIds: [],
+  pendingAgentDeletions: [],
   desktopNavigation: { expandedAgentIds: [], page: "agent", agentId: "", sessionId: "" },
   channels: {
     web: {

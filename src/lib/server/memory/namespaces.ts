@@ -28,6 +28,12 @@ export function contentNamespace(botId?: string): MemoryNamespace {
   return `content:${segment(botId, "default")}`;
 }
 
+function requireAgentId(scope: MemoryScope, reason: string): string {
+  const agentId = String(scope.agentId ?? "").trim();
+  if (!agentId) throw new Error(`Agent-scoped memory requires an Agent identity (${reason}).`);
+  return agentId;
+}
+
 export function namespaceForDomain(scope: MemoryScope, domain: MemoryDomain): MemoryNamespace {
   if (domain === "owner") return ownerNamespace(scope.ownerId);
   if (domain === "project") {
@@ -35,14 +41,17 @@ export function namespaceForDomain(scope: MemoryScope, domain: MemoryDomain): Me
     if (!project) throw new Error("Project memory requires projectId.");
     return project;
   }
-  if (domain === "agent_self") return agentNamespace(scope.agentId ?? scope.botId);
+  if (domain === "agent_self") return agentNamespace(requireAgentId(scope, "agent_self"));
   return contentNamespace(scope.botId);
 }
 
 export function promptMemoryNamespaces(scope: MemoryScope): MemoryNamespace[] {
   const result: MemoryNamespace[] = [];
   if (scope.shareOwner !== false) result.push(ownerNamespace(scope.ownerId));
-  result.push(chatNamespace(scope), agentNamespace(scope.agentId ?? scope.botId));
+  result.push(chatNamespace(scope));
+  // A Bot is not an Agent: without an Agent identity this scope has no
+  // `agent:` namespace at all, rather than sharing one named after the Bot.
+  if (String(scope.agentId ?? "").trim()) result.push(agentNamespace(scope.agentId));
   const project = projectNamespace(scope);
   if (project) result.push(project);
   return result;

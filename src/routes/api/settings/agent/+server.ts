@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { deleteAgent, listAgents, upsertAgent } from "$lib/server/settings/handlers/agents";
+import { AgentDeleteBlockedError, deleteAgent, listAgents, upsertAgent } from "$lib/server/settings/handlers/agents";
 
 export const GET: RequestHandler = async () => {
   try {
@@ -49,6 +49,7 @@ export const DELETE: RequestHandler = async ({ request }) => {
     deleteAgent(getRuntime(), id);
     return json({ ok: true });
   } catch (error: any) {
-    return json({ ok: false, error: error.message || String(error) }, { status: 400 });
+    const blockers = error instanceof AgentDeleteBlockedError ? error.blockers : undefined;
+    return json({ ok: false, error: error.message || String(error), ...(blockers ? { blockers } : {}) }, { status: 400 });
   }
 };

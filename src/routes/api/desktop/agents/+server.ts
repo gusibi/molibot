@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { buildDesktopAgentsSummary } from "$lib/server/app/desktopAgents";
-import { deleteAgent, upsertAgent } from "$lib/server/settings/handlers/agents";
+import { AgentDeleteBlockedError, deleteAgent, upsertAgent } from "$lib/server/settings/handlers/agents";
 import type { DesktopAgentSaveRequest, DesktopAgentsResponse } from "$lib/shared/desktop";
 
 export const GET: RequestHandler = async () => {
@@ -24,7 +24,8 @@ export const PUT: RequestHandler = async ({ request }) => {
     const updated = runtime.getSettings();
     return json({ ok: true, summary: buildDesktopAgentsSummary(updated) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    const blockers = error instanceof AgentDeleteBlockedError ? error.blockers : undefined;
+    return json({ ok: false, error: error instanceof Error ? error.message : String(error), ...(blockers ? { blockers } : {}) }, { status: 400 });
   }
 };
 

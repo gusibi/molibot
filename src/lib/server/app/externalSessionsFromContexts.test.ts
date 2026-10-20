@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   decodeExternalSessionId,
   encodeExternalSessionId,
+  claimExternalSessionAgent,
   listExternalSessionsFromContexts,
   readExternalTranscriptFromContexts
 } from "./externalSessionsFromContexts";
@@ -423,3 +424,26 @@ for (const outcome of ["stop", "error"]) {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 }
+
+test("claiming an external Session persists ownership without granting execution", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-claim-"));
+  try {
+    const dir = path.join(root, "sessions", "legacy_workspace", "contexts");
+    mkdirSync(dir, { recursive: true });
+    const source = { channel: "telegram" as const, botId: "mybot", chatId: "111" };
+    writeFileSync(path.join(dir, "default.meta.json"), JSON.stringify({ source }));
+    writeFileSync(path.join(dir, "default.jsonl"), [
+      JSON.stringify({ type: "session", version: 1, id: "default", timestamp: "2026-07-01T00:00:00.000Z" }),
+      JSON.stringify({ type: "message", id: "e0", parentId: null, timestamp: "2026-07-01T00:00:00.000Z", message: { role: "user", content: "hello" } })
+    ].join("\n") + "\n");
+    const id = encodeExternalSessionId({ ...source, sessionId: "default" });
+
+    assert.equal(claimExternalSessionAgent(root, id, "researcher").agentId, "researcher");
+    assert.equal(readExternalTranscriptFromContexts(root, id)?.conversation.agentId, "researcher");
+    assert.equal(claimExternalSessionAgent(root, id, "researcher").agentId, "researcher");
+    assert.throws(() => claimExternalSessionAgent(root, id, "writer"), /immutable/);
+    assert.equal(readExternalTranscriptFromContexts(root, id)?.conversation.agentId, "researcher");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

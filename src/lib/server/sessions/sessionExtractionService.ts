@@ -382,7 +382,7 @@ export class SessionExtractionService {
       const item = proposal as ExtractionMemoryProposal;
       let namespace: MemoryNamespace;
       try {
-        namespace = this.namespaceFor(item.domain, located.projectId, sessionBotId);
+        namespace = this.namespaceFor(item.domain, located.projectId, { agentId: located.agentId, botId: sessionBotId });
       } catch (error) {
         failureReasons.push(error instanceof Error ? error.message : String(error));
         continue;
@@ -550,7 +550,7 @@ export class SessionExtractionService {
   private locate(
     conversationId: string,
     requesterExternalUserId?: string
-  ): { channel: string; projectId: string | null; ownerExternalUserId: string | null } | null {
+  ): { channel: string; projectId: string | null; ownerExternalUserId: string | null; agentId?: string } | null {
     const id = String(conversationId ?? "").trim();
     if (!id) return null;
     const owner = this.sessions.getWebConversationOwner(id);
@@ -558,13 +558,13 @@ export class SessionExtractionService {
       if (requesterExternalUserId !== undefined && owner !== requesterExternalUserId) return null;
       const conversation = this.sessions.getConversationById(id, "web", owner);
       if (!conversation) return null;
-      return { channel: "web", projectId: null, ownerExternalUserId: owner };
+      return { channel: "web", projectId: null, ownerExternalUserId: owner, agentId: conversation.agentId };
     }
     const projectId = this.sessions.getConversationProjectId(id);
     if (projectId) {
       const conversation = this.sessions.getProjectConversation(projectId, id);
       if (!conversation) return null;
-      return { channel: "web", projectId, ownerExternalUserId: null };
+      return { channel: "web", projectId, ownerExternalUserId: null, agentId: conversation.agentId };
     }
     return null;
   }
@@ -573,7 +573,7 @@ export class SessionExtractionService {
     return buildExtractionRevision(this.sessions.listMessages(conversationId));
   }
 
-  private namespaceFor(domain: MemoryDomain, projectId: string | null, botId: string): MemoryNamespace {
+  private namespaceFor(domain: MemoryDomain, projectId: string | null, ids: { agentId?: string; botId: string }): MemoryNamespace {
     if (domain === "owner") return ownerNamespace(this.ownerId);
     // Project facts and decisions remain Project-scoped, never owner-scoped.
     if (domain === "project") {
@@ -582,8 +582,12 @@ export class SessionExtractionService {
       if (!namespace) throw new Error("Project-scoped facts require a Project session.");
       return namespace;
     }
-    if (domain === "agent_self") return agentNamespace(botId);
-    return contentNamespace(botId);
+    if (domain === "agent_self") {
+      const agentId = String(ids.agentId ?? "").trim();
+      if (!agentId) throw new Error("Agent self-knowledge requires an Agent identity, not a Bot.");
+      return agentNamespace(agentId);
+    }
+    return contentNamespace(ids.botId);
   }
 
   private checkProposal(proposal: unknown, projectId: string | null): string | null {

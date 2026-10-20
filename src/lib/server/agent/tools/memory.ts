@@ -108,7 +108,7 @@ export function createMemoryTool(options: {
         };
         const item = action === "add_content" ? await options.memory.addContentMemory(botId, input) : scope.agentId && !scope.projectId
           ? await options.memory.add(scope, { ...input, namespace: agentNamespace(scope.agentId), domain: "agent_self" })
-          : await options.memory.setAgentSelfMemory(botId, input);
+          : (() => { throw new Error("Agent self-knowledge requires an Agent identity and cannot be written from a Project or channel scope."); })();
         return { content: [{ type: "text", text: `Saved ${action}: ${item?.id ?? "(disabled)"}` }], details: { item } };
       }
 

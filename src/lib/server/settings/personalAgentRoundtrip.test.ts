@@ -20,6 +20,7 @@ test("Agent metadata, default and navigation round-trip without dropping unrelat
   const expected = sanitizeSettings({
     defaultAgentId: "researcher",
     deletedAgentIds: ["retired"],
+    pendingAgentDeletions: ["writer"],
     desktopNavigation: { expandedAgentIds: ["researcher"], page: "agent", agentId: "researcher", sessionId: "" },
     agents: [...current.agents, { id: "researcher", name: "Researcher", enabled: true, description: "Research", visible: false, avatar: "https://example.test/avatar.png", shareOwnerMemory: false }]
   }, current);
@@ -33,6 +34,7 @@ test("Agent metadata, default and navigation round-trip without dropping unrelat
   const actual = new SettingsStore().load();
   assert.equal(actual.defaultAgentId, "researcher");
   assert.deepEqual(actual.deletedAgentIds, ["retired"]);
+  assert.deepEqual(actual.pendingAgentDeletions, ["writer"]);
   assert.deepEqual(actual.desktopNavigation, expected.desktopNavigation);
   assert.deepEqual(actual.agents, expected.agents);
   assert.deepEqual(actual, expected);

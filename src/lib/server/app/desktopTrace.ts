@@ -1,4 +1,5 @@
 import { dateKeys, shiftDateKey } from "$lib/server/usage/timeWindow";
+import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import type { DesktopModelOutcomes } from "$lib/shared/desktop";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import type {
@@ -333,11 +334,10 @@ const RECENT_ACTIVITY_HISTORY_MS = 24 * 60 * 60_000;
 const RECENT_ACTIVITY_HISTORY_LIMIT = 8;
 
 export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: TraceFactRecord[], nowMs = Date.now()): DesktopAgentActivityItem[] {
-  const botDetails = new Map<string, { agentId: string; name: string }>();
+  const botDetails = new Map<string, { agentId?: string; name: string }>();
   for (const [channel, group] of Object.entries(settings.channels ?? {})) {
     for (const instance of group.instances ?? []) {
-      const agentId = String(instance.agentId ?? "").trim() || "default";
-      botDetails.set(`${channel}:${instance.id}`, { agentId, name: instance.name || instance.id });
+      botDetails.set(`${channel}:${instance.id}`, { agentId: botAgentId(settings, channel, instance.id), name: instance.name || instance.id });
     }
   }
 
@@ -377,7 +377,9 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
     const bot = botDetails.get(`${fact.channel}:${fact.botId}`);
     const agentId = typeof fact.payload.agentId === "string" && fact.payload.agentId.trim()
       ? fact.payload.agentId.trim()
-      : bot?.agentId ?? "default";
+      : bot?.agentId;
+    // A run on a Bot that no longer resolves to an Agent cannot be attributed.
+    if (!agentId) continue;
     const terminal = fact.status !== "started" && fact.status !== "waiting";
     const finishedAt = fact.finishedAt ?? fact.updatedAt;
     const referenceAt = terminal ? Date.parse(finishedAt) : latestUpdateByRun.get(fact.runId) ?? Date.parse(fact.updatedAt);

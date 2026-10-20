@@ -446,14 +446,6 @@ export class MemoryGateway {
     });
   }
 
-  async setAgentSelfMemory(botId: string, input: Omit<MemoryAddInput, "namespace" | "domain">): Promise<MemoryRecord | null> {
-    return this.add({ channel: "web", externalUserId: "agent-self", botId }, {
-      ...input,
-      namespace: agentNamespace(botId),
-      domain: "agent_self"
-    });
-  }
-
   async delete(scope: MemoryScope, id: string): Promise<boolean> {
     const authorized = this.authorizedAgentScope(scope);
     if (!authorized) return false;

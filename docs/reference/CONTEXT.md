@@ -33,6 +33,18 @@ _Avoid_: Isolated working copy, Agent private context, project-wide write lock
 The fixed assistant identity owning an ordinary Personal Agent conversation. It is distinct from an Agent Room's default recipient; Project conversations retain their existing behavior in V1.
 _Avoid_: Primary Agent, current Channel binding
 
+**Default Agent（默认 Agent）**:
+The enabled assistant selected for Desktop’s global New chat action. It is distinct from an existing Session’s fixed Agent and an Agent Room’s Primary Agent.
+_Avoid_: Session Agent, Primary Agent, Channel binding
+
+**Execution Identity（执行身份）**:
+The single Agent identity a request actually runs as, resolved from its admission mode and persisted ownership. It carries exactly one `agentId`; there is no separate channel or Bot identity.
+_Avoid_: Channel Agent, Bot identity, effective Agent
+
+**Claim（认领）**:
+The one-time operation that assigns ownership to an unassigned conversation. It changes which Agent’s history lists that conversation; it does not grant execution or make an external conversation continuable.
+_Avoid_: Adopt, import, migrate
+
 **Primary Agent**:
 The explicitly selected default participant in an Agent Room, addressed when a user message neither names target Agents nor replies to a participant's message. Addressing another participant does not change the Primary Agent.
 _Avoid_: Last speaker, coordinator, parent Agent
@@ -54,8 +66,16 @@ The fraction of a conversation's reported input tokens served by cache reads, ca
 _Avoid_: Average reply hit rate, cache savings, output-token ratio
 
 **Memory Namespace**:
-The authorization and ownership boundary of a durable memory. New user facts and preferences use `owner:<ownerId>`; project facts use `project:<ownerId>:<projectId>`; Agent self-knowledge uses `agent:<botId>`; published-content reference uses `content:<botId>`. `chat:<botId>:<channel>:<chatId>` is a conversation retrieval boundary, not the default home for durable personal memory.
+The authorization and ownership boundary of a durable memory. New user facts and preferences use `owner:<ownerId>`; project facts use `project:<ownerId>:<projectId>`; Personal Agent self-knowledge uses `agent:<agentId>`; published-content reference uses `content:<botId>`. `chat:<botId>:<channel>:<chatId>` is a conversation retrieval boundary, not the default home for durable personal memory.
 _Avoid_: Storage path, Session ID, memory type
+
+**Owner Memory（Owner 记忆）**:
+Durable user facts and preferences shared among authorized ordinary Agents of the same owner. A private conversation with one Agent does not by itself make those facts private to that Agent.
+_Avoid_: Agent self-knowledge, private conversation history
+
+**Agent Private Knowledge（Agent 私有知识）**:
+Knowledge about an Agent’s own identity and role, isolated by its stable identity. It does not imply support for privately retaining individual user facts for that Agent.
+_Avoid_: Owner memory, all facts learned in a private conversation
 
 **Turn Retention Policy**:
 One canonical policy attached to every entry produced by a user turn. `standard` allows future Agent Context, conversation search, and memory; `no_memory` allows context/search but forbids memory; `not_searchable` allows context but forbids both search and memory; `turn_only` keeps a visible audit transcript but forbids all three. Missing policy means `standard`.

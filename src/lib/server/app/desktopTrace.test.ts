@@ -184,6 +184,7 @@ test("buildDesktopTraceSummary filters, ranks, paginates, and strips all preview
 test("buildDesktopAgentActivity maps Bot run facts to Agents and expires terminal states", () => {
   const settings = {
     ...defaultRuntimeSettings,
+    agents: [...defaultRuntimeSettings.agents, { id: "agent-smart", name: "Smart", description: "", enabled: true }],
     channels: {
       feishu: { instances: [{ id: "smart-momo", name: "Smart Momo", enabled: true, credentials: {}, allowedChatIds: [], agentId: "agent-smart" }] }
     }
@@ -208,6 +209,7 @@ test("buildDesktopAgentActivity maps Bot run facts to Agents and expires termina
 test("buildDesktopAgentActivity preserves concurrent runs and 24h history without keeping the Agent visually busy", () => {
   const settings = {
     ...defaultRuntimeSettings,
+    agents: [...defaultRuntimeSettings.agents, { id: "agent-a", name: "Agent A", description: "", enabled: true }],
     channels: { web: { instances: [{ id: "worker", name: "Worker", enabled: true, credentials: {}, allowedChatIds: [], agentId: "agent-a" }] } }
   } as RuntimeSettings;
   const now = Date.parse("2026-07-12T12:00:20.000Z");
@@ -255,7 +257,7 @@ test("buildDesktopAgentActivity drops orphaned started runs after the runtime ti
 test("active run controls distinguish running, stuck, and orphan records", () => {
   const activeSettings = {
     ...defaultRuntimeSettings,
-    agents: [{ id: "smart", name: "Smart", description: "", enabled: true }],
+    agents: [{ id: "default", name: "Global", description: "", enabled: true }, { id: "smart", name: "Smart", description: "", enabled: true }],
     channels: { feishu: { instances: [{ id: "bot-1", name: "Research Bot", enabled: true, credentials: {}, allowedChatIds: [], agentId: "smart" }, { id: "global", name: "Global Bot", enabled: true, credentials: {}, allowedChatIds: [] }] } }
   } as RuntimeSettings;
   const activeFacts = [

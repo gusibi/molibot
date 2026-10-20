@@ -834,6 +834,8 @@ export interface RuntimeSettings {
   agents: AgentSettings[];
   defaultAgentId: string;
   deletedAgentIds: string[];
+  /** Agents whose deletion is archived but not yet tombstoned. Persisted so a restart resumes. */
+  pendingAgentDeletions: string[];
   desktopNavigation: DesktopNavigationSettings;
   channels: ChannelSettingsMap;
   mcpServers: McpServerConfig[];

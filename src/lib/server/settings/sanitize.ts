@@ -1665,6 +1665,9 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
   next.agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
   next.defaultAgentId = String(next.defaultAgentId ?? current.defaultAgentId ?? "default").trim();
   next.deletedAgentIds = Array.isArray(next.deletedAgentIds) ? [...new Set(next.deletedAgentIds.map(String))] : [];
+  next.pendingAgentDeletions = Array.isArray(next.pendingAgentDeletions)
+    ? [...new Set(next.pendingAgentDeletions.map(String))].filter(id => !next.deletedAgentIds.includes(id))
+    : [];
   if (!next.deletedAgentIds.includes(DEFAULT_AGENT_ID) && !next.agents.some(agent => agent.id === DEFAULT_AGENT_ID)) {
     next.agents.unshift(defaultAgentSettings());
   }

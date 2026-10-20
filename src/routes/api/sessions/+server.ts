@@ -1,4 +1,5 @@
 import { requireEnabledAgent } from "$lib/server/sessions/sessionAgentService.js";
+import { resolveExecutionIdentity } from "$lib/server/sessions/executionIdentity.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
@@ -48,10 +49,17 @@ export const POST: RequestHandler = async ({ request }) => {
   const profileId = sanitizeWebProfileId(body.profileId);
   const externalUserId = toWebExternalUserId(userId, profileId);
   const { sessions, getSettings } = getRuntime();
-  const agentId = body.agentId ?? getSettings().channels.web?.instances.find(item => item.id === profileId)?.agentId;
-  if (!agentId) return json({ ok: false, error: "Select an Agent" }, { status: 409 });
-  try { requireEnabledAgent(getSettings(), agentId); }
-  catch (cause) { return json({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }, { status: 409 }); }
+  let agentId: string;
+  try {
+    agentId = resolveExecutionIdentity(getSettings(), {
+      channel: "web",
+      botId: profileId,
+      assertedAgentId: body.agentId
+    }).agentId;
+    requireEnabledAgent(getSettings(), agentId);
+  } catch (cause) {
+    return json({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }, { status: 409 });
+  }
   const { conversation: session, reused } = sessions.getOrCreateEmptyWebConversation(externalUserId, agentId);
 
   return json({

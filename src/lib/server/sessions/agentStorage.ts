@@ -27,9 +27,12 @@ export function listAgentSessions(dataRoot: string, source?: Partial<SessionSour
     const ids = new Set(readdirSync(contextsDir).filter(file => /\.jsonl?$/.test(file) && !file.endsWith(".meta.json")).map(file => file.replace(/\.jsonl?$/, "")));
     for (const sessionId of ids) {
       const meta = readSessionMetadataFile(contextsDir, sessionId);
-      if (!meta?.source || meta.agentId !== agent.name) continue;
+      if (!meta?.source || !meta.agentId) continue;
+      // Ownership comes from the sidecar, not the physical directory: a claimed
+      // legacy Session keeps its files where they are but reports its new Agent.
+      const owner = String(meta.agentId);
       if (source && Object.entries(source).some(([key, value]) => value !== undefined && meta.source?.[key as keyof SessionSource] !== value)) continue;
-      out.push({ agentId: agent.name, sessionId, workspaceDir, contextsDir, source: meta.source });
+      out.push({ agentId: owner, sessionId, workspaceDir, contextsDir, source: meta.source });
     }
   }
   return out;
@@ -59,10 +62,10 @@ export function findAgentSession(dataRoot: string, sessionId: string, source?: P
     const workspaceDir = agentWorkspaceDir(dataRoot, agent.name);
     const contextsDir = join(workspaceDir, "contexts");
     const meta = readSessionMetadataFile(contextsDir, sessionId);
-    if (meta?.agentId !== agent.name || !meta.source) continue;
+    if (!meta?.agentId || !meta.source) continue;
     if (source && Object.entries(source).some(([key, value]) => value !== undefined && meta.source?.[key as keyof SessionSource] !== value)) continue;
     if (!existsSync(join(contextsDir, `${sessionId}.jsonl`)) && !existsSync(join(contextsDir, `${sessionId}.json`))) continue;
-    return { agentId: agent.name, sessionId, workspaceDir, contextsDir, source: meta.source };
+    return { agentId: String(meta.agentId), sessionId, workspaceDir, contextsDir, source: meta.source };
   }
   return undefined;
 }

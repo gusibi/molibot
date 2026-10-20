@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { LEGACY_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
+import { normalizeChannelAgentId } from "$lib/server/settings/schema.js";
 
 export interface MigrationBot {
   channel: string;
@@ -241,11 +242,11 @@ export class AgentStorageMigration {
         for (const botId of this.directories(bots)) {
           const bot = this.botFor(channel, botId);
           const botDir = join(bots, botId);
-          botScopes.push({ channel, botId, botDir, agentId: bot ? bot.agentId || "default" : undefined });
+          botScopes.push({ channel, botId, botDir, agentId: bot ? normalizeChannelAgentId(bot.agentId) : undefined });
           for (const chatId of this.directories(botDir)) {
             try {
               if (["skills", "events", "skill-drafts", "attachments", "scratch", "run-details"].includes(chatId)) continue;
-              chatScopes.push({ chatDir: join(botDir, chatId), agentId: bot ? bot.agentId || "default" : undefined });
+              chatScopes.push({ chatDir: join(botDir, chatId), agentId: bot ? normalizeChannelAgentId(bot.agentId) : undefined });
               const contexts = join(botDir, chatId, "contexts");
               this.checkPath(contexts);
               const legacyContext = join(botDir, chatId, "context.json");
@@ -281,7 +282,7 @@ export class AgentStorageMigration {
                   }
                   const identity = JSON.stringify(source);
                   const saved = previous?.sessions.find(item => JSON.stringify(item.source) === identity);
-                  const agentId = pinned ?? saved?.agentId ?? (bot ? bot.agentId || "default" : undefined);
+                  const agentId = pinned ?? saved?.agentId ?? (bot ? normalizeChannelAgentId(bot.agentId) : undefined);
                   if (!agentId || !this.ownership.agents.includes(agentId)) {
                     const message = `Unresolved Agent: ${relative(this.root, join(contexts, sessionId))}`;
                     conflicts.push(message);

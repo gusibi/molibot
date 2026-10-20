@@ -146,6 +146,7 @@ interface RawSettings {
   agents?: unknown;
   defaultAgentId?: string;
   deletedAgentIds?: string[];
+  pendingAgentDeletions?: string[];
   desktopNavigation?: unknown;
   channels?: unknown;
   telegramBotToken?: string;
@@ -1213,6 +1214,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     agents,
     defaultAgentId: String(raw.defaultAgentId ?? "default"),
     deletedAgentIds: Array.isArray(raw.deletedAgentIds) ? raw.deletedAgentIds.map(String) : [],
+    pendingAgentDeletions: Array.isArray(raw.pendingAgentDeletions) ? raw.pendingAgentDeletions.map(String) : [],
     desktopNavigation: sanitizeDesktopNavigation(raw.desktopNavigation),
     channels,
     mcpServers,
@@ -2015,6 +2017,7 @@ export class SettingsStore {
       timezone: settings.timezone,
       defaultAgentId: settings.defaultAgentId,
       deletedAgentIds: settings.deletedAgentIds,
+      pendingAgentDeletions: settings.pendingAgentDeletions,
       mcpServers: settings.mcpServers,
       openConnector: settings.openConnector,
       skillSearch: settings.skillSearch,

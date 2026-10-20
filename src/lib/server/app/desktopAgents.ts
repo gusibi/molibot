@@ -1,5 +1,5 @@
-import { sanitizeAgentModelRouting, type AgentSettings, type RuntimeSettings } from "$lib/server/settings/schema";
-import type { DesktopAgentItem, DesktopAgentsSummary, DesktopAgentSaveRequest } from "$lib/shared/desktop";
+import { type AgentSettings, type RuntimeSettings } from "$lib/server/settings/schema";
+import type { DesktopAgentItem, DesktopAgentsSummary } from "$lib/shared/desktop";
 
 const ROUTING_KEYS = ["textModelKey", "sttModelKey"] as const;
 
@@ -37,38 +37,6 @@ export function buildDesktopAgentItem(agent: AgentSettings): DesktopAgentItem {
       sttModelKey: agent.modelRouting?.sttModelKey ?? ""
     }
   };
-}
-
-export function saveDesktopAgent(settings: RuntimeSettings, request: DesktopAgentSaveRequest): AgentSettings[] {
-  const id = String(request.id ?? "").trim();
-  const previousId = String(request.previousId ?? "").trim();
-  if (!id) throw new Error("agentId is required");
-  if (previousId && previousId !== id) throw new Error("Agent ID is immutable");
-  if (settings.deletedAgentIds.includes(id)) throw new Error("Deleted Agent ID cannot be reused");
-  const agent: AgentSettings = {
-    id,
-    name: String(request.name ?? "").trim() || id,
-    description: String(request.description ?? "").trim(),
-    enabled: request.enabled !== false,
-    visible: request.visible !== false, avatar: request.avatar ?? "", shareOwnerMemory: request.shareOwnerMemory !== false,
-    disabledSkillPaths: request.disabledSkillPaths ?? [],
-    disabledTools: request.disabledTools ?? [],
-    permissionMode: request.permissionMode === null ? undefined : request.permissionMode,
-    modelRouting: sanitizeAgentModelRouting(request.modelRouting)
-  };
-  return [...settings.agents.filter((item) => item.id !== id && item.id !== previousId), agent];
-}
-
-export function deleteDesktopAgent(settings: RuntimeSettings, agentId: string): AgentSettings[] {
-  const id = String(agentId ?? "").trim();
-  if (!id) throw new Error("agentId is required");
-  if (settings.deletedAgentIds.includes(id)) throw new Error("Deleted Agent ID cannot be reused");
-  const referenced = Object.values(settings.channels ?? {}).some((channel) =>
-    Array.isArray(channel?.instances) && channel.instances.some((instance) => String(instance.agentId ?? "").trim() === id)
-  );
-  if (referenced) throw new Error("This agent is still linked to one or more channel instances.");
-  if (!settings.agents.some((agent) => agent.id === id)) throw new Error("Agent not found");
-  return settings.agents.filter((agent) => agent.id !== id);
 }
 
 export function buildDesktopAgentsSummary(settings: RuntimeSettings): DesktopAgentsSummary {

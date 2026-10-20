@@ -378,6 +378,10 @@ export class MemoryReflectionService {
 export function recommendedCandidateNamespace(target: ReflectionTarget, scope: ReflectionSourceScope, domain: MemoryCandidateCreateInput["domain"]): MemoryCandidateCreateInput["namespace"] {
   if (domain === "owner") return ownerNamespace(target.ownerId);
   if (domain === "project") return projectNamespace({ ...scope, ownerId: target.ownerId }) ?? chatNamespace(scope);
-  if (domain === "agent_self") return agentNamespace(target.agentId ?? scope.agentId ?? target.botId);
+  if (domain === "agent_self") {
+    const agentId = String(target.agentId ?? scope.agentId ?? "").trim();
+    if (!agentId) throw new Error("Agent-scoped reflection requires an Agent identity (agent_self).");
+    return agentNamespace(agentId);
+  }
   return contentNamespace(target.botId);
 }

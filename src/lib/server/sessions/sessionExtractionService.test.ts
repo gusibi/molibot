@@ -221,7 +221,7 @@ test("project fact stays project-scoped and never leaks to the owner namespace",
   assert.equal(sent.namespace, projectNamespace({ channel: "web", externalUserId: OWNER, ownerId: "owner", projectId: "proj-1" }));
 });
 
-test("S2: agent_self memories route to the session's BOT namespace, not the service default", async (t) => {
+test("S2: agent_self memories route to the session's Agent namespace, never the Bot", async (t) => {
   const fx = setup();
   t.after(() => fx.cleanup());
   const otherOwner = "web:work:web-anonymous";
@@ -242,8 +242,8 @@ test("S2: agent_self memories route to the session's BOT namespace, not the serv
   const two = await service.extract({ conversationId: second.id, requesterExternalUserId: otherOwner });
   assert.equal(one.status, "saved");
   assert.equal(two.status, "saved");
-  assert.equal(fx.gateway.createCalls[0]?.namespace, agentNamespace("personal"));
-  assert.equal(fx.gateway.createCalls[1]?.namespace, agentNamespace("work"));
+  assert.equal(fx.gateway.createCalls[0]?.namespace, agentNamespace("default"));
+  assert.equal(fx.gateway.createCalls[1]?.namespace, agentNamespace("default"));
   assert.equal(fx.extractionStore.get(first.id)?.botId, "personal");
   assert.equal(fx.extractionStore.get(second.id)?.botId, "work");
 });

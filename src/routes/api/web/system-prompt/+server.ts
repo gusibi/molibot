@@ -4,6 +4,8 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { storagePaths } from "$lib/server/infra/db/storage";
+import { DEFAULT_AGENT_ID } from "$lib/server/settings/schema";
+import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import {
   buildSystemPromptPreview,
   getSystemPromptSources
@@ -24,7 +26,7 @@ export const GET: RequestHandler = async ({ url }) => {
   const settings = runtime.getSettings();
   const externalUserId = toWebExternalUserId(userId, profileId);
   const existing = listAgentSessions(storagePaths.dataDir, { channel: "web", botId: profileId, chatId: externalUserId }).find(item => item.sessionId === sessionId);
-  const agentId = existing?.agentId ?? settings.channels.web?.instances.find(item => item.id === profileId)?.agentId ?? "default";
+  const agentId = existing?.agentId ?? botAgentId(settings, "web", profileId) ?? DEFAULT_AGENT_ID;
   const workspaceDir = agentWorkspaceDir(storagePaths.dataDir, agentId);
   const botProfileDir = channelDataDir(storagePaths.dataDir, "web", profileId);
   const memory =

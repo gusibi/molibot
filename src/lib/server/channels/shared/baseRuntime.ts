@@ -1,5 +1,7 @@
 import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
 import { admitStoredAgentSession } from "$lib/server/sessions/sessionAgentService.js";
+import { botAgentId, requireBotAgentId } from "$lib/server/sessions/executionIdentity.js";
+import { DEFAULT_AGENT_ID } from "$lib/server/settings/schema.js";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -105,9 +107,9 @@ export abstract class BaseChannelRuntime {
     this.updateSettings = init.updateSettings;
     this.workspaceDir = runtimeOptions?.workspaceDir ?? resolve(config.dataDir, init.defaultWorkspaceName);
     this.instanceId = runtimeOptions?.instanceId ?? "default";
-    this.store = new MomRuntimeStore(agentWorkspaceDir(config.dataDir, this.getSettings().channels[this.channelName]?.instances.find(bot => bot.id === this.instanceId)?.agentId || "default"), {
+    this.store = new MomRuntimeStore(agentWorkspaceDir(config.dataDir, this.boundAgentId()), {
       source: { channel: this.channelName, botId: this.instanceId },
-      getAgentId: () => this.getSettings().channels[this.channelName]?.instances.find(bot => bot.id === this.instanceId)?.agentId || "default"
+      getAgentId: () => this.boundAgentId()
     });
     this.sessions = init.sessionStore ?? new SessionStore();
 
@@ -245,8 +247,17 @@ export abstract class BaseChannelRuntime {
 
   protected getEventLeaseScope(scopeId: string): string {
     const sessionId = this.store.getActiveSession(scopeId);
-    const agentId = this.store.readSessionOrigin(scopeId, sessionId)?.agentId || this.getSettings().channels[this.channelName]?.instances.find(bot => bot.id === this.instanceId)?.agentId || "default";
+    const agentId = this.store.readSessionOrigin(scopeId, sessionId)?.agentId || this.boundAgentId();
     return `agent:${agentId}`;
+  }
+
+  /**
+   * Workspace/default Agent for this configured Bot. An unknown or invalid
+   * binding falls back to Momo so history reads keep working; execution
+   * admission uses `requireBotAgentId` and rejects instead.
+   */
+  protected boundAgentId(): string {
+    return botAgentId(this.getSettings(), this.channelName, this.instanceId) ?? DEFAULT_AGENT_ID;
   }
 
   /**
@@ -563,7 +574,7 @@ export abstract class BaseChannelRuntime {
     let sessionId = event.sessionId ?? this.resolveInboundSessionId(scopeId, event);
     const admissionTarget = this.runners.resolveTarget(scopeId, sessionId, event.projectId);
     if (!admissionTarget.project) {
-      const agentId = event.isEvent && event.agentId ? event.agentId : this.getSettings().channels[this.channelName]?.instances.find(instance => instance.id === this.instanceId)?.agentId || "default";
+      const agentId = event.isEvent && event.agentId ? event.agentId : requireBotAgentId(this.getSettings(), this.channelName, this.instanceId);
       sessionId = admitStoredAgentSession(this.eventStore(event), this.getSettings(), {
         chatId: scopeId, sessionId, explicit: Boolean(event.sessionId), agentId,
         recoveryRunId: event.runId, userId: event.userId, automation: event.isEvent && event.sessionMode === "fresh"

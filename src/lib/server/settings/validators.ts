@@ -9,7 +9,8 @@ export function validateAgentReferences(current: RuntimeSettings, patch: Partial
   const defaultAgentId = patch.defaultAgentId ?? current.defaultAgentId;
   if (defaultAgentId && !nextAgents.some(agent => agent.id === defaultAgentId && agent.enabled)) return "Select an enabled default Agent before disabling or deleting it.";
   const deleted = patch.deletedAgentIds ?? current.deletedAgentIds ?? [];
-  if (nextAgents.some(agent => deleted.includes(agent.id))) return "A deleted Agent ID cannot be reused.";
+  const pending = patch.pendingAgentDeletions ?? current.pendingAgentDeletions ?? [];
+  if (nextAgents.some(agent => deleted.includes(agent.id) || pending.includes(agent.id))) return "A deleted Agent ID cannot be reused.";
 
 
   for (const [channelKey, channel] of Object.entries(nextChannels ?? {})) {

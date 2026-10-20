@@ -1,6 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { getPiCatalogModels as getModels } from "$lib/server/providers/piRuntime.js";
 import { isKnownProvider, type RuntimeSettings, type CustomProviderConfig } from "$lib/server/settings/index.js";
+import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import { resolveBuiltInProviderDefaultModel } from "$lib/server/settings/modelSwitch.js";
 import {
   buildCustomProviderCompat
@@ -209,8 +210,7 @@ export function applyAgentModelRoutingOverride(
   botId: string,
   sessionAgentId?: string
 ): RuntimeSettings {
-  const instances = settings.channels?.[channel]?.instances ?? [];
-  const agentId = (sessionAgentId ?? instances.find((instance) => instance.id === botId)?.agentId ?? "").trim();
+  const agentId = (sessionAgentId ?? botAgentId(settings, channel, botId) ?? "").trim();
   if (!agentId) return settings;
   const override = settings.agents.find((agent) => agent.id === agentId)?.modelRouting;
   if (!override) return settings;

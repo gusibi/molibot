@@ -4,6 +4,8 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool";
 import { MomRuntimeStore } from "$lib/server/agent/session/store";
 import { storagePaths } from "$lib/server/infra/db/storage";
+import { DEFAULT_AGENT_ID } from "$lib/server/settings/schema";
+import { agentOfBot } from "$lib/server/sessions/executionIdentity.js";
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
@@ -43,7 +45,10 @@ export function getWebRuntimeContext(profileId: string): WebRuntimeContext {
   const existing = webRuntimes.get(key);
   if (existing) return existing;
 
-  const agentId = getRuntime().getSettings().channels.web?.instances.find(bot => bot.id === key)?.agentId || "default";
+  const binding = agentOfBot(getRuntime().getSettings(), "web", key);
+  if (binding.kind === "invalid") throw new Error(`Agent binding is invalid: web/${key} -> ${binding.agentId} (${binding.reason})`);
+  // A virtual profile has no configured Bot; it shares the default workspace.
+  const agentId = binding.kind === "unknown" ? DEFAULT_AGENT_ID : binding.agentId;
   const created = buildRuntimeContext(agentWorkspaceDir(storagePaths.dataDir, agentId), agentId, key);
   webRuntimes.set(key, created);
   return created;

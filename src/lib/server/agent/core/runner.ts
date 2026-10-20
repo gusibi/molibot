@@ -1,6 +1,6 @@
 import { nativeModelResult } from "$lib/server/agent/models/nativeModelResult.js";
 import { clearPiExtensionRunHost } from "$lib/server/plugins/piExtensions/runHost.js";
-import { requireEnabledAgent } from "$lib/server/sessions/sessionAgentService.js";
+import { matchesSuspendedRun, requireEnabledAgent } from "$lib/server/sessions/sessionAgentService.js";
 import { PiRecoveryStore } from "./piRecoveryStore.js";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
@@ -935,7 +935,7 @@ export class MomRunner implements RunnerLike {
     const nativeRecovery = recoveryStore.read(runId);
     recoveryStore.close();
     const savedSuspension = this.store.readLatestRuntimeEvent?.(this.chatId, "PI_APPROVAL_SUSPENDED", this.sessionId)?.details;
-    const recoveringSuspension = savedSuspension?.runId === runId && savedSuspension.userId === ctx.message.userId ? savedSuspension : undefined;
+    const recoveringSuspension = matchesSuspendedRun(savedSuspension, runId, ctx.message.userId) ? savedSuspension : undefined;
     if (this.runtimeIdentity?.agentId && !this.runtimeIdentity.roomId && !ctx.project && !nativeRecovery && !recoveringSuspension) requireEnabledAgent(this.getSettings(), this.runtimeIdentity.agentId);
     const turnRetention = nativeRecovery?.context.retention ?? recoveringSuspension?.retention as MomContext["retention"] ?? ctx.retention ?? classifyTurnRetention(ctx.message.text);
     const turnCapabilities = retentionCapabilities(turnRetention);

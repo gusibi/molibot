@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSettings, RuntimeSettings } from "$lib/server/settings/schema";
-import {
-  buildDesktopAgentItem,
-  buildDesktopAgentsSummary,
-  deleteDesktopAgent,
-  saveDesktopAgent
-} from "./desktopAgents";
+import { buildDesktopAgentItem, buildDesktopAgentsSummary } from "./desktopAgents";
 
 function agent(overrides: Partial<AgentSettings> = {}): AgentSettings {
   return {
@@ -68,27 +63,6 @@ test("buildDesktopAgentItem never leaks unprojected agent fields while exposing 
   assert.equal(item.modelRouting.textModelKey, "custom:secret-model-id");
   assert.equal(item.modelOverrides, 1);
   assert.equal(item.description, "ok to show");
-});
-
-test("saveDesktopAgent adds or replaces one normalized agent", () => {
-  const current = settings({ agents: [agent(), agent({ id: "other" })] });
-  const next = saveDesktopAgent(current, {
-    previousId: "default", id: "default", name: "Renamed", description: "Updated", enabled: false,
-    permissionMode: null, modelRouting: { textModelKey: "", sttModelKey: "stt:v1" }
-  });
-  assert.equal(next.length, 2);
-  assert.equal(next.find((item) => item.id === "default")?.name, "Renamed");
-  assert.equal(next.find((item) => item.id === "default")?.permissionMode, undefined);
-  assert.equal(next.find((item) => item.id === "default")?.modelRouting?.sttModelKey, "stt:v1");
-});
-
-test("deleteDesktopAgent rejects linked agents and removes unreferenced agents", () => {
-  const current = settings({
-    agents: [agent(), agent({ id: "other" })],
-    channels: { web: { instances: [{ id: "web", name: "Web", enabled: true, agentId: "default", credentials: {}, allowedChatIds: [] }] } }
-  });
-  assert.throws(() => deleteDesktopAgent(current, "default"), /still linked/);
-  assert.deepEqual(deleteDesktopAgent(current, "other").map((item) => item.id), ["default"]);
 });
 
 test("buildDesktopAgentsSummary counts total and enabled", () => {

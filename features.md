@@ -1,3 +1,15 @@
+## 2026-10-21 — Personal Agent 规则落地：身份解析、删除三态、认领与记忆范围
+
+按 [Personal Agent V1 规范](docs/requirements/personal-agent-experience-v1.md) 的 `PA-*` 规则实现第一批结构约束，未新增产品能力。
+
+- 新增唯一身份解析模块 `sessions/executionIdentity.ts`：`agentOfBot` 把“已配置 Bot 空绑定 / Bot 不存在 / 绑定到已删除或缺失 Agent”分开，`resolveExecutionIdentity` 统一产出 `new | pinned | recovery` 与 `reuse | create`。渠道运行时、Web runtime、会话创建、系统提示预览、定时任务、Trace 与活动视图、历史迁移全部改调它；`configuredSessionAgent`（零调用者）与 `app/desktopAgents.ts` 里一套未被路由使用的 save/delete 影子实现已删除。根因属于“同一条规则以同一内联表达式散落在多个入口”，机器守卫 `executionIdentity.test.ts` 扫描 `src/lib/server`、`src/routes`、`src/lib/shared`，禁止在解析模块之外直接读渠道绑定并兜底。
+- 删除改为持久化三态 `active → deleting → deleted`（`pendingAgentDeletions`）：先 `agentBlockers` 返回结构化的渠道/任务/运行/审批/Host Bash/未完成 Durable 对象，界面可直接列出；归档失败停在 `deleting`，重启后重试；后两步幂等。删除中的助手立即拒绝新对话与续聊（`requireEnabledAgent`）。
+- 外部会话认领真正落盘：`claimExternalSessionAgent` 写入 session 元数据并在重启后保持；`listAgentSessions` 改为信任元数据归属而不是目录名，认领后的历史仍可列出，且不授予执行权限。
+- 记忆范围禁止 Bot 冒充 Agent：`namespaceForDomain(agent_self)` 与 `promptMemoryNamespaces` 不再回退 `botId`，无 Agent 身份的范围不产生 `agent:` 命名空间；反思候选、Agent 自述工具与会话提炼同步改为按会话 Agent 归属，缺少身份时明确失败而不是写进 Bot 命名空间。
+- 设置新增 `pendingAgentDeletions` 并纳入 sanitize、序列化、ID 复用校验与整对象 round-trip 回归。
+
+验证：`executionIdentity` 契约与源码守卫、会话身份/关联/迁移/runtime、生命周期、设置 round-trip、记忆命名空间与 Gateway、外部会话、Trace/活动、提示词叠加、模型路由、渠道命令、恢复审批与会话提炼共 369 项定向用例通过；`pnpm test:desktop-chat` 324 项通过；`pnpm check` 通过。Trace/活动与提示词叠加用例的夹具补充了真实存在于设置中的 Agent（原先绑定到不存在的 Agent，按新规则应视为未分配），断言语义不变。未运行全量 `pnpm verify:feature`；原生 App、真实外部渠道与付费 Provider 未验收。剩余：PA-I6 启动核对、PA-U 客户端身份收口。PA-H4 已补显式断言。`agent/core/runner.test.ts` 与 `piRecovery.continuity` 为长时程集成用例，本次未执行。
+
 ## 2026-10-20 — 桌面思考实时展开，回答时折叠
 
 Chat 与 Project Chat 将模型实际返回的思考集中展示，思考时自动展开，正文开始输出后折叠，支持手动展开；后续正文增量不重复折叠。历史与停止后的思考默认折叠，工具详情保持独立，不重复展示思考。思考区使用透明披露，支持中英、明暗主题和窄窗口；没有思考内容时不显示空区域。
@@ -890,7 +902,7 @@ Desktop 以 Agent 为普通对话入口，默认 Agent 始终置顶并标记，�
 
 共享 Session 存储支持普通会话持久化稳定的 `agentId`。显式提供 Agent 的创建和复用按归属隔离；指定已存在会话且归属不一致时拒绝。未分配的本地 Web 历史可由所属 owner 显式认领，重复认领幂等且不改变活跃时间，不能改绑已有归属。Project 会话不保存该字段，也不参与校验和认领。
 
-当前仅完成存储契约，生产发送入口尚未接入，不能据此认定真实执行身份、外部渠道改绑或 Desktop 导航已完成。后续范围见 [实施规格](docs/requirements/personal-agent-desktop-v1-spec.md)。临时目录的相关 Session 回归 35 项通过，类型检查和服务端构建通过；标准与规格审查发现的 Project 查询边界已修正。后端完整测试 2508 通过、5 失败、1 跳过，失败均在独立 HEAD 基线复现，完整测试并非全绿。
+当前仅完成存储契约，生产发送入口尚未接入，不能据此认定真实执行身份、外部渠道改绑或 Desktop 导航已完成。后续范围见 [需求文档](docs/requirements/personal-agent-experience-v1.md)。临时目录的相关 Session 回归 35 项通过，类型检查和服务端构建通过；标准与规格审查发现的 Project 查询边界已修正。后端完整测试 2508 通过、5 失败、1 跳过，失败均在独立 HEAD 基线复现，完整测试并非全绿。
 
 ## 2026-10-08 — 构建与类型检查分离
 

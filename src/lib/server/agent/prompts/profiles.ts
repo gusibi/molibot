@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_AGENT_ID } from "$lib/server/settings/schema.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import agentsTemplate from "./templates/AGENTS.template.md?raw";
 import bootstrapTemplate from "./templates/BOOTSTRAP.template.md?raw";
@@ -199,8 +200,7 @@ export function readBotFiles(channel: string, botId: string): Record<BotProfileF
 
 export function getAgentForBot(settings: RuntimeSettings | undefined, channel: string, botId: string): string {
   if (!settings) return "";
-  const instances = settings.channels?.[channel]?.instances ?? [];
-  return instances.find((instance) => instance.id === botId)?.agentId?.trim() ?? "";
+  return botAgentId(settings, channel, botId) ?? "";
 }
 
 export function validateProfileWriteRequest(params: {

@@ -1,4 +1,5 @@
 import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
+import { requireBotAgentId } from "$lib/server/sessions/executionIdentity.js";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { json } from "@sveltejs/kit";
@@ -447,7 +448,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     const instance = getRuntime().getSettings().channels[channel]?.instances.find(item => item.id === botId);
     if (!instance || instance.enabled === false || !chatId) return json({ ok: false, error: "invalid task target" }, { status: 400 });
-    const agentId = instance.agentId || "default";
+    const agentId = requireBotAgentId(getRuntime().getSettings(), channel, botId);
     const eventsDir = join(agentWorkspaceDir(config.dataDir, agentId), "events");
     mkdirSync(eventsDir, { recursive: true });
     const now = Date.now();

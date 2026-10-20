@@ -1,4 +1,5 @@
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
+import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import type { DesktopActiveRunItem } from "$lib/shared/desktop";
 
@@ -18,12 +19,12 @@ export function buildDesktopActiveRuns(
   nowMs = Date.now()
 ): DesktopActiveRunItem[] {
   const live = new Set(snapshots.map((item) => `${item.channel}\0${item.botId}\0${item.chatId}\0${item.sessionId}`));
-  const botDetails = new Map<string, { name: string; agentId: string }>();
+  const botDetails = new Map<string, { name: string; agentId?: string }>();
   for (const [channel, group] of Object.entries(settings.channels ?? {})) {
     for (const instance of group.instances ?? []) {
       botDetails.set(`${channel}\0${instance.id}`, {
         name: instance.name || instance.id,
-        agentId: String(instance.agentId ?? "").trim() || "default"
+        agentId: botAgentId(settings, channel, instance.id)
       });
     }
   }
@@ -34,18 +35,18 @@ export function buildDesktopActiveRuns(
     .filter((fact) => fact.factType === "run" && (fact.status === "started" || fact.status === "waiting"))
     .map((fact) => {
       const botId = fact.botId || "";
-      const bot = botDetails.get(`${fact.channel}\0${botId}`);
-      const agentId = bot?.agentId || "default";
+      const botInfo = botDetails.get(`${fact.channel}\0${botId}`);
+      const agentId = botInfo?.agentId ?? "";
       const startedAt = fact.startedAt || fact.createdAt;
       const durationMs = Math.max(0, nowMs - Date.parse(startedAt));
       const isLive = live.has(`${fact.channel}\0${botId}\0${fact.chatId}\0${fact.sessionId}`);
       return {
         runId: fact.runId,
         agentId,
-        agentName: agentNames.get(agentId) || agentId,
+        agentName: agentNames.get(agentId) || (agentId || botInfo?.name || "unknown"),
         channel: fact.channel,
         botId,
-        botName: bot?.name || botId || "unknown",
+        botName: botInfo?.name || botId || "unknown",
         chatId: fact.chatId,
         sessionId: fact.sessionId,
         status: isLive ? (durationMs >= STUCK_AFTER_MS ? "stuck" as const : "running" as const) : "orphan" as const,

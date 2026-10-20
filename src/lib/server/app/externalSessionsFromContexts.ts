@@ -2,7 +2,7 @@ import { decodePiToolDetails } from "$lib/server/agent/durable/piToolResult.js";
 import { resolveAgentFileReference } from "$lib/server/sessions/agentFileReferences.js";
 import { listAgentSessions } from "$lib/server/sessions/agentStorage.js";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { parseSessionEntries } from "$lib/server/agent/session/session.js";
 import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
@@ -14,6 +14,7 @@ import {
   messageContent,
   readSessionMetadataFile,
   writeSessionDisplayMetadata,
+  writeSessionOriginMetadata,
   type SessionDisplayMetadata
 } from "$lib/server/agent/session/metadata.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
@@ -484,9 +485,11 @@ export function readExternalTranscriptFromContexts(
   if (!ref) return null;
   const dir = channelDir(ref.channel);
   if (!dir) return null;
-  const location = listAgentSessions(dataRoot, { channel: ref.channel, botId: ref.botId, chatId: ref.chatId }).find(item => item.sessionId === ref.sessionId);
+  const location = listAgentSessions(dataRoot, { channel: ref.channel, botId: ref.botId, chatId: ref.chatId }).find(item => item.sessionId === ref.sessionId)
+    ?? findContextSession(dataRoot, ref);
   if (!location) return null;
-  const { workspaceDir, contextsDir } = location;
+  const contextsDir = location.contextsDir;
+  const workspaceDir = location.workspaceDir ?? dirname(contextsDir);
   const file = join(contextsDir, `${ref.sessionId}.jsonl`);
   if (!existsSync(file)) return null;
   const entries = readEntries(contextsDir, ref.sessionId, 16 * 1024 * 1024);
@@ -500,10 +503,35 @@ export function readExternalTranscriptFromContexts(
 export function claimExternalSessionAgent(dataRoot: string, id: string, agentId: string): Conversation {
   const ref = decodeExternalSessionId(id);
   const transcript = readExternalTranscriptFromContexts(dataRoot, id);
-  const dir = ref ? channelDir(ref.channel) : null;
-  if (!ref || !dir || !transcript) throw new Error("External Session not found");
+  if (!ref || !transcript) throw new Error("External Session not found");
   if (transcript.conversation.projectId) throw new Error("Project ownership is separate");
-  if (transcript.conversation.agentId && transcript.conversation.agentId !== agentId) throw new Error("Session Agent is immutable");
-  if (transcript.conversation.agentId !== agentId) throw new Error("Session Agent is immutable");
-  return { ...transcript.conversation, agentId };
+  const target = String(agentId ?? "").trim();
+  if (!target) throw new Error("agentId is required");
+  if (transcript.conversation.agentId && transcript.conversation.agentId !== target) throw new Error("Session Agent is immutable");
+  if (transcript.conversation.agentId !== target) {
+    const location = findContextSession(dataRoot, ref);
+    if (!location) throw new Error("External Session not found");
+    writeSessionOriginMetadata(location.contextsDir, ref.sessionId, { agentId: target });
+  }
+  return { ...transcript.conversation, agentId: target };
+}
+
+/**
+ * Locates a Session under the physical Agent workspaces without requiring that
+ * ownership already exists; an unassigned legacy Session has a `source` but no
+ * `agentId`, so `listAgentSessions` deliberately skips it.
+ */
+function findContextSession(dataRoot: string, ref: ExternalSessionRef): { contextsDir: string; workspaceDir?: string } | undefined {
+  const base = join(resolve(dataRoot), "sessions");
+  if (!existsSync(base)) return undefined;
+  for (const dir of readdirSync(base, { withFileTypes: true })) {
+    if (!dir.isDirectory()) continue;
+    const contextsDir = join(base, dir.name, "contexts");
+    if (!existsSync(contextsDir)) continue;
+    if (!existsSync(join(contextsDir, `${ref.sessionId}.jsonl`)) && !existsSync(join(contextsDir, `${ref.sessionId}.json`))) continue;
+    const meta = readSessionMetadataFile(contextsDir, ref.sessionId);
+    if (meta?.source?.channel !== ref.channel || meta.source.botId !== ref.botId || meta.source.chatId !== ref.chatId) continue;
+    return { contextsDir, workspaceDir: join(base, dir.name) };
+  }
+  return undefined;
 }

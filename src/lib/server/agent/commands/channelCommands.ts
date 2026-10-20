@@ -9,6 +9,7 @@ import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashStore } fro
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume.js";
+import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import type { ApprovalRequest, ApprovalScope } from "$lib/server/approval/approvalTypes.js";
 import {
   buildModelOptions,
@@ -2634,8 +2635,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
   /** Agent id bound to this command's bot instance, or "" when none is linked. */
   private resolveBoundAgentId(settings: RuntimeSettings): string {
-    const instances = settings.channels?.[this.options.channel]?.instances ?? [];
-    return (instances.find((instance) => instance.id === this.options.instanceId)?.agentId ?? "").trim();
+    return botAgentId(settings, this.options.channel, this.options.instanceId) ?? "";
   }
 
   /**

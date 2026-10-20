@@ -444,6 +444,7 @@ test("bot BOT.md stacks with linked agent AGENTS.md while identity files still o
       channel: "feishu",
       settings: {
         ...defaultRuntimeSettings,
+        agents: [...defaultRuntimeSettings.agents, { id: "agent-smart-momo", name: "Smart Momo", description: "", enabled: true }],
         channels: {
           ...defaultRuntimeSettings.channels,
           feishu: {
