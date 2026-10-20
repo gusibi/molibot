@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
-import { createModels, createAssistantMessageEventStream, type SimpleStreamOptions, type AssistantMessage, type AssistantMessageEvent, type ImageContent, type Message, type Model } from "@earendil-works/pi-ai";
+import { createModels, createAssistantMessageEventStream, type SimpleStreamOptions, type AssistantMessage, type ImageContent, type Message, type Model } from "@earendil-works/pi-ai";
 import type { AgentOptions, AgentState, AgentEvent, AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import type { AgentEvent as PiEvent, ModelRef } from "@earendil-works/pi-durable";
 import { PiConversationRuntime, type PiConversationOptions } from "$lib/server/agent/durable/piConversation.js";
@@ -391,13 +391,34 @@ export class PiRunSession {
   clearAllQueues(): void { this.transient = []; this.queued = []; }
   abort(): void { this.accepting = false; this.controller.abort(); void this.runtime?.abort().catch(() => undefined); }
 
+  /** Durable updates may contain whole blocks instead of individual token deltas. */
+  private async forwardTextChanges(previous: AssistantMessage["content"]): Promise<void> {
+    if (!this.partial) return;
+    for (const [contentIndex, block] of this.partial.content.entries()) {
+      if (block.type !== "text" && block.type !== "thinking") continue;
+      const old = previous[contentIndex];
+      const content = block.type === "text" ? block.text : block.thinking;
+      const before = old?.type === "text" && block.type === "text" ? old.text
+        : old?.type === "thinking" && block.type === "thinking" ? old.thinking : "";
+      if (old?.type !== block.type) {
+        await this.emit({ type: "message_update", message: this.partial,
+          assistantMessageEvent: { type: block.type === "text" ? "text_start" : "thinking_start", contentIndex, partial: this.partial } });
+      }
+      const delta = content.startsWith(before) ? content.slice(before.length) : "";
+      if (delta) await this.emit({ type: "message_update", message: this.partial,
+        assistantMessageEvent: { type: block.type === "text" ? "text_delta" : "thinking_delta", contentIndex, delta, partial: this.partial } });
+    }
+  }
+
   private async nativeEvent(event: PiEvent): Promise<void> {
     if (event.type === "deferred_poll" || (event.type === "snapshot" && event.generation?.deferred)) {
       this.hasDeferred = true;
       await this.binding?.onDeferred?.(event.type === "deferred_poll" ? event.pollAt : event.generation!.deferred!.pollAt, await this.runtime?.generationTaskId());
     } else if (event.type === "message_start" && event.message.role === "assistant") {
       this.partial = structuredClone(event.message); await this.emit({ type: "message_start", message: this.partial });
+      await this.forwardTextChanges([]);
     } else if (event.type === "message_update" && this.partial) {
+      const previous = this.partial.content.map(block => ({ ...block }));
       this.partial.usage = event.usage;
       for (const change of event.changes) {
         if (change.type === "message") this.partial = structuredClone(change.message);
@@ -406,10 +427,9 @@ export class PiRunSession {
           const block = this.partial.content[change.contentIndex];
           if (change.type === "text_delta" && block?.type === "text") block.text += change.delta;
           if (change.type === "thinking_delta" && block?.type === "thinking") block.thinking += change.delta;
-          const assistantMessageEvent: AssistantMessageEvent = { ...change, partial: this.partial };
-          await this.emit({ type: "message_update", message: this.partial, assistantMessageEvent });
         }
       }
+      await this.forwardTextChanges(previous);
     } else if (event.type === "tool_execution_start") { this.toolArgs.set(event.toolCallId, event.args); await this.emit(event); }
     else if (event.type === "tool_execution_update") {
       const text = event.output && ("set" in event.output ? event.output.set : event.output.append);

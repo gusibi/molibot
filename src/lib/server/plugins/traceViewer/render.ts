@@ -21,6 +21,16 @@ export function renderTraceReport(report: TraceReport, language: "zh" | "en" = "
     insufficient_context: "决策上下文不足"
   } as Record<string, string>)[value] ?? value : value.replaceAll("_", " ")) : undefined;
   const duration = (value?: number) => value === undefined ? text.missing : `${(value / 1000).toFixed(2)} s`;
+  // The report renders on the same machine that serves the app, so local wall
+  // time is the user's time; published snapshots freeze it at publish time.
+  const formatStamp = (value?: string) => {
+    if (!value) return undefined;
+    const time = Date.parse(value);
+    if (Number.isNaN(time)) return value;
+    const at = new Date(time);
+    const pad = (part: number) => String(part).padStart(2, "0");
+    return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+  };
   const base = Date.parse(report.startedAt ?? report.generatedAt);
   const span = Math.max(report.durationMs ?? 0, 1);
   // A node that never finished only has a live duration while the run is still
@@ -44,13 +54,15 @@ export function renderTraceReport(report: TraceReport, language: "zh" | "en" = "
     const width = known ? Math.min(100 - offset, Math.max(.3, (end - start) / span * 100)) : 0;
     const isDecision = node.factType === "runtime_notice" && node.name === "decision_model.thinking_level";
     const decisionLabel = zh ? "决策模型" : "Decision model";
+    const kicker = isDecision ? decisionLabel : label(node.factType);
     const name = isDecision
       ? `${decisionLabel} · ${node.decisionStatus === "skipped" ? (zh ? "已跳过" : "Skipped") : thinkingLevel(node.thinkingLevel) ?? text.missing}`
       : node.factType === "model_call" && node.thinkingLevel
-        ? `${node.name ?? label(node.factType)} · ${thinkingLevel(node.thinkingLevel)}`
-        : node.factType === "run" ? label("run") : node.name ?? label(node.factType);
-    const fields = [[text.started, node.startedAt], [text.finished, node.finishedAt], [text.input, node.inputTokens], [text.output, node.outputTokens], [text.read, node.cacheReadTokens], [text.write, node.cacheWriteTokens], [text.attempt, node.attemptIndex], [text.candidate, node.candidateIndex], ["Provider", node.provider], ...(isDecision ? [[zh ? "决策模型" : "Decision model", node.decisionModel], [zh ? "决策结果" : "Decision result", thinkingLevel(node.thinkingLevel)], [zh ? "原因" : "Reason", decisionReason(node.fallbackReason)]] : [])];
-    return `<details><summary><span class="name" style="padding-inline-start:${Math.min(depth, 8) * 12}px"><small>${escape(isDecision ? decisionLabel : label(node.factType))}</small><strong>${escape(name)}</strong></span><span class="track"><i class="${escape(node.factType)}" style="margin-left:${offset}%;width:${width}%"></i></span><span class="metric">${escape(duration(node.durationMs ?? (known ? end - start : undefined)))}<small>${escape(label(node.status))}</small></span></summary><section><dl>${fields.filter(([, value]) => value !== undefined).map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}${node.factType === "model_call" ? `<div><dt>Tokens</dt><dd>${escape(node.totalTokens ?? text.missing)}</dd></div>` : ""}</dl>${[[text.args, node.argsPreview], [text.result, node.resultPreview], [text.error, node.errorPreview]].filter(([, value]) => value).map(([key, value]) => `<h3>${escape(key)}</h3><pre>${escape(value)}</pre>`).join("")}</section></details>`;
+        ? `${node.name ?? kicker} · ${thinkingLevel(node.thinkingLevel)}`
+        // A run node's raw name is the session id; the row reads as the run itself.
+        : node.factType === "run" ? kicker : node.name ?? kicker;
+    const fields = [[text.started, formatStamp(node.startedAt)], [text.finished, formatStamp(node.finishedAt)], [text.input, node.inputTokens], [text.output, node.outputTokens], [text.read, node.cacheReadTokens], [text.write, node.cacheWriteTokens], [text.attempt, node.attemptIndex], [text.candidate, node.candidateIndex], ["Provider", node.provider], ...(isDecision ? [[zh ? "决策模型" : "Decision model", node.decisionModel], [zh ? "决策结果" : "Decision result", thinkingLevel(node.thinkingLevel)], [zh ? "原因" : "Reason", decisionReason(node.fallbackReason)]] : [])];
+    return `<details><summary><span class="name" style="padding-inline-start:${Math.min(depth, 8) * 12}px">${kicker === name ? "" : `<small>${escape(kicker)}</small>`}<strong>${escape(name)}</strong></span><span class="track"><i class="${escape(node.factType)}" style="margin-left:${offset}%;width:${width}%"></i></span><span class="metric">${escape(duration(node.durationMs ?? (known ? end - start : undefined)))}<small>${escape(label(node.status))}</small></span></summary><section><dl>${fields.filter(([, value]) => value !== undefined).map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}${node.factType === "model_call" ? `<div><dt>Tokens</dt><dd>${escape(node.totalTokens ?? text.missing)}</dd></div>` : ""}</dl>${[[text.args, node.argsPreview], [text.result, node.resultPreview], [text.error, node.errorPreview]].filter(([, value]) => value).map(([key, value]) => `<h3>${escape(key)}</h3><pre>${escape(value)}</pre>`).join("")}</section></details>`;
   }).join("");
   return `<!doctype html><html lang="${language}" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${text.title}</title><style>
 :root{color-scheme:light;
@@ -103,5 +115,5 @@ summary{grid-template-columns:40% 1fr 72px;gap:6px}
 .axis{margin-left:40%;margin-right:74px}
 dl{grid-template-columns:1fr 1fr}
 }
-</style></head><body><main><header><h1>${text.title}</h1><p>${escape(report.runId)} · ${escape(label(report.status))}</p></header><div class="stats">${[[text.duration, duration(report.durationMs)], [text.models, report.modelCalls], [text.tools, report.toolCalls], ["Tokens", `${report.totalTokens ?? text.missing}${report.usageComplete ? "" : ` · ${text.partial}`}`]].map(([key, value]) => `<div><small>${escape(key)}</small><strong>${escape(value)}</strong></div>`).join("")}</div><p class="hint">${text.hint}</p><div class="axis"><span>0 s</span><span>${escape(duration(report.durationMs))}</span></div>${rows}<footer>${text.snapshot} ${escape(report.generatedAt)}</footer></main></body></html>`;
+</style></head><body><main><header><h1>${text.title}</h1><p>${escape(report.runId)} · ${escape(label(report.status))}</p></header><div class="stats">${[[text.duration, duration(report.durationMs)], [text.models, report.modelCalls], [text.tools, report.toolCalls], ["Tokens", `${report.totalTokens ?? text.missing}${report.usageComplete ? "" : ` · ${text.partial}`}`]].map(([key, value]) => `<div><small>${escape(key)}</small><strong>${escape(value)}</strong></div>`).join("")}</div><p class="hint">${text.hint}</p><div class="axis"><span>0 s</span><span>${escape(duration(report.durationMs))}</span></div>${rows}<footer>${text.snapshot} ${escape(formatStamp(report.generatedAt))}</footer></main></body></html>`;
 }

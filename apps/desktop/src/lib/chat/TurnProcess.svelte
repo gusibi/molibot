@@ -10,11 +10,13 @@
   import { finalizeTranscriptActivities, transcriptProcessSummary } from "./transcript";
   import { formatDuration } from "../presentation";
   import ProcessTimeline from "./ProcessTimeline.svelte";
+  import ThinkingCard from "./ThinkingCard.svelte";
 
   export let blocks: TranscriptProcessBlock[];
   export let copy: Translation;
   export let stateKey: string;
   export let live = false;
+  export let responding = false;
   export let failed = false;
   export let onOpenPath: ((path: string, mutates: boolean) => void) | null = null;
   export let endpoint = "";
@@ -31,16 +33,22 @@
   $: liveDuration = presentation.startedAt === undefined ? 0 : Math.max(0, now - presentation.startedAt);
   $: summary = transcriptProcessSummary(blocks);
   $: isFailed = failed || (summary.interrupted && !live);
+  $: thinkingText = blocks.flatMap(block => block.kind === "thinking" ? [block.content] : []).join("\n\n");
+  $: executionBlocks = blocks.filter(block => block.kind !== "thinking");
   $: displayBlocks = live
-    ? blocks
-    : blocks.map((block) => block.kind === "activities"
+    ? executionBlocks
+    : executionBlocks.map((block) => block.kind === "activities"
       ? { ...block, activities: finalizeTranscriptActivities(block.activities) ?? [] }
       : block);
 
   const durationLabel = formatDuration;
 </script>
 
-{#if live}
+{#if thinkingText.trim()}
+  <ThinkingCard text={thinkingText} label={copy.thinking} thinking={live && !responding} />
+{/if}
+
+{#if live && !responding}
   <div class="turn-process-overview">
     {#each presentation.commentary as block (block.id)}
       <ChatMarkdown {resolveImage} source={block.content} {copy} {endpoint} className="turn-progress-commentary markdown-body" contentKey={`${stateKey}-progress-${block.id}`} />
@@ -53,6 +61,7 @@
   </div>
 {/if}
 
+{#if displayBlocks.length}
 <details class="turn-process" bind:open={opened} data-state={live ? "live" : isFailed ? "error" : "complete"}>
   <summary class="turn-process-summary">
     {#if live}
@@ -76,3 +85,4 @@
     </div>
   {/if}
 </details>
+{/if}

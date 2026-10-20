@@ -3395,19 +3395,15 @@ a:focus-visible {
 /* Shell output keeps its columns: alignment is the content in a terminal. */
 .run-activity-item pre.run-activity-terminal { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
 .thinking-card {
-  max-width: 100%;
-  padding: 6px 12px 8px;
-  border: 1px solid var(--separator);
-  border-radius: var(--rounded-sm);
-  background: var(--glass-surface-bg);
-  backdrop-filter: var(--glass-surface-filter);
-  -webkit-backdrop-filter: var(--glass-surface-filter);
-  box-shadow: var(--glass-chip-shadow), var(--glass-edge);
+  width: min(100%, 680px);
+  min-width: 0;
+  padding: 6px 0 8px;
+  background: transparent;
   color: var(--label-secondary);
   font-size: var(--fs-label);
 }
 .thinking-card summary { width: fit-content; cursor: pointer; color: var(--label-tertiary); font-weight: 500; }
-.thinking-card pre { margin: 8px 0 2px; padding-left: 12px; border-left: 1px solid var(--separator); font: inherit; line-height: 1.6; white-space: pre-wrap; transition: opacity var(--duration-fast) var(--ease-standard); }
+.thinking-card pre { margin: 8px 0 2px; padding-left: 12px; border-left: 1px solid var(--separator); font: inherit; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; transition: opacity var(--duration-fast) var(--ease-standard); }
 .turn-process-overview { width: min(100%, 680px); min-width: 0; margin: 8px 0; }
 .turn-progress-commentary { color: var(--label-primary); font-size: var(--fs-body); line-height: var(--lh-prose); overflow-wrap: anywhere; }
 .turn-progress-current { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; min-width: 0; color: var(--label-secondary); font-size: var(--fs-label); line-height: var(--lh-prose); }
@@ -3455,7 +3451,6 @@ a:focus-visible {
 .process-tool-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--label-tertiary); transition: color var(--duration-fast) var(--ease-standard); }
 .process-tool-icon.process-tool-running { color: var(--accent); }
 .process-tool-label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.process-timeline-thinking pre { margin: 5px 0 0; color: var(--label-tertiary); font: inherit; line-height: 1.55; white-space: pre-wrap; }
 .process-tool-detail { min-width: 0; border: 0; }
 .process-tool-detail > summary { display: flex; min-height: 24px; align-items: baseline; gap: 7px; min-width: 0; list-style: none; cursor: pointer; }
 .process-tool-detail > summary::-webkit-details-marker { display: none; }
@@ -8035,6 +8030,5 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head { b
 .conversation-system-status-line > span { display: inline-flex; justify-content: center; align-items: center; gap: 6px; min-width: 0; text-align: center; }
 .conversation-system-status[data-status="failed"] .conversation-system-status-line { color: var(--danger); }
 .conversation-system-status[data-status="stopped"] .conversation-system-status-line { color: var(--warning-text); }
-.conversation-system-status[data-status="complete"] .conversation-system-status-line .reicon { color: var(--online); }
 .conversation-system-status > p { max-width: 760px; margin: 8px auto 0; text-align: center; }
 .conversation-system-status > .conversation-system-status-error { white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }

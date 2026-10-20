@@ -103,7 +103,7 @@
           </div>
         {/if}
         {#if liveSections.process.length}
-          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" live onOpenPath={onOpenActivityPath} {endpoint} />
+          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" live responding={liveSections.response.some(block => block.kind === "text" && Boolean(block.content.trim()))} onOpenPath={onOpenActivityPath} {endpoint} />
         {/if}
         {#each liveSections.response as block (block.id)}
           {#if block.kind === "plan"}

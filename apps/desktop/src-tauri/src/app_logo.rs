@@ -71,7 +71,7 @@ fn change(
 ) -> Result<String, String> {
     let next = asset(id)?;
     let previous = asset(load(path))?;
-    // Both system surfaces and persistence must succeed before the UI confirms a choice.
+    // Native icons and persistence must succeed before the UI confirms a choice.
     if let Err(error) = apply(next).and_then(|_| save(path, id)) {
         return match apply(previous) {
             Ok(()) => Err(error),
@@ -84,16 +84,45 @@ fn change(
 }
 
 #[cfg(target_os = "macos")]
+fn set_finder_icon(image: &objc2_app_kit::NSImage, bundle: &Path) -> Result<(), String> {
+    use objc2_app_kit::{NSWorkspace, NSWorkspaceIconCreationOptions};
+    use objc2_foundation::NSString;
+
+    let path = bundle
+        .to_str()
+        .ok_or("The application bundle path is not valid UTF-8.")?;
+    if NSWorkspace::sharedWorkspace().setIcon_forFile_options(
+        Some(image),
+        &NSString::from_str(path),
+        NSWorkspaceIconCreationOptions::empty(),
+    ) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Cannot update the Finder icon for {path}. Install the application in a writable folder and try again."
+        ))
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn set_application_icon(bytes: &[u8]) -> Result<(), String> {
     use objc2::{AllocAnyThread, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSImage};
-    use objc2_foundation::NSData;
+    use objc2_foundation::{NSBundle, NSData};
 
     let main =
         MainThreadMarker::new().ok_or("Application icons must be updated on the main thread.")?;
     let data = NSData::with_bytes(bytes);
     let image =
         NSImage::initWithData(NSImage::alloc(), &data).ok_or("Cannot decode application icon.")?;
+    let bundle = std::path::PathBuf::from(NSBundle::mainBundle().bundlePath().to_string());
+    // Development executables have no .app bundle to customize.
+    if bundle
+        .extension()
+        .is_some_and(|extension| extension == "app")
+    {
+        set_finder_icon(&image, &bundle)?;
+    }
     unsafe {
         NSApplication::sharedApplication(main).setApplicationIconImage(Some(&image));
     }
@@ -229,6 +258,109 @@ mod tests {
         assert!(message.contains("restoring the previous application icon also failed"));
         assert_eq!(load(&path), "sleeping");
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn finder_apply(bundle: &Path, logo: &LogoAsset) -> Result<(), String> {
+        use objc2::AllocAnyThread;
+        use objc2_app_kit::NSImage;
+        use objc2_foundation::NSData;
+
+        let image = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(logo.dock))
+            .ok_or("Cannot decode application icon.")?;
+        set_finder_icon(&image, bundle)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn finder_fingerprint(bundle: &Path) -> u64 {
+        use objc2::AllocAnyThread;
+        use objc2_app_kit::{NSBitmapImageRep, NSWorkspace};
+        use objc2_foundation::NSString;
+        use std::hash::{Hash, Hasher};
+
+        let path = std::ffi::CString::new(bundle.to_str().unwrap()).unwrap();
+        let mut info = [0_u8; 32];
+        let length = unsafe {
+            libc::getxattr(
+                path.as_ptr(),
+                c"com.apple.FinderInfo".as_ptr(),
+                info.as_mut_ptr().cast(),
+                info.len(),
+                0,
+                0,
+            )
+        };
+        assert_eq!(
+            length,
+            32,
+            "Finder custom icon metadata is missing: {}",
+            std::io::Error::last_os_error()
+        );
+        assert_ne!(
+            u16::from_be_bytes(info[8..10].try_into().unwrap()) & 0x0400,
+            0
+        );
+        assert!(bundle.join("Icon\r").exists());
+        let icon = NSWorkspace::sharedWorkspace()
+            .iconForFile(&NSString::from_str(bundle.to_str().unwrap()));
+        let bitmap = NSBitmapImageRep::initWithData(
+            NSBitmapImageRep::alloc(),
+            &icon.TIFFRepresentation().unwrap(),
+        )
+        .unwrap();
+        assert!(!bitmap.isPlanar());
+        let length = (bitmap.bytesPerRow() * bitmap.pixelsHigh()) as usize;
+        assert!(length > 0 && !bitmap.bitmapData().is_null());
+        // Compare rendered pixels; resource forks contain mutable resource-map metadata.
+        let pixels = unsafe { std::slice::from_raw_parts(bitmap.bitmapData(), length) };
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        pixels.hash(&mut hash);
+        hash.finish()
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn finder_selection_persists_after_reload_and_reapplies_to_replaced_bundle() {
+        objc2::rc::autoreleasepool(|_| {
+            let path = fixture();
+            let bundle = path.parent().unwrap().join("Molibot.app");
+            fs::create_dir_all(bundle.join("Contents")).unwrap();
+            change(&path, "sleeping", |logo| finder_apply(&bundle, logo)).unwrap();
+            let before = finder_fingerprint(&bundle);
+            change(&path, "waving", |logo| finder_apply(&bundle, logo)).unwrap();
+            let selected = finder_fingerprint(&bundle);
+            assert_ne!(before, selected);
+            assert_eq!(load(&path), "waving");
+            fs::remove_dir_all(&bundle).unwrap();
+            fs::create_dir_all(bundle.join("Contents")).unwrap();
+            finder_apply(&bundle, asset(load(&path)).unwrap()).unwrap();
+            assert_eq!(finder_fingerprint(&bundle), selected);
+            fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn finder_failure_keeps_saved_selection_and_restores_previous_file_icon() {
+        objc2::rc::autoreleasepool(|_| {
+            let path = fixture();
+            let bundle = path.parent().unwrap().join("Molibot.app");
+            fs::create_dir_all(&bundle).unwrap();
+            change(&path, "sleeping", |logo| finder_apply(&bundle, logo)).unwrap();
+            let before = finder_fingerprint(&bundle);
+            let error = change(&path, "waving", |logo| {
+                if logo.id == "waving" {
+                    finder_apply(&bundle.join("missing.app"), logo)
+                } else {
+                    finder_apply(&bundle, logo)
+                }
+            })
+            .unwrap_err();
+            assert!(error.contains("Finder"), "{error}");
+            assert_eq!(load(&path), "sleeping");
+            assert_eq!(finder_fingerprint(&bundle), before);
+            fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        });
     }
 
     #[test]

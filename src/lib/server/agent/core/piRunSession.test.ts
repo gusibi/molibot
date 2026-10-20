@@ -25,6 +25,38 @@ function binding(directory: string) {
     assertStorageOwnership: () => {}, assertAuthority: () => {} };
 }
 
+test("native streaming forwards whole-block reasoning and answer without losing or duplicating prefixes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-stream-prefix-"));
+  const thinking = "Inspect the evidence. Check the result.";
+  const message: AssistantMessage = { ...answer(), content: [{ type: "thinking", thinking }, { type: "text", text: "Done" }] };
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "Answer", messages: [], tools: [] },
+    getApiKey: () => "fixture", streamFn: () => {
+      const stream = createAssistantMessageEventStream();
+      stream.push({ type: "start", partial: { ...message, content: [] } });
+      stream.push({ type: "thinking_start", contentIndex: 0, partial: { ...message, content: [{ type: "thinking", thinking: "" }] } });
+      stream.push({ type: "thinking_delta", contentIndex: 0, delta: thinking, partial: { ...message, content: [message.content[0]!] } });
+      stream.push({ type: "thinking_end", contentIndex: 0, content: thinking, partial: { ...message, content: [message.content[0]!] } });
+      stream.push({ type: "text_start", contentIndex: 1, partial: { ...message, content: [message.content[0]!, { type: "text", text: "" }] } });
+      stream.push({ type: "text_delta", contentIndex: 1, delta: "Done", partial: message });
+      stream.push({ type: "text_end", contentIndex: 1, content: "Done", partial: message });
+      stream.push({ type: "done", reason: "stop", message });
+      stream.end();
+      return stream;
+    } });
+  const deltas = { thinking_delta: "", text_delta: "" };
+  run.subscribe(event => {
+    if (event.type !== "message_update") return;
+    const change = event.assistantMessageEvent;
+    if (change.type === "thinking_delta" || change.type === "text_delta") deltas[change.type] += change.delta;
+  });
+  try {
+    run.startTurn(); run.bindRun(binding(directory)); await run.prompt("Inspect");
+    assert.deepEqual(deltas, { thinking_delta: thinking, text_delta: "Done" });
+    const persisted = run.state.messages.findLast(message => message.role === "assistant");
+    assert.deepEqual(persisted?.content, message.content);
+  } finally { await run.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("native run adapter preserves a mixed approval batch across close and reopen", { timeout: 10000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "molibot-pi-run-approval-"));
   const effects: string[] = [];

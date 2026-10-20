@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { Portal } from "bits-ui";
   import Button from "../components/ui/Button.svelte";
   import Loader from "reicon-svelte/icons/Loader";
   import Expand from "reicon-svelte/icons/Expand";
@@ -94,41 +95,46 @@
     finally { busy = false; }
   }
 </script>
-<div class="memory-trace-backdrop" class:closing role="presentation" onclick={(event) => event.target === event.currentTarget && requestClose()}>
-  <div
-    bind:this={panel}
-    class="memory-trace-drawer trace-report-drawer"
-    class:trace-report-fullscreen={fullscreen}
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="trace-report-title"
-    tabindex="-1"
-    onkeydown={onKeydown}
-  >
-    <header class="memory-trace-header trace-report-header">
-      <div class="trace-report-header-title">
-        <h2 id="trace-report-title">{zh ? "调用链" : "Call trace"}</h2>
+<!-- The transcript lives inside `.workspace-main` (z-index 1), so a fixed
+     overlay mounted there can never paint above the window header (z-index 31).
+     Portal to the body like the other window-level overlays. -->
+<Portal to="body">
+  <div class="memory-trace-backdrop" class:closing role="presentation" onclick={(event) => event.target === event.currentTarget && requestClose()}>
+    <div
+      bind:this={panel}
+      class="memory-trace-drawer trace-report-drawer"
+      class:trace-report-fullscreen={fullscreen}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="trace-report-title"
+      tabindex="-1"
+      onkeydown={onKeydown}
+    >
+      <header class="memory-trace-header trace-report-header">
+        <div class="trace-report-header-title">
+          <h2 id="trace-report-title">{zh ? "调用链" : "Call trace"}</h2>
+        </div>
+        <div class="trace-report-header-actions">
+          <button
+            class="icon-button"
+            type="button"
+            title={fullscreen ? (zh ? "退出全屏" : "Exit full screen") : (zh ? "全屏" : "Full screen")}
+            aria-label={fullscreen ? (zh ? "退出全屏" : "Exit full screen") : (zh ? "全屏" : "Full screen")}
+            onclick={() => (fullscreen = !fullscreen)}
+          >{#if fullscreen}<ExitFullscreen size={16} aria-hidden="true" />{:else}<Expand size={16} aria-hidden="true" />{/if}</button>
+          <button class="icon-button" type="button" title={zh ? "关闭" : "Close"} aria-label={zh ? "关闭" : "Close"} onclick={requestClose}><X size={16} aria-hidden="true" /></button>
+        </div>
+      </header>
+      <div class="memory-trace-body trace-report-body">
+        <div class="trace-report-toolbar">
+          <Button class="secondary-button" disabled={busy} onclick={() => load(endpoint, runIds, session.locale, appearance === "dark" ? "dark" : "light")}>{zh ? "刷新" : "Refresh"}</Button>
+          <Button class="secondary-button" disabled={busy} onclick={publish}>{zh ? "分享公开链接（不含摘要）" : "Share public link (no previews)"}</Button>
+        </div>
+        {#if errorText}<p class="trace-report-error" role="alert">{errorText}</p>{/if}
+        {#if url}<p class="trace-report-url"><a href={url} target="_blank" rel="noreferrer">{url}</a></p>{/if}
+        {#if busy && !html}<div class="memory-trace-state" role="status"><Loader size={14} aria-hidden="true" />{zh ? "加载中…" : "Loading…"}</div>{/if}
+        {#if html}<iframe title={zh ? "调用链报告" : "Call trace report"} sandbox="" style:color-scheme={appearance} srcdoc={themedHtml}></iframe>{/if}
       </div>
-      <div class="trace-report-header-actions">
-        <button
-          class="icon-button"
-          type="button"
-          title={fullscreen ? (zh ? "退出全屏" : "Exit full screen") : (zh ? "全屏" : "Full screen")}
-          aria-label={fullscreen ? (zh ? "退出全屏" : "Exit full screen") : (zh ? "全屏" : "Full screen")}
-          onclick={() => (fullscreen = !fullscreen)}
-        >{#if fullscreen}<ExitFullscreen size={16} aria-hidden="true" />{:else}<Expand size={16} aria-hidden="true" />{/if}</button>
-        <button class="icon-button" type="button" title={zh ? "关闭" : "Close"} aria-label={zh ? "关闭" : "Close"} onclick={requestClose}><X size={16} aria-hidden="true" /></button>
-      </div>
-    </header>
-    <div class="memory-trace-body trace-report-body">
-      <div class="trace-report-toolbar">
-        <Button class="secondary-button" disabled={busy} onclick={() => load(endpoint, runIds, session.locale, appearance === "dark" ? "dark" : "light")}>{zh ? "刷新" : "Refresh"}</Button>
-        <Button class="secondary-button" disabled={busy} onclick={publish}>{zh ? "分享公开链接（不含摘要）" : "Share public link (no previews)"}</Button>
-      </div>
-      {#if errorText}<p class="trace-report-error" role="alert">{errorText}</p>{/if}
-      {#if url}<p class="trace-report-url"><a href={url} target="_blank" rel="noreferrer">{url}</a></p>{/if}
-      {#if busy && !html}<div class="memory-trace-state" role="status"><Loader size={14} aria-hidden="true" />{zh ? "加载中…" : "Loading…"}</div>{/if}
-      {#if html}<iframe title={zh ? "调用链报告" : "Call trace report"} sandbox="" style:color-scheme={appearance} srcdoc={themedHtml}></iframe>{/if}
     </div>
-  </div>
-</div>
+    </div>
+</Portal>

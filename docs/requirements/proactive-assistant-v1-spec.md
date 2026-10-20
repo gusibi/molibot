@@ -8,6 +8,8 @@
 >
 > 产品承诺：把一件具体的事交给 Momo 后，少重复背景、少查询进度，并获得有依据的下一步帮助。
 
+实施契约见 [Phase One 实施 Spec](../designs/agent-runtime/personal-agent-follow-up-spec.md)，包含共享服务、存储、事件恢复、投递与验收切片；Phase Two/Three 保留扩展边界。
+
 ## 1. 定位与问题
 
 Personal Agent 的价值是持续接住用户交代的事情，并减少用户为推进事情付出的管理成本。

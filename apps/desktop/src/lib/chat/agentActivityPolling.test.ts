@@ -128,7 +128,12 @@ test("visible conversation polling and refresh control share the same refresh ta
   assert.match(start.getText(ast), /conversationScheduler.start\(\)/);
   assert.match(stop.getText(ast), /conversationScheduler\?\.dispose\(\)/);
   const view = readFileSync(new URL("../../ChatView.svelte", import.meta.url), "utf8");
-  assert.match(view, /title=\{copy.conversationRefresh\} disabled=\{conversationRefreshing \|\| externalTranscriptLoading\} onclick=\{\(\) => conversationScheduler\?\.wake\("manual"\)\}/);
+  const refreshHandler = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "refreshActiveConversation");
+  assert.ok(refreshHandler);
+  assert.match(refreshHandler.getText(ast), /conversationScheduler\?\.wake\("manual"\)/);
+  assert.match(refreshHandler.getText(ast), /viewMode === "local"\) void chatStore\.reloadActive\(\)/);
+  assert.match(view, /title=\{copy.conversationRefresh\} disabled=\{conversationRefreshing \|\| externalTranscriptLoading \|\| \(viewMode === "local" && sending\)\} onclick=\{refreshActiveConversation\}/);
+  assert.match(view, /!agentFilesActive && !agentHistoryActive && !draftMode\}/);
   assert.match(view, /startAgentActivityPolling\(\);\s*startConversationPolling\(\)/);
   assert.match(view, /stopAgentActivityPolling\(\);\s*stopConversationPolling\(\)/);
 });

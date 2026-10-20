@@ -42,6 +42,7 @@ tmp/
 .cache/
 .test-tmp/
 runlogs/
+__pycache__/
 
 # OS / editor
 .DS_Store

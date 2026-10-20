@@ -619,6 +619,9 @@ test("the call trace report follows the app theme when embedded", () => {
   // changes — brightness alone is not enough.
   const drawer = read("./lib/chat/TraceReportDrawer.svelte");
   const renderer = read("../../../src/lib/server/plugins/traceViewer/render.ts");
+  // The transcript sits inside `.workspace-main` (z-index 1, below the header's
+  // 31), so the drawer must portal to the body to paint above the window header.
+  assert.match(drawer, /<Portal to="body">/);
   for (const token of ["--card-bg", "--surface-secondary", "--label-primary", "--label-secondary", "--separator", "--accent", "--online", "--skill-accent"]) {
     assert.match(renderer, new RegExp(`var\\(${token},`), `report CSS must read ${token} with a fallback`);
   }
@@ -2175,6 +2178,10 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /hoveredFloor\.subagents\.instances/);
   assert.match(agentStudio, /<AgentCityFallback/);
   assert.match(agentStudio, /<AgentCityInspector/);
+  // tablist is an interactive role; its host must not be a landmark element
+  // like <nav> (a11y_no_noninteractive_element_to_interactive_role).
+  assert.doesNotMatch(agentCityInspector, /<nav[^>]*role="tablist"/);
+  assert.match(agentCityInspector, /role="tablist"/);
   assert.match(agentStudio, /onOpenChat=\{onOpenAgentChat\}/);
   assert.match(agentStudio, /canFocus=\{!fallback\}/);
   // Data/theme syncs must re-validate the hover instead of blanking it, or the
@@ -3187,10 +3194,13 @@ test("completed turns and the Artifact Panel share one flat final-file list", ()
   assert.match(runner, /rootKind:\s*fileOutputReceipt\.rootKind/);
 });
 
-test("completed reasoning stays opt-in while live reasoning remains visible", () => {
+test("reasoning opens while thinking and folds once answer text starts", () => {
   assert.match(transcript, /<ThinkingCard text=\{message\.thinking\}/);
-  assert.doesNotMatch(thinkingCard, /<details class="thinking-card"[^>]*\bopen>/);
-  // Human progress remains visible while execution details are opt-in.
+  assert.match(thinkingCard, /thinking !== previousThinking/);
+  assert.match(thinkingCard, /opened = thinking/);
+  assert.match(turnProcess, /thinking=\{live && !responding\}/);
+  assert.match(turnProcess, /executionBlocks = blocks\.filter\(block => block\.kind !== "thinking"\)/);
+  assert.match(conversationLiveView, /responding=\{liveSections\.response\.some/);
   assert.match(conversationLiveView, /<TurnProcess blocks=\{liveSections\.process\}[^>]* live/);
   assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
 });
@@ -3204,12 +3214,13 @@ test("turn process uses one disclosure with an ordered timeline", () => {
   assert.match(turnProcess, /isFailed/);
   assert.match(transcript, /failed=\{assistantStatus === "error" \|\| assistantStatus === "aborted"\}/);
   assert.doesNotMatch(transcript, /<TurnProcess[^>]*forceOpen/);
-  assert.doesNotMatch(turnProcess, /<ThinkingCard|<RunActivity/);
+  assert.match(turnProcess, /<ThinkingCard/);
+  assert.doesNotMatch(turnProcess, /<RunActivity/);
   assert.match(processTimeline, /\{#each blocks as block \(block\.id\)\}/);
   assert.match(processTimeline, /activityTimelineItems\(block\.activities\)/);
   assert.match(processTimeline, /<details class="process-activity-group">/);
   assert.match(processTimeline, /<ProcessActivityItem \{activity\} \{copy\} \{onOpenPath\}/);
-  assert.match(processTimeline, /class="process-timeline-entry process-timeline-thinking"/);
+  assert.doesNotMatch(processTimeline, /block\.kind === "thinking"/);
   assert.match(processActivityItem, /timeline-wave-node/);
   assert.match(processActivityItem, /process-tool-icon/);
   assert.match(processActivityItem, /activityToolIcon/);
@@ -5408,6 +5419,8 @@ test("interrupted turns retain their answers and expose a centered system status
   assert.match(transcript, /\{#if !isStatusOnlyMessage\(message\)\}/);
   assert.match(transcript, /transcriptTurnStatuses\(messages, showUnresolvedStatus\)/);
   assert.match(transcript, /<ConversationStatus status=\{turnStatuses.get\(index\)!\}/);
+  // Completed turns stay silent; only failed/stopped/waiting/unknown get a status row.
+  assert.match(transcript, /turnStatuses\.get\(index\)!\.state !== "complete"/);
   assert.match(status, /role="status"/);
   assert.match(status, /\{status.error\}/);
   assert.doesNotMatch(status, /@html|renderMarkdown/);

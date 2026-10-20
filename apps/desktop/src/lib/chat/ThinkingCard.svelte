@@ -1,16 +1,15 @@
 <script lang="ts">
-  /**
-   * Collapsed reasoning block for a completed turn.
-   *
-   * Reasoning text is the heaviest single field on a transcript (a measured
-   * project session carried 464 KB of it across 38 messages) and the card is
-   * closed by default, so mounting every `<pre>` up-front paid a large DOM and
-   * layout cost for content nobody could see. Mount the body on first open.
-   */
+  /** Collapsed bodies stay unmounted; only phase changes override manual toggles. */
   export let text: string;
   export let label: string;
+  export let thinking = false;
 
   let opened = false;
+  let previousThinking: boolean | undefined;
+  $: if (thinking !== previousThinking) {
+    opened = thinking;
+    previousThinking = thinking;
+  }
 </script>
 
 <details class="thinking-card" bind:open={opened}>

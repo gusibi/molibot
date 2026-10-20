@@ -10,14 +10,14 @@ test("empty failures remain system status; multiple failed requests form one fai
   assert.equal(isStatusOnlyMessage(failure), true);
   const statuses = transcriptTurnStatuses(rows);
   assert.equal(statuses.size, 1);
-  assert.deepEqual(statuses.get(2), { state: "failed", error: "401: API key expired\n\n402: Insufficient Balance", hasAnswer: false });
+  assert.deepEqual(statuses.get(2), { state: "failed", error: "401: API key expired\n\n402: Insufficient Balance" });
 });
 
 test("a successful fallback completes the turn and preserves its earlier diagnostic", () => {
   const answer = { role: "assistant", content: "New answer", stopReason: "stop" };
   const statuses = transcriptTurnStatuses([user, failure, answer]);
   assert.equal(statuses.size, 1);
-  assert.deepEqual(statuses.get(2), { state: "complete", error: failure.errorMessage, hasAnswer: true });
+  assert.deepEqual(statuses.get(2), { state: "complete", error: failure.errorMessage });
   assert.equal(isStatusOnlyMessage(answer), false);
 });
 
@@ -35,10 +35,9 @@ test("missing results remain unknown rather than inventing a failure or a runnin
   assert.equal(statuses.get(2)?.state, "unknown");
 });
 
-test("completion without an answer, cancellation and approval have distinct states", () => {
+test("completion, cancellation and approval have distinct states", () => {
   for (const [reason, state] of [["stop", "complete"], ["aborted", "stopped"], ["waiting_for_approval", "waiting"]]) {
     const message = { role: "assistant", content: "", stopReason: reason };
     assert.equal(transcriptTurnStatuses([user, message]).get(1)?.state, state);
-    assert.equal(transcriptTurnStatuses([user, message]).get(1)?.hasAnswer, false);
   }
 });

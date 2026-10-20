@@ -405,7 +405,8 @@
     {/if}
   </article>
   {/if}
-  {#if turnStatuses.has(index)}<ConversationStatus status={turnStatuses.get(index)!} {copy} />{/if}
+  <!-- A completed turn speaks for itself; only failed/stopped/waiting/unknown get a status row. -->
+  {#if turnStatuses.has(index) && turnStatuses.get(index)!.state !== "complete"}<ConversationStatus status={turnStatuses.get(index)!} {copy} />{/if}
 {/each}
 
 {#if selectionMenu && messageActions?.contributions}

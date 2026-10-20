@@ -43,6 +43,8 @@ export interface ToolCallSpec {
 }
 
 export type ModelReply =
+  /** Pause after reasoning so tests can inspect the handoff to the answer. */
+  | { type: 'thinking'; thinking: string; text: string; key: string; delayMs?: number }
   /** Streamed text, split into `chunks` deltas (optionally spaced by `delayMs`). */
   | { type: 'text'; text: string; chunks?: number; delayMs?: number }
   /** Streamed tool calls, preceded by optional text. */
@@ -106,7 +108,7 @@ export async function startModelService() {
     let content: string | null = null;
     let toolCalls: unknown[] | undefined;
     let finish: 'stop' | 'tool_calls' = 'stop';
-    if (reply.type === 'text' || reply.type === 'nonStream') content = reply.text;
+    if (reply.type === 'text' || reply.type === 'nonStream' || reply.type === 'thinking') content = reply.text;
     else if (reply.type === 'hold') content = `${reply.text}${reply.tail ?? ''}`;
     else if (reply.type === 'markerThenDrop') content = reply.text ?? null;
     else if (reply.type === 'toolCalls') {
@@ -180,6 +182,26 @@ export async function startModelService() {
   async function streamReply(writer: SseWriter, reply: ModelReply): Promise<void> {
     writer.frame({ role: 'assistant', content: '' }, null);
     switch (reply.type) {
+      case 'thinking': {
+        let open!: () => void;
+        const gate = new Promise<void>(resolve => { open = resolve; });
+        held.set(reply.key, open);
+        writer.response.once('close', open);
+        if (pendingReleases.delete(reply.key)) open();
+        for (const part of splitText(reply.thinking)) {
+          writer.frame({ reasoning_content: part }, null);
+          await delay(reply.delayMs ?? 8);
+        }
+        await gate;
+        held.delete(reply.key);
+        if (writer.response.destroyed || writer.response.writableEnded) return;
+        for (const part of splitText(reply.text, 12)) {
+          writer.frame({ content: part }, null);
+          await delay(reply.delayMs ?? 8);
+        }
+        writer.finish('stop');
+        return;
+      }
       case 'text': {
         for (const part of splitText(reply.text, reply.chunks)) {
           writer.frame({ content: part }, null);

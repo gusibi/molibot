@@ -24,7 +24,7 @@
 | 预设回复模型服务（分段工具调用拼接、多工具调用、暂停释放、未匹配记录并失败） | 已实现 | `tests/ui/support/model-service.test.ts` |
 | 自动选择映射（路径 → 标签，原生路径必选原生） | 已实现 | `scripts/verify/selection.test.mjs` |
 
-## Desktop Logo 统一（2026-10-18）
+## Desktop Logo 统一（2026-10-19）
 
 | 场景 | 状态 | 负责层 | 用例 |
 |---|---|---|---|
@@ -32,7 +32,8 @@
 | 原始图像 RGBA 保留（不加背景/蒙版/裁切） | 已实现 | 图标资源 | `python3 scripts/generate-desktop-logo-icons.test.py`；修复前 17 项失败，修复后连续 5 次通过 |
 | 临时桌面偏好整对象 round-trip、其他偏好保留、失败回滚、全部图标解码 | 已实现 | 原生逻辑 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib app_logo::tests` |
 | 主题导入排在 Logo 之前、页面选择、跨窗口同步、刷新恢复、失败保留选择、中英即时切换、明暗与窄窗口 | 已实现 | 浏览器 UI（无后端预览） | `pnpm --dir apps/desktop test:logo-ui` |
-| Dock / Command + Tab、菜单栏即时变化、退出重开、服务断开恢复 | 待验证 | 原生 App | 缺少隔离原生驱动构建；`pnpm test:app` 尚为占位入口，浏览器与 Rust 单元测试不替代系统界面验证 |
+| Finder 文件图标持久化、图像切换、应用包替换后恢复、写入失败回滚 | 已实现 | macOS 原生 API（临时 `.app`） | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib app_logo::tests -- --test-threads=1`；检查 FinderInfo 自定义图标标志与 `iconForFile` 图像像素，Logo 原生 7 项连续 5 次通过；不替代真实窗口验收 |
+| Dock / Command + Tab、菜单栏与 Applications Finder 即时变化、退出后 Finder 保留、退出重开、更新替换后启动、服务断开恢复 | 待验证 | 原生 App | 缺少隔离原生驱动构建；`pnpm test:app` 尚为占位入口，浏览器与 Rust 单元测试不替代系统界面验证 |
 
 ## 桌面外部会话刷新（2026-10-18）
 
@@ -55,6 +56,13 @@
 
 定向执行：`node node_modules/@playwright/test/cli.js test --config tests/ui/playwright.config.ts --project=webkit tests/ui/desktop-observatory.spec.ts`。
 
+## 会话头部刷新与回合状态行（2026-10-19）
+
+| 场景 | 状态 | 负责层 | 用例 |
+|---|---|---|---|
+| 刷新按钮只在会话详情显示（首页/全部对话/文件页不显示）、点击重载当前会话、运行中禁用 | 已实现 | Desktop 前端 | `agentActivityPolling.test.ts`（标记与处理器结构断言）、`chat.spec.ts`（header refresh lives in the session detail） |
+| 成功回合不显示状态分隔行；失败/中断/等待/未知仍显示并保留错误详情 | 已实现 | Desktop 前端 + 状态投影 | `transcriptStatus.test.ts`、`chat-ui.test.mjs`（结构断言）、`chat.spec.ts`（header refresh lives in the session detail，含失败分隔行） |
+
 ## P0 场景
 
 | 场景 | 状态 | 负责层 | 用例 |
@@ -63,6 +71,7 @@
 | 冷启动 | 已实现 | 浏览器 | `chat.spec.ts`（cold start） |
 | 消息输入（Enter / Shift+Enter / 空消息 / 组合输入） | 已实现 | 浏览器 + 单元 | `chat.spec.ts`（input / composition） |
 | 消息回复（首发、连发、流式更新、输入恢复、请求总数） | 已实现 | 浏览器 | `chat.spec.ts`（cold start、streams progressively） |
+| 思考实时展开、回答时折叠、手动展开、停止保留、重启回读、中英/明暗/窄窗口 | 已实现 | 浏览器 | `chat.spec.ts`（thinking opens live、stopping during thinking）；共享流式前缀守卫见 `piRunSession.test.ts` |
 | 请求失败（超时 / 错误码 / 断开 / 429） | 已实现 | 浏览器 + 单元 | `chat.spec.ts`（429 / 500 / dropped connection、idle timeout 呈现与再次发送）；`api.test.ts`（SSE 空闲看门狗拒绝） |
 | 允许审批 | 已实现 | 浏览器 | `approval.spec.ts`（allow） |
 | 拒绝审批 | 已实现 | 浏览器 | `approval.spec.ts`（reject） |

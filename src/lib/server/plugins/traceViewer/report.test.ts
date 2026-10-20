@@ -65,6 +65,25 @@ test("HTML escapes trace content and public snapshots omit previews", () => {
   } finally { store.close(); }
 });
 
+test("the run row renders its label once and stamps read as local time", () => {
+  const store = new SqliteTraceStore(":memory:");
+  try {
+    const hook = new TraceRecorderHook(store);
+    const context = { runId: "label-run", channel: "web", chatId: "chat", sessionId: "session" };
+    hook.handle({ stage: "run.started", context, timestamp: new Date(100000).toISOString(), payload: {} } as any);
+    hook.handle({ stage: "run.finished", context, timestamp: new Date(101000).toISOString(), payload: { status: "success" } } as any);
+    const html = renderTraceReport(queryTraceReport(store, { runId: "label-run" }, context), "zh");
+    // A run node has no distinct name, so the type kicker would duplicate the
+    // row ("本轮执行 / 本轮执行"); the row collapses to a single label instead.
+    assert.match(html, /<strong>本轮执行<\/strong>/);
+    assert.doesNotMatch(html, /<small>本轮执行<\/small><strong>本轮执行<\/strong>/);
+    // Snapshot and field stamps render as local wall time, never the raw ISO string.
+    assert.match(html, /生成于 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+    assert.doesNotMatch(html, /生成于 \d{4}-\d{2}-\d{2}T/);
+    assert.doesNotMatch(html, /<dd>\d{4}-\d{2}-\d{2}T/);
+  } finally { store.close(); }
+});
+
 test("public reports drop raw fact IDs and previews while preserving node links", () => {
   const store = new SqliteTraceStore(":memory:");
   try {

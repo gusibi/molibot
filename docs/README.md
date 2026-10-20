@@ -39,7 +39,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 ### Planned and requirements
 
 - [Assistant Capability Matrix](requirements/personal-assistant-capability-matrix.md) — the single four-state current-status source
-- [Personal Agent：授权事项的持续跟进与交付](requirements/proactive-assistant-v1-spec.md) — 三阶段产品草案：项目跟进、个性化、外部来源与受控执行
+- [Personal Agent：授权事项的持续跟进与交付](requirements/proactive-assistant-v1-spec.md) — 三阶段产品草案：项目跟进、个性化、外部来源与受控执行；[Phase One 实施 Spec](designs/agent-runtime/personal-agent-follow-up-spec.md)
 - [Large Autonomous Execution PRD](requirements/large-autonomous-execution-prd.md) — proposed continuous execution, dynamic decomposition and large-batch acceptance
 - [Automatic Durable Execution PRD](requirements/automatic-durable-execution-prd.md) — long-task foundation, partially delivered
 - [Pi capabilities integration spec](requirements/pi-capabilities-integration-spec.md) — phased Durable kernel replacement, Deferred responses, Codemode and optional image backend

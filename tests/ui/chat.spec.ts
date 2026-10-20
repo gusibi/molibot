@@ -62,6 +62,63 @@ test('composition Enter does not submit unfinished input @chat', async ({ page, 
   await expectReply(page, `REPLY:${marker}`);
 });
 
+test('thinking opens live, folds for the answer, and can be reopened @chat', async ({ page, instance }, testInfo) => {
+  await openChat(page);
+  const marker = uniqueToken();
+  const thinking = `Inspect the evidence ${marker}. Check the result ${marker}.`;
+  const answer = `ANSWER:${marker} ${'The evidence is ready. '.repeat(30)}`;
+  const script = replyTo(instance.model, `think ${marker}`, { type: 'thinking', thinking, text: answer, key: marker, delayMs: 100 });
+  await sendText(page, `think ${marker}`);
+  const card = page.locator('.thinking-card').last();
+  await expect(card).toHaveAttribute('open', '');
+  await expect(card.locator('pre')).toHaveText(thinking);
+  await page.screenshot({ path: testInfo.outputPath('thinking-live.png') });
+  instance.model.release(marker);
+  await expect(page.locator('.streaming-message')).toContainText(`ANSWER:${marker}`);
+  await expect(card).not.toHaveAttribute('open');
+  await card.locator('summary').click();
+  await expect(card.locator('pre')).toHaveText(thinking);
+  await expectReply(page, answer.trim());
+  await expect(card).not.toHaveAttribute('open');
+  await card.locator('summary').click();
+  await expect(card.locator('pre')).toHaveText(thinking);
+  expect(instance.model.matched(script.name)).toHaveLength(1);
+  await page.goto('about:blank');
+  await instance.restartService();
+  await page.goto(instance.frontend);
+  await expectReply(page, answer.trim());
+  await expect(card).not.toHaveAttribute('open');
+  await card.locator('summary').click();
+  await expect(card.locator('pre')).toHaveText(thinking);
+  await page.addInitScript(() => {
+    localStorage.setItem('molibot-desktop-locale', 'zh-CN');
+    localStorage.setItem('molibot-desktop-appearance', 'dark');
+  });
+  await page.setViewportSize({ width: 600, height: 760 });
+  await page.reload();
+  await expect(card.locator('summary')).toHaveText('思考过程');
+  await expect(card).not.toHaveAttribute('open');
+  await card.locator('summary').click();
+  await expect(card.locator('pre')).toHaveText(thinking);
+  await page.screenshot({ path: testInfo.outputPath('thinking-history-dark-narrow.png') });
+});
+
+test('stopping during thinking retains a collapsed, readable history @chat', async ({ page, instance }) => {
+  await openChat(page);
+  const marker = uniqueToken();
+  const thinking = `Check cancellation ${marker}. Preserve partial reasoning ${marker}.`;
+  replyTo(instance.model, marker, { type: 'thinking', thinking, text: 'Unsent answer', key: marker });
+  await sendText(page, marker);
+  await expect(page.locator('.thinking-card pre')).toHaveText(thinking);
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
+  const card = page.locator('.thinking-card').last();
+  await expect(card).not.toHaveAttribute('open');
+  await card.locator('summary').click();
+  await expect(card.locator('pre')).toHaveText(thinking);
+  await expect(page.getByText('Unsent answer', { exact: true })).toHaveCount(0);
+});
+
 test('assistant reply streams progressively and then settles @chat', async ({ page, instance }) => {
   await openChat(page);
   const user = `stream ${uniqueToken()}`;
@@ -78,6 +135,30 @@ test('assistant reply streams progressively and then settles @chat', async ({ pa
   }, { timeout: 10_000, message: 'expected partial streamed text while the turn is still running' }).toBe(true);
   await expect(transcript(page).getByText(full, { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
+  await expect(page.locator('.thinking-card')).toHaveCount(0);
+});
+
+test('header refresh lives in the session detail and settled turns stay silent @chat', async ({ page, instance }) => {
+  await openChat(page);
+  const refresh = page.getByRole('button', { name: 'Refresh conversations', exact: true });
+  // Agent home never shows the refresh control; the conversation lists don't either.
+  await expect(refresh).toHaveCount(0);
+  const settled = uniqueToken();
+  replyTo(instance.model, `quiet ${settled}`, { type: 'text', text: `REPLY:${settled}` });
+  await sendText(page, `quiet ${settled}`);
+  await expectReply(page, `REPLY:${settled}`);
+  // The session detail owns the refresh control, and a successful turn adds no status row.
+  await expect(refresh).toBeVisible();
+  await expect(page.locator('.conversation-system-status')).toHaveCount(0);
+
+  const failing = uniqueToken();
+  replyTo(instance.model, `fail ${failing}`, { type: 'error', status: 500, message: `boom ${failing}` });
+  await sendText(page, `fail ${failing}`);
+  await expect(transcript(page).filter({ hasText: `boom ${failing}` })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
+  // Failed turns surface the one status divider; success never does.
+  await expect(page.locator('.conversation-system-status')).toHaveCount(1);
+  await expect(page.locator('.conversation-system-status')).toContainText('Run failed');
 });
 
 test('Stop during generation permits another turn @chat @smoke', async ({ page, instance }) => {

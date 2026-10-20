@@ -86,7 +86,7 @@
     </button>
   </header>
 
-  <nav class="agent-city-inspector-tabs" role="tablist" aria-label={copy.agentCityInspectorTitle} onkeydown={handleTabKeydown}>
+  <div class="agent-city-inspector-tabs" role="tablist" tabindex="-1" aria-label={copy.agentCityInspectorTitle} onkeydown={handleTabKeydown}>
     <button
       id={tabId("overview")}
       type="button"
@@ -133,7 +133,7 @@
       tabindex={tab === "runtime" ? 0 : -1}
       onclick={() => (tab = "runtime")}
     >{copy.agentCityInspectorRuntime}</button>
-  </nav>
+  </div>
 
   <div
     id={panelId(tab)}

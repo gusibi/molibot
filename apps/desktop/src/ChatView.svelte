@@ -125,7 +125,7 @@
   import { appLogo } from "./lib/stores/appLogo.svelte";
   import { deleteConversationSelection } from "./lib/chat/deleteConversationSelection";
   import AgentFilesPage from "./lib/chat/AgentFilesPage.svelte";
-  import AgentFilesIcon from "./lib/icons/duotone/components/FolderOpen.svelte";
+  import FilesIcon from "reicon-svelte/icons/Files";
   import AgentHome from "./lib/chat/AgentHome.svelte";
   import { windowHeader } from "./lib/chat/windowHeader";
   import { saveBlobAsFile } from "./lib/saveFile";
@@ -455,6 +455,13 @@
     } finally {
       if (endpoint === connectedEndpoint && generation === connectionGeneration) conversationRefreshing = false;
     }
+  }
+
+  // Header refresh targets the open conversation: the shared poller refreshes
+  // session lists (and the external transcript); local transcripts reload here.
+  function refreshActiveConversation(): void {
+    conversationScheduler?.wake("manual");
+    if (viewMode === "local") void chatStore.reloadActive();
   }
 
   function startConversationPolling(): void {
@@ -4042,11 +4049,11 @@
       searching={searchOpen}
     >
       {#snippet actions()}
-        {#if !startupPending && connectionReady && !agentFilesActive && !agentHistoryActive && (viewMode === "external" || draftMode)}
-          <Button variant="icon" title={copy.conversationRefresh} disabled={conversationRefreshing || externalTranscriptLoading} onclick={() => conversationScheduler?.wake("manual")}><Refresh size={16} aria-hidden="true" /></Button>
+        {#if !startupPending && connectionReady && !agentFilesActive && !agentHistoryActive && !draftMode}
+          <Button variant="icon" title={copy.conversationRefresh} disabled={conversationRefreshing || externalTranscriptLoading || (viewMode === "local" && sending)} onclick={refreshActiveConversation}><Refresh size={16} aria-hidden="true" /></Button>
         {/if}
         {#if !startupPending && draftMode && selectedAgent && !agentFilesActive && !agentHistoryActive}
-          <Button variant="icon" title={locale === "zh-CN" ? "文件与附件" : "Files and attachments"} onclick={() => openAgentFiles(selectedAgentId)}><AgentFilesIcon size={16} aria-hidden="true" /></Button>
+          <Button variant="icon" title={locale === "zh-CN" ? "文件与附件" : "Files and attachments"} onclick={() => openAgentFiles(selectedAgentId)}><FilesIcon size={16} aria-hidden="true" /></Button>
           <Button variant="icon" title={locale === "zh-CN" ? "Agent 设置" : "Agent settings"} onclick={() => void openAgentSettings(selectedAgentId)}><Gear size={16} aria-hidden="true" /></Button>
         {/if}
         {#if durableActiveCount > 0}

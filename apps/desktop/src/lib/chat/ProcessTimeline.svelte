@@ -1,6 +1,5 @@
 <script lang="ts">
   import AngleRight from "reicon-svelte/icons/AngleRight";
-  import Bulb from "reicon-svelte/icons/Bulb";
   import ChatLine from "reicon-svelte/icons/ChatLine";
   import { ACTIVITY_GROUP_ICONS } from "./activityIcons";
   import type { Translation } from "../i18n";
@@ -10,7 +9,7 @@
   import { activityTimelineItems, type ActivityGroupAction, type ActivityTimelineItem } from "./activityView";
   import { formatDuration } from "../presentation";
 
-  export let blocks: TranscriptProcessBlock[];
+  export let blocks: Exclude<TranscriptProcessBlock, { kind: "thinking" }>[];
   export let copy: Translation;
   export let stateKey: string;
   export let live = false;
@@ -37,15 +36,7 @@
 
 <div class="process-timeline" data-live={live}>
   {#each blocks as block (block.id)}
-    {#if block.kind === "thinking"}
-      <div class="process-timeline-entry process-timeline-thinking">
-        <Bulb size={14} aria-hidden="true" />
-        <div>
-          <span class="process-timeline-label">{copy.thinking}</span>
-          <pre>{block.content}</pre>
-        </div>
-      </div>
-    {:else if block.kind === "activities"}
+    {#if block.kind === "activities"}
       {@const items = activityTimelineItems(block.activities)}
       {#each items as item (item.key)}
         {#if item.kind === "group"}

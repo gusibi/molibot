@@ -3,7 +3,6 @@ import type { TranscriptMessage } from "./transcript";
 export type TurnStatus = {
   state: "complete" | "failed" | "stopped" | "waiting" | "unknown";
   error: string;
-  hasAnswer: boolean;
 };
 
 export function isStatusOnlyMessage(message: TranscriptMessage): boolean {
@@ -21,21 +20,17 @@ export function transcriptTurnStatuses(messages: TranscriptMessage[], showUnreso
   let terminal = -1;
   let outcome: TurnStatus["state"] | undefined;
   let errors: string[] = [];
-  let hasAnswer = false;
   const flush = () => {
-    if (terminal >= 0 && outcome) statuses.set(terminal, { state: outcome, error: errors.join("\n\n"), hasAnswer });
+    if (terminal >= 0 && outcome) statuses.set(terminal, { state: outcome, error: errors.join("\n\n") });
   };
   for (const [index, message] of messages.entries()) {
     if (message.role === "user") {
-      flush(); lastUser = index; terminal = -1; outcome = undefined; errors = []; hasAnswer = false;
+      flush(); lastUser = index; terminal = -1; outcome = undefined; errors = [];
       continue;
     }
     if (message.role !== "assistant") continue;
     const error = message.errorMessage?.trim();
     if (error && !errors.includes(error)) errors.push(error);
-    hasAnswer ||= Boolean(message.content.trim() && message.content.trim() !== error)
-      || Boolean(message.attachments?.length)
-      || Boolean(message.steps?.some(step => step.kind === "plan" || (step.kind === "text" && step.content.trim() && step.content.trim() !== error)));
     const state = message.stopReason === "stop" ? "complete"
       : message.stopReason === "error" ? "failed"
         : message.stopReason === "aborted" ? "stopped"
@@ -43,6 +38,6 @@ export function transcriptTurnStatuses(messages: TranscriptMessage[], showUnreso
     if (state) { terminal = index; outcome = state; }
   }
   flush();
-  if (showUnresolved && lastUser >= 0 && terminal < 0) statuses.set(messages.length - 1, { state: "unknown", error: "", hasAnswer });
+  if (showUnresolved && lastUser >= 0 && terminal < 0) statuses.set(messages.length - 1, { state: "unknown", error: "" });
   return statuses;
 }
