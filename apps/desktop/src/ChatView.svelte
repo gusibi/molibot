@@ -241,7 +241,6 @@
   export let requestedWorkspacePane: ChatWorkspacePaneName = "chat";
 
   const PROFILE_STORAGE_KEY = "molibot-desktop-profile";
-  const LAST_BOT_KEY = "molibot-desktop-last-bot";
   const LAST_SESSION_KEY = "molibot-desktop-last-session";
   const FIRST_LAUNCH_SEEN_KEY = "molibot-desktop-first-launch-seen";
   const NATIVE_COMMAND_EVENT = "native-command";
@@ -1652,7 +1651,6 @@
           }
         },
         onSessionCreated: (profileId, sessionId, agentId) => {
-          localStorage.setItem(LAST_BOT_KEY, profileId);
           // A session created by sending from the draft never went through
           // openSession; without this the reconnect/first-launch restore points
           // at an older conversation instead of the one the user is now in.
@@ -2055,7 +2053,6 @@
     conversationsExpanded = true;
     expandedChannels = { ...expandedChannels, web: true };
     persistSidebarTree();
-    if (botId) localStorage.setItem(LAST_BOT_KEY, botId);
     chatStore.newConversationDraft(botId, agentId);
     // The Agent homepage applies its default after entering this draft.
     draftModelKey = "";

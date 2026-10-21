@@ -107,13 +107,9 @@ export class SessionDraftStore {
     this.update(key, { thinkingLevel: level });
   }
 
-  setProfileId(key: string, profileId: string): void {
-    this.update(key, { profileId });
-  }
-
   /** Binds a new-conversation draft to the Agent that will own the Session. */
-  setDraftTarget(key: string, target: { profileId: string; agentId?: string }): void {
-    this.update(key, { profileId: target.profileId, agentId: target.agentId });
+  setAgentTarget(key: string, agentId: string): void {
+    this.update(key, { agentId });
   }
 
   /** Clears the composer draft after a turn is accepted, or on discard. */

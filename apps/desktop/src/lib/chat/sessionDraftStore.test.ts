@@ -37,19 +37,19 @@ test("get creates an empty draft on first access and reuses it after", () => {
   assert.equal(again.text, "hello");
 });
 
-test("setters update text, files, thinking and the new-conversation bot", () => {
+test("setters update text, files, thinking and the draft's Agent", () => {
   const store = new SessionDraftStore();
   const file = new File(["x"], "note.txt", { type: "text/plain" });
   store.setText(NEW_CONVERSATION_KEY, "draft");
   store.setFiles(NEW_CONVERSATION_KEY, [file]);
   store.setThinking(NEW_CONVERSATION_KEY, "high");
-  store.setProfileId(NEW_CONVERSATION_KEY, "work");
+  store.setAgentTarget(NEW_CONVERSATION_KEY, "researcher");
 
   const draft = store.get(NEW_CONVERSATION_KEY);
   assert.equal(draft.text, "draft");
   assert.equal(draft.files.length, 1);
   assert.equal(draft.thinkingLevel, "high");
-  assert.equal(draft.profileId, "work");
+  assert.equal(draft.agentId, "researcher");
 });
 
 test("clear removes a draft so the next get starts empty (composer cleared after send)", () => {
