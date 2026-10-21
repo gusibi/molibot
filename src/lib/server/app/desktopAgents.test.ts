@@ -74,3 +74,16 @@ test("buildDesktopAgentsSummary counts total and enabled", () => {
   assert.equal(summary.counts.enabled, 2);
   assert.equal(summary.items.length, 3);
 });
+
+test("summary carries the server execution gate and one ordering rule", () => {
+  const current = settings({
+    agents: [agent({ id: "writer", name: "Writer" }), agent({ id: "default", name: "Momo" }), agent({ id: "retired", name: "Retired", enabled: false })],
+    defaultAgentId: "default",
+    pendingAgentDeletions: ["writer"]
+  });
+  const summary = buildDesktopAgentsSummary(current, { writer: 200, retired: 300 });
+  assert.deepEqual(summary.items.map((item) => item.id), ["default", "retired", "writer"]);
+  assert.equal(summary.items.find((item) => item.id === "writer")?.canExecute, false);
+  assert.equal(summary.items.find((item) => item.id === "retired")?.canExecute, false);
+  assert.equal(summary.items.find((item) => item.id === "default")?.canExecute, true);
+});

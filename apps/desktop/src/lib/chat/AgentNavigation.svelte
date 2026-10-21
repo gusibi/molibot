@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { sortAgentNavigation } from "@molibot/shared/agentNavigation";
   import RowContextMenu from "../components/ui/RowContextMenu.svelte";
   import GroupHeader from "./GroupHeader.svelte";
   import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
@@ -11,9 +10,11 @@
   import X from "reicon-svelte/icons/X";
   import Minus from "reicon-svelte/icons/Minus";
   import Map from "../icons/duotone/components/Map.svelte";
-  let { latestConversationAtByAgent = {}, activities = [], activityReady = false, selectedAgentId = "", overviewActive = false, onOverview, hasUnassignedHistory = false, agents, defaultAgentId, deletedAgentIds = [], locale, copy, onAgent, onHistory, onFiles, onSettings }:
-    { latestConversationAtByAgent?: Record<string, number>; activities?: DesktopAgentActivityItem[]; activityReady?: boolean; selectedAgentId?: string; overviewActive?: boolean; onOverview: () => void; hasUnassignedHistory?: boolean; defaultAgentId: string; agents: DesktopAgentItem[]; deletedAgentIds?: string[]; locale: "zh-CN" | "en"; copy: Translation; onAgent: (id: string) => void; onHistory: (id: string) => void; onFiles: (id: string) => void; onSettings: (id: string) => void } = $props();
-  const groups = $derived([...sortAgentNavigation(agents.filter(agent => agent.id === defaultAgentId || agent.visible !== false), latestConversationAtByAgent, defaultAgentId), ...deletedAgentIds.map(id => ({ id, name: `${id} (${locale === "zh-CN" ? "已删除" : "Deleted"})`, description: "", avatar: "", enabled: false })), ...(hasUnassignedHistory ? [{ id: "__unassigned__", name: locale === "zh-CN" ? "未归属历史" : "Unassigned history", description: "", avatar: "", enabled: false }] : [])]);
+  let { activities = [], activityReady = false, selectedAgentId = "", overviewActive = false, onOverview, hasUnassignedHistory = false, agents, defaultAgentId, deletedAgentIds = [], locale, copy, onAgent, onHistory, onFiles, onSettings }:
+    { activities?: DesktopAgentActivityItem[]; activityReady?: boolean; selectedAgentId?: string; overviewActive?: boolean; onOverview: () => void; hasUnassignedHistory?: boolean; defaultAgentId: string; agents: DesktopAgentItem[]; deletedAgentIds?: string[]; locale: "zh-CN" | "en"; copy: Translation; onAgent: (id: string) => void; onHistory: (id: string) => void; onFiles: (id: string) => void; onSettings: (id: string) => void } = $props();
+  // The server already ordered Agents (default first, then latest activity);
+  // this view only hides Agents the owner kept out of the chat sidebar.
+  const groups = $derived([...agents.filter(agent => agent.id === defaultAgentId || agent.visible !== false), ...deletedAgentIds.map(id => ({ id, name: `${id} (${locale === "zh-CN" ? "已删除" : "Deleted"})`, description: "", avatar: "", enabled: false })), ...(hasUnassignedHistory ? [{ id: "__unassigned__", name: locale === "zh-CN" ? "未归属历史" : "Unassigned history", description: "", avatar: "", enabled: false }] : [])]);
 </script>
 <div class="agent-navigation">
   <GroupHeader label={copy.agentOverview} active={overviewActive} expandable={false} onToggle={onOverview}>

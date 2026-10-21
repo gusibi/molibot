@@ -768,8 +768,8 @@ test("sidebars remove floating depth and keep a stable glass divider", () => {
 });
 
 test("empty local Chat starts an Agent draft instead of choosing arbitrary history", () => {
-  assert.match(view, /else openAgentChat\(defaultAgentId/);
-  assert.match(view, /chatStore\.newConversationDraft\(botId\)/);
+  assert.match(view, /const restored = onboardingAgents\.find\(agent => agent\.id === saved\.agentId && agent\.canExecute\)/);
+  assert.match(view, /chatStore\.newConversationDraft\(botId, agentId\)/);
   assert.match(view, /selectedAgentId = agentId/);
 });
 
@@ -780,14 +780,14 @@ test("composer drafts persist through one reactive mirror, not manual switch-sit
   // loadDraftIn pairs at each switch site could not survive contact with
   // reality — the connect-time default selection ran without one and text
   // typed into a session was lost for good (2026-09).
-  assert.match(view, /const key = composerDraftKey\(chatState\.activeSessionId, chatState\.activeProfileId\);\s*if \(key !== activeDraftKey\) \{\s*activeDraftKey = key;\s*const draft = chatStore\.draftStore\.get\(key\);\s*messageInput = draft\.text;\s*pendingFiles = draft\.files;\s*thinkingLevel = draft\.thinkingLevel;\s*\} else \{\s*chatStore\.draftStore\.update\(key, \{ text: messageInput, files: pendingFiles, thinkingLevel, thinkingTouched: draftThinkingTouched, permissionMode: draftPermissionModeTouched \? draftPermissionMode : undefined \}\);/);
+  assert.match(view, /const key = chatState\.draftMode && chatState\.draftAgentId \? agentDraftKey\(chatState\.draftAgentId\) : composerDraftKey\(chatState\.activeSessionId, chatState\.activeProfileId\);\s*if \(key !== activeDraftKey\) \{\s*activeDraftKey = key;\s*const draft = chatStore\.draftStore\.get\(key\);\s*messageInput = draft\.text;\s*pendingFiles = draft\.files;\s*thinkingLevel = draft\.thinkingLevel;\s*\} else \{\s*chatStore\.draftStore\.update\(key, \{ text: messageInput, files: pendingFiles, thinkingLevel, thinkingTouched: draftThinkingTouched, permissionMode: draftPermissionModeTouched \? draftPermissionMode : undefined \}\);/);
   // No switch-site sync may come back, and no direct store writes outside the
   // mirror: a forgotten sync is exactly the bug class this deletes.
   assert.doesNotMatch(view, /syncDraftOut\(|loadDraftIn\(/);
   assert.doesNotMatch(view, /draftStore\.(setText|setFiles|setThinking)\(/);
   // The key rule is one shared pure function, so the mirror and anything else
   // reading the draft store can never disagree about the current key.
-  assert.match(view, /import \{ composerDraftKey \} from "\.\/lib\/chat\/sessionDraftStore";/);
+  assert.match(view, /import \{ agentDraftKey, composerDraftKey \} from "\.\/lib\/chat\/sessionDraftStore";/);
   assert.match(sessionDraftStore, /export function composerDraftKey\(activeSessionId: string, activeProfileId: string\): string/);
   assert.doesNotMatch(chatSessionStore, /currentDraftKey/);
 });
@@ -1182,7 +1182,7 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   assert.doesNotMatch(styles, /\.(messages|composer-wrap|chat-title-name) \{[^}]*\dvw/);
   assert.match(styles, /\.composer textarea\s*\{[^}]*min-height:\s*42px;[^}]*max-height:\s*180px/s);
   assert.match(transcript, /humanizeModelOption\(message\.model, message\.model\)\.label/);
-  assert.match(view, /activeAgentName[\s\S]*copy\.agentStudioGlobalName/);
+  assert.match(view, /activeAgentName = selectedAgent\?\.name \|\| selectedAgentId \|\| \(locale === "zh-CN" \? "未归属" : "Unassigned"\)/);
   assert.match(view, /<TranscriptSearch[\s\S]*open=\{searchOpen\}/);
   assert.match(styles, /\.composer\s*\{[^}]*flex-direction:\s*column/s);
 });
@@ -2214,8 +2214,12 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(chatWorkspace, /onOpenAgentChat: \(agentId: string\) => void/);
   assert.match(chatWorkspace, /\{onOpenAgentChat\}/);
   assert.match(view, /function openAgentChat\(agentId: string\)/);
-  assert.match(view, /newConversationWithBot\(`agent-\$\{agentId\}`\)/);
-  assert.match(view, /chatStore\.newConversationDraft\(botId\)/);
+  assert.match(view, /newConversationWithBot\(onboardingProfileId \|\| activeProfileId \|\| "personal", agentId\)/);
+  assert.match(view, /chatStore\.newConversationDraft\(botId, agentId\)/);
+  assert.match(view, /agentDraftKey\(agentId\)/);
+  // Identity is explicit: no pseudo profile that gets parsed back into an Agent.
+  assert.doesNotMatch(view, /startsWith\("agent-"\)/);
+  assert.doesNotMatch(view, /slice\(6\)/);
   assert.doesNotMatch(styles, /\.agent-city-detail\s*\{/);
   assert.match(agentStudio, /projection\.hiddenAgentCount/);
   assert.match(view, /documentActivityVisibility/);
@@ -2590,7 +2594,7 @@ test("chat primary navigation stays in the Chat workspace", () => {
   assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("skills"\)\}/);
   // New chat must enter a profile-selectable draft. The first send creates the
   // Session through ChatSessionStore with that pinned profile.
-  assert.match(view, /chatStore\.newConversationDraft\(botId\)/);
+  assert.match(view, /chatStore\.newConversationDraft\(botId, agentId\)/);
   assert.doesNotMatch(view, /async function newConversation[\s\S]*?await createDesktopSession\(connectedEndpoint, defaultBot\(\)\)/);
 });
 
@@ -5756,7 +5760,7 @@ test("a service reconnect restores the viewed conversation instead of re-running
   assert.match(view, /const restoreView = reconnectRestore;\s*reconnectRestore = null;\s*if \(restoreView\) \{[\s\S]*?restoreView\(\);\s*\} else \{\s*initialNavigationPending = true;\s*void selectDefaultSession\(generation\)/s);
   // A session created by sending from the draft never passed through
   // openSession — it must still become the restore anchor.
-  assert.match(view, /onSessionCreated: \(profileId, sessionId\) => \{[\s\S]*?persistSelected\(profileId, sessionId\);/s);
+  assert.match(view, /onSessionCreated: \(profileId, sessionId(?:, agentId)?\) => \{[\s\S]*?persistSelected\(profileId, sessionId\);/s);
 });
 
 test("a new draft conversation reaches the sidebar before its first turn settles", () => {
@@ -5771,11 +5775,11 @@ test("a new draft conversation reaches the sidebar before its first turn settles
   );
   assert.ok(draftBranch.length > 0, "the draft-create branch must exist");
   assert.ok(
-    draftBranch.includes("deps.onSessionCreated?.(profileId, created.id)"),
+    draftBranch.includes("deps.onSessionCreated?.(profileId, created.id, created.agentId)"),
     "the sidebar notification must live in the draft-create branch"
   );
   assert.ok(
-    draftBranch.indexOf("deps.onSessionCreated?.(profileId, created.id)") <
+    draftBranch.indexOf("deps.onSessionCreated?.(profileId, created.id, created.agentId)") <
       draftBranch.indexOf("await entry.controller.send({ message: content, files })"),
     "the new session must be announced before the first turn is awaited"
   );
@@ -6315,18 +6319,22 @@ test("initial navigation falls back to Momo and can restore an external session"
   const body = source.slice(source.indexOf("{") + 1, source.lastIndexOf("}")).replace(/ as Exclude<ChatWorkspacePaneName, "chat">/g, "");
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const run = new AsyncFunction("generation", "connectionGeneration", "restoreSidebarTree", "refreshAgentSessions", "agentNavigation", "ordinarySessions", "listDesktopConversations", "connectedEndpoint", "openRoom", "selectProject", "selectProjectSession", "openWorkspacePane", "openSession", "openAgentChat", "onboardingAgents", "defaultAgentId", body);
-  async function restore(saved, items) {
+  async function restore(saved, items, agents = [{ id: "other", enabled: false }]) {
     const opened = [];
     const noop = async () => {};
     await run(1, 1, noop, noop, saved, [], async (_endpoint, query) => {
       assert.equal(query.allAgents, true);
       assert.equal(query.sessionId, saved.sessionId);
       return { items };
-    }, "http://example.test", noop, noop, noop, noop, item => opened.push(item.sessionId), id => opened.push(id), [{ id: "other", enabled: false }], "default");
+    }, "http://example.test", noop, noop, noop, noop, item => opened.push(item.sessionId), id => opened.push(id), agents, "default");
     return opened;
   }
   assert.deepEqual(await restore({ page: "session", agentId: "other", sessionId: "gone" }, []), ["default"]);
   assert.deepEqual(await restore({ page: "session", agentId: "default", sessionId: "external" }, [{ sessionId: "external", channel: "telegram" }]), ["external"]);
+  // PA-U3: the Agent page restored on restart is the one the user left, as long
+  // as it can still execute; a disabled or deleting Agent falls back to default.
+  assert.deepEqual(await restore({ page: "agent", agentId: "writer", sessionId: "" }, [], [{ id: "writer", enabled: true, canExecute: true }]), ["writer"]);
+  assert.deepEqual(await restore({ page: "agent", agentId: "writer", sessionId: "" }, [], [{ id: "writer", enabled: true, canExecute: false }]), ["default"]);
 });
 
 test("Agent home and full history share the conversation row", () => {

@@ -1411,8 +1411,8 @@ test("resolveOnboardingAgentSelection prefers the active profile's enabled linke
     { id: "two", name: "Two", enabled: false, agentId: "agent-2", agentName: "Two", permissionMode: "manual" }
   ];
   const agents: DesktopAgentItem[] = [
-    { id: "agent-1", name: "Agent One", description: "", enabled: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
-    { id: "agent-2", name: "Agent Two", description: "", enabled: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
+    { id: "agent-1", name: "Agent One", description: "", enabled: true, canExecute: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
+    { id: "agent-2", name: "Agent Two", description: "", enabled: true, canExecute: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
   ];
 
   assert.deepEqual(resolveOnboardingAgentSelection(profiles, agents, "two"), {
@@ -1427,8 +1427,8 @@ test("resolveOnboardingAgentSelection falls back to usable entries and reports i
     { id: "one", name: "One", enabled: false, agentId: "disabled", agentName: "", permissionMode: "manual" }
   ];
   const agents: DesktopAgentItem[] = [
-    { id: "disabled", name: "Disabled", description: "", enabled: false, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
-    { id: "usable", name: "Usable", description: "", enabled: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
+    { id: "disabled", name: "Disabled", description: "", enabled: false, canExecute: false, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } },
+    { id: "usable", name: "Usable", description: "", enabled: true, canExecute: true, permissionMode: null, modelOverrides: 0, modelRouting: { textModelKey: "", sttModelKey: "" } }
   ];
 
   assert.deepEqual(resolveOnboardingAgentSelection(profiles, agents, "missing"), {

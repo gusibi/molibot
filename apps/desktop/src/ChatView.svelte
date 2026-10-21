@@ -215,7 +215,7 @@
   import { miniAppsCatalog, clearMiniAppBadge } from "./lib/stores/miniapps.svelte";
   import { catalogMessageActions, invokeTranscriptMessageAction } from "./lib/miniapps/messageActions";
   import { fetchDesktopMiniAppAttachment } from "./lib/api";
-  import { composerDraftKey } from "./lib/chat/sessionDraftStore";
+  import { agentDraftKey, composerDraftKey } from "./lib/chat/sessionDraftStore";
   import type { FeedbackEvent } from "./lib/native/feedbackCoordinator";
 
   export let copy: Translation;
@@ -994,11 +994,13 @@
   $: if (agentFilesActive && (workspacePane !== "chat" || projectPaneActive || roomPaneActive || settingsVisible)) agentFilesActive = false;
   let agentHistoryActive = false;
   let ordinarySessions: DesktopConversationItem[] = [];
+  let agentHomeSessions: DesktopConversationItem[] = [];
+  let agentHomeKey = "";
   let hasUnassignedHistory = false;
   let agentSessionsRequest = 0;
   $: selectedAgent = onboardingAgents.find(agent => agent.id === selectedAgentId);
-  $: agentCanExecute = Boolean(selectedAgent?.enabled);
-  $: agentHomeSessions = ordinarySessions.filter(item => item.agentId === selectedAgentId).slice(0, 5);
+  $: agentCanExecute = Boolean(selectedAgent?.canExecute);
+  $: if (selectedAgentId && connectedEndpoint) void refreshAgentHome();
   function persistAgentNavigation(): void {
     if (connectedEndpoint) void saveDesktopAgentNavigation(connectedEndpoint, agentNavigation).catch(cause => chatStore.setActiveError(String(cause)));
   }
@@ -1021,7 +1023,22 @@
     clearInspector();
     searchOpen = false;
   }
-  let latestConversationAtByAgent: Record<string, number> = {};
+  async function refreshAgentHome(force = false): Promise<void> {
+    const endpoint = connectedEndpoint;
+    if (!endpoint || !selectedAgentId) { agentHomeSessions = []; agentHomeKey = ""; return; }
+    const key = `${endpoint}:${selectedAgentId}`;
+    if (!force && key === agentHomeKey) return;
+    agentHomeKey = key;
+    try {
+      const result = await listDesktopConversations(endpoint, { channel: "web", agentId: selectedAgentId, limit: 5, includeArchived: true });
+      if (`${connectedEndpoint}:${selectedAgentId}` !== key) return;
+      agentHomeSessions = result.items;
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === "AbortError") return;
+      agentHomeSessions = [];
+    }
+  }
+
   async function refreshAgentSessions(): Promise<void> {
     const endpoint = connectedEndpoint;
     const generation = connectionGeneration;
@@ -1034,8 +1051,8 @@
       ]);
       if (endpoint !== connectedEndpoint || generation !== connectionGeneration || request !== agentSessionsRequest) return;
       ordinarySessions = result.items;
-      latestConversationAtByAgent = result.latestConversationAtByAgent ?? {};
       hasUnassignedHistory = unassigned.items.length > 0;
+      void refreshAgentHome(true);
     } catch (cause) {
       // Cancelled requests belong to an older selection; other failures must be visible.
       if (endpoint === connectedEndpoint && generation === connectionGeneration && request === agentSessionsRequest) {
@@ -1151,6 +1168,7 @@
   $: activeProfileId = chatState.activeProfileId;
   $: draftMode = chatState.draftMode;
   $: draftProfileId = chatState.draftProfileId;
+  $: draftAgentId = chatState.draftAgentId;
   $: statusDots = chatState.statusDots;
 
   $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel;
@@ -1195,7 +1213,7 @@
       }
     }
   }
-  $: botOptions = onboardingAgents.filter(agent => agent.enabled && (agent.id === defaultAgentId || agent.visible !== false)).map(agent => ({ id: `agent-${agent.id}`, name: agent.name, subtitle: agent.description }));
+  $: botOptions = onboardingAgents.filter(agent => agent.enabled && (agent.id === defaultAgentId || agent.visible !== false)).map(agent => ({ id: agent.id, name: agent.name, subtitle: agent.description }));
   // Per-session model: when the active web session changes, show its model
   // (persisted override → Agent default → global default) and hydrate the override cache once.
   // Gated on loaded options so the selector reflects a valid key.
@@ -1243,8 +1261,8 @@
   // binding inherits the default one. Instance ids repeat across channels, so the
   // lookup is scoped to the active channel's group.
   $: agentNameById = new Map(onboardingAgents.map((agent) => [agent.id, agent.name]));
-  $: activeExternalAgentId = activeExternalSessionItem?.agentId ?? selectedAgentId;
-  $: activeExternalAgentName = activeExternalAgentId ? (agentNameById.get(activeExternalAgentId) ?? activeExternalAgentId) : copy.agentStudioGlobalName;
+  $: activeExternalAgentId = activeExternalSessionItem?.agentId ?? "";
+  $: activeExternalAgentName = activeExternalAgentId ? (agentNameById.get(activeExternalAgentId) ?? activeExternalAgentId) : copy.agentUnassignedName;
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: linkedPlanExecutionIds = new Set(messages.map((message) => message.plan?.durableExecutionId).filter((id): id is string => Boolean(id)));
   $: sessionDurableExecution = viewMode === "local" && activeSessionId
@@ -1445,10 +1463,6 @@
     }
   }
 
-  function defaultBot(): string {
-    return `agent-${selectedAgent?.enabled ? selectedAgent.id : defaultAgentId}`;
-  }
-
   function persistSelected(profileId: string, sessionId: string): void {
     if (!profileId || !sessionId) return;
     localStorage.setItem(LAST_SESSION_KEY, `${profileId}:${sessionId}`);
@@ -1469,7 +1483,7 @@
   // selection didn't, and text typed into a session was lost for good.
   let activeDraftKey = "";
   $: {
-    const key = composerDraftKey(chatState.activeSessionId, chatState.activeProfileId);
+    const key = chatState.draftMode && chatState.draftAgentId ? agentDraftKey(chatState.draftAgentId) : composerDraftKey(chatState.activeSessionId, chatState.activeProfileId);
     if (key !== activeDraftKey) {
       activeDraftKey = key;
       const draft = chatStore.draftStore.get(key);
@@ -1618,7 +1632,6 @@
         labels: () => conversationLabels(),
         loadTranscript,
         refreshSidebar: refreshAgentSessions,
-        resolveAgent: profileId => profileId.startsWith("agent-") ? profileId.slice(6) : undefined,
         resolveModel: (_profileId, sessionId) => sessionModelOverrides.get(sessionId),
         onDraftSessionCreated: async (profileId, sessionId, draft) => {
           if (draft.modelKey) {
@@ -1636,14 +1649,14 @@
             sessionPermissionModes.set(sessionId, saved);
           }
         },
-        onSessionCreated: (profileId, sessionId) => {
+        onSessionCreated: (profileId, sessionId, agentId) => {
           localStorage.setItem(LAST_BOT_KEY, profileId);
           // A session created by sending from the draft never went through
           // openSession; without this the reconnect/first-launch restore points
           // at an older conversation instead of the one the user is now in.
           if (chatStore.registry.active?.sessionId === sessionId) {
             persistSelected(profileId, sessionId);
-            selectedAgentId = profileId.startsWith("agent-") ? profileId.slice(6) : selectedAgentId;
+            if (agentId) selectedAgentId = agentId;
             agentNavigation = { ...agentNavigation, page: "session", agentId: selectedAgentId, sessionId };
             persistAgentNavigation();
             void refreshFiles(profileId, sessionId);
@@ -1937,7 +1950,10 @@
     }
     if (generation !== connectionGeneration || agentNavigation !== saved) return;
     if (target) openSession(target);
-    else openAgentChat(defaultAgentId);
+    else {
+      const restored = onboardingAgents.find(agent => agent.id === saved.agentId && agent.canExecute);
+      openAgentChat(restored?.id || defaultAgentId);
+    }
   }
 
   async function loadChannel(channel: DesktopConversationChannel, showLoading = true): Promise<void> {
@@ -2025,7 +2041,7 @@
     persistSidebarTree();
   }
 
-  function newConversationWithBot(botId: string): void {
+  function newConversationWithBot(botId: string, agentId = ""): void {
     closeAgentSettings();
     agentFilesActive = false;
     agentHistoryActive = false;
@@ -2038,7 +2054,7 @@
     expandedChannels = { ...expandedChannels, web: true };
     persistSidebarTree();
     if (botId) localStorage.setItem(LAST_BOT_KEY, botId);
-    chatStore.newConversationDraft(botId);
+    chatStore.newConversationDraft(botId, agentId);
     // The Agent homepage applies its default after entering this draft.
     draftModelKey = "";
     appliedModelSessionId = "";
@@ -2082,8 +2098,10 @@
     agentHistoryActive = false;
     selectedAgentId = agentId;
     roomPaneActive = false;
-    newConversationWithBot(`agent-${agentId}`);
-    const draft = chatStore.draftStore.get(composerDraftKey("", `agent-${agentId}`));
+    // The transport profile is a real Web profile; the Agent is carried as an
+    // explicit id and never encoded into the profile string.
+    newConversationWithBot(onboardingProfileId || activeProfileId || "personal", agentId);
+    const draft = chatStore.draftStore.get(agentDraftKey(agentId));
     draftModelKey = draft.modelKey ?? "";
     draftThinkingTouched = draft.thinkingTouched ?? false;
     thinkingLevel = draft.thinkingLevel;
@@ -2749,7 +2767,7 @@
   async function sendMessage(): Promise<void> {
     if (modelSelectionHydrating) return;
     const text = messageInput;
-    const submittedKey = composerDraftKey(activeSessionId, activeProfileId);
+    const submittedKey = draftMode && draftAgentId ? agentDraftKey(draftAgentId) : composerDraftKey(activeSessionId, activeProfileId);
     thinkingLevel = clampedThinkingLevel;
     const files = pendingFiles;
     const editingId = editingMessageId;
@@ -2793,7 +2811,7 @@
     try {
       await chatStore.send(text, files);
     } catch (cause) {
-      if (composerDraftKey(activeSessionId, activeProfileId) === submittedKey && !messageInput.trim() && pendingFiles.length === 0) {
+      if ((draftMode && draftAgentId ? agentDraftKey(draftAgentId) : composerDraftKey(activeSessionId, activeProfileId)) === submittedKey && !messageInput.trim() && pendingFiles.length === 0) {
         error = cause instanceof Error ? cause.message : String(cause);
         messageInput = text;
         pendingFiles = files;
@@ -3086,7 +3104,7 @@
       if (draftMode || !sessionId) {
         activeModelKey = value;
         draftModelKey = value;
-        chatStore.draftStore.update(composerDraftKey("", draftProfileId), { modelKey: value });
+        chatStore.draftStore.update(draftAgentId ? agentDraftKey(draftAgentId) : composerDraftKey("", draftProfileId), { modelKey: value });
       } else {
         await saveDesktopSessionModel(connectedEndpoint, sessionId, value);
         sessionModelOverrides.set(sessionId, value);
@@ -3768,8 +3786,8 @@
             <BotMention
               mode="locked"
               bots={botOptions}
-              selectedId={`agent-${selectedAgentId}`}
-              onSelect={(id) => openAgentChat(id.slice(6))}
+              selectedId={selectedAgentId}
+              onSelect={(id) => openAgentChat(id)}
               labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
             />
           {/if}
@@ -3894,7 +3912,7 @@
     </div>
   {/if}
   {#snippet agentConversationContent()}
-    <AgentNavigation {latestConversationAtByAgent} {hasUnassignedHistory} activities={agentActivities} activityReady={agentActivityReady} selectedAgentId={workspacePane === "chat" && !roomPaneActive && !projectPaneActive ? selectedAgentId : ""} overviewActive={workspacePane === "agents"} onOverview={() => openAgentOverview()} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} {locale} {copy} onAgent={openAgentChat} onHistory={openAgentHistory} onFiles={openAgentFiles} onSettings={(id) => void openAgentSettings(id)} />
+    <AgentNavigation {hasUnassignedHistory} activities={agentActivities} activityReady={agentActivityReady} selectedAgentId={workspacePane === "chat" && !roomPaneActive && !projectPaneActive ? selectedAgentId : ""} overviewActive={workspacePane === "agents"} onOverview={() => openAgentOverview()} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} {locale} {copy} onAgent={openAgentChat} onHistory={openAgentHistory} onFiles={openAgentFiles} onSettings={(id) => void openAgentSettings(id)} />
   {/snippet}
   <ChatSidebar
     conversationContent={agentConversationContent}

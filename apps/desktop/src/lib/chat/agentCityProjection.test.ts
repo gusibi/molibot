@@ -9,6 +9,7 @@ function agent(id: string, enabled = true): DesktopAgentItem {
     name: `Agent ${id}`,
     description: `Description ${id}`,
     enabled,
+    canExecute: enabled,
     permissionMode: null,
     modelOverrides: 0,
     modelRouting: { textModelKey: "", sttModelKey: "" }

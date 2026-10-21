@@ -142,12 +142,12 @@ resolveExecutionIdentity({ channel, botId, sessionId?, explicitAgentId? })
 
 #### 归属权威与投影
 
-归属事实在三个位置出现：Session 元数据、Agent Context origin、会话目录分区。
+归属事实存放在一个 Session sidecar 中；物理目录只表示文件位置，不表示归属。
 
-- **权威**：首次发送时写下的 Agent Context origin。
-- **投影**：Session 元数据与历史列表读取的 `agentId`，由同一次准入结果写入。
-- **核对**：启动时比对投影与权威，发现分歧只报告（进入结构化诊断），不自动改写。
-- 三个位置都不得单独成为第二套判断依据；执行路径只信权威，列表路径只信投影，两者不一致时以诊断暴露。
+- **权威**：sidecar 顶层的 `agentId`。它由首次发送时写入，既是 Agent Context 的 origin，也是历史列表读取的字段。
+- **投影**：同一文件里的 `ui.conversation.agentId` 镜像，以及各列表视图。
+- **不参与判断**：`sessions/<agentId>/` 目录名。认领后的历史可以留在原目录，归属以 sidecar 为准。
+- **核对**：启动时比较权威与镜像，发现冲突只写结构化诊断（`session_agent_ownership_divergence`），不自动改写——静默修复会掩盖产生冲突的那次中断写入。
 
 #### 模型优先级
 
@@ -355,9 +355,8 @@ AgentBlocker =
 
 | 规则 | 定稿时现状 | 落点 |
 |---|---|---|
-| PA-I6 | 两个身份载体各自不可变，无启动核对 | `sessions/store.ts`、`agent/session/metadata.ts` |
-| PA-U | Agent 首页由客户端从全量列表切片；`agent-<id>` 靠字符串前缀还原身份 | `apps/desktop/src/ChatView.svelte`、`apps/desktop/src/lib/chat` |
+| — | 全部规则已于 2026-10-21 实施；本节保留为空表，后续新增规则时重新登记 | — |
 
-2026-10-21 已实施并从本表移除：PA-I3／I7（唯一身份解析与源码守卫）、PA-A1（准入模式判定）、PA-L4／L5（结构化 blockers 与删除三态）、PA-M3／M4（记忆范围判别、去 Bot 回退）、PA-H2／H3（认领落盘）。PA-H4 的过滤行为已在代码中，但仍缺显式断言。
+2026-10-21 已实施并从本表移除：PA-I3／I7（唯一身份解析与源码守卫）、PA-A1（准入模式判定）、PA-I6（归属权威与启动诊断）、PA-L4／L5（结构化 blockers 与删除三态）、PA-M3／M4（记忆范围判别、去 Bot 回退）、PA-H2／H3（认领落盘）、PA-U（客户端身份收口）。PA-H4 已补显式断言。
 
 建议实施顺序（非约束）：身份接口与守卫（PA-I3／I7）→ 准入模式（PA-A1–A5）→ 删除 blockers 与三态（PA-L4／L5）→ 记忆范围（PA-M3／M4）→ 认领（PA-H2／H3）→ 客户端收口（PA-U）→ 权威核对（PA-I6）。

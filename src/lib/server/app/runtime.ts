@@ -36,6 +36,7 @@ import { SessionAutoArchiveService } from "$lib/server/sessions/sessionAutoArchi
 import { SessionTrashCleanupService } from "$lib/server/sessions/sessionTrashCleanup.js";
 import { buildProductionSessionLifecycle, buildSessionTrashCleanup } from "$lib/server/app/sessionMaintenance.js";
 import { rebuildExternalSessionMetadata } from "$lib/server/app/externalSessionsFromContexts.js";
+import { reportAgentOwnershipDivergences } from "$lib/server/sessions/agentOwnership.js";
 import { SessionBulkStore } from "$lib/server/sessions/sessionBulkStore.js";
 import { SessionBulkService } from "$lib/server/sessions/sessionBulkService.js";
 import { SessionExtractionStore } from "$lib/server/sessions/sessionExtractionStore.js";
@@ -852,6 +853,16 @@ function initializeRuntime(): RuntimeState {
           }
         } catch (error) {
           console.error(`${runtimeLabel("runtime")} session_metadata_backfill_failed`, error);
+        }
+      }, 0);
+      setTimeout(() => {
+        try {
+          const ownership = reportAgentOwnershipDivergences(config.dataDir);
+          if (ownership.diverged > 0) {
+            console.warn(`${runtimeLabel("runtime")} session_agent_ownership_divergence ${JSON.stringify(ownership)}`);
+          }
+        } catch (error) {
+          console.error(`${runtimeLabel("runtime")} session_agent_ownership_reconcile_failed`, error);
         }
       }, 0);
       void reconcileMcpServers(effectiveMcpServers(state.settings), {

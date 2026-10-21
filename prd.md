@@ -128,7 +128,7 @@ Desktop 单 Agent 创建/编辑使用七类导航与固定保存栏（含集中�
 
 # Personal Agent 体验升级 V1（2026-10-09，优先级未指定）
 
-已交付（2026-10-10）。Desktop 提供 Agent 导航、首页、完整历史、独立草稿和恢复；普通 Session 固定 Agent 身份，共享执行入口、模型路由、记忆授权及禁用/删除约束已接通。Project 保持现有行为，独立 Web 页面未改。Momo 使用固定 ID `default`，已配置 Bot 的空绑定明确保存为 Momo；global 是共享配置作用域，新对话默认选择独立于该身份。旧普通会话按 Bot 目录和有效 Agent 绑定自动关联；缺失有效绑定的历史才需要显式认领。产品约定见 [PRD](docs/requirements/personal-agent-experience-v1.md)，验收边界见 [验证记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。2026-10-21 定稿：规则收敛为可引用的 `PA-*` 编号，并新增唯一身份接口、准入三模式、删除三态、记忆范围判别联合、认领落盘与 Room 归属口径；其中尚未实施的结构约束以 PRD 的 `Further Notes` 与附录 B 为准，交付状态不变。同日已实施身份解析收敛、准入模式、删除三态与结构化阻塞、外部认领落盘、记忆范围判别；启动核对与客户端身份收口仍未实施。
+已交付（2026-10-10）。Desktop 提供 Agent 导航、首页、完整历史、独立草稿和恢复；普通 Session 固定 Agent 身份，共享执行入口、模型路由、记忆授权及禁用/删除约束已接通。Project 保持现有行为，独立 Web 页面未改。Momo 使用固定 ID `default`，已配置 Bot 的空绑定明确保存为 Momo；global 是共享配置作用域，新对话默认选择独立于该身份。旧普通会话按 Bot 目录和有效 Agent 绑定自动关联；缺失有效绑定的历史才需要显式认领。产品约定见 [PRD](docs/requirements/personal-agent-experience-v1.md)，验收边界见 [验证记录](docs/work/progress/personal-agent-desktop-v1/progress.md)。2026-10-21 定稿：规则收敛为可引用的 `PA-*` 编号，并新增唯一身份接口、准入三模式、删除三态、记忆范围判别联合、认领落盘与 Room 归属口径；其中尚未实施的结构约束以 PRD 的 `Further Notes` 与附录 B 为准，交付状态不变。同日已实施身份解析收敛、准入模式、删除三态与结构化阻塞、外部认领落盘、记忆范围判别；桌面客户端身份收口与启动归属核对同日完成，规范规则已全部落地。
 
 # 子代理 token 效率优化（2026-10-08，P1，部分交付）
 

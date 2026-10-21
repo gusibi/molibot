@@ -233,6 +233,7 @@ export function projectAgentCity(input: AgentCityProjectionInput): AgentCityProj
     name: "Momo",
     description: "",
     enabled: true,
+    canExecute: true,
     permissionMode: null,
     modelOverrides: 0,
     modelRouting: { textModelKey: "", sttModelKey: "" }

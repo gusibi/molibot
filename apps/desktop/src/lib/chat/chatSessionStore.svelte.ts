@@ -8,6 +8,7 @@ import {
 import {
   SessionDraftStore,
   type SessionDraft,
+  agentDraftKey,
   composerDraftKey,
   sessionDraftKey
 } from "./sessionDraftStore";
@@ -57,7 +58,7 @@ export interface ChatSessionStoreDeps {
   afterMutate?(profileId: string, sessionId: string): void;
   /** Notifies the host that a brand-new session was just created (so it can
    * refresh the sidebar / write the last-bot preference). */
-  onSessionCreated?(profileId: string, sessionId: string): void;
+  onSessionCreated?(profileId: string, sessionId: string, agentId?: string): void;
   /** Fires the instant a draft session gets its id, BEFORE the first turn snapshots
    * its context. The host uses this to seed the new session's model so the very
    * first message runs on the model picked while still in draft mode. */
@@ -74,6 +75,8 @@ export interface ChatSessionState {
   activeProfileId: string;
   draftMode: boolean;
   draftProfileId: string;
+  /** Agent the new-conversation draft belongs to; empty for profile drafts. */
+  draftAgentId: string;
   messages: UiMessage[];
   /** Active session's server-summed usage; null until its transcript load reports it. */
   usage: DesktopSessionUsageSummary | null;
@@ -106,8 +109,10 @@ export class ChatSessionStore {
 
   /** True when the right pane shows the not-yet-persisted new-conversation draft. */
   draftMode = $state(false);
-  /** Bot (profile id) chosen for the new-conversation draft (plan §6.1). */
+  /** Transport profile for the new-conversation draft. */
   draftProfileId = $state("");
+  /** Agent the draft will create its Session under; never parsed from a profile id. */
+  draftAgentId = $state("");
 
   private selectionRevision = 0;
   private deps: ChatSessionStoreDeps | null = null;
@@ -139,6 +144,7 @@ export class ChatSessionStore {
       activeProfileId: entry?.profileId ?? (this.draftMode ? this.draftProfileId : ""),
       draftMode: this.draftMode,
       draftProfileId: this.draftProfileId,
+      draftAgentId: this.draftAgentId,
       messages: entry?.messages ?? [],
       usage: entry?.usage ?? null,
       error: entry?.error ?? "",
@@ -173,12 +179,14 @@ export class ChatSessionStore {
   }
 
   /** Enters the not-yet-persisted new-conversation draft (plan §6.1). */
-  newConversationDraft(defaultProfileId: string): void {
+  newConversationDraft(defaultProfileId: string, agentId = ""): void {
     this.selectionRevision += 1;
     this.registry.clearActive();
     this.draftMode = true;
     this.draftProfileId = defaultProfileId;
-    this.draftStore.setProfileId(composerDraftKey("", defaultProfileId), defaultProfileId);
+    this.draftAgentId = agentId;
+    const key = agentId ? agentDraftKey(agentId) : composerDraftKey("", defaultProfileId);
+    this.draftStore.setDraftTarget(key, { profileId: defaultProfileId, agentId: agentId || undefined });
   }
 
   setDraftProfileId(profileId: string): void {
@@ -205,11 +213,11 @@ export class ChatSessionStore {
     if (this.draftMode || !this.registry.active) {
       const profileId = this.draftProfileId;
       if (!profileId) return;
-      const draftKey = composerDraftKey("", profileId);
+      const draftKey = this.draftAgentId ? agentDraftKey(this.draftAgentId) : composerDraftKey("", profileId);
       const draft = { ...this.draftStore.get(draftKey), files: [...files] };
       const submittedDraft = this.draftStore.update(draftKey, { text: "", files: [] });
       const revision = this.selectionRevision;
-      const created = await createDesktopSession(endpoint, profileId, deps.resolveAgent?.(profileId));
+      const created = await createDesktopSession(endpoint, profileId, draft.agentId ?? deps.resolveAgent?.(profileId));
       const selectedThinking = draft.thinkingLevel;
       this.draftStore.setThinking(sessionDraftKey(profileId, created.id), selectedThinking);
       const entry = this.registry.getOrCreate(profileId, created.id);
@@ -218,7 +226,7 @@ export class ChatSessionStore {
       // conversation that only appears to remember its selected model.
       await deps.onDraftSessionCreated?.(profileId, created.id, draft);
       const unchangedDraft = this.draftStore.get(draftKey) === submittedDraft;
-      const stillSelected = unchangedDraft && revision === this.selectionRevision && this.draftMode && this.draftProfileId === profileId && !this.registry.active;
+      const stillSelected = unchangedDraft && revision === this.selectionRevision && this.draftMode && this.draftProfileId === profileId && this.draftAgentId === (draft.agentId ?? "") && !this.registry.active;
       if (stillSelected) {
         this.registry.setActive(profileId, created.id);
         this.draftMode = false;
@@ -230,7 +238,7 @@ export class ChatSessionStore {
       // summarizer may not return, or fail entirely — left the sidebar showing
       // only older sessions. The host reconciles the placeholder title on the
       // next refresh (title summarizer event / turn complete).
-      deps.onSessionCreated?.(profileId, created.id);
+      deps.onSessionCreated?.(profileId, created.id, created.agentId);
       await entry.controller.send({ message: content, files });
       return;
     }
@@ -322,5 +330,6 @@ export class ChatSessionStore {
     this.registry.disposeAll();
     this.draftMode = false;
     this.draftProfileId = "";
+    this.draftAgentId = "";
   }
 }

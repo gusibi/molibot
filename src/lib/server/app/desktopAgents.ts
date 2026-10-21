@@ -1,5 +1,6 @@
 import { type AgentSettings, type RuntimeSettings } from "$lib/server/settings/schema";
 import type { DesktopAgentItem, DesktopAgentsSummary } from "$lib/shared/desktop";
+import { sortAgentNavigation } from "$lib/shared/agentNavigation";
 
 const ROUTING_KEYS = ["textModelKey", "sttModelKey"] as const;
 
@@ -19,12 +20,13 @@ function countModelOverrides(agent: AgentSettings): number {
  * per-agent model-routing overrides — rather than handing the WebView the full
  * settings object.
  */
-export function buildDesktopAgentItem(agent: AgentSettings): DesktopAgentItem {
+export function buildDesktopAgentItem(agent: AgentSettings, canExecute = agent.enabled !== false): DesktopAgentItem {
   return {
     id: agent.id,
     name: agent.name || agent.id,
     description: agent.description ?? "",
     enabled: agent.enabled !== false,
+    canExecute,
     visible: agent.visible !== false,
     avatar: agent.avatar ?? "",
     shareOwnerMemory: agent.shareOwnerMemory !== false,
@@ -39,16 +41,23 @@ export function buildDesktopAgentItem(agent: AgentSettings): DesktopAgentItem {
   };
 }
 
-export function buildDesktopAgentsSummary(settings: RuntimeSettings): DesktopAgentsSummary {
+export function buildDesktopAgentsSummary(
+  settings: RuntimeSettings,
+  latestConversationAtByAgent: Record<string, number> = {}
+): DesktopAgentsSummary {
   const agents = Array.isArray(settings.agents) ? settings.agents : [];
-  const items = agents.map(buildDesktopAgentItem).sort((a, b) => Number(b.id === settings.defaultAgentId) - Number(a.id === settings.defaultAgentId));
+  const pending = new Set(settings.pendingAgentDeletions ?? []);
+  const items = agents.map(agent => buildDesktopAgentItem(agent, agent.enabled !== false && !pending.has(agent.id)));
+  // One ordering rule, shared with any other surface that lists Agents: default
+  // first, then most recent conversation, then the collator.
+  const sorted = sortAgentNavigation(items, latestConversationAtByAgent, settings.defaultAgentId);
   return {
     defaultAgentId: settings.defaultAgentId,
     deletedAgentIds: settings.deletedAgentIds,
-    items,
+    items: sorted,
     counts: {
-      total: items.length,
-      enabled: items.filter((item) => item.enabled).length
+      total: sorted.length,
+      enabled: sorted.filter((item) => item.enabled).length
     }
   };
 }

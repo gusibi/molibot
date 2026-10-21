@@ -1058,6 +1058,7 @@ export interface DesktopModelRoutingResponse {
 
 export interface DesktopSessionSummary {
   id: string;
+  agentId?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -1625,6 +1626,8 @@ export interface DesktopAgentItem {
   name: string;
   description: string;
   enabled: boolean;
+  /** Server-resolved execution gate: enabled and not mid-deletion. */
+  canExecute: boolean;
   /** null = inherit from the override chain; never "off". */
   permissionMode: "plan" | "manual" | "accept_edits" | "auto" | null;
   modelOverrides: number;

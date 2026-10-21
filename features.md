@@ -1,3 +1,15 @@
+## 2026-10-21 — Personal Agent 客户端身份收口与归属核对
+
+按同批 `PA-*` 规则完成 Desktop 侧（PA-U）与启动核对（PA-I6）。
+
+- Agent 首页的最近历史改为按 Agent 限定的服务端查询（limit 5），不再从 100 行全量列表里截取；未归属探测保持独立的轻量查询。
+- `DesktopAgentItem` 新增服务端计算的 `canExecute`（启用且不在删除中），Composer 与空状态不再自己拼 `enabled` 判断；Agent 列表的默认置顶 + 最近活动排序也移到服务端，侧边栏不再重复排序。
+- 草稿携带显式 `agentId`：新增 `agentDraftKey()` 与 `SessionDraft.agentId`，`ChatView` 不再用 `agent-<id>` 伪 Profile 并靠 `startsWith`/`slice` 反解身份；发送时把 Agent 作为独立参数交给会话创建接口。传输 Profile 仍是真实 Web Profile。
+- 重启恢复改为打开上次停留且仍可执行的 Agent 页面，而不是一律回到默认 Agent；外部会话缺少归属时显示“未分配”，不再回退显示全局助手名。
+- 新增 `sessions/agentOwnership.ts`：启动时比较 sidecar 权威字段与 `ui.conversation.agentId` 镜像，冲突只写 `session_agent_ownership_divergence` 结构化日志，不自动改写。
+
+验证：Desktop 行为用例 536 项通过（2 项 providerLogos / CommandSystem 为既有失败，文件不在本次改动内）；源码守卫 317 项通过（3 项 TraceSection 与 onDestroy 相邻断言为既有漂移）；根 `pnpm check` 与 `pnpm desktop:check` 均 0 错误 0 警告；会话身份/生命周期/归属/记忆/外部会话定向 134 项通过。未运行 `pnpm verify:feature`、原生 App、真实渠道与付费 Provider。
+
 ## 2026-10-21 — Personal Agent 规则落地：身份解析、删除三态、认领与记忆范围
 
 按 [Personal Agent V1 规范](docs/requirements/personal-agent-experience-v1.md) 的 `PA-*` 规则实现第一批结构约束，未新增产品能力。

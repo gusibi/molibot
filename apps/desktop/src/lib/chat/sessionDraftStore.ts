@@ -20,6 +20,14 @@ export function sessionDraftKey(profileId: string, sessionId: string): string {
 }
 
 /**
+ * Draft key for an Agent's new conversation. The Agent id is carried explicitly
+ * instead of being encoded into a pseudo profile string and parsed back.
+ */
+export function agentDraftKey(agentId: string): string {
+  return `${NEW_CONVERSATION_KEY}:agent:${agentId}`;
+}
+
+/**
  * Draft key the live composer binds to right now: the active session's key, or
  * the current Agent’s new-conversation draft when no session is active. One rule, shared
  * by the store and the ChatView mirror, so the two can never disagree about
@@ -37,10 +45,14 @@ export interface SessionDraft {
   thinkingTouched?: boolean;
   permissionMode?: "plan" | "manual" | "accept_edits" | "auto";
   /**
-   * Selected Bot for the new-conversation draft only (plan §6.1). Ignored for
-   * existing sessions, whose Bot is fixed at first-message time (plan §6.3).
+   * Transport profile for a new-conversation draft. It never encodes the Agent.
    */
   profileId?: string;
+  /**
+   * Agent this draft will create its Session under. Explicit: the session's
+   * ownership is never inferred from the profile id.
+   */
+  agentId?: string;
 }
 
 export function emptyDraft(thinkingLevel: DesktopThinkingSelection = "medium"): SessionDraft {
@@ -97,6 +109,11 @@ export class SessionDraftStore {
 
   setProfileId(key: string, profileId: string): void {
     this.update(key, { profileId });
+  }
+
+  /** Binds a new-conversation draft to the Agent that will own the Session. */
+  setDraftTarget(key: string, target: { profileId: string; agentId?: string }): void {
+    this.update(key, { profileId: target.profileId, agentId: target.agentId });
   }
 
   /** Clears the composer draft after a turn is accepted, or on discard. */

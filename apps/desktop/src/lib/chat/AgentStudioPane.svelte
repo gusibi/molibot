@@ -121,6 +121,7 @@
     name: copy.agentStudioGlobalName,
     description: copy.agentStudioGlobalDescription,
     enabled: true,
+    canExecute: true,
     permissionMode: null,
     modelOverrides: 0,
     modelRouting: { textModelKey: "", sttModelKey: "" }

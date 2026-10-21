@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   NEW_CONVERSATION_KEY,
   SessionDraftStore,
+  agentDraftKey,
   composerDraftKey,
   emptyDraft,
   sessionDraftKey
@@ -70,8 +71,8 @@ test("drafts are isolated per session (switching away and back restores input)",
 
 test("Agent home drafts restore text, attachments, Thinking and model independently", () => {
   const drafts = new SessionDraftStore();
-  const research = composerDraftKey("", "agent-researcher");
-  const writing = composerDraftKey("", "agent-writer");
+  const research = agentDraftKey("researcher");
+  const writing = agentDraftKey("writer");
   const attachment = new File(["notes"], "notes.txt");
   drafts.update(research, { text: "research", files: [attachment], thinkingLevel: "high", modelKey: "research-model" });
   drafts.update(writing, { text: "write", thinkingLevel: "low", modelKey: "writing-model" });
