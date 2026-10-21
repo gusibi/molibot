@@ -279,6 +279,7 @@
   let draftModelKey = "";
   let changingModel = false;
   let modelSelectionHydrating = false;
+  let modelHydratingSessionId = "";
   let connectedEndpoint = "";
   let connectionReady = false;
   let loading = false;
@@ -1213,6 +1214,7 @@
       }
     }
   }
+  $: modelSelectionHydrating = Boolean(activeSessionId && modelHydratingSessionId === activeSessionId);
   $: botOptions = onboardingAgents.filter(agent => agent.enabled && (agent.id === defaultAgentId || agent.visible !== false)).map(agent => ({ id: agent.id, name: agent.name, subtitle: agent.description }));
   // Per-session model: when the active web session changes, show its model
   // (persisted override → Agent default → global default) and hydrate the override cache once.
@@ -2101,6 +2103,11 @@
     // The transport profile is a real Web profile; the Agent is carried as an
     // explicit id and never encoded into the profile string.
     newConversationWithBot(onboardingProfileId || activeProfileId || "personal", agentId);
+    // Paint the home list from the page already in memory, then replace it with
+    // the Agent-scoped query. Without the seed, switching Agents flashes an empty
+    // history on an async fetch.
+    agentHomeSessions = ordinarySessions.filter(item => item.agentId === agentId).slice(0, 5);
+    void refreshAgentHome(true);
     const draft = chatStore.draftStore.get(agentDraftKey(agentId));
     draftModelKey = draft.modelKey ?? "";
     draftThinkingTouched = draft.thinkingTouched ?? false;
@@ -3052,12 +3059,12 @@
   // user already left must not overwrite the visible selector.
   async function hydrateSessionModel(sessionId: string): Promise<void> {
     if (!connectedEndpoint || !sessionId) return;
+    const seq = ++modelHydrationSeq;
     if (sessionModelOverrides.has(sessionId) || hydratedModelSessions.has(sessionId)) {
-      modelSelectionHydrating = false;
+      modelHydratingSessionId = "";
       return;
     }
-    modelSelectionHydrating = true;
-    const seq = ++modelHydrationSeq;
+    modelHydratingSessionId = sessionId;
     try {
       const key = await loadDesktopSessionModel(connectedEndpoint, sessionId);
       if (seq !== modelHydrationSeq || activeSessionId !== sessionId) return;
@@ -3070,7 +3077,7 @@
     } catch {
       // network hiccup: leave the composer on its default; a later switch retries
     } finally {
-      if (seq === modelHydrationSeq && activeSessionId === sessionId) modelSelectionHydrating = false;
+      if (seq === modelHydrationSeq) modelHydratingSessionId = "";
     }
   }
 

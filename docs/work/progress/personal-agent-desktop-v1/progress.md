@@ -1,6 +1,6 @@
 # Personal Agent Desktop V1 实施与验证
 
-完成日期：2026-10-10。当前能力状态以 [能力矩阵](../../../requirements/personal-assistant-capability-matrix.md) 为准，持续验收依据为 [实施规格](../../../requirements/personal-agent-desktop-v1-spec.md)。
+完成日期：2026-10-10。当前能力状态以 [能力矩阵](../../../requirements/personal-assistant-capability-matrix.md) 为准，持续验收依据为 [需求文档](../../../requirements/personal-agent-experience-v1.md)。
 
 ## 交付范围
 
@@ -75,3 +75,18 @@ Desktop 9 项预检查、334 项行为测试、299 项源码守卫和 70 项 Rus
 临时数据库的 saveChannels → 新 Store → load 覆盖完整设置对象及渠道所有支持字段，验证物理 agent_id 为 `default` 且不覆盖其他设置。46 项设置/历史与 52 项提示词/执行回归通过。完整后端 2533 项，2527 通过、5 项前文已复现的基线失败、1 跳过。Desktop 9 项预检查、334 项行为、300 项源码守卫、70 项 Rust 测试通过；两端类型检查与构建通过，Desktop 保留既有 Agent City 可访问性警告。
 
 隔离 Desktop 构建预览与独立 Web 飞书设置核对初始 Momo 选择；即使新对话默认是 Researcher，新建 Bot/Profile 仍选 Momo。中英文即时切换、明暗主题与 520px 表单检查通过，保存按钮位于窗口内；Profile 保存后显示 Momo，隔离服务重启后读取同一绑定。用户服务未中断。未在原生 macOS 窗口做本轮完整人工验证。
+
+
+## 2026-10-21 — PA-* 规则的实现与浏览器 UI 复核
+
+按定稿规范分两批落地：① 共享层身份解析、准入三模式、删除三态与结构化 blockers、外部认领落盘、记忆范围判别；② Desktop 身份收口（草稿显式 `agentId`、服务端 `canExecute` 与排序、重启恢复上次 Agent 页面）与启动归属核对。
+
+浏览器 UI 复核在隔离实例上完成（`scripts/start-server.mjs` + 本地模拟模型），先重建服务端与 Desktop 产物：
+
+- `@navigation`（WebKit）7/7：审批等待中切换会话不泄漏、切换中批准只结算一次、Agent 草稿互相隔离、后台回复回到原会话、会话存储回读、Agent 首页在加载中的会话离开后仍可编辑并在服务中断后恢复。
+- `@smoke`（Chromium）6/6：冷启动首启对话框、连续两轮对话、生成中停止后继续、工作区拆分与冷恢复、计划/技能/自动任务分区、Mini App 内容列宽。
+- 这轮 UI 复核抓到一处真实回归：Agent 首页最近历史改为异步的按 Agent 查询后，切换 Agent 会先闪一帧空历史，导致「切回等待审批的会话」的自动化点击落空。修法是用已在内存中的列表先同步铺一帧，再用 scoped 查询替换；随后 7 项导航用例全绿。
+
+自动检查：服务端定向 369 + 134 项、Desktop 行为 536 项、源码守卫 317 项通过；`pnpm check` 与 `pnpm desktop:check` 均 0 错误 0 警告。既有失败不在本次改动内：`providerLogos`、`CommandSystem`、两项 `TraceSection` 仪表盘守卫、一项 ChatView `onDestroy` 相邻断言。
+
+边界：完整原生 macOS 人工走查、真实 Telegram/飞书/QQ/微信与付费 Provider 未验收；`pnpm verify:feature` 与 `scripts/verify/native.mjs` 未执行（原生测试构建尚未建设）。本轮未中断用户服务，未操作真实用户数据。

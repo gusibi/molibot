@@ -33,5 +33,5 @@ Memory is configurable and reviewable. It is not a claim that every conversation
 - [ADR 0001: memory namespace and turn-retention semantics](../adr/0001-memory-namespace-and-turn-retention.md)
 - [Memory improvement plan v3 (archived)](../archive/requirements/memory-improvement-plan-v3.md)
 - [Project session provenance (archived)](../archive/requirements/project-session-provenance-and-inspection.md)
-- [Personal Agent V1 acceptance contract](../requirements/personal-agent-desktop-v1-spec.md)
+- [Personal Agent V1 requirements and acceptance](../requirements/personal-agent-experience-v1.md)
 - [Delivered changes](../../features.md)

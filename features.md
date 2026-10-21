@@ -1,3 +1,11 @@
+## 2026-10-21 — Project 活动隔离与 Agent 首页输入恢复
+
+Agent 导航、首页与总览的活动按会话所属范围过滤，Project 会话即使使用 Momo，也不进入 Agent 活动状态与活动历史；同一 Agent 的普通会话仍正常显示。模型加载状态绑定具体 Session，加载期间返回首页可立即输入，旧响应不能覆盖新会话或已缓存的模型选择，失败后可重试。
+
+根因分别是活动投影遗漏 Project 范围，以及异步加载状态未绑定会话。既有 Agent 归属守卫只验证执行者，模型守卫只检查加载期间阻止发送，未覆盖 Project 排除与中途导航。新增临时会话存储回归与真实加载函数回归；沿用现有作用域及异步响应守卫规则，无需新增协作规则。
+
+验证：新增定向回归均连续 5 次通过，Project 用例使用临时落盘会话并重新创建 store；WebKit 导航、实际发送与服务重启恢复用例连续 5 次通过。活动投影 20 项、活动轮询 10 项及模型加载界面守卫通过；根与桌面类型检查、构建通过，桌面检查 0 错误、0 警告。未更新当前安装的原生 App，未中断用户服务；全量 `pnpm verify:feature` 留待主动执行。
+
 ## 2026-10-21 — Personal Agent 客户端身份收口与归属核对
 
 按同批 `PA-*` 规则完成 Desktop 侧（PA-U）与启动核对（PA-I6）。
@@ -8,7 +16,7 @@
 - 重启恢复改为打开上次停留且仍可执行的 Agent 页面，而不是一律回到默认 Agent；外部会话缺少归属时显示“未分配”，不再回退显示全局助手名。
 - 新增 `sessions/agentOwnership.ts`：启动时比较 sidecar 权威字段与 `ui.conversation.agentId` 镜像，冲突只写 `session_agent_ownership_divergence` 结构化日志，不自动改写。
 
-验证：Desktop 行为用例 536 项通过（2 项 providerLogos / CommandSystem 为既有失败，文件不在本次改动内）；源码守卫 317 项通过（3 项 TraceSection 与 onDestroy 相邻断言为既有漂移）；根 `pnpm check` 与 `pnpm desktop:check` 均 0 错误 0 警告；会话身份/生命周期/归属/记忆/外部会话定向 134 项通过。未运行 `pnpm verify:feature`、原生 App、真实渠道与付费 Provider。
+验证：Desktop 行为用例 536 项通过（2 项 providerLogos / CommandSystem 为既有失败，文件不在本次改动内）；源码守卫 317 项通过（3 项 TraceSection 与 onDestroy 相邻断言为既有漂移）；根 `pnpm check` 与 `pnpm desktop:check` 均 0 错误 0 警告；会话身份/生命周期/归属/记忆/外部会话定向 134 项通过。隔离实例浏览器 UI：WebKit `@navigation` 7/7、Chromium `@smoke` 6/6。UI 复核抓到并修复一处回归：首页历史改为异步 scoped 查询后切换 Agent 会先闪空历史，现先同步铺一帧内存列表再替换。未运行 `pnpm verify:feature`、原生 App、真实渠道与付费 Provider。
 
 ## 2026-10-21 — Personal Agent 规则落地：身份解析、删除三态、认领与记忆范围
 
