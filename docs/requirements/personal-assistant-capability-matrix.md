@@ -17,7 +17,7 @@ This file is the single current-status source for Molibot's work/life assistant 
 
 | Area | Capability | Status | Current evidence and boundary |
 |---|---|---|---|
-| Personal Agent | Agent 为中心的导航与稳定 Session 身份 | 已交付 | 2026-10-10：[V1 需求](personal-agent-experience-v1.md) 已实施，固定执行身份、按 Bot 绑定自动关联历史及 Momo/global 身份归一、授权记忆、生命周期和 Desktop 导航已验证；[验证记录](../work/progress/personal-agent-desktop-v1/progress.md) 说明隔离预览及原生验证边界。2026-10-21 按定稿规则完成执行身份收敛、准入模式、删除三态与结构化阻塞、外部认领落盘、记忆范围判别、桌面客户端身份收口（草稿显式 Agent ID、服务端 `canExecute` 与排序、重启恢复上次助手页面）与启动归属核对（冲突只诊断）。证据：定向 369 + 134 项、Desktop 536 项、源码守卫 317 项、浏览器 UI 13 项（WebKit `@navigation` 7 + Chromium `@smoke` 6），类型检查 0 错误 0 警告。 |
+| Personal Agent | Agent 为中心的导航与稳定 Session 身份 | 已交付 | 2026-10-10：[V1 需求](personal-agent-experience-v1.md) 已实施，固定执行身份、按 Bot 绑定自动关联历史及 Momo/global 身份归一、授权记忆、生命周期和 Desktop 导航已验证；[验证记录](../work/progress/personal-agent-desktop-v1/progress.md) 说明隔离预览及原生验证边界。2026-10-21 按定稿规则完成执行身份收敛、准入模式、删除三态与结构化阻塞、外部认领落盘、记忆范围判别、桌面客户端身份收口（草稿显式 Agent ID、服务端 `canExecute` 与排序、重启恢复上次助手页面）与启动归属核对（冲突只诊断）。证据：定向 369 + 134 项、Desktop 536 项、源码守卫 317 项、浏览器 UI 13 项（WebKit `@navigation` 7 + Chromium `@smoke` 6），类型检查 0 错误 0 警告。**2026-10-22 owner 验收通过**（原生窗口与外部渠道按 owner 确认；自动项同日于合并工作区复跑 425 + 3 项通过）。 |
 | Personal Agent | 授权事项的持续跟进与交付 | 未开始 | [三阶段 PRD](proactive-assistant-v1-spec.md)，2026-10-18 方案修订，待实施评审（未批准排期）。现有反思、Runtime Task 和渠道按钮只是复用基础，不证明跟进闭环已交付。 |
 | Personal Agent | 记忆的用户可见、纠正与删除 | 未开始 | 记忆作用域与授权已交付，但用户尚无入口查看、纠正或删除 Agent 记住的内容。未批准排期。 |
 | Personal Agent | 跨渠道连续性 | 未开始 | V1 明确不做跨渠道续聊；外部渠道历史在 Desktop 只读。未批准排期。 |

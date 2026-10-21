@@ -90,3 +90,7 @@ Desktop 9 项预检查、334 项行为测试、299 项源码守卫和 70 项 Rus
 自动检查：服务端定向 369 + 134 项、Desktop 行为 536 项、源码守卫 317 项通过；`pnpm check` 与 `pnpm desktop:check` 均 0 错误 0 警告。既有失败不在本次改动内：`providerLogos`、`CommandSystem`、两项 `TraceSection` 仪表盘守卫、一项 ChatView `onDestroy` 相邻断言。
 
 边界：完整原生 macOS 人工走查、真实 Telegram/飞书/QQ/微信与付费 Provider 未验收；`pnpm verify:feature` 与 `scripts/verify/native.mjs` 未执行（原生测试构建尚未建设）。本轮未中断用户服务，未操作真实用户数据。
+
+## 2026-10-22 — 验收通过
+
+owner 确认 Personal Agent V1 验收通过。自动项在合并后的工作区复跑：`pnpm test:personal-agent` 425 项通过，Agent 首页浏览器用例 3/3 通过；原生窗口 M1–M13 与外部渠道 E1–E4 由 owner 完成验收。逐项记录与签收见 [验收清单](acceptance-2026-10-21.md)。
