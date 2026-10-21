@@ -95,6 +95,15 @@ test("recovery may keep a disabled Agent without creating a new identity", () =>
   assert.deepEqual(recovery, { agentId: "researcher", mode: "recovery", source: "session", action: "reuse" });
 });
 
+test("a deleted Agent cannot be recovered", () => {
+  const current = settings();
+  current.deletedAgentIds = [...current.deletedAgentIds, "researcher"];
+  assert.throws(
+    () => resolveExecutionIdentity(current, { channel: "telegram", botId: "bound", persistedAgentId: "researcher", explicitTarget: true, recoveryMatches: true }),
+    /Agent not found/
+  );
+});
+
 test("only the identity module resolves channel bindings for execution", () => {
   const root = join(import.meta.dirname, "..", "..", "..", "..");
   const owner = join(import.meta.dirname, "executionIdentity.ts");

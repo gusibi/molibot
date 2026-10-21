@@ -86,4 +86,8 @@ test("summary carries the server execution gate and one ordering rule", () => {
   assert.equal(summary.items.find((item) => item.id === "writer")?.canExecute, false);
   assert.equal(summary.items.find((item) => item.id === "retired")?.canExecute, false);
   assert.equal(summary.items.find((item) => item.id === "default")?.canExecute, true);
+  // PA-L7: hidden still runs; only the sidebar filters on `visible`.
+  const hidden = buildDesktopAgentsSummary({ ...current, agents: [...current.agents, agent({ id: "hidden", visible: false })] });
+  assert.equal(hidden.items.find((item) => item.id === "hidden")?.canExecute, true);
+  assert.equal(hidden.items.find((item) => item.id === "hidden")?.visible, false);
 });
