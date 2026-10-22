@@ -1245,7 +1245,7 @@ a:focus-visible {
    instead let it run under the action buttons whenever the file panel narrowed
    the column. */
 .chat-title-block { display: flex; align-items: center; flex: 1 1 auto; gap: 6px; min-width: 0; height: 28px; }
-.chat-source-label {
+.chat-agent-label, .chat-source-label {
   flex: 0 0 auto;
   min-width: 0;
   max-width: 30%;
@@ -5817,7 +5817,7 @@ select.provider-input { padding-right: 6px; }
 .external-instance-heading { display: flex; align-items: center; gap: 6px; margin: 8px 0 2px; font-size: var(--fs-meta); font-weight: 600; color: var(--label-secondary); }
 .external-instance-heading:first-child { margin-top: 0; }
 
-.external-readonly-notice { margin: 6px 0; text-align: center; font-style: italic; color: var(--label-tertiary); font-size: var(--fs-label); line-height: 1.5; }
+.external-readonly-notice { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; text-align: center; font-style: italic; color: var(--label-tertiary); font-size: var(--fs-label); line-height: 1.5; }
 
 .external-transcript-panel {
   margin-top: 10px;

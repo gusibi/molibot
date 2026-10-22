@@ -19,6 +19,15 @@
     border-right: 1px solid var(--separator);
     background: transparent;
   }
+  .plans-connection-status {
+    flex: none;
+    margin: 0;
+    padding: 12px 24px 8px;
+    color: var(--label-secondary);
+    font-size: var(--fs-workspace-meta);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
   .plans-toolbar {
     display: grid;
     gap: 10px;

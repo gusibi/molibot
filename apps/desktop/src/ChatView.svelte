@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Gear from "reicon-svelte/icons/Gear";
+  import Tuning3 from "./lib/icons/duotone/components/Tuning3.svelte";
   import Button from "./lib/components/ui/Button.svelte";
   import AgentCityStartup from "./lib/chat/AgentCityStartup.svelte";
   import { isActiveDurableExecution, isOpenDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
@@ -125,7 +125,8 @@
   import { appLogo } from "./lib/stores/appLogo.svelte";
   import { deleteConversationSelection } from "./lib/chat/deleteConversationSelection";
   import AgentFilesPage from "./lib/chat/AgentFilesPage.svelte";
-  import FilesIcon from "reicon-svelte/icons/Files";
+  import Library from "reicon-svelte/icons/Library";
+  import History2 from "./lib/icons/duotone/components/History2.svelte";
   import AgentHome from "./lib/chat/AgentHome.svelte";
   import { windowHeader } from "./lib/chat/windowHeader";
   import { saveBlobAsFile } from "./lib/saveFile";
@@ -457,11 +458,8 @@
     }
   }
 
-  // Header refresh targets the open conversation: the shared poller refreshes
-  // session lists (and the external transcript); local transcripts reload here.
   function refreshActiveConversation(): void {
     conversationScheduler?.wake("manual");
-    if (viewMode === "local") void chatStore.reloadActive();
   }
 
   function startConversationPolling(): void {
@@ -1252,6 +1250,7 @@
   $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
   $: activeSessionItem = ordinarySessions.find((item) => item.sessionId === activeSessionId);
   $: activeExternalSessionItem = ordinarySessions.find((item) => item.sessionId === activeExternalSessionId);
+  $: conversationDetailActive = viewMode === "external" ? Boolean(activeExternalSessionId) : !draftMode && Boolean(activeSessionId);
   $: activeHeaderChannel = viewMode === "external" ? activeExternalChannel : (activeSessionItem?.channel ?? "web");
   $: activeHeaderSourceLabel = sidebarChannels.find((channel) => channel.id === activeHeaderChannel)?.name ?? activeHeaderChannel;
   $: startupPending = serviceState !== "ready" || !connectionReady || loading || initialNavigationPending;
@@ -3866,6 +3865,9 @@
               <div class="chat-title-sub" data-tauri-drag-region title={$windowHeader.subtitle}>{$windowHeader.subtitle}</div>
             {/if}
           </div>
+          {#if $windowHeader.agentLabel}
+            <span class="chat-agent-label" data-tauri-drag-region title={$windowHeader.agentLabel}>{$windowHeader.agentLabel}</span>
+          {/if}
           {#if $windowHeader.sourceLabel}
             <span class="chat-source-label" data-tauri-drag-region title={$windowHeader.sourceLabel}>{$windowHeader.sourceLabel}</span>
           {/if}
@@ -4068,15 +4070,16 @@
     <ChatHeader
       title={startupPending ? startupHeaderTitle : agentFilesActive ? `${selectedAgent?.name || selectedAgentId} · ${locale === "zh-CN" ? "文件与附件" : "Files and attachments"}` : agentHistoryActive ? `${selectedAgent?.name || (locale === "zh-CN" ? "未归属历史" : "Unassigned history")} · ${locale === "zh-CN" ? "全部对话" : "All conversations"}` : activeHeaderTitle}
       sourceLabel={!agentFilesActive && !agentHistoryActive && activeHeaderChannel !== "web" ? activeHeaderSourceLabel : ""}
+      agentLabel={!startupPending && conversationDetailActive && !agentFilesActive && !agentHistoryActive ? (viewMode === "external" ? activeExternalAgentName : activeAgentName) : ""}
       searching={searchOpen}
     >
       {#snippet actions()}
-        {#if !startupPending && connectionReady && !agentFilesActive && !agentHistoryActive && !draftMode}
-          <Button variant="icon" title={copy.conversationRefresh} disabled={conversationRefreshing || externalTranscriptLoading || (viewMode === "local" && sending)} onclick={refreshActiveConversation}><Refresh size={16} aria-hidden="true" /></Button>
+        {#if !startupPending && connectionReady && !agentFilesActive && !agentHistoryActive && conversationDetailActive}
+          <Button variant="icon" title={locale === "zh-CN" ? "Agent 全部对话" : "Agent conversations"} onclick={() => openAgentHistory((viewMode === "external" ? activeExternalAgentId : selectedAgentId) || "__unassigned__")}><History2 size={16} aria-hidden="true" /></Button>
         {/if}
-        {#if !startupPending && draftMode && selectedAgent && !agentFilesActive && !agentHistoryActive}
-          <Button variant="icon" title={locale === "zh-CN" ? "文件与附件" : "Files and attachments"} onclick={() => openAgentFiles(selectedAgentId)}><FilesIcon size={16} aria-hidden="true" /></Button>
-          <Button variant="icon" title={locale === "zh-CN" ? "Agent 设置" : "Agent settings"} onclick={() => void openAgentSettings(selectedAgentId)}><Gear size={16} aria-hidden="true" /></Button>
+        {#if !startupPending && viewMode === "local" && draftMode && selectedAgent && !agentFilesActive && !agentHistoryActive}
+          <Button variant="icon" title={locale === "zh-CN" ? "文件与附件" : "Files and attachments"} onclick={() => openAgentFiles(selectedAgentId)}><Library size={16} weight="Filled" aria-hidden="true" /></Button>
+          <Button variant="icon" title={locale === "zh-CN" ? "Agent 设置" : "Agent settings"} onclick={() => void openAgentSettings(selectedAgentId)}><Tuning3 size={16} aria-hidden="true" /></Button>
         {/if}
         {#if durableActiveCount > 0}
           <button
@@ -4246,7 +4249,8 @@
       {#if externalTranscript}
         <footer class="composer-wrap" data-theme-region="composer">
           <p class="external-readonly-notice">
-            {copy.externalSessionReadOnly.replace("{channel}", activeHeaderSourceLabel)}
+            <span>{copy.externalSessionReadOnly.replace("{channel}", activeHeaderSourceLabel)}</span>
+            <Button variant="icon" title={copy.conversationRefresh} disabled={!connectionReady || conversationRefreshing || externalTranscriptLoading} onclick={refreshActiveConversation}><Refresh size={16} aria-hidden="true" /></Button>
           </p>
         </footer>
       {/if}

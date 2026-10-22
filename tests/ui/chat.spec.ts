@@ -138,7 +138,7 @@ test('assistant reply streams progressively and then settles @chat', async ({ pa
   await expect(page.locator('.thinking-card')).toHaveCount(0);
 });
 
-test('header refresh lives in the session detail and settled turns stay silent @chat', async ({ page, instance }) => {
+test('editable Web sessions omit refresh and settled turns stay silent @chat', async ({ page, instance }) => {
   await openChat(page);
   const refresh = page.getByRole('button', { name: 'Refresh conversations', exact: true });
   // Agent home never shows the refresh control; the conversation lists don't either.
@@ -147,8 +147,9 @@ test('header refresh lives in the session detail and settled turns stay silent @
   replyTo(instance.model, `quiet ${settled}`, { type: 'text', text: `REPLY:${settled}` });
   await sendText(page, `quiet ${settled}`);
   await expectReply(page, `REPLY:${settled}`);
-  // The session detail owns the refresh control, and a successful turn adds no status row.
-  await expect(refresh).toBeVisible();
+  await expect(refresh).toHaveCount(0);
+  await expect(page.locator(".chat-agent-label")).toHaveText("Momo");
+  await expect(page.getByRole("button", { name: "Agent conversations", exact: true })).toBeVisible();
   await expect(page.locator('.conversation-system-status')).toHaveCount(0);
 
   const failing = uniqueToken();

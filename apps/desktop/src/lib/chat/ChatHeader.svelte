@@ -14,12 +14,14 @@
   let {
     title,
     sourceLabel = "",
+    agentLabel = "",
     subtitle = "",
     searching = false,
     actions = null
   }: {
     title: string;
     sourceLabel?: string;
+    agentLabel?: string;
     subtitle?: string;
     searching?: boolean;
     actions?: Snippet | null;
@@ -28,7 +30,7 @@
   const owner = Symbol("window-header");
 
   $effect(() => {
-    windowHeader.set({ title, sourceLabel, subtitle, searching, actions, owner });
+    windowHeader.set({ title, sourceLabel, agentLabel, subtitle, searching, actions, owner });
   });
 
   onDestroy(() => {

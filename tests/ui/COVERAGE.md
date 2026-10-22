@@ -16,6 +16,13 @@
 - 模型是唯一的假依赖（`tests/ui/support/model-service.ts`），走真实的 OpenAI 兼容 Provider 适配器。
 - 运行时细节由既有 node:test 集成测试负责。
 
+## Agent 首页与项目活动隔离（2026-10-21）
+
+| 场景 | 状态 | 负责层 | 用例 |
+|---|---|---|---|
+| Project 会话不进入 Agent 活动；同 Agent 普通会话仍显示运行中 | 已实现 | 共享活动投影 | `desktopTrace.test.ts` |
+| 模型加载途中返回首页可立即输入，过期响应不覆盖新会话，失败后可重试 | 已实现 | 会话状态 / UI | `sessionModelHydration.test.ts`、`session-model-hydration.spec.ts` |
+
 ## 基础设施自测
 
 | 项目 | 状态 | 测试 |
@@ -117,3 +124,7 @@
 `workspaces.spec.ts` 顶部几何回归（`@workspace @smoke`）：计划各状态数量与真实 API 列表相符，搜索无匹配归零、清空恢复；计划、技能与自动任务在 1440/1120/860 宽度、中英、macOS 明暗及 Brutalism 深色下，说明区、筛选栏和分隔线位置一致（技能筛选栏并入共享规则，右侧不再显示统计文案），技能卡片网格静默态无边框、顶距 24px，防止卡片上边框在分割线下形成第二条缩进横线，窄窗无横向溢出。
 
 `workspaces.spec.ts` 小程序限宽回归（`@workspace @smoke`）：小程序说明、工具栏及网格 x/right/width 完全一致，管理页继承同一列；覆盖 2240/1600/1440/1120/860、中英、macOS 明暗及 Brutalism 深色，并验证内容列不超过 1240px。
+
+`plan-connection-status.spec.ts`（@plans @workspace）：真实计划列表连接提示的左右内缩、次级文字、字号和无横向溢出；覆盖中英、明暗、1440/860/600 宽度、事件流不可用时的长提示、切页返回及隔离服务重启后的恢复与计划回读。
+
+`chat-agent-header.spec.ts`（@chat @navigation）：Web 会话 Agent 名称、无刷新和 Agent 范围历史；外部会话独立 Agent 名称与渠道、底部刷新请求与消息结果、按 Agent 隔离历史、中英明暗窄窗和隔离服务重启后首次恢复。`chat.spec.ts` 的 Web 会话用例改为断言无刷新、Agent 标识与历史入口，保留成功静默和失败状态反馈断言。

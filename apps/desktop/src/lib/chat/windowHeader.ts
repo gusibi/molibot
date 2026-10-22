@@ -15,6 +15,7 @@ import type { Snippet } from "svelte";
 export type WindowHeaderContent = {
   title: string;
   sourceLabel: string;
+  agentLabel: string;
   subtitle: string;
   searching: boolean;
   actions: Snippet | null;
@@ -24,6 +25,7 @@ export type WindowHeaderContent = {
 export const emptyWindowHeader: WindowHeaderContent = {
   title: "",
   sourceLabel: "",
+  agentLabel: "",
   subtitle: "",
   searching: false,
   actions: null,

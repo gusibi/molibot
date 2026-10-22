@@ -184,7 +184,7 @@ Session 显式覆盖 > Agent 当前配置 > 全局默认模型。Agent 或其模
 | PA-H2 | 未归属历史只读，直到用户显式认领；认领写入归属，但不解除只读。 | 刷新后认领失效，或认领后可跨渠道续聊 |
 | PA-H3 | 认领不得改写已有归属；重复认领幂等。 | 认领把已有归属的 Session 抢走 |
 | PA-H4 | Room 对话属于 Room，不属于任何 Session Agent；它不出现在 Agent 历史里，只在 Agent Team 中呈现。 | Room 对话同时出现在两处，或两处都不出现 |
-| PA-H5 | Project Session 保持现有行为，不参与 Agent 归属、删除归档与认领。 | 删除 Agent 时 Project 会话被归档 |
+| PA-H5 | Project Session 保持现有行为，不参与 Agent 归属、删除归档与认领；即使使用同一个 Agent，也不计入 Agent 导航、首页与总览的活动状态及活动历史。 | 删除 Agent 时 Project 会话被归档 |
 
 Room 归属的落地口径：
 

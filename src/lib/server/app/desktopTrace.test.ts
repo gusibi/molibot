@@ -1,3 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { storagePaths } from "$lib/server/infra/db/storage";
+import { SessionStore } from "$lib/server/sessions/store";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -13,6 +18,8 @@ import {
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import { buildDesktopActiveRuns } from "./desktopActiveRuns";
 import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
+
+const ordinarySessions = { getConversationProjectId: (_id: string): string | null => null };
 
 function fact(overrides: Partial<TraceFactRecord> = {}): TraceFactRecord {
   return {
@@ -193,7 +200,7 @@ test("buildDesktopAgentActivity maps Bot run facts to Agents and expires termina
   const items = buildDesktopAgentActivity(settings, [
     fact({ id: "active", factType: "run", factId: "run-active", runId: "run-active", channel: "feishu", botId: "smart-momo", status: "started", startedAt: "2026-07-12T12:00:00.000Z", updatedAt: "2026-07-12T12:00:00.000Z", payload: { taskPreview: "分析这个项目" } }),
     fact({ id: "old", factType: "run", factId: "run-old", runId: "run-old", channel: "feishu", botId: "smart-momo", status: "success", finishedAt: "2026-07-12T11:59:00.000Z", updatedAt: "2026-07-12T11:59:00.000Z" })
-  ], now);
+  ], ordinarySessions, now);
   assert.deepEqual(items.map((item) => [item.agentId, item.status, item.channel]), [["agent-smart", "working", "feishu"]]);
   assert.equal(items[0]?.botName, "Smart Momo");
   assert.equal(items[0]?.taskPreview, "分析这个项目");
@@ -201,7 +208,7 @@ test("buildDesktopAgentActivity maps Bot run facts to Agents and expires termina
 
   const completed = buildDesktopAgentActivity(settings, [
     fact({ id: "done", factType: "run", factId: "run-done", runId: "run-done", channel: "feishu", botId: "smart-momo", status: "success", startedAt: "2026-07-12T12:00:00.000Z", finishedAt: "2026-07-12T12:00:15.000Z", updatedAt: "2026-07-12T12:00:15.000Z" })
-  ], now);
+  ], ordinarySessions, now);
   assert.equal(completed[0]?.status, "completed");
   assert.equal(JSON.stringify(completed).includes("payload"), false);
 });
@@ -217,13 +224,13 @@ test("buildDesktopAgentActivity preserves concurrent runs and 24h history withou
     fact({ id: "run-a", factType: "run", factId: "run-a", runId: "run-a", channel: "web", botId: "worker", status: "started", startedAt: "2026-07-12T12:00:10.000Z", updatedAt: "2026-07-12T12:00:10.000Z" }),
     fact({ id: "run-b", factType: "run", factId: "run-b", runId: "run-b", channel: "web", botId: "worker", status: "started", startedAt: "2026-07-12T12:00:05.000Z", updatedAt: "2026-07-12T12:00:05.000Z" }),
     fact({ id: "run-old", factType: "run", factId: "run-old", runId: "run-old", channel: "web", botId: "worker", status: "success", startedAt: "2026-07-12T10:00:00.000Z", finishedAt: "2026-07-12T10:02:00.000Z", updatedAt: "2026-07-12T10:02:00.000Z" })
-  ], now);
+  ], ordinarySessions, now);
   assert.equal(items[0]?.status, "working");
   assert.deepEqual(items[0]?.runs.map((run) => run.runId), ["run-a", "run-b", "run-old"]);
 
   const later = buildDesktopAgentActivity(settings, [
     fact({ id: "run-old", factType: "run", factId: "run-old", runId: "run-old", channel: "web", botId: "worker", status: "success", startedAt: "2026-07-12T10:00:00.000Z", finishedAt: "2026-07-12T10:02:00.000Z", updatedAt: "2026-07-12T10:02:00.000Z" })
-  ], now);
+  ], ordinarySessions, now);
   assert.equal(later[0]?.status, "idle");
   assert.equal(later[0]?.runId, "");
   assert.equal(later[0]?.runs[0]?.runId, "run-old");
@@ -238,7 +245,7 @@ test("buildDesktopAgentActivity assigns unbound Bots to default and nests Subage
   const items = buildDesktopAgentActivity(settings, [
     fact({ id: "parent", factType: "run", factId: "run-parent", runId: "run-parent", channel: "feishu", botId: "general", status: "started", startedAt: "2026-07-12T12:00:00.000Z", updatedAt: "2026-07-12T12:00:00.000Z" }),
     fact({ id: "sub", factType: "subagent_task", factId: "researcher:1", runId: "run-parent", channel: "feishu", botId: "general", name: "researcher", status: "started", startedAt: "2026-07-12T12:00:02.000Z", updatedAt: "2026-07-12T12:00:02.000Z", payload: { task: "sensitive task" } })
-  ], now);
+  ], ordinarySessions, now);
   assert.equal(items[0]?.agentId, "default");
   assert.deepEqual(items[0]?.subagents.map((item) => [item.name, item.status]), [["researcher", "working"]]);
   assert.equal(JSON.stringify(items).includes("sensitive task"), false);
@@ -250,7 +257,7 @@ test("buildDesktopAgentActivity drops orphaned started runs after the runtime ti
   const now = Date.parse("2026-07-12T12:30:00.000Z");
   const items = buildDesktopAgentActivity(settings, [
     fact({ id: "orphan", factType: "run", factId: "orphan", runId: "orphan", channel: "web", botId: "runtime", status: "started", startedAt: "2026-07-12T09:21:17.000Z", updatedAt: "2026-07-12T09:21:17.000Z" })
-  ], now);
+  ], ordinarySessions, now);
   assert.deepEqual(items, []);
 });
 
@@ -345,10 +352,10 @@ test("Agent activity uses the recorded run owner across start, completion and Bo
     for (const [stage, status] of [["run.beforeStart", "working"], ["run.finished", "completed"]] as const) {
       manager.emit(stage, ctx, { status: "success", agentId: "default", taskPreview: "Research" });
       await manager.flush({ timeoutMs: 1000 });
-      const items = buildDesktopAgentActivity(settings, store.listRecentFacts(100));
+      const items = buildDesktopAgentActivity(settings, store.listRecentFacts(100), ordinarySessions);
       assert.deepEqual(items.map(item => [item.agentId, item.status]), [["smart", status]]);
       settings.channels.web.instances[0].agentId = "another-agent";
-      assert.deepEqual(buildDesktopAgentActivity(settings, store.listRecentFacts(100)).map(item => item.agentId), ["smart"]);
+      assert.deepEqual(buildDesktopAgentActivity(settings, store.listRecentFacts(100), ordinarySessions).map(item => item.agentId), ["smart"]);
     }
   } finally {
     store.close();
@@ -401,4 +408,32 @@ test("Agent completion deduplicates run snapshots and distinguishes zero-cost fr
   assert.deepEqual(summary.totals.runOutcomes, { success: 1, error: 0, pending: 0, aborted: 1, blocked: 1, other: 0 });
   assert.equal(summary.totals.estimatedCostUsd, 0);
   assert.equal(summary.totals.pricedModelCalls, 1);
+});
+
+test("Agent activity excludes Project runs and preserves ordinary runs of the same Agent", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-agent-activity-"));
+  const original = { ...storagePaths };
+  try {
+    storagePaths.dataDir = root;
+    storagePaths.sessionsDir = path.join(root, "sessions");
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.projectsDir = path.join(root, "projects");
+    const store = new SessionStore();
+    const project = store.createProjectConversation("talkshow", "web:default:web-anonymous");
+    const ordinary = store.createWebConversation("web:default:web-anonymous", undefined, "default");
+    const sessions = new SessionStore();
+    const now = Date.parse("2026-10-21T12:00:20Z");
+    const projectRun = fact({ factType: "run", status: "started", sessionId: project.id, runId: "project-run", updatedAt: "2026-10-21T12:00:10Z", payload: { agentId: "default" } });
+    assert.deepEqual(buildDesktopAgentActivity(defaultRuntimeSettings, [projectRun], sessions, now), []);
+    const ordinaryRun = fact({ ...projectRun, id: "ordinary", sessionId: ordinary.id, runId: "ordinary-run" });
+    const items = buildDesktopAgentActivity(defaultRuntimeSettings, [projectRun, ordinaryRun], sessions, now);
+    assert.equal(items[0]?.status, "working");
+    assert.deepEqual(items[0]?.runs.map(run => run.runId), ["ordinary-run"]);
+    for (const status of ["success", "error", "waiting"] as const) {
+      assert.deepEqual(buildDesktopAgentActivity(defaultRuntimeSettings, [{ ...projectRun, status }], sessions, now), []);
+    }
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
 });

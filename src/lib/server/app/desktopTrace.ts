@@ -1,4 +1,5 @@
 import { dateKeys, shiftDateKey } from "$lib/server/usage/timeWindow";
+import type { SessionStore } from "$lib/server/sessions/store";
 import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import type { DesktopModelOutcomes } from "$lib/shared/desktop";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
@@ -333,7 +334,7 @@ const ACTIVE_ACTIVITY_STALE_MS = 12 * 60_000;
 const RECENT_ACTIVITY_HISTORY_MS = 24 * 60 * 60_000;
 const RECENT_ACTIVITY_HISTORY_LIMIT = 8;
 
-export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: TraceFactRecord[], nowMs = Date.now()): DesktopAgentActivityItem[] {
+export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: TraceFactRecord[], sessions: Pick<SessionStore, "getConversationProjectId">, nowMs = Date.now()): DesktopAgentActivityItem[] {
   const botDetails = new Map<string, { agentId?: string; name: string }>();
   for (const [channel, group] of Object.entries(settings.channels ?? {})) {
     for (const instance of group.instances ?? []) {
@@ -370,7 +371,7 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
 
   const runsByAgent = new Map<string, DesktopAgentActivityRunItem[]>();
   const runFacts = facts
-    .filter((fact) => fact.factType === "run" && fact.botId)
+    .filter((fact) => fact.factType === "run" && fact.botId && !sessions.getConversationProjectId(fact.sessionId))
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
   for (const fact of runFacts) {

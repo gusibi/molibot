@@ -152,8 +152,7 @@
   </div>
   <div class="plans-workspace workspace-master-detail" class:detail-open={showDetailPane}>
   <aside class="plans-rail" aria-label={copy.planBoardTitle}>
-  <p class="settings-hint" role="status">{online ? copy.planEditorLive : copy.planEditorOffline}{lastUpdated ? ` · ${copy.planBoardUpdated} ${formatTime(lastUpdated)}` : ""}</p>
-
+    <p class="plans-connection-status" role="status">{online ? copy.planEditorLive : copy.planEditorOffline}{lastUpdated ? ` · ${copy.planBoardUpdated} ${formatTime(lastUpdated)}` : ""}</p>
 
     {#if listLoading && items.length === 0}
       <div class="plans-state" role="status">{copy.loading}</div>

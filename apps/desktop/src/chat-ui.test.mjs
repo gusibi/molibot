@@ -175,7 +175,7 @@ test("message links open externally and session model hydration blocks mismatche
   assert.match(markdownLinks, /url\.protocol === "http:" \|\| url\.protocol === "https:"/);
   assert.match(view, /modelReady = summarizeDesktopReadiness/);
   assert.match(view, /if \(modelSelectionHydrating\) return;/);
-  assert.match(view, /modelSelectionHydrating = true;[\s\S]*loadDesktopSessionModel/);
+  assert.match(view, /modelHydratingSessionId = sessionId;[\s\S]*loadDesktopSessionModel/);
 });
 
 test("the composer's model pill reflects the Session, never a stale global default", () => {
