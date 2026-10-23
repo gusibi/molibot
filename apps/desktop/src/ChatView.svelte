@@ -136,6 +136,7 @@
   import History2 from "./lib/icons/duotone/components/History2.svelte";
   import AgentHome from "./lib/chat/AgentHome.svelte";
   import { windowHeader } from "./lib/chat/windowHeader";
+  import { handoverApprovalAction } from "./lib/chat/handoverApproval";
   import { saveBlobAsFile } from "./lib/saveFile";
   import { formatMessageTime } from "./lib/chat/messageTime";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
@@ -418,11 +419,18 @@
   let handoverError = "";
   let sawDefaultAgentHome = false;
   let isDefaultAgentHome = false;
+  let handoverRefreshedAt = 0;
+  /** The home's evidence changes slowly; the activity poll must not rescan it. */
+  const HANDOVER_REFRESH_MIN_MS = 30_000;
+  /** Tab hide and unload can both fire for one departure. */
+  const HANDOVER_ACK_MIN_MS = 1_000;
+  let handoverAcknowledgedAt = 0;
 
   async function refreshHandover(): Promise<void> {
     const endpoint = connectedEndpoint;
     const generation = connectionGeneration;
     if (!connectionReady || !endpoint) return;
+    handoverRefreshedAt = Date.now();
     try {
       const next = await loadDesktopHandover(endpoint);
       if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
@@ -435,9 +443,17 @@
     }
   }
 
+  function refreshHandoverIfDue(force = false): void {
+    if (!isDefaultAgentHome) return;
+    if (!force && Date.now() - handoverRefreshedAt < HANDOVER_REFRESH_MIN_MS) return;
+    void refreshHandover();
+  }
+
   async function acknowledgeHandover(): Promise<void> {
     const endpoint = connectedEndpoint;
     if (!connectionReady || !endpoint || !handover) return;
+    if (Date.now() - handoverAcknowledgedAt < HANDOVER_ACK_MIN_MS) return;
+    handoverAcknowledgedAt = Date.now();
     try {
       await acknowledgeDesktopHandover(endpoint);
     } catch {
@@ -448,11 +464,21 @@
 
   async function resolveHandoverApproval(item: DesktopHandoverPending, decision: "approve_once" | "reject"): Promise<void> {
     const endpoint = connectedEndpoint;
-    if (!endpoint || !item.requestId) return;
+    if (!endpoint) return;
+    const action = handoverApprovalAction(item, decision, crypto.randomUUID());
+    if (!action) return;
     handoverBusyId = item.id;
     handoverError = "";
     try {
-      await resolveDesktopHostBashById(endpoint, item.requestId, decision);
+      if (action.kind === "durable") {
+        await runDesktopDurableExecutionAction(endpoint, action.input);
+      } else {
+        const result = await resolveDesktopHostBashById(endpoint, action.requestId, decision);
+        // An approved command that then fails is reported here and nowhere
+        // else: the card is gone, so the failure has to be visible here.
+        if (result.status === "not_found") handoverError = result.response;
+        else if (result.status === "failed") handoverError = `${copy.hostBashApprovedFailed}: ${result.error || result.response}`;
+      }
     } catch (cause) {
       handoverError = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -550,13 +576,15 @@
       agentActivities = items;
       agentActivityReady = true;
       agentActivityError = "";
-      if (isDefaultAgentHome) void refreshHandover();
+      refreshHandoverIfDue();
     } catch (cause) {
       if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
       agentActivities = [];
       agentActivityReady = false;
       agentActivityError = cause instanceof Error ? cause.message : String(cause);
-      if (isDefaultAgentHome) void refreshHandover();
+      // A failed poll is what turns the page stale, so it must not wait for the
+      // slow refresh cadence; the Handover read is cheap when the service is down.
+      refreshHandoverIfDue(true);
     }
   }
 
@@ -4432,6 +4460,7 @@
             <AgentHome activity={agentActivities.find(item => item.agentId === selectedAgentId)} activityReady={agentActivityReady} onActivity={() => openAgentOverview(selectedAgentId)} composer={conversationComposer} agent={selectedAgent} sessions={agentHomeDisplaySessions} {locale} {copy}
               handover={selectedAgentId === defaultAgentId ? handover : null}
               handoverStale={selectedAgentId === defaultAgentId && handoverStale}
+              handoverError={selectedAgentId === defaultAgentId ? handoverError : ""}
               handoverBusyId={handoverBusyId}
               agentLabel={(id) => onboardingAgents.find(agent => agent.id === id)?.name ?? copy.handoverUnknownSource}
               onHandoverOpen={openHandoverSource}

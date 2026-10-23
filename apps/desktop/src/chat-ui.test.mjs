@@ -6208,6 +6208,12 @@ test("Agent recent and full history share deletion and explicit selection", () =
   assert.doesNotMatch(read("./lib/chat/deleteConversationSelection.ts"), /purge/);
 });
 
+test("the handover surfaces an action failure instead of only dropping the card", () => {
+  assert.match(view, /handoverError=\{selectedAgentId === defaultAgentId \? handoverError : ""\}/);
+  assert.match(view, /runDesktopDurableExecutionAction\(endpoint, action\.input\)/);
+  assert.match(read("./lib/chat/handoverApproval.ts"), /item\.executionId && item\.approvalId/);
+});
+
 test("channel settings use a concrete Momo identity instead of an empty global option", () => {
   assert.doesNotMatch(read("./lib/settings/ChannelsSection.svelte"), /profileNoAgent|value: ""/);
   {

@@ -1,3 +1,14 @@
+## 2026-10-24 — Agent Handover 审批就地处理修正
+
+审查发现交接里的 Durable/Plan 审批此前接到 Host Bash 的解析接口，且载荷缺少审批行 ID 与执行版本，导致按钮点了也不会生效；处理失败的错误状态也没有传到首页。本轮修正并补守卫。
+
+- 审批归属分派：读模型为 Durable/Plan 审批补上 `approvalId`（审批行 ID，与共享的 `requestId` 不同）和 `expectedVersion`；分派逻辑收敛到共享函数 `handoverApproval.ts`——Durable 审批走既有工具审批桥接，同时清理 Broker/Host Bash 记录与执行状态；普通 Host Bash 审批仍按 `requestId` 解析。分派函数有独立用例，不再依赖模板字符串断言。
+- 失败可见：`handoverError` 真正传到首页并显示；Host Bash 已批准但命令执行失败、或请求已失效时显示服务端原因，不再出现“卡片消失但什么也没发生”。
+- 刷新与确认节流：首页交接随活动轮询刷新时限制为至少 30 秒一次（进入首页、操作完成与服务异常时仍立即刷新）；窗口隐藏与卸载同时触发的两次确认合并为一次，避免重复整页证据重扫。
+- 文档同步：设计记录中 Durable/Plan 审批的处理路径改为按审批行解析，能力矩阵证据同步。
+
+验证：读模型 10 项、审批分派 4 项、源码守卫 1 项、隔离实例 WebKit `agent-home.spec.ts` 10 项通过；`pnpm check`、`pnpm --dir apps/desktop run check` 与 `pnpm build` 通过。全量 `pnpm verify:feature` 本轮未执行：当前机器可用磁盘不足 1GB，全量用例会以 `ENOSPC` 失败（已在该环境下复现）。
+
 ## 2026-10-23 — Personal Agent 系统提示词与默认人设收口（Momo 默认）
 
 统一默认 Agent 人设为 Momo，清理 Moli 历史遗留与模板冲突，补齐个人助理在时间解析和主动记忆方面的提示词规则。

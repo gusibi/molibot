@@ -34,7 +34,7 @@
 | 已完成条目 | `agent_trace_facts`（`run` 完成事实带 `agentId`、结束时间、`taskPreview`；`runtime_notice` 提供异常说明） | 已按任务执行优先、run 事实补足实现；普通运行仍无步骤级进度，也不记录结果正文或产物索引 |
 | 承诺兑现 / 失约 | `event_execution_leases`（`finished_at`、`status`、`task_id`） | 已新增“自 T 起”查询；重试复用同一行，成功即折叠为一条“重试后完成” |
 | 待决定：Host Bash | `GET /api/desktop/host-bash` 全局待审批 | 读模型直接读原始记录，在组装处解析 `sessionId` 与来源 Agent；只对 Web scope 提供就地批准/拒绝 |
-| 待决定：Durable/Plan | `GET /api/desktop/durable-executions`、`/plans` | 读模型按等待状态合并；审批可凭 `requestId` 就地处理，Plan 首次批准提供两种模式 |
+| 待决定：Durable/Plan | `GET /api/desktop/durable-executions`、`/plans` | 读模型按等待状态合并；审批在交接内就地处理，Durable 审批带自己的审批行 ID 与执行版本，走既有工具审批桥接同时清理 Broker/Host Bash 记录与执行状态；Plan 首次批准提供两种模式 |
 | 待决定：等待中的运行 | `GET /api/desktop/session-runs` | 已合并；与同一会话的审批/Plan 项去重 |
 | 今天接下来 | Runtime Task 的 cron 文本 + Durable `next_run_at` | 已用与调度器相同的本地时间匹配器现算下次触发；不新增持久化字段 |
 | “上次离开” | 无 | 已新增 `lastAcknowledgedAt` 与单份上一代快照，存于 Desktop 导航设置 |

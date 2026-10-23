@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildDesktopHandover, compactHandoverSnapshot, type HandoverEvidence } from "./desktopHandover.js";
+import { buildDesktopHandover, compactHandoverSnapshot, readDesktopHandover, type HandoverEvidence, type HandoverReadDeps } from "./desktopHandover.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 import type { DesktopHandoverNextScheduled, DesktopHandoverPending } from "$lib/shared/desktop.js";
+import type { PlanDetail } from "$lib/server/agent/durable/types.js";
 import type { EventExecutionLease } from "$lib/server/agent/eventsLeaseStore.js";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 
@@ -224,3 +225,81 @@ test("The frozen previous generation keeps at most twenty entries", () => {
   assert.equal(snapshot.itemCount, 25);
   assert.equal("detail" in snapshot.items[0], false);
 });
+
+/** Minimal Plan detail: only the fields the pending assembly reads. */
+function planDetail(overrides: { requestId?: string; approvalId?: string } = {}): PlanDetail {
+  return {
+    execution: {
+      id: "exec-1",
+      status: "waiting_for_approval",
+      version: 7,
+      createdAt: "2026-10-22T08:00:00.000Z",
+      updatedAt: "2026-10-22T09:00:00.000Z",
+      goal: "Send the report",
+      nextRunAt: "2026-10-24T08:00:00.000Z"
+    },
+    meta: { title: "Send the report", summary: "Email the team once the numbers are approved" },
+    agentId: "default",
+    approvals: [{
+      id: overrides.approvalId ?? "approval-row-1",
+      requestId: overrides.requestId ?? "req-durable",
+      title: "Send the report",
+      summary: "Sends the email through the broker",
+      status: "pending",
+      requestedAt: "2026-10-22T08:59:00.000Z"
+    }],
+    decisions: []
+  } as unknown as PlanDetail;
+}
+
+function readDeps(overrides: Partial<HandoverReadDeps> = {}): HandoverReadDeps {
+  const detail = planDetail();
+  return {
+    settings: settings(),
+    sessions: { getConversationProjectId: () => null },
+    traceStore: { listHandoverFactsSince: () => [] },
+    leaseStore: { listFinishedSince: () => [] },
+    hostBashStore: { listPending: () => [] },
+    brokerPending: () => [],
+    sessionRuns: () => [],
+    plans: { read: () => detail },
+    coordinator: { list: (() => [detail]) as unknown as HandoverReadDeps["coordinator"]["list"] },
+    tasks: [],
+    now: NOW,
+    ...overrides
+  };
+}
+
+test("A Durable approval keeps the row id and version the home needs to resolve it in place", () => {
+  const handover = readDesktopHandover(readDeps());
+  const approval = handover.pending.find((entry) => entry.kind === "approval");
+
+  assert.ok(approval, "the waiting approval must reach the home");
+  assert.equal(approval.requestId, "req-durable");
+  assert.equal(approval.approvalId, "approval-row-1");
+  assert.equal(approval.executionId, "exec-1");
+  assert.equal(approval.expectedVersion, 7);
+  assert.equal(approval.actionable, true);
+});
+
+test("One approval owned by both Host Bash and a Durable execution is listed once", () => {
+  const handover = readDesktopHandover(readDeps({
+    hostBashStore: {
+      listPending: () => [{
+        id: "req-durable",
+        category: "agent-browser",
+        displayName: "Agent Browser",
+        command: "agent-browser --open",
+        reason: "Needs browser IPC outside the sandbox.",
+        channel: "web",
+        sessionId: "session-1",
+        requestedAt: "2026-10-22T08:58:00.000Z",
+        scopeId: "web:personal:web-anonymous",
+        owner: { kind: "agent", id: "default" }
+      }]
+    }
+  }));
+
+  assert.equal(handover.pending.length, 1, "PA-HD9 keeps one row per approval");
+});
+

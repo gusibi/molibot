@@ -402,6 +402,12 @@ export interface DesktopHandoverPending {
   runId?: string;
   /** Approval id shared with the source Session (PA-HD9). */
   requestId?: string;
+  /**
+   * The Durable/Plan approval row. It differs from `requestId` and is what the
+   * tool-approval bridge needs to resolve the execution and its Broker or Host
+   * Bash record together.
+   */
+  approvalId?: string;
   executionId?: string;
   decisionId?: string;
   expectedVersion?: number;

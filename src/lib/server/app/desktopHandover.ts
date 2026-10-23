@@ -95,7 +95,8 @@ interface HostBashPendingReader {
   }>;
 }
 
-function handoverWindowStart(settings: RuntimeSettings, now: Date): Date {  const acknowledged = Date.parse(String(settings.desktopNavigation?.lastAcknowledgedAt ?? ""));
+function handoverWindowStart(settings: RuntimeSettings, now: Date): Date {
+  const acknowledged = Date.parse(String(settings.desktopNavigation?.lastAcknowledgedAt ?? ""));
   const nowMs = now.getTime();
   const fallback = nowMs - DEFAULT_WINDOW_MS;
   if (!Number.isFinite(acknowledged) || acknowledged > nowMs) return new Date(fallback);
@@ -421,7 +422,9 @@ function collectPending(deps: HandoverReadDeps): DesktopHandoverPending[] {
         ...(sessionId ? { sessionId } : {}),
         ...(channel ? { channel } : {}),
         requestId: approval.requestId,
+        approvalId: approval.id,
         executionId: detail.execution.id,
+        expectedVersion: detail.execution.version,
         actionable: true
       });
     }
