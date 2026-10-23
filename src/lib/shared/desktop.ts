@@ -354,6 +354,112 @@ export interface DesktopAgentActivityResponse {
   items: DesktopAgentActivityItem[];
 }
 
+/**
+ * Agent Handover (PA-HD1–13): the Default Agent's home is a projection of runtime
+ * evidence, not a Session. The read model is the only place that decides what
+ * counts as one item, how items are ordered and how they de-duplicate; the
+ * client only renders this payload.
+ */
+export type DesktopHandoverState = "first-run" | "quiet" | "active";
+
+export type DesktopHandoverItemKind =
+  | "task-completed"
+  | "task-recovered"
+  | "task-failed"
+  | "run-completed"
+  | "run-failed";
+
+export interface DesktopHandoverItem {
+  id: string;
+  kind: DesktopHandoverItemKind;
+  occurredAt: string;
+  agentId: string;
+  sessionId?: string;
+  /** Source channel of the session, used to open a channel-only history. */
+  channel?: string;
+  runId?: string;
+  taskId?: string;
+  /** User-authored task text or the run's message preview; never model prose. */
+  title: string;
+  /** Error preview or the matching runtime notice, when one exists. */
+  detail?: string;
+  durationMs?: number;
+  /** Attempts including retries; only set for task executions. */
+  attempts?: number;
+}
+
+export type DesktopHandoverPendingKind = "approval" | "decision" | "plan" | "run";
+
+export interface DesktopHandoverPending {
+  id: string;
+  kind: DesktopHandoverPendingKind;
+  title: string;
+  detail?: string;
+  createdAt: string;
+  agentId: string;
+  sessionId?: string;
+  channel?: string;
+  runId?: string;
+  /** Approval id shared with the source Session (PA-HD9). */
+  requestId?: string;
+  executionId?: string;
+  decisionId?: string;
+  expectedVersion?: number;
+  planId?: string;
+  /** Options for a decision or the two plan approval modes. */
+  options?: string[];
+  /** False when this surface cannot resolve the item in place (e.g. channel-only approval). */
+  actionable: boolean;
+}
+
+export interface DesktopHandoverCounts {
+  completed: number;
+  failed: number;
+  pending: number;
+  /** Completed after a retry; shown as one line, never as a separate failure. */
+  recovered: number;
+}
+
+export interface DesktopHandoverNextScheduled {
+  at: string;
+  title: string;
+  source: "task" | "durable";
+  sessionId?: string;
+  agentId?: string;
+  taskId?: string;
+}
+
+/** Compact projection kept for one generation; bodies are dropped (PA-HD13). */
+export interface DesktopHandoverSnapshot {
+  capturedAt: string;
+  itemCount: number;
+  pendingCount: number;
+  counts: DesktopHandoverCounts;
+  items: Array<Omit<DesktopHandoverItem, "detail">>;
+}
+
+export interface DesktopHandover {
+  state: DesktopHandoverState;
+  generatedAt: string;
+  lastAcknowledgedAt?: string;
+  counts: DesktopHandoverCounts;
+  items: DesktopHandoverItem[];
+  pending: DesktopHandoverPending[];
+  nextScheduled?: DesktopHandoverNextScheduled;
+  /** The frozen previous generation, only while a quick return can still use it. */
+  previous?: DesktopHandoverSnapshot;
+}
+
+export interface DesktopHandoverResponse {
+  ok: true;
+  handover: DesktopHandover;
+}
+
+export interface DesktopHandoverAckResponse {
+  ok: true;
+  lastAcknowledgedAt: string;
+}
+
 export type DesktopActiveRunStatus = "running" | "stuck" | "orphan";
 
 export interface DesktopActiveRunItem {

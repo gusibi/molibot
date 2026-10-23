@@ -100,6 +100,9 @@ import type {
   DesktopApprovalResult,
   DesktopBootstrapResponse,
   DesktopFileMediaType,
+  DesktopHandover,
+  DesktopHandoverAckResponse,
+  DesktopHandoverResponse,
   DesktopHostBashResponse,
   DesktopHostBashSummary,
   DesktopHostBashToggleResponse,
@@ -1259,6 +1262,25 @@ export interface DesktopHostBashSettingsData {
 export async function loadDesktopHostBash(endpoint: string): Promise<DesktopHostBashSummary> {
   const payload = await requestJson<DesktopHostBashResponse>(endpoint, "/api/desktop/host-bash");
   return payload.summary;
+}
+
+/** PA-HD1–13: the Default Agent home's one read model. */
+export async function loadDesktopHandover(endpoint: string): Promise<DesktopHandover> {
+  const payload = await requestJson<DesktopHandoverResponse>(endpoint, "/api/desktop/handover");
+  return payload.handover;
+}
+
+/**
+ * Writes the Handover window when the user leaves the home. Called on route
+ * changes, window hide and unload — never on open, so glancing at the page
+ * cannot consume events.
+ */
+export async function acknowledgeDesktopHandover(endpoint: string): Promise<void> {
+  await requestJson<DesktopHandoverAckResponse>(endpoint, "/api/desktop/handover/ack", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
 }
 
 export async function loadDesktopHostBashSettings(

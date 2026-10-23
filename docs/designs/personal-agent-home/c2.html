@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>C2 · 证据卡片</title>
+<link rel="stylesheet" href="home.css" />
+<style>
+  .col { width: 100%; max-width: 780px; margin: 0 auto; padding: 24px 30px 0; display: flex; flex-direction: column; min-height: 100%; }
+  .top { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  .top .who { min-width: 0; }
+  .top .name { font-size: 15px; font-weight: 600; line-height: 20px; }
+  .top .sub { font-size: 11.5px; color: var(--text-2); }
+  .top .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .lede { margin: 0 0 6px; font-size: 23px; line-height: 32px; font-weight: 600; letter-spacing: -.015em; text-wrap: pretty; }
+  .lede em { font-style: normal; color: var(--accent); }
+  .lede-sub { margin: 0 0 18px; font-size: 13px; color: var(--text-2); }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .ev { border: 1px solid var(--hairline); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }
+  .ev-head { display: flex; align-items: center; gap: 9px; padding: 12px 14px; }
+  .ev-head .t { font-size: 13px; font-weight: 600; }
+  .ev-head .s { font-size: 11.5px; color: var(--text-2); font-weight: 400; margin-top: 1px; }
+  .ev-head .act { margin-left: auto; display: flex; gap: 6px; }
+  .ev-body { padding: 0 14px 12px; }
+  .ev.attn { border-color: var(--warn-border); background: var(--warn-soft); }
+  .ev.attn .ev-head .t { color: var(--warn-text); }
+  .ev.err { border-color: rgba(255,56,60,.3); background: var(--danger-soft); }
+  .ev.err .ev-head .t { color: var(--danger); }
+  .ev-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--hairline); background: color-mix(in srgb, var(--surface-muted) 60%, transparent); }
+  .ev-foot .hint { font-size: 11.5px; color: var(--text-2); }
+  .ev-foot .spacer { margin-left: auto; }
+  .today-strip { display: flex; align-items: center; gap: 0; margin: 22px 0 18px; padding: 10px 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+  .today-strip .slot { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); }
+  .today-strip .slot + .slot { margin-left: 18px; padding-left: 18px; border-left: 1px solid var(--hairline); }
+  .today-strip .slot b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .today-strip .slot .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+  .today-strip .slot .dot.ok { background: var(--ok); }
+  .today-strip .slot .dot.next { background: var(--accent); }
+  .dock { position: sticky; bottom: 0; margin-top: auto; padding: 14px 0 18px; background: linear-gradient(to top, var(--window) 58%, transparent); }
+  .below-dock { display: flex; align-items: center; gap: 10px; padding: 2px 2px 60px; font-size: 11.5px; color: var(--text-3); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-spark" viewBox="0 0 16 16"><path d="M3 3.5h10v7.5l-3 2H3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.3l2 1.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 16 16"><rect x="2.6" y="2.6" width="4.4" height="4.4" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2.6" width="4.4" height="4.4" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2.6" y="9" width="4.4" height="4.4" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="4.4" height="4.4" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-app" viewBox="0 0 16 16"><path d="M8 2.5 13.5 8 8 13.5 2.5 8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-users" viewBox="0 0 16 16"><circle cx="6" cy="6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.4 13c.4-2 1.8-3.1 3.6-3.1S9.2 11 9.6 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M10.4 4.2a2.2 2.2 0 0 1 0 4.2M11.6 13c-.2-1.3-.6-2.3-1.4-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2.5 5.2c0-.6.5-1.1 1.1-1.1h2.6l1.3 1.5h4.9c.6 0 1.1.5 1.1 1.1v4.6c0 .6-.5 1.1-1.1 1.1H3.6c-.6 0-1.1-.5-1.1-1.1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.4v9.2M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 16 16"><path d="M9.2 2 4.4 9h3.1l-.7 5 4.8-7H8.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-term" viewBox="0 0 16 16"><rect x="2.4" y="3.2" width="11.2" height="9.6" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 6.6 6.8 8 5 9.4M8.4 9.6h2.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.6 8h10.8M8 2.5c1.6 1.7 2.4 3.5 2.4 5.5S9.6 11.8 8 13.5C6.4 11.8 5.6 10 5.6 8s.8-3.8 2.4-5.5z" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-send" viewBox="0 0 16 16"><path d="M13 3 6.6 9.4M13 3 9.4 13.2 6.6 9.4 2.8 6.6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.4 6.6 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 3 14 13H2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.6v2.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.3" r=".8" fill="currentColor"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="traffic"><span></span><span></span><span></span></div>
+    <a class="nav-row active" href="#"><svg class="ico"><use href="#i-plus"/></svg>新对话</a>
+    <a class="nav-row" href="#"><svg class="ico"><use href="#i-clock"/></svg>自动任务</a>
+    <a class="nav-row" href="#"><svg class="ico"><use href="#i-grid"/></svg>技能</a>
+    <a class="nav-row" href="#"><svg class="ico"><use href="#i-file"/></svg>计划</a>
+    <a class="nav-row" href="#"><svg class="ico"><use href="#i-app"/></svg>小程序</a>
+
+    <div class="nav-section">我的 Agent</div>
+    <a class="nav-row active" href="#"><span class="avatar-xs">M</span>Momo<svg class="plus"><use href="#i-plus"/></svg></a>
+    <a class="nav-row" href="#"><span class="avatar-xs" style="background:linear-gradient(150deg,#f0a05c,#efc48a)">文</span>文书助手<svg class="plus"><use href="#i-plus"/></svg></a>
+    <a class="nav-row" href="#"><span class="avatar-xs" style="background:linear-gradient(150deg,#5c9cf0,#8ad4ef)">研</span>研究助手<svg class="plus"><use href="#i-plus"/></svg></a>
+
+    <div class="nav-section">Agent Team</div>
+    <a class="nav-row" href="#"><svg class="ico"><use href="#i-users"/></svg>内容工作室</a>
+
+    <div class="nav-section">项目</div>
+    <a class="nav-row" href="#"><svg class="ico"><use href="#i-folder"/></svg>竞品跟踪</a>
+  </aside>
+
+  <main class="main">
+    <div class="titlebar">Momo</div>
+
+    <div class="col">
+      <div class="top">
+        <div class="avatar-md">M<span class="status-mark" style="width:19px;height:19px;right:-1px;bottom:-1px"><svg class="ico" style="width:11px;height:11px"><use href="#i-bolt"/></svg></span></div>
+        <div class="who">
+          <div class="name">Momo</div>
+          <div class="sub">今天 09:12 · 2 件事在进行</div>
+        </div>
+        <div class="tools">
+          <a class="btn" href="#"><svg class="ico"><use href="#i-settings"/></svg></a>
+          <a class="btn" href="#"><svg class="ico"><use href="#i-clock"/></svg>今天</a>
+        </div>
+      </div>
+
+      <h1 class="lede">你不在的 9 小时里，我做了 4 件事，<em>2 件等你点头</em>。</h1>
+      <p class="lede-sub">从昨晚 24:00 到你打开这一页。</p>
+
+      <div class="stack">
+        <!-- 产出 -->
+        <div class="ev">
+          <div class="ev-head">
+            <span class="file-badge xls">XLSX</span>
+            <span>
+              <span class="t">10 月发票汇总.xlsx</span>
+              <span class="s" style="display:block">23 张发票 · 12,480.00 元 · 2 张标黄待确认</span>
+            </span>
+            <span class="act"><a class="btn" href="#">预览</a></span>
+          </div>
+          <table class="mini-table">
+            <tr><th>日期</th><th>项目</th><th>来源</th><th style="text-align:right">金额</th></tr>
+            <tr><td>10-03</td><td>服务器续费</td><td>邮件附件</td><td class="money">3,280.00</td></tr>
+            <tr class="hl"><td>10-14</td><td>设计外包（识别不确定）</td><td>扫描件</td><td class="money">800.00</td></tr>
+            <tr><td>10-21</td><td>机票</td><td>邮件附件</td><td class="money">2,140.00</td></tr>
+          </table>
+        </div>
+
+        <!-- 进行中 -->
+        <div class="ev">
+          <div class="ev-head">
+            <span class="live-orb" style="width:26px;height:26px;flex:0 0 26px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)"><svg class="ico" style="width:14px;height:14px"><use href="#i-globe"/></svg></span>
+            <span>
+              <span class="t">正在归档竞品资料</span>
+              <span class="s" style="display:block">浏览器 · 第 12 / 15 篇 · 36kr · 已跑 4 分钟</span>
+            </span>
+            <span class="act"><a class="btn" href="#">查看现场</a></span>
+          </div>
+          <div class="ev-body">
+            <div class="bar" style="height:3px;border-radius:99px;background:var(--surface-muted);overflow:hidden"><i style="display:block;height:100%;width:80%;background:var(--accent)"></i></div>
+          </div>
+        </div>
+
+        <!-- 待决定 1 -->
+        <div class="ev attn">
+          <div class="ev-head">
+            <svg class="ico" style="width:15px;height:15px;color:var(--warn-text)"><use href="#i-term"/></svg>
+            <span>
+              <span class="t">要执行一条本机命令</span>
+              <span class="s" style="display:block">来自「10 月发票整理」· 2 小时前 · 等你决定</span>
+            </span>
+            <span class="act"><a class="btn" href="#">拒绝</a><a class="btn primary" href="#">允许一次</a></span>
+          </div>
+          <div class="ev-body">
+            <div class="cmd">pdftoppm -r 200 -png attachments/oct.pdf out/</div>
+          </div>
+        </div>
+
+        <!-- 待决定 2 -->
+        <div class="ev err">
+          <div class="ev-head">
+            <svg class="ico" style="width:15px;height:15px;color:var(--danger)"><use href="#i-alert"/></svg>
+            <span>
+              <span class="t">3 篇抓不到，站点返回 403</span>
+              <span class="s" style="display:block">已重试 2 次后停下，没有自己换源 · 其余 12 篇已归档</span>
+            </span>
+            <span class="act"><a class="btn" href="#">换公开镜像</a><a class="btn" href="#">跳过</a></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 今天 -->
+      <div class="today-strip">
+        <span class="slot"><i class="dot ok"></i><b>08:30</b> 每日简报 · 已发送</span>
+        <span class="slot"><i class="dot next"></i><b>14:00</b> 邮件摘要</span>
+        <span class="slot"><i class="dot"></i><b>21:00</b> 周报草稿</span>
+      </div>
+
+      <div class="dock">
+        <div class="composer">
+          <div class="composer-input">今天想让我做什么？</div>
+          <div class="composer-bar">
+            <span class="chip"><svg class="ico"><use href="#i-bolt"/></svg>Momo · 默认</span>
+            <span class="chip"><svg class="ico"><use href="#i-check"/></svg>4 件事已完成</span>
+            <span class="composer-send"><svg class="ico"><use href="#i-send"/></svg></span>
+          </div>
+        </div>
+      </div>
+      <div class="below-dock"><svg class="ico" style="width:13px;height:13px"><use href="#i-spark"/></svg>最近对话：10 月发票整理 · 竞品跟踪 · 简历与面试准备</div>
+    </div>
+  </main>
+</div>
+
+<button class="theme-toggle" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'">明暗</button>
+<nav class="switcher"><a href="c1.html">C1 · 对话流</a><a class="on" href="c2.html">C2 · 证据卡</a><a href="c3.html">C3 · 现在优先</a></nav>
+</body>
+</html>

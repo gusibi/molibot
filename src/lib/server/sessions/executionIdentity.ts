@@ -1,4 +1,6 @@
 import { DEFAULT_AGENT_ID, normalizeChannelAgentId, type RuntimeSettings } from "$lib/server/settings/schema.js";
+import { findAgentSession } from "$lib/server/sessions/agentStorage.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 /**
  * Channel/Profile binding to Agent.
@@ -59,6 +61,17 @@ export function agentOfBot(settings: RuntimeSettings, channel: string, botId: st
 export function botAgentId(settings: RuntimeSettings, channel: string, botId: string): string | undefined {
   const binding = agentOfBot(settings, channel, botId);
   return binding.kind === "bound" || binding.kind === "default" ? binding.agentId : undefined;
+}
+
+/**
+ * The Agent persisted on a Session's sidecar. Reporting surfaces use this for
+ * records that only carry a `sessionId`; it reads the ownership fact, never a
+ * channel binding.
+ */
+export function agentIdForSession(sessionId: string | undefined, dataRoot = storagePaths.dataDir): string | undefined {
+  const id = String(sessionId ?? "").trim();
+  if (!id) return undefined;
+  return findAgentSession(dataRoot, id)?.agentId;
 }
 
 /** Execution paths: the resolved Agent, or a rejection. */

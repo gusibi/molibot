@@ -32,6 +32,8 @@
     type DesktopDurableExecutionItem,
     type DesktopDurableExecutionStatus,
     type DesktopExternalTranscript,
+    type DesktopHandover,
+    type DesktopHandoverPending,
     type DesktopMessageAttachment,
     type DesktopMemoryFeedbackValue,
     type DesktopMemoryTraceResponse,
@@ -66,6 +68,11 @@
     loadDesktopBootstrap,
     loadDesktopChannels,
     loadDesktopExternalTranscript,
+    loadDesktopHandover,
+    acknowledgeDesktopHandover,
+    resolveDesktopHostBashById,
+    runDesktopDurableExecutionAction,
+    runDesktopPlanAction,
     loadDesktopModels,
     loadDesktopMemoryTrace,
     loadDesktopDurableExecutions,
@@ -402,6 +409,137 @@
   let agentActivityScheduler: ActivityScheduler | null = null;
   let overviewAgentId = "";
 
+  // Agent Handover: the Default Agent home's projection (PA-HD1–13). The client
+  // keeps the last successful payload so a failed refresh can say "not updated"
+  // instead of pretending the page is quiet.
+  let handover: DesktopHandover | null = null;
+  let handoverStale = false;
+  let handoverBusyId = "";
+  let handoverError = "";
+  let sawDefaultAgentHome = false;
+  let isDefaultAgentHome = false;
+
+  async function refreshHandover(): Promise<void> {
+    const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
+    if (!connectionReady || !endpoint) return;
+    try {
+      const next = await loadDesktopHandover(endpoint);
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      handover = next;
+      handoverStale = false;
+    } catch {
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
+      // Keep the content already on screen; only the freshness label changes.
+      handoverStale = true;
+    }
+  }
+
+  async function acknowledgeHandover(): Promise<void> {
+    const endpoint = connectedEndpoint;
+    if (!connectionReady || !endpoint || !handover) return;
+    try {
+      await acknowledgeDesktopHandover(endpoint);
+    } catch {
+      // Leaving the page must never surface an error; a missed write only means
+      // the same window is shown again next time.
+    }
+  }
+
+  async function resolveHandoverApproval(item: DesktopHandoverPending, decision: "approve_once" | "reject"): Promise<void> {
+    const endpoint = connectedEndpoint;
+    if (!endpoint || !item.requestId) return;
+    handoverBusyId = item.id;
+    handoverError = "";
+    try {
+      await resolveDesktopHostBashById(endpoint, item.requestId, decision);
+    } catch (cause) {
+      handoverError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      handoverBusyId = "";
+      await refreshHandover();
+    }
+  }
+
+  async function answerHandoverDecision(item: DesktopHandoverPending, answer: string): Promise<void> {
+    const endpoint = connectedEndpoint;
+    if (!endpoint || !item.executionId || !item.decisionId) return;
+    handoverBusyId = item.id;
+    handoverError = "";
+    try {
+      await runDesktopDurableExecutionAction(endpoint, {
+        action: "answer_decision",
+        executionId: item.executionId,
+        decisionId: item.decisionId,
+        answer,
+        expectedVersion: Number(item.expectedVersion ?? 0),
+        actionId: crypto.randomUUID()
+      });
+    } catch (cause) {
+      handoverError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      handoverBusyId = "";
+      await refreshHandover();
+    }
+  }
+
+  async function approveHandoverPlan(item: DesktopHandoverPending, mode: "manual" | "accept_edits"): Promise<void> {
+    const endpoint = connectedEndpoint;
+    if (!endpoint || !item.planId) return;
+    handoverBusyId = item.id;
+    handoverError = "";
+    try {
+      await runDesktopPlanAction(endpoint, {
+        action: "approve",
+        planId: item.planId,
+        expectedVersion: Number(item.expectedVersion ?? 0),
+        sessionId: item.sessionId,
+        mode
+      });
+    } catch (cause) {
+      handoverError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      handoverBusyId = "";
+      await refreshHandover();
+    }
+  }
+
+  function openHandoverSource(input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }): void {
+    if (input.sessionId) {
+      const target = [...ordinarySessions, ...agentHomeSessions].find((item) => item.sessionId === input.sessionId);
+      if (target) {
+        void openSession(target);
+        return;
+      }
+      if (input.channel && input.channel !== "web") {
+        // Channel history is not in the local Web list; open the read-only
+        // transcript by id so the entry still reaches its source.
+        selectedAgentId = input.agentId || defaultAgentId;
+        agentNavigation = { ...agentNavigation, page: "external", agentId: selectedAgentId, sessionId: input.sessionId };
+        persistAgentNavigation();
+        closeAgentSettings();
+        roomPaneActive = false;
+        projectPaneActive = false;
+        workspacePane = "chat";
+        void openExternalTranscript(input.sessionId, input.channel, input.title ?? "", onboardingAgents.find((agent) => agent.id === selectedAgentId)?.name ?? "");
+        return;
+      }
+    }
+    if (input.planId || input.executionId) {
+      openWorkspacePane("plans");
+      return;
+    }
+    openAgentHistory(defaultAgentId);
+  }
+
+  function onHandoverVisibilityChange(): void {
+    if (document.hidden && isDefaultAgentHome) void acknowledgeHandover();
+  }
+
+  function onHandoverPageHide(): void {
+    if (isDefaultAgentHome) void acknowledgeHandover();
+  }
+
   async function refreshAgentActivity(): Promise<void> {
     const endpoint = connectedEndpoint;
     const generation = connectionGeneration;
@@ -412,11 +550,13 @@
       agentActivities = items;
       agentActivityReady = true;
       agentActivityError = "";
+      if (isDefaultAgentHome) void refreshHandover();
     } catch (cause) {
       if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
       agentActivities = [];
       agentActivityReady = false;
       agentActivityError = cause instanceof Error ? cause.message : String(cause);
+      if (isDefaultAgentHome) void refreshHandover();
     }
   }
 
@@ -994,6 +1134,17 @@
   let ordinarySessions: DesktopConversationItem[] = [];
   let agentHomeSessions: DesktopConversationItem[] = [];
   let agentHomeKey = "";
+  // PA-HD10: the same session must not appear in both the handover and the
+  // recent list; the recent list then fills back up to three rows.
+  $: handoverSessionIds = new Set<string>(
+    [...(handover?.items ?? []), ...(handover?.pending ?? [])]
+      .map((entry) => entry.sessionId)
+      .filter((id): id is string => Boolean(id))
+  );
+  $: agentHomeDisplaySessions = (selectedAgentId === defaultAgentId && handover
+    ? agentHomeSessions.filter((item) => !handoverSessionIds.has(item.sessionId))
+    : agentHomeSessions
+  ).slice(0, 3);
   let hasUnassignedHistory = false;
   let agentSessionsRequest = 0;
   $: selectedAgent = onboardingAgents.find(agent => agent.id === selectedAgentId);
@@ -1028,7 +1179,7 @@
     if (!force && key === agentHomeKey) return;
     agentHomeKey = key;
     try {
-      const result = await listDesktopConversations(endpoint, { channel: "web", agentId: selectedAgentId, limit: 5, includeArchived: true });
+      const result = await listDesktopConversations(endpoint, { channel: "web", agentId: selectedAgentId, limit: 8, includeArchived: true });
       if (`${connectedEndpoint}:${selectedAgentId}` !== key) return;
       agentHomeSessions = result.items;
     } catch (cause) {
@@ -1168,6 +1319,21 @@
   $: draftProfileId = chatState.draftProfileId;
   $: draftAgentId = chatState.draftAgentId;
   $: statusDots = chatState.statusDots;
+  // Handover watches the same draft state the home renders from. Keep this
+  // after the `draftMode`/`selectedAgentId` derivations so one update cycle is
+  // enough to load on open and acknowledge on leave.
+  $: isDefaultAgentHome = draftMode && Boolean(selectedAgentId) && selectedAgentId === defaultAgentId;
+  $: if (isDefaultAgentHome) {
+    if (!sawDefaultAgentHome) {
+      sawDefaultAgentHome = true;
+      void refreshHandover();
+    }
+  } else if (sawDefaultAgentHome) {
+    sawDefaultAgentHome = false;
+    handoverStale = false;
+    handoverError = "";
+    void acknowledgeHandover();
+  }
 
   $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel;
   $: readinessSummary = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions });
@@ -3808,7 +3974,8 @@
 {/snippet}
 
 
-<svelte:window onkeydown={onChatShortcut} bind:innerWidth={viewportWidth} />
+<svelte:document onvisibilitychange={onHandoverVisibilityChange} />
+<svelte:window onkeydown={onChatShortcut} bind:innerWidth={viewportWidth} onpagehide={onHandoverPageHide} />
 
 <main
   class="chat-layout"
@@ -4262,7 +4429,15 @@
       {/if}
       {#if draftMode && selectedAgent}
         <div class="chat-start-page">
-            <AgentHome activity={agentActivities.find(item => item.agentId === selectedAgentId)} activityReady={agentActivityReady} onActivity={() => openAgentOverview(selectedAgentId)} composer={conversationComposer} agent={selectedAgent} sessions={agentHomeSessions.slice(0, 3)} {locale} {copy}
+            <AgentHome activity={agentActivities.find(item => item.agentId === selectedAgentId)} activityReady={agentActivityReady} onActivity={() => openAgentOverview(selectedAgentId)} composer={conversationComposer} agent={selectedAgent} sessions={agentHomeDisplaySessions} {locale} {copy}
+              handover={selectedAgentId === defaultAgentId ? handover : null}
+              handoverStale={selectedAgentId === defaultAgentId && handoverStale}
+              handoverBusyId={handoverBusyId}
+              agentLabel={(id) => onboardingAgents.find(agent => agent.id === id)?.name ?? copy.handoverUnknownSource}
+              onHandoverOpen={openHandoverSource}
+              onHandoverResolve={resolveHandoverApproval}
+              onHandoverAnswer={answerHandoverDecision}
+              onHandoverPlan={approveHandoverPlan}
               actions={agentCanExecute ? emptyQuickStarts(copy) : []}
               onPrompt={fillEmptyPrompt} onSession={openSession} onDelete={deleteAgentConversation}
               onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}

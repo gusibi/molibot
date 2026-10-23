@@ -1,3 +1,30 @@
+## 2026-10-23 — Personal Agent 系统提示词与默认人设收口（Momo 默认）
+
+统一默认 Agent 人设为 Momo，清理 Moli 历史遗留与模板冲突，补齐个人助理在时间解析和主动记忆方面的提示词规则。
+
+- 默认模板切换：`IDENTITY.template.md` 与 `SOUL.template.md` 采用 Momo 人设（亲切体贴、有主见、朋友型）；全局 `AGENTS.md` 抽取为角色中立的共用协作底线，移除原硬性技术合伙人汇报格式对其他 Agent 的干扰；`USER.template.md` 移除硬编码个人信息，改为干净骨架。
+- 清理冗余：移除已成为默认的 `templates/momo` 子目录，以及未使用的 `BOOTSTRAP.template.md`、`IDENTITY.linus.template.md` 与 `SOUL.linus.template.md`；`profiles.ts` 不再引导注入无用的初始化标记。
+- 时间解析规则：`<env>` 注入由 `weekdayInTimeZone` 派生的 `weekday`（如 `Sunday`）；`events` 规范要求在调度前将“明天、下周三、3点”等相对时间明确换算为具体时间并在确认时复述，避免歧义。
+- 记忆策略透明化：`memory-contract` 明确对用户显式“记住”的请求立即保存并简要确认，在对话中识别的长期偏好安静记录或自然提及，禁止推测盘问敏感隐私。
+- 提示词预算控制：精简压缩 `events` 与 `memory-contract` 语句，确保系统基础提示词维持在稳定缓存预算内。
+
+验证：`profiles.bootstrap.test.ts`、`promptInput.test.ts`、`prompt.test.ts`（共 39 项）通过；`pnpm check` 类型检查通过。未执行全量 `pnpm verify:feature`。
+
+## 2026-10-23 — Agent Handover：默认 Agent 首页交接（PA-HD1–10、12、13）
+
+默认 Agent 的首页从“开始对话”改为一份交接：紧凑身份区、一句结论、可展开的证据条目、需要用户决定的审批/计划/等待运行、输入区与最近对话三条。其他 Agent 的首页保持原样；交接是运行时证据的投影，不创建会话、不承载 Agent Context，输入并发送仍走首次发送创建 Session。
+
+- 新增 `GET /api/desktop/handover` 单一读模型：完成条目来自 trace 的 `run` 完成事实（`runtime_notice` 提供异常说明），承诺兑现/失约来自 `event_execution_leases` 的完成时间窗口，待决定来自 Host Bash 原始待审批、Durable/Plan 等待项与等待中的 Session 运行。任务执行优先于其派生 trace 事实；计数单位是条目，重试成功的任务折叠为一条“重试后完成”，失败条目排在最前。
+- 待决定项不受历史窗口约束，永远反映当前状态。Host Bash 与 Durable 审批可凭 `requestId` 在交接内就地允许/拒绝；Plan 首次批准提供“手动执行 / 接受修改后执行”；等待运行与不可就地处理的审批保留源会话入口。客户端不做乐观更新，处理完重新读取服务端状态。
+- `lastAcknowledgedAt` 与单份上一代快照写入既有 Desktop 导航设置：离开首页（路由切换、窗口隐藏、页面卸载）时写入，打开时不写；上一代快照最多 20 条并丢弃正文，用于离开后立即返回时仍看到同一份内容。导航保存显式保留这两个字段，避免普通切页把它们擦掉。
+- 新增 cron 下次触发计算，复用调度器同一套本地时间匹配语义；下一件已排期事项同时考虑 Runtime Task 与 Durable `next_run_at`，不新增持久化字段。
+- 三态：首次使用显示身份、输入区与起点；安静日只显示结论、输入区与“接下来”一行；服务不可达时保留上次内容并标注“未更新”。
+- 最近对话与交接按会话去重并补足三条；交接支持中英即时切换、明暗主题与窄窗口。
+
+根因属于“首页缺少统一的运行时证据投影”，没有在客户端拼接计数或另建事件存储。读模型是唯一定义“什么算一件事、如何排序、如何去重”的地方，界面与测试都消费同一结果。
+
+验证：读模型用例 8 项、`GET/POST /api/desktop/handover` 3 项（窗口切换、上一代快照、导航保存不丢字段、审批幂等与源会话同步、Plan 首批准入）、cron 下次触发 3 项、设置整对象 round-trip 与 sanitizer 4 项、隔离实例 WebKit `tests/ui/agent-home.spec.ts` 10 项（含中英、明暗、窄窗、服务中断保留内容）通过；根 `pnpm check`、`pnpm desktop:check` 与 `pnpm build` 通过。未执行全量 `pnpm verify:feature`、原生 App 与真实渠道验收。边界：`PA-HD11`（Open Loop）按方案未进入 V1；模型润色未实现（V1 默认关闭，不提供开启入口）；普通运行没有步骤级进度，条目只显示任务摘要与时长；散落产物没有统一索引。
+
 ## 2026-10-21 — 会话顶栏 Agent 标识与历史导航
 
 已有会话标题旁显示 Agent 名称，保留渠道来源；顶栏 History2（Duotone）按钮打开当前 Agent 的全部对话，未归属会话打开未归属历史。可输入的 Web 会话不显示刷新；外部只读会话的刷新按钮位于底部只读提示旁。外部会话顶栏依据外部会话身份显示操作，不受本地草稿状态影响。

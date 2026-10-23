@@ -1,3 +1,11 @@
+## Agent Handover：Desktop 首页交接（2026-10-23，P1，已实施）
+
+已确认方向：默认 Agent 的首页从“对话入口”改为“交接”——助手先开口，说明离开之后完成了什么、需要你决定什么、接下来会自动做什么。交接是运行时证据的投影，不是会话，也不产生 Agent Context；其他 Agent 的首页保持开始对话。历史事件窗口从离开首页时写入的 `lastAcknowledgedAt` 起算，待决定项不受窗口约束；事实由模板生成，模型只润色异常解释且不得改数字；审批以 `requestId` 在交接与源会话间共享状态；只保留最新与上一份。
+
+明确不做：永久主对话、Activity Feed/Dashboard、模型判断“你在等什么”、交接历史列表页。
+
+规则 `PA-HD1`–`PA-HD13`、验收口径与 Out of Scope 见 [Personal Agent V1 Spec](docs/requirements/personal-agent-experience-v1.md)；决策理由见 [ADR 0006](docs/adr/0006-agent-handover-is-a-projection.md)；交付契约见 [Agent Handover 交付 Spec](docs/designs/agent-home/agent-handover-spec.md)，发布快照见 [Issue #67](https://github.com/gusibi/molibot/issues/67)；界面探索（三版对比）见 [designs/personal-agent-home](docs/designs/personal-agent-home/index.html)。V1 已交付 `PA-HD1`–`PA-HD10`、`PA-HD12`、`PA-HD13`；`PA-HD11`（Open Loop）按方案不进入 V1，模型润色未实现（V1 默认关闭，不提供开启入口）。实施证据与剩余边界见[能力矩阵](docs/requirements/personal-assistant-capability-matrix.md)。
+
 ## Trace 调用趋势与 Agent 表现（2026-10-18，P1，实施中）
 
 已批准：模型、普通工具、MCP 调用次数曲线，按 Agent 与现有筛选联动；今天/昨天按小时，7/30 天按日并补零。突出 Agent 运行完成成功率、已记录模型美元估算与覆盖率、缓存命中率，未知价格不记为免费；运行状态与模型请求状态分开。保持多主题、中英、窄窗和详情折叠。

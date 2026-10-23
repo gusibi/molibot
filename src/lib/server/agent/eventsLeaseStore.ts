@@ -568,6 +568,26 @@ export class EventExecutionLeaseStore {
   }
 
   /**
+   * Finished task attempts since a point in time, for the Handover read model.
+   * `skipped` rows are dispatcher bookkeeping, not promises, so they are
+   * excluded; a retried attempt keeps one row, which naturally collapses a
+   * recovered retry into a single item.
+   */
+  listFinishedSince(since: string, limit = 200): EventExecutionLease[] {
+    const sinceIso = String(since ?? "").trim();
+    const safeLimit = Math.max(1, Math.min(500, Math.round(limit)));
+    const rows = this.db.prepare(`
+      SELECT * FROM event_execution_leases
+      WHERE status IN ('completed', 'failed', 'aborted', 'interrupted')
+        AND finished_at IS NOT NULL
+        AND finished_at >= ?
+      ORDER BY finished_at DESC
+      LIMIT ?
+    `).all(sinceIso, safeLimit) as unknown as LeaseRow[];
+    return rows.map(rowToLease);
+  }
+
+  /**
    * Startup reclamation of leases nobody is executing any more.
    *
    * A `running` lease is only advanced by an in-process timer, so one owned by
@@ -710,6 +730,7 @@ export class EventExecutionLeaseStore {
       CREATE INDEX IF NOT EXISTS idx_event_leases_session_status ON event_execution_leases(session_id, status);
       CREATE INDEX IF NOT EXISTS idx_event_leases_run ON event_execution_leases(run_id);
       CREATE INDEX IF NOT EXISTS idx_event_leases_status_heartbeat ON event_execution_leases(status, last_heartbeat_at);
+      CREATE INDEX IF NOT EXISTS idx_event_leases_finished_at ON event_execution_leases(finished_at);
     `);
     const columns = this.db.prepare("PRAGMA table_info(event_execution_leases)").all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === "lease_scope")) {

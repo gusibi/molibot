@@ -980,13 +980,77 @@ export function sanitizeSingleAgent(input: unknown): AgentSettings {
 
 export function sanitizeDesktopNavigation(input: unknown): RuntimeSettings["desktopNavigation"] {
   const value = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const lastAcknowledgedAt = String(value.lastAcknowledgedAt ?? "").trim();
+  const previousHandover = sanitizeHandoverSnapshot(value.previousHandover);
   return {
     expandedAgentIds: Array.isArray(value.expandedAgentIds) ? [...new Set(value.expandedAgentIds.map(String).filter(Boolean))] : [],
     page: String(value.page ?? "agent"),
     ...(value.projectId ? { projectId: String(value.projectId) } : {}),
     ...(value.roomId ? { roomId: String(value.roomId) } : {}),
     agentId: String(value.agentId ?? ""),
-    sessionId: String(value.sessionId ?? "")
+    sessionId: String(value.sessionId ?? ""),
+    ...(Number.isFinite(Date.parse(lastAcknowledgedAt)) ? { lastAcknowledgedAt } : {}),
+    ...(previousHandover ? { previousHandover } : {})
+  };
+}
+
+function sanitizeHandoverSnapshot(input: unknown) {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  const capturedAt = String(value.capturedAt ?? "").trim();
+  if (!Number.isFinite(Date.parse(capturedAt))) return undefined;
+  const items = Array.isArray(value.items)
+    ? value.items.flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const item = raw as Record<string, unknown>;
+        const id = String(item.id ?? "").trim();
+        const occurredAt = String(item.occurredAt ?? "").trim();
+        if (!id || !Number.isFinite(Date.parse(occurredAt))) return [];
+        const kind = String(item.kind ?? "").trim();
+        if (!["task-completed", "task-recovered", "task-failed", "run-completed", "run-failed"].includes(kind)) return [];
+        return [{
+          id,
+          kind: kind as import("$lib/shared/desktop.js").DesktopHandoverItemKind,
+          occurredAt,
+          agentId: String(item.agentId ?? ""),
+          ...(item.sessionId ? { sessionId: String(item.sessionId) } : {}),
+          ...(item.channel ? { channel: String(item.channel) } : {}),
+          ...(item.runId ? { runId: String(item.runId) } : {}),
+          ...(item.taskId ? { taskId: String(item.taskId) } : {}),
+          title: String(item.title ?? ""),
+          ...(Number.isFinite(Number(item.durationMs)) ? { durationMs: Number(item.durationMs) } : {}),
+          ...(Number.isFinite(Number(item.attempts)) ? { attempts: Number(item.attempts) } : {})
+        }];
+      }).slice(0, 20)
+    : [];
+  return {
+    capturedAt,
+    itemCount: Math.max(0, Number(value.itemCount) || items.length),
+    pendingCount: Math.max(0, Number(value.pendingCount) || 0),
+    counts: {
+      completed: Math.max(0, Number((value.counts as Record<string, unknown> | undefined)?.completed) || 0),
+      failed: Math.max(0, Number((value.counts as Record<string, unknown> | undefined)?.failed) || 0),
+      pending: Math.max(0, Number((value.counts as Record<string, unknown> | undefined)?.pending) || 0),
+      recovered: Math.max(0, Number((value.counts as Record<string, unknown> | undefined)?.recovered) || 0)
+    },
+    items
+  };
+}
+
+/**
+ * The Handover window and its frozen generation are written by the ack endpoint
+ * and by nothing else. Every other settings path — client navigation saves,
+ * legacy partial patches — may replace the rest of `desktopNavigation`, so the
+ * two fields are inherited unless the incoming value explicitly carries them.
+ */
+function withHandoverState(
+  next: RuntimeSettings["desktopNavigation"],
+  current: RuntimeSettings["desktopNavigation"] | undefined
+): RuntimeSettings["desktopNavigation"] {
+  return {
+    ...next,
+    ...(!next.lastAcknowledgedAt && current?.lastAcknowledgedAt ? { lastAcknowledgedAt: current.lastAcknowledgedAt } : {}),
+    ...(!next.previousHandover && current?.previousHandover ? { previousHandover: current.previousHandover } : {})
   };
 }
 
@@ -1671,7 +1735,7 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
   if (!next.deletedAgentIds.includes(DEFAULT_AGENT_ID) && !next.agents.some(agent => agent.id === DEFAULT_AGENT_ID)) {
     next.agents.unshift(defaultAgentSettings());
   }
-  next.desktopNavigation = sanitizeDesktopNavigation(next.desktopNavigation);
+  next.desktopNavigation = withHandoverState(sanitizeDesktopNavigation(next.desktopNavigation), current.desktopNavigation);
   const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
   const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
   const sanitizedQQBots = sanitizeQQBots(next.qqBots);

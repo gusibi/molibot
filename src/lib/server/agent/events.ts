@@ -273,6 +273,32 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
+/**
+ * Next local-time occurrence strictly after `from`.
+ *
+ * The watcher matches cron fields against the process-local `Date` (the task's
+ * `timezone` is display metadata), so recomputing here with the same matcher is
+ * the only way the Handover's "next" line cannot drift from what actually
+ * fires.
+ */
+export function nextCronOccurrence(schedule: string, from: Date = new Date(), horizonDays = 366): string | undefined {
+  let parsed: ParsedCron;
+  try {
+    parsed = parseCron(schedule);
+  } catch {
+    return undefined;
+  }
+  const cursor = new Date(from.getTime());
+  cursor.setSeconds(0, 0);
+  cursor.setMinutes(cursor.getMinutes() + 1);
+  const limit = from.getTime() + Math.max(1, horizonDays) * 24 * 60 * 60 * 1000;
+  while (cursor.getTime() <= limit) {
+    if (cronMatches(parsed, cursor)) return cursor.toISOString();
+    cursor.setMinutes(cursor.getMinutes() + 1);
+  }
+  return undefined;
+}
+
 interface PeriodicSchedule {
   parsed: ParsedCron;
   event: MomEvent;

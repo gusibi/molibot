@@ -6351,7 +6351,9 @@ test("Agent home and full history share the conversation row", () => {
 
 test("new conversation centers the real composer above compact suggestions and three recent sessions", () => {
   const home = read("./lib/chat/AgentHome.svelte");
-  assert.match(view, /<AgentHome [\s\S]*?composer=\{conversationComposer\}[\s\S]*?sessions=\{agentHomeSessions.slice\(0, 3\)\}/);
+  assert.match(view, /<AgentHome [\s\S]*?composer=\{conversationComposer\}[\s\S]*?sessions=\{agentHomeDisplaySessions\}/);
+  assert.match(view, /sessions=\{agentHomeDisplaySessions\}/);
+  assert.match(view, /agentHomeSessions\.filter\(\(item\) => !handoverSessionIds\.has\(item\.sessionId\)\)[\s\S]*?\.slice\(0, 3\)/);
   assert.match(view, /floating=\{!draftMode\}/);
   assert.ok(home.indexOf("{@render composer()}") < home.indexOf('class="agent-home-tasks"'));
   assert.ok(home.indexOf('class="agent-home-tasks"') < home.indexOf('class="agent-home-history"'));

@@ -164,6 +164,7 @@ export class SqliteTraceStore {
       CREATE INDEX IF NOT EXISTS idx_agent_trace_facts_name ON agent_trace_facts(fact_type, name);
       CREATE INDEX IF NOT EXISTS idx_agent_trace_facts_status ON agent_trace_facts(fact_type, status);
       CREATE INDEX IF NOT EXISTS idx_agent_trace_facts_created_at ON agent_trace_facts(created_at);
+      CREATE INDEX IF NOT EXISTS idx_agent_trace_facts_finished_at ON agent_trace_facts(finished_at);
     `);
     for (const statement of [
       `ALTER TABLE agent_trace_facts ADD COLUMN parent_fact_id TEXT;`,
@@ -401,6 +402,32 @@ export class SqliteTraceStore {
       ORDER BY seq DESC
       LIMIT ?
     `).all(safeLimit) as TraceFactRow[];
+
+    return rows.map((row) => this.mapFactRow(row));
+  }
+
+  /**
+   * The Handover evidence window: finished runs plus the runtime notices that
+   * explain an anomaly. Unlike `listAnalyticsFacts` this keys on completion
+   * time, keeps previews, and includes the run's `agentId` from its payload.
+   */
+  listHandoverFactsSince(since: string, limit = 400): TraceFactRecord[] {
+    const sinceIso = String(since ?? "").trim();
+    const safeLimit = Math.max(1, Math.min(2000, Math.trunc(limit)));
+    const rows = this.db.prepare(`
+      SELECT id, fact_type, run_id, fact_id, parent_fact_id, channel, bot_id, chat_id, session_id, workspace_id,
+        name, provider, model, api, status, started_at, finished_at, duration_ms,
+        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, blocked_by, error_preview,
+        args_preview, result_preview, payload_json, created_at, updated_at
+      FROM agent_trace_facts
+      WHERE (
+          (fact_type = 'run' AND status IN ('success', 'error', 'aborted'))
+          OR (fact_type = 'runtime_notice' AND status IN ('error', 'warning'))
+        )
+        AND (finished_at >= ? OR (finished_at IS NULL AND updated_at >= ?))
+      ORDER BY COALESCE(finished_at, updated_at) DESC
+      LIMIT ?
+    `).all(sinceIso, sinceIso, safeLimit) as TraceFactRow[];
 
     return rows.map((row) => this.mapFactRow(row));
   }

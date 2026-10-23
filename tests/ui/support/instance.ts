@@ -144,9 +144,13 @@ export async function startIsolatedInstance() {
   }
 
   async function runSeed(): Promise<void> {
-    const seed = spawn(process.execPath, ['--import', './scripts/register-loader.js', '--import', 'tsx', 'tests/ui/support/seed.ts'], {
+    await runSeedScript("tests/ui/support/seed.ts");
+  }
+
+  async function runSeedScript(script: string, extra: Record<string, string> = {}): Promise<void> {
+    const seed = spawn(process.execPath, ['--import', './scripts/register-loader.js', '--import', 'tsx', script], {
       cwd: repoRoot,
-      env: childEnv(),
+      env: childEnv(extra),
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let output = '';
@@ -155,7 +159,7 @@ export async function startIsolatedInstance() {
       seed.once('error', reject);
       seed.once('exit', done);
     });
-    if (code !== 0) throw new Error(`UI settings seed failed (${code}): ${output}`);
+    if (code !== 0) throw new Error(`UI seed failed (${code}): ${output}`);
   }
 
   async function startFrontend(): Promise<string> {
@@ -203,6 +207,7 @@ export async function startIsolatedInstance() {
       startService,
       stopService,
       restartService,
+      runSeedScript,
       close
     };
   } catch (error) {

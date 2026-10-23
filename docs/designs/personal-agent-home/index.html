@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Personal Agent 首页 · 对话式简报</title>
+<style>
+  :root { --bg: #111114; --line: rgba(255,255,255,.12); --fg: rgba(255,255,255,.9); --dim: rgba(255,255,255,.5); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 -apple-system, "PingFang SC", sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; background: rgba(17,17,20,.92); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .brand { font-size: 12px; color: var(--dim); letter-spacing: .02em; margin-right: 6px; }
+  .tab { appearance: none; border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; padding: 6px 13px; border-radius: 999px; cursor: pointer; }
+  .tab.on { background: #fff; color: #111; border-color: transparent; font-weight: 600; }
+  .hint { margin-left: auto; font-size: 11px; color: var(--dim); }
+  iframe { display: block; width: 100%; height: calc(100vh - 53px); border: 0; }
+  iframe[hidden] { display: none; }
+  @media (max-width: 760px) { .hint { display: none; } }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="brand">Momo 首页 · 简报三版</span>
+  <button class="tab on" data-p="c1">C1 · 对话流</button>
+  <button class="tab" data-p="c2">C2 · 证据卡</button>
+  <button class="tab" data-p="c3">C3 · 现在优先</button>
+  <span class="hint">右上角切明暗</span>
+</div>
+<iframe id="pc1" src="c1.html" title="C1 对话流"></iframe>
+<iframe id="pc2" src="c2.html" title="C2 证据卡" hidden></iframe>
+<iframe id="pc3" src="c3.html" title="C3 现在优先" hidden></iframe>
+<script>
+  const tabs = [...document.querySelectorAll('.tab')];
+  tabs.forEach((t) => t.addEventListener('click', () => {
+    tabs.forEach((x) => x.classList.toggle('on', x === t));
+    for (const k of ['c1', 'c2', 'c3']) document.getElementById('p' + k).hidden = k !== t.dataset.p;
+  }));
+</script>
+</body>
+</html>

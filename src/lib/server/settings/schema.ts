@@ -5,6 +5,7 @@ import type {
   ThinkingStrategy
 } from "$lib/server/settings/thinking.js";
 import type { PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
+import type { DesktopHandoverSnapshot } from "$lib/shared/desktop.js";
 import { getPiProviders, isPiProvider, normalizePiProviderId } from "$lib/server/providers/piRegistry.js";
 
 export { normalizePiProviderId };
@@ -218,6 +219,10 @@ export interface DesktopNavigationSettings {
   page: string;
   agentId: string;
   sessionId: string;
+  /** Window start for the Agent Handover; written when the user leaves the home. */
+  lastAcknowledgedAt?: string;
+  /** The one frozen previous Handover generation (PA-HD13). */
+  previousHandover?: DesktopHandoverSnapshot;
 }
 
 export interface AgentSettings {

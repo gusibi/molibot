@@ -133,6 +133,14 @@ _Avoid_: global mode switch, per-turn classifier requirement
 The structured handoff presented to a fresh attempt: goal, constraints, live criteria, completed evidence summaries, current step input, and the previous failure or wait reason.
 _Avoid_: copied transcript, debug log, control prompt
 
+**Agent Handover（交接）**:
+The retrospective summary the Desktop home presents when the user returns after being away: what was completed, what needs the user's decision, and what will happen next. Its window starts at the user's last acknowledged view, not the calendar day. It is not a conversation, carries no Agent Context, and is not a Session.
+_Avoid_: Execution Briefing, daily digest, Activity Feed, overview dashboard
+
+**Open Loop（未接回的话题）**:
+A topic the user is expected to continue but has not: something the Agent delivered that the user never opened, or a thread the user stopped replying to after the Agent asked or answered. It is inferred only from observable signals, never from a model's guess about the user's intent, and it is neither a Runtime Task nor a Decision Request.
+_Avoid_: pending question, follow-up reminder, nudge, blocked item
+
 **Task Budget**:
 The cumulative token, attempt-count, and lifetime limits that bound a Durable Execution independently of the budget of any one attempt.
 _Avoid_: per-turn Run budget, provider quota, global concurrency cap
