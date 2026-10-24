@@ -168,3 +168,24 @@ test('a busy day shows five finished rows, one short failure reason and four pen
   await page.getByRole('button', { name: '2 more', exact: true }).click();
   await expect(pending.getByText('Busy approval 6', { exact: true })).toBeVisible();
 });
+
+test('opening the app lands on the handover while a reload keeps the current place @agent-home @handover @navigation', async ({ page, context, instance }) => {
+  await seedHandover(instance, 'active');
+  await openChat(page);
+
+  // A saved page must survive reloads (PA-U3).
+  await page.getByRole('button', { name: 'UI Second', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'UI Second' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: 'UI Second' })).toBeVisible();
+
+  // A new app window is "open the app", so it leads with the handover again.
+  const fresh = await context.newPage();
+  try {
+    await fresh.goto('/');
+    await expect(fresh.getByTestId('handover-summary')).toBeVisible();
+    await expect(fresh.getByRole('heading', { level: 1, name: 'Momo' })).toBeVisible();
+  } finally {
+    await fresh.close();
+  }
+});

@@ -1148,6 +1148,21 @@
   const onboardingProviderTags: DesktopProviderModelTag[] = ["text", "vision", "audio_input", "stt", "tts", "tool"];
   let providerApiKeyInput = "";
   let agentNavigation: DesktopAgentNavigation = { expandedAgentIds: [], page: "agent", agentId: "", sessionId: "" };
+  /**
+   * Opening the app starts at the Default Agent's handover; a reload or a
+   * reconnect stays where the user was (PA-U3). `sessionStorage` survives a
+   * reload but not a new window, which is exactly this distinction.
+   */
+  const APP_BOOT_KEY = "molibot-app-boot";
+  let coldStartHandover = (() => {
+    try {
+      if (sessionStorage.getItem(APP_BOOT_KEY) === "1") return false;
+      sessionStorage.setItem(APP_BOOT_KEY, "1");
+      return true;
+    } catch {
+      return false;
+    }
+  })();
   let defaultAgentId = "default";
   let selectedAgentId = "";
   let deletedAgentIds: string[] = [];
@@ -1877,6 +1892,7 @@
       const restoreView = reconnectRestore;
       reconnectRestore = null;
       if (restoreView) {
+        coldStartHandover = false;
         restoreSidebarTree();
         await loadExpandedChannels();
         if (generation !== connectionGeneration) return;
@@ -2128,6 +2144,11 @@
     restoreSidebarTree();
     await refreshAgentSessions();
     if (generation !== connectionGeneration || agentNavigation !== saved) return;
+    if (coldStartHandover) {
+      coldStartHandover = false;
+      openAgentChat(defaultAgentId);
+      return;
+    }
     if (saved.page === "room" && saved.roomId) { openRoom(saved.roomId); return; }
     if (saved.page === "project" && saved.projectId) {
       await selectProject(saved.projectId);

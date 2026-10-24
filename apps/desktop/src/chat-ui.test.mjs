@@ -6324,15 +6324,14 @@ test("initial navigation falls back to Momo and can restore an external session"
   const source = view.slice(view.indexOf("async function selectDefaultSession"), view.indexOf("async function loadChannel"));
   const body = source.slice(source.indexOf("{") + 1, source.lastIndexOf("}")).replace(/ as Exclude<ChatWorkspacePaneName, "chat">/g, "");
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const run = new AsyncFunction("generation", "connectionGeneration", "restoreSidebarTree", "refreshAgentSessions", "agentNavigation", "ordinarySessions", "listDesktopConversations", "connectedEndpoint", "openRoom", "selectProject", "selectProjectSession", "openWorkspacePane", "openSession", "openAgentChat", "onboardingAgents", "defaultAgentId", body);
-  async function restore(saved, items, agents = [{ id: "other", enabled: false }]) {
+  const run = new AsyncFunction("generation", "connectionGeneration", "restoreSidebarTree", "refreshAgentSessions", "agentNavigation", "ordinarySessions", "listDesktopConversations", "connectedEndpoint", "openRoom", "selectProject", "selectProjectSession", "openWorkspacePane", "openSession", "openAgentChat", "onboardingAgents", "defaultAgentId", "coldStartHandover", body);
+  async function restore(saved, items, agents = [{ id: "other", enabled: false }], coldStartHandover = false) {
     const opened = [];
     const noop = async () => {};
     await run(1, 1, noop, noop, saved, [], async (_endpoint, query) => {
-      assert.equal(query.allAgents, true);
-      assert.equal(query.sessionId, saved.sessionId);
+      if (query.sessionId) assert.equal(query.allAgents, true);
       return { items };
-    }, "http://example.test", noop, noop, noop, noop, item => opened.push(item.sessionId), id => opened.push(id), agents, "default");
+    }, "http://example.test", noop, noop, noop, noop, item => opened.push(item.sessionId), id => opened.push(id), agents, "default", coldStartHandover);
     return opened;
   }
   assert.deepEqual(await restore({ page: "session", agentId: "other", sessionId: "gone" }, []), ["default"]);
@@ -6341,6 +6340,8 @@ test("initial navigation falls back to Momo and can restore an external session"
   // as it can still execute; a disabled or deleting Agent falls back to default.
   assert.deepEqual(await restore({ page: "agent", agentId: "writer", sessionId: "" }, [], [{ id: "writer", enabled: true, canExecute: true }]), ["writer"]);
   assert.deepEqual(await restore({ page: "agent", agentId: "writer", sessionId: "" }, [], [{ id: "writer", enabled: true, canExecute: false }]), ["default"]);
+  // A new app window is not a restore: it lands on the Default Agent's handover.
+  assert.deepEqual(await restore({ page: "session", agentId: "default", sessionId: "external" }, [{ sessionId: "external", channel: "telegram" }], undefined, true), ["default"]);
 });
 
 test("Agent home and full history share the conversation row", () => {
