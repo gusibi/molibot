@@ -414,6 +414,7 @@
   // keeps the last successful payload so a failed refresh can say "not updated"
   // instead of pretending the page is quiet.
   let handover: DesktopHandover | null = null;
+  let handoverLoading = false;
   let handoverStale = false;
   let handoverBusyId = "";
   let handoverError = "";
@@ -431,6 +432,7 @@
     const generation = connectionGeneration;
     if (!connectionReady || !endpoint) return;
     handoverRefreshedAt = Date.now();
+    handoverLoading = true;
     try {
       const next = await loadDesktopHandover(endpoint);
       if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
@@ -440,6 +442,8 @@
       if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
       // Keep the content already on screen; only the freshness label changes.
       handoverStale = true;
+    } finally {
+      handoverLoading = false;
     }
   }
 
@@ -4478,8 +4482,9 @@
       {/if}
       {#if draftMode && selectedAgent}
         <div class="chat-start-page">
-            <AgentHome activity={agentActivities.find(item => item.agentId === selectedAgentId)} activityReady={agentActivityReady} onActivity={() => openAgentOverview(selectedAgentId)} composer={conversationComposer} agent={selectedAgent} sessions={agentHomeDisplaySessions} {locale} {copy}
+            <AgentHome activity={agentActivities.find(item => item.agentId === selectedAgentId)} activityReady={agentActivityReady} onActivity={() => openAgentOverview(selectedAgentId)} composer={conversationComposer} agent={selectedAgent} agentId={selectedAgentId} sessions={agentHomeDisplaySessions} {locale} {copy}
               handover={selectedAgentId === defaultAgentId ? handover : null}
+              handoverLoading={selectedAgentId === defaultAgentId && handoverLoading}
               handoverStale={selectedAgentId === defaultAgentId && handoverStale}
               handoverError={selectedAgentId === defaultAgentId ? handoverError : ""}
               handoverBusyId={handoverBusyId}

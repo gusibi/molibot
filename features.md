@@ -1,3 +1,15 @@
+## 2026-10-24 — Agent Handover 设计规范与多主题校正
+
+按 DESIGN.md 的 token 与区域规则复查交接页，并用十个主题家族、明暗、中英与窄窗截图逐张核对。
+
+- 主题一致性：交接区原来写死 14/12/999/6px 圆角，等于在所有主题里都画一套自己的卡片；改为 `--radius-panel` / `--radius-small` / `--radius-full`，Windows 98、System 6、Terminal、Brutalism 等零圆角家族现在会得到真正的方角与家族控件，macOS / Rosé Pine / Cyberpunk 保持原有层级。
+- 信息层级：结论句改为次级表面上的引导句；未办成与等你决定排在已完成之前（此前待决定项被 5 条历史挤到首屏之外）；等你决定默认 3 条，已完成默认 5 条。
+- 卡片降噪：三类条目共用一个带分隔线的条目组，不再每行一张卡；已完成行去掉逐行“已完成”徽标，只保留“重试后完成”；来源 Agent 只在不是当前 Agent 时显示；展开按钮改为文字式“还有 N 件 / 展开全部 N 件”，不再是独立按钮块。
+- 首次绘制：读取交接时渲染同形状骨架行（复用共享 `.skeleton-rows`），不再先闪空首页。
+- 文案：待决定为零时不再出现“0 件等你决定”，改用“完成了 X 件，Y 件没办成。”或“你不在的时候完成了 X 件。”。
+
+验证：隔离实例 WebKit `agent-home.spec.ts` 12 项通过（含 busy 场景：3 条待决定 + 展开、5 条完成 + 展开、失败原因与截断）；`pnpm check`、`pnpm --dir apps/desktop run check` 与 `pnpm build` 通过；macOS/Windows 98/System 6/Terminal/Brutalism/Rosé Pine/Cyberpunk 明暗与 390px 窄窗截图人工核对。全量 `pnpm verify:feature` 仍未执行（本机磁盘不足）。
+
 ## 2026-10-24 — Agent Handover 首页可读性（错误、待决定、任务结果）
 
 按真实用户的截图反馈重做首页信息密度：一屏先给结论与最近 5 条证据，失败不再贴整屏 provider 报文，待决定项有名字和原因，完成项带上交付内容。

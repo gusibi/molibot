@@ -144,7 +144,7 @@ test('the handover stays usable in Chinese, dark theme and a narrow window @agen
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
-test('a busy day shows five finished rows, one short failure reason and four pending decisions @agent-home @handover', async ({ page, instance }) => {
+test('a busy day shows five finished rows, one short failure reason and three pending decisions @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'busy');
   await openChat(page);
 
@@ -161,11 +161,12 @@ test('a busy day shows five finished rows, one short failure reason and four pen
   await expect(detail).not.toContainText('provider=cli-proxy-api');
   expect((await detail.innerText()).length).toBeLessThanOrEqual(220);
 
-  // Four decisions first; the rest is one click away.
+  // Three decisions first; the rest is one click away.
   const pending = page.getByTestId('handover-pending');
   await expect(pending.getByText('Busy approval 1', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '2 more', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '2 more', exact: true }).click();
+  await expect(pending.getByText('Busy approval 4', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '3 more', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '3 more', exact: true }).click();
   await expect(pending.getByText('Busy approval 6', { exact: true })).toBeVisible();
 });
 
