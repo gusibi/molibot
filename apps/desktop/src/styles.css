@@ -7831,6 +7831,14 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .agent-home-handover-entry-title { overflow-wrap: anywhere; font-size: var(--fs-body); }
 .agent-home-handover-entry-meta,
 .agent-home-handover-entry-detail { color: var(--text-secondary); font-size: var(--fs-meta); overflow-wrap: anywhere; }
+/* Long provider diagnostics and delivered text are support, not the headline. */
+.agent-home-handover-entry-detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.agent-home-handover-entry-reason { color: var(--danger); font-size: var(--fs-meta); }
 .agent-home-handover-pending { display: flex; flex-direction: column; gap: 8px; }
 .agent-home-handover-pending h2 { margin: 0; color: var(--text-secondary); font-size: var(--fs-meta); font-weight: 500; }
 .agent-home-handover-pending-item { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--separator); border-radius: 12px; background: var(--card-bg); }

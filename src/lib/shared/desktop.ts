@@ -369,6 +369,17 @@ export type DesktopHandoverItemKind =
   | "run-completed"
   | "run-failed";
 
+/**
+ * Why an entry failed, in machine terms. The page owns the wording so the same
+ * fact reads correctly in Chinese and English; `detail` stays the diagnostic.
+ */
+export type DesktopHandoverDetailCode =
+  | "model_auth"
+  | "model_missing"
+  | "account_balance"
+  | "run_budget"
+  | "other";
+
 export interface DesktopHandoverItem {
   id: string;
   kind: DesktopHandoverItemKind;
@@ -381,8 +392,12 @@ export interface DesktopHandoverItem {
   taskId?: string;
   /** User-authored task text or the run's message preview; never model prose. */
   title: string;
-  /** Error preview or the matching runtime notice, when one exists. */
+  /** Error summary for a failure, or the delivered result of a task. */
   detail?: string;
+  /** Machine-readable reason behind a failure `detail`. */
+  detailCode?: DesktopHandoverDetailCode;
+  /** What the run actually delivered, when the session still has it. */
+  resultPreview?: string;
   durationMs?: number;
   /** Attempts including retries; only set for task executions. */
   attempts?: number;
@@ -402,6 +417,8 @@ export interface DesktopHandoverPending {
   runId?: string;
   /** Approval id shared with the source Session (PA-HD9). */
   requestId?: string;
+  /** For a waiting run: which kind of wait keeps it here. */
+  waitKind?: "approval" | "recovery";
   /**
    * The Durable/Plan approval row. It differs from `requestId` and is what the
    * tool-approval bridge needs to resolve the execution and its Broker or Host

@@ -13,7 +13,7 @@ import type { IsolatedInstance } from './support/instance';
  * process owns the SQLite writes, and then assert only what the user sees.
  */
 
-async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'quiet' | 'first-run'): Promise<void> {
+async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'quiet' | 'first-run'): Promise<void> {
   await instance.stopService();
   try {
     await instance.runSeedScript('tests/ui/support/seed-handover.ts', { UI_HANDOVER_SCENARIO: scenario });
@@ -79,9 +79,6 @@ test('the Default Agent home reports completed work and expands it into entries,
   await openChat(page);
   await expect(page.getByTestId('handover-summary')).toContainText('1 finished');
   await expect(page.getByTestId('handover-pending')).toContainText('Handover approval');
-  await expect(page.getByTestId('handover-entries')).toHaveCount(0);
-
-  await page.getByRole('button', { name: 'Show 1', exact: true }).click();
   await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
 
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
@@ -92,7 +89,6 @@ test('the Default Agent home reports completed work and expands it into entries,
 test('leaving the handover immediately still shows the same entries on return @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'active');
   await openChat(page);
-  await page.getByRole('button', { name: 'Show 1', exact: true }).click();
   await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
 
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
@@ -123,7 +119,6 @@ test('a quiet day keeps only the conclusion, the composer and the next scheduled
 test('a service interruption keeps the last handover visible and marks it stale @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'active');
   await openChat(page);
-  await page.getByRole('button', { name: 'Show 1', exact: true }).click();
   await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
 
   await instance.stopService();
@@ -144,8 +139,32 @@ test('the handover stays usable in Chinese, dark theme and a narrow window @agen
   await page.setViewportSize({ width: 390, height: 844 });
   await openChat(page);
   await expect(page.getByTestId('handover-summary')).toContainText('完成了 1 件');
-  await page.getByRole('button', { name: '展开 1 件', exact: true }).click();
   await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
   await expect(page.getByTestId('handover-pending')).toContainText('等你决定');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+});
+
+test('a busy day shows five finished rows, one short failure reason and four pending decisions @agent-home @handover', async ({ page, instance }) => {
+  await seedHandover(instance, 'busy');
+  await openChat(page);
+
+  await expect(page.getByTestId('handover-summary')).toContainText('6 finished');
+  // Five rows are a glance; the sixth waits behind the expander.
+  await expect(page.getByTestId('handover-entries').locator('li')).toHaveCount(5);
+  await expect(page.getByRole('button', { name: 'Show all 6', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Show all 6', exact: true }).click();
+  await expect(page.getByTestId('handover-entries').locator('li')).toHaveCount(6);
+
+  // The failure reads as a reason, and the diagnostic is cut before it reaches the page.
+  await expect(page.getByText('Model sign-in failed: the API key is invalid or expired')).toBeVisible();
+  const detail = page.locator('.agent-home-handover-entry-detail').first();
+  await expect(detail).not.toContainText('provider=cli-proxy-api');
+  expect((await detail.innerText()).length).toBeLessThanOrEqual(220);
+
+  // Four decisions first; the rest is one click away.
+  const pending = page.getByTestId('handover-pending');
+  await expect(pending.getByText('Busy approval 1', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '2 more', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '2 more', exact: true }).click();
+  await expect(pending.getByText('Busy approval 6', { exact: true })).toBeVisible();
 });

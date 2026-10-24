@@ -79,6 +79,10 @@
   } = $props();
 
   let itemsExpanded = $state(false);
+  let pendingExpanded = $state(false);
+  /** Five finished rows is a glance; the rest is one click away. */
+  const COMPLETED_PREVIEW = 5;
+  const PENDING_PREVIEW = 4;
 
   const activityStatus = $derived(agent.enabled === false ? "disabled" : !activityReady ? "unknown" : activity?.status ?? "idle");
   const activityLabel = $derived(agentActivityLabel(agent.enabled !== false, activity, activityReady, copy));
@@ -92,7 +96,12 @@
     : []);
   const failedItems = $derived(displayItems.filter((item) => item.kind.endsWith("failed")));
   const completedItems = $derived(displayItems.filter((item) => !item.kind.endsWith("failed")));
-  const visibleCompleted = $derived(itemsExpanded ? completedItems : []);
+  const visibleCompleted = $derived(itemsExpanded ? completedItems : completedItems.slice(0, COMPLETED_PREVIEW));
+  const hiddenCompleted = $derived(Math.max(0, completedItems.length - COMPLETED_PREVIEW));
+  const visiblePending: DesktopHandoverPending[] = $derived(pendingExpanded
+    ? (handover?.pending ?? [])
+    : (handover?.pending ?? []).slice(0, PENDING_PREVIEW));
+  const hiddenPending = $derived(Math.max(0, (handover?.pending.length ?? 0) - PENDING_PREVIEW));
   const displayCounts = $derived(showingPrevious && handover?.previous ? handover.previous.counts : handover?.counts ?? { completed: 0, failed: 0, pending: 0, recovered: 0 });
   const quiet = $derived(Boolean(handover && handover.state === "quiet" && !showingPrevious));
   const firstRun = $derived(Boolean(handover && handover.state === "first-run" && !showingPrevious));
@@ -119,6 +128,23 @@
   function itemLabel(item: DesktopHandoverItem): string {
     if (item.title.trim()) return item.title.trim();
     return item.taskId ? copy.handoverTaskEntry : copy.handoverRunEntry;
+  }
+
+  /** The machine reason, phrased by the page; `detail` stays the diagnostic. */
+  function failureHeadline(item: DesktopHandoverItem): string {
+    switch (item.detailCode) {
+      case "model_auth": return copy.handoverDetailModelAuth;
+      case "model_missing": return copy.handoverDetailModelMissing;
+      case "account_balance": return copy.handoverDetailAccountBalance;
+      case "run_budget": return copy.handoverDetailRunBudget;
+      default: return "";
+    }
+  }
+
+  function pendingReason(item: DesktopHandoverPending): string {
+    if (item.waitKind === "approval") return copy.handoverWaitApproval;
+    if (item.waitKind === "recovery") return copy.handoverWaitRecovery;
+    return "";
   }
 
   function optionLabel(option: string): string {
@@ -170,7 +196,8 @@
               <button type="button" class="agent-home-handover-entry" onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: itemLabel(item), agentId: item.agentId })} disabled={!item.sessionId}>
                 <span class="agent-home-handover-entry-title">{itemLabel(item)}</span>
                 <span class="agent-home-handover-entry-meta">{copy.handoverFromAgent.replace("{agent}", agentLabel(item.agentId))} · {formatTime(item.occurredAt)}</span>
-                {#if item.detail}<span class="agent-home-handover-entry-detail">{item.detail}</span>{/if}
+                {#if failureHeadline(item)}<span class="agent-home-handover-entry-reason">{failureHeadline(item)}</span>{/if}
+                {#if item.detail}<span class="agent-home-handover-entry-detail" title={item.detail}>{item.detail}</span>{/if}
               </button>
             </li>
           {/each}
@@ -178,9 +205,6 @@
       {/if}
 
       {#if completedItems.length > 0}
-        <Button class="agent-home-handover-toggle" aria-expanded={itemsExpanded} onclick={() => (itemsExpanded = !itemsExpanded)}>
-          {itemsExpanded ? copy.handoverCollapseItems : copy.handoverExpandItems.replace("{count}", String(completedItems.length))}
-        </Button>
         {#if visibleCompleted.length > 0}
           <ul class="agent-home-handover-items" data-testid="handover-entries" aria-label={copy.handoverCompletedLabel}>
             {#each visibleCompleted as item (item.id)}
@@ -189,22 +213,28 @@
                 <button type="button" class="agent-home-handover-entry" onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: itemLabel(item), agentId: item.agentId })} disabled={!item.sessionId}>
                   <span class="agent-home-handover-entry-title">{itemLabel(item)}</span>
                   <span class="agent-home-handover-entry-meta">{copy.handoverFromAgent.replace("{agent}", agentLabel(item.agentId))} · {formatTime(item.occurredAt)}{item.durationMs !== undefined ? ` · ${Math.max(1, Math.round(item.durationMs / 1000))}s` : ""}</span>
+                  {#if item.resultPreview}<span class="agent-home-handover-entry-detail" title={item.resultPreview}>{item.resultPreview}</span>{/if}
                 </button>
               </li>
             {/each}
           </ul>
+        {/if}
+        {#if hiddenCompleted > 0}
+          <Button class="agent-home-handover-toggle" aria-expanded={itemsExpanded} onclick={() => (itemsExpanded = !itemsExpanded)}>
+            {itemsExpanded ? copy.handoverCollapseItems : copy.handoverExpandItems.replace("{count}", String(completedItems.length))}
+          </Button>
         {/if}
       {/if}
 
       {#if handover.pending.length > 0 && !showingPrevious}
         <div class="agent-home-handover-pending" data-testid="handover-pending">
           <h2>{copy.handoverPendingHeading}</h2>
-          {#each handover.pending as item (item.id)}
+          {#each visiblePending as item (item.id)}
             <div class="agent-home-handover-pending-item" data-kind={item.kind}>
               <div class="agent-home-handover-pending-copy">
-                <span class="agent-home-handover-entry-title">{item.title || copy.handoverWaiting}</span>
-                <span class="agent-home-handover-entry-meta">{copy.handoverFromAgent.replace("{agent}", agentLabel(item.agentId))}{item.sessionId ? ` · ${formatTime(item.createdAt)}` : ""}</span>
-                {#if item.detail}<span class="agent-home-handover-entry-detail">{item.detail}</span>{/if}
+                <span class="agent-home-handover-entry-title">{item.title || copy.handoverPendingRun}</span>
+                <span class="agent-home-handover-entry-meta">{pendingReason(item) ? `${pendingReason(item)} · ` : ""}{copy.handoverFromAgent.replace("{agent}", agentLabel(item.agentId))}{item.sessionId ? ` · ${formatTime(item.createdAt)}` : ""}</span>
+                {#if item.detail}<span class="agent-home-handover-entry-detail" title={item.detail}>{item.detail}</span>{/if}
               </div>
               <div class="agent-home-handover-pending-actions">
                 {#if item.kind === "approval" && item.actionable && item.requestId}
@@ -224,6 +254,11 @@
               </div>
             </div>
           {/each}
+          {#if hiddenPending > 0}
+            <Button class="agent-home-handover-toggle" aria-expanded={pendingExpanded} onclick={() => (pendingExpanded = !pendingExpanded)}>
+              {pendingExpanded ? copy.handoverCollapseItems : copy.handoverShowMorePending.replace("{count}", String(hiddenPending))}
+            </Button>
+          {/if}
         </div>
       {/if}
 

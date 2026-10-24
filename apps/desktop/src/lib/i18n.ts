@@ -2649,7 +2649,7 @@ const copy = {
     handoverSummaryPrevious: "上次交接：完成了 {completed} 件，{pending} 件等你决定。",
     handoverSummaryQuiet: "这段时间没有新进展，也没有需要你决定的事。",
     handoverRecoveredNote: "其中 {recovered} 件重试后完成。",
-    handoverExpandItems: "展开 {count} 件",
+    handoverExpandItems: "展开全部 {count} 件",
     handoverCollapseItems: "收起",
     handoverCompletedLabel: "已完成",
     handoverFailedLabel: "未办成",
@@ -2671,6 +2671,14 @@ const copy = {
     handoverRunEntry: "一次运行",
     handoverFromAgent: "来自 {agent}",
     handoverWaiting: "等待处理",
+    handoverPendingRun: "一轮运行停在等你确认",
+    handoverWaitApproval: "等待你批准",
+    handoverWaitRecovery: "等待恢复确认",
+    handoverShowMorePending: "还有 {count} 件",
+    handoverDetailModelAuth: "模型鉴权失败：API Key 无效或已过期",
+    handoverDetailModelMissing: "模型不存在或当前账号不可用",
+    handoverDetailAccountBalance: "账户余额或额度不足",
+    handoverDetailRunBudget: "模型连续失败，运行预算已耗尽",
   },
   en: {
     analyticsRunSuccessShort: "Run success",
@@ -5320,7 +5328,7 @@ const copy = {
     handoverSummaryPrevious: "Last handover: finished {completed}, {pending} need your decision.",
     handoverSummaryQuiet: "Nothing new happened, and nothing is waiting on you.",
     handoverRecoveredNote: "{recovered} of them succeeded after a retry.",
-    handoverExpandItems: "Show {count}",
+    handoverExpandItems: "Show all {count}",
     handoverCollapseItems: "Hide",
     handoverCompletedLabel: "Done",
     handoverFailedLabel: "Not done",
@@ -5341,7 +5349,15 @@ const copy = {
     handoverTaskEntry: "Scheduled task",
     handoverRunEntry: "A run",
     handoverFromAgent: "From {agent}",
-    handoverWaiting: "Waiting"
+    handoverWaiting: "Waiting",
+    handoverPendingRun: "A run is paused until you confirm",
+    handoverWaitApproval: "Waiting for your approval",
+    handoverWaitRecovery: "Waiting for recovery review",
+    handoverShowMorePending: "{count} more",
+    handoverDetailModelAuth: "Model sign-in failed: the API key is invalid or expired",
+    handoverDetailModelMissing: "Model not found or unavailable to this account",
+    handoverDetailAccountBalance: "Account balance or quota is exhausted",
+    handoverDetailRunBudget: "The model kept failing, so the run budget ran out"
   }
 } as const;
 

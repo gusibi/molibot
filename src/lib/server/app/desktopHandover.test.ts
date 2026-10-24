@@ -303,3 +303,79 @@ test("One approval owned by both Host Bash and a Durable execution is listed onc
   assert.equal(handover.pending.length, 1, "PA-HD9 keeps one row per approval");
 });
 
+
+test("A provider failure reaches the page as a short reason instead of the raw diagnostic", () => {
+  const raw = [
+    "Run failed after model attempts:",
+    `provider=cli-proxy-api, model=deepseek-v4.1-flash, baseUrl=https://example.invalid/v1, endpoint=https://example.invalid/v1/chat/completions, type=request_error, error=503: {"message":"auth_unavailable: no auth available","type":"server_error"}`,
+    "provider=cli-proxy-api, model=deepseek-v4.1-flash, error=503: {\"message\":\"auth_unavailable: no auth available\",\"type\":\"server_error\"}",
+    "Run budget exceeded: too many model failures (6/6)."
+  ].join(" | ");
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({ runs: [runFact({ status: "error", errorPreview: raw })] })
+  });
+
+  const item = handover.items[0];
+  assert.equal(item.detailCode, "model_auth", "the root cause wins over the budget line");
+  assert.ok((item.detail ?? "").length <= 220, "the diagnostic is clipped before it reaches the page");
+  assert.match(item.detail ?? "", /auth_unavailable/);
+  assert.doesNotMatch(item.detail ?? "", /provider=cli-proxy-api/);
+});
+
+test("A finished task shows what it actually delivered", () => {
+  const handover = readDesktopHandover(readDeps({
+    sessionRuns: () => [],
+    traceStore: { listHandoverFactsSince: () => [] },
+    leaseStore: {
+      listFinishedSince: () => [{
+        ...lease({
+          id: "lease-report",
+          runId: "run-report",
+          sessionId: "session-report",
+          taskId: "task-report",
+          eventPayloadJson: JSON.stringify({ text: "Morning briefing" })
+        }),
+        result: undefined
+      }]
+    },
+    sessionSummary: (sessionId) => sessionId === "session-report" ? { preview: "Good morning — three invoices are due today." } : {}
+  }));
+
+  const item = handover.items.find((entry) => entry.taskId === "task-report");
+  assert.ok(item, "the task execution must be listed");
+  assert.equal(item?.resultPreview, "Good morning — three invoices are due today.");
+});
+
+test("A waiting run is shown by name and loses its row once the waiting state is dead", () => {
+  const recent = readDesktopHandover(readDeps({
+    sessionRuns: () => [{
+      profileId: "personal",
+      sessionId: "session-waiting",
+      runId: "run-waiting",
+      status: "recovery_review",
+      startedAt: new Date(NOW.getTime() - 60 * 60_000).toISOString(),
+      waitingApproval: false,
+      errorCode: "stream_error"
+    }],
+    sessionSummary: (sessionId) => sessionId === "session-waiting" ? { preview: "Summarise the Q3 numbers" } : {}
+  }));
+  const item = recent.pending.find((entry) => entry.kind === "run");
+  assert.ok(item, "a live wait is a decision the user still owns");
+  assert.equal(item?.title, "Summarise the Q3 numbers");
+  assert.equal(item?.waitKind, "recovery");
+
+  const dead = readDesktopHandover(readDeps({
+    sessionRuns: () => [{
+      profileId: "personal",
+      sessionId: "session-dead",
+      runId: "run-dead",
+      status: "waiting_for_approval",
+      startedAt: new Date(NOW.getTime() - 30 * 24 * 60 * 60_000).toISOString(),
+      waitingApproval: true,
+      errorCode: null
+    }]
+  }));
+  assert.equal(dead.pending.some((entry) => entry.kind === "run"), false, "a month-old parked run is residue, not a decision");
+});

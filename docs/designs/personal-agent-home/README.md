@@ -31,7 +31,7 @@
 
 | 区块 | 现有来源 | 实施结果 |
 |---|---|---|
-| 已完成条目 | `agent_trace_facts`（`run` 完成事实带 `agentId`、结束时间、`taskPreview`；`runtime_notice` 提供异常说明） | 已按任务执行优先、run 事实补足实现；普通运行仍无步骤级进度，也不记录结果正文或产物索引 |
+| 已完成条目 | `agent_trace_facts`（`run` 完成事实带 `agentId`、结束时间、`taskPreview`；`runtime_notice` 提供异常说明）与会话最后一条消息 | 已按任务执行优先、run 事实补足实现；默认展示最近 5 条并附交付内容预览（会话可读时）；失败只给一句模板原因 + 两行原始诊断；普通运行仍无步骤级进度，也不记录产物索引 |
 | 承诺兑现 / 失约 | `event_execution_leases`（`finished_at`、`status`、`task_id`） | 已新增“自 T 起”查询；重试复用同一行，成功即折叠为一条“重试后完成” |
 | 待决定：Host Bash | `GET /api/desktop/host-bash` 全局待审批 | 读模型直接读原始记录，在组装处解析 `sessionId` 与来源 Agent；只对 Web scope 提供就地批准/拒绝 |
 | 待决定：Durable/Plan | `GET /api/desktop/durable-executions`、`/plans` | 读模型按等待状态合并；审批在交接内就地处理，Durable 审批带自己的审批行 ID 与执行版本，走既有工具审批桥接同时清理 Broker/Host Bash 记录与执行状态；Plan 首次批准提供两种模式 |

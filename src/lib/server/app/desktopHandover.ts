@@ -13,6 +13,7 @@ import type { DesktopSessionRun } from "$lib/shared/desktop.js";
 import type {
   DesktopHandover,
   DesktopHandoverCounts,
+  DesktopHandoverDetailCode,
   DesktopHandoverItem,
   DesktopHandoverItemKind,
   DesktopHandoverNextScheduled,
@@ -39,6 +40,10 @@ const MAX_ITEMS = 20;
 
 const COMPLETED_LEASE_STATUSES = new Set(["completed", "failed", "aborted", "interrupted"]);
 const ATTENTION_EXECUTION_STATUSES = new Set<DurableExecutionStatus>(["planned", "waiting_for_user", "waiting_for_approval", "recovery_required"]);
+/** A parked run older than this is dead state left by a killed process, not a live wait. */
+const WAITING_RUN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const DETAIL_LIMIT = 220;
+const RESULT_LIMIT = 180;
 
 export interface HandoverTaskInput {
   type: string;
@@ -64,6 +69,8 @@ export interface BuildHandoverInput {
   settings: RuntimeSettings;
   evidence: HandoverEvidence;
   projectSessionIds?: ReadonlySet<string>;
+  /** Delivered text of a Session, used for a result preview. */
+  previewOf?: (sessionId: string) => string;
 }
 
 export interface HandoverReadDeps {
@@ -74,6 +81,8 @@ export interface HandoverReadDeps {
   hostBashStore: Pick<HostBashPendingReader, "listPending">;
   brokerPending: () => ApprovalRequest[];
   sessionRuns: () => DesktopSessionRun[];
+  /** Title or last message of a Session, so a waiting run never shows a blank row. */
+  sessionSummary?: (sessionId: string) => { title?: string; preview?: string };
   plans: Pick<PlanService, "read">;
   coordinator: Pick<DurableExecutionCoordinator, "list">;
   tasks: HandoverTaskInput[];
@@ -125,6 +134,45 @@ function taskTextOf(lease: EventExecutionLease): string {
   }
 }
 
+function clip(text: string, limit: number): string {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit - 1).trimEnd()}…`;
+}
+
+/**
+ * Turns a provider diagnostic into a short line a person can act on.
+ *
+ * Runs store `Run failed after model attempts: provider=…, error=<provider JSON>`
+ * — useful for debugging, unreadable on the home. The code carries the meaning
+ * so the page can phrase it in its own language; the clipped message stays as
+ * the supporting detail.
+ */
+export function summarizeFailure(raw: string | undefined): { detail?: string; detailCode?: DesktopHandoverDetailCode } {
+  const text = String(raw ?? "").trim();
+  if (!text) return {};
+  const lower = text.toLowerCase();
+  const code: DesktopHandoverDetailCode =
+    /auth_unavailable|api_key_expired|api key expired|invalid api key|incorrect api key|no auth available|unauthorized|"code"\s*:\s*"?401|status code: 401/.test(lower)
+      ? "model_auth"
+      : /insufficient balance|insufficient_quota|billing|payment required|status code: 402/.test(lower)
+        ? "account_balance"
+        : /model_not_found|unknown provider|invalid model|status code: 404/.test(lower)
+          ? "model_missing"
+          : /run budget exceeded|too many model failures/.test(lower)
+            ? "run_budget"
+            : "other";
+  return { detail: clip(firstMeaningfulMessage(text), DETAIL_LIMIT), detailCode: code };
+}
+
+function firstMeaningfulMessage(text: string): string {
+  const message = text.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (message) return message[1].replace(/\\"/g, "\"").replace(/\\n/g, " ").replace(/\\\\/g, "\\");
+  const segments = text.split("error=");
+  const last = segments[segments.length - 1] ?? text;
+  return last.split(" | ")[0];
+}
+
 function noticeDetailOf(notice: TraceFactRecord): string {
   const message = notice.payload.message;
   if (typeof message === "string" && message.trim()) return message.trim();
@@ -132,11 +180,23 @@ function noticeDetailOf(notice: TraceFactRecord): string {
   return notice.errorPreview ?? "";
 }
 
+function resultTextOf(result: unknown): string {
+  if (typeof result === "string") return result.trim();
+  if (!result || typeof result !== "object") return "";
+  const record = result as Record<string, unknown>;
+  for (const key of ["text", "notificationText", "message", "summary"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function itemFromLease(
   lease: EventExecutionLease,
   noticesByRun: Map<string, string>,
   projectSessionIds: ReadonlySet<string>,
-  defaultAgentId: string
+  defaultAgentId: string,
+  previewOf: (sessionId: string) => string
 ): DesktopHandoverItem | null {
   if (!COMPLETED_LEASE_STATUSES.has(lease.status)) return null;
   if (projectSessionIds.has(lease.sessionId)) return null;
@@ -150,6 +210,10 @@ function itemFromLease(
       ? "task-recovered"
       : "task-completed";
   const duration = durationMs(lease.startedAt, lease.finishedAt);
+  const failure = failed ? summarizeFailure(lease.lastError || noticesByRun.get(lease.runId)) : {};
+  const resultPreview = failed
+    ? ""
+    : clip(resultTextOf(lease.result) || previewOf(lease.sessionId), RESULT_LIMIT);
   return {
     id: `task:${lease.id}`,
     kind,
@@ -160,7 +224,9 @@ function itemFromLease(
     runId: lease.runId,
     ...(lease.taskId ? { taskId: lease.taskId } : {}),
     title: taskTextOf(lease),
-    ...(failed ? { detail: lease.lastError ?? noticesByRun.get(lease.runId) ?? "" } : {}),
+    ...(failure.detail !== undefined ? { detail: failure.detail } : {}),
+    ...(failure.detailCode ? { detailCode: failure.detailCode } : {}),
+    ...(resultPreview ? { resultPreview } : {}),
     ...(duration !== undefined ? { durationMs: duration } : {}),
     attempts: Math.max(1, lease.attempt)
   };
@@ -170,7 +236,8 @@ function itemFromRun(
   fact: TraceFactRecord,
   noticesByRun: Map<string, string>,
   projectSessionIds: ReadonlySet<string>,
-  defaultAgentId: string
+  defaultAgentId: string,
+  previewOf: (sessionId: string) => string
 ): DesktopHandoverItem | null {
   if (fact.factType !== "run") return null;
   if (!["success", "error", "aborted"].includes(fact.status)) return null;
@@ -180,6 +247,8 @@ function itemFromRun(
   if (agentId !== defaultAgentId) return null;
   const failed = fact.status !== "success";
   const taskPreview = typeof fact.payload.taskPreview === "string" ? fact.payload.taskPreview.trim() : "";
+  const failure = failed ? summarizeFailure(fact.errorPreview ?? noticesByRun.get(fact.runId)) : {};
+  const resultPreview = failed ? "" : clip(previewOf(fact.sessionId), RESULT_LIMIT);
   return {
     id: `run:${fact.runId}`,
     kind: failed ? "run-failed" : "run-completed",
@@ -189,7 +258,9 @@ function itemFromRun(
     ...(fact.channel ? { channel: fact.channel } : {}),
     runId: fact.runId,
     title: taskPreview,
-    ...(failed ? { detail: fact.errorPreview ?? noticesByRun.get(fact.runId) ?? "" } : {}),
+    ...(failure.detail !== undefined ? { detail: failure.detail } : {}),
+    ...(failure.detailCode ? { detailCode: failure.detailCode } : {}),
+    ...(resultPreview ? { resultPreview } : {}),
     ...(fact.durationMs !== undefined ? { durationMs: fact.durationMs } : {})
   };
 }
@@ -215,18 +286,19 @@ function countsOf(items: DesktopHandoverItem[], pending: DesktopHandoverPending[
 export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover {
   const nowIso = input.now.toISOString();
   const defaultAgentId = String(input.settings.defaultAgentId || DEFAULT_AGENT_ID);
+  const previewOf = input.previewOf ?? (() => "");
   const noticesByRun = new Map<string, string>();
   for (const notice of input.evidence.notices) {
     if (!noticesByRun.has(notice.runId)) noticesByRun.set(notice.runId, noticeDetailOf(notice));
   }
 
   const leaseItems = input.evidence.leases
-    .map((lease) => itemFromLease(lease, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId))
+    .map((lease) => itemFromLease(lease, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId, previewOf))
     .filter((item): item is DesktopHandoverItem => Boolean(item));
   const leaseRunIds = new Set(leaseItems.map((item) => item.runId).filter(Boolean));
   const runItems = input.evidence.runs
     .filter((fact) => !leaseRunIds.has(fact.runId))
-    .map((fact) => itemFromRun(fact, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId))
+    .map((fact) => itemFromRun(fact, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId, previewOf))
     .filter((item): item is DesktopHandoverItem => Boolean(item));
 
   const items = [...leaseItems, ...runItems]
@@ -306,13 +378,19 @@ export function readDesktopHandover(deps: HandoverReadDeps): DesktopHandover {
   const runs = facts.filter((fact) => fact.factType === "run");
   const notices = facts.filter((fact) => fact.factType === "runtime_notice");
   const leases = deps.leaseStore.listFinishedSince(since);
+  const summaries = new Map<string, { title?: string; preview?: string }>();
+  const previewOf = (sessionId: string): string => {
+    if (!sessionId || !deps.sessionSummary) return "";
+    if (!summaries.has(sessionId)) summaries.set(sessionId, deps.sessionSummary(sessionId) ?? {});
+    return summaries.get(sessionId)?.preview ?? "";
+  };
 
   const projectSessionIds = new Set(
     [...new Set([...runs.map((fact) => fact.sessionId), ...leases.map((lease) => lease.sessionId)])]
       .filter((sessionId) => Boolean(sessionId) && Boolean(sessions.getConversationProjectId(sessionId)))
   );
 
-  const pending = collectPending(deps);
+  const pending = collectPending(deps, now);
 
   const executionSchedules = deps.coordinator.list({ ownerId: "owner", limit: 200 })
     .map(({ execution }) => execution)
@@ -344,6 +422,7 @@ export function readDesktopHandover(deps: HandoverReadDeps): DesktopHandover {
     now,
     settings: deps.settings,
     projectSessionIds,
+    previewOf,
     evidence: {
       runs,
       notices,
@@ -354,7 +433,7 @@ export function readDesktopHandover(deps: HandoverReadDeps): DesktopHandover {
   });
 }
 
-function collectPending(deps: HandoverReadDeps): DesktopHandoverPending[] {
+function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPending[] {
   const pending: DesktopHandoverPending[] = [];
   const coveredSessions = new Set<string>();
 
@@ -481,15 +560,22 @@ function collectPending(deps: HandoverReadDeps): DesktopHandoverPending[] {
   for (const run of deps.sessionRuns()) {
     if (!run.waitingApproval && run.status !== "recovery_review") continue;
     if (coveredSessions.has(run.sessionId)) continue;
+    const startedAt = Date.parse(String(run.startedAt ?? ""));
+    // A run parked by a killed process keeps its row forever; six-week-old rows
+    // are not something the user can still decide, so they are not a handover.
+    if (!Number.isFinite(startedAt) || now.getTime() - startedAt > WAITING_RUN_MAX_AGE_MS) continue;
     coveredSessions.add(run.sessionId);
+    const summary = deps.sessionSummary?.(run.sessionId) ?? {};
+    const title = (summary.title ?? "").trim() || (summary.preview ?? "").trim();
     pending.push({
       id: `session-run:${run.runId}`,
       kind: "run",
-      title: "",
-      createdAt: isoOf(run.startedAt, new Date().toISOString()),
+      title,
+      createdAt: isoOf(run.startedAt, now.toISOString()),
       agentId: agentIdForSession(run.sessionId) ?? "",
       sessionId: run.sessionId,
       runId: run.runId,
+      waitKind: run.waitingApproval ? "approval" : "recovery",
       actionable: false
     });
   }

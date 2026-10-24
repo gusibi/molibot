@@ -30,6 +30,7 @@ export const GET: RequestHandler = async () => {
       hostBashStore: runtime.hostBashStore,
       brokerPending: () => getApprovalBroker().listPendingRequests(),
       sessionRuns: () => listDesktopSessionRuns().runs,
+      sessionSummary: (sessionId) => sessionSummary(runtime, sessionId),
       plans: new PlanService(),
       coordinator: new DurableExecutionCoordinator(),
       tasks: taskPayload.items ?? []
@@ -42,3 +43,28 @@ export const GET: RequestHandler = async () => {
     traceStore.close();
   }
 };
+
+const SUMMARY_PREVIEW_LIMIT = 160;
+
+/**
+ * A waiting run or a finished task is only useful with the words that were
+ * actually exchanged. Titles here are the owner's, never model prose beyond the
+ * message already stored in the Session.
+ */
+function sessionSummary(runtime: ReturnType<typeof getRuntime>, sessionId: string): { title?: string; preview?: string } {
+  if (!sessionId) return {};
+  const messages = runtime.sessions.listMessages(sessionId, 6);
+  const lastContent = [...messages].reverse()
+    .map((message) => (typeof message.content === "string" ? message.content : ""))
+    .find((content) => content.trim());
+  const preview = lastContent
+    ? lastContent.replace(/[#*_`>]/g, " ").replace(/\s+/g, " ").trim().slice(0, SUMMARY_PREVIEW_LIMIT)
+    : "";
+  const owner = runtime.sessions.getWebConversationOwner(sessionId);
+  const title = owner ? runtime.sessions.getConversationById(sessionId, "web", owner)?.title ?? "" : "";
+  return {
+    ...(title && title !== "New Session" ? { title } : {}),
+    ...(preview ? { preview } : {})
+  };
+}
+
