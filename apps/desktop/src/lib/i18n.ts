@@ -2681,6 +2681,10 @@ const copy = {
     handoverDetailModelMissing: "模型不存在或当前账号不可用",
     handoverDetailAccountBalance: "账户余额或额度不足",
     handoverDetailRunBudget: "模型连续失败，运行预算已耗尽",
+    handoverToday: "今天",
+    handoverSourceMissing: "来源会话已不存在，这条待决定已失效。",
+    handoverYesterday: "昨天",
+    handoverEarlier: "更早",
   },
   en: {
     analyticsRunSuccessShort: "Run success",
@@ -5361,7 +5365,11 @@ const copy = {
     handoverDetailModelAuth: "Model sign-in failed: the API key is invalid or expired",
     handoverDetailModelMissing: "Model not found or unavailable to this account",
     handoverDetailAccountBalance: "Account balance or quota is exhausted",
-    handoverDetailRunBudget: "The model kept failing, so the run budget ran out"
+    handoverDetailRunBudget: "The model kept failing, so the run budget ran out",
+    handoverToday: "Today",
+    handoverSourceMissing: "The source session no longer exists, so this decision is gone.",
+    handoverYesterday: "Yesterday",
+    handoverEarlier: "Earlier",
   }
 } as const;
 

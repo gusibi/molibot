@@ -13,7 +13,7 @@ import type { IsolatedInstance } from './support/instance';
  * process owns the SQLite writes, and then assert only what the user sees.
  */
 
-async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'quiet' | 'first-run'): Promise<void> {
+async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'history' | 'quiet' | 'first-run'): Promise<void> {
   await instance.stopService();
   try {
     await instance.runSeedScript('tests/ui/support/seed-handover.ts', { UI_HANDOVER_SCENARIO: scenario });
@@ -150,10 +150,10 @@ test('a busy day shows five finished rows, one short failure reason and three pe
 
   await expect(page.getByTestId('handover-summary')).toContainText('6 finished');
   // Five rows are a glance; the sixth waits behind the expander.
-  await expect(page.getByTestId('handover-entries').locator('li')).toHaveCount(5);
+  await expect(page.getByTestId('handover-entries').locator('.agent-home-handover-row')).toHaveCount(5);
   await expect(page.getByRole('button', { name: 'Show all 6', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Show all 6', exact: true }).click();
-  await expect(page.getByTestId('handover-entries').locator('li')).toHaveCount(6);
+  await expect(page.getByTestId('handover-entries').locator('.agent-home-handover-row')).toHaveCount(6);
 
   // The failure reads as a reason, and the diagnostic is cut before it reaches the page.
   await expect(page.getByText('Model sign-in failed: the API key is invalid or expired')).toBeVisible();
@@ -189,4 +189,45 @@ test('opening the app lands on the handover while a reload keeps the current pla
   } finally {
     await fresh.close();
   }
+});
+
+test('finished rows name the day when the list spans more than one @agent-home @handover', async ({ page, instance }) => {
+  await seedHandover(instance, 'history');
+  await openChat(page);
+
+  const entries = page.getByTestId('handover-entries');
+  await expect(entries.getByText('Today', { exact: true })).toBeVisible();
+  await expect(entries.getByText('Yesterday', { exact: true })).toBeVisible();
+  await expect(entries).toContainText('Grouped task today');
+  await expect(entries).toContainText('Grouped task yesterday');
+});
+
+test('arrow keys walk the handover rows and focus peeks the clamped preview @agent-home @handover', async ({ page, instance }) => {
+  await seedHandover(instance, 'busy');
+  await openChat(page);
+
+  const entries = page.getByTestId('handover-entries').locator('.agent-home-handover-row button');
+  await entries.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(entries.nth(1)).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(entries.first()).toBeFocused();
+
+  // The preview is clamped at rest and opens while its own row holds focus.
+  const failureRow = page.locator('.agent-home-handover-row').first();
+  const detail = failureRow.locator('.agent-home-handover-entry-detail');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  expect(await detail.evaluate((node) => getComputedStyle(node).webkitLineClamp)).toBe('2');
+  await failureRow.locator('.agent-home-handover-entry').focus();
+  expect(await detail.evaluate((node) => getComputedStyle(node).webkitLineClamp)).toBe('none');
+});
+
+test('a waiting row opens its own session instead of the history list @agent-home @handover', async ({ page, instance }) => {
+  await seedHandover(instance, 'active');
+  await openChat(page);
+
+  await page.getByTestId('handover-pending').getByText('Handover approval', { exact: true }).click();
+  await expect(page.locator('.agent-home')).toHaveCount(0);
+  await expect(page.locator('.chat-header')).toContainText('Handover seed');
+  await expect(composer(page)).toBeVisible();
 });

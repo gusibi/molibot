@@ -205,3 +205,27 @@ test("a plan waiting for its first approval is a pending decision with both appr
   assert.equal(item.agentId, "default");
   assert.equal(item.expectedVersion, plan.execution.version);
 });
+
+test("a pending approval whose Session was deleted is dropped and expired", async () => {
+  const session = runtime.sessions.createWebConversation("web:personal:web-anonymous", undefined, "default");
+  const requested = runtime.hostBashStore.requestApproval({
+    toolId: "agent-browser",
+    displayName: "Deleted source approval",
+    command: "agent-browser --open",
+    reason: "Needs browser IPC outside the sandbox.",
+    approvalMode: "ephemeral",
+    channel: "web",
+    chatId: "web:personal:web-anonymous",
+    scopeId: "web:personal:web-anonymous",
+    sessionId: session.id
+  });
+  const requestId = requested.approval?.id;
+  assert.ok(requestId);
+  assert.ok((await readHandover()).handover.pending.some((item: any) => item.requestId === requestId));
+
+  runtime.sessions.deleteConversation(session.id, "web", "web:personal:web-anonymous");
+
+  const after = await readHandover();
+  assert.equal(after.handover.pending.some((item: any) => item.requestId === requestId), false, "a deleted source is not a decision");
+  assert.equal(runtime.hostBashStore.listPending(undefined, session.id).length, 0, "the orphaned approval is expired, not left pending");
+});

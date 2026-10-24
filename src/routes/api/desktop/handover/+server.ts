@@ -4,7 +4,7 @@ import { getRuntime } from "$lib/server/app/runtime.js";
 import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
-import { listDesktopSessionRuns } from "$lib/server/app/desktopConversations.js";
+import { listDesktopSessionRuns, resolveDesktopSessionFilePath } from "$lib/server/app/desktopConversations.js";
 import { PlanService } from "$lib/server/agent/plans/service.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { readDesktopHandover, type HandoverTaskInput } from "$lib/server/app/desktopHandover.js";
@@ -22,6 +22,16 @@ export const GET: RequestHandler = async () => {
   try {
     const taskResponse = await listTasks(undefined as never);
     const taskPayload = await taskResponse.json() as { items?: HandoverTaskInput[] };
+    // One lookup per Session id per request: the resolver walks storage indexes.
+    const sessionExistence = new Map<string, boolean>();
+    const sessionExists = (sessionId: string): boolean => {
+      if (!sessionId) return false;
+      const cached = sessionExistence.get(sessionId);
+      if (cached !== undefined) return cached;
+      const exists = Boolean(resolveDesktopSessionFilePath(sessionId));
+      sessionExistence.set(sessionId, exists);
+      return exists;
+    };
     const handover = readDesktopHandover({
       settings: runtime.getSettings(),
       sessions: runtime.sessions,
@@ -31,6 +41,8 @@ export const GET: RequestHandler = async () => {
       brokerPending: () => getApprovalBroker().listPendingRequests(),
       sessionRuns: () => listDesktopSessionRuns().runs,
       sessionSummary: (sessionId) => sessionSummary(runtime, sessionId),
+      sessionResolves: (sessionId) => sessionExists(sessionId),
+      onOrphanedApproval: (requestId) => { runtime.hostBashStore.expirePending(requestId); },
       plans: new PlanService(),
       coordinator: new DurableExecutionCoordinator(),
       tasks: taskPayload.items ?? []

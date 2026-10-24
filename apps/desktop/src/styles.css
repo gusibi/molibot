@@ -7845,6 +7845,9 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   list-style: none;
   overflow: clip;
 }
+.agent-home-handover-days { display: flex; flex-direction: column; gap: 10px; }
+.agent-home-handover-day { display: flex; flex-direction: column; gap: 6px; }
+.agent-home-handover-day-heading { margin: 0; color: var(--label-tertiary); font-size: var(--fs-meta); font-weight: 500; }
 .agent-home-handover-row { display: flex; align-items: flex-start; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--hairline); }
 .agent-home-handover-row:first-child { border-top: 0; }
 .agent-home-handover-row.is-pending { align-items: center; }
@@ -7877,6 +7880,8 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
+/* Focus is the peek: the clamped preview opens while its row holds focus. */
+.agent-home-handover-row:focus-within .agent-home-handover-entry-detail { -webkit-line-clamp: unset; overflow: visible; }
 .agent-home-handover-entry-reason { color: var(--danger); font-size: var(--fs-meta); line-height: var(--lh-meta); overflow-wrap: anywhere; }
 .agent-home-handover-chip { flex: none; padding: 1px 7px; border-radius: var(--radius-full); background: var(--fill); color: var(--text-secondary); font-size: var(--fs-meta); font-weight: 500; }
 .agent-home-handover-row-actions { display: flex; flex: none; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

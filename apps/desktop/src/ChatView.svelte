@@ -466,27 +466,35 @@
     }
   }
 
-  async function resolveHandoverApproval(item: DesktopHandoverPending, decision: "approve_once" | "reject"): Promise<void> {
+  async function resolveHandoverApproval(items: DesktopHandoverPending[], decision: "approve_once" | "reject"): Promise<void> {
     const endpoint = connectedEndpoint;
-    if (!endpoint) return;
-    const action = handoverApprovalAction(item, decision, crypto.randomUUID());
-    if (!action) return;
-    handoverBusyId = item.id;
+    if (!endpoint || !items.length) return;
+    const actions = items
+      .map((item) => ({ item, action: handoverApprovalAction(item, decision, crypto.randomUUID()) }))
+      .filter((entry): entry is { item: DesktopHandoverPending; action: NonNullable<ReturnType<typeof handoverApprovalAction>> } => Boolean(entry.action));
+    if (!actions.length) return;
+    handoverBusyId = items[0].id;
     handoverError = "";
+    const failures: string[] = [];
     try {
-      if (action.kind === "durable") {
-        await runDesktopDurableExecutionAction(endpoint, action.input);
-      } else {
-        const result = await resolveDesktopHostBashById(endpoint, action.requestId, decision);
-        // An approved command that then fails is reported here and nowhere
-        // else: the card is gone, so the failure has to be visible here.
-        if (result.status === "not_found") handoverError = result.response;
-        else if (result.status === "failed") handoverError = `${copy.hostBashApprovedFailed}: ${result.error || result.response}`;
+      for (const { item, action } of actions) {
+        try {
+          if (action.kind === "durable") {
+            await runDesktopDurableExecutionAction(endpoint, action.input);
+          } else {
+            const result = await resolveDesktopHostBashById(endpoint, action.requestId, decision);
+            // An approved command that then fails is reported here and nowhere
+            // else: the card is gone, so the failure has to be visible here.
+            if (result.status === "not_found") failures.push(result.response);
+            else if (result.status === "failed") failures.push(`${copy.hostBashApprovedFailed}: ${result.error || result.response}`);
+          }
+        } catch (cause) {
+          failures.push(`${item.title || copy.handoverPendingRun}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
       }
-    } catch (cause) {
-      handoverError = cause instanceof Error ? cause.message : String(cause);
     } finally {
       handoverBusyId = "";
+      if (failures.length) handoverError = failures[0];
       await refreshHandover();
     }
   }
@@ -534,12 +542,29 @@
     }
   }
 
-  function openHandoverSource(input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }): void {
-    if (input.sessionId) {
-      const target = [...ordinarySessions, ...agentHomeSessions].find((item) => item.sessionId === input.sessionId);
-      if (target) {
-        void openSession(target);
+  /**
+   * Opens the record behind a handover row. The session is looked up by id, not
+   * taken from the visible list: a decision can belong to another Agent or fall
+   * outside the eight recent rows, and "open the history list" is not an answer
+   * to "which session is waiting for me".
+   */
+  async function openHandoverSource(input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }): Promise<void> {
+    const endpoint = connectedEndpoint;
+    if (input.sessionId && endpoint) {
+      const known = [...ordinarySessions, ...agentHomeSessions].find((item) => item.sessionId === input.sessionId);
+      if (known) {
+        await openSession(known);
         return;
+      }
+      try {
+        const lookup = await listDesktopConversations(endpoint, { channel: "web", allAgents: true, includeArchived: true, sessionId: input.sessionId, limit: 1 });
+        const found = lookup.items.find((item) => item.sessionId === input.sessionId);
+        if (found) {
+          await openSession(found);
+          return;
+        }
+      } catch {
+        // Fall through: an unresolvable session is a stale row, not a dead end.
       }
       if (input.channel && input.channel !== "web") {
         // Channel history is not in the local Web list; open the read-only
@@ -554,6 +579,11 @@
         void openExternalTranscript(input.sessionId, input.channel, input.title ?? "", onboardingAgents.find((agent) => agent.id === selectedAgentId)?.name ?? "");
         return;
       }
+      // The source Session is gone. The read model drops it on the next refresh,
+      // so say why instead of silently opening an unrelated list.
+      handoverError = copy.handoverSourceMissing;
+      void refreshHandover();
+      return;
     }
     if (input.planId || input.executionId) {
       openWorkspacePane("plans");

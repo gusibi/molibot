@@ -1,10 +1,11 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { storagePaths } from '../../../src/lib/server/infra/db/storage.js';
 import { SettingsStore } from '../../../src/lib/server/settings/store.js';
 import { SqliteTraceStore } from '../../../src/lib/server/agent/hooks/traceStore.js';
 import { HostBashStore } from '../../../src/lib/server/hostBash/store.js';
+import { SessionStore } from '../../../src/lib/server/sessions/store.js';
 import { assertIsolatedDataDir, isInsideDir } from './guard.js';
 
 /**
@@ -15,6 +16,7 @@ import { assertIsolatedDataDir, isInsideDir } from './guard.js';
  * UI_HANDOVER_SCENARIO:
  *   active    — one completed Default-Agent run and one pending approval
  *   busy      — six completed runs, one clipped provider failure, six pending approvals
+ *   history   — yesterday + today finished rows
  *   quiet     — nothing happened since the last acknowledged view
  *   first-run — no history and no acknowledged view
  */
@@ -28,7 +30,22 @@ if (storagePaths.dataDir !== resolve(dataDir) || !isInsideDir(dataDir, storagePa
 const scenario = String(process.env.UI_HANDOVER_SCENARIO ?? 'active');
 const now = new Date();
 
+const SEED_TITLE = 'Handover seed';
+const sessions = new SessionStore();
+
+/** Every seeded record points at a real Session, so "open the source" is testable. */
+function seedSession(): string {
+  const conversation = sessions.createWebConversation('web:personal:web-anonymous', undefined, 'default');
+  sessions.renameConversation(conversation.id, 'web', 'web:personal:web-anonymous', SEED_TITLE);
+  return conversation.id;
+}
+
 function resetHandoverState(): void {
+  for (const meta of sessions.listAllWebConversationMeta()) {
+    if (meta.conversation.title === SEED_TITLE) {
+      sessions.deleteConversation(meta.conversation.id, 'web', meta.externalUserId);
+    }
+  }
   const db = new DatabaseSync(storagePaths.settingsDbFile);
   try {
     db.exec(`
@@ -39,6 +56,8 @@ function resetHandoverState(): void {
   } finally {
     db.close();
   }
+  // The quiet scenario writes a task file; other scenarios must not inherit it.
+  rmSync(join(String(dataDir), 'sessions', 'default', 'events', 'task-handover-quiet.json'), { force: true });
   const store = new SettingsStore();
   const settings = store.load();
   delete settings.desktopNavigation.lastAcknowledgedAt;
@@ -49,6 +68,7 @@ function resetHandoverState(): void {
 resetHandoverState();
 
 if (scenario === 'active') {
+  const sessionId = seedSession();
   const trace = new SqliteTraceStore();
   try {
     trace.upsertFact({
@@ -59,8 +79,8 @@ if (scenario === 'active') {
       channel: 'web',
       botId: 'default',
       chatId: 'web:personal:web-anonymous',
-      sessionId: 'handover-ui-session',
-      name: 'handover-ui-session',
+      sessionId,
+      name: sessionId,
       status: 'success',
       startedAt: new Date(now.getTime() - 45_000).toISOString(),
       finishedAt: now.toISOString(),
@@ -83,7 +103,7 @@ if (scenario === 'active') {
     channel: 'web',
     chatId: 'web:personal:web-anonymous',
     scopeId: 'web:personal:web-anonymous',
-    sessionId: 'handover-ui-session',
+    sessionId,
     owner: { kind: 'agent', id: 'default' }
   });
 }
@@ -112,6 +132,8 @@ if (scenario === 'quiet') {
 }
 
 if (scenario === 'busy') {
+  const sessionIds = Array.from({ length: 6 }, () => seedSession());
+  const failureSessionId = seedSession();
   const trace = new SqliteTraceStore();
   try {
     for (let index = 1; index <= 6; index += 1) {
@@ -123,8 +145,8 @@ if (scenario === 'busy') {
         channel: 'web',
         botId: 'default',
         chatId: 'web:personal:web-anonymous',
-        sessionId: `handover-busy-session-${index}`,
-        name: `handover-busy-session-${index}`,
+        sessionId: sessionIds[index - 1],
+        name: sessionIds[index - 1],
         status: 'success',
         startedAt: new Date(now.getTime() - index * 60_000).toISOString(),
         finishedAt: new Date(now.getTime() - index * 60_000).toISOString(),
@@ -142,8 +164,8 @@ if (scenario === 'busy') {
       channel: 'web',
       botId: 'default',
       chatId: 'web:personal:web-anonymous',
-      sessionId: 'handover-busy-failure-session',
-      name: 'handover-busy-failure-session',
+      sessionId: failureSessionId,
+      name: failureSessionId,
       status: 'error',
       startedAt: new Date(now.getTime() - 30_000).toISOString(),
       finishedAt: now.toISOString(),
@@ -175,8 +197,38 @@ if (scenario === 'busy') {
       channel: 'web',
       chatId: 'web:personal:web-anonymous',
       scopeId: 'web:personal:web-anonymous',
-      sessionId: `handover-busy-session-${index}`,
+      sessionId: sessionIds[index - 1],
       owner: { kind: 'agent', id: 'default' }
     });
   }
+}
+
+if (scenario === 'history') {
+  const sessionIds = { today: seedSession(), yesterday: seedSession() };
+  const trace = new SqliteTraceStore();
+  try {
+    for (const [suffix, offsetHours] of [['today', 0], ['yesterday', 26]] as const) {
+      trace.upsertFact({
+        id: `handover-grouped-${suffix}`,
+        factType: 'run',
+        runId: `handover-grouped-${suffix}`,
+        factId: `handover-grouped-${suffix}`,
+        channel: 'web',
+        botId: 'default',
+        chatId: 'web:personal:web-anonymous',
+        sessionId: sessionIds[suffix],
+        name: sessionIds[suffix],
+        status: 'success',
+        startedAt: new Date(now.getTime() - offsetHours * 60 * 60_000 - 60_000).toISOString(),
+        finishedAt: new Date(now.getTime() - offsetHours * 60 * 60_000).toISOString(),
+        durationMs: 60_000,
+        payload: { agentId: 'default', taskPreview: `Grouped task ${suffix}` },
+        createdAt: new Date(now.getTime() - offsetHours * 60 * 60_000 - 60_000).toISOString(),
+        updatedAt: new Date(now.getTime() - offsetHours * 60 * 60_000).toISOString()
+      });
+    }
+  } finally {
+    trace.close();
+  }
+
 }

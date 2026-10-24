@@ -76,8 +76,8 @@
     handoverError?: string;
     handoverBusyId?: string;
     agentLabel?: (agentId: string) => string;
-    onHandoverOpen?: (input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }) => void;
-    onHandoverResolve?: (item: DesktopHandoverPending, decision: "approve_once" | "reject") => void;
+    onHandoverOpen?: (input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }) => void | Promise<void>;
+    onHandoverResolve?: (items: DesktopHandoverPending[], decision: "approve_once" | "reject") => void;
     onHandoverAnswer?: (item: DesktopHandoverPending, answer: string) => void;
     onHandoverPlan?: (item: DesktopHandoverPending, mode: "manual" | "accept_edits") => void;
     /** The Agent whose home this is; used to keep "From …" only for other sources. */
@@ -109,6 +109,19 @@
     ? (handover?.pending ?? [])
     : (handover?.pending ?? []).slice(0, PENDING_PREVIEW));
   const hiddenPending = $derived(Math.max(0, (handover?.pending.length ?? 0) - PENDING_PREVIEW));
+  /** Finished work is read as a log, so name the day when the list spans more than one. */
+  const completedDays = $derived.by(() => {
+    const buckets: Array<{ key: "today" | "yesterday" | "earlier"; label: string; items: DesktopHandoverItem[] }> = [];
+    for (const item of visibleCompleted) {
+      const key = dayBucket(item.occurredAt);
+      const bucket = buckets.find((entry) => entry.key === key);
+      if (bucket) bucket.items.push(item);
+      else buckets.push({ key, label: dayLabel(key), items: [item] });
+    }
+    return buckets;
+  });
+  const showDayHeadings = $derived(completedDays.length > 1);
+
   const displayCounts = $derived(showingPrevious && handover?.previous ? handover.previous.counts : handover?.counts ?? { completed: 0, failed: 0, pending: 0, recovered: 0 });
   const quiet = $derived(Boolean(handover && handover.state === "quiet" && !showingPrevious));
   const firstRun = $derived(Boolean(handover && handover.state === "first-run" && !showingPrevious));
@@ -137,6 +150,52 @@
   function itemLabel(item: DesktopHandoverItem): string {
     if (item.title.trim()) return item.title.trim();
     return item.taskId ? copy.handoverTaskEntry : copy.handoverRunEntry;
+  }
+
+  function dayBucket(value: string): "today" | "yesterday" | "earlier" {
+    const at = Date.parse(value);
+    if (!Number.isFinite(at)) return "earlier";
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (at >= startOfToday) return "today";
+    if (at >= startOfToday - 24 * 60 * 60 * 1000) return "yesterday";
+    return "earlier";
+  }
+
+  function dayLabel(key: "today" | "yesterday" | "earlier"): string {
+    if (key === "today") return copy.handoverToday;
+    if (key === "yesterday") return copy.handoverYesterday;
+    return copy.handoverEarlier;
+  }
+
+  /**
+   * Arrow keys move between rows, so the home can be read without leaving the
+   * keyboard; focus also unclips a row's preview (CSS `:focus-within`).
+   */
+  function handoverKeys(node: HTMLElement) {
+    const handler = (event: KeyboardEvent) => moveHandoverFocus(event);
+    node.addEventListener("keydown", handler);
+    return {
+      destroy() {
+        node.removeEventListener("keydown", handler);
+      }
+    };
+  }
+
+  function moveHandoverFocus(event: KeyboardEvent): void {
+    const direction = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    if (!direction) return;
+    const section = (event.target as HTMLElement | null)?.closest(".agent-home-handover");
+    if (!section) return;
+    const rows = Array.from(section.querySelectorAll(".agent-home-handover-row"));
+    const current = (event.target as HTMLElement | null)?.closest(".agent-home-handover-row");
+    const index = current ? rows.indexOf(current) : -1;
+    if (index < 0) return;
+    const next = rows[index + direction];
+    const target = next?.querySelector<HTMLElement>("button:not(:disabled), [href], [tabindex='0']");
+    if (!target) return;
+    event.preventDefault();
+    target.focus();
   }
 
   /** The machine reason, phrased by the page; `detail` stays the diagnostic. */
@@ -185,6 +244,12 @@
   }
 </script>
 
+{#snippet pendingCopy(item: DesktopHandoverPending)}
+  <span class="agent-home-handover-entry-title">{item.title || copy.handoverPendingRun}</span>
+  <span class="agent-home-handover-entry-meta">{pendingMeta(item)}</span>
+  {#if item.detail}<span class="agent-home-handover-entry-detail" title={item.detail}>{item.detail}</span>{/if}
+{/snippet}
+
 <section class="agent-home" class:has-handover={hasHandover || loadingHandover} aria-label={agent.name}>
   <div class="agent-home-identity" class:compact={(hasHandover && !firstRun) || loadingHandover}>
     {#if onActivity}
@@ -217,7 +282,7 @@
   {/if}
 
   {#if handover && showHandoverBody}
-    <section class="agent-home-handover" aria-label={handover.pending.length > 0 ? copy.handoverPendingHeading : copy.handoverCompletedLabel}>
+    <section class="agent-home-handover" use:handoverKeys aria-label={handover.pending.length > 0 ? copy.handoverPendingHeading : copy.handoverCompletedLabel}>
       <p class="agent-home-handover-summary" data-testid="handover-summary">{handoverSummary}</p>
       {#if displayCounts.recovered > 0 && !showingPrevious}
         <p class="agent-home-handover-note">{copy.handoverRecoveredNote.replace("{recovered}", String(displayCounts.recovered))}</p>
@@ -246,16 +311,21 @@
           <h2 class="agent-home-handover-heading">{copy.handoverPendingHeading}<span>{handover.pending.length}</span></h2>
           <ul class="agent-home-handover-list">
             {#each visiblePending as item (item.id)}
+              {@const opens = pendingOpens(item)}
               <li class="agent-home-handover-row is-pending" data-kind={item.kind}>
-                <div class="agent-home-handover-row-copy">
-                  <span class="agent-home-handover-entry-title">{item.title || copy.handoverPendingRun}</span>
-                  <span class="agent-home-handover-entry-meta">{pendingMeta(item)}</span>
-                  {#if item.detail}<span class="agent-home-handover-entry-detail" title={item.detail}>{item.detail}</span>{/if}
-                </div>
+                {#if opens}
+                  <button type="button" class="agent-home-handover-entry" onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: item.title, agentId: item.agentId, planId: item.planId, executionId: item.executionId })}>
+                    {@render pendingCopy(item)}
+                  </button>
+                {:else}
+                  <div class="agent-home-handover-row-copy">
+                    {@render pendingCopy(item)}
+                  </div>
+                {/if}
                 <div class="agent-home-handover-row-actions">
                   {#if item.kind === "approval" && item.actionable && item.requestId}
-                    <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverResolve?.(item, "approve_once")}>{copy.handoverApproveOnce}</Button>
-                    <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverResolve?.(item, "reject")}>{copy.handoverReject}</Button>
+                    <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverResolve?.([item], "approve_once")}>{copy.handoverApproveOnce}</Button>
+                    <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverResolve?.([item], "reject")}>{copy.handoverReject}</Button>
                   {:else if item.kind === "decision"}
                     {#each item.options ?? [] as option (option)}
                       <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverAnswer?.(item, option)}>{optionLabel(option)}</Button>
@@ -263,9 +333,6 @@
                   {:else if item.kind === "plan"}
                     <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverPlan?.(item, "manual")}>{copy.handoverManualMode}</Button>
                     <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverPlan?.(item, "accept_edits")}>{copy.handoverAcceptEditsMode}</Button>
-                  {/if}
-                  {#if pendingOpens(item)}
-                    <Button variant="icon" title={copy.handoverOpenSource} onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: item.title, agentId: item.agentId, planId: item.planId, executionId: item.executionId })}><ArrowRight size={16} aria-hidden="true" /></Button>
                   {/if}
                 </div>
               </li>
@@ -283,17 +350,24 @@
         <div class="agent-home-handover-section">
           <h2 class="agent-home-handover-heading">{copy.handoverCompletedLabel}<span>{completedItems.length}</span></h2>
           {#if visibleCompleted.length > 0}
-            <ul class="agent-home-handover-list" data-testid="handover-entries" aria-label={copy.handoverCompletedLabel}>
-              {#each visibleCompleted as item (item.id)}
-                <li class="agent-home-handover-row" data-kind={item.kind}>
-                  <button type="button" class="agent-home-handover-entry" onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: itemLabel(item), agentId: item.agentId })} disabled={!item.sessionId}>
-                    <span class="agent-home-handover-entry-title">{itemLabel(item)}{#if item.kind === "task-recovered"}<span class="agent-home-handover-chip">{copy.handoverRecoveredLabel}</span>{/if}</span>
-                    <span class="agent-home-handover-entry-meta">{itemMeta(item)}</span>
-                    {#if item.resultPreview}<span class="agent-home-handover-entry-detail" title={item.resultPreview}>{item.resultPreview}</span>{/if}
-                  </button>
-                </li>
+            <div class="agent-home-handover-days" data-testid="handover-entries">
+              {#each completedDays as day (day.key)}
+                <div class="agent-home-handover-day">
+                  {#if showDayHeadings}<h3 class="agent-home-handover-day-heading">{day.label}</h3>{/if}
+                  <ul class="agent-home-handover-list" aria-label={day.label}>
+                    {#each day.items as item (item.id)}
+                      <li class="agent-home-handover-row" data-kind={item.kind}>
+                        <button type="button" class="agent-home-handover-entry" onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: itemLabel(item), agentId: item.agentId })} disabled={!item.sessionId}>
+                          <span class="agent-home-handover-entry-title">{itemLabel(item)}{#if item.kind === "task-recovered"}<span class="agent-home-handover-chip">{copy.handoverRecoveredLabel}</span>{/if}</span>
+                          <span class="agent-home-handover-entry-meta">{itemMeta(item)}</span>
+                          {#if item.resultPreview}<span class="agent-home-handover-entry-detail" title={item.resultPreview}>{item.resultPreview}</span>{/if}
+                        </button>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
               {/each}
-            </ul>
+            </div>
           {/if}
           {#if hiddenCompleted > 0}
             <button type="button" class="agent-home-handover-more" aria-expanded={itemsExpanded} onclick={() => (itemsExpanded = !itemsExpanded)}>

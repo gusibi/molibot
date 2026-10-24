@@ -83,6 +83,13 @@ export interface HandoverReadDeps {
   sessionRuns: () => DesktopSessionRun[];
   /** Title or last message of a Session, so a waiting run never shows a blank row. */
   sessionSummary?: (sessionId: string) => { title?: string; preview?: string };
+  /**
+   * Whether a Session still exists. A pending decision whose source was deleted
+   * is not a decision the user can make, so it must not reach the page.
+   */
+  sessionResolves?: (sessionId: string) => boolean;
+  /** The route owns the write; the read model only reports the orphan. */
+  onOrphanedApproval?: (requestId: string) => void;
   plans: Pick<PlanService, "read">;
   coordinator: Pick<DurableExecutionCoordinator, "list">;
   tasks: HandoverTaskInput[];
@@ -437,8 +444,14 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
   const pending: DesktopHandoverPending[] = [];
   const coveredSessions = new Set<string>();
 
+  const resolves = deps.sessionResolves ?? (() => true);
   for (const record of deps.hostBashStore.listPending()) {
     if (!record.category) continue;
+    if (record.sessionId && !resolves(record.sessionId)) {
+      // The Session was deleted; the approval can never be consumed again.
+      deps.onOrphanedApproval?.(record.id);
+      continue;
+    }
     if (record.sessionId) coveredSessions.add(record.sessionId);
     pending.push({
       id: `approval:${record.id}`,
@@ -458,6 +471,7 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
   // home: the operator endpoint only knows Host Bash and Durable records.
   for (const request of deps.brokerPending()) {
     if (request.capability?.startsWith("bash:")) continue;
+    if (request.sessionId && !resolves(request.sessionId)) continue;
     if (request.sessionId) coveredSessions.add(request.sessionId);
     pending.push({
       id: `broker:${request.id}`,
@@ -560,6 +574,7 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
   for (const run of deps.sessionRuns()) {
     if (!run.waitingApproval && run.status !== "recovery_review") continue;
     if (coveredSessions.has(run.sessionId)) continue;
+    if (!resolves(run.sessionId)) continue;
     const startedAt = Date.parse(String(run.startedAt ?? ""));
     // A run parked by a killed process keeps its row forever; six-week-old rows
     // are not something the user can still decide, so they are not a handover.
