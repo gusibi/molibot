@@ -87,7 +87,7 @@ function evidence(overrides: Partial<HandoverEvidence> = {}): HandoverEvidence {
 
 const NOW = new Date("2026-10-23T00:00:00.000Z");
 
-test("Handover counts one entry per task execution and prefers it over its derived run fact", () => {
+test("Handover counts a task execution once and ignores ad-hoc chat runs", () => {
   const handover = buildDesktopHandover({
     now: NOW,
     settings: settings(),
@@ -101,9 +101,9 @@ test("Handover counts one entry per task execution and prefers it over its deriv
   });
 
   assert.equal(handover.state, "active");
-  assert.equal(handover.items.length, 2);
-  assert.deepEqual(handover.items.map((item) => item.id), ["run:run-2", "task:lease-1"]);
-  assert.equal(handover.counts.completed, 2);
+  assert.equal(handover.items.length, 1);
+  assert.deepEqual(handover.items.map((item) => item.id), ["task:lease-1"]);
+  assert.equal(handover.counts.completed, 1);
   assert.equal(handover.counts.failed, 0);
   assert.equal(handover.counts.pending, 0);
 });
@@ -154,7 +154,7 @@ test("Handover first-run, quiet and active states follow history, entries and th
   const active = buildDesktopHandover({
     now: NOW,
     settings: settings({ desktopNavigation: { expandedAgentIds: [], page: "agent", agentId: "default", sessionId: "", lastAcknowledgedAt: "2026-10-22T00:00:00.000Z" } }),
-    evidence: evidence({ runs: [runFact()] })
+    evidence: evidence({ leases: [lease()] })
   });
   assert.equal(active.state, "active");
   assert.equal(active.lastAcknowledgedAt, "2026-10-22T00:00:00.000Z");
@@ -314,7 +314,7 @@ test("A provider failure reaches the page as a short reason instead of the raw d
   const handover = buildDesktopHandover({
     now: NOW,
     settings: settings(),
-    evidence: evidence({ runs: [runFact({ status: "error", errorPreview: raw })] })
+    evidence: evidence({ leases: [lease({ status: "failed", lastError: raw, eventPayloadJson: JSON.stringify({ text: "Check the invoices" }) })] })
   });
 
   const item = handover.items[0];
@@ -378,4 +378,76 @@ test("A waiting run is shown by name and loses its row once the waiting state is
     }]
   }));
   assert.equal(dead.pending.some((entry) => entry.kind === "run"), false, "a month-old parked run is residue, not a decision");
+});
+
+test("Replies the owner already read on another channel collapse into one aggregate", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      runs: [
+        runFact({ runId: "feishu-1", sessionId: "fs-1", channel: "feishu", finishedAt: "2026-10-22T09:00:00.000Z" }),
+        runFact({ runId: "feishu-2", sessionId: "fs-2", channel: "feishu", finishedAt: "2026-10-22T09:20:00.000Z" }),
+        runFact({ runId: "weixin-1", sessionId: "wx-1", channel: "weixin", finishedAt: "2026-10-22T09:40:00.000Z" }),
+        runFact({ runId: "feishu-failed", sessionId: "fs-3", channel: "feishu", status: "error" })
+      ]
+    })
+  });
+
+  assert.deepEqual(handover.items, [], "a chat reply is not work done while away");
+  assert.equal(handover.crossChannel?.count, 3);
+  assert.deepEqual(handover.crossChannel?.channels, ["feishu", "weixin"]);
+  assert.equal(handover.crossChannel?.latestAt, "2026-10-22T09:40:00.000Z");
+  assert.equal(handover.counts.completed, 0, "the aggregate never inflates the result count");
+  assert.equal(handover.state, "active");
+});
+
+test("A scheduled delivery stays an individual result even when it goes to another channel", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      leases: [lease({ channel: "feishu", taskId: "task-brief", runId: "run-brief" })],
+      runs: [runFact({ runId: "run-brief", sessionId: "session-task", channel: "feishu" })]
+    })
+  });
+
+  assert.equal(handover.items.length, 1);
+  assert.equal(handover.items[0]?.taskId, "task-brief");
+  assert.equal(handover.crossChannel, undefined, "the task's own run is not an ad-hoc reply");
+});
+
+test("An in-app chat reply is a conversation, never a result", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings({
+      desktopNavigation: {
+        expandedAgentIds: [],
+        page: "agent",
+        agentId: "default",
+        sessionId: "",
+        lastAcknowledgedAt: "2026-10-22T08:00:00.000Z"
+      }
+    }),
+    evidence: evidence({ runs: [runFact({ finishedAt: "2026-10-22T08:05:00.000Z" })] })
+  });
+  assert.deepEqual(handover.items, []);
+  assert.equal(handover.crossChannel, undefined);
+  assert.equal(handover.state, "quiet");
+});
+
+test("A promised delivery is still the only result when an ad-hoc reply is newer", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      leases: [lease({ finishedAt: "2026-10-22T07:00:00.000Z", runId: "run-promise", taskId: "task-promise" })],
+      runs: [
+        runFact({ runId: "run-adhoc", sessionId: "session-adhoc", finishedAt: "2026-10-22T09:00:00.000Z" }),
+        runFact({ runId: "run-promise", sessionId: "session-promise", finishedAt: "2026-10-22T07:00:00.000Z" })
+      ]
+    })
+  });
+
+  assert.deepEqual(handover.items.map((item) => item.taskId ?? "ad-hoc"), ["task-promise"]);
 });

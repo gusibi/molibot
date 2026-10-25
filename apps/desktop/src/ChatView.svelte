@@ -566,9 +566,11 @@
       } catch {
         // Fall through: an unresolvable session is a stale row, not a dead end.
       }
-      if (input.channel && input.channel !== "web") {
-        // Channel history is not in the local Web list; open the read-only
-        // transcript by id so the entry still reaches its source.
+      // The trace fact's channel can differ from where the Session actually
+      // lives (an external reply can be executed through the Web gateway). Ask
+      // the external contexts by id before declaring the source gone.
+      try {
+        const transcript = await loadDesktopExternalTranscript(endpoint, input.sessionId);
         selectedAgentId = input.agentId || defaultAgentId;
         agentNavigation = { ...agentNavigation, page: "external", agentId: selectedAgentId, sessionId: input.sessionId };
         persistAgentNavigation();
@@ -576,8 +578,15 @@
         roomPaneActive = false;
         projectPaneActive = false;
         workspacePane = "chat";
-        void openExternalTranscript(input.sessionId, input.channel, input.title ?? "", onboardingAgents.find((agent) => agent.id === selectedAgentId)?.name ?? "");
+        void openExternalTranscript(
+          input.sessionId,
+          transcript.channel,
+          input.title || transcript.title,
+          onboardingAgents.find((agent) => agent.id === selectedAgentId)?.name ?? ""
+        );
         return;
+      } catch {
+        // Not in the external contexts either; report the missing source below.
       }
       // The source Session is gone. The read model drops it on the next refresh,
       // so say why instead of silently opening an unrelated list.
@@ -823,6 +832,15 @@
   const CHAT_MIN_NARROW = 360;
   const NARROW_WIDTH = 1000;
   let viewportWidth = window.innerWidth;
+  let homeSidebarOpen = false;
+  let homeSidebarToggle: HTMLButtonElement;
+  $: homeNarrow = viewportWidth < 600 && isDefaultAgentHome && workspacePane === "chat" && viewMode === "local" && !projectPaneActive && !roomPaneActive && !agentFilesActive && !agentHistoryActive;
+  $: if (!homeNarrow) homeSidebarOpen = false;
+
+  function closeHomeSidebar(): void {
+    homeSidebarOpen = false;
+    homeSidebarToggle?.focus();
+  }
 
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_COLLAPSED_KEY = "molibot-desktop-sidebar-collapsed";
@@ -887,6 +905,10 @@
     return Math.min(sidebarMaxWidth, Math.max(SIDEBAR_MIN, Math.round(value)));
   }
   function toggleSidebarCollapse(): void {
+    if (homeNarrow) {
+      homeSidebarOpen = !homeSidebarOpen;
+      return;
+    }
     sidebarCollapsed = !sidebarCollapsed;
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
     // Either direction starts with no flyout; the lists stay one click away.
@@ -2340,6 +2362,7 @@
   }
 
   function openAgentChat(agentId: string): void {
+    homeSidebarOpen = false;
     closeAgentSettings();
     agentFilesActive = false;
     agentHistoryActive = false;
@@ -3584,6 +3607,11 @@
   }
 
   function onChatShortcut(event: KeyboardEvent): void {
+    if (homeNarrow && homeSidebarOpen && event.key === "Escape") {
+      event.preventDefault();
+      closeHomeSidebar();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
       event.preventDefault();
       toggleSidebarCollapse();
@@ -3992,7 +4020,7 @@
         {sending}
         disabled={!modelReady || !agentCanExecute || (!draftMode && !activeSessionId) || modelSelectionHydrating}
         canSend={agentCanExecute && Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
-        placeholder={sending ? copy.queueHint : copy.enterHint}
+        placeholder={sending ? copy.queueHint : isDefaultAgentHome ? copy.handoverNewTask : copy.enterHint}
         {modelReady}
         {modelOptions}
         {activeModelKey}
@@ -4063,12 +4091,17 @@
 <main
   class="chat-layout"
   data-theme-region="window"
-  class:sidebar-collapsed={sidebarCollapsed}
+  class:sidebar-collapsed={sidebarCollapsed && !homeNarrow}
+  class:home-narrow={homeNarrow}
+  class:home-nav-open={homeSidebarOpen}
   class:with-files={inspectorVisible}
   class:resizing={resizingSidebar || resizingFiles}
   class:resizing-sidebar={resizingSidebar}
   style={`--sidebar-w:${effectiveSidebarWidth}px; --files-w:${effectiveFilesWidth}px`}
 >
+  {#if homeNarrow && homeSidebarOpen}
+    <Button variant="icon" class="home-nav-scrim" ariaLabel={copy.collapseSidebar} onclick={closeHomeSidebar}><span aria-hidden="true"></span></Button>
+  {/if}
   <div class="window-material" aria-hidden="true"></div>
   <WindowDragMask />
   <!-- The one global header for the whole window. Native traffic lights keep a
@@ -4090,8 +4123,9 @@
       <button
         type="button"
         class="sidebar-titlebar-btn"
-        aria-label={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
-        title={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
+        bind:this={homeSidebarToggle}
+        aria-label={(homeNarrow ? !homeSidebarOpen : sidebarCollapsed) ? copy.expandSidebar : copy.collapseSidebar}
+        title={(homeNarrow ? !homeSidebarOpen : sidebarCollapsed) ? copy.expandSidebar : copy.collapseSidebar}
         onclick={toggleSidebarCollapse}
       >
         <Sidebar size={16} aria-hidden="true" />
@@ -4193,7 +4227,7 @@
     serviceState={serviceState}
     {statusDots}
     formatTime={formatListTime}
-    collapsed={sidebarCollapsed}
+    collapsed={sidebarCollapsed && !homeNarrow}
     {collapsedFlyout}
     onToggleFlyout={toggleCollapsedFlyout}
     onNewConversation={newConversation}

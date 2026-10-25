@@ -13,7 +13,7 @@ import type { IsolatedInstance } from './support/instance';
  * process owns the SQLite writes, and then assert only what the user sees.
  */
 
-async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'history' | 'quiet' | 'first-run'): Promise<void> {
+async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'history' | 'quiet' | 'first-run' | 'cross-channel' | 'external-source'): Promise<void> {
   await instance.stopService();
   try {
     await instance.runSeedScript('tests/ui/support/seed-handover.ts', { UI_HANDOVER_SCENARIO: scenario });
@@ -47,6 +47,7 @@ test('Agent home stays usable in Chinese, dark theme and a narrow window @agent-
   await expect(page.getByRole('heading', { level: 1, name: 'Momo' })).toBeVisible();
   await expect(composer(page)).toBeEnabled();
 
+  await page.getByRole('button', { name: '展开侧边栏', exact: true }).click();
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
   await expect(page.locator('.agent-home-history').getByRole('heading', { name: '最近对话' })).toBeVisible();
   await expect(page.locator('.agent-home-tasks').getByRole('button')).toHaveCount(3);
@@ -70,7 +71,7 @@ test('first run shows what the assistant can do instead of empty data @agent-hom
   await openChat(page);
   await expect(page.getByTestId('handover-summary')).toHaveCount(0);
   await expect(page.locator('.agent-home-tasks').getByRole('button')).toHaveCount(3);
-  await expect(page.locator('.agent-home-history')).toHaveCount(0);
+  await expect(page.locator('.agent-home-history')).toContainText('No conversations yet');
   await expect(composer(page)).toBeEnabled();
 });
 
@@ -84,6 +85,17 @@ test('the Default Agent home reports completed work and expands it into entries,
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
   await expect(page.locator('.agent-home-handover')).toHaveCount(0);
   await expect(page.locator('.agent-home-tasks').getByRole('button')).toHaveCount(3);
+});
+
+test('replies already read on another channel collapse into one card @agent-home @handover', async ({ page, instance }) => {
+  await seedHandover(instance, 'cross-channel');
+  await openChat(page);
+  await expect(page.getByTestId('handover-summary')).toContainText('Nothing needs your decision');
+  const card = page.getByTestId('handover-cross-channel');
+  await expect(card).toContainText('Replied to 3 messages on other channels');
+  await expect(card).toContainText('Feishu, WeChat');
+  await expect(page.getByTestId('handover-entries')).toHaveCount(0);
+  await expect(composer(page)).toBeEnabled();
 });
 
 test('leaving the handover immediately still shows the same entries on return @agent-home @handover', async ({ page, instance }) => {
@@ -105,14 +117,14 @@ test('resolving a pending approval in the handover removes it without a local gh
   await expect(page.getByTestId('handover-pending')).toHaveCount(0);
 });
 
-test('a quiet day keeps only the conclusion, the composer and the next scheduled line @agent-home @handover', async ({ page, instance }) => {
+test('a quiet day uses the same start form as every other Agent @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'quiet');
   await openChat(page);
-  await expect(page.getByTestId('handover-summary')).toContainText('Nothing new happened');
-  await expect(page.getByTestId('handover-pending')).toHaveCount(0);
-  await expect(page.locator('.agent-home-tasks')).toHaveCount(0);
-  await expect(page.locator('.agent-home-history')).toHaveCount(0);
-  await expect(page.getByText(/Next: Quiet briefing/)).toBeVisible();
+  await expect(page.getByTestId('handover-summary')).toHaveCount(0);
+  await expect(page.locator('.agent-home-handover')).toHaveCount(0);
+  await expect(page.locator('.agent-home-tasks').getByRole('button')).toHaveCount(3);
+  await expect(page.locator('.agent-home-history')).toContainText('No conversations yet');
+  await expect(page.getByText(/Next: Quiet briefing/)).toHaveCount(0);
   await expect(composer(page)).toBeEnabled();
 });
 
@@ -125,9 +137,15 @@ test('a service interruption keeps the last handover visible and marks it stale 
   try {
     await expect(page.getByText('Not updated · service unreachable')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
+    await expect(page.getByRole('button', { name: 'Reject', exact: true })).toBeDisabled();
   } finally {
     await instance.startService();
   }
+  await page.getByRole('button', { name: 'UI Second', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'UI Second' })).toBeVisible();
+  await page.getByRole('button', { name: 'Momo', exact: true }).click();
+  await expect(page.getByText('Not updated · service unreachable')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reject', exact: true })).toBeEnabled();
 });
 
 test('the handover stays usable in Chinese, dark theme and a narrow window @agent-home @handover @navigation', async ({ page, instance }) => {
@@ -144,22 +162,29 @@ test('the handover stays usable in Chinese, dark theme and a narrow window @agen
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
-test('a busy day shows five finished rows, one short failure reason and three pending decisions @agent-home @handover', async ({ page, instance }) => {
+test('a busy day shows one hero, compact results, a short failure reason and three pending decisions @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'busy');
   await openChat(page);
 
   await expect(page.getByTestId('handover-summary')).toContainText('6 finished');
-  // Five rows are a glance; the sixth waits behind the expander.
-  await expect(page.getByTestId('handover-entries').locator('.agent-home-handover-row')).toHaveCount(5);
-  await expect(page.getByRole('button', { name: 'Show all 6', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Show all 6', exact: true }).click();
-  await expect(page.getByTestId('handover-entries').locator('.agent-home-handover-row')).toHaveCount(6);
+  const entries = page.getByTestId('handover-entries');
+  // One hero plus three compact rows; the remaining two wait behind the expander.
+  await expect(entries.locator('[data-handover-row]')).toHaveCount(4);
+  await expect(page.getByRole('button', { name: 'Show 2 more', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Show 2 more', exact: true }).click();
+  await expect(entries.locator('[data-handover-row]')).toHaveCount(6);
+  await expect(entries.locator('.agent-home-hero')).toContainText('Busy task 1');
 
   // The failure reads as a reason, and the diagnostic is cut before it reaches the page.
   await expect(page.getByText('Model sign-in failed: the API key is invalid or expired')).toBeVisible();
-  const detail = page.locator('.agent-home-handover-entry-detail').first();
+  const detail = page.locator('.agent-home-failure-detail').first();
   await expect(detail).not.toContainText('provider=cli-proxy-api');
   expect((await detail.innerText()).length).toBeLessThanOrEqual(220);
+
+  const executions = page.getByRole('table', { name: 'Recent executions' });
+  await expect(executions.getByRole('row')).toHaveCount(6);
+  await page.getByRole('button', { name: 'Show 2 more executions', exact: true }).click();
+  await expect(executions.getByRole('row')).toHaveCount(8);
 
   // Three decisions first; the rest is one click away.
   const pending = page.getByTestId('handover-pending');
@@ -191,35 +216,58 @@ test('opening the app lands on the handover while a reload keeps the current pla
   }
 });
 
-test('finished rows name the day when the list spans more than one @agent-home @handover', async ({ page, instance }) => {
+test('finished work spans days without repeating the list layout @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'history');
   await openChat(page);
 
   const entries = page.getByTestId('handover-entries');
-  await expect(entries.getByText('Today', { exact: true })).toBeVisible();
-  await expect(entries.getByText('Yesterday', { exact: true })).toBeVisible();
   await expect(entries).toContainText('Grouped task today');
   await expect(entries).toContainText('Grouped task yesterday');
+  await expect(entries.locator('[data-handover-row]')).toHaveCount(2);
 });
 
-test('arrow keys walk the handover rows and focus peeks the clamped preview @agent-home @handover', async ({ page, instance }) => {
+test('arrow keys walk the cards and focus peeks the clamped failure detail @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'busy');
   await openChat(page);
 
-  const entries = page.getByTestId('handover-entries').locator('.agent-home-handover-row button');
-  await entries.first().focus();
+  const cards = page.locator('[data-handover-row]');
+  await cards.first().locator('button').first().focus();
   await page.keyboard.press('ArrowDown');
-  await expect(entries.nth(1)).toBeFocused();
+  await expect(cards.nth(1).locator('button').first()).toBeFocused();
   await page.keyboard.press('ArrowUp');
-  await expect(entries.first()).toBeFocused();
+  await expect(cards.first().locator('button').first()).toBeFocused();
 
-  // The preview is clamped at rest and opens while its own row holds focus.
-  const failureRow = page.locator('.agent-home-handover-row').first();
-  const detail = failureRow.locator('.agent-home-handover-entry-detail');
+  // The diagnostic is clamped at rest and opens while its own card holds focus.
+  const failure = page.locator('.agent-home-failure').first();
+  const detail = failure.locator('.agent-home-failure-detail');
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   expect(await detail.evaluate((node) => getComputedStyle(node).webkitLineClamp)).toBe('2');
-  await failureRow.locator('.agent-home-handover-entry').focus();
+  await failure.locator('button').first().focus();
   expect(await detail.evaluate((node) => getComputedStyle(node).webkitLineClamp)).toBe('none');
+});
+
+
+test('an external source opens by Session id even when the trace channel was web @agent-home @handover', async ({ page, instance }) => {
+  await seedHandover(instance, 'external-source');
+  await page.route('**/api/desktop/external-sessions/external-source-1', (route) => route.fulfill({
+    json: {
+      ok: true,
+      transcript: {
+        id: 'external-source-1',
+        channel: 'feishu',
+        title: 'External source title',
+        updatedAt: new Date().toISOString(),
+        chatType: 'private',
+        senderName: 'Owner',
+        messages: [{ id: 'm1', role: 'assistant', content: 'Delivered result', createdAt: new Date().toISOString() }]
+      }
+    }
+  }));
+
+  await openChat(page);
+  await page.getByTestId('handover-entries').getByRole('button', { name: 'Open conversation', exact: true }).click();
+  await expect(page.locator('.chat-header')).toContainText('External source title');
+  await expect(page.getByText('Source conversation no longer exists')).toHaveCount(0);
 });
 
 test('a waiting row opens its own session instead of the history list @agent-home @handover', async ({ page, instance }) => {
@@ -230,4 +278,78 @@ test('a waiting row opens its own session instead of the history list @agent-hom
   await expect(page.locator('.agent-home')).toHaveCount(0);
   await expect(page.locator('.chat-header')).toContainText('Handover seed');
   await expect(composer(page)).toBeVisible();
+});
+
+
+test('work home puts readable results beside decisions and adapts to the workspace @agent-home @home-dashboard', async ({ page, instance }, testInfo) => {
+  await seedHandover(instance, 'active');
+  await page.setViewportSize({ width: 1440, height: 1024 });
+  await openChat(page);
+  const results = page.getByRole('region', { name: 'Recent results', exact: true });
+  const decisions = page.getByRole('region', { name: 'Waiting on you', exact: true });
+  await expect(results).toContainText('Handover UI task');
+  await expect(decisions).toContainText('Handover approval');
+  const resultBox = await results.boundingBox();
+  const decisionBox = await decisions.boundingBox();
+  expect(decisionBox!.x).toBeGreaterThan(resultBox!.x + resultBox!.width);
+  expect(Math.abs(resultBox!.y - decisionBox!.y)).toBeLessThan(2);
+  const executions = page.getByRole('table', { name: 'Recent executions' });
+  await expect(executions.getByRole('row')).toHaveCount(2);
+  await expect(executions).toContainText('Handover UI task');
+  await expect(executions).toContainText('Done');
+  await expect(composer(page)).toHaveAttribute('placeholder', 'Give me something new to work on…');
+  await decisions.getByText('View command and scope', { exact: true }).click();
+  await expect(decisions.getByText('agent-browser --open', { exact: true })).toBeVisible();
+  await testInfo.attach('work-home-wide', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.route('**/api/desktop/host-bash', async route => {
+    if (route.request().method() === 'POST') await route.fulfill({ status: 500, json: { ok: false, error: 'UI simulated rejection failure' } });
+    else await route.continue();
+  });
+  await decisions.getByRole('button', { name: 'Reject', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('UI simulated rejection failure');
+  await expect(decisions).toContainText('Handover approval');
+  expect((await (await page.request.get(`${instance.endpoint}/api/desktop/handover`)).json()).handover.pending).toHaveLength(1);
+  await page.unroute('**/api/desktop/host-bash');
+
+  await page.setViewportSize({ width: 1120, height: 900 });
+  await expect.poll(async () => {
+    const r = await results.boundingBox();
+    const d = await decisions.boundingBox();
+    return Boolean(d && r && d.y + d.height <= r.y);
+  }).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(composer(page)).toBeEnabled();
+  await expect.poll(async () => (await page.locator('.agent-home--brief').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(350);
+  await expect(page.getByRole('button', { name: 'Momo', exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Momo', exact: true })).toBeVisible();
+  const sidebarBounds = await page.locator('.chat-sidebar').boundingBox();
+  const headerBounds = await page.locator('.window-header').boundingBox();
+  expect(Math.abs(sidebarBounds!.y - (headerBounds!.y + headerBounds!.height))).toBeLessThan(1);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Momo', exact: true })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Expand sidebar', exact: true })).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await testInfo.attach('work-home-narrow', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.evaluate(() => {
+    for (const [key, newValue] of [['molibot-desktop-locale', 'zh-CN'], ['molibot-desktop-appearance', 'dark'], ['molibot-desktop-theme-family', 'brutalism']]) {
+      localStorage.setItem(key, newValue);
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue, storageArea: localStorage }));
+    }
+  });
+  await expect(page.getByRole('region', { name: '最近成果', exact: true })).toContainText('Handover UI task');
+  await expect(page.getByRole('table', { name: '最近执行记录' })).toContainText('已完成');
+  await expect(composer(page)).toHaveAttribute('placeholder', '交给我一件新事…');
+  await expect(page.locator('html')).toHaveAttribute('data-resolved-appearance', 'dark');
+  expect(await page.locator('.agent-home-hero').evaluate(node => getComputedStyle(node).borderRadius)).toBe('0px');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await testInfo.attach('work-home-zh-dark-square', { body: await page.screenshot(), contentType: 'image/png' });
+  const translatedDecisions = page.getByRole('region', { name: '等你决定', exact: true });
+  await translatedDecisions.getByRole('button', { name: '拒绝', exact: true }).click();
+  await expect(translatedDecisions).toHaveCount(0);
+  await expect.poll(async () => {
+    const response = await page.request.get(`${instance.endpoint}/api/desktop/handover`);
+    return (await response.json()).handover.pending.length;
+  }).toBe(0);
+  await expect(page.getByRole('region', { name: '最近成果', exact: true })).toContainText('Handover UI task');
 });

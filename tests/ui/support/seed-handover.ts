@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { storagePaths } from '../../../src/lib/server/infra/db/storage.js';
 import { SettingsStore } from '../../../src/lib/server/settings/store.js';
 import { SqliteTraceStore } from '../../../src/lib/server/agent/hooks/traceStore.js';
+import { getEventExecutionLeaseStore } from '../../../src/lib/server/agent/eventsLeaseStore.js';
 import { HostBashStore } from '../../../src/lib/server/hostBash/store.js';
 import { SessionStore } from '../../../src/lib/server/sessions/store.js';
 import { assertIsolatedDataDir, isInsideDir } from './guard.js';
@@ -19,6 +20,8 @@ import { assertIsolatedDataDir, isInsideDir } from './guard.js';
  *   history   — yesterday + today finished rows
  *   quiet     — nothing happened since the last acknowledged view
  *   first-run — no history and no acknowledged view
+ *   cross-channel — three ad-hoc replies on Feishu/WeChat that the owner already read there
+ *   external-source — one task delivery whose Session only exists in the external contexts
  */
 const dataDir = process.env.DATA_DIR;
 if (!dataDir) throw new Error('Handover seed requires DATA_DIR');
@@ -38,6 +41,31 @@ function seedSession(): string {
   const conversation = sessions.createWebConversation('web:personal:web-anonymous', undefined, 'default');
   sessions.renameConversation(conversation.id, 'web', 'web:personal:web-anonymous', SEED_TITLE);
   return conversation.id;
+}
+
+
+const leases = getEventExecutionLeaseStore();
+
+/** A completed scheduled task: the only kind of item the home counts as a result. */
+function seedCompletedTask(input: { sessionId: string; text: string; finishedAt: Date; runId: string; taskId: string }): void {
+  const startedAt = new Date(input.finishedAt.getTime() - 45_000);
+  const acquired = leases.acquire({
+    now: startedAt,
+    leaseScope: "agent:default",
+    eventFile: `${input.taskId}.json`,
+    eventType: "periodic",
+    triggerSlot: `seed:${input.taskId}`,
+    chatId: "web:personal:web-anonymous",
+    sessionId: input.sessionId,
+    channel: "web",
+    taskId: input.taskId,
+    runId: input.runId,
+    maxAttempts: 1,
+    timeoutMs: 60_000,
+    eventPayloadJson: JSON.stringify({ text: input.text })
+  });
+  if (!acquired) throw new Error(`Could not seed ${input.taskId}`);
+  leases.markCompleted(acquired.id, input.runId, { text: `${input.text} delivered` }, input.finishedAt);
 }
 
 function resetHandoverState(): void {
@@ -69,29 +97,13 @@ resetHandoverState();
 
 if (scenario === 'active') {
   const sessionId = seedSession();
-  const trace = new SqliteTraceStore();
-  try {
-    trace.upsertFact({
-      id: 'handover-ui-run',
-      factType: 'run',
-      runId: 'handover-ui-run',
-      factId: 'handover-ui-run',
-      channel: 'web',
-      botId: 'default',
-      chatId: 'web:personal:web-anonymous',
-      sessionId,
-      name: sessionId,
-      status: 'success',
-      startedAt: new Date(now.getTime() - 45_000).toISOString(),
-      finishedAt: now.toISOString(),
-      durationMs: 45_000,
-      payload: { agentId: 'default', taskPreview: 'Handover UI task' },
-      createdAt: new Date(now.getTime() - 45_000).toISOString(),
-      updatedAt: now.toISOString()
-    });
-  } finally {
-    trace.close();
-  }
+  seedCompletedTask({
+    sessionId,
+    text: 'Handover UI task',
+    finishedAt: now,
+    runId: 'handover-ui-run',
+    taskId: 'handover-ui-task'
+  });
 
   const hostBash = new HostBashStore();
   hostBash.requestApproval({
@@ -105,6 +117,50 @@ if (scenario === 'active') {
     scopeId: 'web:personal:web-anonymous',
     sessionId,
     owner: { kind: 'agent', id: 'default' }
+  });
+}
+
+if (scenario === 'cross-channel') {
+  const trace = new SqliteTraceStore();
+  try {
+    (['feishu', 'feishu', 'weixin'] as const).forEach((channel, index) => {
+      const sessionId = seedSession();
+      trace.upsertFact({
+        id: `handover-cross-${index}`,
+        factType: 'run',
+        runId: `handover-cross-${index}`,
+        factId: `handover-cross-${index}`,
+        channel,
+        botId: 'default',
+        chatId: `${channel}:personal`,
+        sessionId,
+        name: sessionId,
+        status: 'success',
+        startedAt: new Date(now.getTime() - (index + 1) * 5 * 60_000 - 30_000).toISOString(),
+        finishedAt: new Date(now.getTime() - (index + 1) * 5 * 60_000).toISOString(),
+        durationMs: 30_000,
+        payload: { agentId: 'default', taskPreview: 'Answered on another channel' },
+        createdAt: new Date(now.getTime() - (index + 1) * 5 * 60_000 - 30_000).toISOString(),
+        updatedAt: new Date(now.getTime() - (index + 1) * 5 * 60_000).toISOString()
+      });
+    });
+  } finally {
+    trace.close();
+  }
+
+  const store = new SettingsStore();
+  const settings = store.load();
+  settings.desktopNavigation.lastAcknowledgedAt = new Date(now.getTime() - 60 * 60_000).toISOString();
+  store.saveDesktopNavigation(settings);
+}
+
+if (scenario === 'external-source') {
+  seedCompletedTask({
+    sessionId: 'external-source-1',
+    text: 'External source task',
+    finishedAt: now,
+    runId: 'handover-external-source',
+    taskId: 'handover-external-source'
   });
 }
 
@@ -134,56 +190,44 @@ if (scenario === 'quiet') {
 if (scenario === 'busy') {
   const sessionIds = Array.from({ length: 6 }, () => seedSession());
   const failureSessionId = seedSession();
-  const trace = new SqliteTraceStore();
-  try {
-    for (let index = 1; index <= 6; index += 1) {
-      trace.upsertFact({
-        id: `handover-busy-run-${index}`,
-        factType: 'run',
-        runId: `handover-busy-run-${index}`,
-        factId: `handover-busy-run-${index}`,
-        channel: 'web',
-        botId: 'default',
-        chatId: 'web:personal:web-anonymous',
-        sessionId: sessionIds[index - 1],
-        name: sessionIds[index - 1],
-        status: 'success',
-        startedAt: new Date(now.getTime() - index * 60_000).toISOString(),
-        finishedAt: new Date(now.getTime() - index * 60_000).toISOString(),
-        durationMs: 45_000,
-        payload: { agentId: 'default', taskPreview: `Busy task ${index}` },
-        createdAt: new Date(now.getTime() - index * 60_000).toISOString(),
-        updatedAt: new Date(now.getTime() - index * 60_000).toISOString()
-      });
-    }
-    trace.upsertFact({
-      id: 'handover-busy-failure',
-      factType: 'run',
-      runId: 'handover-busy-failure',
-      factId: 'handover-busy-failure',
-      channel: 'web',
-      botId: 'default',
-      chatId: 'web:personal:web-anonymous',
-      sessionId: failureSessionId,
-      name: failureSessionId,
-      status: 'error',
-      startedAt: new Date(now.getTime() - 30_000).toISOString(),
-      finishedAt: now.toISOString(),
-      payload: { agentId: 'default', taskPreview: 'Check the invoices' },
-      errorPreview: [
-        'Run failed after model attempts:',
-        'provider=cli-proxy-api, model=deepseek-v4.1-flash, baseUrl=https://proxy.example.invalid/v1, endpoint=https://proxy.example.invalid/v1/chat/completions, type=request_error, error=503: '
-          + '{"message":"auth_unavailable: no auth available","type":"server_error","code":"internal_server_error"}',
-        'provider=cli-proxy-api, model=deepseek-v4.1-flash, type=request_error, error=503: '
-          + '{"message":"auth_unavailable: no auth available","type":"server_error","code":"internal_server_error"}',
-        'Run budget exceeded: too many model failures (6/6).'
-      ].join(' | '),
-      createdAt: new Date(now.getTime() - 30_000).toISOString(),
-      updatedAt: now.toISOString()
+  for (let index = 1; index <= 6; index += 1) {
+    seedCompletedTask({
+      sessionId: sessionIds[index - 1],
+      text: `Busy task ${index}`,
+      finishedAt: new Date(now.getTime() - index * 60_000),
+      runId: `handover-busy-run-${index}`,
+      taskId: `handover-busy-task-${index}`
     });
-  } finally {
-    trace.close();
   }
+
+  const failedStartedAt = new Date(now.getTime() - 30_000);
+  const failed = leases.acquire({
+    now: failedStartedAt,
+    leaseScope: "agent:default",
+    eventFile: "handover-busy-failure.json",
+    eventType: "periodic",
+    triggerSlot: "seed:handover-busy-failure",
+    chatId: "web:personal:web-anonymous",
+    sessionId: failureSessionId,
+    channel: "web",
+    taskId: "handover-busy-failure",
+    runId: "handover-busy-failure",
+    maxAttempts: 1,
+    timeoutMs: 60_000,
+    eventPayloadJson: JSON.stringify({ text: "Check the invoices" })
+  });
+  if (!failed) throw new Error("Could not seed the failed task");
+  leases.markFailed(
+    failed.id,
+    "handover-busy-failure",
+    [
+      "Run failed after model attempts:",
+      'provider=cli-proxy-api, model=deepseek-v4.1-flash, baseUrl=https://proxy.example.invalid/v1, endpoint=https://proxy.example.invalid/v1/chat/completions, type=request_error, error=503: '
+        + '{"message":"auth_unavailable: no auth available","type":"server_error","code":"internal_server_error"}',
+      "Run budget exceeded: too many model failures (6/6)."
+    ].join(" | "),
+    now
+  );
 
   const hostBash = new HostBashStore();
   for (let index = 1; index <= 6; index += 1) {
@@ -205,30 +249,18 @@ if (scenario === 'busy') {
 
 if (scenario === 'history') {
   const sessionIds = { today: seedSession(), yesterday: seedSession() };
-  const trace = new SqliteTraceStore();
-  try {
-    for (const [suffix, offsetHours] of [['today', 0], ['yesterday', 26]] as const) {
-      trace.upsertFact({
-        id: `handover-grouped-${suffix}`,
-        factType: 'run',
-        runId: `handover-grouped-${suffix}`,
-        factId: `handover-grouped-${suffix}`,
-        channel: 'web',
-        botId: 'default',
-        chatId: 'web:personal:web-anonymous',
-        sessionId: sessionIds[suffix],
-        name: sessionIds[suffix],
-        status: 'success',
-        startedAt: new Date(now.getTime() - offsetHours * 60 * 60_000 - 60_000).toISOString(),
-        finishedAt: new Date(now.getTime() - offsetHours * 60 * 60_000).toISOString(),
-        durationMs: 60_000,
-        payload: { agentId: 'default', taskPreview: `Grouped task ${suffix}` },
-        createdAt: new Date(now.getTime() - offsetHours * 60 * 60_000 - 60_000).toISOString(),
-        updatedAt: new Date(now.getTime() - offsetHours * 60 * 60_000).toISOString()
-      });
-    }
-  } finally {
-    trace.close();
-  }
-
+  seedCompletedTask({
+    sessionId: sessionIds.today,
+    text: 'Grouped task today',
+    finishedAt: now,
+    runId: 'handover-grouped-today',
+    taskId: 'handover-grouped-today'
+  });
+  seedCompletedTask({
+    sessionId: sessionIds.yesterday,
+    text: 'Grouped task yesterday',
+    finishedAt: new Date(now.getTime() - 26 * 60 * 60_000),
+    runId: 'handover-grouped-yesterday',
+    taskId: 'handover-grouped-yesterday'
+  });
 }

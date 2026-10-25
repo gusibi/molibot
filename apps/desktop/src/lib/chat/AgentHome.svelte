@@ -21,6 +21,8 @@
   import type { Translation } from "../i18n";
   import { agentActivityLabel } from "./agentActivity";
 
+  let wideDashboard = $state(false);
+
   let {
     activity,
     activityReady = false,
@@ -68,7 +70,7 @@
     onSession: (item: DesktopConversationItem) => void | Promise<void>;
     onHistory: () => void;
     formatTime: (value: string) => string;
-    /** PA-HD1–13: only the Default Agent's home receives this projection. */
+    /** PA-HD1–14: only the Default Agent's home receives this projection. */
     handover?: DesktopHandover | null;
     /** First paint of the brief: render its shape, not the empty home. */
     handoverLoading?: boolean;
@@ -86,8 +88,9 @@
 
   let itemsExpanded = $state(false);
   let pendingExpanded = $state(false);
-  /** Five finished rows is a glance; the rest is one click away. */
-  const COMPLETED_PREVIEW = 5;
+  let executionsExpanded = $state(false);
+  /** The hero plus three compact rows is a glance; the rest is one click away. */
+  const RESULT_PREVIEW = 3;
   const PENDING_PREVIEW = 3;
 
   const activityStatus = $derived(agent.enabled === false ? "disabled" : !activityReady ? "unknown" : activity?.status ?? "idle");
@@ -95,38 +98,60 @@
   const StatusIcon = $derived(activityStatus === "working" ? Run : activityStatus === "completed" ? Check : activityStatus === "error" ? X : activityStatus === "disabled" ? Minus : activityStatus === "unknown" ? CircleInfo : MoonSleep);
   const activityTitle = $derived([agent.name, activityLabel, activityReady && activity?.status === "working" && activity.taskPreview ? activity.taskPreview : "", copy.agentViewActivity].filter(Boolean).join(" · "));
 
-  const hasHandover = $derived(Boolean(handover));
   const loadingHandover = $derived(Boolean(handoverLoading && !handover));
   const showingPrevious = $derived(Boolean(handover && handover.items.length === 0 && (handover.previous?.items.length ?? 0) > 0));
   const displayItems: DesktopHandoverItem[] = $derived(handover
     ? (showingPrevious ? (handover.previous?.items ?? []) : handover.items)
     : []);
+  const visibleExecutions = $derived(executionsExpanded ? displayItems : displayItems.slice(0, 5));
   const failedItems = $derived(displayItems.filter((item) => item.kind.endsWith("failed")));
   const completedItems = $derived(displayItems.filter((item) => !item.kind.endsWith("failed")));
-  const visibleCompleted = $derived(itemsExpanded ? completedItems : completedItems.slice(0, COMPLETED_PREVIEW));
-  const hiddenCompleted = $derived(Math.max(0, completedItems.length - COMPLETED_PREVIEW));
+  const heroItem = $derived(completedItems[0] ?? null);
+  const restItems = $derived(completedItems.slice(1));
+  const visibleRest = $derived(itemsExpanded ? restItems : restItems.slice(0, RESULT_PREVIEW));
+  const hiddenRest = $derived(Math.max(0, restItems.length - RESULT_PREVIEW));
   const visiblePending: DesktopHandoverPending[] = $derived(pendingExpanded
     ? (handover?.pending ?? [])
     : (handover?.pending ?? []).slice(0, PENDING_PREVIEW));
   const hiddenPending = $derived(Math.max(0, (handover?.pending.length ?? 0) - PENDING_PREVIEW));
-  /** Finished work is read as a log, so name the day when the list spans more than one. */
-  const completedDays = $derived.by(() => {
-    const buckets: Array<{ key: "today" | "yesterday" | "earlier"; label: string; items: DesktopHandoverItem[] }> = [];
-    for (const item of visibleCompleted) {
-      const key = dayBucket(item.occurredAt);
-      const bucket = buckets.find((entry) => entry.key === key);
-      if (bucket) bucket.items.push(item);
-      else buckets.push({ key, label: dayLabel(key), items: [item] });
-    }
-    return buckets;
-  });
-  const showDayHeadings = $derived(completedDays.length > 1);
 
   const displayCounts = $derived(showingPrevious && handover?.previous ? handover.previous.counts : handover?.counts ?? { completed: 0, failed: 0, pending: 0, recovered: 0 });
-  const quiet = $derived(Boolean(handover && handover.state === "quiet" && !showingPrevious));
-  const firstRun = $derived(Boolean(handover && handover.state === "first-run" && !showingPrevious));
-  const showHandoverBody = $derived(Boolean(handover && (handover.state !== "first-run" || showingPrevious)));
-  const showHistory = $derived(!loadingHandover && (!hasHandover || (handover && handover.state !== "first-run" && !quiet)));
+  const crossChannel = $derived(handover?.crossChannel);
+  const crossChannelMeta = $derived(crossChannel
+    ? [
+        crossChannel.channels.map(channelLabel).join(locale === "zh-CN" ? "、" : ", "),
+        formatTime(crossChannel.latestAt)
+      ].filter(Boolean).join(" · ")
+    : "");
+
+  /**
+   * A quiet day is not a briefing. With nothing to report the page is the same
+   * start form every other Agent uses; only a live generation or the frozen
+   * previous one earns the handover layout.
+   */
+  const showHandover = $derived(Boolean(handover && (handover.state === "active" || showingPrevious)));
+  const liveRun = $derived(activity?.status === "working" ? activity : null);
+  const liveElapsed = $derived.by(() => {
+    if (!liveRun) return "";
+    const started = Date.parse(String(liveRun.startedAt ?? ""));
+    return Number.isFinite(started) ? elapsedLabel(Date.now() - started) : "";
+  });
+  const liveMeta = $derived.by(() => {
+    if (!liveRun) return "";
+    const parts = [liveElapsed];
+    if (liveRun.subagents?.length) parts.push(copy.handoverSubagents.replace("{count}", String(liveRun.subagents.length)));
+    if (liveRun.channel) parts.push(channelLabel(liveRun.channel));
+    return parts.filter(Boolean).join(" · ");
+  });
+  const windowLabel = $derived.by(() => {
+    if (!handover) return "";
+    const now = formatTime(handover.generatedAt);
+    if (!handover.lastAcknowledgedAt) return copy.handoverGenerated.replace("{now}", now);
+    return copy.handoverWindow
+      .replace("{left}", formatTime(handover.lastAcknowledgedAt))
+      .replace("{now}", now);
+  });
+
   const handoverSummary = $derived.by(() => {
     if (!handover) return "";
     if (showingPrevious) {
@@ -134,7 +159,9 @@
         .replace("{completed}", String(displayCounts.completed))
         .replace("{pending}", String(displayCounts.pending));
     }
-    if (handover.state === "quiet") return copy.handoverSummaryQuiet;
+    if (displayCounts.completed === 0 && displayCounts.failed === 0 && displayCounts.pending === 0) {
+      return crossChannel ? copy.handoverSummaryCrossOnly : "";
+    }
     if (displayCounts.completed === 0 && displayCounts.failed === 0) {
       return copy.handoverSummaryPendingOnly.replace("{pending}", String(displayCounts.pending));
     }
@@ -147,30 +174,57 @@
       .replace("{pending}", String(displayCounts.pending));
   });
 
+  function elapsedLabel(ms: number): string {
+    if (!Number.isFinite(ms) || ms < 60_000) {
+      return copy.handoverElapsedSeconds.replace("{count}", String(Math.max(1, Math.round(ms / 1000))));
+    }
+    if (ms < 3_600_000) {
+      return copy.handoverElapsedMinutes.replace("{count}", String(Math.max(1, Math.round(ms / 60_000))));
+    }
+    return copy.handoverElapsedHours.replace("{count}", String(Math.max(1, Math.round(ms / 3_600_000))));
+  }
+
   function itemLabel(item: DesktopHandoverItem): string {
     if (item.title.trim()) return item.title.trim();
     return item.taskId ? copy.handoverTaskEntry : copy.handoverRunEntry;
   }
 
-  function dayBucket(value: string): "today" | "yesterday" | "earlier" {
-    const at = Date.parse(value);
-    if (!Number.isFinite(at)) return "earlier";
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    if (at >= startOfToday) return "today";
-    if (at >= startOfToday - 24 * 60 * 60 * 1000) return "yesterday";
-    return "earlier";
+  function heroChip(item: DesktopHandoverItem): string {
+    return item.taskId ? copy.handoverKindTask : copy.handoverResult;
   }
 
-  function dayLabel(key: "today" | "yesterday" | "earlier"): string {
-    if (key === "today") return copy.handoverToday;
-    if (key === "yesterday") return copy.handoverYesterday;
-    return copy.handoverEarlier;
+  function channelLabel(channel: string): string {
+    if (channel === "feishu") return copy.channelFeishu;
+    if (channel === "weixin") return copy.channelWeixin;
+    if (channel === "telegram") return copy.channelTelegram;
+    if (channel === "qq") return copy.channelQq;
+    if (channel === "web") return copy.channelWeb;
+    return channel;
+  }
+
+  function openItem(item: DesktopHandoverItem): void {
+    onHandoverOpen?.({
+      sessionId: item.sessionId,
+      channel: item.channel,
+      title: itemLabel(item),
+      agentId: item.agentId
+    });
+  }
+
+  function openPending(item: DesktopHandoverPending): void {
+    onHandoverOpen?.({
+      sessionId: item.sessionId,
+      channel: item.channel,
+      title: item.title,
+      agentId: item.agentId,
+      planId: item.planId,
+      executionId: item.executionId
+    });
   }
 
   /**
-   * Arrow keys move between rows, so the home can be read without leaving the
-   * keyboard; focus also unclips a row's preview (CSS `:focus-within`).
+   * Arrow keys move between cards, so the brief can be read without leaving the
+   * keyboard; focus also unclips a failure diagnostic (CSS `:focus-within`).
    */
   function handoverKeys(node: HTMLElement) {
     const handler = (event: KeyboardEvent) => moveHandoverFocus(event);
@@ -185,14 +239,17 @@
   function moveHandoverFocus(event: KeyboardEvent): void {
     const direction = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     if (!direction) return;
-    const section = (event.target as HTMLElement | null)?.closest(".agent-home-handover");
+    const section = (event.target as HTMLElement | null)?.closest(".agent-home--brief");
     if (!section) return;
-    const rows = Array.from(section.querySelectorAll(".agent-home-handover-row"));
-    const current = (event.target as HTMLElement | null)?.closest(".agent-home-handover-row");
+    const rows = Array.from(section.querySelectorAll<HTMLElement>("[data-handover-row]"));
+    const current = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-handover-row]");
     const index = current ? rows.indexOf(current) : -1;
     if (index < 0) return;
     const next = rows[index + direction];
-    const target = next?.querySelector<HTMLElement>("button:not(:disabled), [href], [tabindex='0']");
+    if (!next) return;
+    const target = next.matches("button:not(:disabled), [href], [tabindex='0']")
+      ? next
+      : next.querySelector<HTMLElement>("button:not(:disabled), [href], [tabindex='0']");
     if (!target) return;
     event.preventDefault();
     target.focus();
@@ -210,10 +267,10 @@
   }
 
   /** Source is only worth a line when it is not the Agent whose home this is. */
-  function itemMeta(item: DesktopHandoverItem): string {
+  function itemMeta(item: DesktopHandoverItem, includeTime = true): string {
     const parts: string[] = [];
     if (item.agentId && item.agentId !== agentId) parts.push(copy.handoverFromAgent.replace("{agent}", agentLabel(item.agentId)));
-    parts.push(formatTime(item.occurredAt));
+    if (includeTime) parts.push(formatTime(item.occurredAt));
     if (item.durationMs !== undefined) parts.push(`${Math.max(1, Math.round(item.durationMs / 1000))}s`);
     return parts.join(" · ");
   }
@@ -223,7 +280,6 @@
     const reason = pendingReason(item);
     if (reason) parts.push(reason);
     if (item.agentId && item.agentId !== agentId) parts.push(copy.handoverFromAgent.replace("{agent}", agentLabel(item.agentId)));
-    if (item.sessionId) parts.push(formatTime(item.createdAt));
     return parts.join(" · ");
   }
 
@@ -233,10 +289,33 @@
     return "";
   }
 
+  function pendingKindLabel(item: DesktopHandoverPending): string {
+    if (item.kind === "approval") return copy.handoverKindApproval;
+    if (item.kind === "decision") return copy.handoverKindDecision;
+    if (item.kind === "plan") return copy.handoverKindPlan;
+    return copy.handoverKindRun;
+  }
+
   function optionLabel(option: string): string {
     if (option === "confirm_completion") return copy.handoverOptionConfirmCompletion;
     if (option === "continue_work") return copy.handoverOptionContinueWork;
     return option;
+  }
+
+  function measureDashboard(node: HTMLElement) {
+    let frame = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      cancelAnimationFrame(frame);
+      // Reordering the sections can change height; publish after observer delivery.
+      frame = requestAnimationFrame(() => { wideDashboard = entry.contentRect.width >= 960; });
+    });
+    observer.observe(node);
+    return {
+      destroy() {
+        observer.disconnect();
+        cancelAnimationFrame(frame);
+      }
+    };
   }
 
   function pendingOpens(item: DesktopHandoverPending): boolean {
@@ -244,172 +323,298 @@
   }
 </script>
 
-{#snippet pendingCopy(item: DesktopHandoverPending)}
-  <span class="agent-home-handover-entry-title">{item.title || copy.handoverPendingRun}</span>
-  <span class="agent-home-handover-entry-meta">{pendingMeta(item)}</span>
-  {#if item.detail}<span class="agent-home-handover-entry-detail" title={item.detail}>{item.detail}</span>{/if}
+{#snippet recentConversations(showEmpty: boolean)}
+  <section class="agent-home-history" aria-labelledby="agent-home-recent-title">
+    <div class="agent-home-section-heading">
+      <h2 id="agent-home-recent-title">{locale === "zh-CN" ? (historyExpanded ? "全部对话" : "最近对话") : (historyExpanded ? "All conversations" : "Recent conversations")}</h2>
+      <Button class="agent-icon-action" title={locale === "zh-CN" ? (historyExpanded ? "收起" : "查看全部") : (historyExpanded ? "Show recent" : "View all")} onclick={onHistory}><ArrowRight size={16} aria-hidden="true" /></Button>
+    </div>
+    {#if sessions.length}
+      <div class="agent-history-rows">
+        {#each sessions as item (item.sessionId)}
+          <AgentConversationRow {item} source={item.channel} sourceLabel={item.channel === "web" ? copy.channelWeb : item.channel === "telegram" ? copy.channelTelegram : item.channel === "feishu" ? copy.channelFeishu : item.channel === "qq" ? copy.channelQq : copy.channelWeixin} {locale} {formatTime} onSelect={() => onSession(item)} onDelete={onDelete ? () => onDelete(item) : undefined} onCopyPath={onCopyPath ? () => onCopyPath(item) : undefined} onRevealInFinder={onRevealInFinder ? () => onRevealInFinder(item) : undefined} />
+        {/each}
+      </div>
+    {:else if showEmpty}
+      <p class="agent-home-history-empty">{locale === "zh-CN" ? "还没有对话。从上方选择一个起点，或在下方写下你的想法。" : "No conversations yet. Choose a starting point above or write your thoughts below."}</p>
+    {/if}
+  </section>
 {/snippet}
 
-<section class="agent-home" class:has-handover={hasHandover || loadingHandover} aria-label={agent.name}>
-  <div class="agent-home-identity" class:compact={(hasHandover && !firstRun) || loadingHandover}>
-    {#if onActivity}
-      <button type="button" class="agent-home-avatar-action" data-status={activityStatus} title={activityTitle} aria-label={activityTitle} onclick={onActivity}>
-        <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
-        <span class="agent-home-status-mark" aria-hidden="true"><StatusIcon size={13} /></span>
-      </button>
-    {:else}
-      <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
-    {/if}
-    <h1>{agent.name}</h1>
-    {#if (!hasHandover || firstRun) && !loadingHandover}
-      <p class="agent-home-greeting">{agent.description?.trim() || (locale === "zh-CN" ? "有什么想让我帮忙的吗？" : "What can I help you with?")}</p>
-    {/if}
-  </div>
+{#snippet resultsSection()}
+    {#if heroItem}
+      <section class="agent-home-band agent-home-results" aria-labelledby="home-results-title">
+        <div class="agent-home-band-head">
+          <h2 class="agent-home-band-label" id="home-results-title">{copy.handoverBandResults}</h2>
+          <span class="agent-home-band-count">{completedItems.length}</span>
+        </div>
+        <div data-testid="handover-entries">
+          <article class="agent-home-hero" data-handover-row>
+            <div class="agent-home-card-head">
+              <span class="agent-home-chip">{heroChip(heroItem)}</span>
+              {#if heroItem.kind === "task-recovered"}<span class="agent-home-chip">{copy.handoverRecoveredLabel}</span>{/if}
+              <time>{formatTime(heroItem.occurredAt)}</time>
+            </div>
+            <h2 class="agent-home-hero-title">{itemLabel(heroItem)}</h2>
+            {#if heroItem.resultPreview}<p class="agent-home-hero-preview">{heroItem.resultPreview}</p>{/if}
+            <div class="agent-home-card-foot">
+              <span class="agent-home-meta">{itemMeta(heroItem, false)}</span>
+              <Button disabled={!heroItem.sessionId} onclick={() => openItem(heroItem)}>{copy.handoverOpenSource}<ArrowRight size={14} aria-hidden="true" /></Button>
+            </div>
+          </article>
 
-  {#if handoverStale}
-    <p class="agent-home-handover-stale" role="status">{copy.handoverStale}</p>
-  {/if}
-  {#if handoverError}
-    <p class="agent-home-handover-stale" data-tone="danger" role="alert">{copy.handoverActionFailed.replace("{message}", handoverError)}</p>
-  {/if}
-
-  {#if loadingHandover}
-    <div class="skeleton-rows agent-home-handover-skeleton" aria-hidden="true">
-      <div class="skeleton-row"><span></span><i></i></div>
-      <div class="skeleton-row"><span></span><i></i></div>
-      <div class="skeleton-row"><span></span><i></i></div>
-    </div>
-  {/if}
-
-  {#if handover && showHandoverBody}
-    <section class="agent-home-handover" use:handoverKeys aria-label={handover.pending.length > 0 ? copy.handoverPendingHeading : copy.handoverCompletedLabel}>
-      <p class="agent-home-handover-summary" data-testid="handover-summary">{handoverSummary}</p>
-      {#if displayCounts.recovered > 0 && !showingPrevious}
-        <p class="agent-home-handover-note">{copy.handoverRecoveredNote.replace("{recovered}", String(displayCounts.recovered))}</p>
-      {/if}
-
-      {#if failedItems.length > 0}
-        <div class="agent-home-handover-section">
-          <h2 class="agent-home-handover-heading">{copy.handoverFailedLabel}<span>{failedItems.length}</span></h2>
-          <ul class="agent-home-handover-list" aria-label={copy.handoverFailedLabel}>
-            {#each failedItems as item (item.id)}
-              <li class="agent-home-handover-row" data-kind={item.kind}>
-                <button type="button" class="agent-home-handover-entry" onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: itemLabel(item), agentId: item.agentId })} disabled={!item.sessionId}>
-                  <span class="agent-home-handover-entry-title">{itemLabel(item)}</span>
-                  <span class="agent-home-handover-entry-meta">{itemMeta(item)}</span>
-                  {#if failureHeadline(item)}<span class="agent-home-handover-entry-reason">{failureHeadline(item)}</span>{/if}
-                  {#if item.detail}<span class="agent-home-handover-entry-detail" title={item.detail}>{item.detail}</span>{/if}
+          {#if visibleRest.length > 0}
+            <div class="agent-home-rows">
+              {#each visibleRest as item (item.id)}
+                <button type="button" class="agent-home-row" data-handover-row onclick={() => openItem(item)} disabled={!item.sessionId}>
+                  <span class="agent-home-row-title">{itemLabel(item)}{#if item.kind === "task-recovered"}<span class="agent-home-chip tiny">{copy.handoverRecoveredLabel}</span>{/if}</span>
+                  {#if item.resultPreview}<span class="agent-home-row-preview">{item.resultPreview}</span>{/if}
+                  <span class="agent-home-meta">{itemMeta(item)}</span>
                 </button>
-              </li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
-
-      {#if handover.pending.length > 0 && !showingPrevious}
-        <div class="agent-home-handover-section" data-testid="handover-pending">
-          <h2 class="agent-home-handover-heading">{copy.handoverPendingHeading}<span>{handover.pending.length}</span></h2>
-          <ul class="agent-home-handover-list">
-            {#each visiblePending as item (item.id)}
-              {@const opens = pendingOpens(item)}
-              <li class="agent-home-handover-row is-pending" data-kind={item.kind}>
-                {#if opens}
-                  <button type="button" class="agent-home-handover-entry" onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: item.title, agentId: item.agentId, planId: item.planId, executionId: item.executionId })}>
-                    {@render pendingCopy(item)}
-                  </button>
-                {:else}
-                  <div class="agent-home-handover-row-copy">
-                    {@render pendingCopy(item)}
-                  </div>
-                {/if}
-                <div class="agent-home-handover-row-actions">
-                  {#if item.kind === "approval" && item.actionable && item.requestId}
-                    <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverResolve?.([item], "approve_once")}>{copy.handoverApproveOnce}</Button>
-                    <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverResolve?.([item], "reject")}>{copy.handoverReject}</Button>
-                  {:else if item.kind === "decision"}
-                    {#each item.options ?? [] as option (option)}
-                      <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverAnswer?.(item, option)}>{optionLabel(option)}</Button>
-                    {/each}
-                  {:else if item.kind === "plan"}
-                    <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverPlan?.(item, "manual")}>{copy.handoverManualMode}</Button>
-                    <Button disabled={handoverBusyId === item.id} onclick={() => onHandoverPlan?.(item, "accept_edits")}>{copy.handoverAcceptEditsMode}</Button>
-                  {/if}
-                </div>
-              </li>
-            {/each}
-          </ul>
-          {#if hiddenPending > 0}
-            <button type="button" class="agent-home-handover-more" aria-expanded={pendingExpanded} onclick={() => (pendingExpanded = !pendingExpanded)}>
-              {pendingExpanded ? copy.handoverCollapseItems : copy.handoverShowMorePending.replace("{count}", String(hiddenPending))}
-            </button>
-          {/if}
-        </div>
-      {/if}
-
-      {#if completedItems.length > 0}
-        <div class="agent-home-handover-section">
-          <h2 class="agent-home-handover-heading">{copy.handoverCompletedLabel}<span>{completedItems.length}</span></h2>
-          {#if visibleCompleted.length > 0}
-            <div class="agent-home-handover-days" data-testid="handover-entries">
-              {#each completedDays as day (day.key)}
-                <div class="agent-home-handover-day">
-                  {#if showDayHeadings}<h3 class="agent-home-handover-day-heading">{day.label}</h3>{/if}
-                  <ul class="agent-home-handover-list" aria-label={day.label}>
-                    {#each day.items as item (item.id)}
-                      <li class="agent-home-handover-row" data-kind={item.kind}>
-                        <button type="button" class="agent-home-handover-entry" onclick={() => onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: itemLabel(item), agentId: item.agentId })} disabled={!item.sessionId}>
-                          <span class="agent-home-handover-entry-title">{itemLabel(item)}{#if item.kind === "task-recovered"}<span class="agent-home-handover-chip">{copy.handoverRecoveredLabel}</span>{/if}</span>
-                          <span class="agent-home-handover-entry-meta">{itemMeta(item)}</span>
-                          {#if item.resultPreview}<span class="agent-home-handover-entry-detail" title={item.resultPreview}>{item.resultPreview}</span>{/if}
-                        </button>
-                      </li>
-                    {/each}
-                  </ul>
-                </div>
               {/each}
             </div>
           {/if}
-          {#if hiddenCompleted > 0}
-            <button type="button" class="agent-home-handover-more" aria-expanded={itemsExpanded} onclick={() => (itemsExpanded = !itemsExpanded)}>
-              {itemsExpanded ? copy.handoverCollapseItems : copy.handoverExpandItems.replace("{count}", String(completedItems.length))}
+
+          {#if hiddenRest > 0}
+            <button type="button" class="agent-home-more" aria-expanded={itemsExpanded} onclick={() => (itemsExpanded = !itemsExpanded)}>
+              {itemsExpanded ? copy.handoverCollapseItems : copy.handoverShowMoreResults.replace("{count}", String(hiddenRest))}
             </button>
           {/if}
         </div>
-      {/if}
+      </section>
+    {/if}
 
-      {#if handover.nextScheduled}
-        <p class="agent-home-handover-next">
-          {handover.nextScheduled.title
-            ? copy.handoverNextScheduled.replace("{title}", handover.nextScheduled.title).replace("{time}", formatTime(handover.nextScheduled.at))
-            : copy.handoverNextScheduledOnlyTime.replace("{time}", formatTime(handover.nextScheduled.at))}
-        </p>
-      {/if}
-    </section>
-  {/if}
+{/snippet}
 
-  {@render composer()}
-
-  {#if actions.length && (!hasHandover || firstRun) && !loadingHandover}
-    <div class="agent-home-tasks" role="group" aria-label={copy.emptyChatQuickStart}>
-      {#each actions as action (action.label)}
-        {@const Icon = emptyActionIcon(action.icon)}
-        <Button class="agent-home-task" onclick={() => onPrompt(action.prompt)}><Icon size={16} aria-hidden="true" /><span>{action.label}</span></Button>
-      {/each}
-    </div>
-  {/if}
-
-  {#if showHistory}
-    <section class="agent-home-history" aria-labelledby="agent-home-recent-title">
-      <div class="agent-home-section-heading"><h2 id="agent-home-recent-title">{locale === "zh-CN" ? (historyExpanded ? "全部对话" : "最近对话") : (historyExpanded ? "All conversations" : "Recent conversations")}</h2><Button class="agent-icon-action" title={locale === "zh-CN" ? (historyExpanded ? "收起" : "查看全部") : (historyExpanded ? "Show recent" : "View all")} onclick={onHistory}><ArrowRight size={16} aria-hidden="true" /></Button></div>
-      {#if sessions.length}
-        <div class="agent-history-rows">
-          {#each sessions as item (item.sessionId)}
-            <AgentConversationRow {item} source={item.channel} sourceLabel={item.channel === "web" ? copy.channelWeb : item.channel === "telegram" ? copy.channelTelegram : item.channel === "feishu" ? copy.channelFeishu : item.channel === "qq" ? copy.channelQq : copy.channelWeixin} {locale} {formatTime} onSelect={() => onSession(item)} onDelete={onDelete ? () => onDelete(item) : undefined} onCopyPath={onCopyPath ? () => onCopyPath(item) : undefined} onRevealInFinder={onRevealInFinder ? () => onRevealInFinder(item) : undefined} />
+{#snippet decisionsSection()}
+    {#if (handover?.pending.length ?? 0) > 0}
+      <section class="agent-home-band agent-home-decisions" aria-labelledby="home-decisions-title" data-testid="handover-pending">
+        <div class="agent-home-band-head">
+          <h2 class="agent-home-band-label" id="home-decisions-title">{copy.handoverPendingHeading}</h2>
+          <span class="agent-home-band-count">{(handover?.pending.length ?? 0)}</span>
+        </div>
+        <div class="agent-home-cards">
+          {#each visiblePending as item (item.id)}
+            {@const meta = pendingMeta(item)}
+            <article class="agent-home-card" data-handover-row data-kind={item.kind}>
+              <div class="agent-home-card-head">
+                <span class="agent-home-chip" class:warn={item.kind === "approval"}>{pendingKindLabel(item)}</span>
+                <time>{formatTime(item.createdAt)}</time>
+              </div>
+              {#if pendingOpens(item)}
+                <button type="button" class="agent-home-card-title" onclick={() => openPending(item)}>{item.title || copy.handoverPendingRun}</button>
+              {:else}
+                <h3>{item.title || copy.handoverPendingRun}</h3>
+              {/if}
+              {#if meta}<p class="agent-home-card-meta">{meta}</p>{/if}
+              {#if item.detail}
+                {#if item.kind === "approval"}
+                  <details class="agent-home-command"><summary>{copy.handoverCommandDetails}</summary><pre class="agent-home-cmd">{item.detail}</pre></details>
+                {:else}
+                  <p class="agent-home-card-body">{item.detail}</p>
+                {/if}
+              {/if}
+              {#if item.kind === "approval" && item.actionable && item.requestId}
+                <div class="agent-home-card-actions">
+                  <Button variant="primary" disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverResolve?.([item], "approve_once")}>{copy.handoverApproveOnce}</Button>
+                  <Button disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverResolve?.([item], "reject")}>{copy.handoverReject}</Button>
+                </div>
+              {:else if item.kind === "decision"}
+                <div class="agent-home-card-actions">
+                  {#each item.options ?? [] as option (option)}
+                    <Button disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverAnswer?.(item, option)}>{optionLabel(option)}</Button>
+                  {/each}
+                </div>
+              {:else if item.kind === "plan"}
+                <div class="agent-home-card-actions">
+                  <Button disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverPlan?.(item, "manual")}>{copy.handoverManualMode}</Button>
+                  <Button disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverPlan?.(item, "accept_edits")}>{copy.handoverAcceptEditsMode}</Button>
+                </div>
+              {/if}
+            </article>
           {/each}
         </div>
+        {#if hiddenPending > 0}
+          <button type="button" class="agent-home-more" aria-expanded={pendingExpanded} onclick={() => (pendingExpanded = !pendingExpanded)}>
+            {pendingExpanded ? copy.handoverCollapseItems : copy.handoverShowMorePending.replace("{count}", String(hiddenPending))}
+          </button>
+        {/if}
+      </section>
+    {/if}
+
+{/snippet}
+
+{#if loadingHandover}
+  <section class="agent-home agent-home--brief" aria-label={agent.name} aria-busy="true">
+    <header class="agent-home-head">
+      <div class="agent-home-head-who">
+        <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
+        <div class="agent-home-head-copy">
+          <span class="agent-home-head-name">{agent.name}</span>
+          <span class="agent-home-head-state">{copy.loading}</span>
+        </div>
+      </div>
+    </header>
+    <div class="agent-home-dashboard agent-home-dashboard--loading" aria-hidden="true">
+      <div class="skeleton-rows agent-home-handover-skeleton"><div class="skeleton-row"><span></span><i></i></div><div class="skeleton-row"><span></span><i></i></div><div class="skeleton-row"><span></span><i></i></div></div>
+      <div class="skeleton-rows agent-home-handover-skeleton"><div class="skeleton-row"><span></span><i></i></div><div class="skeleton-row"><span></span><i></i></div></div>
+    </div>
+    {@render composer()}
+  </section>
+{:else if showHandover && handover}
+  <section class="agent-home agent-home--brief" aria-label={agent.name} use:handoverKeys>
+    <header class="agent-home-head">
+      <div class="agent-home-head-who">
+        {#if onActivity}
+          <button type="button" class="agent-home-avatar-action" data-status={activityStatus} title={activityTitle} aria-label={activityTitle} onclick={onActivity}>
+            <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
+            <span class="agent-home-status-mark" aria-hidden="true"><StatusIcon size={12} /></span>
+          </button>
+        {:else}
+          <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
+        {/if}
+        <div class="agent-home-head-copy">
+          <h1 class="agent-home-head-name">{agent.name}</h1>
+          <span class="agent-home-head-state">{activityLabel}</span>
+        </div>
+      </div>
+      <div class="agent-home-head-when">
+        <span>{windowLabel}</span>
+      </div>
+    </header>
+
+    {#if handoverStale}
+      <p class="agent-home-handover-stale" role="status">{copy.handoverStale}</p>
+    {/if}
+    {#if handoverError}
+      <p class="agent-home-handover-stale" data-tone="danger" role="alert">{copy.handoverActionFailed.replace("{message}", handoverError)}</p>
+    {/if}
+
+    {#if liveRun}
+      <div class="agent-home-live">
+        <span class="agent-home-live-dot" aria-hidden="true"></span>
+        <span class="agent-home-live-title">{liveRun.taskPreview || copy.handoverLive}</span>
+        <span class="agent-home-live-meta">{liveMeta}</span>
+        {#if onActivity}
+          <button type="button" class="agent-home-more" onclick={onActivity}>{copy.handoverOpenActivity}</button>
+        {/if}
+      </div>
+    {/if}
+
+    <p class="agent-home-lede" data-testid="handover-summary">{handoverSummary}</p>
+
+    <div class="agent-home-dashboard" class:has-results={Boolean(heroItem)} class:has-decisions={Boolean(handover.pending.length)} use:measureDashboard>
+      {#if wideDashboard}
+        {@render resultsSection()}
+        {@render decisionsSection()}
       {:else}
-        <p class="agent-home-history-empty">{locale === "zh-CN" ? "还没有对话。从上方选择一个起点，或在下方写下你的想法。" : "No conversations yet. Choose a starting point above or write your thoughts below."}</p>
+        {@render decisionsSection()}
+        {@render resultsSection()}
       {/if}
-    </section>
-  {/if}
-</section>
+    </div>
+
+    {#if displayItems.length > 0}
+      <section class="agent-home-band agent-home-executions" aria-labelledby="home-executions-title">
+        <div class="agent-home-band-head">
+          <h2 class="agent-home-band-label" id="home-executions-title">{copy.handoverExecutions}</h2>
+        </div>
+        <table class="agent-home-execution-table" aria-label={copy.handoverExecutions}>
+          <thead><tr><th scope="col">{copy.handoverExecutionTask}</th><th scope="col">{copy.handoverExecutionState}</th><th scope="col">{copy.handoverExecutionTime}</th><th scope="col">{copy.handoverExecutionSource}</th></tr></thead>
+          <tbody>
+            {#each visibleExecutions as item (item.id)}
+              <tr>
+                <th scope="row">{itemLabel(item)}</th>
+                <td data-label={copy.handoverExecutionState}><span class="agent-home-execution-state" data-failed={item.kind.endsWith("failed")}><span aria-hidden="true">{item.kind.endsWith("failed") ? "×" : "✓"}</span>{item.kind.endsWith("failed") ? copy.handoverFailedLabel : item.kind === "task-recovered" ? copy.handoverRecoveredLabel : copy.handoverCompletedLabel}</span></td>
+                <td data-label={copy.handoverExecutionTime}><time datetime={item.occurredAt}>{formatTime(item.occurredAt)}</time></td>
+                <td data-label={copy.handoverExecutionSource}><Button variant="secondary" disabled={!item.sessionId} onclick={() => openItem(item)}>{copy.handoverOpenSource}</Button></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        {#if displayItems.length > 5}
+          <Button aria-expanded={executionsExpanded} onclick={() => (executionsExpanded = !executionsExpanded)}>{executionsExpanded ? copy.handoverCollapseItems : copy.handoverShowExecutions.replace("{count}", String(displayItems.length - 5))}</Button>
+        {/if}
+      </section>
+    {/if}
+
+    {#if failedItems.length > 0}
+      <section class="agent-home-band agent-home-failures" aria-label={copy.handoverFailedLabel}>
+        <div class="agent-home-band-head">
+          <span class="agent-home-band-label">{copy.handoverFailedLabel}</span>
+          <span class="agent-home-band-count">{failedItems.length}</span>
+        </div>
+        <div class="agent-home-cards">
+          {#each failedItems as item (item.id)}
+            <article class="agent-home-failure" data-handover-row data-kind={item.kind}>
+              <div class="agent-home-card-head">
+                <span class="agent-home-chip danger">{item.taskId ? copy.handoverTaskEntry : copy.handoverRunEntry}</span>
+                <time>{formatTime(item.occurredAt)}</time>
+              </div>
+              <h3>{itemLabel(item)}</h3>
+              {#if failureHeadline(item)}<p class="agent-home-failure-reason">{failureHeadline(item)}</p>{/if}
+              {#if item.detail}<pre class="agent-home-failure-detail">{item.detail}</pre>{/if}
+              <div class="agent-home-card-foot">
+                <span class="agent-home-meta">{itemMeta(item, false)}</span>
+                <button type="button" class="agent-home-more" disabled={!item.sessionId} onclick={() => openItem(item)}>{copy.handoverOpenSource}</button>
+              </div>
+            </article>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
+    {#if crossChannel}
+      <div class="agent-home-cross-channel" data-testid="handover-cross-channel">
+        <div class="agent-home-cross-channel-main">
+          <span class="agent-home-cross-channel-title">{copy.handoverCrossChannel.replace("{count}", String(crossChannel.count))}</span>
+          <span class="agent-home-cross-channel-meta">{crossChannelMeta}</span>
+        </div>
+        <button type="button" class="agent-home-more" onclick={onHistory}>{copy.handoverCrossChannelOpen}</button>
+      </div>
+    {/if}
+
+    {#if handover.nextScheduled}
+      <section class="agent-home-band">
+        <div class="agent-home-band-head">
+          <span class="agent-home-band-label">{copy.handoverBandNext}</span>
+        </div>
+        <div class="agent-home-next">
+          <time>{formatTime(handover.nextScheduled.at)}</time>
+          <span class="agent-home-next-title">{handover.nextScheduled.title}</span>
+          <span class="agent-home-meta">{handover.nextScheduled.source === "durable" ? copy.handoverKindPlan : copy.handoverKindTask}</span>
+        </div>
+      </section>
+    {/if}
+
+    {@render composer()}
+    {@render recentConversations(false)}
+  </section>
+{:else}
+  <section class="agent-home" aria-label={agent.name}>
+    <div class="agent-home-identity">
+      {#if onActivity}
+        <button type="button" class="agent-home-avatar-action" data-status={activityStatus} title={activityTitle} aria-label={activityTitle} onclick={onActivity}>
+          <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
+          <span class="agent-home-status-mark" aria-hidden="true"><StatusIcon size={13} /></span>
+        </button>
+      {:else}
+        <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
+      {/if}
+      <h1>{agent.name}</h1>
+      <p class="agent-home-greeting">{agent.description?.trim() || (locale === "zh-CN" ? "有什么想让我帮忙的吗？" : "What can I help you with?")}</p>
+    </div>
+
+    {@render composer()}
+
+    {#if actions.length}
+      <div class="agent-home-tasks" role="group" aria-label={copy.emptyChatQuickStart}>
+        {#each actions as action (action.label)}
+          {@const Icon = emptyActionIcon(action.icon)}
+          <Button class="agent-home-task" onclick={() => onPrompt(action.prompt)}><Icon size={16} aria-hidden="true" /><span>{action.label}</span></Button>
+        {/each}
+      </div>
+    {/if}
+
+    {@render recentConversations(true)}
+  </section>
+{/if}

@@ -105,8 +105,8 @@ test("GET /api/desktop/handover returns completed work, live decisions and the p
   const first = await readHandover();
   assert.equal(first.ok, true);
   assert.equal(first.handover.state, "active");
-  assert.equal(first.handover.items.length, 2);
-  assert.equal(first.handover.counts.completed, 2);
+  assert.equal(first.handover.items.length, 1, "only the task delivery is a result");
+  assert.equal(first.handover.counts.completed, 1);
   assert.equal(first.handover.pending.length, 1);
   assert.equal(first.handover.pending[0].requestId, requested.approval?.id);
   assert.equal(first.handover.pending[0].agentId, "default");
@@ -120,7 +120,7 @@ test("GET /api/desktop/handover returns completed work, live decisions and the p
   assert.equal(second.handover.items.length, 0);
   assert.equal(second.handover.state, "active", "live decisions are not consumed by the window");
   assert.equal(second.handover.pending.length, 1);
-  assert.equal(second.handover.previous?.items.length, 2);
+  assert.equal(second.handover.previous?.items.length, 1);
   assert.equal(second.handover.previous?.pendingCount, 1);
   assert.equal("detail" in (second.handover.previous?.items[0] ?? {}), false);
 
@@ -135,7 +135,7 @@ test("GET /api/desktop/handover returns completed work, live decisions and the p
   assert.equal(saved.status, 200);
   const third = await readHandover();
   assert.equal(third.handover.lastAcknowledgedAt, ack.lastAcknowledgedAt);
-  assert.equal(third.handover.previous?.items.length, 2);
+  assert.equal(third.handover.previous?.items.length, 1);
 });
 
 test("resolving a pending approval from the handover clears the source Session state and is idempotent", async () => {
@@ -228,4 +228,56 @@ test("a pending approval whose Session was deleted is dropped and expired", asyn
   const after = await readHandover();
   assert.equal(after.handover.pending.some((item: any) => item.requestId === requestId), false, "a deleted source is not a decision");
   assert.equal(runtime.hostBashStore.listPending(undefined, session.id).length, 0, "the orphaned approval is expired, not left pending");
+});
+
+test("an in-app chat reply stays out of results while other channels collapse into one aggregate", async () => {
+  const webSession = runtime.sessions.createWebConversation("web:personal:web-anonymous", undefined, "default");
+  const now = new Date();
+  const trace = new SqliteTraceStore();
+  try {
+    trace.upsertFact({
+      id: "run-web-read",
+      factType: "run",
+      runId: "run-web-read",
+      factId: "run-web-read",
+      channel: "web",
+      botId: "default",
+      chatId: "chat",
+      sessionId: webSession.id,
+      status: "success",
+      startedAt: now.toISOString(),
+      finishedAt: now.toISOString(),
+      durationMs: 1_000,
+      payload: { agentId: "default", taskPreview: "Answered in the app" },
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    });
+    for (const [id, channel] of [["run-feishu", "feishu"], ["run-weixin", "weixin"]] as const) {
+      trace.upsertFact({
+        id,
+        factType: "run",
+        runId: id,
+        factId: id,
+        channel,
+        botId: "default",
+        chatId: `chat-${channel}`,
+        sessionId: `external-${channel}`,
+        status: "success",
+        startedAt: now.toISOString(),
+        finishedAt: now.toISOString(),
+        durationMs: 1_000,
+        payload: { agentId: "default", taskPreview: "Answered on another channel" },
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+      });
+    }
+  } finally {
+    trace.close();
+  }
+
+  const payload = await readHandover();
+  assert.equal(payload.handover.items.length, 0, "an in-app chat reply is a conversation, not a result");
+  assert.equal(payload.handover.counts.completed, 0);
+  assert.equal(payload.handover.crossChannel?.count, 2);
+  assert.deepEqual(payload.handover.crossChannel?.channels, ["feishu", "weixin"]);
 });

@@ -825,12 +825,12 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and a f
   // its own expand copy, so toggling can never move the buttons.
   assert.doesNotMatch(chatSidebar, /sidebar-top-bar|sidebar-top-actions|sidebar-collapse-btn/);
   assert.match(view, /class="titlebar-cluster" data-theme-region="sidebar"/);
-  assert.match(view, /aria-label=\{sidebarCollapsed \? copy\.expandSidebar : copy\.collapseSidebar\}/);
+  assert.match(view, /aria-label=\{\(homeNarrow \? !homeSidebarOpen : sidebarCollapsed\) \? copy\.expandSidebar : copy\.collapseSidebar\}/);
   assert.match(view, /onclick=\{toggleSidebarCollapse\}/);
   assert.ok(listSvelteSources().every((source) => !source.includes("sidebar-expand-btn")));
   assert.doesNotMatch(styles, /\.sidebar-expand-btn/);
   assert.match(design, /title-bar control cluster/);
-  assert.match(view, /class:sidebar-collapsed=\{sidebarCollapsed\}/);
+  assert.match(view, /class:sidebar-collapsed=\{sidebarCollapsed && !homeNarrow\}/);
   assert.match(view, /toggleSidebarCollapse\(\)/);
   assert.match(view, /SIDEBAR_COLLAPSE_THRESHOLD = 160/);
   // The nav never folds on its own: no window-width auto-collapse, only the
@@ -6362,8 +6362,9 @@ test("new conversation centers the real composer above compact suggestions and t
   assert.match(view, /sessions=\{agentHomeDisplaySessions\}/);
   assert.match(view, /agentHomeSessions\.filter\(\(item\) => !handoverSessionIds\.has\(item\.sessionId\)\)[\s\S]*?\.slice\(0, 3\)/);
   assert.match(view, /floating=\{!draftMode\}/);
-  assert.ok(home.indexOf("{@render composer()}") < home.indexOf('class="agent-home-tasks"'));
-  assert.ok(home.indexOf('class="agent-home-tasks"') < home.indexOf('class="agent-home-history"'));
+  const standardHome = home.slice(home.indexOf('{:else}\n  <section class="agent-home"'));
+  assert.ok(standardHome.indexOf("{@render composer()}") < standardHome.indexOf('class="agent-home-tasks"'));
+  assert.ok(standardHome.indexOf('class="agent-home-tasks"') < standardHome.indexOf("{@render recentConversations(true)}"));
   assert.doesNotMatch(home, /agent-home-description|agent-home-task-hint/);
   assert.match(view, /class="chat-start-page"[\s\S]*?{:else}\s*<ChatMessagesPane/);
 });

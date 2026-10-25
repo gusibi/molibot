@@ -4,6 +4,8 @@
 
 Accepted — 2026-10-23. Implemented 2026-10-23 for `PA-HD1`–`PA-HD10`, `PA-HD12`, `PA-HD13`; `PA-HD11` remains future work.
 
+The [work-home UI specification](../designs/agent-home/personal-agent-dashboard-ui-spec.md), dated 2026-10-25 and not yet implemented, extends the target presentation to reports, topic proposals, decisions and task execution. It revises the historical-window and result-scope rules for that UI while retaining this ADR's projection and fixed-context ownership decisions. The existing implementation remains governed by its delivery specification until the new UI ships.
+
 ## Context
 
 The Desktop home is the first screen most users see each day. After Personal Agent V1 it showed an identity block, a composer, three quick-start prompts and three recent conversations. That answers "who am I talking to", not "what happened while I was away".

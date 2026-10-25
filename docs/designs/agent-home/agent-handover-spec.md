@@ -1,5 +1,7 @@
 # Agent Handover 交付 Spec
 
+后续 UI 目标见 [Personal Agent 工作首页 UI 实施 Spec](personal-agent-dashboard-ui-spec.md)。该规格接管新首页的布局、最近期次展示和交互验收；本文件保留已实施交接的事实与仍有效的共享层约束。
+
 状态：已实施（2026-10-23），发布快照见 [Issue #67](https://github.com/gusibi/molibot/issues/67)。本文件是交付契约，不是产品规范；可引用的约束以 [Personal Agent V1 Spec 的 `PA-HD-*`](../../requirements/personal-agent-experience-v1.md) 为准，决策理由见 [ADR 0006](../../adr/0006-agent-handover-is-a-projection.md)，界面探索见 [原型目录](../personal-agent-home/index.html)。实施证据与边界见[能力矩阵](../../requirements/personal-assistant-capability-matrix.md)。
 
 ## Problem Statement
@@ -39,7 +41,7 @@ Desktop 默认 Agent 的首页现在只回答“我在跟谁说话”：头像�
 
 **单一读模型。** 新增一个服务端读模型负责整页数据：输入是默认 Agent 与 `lastAcknowledgedAt`，输出是结论句所需计数、条目列表、待决定列表、下一件已排期事项和三态标记。客户端不拼接、不二次聚合、不自行排序。所有“什么算一件事”“怎么排序”“怎么去重”的判断只存在这一处。
 
-**数据来源，不新增事件表。** 已完成条目以 trace 的 `run` 与 `runtime_notice` 事实为窗口索引（`created_at` 已有区间索引，事实带 `agentId`）；承诺兑现与失约来自 Runtime Task 执行租约表（`finished_at`、`status`）；待决定来自三处现有查询（Host Bash 全局待审批原始记录、Durable Execution 与 Plan 的等待项、等待中的 Session 运行）。三者由读模型合并。
+**数据来源，不新增事件表。** 已完成条目以 trace 的 `run` 与 `runtime_notice` 事实为窗口索引（`created_at` 已有区间索引，事实带 `agentId`）；承诺兑现与失约来自 Runtime Task 执行租约表（`finished_at`、`status`）；待决定来自三处现有查询（Host Bash 全局待审批原始记录、Durable Execution 与 Plan 的等待项、等待中的 Session 运行）。三者由读模型合并。临时对话不进入结果：站内对话留在最近对话，外部渠道只进入一条聚合摘要；任务执行不受渠道影响。
 
 **去重与计数。** 同一任务执行与其派生 trace 事实只算一条，任务执行优先。计数单位是条目，不是运行、工具调用或产物文件。产物附属于条目。
 
@@ -53,11 +55,11 @@ Desktop 默认 Agent 的首页现在只回答“我在跟谁说话”：头像�
 
 **排期。** 下一件已排期事项由 Runtime Task 的 cron/一次性时间现场计算下一次触发；Durable Execution 直接读已有的 `next_run_at`。不新增持久化字段。
 
-**三态。** 读模型返回 `quiet`、`first-run`、`stale` 三种标记：无条目且有待排期 → 安静；无任何历史与条目 → 首次；最后一次读模型成功时间超时或服务不可达 → stale，界面保留上次内容并标注。
+**三态。** 读模型返回 `quiet`、`first-run`、`stale` 三种标记：无条目且有待排期 → 安静；无任何历史与条目 → 首次；最后一次读模型成功时间超时或服务不可达 → stale，界面保留上次内容并标注。客户端只在 `active` 或上一代可显示时渲染交接；`quiet` 与 `first-run` 直接使用通用 Agent 首页，不再有安静日专属版式。
 
 **文案。** 结论句与条目文案全部由模板拼装。模型润色是一个可选后置步骤，输入只有“异常解释”片段，输出必须通过数字/时间/来源不变校验，校验失败则丢弃润色、保留模板文案。V1 默认关闭润色。
 
-**界面。** 复用现有 Agent 首页组件与共享控件；身份区改为紧凑形态，输入框位置不变，最近对话保留三条并与交接条目去重。不新增导航入口，不改侧栏结构。已完成条目默认展示最近 5 条（其余可展开），待决定项默认展示前 4 条（其余可展开）；失败条目给一句模板原因并保留最多两行的原始诊断，完成条目在可用时显示交付结果预览。
+**界面。** 只有在 `active` 或上一代可显示时才渲染交接，按「没办成 → 等你决定 → 今天的结果 → 接下来」排列；今天的结果以一张主卡（承诺优先的最近完成项）加最多三行紧凑结果呈现，其余可展开；待决定项默认三张卡；失败条目给一句模板原因并保留最多两行的原始诊断；跨渠道临时对话只留一张聚合卡。安静日与首次使用不渲染交接，直接使用其他 Agent 的同一套首页。输入框与最近对话保留。
 
 ## Testing Decisions
 

@@ -22,7 +22,13 @@ export function replyTo(
 
 export async function openChat(page: Page, agent = 'Momo') {
   await page.goto('/');
-  await page.getByRole('button', { name: agent, exact: true }).click();
+  await expect(page.locator('.agent-home')).toBeVisible();
+  await expect(composer(page)).toBeEnabled();
+  const agentButton = page.getByRole('button', { name: agent, exact: true });
+  const expand = page.getByRole('button', { name: /Expand sidebar|展开侧边栏/, exact: true });
+  await expect.poll(async () => await agentButton.isVisible() || await expand.isVisible()).toBe(true);
+  if (await expand.isVisible()) await expand.click();
+  await agentButton.click();
   await expect(composer(page)).toBeEnabled();
 }
 

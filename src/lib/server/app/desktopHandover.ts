@@ -13,6 +13,7 @@ import type { DesktopSessionRun } from "$lib/shared/desktop.js";
 import type {
   DesktopHandover,
   DesktopHandoverCounts,
+  DesktopHandoverCrossChannel,
   DesktopHandoverDetailCode,
   DesktopHandoverItem,
   DesktopHandoverItemKind,
@@ -239,39 +240,6 @@ function itemFromLease(
   };
 }
 
-function itemFromRun(
-  fact: TraceFactRecord,
-  noticesByRun: Map<string, string>,
-  projectSessionIds: ReadonlySet<string>,
-  defaultAgentId: string,
-  previewOf: (sessionId: string) => string
-): DesktopHandoverItem | null {
-  if (fact.factType !== "run") return null;
-  if (!["success", "error", "aborted"].includes(fact.status)) return null;
-  if (projectSessionIds.has(fact.sessionId)) return null;
-  const payloadAgent = typeof fact.payload.agentId === "string" ? fact.payload.agentId.trim() : "";
-  const agentId = payloadAgent || agentIdForSession(fact.sessionId) || "";
-  if (agentId !== defaultAgentId) return null;
-  const failed = fact.status !== "success";
-  const taskPreview = typeof fact.payload.taskPreview === "string" ? fact.payload.taskPreview.trim() : "";
-  const failure = failed ? summarizeFailure(fact.errorPreview ?? noticesByRun.get(fact.runId)) : {};
-  const resultPreview = failed ? "" : clip(previewOf(fact.sessionId), RESULT_LIMIT);
-  return {
-    id: `run:${fact.runId}`,
-    kind: failed ? "run-failed" : "run-completed",
-    occurredAt: isoOf(fact.finishedAt ?? fact.updatedAt, fact.updatedAt),
-    agentId,
-    sessionId: fact.sessionId,
-    ...(fact.channel ? { channel: fact.channel } : {}),
-    runId: fact.runId,
-    title: taskPreview,
-    ...(failure.detail !== undefined ? { detail: failure.detail } : {}),
-    ...(failure.detailCode ? { detailCode: failure.detailCode } : {}),
-    ...(resultPreview ? { resultPreview } : {}),
-    ...(fact.durationMs !== undefined ? { durationMs: fact.durationMs } : {})
-  };
-}
-
 function countsOf(items: DesktopHandoverItem[], pending: DesktopHandoverPending[]): DesktopHandoverCounts {
   const failed = items.filter((item) => item.kind === "task-failed" || item.kind === "run-failed").length;
   const recovered = items.filter((item) => item.kind === "task-recovered").length;
@@ -280,6 +248,50 @@ function countsOf(items: DesktopHandoverItem[], pending: DesktopHandoverPending[
     failed,
     pending: pending.length,
     recovered
+  };
+}
+
+/** A channel other than the app itself means the owner already saw the reply there. */
+function isExternalChannel(channel: string | undefined): boolean {
+  const value = String(channel ?? "").trim();
+  return Boolean(value) && value !== "web";
+}
+
+function runAgentId(fact: TraceFactRecord): string {
+  const payloadAgent = typeof fact.payload.agentId === "string" ? fact.payload.agentId.trim() : "";
+  return payloadAgent || agentIdForSession(fact.sessionId) || "";
+}
+
+/**
+ * Ad-hoc replies on another channel are conversations, not work the Agent did
+ * on its own. They are collapsed into one line so the page stops claiming the
+ * owner missed answers they already read in WeChat or Feishu.
+ */
+function buildCrossChannel(
+  runs: TraceFactRecord[],
+  projectSessionIds: ReadonlySet<string>,
+  defaultAgentId: string
+): DesktopHandoverCrossChannel | undefined {
+  const external = runs.filter((fact) =>
+    fact.factType === "run" &&
+    fact.status === "success" &&
+    isExternalChannel(fact.channel) &&
+    !projectSessionIds.has(fact.sessionId) &&
+    runAgentId(fact) === defaultAgentId
+  );
+  if (external.length === 0) return undefined;
+  const channels: string[] = [];
+  let latest = 0;
+  for (const fact of external) {
+    const channel = String(fact.channel ?? "").trim();
+    if (channel && !channels.includes(channel)) channels.push(channel);
+    const at = Date.parse(String(fact.finishedAt ?? fact.updatedAt ?? ""));
+    if (Number.isFinite(at) && at > latest) latest = at;
+  }
+  return {
+    count: external.length,
+    channels,
+    latestAt: new Date(latest || Date.now()).toISOString()
   };
 }
 
@@ -303,16 +315,19 @@ export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover
     .map((lease) => itemFromLease(lease, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId, previewOf))
     .filter((item): item is DesktopHandoverItem => Boolean(item));
   const leaseRunIds = new Set(leaseItems.map((item) => item.runId).filter(Boolean));
-  const runItems = input.evidence.runs
-    .filter((fact) => !leaseRunIds.has(fact.runId))
-    .map((fact) => itemFromRun(fact, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId, previewOf))
-    .filter((item): item is DesktopHandoverItem => Boolean(item));
+  const adHocRuns = input.evidence.runs.filter((fact) => !leaseRunIds.has(fact.runId));
+  // Ad-hoc chat replies are conversations, not work the Agent did on its own.
+  // They stay in the recent-conversation list; only other-channel replies get
+  // one aggregate card so the page acknowledges them without repeating them.
+  const crossChannel = buildCrossChannel(adHocRuns, input.projectSessionIds ?? new Set(), defaultAgentId);
 
-  const items = [...leaseItems, ...runItems]
+  const items = [...leaseItems]
     .sort((left, right) => {
-      const leftFailed = left.kind.endsWith("failed") ? 0 : 1;
-      const rightFailed = right.kind.endsWith("failed") ? 0 : 1;
-      return leftFailed - rightFailed || Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
+      // Failures first; inside finished work a promised delivery outranks an
+      // ad-hoc reply, because the promise is the part the owner could not see.
+      const leftRank = left.kind.endsWith("failed") ? 0 : left.taskId ? 1 : 2;
+      const rightRank = right.kind.endsWith("failed") ? 0 : right.taskId ? 1 : 2;
+      return leftRank - rightRank || Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
     })
     .slice(0, MAX_ITEMS);
 
@@ -331,9 +346,9 @@ export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover
     .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))[0];
   const counts = countsOf(items, pending);
   const lastAcknowledgedAt = String(input.settings.desktopNavigation?.lastAcknowledgedAt ?? "").trim() || undefined;
-  const state = !lastAcknowledgedAt && items.length === 0 && pending.length === 0 && !nextScheduled
+  const state = !lastAcknowledgedAt && items.length === 0 && pending.length === 0 && !nextScheduled && !crossChannel
     ? "first-run"
-    : items.length === 0 && pending.length === 0
+    : items.length === 0 && pending.length === 0 && !crossChannel
       ? "quiet"
       : "active";
 
@@ -347,6 +362,7 @@ export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover
     items,
     pending,
     ...(nextScheduled ? { nextScheduled } : {}),
+    ...(crossChannel ? { crossChannel } : {}),
     ...(previous ? { previous } : {})
   };
 }

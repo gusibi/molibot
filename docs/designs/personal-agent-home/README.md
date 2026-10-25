@@ -1,5 +1,7 @@
 # Agent Handover 首页设计记录
 
+后续工作首页采用 [UI 实施 Spec](../agent-home/personal-agent-dashboard-ui-spec.md) 中已确认的参考图与交互规则；本目录继续保留旧交接的方案记录，旧 HTML 不作为新首页实施目标。
+
 状态：方案定稿并已实施（2026-10-23）；本目录保留讨论用原型。规则见 [PA-HD](../../requirements/personal-agent-experience-v1.md)，决策见 [ADR 0006](../../adr/0006-agent-handover-is-a-projection.md)，交付契约见 [交付 Spec](../agent-home/agent-handover-spec.md)，实施证据见[能力矩阵](../../requirements/personal-assistant-capability-matrix.md)。
 
 本目录的三个 HTML 是讨论用的一次性原型，不是实现来源。它们只在浏览器里可看，数据是假的，也没有接真实接口；真正的实现要按规则表和 `DESIGN.md` 落地。

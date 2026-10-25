@@ -443,6 +443,20 @@ export interface DesktopHandoverCounts {
   recovered: number;
 }
 
+/**
+ * Ad-hoc conversations that happened on another channel. The user already
+ * answered them there, so they are not "work done while away" and must not be
+ * listed as individual results; one summary keeps the page honest without
+ * repeating the recent-conversation list.
+ */
+export interface DesktopHandoverCrossChannel {
+  count: number;
+  /** Unique source channels, in the order they first appear. */
+  channels: string[];
+  /** Newest reply in the group. */
+  latestAt: string;
+}
+
 export interface DesktopHandoverNextScheduled {
   at: string;
   title: string;
@@ -469,6 +483,8 @@ export interface DesktopHandover {
   items: DesktopHandoverItem[];
   pending: DesktopHandoverPending[];
   nextScheduled?: DesktopHandoverNextScheduled;
+  /** Replies the user already saw on another channel; one aggregate only. */
+  crossChannel?: DesktopHandoverCrossChannel;
   /** The frozen previous generation, only while a quick return can still use it. */
   previous?: DesktopHandoverSnapshot;
 }
