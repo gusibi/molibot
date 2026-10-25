@@ -4291,7 +4291,7 @@
     onkeydown={onSidebarKeydown}
   ></div>
 
-  <div class="workspace-main">
+  <div class="workspace-main" inert={homeNarrow && homeSidebarOpen}>
   {#if agentSettingsActive}
     {#if !agentSettingsLoading && agentsStore.agentEdit}
       <AgentSettingsPage onClose={closeAgentSettings} backLabel={locale === "zh-CN" ? "返回 Agent" : "Back to Agent"} />

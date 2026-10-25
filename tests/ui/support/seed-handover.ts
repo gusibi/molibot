@@ -47,7 +47,7 @@ function seedSession(): string {
 const leases = getEventExecutionLeaseStore();
 
 /** A completed scheduled task: the only kind of item the home counts as a result. */
-function seedCompletedTask(input: { sessionId: string; text: string; finishedAt: Date; runId: string; taskId: string }): void {
+function seedCompletedTask(input: { sessionId: string; text: string; finishedAt: Date; runId: string; taskId: string; preview?: string }): void {
   const startedAt = new Date(input.finishedAt.getTime() - 45_000);
   const acquired = leases.acquire({
     now: startedAt,
@@ -65,7 +65,7 @@ function seedCompletedTask(input: { sessionId: string; text: string; finishedAt:
     eventPayloadJson: JSON.stringify({ text: input.text })
   });
   if (!acquired) throw new Error(`Could not seed ${input.taskId}`);
-  leases.markCompleted(acquired.id, input.runId, { text: `${input.text} delivered` }, input.finishedAt);
+  leases.markCompleted(acquired.id, input.runId, { text: input.preview ?? `${input.text} delivered` }, input.finishedAt);
 }
 
 function resetHandoverState(): void {
@@ -263,4 +263,34 @@ if (scenario === 'history') {
     runId: 'handover-grouped-yesterday',
     taskId: 'handover-grouped-yesterday'
   });
+}
+
+
+if (scenario === 'editorial') {
+  const deliveries = [
+    ['Weekly research brief', 'Agent reliability: three things worth your attention.\nClear completion criteria, recoverable failures and decisions with enough context to act.'],
+    ['A draft for your next article', 'A practical angle on agent reliability, with an opening argument and a three-part structure ready to review.'],
+    ['Reading notes, brought together', 'Source notes grouped by question, with the unresolved points kept visible for your next reading session.']
+  ];
+  for (const [index, [text, preview]] of deliveries.entries()) {
+    seedCompletedTask({ sessionId: seedSession(), text, preview, finishedAt: new Date(now.getTime() - index * 60_000), runId: `editorial-run-${index}`, taskId: `editorial-task-${index}` });
+  }
+  const hostBash = new HostBashStore();
+  const requests = [
+    { toolId: 'pdftotext', displayName: 'Read the source documents', command: 'pdftotext ./reports/research.pdf -', args: ['./reports/research.pdf', '-'] },
+    { toolId: 'agent-browser', displayName: 'Check the draft references', command: 'agent-browser --open https://example.org/research', args: ['--open', 'https://example.org/research'] }
+  ];
+  for (const request of requests) {
+    hostBash.requestApproval({
+      ...request,
+      reason: 'Read the source before continuing the research.',
+      approvalMode: 'ephemeral',
+      pendingAction: { kind: 'run_approved_host_bash', originalCommand: request.command, args: request.args },
+      channel: 'web',
+      chatId: 'web:personal:web-anonymous',
+      scopeId: 'web:personal:web-anonymous',
+      sessionId: seedSession(),
+      owner: { kind: 'agent', id: 'default' }
+    });
+  }
 }

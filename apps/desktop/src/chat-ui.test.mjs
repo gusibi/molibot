@@ -846,7 +846,7 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and a f
   // Pane titles sit below the native toolbar, so collapse needs no extra inset.
   assert.doesNotMatch(styles, /sidebar-collapsed \.chat-header\s*\{[^}]*padding-left: 102px/);
   assert.match(styles, /\.settings-layout\.agent-editor > \.settings-content\s*\{[^}]*padding-top: var\(--toolbar-height\)/);
-  assert.match(view, /<div class="workspace-main">/);
+  assert.match(view, /<div class="workspace-main" inert=\{homeNarrow && homeSidebarOpen\}>/);
 });
 
 test("collapsed rail carries conversation/project toggles and reuses the shared list for its flyout", () => {
@@ -1375,8 +1375,8 @@ test("Window header owns its grid row and the transcript is not reserved beneath
   assert.match(styles, /\.workspace-inspector \.file-panel::before \{[^}]*top:\s*var\(--chat-header-h\);[^}]*bottom:\s*0;/s);
   assert.match(styles, /--content-frame-edge:/);
   assert.match(styles, /\.titlebar-cluster \{[^}]*grid-column:\s*1;[^}]*padding-left:\s*84px;/s);
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.chat-header \{[^}]*display:\s*flex;/s);
-  assert.match(styles, /\.chat-layout\.sidebar-collapsed \.window-header-page::before \{[^}]*display:\s*none;/s);
+  assert.match(styles, /\.chat-layout:is\(\.sidebar-collapsed, \.home-narrow\) \.chat-header \{[^}]*display:\s*flex;/s);
+  assert.match(styles, /\.chat-layout:is\(\.sidebar-collapsed, \.home-narrow\) \.window-header-page::before \{[^}]*display:\s*none;/s);
   assert.match(view, /<div class="window-header-page">[\s\S]*class="chat-title-block"[\s\S]*class="header-actions"/);
   assert.match(styles, /\.composer-wrap\.is-floating \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
   assert.match(styles, /--chat-header-h:\s*42px;/);
@@ -4332,7 +4332,7 @@ test("settings navigation keeps shared resources and uses a dedicated Agent sett
   assert.match(app, /<AgentSettingsPage backLabel=\{locale === "zh-CN" \? "返回 Agent 列表" : "Back to Agent list"\}/);
   assert.match(app, /<WindowDragMask \/>\s*<aside class="settings-sidebar">/);
   assert.doesNotMatch(styles, /\.settings-layout\.agent-editor\s*\{[^}]*grid-template-columns/);
-  assert.match(view, /<div class="workspace-main">\s*\{#if agentSettingsActive\}/);
+  assert.match(view, /<div class="workspace-main" inert=\{homeNarrow && homeSidebarOpen\}>\s*\{#if agentSettingsActive\}/);
   assert.match(view, /<AgentSettingsPage onClose=\{closeAgentSettings\}/);
   const openSettingsBody = view.slice(view.indexOf("async function openAgentSettings("), view.indexOf("function openAgentChat("));
   assert.doesNotMatch(openSettingsBody, /openSettings\("agents"\)/);
@@ -6128,7 +6128,7 @@ test("window chrome shares one material and hosts all panes in the content frame
   assert.doesNotMatch(view, /window-toolbar-surface/);
   assert.match(styles, /\.window-material\s*\{[^}]*inset: 0;[^}]*background: var\(--sidebar-material-tint\);[^}]*backdrop-filter: var\(--sidebar-material-filter\);[^}]*pointer-events: none;/s);
   assert.match(styles, /\.chat-layout \.chat-sidebar::before\s*\{\s*display: none;/s);
-  assert.match(view, /<div class="workspace-main">\s*\{#if agentSettingsActive\}/);
+  assert.match(view, /<div class="workspace-main" inert=\{homeNarrow && homeSidebarOpen\}>\s*\{#if agentSettingsActive\}/);
   assert.match(view, /<div class="workspace-inspector">/);
   // The chat content sits in the window's body row, below the header band, and
   // floats above the window material with the shared content shadow.

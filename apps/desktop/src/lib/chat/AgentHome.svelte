@@ -271,7 +271,7 @@
     const parts: string[] = [];
     if (item.agentId && item.agentId !== agentId) parts.push(copy.handoverFromAgent.replace("{agent}", agentLabel(item.agentId)));
     if (includeTime) parts.push(formatTime(item.occurredAt));
-    if (item.durationMs !== undefined) parts.push(`${Math.max(1, Math.round(item.durationMs / 1000))}s`);
+    if (item.durationMs !== undefined) parts.push(copy.handoverDuration.replace("{duration}", elapsedLabel(item.durationMs)));
     return parts.join(" · ");
   }
 
@@ -351,15 +351,15 @@
         <div data-testid="handover-entries">
           <article class="agent-home-hero" data-handover-row>
             <div class="agent-home-card-head">
-              <span class="agent-home-chip">{heroChip(heroItem)}</span>
+              <span class="agent-home-delivery-label"><Check size={14} aria-hidden="true" />{heroChip(heroItem)}</span>
               {#if heroItem.kind === "task-recovered"}<span class="agent-home-chip">{copy.handoverRecoveredLabel}</span>{/if}
-              <time>{formatTime(heroItem.occurredAt)}</time>
+              <time datetime={heroItem.occurredAt}>{formatTime(heroItem.occurredAt)}</time>
             </div>
-            <h2 class="agent-home-hero-title">{itemLabel(heroItem)}</h2>
+            <h3 class="agent-home-hero-title">{itemLabel(heroItem)}</h3>
             {#if heroItem.resultPreview}<p class="agent-home-hero-preview">{heroItem.resultPreview}</p>{/if}
             <div class="agent-home-card-foot">
               <span class="agent-home-meta">{itemMeta(heroItem, false)}</span>
-              <Button disabled={!heroItem.sessionId} onclick={() => openItem(heroItem)}>{copy.handoverOpenSource}<ArrowRight size={14} aria-hidden="true" /></Button>
+              <Button variant="primary" disabled={!heroItem.sessionId} onclick={() => openItem(heroItem)}>{copy.handoverOpenSource}<ArrowRight size={14} aria-hidden="true" /></Button>
             </div>
           </article>
 
@@ -370,6 +370,7 @@
                   <span class="agent-home-row-title">{itemLabel(item)}{#if item.kind === "task-recovered"}<span class="agent-home-chip tiny">{copy.handoverRecoveredLabel}</span>{/if}</span>
                   {#if item.resultPreview}<span class="agent-home-row-preview">{item.resultPreview}</span>{/if}
                   <span class="agent-home-meta">{itemMeta(item)}</span>
+                  <ArrowRight size={16} class="agent-home-row-arrow" aria-hidden="true" />
                 </button>
               {/each}
             </div>
@@ -399,7 +400,7 @@
             <article class="agent-home-card" data-handover-row data-kind={item.kind}>
               <div class="agent-home-card-head">
                 <span class="agent-home-chip" class:warn={item.kind === "approval"}>{pendingKindLabel(item)}</span>
-                <time>{formatTime(item.createdAt)}</time>
+                <time datetime={item.createdAt}>{formatTime(item.createdAt)}</time>
               </div>
               {#if pendingOpens(item)}
                 <button type="button" class="agent-home-card-title" onclick={() => openPending(item)}>{item.title || copy.handoverPendingRun}</button>
@@ -526,7 +527,7 @@
                 <th scope="row">{itemLabel(item)}</th>
                 <td data-label={copy.handoverExecutionState}><span class="agent-home-execution-state" data-failed={item.kind.endsWith("failed")}><span aria-hidden="true">{item.kind.endsWith("failed") ? "×" : "✓"}</span>{item.kind.endsWith("failed") ? copy.handoverFailedLabel : item.kind === "task-recovered" ? copy.handoverRecoveredLabel : copy.handoverCompletedLabel}</span></td>
                 <td data-label={copy.handoverExecutionTime}><time datetime={item.occurredAt}>{formatTime(item.occurredAt)}</time></td>
-                <td data-label={copy.handoverExecutionSource}><Button variant="secondary" disabled={!item.sessionId} onclick={() => openItem(item)}>{copy.handoverOpenSource}</Button></td>
+                <td data-label={copy.handoverExecutionSource}><Button variant="icon" title={`${copy.handoverOpenSource}: ${itemLabel(item)}`} disabled={!item.sessionId} onclick={() => openItem(item)}><ArrowRight size={16} aria-hidden="true" /></Button></td>
               </tr>
             {/each}
           </tbody>

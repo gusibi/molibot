@@ -13,7 +13,7 @@ import type { IsolatedInstance } from './support/instance';
  * process owns the SQLite writes, and then assert only what the user sees.
  */
 
-async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'history' | 'quiet' | 'first-run' | 'cross-channel' | 'external-source'): Promise<void> {
+async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'history' | 'quiet' | 'first-run' | 'cross-channel' | 'external-source' | 'editorial'): Promise<void> {
   await instance.stopService();
   try {
     await instance.runSeedScript('tests/ui/support/seed-handover.ts', { UI_HANDOVER_SCENARIO: scenario });
@@ -352,4 +352,47 @@ test('work home puts readable results beside decisions and adapts to the workspa
     return (await response.json()).handover.pending.length;
   }).toBe(0);
   await expect(page.getByRole('region', { name: '最近成果', exact: true })).toContainText('Handover UI task');
+});
+
+
+test('the work home reads as one composed workspace across sizes and themes @agent-home @home-craft', async ({ page, instance }, testInfo) => {
+  await seedHandover(instance, 'editorial');
+  await page.setViewportSize({ width: 1440, height: 1024 });
+  await openChat(page);
+  await expect(page.getByRole('heading', { name: 'Weekly research brief', level: 3 })).toBeVisible();
+  await expect(page.getByTestId('handover-summary')).toContainText('3 finished');
+  await expect(page.getByTestId('handover-pending')).toContainText('Read the source documents');
+  await expect(page.getByTestId('handover-pending').getByRole('article')).toHaveCount(2);
+  await expect(page.getByTestId('handover-entries')).toContainText('Clear completion criteria');
+  await expect(page.getByTestId('handover-entries')).toContainText('Took 45s');
+  const headings = await page.getByRole('heading', { level: 2 }).evaluateAll(nodes => nodes.filter(n => ['Recent results', 'Waiting on you'].includes(n.textContent ?? '')).map(n => n.getBoundingClientRect().y));
+  expect(headings).toHaveLength(2);
+  expect(Math.abs(headings[0] - headings[1])).toBeLessThan(1);
+  const input = await composer(page).boundingBox();
+  const workspace = await page.locator('.agent-home--brief').boundingBox();
+  expect(input!.width).toBeGreaterThan(workspace!.width * .9);
+  expect(await page.locator('.agent-home--brief .composer').evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(1024);
+  await testInfo.attach('craft-light-wide', { body: await page.screenshot(), contentType: 'image/png' });
+
+  await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'molibot-desktop-appearance', newValue: 'dark' })));
+  await expect(page.locator('html')).toHaveAttribute('data-resolved-appearance', 'dark');
+  await testInfo.attach('craft-dark-wide', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.window-header .chat-title-block')).toBeHidden();
+  const headerButtonsFit = await page.locator('.window-header').getByRole('button').evaluateAll(nodes => nodes.every(node => {
+    const bounds = node.getBoundingClientRect();
+    return bounds.left >= 0 && bounds.right <= innerWidth + 1;
+  }));
+  expect(headerButtonsFit).toBe(true);
+  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
+  await composer(page).focus();
+  await expect(composer(page)).not.toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Expand sidebar', exact: true })).toBeFocused();
+  await testInfo.attach('craft-dark-narrow', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.getByTestId('handover-pending').getByRole('article').filter({ hasText: 'Read the source documents' }).getByRole('button', { name: 'Reject', exact: true }).click();
+  await expect(page.getByTestId('handover-pending')).not.toContainText('Read the source documents');
+  const response = await page.request.get(`${instance.endpoint}/api/desktop/handover`);
+  expect((await response.json()).handover.pending).toHaveLength(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
