@@ -67,6 +67,7 @@ export function buildUpdatedDesktopProvider(
     apiKey: request.clearApiKey === true ? "" : replacementKey || current.apiKey,
     models,
     defaultModel,
+    embeddingModel: String(request.embeddingModel ?? "").trim() || undefined,
     path: String(request.path ?? "").trim() || defaultPathForProtocol(protocol),
     thinkingFormat: sanitizeOptionalThinkingFormat(request.thinkingFormat)
   };

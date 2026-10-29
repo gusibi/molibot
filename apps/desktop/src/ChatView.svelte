@@ -5,7 +5,7 @@
   import { isActiveDurableExecution, isOpenDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Layers from "./lib/icons/duotone/components/Layers.svelte";
-  import MessageSearch from "reicon-svelte/icons/MessageSearch";
+  import SessionActionsMenu from "./lib/chat/SessionActionsMenu.svelte";
   import Pen from "./lib/icons/duotone/components/Pen.svelte";
   import Search4 from "reicon-svelte/icons/Search4";
   import Sidebar from "./lib/icons/duotone/components/Sidebar.svelte";
@@ -1122,6 +1122,7 @@
   let searchIndex = 0;
   let previousSearchMatchCount = 0;
   let searchReturnFocus: HTMLElement | null = null;
+  let transcriptSearch: { focus: () => void } | undefined;
   let messagesElement: HTMLDivElement;
   let sessionFiles: DesktopSessionFile[] = [];
   // The right-hand Inspector. Chat shows at most one at a time — Files or a
@@ -1527,6 +1528,7 @@
   // lookup is scoped to the active channel's group.
   $: agentNameById = new Map(onboardingAgents.map((agent) => [agent.id, agent.name]));
   $: activeExternalAgentId = activeExternalSessionItem?.agentId ?? "";
+  $: headerAgentId = viewMode === "external" ? activeExternalAgentId : selectedAgentId;
   $: activeExternalAgentName = activeExternalAgentId ? (agentNameById.get(activeExternalAgentId) ?? activeExternalAgentId) : copy.agentUnassignedName;
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: linkedPlanExecutionIds = new Set(messages.map((message) => message.plan?.durableExecutionId).filter((id): id is string => Boolean(id)));
@@ -1536,7 +1538,7 @@
   $: activeDurableExecutions = durableExecutions.filter(isActiveDurableExecution);
   $: durableActiveCount = activeDurableExecutions.length;
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
-  $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "", copy.chatAssistantError);
+  $: searchMatchIds = findTranscriptMatches(viewMode === "external" ? externalTranscript?.messages ?? [] : messages, searchOpen ? searchQuery : "", copy.chatAssistantError);
   $: if (searchMatchIds.length !== previousSearchMatchCount) {
     previousSearchMatchCount = searchMatchIds.length;
     searchIndex = clampTranscriptSearchIndex(searchIndex, searchMatchIds.length);
@@ -2443,14 +2445,20 @@
   }
 
   let agentDeleteBusy = false;
-  async function deleteAgentConversation(item: DesktopConversationItem): Promise<void> {
+  async function deleteAgentConversation(item: Pick<DesktopConversationItem, "sessionId" | "botId" | "agentId">): Promise<void> {
     if (agentDeleteBusy) return;
     agentDeleteBusy = true;
     try {
       const result = await deleteConversationSelection(connectedEndpoint, [item.sessionId]);
-      if (result.deletedIds.length) { chatStore.disposeSession(item.botId, item.sessionId); await refreshAgentSessions(); }
-      error = result.error;
-    } catch (cause) { error = String(cause); }
+      if (result.deletedIds.length) {
+        chatStore.disposeSession(item.botId, item.sessionId);
+        if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) === item.sessionId) {
+          openAgentChat(item.agentId && onboardingAgents.some(agent => agent.id === item.agentId) ? item.agentId : defaultAgentId);
+        }
+        await refreshAgentSessions();
+      }
+      if (result.error) showMiniAppFeedback(result.error);
+    } catch (cause) { showMiniAppFeedback(String(cause)); }
     finally { agentDeleteBusy = false; }
   }
   async function deleteSession(item: DesktopConversationItem): Promise<void> {
@@ -2472,10 +2480,10 @@
     }
   }
 
-  async function copySessionPath(item: { sessionId: string; projectId?: string }): Promise<void> {
+  async function copySessionPath(item: { sessionId: string; projectId?: string; target?: "file" | "directory" }): Promise<void> {
     if (!connectedEndpoint) return;
     try {
-      const sessionPath = await getDesktopSessionPath(connectedEndpoint, { sessionId: item.sessionId, projectId: item.projectId });
+      const sessionPath = await getDesktopSessionPath(connectedEndpoint, { sessionId: item.sessionId, projectId: item.projectId, target: item.target });
       await navigator.clipboard.writeText(sessionPath);
       showMiniAppFeedback(copy.sessionPathCopied);
     } catch (cause) {
@@ -2483,10 +2491,10 @@
     }
   }
 
-  async function revealSessionInFinder(item: { sessionId: string; projectId?: string }): Promise<void> {
+  async function revealSessionInFinder(item: { sessionId: string; projectId?: string; target?: "file" | "directory" }): Promise<void> {
     if (!connectedEndpoint) return;
     try {
-      await revealDesktopSession(connectedEndpoint, { sessionId: item.sessionId, projectId: item.projectId });
+      await revealDesktopSession(connectedEndpoint, { sessionId: item.sessionId, projectId: item.projectId, target: item.target });
     } catch (cause) {
       showMiniAppFeedback(cause instanceof Error ? cause.message : copy.sessionRevealFailed);
     }
@@ -4150,7 +4158,11 @@
             {/if}
           </div>
           {#if $windowHeader.agentLabel}
-            <span class="chat-agent-label" data-tauri-drag-region title={$windowHeader.agentLabel}>{$windowHeader.agentLabel}</span>
+            {#if $windowHeader.onAgentClick}
+              <Button variant="text" class="chat-agent-label" title={locale === "zh-CN" ? `打开 ${$windowHeader.agentLabel} 首页` : `Open ${$windowHeader.agentLabel} home`} onclick={$windowHeader.onAgentClick}>{$windowHeader.agentLabel}</Button>
+            {:else}
+              <span class="chat-agent-label" data-tauri-drag-region title={$windowHeader.agentLabel}>{$windowHeader.agentLabel}</span>
+            {/if}
           {/if}
           {#if $windowHeader.sourceLabel}
             <span class="chat-source-label" data-tauri-drag-region title={$windowHeader.sourceLabel}>{$windowHeader.sourceLabel}</span>
@@ -4355,6 +4367,7 @@
       title={startupPending ? startupHeaderTitle : agentFilesActive ? `${selectedAgent?.name || selectedAgentId} · ${locale === "zh-CN" ? "文件与附件" : "Files and attachments"}` : agentHistoryActive ? `${selectedAgent?.name || (locale === "zh-CN" ? "未归属历史" : "Unassigned history")} · ${locale === "zh-CN" ? "全部对话" : "All conversations"}` : activeHeaderTitle}
       sourceLabel={!agentFilesActive && !agentHistoryActive && activeHeaderChannel !== "web" ? activeHeaderSourceLabel : ""}
       agentLabel={!startupPending && conversationDetailActive && !agentFilesActive && !agentHistoryActive ? (viewMode === "external" ? activeExternalAgentName : activeAgentName) : ""}
+      onAgentClick={onboardingAgents.some(agent => agent.id === headerAgentId) ? () => openAgentChat(headerAgentId) : null}
       searching={searchOpen}
     >
       {#snippet actions()}
@@ -4379,6 +4392,7 @@
         {/if}
         {#if !agentFilesActive && !agentHistoryActive && serviceState === "ready" && onboardingAgents.length > 0}
           <TranscriptSearch
+            bind:this={transcriptSearch}
             bind:value={searchQuery}
             open={searchOpen}
             matchCount={searchMatchIds.length}
@@ -4393,23 +4407,21 @@
             onNext={() => gotoMatch(1)}
             onClose={toggleSearch}
           />
-          {#if !searchOpen}
-            <button
-              class="icon-button"
-              type="button"
-              aria-label={copy.search}
-              title={copy.search}
-              onclick={toggleSearch}
-            >
-              <MessageSearch size={16} aria-hidden="true" />
-            </button>
-          {/if}
           <MiniAppsQuickMenu
             {copy}
             endpoint={connectedEndpoint || serviceEndpoint || ""}
             onOpenApp={openMiniAppInspector}
             onOpenLaunchpad={() => openWorkspacePane("miniapps")}
           />
+          {#if conversationDetailActive}
+            <SessionActionsMenu {locale}
+              onSearch={async (trigger) => { if (!searchOpen) await toggleSearch(); searchReturnFocus = trigger ?? null; await tick(); transcriptSearch?.focus(); }}
+              onCopyPath={() => void copySessionPath({ sessionId: viewMode === "external" ? activeExternalSessionId : activeSessionId, target: "directory" })}
+              onOpenDirectory={() => void revealSessionInFinder({ sessionId: viewMode === "external" ? activeExternalSessionId : activeSessionId, target: "directory" })}
+              onDelete={() => deleteAgentConversation(viewMode === "external"
+                ? { sessionId: activeExternalSessionId, botId: activeExternalSessionItem?.botId || "", agentId: activeExternalAgentId }
+                : { sessionId: activeSessionId, botId: activeProfileId, agentId: selectedAgentId })} />
+          {/if}
           <button
             class="icon-button"
             type="button"
@@ -4523,7 +4535,7 @@
               {#each onboardingAgents.filter(agent => agent.enabled) as agent}<button type="button" class="secondary-button" onclick={() => claimActiveSession(agent.id)}>{agent.name}</button>{/each}
             </div>
           {/if}
-          <ConversationTranscript showUnresolvedStatus messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} agentName={activeExternalAgentName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
+          <ConversationTranscript showUnresolvedStatus messages={externalTranscript.messages} {searchMatchIds} {activeMatchId} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} agentName={activeExternalAgentName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
           {/if}
         </div>
         {#if externalTranscript && !externalTranscriptLoading && !externalTranscriptError}

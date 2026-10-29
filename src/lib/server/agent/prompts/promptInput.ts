@@ -1,5 +1,6 @@
-import { formatIsoInTimeZone, localDateKeyInTimeZone, normalizeTimeZone } from "$lib/server/time.js";
+import { formatIsoInTimeZone, localDateKeyInTimeZone, normalizeTimeZone, weekdayInTimeZone } from "$lib/server/time.js";
 import { formatMemoryShortId, MEMORY_CITATION_INSTRUCTION } from "$lib/server/memory/citation.js";
+import { dedupeByMemoryIdentity, memoryIdentityKey } from "$lib/server/memory/memoryIdentity.js";
 import { resolveScratchArtifactDir } from "$lib/server/agent/session/scratchArtifacts.js";
 import type {
   MemoryInjectionSnapshot,
@@ -53,7 +54,15 @@ export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): Mem
   }
 
   const profileIds = new Set(profileItems.map((item) => item.memoryId));
-  const selected = snapshot.selected.filter((record) => !profileIds.has(record.id)).slice(0, MAX_INJECTED_MEMORIES);
+  // One subject must reach the model once, even when the profile and the
+  // query-retrieved channel both picked a version of it.
+  const profileKeys = new Set(profileItems.map((item) => memoryIdentityKey({
+    subject: item.snapshot.subject,
+    content: item.snapshot.content
+  })));
+  const selected = dedupeByMemoryIdentity(snapshot.selected.filter((record) => (
+    !profileIds.has(record.id) && !profileKeys.has(memoryIdentityKey(record))
+  ))).slice(0, MAX_INJECTED_MEMORIES);
   // Citation short ids number every injected item (profile first, then
   // retrieved) so the model can cite exactly which memories informed a reply.
   const numberedProfileItems = profileItems.map((item, order) => {
@@ -77,6 +86,7 @@ export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): Mem
       snapshot: {
         displayText: record.content,
         content: record.content,
+        subject: record.subject,
         layer: record.layer,
         type: record.type,
         confidence: record.confidence,
@@ -187,6 +197,7 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
   const attachmentPaths = [...(options.attachmentPaths ?? [])].filter(Boolean);
   const receivedAt = formatIsoInTimeZone(messageDate, timeZone);
   const today = localDateKeyInTimeZone(messageDate, timeZone);
+  const weekday = weekdayInTimeZone(messageDate, timeZone);
   const scratchArtifactDir = resolveScratchArtifactDir(timeZone, messageDate);
   const persistedMessage = appendAttachmentBlock(
     options.persistedText ?? options.messageText,
@@ -203,6 +214,7 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
       `message_received_at: ${receivedAt}`,
       `timezone: ${timeZone}`,
       `today: ${today}`,
+      `weekday: ${weekday}`,
       `scratch_artifact_dir: ${scratchArtifactDir}`,
       "</env>",
       "",

@@ -57,6 +57,7 @@
         apiKey: string;
         models: ProviderModelForm[];
         defaultModel: string;
+        embeddingModel: string;
         path: string;
         thinkingFormat: ThinkingFormat;
     }
@@ -682,6 +683,7 @@
             apiKey: "",
             models: [],
             defaultModel: "",
+            embeddingModel: "",
             path: "/v1/chat/completions",
             thinkingFormat: "auto",
         };
@@ -703,6 +705,7 @@
             apiKey: "",
             models,
             defaultModel: models[0]?.id ?? "",
+            embeddingModel: "",
             path: "/v1/chat/completions",
             thinkingFormat: "auto",
         };
@@ -1725,6 +1728,7 @@
                           })
                         : [],
                     defaultModel: cp.defaultModel ?? "",
+                    embeddingModel: cp.embeddingModel ?? "",
                     thinkingFormat:
                         (cp.thinkingFormat as ThinkingFormat | undefined) ??
                         "auto",
@@ -2081,6 +2085,7 @@
                                         placeholder={defaultPathForProtocol(cp.protocol)}
                                     />
                                 </label>
+
 
                                 <label
                                     class="providers-detail-form-label md:col-span-2 xl:col-span-1"

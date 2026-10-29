@@ -25,8 +25,6 @@ test("updatePluginsConfig preserves and applies the complete memory settings blo
       ...settings.plugins.memory,
       enabled: true,
       backend: "mory",
-      embeddingProviderId: "embedding-provider",
-      embeddingModel: "embedding-model",
       reflectionTime: "05:15",
       reflectionNotifications: false,
       reflectionNotificationTarget: { channel: "telegram", botId: "news", chatId: "-1001" },
@@ -34,8 +32,6 @@ test("updatePluginsConfig preserves and applies the complete memory settings blo
     }
   });
 
-  assert.equal(settings.plugins.memory.embeddingProviderId, "embedding-provider");
-  assert.equal(settings.plugins.memory.embeddingModel, "embedding-model");
   assert.equal(settings.plugins.memory.reflectionTime, "05:15");
   assert.equal(settings.plugins.memory.reflectionNotifications, false);
   assert.deepEqual(settings.plugins.memory.reflectionNotificationTarget, {

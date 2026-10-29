@@ -107,8 +107,8 @@ test("an unknown model key fails with catalog guidance instead of a guessed mode
   const directory = mkdtempSync(join(tmpdir(), "molibot-model-unknown-"));
   try {
     const operations = createPiModelOperations({ models: fixtureModels([]), artifactDir: directory, workspaceDir: directory });
-    await assert.rejects(() => operations.classify({ model: "classifier|missing|x", state: {}, questions: {} }), /models\.list/);
-    await assert.rejects(() => operations.generateImages({ model: "image|missing|x", prompt: "x" }), /models\.list/);
+    await assert.rejects(() => operations.classify({ model: "classifier|missing|x", state: {}, questions: {} }), /models\.getAvailableOfType/);
+    await assert.rejects(() => operations.generateImages({ model: "image|missing|x", prompt: "x" }), /models\.getAvailableOfType/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

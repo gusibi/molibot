@@ -67,6 +67,7 @@ export const POST: RequestHandler = async ({ request }) => {
       apiKey,
       models: Array.isArray(body.models) ? body.models : [],
       defaultModel: String(body.defaultModel ?? "").trim(),
+      embeddingModel: String(body.embeddingModel ?? "").trim() || undefined,
       path: String(body.path ?? "").trim(),
       thinkingFormat: body.thinkingFormat
     });

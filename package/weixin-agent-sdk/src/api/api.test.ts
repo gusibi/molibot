@@ -221,3 +221,20 @@ test("getUpdates parses inbound uint64 message ids losslessly", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("classifyFetchError retains unrecognized causes without exposing signed URLs", () => {
+  const requestError = new TypeError("fetch failed", {
+    cause: Object.assign(new Error("Request body length does not match content-length header"), {
+      code: "UND_ERR_REQ_CONTENT_LENGTH_MISMATCH"
+    })
+  });
+  assert.equal(classifyFetchError(requestError).code, "UND_ERR_REQ_CONTENT_LENGTH_MISMATCH");
+  assert.match(classifyFetchError(requestError).description, /content-length/);
+
+  const causeWithoutCode = new TypeError("fetch failed", {
+    cause: new Error("Request rejected at https://cdn.example.test/upload?signature=secret-value")
+  });
+  const failure = classifyFetchError(causeWithoutCode);
+  assert.match(failure.description, /Request rejected/);
+  assert.ok(!failure.description.includes("secret-value"));
+});

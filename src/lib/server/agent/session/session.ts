@@ -44,6 +44,15 @@ export interface SessionMessageEntry extends SessionEntryBase {
   retention?: TurnRetentionPolicy;
   message: AgentMessage;
   /**
+   * Assistant entries start as "process". At turn end, the shared runtime
+   * commits "final" for the complete deliverable or "partial" for a valid
+   * answer formed before an unfinished end (stop, budget, failure). Display
+   * bookkeeping only — never part of the model context rebuilt from entries
+   * (same contract as `contextBreakdown`). Absent entries predate result
+   * semantics and must not be re-classified on read.
+   */
+  delivery?: "process" | "final" | "partial";
+  /**
    * Context-usage snapshot of the model call that produced an assistant
    * message: category estimates from the dispatch preflight plus that call's
    * real reported prompt usage. UI bookkeeping only — never part of the model

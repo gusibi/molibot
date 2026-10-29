@@ -1119,7 +1119,7 @@ export class MomRuntimeStore {
     chatId: string,
     message: AgentMessage,
     sessionId?: string,
-    options?: { runId?: string; retention?: TurnRetentionPolicy; contextBreakdown?: SessionContextSnapshot; sourceId?: string }
+    options?: { runId?: string; retention?: TurnRetentionPolicy; delivery?: "process" | "final" | "partial"; contextBreakdown?: SessionContextSnapshot; sourceId?: string }
   ): string {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const entryId = options?.sourceId
@@ -1146,6 +1146,7 @@ export class MomRuntimeStore {
       ).toISOString(),
       runId: String(options?.runId ?? "").trim() || undefined,
       retention: options?.retention,
+      delivery: options?.delivery,
       contextBreakdown: options?.contextBreakdown,
       message
     });
@@ -1156,6 +1157,32 @@ export class MomRuntimeStore {
     const snapshotFile = this.getSessionContextFile(chatId, id);
     if (!this.shared || existsSync(snapshotFile)) writeFileSync(snapshotFile, JSON.stringify(snapshot, null, 2), "utf8");
     return entryId;
+  }
+
+  /**
+   * Stamps turn-answer display semantics onto one persisted message entry.
+   * Called by the shared runtime at run end, when the turn outcome is finally
+   * known — never inferred from text on read. Unknown ids (the entry rotated
+   * away, a checkpoint rolled it back) are ignored; process entries remain
+   * process rather than being promoted to answers on read.
+   */
+  markSessionMessageDelivery(
+    chatId: string,
+    sessionId: string | undefined,
+    entryId: string,
+    delivery: "final" | "partial"
+  ): void {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const entries = this.readSessionFileEntries(chatId, id);
+    const index = entries.findIndex((entry) => entry.id === entryId && entry.type === "message");
+    if (index < 0) return;
+    const entry = entries[index];
+    if (entry.type !== "message" || entry.delivery === delivery) return;
+    this.writeSessionFileEntries(chatId, id, [
+      ...entries.slice(0, index),
+      { ...entry, delivery },
+      ...entries.slice(index + 1)
+    ]);
   }
 
   /**

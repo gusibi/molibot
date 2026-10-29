@@ -94,13 +94,13 @@ models.setProvider({ id: model.provider, name: 'Fixture', getModels: () => [mode
  return { api: 'fixture', provider: model.provider, model: 'img', output: [{ type: 'text', text: 'Two fixture images' }, ...['first', 'second'].map(data => ({ type: 'image' as const, mimeType: 'image/png', data: Buffer.concat([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"), Buffer.from(data)]).toString("base64") }))], usage, stopReason: 'stop', timestamp: Date.now() }; } });
 let generations = 0;
 const requestContexts: unknown[] = [];
-const code = mode === "manual" ? `text(await models.classify({ model: "classifier|fixture|cls", state: {}, questions: { flag: { type: "bool", instructions: "yes?", criteria: { true: "yes", false: "no" } } } }));` : `const catalog = await models.list();
-const classifier = catalog.find(x => x.key === 'classifier|fixture|cls');
+const code = mode === "manual" ? `text(await models.classify({ provider: "fixture", id: "cls" }, { state: {}, questions: { flag: { type: "bool", instructions: "yes?", criteria: { true: "yes", false: "no" } } } }));` : `const catalog = await models.getAvailableOfType("classifier");
+const classifier = catalog.find(x => x.provider === 'fixture' && x.id === 'cls');
 const question = { state: {}, questions: { flag: { type: 'bool', instructions: 'yes?', criteria: { true: 'yes', false: 'no' } } } };
-const results = await Promise.all([models.classify({ ...question, model: classifier.key }), models.classify({ ...question, model: classifier.key })]);
-const generated = await models.generateImages({ model: 'image|fixture|img', prompt: 'two images', images: ['data:image/png;base64,YQ=='] });
-for (const output of generated.images) image(output);
-text({ answers: results, text: generated.text, refs: generated.images.map(x => x.ref) });`;
+const results = await Promise.all([models.classify(classifier, question), models.classify(classifier, question)]);
+const generated = await models.generateImages({ provider: 'fixture', id: 'img' }, { input: [{ type: 'text', text: 'two images' }, { type: 'image', mimeType: 'image/png', data: 'YQ==' }] });
+for (const output of generated.output.filter(x => x.type === 'image')) image(output);
+text({ answers: results, text: generated.output.filter(x => x.type === 'text').map(x => x.text).join('\\n') });`;
 agent.streamFunction = (_model: unknown, requestContext: unknown) => {
  requestContexts.push(requestContext);
  const stream = createAssistantMessageEventStream();

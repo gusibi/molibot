@@ -1,3 +1,4 @@
+import { inCodemodeSession } from "./testSupport/codemodeSession.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -275,7 +276,7 @@ test("a non-read MCP operation runs without an approval card in full access and 
     const plannedDiscussion = buildTools("plan", true);
     assert.ok(!plannedDiscussion.some(tool => ["exitPlan", "subagent"].includes(tool.name)));
     const discussion = buildTools("auto", true);
-    const codemode = discussion.find(tool => tool.name === "codemode")!;
+    const codemode = inCodemodeSession(discussion.find(tool => tool.name === "codemode")!, workspaceDir);
     const orchestrated = await codemode.execute("tc-discussion-codemode", { code: 'text(ALL_TOOLS.map(tool => tool.name));' });
     assert.doesNotMatch(JSON.stringify(orchestrated), /Read-only discussion cannot/);
     assert.match(JSON.stringify(orchestrated), /ls/);

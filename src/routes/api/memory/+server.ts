@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 
-type MemoryAction = "add" | "search" | "flush" | "delete" | "update" | "list" | "sync" | "compact";
+type MemoryAction = "add" | "search" | "flush" | "delete" | "forget" | "update" | "list" | "sync" | "compact" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
 
 interface MemoryBody {
   action?: MemoryAction;
@@ -15,6 +15,12 @@ interface MemoryBody {
   expiresAt?: string | null;
   id?: string;
   limit?: number;
+  namespace?: string;
+  domain?: string;
+  type?: string;
+  subject?: string;
+  confidence?: number;
+  reason?: string;
 }
 
 function scopeOf(body: MemoryBody): { channel: string; externalUserId: string } {
@@ -93,6 +99,48 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
     const deleted = await memory.delete(scope, id);
     return json({ ok: true, deleted, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+  }
+
+  if (action === "forget") {
+    const id = String(body.id ?? "").trim();
+    if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
+    const deleted = await memory.forget(scope, id, { reason: "user_forget" });
+    return json({ ok: true, deleted, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+  }
+
+  if (action === "list-candidates") {
+    return json({
+      ok: true,
+      candidates: memory.listCandidates("pending", body.limit ?? 200),
+      enabled: memory.isEnabled(),
+      capabilities: memory.capabilities()
+    });
+  }
+
+  if (action === "confirm-candidate") {
+    const id = String(body.id ?? "").trim();
+    if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
+    const candidate = await memory.confirmCandidate(id, {
+      value: body.content,
+      namespace: body.namespace as any,
+      domain: body.domain as any,
+      type: body.type as any,
+      subject: body.subject,
+      confidence: body.confidence,
+      reason: body.reason
+    });
+    return json({ ok: true, candidate, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+  }
+
+  if (action === "ignore-candidate") {
+    const id = String(body.id ?? "").trim();
+    if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
+    return json({
+      ok: true,
+      candidate: memory.ignoreCandidate(id),
+      enabled: memory.isEnabled(),
+      capabilities: memory.capabilities()
+    });
   }
 
   if (action === "update") {

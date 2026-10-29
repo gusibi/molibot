@@ -47,6 +47,7 @@ export function buildNewCustomProvider(req: DesktopProviderCreateRequest): Custo
     apiKey: req.apiKey,
     models: req.models,
     defaultModel: req.defaultModel,
+    embeddingModel: req.embeddingModel,
     path: req.path,
     thinkingFormat: req.thinkingFormat
   });

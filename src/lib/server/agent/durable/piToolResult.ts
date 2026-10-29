@@ -16,3 +16,25 @@ export function decodePiToolDetails(details: ModelJsonValue | undefined): Pick<H
     error: typeof envelope.error === "string" ? envelope.error : undefined,
     terminate: typeof envelope.terminate === "boolean" ? envelope.terminate : undefined };
 }
+
+function isContentBlock(value: unknown): value is HostToolResult["content"][number] {
+  if (!value || typeof value !== "object") return false;
+  if (!("type" in value)) return false;
+  return value.type === "text" ? "text" in value && typeof value.text === "string"
+    : value.type === "image" && "data" in value && typeof value.data === "string" && "mimeType" in value && typeof value.mimeType === "string";
+}
+
+function isContentArray(value: unknown): value is HostToolResult["content"] {
+  return Array.isArray(value) && value.every(isContentBlock);
+}
+
+/** Native nested results contain the program value and diagnostics instead of a transcript entry. */
+export function decodePiNestedResult(result: import("@earendil-works/pi-durable").NestedToolExecutionResult): HostToolResult {
+  const value = result.structuredOutput;
+  const content: HostToolResult["content"] = typeof value === "string" ? [{ type: "text", text: value }]
+    : isContentArray(value) ? value
+    : isContentBlock(value) ? [value]
+    : value !== undefined ? [{ type: "text", text: JSON.stringify(value) }]
+    : result.diagnostics.map(diagnostic => ({ type: "text", text: diagnostic.message }));
+  return { content, ...decodePiToolDetails(result.details), usage: result.usage, isError: result.isError };
+}

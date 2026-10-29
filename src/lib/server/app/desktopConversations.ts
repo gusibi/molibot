@@ -642,13 +642,19 @@ export function resolveDesktopSessionFilePath(sessionId: string, projectId?: str
   return sessions.getSessionFilePath(cleanSessionId, projectId);
 }
 
+/** Resolves the containing directory of an existing session's record file. */
+export function resolveDesktopSessionDirectoryPath(sessionId: string, projectId?: string): string | null {
+  const filePath = resolveDesktopSessionFilePath(sessionId, projectId);
+  return filePath ? path.dirname(filePath) : null;
+}
+
 /**
- * Reveals the session's file in macOS Finder (using `open -R`).
- * If the file exists, it will be selected in Finder.
+ * Opens the session record directory, or reveals its file in macOS Finder.
+ * File targets use `open -R` to select the record.
  * If the file does not exist yet but its containing directory exists, the directory will be opened.
  */
-export function revealDesktopSessionPath(sessionId: string, projectId?: string): { ok: boolean; path?: string; error?: string } {
-  const filePath = resolveDesktopSessionFilePath(sessionId, projectId);
+export function revealDesktopSessionPath(sessionId: string, projectId?: string, target: "file" | "directory" = "file"): { ok: boolean; path?: string; error?: string } {
+  const filePath = target === "directory" ? resolveDesktopSessionDirectoryPath(sessionId, projectId) : resolveDesktopSessionFilePath(sessionId, projectId);
   if (!filePath) {
     return { ok: false, error: "Session file path not found" };
   }
@@ -663,7 +669,7 @@ export function revealDesktopSessionPath(sessionId: string, projectId?: string):
       : null;
 
   if (targetToReveal) {
-    revealAbsolutePath(targetToReveal, "reveal");
+    revealAbsolutePath(targetToReveal, target === "directory" ? "open" : "reveal");
     return { ok: true, path: filePath };
   }
   return { ok: false, path: filePath, error: "Session location does not exist" };

@@ -1,6 +1,96 @@
-## Personal Agent 工作首页 UI（2026-10-25，UI 优化已实施，完整数据接线未开始）
+## Pi 官方 Codemode 复用（2026-10-28，P1，已交付）
 
-默认 Agent 首页以自动交付为主：日报采用可阅读的小报结构，热点选题展示推荐角度与大纲，右侧承接真实审批与决定，下方紧凑核查定时执行。最近一期成果不因离开首页消失；执行、内容、投递和用户决定分别表达。复用共享交接读模型、原审批／任务动作与 Artifact Inspector，不新增通知中心或另一套任务状态。
+复用 Pi 1.3 Durable Codemode 的执行、发现、store 与日志恢复；保留共享权限、审批、预算、媒体和制品适配，移除本地 worker。验收范围为隔离实例与本地模拟模型；真实 Provider 和安装包验证未执行。当前行为与证据见 [验证记录](docs/reviews/pi-codemode-integration-validation.md)。
+
+嵌套工具已统一为 Pi `api.executeTool()`，删除重复的测试执行器；原生调用身份、审批、预算、取消、流式事件与恢复检查均有正式入口回归。业务目标、执行权限与验收继续由 Molibot 负责。
+
+## 对话统一过程区与完整最终结果（2026-10-29，P1，已实现，隔离验收）
+
+每轮一个默认折叠的统一过程区和一个独立最终结果；展开过程为思考与工具交替的扁平时间线，不嵌套思考折叠卡；中间 token 不按工具位置猜成答案，无步骤消息不再空白。共享运行时要求完整交付，过程/最终/部分结果语义持久化；无结果的等待审批与停止回合不提升进度为正文。SSE 完成事件排除过程与诊断，复制搜索及预览以结果为源。详见 [实施 Spec](docs/requirements/conversation-answer-visibility-spec.md) 与 [Issue #69](https://github.com/gusibi/molibot/issues/69)。真实 Provider、原生 App 和当前在用服务尚未专项验收；全量 `pnpm verify:feature` 留给用户主动执行。
+
+## 独立 Embedding Models 页面（2026-10-28，P0，已交付）
+
+**Problem**：Embedding 配置耦合在文本 Provider 上，只能跟随一条 Provider，无法为多个远端/本地服务分别保存 Host、Key、模型；本地 Ollama/LM Studio 与远程模型也没有统一的“选择/切换”界面。
+
+**Decision**：新增独立的 `plugins.memory.embeddingModels` lane 集合和 `activeEmbeddingModelId`，配套 `/settings/memory/embeddings` Web 页面与 Desktop “助手 → 向量模型”原生入口；Provider 与 Desktop Provider 编辑器移除 embedding 字段，记忆页只保留状态与入口。旧 Provider 字段一次性迁移为 lane。每条 lane 独立 Host/Key/Model，可选 Enabled/Active；本地服务检测到后可一键加入，不安装则继续远程；本地 lane 不可用时自动回退远程 lane。
+
+**验收**：旧 SiliconFlow/BAAI 配置迁移为 lane；真实测试 1024 维 / 226ms；新增远端 lane、切换 Active、删除、空状态正常；模拟 Ollama 加入多条本地 lane 并在本地/远程间切换；页面中英、明暗、桌面/移动冷启动走查无 console error、无横向溢出；全量相关测试与构建结果见 `features.md` 同日条目。
+
+**未完成**：真实本地模型安装后的质量/性能验收（产品不自动安装）；Key 仍与现有 Provider Key 一样以本地设置库明文保存。
+
+## 记忆向量真实可用性（2026-10-27，P0，已交付）
+
+**Problem**：Slice 4 声称“自动探测 + 回填”，但实现只认当前文本 Provider，且 `embeddingEndpoint` 直接拼 `baseUrl + /embeddings`。当前 `cli-proxy-api` 没有 embeddings 端点，另一个已启用的硅基流动 Provider 有 `BAAI/bge-m3`，却被忽略；即使选中也会拼成缺少 `/v1` 的地址。结果记忆始终是词法检索，而 UI 无法选择、测试或重新索引。
+
+**Decision**：Embedding 目标按“本地预设优先（用户显式选择时）→ 当前文本 Provider → 任意启用 Provider 的显式 `embeddingModel` → 逐 Provider 探测回退”解析；endpoint 从 base/path 推导版本段；记忆管理页提供 Provider/模型选择、测试连接、重新索引、自动检测和最近错误；all-scopes 搜索与 scoped recall 共用 embedding 路径。本地 Embedding 是可选安装：检测 loopback Ollama / LM Studio，用户一键启用；未安装/未启动/无模型时继续远程，本地失效时自动回退远程。不改 Provider 的文本路由，不为单个 Provider 写特判。
+
+**验收**：隔离 `DATA_DIR` 下真实硅基流动 `BAAI/bge-m3` 返回 1024 维、约 231ms；自动探测从 cli-proxy 回退并写回；零词面重合查询命中目标记忆；C5 255s、C6 507s、C8 257s 在向量模式通过；本地链路用模拟 Ollama 验证检测、1024 维测试、本地/远程切换、本地服务消失后自动回退、未安装时保持远程；当时全量相关测试 1152 项，1151 通过、1 跳过、0 失败；此前偶发的 `codemode.test.ts` 时序用例本次未复现，单独运行通过。`pnpm check`、`pnpm build` 通过；Web 中文明色 1440px、英文暗色 390px 冷启动走查通过。
+
+**未完成**：真实本地模型（Ollama / LM Studio）安装后的质量与性能验收，需要用户先安装并下载模型；产品不自动安装。旧 content 语料独立管理界面仍未建设。
+
+## 记忆写入与召回 v2：Slice 5 记忆中心与 C8（2026-10-25，P0，Slice 5 已交付）
+
+**Problem**：Web 记忆页只能搜索、编辑和删除记录，看不到对话抽取的 Proposal；Desktop 有审核但两端不一致。记录列表没有按 subject 组织，用户看不出“它到底记住了我什么”；删除是普通删除，不抑制后续抽取。C8（配偶事实在代词/同义提问下召回）也没有验证。
+
+**Decision**：Web 记忆页补齐 Proposal 确认/忽略、按 subject 分组、删除改为“忘记”（删除 + 隐私抑制）；Desktop 全部记录显示 subject，删除同样改为 forget；新增 C8 集成用例与 golden（slow，等待空闲抽取）。
+
+**Slice 5 已交付**：`/api/memory` 新增 `forget`、`list-candidates`、`confirm-candidate`、`ignore-candidate`；Web 记忆页显示待确认队列、subject 分组和 subject/type 徽章，删除按钮改为“忘记”；Desktop 记忆中心显示 subject，删除走 forget；C8 集成用例证明无语义词面重合时稳定画像仍注入“妻子/生日”事实；C8 golden 已加入并标记 slow。
+
+**验收**：相关测试共 1133 项；分组运行时全部通过，全量并发下两个时序用例偶发失败、单独运行通过（详见 `features.md` 同日条目）。`pnpm check`、`pnpm build`、`pnpm desktop:check` 通过。真实 Provider（`MOLIBOT_EVAL_PROFILE_ID=default`，`cli-proxy-api`）验收：C5 262s 通过、C6 510s 通过、C8 259s 通过；C6 早先失败定位为后台直连 provider 缺 `x-molibot-session` 与 subject 限定词，修复后通过。2026-10-27 又在硅基流动 `BAAI/bge-m3` 向量模式下复跑：C5 255s、C6 507s、C8 257s 通过。Web 记忆页的向量卡片、测试连接、重新索引与 all-scopes 搜索已完成中/英、明/暗、桌面/移动冷启动走查；Proposal 确认/忽略与忘记流程的浏览器走查仍未执行。
+
+**未完成**：Web Proposal 审核与分组的浏览器点击走查；旧 content 语料的独立管理界面仍未建设（已从模型工具面移除）。
+
+## 记忆写入与召回 v2：Slice 4 Embedding 自动探测与回填（2026-10-25，P0，Slice 4 已交付，Slice 5 已交付）
+
+**Problem**：记忆向量原先要在记忆设置里单独选 provider、手填模型名，默认关闭；用户打开后旧记忆也不会自动回填。结果是“开箱即用”变成两级配置，未配置时语义召回完全失效。
+
+**Decision**：Embedding 归属到服务商配置的可选 `embeddingModel`，跟随当前文本服务商；为空时由后台探测常见模型并写回服务商；模型变化使旧向量失效，后台分批重嵌入。记忆设置页不再要求单独选 provider，只显示当前解析结果或“词法检索”。规则见 [设计文档](docs/designs/memory/memory-write-and-recall-v2.md) §7。
+
+**Slice 4 已交付**：`CustomProviderConfig.embeddingModel`（schema、sanitize、SQLite 迁移与 round-trip）；`resolveEmbeddingProvider/Target` 先看当前文本路由，再看其他已启用 Provider 的显式 `embeddingModel`；`EmbeddingModelResolver` 探测 `text-embedding-3-small` / `bge-m3` / `nomic-embed-text` 等模型，成功写回 provider、失败按 Provider 冷却 1 小时；启动与设置变更时触发，`onResolved` 启动后台分批回填；mory 按 `embeddingModelVersion` 识别旧向量并重嵌入。2026-10-27 补齐非当前 Provider 选择、endpoint 推导与记忆页操作，见上方条目。
+
+**验收**：`embeddingResolver.test.ts` 覆盖已配置不探测、探测并持久化、失败冷却、Anthropic 回退、文本路由优先；`moryCore.embedding.test.ts` 覆盖旧行回填、分批 remaining、模型切换后重嵌入；provider settings 增加 save → new store → load round-trip；记忆、设置、Desktop、工具与 prompt 相关共 879 项通过（1 项跳过）；`pnpm check`、`pnpm build`、`pnpm desktop:check` 通过。
+
+**未完成**：无（golden 已在 2026-10-27 以真实 Provider 完成；手动重试、记忆页选择与重新索引入口已补齐）。
+
+## 记忆写入与召回 v2：Slice 3 工具面收敛（2026-10-25，P0，Slice 3 已交付，Slice 4–5 待实施）
+
+**Problem**：模型可见的 `memory` 工具暴露 11 个动作，包括 `flush/sync/compact` 这些后台维护动作，以及 `add_content` 这个写入“永不召回”内容语料的陷阱。模型需要靠长描述才能避开 `add_content`，中小模型仍会误选。
+
+**Decision**：拆成三个意图清晰的工具：`save_memory`（按 subject upsert，敏感事实转 Proposal）、`recall_memory`（返回 id/subject/内容）、`forget_memory`（只按 id 删除）。维护动作留给后台任务，内容语料移出对话工具面。契约见 [设计文档](docs/designs/memory/memory-write-and-recall-v2.md) §6。
+
+**Slice 3 已交付**：三个工具接入 Agent 工具目录；trace 的写入回执与“主动检索”识别支持新工具；维护与内容语料从模型面移除；`save_memory`/`forget_memory` 归类为 write，`recall_memory` 归类为 read，可在只读/计划模式使用；旧的 `disabledTools: ["memory"]` 在设置加载与运行时展开为三个新工具，避免静默重新开启；`forget_memory` 删除记录并写入隐私抑制，后续抽取不会重建同一事实；Agent 设置页与静态 prompt 的工具名同步更新。
+
+**验收**：工具测试、trace 回执/引用、权限副作用分类、settings round-trip、prompt 与记忆/Session 相关共 828 项通过（其中 1 项跳过）；`pnpm check`、`pnpm build`、`pnpm desktop:check`（0 errors / 0 warnings）通过。`runner.test.ts` 在 300 秒内未跑完，未作为本次证据；runner 改动仅扩展工具名判断，trace helper 已有独立测试。
+
+**未完成**：golden C5/C6 的真实 Provider 运行；跨 subject 的语义冲突判定、embedding 探测与自动回填（Slice 4）；Desktop/Web 记忆中心与 C8（Slice 5）。
+
+## 记忆写入与召回 v2：Slice 2 subject 与纠正（2026-10-25，P0，Slice 2 已交付，Slice 3–5 待实施）
+
+**Problem**：同一事实在两次对话里被抽成两个 subject 时，旧值不会被覆盖；读取端又只按内容去重，导致新旧两条都 active、都注入。用户说“我换特斯拉了”，旧“开宝马”仍然生效。
+
+**Decision**：抽取前把稳定画像与相关记录一起交给模型，要求纠正时复用已有 subject 并返回 `supersedesSubject`；服务端以该字段为准覆盖模型新造的 subject。读取端在画像构建、查询选择、注入合并三处按 subject 收敛，只保留最新版本。规则见 [设计文档](docs/designs/memory/memory-write-and-recall-v2.md) §4.4 / §5.3。
+
+**Slice 2 已交付**：`MemoryExtractionService` 注入 `relatedMemories`（Stable profile + query 相关记录，按 subject 去重，最多 16 条）；抽取契约新增 `supersedesSubject`；`MemoryWriter` 用它覆盖 subject；`dedupeByMemoryIdentity` 接入 `selectPromptMemoryRows`、`MemoryProfileBuilder`、`materializeMemoryInjection`；结构化事实的短内容下限在 gateway 与 Writer 统一为 2 字；C6 集成用例证明旧宝马被归档、只召回特斯拉且版本链保留。
+
+**验收**：C6 集成用例通过；`classifier`/`profileBuilder` 新增同 subject 只取最新版本的守卫；伪造的 `supersedesSubject` 不会覆盖无关事实；记忆域、Session 域与 prompt 输入共 358 项相关测试通过；`pnpm check` 通过。golden C5/C6 已加入 `evals/golden/c-memory.yaml`，并给 harness 增加 `wait_after_ms` 支持；两者标记为 `slow`、`baseline: unknown`，未在本地用真实 Provider 跑过。
+
+**未完成**：golden C5/C6 的真实 Provider 运行；跨 subject 的语义冲突判定（embedding 相似度 + 极性）；工具面收敛（Slice 3）、embedding 探测与自动回填（Slice 4）、Desktop/Web 界面与 C8（Slice 5）。
+
+## 记忆写入与召回 v2：Slice 1 写入管线（2026-10-25，P0，Slice 1 已交付，Slice 2–5 待实施）
+
+**Problem**：记忆有四条写入路径、两个提交通道。显式 `memory add` 和关键词 `flush` 直接生效；LLM 会话抽取和夜间反思只产候选，而 `autoConfirm` 默认关闭，所以“聪明的那条路”到不了产品。唯一自动生效的是关键词匹配，`evals/golden/c-memory.yaml` 的 C1–C3 又全部使用“记一下/记住”，回归全绿但自然陈述记不住。
+
+**Decision**：一条抽取管线喂一个 Writer。显式陈述与非敏感推断直接生效，敏感事实进 Proposal，维护动作移出模型工具面。事实身份以 `subject` 为准，同一 subject 的新值覆盖旧版本。规则见 [ADR 0007](docs/adr/0007-one-memory-write-pipeline.md)、[ADR 0008](docs/adr/0008-memory-identity-is-subject.md)，机制见 [设计文档](docs/designs/memory/memory-write-and-recall-v2.md)。
+
+**Slice 1 已交付**：空闲会话自动抽取（启动补扫 + 60 秒维护定时器，完成一轮且空闲 ≥90 秒才抽取）；统一 `MemoryWriter`（敏感事实进 Proposal、同一 subject 走结构化路径覆盖、遗忘抑制、失败不阻塞兄弟条目）；独立 watermark 幂等与指数退避；复用 `compactionModelKey` 作为后台抽取模型（为空回退主模型）；`ManagedSessionItem` 暴露 `agentId` 供写入作用域使用。
+
+**验收**：`memoryWriter.test.ts` 9 项、`memoryExtraction.test.ts` 8 项、`memoryExtraction.e2e.test.ts` 2 项，共 19 项通过；自然陈述“养了一只叫豆豆的柯基”不依赖“记住”即可跨会话检索并进入稳定画像；敏感陈述只产 Proposal、不被召回。`pnpm check`、`pnpm build` 通过；记忆域与 Session 域相关测试全部通过。
+
+**未完成**：golden C5 需 harness 支持轮次间等待；subject/revision 的读取端互斥（Slice 2）、工具面收敛（Slice 3）、embedding 探测与自动回填（Slice 4）、Desktop/Web 界面与 C6/C8（Slice 5）。历史 pending proposal 按第三轮决议保留为 Proposal，一次性提示后批量确认/忽略。
+
+## Personal Agent 工作首页（2026-10-27 规格修订，UI 优化已实施，完整数据接线未交付）
+
+默认 Agent 首页围绕已交代的事，展示可使用的成果、真实进展与下一步责任、必要决定和影响承诺的风险。日报与选题保留各自阅读与比较方式；正常执行步骤和可自行恢复的小故障留在详情，不制造用户待办。沿用共享交接读模型及原业务动作，不新建委托存储或通知策略引擎。2026-10-27 补充目标、授权、必要介入与安静表达要求；持续跟进、主动监测和外部集成仍独立管理，本次不实施产品代码或改变能力状态。
 
 布局、数据接线、期次、交互、主题／窄窗及验收见 [UI 实施 Spec](docs/designs/agent-home/personal-agent-dashboard-ui-spec.md)，实施入口为 [Issue #68](https://github.com/gusibi/molibot/issues/68)。本次按用户限定仅优化既有数据的布局、阅读与审批呈现；专用日报／选题展示、期次保留及精确产物／回执接线未实施，不代表完整规格完成。主动发现、持续跟进和外部发布集成仍按各自范围管理，能力矩阵状态不变。
 
@@ -31,6 +121,18 @@
 ## Agent 设置保存后停留（2026-10-16，P1，已交付）
 
 保存 Agent 设置后保留当前页面、分类、文件选择及已保存内容，固定底栏显示成功提示；通过返回/取消离开。保存失败保留草稿并允许重试。首页与管理列表入口共用此行为。
+
+## 统一 Skill Manager（2026-10-29，P1，V1 已实施；V1.1 待排期）
+
+V1 按 [统一 Skill Manager 规格](docs/requirements/unified-skill-manager-spec.md) 交付发现、来源、Copy/Link 安装、预检与冲突、替换备份与失败恢复、外部分发、卸载保护、平台配置和可验证的 Runtime 加载状态。范围边界：远端只显示服务器设备与服务器路径，不把远端目录当本机路径；外部技能安装不执行脚本、不改变审批规则；已有 Skill 原地识别，不迁移、不自动接管未知来源文件。
+
+归属与筛选（2026-10-29 追加）：首层分为「Molibot」（全局、Agent 专属、Molibot 项目）和「其他平台」（Claude Code / Codex / OpenCode / 自定义平台等），各自按来源分组并可单独筛选。Molibot 目录内已有的技能与内置技能视为受管理，不再标记成「非 Molibot 安装」；「未记录来源」只在 Molibot 目录之外出现，并以元信息行上的图标提示。
+
+整理（2026-10-29 追加，用户明确要求，属于规格中「不强制统一 Library」的可选操作）：可把外部平台或某个 Molibot 范围里的技能复制成目标目录中的一份规范副本，并把原入口替换为指向它的链接（或移除原入口、保留副本）。写入前展示来源、目标、回链和冲突；原入口与已有目标都会备份，失败自动还原。它不改变安装优先级，也不自动迁移任何技能。
+
+详情阅读顺序（2026-10-29 调整）：文件内容优先。YAML 元信息以表格随 SKILL.md 显示；作用域、方式、版本、来源、共享工具、分发数与时间合并成一行 tag；路径、基线、分发明细收进「详细信息」；Runtime 结论是标题旁的状态图标，悬浮显示诊断；右侧目录是可展开/收起的真实文件树。
+
+V1.1 仍未开始，需单独排期：Git 跟踪 Ref 与本地 Copy 的更新检测、文件 Diff 与本地修改识别、历史备份回滚、批量更新、依赖诊断，以及有缓存和频率限制的周期检查（经 watched event JSON 与 Runtime 事件系统落地）。V1 界面不显示这些入口。Cursor、GitHub Copilot、OpenClaw 的候选目录尚未按官方规则逐条核对，界面标为「路径未核对」；Windows 与 Linux Server 未验证。
 
 ## 技能管理入口统一（2026-10-16，P1，实现完成、专项通过）
 

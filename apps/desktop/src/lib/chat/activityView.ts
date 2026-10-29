@@ -159,47 +159,6 @@ export function classifyActivityBody(activity: DesktopConversationActivity): Act
   return { kind: "text", content: summary };
 }
 
-export interface ActivityHeadline {
-  /** Label of the step the head should name: the running one, else the last. */
-  label: string;
-  /** 1-based position of that step. */
-  index: number;
-  total: number;
-  running: boolean;
-  failed: boolean;
-}
-
-/**
- * What the collapsed head says.
- *
- * "Completed actions · 23" tells the reader nothing about a 23-step run — which
- * step is running, or which one just failed. The head names a step, and prefers
- * the failed one over the merely latest, because that is the one the reader
- * needs to open.
- */
-export function activityHeadline(activities: DesktopConversationActivity[]): ActivityHeadline | null {
-  if (!activities.length) return null;
-  const runningIndex = activities.findIndex((activity) => activity.state === "running");
-  const failedIndex = activities.findIndex((activity) => activity.state === "error");
-  const index = runningIndex >= 0
-    ? runningIndex
-    : failedIndex >= 0
-      ? failedIndex
-      : activities.length - 1;
-  return {
-    label: activities[index].label ?? "",
-    index: index + 1,
-    total: activities.length,
-    running: runningIndex >= 0,
-    failed: failedIndex >= 0
-  };
-}
-
-export interface ActivityFileSummary {
-  written: string[];
-  read: string[];
-}
-
 export interface ActivityPreview {
   content: string;
   truncated: boolean;
@@ -224,29 +183,6 @@ export function formatActivityMetadata(activity: DesktopConversationActivity): s
   if (Number.isInteger(activity.exitCode)) items.push(`exit ${activity.exitCode}`);
   if (Number.isFinite(activity.tokenUsage)) items.push(`${activity.tokenUsage} tokens`);
   return items;
-}
-
-/**
- * Distinct paths this run touched, split by whether they were written.
- *
- * `paths`/`mutates` have been on the contract since file targets were recorded,
- * but nothing in the transcript read them — so "which files did this turn
- * change?" was only answerable by opening every step. A path that was both read
- * and written counts as written: that is the fact worth surfacing.
- */
-export function activityFileSummary(activities: DesktopConversationActivity[]): ActivityFileSummary {
-  const written = new Set<string>();
-  const read = new Set<string>();
-  for (const activity of activities) {
-    if (activity.state === "error") continue;
-    for (const path of activity.paths ?? []) {
-      if (!path) continue;
-      if (activity.mutates) written.add(path);
-      else read.add(path);
-    }
-  }
-  for (const path of written) read.delete(path);
-  return { written: [...written], read: [...read] };
 }
 
 /**

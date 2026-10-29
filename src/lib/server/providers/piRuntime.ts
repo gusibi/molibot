@@ -12,6 +12,9 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { resolveAuthFilePath } from "$lib/server/agent/identity/authPath.js";
 import { FileCredentialStore } from "$lib/server/agent/identity/credentialStore.js";
 import { getPiModels } from "$lib/server/providers/piRegistry.js";
+import { SESSION_AFFINITY_HEADER } from "$lib/server/providers/sessionAffinity.js";
+
+export { SESSION_AFFINITY_HEADER } from "$lib/server/providers/sessionAffinity.js";
 
 const models = getPiModels();
 
@@ -49,12 +52,8 @@ export async function hasPiProviderAuth(
 
 /**
  * Header name this service uses to identify the owning conversation of a
- * model request. The value is the Molibot session id (`s-…`). Proxies that
- * need a provider-specific session header (cli-proxy-api → opencode Go's
- * `x-opencode-session`) map from this Molibot-owned name at the proxy, so
- * the header we send stays stable across upstreams.
+ * model request. See `sessionAffinity.ts`.
  */
-export const SESSION_AFFINITY_HEADER = "x-molibot-session";
 
 /**
  * Attach the session-affinity header when a request declares its session.

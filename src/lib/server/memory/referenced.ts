@@ -28,13 +28,18 @@ function toReferenced(record: MemoryRecord, query: string): MemoryReferencedItem
 
 /**
  * Mirror of `memoryWriteReceiptsFromToolCall`: extracts the memories an agent
- * actively fetched via the memory tool's `search` action mid-run. `list` is
- * browsing, not referencing, and is deliberately excluded.
+ * actively fetched via `recall_memory` mid-run. `list` is browsing, not
+ * referencing, and is deliberately excluded.
  */
-export function memoryToolHitsFromToolCall(args: unknown, result: unknown): MemoryReferencedItem[] {
+export function memoryToolHitsFromToolCall(
+  args: unknown,
+  result: unknown,
+  toolName?: string
+): MemoryReferencedItem[] {
   if (!args || typeof args !== "object" || !result || typeof result !== "object") return [];
+  const tool = String(toolName ?? "").trim();
   const action = String((args as { action?: unknown }).action ?? "");
-  if (action !== "search") return [];
+  if (tool !== "recall_memory" && action !== "search") return [];
   const query = String((args as { query?: unknown }).query ?? "").trim();
   const details = (result as { details?: unknown }).details;
   if (!details || typeof details !== "object") return [];

@@ -58,3 +58,54 @@
   prompt: 我之前告诉过你我的第一台打印机序列号吗？如果我没说过，就直接说没有。
   assert:
     - reply_contains_any: ["没有", "未曾", "不记得", "没提", "没告诉", "没有说过"]
+
+- id: C5
+  title: 自然陈述的事实，换会话仍然记得
+  why: |
+    不依赖“记住/记一下”关键词；验证空闲抽取 + 自动提交，而不是关键词分类器。
+    抽取在会话空闲 90 秒后由 60 秒维护定时器触发，所以轮次之间必须等待。
+  baseline: unknown
+  tags: [slow]
+  timeout_ms: 900000
+  turns:
+    - prompt: 我养了一只叫豆豆的柯基，特别黏人。
+      wait_after_ms: 240000
+    - prompt: 我家狗叫什么名字？只回答名字。
+      new_session: true
+  assert:
+    - reply_contains: "豆豆"
+
+- id: C6
+  title: 纠正旧事实后只保留新值
+  why: |
+    旧记忆必须被新值覆盖，而不是两条并存。第二轮会看到第一轮的相关记忆，
+    复用同一个 subject；两轮都等空闲抽取后再问。
+  baseline: unknown
+  tags: [slow]
+  timeout_ms: 900000
+  turns:
+    - prompt: 我之前开的是宝马。
+      wait_after_ms: 240000
+    - prompt: 我换特斯拉了。
+      wait_after_ms: 240000
+    - prompt: 我现在开什么车？只回答品牌。
+      new_session: true
+  assert:
+    - reply_contains: "特斯拉"
+    - reply_not_contains: "宝马"
+
+- id: C8
+  title: 配偶事实在代词或同义提问下仍可召回
+  why: |
+    用户很少重复记忆里的原词。稳定画像必须覆盖“我老婆/她”这类指代，
+    而不是只靠词面重合。第一轮建立事实，等待空闲抽取后再问。
+  baseline: unknown
+  tags: [slow]
+  timeout_ms: 900000
+  turns:
+    - prompt: 我妻子叫小红，她的生日是 5 月 1 日。
+      wait_after_ms: 240000
+    - prompt: 我老婆生日是哪天？只回答日期。
+      new_session: true
+  assert:
+    - reply_matches: "5\\s*月\\s*1\\s*日|May\\s*1"

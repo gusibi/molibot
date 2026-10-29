@@ -5,7 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { applyBuiltinSkill, ensureBuiltinSkills, listBuiltinSkillStates, type BuiltinSkill } from "$lib/server/agent/skills/bootstrap.js";
-import { formatSkillsForPrompt, isSkillBackupDirectory, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
+import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
+import { isSkillBackupDirectory } from "$lib/server/agent/skills/skillBackup.js";
 
 import { buildSystemPrompt } from "$lib/server/agent/prompts/prompt.js";
 

@@ -79,7 +79,7 @@ export class MessageRouter {
       trimmed,
       5
     );
-    const answer = await this.assistant.reply(history, trimmed, memoryContext);
+    const answer = await this.assistant.reply(history, trimmed, memoryContext, { sessionId: conv.id });
     this.sessions.appendMessage(conv.id, "assistant", answer);
 
     return { ok: true, response: answer };

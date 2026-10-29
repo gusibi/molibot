@@ -1,4 +1,5 @@
-import { sanitizeAgents } from "./sanitize.js";
+import { migrateLegacyEmbeddingModels, sanitizeAgents } from "./sanitize.js";
+import { normalizeProviderConfigRows } from "./providerIdentity.js";
 import { DatabaseSync } from "node:sqlite";
 import {
   type AgentSettings,
@@ -118,8 +119,6 @@ interface RawSettings {
       enabled?: boolean | string;
       backend?: string;
       core?: string;
-      embeddingProviderId?: string;
-      embeddingModel?: string;
       reflectionTime?: string;
       reflectionNotifications?: boolean;
       reflectionNotificationTarget?: unknown;
@@ -721,7 +720,7 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
   const out: CustomProviderConfig[] = [];
   const dedup = new Set<string>();
 
-  for (const row of input) {
+  for (const row of normalizeProviderConfigRows(input)) {
     if (!row || typeof row !== "object") continue;
     const item = row as Record<string, unknown>;
     const id = String(item.id ?? "").trim() || `custom-${Math.random().toString(36).slice(2, 8)}`;
@@ -743,6 +742,7 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
       apiKey: String(item.apiKey ?? "").trim(),
       models,
       defaultModel,
+      embeddingModel: String(item.embeddingModel ?? "").trim() || undefined,
       path: String(item.path ?? "").trim() || (protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions"),
       thinkingFormat: resolveCustomProviderThinkingFormat(item.thinkingFormat, { id, name, baseUrl })
     });
@@ -1169,7 +1169,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     ? Math.max(1024, Math.round(defaultContextWindowRaw))
     : defaultRuntimeSettings.compaction.defaultContextWindow;
 
-  return {
+  return migrateLegacyEmbeddingModels({
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
     piModelProvider: isKnownProvider(piProviderRaw)
       ? piProviderRaw
@@ -1255,7 +1255,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     browserAutomation,
     sessionAutoArchive,
     display
-  };
+  });
 }
 
 export class SettingsStore {
@@ -1301,6 +1301,7 @@ export class SettingsStore {
         supports_thinking INTEGER,
         thinking_format TEXT NOT NULL DEFAULT '',
         reasoning_effort_map_json TEXT NOT NULL DEFAULT '{}',
+        embedding_model TEXT NOT NULL DEFAULT '',
         updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings_custom_provider_models (
@@ -1351,6 +1352,11 @@ export class SettingsStore {
     }
     try {
       db.exec("ALTER TABLE settings_custom_providers ADD COLUMN reasoning_effort_map_json TEXT NOT NULL DEFAULT '{}'");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_custom_providers ADD COLUMN embedding_model TEXT NOT NULL DEFAULT ''");
     } catch {
       // column already exists
     }
@@ -1648,7 +1654,7 @@ export class SettingsStore {
       }
 
       const providerRows = db.prepare(`
-        SELECT id, name, enabled, base_url, api_key, protocol, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json
+        SELECT id, name, enabled, base_url, api_key, protocol, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json, embedding_model
         FROM settings_custom_providers
         ORDER BY id ASC
       `).all() as Array<{
@@ -1663,6 +1669,7 @@ export class SettingsStore {
         supports_thinking: number | null;
         thinking_format: string;
         reasoning_effort_map_json: string;
+        embedding_model: string;
       }>;
       const modelRows = db.prepare(`
         SELECT provider_id, model_id, alias, tags_json, supported_roles_json, context_window, sampling_params_json, verification_json, enabled
@@ -1705,6 +1712,7 @@ export class SettingsStore {
         apiKey: row.api_key,
         models: modelsByProvider.get(row.id) ?? [],
         defaultModel: row.default_model,
+        embeddingModel: row.embedding_model?.trim() || undefined,
         path: row.path,
         thinkingFormat: resolveCustomProviderThinkingFormat(row.thinking_format, {
           id: row.id,
@@ -1893,8 +1901,8 @@ export class SettingsStore {
         db.exec("DELETE FROM settings_custom_providers");
         const insertProvider = db.prepare(`
           INSERT INTO settings_custom_providers
-            (id, name, enabled, base_url, api_key, protocol, default_model, path, thinking_format, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, enabled, base_url, api_key, protocol, default_model, path, thinking_format, embedding_model, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const insertModel = db.prepare(`
           INSERT INTO settings_custom_provider_models
@@ -1912,6 +1920,7 @@ export class SettingsStore {
             provider.defaultModel,
             provider.path,
             provider.thinkingFormat ?? "",
+            provider.embeddingModel ?? "",
             now
           );
           const seenModelIds = new Set<string>();

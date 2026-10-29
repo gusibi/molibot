@@ -1,3 +1,4 @@
+import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -57,7 +58,7 @@ async function holdRequest(directory: string) {
 }
 
 /** Hold a native tool at the `execute` checkpoint, then abort loop. */
-async function holdTool(directory: string, replay: "safe" | undefined) {
+async function holdTool(directory: string, replay: "safe" | undefined, nested = false) {
   let reached!: () => void;
   const atTool = new Promise<void>(resolve => { reached = resolve; });
   let requests = 0;
@@ -68,13 +69,18 @@ async function holdTool(directory: string, replay: "safe" | undefined) {
       await new Promise<never>((_resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
       throw new Error("unreachable");
     } };
-  const run = new PiRunSession({ initialState: { model, systemPrompt: "Answer", messages: [], tools: [tool] },
+  const parent: AgentTool = { ...tool, name: "parent", replay: "safe", execute: async () => {
+    const invocation = currentPiInvocation()!;
+    const result = await invocation.api.executeTool(tool.name, {}, invocation.context, { key: "leaf" });
+    return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
+  } };
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "Answer", messages: [], tools: nested ? [parent, tool] : [tool] },
     getApiKey: () => "fixture",
     streamFn: () => {
       requests += 1;
       const stream = createAssistantMessageEventStream();
       const message: AssistantMessage = requests === 1
-        ? { ...answer(), stopReason: "toolUse", content: [{ type: "toolCall", id: "call-1", name: "slow", arguments: {} }] }
+        ? { ...answer(), stopReason: "toolUse", content: [{ type: "toolCall", id: "call-1", name: nested ? "parent" : "slow", arguments: {} }] }
         : answer();
       stream.push({ type: "done", reason: message.stopReason === "toolUse" ? "toolUse" : "stop", message });
       stream.end();
@@ -149,4 +155,15 @@ test("a missing execution record is reported instead of guessed", { timeout: 150
     assert.equal(inspection.disposition, "unavailable");
     assert.equal(inspection.reason, PI_RECOVERY_UNAVAILABLE);
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+for (const replay of [undefined, "safe"] as const) test(`native nested ${replay ?? "unsafe"} tools are classified at startup`, { timeout: 15000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-recovery-nested-"));
+  const { run, work } = await holdTool(directory, replay, true);
+  try {
+    saveOwner(directory, join(directory, "pi.sqlite"));
+    const [inspection] = await inspectPiRecovery(directory, () => "running");
+    assert.equal(inspection.disposition, replay === "safe" ? "resume" : "review");
+    assert.deepEqual(inspection.uncertainCallIds ?? [], replay === "safe" ? [] : ["call-1/leaf"]);
+  } finally { await settle(run, work); rmSync(directory, { recursive: true, force: true }); }
 });

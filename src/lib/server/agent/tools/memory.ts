@@ -1,217 +1,180 @@
-import { agentNamespace } from "$lib/server/memory/namespaces.js";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
-import type { MemoryScope } from "$lib/server/memory/types.js";
+import type { MemoryDomain, MemoryScope } from "$lib/server/memory/types.js";
+import { MemoryWriter, normalizeSubject } from "$lib/server/memory/memoryWriter.js";
 
-const memorySchema = Type.Object({
-  action: Type.Union([
-    Type.Literal("add"),
-    Type.Literal("search"),
-    Type.Literal("list"),
-    Type.Literal("update"),
-    Type.Literal("delete"),
-    Type.Literal("flush"),
-    Type.Literal("sync"),
-    Type.Literal("compact"),
-    Type.Literal("search_content"),
-    Type.Literal("add_content"),
-    Type.Literal("set_agent_self")
-  ]),
-  content: Type.Optional(Type.String()),
-  query: Type.Optional(Type.String()),
-  id: Type.Optional(Type.String()),
-  allScopes: Type.Optional(Type.Boolean()),
-  tags: Type.Optional(Type.Array(Type.String())),
-  layer: Type.Optional(Type.Union([Type.Literal("long_term"), Type.Literal("daily")])),
-  expiresAt: Type.Optional(Type.String()),
-  limit: Type.Optional(Type.Number()),
-  botId: Type.Optional(Type.String()),
-  type: Type.Optional(Type.String()),
-  subject: Type.Optional(Type.String())
-});
-
-type MemoryAction = "add" | "search" | "list" | "update" | "delete" | "flush" | "sync" | "compact" | "search_content" | "add_content" | "set_agent_self";
-
-
-
-export function createMemoryTool(options: {
+export interface MemoryToolOptions {
   memory: MemoryGateway;
   scope: MemoryScope;
   writesAllowed?: boolean;
-}): AgentTool<typeof memorySchema> {
+}
+
+const saveMemorySchema = Type.Object({
+  fact: Type.String({
+    description: "Complete durable fact or preference to remember, in the user's language."
+  }),
+  subject: Type.Optional(Type.String({
+    description: "Stable slot such as user.employer. Reuse the subject returned by recall_memory when correcting that fact."
+  })),
+  about: Type.Optional(Type.Union([
+    Type.Literal("user"),
+    Type.Literal("agent"),
+    Type.Literal("project")
+  ], {
+    description: "Who the fact is about. Defaults to user."
+  }))
+});
+
+const recallMemorySchema = Type.Object({
+  query: Type.String({
+    description: "What to look up, in natural language."
+  }),
+  limit: Type.Optional(Type.Number({
+    description: "Maximum results, 1-50. Defaults to 10."
+  }))
+});
+
+const forgetMemorySchema = Type.Object({
+  id: Type.String({
+    description: "Memory id returned by recall_memory."
+  })
+});
+
+function errorResult(text: string, details: Record<string, unknown> = {}) {
   return {
-    name: "memory",
-    label: "memory",
-    // Every action is documented here because the names alone are misleading in
-    // one specific, damaging way: `add_content` reads as "add this content" and
-    // is the obvious pick for "remember this", but it writes to the published-
-    // content corpus, which conversational recall never reads (prd.md §3.49).
+    content: [{ type: "text" as const, text }],
+    details,
+    isError: true
+  };
+}
+
+function sourcesFor(scope: MemoryScope, toolCallId: string) {
+  return [{
+    channel: scope.channel,
+    sessionId: scope.conversationId ?? scope.externalUserId,
+    conversationMessageId: toolCallId
+  }];
+}
+
+export function createSaveMemoryTool(options: MemoryToolOptions): AgentTool<typeof saveMemorySchema> {
+  const writer = new MemoryWriter(options.memory);
+  return {
+    name: "save_memory",
+    label: "save memory",
     description: [
-      "Manage long-term memory. Use this instead of reading/writing MEMORY.md files directly.",
+      "Remember one durable fact or preference. Use when the user asks you to remember something,",
+      "or states a stable fact that should survive this conversation.",
       "",
-      "To remember something about the user, use action=add. That is almost always the right one.",
-      "  add           remember a fact/preference about the user; recalled automatically in later conversations",
-      "  search        find remembered items (this scope)",
-      "  list          list remembered items",
-      "  update        change a remembered item by id",
-      "  delete        remove one remembered item by id; deletion is not the same as do-not-remember",
-      "  compact       deduplicate; flush persists pending writes; sync re-imports memory files",
+      "To correct an existing fact, call recall_memory first and reuse the subject it returns.",
+      "Sensitive facts (health, medication, allergies, location, identity, relationships, income)",
+      "are saved as proposals for the user to confirm instead of becoming immediately active.",
       "",
-      "NOT conversational memory — do not use these to remember things about the user:",
-      "  add_content / search_content   a separate corpus of the user's PUBLISHED CONTENT, used only for",
-      "                                 writing-style reference. Items written here are NEVER recalled in",
-      "                                 conversation. add_content requires type=world_knowledge and rejects",
-      "                                 missing/other types; use add for every user fact or preference.",
-      "  set_agent_self                 facts about the agent itself, not about the user",
-      "",
-      "WARNING: DO NOT use this tool for scheduling reminders or future tasks; use toolSearch to load runtimeTask first."
+      "Never use this for reminders, schedules, or future tasks; use runtimeTask for those."
     ].join("\n"),
-    parameters: memorySchema,
-    execute: async (_toolCallId, params) => {
-      const action = params.action as MemoryAction;
-      const scope = options.scope;
-      const allScopes = Boolean(params.allScopes) && (!scope.agentId || Boolean(scope.projectId));
-      if (options.writesAllowed === false && ["add", "update", "flush", "sync", "compact", "add_content", "set_agent_self"].includes(action)) {
-        throw new Error("This turn is not eligible for memory writes. Search and explicit deletion remain available.");
+    parameters: saveMemorySchema,
+    execute: async (toolCallId, params) => {
+      if (options.writesAllowed === false) {
+        return errorResult("This turn is not eligible for memory writes. recall_memory and forget_memory remain available.");
       }
-
-      if (action === "search_content") {
-        const rows = await options.memory.searchContent(String(params.botId ?? scope.botId ?? "default"), { query: String(params.query ?? ""), limit: params.limit ?? 10, mode: "hybrid" });
-        return { content: [{ type: "text", text: rows.length ? rows.map((row) => row.content).join("\n") : "(no similar published content)" }], details: { rows } };
+      const fact = String(params.fact ?? "").trim();
+      if (!fact) return errorResult("fact is required");
+      const about = params.about ?? "user";
+      if (about === "project" && !options.scope.projectId) {
+        return errorResult("Project memory requires a project session.");
       }
-
-      if (action === "add_content" || action === "set_agent_self") {
-        const content = String(params.content ?? "").trim();
-        const subject = String(params.subject ?? "").trim();
-        if (!content || !subject) throw new Error("content and subject are required");
-        // The content corpus is write-only as far as conversation is concerned:
-        // `content:<botId>` is deliberately absent from `promptMemoryNamespaces`,
-        // so anything landing here can never be recalled in a later turn. It
-        // used to *default* to `user_fact`, which is exactly the record type
-        // that does not belong in it — and a model asked to "remember that I
-        // use Obsidian" reasonably picked `add_content`, got "Saved", and the
-        // fact was gone forever (prd.md §3.49).
-        if (action === "add_content" && params.type !== "world_knowledge") {
-          throw new Error(
-            `add_content requires the explicit published-content type "world_knowledge" and writes to a corpus ` +
-              `that is never recalled in conversation. To remember anything about the user, call this tool again ` +
-              `with action="add".`
-          );
-        }
-        const botId = String(params.botId ?? scope.botId ?? "default");
-        const input = {
-          content,
-          type: (params.type ?? "task") as any,
-          subject,
-          reason: "user_explicit"
-        };
-        const item = action === "add_content" ? await options.memory.addContentMemory(botId, input) : scope.agentId && !scope.projectId
-          ? await options.memory.add(scope, { ...input, namespace: agentNamespace(scope.agentId), domain: "agent_self" })
-          : (() => { throw new Error("Agent self-knowledge requires an Agent identity and cannot be written from a Project or channel scope."); })();
-        return { content: [{ type: "text", text: `Saved ${action}: ${item?.id ?? "(disabled)"}` }], details: { item } };
+      if (about === "agent" && !options.scope.agentId) {
+        return errorResult("Agent self-knowledge requires an Agent identity.");
       }
-
-      if (action === "sync") {
-        const result = await options.memory.syncExternalMemories();
+      const domain: MemoryDomain = about === "agent" ? "agent_self" : about === "project" ? "project" : "owner";
+      const subject = String(params.subject ?? "").trim() || normalizeSubject(fact);
+      const result = await writer.write(
+        options.scope,
+        [{ domain, type: "user_fact", subject, value: fact, reason: "user_explicit" }],
+        sourcesFor(options.scope, toolCallId),
+        `save:${toolCallId}`
+      );
+      if (result.failures.length > 0) {
+        return errorResult(`Memory not saved: ${result.failures.join("；")}`, { result });
+      }
+      if (result.proposals.length > 0) {
         return {
-          content: [{ type: "text", text: `Synced memory files: scanned=${result.scannedFiles}, imported=${result.importedCount}` }],
-          details: { result }
+          content: [{
+            type: "text" as const,
+            text: `Saved as a pending proposal because it is sensitive: ${result.proposals[0]}`
+          }],
+          details: { proposalId: result.proposals[0], result }
         };
       }
-
-      if (action === "add") {
-        const content = String(params.content ?? "").trim();
-        if (!content) throw new Error("content is required for action=add");
-        const item = await options.memory.add(scope, {
-          content,
-          tags: Array.isArray(params.tags) ? params.tags : [],
-          layer: params.layer,
-          expiresAt: typeof params.expiresAt === "string" ? params.expiresAt : undefined
-        });
-        return {
-          content: [{ type: "text", text: `Added memory: ${item?.id ?? "(disabled)"}` }],
-          details: { item }
-        };
-      }
-
-      if (action === "search") {
-        const rows = allScopes
-          ? await options.memory.searchAll({
-              query: String(params.query ?? ""),
-              limit: Number.isFinite(params.limit) ? params.limit : 20,
-              mode: "hybrid"
-            })
-          : await options.memory.search(scope, {
-              query: String(params.query ?? ""),
-              limit: Number.isFinite(params.limit) ? params.limit : 20,
-              mode: "hybrid"
-            });
-        return {
-          content: [{ type: "text", text: rows.length ? rows.map((r, i) => `${i + 1}. [${r.layer}] ${r.content}`).join("\n") : "(no memory found)" }],
-          details: { rows }
-        };
-      }
-
-      if (action === "list") {
-        const rows = allScopes
-          ? await options.memory.searchAll({
-              query: "",
-              limit: Number.isFinite(params.limit) ? params.limit : 100,
-              mode: "recent"
-            })
-          : await options.memory.search(scope, {
-              query: "",
-              limit: Number.isFinite(params.limit) ? params.limit : 100,
-              mode: "recent"
-            });
-        return {
-          content: [{ type: "text", text: rows.length ? rows.map((r, i) => `${i + 1}. [${r.layer}] ${r.content}`).join("\n") : "(no memory found)" }],
-          details: { rows }
-        };
-      }
-
-      if (action === "update") {
-        const id = String(params.id ?? "").trim();
-        if (!id) throw new Error("id is required for action=update");
-        const item = await options.memory.update(scope, id, {
-          content: typeof params.content === "string" ? params.content : undefined,
-          tags: Array.isArray(params.tags) ? params.tags : undefined,
-          expiresAt: typeof params.expiresAt === "string" ? params.expiresAt : undefined
-        });
-        return {
-          content: [{ type: "text", text: item ? `Updated memory: ${item.id}` : "Memory not found" }],
-          details: { item }
-        };
-      }
-
-      if (action === "delete") {
-        const id = String(params.id ?? "").trim();
-        if (!id) throw new Error("id is required for action=delete");
-        const deleted = await options.memory.delete(scope, id);
-        return {
-          content: [{ type: "text", text: deleted ? `Deleted memory: ${id}` : "Memory not found" }],
-          details: { deleted }
-        };
-      }
-
-      if (action === "flush") {
-        const result = await options.memory.flush(scope);
-        return {
-          content: [{ type: "text", text: `Flush complete: scanned=${result.scannedMessages}, added=${result.addedCount}` }],
-          details: { result }
-        };
-      }
-
-      if (action === "compact") {
-        const result = allScopes ? await options.memory.compact() : await options.memory.compact(scope);
-        return {
-          content: [{ type: "text", text: `Memory deduplicated: scanned=${result.scannedCount}, removed=${result.removedCount}, scopes=${result.scopesAffected}` }],
-          details: { result }
-        };
-      }
-
-      throw new Error(`Unsupported action: ${action}`);
+      const id = result.committed[0];
+      if (!id) return errorResult("Memory was not saved.", { result });
+      const item = await options.memory.getForGovernance(options.scope, id);
+      return {
+        content: [{ type: "text" as const, text: `Saved memory ${id} (subject: ${subject})` }],
+        details: { item, result }
+      };
     }
   };
+}
+
+export function createRecallMemoryTool(options: MemoryToolOptions): AgentTool<typeof recallMemorySchema> {
+  return {
+    name: "recall_memory",
+    label: "recall memory",
+    description: [
+      "Find memories relevant to a query. Returns each memory's id, subject, and content.",
+      "Use the returned id with forget_memory, and reuse the subject when correcting the fact."
+    ].join("\n"),
+    parameters: recallMemorySchema,
+    execute: async (_toolCallId, params) => {
+      const query = String(params.query ?? "").trim();
+      if (!query) return errorResult("query is required");
+      const limit = Number.isFinite(params.limit)
+        ? Math.max(1, Math.min(50, Number(params.limit)))
+        : 10;
+      const rows = await options.memory.search(options.scope, { query, limit, mode: "hybrid" });
+      const text = rows.length
+        ? rows.map((row, index) => (
+            `${index + 1}. id=${row.id} subject=${row.subject ?? "-"} ${row.content}`
+          )).join("\n")
+        : "(no memory found)";
+      return {
+        content: [{ type: "text" as const, text }],
+        details: { rows }
+      };
+    }
+  };
+}
+
+export function createForgetMemoryTool(options: MemoryToolOptions): AgentTool<typeof forgetMemorySchema> {
+  return {
+    name: "forget_memory",
+    label: "forget memory",
+    description: [
+      "Delete one memory by id. Get the id from recall_memory.",
+      "This is for a fact the user wants forgotten, not for reminders or schedules."
+    ].join("\n"),
+    parameters: forgetMemorySchema,
+    execute: async (_toolCallId, params) => {
+      const id = String(params.id ?? "").trim();
+      if (!id) return errorResult("id is required");
+      const deleted = await options.memory.forget(options.scope, id, { reason: "user_forget" });
+      return {
+        content: [{
+          type: "text" as const,
+          text: deleted ? `Forgotten memory ${id}` : "Memory not found"
+        }],
+        details: { deleted }
+      };
+    }
+  };
+}
+
+/** All model-facing memory tools; maintenance and the content corpus are not here. */
+export function createMemoryTools(options: MemoryToolOptions): AgentTool<any>[] {
+  return [
+    createSaveMemoryTool(options),
+    createRecallMemoryTool(options),
+    createForgetMemoryTool(options)
+  ];
 }

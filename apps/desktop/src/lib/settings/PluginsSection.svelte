@@ -85,13 +85,10 @@
     configuration: "插件配置",
     isolatedConfiguration: "外置插件配置独立存储，不写入全局设置。",
     memoryBackend: "记忆后端",
-    embeddingProvider: "向量服务商",
-    embeddingProviderHint: "选择用于生成记忆向量特征的 AI 服务商。留空则仅使用关键词/词法检索。",
-    noEmbeddingProvider: "未启用（纯词法检索）",
-    noEmbeddingProvidersConfigured: "暂无可用 AI 服务商。请先在「AI 服务商」中添加并启用带有 API Key 的 Provider。",
-    embeddingModel: "向量模型",
-    embeddingModelHint: "指定所选服务商下的 Embedding 向量模型名称。",
-    embeddingModelPlaceholder: "例如：text-embedding-3-small 或 bge-m3",
+    embeddingTitle: "记忆向量",
+    embeddingAuto: "使用独立的 Embedding lane；未配置或不可用时使用词法检索。在 Desktop 的“助手 → 向量模型”或 Web 的“记忆 → 向量模型”页管理。",
+    embeddingLexical: "词法检索（未检测到 Embedding 模型）",
+    embeddingCurrent: "{provider} / {model}",
     reflectionTime: "每日反思时间",
     reflectionNotifications: "反思完成后通知",
     dailyTime: "每日执行时间",
@@ -141,13 +138,10 @@
     configuration: "Plugin Configuration",
     isolatedConfiguration: "External plugin configuration is isolated from global settings.",
     memoryBackend: "Memory backend",
-    embeddingProvider: "Embedding provider",
-    embeddingProviderHint: "Select the AI provider used to generate memory vector embeddings. Leave empty for lexical retrieval only.",
-    noEmbeddingProvider: "Disabled (Lexical Only)",
-    noEmbeddingProvidersConfigured: "No enabled AI providers found. Add and enable a provider in AI Providers first.",
-    embeddingModel: "Embedding model",
-    embeddingModelHint: "The model name for embeddings provided by the selected provider.",
-    embeddingModelPlaceholder: "e.g. text-embedding-3-small or bge-m3",
+    embeddingTitle: "Memory embeddings",
+    embeddingAuto: "Uses independent embedding lanes; falls back to lexical retrieval when none is available. Manage lanes in Desktop Settings → Assistant → Embedding Models, or Web Settings → Memory → Embedding Models.",
+    embeddingLexical: "Lexical retrieval (no embedding model detected)",
+    embeddingCurrent: "{provider} / {model}",
     reflectionTime: "Daily reflection time",
     reflectionNotifications: "Notify after reflection",
     dailyTime: "Daily run time",
@@ -466,33 +460,11 @@
       {#if coreDetail?.id === "memory" && coreDraft && "backend" in coreDraft}
         <SettingGroup title={copy.configuration}>
           <SettingRow title={copy.memoryBackend}><SelectControl value={coreDraft.backend} ariaLabel={copy.memoryBackend} options={coreDetail.backends} onChange={(backend) => coreDraft = { ...coreDraft!, backend }} /></SettingRow>
-          <SettingRow
-            title={copy.embeddingProvider}
-            description={coreDetail.embeddingProviders?.length ? copy.embeddingProviderHint : copy.noEmbeddingProvidersConfigured}
-          >
-            <SelectControl
-              value={coreDraft.embeddingProviderId ?? ""}
-              ariaLabel={copy.embeddingProvider}
-              options={[{ value: "", label: copy.noEmbeddingProvider }, ...(coreDetail.embeddingProviders ?? [])]}
-              onChange={(embeddingProviderId) => {
-                if (coreDraft) coreDraft = { ...coreDraft, embeddingProviderId };
-              }}
-            />
+          <SettingRow title={copy.embeddingTitle} description={copy.embeddingAuto}>
+            <span>{coreDetail.embedding
+              ? copy.embeddingCurrent.replace("{provider}", coreDetail.embedding.providerName).replace("{model}", coreDetail.embedding.model)
+              : copy.embeddingLexical}</span>
           </SettingRow>
-          {#if coreDraft.embeddingProviderId}
-            <SettingRow title={copy.embeddingModel} description={copy.embeddingModelHint}>
-              <input
-                value={coreDraft.embeddingModel ?? ""}
-                autocomplete="off"
-                spellcheck="false"
-                aria-label={copy.embeddingModel}
-                placeholder={copy.embeddingModelPlaceholder}
-                oninput={(event) => {
-                  if (coreDraft) coreDraft = { ...coreDraft, embeddingModel: event.currentTarget.value };
-                }}
-              />
-            </SettingRow>
-          {/if}
           <SettingRow title={copy.reflectionTime}><NativeTimeInput bind:value={coreDraft.reflectionTime} ariaLabel={copy.reflectionTime} /></SettingRow>
           <SettingRow title={copy.reflectionNotifications}><IosSwitch checked={coreDraft.reflectionNotifications} ariaLabel={copy.reflectionNotifications} onCheckedChange={(reflectionNotifications) => coreDraft = { ...coreDraft!, reflectionNotifications }} /></SettingRow>
         </SettingGroup>

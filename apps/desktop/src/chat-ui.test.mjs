@@ -75,7 +75,6 @@ const transcript = read("./lib/chat/ConversationTranscript.svelte");
 const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const turnFilesCard = read("./lib/chat/TurnFilesCard.svelte");
 const turnFileList = read("./lib/chat/TurnFileList.svelte");
-const runActivity = read("./lib/chat/RunActivity.svelte");
 const thinkingCard = read("./lib/chat/ThinkingCard.svelte");
 const turnProcess = read("./lib/chat/TurnProcess.svelte");
 const processTimeline = read("./lib/chat/ProcessTimeline.svelte");
@@ -1000,7 +999,7 @@ test("workspace navigation waits for bootstrap and can retry failed loads", () =
   assert.match(view, /if \(!connectionReady && !loading && serviceState === "ready" && serviceEndpoint\)/);
   assert.match(view, /serviceReady=\{connectionReady\}/);
   assert.match(chatWorkspace, /onRetryService/);
-  assert.match(sections.skills, /skillsStore\.error/);
+  assert.match(sections.skills, /skillManagerStore\.error/);
   assert.match(sections.skills, /copy\.retryLoading/);
   assert.match(sections.tasks, /tasksStore\.error/);
   assert.match(sections.tasks, /session\.text\.retryLoading/);
@@ -1010,7 +1009,7 @@ test("workspace navigation waits for bootstrap and can retry failed loads", () =
 
 test("installed Skills recomputes its card list when async store data arrives", () => {
   assert.match(sections.skills, /let normalizedQuery = \$derived\(query\.trim\(\)\.toLowerCase\(\)\)/);
-  assert.match(sections.skills, /let filteredSkills = \$derived\(/);
+  assert.match(sections.skills, /const filteredSkills = \$derived\(/);
   assert.doesNotMatch(sections.skills, /\$: filteredSkills/);
 });
 
@@ -1368,7 +1367,7 @@ test("Window header owns its grid row and the transcript is not reserved beneath
   assert.doesNotMatch(styles, /\.chat-header \{[^}]*position:\s*absolute/);
   // Expanded, the header mirrors the window columns so the title lines up with
   // the chat content's left edge; collapsed, it falls back to one flex row.
-  assert.match(styles, /\.chat-header \{[^}]*grid-template-columns:\s*var\(--sidebar-w, var\(--sidebar-nav-w\)\) minmax\(0, 1fr\)/s);
+  assert.match(styles, /\.chat-header \{[^}]*grid-template-columns:\s*subgrid;/s);
   assert.match(styles, /\.window-header-page \{[^}]*grid-column:\s*2;[^}]*display:\s*flex;/s);
   assert.match(styles, /\.window-header-page::before,\s*\.workspace-inspector \.file-panel-head::before \{[^}]*top:\s*50%;[^}]*transform:\s*translateY\(-50%\);[^}]*width:\s*1px;[^}]*height:\s*var\(--fs-label\);[^}]*background:\s*var\(--content-frame-edge\);[^}]*opacity:\s*\.65;/s);
   assert.match(styles, /\.workspace-inspector \.file-panel \{[^}]*border-left-color:\s*transparent;/s);
@@ -1971,21 +1970,19 @@ test("a blocked turn is visible from anywhere in the transcript", () => {
 // transcript and an MCP payload were indistinguishable blocks of grey mono.
 test("tool activity dispatches a renderer per payload and surfaces touched files", () => {
   // Dispatch is a tested pure function, never an if-chain in the template.
-  assert.match(runActivity, /classifyActivityBody/);
-  assert.match(runActivity, /activityHeadline/);
-  assert.match(runActivity, /activityFileSummary/);
+  assert.match(processActivityItem, /classifyActivityBody/);
   // The renderers are the Artifact Panel's, not chat-local forks (pitfall #7).
-  assert.match(runActivity, /import CodeViewer from "\.\.\/projects\/CodeViewer\.svelte"/);
-  assert.match(runActivity, /from "diff2html"/);
+  assert.match(processActivityItem, /import CodeViewer from "\.\.\/projects\/CodeViewer\.svelte"/);
+  assert.match(processActivityItem, /from "diff2html"/);
   // diff2html is themed through `--d2h-*` under one selector; a second selector
-  // family would silently drift from it (pitfall #17), so the transcript's diff
+  // family would silently drift from it (pitfall #17), so the timeline's diff
   // box carries the file panel's own class rather than redeclaring the palette.
-  assert.match(runActivity, /class="project-diff-preview run-activity-diff"/);
+  assert.match(processActivityItem, /class="project-diff-preview run-activity-diff"/);
   assert.match(styles, /\.project-diff-preview\s*\{[^}]*--d2h-bg-color/s);
   // JsonTree's styles exist only under `.artifact-panel`, so mounting it in the
   // transcript would render unstyled markup with nothing in the console.
   // Checked against the code, not the prose, which explains the choice.
-  const activityCode = runActivity
+  const activityCode = processActivityItem
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/^\s*\/\/.*$/gm, "");
@@ -1994,14 +1991,12 @@ test("tool activity dispatches a renderer per payload and surfaces touched files
   // exists only for activities persisted before the field did.
   assert.match(activityView, /activity\.tool\?\.trim\(\)/);
   assert.match(conversationActivity, /tool: event\.toolName/);
-  // The head names a step. "23 actions happened" is not progress.
-  assert.match(runActivity, /run-activity-current/);
-  assert.match(runActivity, /copy\.runActivityStep/);
-  // `paths`/`mutates` have been on the contract for ages and nothing read them.
-  assert.match(runActivity, /run-activity-file/);
-  assert.match(runActivity, /onOpenPath/);
+  // The timeline entry names its step and offers the touched file.
+  assert.match(processActivityItem, /process-tool-label-text/);
+  assert.match(processActivityItem, /run-activity-more/);
+  assert.match(processActivityItem, /onOpenPath/);
   // Generic component: the host injects how to open a path.
-  assert.doesNotMatch(runActivity, /projectPaneActive|inspector/);
+  assert.doesNotMatch(processActivityItem, /projectPaneActive|inspector/);
   assert.match(projectChat, /onOpenActivityPath=\{requestArtifactPathOpen\}/);
 });
 
@@ -2606,7 +2601,7 @@ test("chat header is single-line and service status lives on the sidebar logo", 
   // The title takes the row's slack and ellipsizes inside the CHAT COLUMN. A
   // viewport-relative `max-width` let it run underneath the action buttons as
   // soon as the file panel narrowed the column.
-  assert.match(styles, /\.chat-title-block \{[^}]*flex: 1 1 auto/);
+  assert.match(styles, /\.chat-title-block \{[^}]*flex: 1 1 0%/);
   assert.match(styles, /\.chat-header \.header-actions \{ flex: 0 1 auto/);
   assert.match(styles, /\.chat-title-name \{[^}]*max-width: 100%[^}]*text-overflow: ellipsis/);
   assert.doesNotMatch(view, /activeHeaderAvatar|activeSessionTitle|activeExternalTitleWithSource/);
@@ -2787,7 +2782,7 @@ test("automation session detail renders a chat-style transcript", () => {
   // [data-resolved-appearance="dark"] override used to duplicate this and drift
   // out of sync with system-dark; it is now gone.
   assert.doesNotMatch(styles, /\[data-resolved-appearance="dark"\] \.message-row\.mine \.message-bubble/s);
-  assert.match(styles, /\.run-activity \{[^}]*border: 0;[^}]*background: transparent/s);
+  assert.match(styles, /\.turn-process \{[^}]*border: 0;[^}]*background: transparent/s);
   assert.doesNotMatch(sections.tasks, /class="message-(row|avatar|stack|bubble)/);
 });
 
@@ -2834,8 +2829,8 @@ test("task and skill categories use shared accessible selectors within independe
   assert.match(sections.tasks, /markOneShotTasksRead/);
   assert.match(sections.tasks, /item\.category === activeTaskView/);
   assert.match(sections.skills, /class="segmented workspace-skill-filters" role="group"/);
-  assert.match(sections.skills, /aria-pressed=\{selectedCategory === category.value\}/);
-  assert.doesNotMatch(sections.skills, /SelectControl/);
+  assert.match(sections.skills, /aria-pressed=\{view === category.value\}/);
+  assert.doesNotMatch(sections.skills, /<SelectControl value=\{selectedCategory/);
   assert.doesNotMatch(styles, /\.installed-skill-card\.enabled\s*\{/);
   assert.doesNotMatch(sections.skills, /role="tablist"/);
 });
@@ -2888,7 +2883,7 @@ test("strong selection resolves through tokens; Raft maps it to the pairing pink
   const workspaces = read("./workspaces.css");
   const plans = read("./plans.css");
   assert.match(workspaces, /\.installed-skills-grid\.list-mode \.installed-skill-card:not\(\.selected\):hover/);
-  assert.match(workspaces, /\.skills-file-row:not\(:disabled\):not\(\.active\):hover/);
+  assert.match(workspaces, /\.skills-file-row:not\(\.active\):hover/);
   assert.match(workspaces, /\.skills-file-row\.active \{ background: var\(--selection-bg\)/);
   assert.match(styles, /\.automation-task-row:not\(\.active\):hover/);
   assert.match(plans, /\.plans-row:not\(\.active\):hover/);
@@ -3174,11 +3169,11 @@ test("shared transcript renders media inline and delegates tool activity", () =>
   assert.match(transcriptAttachments, /transcript-video/);
   assert.match(transcriptAttachments, /<audio[\s\S]*controls/);
   assert.match(transcriptAttachments, /<video[\s\S]*controls/);
-  assert.match(transcript, /<RunActivity/);
+  assert.match(transcript, /<TurnProcess/);
   assert.match(transcript, /transcriptDisplayContent\(message, copy\.chatAssistantError\)/);
   assert.match(transcriptHelpers, /\["\(attachment\)", "\(empty response\)"\]/);
   assert.match(transcriptHelpers, /content === "Sorry, something went wrong\."/);
-  assert.match(runActivity, /isFailed \? copy\.runFailed : copy\.runCompleted/);
+  assert.match(turnProcess, /copy\.viewProcess/);
 });
 
 test("completed turns and the Artifact Panel share one flat final-file list", () => {
@@ -3189,7 +3184,6 @@ test("completed turns and the Artifact Panel share one flat final-file list", ()
   assert.match(turnFileList, /turnFileModified/);
   assert.doesNotMatch(turnFileList, /createdFiles|modifiedFiles|section/);
   assert.match(projectFilePanel, /tab === "turn"[\s\S]*<TurnFileList/);
-  assert.doesNotMatch(runActivity, /files\.written/);
   assert.match(styles, /\.turn-file-action\.created/);
   // Once outputs are represented by the completed-turn card, the legacy
   // attachment strip must not render the same assistant files underneath it.
@@ -3198,19 +3192,21 @@ test("completed turns and the Artifact Panel share one flat final-file list", ()
   assert.match(runner, /rootKind:\s*fileOutputReceipt\.rootKind/);
 });
 
-test("reasoning opens while thinking and folds once answer text starts", () => {
+test("reasoning stays inside the one collapsed process timeline", () => {
   assert.match(transcript, /<ThinkingCard text=\{message\.thinking\}/);
   assert.match(thinkingCard, /thinking !== previousThinking/);
   assert.match(thinkingCard, /opened = thinking/);
-  assert.match(turnProcess, /thinking=\{live && !responding\}/);
-  assert.match(turnProcess, /executionBlocks = blocks\.filter\(block => block\.kind !== "thinking"\)/);
-  assert.match(conversationLiveView, /responding=\{liveSections\.response\.some/);
+  assert.doesNotMatch(turnProcess, /<ThinkingCard|presentation\.commentary/);
+  assert.match(turnProcess, /let opened = false/);
+  assert.match(processTimeline, /block\.kind === "thinking"/);
+  assert.doesNotMatch(processTimeline, /ThinkingCard/);
+  assert.match(processTimeline, /process-timeline-thinking.*role="listitem"/);
+  assert.match(conversationLiveView, /responding=\{liveSections\.response\.some\(block => block\.kind === "result" && Boolean\(block\.content\.trim\(\)\)\)\}/);
   assert.match(conversationLiveView, /<TurnProcess blocks=\{liveSections\.process\}[^>]* live/);
-  assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
 });
 
 test("turn process uses one disclosure with an ordered timeline", () => {
-  assert.match(transcript, /transcriptCompletedTurnSections\(renderBlocks\)/);
+  assert.match(transcript, /transcriptTurnSections\(renderBlocks\)/);
   assert.match(transcript, /<TurnProcess/);
   assert.match(turnProcess, /<details class="turn-process" bind:open=\{opened\}/);
   assert.match(turnProcess, /\{#if opened\}[\s\S]*<ProcessTimeline/);
@@ -3218,13 +3214,13 @@ test("turn process uses one disclosure with an ordered timeline", () => {
   assert.match(turnProcess, /isFailed/);
   assert.match(transcript, /failed=\{assistantStatus === "error" \|\| assistantStatus === "aborted"\}/);
   assert.doesNotMatch(transcript, /<TurnProcess[^>]*forceOpen/);
-  assert.match(turnProcess, /<ThinkingCard/);
+  assert.doesNotMatch(processTimeline, /ThinkingCard/);
   assert.doesNotMatch(turnProcess, /<RunActivity/);
-  assert.match(processTimeline, /\{#each blocks as block \(block\.id\)\}/);
   assert.match(processTimeline, /activityTimelineItems\(block\.activities\)/);
   assert.match(processTimeline, /<details class="process-activity-group">/);
   assert.match(processTimeline, /<ProcessActivityItem \{activity\} \{copy\} \{onOpenPath\}/);
-  assert.doesNotMatch(processTimeline, /block\.kind === "thinking"/);
+  assert.match(processTimeline, /block\.kind === "thinking"/);
+  assert.match(processTimeline, /process-timeline-text/);
   assert.match(processActivityItem, /timeline-wave-node/);
   assert.match(processActivityItem, /process-tool-icon/);
   assert.match(processActivityItem, /activityToolIcon/);
@@ -3239,8 +3235,8 @@ test("turn process uses one disclosure with an ordered timeline", () => {
 test("collapsed transcript cards mount their body only once opened", () => {
   assert.match(thinkingCard, /bind:open=\{opened\}/);
   assert.match(thinkingCard, /\{#if opened\}<pre>\{text\}<\/pre>\{\/if\}/);
-  assert.match(runActivity, /<details class="run-activity" bind:open=\{opened\} ontoggle=\{persistOpen\}>/);
-  assert.match(runActivity, /\{#if opened\}[\s\S]*\{#each activities/);
+  assert.match(turnProcess, /<details class="turn-process" bind:open=\{opened\}/);
+  assert.match(turnProcess, /\{#if opened\}[\s\S]*<ProcessTimeline/);
 });
 
 test("shared composer turns pasted clipboard images into attachments", () => {
@@ -3300,7 +3296,7 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.doesNotMatch(conversationLiveView, /forceOpen=/);
   assert.match(turnProcess, /let opened = false/);
   assert.match(turnProcess, /presentation\.commentary/);
-  assert.match(turnProcess, /copy\.executionDetails/);
+  assert.match(turnProcess, /copy\.viewProcess/);
 });
 
 test("long conversations share one user-turn navigator and preserve reader scroll ownership", () => {
@@ -6568,17 +6564,25 @@ test("skill management has one workspace while Settings retains search configura
   assert.doesNotMatch(settingsSkills, /toggleSkill|updateBuiltinSkill|skillsStore\.skills\.(items|builtins|counts)/);
   assert.match(settingsSkills, /desktop-skills-search-form/);
   assert.match(settingsSkills, /settings-footbar/);
-  assert.match(sections.skills, /\[b\.skillId, b\]/);
-  assert.match(sections.skills, /updateBuiltinSkill\(builtinState\.id\)/);
-  assert.match(sections.skills, /builtinState\.modified/);
+  assert.match(sections.skills, /skill\.builtin/);
+  assert.match(sections.skills, /updateBuiltinSkill\(skill\.builtin\?\.id \?\? ""\)/);
+  assert.match(sections.skills, /skill\.builtin\.modified/);
   // A bundled Skill materialises into the global skills directory, so it is
   // both built-in and global: the category tabs filter by attribute instead of
   // partitioning the catalogue. The builtin-first partition is what made an
   // installed bundled Skill vanish from the 全局 tab.
-  assert.match(sections.skills, /function isWorkspace\(skill: DesktopSkillItem\): boolean \{\n\s*\/\/ Global and built-in are not exclusive/);
-  assert.match(sections.skills, /return skill\.scope === "global";/);
-  assert.doesNotMatch(sections.skills, /!isBuiltin\(skill\) && !isAgent\(skill\)/);
-  assert.doesNotMatch(sections.skills, /if \(isBuiltin\(item\)\) builtin\+\+;\s*\n\s*else if/);
+  // Scope is a filter over one catalogue, not a partition that can hide a
+  // built-in installed into the global root.
+  assert.match(sections.skills, /const sourceOptions = \$derived\.by/);
+  assert.match(sections.skills, /const installedGroups = \$derived\.by/);
+  // Ownership is the first split: Molibot's own roots and projects are one
+  // catalogue, every external tool is the other. The source facet is the group
+  // key, so a header and its filter can never disagree.
+  assert.match(sections.skills, /sourceFilter !== "all" && installedSourceKey\(skill\) !== sourceFilter/);
+  assert.match(sections.skills, /copy\.skillGroupMolibotGlobal/);
+  assert.match(sections.skills, /copy\.skillGroupMolibotProject/);
+  assert.match(sections.skills, /copy\.skillViewDiscovered/);
+  assert.match(sections.skills, /<h3 class="skills-group-head">/);
 });
 
 // The card's detail view is an in-page master-detail (list · content · files),
@@ -6591,7 +6595,13 @@ test("skill detail is an in-page pane with path, frontmatter and directory", () 
   assert.match(sections.skills, /copy\.skillDetailPath/);
   assert.match(sections.skills, /copy\.skillDetailMetadata/);
   assert.match(sections.skills, /detail\.frontmatter/);
+  assert.match(sections.skills, /skills-meta-table/);
   assert.match(sections.skills, /class="skills-detail-files"/);
   assert.doesNotMatch(sections.skills, /installed-skill-dialog/);
-  assert.doesNotMatch(sections.skills, /<Dialog/);
+  // Installing is a reviewed plan: the sheet renders the server's preflight
+  // (source, target, conflicts) before it can write anything.
+  assert.match(sections.skills, /<Dialog open=\{installOpen\}/);
+  assert.match(sections.skills, /loadPreflight/);
+  assert.match(sections.skills, /preflight\.conflicts/);
+  assert.match(sections.skills, /preflight\.requiresReplace/);
 });

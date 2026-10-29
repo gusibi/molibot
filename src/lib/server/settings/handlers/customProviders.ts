@@ -1,4 +1,5 @@
 import { sanitizeSettings } from "../sanitize.js";
+import { normalizeProviderConfigRows } from "../providerIdentity.js";
 import type { CustomProviderConfig, RuntimeSettings } from "../schema.js";
 import type { SettingsAccessor } from "./locale.js";
 
@@ -65,10 +66,12 @@ export function upsertCustomProvider(
   options?: { activateAsDefault?: boolean; switchToCustomMode?: boolean }
 ): { config: CustomProvidersConfig; saved: CustomProviderConfig } {
   if (!provider || typeof provider !== "object") throw new Error("provider is required");
+  const normalized = normalizeProviderConfigRows([provider])[0];
+  if (!normalized) throw new Error("Provider is no longer supported");
   const current = runtime.getSettings();
-  const id = String((provider as Record<string, unknown>).id ?? "").trim();
+  const id = String(normalized.id ?? "").trim();
   const existing = (current.customProviders ?? []).filter((p) => p.id !== id);
-  const merged = [...existing, provider as CustomProviderConfig];
+  const merged = [...existing, normalized];
   const activateAsDefault = options?.activateAsDefault === true;
   const requestedDefault = activateAsDefault ? id : current.defaultCustomProviderId;
   const sanitized = sanitizeSettings(

@@ -1220,6 +1220,10 @@ the same regardless of the window's activation state and of what is behind it.
   take pointer events and remain clickable; every empty pixel and the passive
   title/source text fall through to the window drag mask, so the row drags the
   window consistently. The header element itself never becomes a backdrop root.
+- Expanded window headers inherit the actual sidebar/chat tracks through CSS
+  subgrid, including narrow-window and Inspector splits. The title and secondary
+  labels shrink and ellipsize within the remaining space; icon actions retain
+  their natural width and never overlap the text.
 - Header column dividers use the same centered, text-height hairline at both
   the sidebar/title and title/Inspector boundaries: `--fs-label` high, 1px wide,
   with `--content-frame-edge` at 65% opacity. Inspector body rules retain their
@@ -1412,11 +1416,10 @@ the same regardless of the window's activation state and of what is behind it.
   explicitly restores bottom following. The same behavior and
   semantic tokens apply to local Chat, Project Chat, and read-only external transcripts.
 - Agent work inside local Chat and Project Chat uses one ordered process disclosure.
-  While the model is still reasoning or running tools with no answer yet it stays
-  open; the moment the first answer content (text or plan) streams, the card folds
-  by itself so the answer leads - not only at turn end. Once folded, the state
-  belongs to the reader and a manual expand is never re-collapsed. Failures and
-  interruptions stay open. Its contents form one timeline in arrival order—
+  The disclosure is collapsed by default during execution and after completion;
+  opening it is a reader action, never reset by token or tool updates. Only a
+  concise structured status stays visible while running. Approvals and actionable
+  failures stay visible outside the disclosure. Its contents form one timeline in arrival order—
   reasoning, narration, and tool calls. Running, failed, and unknown tool calls always keep
   their own rows. Adjacent successful reads, changes, searches, or commands may compress
   into one action row; expanding it reveals every original call in order. Groups never cross
@@ -1684,7 +1687,7 @@ Room model previews use the backend-resolved per-member model keys. Completed tr
 
 ## 对话执行说明
 
-实时过程默认展示最近两条模型进度说明、当前步骤和耗时；说明来自助手面向用户的正文，不从私有思考、工具输出或诊断拼接。无进度说明时，按结构化工具类型展示诚实的当前状态。模型返回的思考内容集中在独立的「思考」披露中，思考时自动展开，正文开始输出或回合结束时折叠；用户可手动展开，后续正文增量不重复强制折叠。历史思考默认折叠，不在执行详情中重复展示；没有思考内容时不显示该披露。工具数、调用链与终端输出默认折叠到「执行详情」，运行中也不强制展开。子代理任务使用稳定条目更新状态；内部诊断不能成为用户进度。已有最终正文不被过程面板覆盖。
+每轮回答只有一个统一过程区和一个独立结果区。过程区集中容纳进度说明、思考、工具调用及其结果，内部保留真实类型与事件顺序；入口统一命名为「查看过程」，不把工具日志伪装成模型思考，也不产生第二张过程卡或插入正文的工具节点。实时阶段与历史阶段的过程区均默认收起；外部只显示结构化的简短状态与耗时，进度原文、思考和工具载荷不外露。展开后所有内容按原始顺序呈现为同一条时间线：思考、进度说明、工具调用及结果交替出现。思考使用与工具同轴的普通文本节点，通过图标与可访问名称区分类型，不再嵌套「思考过程」折叠标题、不提前合并至顶部；用户手动展开后不被后续增量反复折叠。完成后过程区默认收起；没有过程内容（纯文本回答）时不显示空入口。结果区只承载运行时明确标记的完整交付（含必要结论、执行结果、限制与追问），复制、搜索与预览统一消费结果文本；中断前已形成的有效答案按部分结果保留，不显示为成功完成。审批、待决定计划和需处理的失败直接可见，不藏进过程区。早于结果记录的历史回合保留原过程与已记录末段，并明确提示完整结果可能未被保存，不伪造完整交付。子代理任务使用稳定条目更新状态；内部诊断不能成为用户进度。
 
 
 ## Personal Agent Desktop
@@ -1791,6 +1794,7 @@ Agent 设置分类称为“绑定的机器人”，默认列表仅显示草稿�
 ### 设置页阅读层级
 
 设置采用克制的编辑式布局：最左导航保持稳定，分组标签与选中项明确区分；内容标题与表单共享阅读列，减少标题的双重内边距。设置组使用已有卡片表面、清楚的组标题和细分隔线，不新增装饰阴影或主题配色。Agent 二级编辑保留全局导航，内部分类使用顶部横向导航，避免三个纵向导航栏压缩表单；身份标题含小头像、当前分类与 Agent 名称，正文限定阅读宽度，头像编辑左对齐。保存栏始终固定并注明保存生效，长内容留在正文滚动区。沿用现有控件、字体 token 和动效系统，支持中英、明暗以及窄窗导航滚动。
+运行通道类设置页（向量模型、决策模型）先呈现一条状态摘要：当前启用的对象、模型/策略事实和主操作；下方用平面行展示通道或模型，Active 对象只用强调色轨道和浅底标记；编辑连接进入共享对话框，空状态使用与页面语义相关的内联插画，不把空状态再包成第二层卡片。摘要条和列表沿用现有卡片表面与发丝分隔，不新增阴影或主题配色。
 
 ### 设置导航分类
 
@@ -1824,3 +1828,11 @@ Agent 设置分类称为“绑定的机器人”，默认列表仅显示草稿�
 ### Desktop application identity
 
 通用设置中的 Logo 选择同时控制应用内形象、运行中的 macOS 应用图标（Dock / 应用切换器）和菜单栏图标。17 个形象均保留：系统大图标保留每张原图的异形轮廓、透明度和完整构图，仅等比缩放，不添加背景、圆角底板、蒙版或裁切；菜单栏使用独立透明小尺寸彩色版本（44px 资源，由系统托盘库显示为 18pt），不带大图标底板。通用外观区域依次排列主题选择、主题导入、Logo，主题相关设置保持相邻。设置网格预览系统大图标；聊天头像保留透明原图。选择按设备保存在桌面偏好中，原生启动即恢复；更新期间禁用重复提交，失败保留已确认选择并提供中英错误提示。Finder / 安装包图标由打包资源决定。
+
+### 当前对话操作菜单
+
+Agent 对话顶栏依次保留历史对话、小程序、更多操作和文件产物，文件产物始终位于最右。搜索当前对话收进更多菜单，选中后展开既有搜索栏并聚焦；更多使用 Reicon More Outline 图标。目录复制与打开归为一组，删除放在分隔线下方，复用最近会话与列表右键菜单的共享可恢复删除流程及错误反馈，不增加独立确认流程。菜单复用 Bits UI 与共享主题样式，支持键盘、中英、明暗和窄窗；尚未创建的草稿不提供当前会话操作。
+
+### 顶栏 Agent 首页入口
+
+已有对话标题旁的 Agent 名称使用共享文字按钮，点击或键盘激活进入对应 Agent 首页。保留次级文字层级与截断，悬停及键盘焦点明确可见；按钮不参与窗口拖动。未归属或已删除 Agent 的名称保持普通文字，不生成无效入口。中英文提示说明目标首页。

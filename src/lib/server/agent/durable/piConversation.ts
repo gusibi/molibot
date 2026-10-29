@@ -1,27 +1,26 @@
 import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import type { JsonValue, JsonRepresentation } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { RunBudget } from "$lib/server/agent/core/runtimeBudget.js";
 import { RunBudgetStore } from "$lib/server/agent/core/runBudgetStore.js";
 import { join } from "node:path";
-import { defineDoc, defineEntry, GenerationTask, Harness, LiveDoc, ToolTask, watchEvents,
+import { defineDoc, defineEntry, GenerationTask, Harness, LiveDoc, NestedCallDoc, ToolTask, watchEvents,
   AssistantEntry, UsageDoc, AgentDoc, configure as configureAgent, type AgentChange, type AgentEventStream, type Conversation, type EntryRecord, type ModelRef,
   type UserInput, type Cursor, type TaskId, type EntryId, type ConversationId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import type { NativeInvocation, NativeChildOptions, NativeChildSession } from "./piInvocation.js";
-import { decodePiToolDetails } from "./piToolResult.js";
+import { nativeNestedToolKey, type NativeInvocation, type NativeChildOptions, type NativeChildSession } from "./piInvocation.js";
+import { decodePiNestedResult, decodePiToolDetails } from "./piToolResult.js";
 import { isSafeReadOnlySubagentCommand } from "$lib/server/agent/tools/subagent.js";
 import { assistantHasUsableOutput, planLengthRecovery } from "$lib/server/agent/tools/subagentRuntime.js";
-import { claimPiStorage, createPiToolRegistry, type PiDurableKernelOptions } from "./piKernel.js";
+import { claimPiStorage, createPiToolRegistry, type PiToolRegistryOptions } from "./piToolRegistry.js";
 
 const ChildPolicy = defineDoc<{ deadlineAt: number }>({ kind: "molibot.child-policy", version: 1,
   scope: "conversation", history: "latest", fork: "current", initial: () => ({ deadlineAt: 0 }) });
 const ChildUsageProjection = defineDoc<{ models: Record<string, JsonRepresentation<import("@earendil-works/pi-ai").Usage>> }>({ kind: "molibot.child-usage-projection", version: 1,
   scope: "conversation", history: "latest", fork: "initial", initial: () => ({ models: {} }) });
 const ChildUsageReceipt = defineEntry<{ provider: string; model: string; api: string; usage: JsonValue }>("molibot.child-usage-receipt");
-const NestedCall = defineEntry<{ owner: number; id: string; fingerprint: string; taskId: number }>("molibot.nested-call");
 const ChildBinding = defineEntry<{ taskId: number; key: string; conversationId: number; model: JsonValue; catalog: JsonValue[]; instructions: string; tools: string[] }>("molibot.child-binding");
 const Binding = defineEntry<{ key: string; requestId: string; content: JsonValue; runId: string }>("molibot.runner-binding");
 const History = defineEntry("molibot.runner-history");
@@ -37,12 +36,12 @@ const Control = defineEntry<{ requestId: string; mode: "steer" | "followUp" }>("
  */
 const MAX_LENGTH_RETRIES = 2;
 
-export interface PiConversationOptions extends PiDurableKernelOptions {
+export interface PiConversationOptions extends PiToolRegistryOptions {
   /** All authorized definitions are registered, including currently deferred tools. */
   visibleTools?: readonly string[];
   childCompaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
   childBudgetLimits?: import("$lib/server/agent/core/runtimeBudget.js").RunBudgetLimits;
-  childTools?: () => PiDurableKernelOptions["tools"];
+  childTools?: () => PiToolRegistryOptions["tools"];
   registerModel?: (model: import("@earendil-works/pi-ai").Model<any>) => void;
   onChildDeferred?: (pollAt: number) => Promise<void>;
   onChildUsage?: (receipt: { id: string; provider: string; model: string; api: string; usage: import("@earendil-works/pi-ai").Usage }) => Promise<void> | void;
@@ -56,7 +55,7 @@ export interface PiConversationOptions extends PiDurableKernelOptions {
   projectionRunId?: string;
   projectEntry?: (entry: EntryRecord, sourceId: string, input?: { primary: boolean; mode?: "steer" | "followUp" }) => Promise<void>;
   onSuspended?: (requestId: string, detail?: Parameters<Parameters<typeof createPiToolRegistry>[1]>[1]) => Promise<void>;
-  recoverTools?: (names: readonly string[]) => Promise<PiDurableKernelOptions["tools"]>;
+  recoverTools?: (names: readonly string[]) => Promise<PiToolRegistryOptions["tools"]>;
   /** Tool call ids a person confirmed during recovery review; settle them as interrupted instead of blocking. */
   approvedRecoveryCallIds?: readonly string[];
 
@@ -101,6 +100,7 @@ export class PiConversationRuntime {
   private async initialize(input: { requestId: string; content: UserInput; resume?: boolean }): Promise<void> {
     if (this.harness) throw new Error("Pi conversation is already open.");
     this.options.assertStorageOwnership();
+    if (input.resume && !existsSync(this.options.storagePath)) throw new Error("Pi execution has no admitted input to resume.");
     const path = resolve(this.options.storagePath);
     this.releaseStorage = claimPiStorage(path);
     this.suspended = new Promise(resolve => { this.suspend = requestId => resolve({ requestId }); });
@@ -204,15 +204,16 @@ export class PiConversationRuntime {
 
   private suspendFailure(cause: unknown): void { this.suspensionFailure = cause; this.suspend("failed"); }
 
-  registerTools(tools: PiDurableKernelOptions["tools"]): void {
+  registerTools(tools: PiToolRegistryOptions["tools"]): void {
     this.requireConversation();
+    this.options.tools = tools;
     this.registryTools!.registerTools(tools);
   }
 
   private visible(names?: readonly string[]) {
     const tools = this.registryTools!.tools;
     if (!names) return tools;
-    return names.map(name => {
+    return [...new Set([...names, ...tools.filter(tool => tool.callers?.length === 1 && tool.callers[0] === "tools").map(tool => tool.name)])].map(name => {
       const tool = tools.find(tool => tool.name === name);
       if (!tool) throw new Error(`Tool ${name} is not authorized for this conversation.`);
       return tool;
@@ -236,17 +237,29 @@ export class PiConversationRuntime {
 
   async toolOrigin(taskId: TaskId, callId: string) {
     this.requireConversation();
-    const task = await this.harness!.getTask(taskId, BACKGROUND_CONTEXT);
-    const input = task?.input;
-    if (task?.kind !== ToolTask.definition.name || !input || typeof input !== "object" || Array.isArray(input) || input.callId !== callId) {
-      throw new Error("Pi tool has no matching native task identity.");
+    const visited = new Set<number>();
+    while (!visited.has(taskId)) {
+      visited.add(taskId);
+      const task = await this.harness!.getTask(taskId, BACKGROUND_CONTEXT);
+      if (task?.kind !== ToolTask.definition.name || !task.input || typeof task.input !== "object" || Array.isArray(task.input)) {
+        throw new Error("Pi tool has no matching native task identity.");
+      }
+      const input = task.input as import("@earendil-works/pi-durable").ToolTaskInput;
+      if (input.kind === "nested") {
+        if (input.call.id !== callId) throw new Error("Pi nested tool has a different native call identity.");
+        callId = input.parentCallId;
+        taskId = input.parent;
+        continue;
+      }
+      if (input.callId !== callId) throw new Error("Pi tool has a different native call identity.");
+      const entry = await this.harness!.commit(tx => tx.entry(input.assistant), BACKGROUND_CONTEXT);
+      const assistant = entry?.model?.find(message => message.role === "assistant");
+      if (assistant?.role !== "assistant" || !assistant.content.some(block => block.type === "toolCall" && block.id === callId)) {
+        throw new Error("Pi tool has no originating assistant entry.");
+      }
+      return assistant;
     }
-    const entry = await this.harness!.commit(tx => tx.entry(input.assistant as EntryId), BACKGROUND_CONTEXT);
-    const assistant = entry?.model?.find(message => message.role === "assistant");
-    if (assistant?.role !== "assistant" || !assistant.content.some(block => block.type === "toolCall" && block.id === callId)) {
-      throw new Error("Pi tool has no originating assistant entry.");
-    }
-    return assistant;
+    throw new Error("Pi nested tool ownership contains a cycle.");
   }
 
   private async nestedCall(invocation: Pick<NativeInvocation, "api" | "context">, tool: import("@earendil-works/pi-agent-core").AgentTool, id: string, args: unknown, signal?: AbortSignal) {
@@ -254,45 +267,28 @@ export class PiConversationRuntime {
     const { api, context } = invocation;
     this.options.assertStorageOwnership();
     this.options.assertAuthority(tool.name, args);
-    const fingerprint = createHash("sha256").update(JSON.stringify({ tool: tool.name, args })).digest("hex");
+    const callable = await api.agent(context);
+    if (!callable.callable.some(candidate => candidate.name === tool.name)) {
+      throw new Error(`Tool ${tool.name} is not authorized for native nested calls.`);
+    }
     this.registerTools([...this.options.tools.filter(candidate => candidate.name !== tool.name), tool]);
-    const taskId = await api.commit(async tx => {
-      let cursor: Cursor | undefined;
-      do {
-        const page = await tx.scanEntries({ conversationId: api.conversationId }, 64, cursor);
-        const existing = page.items.find(entry => NestedCall.is(entry) && entry.data.owner === api.taskId && entry.data.id === id);
-        if (existing && NestedCall.is(existing)) {
-          if (existing.data.fingerprint !== fingerprint) throw new Error("Nested tool sequence or arguments changed during replay.");
-          return existing.data.taskId as TaskId<import("@earendil-works/pi-durable").ToolTaskResult>;
+    const key = nativeNestedToolKey(id);
+    const callContext = signal ? { ...context, abortSignal: context.abortSignal ? AbortSignal.any([context.abortSignal, signal]) : signal } : context;
+    try {
+      const result = await api.executeTool(tool.name, args as import("@earendil-works/pi-durable").JsonObject, callContext, { key });
+      return { result: decodePiNestedResult(result), isError: result.isError };
+    } catch (cause) {
+      // Pi cancels the waiter, not the nested operation. A host timeout must also stop
+      // that task and wait for its handler before this invocation releases effects.
+      if (signal?.aborted && !context.abortSignal?.aborted) {
+        const nested = await api.snapshot(NestedCallDoc, api.taskId, key, context);
+        if (nested?.taskId) {
+          await this.harness!.abortTask(nested.taskId, BACKGROUND_CONTEXT);
+          await api.waitForTask(nested.taskId, context);
         }
-        cursor = page.next;
-      } while (cursor !== undefined);
-      const child = await tx.createConversation({ ownership: { kind: "task", taskId: api.taskId } });
-      const extension = this.registryTools!.registry.snapshot().extension("molibot")!;
-      await configureAgent(tx, child.id, { extensions: [extension], tools: this.registryTools!.tools.filter(candidate => candidate.name === tool.name) });
-      const assistant = await tx.appendEntry(AssistantEntry, child.id, { model: [{ role: "assistant",
-        provider: "molibot", api: "openai-completions", model: "nested-tool", timestamp: Date.now(), stopReason: "toolUse",
-        content: [{ type: "toolCall", id, name: tool.name, arguments: JSON.parse(JSON.stringify(args)) }],
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }] });
-      const taskId = await tx.createTask(ToolTask, { kind: "model", assistant: assistant.id, callId: id }, { conversationId: child.id, ownership: { kind: "conversation" } });
-      await tx.appendEntry(NestedCall, api.conversationId, { data: { owner: api.taskId, id, fingerprint, taskId } });
-      return taskId;
-    }, context);
-    const abort = () => { void this.harness!.abortTask(taskId, BACKGROUND_CONTEXT).catch(cause => this.suspendFailure(cause)); };
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted) abort();
-    let settled;
-    try { settled = await api.waitForTask(taskId, context); }
-    finally { signal?.removeEventListener("abort", abort); }
-    signal?.throwIfAborted();
-    const outcome = settled.state.outcome;
-    const committed = "result" in outcome ? outcome.result : undefined;
-    if (!committed || typeof committed !== "object" || !("entryId" in committed)) throw new Error(`Native nested tool did not commit a receipt: ${JSON.stringify(outcome)}`);
-    const entryId = committed.entryId as EntryId;
-    const entry = await api.commit(tx => tx.entry(entryId), context);
-    const result = entry?.model?.find(message => message.role === "toolResult");
-    if (!result) throw new Error("Native nested tool receipt is missing.");
-    return { result: { content: result.content, ...decodePiToolDetails(result.details) }, isError: Boolean(result.isError) };
+      }
+      throw cause;
+    }
   }
 
   private async checkChildDeadline(api: import("@earendil-works/pi-durable").HookApi): Promise<void> {
@@ -625,7 +621,9 @@ export class PiConversationRuntime {
     await this.assertRecovery();
     const submission = await conversation.submit({ type: "input", requestId: this.requestId, content: this.admitted! }, BACKGROUND_CONTEXT);
     await onAdmitted?.();
-    return this.wait(async () => { await submission.wait(BACKGROUND_CONTEXT); await conversation.waitForIdle(BACKGROUND_CONTEXT); });
+    const result = await this.wait(async () => { await submission.wait(BACKGROUND_CONTEXT); await conversation.waitForIdle(BACKGROUND_CONTEXT); });
+    return { ...result, submissionId: submission.id,
+      outcome: result.status === "idle" ? await submission.wait(BACKGROUND_CONTEXT) : undefined };
   }
 
   /** Admit an explicit installed command as an owned tool, without asking a model to dispatch it. */
@@ -729,9 +727,11 @@ export class PiConversationRuntime {
         if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid persisted tool task.");
         // A person reviewed the unknown outcome and accepted it; Pi settles the
         // call as interrupted and continues the remaining work.
-        if (approved.has(String(input.callId))) continue;
-        const assistant = (await this.harness!.commit(tx => tx.entry(input.assistant as EntryId), BACKGROUND_CONTEXT))?.model?.[0];
-        const call = assistant?.role === "assistant" ? assistant.content.find(block => block.type === "toolCall" && block.id === input.callId) : undefined;
+        const toolInput = input as import("@earendil-works/pi-durable").ToolTaskInput;
+        const callId = toolInput.kind === "nested" ? toolInput.call.id : toolInput.callId;
+        if (approved.has(callId)) continue;
+        const assistant = toolInput.kind === "model" ? (await this.harness!.commit(tx => tx.entry(toolInput.assistant), BACKGROUND_CONTEXT))?.model?.[0] : undefined;
+        const call = toolInput.kind === "nested" ? toolInput.call : assistant?.role === "assistant" ? assistant.content.find(block => block.type === "toolCall" && block.id === callId) : undefined;
         const tool = call?.type === "toolCall" ? [...this.registryTools!.tools, ...(this.options.childTools?.() ?? [])].find(tool => tool.name === call.name) : undefined;
         if (checkpoint.replay !== "safe" || tool?.replay !== "safe") throw new Error("External operation outcome is unknown; review it before continuing.");
       }

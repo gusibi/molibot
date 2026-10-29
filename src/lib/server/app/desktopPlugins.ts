@@ -11,6 +11,7 @@ import { getProjectStore } from "$lib/server/projects/store";
 import { buildModelOptions } from "$lib/server/settings/modelSwitch";
 import { isAbsolute } from "node:path";
 import { listMemoryReflectionNotificationTargets, memoryReflectionNotificationTargetValue, resolveMemoryReflectionNotificationTarget } from "$lib/server/agent/taskScheduler";
+import { resolveEmbeddingTarget } from "$lib/server/memory/activeProvider.js";
 
 const KNOWN_KINDS: readonly DesktopPluginKind[] = ["channel", "provider", "feature", "memory-backend"];
 const KNOWN_STATUSES: readonly DesktopPluginStatus[] = ["active", "error", "discovered"];
@@ -111,8 +112,12 @@ export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, setting
     memory: {
       enabled: settings?.plugins.memory.enabled ?? false,
       backend: settings?.plugins.memory.backend ?? "json-file",
-      embeddingProviderId: settings?.plugins.memory.embeddingProviderId ?? "",
-      embeddingModel: settings?.plugins.memory.embeddingModel ?? "",
+      embedding: (() => {
+        const target = settings ? resolveEmbeddingTarget(settings) : null;
+        return target
+          ? { providerId: target.id, providerName: target.name || target.id, model: target.model }
+          : null;
+      })(),
       reflectionTime: settings?.plugins.memory.reflectionTime ?? "03:00",
       reflectionNotifications: settings?.plugins.memory.reflectionNotifications ?? true,
       reflectionNotificationTarget: reflectionNotificationTarget ? memoryReflectionNotificationTargetValue(reflectionNotificationTarget) : "",
@@ -120,7 +125,6 @@ export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, setting
       dailyMaterials: settings?.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true, scanTokenBudget: 120000, scanModelKey: "" },
       projects,
       scanModels: scanModelOptions(settings),
-      embeddingProviders: (settings?.customProviders ?? []).filter((provider) => provider.enabled).map((provider) => ({ value: provider.id, label: provider.name || provider.id })),
       backends: [
         { value: "json-file", label: "json-file" },
         ...((catalog.memoryBackends ?? []).filter((entry) => entry.key !== "json-file").map((entry) => ({ value: entry.key, label: entry.name || entry.key })))
@@ -174,8 +178,6 @@ export function buildDesktopPluginsSettings(settings: RuntimeSettings, catalog: 
   next.memory = {
     enabled: input.memoryEnabled,
     backend: input.memoryBackend,
-    embeddingProviderId: String(input.memoryEmbeddingProviderId ?? "").trim(),
-    embeddingModel: String(input.memoryEmbeddingModel ?? "").trim(),
     reflectionTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(input.memoryReflectionTime) ? input.memoryReflectionTime : "03:00",
     reflectionNotifications: Boolean(input.memoryReflectionNotifications),
     reflectionNotificationTarget: reflectionNotificationTarget ?? null,

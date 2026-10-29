@@ -59,7 +59,7 @@ For example, ask in a project conversation:
 
 > Read this folder's project brief and progress notes. Summarize the current status and suggest next steps, citing the source files.
 
-You can inspect, edit, and delete memories, and control whether a turn enters memory or future context. Memory does not guarantee recall of every message or replace your source documents. See [Project workspaces](docs/features/desktop-project-workspace.md) and [personal Agent and memory](docs/features/personal-agent-and-memory.md).
+You can inspect, edit, and delete memories, and control whether a turn enters memory or future context. Memory embeddings have their own **Embedding Models** page: keep multiple remote or local lanes, each with its own host, key and model, and choose one active lane. In the desktop app open **Settings → Assistant → Embedding Models**; in Web settings open **Memory → Embedding Models**. Local Ollama / LM Studio is optional; without it the remote lane stays in use. Memory does not guarantee recall of every message or replace your source documents. See [Project workspaces](docs/features/desktop-project-workspace.md) and [personal Agent and memory](docs/features/personal-agent-and-memory.md).
 
 <!-- IMAGE 3: Project and memory. Suggested path: assets/screenshots/readme-project.png.
 Show a sanitized real project: project conversations, the current task, and its files. If showing memory, use an actual saved entry.

@@ -20,9 +20,8 @@
   import { contributionIcon, INVOCATION_ICONS } from "./activityIcons";
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
-  import { finalizeTranscriptActivities, transcriptCompletedTurnSections, transcriptDisplayContent, transcriptRenderBlocks, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
+  import { transcriptDisplayContent, transcriptRenderBlocks, transcriptResultUnrecorded, transcriptTurnSections, type TranscriptAttachmentActions, type TranscriptContributionAction, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
   import TranscriptAttachments from "./TranscriptAttachments.svelte";
-  import RunActivity from "./RunActivity.svelte";
   import ThinkingCard from "./ThinkingCard.svelte";
   import PlanCard from "./PlanCard.svelte";
   import TurnProcess from "./TurnProcess.svelte";
@@ -149,7 +148,7 @@
   {@const isLongUserMessage = message.role === "user" && (displayContent.split(/\r?\n/).length > 20 || displayContent.length > 1000)}
   {@const isExpanded = expandedMessages.has(key)}
   {@const renderBlocks = message.role === "assistant" ? transcriptRenderBlocks(message) : []}
-  {@const turnSections = message.role === "assistant" ? transcriptCompletedTurnSections(renderBlocks) : { process: [], response: [] }}
+  {@const turnSections = message.role === "assistant" ? transcriptTurnSections(renderBlocks) : { process: [], response: [] }}
   {@const hasMemoryMeta = Boolean(message.memoryTrace && messageActions?.onOpenMemoryTrace && ((message.memoryTrace.referencedCount ?? 0) > 0 || message.memoryTrace.writeCount > 0))}
   {@const hasTechnicalDetails = Boolean(message.model) || hasMemoryMeta}
   {@const textContributions = messageActions?.contributions?.filter((action) => action.accepts.includes("text")) ?? []}
@@ -287,13 +286,12 @@
             {endpoint}
           />
         {/if}
+        {#if transcriptResultUnrecorded(message, turnSections.process)}
+          <p class="message-result-notice">{copy.resultLegacyNotice}</p>
+        {/if}
         {#each turnSections.response as block (block.id)}
           {#if block.kind === "plan"}
             <PlanCard plan={block.plan} {copy} disabled={!messageActions?.onResolvePlan} onResolve={(decision, edits) => messageActions?.onResolvePlan?.(message, block.plan, decision, edits)} />
-          {:else if block.kind === "thinking"}
-            <ThinkingCard text={block.content} label={copy.thinking} />
-          {:else if block.kind === "activities"}
-            <RunActivity activities={finalizeTranscriptActivities(block.activities) ?? []} {copy} onOpenPath={onOpenActivityPath} failed={assistantStatus === "error" || assistantStatus === "aborted"} stateKey={`${key}:${block.id}`} />
           {:else if block.content}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <ChatMarkdown {resolveImage} source={block.content} {copy} {endpoint} contentKey={`${key}-${block.id}`} onContextMenu={(event) => openSelectionMenu(event, message)} />

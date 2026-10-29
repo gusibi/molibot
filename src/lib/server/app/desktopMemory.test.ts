@@ -16,13 +16,14 @@ function caps(overrides: Partial<MemoryBackendCapabilities> = {}): MemoryBackend
 
 test("buildDesktopMemorySummary maps config + runtime state + capabilities", () => {
   const summary = buildDesktopMemorySummary(
-    { plugins: { memory: { enabled: true, backend: "mory", embeddingProviderId: "", embeddingModel: "" } } } as RuntimeSettings,
-    { enabled: true, capabilities: caps() }
+    { plugins: { memory: { enabled: true, backend: "mory" } } } as RuntimeSettings,
+    { enabled: true, capabilities: caps(), embedding: null }
   );
 
   assert.equal(summary.enabled, true);
   assert.equal(summary.configEnabled, true);
   assert.equal(summary.backend, "mory");
+  assert.equal(summary.embedding, null);
   assert.deepEqual(summary.capabilities, {
     hybridSearch: true,
     vectorSearch: false,
@@ -37,7 +38,7 @@ test("buildDesktopMemorySummary maps config + runtime state + capabilities", () 
 test("buildDesktopMemorySummary falls back when memory config is absent", () => {
   const summary = buildDesktopMemorySummary(
     {} as RuntimeSettings,
-    { enabled: false, capabilities: caps({ supportsHybridSearch: false, supportsIncrementalFlush: false }) }
+    { enabled: false, capabilities: caps({ supportsHybridSearch: false, supportsIncrementalFlush: false }), embedding: null }
   );
 
   assert.equal(summary.enabled, false);

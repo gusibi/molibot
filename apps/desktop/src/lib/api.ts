@@ -86,13 +86,21 @@ import type {
   DesktopMediaGenerateSummary,
   DesktopTtsResponse,
   DesktopTtsSummary,
-  DesktopSkillsResponse,
-  DesktopSkillsSummary,
-  DesktopSkillsUpdateRequest,
-  DesktopSkillDetail,
-  DesktopSkillDetailResponse,
+  DesktopSkillConsolidatePreflight,
+  DesktopSkillConsolidateRequest,
+  DesktopSkillConsolidateResponse,
   DesktopSkillFileResponse,
-  DesktopSkillRevealRequest,
+  DesktopSkillManagerAction,
+  DesktopSkillManagerDetail,
+  DesktopSkillManagerDetailResponse,
+  DesktopSkillManagerResponse,
+  DesktopSkillManagerSummary,
+  DesktopSkillPreflightRequest,
+  DesktopSkillPreflightResponse,
+  DesktopSkillPreflightResult,
+  DesktopSkillSearchConfig,
+  DesktopSkillSearchConfigResponse,
+  DesktopSkillSearchConfigUpdate,
   DesktopComposerSuggestion,
   DesktopApprovalDecision,
   DesktopApprovalOption,
@@ -736,13 +744,11 @@ export interface DesktopMemoryPluginDetail {
   values: {
     enabled: boolean;
     backend: string;
-    embeddingProviderId: string;
-    embeddingModel: string;
     reflectionTime: string;
     reflectionNotifications: boolean;
   };
+  embedding: { providerId: string; providerName: string; model: string } | null;
   backends: Array<{ value: string; label: string }>;
-  embeddingProviders: Array<{ value: string; label: string }>;
 }
 
 export interface DesktopDailyMaterialsPluginDetail {
@@ -778,7 +784,7 @@ export async function loadDesktopCorePluginDetail(
   const path = `/api/settings/plugins/core/${encodeURIComponent(pluginId)}`;
   if (pluginId === "memory") {
     const payload = await requestJson<Omit<DesktopMemoryPluginDetail, "id"> & { ok: boolean }>(endpoint, path);
-    return { id: "memory", values: payload.values, backends: payload.backends, embeddingProviders: payload.embeddingProviders };
+    return { id: "memory", values: payload.values, backends: payload.backends, embedding: payload.embedding };
   }
   const payload = await requestJson<Omit<DesktopDailyMaterialsPluginDetail, "id"> & { ok: boolean }>(endpoint, path);
   return { id: "daily-materials", values: payload.values, projects: payload.projects, models: payload.models };
@@ -1793,33 +1799,64 @@ export async function revealDesktopOpenConnectorToken(endpoint: string): Promise
   return payload.runtimeToken ?? "";
 }
 
-export async function loadDesktopSkills(endpoint: string): Promise<DesktopSkillsSummary> {
-  const payload = await requestJson<DesktopSkillsResponse>(endpoint, "/api/desktop/skills");
+export async function loadSkillManager(endpoint: string): Promise<DesktopSkillManagerSummary> {
+  const payload = await requestJson<DesktopSkillManagerResponse>(endpoint, "/api/desktop/skill-manager");
   return payload.summary;
 }
 
-export async function loadDesktopComposerSuggestions(endpoint: string, projectId = ""): Promise<DesktopComposerSuggestion[]> {
-  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}&profileId=personal` : "";
+export async function loadDesktopComposerSuggestions(endpoint: string, projectId = "", profileId = "personal"): Promise<DesktopComposerSuggestion[]> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}&profileId=${encodeURIComponent(profileId)}` : `?profileId=${encodeURIComponent(profileId)}`;
   const payload = await requestJson<{ ok: true; suggestions: DesktopComposerSuggestion[] }>(endpoint, `/api/desktop/composer-suggestions${query}`);
   return payload.suggestions;
 }
 
-export async function updateDesktopSkills(endpoint: string, input: DesktopSkillsUpdateRequest): Promise<DesktopSkillsSummary> {
-  const payload = await requestJson<DesktopSkillsResponse>(endpoint, "/api/desktop/skills", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
-  return payload.summary;
+export async function runSkillManagerAction<T>(endpoint: string, action: DesktopSkillManagerAction): Promise<{ summary?: DesktopSkillManagerSummary } & Partial<T>> {
+  return requestJson<{ summary?: DesktopSkillManagerSummary } & Partial<T>>(endpoint, "/api/desktop/skill-manager", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(action)
+  });
 }
 
-export async function loadDesktopSkillDetail(endpoint: string, id: string): Promise<DesktopSkillDetail> {
-  const payload = await requestJson<DesktopSkillDetailResponse>(endpoint, `/api/desktop/skills/detail?id=${encodeURIComponent(id)}`);
+export async function loadSkillPreflight(endpoint: string, request: DesktopSkillPreflightRequest): Promise<DesktopSkillPreflightResult> {
+  const payload = await requestJson<DesktopSkillPreflightResponse>(endpoint, "/api/desktop/skill-manager", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "preflight", request })
+  });
+  return payload.preflight;
+}
+
+export async function loadConsolidatePreflight(endpoint: string, request: DesktopSkillConsolidateRequest): Promise<DesktopSkillConsolidatePreflight> {
+  const payload = await requestJson<DesktopSkillConsolidateResponse>(endpoint, "/api/desktop/skill-manager", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "consolidate-preflight", request })
+  });
+  return payload.preflight;
+}
+
+export async function loadDesktopSkillDetail(endpoint: string, id: string): Promise<DesktopSkillManagerDetail> {
+  const payload = await requestJson<DesktopSkillManagerDetailResponse>(endpoint, `/api/desktop/skill-manager/detail?id=${encodeURIComponent(id)}`);
   return payload.detail;
 }
 
 export async function loadDesktopSkillFile(endpoint: string, id: string, path: string): Promise<DesktopSkillFileResponse> {
-  return requestJson<DesktopSkillFileResponse>(endpoint, `/api/desktop/skills/file?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
+  return requestJson<DesktopSkillFileResponse>(endpoint, `/api/desktop/skill-manager/file?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
 }
 
-export async function revealDesktopSkill(endpoint: string, input: DesktopSkillRevealRequest): Promise<void> {
-  await requestJson<{ ok: true }>(endpoint, "/api/desktop/skills/reveal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+export async function loadDesktopSkillSearch(endpoint: string): Promise<DesktopSkillSearchConfig> {
+  const payload = await requestJson<DesktopSkillSearchConfigResponse>(endpoint, "/api/desktop/skills/search");
+  return payload.search;
+}
+
+export async function saveDesktopSkillSearch(endpoint: string, input: DesktopSkillSearchConfigUpdate): Promise<DesktopSkillSearchConfig> {
+  const payload = await requestJson<DesktopSkillSearchConfigResponse>(endpoint, "/api/desktop/skills/search", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return payload.search;
 }
 
 export async function loadDesktopMemory(endpoint: string): Promise<DesktopMemorySummary> {
@@ -2799,10 +2836,11 @@ export async function deleteDesktopConversation(endpoint: string, sessionId: str
 
 export async function getDesktopSessionPath(
   endpoint: string,
-  input: { sessionId: string; projectId?: string }
+  input: { sessionId: string; projectId?: string; target?: "file" | "directory" }
 ): Promise<string> {
   const query = new URLSearchParams({ sessionId: input.sessionId });
   if (input.projectId) query.set("projectId", input.projectId);
+  if (input.target) query.set("target", input.target);
   const payload = await requestJson<{ ok: true; path: string }>(
     endpoint,
     `/api/desktop/conversations/path?${query}`
@@ -2812,7 +2850,7 @@ export async function getDesktopSessionPath(
 
 export async function revealDesktopSession(
   endpoint: string,
-  input: { sessionId: string; projectId?: string }
+  input: { sessionId: string; projectId?: string; target?: "file" | "directory" }
 ): Promise<{ ok: boolean; path?: string }> {
   return await requestJson<{ ok: true; path?: string }>(
     endpoint,
@@ -2822,7 +2860,8 @@ export async function revealDesktopSession(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sessionId: input.sessionId,
-        projectId: input.projectId
+        projectId: input.projectId,
+        target: input.target
       })
     }
   );
@@ -4430,4 +4469,108 @@ export async function saveDesktopSharedAgentRules(endpoint: string, rules: strin
     body: JSON.stringify({ scope: "global", files: { "AGENTS.md": rules } })
   });
   return payload.files["AGENTS.md"] ?? "";
+}
+
+export interface DesktopEmbeddingModel {
+  id: string;
+  name: string;
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+export interface DesktopEmbeddingStatus {
+  providerId: string;
+  providerName: string;
+  model: string;
+}
+
+export interface DesktopEmbeddingFailure {
+  providerId: string;
+  providerName: string;
+  model?: string;
+  message: string;
+}
+
+export interface DesktopLocalEmbeddingService {
+  id: string;
+  name: string;
+  baseUrl: string;
+  models: string[];
+  recommended?: string;
+}
+
+export interface DesktopEmbeddingState {
+  items: DesktopEmbeddingModel[];
+  activeId: string;
+  status: DesktopEmbeddingStatus | null;
+  error: DesktopEmbeddingFailure | null;
+  local?: DesktopLocalEmbeddingService[];
+  suggestions?: string[];
+}
+
+export async function loadDesktopEmbeddingModels(endpoint: string): Promise<DesktopEmbeddingState> {
+  return requestJson<DesktopEmbeddingState & { ok: true }>(endpoint, "/api/settings/embedding-models");
+}
+
+export async function saveDesktopEmbeddingModel(
+  endpoint: string,
+  item: DesktopEmbeddingModel
+): Promise<DesktopEmbeddingState> {
+  return requestJson<DesktopEmbeddingState & { ok: true }>(endpoint, "/api/settings/embedding-models", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(item)
+  });
+}
+
+export async function deleteDesktopEmbeddingModel(endpoint: string, id: string): Promise<DesktopEmbeddingState> {
+  return requestJson<DesktopEmbeddingState & { ok: true }>(
+    endpoint,
+    `/api/settings/embedding-models?id=${encodeURIComponent(id)}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function activateDesktopEmbeddingModel(endpoint: string, id: string): Promise<DesktopEmbeddingState> {
+  return requestJson<DesktopEmbeddingState & { ok: true }>(endpoint, "/api/settings/embedding-models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "activate", id })
+  });
+}
+
+export async function testDesktopEmbeddingModel(
+  endpoint: string,
+  item: Pick<DesktopEmbeddingModel, "id" | "name" | "baseUrl" | "apiKey" | "model">
+): Promise<{ probe: { ok: boolean; model: string; dimension?: number; latencyMs?: number; error?: string } }> {
+  return requestJson(endpoint, "/api/settings/embedding-models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "test", ...item })
+  });
+}
+
+export async function addLocalDesktopEmbeddingModel(
+  endpoint: string,
+  serviceId: string,
+  model: string
+): Promise<DesktopEmbeddingState> {
+  return requestJson<DesktopEmbeddingState & { ok: true }>(endpoint, "/api/settings/embedding-models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "use-local", serviceId, model })
+  });
+}
+
+export async function backfillDesktopEmbeddings(
+  endpoint: string,
+  limit = 100
+): Promise<{ result: { scannedCount: number; updatedCount: number; remainingCount: number } }> {
+  return requestJson(endpoint, "/api/settings/embedding-models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "backfill", limit })
+  });
 }

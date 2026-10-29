@@ -4,6 +4,7 @@
   import Chart from "reicon-svelte/icons/Chart";
   import Cpu from "reicon-svelte/icons/Cpu";
   import Database from "reicon-svelte/icons/Database";
+  import Box from "reicon-svelte/icons/Box";
   import Film from "reicon-svelte/icons/Film";
   import Gear from "reicon-svelte/icons/Gear";
   import Archive2 from "reicon-svelte/icons/Archive2";
@@ -46,6 +47,7 @@
   import OpenConnectorSection from "./lib/settings/OpenConnectorSection.svelte";
   import SkillsSection from "./lib/settings/SkillsSection.svelte";
   import MemorySection from "./lib/settings/MemorySection.svelte";
+  import EmbeddingModelsSection from "./lib/settings/EmbeddingModelsSection.svelte";
   import SessionManagementSection from "./lib/settings/SessionManagementSection.svelte";
   import ChannelsSection from "./lib/settings/ChannelsSection.svelte";
   import PluginsSection from "./lib/settings/PluginsSection.svelte";
@@ -147,7 +149,7 @@
     hapticPreference: HapticPreference;
   };
 
-  type SettingsSection = "system" | "general" | "models" | "decisionModels" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "system" | "general" | "models" | "decisionModels" | "providers" | "agents" | "mcp" | "openConnector" | "skills" | "memory" | "embeddingModels" | "sessionManagement" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "usage" | "runHistory" | "logs" | "trace" | "executionPermissions" | "hostBash" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -568,6 +570,7 @@
     { id: "openConnector", icon: AddCircle },
     { id: "skills", icon: MagicWand },
     { id: "memory", icon: Database },
+    { id: "embeddingModels", icon: Box },
     { id: "sessionManagement", icon: Archive2 },
     { id: "channels", icon: Radio },
     { id: "plugins", icon: PuzzlePiece },
@@ -592,7 +595,7 @@
   const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "capabilities" | "data" | "permissions" | "system"; sections: SettingsSection[] }[] = [
     { id: "general", sections: ["general"] },
     { id: "models", sections: ["models", "providers", "decisionModels"] },
-    { id: "assistant", sections: ["agents", "channels", "skills", "memory"] },
+    { id: "assistant", sections: ["agents", "channels", "skills", "memory", "embeddingModels"] },
     { id: "capabilities", sections: ["webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "mcp", "openConnector", "plugins"] },
     { id: "data", sections: ["sessionManagement", "runHistory", "usage", "trace", "logs"] },
     { id: "permissions", sections: ["executionPermissions", "hostBash"] },
@@ -636,6 +639,7 @@
       case "openConnector": return copy.openConnector;
       case "skills": return copy.skills;
       case "memory": return copy.memory;
+      case "embeddingModels": return copy.embeddingModels;
       case "sessionManagement": return copy.sessionMgmt;
       case "channels": return copy.channels;
       case "plugins": return copy.plugins;
@@ -666,6 +670,7 @@
       case "openConnector": return copy.openConnectorHint;
       case "skills": return copy.skillsHint;
       case "memory": return copy.memoryHint;
+      case "embeddingModels": return copy.embeddingModelsHint;
       case "sessionManagement": return copy.sessionMgmtHint;
       case "channels": return copy.channelsHint;
       case "plugins": return copy.pluginsHint;
@@ -1512,6 +1517,8 @@
         <OpenConnectorSection />
       {:else if activeSection === "memory"}
         <MemorySection />
+      {:else if activeSection === "embeddingModels"}
+        <EmbeddingModelsSection />
       {:else if activeSection === "sessionManagement"}
         <SessionManagementSection />
       {:else if activeSection === "logs"}

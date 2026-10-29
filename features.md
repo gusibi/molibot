@@ -1,9 +1,170 @@
+## 2026-10-29 — 顶栏 Agent 首页快捷入口
+
+- 已有对话标题旁的 Agent 名称可点击，复用现有首页导航；支持鼠标、Enter 和空格，悬浮提示注明目标 Agent。普通会话与外部会话使用各自归属，不创建新 session。
+- 使用共享文字按钮，保留次级文字、截断及中英主题适配，提供悬停和键盘焦点；未归属与已删除 Agent 仅显示文字。
+- 验证：隔离 UI 用例连续 5 次通过，Desktop 类型检查零错误零警告，production build 通过。原生 App 点击与拖动边界未验证；全量 `pnpm verify:feature` 留待整体验收。
+
+## 2026-10-29 — 当前对话更多菜单
+
+- Agent 对话顶栏保留历史、小程序和最右侧文件产物；搜索收进 Reicon More Outline 菜单，并保留搜索框聚焦与关闭后返回按钮。
+- 菜单提供复制会话记录目录、在 Finder 打开该目录和删除对话；复用现有路径接口及最近会话的共享可恢复删除处理器。成功删除当前对话后返回所属 Agent 首页，失败保留当前对话与错误提示。
+- 修复外部对话搜索读取本地消息的问题，搜索范围与当前显示的会话一致，命中项沿用共享高亮与定位；共享删除处理器在失败时显示现有反馈提示，最近会话和顶栏均可看到错误。
+- 验证：隔离实例定向 UI 用例连续 5 次通过，覆盖真实目录查询、剪贴板、搜索高亮、共享删除、语言主题窄窗及服务重启恢复；Desktop 类型检查零错误零警告，前后端构建通过。Finder 系统窗口和原生 App 待专项验收；未运行全量 `pnpm verify:feature`。
+
+## 2026-10-29 — Web 向量通道编辑器语义修复
+
+- 已交付：编辑器使用可聚焦的 `div` 承载 `dialog` 角色，消除 Svelte 的非交互元素角色警告，保留标题关联与现有关闭操作。
+- 验证：新增页面编译回归，修复前复现相同警告，修复后连续 5 次通过；客户端与服务端定向编译均无警告。根因属于 HTML 元素与 ARIA 角色冲突，编译回归作为机器守卫，无需新增长期规则。
+- 未验证：浏览器冷启动、语言/主题与窄屏走查；未运行全量 `pnpm verify:feature`。
+
+## 2026-10-29 — 对话结果与过程分离、消息空白修复
+
+- 回复区只呈现明确提交的最终结果；上方一个默认折叠的「查看过程」集中承载进度、思考和工具调用及结果，展开后保持真实顺序。十次工具调用不会生成十个独立过程入口。
+- 过程展开后使用一条扁平时间线：思考、进度说明和工具节点共用轴线，按真实事件交替显示；移除过程内重复的「思考过程」折叠标题，工具参数与输出仍可单独展开。节点提供有序列表语义和思考类型的可访问名称。
+- 修复无步骤消息被全部归入过程、导致回复区空白的问题；持久化结果正文是展示、复制与搜索的同一来源。流式 token 保持未定稿状态，不能按「首次工具之前」猜成答案。
+- 共享 Runner 的真实系统提示要求正常工具后回复独立回答原问题，保留必要结论和追问，不以保存确认代替完整交付；不新增总结请求或重跑工具。助手记录先标为过程，运行结束再提交最终或部分结果；无结果的审批/停止回合不会将进度当成旧格式答案。
+- SSE 完成回复只取显式提交内容，排除累计 token、线程说明和诊断。审批请求保持可见，拒绝后给出真实结果且不执行文件写入。
+- 验证入口：真实 Runner→临时持久化→投影回读、共享展示/控制器回归与定向浏览器用例。全量回归及原生 App、真实 Provider 未执行；具体验收见 [Spec](docs/requirements/conversation-answer-visibility-spec.md)。已有历史记录不自动重写，也不因展开或重载调用模型。
+
+## 2026-10-29 — 统一 Skill Manager（V1）
+
+- 已交付：技能页升级为「Molibot / 其他平台 / 平台」三视图。Molibot 视图只包含 Molibot 全局、Agent 专属和 Molibot 项目（`<project>/.agents/skills`），按来源分组并可从「来源」下拉直接筛选；其他平台视图按 Claude Code、Codex、OpenCode、OpenClaw、自定义平台等分组。外部技能显示来源、共用读取关系和同名冲突，复制或链接安装到 Molibot 范围。
+- 已交付：安装前必须经过服务端预检（来源、目标路径、写入清单、冲突、共用消费者、备份说明），执行时引用预检指纹并在写入前复核。独立 `skills.sqlite` 保存来源、安装基线、分发关系与操作收据；替换先做时间戳备份，失败回滚，启动时按 pending 收据恢复或如实标记；卸载只删除 Molibot 管理的入口，链接只删链接本身；仍有外部分发引用时阻止删除。
+- 已交付（本轮追加）：**整理**。可把 Codex / Claude Code 等外部目录里的技能复制成 Molibot 的一份规范副本，并把原位置替换为指向该副本的链接（或移除原入口、保留副本），写入前同样预检并确认；原入口备份为时间戳同级目录，失败自动还原。这样同一技能只保留一份内容，各工具继续读到它。
+- 已交付（本轮修正）：Molibot 技能目录里已有的技能（含内置技能）识别为**受管理**，不再显示「非 Molibot 安装」；只有 Molibot 目录之外的条目才保留“未记录来源”提示，并改为元信息行上的一个小图标。目标位置已有内容时改为「需确认替换 + 备份」，不再一刀切拒绝。
+- 已交付（本轮改版）：详情页内容优先。YAML 元信息以两列表格随 SKILL.md 显示在文件内容上方；作用域、方式、版本、来源、共享工具、分发数和时间收成一行 tag；路径、基线、分发明细和 YAML 说明收进「详细信息」折叠区；Runtime 结论改为标题旁的状态图标，悬浮显示真实加载结论和诊断；外部技能的「安装到 Molibot」改为名字旁的强调色圆形图标（下载/收纳语义），不再占用标题栏。目录改为可展开/收起的真实文件树，不再是全展开的平铺列表。
+- 接合与删除：Runtime 与管理层共用有界扫描器（深度、条目、目录、耗时、链接环、忽略目录），链接安装现在能被真实加载器发现；删除旧 `desktopSkills` 投影及旧的技能列表/详情/文件/打开位置路由，搜索配置改为独立的实体级接口。
+- 根因类别：同一概念两处实现（Runtime 扫描 vs 管理扫描）。旧 Runtime 扫描不跟随目录链接，所以「安装了但 Agent 加载不到」；旧管理扫描不保留入口与真实目录的关系，所以共用目录会被重复计数。新增 `skillScan.test.ts` 与 Runtime 链接用例分别守卫这两类。
+- 验证：`skillScan` 5 项、`manager` 25 项（发现、复制/链接、冲突、替换备份、共用目录、双入口聚合、禁用、Agent/项目计数、链接逃逸、Git 子目录且不执行钩子、分发阻断、平台回读、中断恢复、重复安装、链接源保留、目标断链、同名异内容、扫描根校验、已有技能受管、整理与回链）、预览 2 项、搜索设置 2 项、Runtime 16 项通过；根 `tsc --noEmit`、`pnpm --dir apps/desktop run check`（0 错误）与 Desktop `vite build` 通过。隔离实例浏览器用例 `tests/ui/skills-management.spec.ts` 覆盖分类与来源筛选、内置技能恢复、本地安装、发现 → Copy/Link 安装、整理 + 回链、真实文件树展开、Runtime 状态图标、平台规则保存与重启回读、搜索配置单独保存；WebKit 连续 3 次、Chromium 1 次通过，中英与明暗截图走查无横向溢出；技能相关源码守卫全部通过。
+- 未完成：V1.1 更新管理（Git/本地来源变更检测、Diff、历史回滚、批量更新、依赖诊断）未开始，界面不显示更新入口或虚构可更新数量。Cursor / Copilot / OpenClaw 的扫描目录尚未按官方文档逐条核对，界面标记为「路径未核对」。非 macOS Server、远端 Desktop 传输、原生 App 和真实第三方平台热重载未验证。全量 `pnpm verify:feature`、`pnpm test:ui`、`pnpm test:app` 未执行。
+
+## 2026-10-28 — 嵌套工具复用 Pi Durable 官方执行入口
+
+- 已交付：Codemode 与扩展的共享嵌套调用使用 Pi `api.executeTool()` 和 `NestedCallDoc`；删除自维护的嵌套子会话、虚构 assistant 消息与调用去重记录。调用身份、结果复用和任务调度由 Pi 管理。
+- 接合：原生父子调用关联到原始 assistant，继续使用共享权限、审批、预算、Trace、用量与媒体记录；内部模型工具通过 Pi `callers: ["tools"]` 隐藏，工具刷新后仍可调用。局部超时通过原生任务取消并等待处理器结束；启动恢复识别嵌套调用，未知外部结果进入核对。
+- 删除未接入生产的 `PiDurableKernel`；工具注册保留在 `piToolRegistry.ts`，原有 23 项回归与强杀恢复 fixture 改走正式 `PiConversationRuntime`。恢复不存在的执行时直接拒绝，不创建空数据库。
+- 根因类别：第三方 API 接合与调用身份投影。旧守卫主要验证自维护执行入口，没有覆盖官方 nested task 的输入和事件结构；新增正式入口守卫覆盖去重、拒绝、隐藏模型流、取消收敛及启动恢复。临时故障验证已确认守卫能拦截身份、恢复分类、流式映射及取消等待缺失；沿用现有运行时边界规则，无需增加重复 Pitfall。
+- 验证与未验证范围见 [Codemode 接入验证](docs/reviews/pi-codemode-integration-validation.md)。未重启用户服务，未调用真实 Provider。
+
+## 2026-10-28 — 桌面向量模型 / 决策模型设置页重做
+
+- 已交付：向量模型页改为“当前召回通道 → 向量通道 → 本地服务”三层。顶部摘要显示 Active 模型、供应商、端点、统计和重新索引/新增；通道改为带状态轨、模型/Host/Key 摘要和独立探测/编辑/删除图标的平面行；空状态使用内联矢量星座插画；新增/编辑进入共享 Dialog，含 endpoint 预览、Key 显隐、必填校验和保存反馈；本地服务未检测到时只保留一行说明和可复制命令。
+- 已交付：决策模型页改为“运行状态 → 模型列表 → 思考策略”。顶部摘要显示启停、Auto 模型、默认策略、上限和回退；模型行显示供应商标识、当前使用、启停与“用于 Auto”，展开后配置接入和案例自检；思考策略改为分段控件、策略效果预览和 2×2 参数；新增接入改为供应商选择面板；移除接入走确认弹窗。
+- 修复：Tauri HTTP scope 漏掉 `/api/settings/embedding-models`，桌面端向量模型页所有请求被 `url not allowed on the configured scope` 拦截。已补齐 `127.0.0.1` 与 `localhost` 两条 scope，`apps/desktop/src/http-scope.test.mjs` 8 项通过。
+- 根因类别：设置页层级与动作密度。原页面把页面标题、分组标题、说明和空状态层层嵌套，主操作与破坏性操作同级平铺，用户无法一眼判断当前使用哪条、下一步该做什么。
+- 机器守卫：新增 `tests/ui/settings-model-lanes.spec.ts`，覆盖向量通道必填校验、保存后离开返回回读、删除确认，以及决策模型“用于 Auto”→保存→重新进入后仍保持。`pnpm --dir apps/desktop run check` 通过；中英、明暗、860px 窄窗截图走查无横向溢出。
+- 设计：沿用 `SettingGroup`、`Dialog`、`AlertDialog`、`IosSwitch`、`Segmented` 和主题 token；只使用两个页面各自的 scoped CSS，无新依赖。设计规则已补入 `DESIGN.md` 的设置页阅读层级。
+
+## 2026-10-28 — 桌面窄窗标题栏对齐
+
+- 已交付：标题栏共享正文网格列宽，窄窗标题与内容列保持统一左边界；长标题和 Agent／渠道标签按剩余空间省略，右侧图标保持完整。
+- 根因类别：响应式布局。独立列宽未跟随窄窗断点，标题与操作区按内容宽度竞争空间。
+- 机器守卫：`chat-agent-header.spec.ts` 测量实际对齐与元素边界，覆盖中英明暗、四种宽度、侧栏折叠、文件面板及隔离服务重启。
+- 验证：修复前测得窄窗左边界偏移 58px，操作按钮超出分配区域；修复后 WebKit 连续 5 次、Chromium 1 次通过，相关结构断言 4 项、Desktop check 和 build 通过。原生 App 实机复测未执行。
+
+## 2026-10-27 — 服务商分类与失效内置条目清理
+
+- 已交付：配置读取和保存共用服务商身份规则。Azure 使用当前内置 ID `azure`，保留密钥、模型及其他配置；新旧条目并存时以当前 ID 的条目为准。已移除支持的 Google Antigravity、Google Gemini CLI 从有效配置中清理，不显示为自建服务商；普通自建条目保留。
+- 根因类别：配置身份未统一。已有 Azure 别名回归只覆盖全局模型选择，没有覆盖服务商配置行；`providerIdentity.test.ts` 补齐保存、列表投影、重复身份、拒绝失效服务商及临时数据库整对象回读，并纳入设置验证集。沿用现有配置 round-trip 规则，不新增重复协作规则。
+
+## 2026-10-27 — 工作首页规格：委托进展与必要介入
+
+更新 [Issue #68](https://github.com/gusibi/molibot/issues/68) 与[工作首页规格](docs/designs/agent-home/personal-agent-dashboard-ui-spec.md)：首页围绕已交代的事呈现成果、下一步责任、必要决定和承诺风险；补充授权边界、正常进展不催促及数日后重新接手的验收要求。保留日报／选题与原测试入口。此次仅修订规格，未实施新增行为，能力状态不变。
+
+## 2026-10-28 — 独立 Embedding Models 页面：多通道、独立 Host/Key、可选本地
+
+- 根因类别：配置归属错误。Embedding 曾经是 `CustomProviderConfig` 的一个可选字段，导致同一时间只能跟随一条文本 Provider；用户无法为多个远端/本地服务分别保存 Host、Key 和模型，也无法在 UI 里清楚看到“当前到底用哪条”。
+- 已交付：新增 `plugins.memory.embeddingModels`（`id/name/enabled/baseUrl/apiKey/model`）与 `activeEmbeddingModelId`；旧 Provider 字段通过一次性迁移生成 lane 后删除，不再保留双写；记忆召回只使用 active lane。新增独立 Web 页面 `/settings/memory/embeddings`，支持新增/编辑/删除、每条独立 Host/Key/模型、启用、测试、设为 Active、重新索引、复制端点；Desktop 设置新增“助手 → 向量模型”原生入口，支持同样的 lane 列表、编辑、测试、Active 和本地加入；Provider 页面和 Desktop Provider 编辑器不再显示 embedding 字段；记忆页只保留状态、最近错误、重新索引和“管理 Embedding 模型”入口。
+- 本地（可选）：页面检测 loopback Ollama / LM Studio，列出 embedding 模型，一键加入并激活；`local-*` lane 按模型生成独立 id，可在同一本地服务下保存多个模型；loopback 免 API Key；不安装/未启动/无模型时不创建 lane，继续远程；已选本地但服务不可用时会自动切回远程 lane。
+- 机器守卫：`activeProvider.test.ts` 覆盖 endpoint、active/stale/disabled、loopback 无 Key；`embeddingResolver.test.ts` 覆盖 active 远程、active 本地健康检查、本地失效回退远程、无 active 自动探测并持久化、失败冷却、未保存本地 lane 测试；`localEmbedding.test.ts` 覆盖 Ollama/LM Studio 检测、离线/纯聊天过滤、lane 预设；settings store 覆盖旧字段迁移与新 lane round-trip；记忆页/新页面均做中英、明暗、桌面/移动走查。
+- 设计：独立页面使用 editorial hero、CSS orbit、多 lane 卡片、滑入编辑器、本地服务区；不引入图片或新依赖；共享 `settings-custom.css` 语义类；支持 `prefers-reduced-motion`、焦点样式、`aria-live` 与 `aria-current`。中文明色 1440px、英文暗色 1440px、中文暗色 390px 冷启动截图检查，无 console error、无横向溢出；空状态、加载骨架、错误 toast、编辑器、快速测试均实际走查。
+- 真实链路：隔离实例迁移出 `SiliconFlow / BAAI/bge-m3` lane，测试连接 1024 维 / 226ms；新增第二条远端 lane 并切换 Active；模拟 Ollama 加入 `bge-m3:latest` / `qwen3-embedding:0.6b` 两条 lane；删除、回切、空状态正常。真实本地模型尚未安装，本地质量/性能未验收。
+- 全量相关测试 1147 项：1146 通过、1 跳过；一次全量并发下 `bash-output.test.ts` 的审批等待用例偶发失败，单独运行 28/28 通过，未用重试掩盖。`pnpm check`、`pnpm build`、`pnpm desktop:check` 通过；Desktop `settings-navigation.test.mjs` 覆盖新增入口并通过。
+
+## 2026-10-27 — 记忆向量接不上真实 Provider：选择、endpoint 与记忆页操作
+
+- 根因类别：配置归属 + URL 推导。`resolveEmbeddingTarget` 只读当前文本 Provider，非当前 Provider 上显式配置的 `embeddingModel` 被忽略；`embeddingEndpoint` 直接拼 `baseUrl + /embeddings`，对 `https://api.siliconflow.cn`、`https://cpa.eztoolab.com` 这类不带 `/v1` 的 base 必然 404。结果是用户已有可用模型，日志仍显示 `memory stays lexical`。
+- 已交付：`listEmbeddingProviders` 按“当前文本 Provider 优先、其他启用 Provider 兜底”排序；`resolveEmbeddingTarget` 尊重任意 Provider 的显式 `embeddingModel`；探测逐 Provider 回退，失败冷却按 Provider 记录；`embeddingEndpoint` 从 base/path 推导 `/v1/embeddings`；`EmbeddingModelResolver.test()` 返回维度与延迟；记忆管理页新增 Embedding 服务商/模型选择、测试连接、重新索引、自动检测和最近错误；`searchAll` 在 all-scopes 搜索时走 embedding 路径，不再只做词法排序。
+- 机器守卫：`activeProvider.test.ts` 覆盖 base 带/不带 `/v1`、`/api`、非当前 Provider 显式模型；`embeddingResolver.test.ts` 覆盖非当前 Provider 不探测、文本 Provider 失败后回退、`test()` 不持久化；`moryCore.embedding.test.ts` 覆盖 all-scopes 语义搜索。
+- 真实 Provider 验收（隔离 `DATA_DIR`，未改真实配置）：`硅基流动 / BAAI/bge-m3` 1024 维、约 231ms；自动探测从 `cli-proxy-api` 的 404 回退到硅基流动并写回；零词面重合查询“有哪些忌口”召回“花生会让身体起疹子”；C5 255s、C8 257s、C6 507s 在向量模式下全部通过，启动日志 `embedding_ready provider=硅基流动语音 model=BAAI/bge-m3`。
+- Web 冷启动走查：中文/明色/1440px 与英文/暗色/390px 均无 console error、无横向溢出；“测试连接”返回 1024 维，失败模型显示真实 400 错误，“重新索引”完成，all-scopes 搜索命中语义结果。
+- 本地 Embedding（可选）：记忆页探测 loopback 上的 Ollama / LM Studio，列出已安装的 embedding 模型；用户点“使用本地模型”后创建 `local-*` 预设 Provider（只用于 embedding，不进入文本路由，loopback 免 API Key），点“改用远程模型”移除预设并恢复远程。未安装、未启动或没有 embedding 模型时不创建本地 Provider，继续使用远程；已选本地但服务不可用时，启动/设置变更会清除本地固定模型并自动回退到远程。
+- 本地链路验收：用模拟 Ollama（`/api/tags` + `/v1/embeddings`）验证检测、1024 维测试、本地/远程双向切换、本地服务消失后自动回退、未安装时保持远程；真实本地模型（Ollama/LM Studio）未安装，未做质量/性能验收。
+- 当时全量相关测试 1152 项：1151 通过、1 跳过、0 失败；此前偶发的 `codemode.test.ts` stop 时序用例本次未复现，单独运行的 `codemode.test.ts` + `bash-output.test.ts` 为 38/38 通过。`pnpm check`、`pnpm build`、`pnpm desktop:check`（0 errors / 0 warnings）通过。
+
+## 2026-10-25 — 真实 Provider 验收暴露并修复后台抽取失败
+
+- 根因类别：二次 LLM 路径缺少传输协议头。主对话走 `piRunSession`，会带 `x-molibot-session`；后台抽取、反思、画像摘要走 `AssistantService.reply → callDirectCustomProvider`，没有带。当前 `cli-proxy-api` 依赖该头（代理映射到 OpenCode 的 `x-opencode-session`），于是所有自动抽取都返回 `MissingSessionID`，`extraction sweep` 一直是 `failed=1`；C5/C8 只是因为模型主动调用 `save_memory` 才通过。
+- 已交付：把 session affinity 头抽到共享的 `sessionAffinity.ts`；`AssistantService.reply` 增加 `sessionId` 并传给直连 provider；session/memory 抽取、reflection、profile summary、daily materials、legacy MessageRouter、embedding 探测与 embedding 请求全部补齐。`subject` 末尾的 `previous/current/old/new/过去/现在` 等限定词在共享 normalization 中去掉，避免同一事实留下两条 active。
+- 机器守卫：`customProtocol.test.ts` 断言带 sessionId 时发送 `x-molibot-session`、不带时不发送；Writer 测试覆盖 `user.car.previous`/`user.car.current`/`user.car_previous`/`user.employer.之前` 归一化；新增 e2e 断言 previous/current 两次写入后只保留一条 active，版本链仍含旧值。
+- 真实 Provider 验收（`MOLIBOT_EVAL_PROFILE_ID=default`，`cli-proxy-api`）：C5 自然陈述跨会话召回 262s 通过；C6 纠正覆盖 510s 通过（抽取日志 `committed=1 failed=0`）；C8 配偶代词/同义召回 259s 通过。C6 早先失败过一次，定位为上述 session 头缺失 + subject 限定词；修复后连续通过。
+- 全量相关测试 1133 项；分组运行时全部通过。全量并发下 `bash-output.test.ts` 的审批等待用例与 `codemode.test.ts` 的 stop 用例各偶发失败一次，单独运行分别 28/28、10/10 通过；判定为时序抖动，未用重试掩盖，也未改动相关代码。`pnpm check`、`pnpm build`、`pnpm desktop:check` 通过。C5/C6/C8 的 golden 仍标记 `slow`；Web 记忆页浏览器冷启动点击走查未执行。
+
+## 2026-10-25 — 记忆 v2 Slice 5：记忆中心、Proposal 审核与 C8
+
+- 已交付：`/api/memory` 增加 `forget`、`list-candidates`、`confirm-candidate`、`ignore-candidate`。Web 记忆页可以确认/忽略待确认候选，删除改为“忘记”（删除 + 隐私抑制，后续抽取不会重建）。
+- 已交付：Web 记忆页按 subject 分组，显示 subject/type 徽章；Desktop 全部记录显示 subject，删除同样走 forget。两端都从“记录列表”变成“我记得你什么”的可读视图。
+- 已交付：C8 集成用例证明查询与记忆没有词面重合时（“伴侣的纪念日” vs “妻子生日”），稳定画像仍注入配偶事实；C8 golden 已加入，标记 slow。
+- 根因类别：写入闭环完成后，读取/管理面没有跟上。Proposal 只在 Desktop 可见、删除不抑制抽取、记录不按 subject 组织，用户无法确认系统到底记住了什么。
+- 机器守卫：C8 集成用例；记忆、设置、Desktop、工具、prompt 与 Session 相关共 1105 项，1104 通过、1 跳过；`pnpm check`、`pnpm build`、`pnpm desktop:check` 通过。
+- 未完成：golden C5/C6/C8 仍未用真实 Provider 执行；Web 记忆页未做浏览器冷启动点击走查；content 语料没有独立管理界面。
+
+## 2026-10-25 — 记忆 v2 Slice 4：Embedding 自动探测与回填
+
+- 已交付：`CustomProviderConfig.embeddingModel` 成为向量模型的唯一来源，当前文本服务商优先；文本服务商没有 Embedding（如 Anthropic）时回退到其他 OpenAI 兼容服务商。2026-10-27 进一步修正为非当前 Provider 的显式模型也生效，并修复 endpoint 推导。
+- 已交付：后台探测常见 Embedding 模型并写回 provider；探测失败冷却 1 小时，记忆继续使用词法检索。启动与设置变更时触发，成功后自动分批回填旧记忆。
+- 已交付：mory 按 `embeddingModelVersion` 识别旧向量，模型切换后重嵌入；回填按批返回 remaining，不阻塞启动。
+- 根因类别：默认值与配置归属错误。向量能力被放成记忆页的二级配置，且开启后不迁移旧数据；现在把它归到服务商并自动闭环。
+- 机器守卫：Resolver 覆盖已配置不探测、探测持久化、失败冷却、Anthropic 回退、文本路由优先；mory 覆盖旧行回填、分批 remaining、模型切换重嵌入；provider settings 增加 SQLite save → load round-trip。记忆、设置、Desktop、工具与 prompt 相关共 879 项通过（1 项跳过）；`pnpm check`、`pnpm build`、`pnpm desktop:check` 通过。
+- 未完成：golden C5/C6 仍需真实 Provider；探测失败没有手动重试按钮；Slice 5 的记忆中心与 C8 未开始。
+
+## 2026-10-25 — 记忆 v2 Slice 3：工具面收敛为保存/召回/忘记
+
+- 已交付：模型可见的 `memory` 11 动作工具拆成 `save_memory` / `recall_memory` / `forget_memory`。`save_memory` 按 subject upsert，敏感事实仍转 Proposal；`recall_memory` 返回 id、subject 和内容；`forget_memory` 删除记录并写入隐私抑制，后续抽取不会重建同一事实。
+- 已交付：`flush/sync/compact` 从模型工具面移除，维护继续由后台定时任务承担；`add_content`/`search_content` 移出对话工具面，内容语料不再有“保存成功但永不召回”的入口。
+- 已交付：trace 的写入回执与主动检索识别支持新工具；`save_memory`/`forget_memory` 归类为 write，`recall_memory` 归类为 read，只读/计划模式可召回但不能写；旧的 `disabledTools: ["memory"]` 在设置加载和运行时展开为三个新工具。
+- 根因类别：工具面按实现结构而非调用者意图设计。11 个动作把后台维护和内容语料暴露给模型，长描述只能缓解、不能消除误选；拆成三个意图单一的工具后，模型不需要在动作枚举里做选择。
+- 机器守卫：工具行为、trace 回执/引用、权限副作用分类、settings round-trip、prompt 与记忆/Session 相关共 828 项通过（1 项跳过）；`pnpm check`、`pnpm build`、`pnpm desktop:check` 通过。
+- 未完成：`runner.test.ts` 300 秒内未跑完，未计入证据；golden C5/C6 仍需真实 Provider；跨 subject 语义冲突、embedding 与 Desktop/Web 记忆中心属于 Slice 4–5。
+
+## 2026-10-25 — 记忆 v2 Slice 2：subject 纠正与读取端互斥
+
+- 已交付：自动抽取前把 Stable profile 与 query 相关记录一起交给模型，要求纠正时复用已有 subject 并返回 `supersedesSubject`；服务端以该字段为准，覆盖模型新造的 subject。
+- 已交付：`dedupeByMemoryIdentity` 接入查询选择、画像构建和注入合并，三处都只保留同一 subject 的最新版本；旧版本仍可通过版本链接找回。
+- 已交付：结构化事实的短内容下限在 `gateway.add` 与 Writer 统一为 2 字，“不吃辣”这类完整事实不再被自由文本的 8 字启发式丢弃。
+- 根因类别：事实身份不稳定。只按内容去重无法阻止同一事实的两个 subject 同时 active；只让模型自由生成 subject 又会让纠正落到新路径。Slice 2 用“画像上下文 + supersedesSubject + 读取端收敛”三件套闭环。
+- 机器守卫：C6 集成用例先写“开宝马”，再写“换特斯拉”，断言旧记录归档、检索只返回特斯拉、画像不含宝马、版本链保留两条；`classifier` 与 `profileBuilder` 各新增同 subject 只取最新版本的测试；伪造的 `supersedesSubject` 不会覆盖无关事实。记忆域、Session 域与 prompt 输入共 358 项相关测试通过，`pnpm check` 通过。
+- golden：C5/C6 已加入 `evals/golden/c-memory.yaml`，harness 新增 `wait_after_ms` 支持，两个任务标记 `slow` / `baseline: unknown`；因需要真实 Provider 与 4 分钟级等待，未在本地执行。
+- 未完成：跨 subject 的语义冲突判定（embedding 相似度 + 极性）、工具面收敛（Slice 3）、embedding 探测与自动回填（Slice 4）、Desktop/Web 界面与 C8（Slice 5）。
+
+## 2026-10-25 — 记忆 v2 Slice 1：空闲会话自动抽取与统一写入
+
+- 已交付：`MemoryExtractionService` 复用 runtime 的 60 秒维护定时器，启动补扫一次；只有“最后一条是 assistant 回复且空闲 ≥90 秒”的本地/项目会话才进入抽取，长会话在 20 轮后每 10 分钟放行一次；单次最多 3 个会话，7 天前的历史不补抽。抽取模型复用 `modelRouting.compactionModelKey`，为空回退主文本模型。
+- 已交付：`MemoryWriter` 成为唯一写入策略。非敏感事实用结构化 `domain/type/subject` 直接 active；健康、位置、身份、关系等敏感事实（模型标记或确定性词表命中）只产 Proposal；已遗忘 subject 被抑制；单个条目失败不阻塞兄弟条目，失败写入回执并指数退避。
+- 根因类别：写入路径分叉。四条写入路径里只有关键词 `flush` 会直接提交，LLM 路径全部停在默认不确认的候选队列；自然陈述因此永远进不了记忆。Slice 1 把“自动抽取 + 自动提交”接到主链路，下一步才处理 subject 版本互斥与工具面收敛。
+- 机器守卫：`memoryWriter.test.ts` 9 项、`memoryExtraction.test.ts` 8 项、`memoryExtraction.e2e.test.ts` 2 项；集成用例证明“养了一只叫豆豆的柯基”不说“记住”也能在另一个 Session 检索到并进入稳定画像，敏感用药陈述只产 Proposal 且不可召回。记忆域与 Session 域相关测试全部通过，`pnpm check` 通过。
+- 未完成：golden C5 需要 eval harness 支持轮次间等待；subject 读取端互斥（Slice 2）、`save/recall/forget` 工具面（Slice 3）、embedding 探测与自动回填（Slice 4）、Desktop/Web 界面与 C6/C8（Slice 5）。全量 `pnpm verify:feature`、真实 Provider eval 与原生链路留作整体验收。
+
+## 2026-10-25 — 修复微信 CDN 上传的 Content-Length 错误
+
+- 已交付：微信音频和文件上传由 fetch 自动计算 `Content-Length`，与 SDK 的发送方式一致。应用内 Node 原生 fetch 使用 Undici 8 全局 dispatcher 时，显式长度头会触发 `UND_ERR_INVALID_ARG: invalid content-length header`，请求在本地被拒绝。
+- 根因类别：HTTP 客户端集成不匹配。22:38 的两次失败日志捕获相同错误，均在请求阶段约 1 毫秒失败；本地 Node 22.19.0 配合 Undici 8.10.2 重现同一异常，去掉显式长度后成功发送完整字节。
+- 机器守卫：新增测试通过项目真实上传函数、Node 原生 fetch、Undici 8 全局 dispatcher 和本地 HTTP 服务执行上传，断言收到完整密文、自动长度头和附件发送结果。修复前失败，修复后相关 19 项测试连续 5 次通过，`pnpm check`、`pnpm build` 通过。独立探针未加载应用的全局 dispatcher，不能覆盖此组合；后续传输回归保留该组合。
+- 变更只调整上传请求头，运行中的服务需重启加载新构建；微信客户端实机投递仍由用户复测。
+
 ## 2026-10-25 — 工作首页阅读层级与键盘打磨
 
 - 成果与待决定标题对齐；主成果使用清楚的标题、正文预览和来源入口，其余成果采用紧凑阅读行。耗时带中英字段说明，页眉区分核实时间，执行表使用带可访问名称的来源图标按钮。
 - 首页输入区与内容同宽；1440×1024 的三份简短成果、两项审批、三条执行记录场景可在首屏看到完整新任务输入区，不缩小正文和共享控件。窄窗顶栏复用紧凑导航布局，隐藏重复身份标题并保留操作按钮。
 - 窄窗导航展开时背景工作区不接收焦点；Escape 关闭后回到触发按钮。主题表面、圆角及控件沿用共享系统，阅读行反馈遵守减少动态效果和低性能偏好。
 - 验证：首页 WebKit 19 项通过，新增有内容场景连续五次通过；相关源码检查 33 项、Desktop `check` 与 `build` 通过。隔离页面移除焦点隔离后守卫失败，首屏输入区边界用例在密度修正前失败、修正后通过。浏览器用例覆盖隔离冷启动、页面切换、断连后返回恢复、中英即时切换、明暗与零圆角。全量与原生测试保留为整体验收。
+
+## 2026-10-25 — 微信上传分阶段诊断日志
+
+- 已交付：获取上传地址、CDN 请求与读取响应体记录关联文件 ID、阶段和耗时。CDN 失败将非枚举的 Error cause、AggregateError 子错误、调用栈、错误码、errno、syscall、地址和端口转成结构化字段；循环与深层对象截断，避免日志序列化失败。
+- 运行信息包含诊断版本、PID、Node 版本、SDK channel_version、运行时长、平台和代理环境变量是否存在，不记录代理值。SDK 上传路径也保留相同的错误结构。
+- 上传签名、下载凭证和 AES 密钥不写入这条上传诊断链路，改记存在标志或长度；错误文本中的签名 URL、Bearer 和 JSON 凭证字段脱敏。
+- 验证：网络诊断、上传及出站 18 项相关测试连续 5 次通过，`pnpm check`、`pnpm build` 通过。此次增加诊断证据，不宣称历史 CDN 故障已修复；服务重启后由用户再次触发实际场景。
 
 ## 2026-10-25 — 工作首页 UI 优化
 
@@ -12,6 +173,24 @@
 - 沿用原交接数据、事件窗口、快照与审批接口，不增加日报／选题数据结构，不声明已送达、已验收或精确产物预览；完整规格的数据接线仍未交付。新增词条支持中英即时切换，表面与圆角服从主题。
 - 390px 默认工作首页收起侧栏，原导航按需覆盖展开；Escape 或遮罩关闭后焦点回到触发按钮，不改写桌面侧栏偏好。
 - 验证：工作首页、执行表展开与窄窗冷启动定向 WebKit 各连续五次通过；相关源码守卫 30 项、交接读模型／API／临时设置 round-trip 26 项通过；Desktop `check`、`build` 通过。隔离冷路径覆盖服务重启、首次打开、页面切换及断连后返回恢复。全量 `pnpm verify:feature`、全量浏览器与原生测试留作整体验收。
+
+## 2026-10-25 — 微信 CDN 真实上传专项验证
+
+经用户授权，使用既有音频和当前微信账号测试上传，不调用聊天发送接口。相同 Node 版本下，参数地址与完整地址均返回 HTTP 200 及下载凭证；去除代理环境变量后完整地址上传仍成功。通过项目 `sendWeixinFile` 运行实际上传路径，在发送接口前拦截，确认上传成功且未发送聊天消息。
+
+源码运行与打包运行的 SDK 版本元数据不同，服务端分别返回 `upload_param` 与 `upload_full_url`；两种形式在本次测试中均可完成上传。这些证据不能还原 19:00 历史失败的底层原因，也不能证明桌面服务中的投递已经恢复；历史日志丢失了具体异常，当前独立进程未复现该失败。
+
+## 2026-10-25 — CDN 未分类错误保留底层原因
+
+- 已交付：网络错误分类器对未识别的异常保留底层消息和错误码，诊断中的 URL 隐去查询签名。此前 `unknown` 分支丢弃了这些信息，不能据其判断微信 CDN 故障是代理、TLS 或请求参数导致。
+- 根因类别：诊断信息丢失。新增回归在修复前失败，修复后相关 2 项测试连续 5 次通过，`pnpm check`、`pnpm build` 通过；覆盖未识别的 Undici 错误码、无错误码原因及签名脱敏。
+- 19:00 的三次真实请求均取得上传地址，在 CDN 请求后 2–3 毫秒失败，未取得 HTTP 响应；错误分类缺少底层信息，实际故障原因尚未确认。相同 Node 版本的本地 HTTP 测试能发送相同长度及请求头的二进制数据；这不能证明真实 CDN 投递正常。
+
+## 2026-10-25 — 微信附件失败回执与网络诊断
+
+- 已交付：微信二进制附件投递失败时，渠道发送失败提示并将异常传回工具；TTS 保留已生成的音频，将 `uploaded` 标为 `false`，不会再把渠道失败当成已送达。可直接发送的文本文件仍可通过文本方式投递。
+- 根因类别：异常传播遗漏。渠道将异常转换成提示后正常返回，调用方据此误判上传成功。新增渠道回归在修复前失败，修复后与上传、TTS 的 33 项相关测试连续 5 次通过，`pnpm check`、`pnpm build` 通过。
+- 网络诊断：CDN 请求失败保留 DNS、TCP、TLS、超时类别及底层错误码，避免只有 `fetch failed`。16:34 的真实失败已拿到完整上传地址，但 CDN 请求失败；当时日志未记录底层原因，实际投递仍待确认。
 
 ## 2026-10-25 — Agent 首页改为“有内容才交接”，按内容轻重分带
 
@@ -32,6 +211,13 @@
 - 机器守卫：读模型 17 项、路由 5 项、设置 round-trip 4 项、隔离 WebKit 14 项（新增跨渠道来源按 id 打开）通过；`pnpm check`、`pnpm --dir apps/desktop run check`、`pnpm build` 通过。
 - 源码守卫 317 项中 313 通过，4 项为本工作区既有失败（window header、usage、trace、polling），与本次改动无关。
 - 边界：没有统一产物索引，临时对话产出的文件仍不进入结果；失败回复不进入聚合。全量 `pnpm verify:feature` 未执行。
+
+## 2026-10-25 — 微信媒体上传支持服务端完整地址
+
+- 已交付：微信音频附件与图片上传优先使用 `getuploadurl` 返回的 `upload_full_url`，仅返回 `upload_param` 时按协议构造上传地址。SDK 与渠道共用地址解析；完整地址中的签名参数保持原样。没有上传地址时停止发送并报错。
+- 根因类别：协议字段处理遗漏。SDK 类型已包含完整地址，但两个上传实现仍强制要求 `upload_param`；原测试仅模拟该字段，未覆盖完整地址响应。
+- 机器守卫：新增音频/图片 10 项回归，覆盖完整地址、两字段同时存在、参数地址、缺少地址和 CDN 拒绝上传；首批 8 项在修复前有 6 项失败，最终相关 15 项连续 5 次通过，`pnpm check` 通过。既有发送测试改用临时账号目录。
+- 边界：音频仍作为 MP3 文件附件发送；原生微信语音气泡不在此次交付范围。真实账号投递尚未验证，历史失败响应缺少完整字段记录，无法确认每次线上失败的原因。
 
 ## 2026-10-24 — 交接的待决定项直达来源会话（无效数据清理）
 
@@ -1241,138 +1427,8 @@ Agent 房间不再占用整页列表：房间列表并入侧栏的列表分区�
 
 桌面端折叠侧栏不再整列隐藏：第一列保留 48px 图标栏（对话、项目、自动任务、技能、Agent、Agent 房间、计划、小程序、底部设置头像），点击顶部 对话/项目 在图标栏右侧展开浮层列，复用与展开态完全相同的 `SidebarLists.svelte`（频道过滤、项目分组、行菜单、分页一致），浮层复用记住的展开宽度；选中会话保持展开，Esc / 再点同一图标 / 点其它目的地关闭。自动任务等其它目的地点击直接打开现有面板，不新增列。新对话在折叠态由窗口标题栏按钮承载并同时打开对话浮层。`ChatView.svelte` 新增 `collapsedFlyout` 与 `reservedSidebarWidth` 预算，`styles.css` 折叠轨道改为 rail 宽度。规范见 `DESIGN.md` 折叠侧栏条目。
 
-## 2026-10-04 — Pi 正式执行接线
-
-共享 Runner 与内部子 Agent 改用 Pi 原生执行所有权。外部审批只唤醒原任务；稳定消息投影、原始预算、子任务权限与压缩、Codemode nested 收据和 Deferred 原 handle 启动恢复已接线。真实 Runner 强杀测试覆盖原生提交与显示标记之间的窗口，未知提交拒绝自动重提，Room 撤权与 Stop 终态优先。代码验证通过不代表真实外部 transport/Provider 验收完成；能力矩阵继续保留部分交付。详见 [生产验证](docs/reviews/pi-production-integration-validation.md)。
-
-### 实施：Pi 混合工具批次审批挂起（2026-10-04，部分交付）
-
-
-原生工具授权 hook 或准备流程可能挂起时，Pi 按原生串行批次调度，防止同批后续工具先开始执行。临时库恢复测试覆盖普通并行工具与审批工具混用：等待时保留已完成读取，批准后沿原审批 ID 继续，剩余操作各执行一次，恢复仍使用原始入站。正式 Runner 和外部审批入口尚未切换；该修复不代表生产接线完成。见 [验证记录](docs/reviews/pi-durable-foundation-validation.md)。
-
-### 实施：Pi 原生会话与自动 Host Bash 阶段收据（2026-10-04，部分交付）
-
-原生会话控制器支持稳定输入、工具动态配置、原生 continuation 与资源清理；自动 Host Bash 将沙箱尝试收据保存在原工具任务内，等待批准前不提交主机执行 intent。临时库重开验证批准/拒绝不重跑沙箱，未知执行结果阻止模型重试。工具回调按原生 task 找到原始 assistant，保留结果 override，私有审批 metadata 与第三方 details 分离。Deferred 查询/取消保留当前凭据、Session 请求头与请求回调。正式 Runner、外部审批入口、内部子 Agent 和 Deferred 的完整生产接线仍未交付，见 [验证记录](docs/reviews/pi-durable-foundation-validation.md)。
-
-### 实施：步骤预算持久化与响应记账去重（2026-10-03，部分交付）
-
-正式 Runner 的工具、失败与模型尝试预算按稳定步骤身份持久化，审批恢复和新 Attempt 不重置；原始上限固定，跨回合复用工具 ID 不漏计，未知工具与参数错误分别计失败。用量按响应记录身份重开去重并拒绝冲突。Pi 可恢复已接纳输入与初始上下文，继续校验权限和模型绑定。关联回归 74/74、内核回归 21/21 及类型检查通过；父子任务共享预算、正式 Pi 投影记账和内核替换仍未完成。见 [验证记录](docs/reviews/pi-durable-foundation-validation.md)。
-
-### 维护：Agent Runtime 审查 Skill（2026-10-03，已交付）
-
-更新项目级 `agent-runtime-debug-review` Skill：按症状检查共享执行所有权、审批挂起与恢复、重试中的实时控制、提示词持久化边界及执行与显示状态；历史根因从 CHANGELOG、归档和 Recurring Pitfalls 按需查询。明确已授权根修、临时数据库验证，以及隔离验证与正式 Runner、真实服务生效的证据区别。Skill 格式校验与静态场景走查完成，未进行独立 Agent 行为评测。
-
-### 实施：Pi 原生事件与重开显示边界（2026-10-03，部分交付）
-
-Pi 内核可交付原生实时消息/工具事件与提交快照；先完成记录投影，再通知显示消费者。显示回调失败后安全关闭，重开复用已提交工具结果。原生事件、共享 Runtime 与 Session 关联回归 33 项及类型检查通过。正式 Runner 的展示消费者与任务入口尚未接入，不标记内核替换完成。
-
-### 修复：审批通知期间停止（2026-10-03，已交付）
-
-共享 Host Bash 准备流程在消费已有审批、发布审批通知的异步回调返回后检查停止，将未执行请求过期，避免已停止任务仍被标记为可恢复等待。真实临时数据库回归覆盖通知中批准后停止及消费审批期间停止，晚到批准不能启动命令。根因属于审批状态与异步取消竞态；机器守卫已补充，现有审批选项不变。
-
-### 修复：Host Bash 启动前停止（2026-10-03，已交付）
-
-批准后的 Host Bash 在异步环境准备前后检查取消，避免用户停止后仍启动进程再终止。根因是异步准备与进程启动之间的取消竞态；临时目录回归覆盖准备前停止和准备期间停止，均不产生启动收据。审批选择与作用域不变。
-
-### 实施：Host Bash 显式审批准备与恢复（2026-10-03，部分交付）
-
-共享工具先准备审批，实际执行时校验上下文、权限与审批绑定并原子认领；稳定工具调用身份重开复用同一审批。按 ID 批准严格校验 scope/Session，取消过期未执行审批，清理失败仍关闭 Pi Harness。真实 HostBashStore 与 Harness 重开验证批准前无 intent、批准后原命令只执行一次。类型检查、生产构建与关联回归通过；全仓隔离测试仍有 7 项失败。自动 sandbox 升级、外部批准执行入口和正式 Runner 替换尚未完成，见 [验证记录](docs/reviews/pi-durable-foundation-validation.md)。
-
-### 实施：Pi 提交记录投影与异步恢复（2026-10-03，部分交付）
-
-Pi 内核可按稳定来源投影已提交消息，重开补齐 Session 记录并拒绝身份冲突；临时控制不进入持久历史，服务租约丢失会取消在途工作。真实子进程验证异步模型 handle 提交后强杀可继续查询原任务，答案与 usage 不重复；关联回归 62 项通过。ADR 0005 的私有执行存储边界已接受。正式 Runner、自动 Host Bash 升级与外部审批执行归属、持久预算与内部子任务仍未接线；不声称内核替换完成。见 [验证记录](docs/reviews/pi-durable-foundation-validation.md)。
-
-### 修复：工具排队期间停止与权限撤销（2026-10-03，已交付）
-
-共享工具取得写执行槽后重新检查取消和权限，异步 intent 回调完成后再次检查取消，避免已停止的排队操作启动忽略 signal 的 handler。新增单次 invocation 准备接口固定授权参数，权限仍由共享层执行；它为 Pi Durable 接线提供授权与执行分离，正式 Runner 尚未替换。根因属于执行所有权与异步竞态，持槽撤权、Stop 及 intent 回调中取消的机器守卫已覆盖；关联回归 55 项通过。
-
-### 新增：Pi Codemode 工具组合（2026-10-03，已交付）
-
-助理可在隔离脚本里批量查询、筛选结果，再调用已有工具。工具发现受当前权限约束，每个内部调用经过共享授权、审批、预算、Trace 与副作用收据；写操作仍使用共享执行槽。取消、脚本错误或审批挂起保留部分输出和已完成操作，审批后重新规划剩余步骤，不自动重放整段脚本。直接工具调用继续可用。
-
-复用 Pi 1.0 正式 Codemode 引擎，以独立进程和 QuickJS 内存上限隔离脚本；无直接 Node、文件、网络、凭据或模型访问。大输出保存到当前 scratch 制品目录。真实 Runner 的预算/Trace 接线、审批恢复和部署文件守卫有回归覆盖。输入量对照仅证明筛选效果，不承诺降低模型费用。见 [验证记录](docs/reviews/pi-codemode-integration-validation.md)。
-
-### 修复：桌面图片设置页打不开（2026-10-02，已修复）
-
-## 修复：多人房间直接分析与执行状态（2026-10-03）
-
-多人提及以独立只读讨论执行，复用现有受限工具白名单，不再自动进入生成计划的 Plan 模式；用户显式设置的 Plan 权限仍保留。房间模型预览由后端解析成员配置，已持久化回复按实际失败/中止状态呈现。共享 Runner 区分中止与具体错误，提供中英提示。
-
-根因是将并发讨论的能力限制与 Plan 产品流程耦合，以及前端自行推导模型和成功状态。回归覆盖真实 Runner 的两份完整答案、身份与模型、禁用工具，以及失败提示。隔离浏览器冷启动、双成员发送、受控失败、技能页切换及服务重启回读通过；类型检查与前后端构建通过。原生 Desktop 与真实付费模型重放未执行。原截图研究员取消的具体触发源尚未确认，取消日志现在包含 Run ID，房间停止请求单独记录运行事件，不自动重放真实用户请求。
-
-
-- 症状：桌面设置里点「图像」后页面停在加载态、无任何内容。根因是 Pi 图片模型新增的 `loadPiImageModels()` 请求 `/api/settings/image-generate/models`，服务端路由正常，但 Tauri HTTP capability scope 白名单只列了同族的 `.../test` 与 `.../image*`，漏了 `.../models`；`tauriFetch` 在 URL 不在 scope 时直接拒绝，`loadImageGenerate` 的 `Promise.all` 因此整体失败并被 catch，`imageGenerateEdit` 保持 null，组件永远走 loading 分支。
-- 修复：在 `apps/desktop/src-tauri/capabilities/default.json` 的 `http:default` 允许列表为 `127.0.0.1` 与 `localhost` 两个 host 补上 `/api/settings/image-generate/models`。capability 变更需 Rust 重建并重启应用才生效，WebView 热更新无效。
-- 机器守卫：`apps/desktop/src/http-scope.test.mjs` 新增扫描，遍历 `lib/api.ts` 中所有 `/api/settings/...` 路由字面量，要求两个 host 的白名单都覆盖；回放漏掉 `.../models` 会失败（已验证）。http-scope 7/7 通过。
-
-### 新增：可选 Pi 图片生成后端（2026-10-03，已实现，待真实模型验收）
-
-- 图片设置可选择 Pi 图片模型，复用现有 Provider 凭据；支持模型的参考图进入原生图片操作，不支持的 size/seed 参数明确拒绝。
-- 现有图片任务保存全部图片、MIME、伴随文本及可选 usage；Web/Desktop 可以切换输出预览与下载，Channel 沿用文件发送接口。取消记录为取消，未知 usage 不伪造为零费用，不自动重发付费请求。
-- 临时数据库验证设置整对象 round-trip、工具生成、多图发送与同库重开下载；隔离 Web 服务验证中英切换、保存、刷新及服务重启恢复。费用归入统一用量，按会话/Bot/渠道汇总已知估价并单列未知价格；取消、删除与保存失败保留费用事实，重读和重启不重复计费。飞书真实图片适配器的模拟传输契约通过（2026-10-03）。独立原生 Desktop 的首次图片设置加载、多图切换、页面切换及服务中断自动恢复已验证；真实付费 Provider 尚待授权验收。见 [验证记录](docs/reviews/pi-image-integration-validation.md)。
-
-### 修复：房间提及的实际发送与模型语义（2026-10-02，已交付）
-
-- 输入中的已解析成员 ID 随发送请求提交，与输入区展示的接收成员一致；后端仍校验房间成员资格。截图中的 `@agent-buffett @value-investment-researcher` 有精确回归。
-- 本轮运行说明携带当前作者和接收成员，模型按自己的身份独立回复，理解 `@` 已由房间调度器处理。说明只进入本轮输入封装，真实 Runner 回归检查系统提示词与持久化历史均不包含它。
-- 冷启动默认会话统一经过房间感知的打开入口；服务恢复保留房间选择。共享发送目标与恢复入口有界面守卫，避免恢复时把房间作为普通 Chat 打开。
-- 根因是前端热更新与长期运行的旧后端不同步，发送请求又未显式携带文本解析出的目标；运行输入也缺少房间路由语义。此前隔离测试没有验证用户实际使用的服务。本次构建后重启桌面管理的后端，实时运行接口与深度健康检查通过；历史回复保留，用户重新发送后应用新路由。房间服务 20 项、真实 Runner 模拟模型回归、277 项界面守卫、Desktop 类型检查与两端构建通过。原生窗口画面中的最终回复未通过付费模型重放验证。
-
-### 修复：Agent 房间提及路由与完整聊天界面复用（2026-10-02，已交付）
-
-- 共享 Room 服务解析 `@成员名` / `@成员 ID`，支持中文、包含空格的名字、大小写匹配与去重；命中单成员直接执行，命中多成员进入受限讨论。非房间成员不能被调度，同名歧义要求使用 ID。输入区沿用共享候选菜单，选择项使用稳定成员 ID。
-- 房间直接复用 ChatHeader、ChatMessagesPane、ConversationTranscript、ConversationLiveView、ChatInputArea 与 ApprovalCard。头像/作者按消息显示；工具过程、代码块、复制、附件媒体和下载沿用共享逻辑；房间管理收进顶部菜单，回复/执行使用消息旁的紧凑操作。
-- 根因是独立房间 UI 与只接受显式 ID 的路由之间缺少文本提及契约；此前守卫只覆盖输入组件，未覆盖整页复用及真实提及调度。本次增加提及路由、中文/空格/同名歧义及跨房间校验回归，真实 Runner 集成改为通过消息中的提及启动两位成员；结构守卫覆盖完整页面复用。现有共享组件规则已覆盖该类边界，不新增重复协作规则。
-- 冷路径检查补齐首次加载失败重试与事件心跳超时重连；避免服务中断时首次打开长期空白或旧连接悬挂。隔离预览验证首次打开、顶部菜单、草稿切换、中英文、明暗主题和 560px 宽度。服务中断后心跳超时显示断线状态，恢复服务后自动回连、清除错误并保留草稿。房间服务 19 项、真实 Runner 集成 1 项、共享组件逻辑 22 项和界面守卫 276 项通过；Desktop 类型检查 0 错误、1 条既有警告，构建通过。根目录最终构建被另一个新增图片 Provider 测试夹具缺少 stream/streamSimple 阻塞（piProvider.test.ts），与本次修改无关。原生窗口拖动、原生录音实录仍未验证。
-
-### 修复：Durable 恢复检查完整步骤的副作用（2026-10-02，已交付）
-
-- 共享恢复路径检查当前步骤的所有 intent；较早的非幂等操作不再被最后一个安全操作掩盖。多操作步骤不能凭单个 queryable 查询结果宣布整个步骤完成，统一进入恢复决策。
-- 两类混合副作用回归通过；Durable 相关最终回归 23/23。Pi Durable 1.0 的隔离执行适配已实现并验证审批重开、结果复用、真实 SIGKILL 与取消；尚未接入正式 Runner，不能视为内核替换完成。详见 [阶段 1 验证记录](docs/reviews/pi-durable-foundation-validation.md)。
-
-### 优化：Agent 房间复用普通对话输入区（2026-10-02，已实现）
-
-- 房间直接使用完整 ChatInputArea，复用模型/思考菜单、附件预览与移除、录音入口、输入卡材质及键盘交互；成员头像、多人讨论提示和引用放入现有插槽，删除房间移到顶部。
-- 复用 SessionDraftStore 保留切换页面时的文字、附件、模型和思考草稿；共享 Enter/IME 守卫和思考等级文案，录音沿用普通对话的原生/浏览器实现，并把附件返回录音开始时的输入区。未选择模型时，各成员使用自己的模型；显式选择应用到本次提交的成员，进入真实 Runner 和上下文预算。模型与思考等级随提交记录持久化，重新打开回读，重试沿用。
-- 房间持久化及幂等回归、真实 Runner 模拟模型请求、共享键盘与思考能力测试通过。隔离预览验证模型与思考切换、成员选择、附件添加/移除、中英即时切换、明暗主题与 560px 窄屏、草稿切换恢复及服务重启恢复；原生录音实录尚未验证。Desktop 类型检查 0 错误、1 条既有警告，构建与 274 项界面检查、9 项共享输入/草稿测试通过；房间服务 16 项与真实 Runner 集成测试通过。根目录本次复查被另一个 Durable 测试夹具的缺字段类型错误阻塞（piKernel.test.ts），本次改动不涉及该文件。
-
-### 优化：Agent 房间创建与成员编辑（2026-10-02，已实现）
-
-- 房间顶部标题与整行空白接入原生拖动区域，操作按钮保持可点击；左侧入口移到 Agent 下方，改用对话图标，并正确显示当前选中页面。回归守卫覆盖拖动标记、按钮隔离和入口顺序。隔离预览已验证新建、取消、编辑、页面切换和服务重启恢复；273 项界面检查通过，Desktop 类型检查与构建通过。原生窗口实际拖动尚未验证。
-- 创建页按房间信息、成员与协作方式分组，复用共享 SettingGroup/SettingRow；修正旧布局类名错配造成的标签与控件错位。
-- 成员显示稳定头像、职责简介和选中反馈，宽屏双列、窄屏单列；默认回答者在选择成员前显示明确提示。固定底栏显示已选团队、保存进度和创建/保存按钮，取消可返回原视图。
-- 修正 Grid 子项的最小高度，内容在面板内滚动，底栏保持在窗口内。隔离桌面浏览器预览已验证中英即时切换、明暗主题、560px 窄屏、创建双成员房间、切换设置页面以及服务重启后的成员回读。Desktop 检查 0 错误、1 条既有警告，构建与 272 项界面检查通过；原生 Desktop 房间完整验收仍待完成。
-
-### 修复：根目录严格类型检查（2026-10-02，已修复）
-
-- 根目录 TypeScript 检查的 310 条错误清零：加载已有 SDK 声明，补齐运行时依赖和接口字段，修正过期路由、响应联合类型与测试夹具。审批恢复通过共享运行时查询等待状态；持久审批白名单明确标记为持久授权。
-- 共享 UI 的样式配置与类型移到独立 TypeScript 模块，组件标记和样式值保持一致。媒体测试接口在启动生成前拒绝非法 provider/engine。
-- 此前构建只转译代码、Desktop 检查没有覆盖全量后端和测试，存量错误掩盖了缺失标识符和接口错配。新增 `corepack pnpm check`，生产构建也先执行严格类型检查。相关回归 547 项通过，生产构建、隔离服务首次页面与设置接口加载及重启恢复通过；Desktop 检查 0 错误、1 条既有警告。Web 全量 Svelte 检查仍有 87 条错误，涉及旧页面和第三方声明；原生 Desktop 房间验收仍待完成。
-
-### Desktop Agent 房间（2026-10-02，已实现，待原生验收）
-
-- 普通和 Project 房间保留一份共享记录与每位成员独立上下文；默认回答者、定向回复和多成员受限 Plan 讨论可在同一房间使用。
-- 成员使用自己的模型和身份。房间内写入串行，审批保留执行资格；独立取消、排队、停止、成员移除和重启暂停由共享服务管理。重试保留历史证据，未知外部操作需核对。
-- 附件、共同历史预算和保留限制参与真实 Runner 请求；房间通过现有 Session 回收站恢复和清理。使用方法及插队隐私限制见 [房间指南](docs/guides/agent-rooms.md)。
-- 修复（2026-10-02）：显式引用无法放入共同上下文时拒绝发送，不再静默丢弃；暂停恢复与失败重试持久保存提交 ID，重复请求返回原结果，ID 用于不同操作或执行时明确拒绝。
-- Room 服务、真实模型请求及受影响运行/工具/会话回归通过；Desktop 完整测试和构建通过。全仓检查限制与原生验收范围见 `prd.md` 的 #62 记录。
-
-### Pi Runtime 1.0 与新版请求、登录和分类 API（2026-10-02，已实现）
-
-- Pi 三个运行时包统一升级到 1.0.0，Trace 直接依赖独立 telemetry 包；现有模型和 OAuth 目录自动提供新版本条目。
-- 请求前恢复最终系统提示词和工具，原生 transcript 保留动态工具与系统更新；审批暂停改用 `finishTurn`。assistant 上下文保留实际请求的 `thinkingLevel`。
-- ChatGPT 登录传递可跨重启复用的安装 UUID；通用 OAuth 交互承接 Anthropic 复制验证码登录。TypeSafe-compatible Jev Auto 决策使用 Pi 分类 API，保留取消、超时、零重试和安全错误规则。
-- 聚焦回归、生产构建、Desktop 类型检查和隔离服务初始化通过；真实账号授权与付费模型请求未验证，根目录 TypeScript 检查已在同日后续修复中通过。新特性接入范围和未接入原因见 [升级评估](docs/reviews/pi-1.0-upgrade-assessment.md)。
-
-### 修复：Auto 决策的入队快照、取消与凭据边界（2026-10-01，已实现）
-
-- 排队时保存策略来源、自动上限和不含凭据的接入身份；排队期间改策略或接入地址不再改变已接收 Turn。审批及内部恢复复用决策，用户显式重试重新决策。
-- 决策超时及 Stop 不再等待忽略取消信号的请求；非法置信度被拒绝，缺少续写前文或必要附件内容时确定性回退。历史输入只包含用户与助手文本，裁剪状态如实记录。
-- Jev 上游错误只返回安全状态，保存前验证 Host 和策略字段。Web 设置页采用当前接入列表及密钥更新格式，保留其它接入，支持已有密钥测试、中英即时切换和固定保存栏。
-- 运行记录保留原始规则版本、上下文大小、可用决策用量及估算费用。新增的实际主模型配对评测入口见 [评测说明](evals/README.md#adaptive-thinking-paired-outcome-evaluation)；未测量的数据明确标记为未证明。
-- 验证：相关运行、决策、设置和队列回归及隔离设置保存、重启回读通过；Web 中英、明暗及窄屏保存栏已走查。产品负责人于 2026-10-01 确认已完成原生 Desktop 验证；功能验收完成，issue #61 按产品负责人要求关闭；真实主模型收益评估作为后续可选优化，尚无量化收益结论。完整检查的限制见 `prd.md` 的 issue #61 验收记录。
-
 ## Archive Index / 归档索引
+- [2026 Q4 Features Archive — 10 月 3–4 日 Pi 接线与房间修复](docs/archive/features-archive-2026-Q4.md)
 - [2026-09-12 Features snapshot](docs/archive/2026-Q3-features-september-12.md)
 - [2026 Q2 Features Archive (Apr - Jun)](docs/archive/features-archive-2026-Q2.md)
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)

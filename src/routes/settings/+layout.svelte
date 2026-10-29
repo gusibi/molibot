@@ -32,6 +32,7 @@
       agentData: "助手数据",
       agents: "Agents",
       memory: "记忆",
+      embeddingModels: "向量模型",
       memoryRejections: "记忆拒绝记录",
       skills: "技能",
       skillDrafts: "技能草稿",
@@ -75,6 +76,7 @@
       agentData: "Agent Data",
       agents: "Agents",
       memory: "Memory",
+      embeddingModels: "Embedding Models",
       memoryRejections: "Memory Rejections",
       skills: "Skills",
       skillDrafts: "Skill Drafts",
@@ -141,6 +143,7 @@
     { key: "data", icon: "💾", title: t("agentData", $locale), links: [
         { href: "/settings/agents", label: t("agents", $locale), exact: true },
         { href: "/settings/memory", label: t("memory", $locale), exact: true },
+        { href: "/settings/memory/embeddings", label: t("embeddingModels", $locale), exact: true },
         { href: "/settings/memory-rejections", label: t("memoryRejections", $locale), exact: true },
         { href: "/settings/skills", label: t("skills", $locale), exact: true },
         { href: "/settings/skill-drafts", label: t("skillDrafts", $locale), exact: true },

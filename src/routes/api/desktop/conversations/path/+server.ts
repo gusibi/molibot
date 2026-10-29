@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { resolveDesktopSessionFilePath } from "$lib/server/app/desktopConversations.js";
+import { resolveDesktopSessionFilePath, resolveDesktopSessionDirectoryPath } from "$lib/server/app/desktopConversations.js";
 
 /**
  * Returns the filesystem path where the session is stored.
@@ -13,7 +13,9 @@ export const GET: RequestHandler = async ({ url }) => {
     return json({ ok: false, error: "sessionId is required" }, { status: 400 });
   }
 
-  const path = resolveDesktopSessionFilePath(sessionId, projectId);
+  const target = url.searchParams.get("target") || "file";
+  if (target !== "file" && target !== "directory") return json({ ok: false, error: "Invalid path target" }, { status: 400 });
+  const path = target === "directory" ? resolveDesktopSessionDirectoryPath(sessionId, projectId) : resolveDesktopSessionFilePath(sessionId, projectId);
   if (!path) {
     return json({ ok: false, error: "Session file path not found" }, { status: 404 });
   }

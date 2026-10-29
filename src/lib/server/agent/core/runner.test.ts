@@ -1,6 +1,7 @@
 import { getCurrentSystemPrompt, getCurrentTools, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { nativeNestedToolCallId } from "../durable/piInvocation.js";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -2206,6 +2207,56 @@ test("Pi requests restore the rendered prompt and tools after session context re
   }
 });
 
+test("real Runner delivers a self-contained final answer after tools and reloads the same result", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-answer-"));
+  try {
+    const runner = await createRunnerForHookTest({ chatId: "answer-delivery", workspaceDir, hookManager: createRunnerHookManager([]) });
+    (runner as any).getSettings = () => ({ ...createRunnerTestSettings(), permissionMode: "auto" });
+    const agent = (runner as any).agent;
+    const final = "设置已保存。建议保留当前配置。需要再调整频率吗？";
+    const progress = "先核对配置，再保存。";
+    let requests = 0;
+    const prompts: string[] = [];
+    agent.streamFunction = (model: any, context: any) => {
+      requests++;
+      const prompt = getCurrentSystemPrompt(context.messages);
+      prompts.push(prompt);
+      const first = requests === 1;
+      const output = createAssistantMessageEventStream();
+      output.push({ type: "done", reason: first ? "toolUse" : "stop", message: {
+        role: "assistant", content: first ? [
+          { type: "thinking", thinking: "Private reasoning." },
+          { type: "text", text: progress },
+          { type: "toolCall", id: "save-config", name: "write", arguments: { label: "Save settings", path: join(workspaceDir, "saved.txt"), content: "configured" } }
+        ] : [{ type: "text", text: prompt.includes("<answer-delivery>") ? final : "已保存。" }],
+        api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), stopReason: first ? "toolUse" : "stop",
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+      } });
+      output.end(); return output;
+    };
+    const replies: string[] = [];
+    const context = createRunnerContext("保存配置并给我建议，必要时追问。");
+    context.replaceMessage = async (text: string) => { replies.push(text); };
+    const result = await runner.run(context);
+    assert.equal(result.stopReason, "stop");
+    assert.equal(requests, 2, "normal post-tool reply completes delivery without another model request");
+    assert.equal(replies.at(-1), final);
+    assert.equal(readFileSync(join(workspaceDir, "saved.txt"), "utf8"), "configured");
+    for (const prompt of prompts) assert.equal(prompt.split("<answer-delivery>").length - 1, 1);
+    const { MomRuntimeStore } = await import("$lib/server/agent/session/store.js");
+    const { projectConversationMessages } = await import("$lib/server/app/conversationProjection.js");
+    const store = new MomRuntimeStore(workspaceDir);
+    const entries = store.listSessionMessageEntries("answer-delivery", (runner as any).sessionId);
+    const reply = projectConversationMessages({ conversationId: "answer", entries, metadata: [] }).messages.find(message => message.role === "assistant");
+    assert.equal(reply?.content, final);
+    assert.equal(reply?.resultKind, "final");
+    assert.ok(reply?.steps?.some(step => step.kind === "text" && step.content === progress));
+    assert.ok(reply?.steps?.some(step => step.kind === "thinking"));
+    assert.equal(entries.filter(entry => entry.message.role === "toolResult").length, 1);
+    assert.doesNotMatch(JSON.stringify(store.loadContext("answer-delivery", (runner as any).sessionId)), /<answer-delivery>/);
+  } finally { rmSync(workspaceDir, { recursive: true, force: true }); }
+});
+
 test("real Runner applies its budget and trace hooks to nested Codemode writes", async () => {
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-codemode-"));
   const events: Array<{ stage: string; payload: any }> = [];
@@ -2214,6 +2265,8 @@ test("real Runner applies its budget and trace hooks to nested Codemode writes",
     const settings = { ...createRunnerTestSettings(), permissionMode: "auto", budget: { maxToolCalls: 2, maxToolFailures: 6, maxModelAttempts: 6 } };
     (runner as any).getSettings = () => settings;
     const agent = (runner as any).agent;
+    const writes: any[] = [];
+    agent.subscribe((event: any) => { if (event.type === "tool_execution_end" && event.toolName === "write") writes.push(event); });
     let requests = 0;
     agent.streamFunction = (model: any) => {
       requests++;
@@ -2229,10 +2282,16 @@ test("real Runner applies its budget and trace hooks to nested Codemode writes",
       return output;
     };
     await runner.run(createRunnerContext("Save two files using the tool."));
-    assert.ok(events.some(event => event.stage === "tool.call.before" && event.payload.toolCallId === "runner-code:codemode:1"), JSON.stringify(agent.state.messages));
-    assert.ok(events.some(event => event.stage === "tool.call.blocked" && event.payload.toolCallId === "runner-code:codemode:2" && event.payload.blockedBy === "budget"));
+    assert.ok(events.some(event => event.stage === "tool.call.before" && event.payload.toolCallId === nativeNestedToolCallId("runner-code", "runner-code:codemode:1")), JSON.stringify(agent.state.messages));
+    assert.ok(events.some(event => event.stage === "tool.call.blocked" && event.payload.toolCallId === nativeNestedToolCallId("runner-code", "runner-code:codemode:2") && event.payload.blockedBy === "budget"));
     const result = agent.state.messages.find((message: any) => message.role === "toolResult" && message.toolCallId === "runner-code");
     assert.ok(result);
+    const cwd = (runner as any).currentWorkingDir();
+    const receipt = writes.find(event => !event.isError)?.result.details;
+    assert.ok(receipt?.relativePath, JSON.stringify(writes));
+    assert.equal(receipt.rootKind, "scratch");
+    assert.equal(readFileSync(join(cwd, receipt.relativePath), "utf8"), "one");
+    assert.equal(existsSync(join(cwd, receipt.relativePath.replace(/first\.txt$/, "second.txt"))), false);
     assert.match(JSON.stringify(result.content), /budget exceeded/);
     assert.equal(requests, 2);
   } finally { rmSync(workspaceDir, { recursive: true, force: true }); }

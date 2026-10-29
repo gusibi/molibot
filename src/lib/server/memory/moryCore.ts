@@ -32,6 +32,7 @@ import {
   classifyAutoMemoryCandidate,
   inferFactKey
 } from "$lib/server/memory/classifier.js";
+import { normalizeMemorySubject } from "$lib/server/memory/memoryIdentity.js";
 
 interface ScopeIndexData {
   scopes: Record<string, MemoryScope>;
@@ -129,12 +130,7 @@ function slugify(input: string, fallback = "memory"): string {
 }
 
 function normalizeSubject(input: string, fallback = "memory"): string {
-  const subject = input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "_")
-    .replace(/^[_ .-]+|[_ .-]+$/g, "")
-    .slice(0, 96);
+  const subject = normalizeMemorySubject(input).slice(0, 96);
   return subject || fallback;
 }
 
@@ -633,10 +629,32 @@ export class MoryMemoryBackend implements MemoryBackend {
   async searchAll(input: MemorySearchInput): Promise<MemoryRecord[]> {
     await this.ensureInit();
     const index = this.loadScopeIndex();
-    const allRows = await Promise.all(Object.entries(index.scopes).map(async ([namespace, scope]) => {
+    const limit = Number.isFinite(input.limit) ? Math.max(1, Math.min(500, Number(input.limit))) : 50;
+    const scopes = Object.entries(index.scopes);
+
+    // The management page defaults to all scopes. Keep its search on the same
+    // embedding path as scoped recall instead of silently ranking by keywords.
+    if (input.query.trim() && this.embeddingAvailable() && scopes.length > 0) {
+      const perScope = await Promise.all(scopes.map(([namespace, scope]) => (
+        this.searchNamespaces([namespace as MemoryNamespace], scope, {
+          ...input,
+          limit: Math.max(limit * 2, 20)
+        })
+      )));
+      const seen = new Set<string>();
+      const merged: MemoryRecord[] = [];
+      for (const record of perScope.flat()) {
+        if (seen.has(record.id)) continue;
+        seen.add(record.id);
+        merged.push(record);
+      }
+      if (merged.length > 0) return merged.slice(0, limit);
+    }
+
+    const allRows = await Promise.all(scopes.map(async ([namespace, scope]) => {
       const rows = await this.storage.list(namespace, {
         includeArchived: false,
-        limit: Math.max(Number(input.limit ?? 100) * 2, 100)
+        limit: Math.max(limit * 2, 100)
       });
       return rows.map((row) => toRecord(row, scope)).filter((row) => !isExpired(row, Date.now()));
     }));

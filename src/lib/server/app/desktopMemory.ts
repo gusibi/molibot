@@ -7,6 +7,7 @@ import type { DesktopMemorySummary } from "$lib/shared/desktop";
 export interface DesktopMemoryRuntimeState {
   enabled: boolean;
   capabilities: MemoryBackendCapabilities | null;
+  embedding?: { providerId: string; providerName: string; model: string } | null;
 }
 
 /**
@@ -19,14 +20,13 @@ export function buildDesktopMemorySummary(
   settings: RuntimeSettings,
   runtime: DesktopMemoryRuntimeState
 ): DesktopMemorySummary {
-  const config = settings.plugins?.memory ?? { enabled: false, backend: "", embeddingProviderId: "", embeddingModel: "" };
+  const config = settings.plugins?.memory ?? { enabled: false, backend: "" };
   const caps = runtime.capabilities;
   return {
     enabled: runtime.enabled === true,
     configEnabled: config.enabled === true,
     backend: config.backend ?? "",
-    embeddingProviderId: config.embeddingProviderId ?? "",
-    embeddingModel: config.embeddingModel ?? "",
+    embedding: runtime.embedding ?? null,
     capabilities: {
       hybridSearch: caps?.supportsHybridSearch === true,
       vectorSearch: caps?.supportsVectorSearch === true,

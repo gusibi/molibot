@@ -8,10 +8,10 @@ import { MemoryGateway } from "./gateway.js";
 import { MemoryProfileSnapshotStore } from "./profileSnapshotStore.js";
 import type { MemoryBackend, MemoryRecord } from "./types.js";
 
-function record(id: string, content: string): MemoryRecord {
+function record(id: string, content: string, subject = id): MemoryRecord {
   return {
     id, channel: "web", externalUserId: "profile-1", content, tags: [], layer: "long_term",
-    namespace: "owner:owner", domain: "owner", type: "user_preference", subject: "answer_length", path: `mory://user_preference/${id}`,
+    namespace: "owner:owner", domain: "owner", type: "user_preference", subject, path: `mory://user_preference/${id}`,
     state: "active", version: 1, confidence: 0.9, utility: 0.5, accessCount: 0, injectionCount: 0,
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
   };

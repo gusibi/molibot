@@ -5,7 +5,7 @@ import { PiRecoveryStore } from "./piRecoveryStore.js";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { type AgentEvent } from "@earendil-works/pi-agent-core";
-import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
+import { currentPiInvocation, nativeNestedToolCallId } from "$lib/server/agent/durable/piInvocation.js";
 import { PiRunSession } from "./piRunSession.js";
 import { ensureServiceOwnership, verifyServiceOwnership } from "$lib/server/app/serviceOwnership.js";
 import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
@@ -593,20 +593,23 @@ export class MomRunner implements RunnerLike {
         this.emitSkillSearchMatches(context);
         this.emitSkillExecutedForToolSignals(context);
         this.trackVideoSubmission(context);
-        if (!context.isError && context.toolCall.name === "memory") {
-          const receipts = memoryWriteReceiptsFromToolCall(context.args, context.result);
+        if (!context.isError && ["memory", "save_memory", "recall_memory", "forget_memory"].includes(context.toolCall.name)) {
+          const receipts = memoryWriteReceiptsFromToolCall(context.args, context.result, context.toolCall.name);
           for (const receipt of receipts) {
             const index = this.activeMemoryWriteReceipts.findIndex((item) => item.memoryId === receipt.memoryId);
             if (index >= 0) this.activeMemoryWriteReceipts[index] = receipt;
             else this.activeMemoryWriteReceipts.push(receipt);
           }
-          for (const hit of memoryToolHitsFromToolCall(context.args, context.result)) {
+          for (const hit of memoryToolHitsFromToolCall(context.args, context.result, context.toolCall.name)) {
             if (!this.activeMemoryToolHits.some((item) => item.memoryId === hit.memoryId)) {
               this.activeMemoryToolHits.push(hit);
             }
           }
         }
-        return undefined;
+        const blocked = this.budgetBlockedToolCallIds.has(context.toolCall.id);
+        const key = this.toolBudgetKeys.get(context.toolCall.id) ?? this.toolBudgetKey(context.toolCall.id, context.assistantMessage);
+        const counted = this.activeRunBudget?.recordToolResult(shouldCountToolResultAsFailure(context.isError, blocked), key);
+        return counted && !counted.ok ? { ...context.result, terminate: true } : undefined;
       },
       // `streamFn`, not `streamFunction`: pi 0.82 renamed this constructor
       // option (the Agent's own field is still called `streamFunction`). Passing
@@ -1070,6 +1073,7 @@ export class MomRunner implements RunnerLike {
     const appendRunContextMessage = (message: AgentMessage, contextBreakdown?: SessionContextSnapshot): string =>
       this.store.appendContextMessage(this.chatId, message, this.sessionId, {
         runId: this.agent.projectionRunId ?? runId, retention: turnRetention, contextBreakdown,
+        delivery: message.role === "assistant" ? "process" : undefined,
         sourceId: this.agent.sourceIdFor(message)
       });
     const respondInThread = async (text: string): Promise<void> => {
@@ -1459,6 +1463,13 @@ export class MomRunner implements RunnerLike {
     let promptUserPersisted = false;
     let assistantMessagePersisted = false;
     let assistantSourceEntryId: string | undefined;
+    // Turn-answer delivery bookkeeping (conversation answer visibility spec):
+    // entry ids of the current attempt's assistant messages that ended with a
+    // terminal reply, plus the last persisted entry carrying answer text. The
+    // runtime — never the projection — decides which persisted entry is the
+    // turn's deliverable, and stamps it at run end.
+    const answerEntryIds: string[] = [];
+    let lastAnswerTextEntryId: string | undefined;
     let structuredPlanCompleted = false;
     this.activeMemoryWriteReceipts = [];
     this.activeMemoryToolHits = [];
@@ -1555,15 +1566,13 @@ export class MomRunner implements RunnerLike {
         signal.throwIfAborted();
         const invocation = currentPiInvocation();
         if (!invocation) throw new Error("Nested tool execution requires a native execution owner.");
+        const nativeId = nativeNestedToolCallId(invocation.api.callId, id);
         const unsubscribe = onUpdate ? this.agent.subscribe(event => {
-          if (event.type === "tool_execution_update" && event.toolCallId === id) onUpdate(event.partialResult);
+          if (event.type === "tool_execution_update" && event.toolCallId === nativeId) onUpdate(event.partialResult);
         }) : undefined;
         let outcome;
         try { outcome = await invocation.nested(tool, id, args, signal); }
         finally { unsubscribe?.(); }
-        const assistantMessage = this.agent.toolOriginFor(id);
-        const blocked = this.budgetBlockedToolCallIds.has(id);
-        budget.recordToolResult(shouldCountToolResultAsFailure(outcome.isError, blocked), this.toolBudgetKeys.get(id) ?? (assistantMessage ? this.toolBudgetKey(id, assistantMessage) : `pi:${runId}:nested:${invocation.api.taskId}:${id}`));
         if (budget.getExceededReason()) {
           return { result: { ...outcome.result, terminate: true } as typeof outcome.result, isError: outcome.isError };
         }
@@ -1745,6 +1754,7 @@ export class MomRunner implements RunnerLike {
     };
     let assistantTextStreamed = false;
     let streamedAssistantText = "";
+    let streamedAssistantStopReason: string | undefined;
     let lastAssistantProgressText = "";
     const toolProgress = new Map<string, RunToolProgress>();
     let firstAssistantTokenLogged = false;
@@ -1782,6 +1792,7 @@ export class MomRunner implements RunnerLike {
         event.type === "message_start" &&
         (event.message as { role?: string }).role === "assistant"
       ) {
+        streamedAssistantStopReason = undefined;
         if (streamedAssistantText.trim()) lastAssistantProgressText = streamedAssistantText;
         this.toolBudgetKeys.clear();
         collectCitationFilter();
@@ -1826,6 +1837,7 @@ export class MomRunner implements RunnerLike {
       }
 
       if (event.type === "message_end" && event.message.role === "assistant") {
+        streamedAssistantStopReason = event.message.stopReason;
         const text = event.message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
         if (text.trim()) lastAssistantProgressText = text;
       }
@@ -1903,7 +1915,7 @@ export class MomRunner implements RunnerLike {
         const budgetBlocked = this.budgetBlockedToolCallIds.has(event.toolCallId);
         const suspendedBeforeIntent = (event.result as { metadata?: { status?: string } }).metadata?.status === APPROVAL_WAITING_METADATA_STATUS;
         const countsAsFailure = !suspendedBeforeIntent && shouldCountToolResultAsFailure(event.isError, budgetBlocked);
-        const budgetResult = suspendedBeforeIntent ? { ok: true } : budget.recordToolResult(countsAsFailure, this.toolBudgetKeys.get(event.toolCallId) ?? this.toolBudgetKey(event.toolCallId));
+        const budgetResult = suspendedBeforeIntent ? { ok: true } : budget.recordToolResult(countsAsFailure, this.toolBudgetKeys.get(event.toolCallId) ?? this.toolBudgetKey(event.toolCallId, this.agent.toolOriginFor(event.toolCallId)));
         if (countsAsFailure) {
           failedToolNames.push(event.toolName);
         }
@@ -2077,6 +2089,11 @@ export class MomRunner implements RunnerLike {
           if (message.role === "assistant") {
             assistantMessagePersisted = true;
             assistantSourceEntryId = sourceEntryId;
+            const text = getMessageText(message).trim();
+            if (text && (message as { stopReason?: string }).stopReason !== "toolUse") lastAnswerTextEntryId = sourceEntryId;
+            if ((message as { stopReason?: string }).stopReason === "stop" && text) {
+              answerEntryIds.push(sourceEntryId);
+            }
           }
         }
       }
@@ -2705,6 +2722,9 @@ export class MomRunner implements RunnerLike {
         let candidateFinalText = "";
         let overflowRetryUsed = false;
         let continueAfterPostToolOverflow = false;
+        // A retried attempt supersedes its own terminal replies; only the
+        // attempt the run actually ends on may carry the deliverable mark.
+        answerEntryIds.length = 0;
         let toolBudgetContinuationUsed = false;
 
         /**
@@ -2738,6 +2758,7 @@ export class MomRunner implements RunnerLike {
             if (!compacted.changed) return false;
             // Compare subsequent native entries against the compacted context boundary.
             beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
+            answerEntryIds.length = 0;
             momLog("runner", "context_overflow_retrying_after_compact", {
               runId,
               chatId: this.chatId,
@@ -2950,7 +2971,8 @@ export class MomRunner implements RunnerLike {
               candidateFinalText = terminalAssistants[0]?.text ?? "";
               finalSupplements = terminalAssistants.slice(1).map((item) => item.text).filter(Boolean);
             } else {
-              candidateFinalText = lastAssistant ? getMessageText(lastAssistant).trim() : "";
+              candidateFinalText = lastAssistant && (lastAssistant as { stopReason?: string }).stopReason !== "toolUse"
+                ? getMessageText(lastAssistant).trim() : "";
             }
             const lastAssistantContentCount = Array.isArray((lastAssistant as { content?: unknown } | undefined)?.content)
               ? ((lastAssistant as { content?: unknown[] }).content?.length ?? 0)
@@ -2995,7 +3017,7 @@ export class MomRunner implements RunnerLike {
                     attempt: attemptCount
                   }
                 }, this.sessionId);
-                const partialBeforeContinuation = candidateFinalText || streamedAssistantText.trim();
+                const partialBeforeContinuation = candidateFinalText || (streamedAssistantStopReason !== "toolUse" ? streamedAssistantText.trim() : "");
                 if (ctx.beginContinuationResponse) {
                   await ctx.beginContinuationResponse(partialBeforeContinuation, toolBudgetNotice);
                   if (partialBeforeContinuation.trim()) {
@@ -3009,6 +3031,12 @@ export class MomRunner implements RunnerLike {
                 streamedAssistantText = "";
                 assistantTextStreamed = false;
                 candidateFinalText = "";
+                // The continuation supersedes the pre-budget stops: they were
+                // committed as a partial answer, so they keep "partial"
+                // semantics and never compete with the continuation's deliverable.
+                for (const entryId of answerEntryIds.splice(0)) {
+                  this.store.markSessionMessageDelivery(this.chatId, this.sessionId, entryId, "partial");
+                }
                 const previousTools = this.agent.state.tools;
                 this.agent.state.tools = [];
                 await respondInThread(
@@ -3518,7 +3546,7 @@ export class MomRunner implements RunnerLike {
         }
       }
 
-      if (!finalText && streamedAssistantText.trim()) {
+      if (!finalText && streamedAssistantText.trim() && streamedAssistantStopReason !== "toolUse" && stopReason !== "waiting_for_approval") {
         finalText = streamedAssistantText.trim();
         if (stopReason !== "aborted") {
           stopReason = "error";
@@ -3545,7 +3573,7 @@ export class MomRunner implements RunnerLike {
           finalText = report;
           stopReason = "error";
           errorMessage ||= "Delegated work stopped without a parent conclusion.";
-          appendRunContextMessage(createAssistantErrorMessage({ text: report, errorMessage, model: activeSelection.model }));
+          lastAnswerTextEntryId = appendRunContextMessage(createAssistantErrorMessage({ text: report, errorMessage, model: activeSelection.model }));
           assistantMessagePersisted = true;
         }
       }
@@ -3557,7 +3585,7 @@ export class MomRunner implements RunnerLike {
           tools: [...toolProgress.values()],
           error: errorMessage
         });
-        appendRunContextMessage(createAssistantErrorMessage({ text: finalText, errorMessage, model: activeSelection.model }));
+        lastAnswerTextEntryId = appendRunContextMessage(createAssistantErrorMessage({ text: finalText, errorMessage, model: activeSelection.model }));
         assistantMessagePersisted = true;
       }
 
@@ -3681,7 +3709,7 @@ export class MomRunner implements RunnerLike {
       }
 
       if (stopReason === "error" && errorMessage && !assistantMessagePersisted) {
-        appendRunContextMessage(
+        lastAnswerTextEntryId = appendRunContextMessage(
           createAssistantErrorMessage({
             text: finalText || streamedAssistantText.trim(),
             errorMessage,
@@ -3689,6 +3717,23 @@ export class MomRunner implements RunnerLike {
           })
         );
         assistantMessagePersisted = true;
+      }
+
+      // Stamp turn-answer delivery semantics onto the persisted entries (the
+      // conversation answer visibility spec: the runtime forms the result, the
+      // UI never re-derives it). "final" = the committed deliverable entries;
+      // "partial" = a valid answer the run had already formed when it ended
+      // unfinished. Approval waits and answer-less turns stay unmarked.
+      if (stopReason === "stop" && finalText.trim() && answerEntryIds.length > 0) {
+        for (const entryId of answerEntryIds) {
+          this.store.markSessionMessageDelivery(this.chatId, this.sessionId, entryId, "final");
+        }
+      } else if (
+        lastAnswerTextEntryId &&
+        (stopReason === "aborted" || stopReason === "error") &&
+        (finalText.trim() || streamedAssistantText.trim())
+      ) {
+        this.store.markSessionMessageDelivery(this.chatId, this.sessionId, lastAnswerTextEntryId, "partial");
       }
 
       if (
@@ -3834,8 +3879,9 @@ export class MomRunner implements RunnerLike {
         subagentReport: formatStoppedSubagentReport(subagentTaskRecords, message)
       });
       // Earlier assistant entries may be progress/tool calls, not a closing answer.
-      appendRunContextMessage(createAssistantErrorMessage({ text: partialText, errorMessage: message, model: activeSelection.model }));
+      const exceptionEntryId = appendRunContextMessage(createAssistantErrorMessage({ text: partialText, errorMessage: message, model: activeSelection.model }));
       assistantMessagePersisted = true;
+      if (partialText.trim()) this.store.markSessionMessageDelivery(this.chatId, this.sessionId, exceptionEntryId, "partial");
       momError("runner", "run_exception", {
         runId,
         chatId: this.chatId,

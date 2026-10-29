@@ -53,7 +53,8 @@ const LOCAL_READ_TOOLS = new Set([
   "docExtract",
   "conversationSearch",
   "toolSearch",
-  "skillSearch"
+  "skillSearch",
+  "recall_memory"
 ]);
 
 export const READ_ONLY_TOOL_NAMES = new Set([...LOCAL_READ_TOOLS].filter(name => name !== "toolSearch"));
@@ -139,7 +140,7 @@ export function getRuntimeToolClassification(
   if (options.isExtensionTool) {
     return { risk: "medium", source: "plugin", effect: "installed_app", thirdPartyHint: "undeclared" };
   }
-  if (["write", "edit"].includes(toolName)) {
+  if (["write", "edit", "save_memory", "forget_memory"].includes(toolName)) {
     return { risk: "medium", source: "builtin", effect: "write", thirdPartyHint: "undeclared" };
   }
   if (NETWORK_TOOLS.has(toolName)) {

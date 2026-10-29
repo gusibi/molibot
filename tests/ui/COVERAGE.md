@@ -86,8 +86,8 @@
 | 强制迁移（错误跳过、报告、备份、窄窗与重启） | 已实现 | 集成 + 浏览器 | `storage-migration.spec.ts` + `agentStorageMigration.test.ts` |
 | 冷启动 | 已实现 | 浏览器 | `chat.spec.ts`（cold start） |
 | 消息输入（Enter / Shift+Enter / 空消息 / 组合输入） | 已实现 | 浏览器 + 单元 | `chat.spec.ts`（input / composition） |
-| 消息回复（首发、连发、流式更新、输入恢复、请求总数） | 已实现 | 浏览器 | `chat.spec.ts`（cold start、streams progressively） |
-| 思考实时展开、回答时折叠、手动展开、停止保留、重启回读、中英/明暗/窄窗口 | 已实现 | 浏览器 | `chat.spec.ts`（thinking opens live、stopping during thinking）；共享流式前缀守卫见 `piRunSession.test.ts` |
+| 消息回复（首发、连发、未定稿文字留在过程、最终结果提交、输入恢复、请求总数） | 已实现 | 浏览器 | `chat.spec.ts`（cold start、provisional text stays）；`chat-final-answer.spec.ts`（final answer remains visible） |
+| 统一过程默认折叠、手动展开思考与执行、停止保留、重启回读、中英/明暗/窄窗口 | 已实现 | 浏览器 | `chat.spec.ts`（thinking stays in、stopping during thinking）；`chat-final-answer.spec.ts`（十次工具共用过程、审批进度不作结果）；`chat-process-timeline.spec.ts` 验证三段思考与两次真实工具交替、无嵌套思考卡、流式/历史/重启/中英明暗窄窗；共享前缀守卫见 `piRunSession.test.ts` |
 | 请求失败（超时 / 错误码 / 断开 / 429） | 已实现 | 浏览器 + 单元 | `chat.spec.ts`（429 / 500 / dropped connection、idle timeout 呈现与再次发送）；`api.test.ts`（SSE 空闲看门狗拒绝） |
 | 允许审批 | 已实现 | 浏览器 | `approval.spec.ts`（allow） |
 | 拒绝审批 | 已实现 | 浏览器 | `approval.spec.ts`（reject） |
@@ -97,6 +97,8 @@
 | 队列与插话（入队、顺序、取消、清空、插话） | 已实现 | 集成 + 浏览器 | `chat.spec.ts`（queue+remove、顺序执行、清空不执行、插话投递）+ `conversationController.test.ts`（出队顺序与恰好一次、并发出队不重复发送） |
 | 排队时审批 | 已实现 | 浏览器 | `chat.spec.ts`（审批与排队按顺序推进） |
 | 设置保存（保存、离开返回、重启回读、不覆盖其他配置） | 已实现 | 集成 + 浏览器 | `agent-settings.spec.ts`（保存留在当前分类与文件、连续保存、失败重试、返回与重启回读、中英明暗窄窗）+ `settings.spec.ts`（默认执行模式字段级 round-trip + 不覆盖 Agents）+ `shared-rules.spec.ts`（共享规则保存与重启）+ `settings/*Roundtrip.test.ts`（整对象 round-trip） |
+| 向量通道编辑器（空状态、必填校验、保存回读、删除确认） | 已实现 | 浏览器 + 隔离服务 | `settings-model-lanes.spec.ts` |
+| 决策模型 Auto 选择（卡片选择、保存回读、恢复） | 已实现 | 浏览器 + 隔离服务 | `settings-model-lanes.spec.ts` |
 | 应用 Logo 切换（即时生效、冷加载持久） | 已实现 | 单元 + 浏览器 | `settings.spec.ts`（选择徽章后设置页脚与聊天侧栏即时换标、reload 后持久、恢复默认）+ `appLogo.test.ts`（选择持久化、非法 id 回退默认、清单资产在盘校验） |
 | 侧栏 footer 统一（共享标识 mark、状态环点、设置页 Agent 入口） | 已实现 | 单元 + 浏览器 | `chat-ui.test.mjs`（AppFooterMark 共享、聊天 footer 无状态行守卫、设置 footer 组合 mark 与 A 入口）+ `settings.spec.ts`（设置页 footer 的 Agent 控件关闭设置并落到默认 Agent 首页、footer 无常态状态文字） |
 | 服务恢复（停启后无永久加载、无重复） | 部分交付 | 浏览器 + 原生 | `chat.spec.ts`（service restart）。原生中断恢复未验证 |
@@ -126,7 +128,7 @@
 
 `plans.spec.ts`（@plans @chat @approval）：31 步生成计划在计划工作区批准后由 Durable 执行器独立执行（不占用来源/承接 Session 的普通轮次），承接 Session 同时进行普通对话不受阻塞；步骤完成进入待验收，所有者确认后整计划归档。使用临时实例、本地模型夹具与真实计划 API。
 
-`skills-management.spec.ts`：内置技能散列关联、删除后安装、修改覆盖前备份、旧版本更新、备份不作为技能扫描、管理仅在工作区及搜索配置仅在设置、搜索参数保存与整对象重启回读、窄窗与侧栏计划/技能顺序。
+`skills-management.spec.ts`：统一 Skill Manager 的 Molibot/其他平台分组与来源筛选、内置技能删除后恢复安装、修改后覆盖更新与时间戳备份、本地目录安装预检、发现 → Copy/Link 安装、整理成规范副本并在原位置留下链接、真实文件树展开与子文件预览、Runtime 状态图标、平台扫描规则保存与重启回读、未安装内置技能占位、以及搜索配置仅在设置且单独保存回读；窄窗无横向溢出、中英与明暗走查。
 
 技能详情（`skills-management.spec.ts`）：点击卡片就地展开详情面板、显示「已被本地修改」与安装版本、关闭后回到卡片网格并继续内置更新；`apps/desktop/src/chat-ui.test.mjs` 结构检查锁定详情为页面内面板（含路径、YAML 元信息、目录区）而非弹窗，并锁定网格 ⇄ 列表使用测量式 FLIP。技能页全宽内容区由 `workspaces.spec.ts` 的切页与无横向溢出断言覆盖。
 
@@ -136,4 +138,8 @@
 
 `plan-connection-status.spec.ts`（@plans @workspace）：真实计划列表连接提示的左右内缩、次级文字、字号和无横向溢出；覆盖中英、明暗、1440/860/600 宽度、事件流不可用时的长提示、切页返回及隔离服务重启后的恢复与计划回读。
 
-`chat-agent-header.spec.ts`（@chat @navigation）：Web 会话 Agent 名称、无刷新和 Agent 范围历史；外部会话独立 Agent 名称与渠道、底部刷新请求与消息结果、按 Agent 隔离历史、中英明暗窄窗和隔离服务重启后首次恢复。`chat.spec.ts` 的 Web 会话用例改为断言无刷新、Agent 标识与历史入口，保留成功静默和失败状态反馈断言。
+`chat-agent-header.spec.ts`（@chat @navigation）：长中英标题在 1120/820/720/560px 下与正文列对齐，标题、Agent/渠道标签不侵入按钮区，侧栏折叠及文件 Inspector 分栏保持按钮完整；Web 会话 Agent 名称、无刷新和 Agent 范围历史；外部会话独立 Agent 名称与渠道、底部刷新请求与消息结果、按 Agent 隔离历史、中英明暗窄窗和隔离服务重启后首次恢复。`chat.spec.ts` 的 Web 会话用例改为断言无刷新、Agent 标识与历史入口，保留成功静默和失败状态反馈断言。
+
+当前对话更多菜单：`session-actions-menu.spec.ts` 覆盖搜索聚焦与返回、真实会话记录目录查询与剪贴板、Finder 请求参数、无效目标和缺失会话、共享删除失败与成功、中英明暗窄窗及隔离服务重启恢复。Finder 系统窗口使用模拟响应，不覆盖原生打开结果。
+
+顶栏 Agent 首页入口：`agent-home-link.spec.ts` 覆盖 Momo 普通会话及另一 Agent 外部会话的准确导航、首页不残留入口、点击不创建 session、鼠标与 Enter/空格、中英明暗窄窗和隔离服务重启后的首次点击。原生 App 窗口拖动边界未验证。

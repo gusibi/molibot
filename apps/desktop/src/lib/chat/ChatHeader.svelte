@@ -15,6 +15,7 @@
     title,
     sourceLabel = "",
     agentLabel = "",
+    onAgentClick = null,
     subtitle = "",
     searching = false,
     actions = null
@@ -22,6 +23,7 @@
     title: string;
     sourceLabel?: string;
     agentLabel?: string;
+    onAgentClick?: (() => void) | null;
     subtitle?: string;
     searching?: boolean;
     actions?: Snippet | null;
@@ -30,7 +32,7 @@
   const owner = Symbol("window-header");
 
   $effect(() => {
-    windowHeader.set({ title, sourceLabel, agentLabel, subtitle, searching, actions, owner });
+    windowHeader.set({ title, sourceLabel, agentLabel, onAgentClick, subtitle, searching, actions, owner });
   });
 
   onDestroy(() => {

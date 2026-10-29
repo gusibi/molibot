@@ -3,12 +3,13 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { revealDesktopSessionPath } from "$lib/server/app/desktopConversations.js";
 
 /**
- * Reveals the session's storage file in Finder on macOS.
+ * Opens the session record directory or selects its storage file in Finder.
  */
 export const POST: RequestHandler = async ({ request }) => {
   const body = (await request.json().catch(() => null)) as {
     sessionId?: unknown;
     projectId?: unknown;
+    target?: unknown;
   } | null;
 
   const sessionId = String(body?.sessionId ?? "").trim();
@@ -18,7 +19,9 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "sessionId is required" }, { status: 400 });
   }
 
-  const result = revealDesktopSessionPath(sessionId, projectId);
+  const target = body?.target ?? "file";
+  if (target !== "file" && target !== "directory") return json({ ok: false, error: "Invalid path target" }, { status: 400 });
+  const result = revealDesktopSessionPath(sessionId, projectId, target);
   if (!result.ok) {
     return json({ ok: false, error: result.error ?? "Failed to reveal session file", path: result.path }, { status: 400 });
   }

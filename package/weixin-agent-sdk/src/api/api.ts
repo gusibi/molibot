@@ -223,7 +223,7 @@ export function classifyFetchError(err: unknown): {
   }
 
   const cause = (err as NodeJS.ErrnoException)?.cause;
-  const causeCode = (cause as { code?: string })?.code ?? "";
+  const causeCode = (cause as { code?: string })?.code ?? (err as NodeJS.ErrnoException)?.code ?? "";
   const causeStr = String(cause ?? err ?? "") + " " + String(causeCode);
   const matchedCode = causeCode || (typeof cause === "string" ? cause : "");
 
@@ -256,7 +256,12 @@ export function classifyFetchError(err: unknown): {
     };
   }
 
-  return { type: "unknown", description: "network request failed" };
+  const detail = cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(cause ?? err ?? "network request failed");
+  return {
+    type: "unknown",
+    description: detail.replace(/https?:\/\/[^\s]+/g, (url) => redactUrl(url)).slice(0, 1000),
+    ...(causeCode ? { code: causeCode } : {}),
+  };
 }
 
 /**

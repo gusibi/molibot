@@ -10,11 +10,15 @@ export function buildCdnDownloadUrl(encryptedQueryParam: string, cdnBaseUrl: str
   return `${cdnBaseUrl}/download?encrypted_query_param=${encodeURIComponent(encryptedQueryParam)}`;
 }
 
-/** Build a CDN upload URL from upload_param and filekey. */
+/** Prefer the server-signed URL; otherwise construct it from the supplied upload parameter. */
 export function buildCdnUploadUrl(params: {
   cdnBaseUrl: string;
-  uploadParam: string;
+  uploadParam?: string;
+  uploadFullUrl?: string;
   filekey: string;
 }): string {
+  const fullUrl = params.uploadFullUrl?.trim();
+  if (fullUrl) return fullUrl;
+  if (!params.uploadParam) throw new Error("Weixin getuploadurl returned no upload URL");
   return `${params.cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(params.uploadParam)}&filekey=${encodeURIComponent(params.filekey)}`;
 }

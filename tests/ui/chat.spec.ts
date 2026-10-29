@@ -62,80 +62,81 @@ test('composition Enter does not submit unfinished input @chat', async ({ page, 
   await expectReply(page, `REPLY:${marker}`);
 });
 
-test('thinking opens live, folds for the answer, and can be reopened @chat', async ({ page, instance }, testInfo) => {
+test('thinking stays in the collapsed process and the final answer survives restart @chat', async ({ page, instance }, testInfo) => {
   await openChat(page);
   const marker = uniqueToken();
   const thinking = `Inspect the evidence ${marker}. Check the result ${marker}.`;
-  const answer = `ANSWER:${marker} ${'The evidence is ready. '.repeat(30)}`;
-  const script = replyTo(instance.model, `think ${marker}`, { type: 'thinking', thinking, text: answer, key: marker, delayMs: 100 });
+  const answer = `ANSWER:${marker} The evidence is ready.`;
+  const script = replyTo(instance.model, `think ${marker}`, { type: 'thinking', thinking, text: answer, key: marker });
   await sendText(page, `think ${marker}`);
-  const card = page.locator('.thinking-card').last();
-  await expect(card).toHaveAttribute('open', '');
-  await expect(card.locator('pre')).toHaveText(thinking);
-  await page.screenshot({ path: testInfo.outputPath('thinking-live.png') });
+  const process = page.locator('.streaming-message .turn-process');
+  await expect(process).toHaveCount(1);
+  await expect(process).not.toHaveAttribute('open');
+  await expect(page.getByText(thinking, { exact: true })).toHaveCount(0);
+  await process.locator('summary').first().click();
+  await expect(process.getByRole('listitem').filter({ hasText: thinking })).toHaveText(thinking);
   instance.model.release(marker);
-  await expect(page.locator('.streaming-message')).toContainText(`ANSWER:${marker}`);
-  await expect(card).not.toHaveAttribute('open');
-  await card.locator('summary').click();
-  await expect(card.locator('pre')).toHaveText(thinking);
-  await expectReply(page, answer.trim());
-  await expect(card).not.toHaveAttribute('open');
-  await card.locator('summary').click();
-  await expect(card.locator('pre')).toHaveText(thinking);
+  await expectReply(page, answer);
+  const historyProcess = page.locator('article').filter({ hasText: answer }).last().locator('.turn-process');
+  await expect(historyProcess).not.toHaveAttribute('open');
+  await historyProcess.locator('summary').first().click();
+  await expect(historyProcess.getByRole('listitem').filter({ hasText: thinking })).toHaveText(thinking);
   expect(instance.model.matched(script.name)).toHaveLength(1);
   await page.goto('about:blank');
   await instance.restartService();
   await page.goto(instance.frontend);
-  await expectReply(page, answer.trim());
-  await expect(card).not.toHaveAttribute('open');
-  await card.locator('summary').click();
-  await expect(card.locator('pre')).toHaveText(thinking);
+  await expectReply(page, answer);
+  await expect(historyProcess).not.toHaveAttribute('open');
+  await historyProcess.locator('summary').first().click();
+  await expect(historyProcess.getByRole('listitem').filter({ hasText: thinking })).toHaveText(thinking);
   await page.addInitScript(() => {
     localStorage.setItem('molibot-desktop-locale', 'zh-CN');
     localStorage.setItem('molibot-desktop-appearance', 'dark');
   });
   await page.setViewportSize({ width: 600, height: 760 });
   await page.reload();
-  await expect(card.locator('summary')).toHaveText('思考过程');
-  await expect(card).not.toHaveAttribute('open');
-  await card.locator('summary').click();
-  await expect(card.locator('pre')).toHaveText(thinking);
+  await expectReply(page, answer);
+  await expect(historyProcess.locator('summary').first()).toContainText('查看过程');
+  await expect(historyProcess).not.toHaveAttribute('open');
+  await historyProcess.locator('summary').first().click();
+  await expect(historyProcess.getByRole('listitem').filter({ hasText: thinking })).toHaveText(thinking);
   await page.screenshot({ path: testInfo.outputPath('thinking-history-dark-narrow.png') });
 });
 
-test('stopping during thinking retains a collapsed, readable history @chat', async ({ page, instance }) => {
+test('stopping during thinking retains a collapsed process without inventing an answer @chat', async ({ page, instance }) => {
   await openChat(page);
   const marker = uniqueToken();
   const thinking = `Check cancellation ${marker}. Preserve partial reasoning ${marker}.`;
   replyTo(instance.model, marker, { type: 'thinking', thinking, text: 'Unsent answer', key: marker });
   await sendText(page, marker);
-  await expect(page.locator('.thinking-card pre')).toHaveText(thinking);
+  const process = page.locator('.turn-process').last();
+  await expect(process).not.toHaveAttribute('open');
+  await process.locator('summary').first().click();
+  await expect(process.getByRole('listitem').filter({ hasText: thinking })).toHaveText(thinking);
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
-  const card = page.locator('.thinking-card').last();
-  await expect(card).not.toHaveAttribute('open');
-  await card.locator('summary').click();
-  await expect(card.locator('pre')).toHaveText(thinking);
+  await expect(process).not.toHaveAttribute('open');
+  await process.locator('summary').first().click();
+  await expect(process.getByRole('listitem').filter({ hasText: thinking })).toHaveText(thinking);
   await expect(page.getByText('Unsent answer', { exact: true })).toHaveCount(0);
 });
 
-test('assistant reply streams progressively and then settles @chat', async ({ page, instance }) => {
+test('provisional text stays in the process until the committed answer arrives @chat', async ({ page, instance }) => {
   await openChat(page);
   const user = `stream ${uniqueToken()}`;
   const marker = uniqueToken();
-  // Repeats the marker so it survives the first delta, which the runtime does
-  // not emit (see findings): an intermediate frame must still carry it.
   const full = `CHUNK-A ${marker} CHUNK-B ${marker} CHUNK-C ${marker}`;
-  replyTo(instance.model, user, { type: 'text', text: full, chunks: 9, delayMs: 300 });
+  replyTo(instance.model, user, { type: 'hold', text: full, key: marker });
   await sendText(page, user);
-  await expect.poll(async () => {
-    const text = (await transcript(page).allInnerTexts()).join('\n');
-    const stop = await page.getByRole('button', { name: 'Stop', exact: true }).count();
-    return text.includes(marker) && stop === 1 && !text.includes(full);
-  }, { timeout: 10_000, message: 'expected partial streamed text while the turn is still running' }).toBe(true);
-  await expect(transcript(page).getByText(full, { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
-  await expect(page.locator('.thinking-card')).toHaveCount(0);
+  const process = page.locator('.streaming-message .turn-process');
+  await expect(process).toHaveCount(1);
+  await expect(process).not.toHaveAttribute('open');
+  await expect(page.getByText(full, { exact: true })).toHaveCount(0);
+  await process.locator('summary').first().click();
+  await expect(process.getByText(full, { exact: true })).toBeVisible();
+  instance.model.release(marker);
+  await expectReply(page, full);
+  await expect(page.locator('.turn-process')).toHaveCount(0);
 });
 
 test('editable Web sessions omit refresh and settled turns stay silent @chat', async ({ page, instance }) => {

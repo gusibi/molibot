@@ -126,7 +126,8 @@ async function callCustomProviderTarget(
   provider: CustomProviderConfig,
   history: ConversationMessage[],
   settings: RuntimeSettings,
-  memoryContext: string
+  memoryContext: string,
+  sessionId?: string
 ): Promise<ProviderReply> {
   const model = getProviderModel(provider);
   if (!provider.baseUrl || !provider.apiKey || !model) {
@@ -137,7 +138,7 @@ async function callCustomProviderTarget(
   }
 
   try {
-    return await callDirectCustomProvider(provider, model, history, settings, memoryContext);
+    return await callDirectCustomProvider(provider, model, history, settings, memoryContext, sessionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw Object.assign(new Error(message), {
@@ -154,7 +155,8 @@ async function callCustomProviderTarget(
 async function callCustomProvider(
   history: ConversationMessage[],
   settings: RuntimeSettings,
-  memoryContext: string
+  memoryContext: string,
+  sessionId?: string
 ): Promise<ProviderReply> {
   const providers = buildCustomProviderCandidates(settings);
   if (providers.length === 0) {
@@ -164,7 +166,7 @@ async function callCustomProvider(
   const failures: ProviderAttemptFailure[] = [];
   for (const provider of providers) {
     try {
-      return await callCustomProviderTarget(provider, history, settings, memoryContext);
+      return await callCustomProviderTarget(provider, history, settings, memoryContext, sessionId);
     } catch (error) {
       const failure = (error as { providerFailure?: ProviderAttemptFailure }).providerFailure;
       failures.push(
@@ -318,12 +320,12 @@ export class AssistantService {
     private readonly modelErrorTracker?: ModelErrorTracker
   ) {}
 
-  async reply(history: ConversationMessage[], input: string, memoryContext = "", options: { modelKey?: string } = {}): Promise<string> {
+  async reply(history: ConversationMessage[], input: string, memoryContext = "", options: { modelKey?: string; sessionId?: string } = {}): Promise<string> {
     const settings = overrideSettingsForModelKey(this.getSettings(), options.modelKey);
     let reply: ProviderReply;
     try {
       if (settings.providerMode === "custom") {
-        reply = await callCustomProvider(history, settings, memoryContext);
+        reply = await callCustomProvider(history, settings, memoryContext, options.sessionId);
       } else {
         reply = await callPiMono(history, input, settings, memoryContext);
       }

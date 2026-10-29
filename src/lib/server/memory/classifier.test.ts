@@ -40,6 +40,21 @@ test("selectPromptMemoryRows: class weights still dominate over weak lexical hit
   assert.equal(longTerm[0]?.id, "pref");
 });
 
+test("selectPromptMemoryRows: only the newest record per subject is injected", () => {
+  const older = {
+    ...record("old-car", "用户开宝马", ["class:user_profile"]),
+    subject: "user.car",
+    updatedAt: "2026-10-01T00:00:00.000Z"
+  };
+  const newer = {
+    ...record("new-car", "用户开特斯拉", ["class:user_profile"]),
+    subject: "user.car",
+    updatedAt: "2026-10-02T00:00:00.000Z"
+  };
+  const { longTerm } = selectPromptMemoryRows([older, newer], "用户开什么车", 5);
+  assert.deepEqual(longTerm.map((row) => row.id), ["new-car"]);
+});
+
 test("selectPromptMemoryRows: zero lexical relevance injects nothing (relevance floor)", () => {
   const rows = [
     record("pref", "回复时使用中文", ["class:user_preference"]),

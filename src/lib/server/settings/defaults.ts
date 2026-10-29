@@ -549,8 +549,8 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     memory: {
       enabled: String(process.env.MEMORY_ENABLED ?? "true").toLowerCase() === "true",
       backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "mory").trim() || "mory",
-      embeddingProviderId: String(process.env.MEMORY_EMBEDDING_PROVIDER_ID ?? "").trim(),
-      embeddingModel: String(process.env.MEMORY_EMBEDDING_MODEL ?? "").trim(),
+      embeddingModels: [],
+      activeEmbeddingModelId: "",
       reflectionTime: String(process.env.MEMORY_REFLECTION_TIME ?? "03:00").trim() || "03:00",
       reflectionNotifications: String(process.env.MEMORY_REFLECTION_NOTIFICATIONS ?? "true").toLowerCase() !== "false",
       reflectionNotificationTarget: null,

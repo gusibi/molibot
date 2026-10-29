@@ -423,7 +423,6 @@ export const POST: RequestHandler = async ({ request }) => {
             },
             respond: async (text, shouldLog = true) => {
               if (shouldLog) {
-                finalText = finalText ? `${finalText}${text}` : text;
                 writeEvent(controller, encoder, "token", { delta: text });
               }
               // Non-logged responds are channel progress notices (tool and
@@ -433,6 +432,10 @@ export const POST: RequestHandler = async ({ request }) => {
             replaceMessage: async (text) => {
               finalText = text;
               writeEvent(controller, encoder, "replace", { text });
+            },
+            sendSupplement: async (text) => {
+              finalText = [finalText.trim(), text.trim()].filter(Boolean).join("\n\n");
+              writeEvent(controller, encoder, "replace", { text: finalText });
             },
             beginContinuationResponse: async (partialText, notice) => {
               const finalized = [partialText.trim(), notice.trim()].filter(Boolean).join("\n\n");
@@ -539,7 +542,6 @@ export const POST: RequestHandler = async ({ request }) => {
                 return;
               }
               if (event.event.type === "text_delta") {
-                finalText += event.event.delta;
                 writeEvent(controller, encoder, "token", { delta: event.event.delta });
               }
             }
@@ -549,11 +551,9 @@ export const POST: RequestHandler = async ({ request }) => {
             const finishedPlan = runtime.sessions.updateConversationPlan(conversation.id, sessionPlan.id, (current) => finishPlanTurn(current, result.stopReason));
             writeEvent(controller, encoder, "plan_progress", finishedPlan);
           }
-          const assistantText =
-            finalText.trim() ||
-            threadNotes.at(-1) ||
-            result.errorMessage ||
-            "(empty response)";
+          // Tokens and thread notes are process data. Only an explicit reply
+          // replacement commits an answer, including a valid partial result.
+          const assistantText = finalText.trim();
 
           // Terminal activity frames first (mutating the collector), so the
           // persisted finalSnapshot and the streamed cards agree.
@@ -589,7 +589,7 @@ export const POST: RequestHandler = async ({ request }) => {
           // answer + tool timeline so the transcript survives the failure and
           // a follow-up "继续" has visible anchors.
           try {
-            const partial = finalText.trim() || threadNotes.at(-1) || "";
+            const partial = finalText.trim();
             const activities = activityCollector.finalSnapshot();
             if (!assistantPersisted && (partial || activities.length > 0 || responseAttachments.length > 0)) {
               const notice = `⚠️ 本次回复在生成过程中中断，上面是已生成的部分。错误：${messageText}`;

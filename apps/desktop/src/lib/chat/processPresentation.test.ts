@@ -4,7 +4,7 @@ import { translator } from "../i18n";
 import { processPresentation } from "./processPresentation";
 import type { TranscriptProcessBlock } from "./transcript";
 
-test("default progress uses assistant commentary, never private thinking or tool payloads", () => {
+test("visible progress uses structured status, never model commentary, thinking or tool payloads", () => {
   const blocks: TranscriptProcessBlock[] = [
     { id: "thinking", kind: "thinking", content: "PRIVATE_REASONING" },
     { id: "a", kind: "text", content: "已抓取原文。" },
@@ -13,10 +13,9 @@ test("default progress uses assistant commentary, never private thinking or tool
     { id: "tools", kind: "activities", activities: [{ key: "bash", kind: "tool", tool: "bash", label: "校验文章", state: "running", summary: "RAW_LOG", startedAt: "2026-10-08T00:00:00Z" }] }
   ];
   const result = processPresentation(blocks, translator("zh-CN"));
-  assert.deepEqual(result.commentary.map(block => block.content), ["正在整理图片。", "准备校验文章。"]);
   assert.equal(result.status, "正在执行命令…");
   assert.equal(result.detail, "校验文章");
-  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_REASONING|RAW_LOG/);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_REASONING|RAW_LOG|已抓取原文|正在整理图片|准备校验文章/);
 });
 
 test("missing commentary gets a localized honest status and ignores terminal tools", () => {

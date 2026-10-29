@@ -1,7 +1,25 @@
-import test from "node:test";
+import test, { before, after } from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { registerWeixinAccountId, saveWeixinAccount } from "#weixin-agent-sdk/src/auth/accounts.js";
 import assert from "node:assert/strict";
 import { sendWeixinFile, sendWeixinImageReferenceText } from "$lib/server/channels/weixin/outbound.js";
 import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
+
+const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+let testStateDir: string;
+before(() => {
+  testStateDir = mkdtempSync(join(tmpdir(), "weixin-outbound-test-"));
+  process.env.OPENCLAW_STATE_DIR = testStateDir;
+  registerWeixinAccountId("test-account");
+  saveWeixinAccount("test-account", { token: "test-token" });
+});
+after(() => {
+  if (previousStateDir === undefined) delete process.env.OPENCLAW_STATE_DIR;
+  else process.env.OPENCLAW_STATE_DIR = previousStateDir;
+  rmSync(testStateDir, { recursive: true, force: true });
+});
 
 test("sendWeixinFile sends audio replies as text plus mp3 file attachment", async () => {
   const voicePath = `${process.cwd()}/src/lib/server/channels/weixin/test-fixtures/reply.mp3`;

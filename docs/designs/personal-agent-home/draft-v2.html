@@ -1,0 +1,960 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Momo 首页 · 四带简报草案 v2</title>
+<style>
+/* ============================================================================
+   Design draft only. Tokens mirror apps/desktop/src/styles.css (macOS family).
+   Data is invented. Not wired to any endpoint.
+   ========================================================================= */
+
+:root {
+  --window: #ededf0;
+  --content: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f5f5f7;
+  --surface-3: #efeff2;
+  --hairline: rgba(0, 0, 0, 0.08);
+  --border: rgba(0, 0, 0, 0.14);
+  --text: rgba(0, 0, 0, 0.88);
+  --text-2: rgba(0, 0, 0, 0.55);
+  --text-3: rgba(0, 0, 0, 0.36);
+  --accent: #007aff;
+  --accent-soft: rgba(0, 122, 255, 0.10);
+  --warn-text: #8a4b00;
+  --warn-soft: #fff7ec;
+  --warn-border: rgba(194, 106, 0, 0.26);
+  --danger: #d70015;
+  --danger-soft: #fff4f4;
+  --danger-border: rgba(215, 0, 21, 0.22);
+  --ok: #1f8f3d;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.035), 0 8px 24px rgba(0, 0, 0, 0.045);
+  --shadow-float: 0 1px 2px rgba(0, 0, 0, 0.05), 0 14px 36px rgba(0, 0, 0, 0.09);
+  --radius: 14px;
+  --radius-sm: 9px;
+}
+
+[data-theme="dark"] {
+  --window: #131315;
+  --content: #171719;
+  --surface: #1f1f22;
+  --surface-2: #26262a;
+  --surface-3: #2c2c30;
+  --hairline: rgba(255, 255, 255, 0.09);
+  --border: rgba(255, 255, 255, 0.15);
+  --text: rgba(255, 255, 255, 0.92);
+  --text-2: rgba(255, 255, 255, 0.58);
+  --text-3: rgba(255, 255, 255, 0.36);
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.18);
+  --warn-text: #ffb340;
+  --warn-soft: rgba(255, 159, 69, 0.10);
+  --warn-border: rgba(255, 159, 69, 0.28);
+  --danger: #ff5f57;
+  --danger-soft: rgba(255, 69, 58, 0.10);
+  --danger-border: rgba(255, 69, 58, 0.26);
+  --ok: #32d74b;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--window);
+  color: var(--text);
+  font: 14px/22px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button { font: inherit; color: inherit; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+.app { display: flex; height: 100vh; overflow: hidden; }
+
+/* ------------------------------------------------------------------ sidebar */
+
+.sidebar {
+  flex: 0 0 228px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 14px 10px 12px;
+  overflow: auto;
+  border-right: 1px solid var(--hairline);
+  background: var(--window);
+}
+.brand { display: flex; align-items: center; gap: 9px; padding: 4px 8px 16px; }
+.brand-mark {
+  width: 26px; height: 26px; border-radius: 8px;
+  display: grid; place-items: center;
+  background: linear-gradient(150deg, #6f6fe0, #7ea6f0 52%, #8ee3da);
+  color: #fff; font-size: 12px; font-weight: 700;
+}
+.brand-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+
+.nav-row {
+  display: flex; align-items: center; gap: 9px;
+  height: 30px; padding: 0 8px;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+}
+.nav-row:hover { background: rgba(127, 127, 127, 0.10); }
+.nav-row.active { background: rgba(127, 127, 127, 0.14); font-weight: 500; }
+.nav-row svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--text-2); }
+.nav-row.active svg { color: var(--text); }
+.nav-gap { height: 1px; margin: 10px 8px; background: var(--hairline); }
+.nav-bottom { margin-top: auto; }
+
+/* --------------------------------------------------------------------- main */
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--content); }
+
+.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 44px 40px 26px; }
+.page { max-width: 860px; margin: 0 auto; }
+
+.home-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+  margin-bottom: 26px;
+}
+.who { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.avatar {
+  position: relative;
+  width: 38px; height: 38px; flex: 0 0 38px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: linear-gradient(150deg, #6f6fe0, #7ea6f0 52%, #8ee3da);
+  color: #fff; font-size: 15px; font-weight: 700;
+}
+.avatar::after {
+  content: "";
+  position: absolute; right: 0; bottom: 0;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--content);
+}
+.who-name { font-size: 14px; font-weight: 600; line-height: 19px; }
+.who-state { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 17px; color: var(--text-2); }
+.who-line { display: inline-flex; align-items: center; gap: 6px; }
+.dot.working { background: var(--accent); }
+.when { text-align: right; font-size: 11.5px; line-height: 17px; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.when b { display: block; font-size: 12px; font-weight: 500; color: var(--text-2); }
+
+.lede {
+  margin: 0 0 8px;
+  font-size: 25px; line-height: 34px; font-weight: 600;
+  letter-spacing: 0;
+  text-wrap: balance;
+  max-width: 700px;
+}
+[data-locale="en"] .lede { letter-spacing: -0.015em; font-size: 25px; line-height: 34px; }
+.lede-sub { margin: 10px 0 0; font-size: 14px; line-height: 22px; color: var(--text-2); max-width: 620px; text-wrap: pretty; }
+
+/* ------------------------------------------------------------------- bands */
+
+.band { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--hairline); }
+.band-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.band-label { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--text-2); }
+.band-count { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.band-link { margin-left: auto; font-size: 11.5px; color: var(--text-3); text-decoration: none; }
+.band-link:hover { color: var(--text); text-decoration: underline; }
+.band-head.danger .band-label { color: var(--danger); }
+.band-head.danger .band-count { color: var(--danger); opacity: 0.7; }
+
+/* -------------------------------------------------------- decisions (band) */
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(298px, 1fr)); gap: 12px; }
+
+.decide {
+  display: flex; flex-direction: column;
+  padding: 15px 16px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.decide.grant { border-color: var(--warn-border); background: var(--warn-soft); }
+.decide-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.decide-head time { margin-left: auto; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.decide h3 { margin: 0 0 5px; font-size: 15.5px; line-height: 23px; font-weight: 600; text-wrap: pretty; }
+.decide-body { margin: 0; font-size: 12.5px; line-height: 19px; color: var(--text-2); }
+.decide.grant .decide-body { color: var(--text); }
+.suggest {
+  margin-top: 10px; padding: 8px 10px 9px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.suggest-label { display: block; margin-bottom: 3px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--text-3); }
+.suggest ul { margin: 0; padding: 0; list-style: none; }
+.suggest li { position: relative; padding-left: 11px; font-size: 12px; line-height: 18px; color: var(--text-2); }
+.suggest li + li { margin-top: 2px; }
+.suggest li::before { content: ""; position: absolute; left: 0; top: 7px; width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
+
+.scope { margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.scope div { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.scope dt { font-size: 10.5px; color: var(--text-3); }
+.scope dd { margin: 0; min-width: 0; font-size: 11.5px; line-height: 16px; color: var(--text); }
+.mono { font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cmd {
+  padding: 7px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.decide-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: auto; padding-top: 13px; }
+.decide-meta { margin-left: auto; font-size: 11px; line-height: 16px; color: var(--text-3); text-align: right; }
+
+/* ---------------------------------------------------------------- controls */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.btn:hover { background: var(--surface-2); }
+.btn.primary { border-color: transparent; background: var(--accent); color: #fff; font-weight: 500; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
+.btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+
+.chip {
+  display: inline-flex; align-items: center;
+  height: 21px; padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.chip.warn { background: rgba(194, 106, 0, 0.12); color: var(--warn-text); }
+.chip.danger { background: rgba(215, 0, 21, 0.10); color: var(--danger); }
+.chip.tiny { height: 18px; font-size: 10px; }
+
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: 0 0 6px; }
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn-text); }
+
+/* -------------------------------------------------------------- live ribbon */
+
+.ribbon {
+  display: flex; align-items: center; gap: 10px;
+  margin: -4px 0 22px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.ribbon-title { font-size: 12.5px; font-weight: 500; line-height: 18px; }
+.ribbon-meta { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ribbon-meta b { font-weight: 500; color: var(--text-2); }
+.mini-bar { width: 46px; height: 3px; flex: 0 0 46px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.mini-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.ribbon-link {
+  margin-left: auto;
+  border: 0; background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ribbon-link:hover { color: var(--text); text-decoration: underline; }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); flex: 0 0 7px; animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(0, 122, 255, 0.04); } }
+
+/* -------------------------------------------------------------- deliverable */
+
+.deliverable {
+  padding: 18px 20px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.dv-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.dv-time { margin-left: auto; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.dv-title { margin: 0 0 10px; font-size: 20px; line-height: 28px; font-weight: 600; text-wrap: pretty; }
+.dv-points { margin: 0; padding: 0; list-style: none; max-width: 640px; }
+.dv-points li { position: relative; padding-left: 14px; font-size: 13px; line-height: 21px; color: var(--text-2); }
+.dv-points li + li { margin-top: 3px; }
+.dv-points li::before { content: ""; position: absolute; left: 3px; top: 9px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); opacity: 0.55; }
+.dv-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+.dv-meta { margin-left: auto; font-size: 11px; color: var(--text-3); }
+.dv-meta .dot { display: inline-block; margin-right: 5px; vertical-align: 1px; }
+.deliverable + .group { margin-top: 10px; }
+
+/* -------------------------------------------------------------- result rows */
+
+.group { border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--surface); overflow: clip; }
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center; gap: 14px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--hairline);
+  text-decoration: none;
+}
+.row:first-child { border-top: 0; }
+a.row:hover { background: var(--surface-2); }
+.row-main { min-width: 0; }
+.row-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; line-height: 19px; }
+.row-desc { margin-top: 1px; font-size: 12px; line-height: 18px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-act { font-size: 11.5px; color: var(--accent); white-space: nowrap; }
+.row time { font-size: 11px; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ----------------------------------------------------------------- failure */
+
+.failure {
+  padding: 16px 18px 15px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+}
+.failure h3 { margin: 0 0 5px; font-size: 16px; line-height: 23px; font-weight: 600; }
+.failure p { margin: 0; font-size: 12.5px; line-height: 19px; color: var(--text-2); }
+.diagnostic {
+  margin: 10px 0 0; padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-2);
+  font: 11px/16px "SF Mono", ui-monospace, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- schedule */
+
+.sched-row { grid-template-columns: 92px minmax(0, 1fr) auto; }
+.sched-row time { color: var(--text-2); font-weight: 500; font-size: 12px; }
+.sched-channel { font-size: 11px; color: var(--text-3); }
+
+/* --------------------------------------------------------------- first run */
+
+.first-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: calc(100vh - 190px); max-width: 560px; margin: 0 auto; }
+.first-hero .avatar { width: 52px; height: 52px; flex-basis: 52px; font-size: 20px; }
+.first-hero .avatar::after { display: none; }
+.first-name { margin: 14px 0 6px; font-size: 22px; line-height: 30px; font-weight: 600; }
+.first-line { margin: 0 0 22px; font-size: 15px; line-height: 24px; color: var(--text-2); text-wrap: pretty; }
+.quick { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.quick .btn { height: 32px; border-radius: 999px; }
+
+/* ---------------------------------------------------------------- composer */
+
+.composer-wrap { padding: 0 40px 22px; background: var(--content); }
+.composer-inner { max-width: 860px; margin: 0 auto; }
+.composer {
+  display: flex; flex-direction: column;
+  padding: 13px 15px 11px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+.composer input {
+  width: 100%;
+  border: 0; outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit; font-size: 14px;
+  min-height: 44px;
+}
+.composer input::placeholder { color: var(--text-3); }
+.composer-bar { display: flex; align-items: center; gap: 8px; }
+.composer-hint { margin-left: auto; font-size: 10.5px; color: var(--text-3); }
+.send {
+  width: 28px; height: 28px; border: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--accent); color: #fff;
+  cursor: pointer;
+}
+.send svg { width: 14px; height: 14px; }
+
+/* -------------------------------------------------------------- state rules */
+
+body[data-state="failed"] .only-normal,
+body[data-state="quiet"] .only-normal,
+body[data-state="first"] .only-normal { display: none !important; }
+body:not([data-state="failed"]) .only-failed { display: none !important; }
+body:not([data-state="quiet"]) .only-quiet { display: none !important; }
+body:not([data-state="first"]) .only-first { display: none !important; }
+body[data-state="quiet"] .hide-quiet,
+body[data-state="first"] .hide-first { display: none !important; }
+body[data-state="quiet"] .home-head .avatar::after { background: var(--ok); }
+
+/* ------------------------------------------------------------------- narrow */
+
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .scroll { padding: 24px 20px 20px; }
+  .composer-wrap { padding: 0 20px 18px; }
+  .lede { font-size: 23px; line-height: 32px; }
+  .dv-title { font-size: 18px; line-height: 26px; }
+  .home-head { margin-bottom: 20px; }
+  .row { grid-template-columns: minmax(0, 1fr) auto; }
+  .row-act { display: none; }
+}
+
+body[data-width="narrow"] { display: flex; align-items: flex-start; justify-content: center; }
+body[data-width="narrow"] .app {
+  width: 408px;
+  height: calc(100vh - 88px);
+  margin-top: 62px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+}
+body[data-width="narrow"] .sidebar { display: none; }
+body[data-width="narrow"] .scroll { padding: 20px 16px 16px; }
+body[data-width="narrow"] .composer-wrap { padding: 0 12px 12px; }
+body[data-width="narrow"] .composer { border-radius: 14px; }
+body[data-width="narrow"] .home-head { flex-direction: column; gap: 8px; }
+body[data-width="narrow"] .when { text-align: left; }
+body[data-width="narrow"] .ribbon { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 8px; }
+body[data-width="narrow"] .ribbon .pulse { grid-column: 1; grid-row: 1; align-self: center; }
+body[data-width="narrow"] .ribbon-title { grid-column: 2; grid-row: 1; }
+body[data-width="narrow"] .ribbon-link { grid-column: 3; grid-row: 1; margin-left: 0; }
+body[data-width="narrow"] .ribbon-meta { grid-column: 2 / 4; grid-row: 2; }
+body[data-width="narrow"] .mini-bar { display: none; }
+body[data-width="narrow"] .lede { font-size: 21px; line-height: 29px; margin-bottom: 22px; }
+body[data-width="narrow"] .decide-foot .decide-meta { margin-left: 0; text-align: left; width: 100%; }
+body[data-width="narrow"] .dv-foot .dv-meta { margin-left: 0; width: 100%; }
+body[data-width="narrow"] .row { grid-template-columns: minmax(0, 1fr) auto; }
+body[data-width="narrow"] .row-act { display: none; }
+body[data-width="narrow"] .sched-row { grid-template-columns: 78px minmax(0, 1fr); }
+body[data-width="narrow"] .sched-channel { display: none; }
+
+/* --------------------------------------------------------------- mock chrome */
+
+.draft-badge {
+  position: fixed; top: 12px; right: 14px; z-index: 120;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  backdrop-filter: blur(12px);
+  color: var(--text-3);
+  font-size: 10.5px;
+  pointer-events: none;
+}
+.mockbar {
+  position: fixed; left: 50%; top: 10px; z-index: 130;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 3px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(22, 22, 24, 0.86);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.mockbar .sep { width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.16); }
+.mockbar button {
+  height: 24px; padding: 0 10px;
+  border: 0; border-radius: 999px;
+  background: transparent; color: rgba(255, 255, 255, 0.68);
+  font-size: 11px; cursor: pointer;
+}
+.mockbar button:hover { color: #fff; }
+.mockbar button.on { background: rgba(255, 255, 255, 0.94); color: #111; font-weight: 600; }
+.mockbar .tag { padding: 0 8px; color: rgba(255, 255, 255, 0.34); font-size: 10px; letter-spacing: 0.04em; }
+
+/* -------------------------------------------------------------------- notes */
+
+.notes {
+  position: fixed; top: 0; right: 0; z-index: 140;
+  width: 392px; max-width: 92vw; height: 100%;
+  overflow-y: auto;
+  padding: 22px 22px 40px;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.18);
+  transform: translateX(102%);
+  transition: transform 220ms cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+body[data-notes="open"] .notes { transform: none; }
+.notes h2 { margin: 0 0 4px; font-size: 15px; }
+.notes .notes-sub { margin: 0 0 18px; font-size: 11.5px; color: var(--text-3); line-height: 17px; }
+.notes h4 { margin: 18px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--text-3); text-transform: uppercase; }
+.notes ol, .notes ul { margin: 0; padding-left: 17px; }
+.notes li { font-size: 12px; line-height: 18px; color: var(--text-2); }
+.notes li + li { margin-top: 4px; }
+.notes li b { color: var(--text); font-weight: 600; }
+.notes .close {
+  position: absolute; top: 16px; right: 16px;
+  width: 26px; height: 26px;
+  border: 1px solid var(--border); border-radius: 50%;
+  background: var(--surface); cursor: pointer;
+  color: var(--text-2);
+}
+.notes code { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+</style>
+</head>
+<body data-state="normal" data-theme="light" data-locale="zh" data-width="wide" data-notes="closed">
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">M</span>
+      <span class="brand-name">Molibot</span>
+    </div>
+    <a class="nav-row" href="#">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.4 7.2 8 2.6l5.6 4.6v5.6a.8.8 0 0 1-.8.8H3.2a.8.8 0 0 1-.8-.8z" stroke-linejoin="round"/></svg>
+      <span data-en="Overview">总览</span>
+    </a>
+    <a class="nav-row active" href="#">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13.4 8.4c0 2.6-2.3 4.6-5.2 4.6-.6 0-1.2-.1-1.7-.3L3.2 13.6l.8-2.3c-.8-.8-1.3-1.8-1.3-2.9 0-2.5 2.3-4.6 5.2-4.6s5.5 2 5.5 4.6z" stroke-linejoin="round"/></svg>
+      <span>Momo</span>
+    </a>
+    <a class="nav-row" href="#">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7.2" cy="7.2" r="4.2"/><path d="m10.5 10.5 3 3" stroke-linecap="round"/></svg>
+      <span data-en="Research helper">研究助手</span>
+    </a>
+    <a class="nav-row" href="#">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 2.6h5.2L12 5.4v8H4z" stroke-linejoin="round"/><path d="M9 2.8V5.6h2.8" stroke-linejoin="round"/></svg>
+      <span data-en="Writing helper">文书助手</span>
+    </a>
+    <div class="nav-gap"></div>
+    <a class="nav-row" href="#">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.6 5.2c0-.6.5-1 .9-1h2.4l1.2 1.4h5.4c.5 0 .9.5.9 1v5.2c0 .5-.4 1-.9 1H3.5c-.5 0-.9-.5-.9-1z" stroke-linejoin="round"/></svg>
+      <span data-en="Projects">项目</span>
+    </a>
+    <a class="nav-row" href="#">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.6"/><path d="M8 4.8V8l2 1.3" stroke-linecap="round"/></svg>
+      <span data-en="Scheduled tasks">自动任务</span>
+    </a>
+    <a class="nav-row" href="#">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.6" y="2.6" width="4.4" height="4.4" rx="1.1"/><rect x="9" y="2.6" width="4.4" height="4.4" rx="1.1"/><rect x="2.6" y="9" width="4.4" height="4.4" rx="1.1"/><rect x="9" y="9" width="4.4" height="4.4" rx="1.1"/></svg>
+      <span data-en="Skills">技能</span>
+    </a>
+    <a class="nav-row nav-bottom" href="#">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1" stroke-linecap="round"/></svg>
+      <span data-en="Settings">设置</span>
+    </a>
+  </aside>
+
+  <main class="main">
+    <div class="scroll">
+      <div class="page">
+
+        <!-- compact identity, every state except first run -->
+        <header class="home-head hide-first">
+          <div class="who">
+            <div class="avatar">M</div>
+            <div>
+              <div class="who-name">Momo</div>
+              <div class="who-state">
+                <span class="who-line only-normal"><span class="dot working"></span><span data-en="Working">工作中</span></span>
+                <span class="who-line only-failed"><span class="dot working"></span><span data-en="Working">工作中</span></span>
+                <span class="who-line only-quiet"><span class="dot ok"></span><span data-en="On duty · watching the schedule">在岗 · 按排期盯着</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="when">
+            <b data-en="Sat 24 Oct">10月24日 周六</b>
+            <span data-en="Last left yesterday 21:40 · composed 10:31">上次离开 昨天 21:40 · 本页生成 10:31</span>
+          </div>
+        </header>
+
+        <div class="ribbon hide-first hide-quiet">
+          <span class="pulse" aria-hidden="true"></span>
+          <span class="ribbon-title" data-en="Turning this week's commits into weekly-report material">正在整理本周的项目提交</span>
+          <span class="ribbon-meta"><b data-en="7 of 12 repos">7 / 12 个仓库</b> · <span data-en="4 min 12 s">4 分 12 秒</span> · <span data-en="2 subagents">2 个子代理</span></span>
+          <span class="mini-bar" aria-hidden="true"><i style="width:58%"></i></span>
+          <button class="ribbon-link" data-en="Open conversation">打开会话</button>
+        </div>
+
+        <!-- ============================== NORMAL ============================== -->
+        <h1 class="lede only-normal" data-en="The daily brief is out. A local permission and today's topic are both waiting on you.">日报已经发出；一份本机授权和今天的选题都在等你。</h1>
+
+        <h1 class="lede only-failed" data-en="Today's brief did not go out.">今天的日报没有发出去。</h1>
+
+        <section class="band only-failed">
+          <div class="band-head danger">
+            <span class="band-label" data-en="Didn't land">没办成</span>
+            <span class="band-count">1</span>
+          </div>
+          <article class="failure">
+            <div class="decide-head">
+              <span class="chip danger" data-en="Daily tech brief">每日科技日报</span>
+              <time>08:36</time>
+            </div>
+            <h3 data-en="Out of quota, stopped at 08:36">额度用完，任务停在 08:36</h3>
+            <p data-en="One automatic retry failed too, so nothing reached Feishu. Switching models can rerun today's issue.">自动重试 1 次仍然失败，飞书那边没有收到任何内容。换一个模型可以重跑今天这期。</p>
+            <pre class="diagnostic">provider=anthropic · status 402 · insufficient_quota · run=8f31c2</pre>
+            <div class="decide-foot">
+              <button class="btn primary" data-en="Retry with another model">换个模型重试</button>
+              <button class="btn" data-en="Open diagnostics">打开诊断</button>
+              <span class="decide-meta" data-en="Daily tech brief · Feishu · retried once">每日科技日报 · 飞书 · 已重试 1 次</span>
+            </div>
+          </article>
+        </section>
+
+        <section class="band hide-first hide-quiet">
+          <div class="band-head">
+            <span class="band-label" data-en="Waiting on you">等你决定</span>
+            <span class="band-count only-normal">2</span>
+            <span class="band-count only-failed">1</span>
+          </div>
+          <div class="cards">
+
+            <article class="decide grant">
+              <div class="decide-head">
+                <span class="chip warn" data-en="Permission">执行权限</span>
+                <time data-en="5 min ago">5 分钟前</time>
+              </div>
+              <h3 data-en="Turn the PDFs in your research folder into searchable text">把选题资料目录里的 PDF 转成可检索文本</h3>
+              <p class="decide-body" data-en="Reads that folder only, writes new files, leaves the originals untouched. Denying stops this round; the outline is kept.">只读取下面这个目录，结果写到新文件里，原文件不会改动。拒绝后这一轮停止，已经生成的大纲保留。</p>
+              <dl class="scope">
+                <div>
+                  <dt data-en="Folder">目录</dt>
+                  <dd class="mono">~/Documents/选题资料</dd>
+                </div>
+                <div>
+                  <dt data-en="Command">命令</dt>
+                  <dd class="cmd mono">python3 scripts/pdf_to_text.py --in ~/Documents/选题资料 --out .cache/text</dd>
+                </div>
+              </dl>
+              <div class="decide-foot">
+                <button class="btn" data-en="Deny">拒绝</button>
+                <button class="btn" data-en="Allow once">允许一次</button>
+              </div>
+            </article>
+
+            <article class="decide only-normal">
+              <div class="decide-head">
+                <span class="chip" data-en="Topic">选题</span>
+                <time>10:24</time>
+              </div>
+              <h3 data-en="Continue with the recommended angle?">按推荐方向继续成文？</h3>
+              <p class="decide-body" data-en="The outline is ready. Confirming it produces a standalone draft; nothing is published.">大纲已经备好。确认后生成独立草稿，暂不对外发布。</p>
+              <div class="suggest">
+                <span class="suggest-label" data-en="My take">我的建议</span>
+                <ul>
+                  <li data-en="It matches this week's industry discussion and has room to keep going.">这个方向和近期行业讨论一致，有持续讨论的价值。</li>
+                  <li data-en="One local case study would sharpen the line between “done” and “needs approval”.">可以补一个本机案例，把“什么时候算完成、什么时候要人工批”讲清楚。</li>
+                </ul>
+              </div>
+              <div class="decide-foot">
+                <button class="btn primary" data-en="Confirm angle">确认方向</button>
+                <button class="btn" data-en="Adjust brief">调整要求</button>
+                <button class="btn ghost" data-en="Other topics">换个选题</button>
+              </div>
+            </article>
+
+
+
+          </div>
+        </section>
+
+        <!-- =============================== TODAY ============================== -->
+        <section class="band hide-first hide-quiet">
+          <div class="band-head">
+            <span class="band-label" data-en="Done today">今天的结果</span>
+            <span class="band-count only-normal">3</span>
+            <span class="band-count only-failed">2</span>
+          </div>
+
+          <article class="deliverable only-normal">
+            <div class="dv-head">
+              <span class="chip" data-en="Delivered">今日交付</span>
+              <span class="dv-time" data-en="Generated 08:36">08:36 生成</span>
+            </div>
+            <h2 class="dv-title" data-en="Agent tooling, dev workflows and research progress">Agent 工具、开发流程与研究进展</h2>
+            <ul class="dv-points">
+              <li data-en="Open-source agent tool protocols are converging, so cross-tool calls finally have one entry point.">开源 Agent 的工具协议正在收敛，跨工具调用终于有了统一入口。</li>
+              <li data-en="Dev tools moved result verification into the default loop; manual review costs less.">开发工具把“执行结果验证”放进了默认流程，人工复核的成本明显下降。</li>
+              <li data-en="Two related repos shipped new versions this week, both around tool calls and verification.">两个相关仓库这周都发了新版本，变化集中在工具调用和结果验证。</li>
+            </ul>
+            <div class="dv-foot">
+              <button class="btn primary" data-en="Read this issue">阅读本期</button>
+              <button class="btn" data-en="Open source conversation">查看来源会话</button>
+              <span class="dv-meta"><span class="dot ok"></span><span data-en="Sent to the Feishu conversation · 08:37">已发送到飞书会话 · 08:37</span></span>
+            </div>
+          </article>
+
+          <div class="group">
+            <a class="row" href="#">
+              <div class="row-main">
+                <div class="row-title"><span data-en="Quote comparison">报价单整理</span></div>
+                <div class="row-desc" data-en="Pulled 3 suppliers out of 12 PDFs and built a comparison table.">从 12 个 PDF 里抽出 3 家供应商，生成了对比表。</div>
+              </div>
+              <span class="row-act" data-en="Open file">打开文件</span>
+              <time data-en="Yesterday 22:10">昨天 22:10</time>
+            </a>
+            <a class="row" href="#">
+              <div class="row-main">
+                <div class="row-title">
+                  <span data-en="Call notes">通话纪要</span>
+                  <span class="chip tiny" data-en="Completed after a retry">重试后完成</span>
+                </div>
+                <div class="row-desc" data-en="Transcribed 42 minutes and extracted 5 follow-ups.">42 分钟录音转写完成，提炼了 5 条待办。</div>
+              </div>
+              <span class="row-act" data-en="Open conversation">打开会话</span>
+              <time data-en="Yesterday 19:02">昨天 19:02</time>
+            </a>
+          </div>
+        </section>
+
+        <!-- =============================== QUIET ============================== -->
+        <h1 class="lede only-quiet" data-en="Nothing needs you today.">今天没有要你处理的事。</h1>
+        <p class="lede-sub only-quiet" data-en="I'll keep watching the schedule and hand over the next result when it lands.">我继续按排期盯着，有结果就交回来。</p>
+
+        <section class="band only-quiet">
+          <div class="band-head">
+            <span class="band-label" data-en="What I'm watching">它在盯什么</span>
+            <a class="band-link" href="#" data-en="Manage">管理</a>
+          </div>
+          <div class="group">
+            <div class="row">
+              <div class="row-main">
+                <div class="row-title" data-en="Daily tech brief">每日科技日报</div>
+                <div class="row-desc" data-en="Every day 08:30 · Feishu · last one sent yesterday 08:30">每天 08:30 · 飞书 · 上次 昨天 08:30 已发出</div>
+              </div>
+              <span class="dot ok" aria-hidden="true"></span>
+              <time data-en="Tomorrow 08:30">明天 08:30</time>
+            </div>
+            <div class="row">
+              <div class="row-main">
+                <div class="row-title" data-en="Daily tech topic pick">每日科技热点选题</div>
+                <div class="row-desc" data-en="Every day 09:00 · Feishu · last one generated today at 09:00">每天 09:00 · 飞书 · 上次 今天 09:00 已生成</div>
+              </div>
+              <span class="dot ok" aria-hidden="true"></span>
+              <time data-en="Tomorrow 09:00">明天 09:00</time>
+            </div>
+            <div class="row">
+              <div class="row-main">
+                <div class="row-title" data-en="Project “Molibot” weekly">项目「Molibot」周报</div>
+                <div class="row-desc" data-en="Mondays 10:00 · in-app only · last one sent Monday">每周一 10:00 · 只在应用内 · 上次 周一 已生成</div>
+              </div>
+              <span class="dot"></span>
+              <time data-en="Monday 10:00">周一 10:00</time>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================== NEXT =============================== -->
+        <section class="band hide-first hide-quiet">
+          <div class="band-head">
+            <span class="band-label" data-en="Next up">接下来</span>
+            <span class="band-count">2</span>
+            <a class="band-link" href="#" data-en="All schedules">全部排期</a>
+          </div>
+          <div class="group">
+            <div class="row sched-row">
+              <time data-en="Tomorrow 08:30">明天 08:30</time>
+              <div class="row-main"><div class="row-title" data-en="Daily tech brief">每日科技日报</div></div>
+              <span class="sched-channel" data-en="Feishu">飞书</span>
+            </div>
+            <div class="row sched-row">
+              <time data-en="Tomorrow 09:00">明天 09:00</time>
+              <div class="row-main"><div class="row-title" data-en="Daily tech topic pick">每日科技热点选题</div></div>
+              <span class="sched-channel" data-en="Feishu">飞书</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================= RECENT =============================== -->
+        <section class="band hide-first">
+          <div class="band-head">
+            <span class="band-label" data-en="Recent conversations">最近对话</span>
+            <a class="band-link" href="#" data-en="All">全部</a>
+          </div>
+          <div class="group">
+            <a class="row" href="#">
+              <div class="row-main">
+                <div class="row-title" data-en="Discussion: topic direction">讨论选题方向</div>
+                <div class="row-desc" data-en="Picked the third angle, asked for a local case study.">选了第三个角度，补一条本机案例。</div>
+              </div>
+              <time data-en="Yesterday 22:41 · Feishu">昨天 22:41 · 飞书</time>
+            </a>
+            <a class="row" href="#">
+              <div class="row-main">
+                <div class="row-title" data-en="Quote comparison">报价单整理</div>
+                <div class="row-desc" data-en="12 PDFs in, one comparison table out.">12 个 PDF 进，一张对比表出。</div>
+              </div>
+              <time data-en="Yesterday 22:10 · in app">昨天 22:10 · 应用内</time>
+            </a>
+            <a class="row" href="#">
+              <div class="row-main">
+                <div class="row-title" data-en="Weekly meeting notes">周会纪要</div>
+                <div class="row-desc" data-en="Transcript and 5 follow-ups.">转写和 5 条待办。</div>
+              </div>
+              <time data-en="Yesterday 19:02 · Telegram">昨天 19:02 · Telegram</time>
+            </a>
+          </div>
+        </section>
+
+        <!-- ============================= FIRST RUN ============================ -->
+        <div class="first-hero only-first">
+          <div class="avatar">M</div>
+          <h1 class="first-name" data-en="Hi, I'm Momo">你好，我是 Momo</h1>
+          <p class="first-line" data-en="I can watch things for you, run tasks on a schedule, and hand the results back. Start with one thing.">我可以替你盯事、按排期跑任务，再把结果交回来。先从一件小事开始。</p>
+          <div class="quick">
+            <button class="btn" data-en="Sort today's material">整理今天的资料</button>
+            <button class="btn" data-en="Watch a project">盯一个项目</button>
+            <button class="btn" data-en="Draft a weekly report">写一份周报</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <footer class="composer-wrap">
+      <div class="composer-inner">
+        <div class="composer">
+          <input type="text" placeholder="交给我一件新事…" data-en-placeholder="Hand me something new…" aria-label="Message Momo" />
+          <div class="composer-bar">
+            <span class="chip">Momo</span>
+            <span class="chip" data-en="No tools this turn">本轮不用工具</span>
+            <span class="composer-hint" data-en="Enter to send">Enter 发送</span>
+            <button class="send" aria-label="Send">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 8h10.4M9.4 4.2 13.2 8l-3.8 3.8"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="draft-badge" data-en="Draft · invented data">设计草稿 · 示例数据</div>
+
+<div class="mockbar" role="group" aria-label="草稿预览控制">
+  <span class="tag">STATE</span>
+  <button data-state-btn="normal" class="on">正常日</button>
+  <button data-state-btn="failed">失败日</button>
+  <button data-state-btn="quiet">安静日</button>
+  <button data-state-btn="first">首次</button>
+  <span class="sep"></span>
+  <button data-width-btn="wide" class="on">宽</button>
+  <button data-width-btn="narrow">窄</button>
+  <span class="sep"></span>
+  <button data-theme-btn="light" class="on">明</button>
+  <button data-theme-btn="dark">暗</button>
+  <span class="sep"></span>
+  <button data-locale-btn="zh" class="on">中</button>
+  <button data-locale-btn="en">EN</button>
+  <span class="sep"></span>
+  <button data-notes-btn>设计说明</button>
+</div>
+
+<aside class="notes" id="notes" aria-label="设计说明">
+  <button class="close" data-notes-close aria-label="Close">×</button>
+  <h2>这版改了什么</h2>
+  <p class="notes-sub">对照上一张图的问题逐条改。数据全是假的，只用来判断顺序和样式。</p>
+
+  <h4>顺序</h4>
+  <ol>
+    <li><b>没办成 → 等你决定 → 今天的结果 → 接下来 → 最近对话。</b> DOM 顺序和视觉顺序一致，窄窗不会反转成“先读文章再看到审批”。</li>
+    <li><b>正在做的事不单独成区。</b> 只有一条状态带，放在身份下面，回答“现在在干嘛”；它是状态，不是要读的内容，所以不占一个区块也不抢卡片。</li>
+    <li><b>没有再要右栏。</b> 右栏在宽屏成立、在窄屏会把审批推到首屏外；改成全宽网格，宽 2 列、窄 1 列，同一份 DOM。</li>
+    <li><b>输入框不在视觉中心。</b> 内容区自己滚动，输入框固定在底部，滚到哪都能直接说话。</li>
+  </ol>
+
+  <h4>一个决定只有一个家</h4>
+  <ol>
+    <li>选题只出现在“等你决定”里一次；大纲作为它的证据留在这张卡内，不再在结果区重复一张卡。</li>
+    <li>“其他结果”只放已完成、不需要你动手的事，避免同一件事既要你确认又躺在已完成里。</li>
+    <li>运行中的任务只出现在状态带，不在“今天的结果”里提前出现；完成后才落到结果区。</li>
+  </ol>
+
+  <h4>文案的诚实性</h4>
+  <ol>
+    <li><b>结论句不含数字。</b> 计数只在带标题出现一次，不会出现“另有两件”和徽标 2 对不上的情况。</li>
+    <li><b>“已发送到飞书会话”</b>，不写“已投递”。没有回执就不宣称送达；要写投递必须有渠道回执。</li>
+    <li>失败卡给出<b>原因 + 是否重试 + 下一步能做什么</b>，而不是只在表格里显示一个状态点。</li>
+    <li>页面顶部同时给出“上次离开”和“本页生成”两个时间，读者能判断这份简报覆盖哪段区间。</li>
+  </ol>
+
+  <h4>权限与风险</h4>
+  <ol>
+    <li>命令和目录直接摊开，不折叠在“查看详情”后面。</li>
+    <li>“拒绝”和“允许一次”同样大小、同样描边，<b>不给授权设默认主按钮</b>；主按钮只留给可逆的软决定（确认选题）。</li>
+    <li>授权卡用暖色表面，“等你决定”的软决定保持中性表面，一眼能分出两种权重。</li>
+  </ol>
+
+  <h4>这条信息结构需要的新数据</h4>
+  <ul>
+    <li><b>交付物投影</b>：标题、2–3 条要点、来源会话、可执行动作。建议在服务端读模型里从“本次运行最后一条助手消息”推导（取首个标题、首段、前三个要点、首个链接），不新建产物索引。</li>
+    <li><b>投递回执</b>：渠道 + 时间 + 成功/失败。没有就先写“已发送到会话”。</li>
+    <li><b>运行进度</b>：已处理 N/M；现在的活动接口已有运行与子代理，缺的是阶段计数。</li>
+    <li><b>条目级稍后/忽略</b>：还没做，所以这一版<b>没有“稍后”按钮</b>，不做假按钮。</li>
+    <li><b>截断计数</b>：返回真实总数与“是否被截断”。超过 20 条时界面写“另有 N 件未显示”，不能只报 20。</li>
+  </ul>
+
+  <h4>故意没做的</h4>
+  <ul>
+    <li>“往期”入口——交接目前不保留历史列表（PA-HD13），要有入口先加需求。</li>
+    <li>封面大图——在这个尺寸不传递信息，只抢注意力；正文里再看。</li>
+    <li>等权 widget 网格、图表、KPI 数字——和“现在要不要动手”无关，也会和总览的 Agent City 重复。</li>
+    <li>四态之外的边缘态（断连、审批洪水）——先定结构，再补这两张。</li>
+  </ul>
+
+  <h4>已定的四条</h4>
+  <ol>
+    <li><b>不做“全部结果”页。</b> 当天在带内展开到上限；超过上限由读模型返回真实总数，写“另有 N 件未显示”。要翻更早的，去运行历史。首页不再造第二个列表。</li>
+    <li><b>首页只给“允许一次 / 拒绝”。</b> 长期放行是设置里的白名单（可撤销），不在首页发会话级授权。同一个状态只留一个管理入口。</li>
+    <li><b>“它在盯什么”只在安静日出现。</b> 有结果的日子由“接下来”回答同一个问题；两者同时出现就是两套排期。</li>
+    <li><b>主卡按“承诺优先”选。</b> 定时任务或计划产出的交付物优先于临时对话，同类取最新；当天没有交付物就没有主卡。把重要性交给模型判断会违反 PA-HD7 与 ADR 0006。</li>
+  </ol>
+</aside>
+
+<script>
+  const stateBtns = document.querySelectorAll('[data-state-btn]');
+  const widthBtns = document.querySelectorAll('[data-width-btn]');
+  const themeBtns = document.querySelectorAll('[data-theme-btn]');
+  const localeBtns = document.querySelectorAll('[data-locale-btn]');
+  const notesBtn = document.querySelector('[data-notes-btn]');
+  const notesClose = document.querySelector('[data-notes-close]');
+
+  function select(group, btn, attr) {
+    group.forEach((item) => item.classList.toggle('on', item === btn));
+    document.body.dataset[attr] = btn.dataset[attr + 'Btn'];
+  }
+
+  stateBtns.forEach((btn) => btn.addEventListener('click', () => select(stateBtns, btn, 'state')));
+  widthBtns.forEach((btn) => btn.addEventListener('click', () => select(widthBtns, btn, 'width')));
+  themeBtns.forEach((btn) => btn.addEventListener('click', () => select(themeBtns, btn, 'theme')));
+  localeBtns.forEach((btn) => btn.addEventListener('click', () => select(localeBtns, btn, 'locale')));
+
+  function setLocale(locale) {
+    document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN';
+    document.querySelectorAll('[data-en]').forEach((el) => {
+      if (!el.dataset.zh) el.dataset.zh = el.textContent;
+      el.textContent = locale === 'en' ? el.dataset.en : el.dataset.zh;
+    });
+    document.querySelectorAll('[data-en-placeholder]').forEach((el) => {
+      if (!el.dataset.zhPlaceholder) el.dataset.zhPlaceholder = el.placeholder;
+      el.placeholder = locale === 'en' ? el.dataset.enPlaceholder : el.dataset.zhPlaceholder;
+    });
+  }
+
+  localeBtns.forEach((btn) => btn.addEventListener('click', () => setLocale(btn.dataset.localeBtn)));
+
+  notesBtn.addEventListener('click', () => {
+    document.body.dataset.notes = document.body.dataset.notes === 'open' ? 'closed' : 'open';
+  });
+  notesClose.addEventListener('click', () => { document.body.dataset.notes = 'closed'; });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') document.body.dataset.notes = 'closed';
+  });
+</script>
+</body>
+</html>

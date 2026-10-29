@@ -1,11 +1,10 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
-import { isSkillBackupDirectory } from "$lib/server/agent/skills/skills.js";
-import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
+import { inspectSkillEntry, scanSkillRoot } from "$lib/server/agent/skills/skillScan.js";
 import { isKnownProvider } from "$lib/server/settings";
 import { updateSkillsConfig } from "$lib/server/settings/handlers/skills";
 
@@ -30,51 +29,25 @@ interface SkillSearchProviderItem {
   models: string[];
 }
 
-function collectSkillFiles(rootDir: string, out: string[]): void {
-  const entries = readdirSync(rootDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      if (isSkillBackupDirectory(entry.name)) continue;
-      collectSkillFiles(fullPath, out);
-      continue;
-    }
-    if (entry.isFile() && entry.name.toLowerCase() === "skill.md") {
-      out.push(fullPath);
-    }
-  }
-}
-
 function parseSkillFile(
+  entryDir: string,
   filePath: string,
   scope: SkillScope,
   diagnostics: string[],
   agentId?: string,
   chatId?: string,
 ): SkillItem | null {
-  let raw = "";
-  try {
-    raw = readFileSync(filePath, "utf8");
-  } catch (error) {
-    diagnostics.push(`Failed to read ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+  const manifest = inspectSkillEntry(entryDir);
+  if (!manifest.ok) {
+    diagnostics.push(`${manifest.message} in ${filePath}`);
     return null;
   }
-  const fm = parseSkillFrontmatter(raw);
-  if (!fm) {
-    diagnostics.push(`Missing frontmatter in ${filePath}`);
-    return null;
-  }
-  const name = fm.name?.trim();
-  const description = fm.description?.trim();
-  if (!name || !description) {
-    diagnostics.push(`Missing name/description in ${filePath}`);
-    return null;
-  }
+  const fm = manifest.frontmatter;
   return {
-    name,
-    description,
+    name: manifest.name,
+    description: manifest.description,
     filePath,
-    baseDir: dirname(filePath),
+    baseDir: entryDir,
     scope,
     enabled: true,
     mcpServers: (() => {
@@ -110,10 +83,10 @@ export const GET: RequestHandler = async () => {
   const items: SkillItem[] = [];
 
   if (existsSync(globalSkillsDir)) {
-    const files: string[] = [];
-    collectSkillFiles(globalSkillsDir, files);
-    for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
-      const item = parseSkillFile(filePath, "global", diagnostics);
+    const scan = scanSkillRoot(globalSkillsDir);
+    diagnostics.push(...scan.diagnostics.map((diagnostic) => `${diagnostic.message} (${diagnostic.path})`));
+    for (const entry of scan.entries) {
+      const item = parseSkillFile(entry.entryDir, entry.filePath, "global", diagnostics);
       if (item) items.push(item);
     }
   }
@@ -126,15 +99,12 @@ export const GET: RequestHandler = async () => {
 
       const agentSkillsDir = join(agentDir, "skills");
       if (existsSync(agentSkillsDir)) {
-        const files: string[] = [];
-        collectSkillFiles(agentSkillsDir, files);
-        for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
-          const item = parseSkillFile(filePath, "agent", diagnostics, agentId);
+        const scan = scanSkillRoot(agentSkillsDir);
+        for (const entry of scan.entries) {
+          const item = parseSkillFile(entry.entryDir, entry.filePath, "agent", diagnostics, agentId);
           if (item) items.push(item);
         }
       }
-
-
     }
   }
 

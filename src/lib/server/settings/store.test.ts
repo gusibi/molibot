@@ -236,6 +236,77 @@ test("custom provider model alias survives a settings store restart", () => {
   }
 });
 
+test("legacy provider embedding model migrates to an embedding lane and survives restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-embedding-model-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    new SettingsStore().save({
+      ...defaultRuntimeSettings,
+      customProviders: [{
+        id: "local",
+        name: "Local",
+        enabled: true,
+        protocol: "openai-compatible",
+        baseUrl: "https://example.test",
+        apiKey: "sk-test",
+        models: [{ id: "chat", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"], enabled: true }],
+        defaultModel: "chat",
+        embeddingModel: "bge-m3",
+        path: "/v1/chat/completions"
+      }]
+    });
+
+    const restarted = new SettingsStore().load();
+    assert.equal(restarted.customProviders[0]?.embeddingModel, undefined);
+    const lane = restarted.plugins.memory.embeddingModels[0];
+    assert.equal(lane?.model, "bge-m3");
+    assert.equal(lane?.baseUrl, "https://example.test");
+    assert.equal(lane?.apiKey, "sk-test");
+    assert.equal(restarted.plugins.memory.activeEmbeddingModelId, lane?.id);
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("embedding model lanes survive a whole-settings restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-embedding-lanes-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    const first = {
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        memory: {
+          ...defaultRuntimeSettings.plugins.memory,
+          embeddingModels: [
+            { id: "lane-a", name: "Remote", enabled: true, baseUrl: "https://api.example.test", apiKey: "sk-a", model: "model-a" },
+            { id: "lane-b", name: "Local", enabled: true, baseUrl: "http://127.0.0.1:11434", apiKey: "", model: "bge-m3" }
+          ],
+          activeEmbeddingModelId: "lane-b"
+        }
+      }
+    };
+    new SettingsStore().save(first);
+    const restarted = new SettingsStore().load();
+    assert.deepEqual(restarted.plugins.memory.embeddingModels, first.plugins.memory.embeddingModels);
+    assert.equal(restarted.plugins.memory.activeEmbeddingModelId, "lane-b");
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("custom provider model sampling parameters survive a whole-settings restart", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-model-sampling-settings-"));
   const originalSettingsFile = storagePaths.settingsFile;

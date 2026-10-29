@@ -24,7 +24,8 @@ import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
 import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
 import type { McpServerStatus } from "$lib/server/agent/tools/mcp.js";
-import { createMemoryTool } from "$lib/server/agent/tools/memory.js";
+import { createMemoryTools } from "$lib/server/agent/tools/memory.js";
+import { expandLegacyDisabledToolNames } from "$lib/shared/agentToolNames.js";
 import { createConversationSearchTool } from "$lib/server/agent/tools/conversationSearch.js";
 import { createDocExtractTool } from "$lib/server/agent/tools/docExtract.js";
 import { createDocumentExportTool } from "$lib/server/agent/tools/documentExport.js";
@@ -381,7 +382,9 @@ export function createMomTools(options: {
   const miniAppToolHints = new Map<string, { readOnlyHint: boolean; destructiveHint: boolean }>();
 
   const registry = new ToolRegistry();
-  const agentDisabledTools = new Set(options.getSettings().agents.find(agent => agent.id === options.agentId)?.disabledTools ?? []);
+  const agentDisabledTools = expandLegacyDisabledToolNames(
+    options.getSettings().agents.find(agent => agent.id === options.agentId)?.disabledTools ?? []
+  );
   const decidePolicy: ToolPolicyDecider = (tool, input, ctx) => {
     if (agentDisabledTools.has(tool.id) || (tool.id.startsWith("mcp__") && agentDisabledTools.has("mcpInvoke"))) return { type: "deny", reason: "This tool is disabled for the current Agent." };
     if (policy.readOnly && !isReadOnlyTool(tool.id, tool.effect)) {
@@ -475,7 +478,7 @@ export function createMomTools(options: {
       workspaceId: options.workspaceId ?? "personal",
       actorId: options.agentId ?? options.chatId,
       assertAuthority: options.assertToolAuthority,
-      awaitToolQuiescence: options.awaitToolQuiescence || toolId === "codemode" || (toolCallId !== undefined && nestedToolCallIds.has(toolCallId)),
+      awaitToolQuiescence: options.awaitToolQuiescence || toolId === "codemode" || Boolean(toolCallId?.includes("/")) || (toolCallId !== undefined && nestedToolCallIds.has(toolCallId)),
       approvalWaitTimeoutMs: options.approvalWaitTimeoutMs,
       cwd: options.cwd,
       signal,
@@ -733,7 +736,7 @@ export function createMomTools(options: {
     getTools: runtimeCallableTools,
     artifactDir: outputLayout.scratchRoot,
     workspaceDir: options.workspaceDir,
-    ...(codemodeModels ? { models: codemodeModels } : {}),
+    ...(codemodeModels ? { models: codemodeModels, modelCatalog: options.modelOperationDeps!.models } : {}),
     invoke: async (tool, id, args, signal) => {
       if (!options.runNestedToolCall) throw new Error("Codemode requires the Agent's shared tool dispatcher.");
       nestedToolCallIds.add(id);
@@ -977,7 +980,7 @@ export function createMomTools(options: {
   }
 
   tools = [
-    createMemoryTool({
+    ...createMemoryTools({
       memory: options.memory,
       writesAllowed: options.memoryWritesAllowed !== false,
       scope: {

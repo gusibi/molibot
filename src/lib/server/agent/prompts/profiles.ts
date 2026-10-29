@@ -6,7 +6,6 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import agentsTemplate from "./templates/AGENTS.template.md?raw";
-import bootstrapTemplate from "./templates/BOOTSTRAP.template.md?raw";
 import identityTemplate from "./templates/IDENTITY.template.md?raw";
 import soulTemplate from "./templates/SOUL.template.md?raw";
 import toolsTemplate from "./templates/TOOLS.template.md?raw";
@@ -32,7 +31,6 @@ type ProfileScope = "global" | "agent" | "bot";
 
 const TEMPLATE_MAP: Record<string, string> = {
   "AGENTS.md": agentsTemplate,
-  "BOOTSTRAP.md": bootstrapTemplate,
   "IDENTITY.md": identityTemplate,
   "SOUL.md": soulTemplate,
   "TOOLS.md": toolsTemplate,

@@ -17,6 +17,7 @@ import {
   type PromptChannel,
 } from "$lib/server/agent/prompts/prompt-channel.js";
 import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
+import { expandLegacyDisabledToolNames } from "$lib/shared/agentToolNames.js";
 import { buildFeaturePluginPromptSections } from "$lib/server/plugins/feature-registry.js";
 import { resolveExternalSubagentConfig } from "$lib/server/plugins/externalSubagent/config.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
@@ -284,16 +285,18 @@ function buildEventsSection(): string {
   return xmlBlock("events", [
     "## Events",
     "- Do not implement reminders, timers, scheduled messages, or recurring summaries with bash `sleep`, OS schedulers, memory, or manual event JSON files. `runtimeTask` owns them.",
-    "- Inspect the event files listed in `paths` only when the user explicitly asks to audit runtime event state.",
+    "- Resolve relative time (e.g., 'tomorrow', 'next Wed', 'at 3') into explicit datetimes using `<env>` (`today`, `weekday`, `timezone`) before creating tasks. Disambiguate AM/PM from context or ask. State resolved datetime in confirmations.",
+    "- Inspect event files in `paths` only when asked to audit event state.",
   ].join("\n"));
 }
 
 function buildMemoryContractSection(): string {
   return xmlBlock("memory-contract", [
     "## Memory",
-    "Use memory only for durable cross-conversation context. The global and chat memory files are listed in `paths`; never store memory anywhere else, including the bot runtime root or the chat root.",
+    "Use memory only for durable cross-conversation context. Memory paths are in `paths`; never store memory elsewhere.",
     "- Never read/write/edit MEMORY.md directly with file tools. Always use the memory tool (or gateway API) for memory operations.",
-    "- Save explicit remember/forget requests and stable preferences/constraints; never temporary plans, debug/progress output, or facts derivable from code/git.",
+    "- Save explicit remember/forget requests, stable preferences, and durable facts; never temporary plans, debug output, or git-derivable facts.",
+    "- When explicitly asked to remember, save and briefly confirm. Record learned preferences quietly or with a natural brief note; never interrogate or guess sensitive personal/health data.",
     "- Verify old memory before operational use; current reality wins, so update/remove stale entries.",
   ].join("\n"));
 }
@@ -315,7 +318,7 @@ function buildToolsSection(): string {
     "## Tools",
     "",
     "### Tool Selection",
-    "- Prefer dedicated tools over bash equivalents: read/write/edit for files, memory for memory, attach for sending files, skillSearch for skills, and toolSearch for deferred tools.",
+    "- Prefer dedicated tools over bash equivalents: read/write/edit for files, save_memory/recall_memory/forget_memory for memory, attach for sending files, skillSearch for skills, and toolSearch for deferred tools.",
     "- Automatic outcome routing after explicit skill and app selection. Infer intent semantically in any language; do not search by translated keywords first. Load the selected tool, then use it unless unavailable or failed:",
     "  - image generation or editing → `imageGenerate`, not scripts or discovered skills",
     "  - video generation or progress checks → `videoGenerate` (asynchronous; follow its submission/status contract)",
@@ -335,6 +338,11 @@ function buildToolsSection(): string {
     "- Before a long-running wait or monitoring call, send a short progress reply in the user's language: confirmed completed work and result links/IDs, what is still pending, and what you are about to monitor. Submitted or pushed is not published until the external status confirms it.",
     "- Monitor external jobs with bounded status queries rather than one blocking watch command. If a query times out, preserve completed work, report the last confirmed state and pending verification, and query the existing job instead of resubmitting it. Never claim a background monitor is active unless runtimeTask has actually created it; use runtimeTask for authorized later follow-up.",
     "- `TOOLS.md` is guidance about conventions and paths; it does not control actual tool availability.",
+    "",
+    "### Final Reply",
+    "- The reply that ends a turn (after which you call no more tools) is the turn's complete deliverable. It must answer the user's original question in full: conclusions, what the tools actually did and produced, limitations, and any questions the user needs to answer.",
+    "- Never end a turn with a bare acknowledgement of the last tool action (for example only noting that a memory was saved after a bookkeeping call). The final reply restates the substantive answer and follow-up questions so it reads on its own, without the process log.",
+    "- Text you emit while tools are still running is progress narration for the process view; assume the user may never expand it.",
   ].join("\n"));
 }
 
@@ -444,7 +452,9 @@ function buildBaseSystemPromptWithOptions(
   const channelSections = options?.channel
     ? buildPromptChannelSections(options.channel)
     : [];
-  const disabledTools = new Set(options?.settings?.agents.find(agent => agent.id === options?.agentId)?.disabledTools ?? []);
+  const disabledTools = expandLegacyDisabledToolNames(
+    options?.settings?.agents.find(agent => agent.id === options?.agentId)?.disabledTools ?? []
+  );
   const mcpAccessSection = disabledTools.has("loadMcp") || disabledTools.has("mcpInvoke") ? null : buildMcpAccessSection(options?.settings);
   const profileFiles = options?.operatorProfileFiles ?? [];
   const identityLine = options?.operatorDirectivesPresent
@@ -479,6 +489,13 @@ function buildBaseSystemPromptWithOptions(
     "",
     // --- Behavioral constraints ---
     buildCoreDirectivesSection(),
+    "",
+    xmlBlock("answer-delivery", [
+      "The interface groups intermediate messages, reasoning, and tool activity into a collapsed process area. Only your final reply is the user's answer.",
+      "Make the final reply self-contained: answer the user's request with the necessary findings, advice, actual action results, limitations, and any question they need to answer. Carry forward useful conclusions from earlier messages rather than referring the user to the process area.",
+      "After using a tool, including saving memory, do not close with only an acknowledgment of that last action when the request also needs an answer. Finish the full answer in the normal post-tool reply; do not repeat completed actions or call tools just to produce a summary.",
+      "Keep progress updates brief. Do not include private reasoning, internal tool syntax, or execution logs in the final reply. State failures and unfinished work honestly."
+    ].join("\n")),
     "",
     // --- Runtime context ---
     buildPathsSection(vars, options?.project),

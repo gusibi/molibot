@@ -11,6 +11,10 @@ node evals/run.mjs --group B   # one group
 node evals/run.mjs --skip-tag slow,network
 ```
 
+When seeding real settings (`--seed-from`, default `~/.molibot`), the harness
+drives the Web instance named `personal` by default. If your instance has a
+different id, set `MOLIBOT_EVAL_PROFILE_ID=<id>` for the run.
+
 Results land in `evals/results/<timestamp>.json` next to the scratch service's
 log. Compare two runs to see whether a model swap, a prompt change or a fix made
 things better or worse — that comparison is the entire reason this exists.

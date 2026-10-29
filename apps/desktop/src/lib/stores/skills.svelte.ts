@@ -1,33 +1,48 @@
-// Shared skill management and search settings state.
-import { loadDesktopSkills, updateDesktopSkills } from "../api";
-import type { DesktopSkillsSummary } from "@molibot/desktop-contract";
+// Skill state: the unified manager catalogue, and the search configuration the
+// settings page owns. They are separate entities and are saved separately.
+import {
+  loadConsolidatePreflight,
+  loadDesktopSkillSearch,
+  loadSkillManager as fetchSkillManager,
+  loadSkillPreflight,
+  runSkillManagerAction,
+  saveDesktopSkillSearch
+} from "../api";
+import type {
+  DesktopSkillConsolidatePreflight,
+  DesktopSkillConsolidateRequest,
+  DesktopSkillConsolidateResult,
+  DesktopSkillDistributeRequest,
+  DesktopSkillDistributeResult,
+  DesktopSkillInstallResult,
+  DesktopSkillManagerSummary,
+  DesktopSkillPlatformSaveRequest,
+  DesktopSkillPreflightRequest,
+  DesktopSkillPreflightResult,
+  DesktopSkillSearchConfig,
+  DesktopSkillUninstallResult
+} from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
+/** Search configuration (settings page). */
 export const skillsStore = $state({
-  skills: null as DesktopSkillsSummary | null,
-  loading: false,
-  error: "",
-  endpoint: "",
-  searchDraft: null as DesktopSkillsSummary["search"] | null,
-  saving: false,
-  savingId: "",
-  updatingBuiltinId: "",
-  // Pristine snapshot so the sticky save bar only appears on real changes.
+  searchDraft: null as DesktopSkillSearchConfig | null,
   searchPristine: "",
-  actionResult: null as { kind: "skill" | "builtin"; id: string } | null,
-  searchSaved: false
+  loading: false,
+  saving: false,
+  saved: false,
+  error: "",
+  endpoint: ""
 });
 
 export async function loadSkills(endpoint: string): Promise<void> {
   skillsStore.endpoint = endpoint;
   skillsStore.loading = true;
-  skillsStore.searchSaved = false;
-  skillsStore.actionResult = null;
+  skillsStore.saved = false;
   skillsStore.error = "";
-  session.error = "";
   try {
-    skillsStore.skills = await loadDesktopSkills(endpoint);
-    skillsStore.searchDraft = { ...skillsStore.skills.search, providers: skillsStore.skills.search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
+    const search = await loadDesktopSkillSearch(endpoint);
+    skillsStore.searchDraft = { ...search, providers: search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
     skillsStore.searchPristine = JSON.stringify(skillsStore.searchDraft);
   } catch (cause) {
     skillsStore.endpoint = "";
@@ -38,61 +53,27 @@ export async function loadSkills(endpoint: string): Promise<void> {
   }
 }
 
-export async function toggleSkill(id: string, enabled: boolean): Promise<void> {
-  const endpoint = session.endpoint;
-  if (!endpoint || skillsStore.savingId) return;
-  skillsStore.savingId = id;
-  skillsStore.error = "";
-  skillsStore.actionResult = null;
-  session.error = "";
-  try {
-    skillsStore.skills = await updateDesktopSkills(endpoint, { kind: "skill", id, enabled });
-    skillsStore.actionResult = { kind: "skill", id };
-  } catch (cause) {
-    setError(cause);
-    skillsStore.error = session.error;
-  } finally {
-    skillsStore.savingId = "";
-  }
-}
-
-/**
- * Write the shipped copy of a built-in Skill over the installed one.
- *
- * The response is the refreshed summary, so the version state and the skill
- * list both come back from the same request that performed the update — there
- * is no window where the row still advertises the old version.
- */
-export async function updateBuiltinSkill(id: string): Promise<void> {
-  const endpoint = session.endpoint;
-  if (!endpoint || skillsStore.updatingBuiltinId) return;
-  skillsStore.updatingBuiltinId = id;
-  skillsStore.error = "";
-  skillsStore.actionResult = null;
-  session.error = "";
-  try {
-    skillsStore.skills = await updateDesktopSkills(endpoint, { kind: "builtin", id });
-    skillsStore.actionResult = { kind: "builtin", id };
-  } catch (cause) {
-    setError(cause);
-    skillsStore.error = session.error;
-  } finally {
-    skillsStore.updatingBuiltinId = "";
-  }
-}
-
 export async function saveSkillsSearch(): Promise<void> {
   const endpoint = session.endpoint;
   const draft = skillsStore.searchDraft;
   if (!endpoint || !draft || skillsStore.saving) return;
   skillsStore.saving = true;
-  skillsStore.searchSaved = false;
+  skillsStore.saved = false;
   session.error = "";
   try {
-    skillsStore.skills = await updateDesktopSkills(endpoint, { kind: "search", localEnabled: draft.localEnabled, apiEnabled: draft.apiEnabled, apiProvider: draft.apiProvider, apiModel: draft.apiModel, maxTokens: draft.maxTokens, temperature: draft.temperature, timeoutMs: draft.timeoutMs, minConfidence: draft.minConfidence });
-    skillsStore.searchDraft = { ...skillsStore.skills.search, providers: skillsStore.skills.search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
+    const search = await saveDesktopSkillSearch(endpoint, {
+      localEnabled: draft.localEnabled,
+      apiEnabled: draft.apiEnabled,
+      apiProvider: draft.apiProvider,
+      apiModel: draft.apiModel,
+      maxTokens: draft.maxTokens,
+      temperature: draft.temperature,
+      timeoutMs: draft.timeoutMs,
+      minConfidence: draft.minConfidence
+    });
+    skillsStore.searchDraft = { ...search, providers: search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
     skillsStore.searchPristine = JSON.stringify(skillsStore.searchDraft);
-    skillsStore.searchSaved = true;
+    skillsStore.saved = true;
   } catch (cause) {
     setError(cause);
     skillsStore.error = session.error;
@@ -103,5 +84,169 @@ export async function saveSkillsSearch(): Promise<void> {
 
 export function discardSkillsSearch(): void {
   if (skillsStore.searchPristine) skillsStore.searchDraft = JSON.parse(skillsStore.searchPristine);
-  skillsStore.searchSaved = false;
+  skillsStore.saved = false;
+}
+
+/** Unified manager catalogue. */
+export const skillManagerStore = $state({
+  summary: null as DesktopSkillManagerSummary | null,
+  endpoint: "",
+  loading: false,
+  error: "",
+  /** Which action is currently in flight, so the row and the sheet agree. */
+  busyId: "",
+  actionError: "",
+  notice: "" as "" | "installed" | "replaced" | "removed" | "builtin",
+  lastInstall: null as DesktopSkillInstallResult | null
+});
+
+export async function loadSkillManager(endpoint: string): Promise<void> {
+  skillManagerStore.endpoint = endpoint;
+  skillManagerStore.loading = true;
+  skillManagerStore.error = "";
+  try {
+    skillManagerStore.summary = await fetchSkillManager(endpoint);
+  } catch (cause) {
+    skillManagerStore.endpoint = "";
+    setError(cause);
+    skillManagerStore.error = session.error;
+  } finally {
+    skillManagerStore.loading = false;
+  }
+}
+
+function applySummary(summary: DesktopSkillManagerSummary | undefined): void {
+  if (summary) skillManagerStore.summary = summary;
+}
+
+/** Notices describe one completed action; they should not become permanent chrome. */
+function announce(notice: typeof skillManagerStore.notice): void {
+  skillManagerStore.notice = notice;
+  setTimeout(() => {
+    if (skillManagerStore.notice === notice) skillManagerStore.notice = "";
+  }, 4000);
+}
+
+async function run<T>(
+  endpoint: string,
+  busyId: string,
+  action: Parameters<typeof runSkillManagerAction>[1]
+): Promise<Partial<T> | null> {
+  skillManagerStore.busyId = busyId;
+  skillManagerStore.actionError = "";
+  skillManagerStore.notice = "";
+  try {
+    const payload = await runSkillManagerAction<T>(endpoint, action);
+    applySummary(payload.summary);
+    return payload;
+  } catch (cause) {
+    skillManagerStore.actionError = cause instanceof Error ? cause.message : String(cause);
+    return null;
+  } finally {
+    skillManagerStore.busyId = "";
+  }
+}
+
+export async function toggleManagedSkill(id: string, enabled: boolean): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint) return;
+  await run(endpoint, id, { action: "toggle", request: { id, enabled } });
+}
+
+export async function updateBuiltinSkill(id: string): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint) return;
+  const result = await run(endpoint, `builtin:${id}`, { action: "update-builtin", request: { id } });
+  if (result) announce("builtin");
+}
+
+export async function loadPreflight(request: DesktopSkillPreflightRequest): Promise<DesktopSkillPreflightResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  return loadSkillPreflight(endpoint, request);
+}
+
+export async function installManagedSkill(
+  request: DesktopSkillPreflightRequest & { token: string; replace: boolean }
+): Promise<DesktopSkillInstallResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ result: DesktopSkillInstallResult }>(endpoint, "install", {
+    action: "install",
+    request
+  });
+  if (!payload?.result) throw new Error(skillManagerStore.actionError || "Installation failed");
+  skillManagerStore.lastInstall = payload.result;
+  if (payload.result.ok) {
+    announce(payload.result.status === "replaced" ? "replaced" : "installed");
+  }
+  return payload.result;
+}
+
+export async function distributeManagedSkill(
+  request: DesktopSkillDistributeRequest
+): Promise<DesktopSkillDistributeResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ result: DesktopSkillDistributeResult }>(endpoint, "distribute", {
+    action: "distribute",
+    request
+  });
+  if (!payload?.result) throw new Error(skillManagerStore.actionError || "Distribution failed");
+  return payload.result;
+}
+
+export async function uninstallManagedSkill(id: string): Promise<DesktopSkillUninstallResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ result: DesktopSkillUninstallResult }>(endpoint, id, {
+    action: "uninstall",
+    request: { id }
+  });
+  if (!payload?.result) throw new Error(skillManagerStore.actionError || "Removal failed");
+  if (payload.result.ok) announce("removed");
+  return payload.result;
+}
+
+export async function consolidateManagedSkill(
+  request: DesktopSkillConsolidateRequest & { token: string }
+): Promise<DesktopSkillConsolidateResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ result: DesktopSkillConsolidateResult }>(endpoint, "consolidate", {
+    action: "consolidate",
+    request
+  });
+  if (!payload?.result) throw new Error(skillManagerStore.actionError || "Consolidation failed");
+  if (payload.result.ok) announce("installed");
+  return payload.result;
+}
+
+export async function loadConsolidateCheck(request: DesktopSkillConsolidateRequest): Promise<DesktopSkillConsolidatePreflight> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  return loadConsolidatePreflight(endpoint, request);
+}
+
+export async function unlinkDistribution(id: string, deleteFiles: boolean): Promise<boolean> {
+  const endpoint = session.endpoint;
+  if (!endpoint) return false;
+  const result = await run(endpoint, `distribution:${id}`, {
+    action: "unlink-distribution",
+    request: { id, deleteFiles }
+  });
+  return Boolean(result);
+}
+
+export async function saveSkillPlatforms(request: DesktopSkillPlatformSaveRequest): Promise<boolean> {
+  const endpoint = session.endpoint;
+  if (!endpoint) return false;
+  const result = await run(endpoint, "platforms", { action: "save-platforms", request });
+  return Boolean(result);
+}
+
+export async function revealManagedSkill(id: string): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint) return;
+  await run(endpoint, `reveal:${id}`, { action: "reveal", request: { id } });
 }

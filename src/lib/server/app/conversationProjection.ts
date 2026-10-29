@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionMessageEntry } from "$lib/server/agent/session/session.js";
-import type { ConversationActivity, ConversationMessage, ConversationPlan, ConversationStep } from "$lib/shared/types/message.js";
+import type { ConversationActivity, ConversationMessage, ConversationPlan, ConversationResultKind, ConversationStep } from "$lib/shared/types/message.js";
 import type { UiMessageMetadata } from "$lib/server/sessions/store.js";
 import { stripMemoryCitations } from "$lib/server/memory/citation.js";
 
@@ -204,38 +204,89 @@ function assistantStatus(message: AgentMessage): { stopReason?: string; errorMes
   return { stopReason: stopReason || undefined, errorMessage: errorMessage || undefined };
 }
 
-/** Collapse one user turn into one answer while preserving all terminal text. */
+/**
+ * Collapse one user turn into one answer container: an ordered process record
+ * plus an explicitly recorded result. The runtime stamps entry `delivery`
+ * marks when the turn outcome is known ("final" deliverable, "partial" answer
+ * formed before an unfinished end); this projection only reads those marks —
+ * it never re-derives answer semantics from text or tool positions
+ * (conversation answer visibility spec). Unmarked turns are legacy: `content`
+ * is the recorded tail segment, flagged `resultKind: "legacy"` so the UI can
+ * say the result was not fully recorded instead of faking a complete one.
+ */
 function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: string): AgentDisplayMessage[] {
   const out: AgentDisplayMessage[] = [];
   let assistant: AgentDisplayMessage | null = null;
   let terminalCommitted = false;
-  let terminalReplies: string[] = [];
+  // Per-turn answer bookkeeping in emission order.
+  let finalTexts: string[] = [];
+  let partialTexts: string[] = [];
+  let finalEntryIds: string[] = [];
+  let partialEntryIds: string[] = [];
+  let tailText = "";
+  let hasDeliverySemantics = false;
+
+  const applyEntryText = (entry: SessionMessageEntry, content: string) => {
+    if (entry.delivery) hasDeliverySemantics = true;
+    if (content) tailText = content;
+    if (entry.delivery === "final" && content) {
+      finalTexts.push(content);
+      finalEntryIds.push(entry.id);
+    } else if (entry.delivery === "partial" && content) {
+      partialTexts.push(content);
+      partialEntryIds.push(entry.id);
+    }
+  };
 
   const flushAssistant = () => {
     if (assistant) {
+      const resultKind: ConversationResultKind = finalTexts.length ? "final" : partialTexts.length ? "partial" : hasDeliverySemantics ? "none" : "legacy";
+      const resultText = finalTexts.length ? finalTexts.join("\n\n") : partialTexts.length ? partialTexts.join("\n\n") : hasDeliverySemantics ? "" : tailText;
+      assistant.content = resultText;
+      assistant.resultKind = resultKind;
+      // Deliverable entries' text steps carry result semantics; a partial that
+      // a later final superseded stays process narration (it was replaced, not
+      // stacked). Step ids are `${entryId}-${index}`, so ownership is a prefix.
+      const resultEntryIds = finalEntryIds.length ? finalEntryIds : partialEntryIds;
+      if (resultEntryIds.length && assistant.steps?.length) {
+        assistant.steps = assistant.steps.map((step) =>
+          step.kind === "text" && resultEntryIds.some((id) => step.id.startsWith(`${id}-`))
+            ? { id: step.id, kind: "result" as const, content: step.content }
+            : step
+        );
+      }
+      if (!hasDeliverySemantics && !resultEntryIds.length && tailText && assistant.steps?.length) {
+        // Legacy turn (recorded before result semantics): keep the recorded
+        // tail segment visible as the answer body — flagged `legacy` above so
+        // the UI can say the full result was not recorded, never fake one.
+        let tailIndex = -1;
+        assistant.steps.forEach((step, index) => { if (step.kind === "text") tailIndex = index; });
+        if (tailIndex >= 0) {
+          const tail = assistant.steps[tailIndex];
+          if (tail.kind === "text") assistant.steps[tailIndex] = { id: tail.id, kind: "result", content: tail.content };
+        }
+      }
       // An error is a *status*, not a reply. It only stands in as the bubble
       // body when the turn produced no text at all — otherwise the transcript
       // shows the answer and renders the error alongside it.
-      if (!assistant.content.trim() && assistant.errorMessage?.trim()) {
+      if (!hasDeliverySemantics && !assistant.content.trim() && assistant.errorMessage?.trim()) {
         assistant.content = assistant.errorMessage.trim();
         assistant.steps = [...(assistant.steps ?? []), {
           id: `${assistant.sourceEntryId}-error`,
-          kind: "text",
+          kind: "result",
           content: assistant.content
-        }];
-      }
-      if (terminalCommitted && assistant.content.trim()) {
-        assistant.steps = [...(assistant.steps ?? []), {
-          id: `${assistant.sourceEntryId}-response`,
-          kind: "text",
-          content: assistant.content.trim()
         }];
       }
       if (assistant.content.trim() || assistant.thinking?.trim() || assistant.errorMessage?.trim() || assistant.steps?.length || ["stop", "aborted", "waiting_for_approval"].includes(assistant.stopReason ?? "")) out.push(assistant);
     }
     assistant = null;
     terminalCommitted = false;
-    terminalReplies = [];
+    finalTexts = [];
+    partialTexts = [];
+    finalEntryIds = [];
+    partialEntryIds = [];
+    tailText = "";
+    hasDeliverySemantics = false;
   };
 
   for (const entry of entries) {
@@ -268,7 +319,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     const steps = orderedAssistantSteps(entry.message, entry.id);
     const usage = messageUsage(entry.message);
     const isTerminalReply = status.stopReason === "stop" && Boolean(content);
-    const displaySteps = isTerminalReply ? steps.filter((step) => step.kind !== "text") : steps;
+    applyEntryText(entry, content);
     if (!assistant) {
       assistant = {
         id: entry.id,
@@ -281,27 +332,19 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
         retention: entry.retention,
         model: modelLabel(entry.message),
         thinking: thinking || undefined,
-        steps: displaySteps,
+        steps,
         usage,
         contextBreakdown: entry.contextBreakdown,
         ...status
       };
       terminalCommitted = isTerminalReply;
-      terminalReplies = isTerminalReply ? [content] : [];
       continue;
     }
     // A provider/runtime continuation may emit another terminal assistant
     // message without another user prompt. Keep one answer container for the
-    // turn and append its terminal text instead of manufacturing another row.
-    // Non-terminal progress remains in ordered `steps` and cannot overwrite a
-    // committed answer.
-    if (isTerminalReply) {
-      if (!terminalReplies.includes(content)) terminalReplies.push(content);
-      assistant.content = terminalReplies.join("\n\n");
-      assistant.sourceEntryId = entry.id;
-      assistant.createdAt = entry.timestamp;
-    } else if (content && !terminalCommitted) {
-      assistant.content = content;
+    // turn; result semantics come from the runtime's delivery marks, so a
+    // later entry can never overwrite the committed answer's text.
+    if (isTerminalReply || (content && !terminalCommitted)) {
       assistant.sourceEntryId = entry.id;
       assistant.createdAt = entry.timestamp;
     }
@@ -309,7 +352,7 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
     const model = modelLabel(entry.message);
     if (model) assistant.model = model;
     if (thinking) assistant.thinking = [assistant.thinking, thinking].filter(Boolean).join("\n\n");
-    assistant.steps = [...(assistant.steps ?? []), ...displaySteps];
+    assistant.steps = [...(assistant.steps ?? []), ...steps];
     assistant.usage = addUsage(assistant.usage, usage);
     // Each model call refreshes the snapshot; the last one describes the
     // context the turn finally answered from.
@@ -429,7 +472,7 @@ export function projectConversationMessages(input: {
         traceRunIds: metadata.role === "assistant" && metadataRunId ? [metadataRunId] : undefined,
         steps: metadata.role === "assistant"
           ? [...(metadata.activities ?? []).map(activity => ({ id: `${metadata.id}-${activity.key}`, kind: "activity" as const, activity })),
-            ...(content ? [{ id: `${metadata.id}-text`, kind: "text" as const, content }] : [])]
+            ...(content ? [{ id: `${metadata.id}-text`, kind: "result" as const, content }] : [])]
           : undefined
       });
       continue;
@@ -476,7 +519,7 @@ export function projectConversationMessages(input: {
     if (typeof summary.errorMessage === "string") message.errorMessage = summary.errorMessage;
     if (!message.content.trim() && typeof summary.finalText === "string" && summary.finalText.trim()) {
       message.content = summary.finalText;
-      message.steps = [...(message.steps ?? []), { id: `${message.id}-result`, kind: "text", content: message.content }];
+      message.steps = [...(message.steps ?? []), { id: `${message.id}-result`, kind: "result", content: message.content }];
     }
   }
   messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));

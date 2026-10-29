@@ -16,6 +16,7 @@ import {
   type ModelCapabilityTag,
   type ChannelSettingsMap,
   type CustomProviderConfig,
+  type EmbeddingModelConfig,
   type CustomProviderProtocol,
   type TelegramBotConfig,
   type FeishuBotConfig,
@@ -49,6 +50,8 @@ import {
   sanitizeToolSandboxSettings
 } from "$lib/server/settings/index.js";
 import { isAbsolute } from "node:path";
+import { normalizeProviderConfigRows } from "./providerIdentity.js";
+import { expandLegacyDisabledToolNames } from "$lib/shared/agentToolNames.js";
 import { deriveToolFailureBudget } from "$lib/server/agent/core/runtimeBudget.js";
 import { resolveMcpAuthConfig } from "$lib/server/settings/mcpAuth.js";
 import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from "$lib/server/agent/permissions/decidePermission.js";
@@ -741,6 +744,73 @@ export function sanitizeMiniAppSettings(
  * daily-materials). Shared by sanitizeSettings and the SettingsStore load path
  * so every field survives a save → restart round-trip.
  */
+export function sanitizeEmbeddingModels(
+  input: unknown,
+  current: EmbeddingModelConfig[]
+): EmbeddingModelConfig[] {
+  if (input === undefined) return current;
+  if (!Array.isArray(input)) return current;
+  const out: EmbeddingModelConfig[] = [];
+  const seen = new Set<string>();
+  for (const [index, raw] of input.entries()) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const id = String(item.id ?? "").trim() || `embedding-${Math.random().toString(36).slice(2, 10)}`;
+    if (seen.has(id)) continue;
+    const baseUrl = String(item.baseUrl ?? "").trim().replace(/\/+$/, "");
+    if (!baseUrl) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(baseUrl);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") continue;
+    seen.add(id);
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || `Embedding ${index + 1}`,
+      enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+      baseUrl,
+      apiKey: String(item.apiKey ?? "").trim(),
+      model: String(item.model ?? "").trim()
+    });
+  }
+  return out;
+}
+
+/**
+ * One-time data migration from the old provider-level `embeddingModel` field to
+ * the decoupled embedding model lanes. The provider field is removed after the
+ * seed so it cannot become a second source of truth.
+ */
+export function migrateLegacyEmbeddingModels(settings: RuntimeSettings): RuntimeSettings {
+  const memory = settings.plugins.memory;
+  if ((memory.embeddingModels ?? []).length === 0) {
+    const legacyModels = (settings.customProviders ?? []).flatMap((provider) => {
+      const model = String(provider.embeddingModel ?? "").trim();
+      if (!model) return [];
+      return [{
+        id: `embedding-${provider.id}`,
+        name: provider.name || provider.id,
+        enabled: true,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        model
+      } satisfies EmbeddingModelConfig];
+    });
+    if (legacyModels.length > 0) {
+      memory.embeddingModels = legacyModels;
+      memory.activeEmbeddingModelId = memory.activeEmbeddingModelId || legacyModels[0]?.id || "";
+    }
+  }
+  settings.customProviders = (settings.customProviders ?? []).map((provider) => {
+    const { embeddingModel: _legacyEmbeddingModel, ...rest } = provider;
+    return rest;
+  });
+  return settings;
+}
+
 export function sanitizeMemoryPluginSettings(
   input: unknown,
   current: RuntimeSettings["plugins"]["memory"]
@@ -768,13 +838,25 @@ export function sanitizeMemoryPluginSettings(
     if ((channel !== "telegram" && channel !== "feishu") || !botId || !chatId) return null;
     return { channel, botId, chatId } as RuntimeSettings["plugins"]["memory"]["reflectionNotificationTarget"];
   })();
+  const embeddingModels = sanitizeEmbeddingModels(
+    source.embeddingModels,
+    current.embeddingModels ?? []
+  );
+  const requestedActiveId = source.activeEmbeddingModelId === undefined
+    ? current.activeEmbeddingModelId
+    : String(source.activeEmbeddingModelId ?? "").trim();
+  const activeEmbeddingModelId = embeddingModels.some((item) => (
+    item.id === requestedActiveId && item.enabled && item.model.trim()
+  ))
+    ? requestedActiveId
+    : (embeddingModels.find((item) => item.enabled && item.model.trim())?.id ?? "");
   return {
     enabled: source.enabled === undefined ? current.enabled : Boolean(source.enabled),
     backend: String((source as { backend?: string; core?: string }).backend ?? (source as { backend?: string; core?: string }).core ?? "").trim()
       || current.backend
       || defaultRuntimeSettings.plugins.memory.backend,
-    embeddingProviderId: String(source.embeddingProviderId ?? current.embeddingProviderId ?? "").trim(),
-    embeddingModel: String(source.embeddingModel ?? current.embeddingModel ?? "").trim(),
+    embeddingModels,
+    activeEmbeddingModelId,
     reflectionTime: validTime(source.reflectionTime)
       ? String(source.reflectionTime)
       : (current.reflectionTime || "03:00"),
@@ -972,7 +1054,7 @@ export function sanitizeSingleAgent(input: unknown): AgentSettings {
     ...(item.avatar === undefined ? {} : { avatar: String(item.avatar).trim() }),
     ...(item.shareOwnerMemory === undefined ? {} : { shareOwnerMemory: item.shareOwnerMemory !== false }),
     ...(item.disabledSkillPaths === undefined ? {} : { disabledSkillPaths: Array.isArray(item.disabledSkillPaths) ? [...new Set(item.disabledSkillPaths.map(String).map(value => value.trim()).filter(Boolean))] : [] }),
-    ...(item.disabledTools === undefined ? {} : { disabledTools: Array.isArray(item.disabledTools) ? [...new Set(item.disabledTools.map(String).map(value => value.trim()).filter(Boolean))] : [] }),
+    ...(item.disabledTools === undefined ? {} : { disabledTools: [...expandLegacyDisabledToolNames(Array.isArray(item.disabledTools) ? item.disabledTools.map(String).map(value => value.trim()).filter(Boolean) : [])] }),
     permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
     modelRouting: sanitizeAgentModelRouting(item.modelRouting)
   });
@@ -1568,7 +1650,7 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
   else next.piModelProvider = current.piModelProvider;
 
   next.piModelName = String(next.piModelName ?? "").trim() || current.piModelName;
-  const rows = Array.isArray(next.customProviders) ? next.customProviders : current.customProviders;
+  const rows = normalizeProviderConfigRows(Array.isArray(next.customProviders) ? next.customProviders : current.customProviders);
   const dedup = new Set<string>();
   const customProviders: CustomProviderConfig[] = [];
   for (const row of rows) {
@@ -1655,6 +1737,7 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
       apiKey: String(row.apiKey ?? "").trim(),
       models,
       defaultModel,
+      embeddingModel: String((row as { embeddingModel?: unknown }).embeddingModel ?? "").trim() || undefined,
       path: String(row.path ?? "").trim() || (protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions"),
       thinkingFormat: resolveCustomProviderThinkingFormat(
         (row as { thinkingFormat?: unknown }).thinkingFormat,
@@ -1839,6 +1922,8 @@ export function sanitizeSettings(input: { [K in keyof RuntimeSettings]?: unknown
       current.plugins.miniApps ?? defaultRuntimeSettings.plugins.miniApps
     )
   } as RuntimeSettings["plugins"];
+
+  migrateLegacyEmbeddingModels(next);
 
   next.budget = sanitizeBudgetSettings(next.budget ?? current.budget, current.budget);
   next.subagentRuntime = sanitizeSubagentRuntimeSettings(

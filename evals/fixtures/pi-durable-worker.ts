@@ -2,7 +2,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createModels, createProvider, Type, type Model } from "@earendil-works/pi-ai";
 import { stream, streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
-import { PiDurableKernel } from "../../src/lib/server/agent/durable/piKernel.js";
+import { runPiConversation } from "../../src/lib/server/agent/durable/testSupport/runConversation.js";
 
 const directory = process.env.DATA_DIR!;
 const mode = process.env.PI_KERNEL_FIXTURE_MODE!;
@@ -25,7 +25,7 @@ async function barrier(signal?: AbortSignal) {
   });
 }
 
-const kernel = new PiDurableKernel({
+const options = {
   storagePath: join(directory, "execution.sqlite"), models,
   scope: { ownerId: "owner", executionId: "goal", stepId: "step", planVersion: 1, authorityKey: "manual" },
   model: { provider: "fixture", modelId: "fixture" }, instructions: "Send and record the approved report.",
@@ -46,10 +46,10 @@ const kernel = new PiDurableKernel({
       return { content: [{ type: "text", text: "recorded" }], details: {} };
     }
   }]
-});
+} satisfies Parameters<typeof runPiConversation>[0];
 
 try {
-  const result = await kernel.run({ requestId: "approved-report", text: "Send and record report" });
+  const result = await runPiConversation(options, { requestId: "approved-report", text: "Send and record report" });
   process.send?.({ type: "result", result, ledger: readFileSync(join(directory, "external-ledger.txt"), "utf8") });
   process.disconnect?.();
 } catch (error) {

@@ -3,7 +3,7 @@ import { loadDesktopPlugins, saveDesktopPlugins } from "../api";
 import type { DesktopPluginsSummary } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
-export type PluginsEditor = { memoryEnabled: boolean; memoryBackend: string; memoryEmbeddingProviderId: string; memoryEmbeddingModel: string; memoryReflectionTime: string; memoryReflectionNotifications: boolean; memoryReflectionNotificationTarget: string; memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; values: Record<string, Record<string, string | boolean>>; secretValues: Record<string, Record<string, string>>; clearSecrets: Record<string, string[]> };
+export type PluginsEditor = { memoryEnabled: boolean; memoryBackend: string; memoryReflectionTime: string; memoryReflectionNotifications: boolean; memoryReflectionNotificationTarget: string; memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; values: Record<string, Record<string, string | boolean>>; secretValues: Record<string, Record<string, string>>; clearSecrets: Record<string, string[]> };
 
 export const pluginsStore = $state({
   plugins: null as DesktopPluginsSummary | null,
@@ -20,8 +20,6 @@ function editorFromSummary(plugins: DesktopPluginsSummary): PluginsEditor {
   return {
     memoryEnabled: plugins.memory.enabled,
     memoryBackend: plugins.memory.backend,
-    memoryEmbeddingProviderId: plugins.memory.embeddingProviderId,
-    memoryEmbeddingModel: plugins.memory.embeddingModel,
     memoryReflectionTime: plugins.memory.reflectionTime,
     memoryReflectionNotifications: plugins.memory.reflectionNotifications,
     memoryReflectionNotificationTarget: plugins.memory.reflectionNotificationTarget,

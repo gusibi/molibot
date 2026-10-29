@@ -38,6 +38,26 @@ function record(id: string, patch: Partial<MemoryRecord> = {}): MemoryRecord {
   };
 }
 
+test("profile builder injects only the newest record per subject", async () => {
+  const rows = [
+    record("old-car", {
+      type: "user_fact",
+      subject: "user.car",
+      content: "用户开宝马",
+      updatedAt: "2026-07-15T00:00:00.000Z"
+    }),
+    record("new-car", {
+      type: "user_fact",
+      subject: "user.car",
+      content: "用户开特斯拉",
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    })
+  ];
+  const builder = new MemoryProfileBuilder(async () => ({ items: rows, scannedCount: rows.length, truncated: false }));
+  const result = await builder.build(scope, { now: new Date("2026-07-17T00:00:00.000Z") });
+  assert.deepEqual(result.profileFacts.map((item) => item.id), ["new-car"]);
+});
+
 test("profile builder keeps an old pinned preference above 200 recent records and reports honest metadata", async () => {
   const rows = Array.from({ length: 205 }, (_, index) => record(`recent-${index}`, {
     confidence: 0.4,

@@ -13,6 +13,8 @@
 
 ### 交付记录
 
+- **原生嵌套调用（2026-10-28，已交付）**：共享入口使用 Pi `api.executeTool()` / `NestedCallDoc`，删除重复执行类；调用身份、权限、审批、预算、流式事件、局部取消等待与启动恢复使用正式 `PiConversationRuntime` 回归。具体边界见 [Codemode 接入验证](../reviews/pi-codemode-integration-validation.md)。
+
 - **A 首片（2026-10-11，部分交付）**：`src/lib/server/app/piRecovery.ts` 新增 `inspectPiRecovery`，按 Pi 正式 task 记录把 running owner 分类为 `resume` / `review` / `unavailable`；`runtime.ts` 启动协调器据此恢复安全断点、对未知远端请求/不可重放外部操作记录 `PI_RECOVERY_REVIEW` 事件并明确暂停，删除“只有 Deferred 才允许启动恢复”的限制；`backgroundConversation.ts` 按 `assistantSourceEntryId` 幂等记录答案。机器证据：`piRecovery.test.ts`、`piRecovery.classification.test.ts`、`piRecovery.ordinary.test.ts`（真实 Runner SIGKILL）、`backgroundConversation.test.ts`、service-bootstrap 21 项、desktop-chat 303 项通过。
 - **A 补全（2026-10-11，部分交付）**：① **安全读取自动恢复**：`agent/tools/sideEffectClassification.ts` 新增 `isReplaySafeTool`，由共享副作用分类判定中断可重放；`createMomTools` 的 `wrapWithToolRuntime`/`toAgentTool` 对纯读取（`read`/`docExtract`/`webSearch`/`webFetch`/`skillSearch`/`profileFiles`/`switchModel`/`grep`/`find`/`ls`/`conversation_search`）设置 `replay: "safe"`，写入、命令、第三方工具与 `codemode`/`subagent` 仍不自动重放。② **等待核对独立状态**：`turnOrchestrator.markRunForRecoveryReview` 把未知外部操作的原执行置于非终态的 `recovery_review`（不再 `failed`），显式 Stop（`abortRunningTurnsForSession`）可清除；`DesktopSessionRunStatus` 与 Desktop 状态映射纳入该状态。③ **专项验证**：新增 `replaySafety.test.ts`（纯读取安全 / 写入与命令不安全 / 声明覆盖）、`recoveryReview.test.ts`（非终态、只清一次、Stop 清除）、`piRecovery.continuity.test.ts`（服务租约丢失在恢复起始即阻止首个 Provider 请求；运行预算按 `[workspace, chatId, budgetId]` 键跨重启保持，不同 run 起始预算隔离）、`codemode.integration.test.ts` 增加“安全读取标记 replay-safe”断言；父子任务与子会话复用、Room 撤权、预算/期限存储保持沿用既有回归（`piRunSession.test.ts`、`rooms/service.test.ts`、`runBudgetStore.test.ts`/`runtimeBudget.test.ts`）。
 - **A 收尾（2026-10-11，部分交付）**：④ **三窗口强杀矩阵**：新增 `piRecovery.windows.test.ts` + `evals/fixtures/pi-tool-window-worker.ts`，从受控 barrier 触发真实 SIGKILL，覆盖 intent 前（tool `call` 阶段，重启后执行一次）、外部成功未提交（tool `execute` 阶段：不可重放→review 不重跑；可安全重放→重跑一次）、结果提交未投影（第一个工具已提交、第二个未开始，重启后已提交的不重跑、未开始的执行一次），用独立 ledger 计算真实执行次数；`inspectPiRecovery` 现返回 `uncertainCallIds`。⑤ **核对后继续原执行**：`review` 会经共享 Decision Request（`ApprovalBroker`，capability `recovery_review`）park 原执行（`recovery_review` 记录在启动扫描中保留），`onApprovalResolved` 在批准后把 run 置回 running 并原样续跑、拒绝/过期则中止并清理；`approvedRecoveryCallIds` 经记录 context → `MomContext` → `runPiOwner` binding → `PiConversationRuntime.assertRecovery` 透传，使人工确认过的未知工具按中断结算而不是被再次重跑。矩阵第 5 条即验证“确认后继续且不重放”。
@@ -152,8 +154,8 @@ Molibot 已使用 Pi 1.0 的模型运行时、原生 Harness、内部子会话�
 
 ### C. Codemode 模型 API
 
-- 在现有 Pi Codemode 沙箱中注册公开脚本接口，承接 Pi 1.0 的模型发现、`models.classify()`、`models.generateImages()` 和 `image()` 展示语义。输入、输出与错误形状优先遵循 Pi 文档，不另创同名不同义协议。
-- 由共享模型操作服务承接请求，Codemode 与扩展复用同一入口；主进程解析模型和凭据，子进程只得到有权限的模型元数据和序列化结果。保留无直接 Node、文件、网络及原始密钥访问的限制。
+- 在现有 Pi Codemode 沙箱中注册公开脚本接口，承接当前锁定 Pi 版本的模型发现、`models.classify()`、`models.generateImages()` 和 `image()` 展示语义。输入、输出与错误形状优先遵循 Pi 文档，不另创同名不同义协议。
+- 由共享模型操作服务承接请求，Codemode 与扩展复用同一入口；宿主解析模型和凭据，官方 QuickJS worker 只得到有权限的模型元数据和序列化结果。保留无直接 Node、文件、网络及原始密钥访问的限制。
 - 按模型类型返回目录和凭据可用状态。可用不代表允许调用；运行时根据原 actor、权限模式、允许模型和作用域再授权，不能因用户有某 Provider 凭据就允许脚本调用任意模型或端点。
 - 模型调用使用现有审批入口，遵循 Plan/Manual/Accept Edits/Auto 与共享副作用分类；没有允许的执行动作时明确拒绝。每个调用在请求前保留预算，计入父执行及内部子任务的适用限额，结束后按稳定 receipt 入账。
 - 每个模型操作绑定原生父工具和稳定子调用身份、参数指纹、模型与目的。结果先提交再回传；重复恢复复用已提交结果。并行调用各自拥有身份，重排或变参不能复用其他调用。

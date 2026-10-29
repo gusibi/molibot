@@ -1,22 +1,53 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createMemoryTool } from "./memory.js";
+import { createMemoryTools } from "./memory.js";
 
-const scope = { channel: "web", externalUserId: "web:personal:eval", botId: "personal" } as any;
+const scope = { channel: "web", externalUserId: "web:personal:eval", botId: "personal", ownerId: "owner" } as any;
 
-function toolWith(overrides: Record<string, any> = {}, writesAllowed = true) {
+const memoryRecord = {
+  id: "mem-1",
+  channel: "web",
+  externalUserId: "web:personal:eval",
+  content: "不喝咖啡",
+  tags: [],
+  layer: "long_term",
+  namespace: "owner:owner",
+  domain: "owner",
+  type: "user_fact",
+  subject: "user.drink",
+  state: "active",
+  version: 1,
+  accessCount: 0,
+  injectionCount: 0,
+  createdAt: "2026-10-25T00:00:00.000Z",
+  updatedAt: "2026-10-25T00:00:00.000Z"
+};
+
+function toolsWith(overrides: Record<string, any> = {}, writesAllowed = true, toolScope: any = scope) {
   const calls: Array<{ method: string; args: any[] }> = [];
   const memory = new Proxy(
     {
-      add: async (..._args: any[]) => ({ id: "mem-1" }),
-      addContentMemory: async (..._args: any[]) => ({ id: "mem-content-1" }),
-      setAgentSelfMemory: async (..._args: any[]) => ({ id: "mem-self-1" }),
+      add: async (..._args: any[]) => memoryRecord,
+      createScopedCandidate: (..._args: any[]) => ({ id: "candidate-1" }),
+      isPrivacySuppressed: () => false,
+      getForGovernance: async () => memoryRecord,
+      search: async (..._args: any[]) => [memoryRecord],
+      delete: async (..._args: any[]) => true,
+      forget: async (..._args: any[]) => true,
       ...overrides
     } as any,
     {
       get(target, prop: string) {
         const value = target[prop];
         if (typeof value !== "function") return value;
+        // The writer calls these synchronously; wrapping them in async would
+        // make every call look suppressed.
+        if (prop === "isPrivacySuppressed" || prop === "createScopedCandidate") {
+          return (...args: any[]) => {
+            calls.push({ method: prop, args });
+            return value(...args);
+          };
+        }
         return async (...args: any[]) => {
           calls.push({ method: prop, args });
           return value(...args);
@@ -24,106 +55,111 @@ function toolWith(overrides: Record<string, any> = {}, writesAllowed = true) {
       }
     }
   );
-  return { tool: createMemoryTool({ memory, scope, writesAllowed }), calls };
+  const tools = createMemoryTools({ memory, scope: toolScope, writesAllowed });
+  const byName = (name: string) => tools.find((tool) => tool.name === name)!;
+  return { tools, byName, calls };
 }
 
-/**
- * The §3.49 misroute, from the model's side.
- *
- * `content:<botId>` is deliberately outside `promptMemoryNamespaces`, so it is
- * write-only with respect to conversation. `add_content` nevertheless *defaulted*
- * to `user_fact` — the one record type that must never go there — and its name
- * reads like "add this content", so a model asked to remember something picked
- * it, got "Saved …", and the fact was unreachable from the next session.
- */
-test("add_content refuses a user fact and names the action that works", async () => {
-  const { tool, calls } = toolWith();
-  await assert.rejects(
-    () => tool.execute("call-1", { action: "add_content", content: "用 Obsidian", subject: "笔记工具", type: "user_fact" } as any, undefined as any),
-    /action="add"/
-  );
-  await assert.rejects(
-    () => tool.execute("call-2", { action: "add_content", content: "喜欢简洁", subject: "风格", type: "user_preference" } as any, undefined as any),
-    /never recalled in conversation/
-  );
-  assert.deepEqual(calls.filter((call) => call.method === "addContentMemory"), [], "nothing may be written before the check");
-});
-
-test("add_content requires an explicit published-content type", async () => {
-  const { tool, calls } = toolWith();
-  await assert.rejects(
-    () => tool.execute("call-3", { action: "add_content", content: "我使用 Obsidian", subject: "笔记工具" } as any, undefined as any),
-    /explicit published-content type/
-  );
-  assert.deepEqual(calls.filter((call) => call.method === "addContentMemory"), []);
-});
-
-test("add_content accepts only published reference knowledge", async () => {
-  const { tool, calls } = toolWith();
-  await tool.execute("call-published", {
-    action: "add_content",
-    content: "一篇已发布文章的开头",
-    subject: "文章-2026-08",
-    type: "world_knowledge"
-  } as any, undefined as any);
-  const written = calls.find((call) => call.method === "addContentMemory");
-  assert.equal(written?.args[1].type, "world_knowledge");
-});
-
-test("remembering something about the user goes through add, untouched", async () => {
-  const { tool, calls } = toolWith();
-  const result = await tool.execute("call-4", { action: "add", content: "不喝咖啡" } as any, undefined as any);
+test("save_memory writes a structured user fact through the shared writer", async () => {
+  const { byName, calls } = toolsWith();
+  const result = await byName("save_memory").execute("call-1", { fact: "我不喝咖啡" } as any, undefined as any);
   const written = calls.find((call) => call.method === "add");
-  assert.notEqual(written, undefined);
-  assert.equal(written!.args[1].content, "不喝咖啡");
-  assert.match(String(result.content[0]?.type === "text" ? result.content[0].text : ""), /Added memory/);
+  assert.ok(written);
+  assert.equal(written!.args[1].content, "我不喝咖啡");
+  assert.equal(written!.args[1].domain, "owner");
+  assert.equal(written!.args[1].type, "user_fact");
+  assert.equal(typeof written!.args[1].subject, "string");
+  assert.match(String((result.content[0] as any).text), /Saved memory mem-1/);
 });
 
-test("a no-memory turn blocks writes but still permits search and deletion", async () => {
-  const { tool, calls } = toolWith({
-    search: async () => [],
-    delete: async () => true
-  }, false);
-  await assert.rejects(
-    () => tool.execute("call-private-add", { action: "add", content: "TMP-4821" } as any, undefined as any),
-    /not eligible for memory writes/
+test("save_memory reuses an explicit subject so a correction targets the same fact", async () => {
+  const { byName, calls } = toolsWith();
+  await byName("save_memory").execute("call-2", { fact: "我现在开特斯拉", subject: "user.car" } as any, undefined as any);
+  const written = calls.find((call) => call.method === "add");
+  assert.equal(written!.args[1].subject, "user.car");
+});
+
+test("two different facts without an explicit subject do not collapse into one slot", async () => {
+  const { byName, calls } = toolsWith();
+  await byName("save_memory").execute("call-a", { fact: "我喜欢喝咖啡" } as any, undefined as any);
+  await byName("save_memory").execute("call-b", { fact: "我喜欢喝茶" } as any, undefined as any);
+  const subjects = calls.filter((call) => call.method === "add").map((call) => call.args[1].subject);
+  assert.equal(subjects.length, 2);
+  assert.notEqual(subjects[0], subjects[1]);
+});
+
+test("sensitive facts are saved as proposals, not active records", async () => {
+  const { byName, calls } = toolsWith();
+  const result = await byName("save_memory").execute(
+    "call-3",
+    { fact: "我对花生严重过敏，吃一点就会起疹子" } as any,
+    undefined as any
   );
-  await tool.execute("call-private-search", { action: "search", query: "旧偏好" } as any, undefined as any);
-  await tool.execute("call-private-delete", { action: "delete", id: "mem-old" } as any, undefined as any);
-  assert.deepEqual(calls.map((call) => call.method), ["search", "delete"]);
+  assert.equal(calls.some((call) => call.method === "add"), false);
+  assert.equal(calls.some((call) => call.method === "createScopedCandidate"), true);
+  assert.match(String((result.content[0] as any).text), /pending proposal/);
+  assert.equal((result as any).isError, undefined);
 });
 
-/**
- * The description is the only thing standing between a model and the write-only
- * corpus, so it has to say both halves out loud.
- */
-test("the tool description steers remembering to add and warns about the corpus", () => {
-  const { tool } = toolWith();
-  assert.match(tool.description, /action=add/);
-  // Collapsed first: the warning wraps across lines in the rendered text, and a
-  // regex that silently depends on where it wraps is not a guard.
-  const collapsed = tool.description.replace(/\s+/g, " ");
-  assert.match(collapsed, /NEVER recalled in conversation/);
-  assert.match(collapsed, /requires type=world_knowledge/);
-  assert.match(collapsed, /use add for every user fact or preference/);
+test("save_memory rejects a project fact outside a project session", async () => {
+  const { byName, calls } = toolsWith();
+  const result = await byName("save_memory").execute(
+    "call-4",
+    { fact: "项目计划下个月发布", about: "project" } as any,
+    undefined as any
+  );
+  assert.equal((result as any).isError, true);
+  assert.match(String((result.content[0] as any).text), /project session/);
+  assert.deepEqual(calls, []);
 });
 
+test("save_memory writes Agent self-knowledge when an Agent identity exists", async () => {
+  const agentScope = { ...scope, agentId: "researcher" };
+  const { byName, calls } = toolsWith({}, true, agentScope);
+  await byName("save_memory").execute(
+    "call-5",
+    { fact: "我的职责是研究资料并给出证据", about: "agent" } as any,
+    undefined as any
+  );
+  const written = calls.find((call) => call.method === "add");
+  assert.equal(written!.args[1].domain, "agent_self");
+  assert.equal(written!.args[1].namespace, "agent:researcher");
+});
 
-test("ordinary Agent cannot widen recall or target another Agent self namespace", async () => {
-  const calls: Array<{ method: string; args: unknown[] }> = [];
-  const agentScope = { ...scope, agentId: "researcher", ownerId: "owner" };
-  const memory = {
-    search: async (...args: unknown[]) => { calls.push({ method: "search", args }); return []; },
-    searchAll: async () => { throw new Error("unscoped recall"); },
-    list: async (...args: unknown[]) => { calls.push({ method: "list", args }); return []; },
-    listAll: async () => { throw new Error("unscoped list"); },
-    add: async (...args: unknown[]) => { calls.push({ method: "add", args }); return { id: "self" }; }
-  };
-  const tool = createMemoryTool({ memory: memory as any, scope: agentScope });
-  await tool.execute("search", { action: "search", query: "identity", allScopes: true } as any, undefined as any);
-  await tool.execute("list", { action: "list", allScopes: true } as any, undefined as any);
-  await tool.execute("self", { action: "set_agent_self", content: "Research method", subject: "method", namespace: "agent:writer" } as any, undefined as any);
-  assert.deepEqual(calls.map(call => call.method), ["search", "search", "add"]);
-  for (const call of calls) assert.deepEqual(call.args[0], agentScope);
-  assert.equal((calls[2].args[1] as { namespace: string }).namespace, "agent:researcher");
+test("recall_memory returns ids and subjects, and works on a no-memory turn", async () => {
+  const { byName, calls } = toolsWith({}, false);
+  const result = await byName("recall_memory").execute("call-6", { query: "喝什么" } as any, undefined as any);
+  const text = String((result.content[0] as any).text);
+  assert.match(text, /id=mem-1/);
+  assert.match(text, /subject=user\.drink/);
+  assert.equal(calls[0].method, "search");
+});
+
+test("forget_memory deletes by id even on a no-memory turn", async () => {
+  const allowed = toolsWith();
+  const result = await allowed.byName("forget_memory").execute("call-7", { id: "mem-1" } as any, undefined as any);
+  assert.match(String((result.content[0] as any).text), /Forgotten memory mem-1/);
+
+  // A no-memory turn must still honor an explicit deletion request; it only
+  // forbids remembering new content.
+  const noMemoryTurn = toolsWith({}, false);
+  const deleted = await noMemoryTurn.byName("forget_memory").execute("call-8", { id: "mem-1" } as any, undefined as any);
+  assert.equal((deleted as any).isError, undefined);
+  assert.deepEqual(noMemoryTurn.calls.map((call) => call.method), ["forget"]);
+});
+
+test("save_memory is blocked on a no-memory turn", async () => {
+  const { byName, calls } = toolsWith({}, false);
+  const result = await byName("save_memory").execute("call-9", { fact: "TMP-4821" } as any, undefined as any);
+  assert.equal((result as any).isError, true);
+  assert.match(String((result.content[0] as any).text), /not eligible for memory writes/);
+  assert.deepEqual(calls, []);
+});
+
+test("maintenance and the published-content corpus are not model-facing tools", () => {
+  const { tools } = toolsWith();
+  assert.deepEqual(tools.map((tool) => tool.name), ["save_memory", "recall_memory", "forget_memory"]);
+  for (const tool of tools) {
+    assert.equal("action" in (tool.parameters as any).properties, false);
+  }
 });

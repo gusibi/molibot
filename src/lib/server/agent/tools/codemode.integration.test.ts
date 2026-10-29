@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { Type } from "@sinclair/typebox";
 import { runToolCall, type AgentTool } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { inCodemodeSession } from "./testSupport/codemodeSession.js";
+import { currentPiInvocation } from "../durable/piInvocation.js";
 import { RunBudget } from "../core/runtimeBudget.js";
 
 const root = mkdtempSync(join(tmpdir(), "molibot-codemode-assembly-"));
@@ -46,11 +48,11 @@ async function fixture(readOnly = false, delay = 0, approval?: "defer" | "deny",
     onSideEffectPreflight: async effect => { ids.push(`intent:${effect.toolCallId}`); },
     onSideEffectReceipt: async effect => { ids.push(`receipt:${effect.toolCallId}`); },
     runNestedToolCall: (tool, id, args, signal) => runToolCall({ type: "toolCall", id, name: tool.name, arguments: args as never },
-      { tools: [tool], assistantMessage, context: { messages: [assistantMessage], tools: [tool] }, signal,
+      { tools: tool.name.startsWith("models") ? [{ ...tool, execute: (leafId, leafArgs, leafSignal) => currentPiInvocation()!.nested(tool, leafId, leafArgs, leafSignal).then(outcome => ({ ...outcome.result, isError: outcome.isError })) }] : [tool], assistantMessage, context: { messages: [assistantMessage], tools: [tool] }, signal,
         beforeToolCall: async () => { const started = budget.tryStartTool(); return started.ok ? undefined : { block: true, reason: started.reason }; } }),
     ...(modelCalls ? { modelOperationDeps: { models: modelFixture(modelCalls, imageData) } } : {})
   });
-  return { tools, tool: tools.find(tool => tool.name === "codemode")!, workspace, effects, ids, requests, start, budget };
+  return { tools, tool: inCodemodeSession(tools.find(tool => tool.name === "codemode")!, workspace, (tools as any).getNativeTools()), workspace, effects, ids, requests, start, budget };
 }
 
 test("assembled Codemode dispatches nested writes without reentrant lease deadlock", async () => {
@@ -149,6 +151,7 @@ function modelFixture(calls: string[], imageData: string = TINY_PNG) {
   const classifier = { type: "classifier" as const, provider: "alpha", id: "cls", name: "Alpha classifier", api: "fixture", baseUrl: "", contextWindow: 4096 };
   const image = { type: "image" as const, provider: "alpha", id: "img", name: "Alpha image", api: "fixture", baseUrl: "", input: ["text", "image"], output: ["image"] };
   return {
+    getAvailableOfType: async (type: string) => [classifier, image].filter(m => m.type === type),
     getModelsOfType: (type: string) => type === "classifier" ? [classifier] : [image],
     getModelOfType: (type: string, provider: string, id: string) => [classifier, image].find((m) => m.type === type && m.provider === provider && m.id === id),
     checkAuth: async () => ({ type: "api_key" as const }),
@@ -162,11 +165,11 @@ test("assembled Codemode scripts discover, classify and display generated models
   const modelCalls: string[] = [];
   const { tool } = await fixture(false, 0, undefined, Infinity, [], modelCalls);
   const result = await tool.execute("models", { code: `
-    const catalog = await models.list();
-    const cls = await models.classify({ state: { text: "hi" }, questions: {} });
-    const gen = await models.generateImages({ prompt: "a cat" });
-    image(gen.images[0]);
-    text(JSON.stringify({ catalog: catalog.length, answer: cls.answers.flag, type: gen.images[0].type }));
+    const catalog = [...await models.getAvailableOfType("classifier"), ...await models.getAvailableOfType("image")];
+    const cls = await models.classify(catalog[0], { state: { text: "hi" }, questions: { flag: { type: "bool", instructions: "yes?", criteria: { true: "yes", false: "no" } } } });
+    const gen = await models.generateImages({ provider: "alpha", id: "img" }, { input: [{ type: "text", text: "a cat" }] });
+    image(gen.output[0]);
+    text(JSON.stringify({ catalog: catalog.length, answer: cls.answers.flag, type: gen.output[0].type }));
   ` });
   assert.equal((result as any).error, undefined);
   assert.deepEqual(modelCalls, ["classify", "generateImages"]);
@@ -176,6 +179,16 @@ test("assembled Codemode scripts discover, classify and display generated models
   assert.match(text, /"type":"image"/);
   const images = (result.content as Array<{ type: string }>).filter(b => b.type === "image");
   assert.equal(images.length, 1, "the displayed image reaches the tool result");
+});
+
+test("official model argument errors can be caught without starting a paid call", async () => {
+  const calls: string[] = [];
+  const { tool } = await fixture(false, 0, undefined, Infinity, [], calls);
+  const result = await tool.execute("invalid-model-args", { code: 'try { await models.classify({provider:"alpha",id:"cls"}, {state:{},questions:{}}); } catch(error) { text(error.message); }' });
+  assert.equal((result as any).error, undefined);
+  assert.match(JSON.stringify(result.content), /questions must map/);
+  assert.doesNotMatch(JSON.stringify(result.content), /different path when resumed/);
+  assert.deepEqual(calls, []);
 });
 
 test("an oversized generated image is referenced instead of inlined", async () => {
@@ -196,7 +209,7 @@ test("an oversized displayed image keeps a precise workspace artifact reference"
   assert.equal(data.length % 4, 0);
   assert.ok(data.length > 700_000);
   const { tool, workspace } = await fixture(false, 0, undefined, Infinity, [], ["generateImages"], data);
-  const result = await tool.execute("big-image", { code: 'const gen = await models.generateImages({ prompt: "a cat" }); image(gen.images[0]);' });
+  const result = await tool.execute("big-image", { code: 'const gen = await models.generateImages({ provider: "alpha", id: "img" }, { input: [{ type: "text", text: "a cat" }] }); image(gen.output[0]);' });
   assert.equal((result as any).error, undefined);
   const text = (result.content as Array<{ type: string; text?: string }>).filter(b => b.type === "text").map(b => b.text).join("\n");
   assert.match(text, /too large to inline/);
@@ -210,11 +223,11 @@ test("an oversized displayed image keeps a precise workspace artifact reference"
 
 test("model operations are absent when the caller cannot authorize them", async () => {
   const { tool } = await fixture();
-  const result = await tool.execute("no-models", { code: 'await models.list();' });
+  const result = await tool.execute("no-models", { code: 'await models.getAvailableOfType("classifier");' });
   assert.match((result as any).error, /models is not defined/);
 });
 
-test("interrupted safe reads are marked replay-safe while writes, bash and codemode are not", async () => {
+test("interrupted safe reads are marked replay-safe while writes and bash are not", async () => {
   const { tools } = await fixture();
   const replay = (name: string) => (tools.find((tool) => tool.name === name) as { replay?: string } | undefined)?.replay;
   assert.equal(replay("read"), "safe");
@@ -222,5 +235,5 @@ test("interrupted safe reads are marked replay-safe while writes, bash and codem
   assert.equal(replay("conversation_search"), "safe");
   assert.equal(replay("write"), undefined);
   assert.equal(replay("bash"), undefined);
-  assert.equal(replay("codemode"), undefined);
+  assert.equal(replay("codemode"), "safe");
 });

@@ -24,16 +24,22 @@ function toReceipt(record: MemoryRecord, operation: MemoryWriteOperation): Memor
   };
 }
 
-export function memoryWriteReceiptsFromToolCall(args: unknown, result: unknown): MemoryWriteReceipt[] {
+export function memoryWriteReceiptsFromToolCall(
+  args: unknown,
+  result: unknown,
+  toolName?: string
+): MemoryWriteReceipt[] {
   if (!args || typeof args !== "object" || !result || typeof result !== "object") return [];
+  const tool = String(toolName ?? "").trim();
   const action = String((args as { action?: unknown }).action ?? "");
   const details = (result as { details?: unknown }).details;
   if (!details || typeof details !== "object") return [];
 
-  if (["add", "add_content", "set_agent_self", "update"].includes(action)) {
+  if (tool === "save_memory" || ["add", "add_content", "set_agent_self", "update"].includes(action)) {
     const item = asRecord((details as { item?: unknown }).item);
     if (!item) return [];
-    return [toReceipt(item, action === "update" ? "updated" : "added")];
+    const operation: MemoryWriteOperation = action === "update" || item.supersedes ? "updated" : "added";
+    return [toReceipt(item, operation)];
   }
 
   if (action === "flush") {

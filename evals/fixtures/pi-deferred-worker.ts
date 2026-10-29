@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { createAssistantMessageEventStream, createModels, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
-import { PiDurableKernel } from "../../src/lib/server/agent/durable/piKernel.js";
+import { runPiConversation } from "../../src/lib/server/agent/durable/testSupport/runConversation.js";
 
 const directory = process.env.DATA_DIR!;
 const model: Model<"openai-completions"> = {
@@ -40,12 +40,12 @@ models.setProvider({
   }
 });
 try {
-  const result = await new PiDurableKernel({
+  const result = await runPiConversation({
     storagePath: join(directory, "deferred.sqlite"), models,
     scope: { ownerId: "owner", executionId: "deferred", stepId: "step", planVersion: 1, authorityKey: "manual" },
     model: { provider: model.provider, modelId: model.id }, instructions: "Answer asynchronously.", tools: [],
     assertStorageOwnership: () => undefined, assertAuthority: () => undefined
-  }).run({ requestId: "logical-request", text: "Answer" });
+  }, { requestId: "logical-request", text: "Answer" });
   process.send?.({ type: "result", result });
   process.disconnect?.();
 } catch (error) {

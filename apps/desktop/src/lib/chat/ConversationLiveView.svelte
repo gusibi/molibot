@@ -8,7 +8,7 @@
   import ConversationTranscript from "./ConversationTranscript.svelte";
   import { renderMarkdown } from "../markdown";
   import PlanCard from "./PlanCard.svelte";
-  import { transcriptCompletedTurnSections, transcriptRenderBlocks } from "./transcript";
+  import { transcriptRenderBlocks, transcriptTurnSections } from "./transcript";
   import StreamingChatMarkdown from "./StreamingChatMarkdown.svelte";
   import TurnProcess from "./TurnProcess.svelte";
   import BotAvatar from "./BotAvatar.svelte";
@@ -60,9 +60,9 @@
   // still-growing last block is re-parsed per frame. See `streamingMarkdown.ts`
   // for the split / cache / unclosed-fence logic.
   $: orderedBlocks = liveSteps.length
-    ? transcriptRenderBlocks({ role: "assistant", content: streamingText, steps: liveSteps })
-    : transcriptRenderBlocks({ role: "assistant", content: streamingText, thinking: streamingThinking, activities });
-  $: liveSections = transcriptCompletedTurnSections(orderedBlocks);
+    ? transcriptRenderBlocks({ role: "assistant", content: "", steps: liveSteps })
+    : transcriptRenderBlocks({ role: "assistant", content: "", thinking: streamingThinking, activities });
+  $: liveSections = transcriptTurnSections(orderedBlocks);
 </script>
 
 {#if showEmpty && messages.length === 0 && !streamingText && !sending}
@@ -103,12 +103,12 @@
           </div>
         {/if}
         {#if liveSections.process.length}
-          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" live responding={liveSections.response.some(block => block.kind === "text" && Boolean(block.content.trim()))} onOpenPath={onOpenActivityPath} {endpoint} />
+          <TurnProcess blocks={liveSections.process} {copy} stateKey="live-process" live responding={liveSections.response.some(block => block.kind === "result" && Boolean(block.content.trim()))} onOpenPath={onOpenActivityPath} {endpoint} />
         {/if}
         {#each liveSections.response as block (block.id)}
           {#if block.kind === "plan"}
             <PlanCard plan={block.plan} {copy} disabled={!messageActions?.onResolvePlan} onResolve={(decision, edits) => messageActions?.onResolvePlan?.({ role: "assistant", content: "", steps: liveSteps }, block.plan, decision, edits)} />
-          {:else if block.kind === "text" && block.content}
+          {:else if block.content}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <StreamingChatMarkdown source={block.content} {copy} />
           {/if}

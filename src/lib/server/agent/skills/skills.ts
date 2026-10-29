@@ -1,7 +1,11 @@
 import { isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
-import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
+import {
+  inspectSkillEntry,
+  scanSkillRoots,
+  type SkillScanDiagnostic
+} from "$lib/server/agent/skills/skillScan.js";
 import { resolveDataRootFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 
@@ -263,33 +267,11 @@ function resolveExplicitInvocationMatches(skills: LoadedSkill[], inputText: stri
 }
 
 /** Materialized skill backups are retained for recovery, never loaded as skills. */
-export function isSkillBackupDirectory(name: string): boolean {
-  return /\.backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/.test(name);
-}
+export { isSkillBackupDirectory } from "$lib/server/agent/skills/skillBackup.js";
 
-function findSkillFiles(rootDir: string, out: string[]): void {
-  let entries: Dirent[];
-  try {
-    entries = readdirSync(rootDir, { withFileTypes: true });
-  } catch {
-    // An unreadable directory must not take down the whole scan: skill loading
-    // walks four scope roots and a single permission error used to throw out of
-    // loadSkillsFromWorkspace, losing every other scope's skills too.
-    return;
-  }
-
-  for (const entry of entries) {
-    const fullPath = join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      // Nobody keeps skills inside dependencies, and walking them can be huge.
-      if (entry.name === "node_modules" || isSkillBackupDirectory(entry.name)) continue;
-      findSkillFiles(fullPath, out);
-      continue;
-    }
-    if (entry.isFile() && entry.name.toLowerCase() === "skill.md") {
-      out.push(fullPath);
-    }
-  }
+function describeScanDiagnostic(diagnostic: SkillScanDiagnostic): string {
+  if (diagnostic.code === "truncated") return `Skill scan truncated at ${diagnostic.path}: ${diagnostic.message}`;
+  return `${diagnostic.message} (${diagnostic.path})`;
 }
 
 export function loadSkillsFromWorkspace(
@@ -298,6 +280,9 @@ export function loadSkillsFromWorkspace(
   options?: SkillLoadOptions
 ): SkillLoadResult {
   const diagnostics: string[] = [];
+  // Disabling is matched against the entry path a human sees in the Skills
+  // workspace. A link's resolved target must never stand in for it: two entries
+  // that point at the same content keep independent enable state.
   const disabled = new Set(
     [...(options?.disabledSkillPaths ?? []), ...(options?.agentDisabledSkillPaths ?? [])]
       .map((row) => String(row ?? "").trim())
@@ -315,42 +300,28 @@ export function loadSkillsFromWorkspace(
     roots.push({ scope: "chat", dir: join(workspaceDir, chatId.trim(), "skills") });
   }
 
-  const candidates: Array<{ scope: SkillScope; filePath: string }> = [];
-  for (const root of roots) {
-    if (!existsSync(root.dir)) continue;
-    const rootFiles: string[] = [];
-    findSkillFiles(root.dir, rootFiles);
-    for (const filePath of rootFiles.sort((a, b) => a.localeCompare(b))) {
-      candidates.push({ scope: root.scope, filePath });
-    }
+  const scan = scanSkillRoots(
+    roots.filter((root) => existsSync(root.dir)).map((root) => ({ root: root.dir, scope: root.scope }))
+  );
+  diagnostics.push(...scan.diagnostics.map(describeScanDiagnostic));
+  if (scan.truncated) {
+    diagnostics.push("Skill scan reached its size limit; some Skills may be missing.");
   }
-  if (candidates.length === 0) return { skills: [], diagnostics: [] };
+  if (scan.entries.length === 0) return { skills: [], diagnostics };
 
   const deduped = new Map<string, LoadedSkill>();
-  for (const row of candidates) {
-    const filePath = row.filePath;
+  for (const entry of scan.entries) {
+    const filePath = entry.filePath;
     if (disabled.has(filePath)) continue;
-    let raw = "";
-    try {
-      raw = readFileSync(filePath, "utf8");
-    } catch (error) {
-      diagnostics.push(`Failed to read ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+
+    const manifest = inspectSkillEntry(entry.entryDir);
+    if (!manifest.ok) {
+      diagnostics.push(`${manifest.message} in ${filePath}`);
       continue;
     }
 
-    const fm = parseSkillFrontmatter(raw);
-    if (!fm) {
-      diagnostics.push(`Missing frontmatter in ${filePath}`);
-      continue;
-    }
-
-    const name = fm.name?.trim();
-    const description = fm.description?.trim();
-    if (!name || !description) {
-      diagnostics.push(`Missing name/description in ${filePath}`);
-      continue;
-    }
-
+    const { name, description } = manifest;
+    const fm = manifest.frontmatter;
     if (deduped.has(name)) {
       diagnostics.push(
         `Duplicate skill name "${name}" ignored at ${filePath} (already loaded from ${deduped.get(name)?.filePath})`
@@ -358,12 +329,20 @@ export function loadSkillsFromWorkspace(
       continue;
     }
 
+    let raw = "";
+    try {
+      raw = readFileSync(filePath, "utf8");
+    } catch {
+      // inspectSkillEntry just read the same file; a failure here is a race with
+      // an external writer. Keep the parsed identity and skip signals parsing.
+    }
+
     deduped.set(name, {
       name,
       description,
       filePath,
-      baseDir: dirname(filePath),
-      scope: row.scope,
+      baseDir: entry.entryDir,
+      scope: entry.scope as SkillScope,
       mcpServers: parseStringList(fm.mcpServers ?? fm.mcp_servers),
       aliases: Array.from(new Set([
         ...buildSkillAliases(name, filePath),

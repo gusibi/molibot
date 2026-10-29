@@ -1254,6 +1254,8 @@ export interface DesktopConversationMessage {
   conversationId: string;
   role: "user" | "assistant";
   content: string;
+  /** Answer semantics of `content`; absent = legacy turn recorded before result semantics. */
+  resultKind?: "final" | "partial" | "none" | "legacy";
   createdAt: string;
   model?: string;
   thinking?: string;
@@ -1358,6 +1360,8 @@ export interface DesktopConversationTokenUsage {
 
 export type DesktopConversationStep =
   | { id: string; kind: "text"; content: string }
+  /** The turn's deliverable text, marked by the runtime (never inferred on read). */
+  | { id: string; kind: "result"; content: string }
   | { id: string; kind: "thinking"; content: string }
   | { id: string; kind: "activity"; activity: DesktopConversationActivity }
   | { id: string; kind: "plan"; plan: DesktopConversationPlan };
@@ -1563,6 +1567,8 @@ export interface DesktopProviderItem {
   defaultModel: string;
   path: string;
   thinkingFormat: DesktopProviderThinkingFormat | null;
+  /** Optional embedding model on this provider; auto-detected when empty. */
+  embeddingModel?: string;
   models: DesktopProviderModel[];
 }
 
@@ -1603,6 +1609,7 @@ export interface DesktopProviderUpdateRequest {
   defaultModel: string;
   path: string;
   thinkingFormat: DesktopProviderThinkingFormat | null;
+  embeddingModel?: string;
 }
 
 export interface DesktopProviderGlobalsRequest {
@@ -2057,6 +2064,422 @@ export interface DesktopSkillRevealRequest {
   id: string;
 }
 
+/* ── Skill Manager ─────────────────────────────────────────────────────────
+ * The unified discovery, installation and distribution surface. Identity is
+ * opaque: the client never sends a path, and the list projection carries no
+ * filesystem locations — only the detail and preflight views do, and only for
+ * a Skill the owner explicitly opened.
+ */
+
+export type DesktopSkillManagerScope = "global" | "agent" | "project";
+export type DesktopSkillInstallMethod = "copy" | "link" | "external";
+export type DesktopSkillHealth = "ok" | "disabled" | "missing" | "broken" | "invalid" | "unmanaged";
+export type DesktopSkillSourceKind = "builtin" | "git" | "registry" | "local" | "unknown";
+
+export interface DesktopSkillSourceView {
+  kind: DesktopSkillSourceKind;
+  label: string;
+  commit: string;
+  subdirectory: string;
+  path: string;
+}
+
+export interface DesktopSkillInstallationState {
+  id: string;
+  managed: boolean;
+  method: DesktopSkillInstallMethod;
+  baselineHash: string;
+  observedHash: string;
+  /** The content changed after installation (an external edit or a link's source). */
+  localChanges: boolean;
+  fileCount: number;
+  installedAt: string;
+  /** The entry that owns the files; only present when the entry is a link. */
+  linkTarget: string;
+}
+
+export interface DesktopSkillManagerEntry {
+  id: string;
+  name: string;
+  description: string;
+  scope: DesktopSkillManagerScope;
+  /** Agent or project id; empty for global entries. */
+  ownerId: string;
+  ownerLabel: string;
+  enabled: boolean;
+  method: DesktopSkillInstallMethod;
+  managed: boolean;
+  health: DesktopSkillHealth;
+  mcpServerCount: number;
+  fileCount: number;
+  updatedAt: string;
+  /** Other Molibot entries that resolve to the same physical directory. */
+  duplicateEntryCount: number;
+  /** Platforms, other than Molibot, that also read this physical entry. */
+  readBy: string[];
+  activeDistributions: number;
+  source: DesktopSkillSourceView | null;
+  builtin: DesktopBuiltinSkillState | null;
+}
+
+export interface DesktopDiscoveredSkill {
+  id: string;
+  name: string;
+  description: string;
+  platformId: string;
+  platformLabel: string;
+  recommendedMethod: "copy" | "link";
+  linkable: boolean;
+  installed: boolean;
+  sharedWith: string[];
+  /** A Molibot entry with the same name already exists. */
+  nameExists: boolean;
+  conflict: boolean;
+  entryCount: number;
+  health: "ok" | "invalid" | "broken";
+  updatedAt: string;
+}
+
+export interface DesktopSkillPlatformRoot {
+  path: string;
+  scope: DesktopSkillManagerScope;
+  ownerLabel: string;
+  exists: boolean;
+  skillCount: number;
+}
+
+export interface DesktopSkillPlatform {
+  id: string;
+  kind: "preset" | "custom";
+  label: string;
+  enabled: boolean;
+  writable: boolean;
+  verified: boolean;
+  summary: string;
+  roots: DesktopSkillPlatformRoot[];
+  sharedWith: string[];
+  errorCount: number;
+}
+
+export interface DesktopSkillDiagnostic {
+  code: string;
+  message: string;
+  platformId: string;
+}
+
+export interface DesktopSkillOperationView {
+  id: string;
+  kind: "install" | "replace" | "distribute" | "uninstall" | "restore" | "toggle" | "platform" | "consolidate";
+  status: "pending" | "committed" | "failed" | "recovered";
+  targetPath: string;
+  error: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopSkillManagerDevice {
+  label: string;
+  execution: "server";
+  platform: string;
+  scannedAt: string;
+  note: string;
+}
+
+export interface DesktopSkillManagerSummary {
+  device: DesktopSkillManagerDevice;
+  counts: {
+    installed: number;
+    enabled: number;
+    global: number;
+    agent: number;
+    project: number;
+    discovered: number;
+    anomalies: number;
+    distributed: number;
+  };
+  installed: DesktopSkillManagerEntry[];
+  discovered: DesktopDiscoveredSkill[];
+  platforms: DesktopSkillPlatform[];
+  diagnostics: DesktopSkillDiagnostic[];
+  recentOperation: DesktopSkillOperationView | null;
+  capabilities: {
+    gitInstall: boolean;
+    localInstall: boolean;
+    distribute: boolean;
+    uninstall: boolean;
+    updates: boolean;
+  };
+  /** Project targets the distribution step may write to. */
+  targets: Array<{ id: string; label: string; kind: "platform" | "project"; writable: boolean; reason: string }>;
+  /** Registered Agents, so a fresh install can target one before it owns a Skill. */
+  agents: Array<{ id: string; label: string }>;
+}
+
+export interface DesktopSkillManagerResponse {
+  ok: true;
+  summary: DesktopSkillManagerSummary;
+}
+
+export interface DesktopSkillManagerDetail {
+  kind: "installed" | "discovered";
+  id: string;
+  name: string;
+  description: string;
+  scope: DesktopSkillManagerScope | "external";
+  ownerId: string;
+  ownerLabel: string;
+  enabled: boolean;
+  method: DesktopSkillInstallMethod;
+  managed: boolean;
+  health: DesktopSkillHealth | "ok";
+  filePath: string;
+  baseDir: string;
+  realDir: string;
+  /** True when the entry itself is a link (the path differs from its target). */
+  linked: boolean;
+  frontmatter: Array<{ key: string; value: string }>;
+  files: DesktopSkillFileEntry[];
+  mcpServers: string[];
+  version: string;
+  updatedAt: string;
+  liveContent: boolean;
+  source: DesktopSkillSourceView | null;
+  installation: DesktopSkillInstallationState | null;
+  distributions: Array<{
+    id: string;
+    targetPath: string;
+    targetLabel: string;
+    method: DesktopSkillInstallMethod;
+    status: "active" | "removed" | "failed";
+  }>;
+  builtin: DesktopBuiltinSkillState | null;
+  treeProblems: Array<{ code: string; message: string; path: string }>;
+  readBy: string[];
+  /** What the real Runtime loader does with this entry in its own context. */
+  runtime: {
+    loaded: boolean;
+    reason: "loaded" | "disabled" | "duplicate_name" | "invalid" | "missing" | "not_loaded" | "no_workspace";
+    message: string;
+  };
+}
+
+export interface DesktopSkillManagerDetailResponse {
+  ok: true;
+  detail: DesktopSkillManagerDetail;
+}
+
+export type DesktopSkillInstallSourceRequest =
+  | { kind: "discovered"; id: string }
+  | { kind: "local"; path: string }
+  | { kind: "git"; repository: string; ref?: string; subdirectory: string };
+
+export interface DesktopSkillPreflightRequest {
+  source: DesktopSkillInstallSourceRequest;
+  method: "copy" | "link";
+  scope: DesktopSkillManagerScope;
+  ownerId?: string;
+  /** Applies to a standalone copy only; links keep the source name. */
+  rename?: string;
+}
+
+export interface DesktopSkillPreflightResult {
+  ok: true;
+  token: string;
+  source: {
+    kind: DesktopSkillInstallSourceRequest["kind"];
+    label: string;
+    name: string;
+    description: string;
+    path: string;
+    realDir: string;
+    commit: string;
+    subdirectory: string;
+    hash: string;
+    fileCount: number;
+    totalBytes: number;
+    linkable: boolean;
+  };
+  target: {
+    path: string;
+    dirName: string;
+    scope: DesktopSkillManagerScope;
+    ownerLabel: string;
+    root: string;
+  };
+  method: "copy" | "link";
+  plan: {
+    files: number;
+    directories: number;
+    links: number;
+    executables: number;
+    bytes: number;
+  };
+  conflicts: Array<{ code: string; message: string; path: string }>;
+  requiresReplace: boolean;
+  backup: { required: boolean; description: string };
+  sharedConsumers: Array<{ platformId: string; label: string }>;
+  warnings: string[];
+  installable: boolean;
+}
+
+export interface DesktopSkillPreflightResponse {
+  ok: true;
+  preflight: DesktopSkillPreflightResult;
+}
+
+export interface DesktopSkillInstallRequest extends DesktopSkillPreflightRequest {
+  token: string;
+  replace: boolean;
+}
+
+export interface DesktopSkillInstallResult {
+  ok: boolean;
+  status: "installed" | "replaced" | "failed" | "stale";
+  message: string;
+  id: string;
+  targetPath: string;
+  method: "copy" | "link";
+  backupPath: string;
+}
+
+export interface DesktopSkillDistributeRequest {
+  installationId: string;
+  targets: Array<{ kind: "platform" | "project"; id: string }>;
+  method: "copy" | "link";
+}
+
+export interface DesktopSkillDistributeResult {
+  ok: boolean;
+  results: Array<{
+    targetLabel: string;
+    targetPath: string;
+    status: "installed" | "skipped" | "failed";
+    message: string;
+  }>;
+}
+
+export interface DesktopSkillUninstallRequest {
+  id: string;
+}
+
+export interface DesktopSkillUnlinkDistributionResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface DesktopSkillUninstallResult {
+  ok: boolean;
+  status: "removed" | "blocked" | "failed";
+  message: string;
+  blockedBy: Array<{ targetPath: string; label: string }>;
+}
+
+export interface DesktopSkillManagerToggleRequest {
+  id: string;
+  enabled: boolean;
+}
+
+export interface DesktopSkillPlatformSaveRequest {
+  /** Entity-level patch: only the platforms listed here are written. */
+  platforms: Array<{
+    id: string;
+    kind: "preset" | "custom";
+    label?: string;
+    enabled: boolean;
+    extraRoots: string[];
+    removedRoots: string[];
+  }>;
+  /** Custom platform ids to remove, with their configuration only. */
+  removed?: string[];
+}
+
+export type DesktopSkillConsolidateSourceKind = "discovered" | "installation";
+export type DesktopSkillConsolidateDestinationKind = "molibot-global" | "project";
+export type DesktopSkillConsolidateSourceAction = "link" | "remove" | "keep";
+
+export interface DesktopSkillConsolidateRequest {
+  sourceKind: DesktopSkillConsolidateSourceKind;
+  id: string;
+  destination: { kind: DesktopSkillConsolidateDestinationKind; ownerId?: string };
+  /** What happens to the original entry after the canonical copy is written. */
+  sourceAction: DesktopSkillConsolidateSourceAction;
+  replaceDestination: boolean;
+}
+
+export interface DesktopSkillConsolidatePreflight {
+  ok: true;
+  token: string;
+  source: {
+    name: string;
+    path: string;
+    realDir: string;
+    platformId: string;
+    platformLabel: string;
+    hash: string;
+    fileCount: number;
+    totalBytes: number;
+  };
+  destination: {
+    kind: DesktopSkillConsolidateDestinationKind;
+    label: string;
+    root: string;
+    path: string;
+    exists: boolean;
+    managed: boolean;
+  };
+  backLink: { path: string; label: string } | null;
+  conflicts: Array<{ code: string; message: string; path: string }>;
+  plan: { files: number; directories: number; executables: number; bytes: number };
+  installable: boolean;
+}
+
+export interface DesktopSkillConsolidateResponse {
+  ok: true;
+  preflight: DesktopSkillConsolidatePreflight;
+}
+
+export interface DesktopSkillConsolidateResult {
+  ok: boolean;
+  status: "consolidated" | "failed" | "stale";
+  message: string;
+  id: string;
+  destinationPath: string;
+  backupPath: string;
+}
+
+export type DesktopSkillManagerAction =
+  | { action: "preflight"; request: DesktopSkillPreflightRequest }
+  | { action: "install"; request: DesktopSkillInstallRequest }
+  | { action: "distribute"; request: DesktopSkillDistributeRequest }
+  | { action: "uninstall"; request: DesktopSkillUninstallRequest }
+  | { action: "unlink-distribution"; request: { id: string; deleteFiles: boolean } }
+  | { action: "toggle"; request: DesktopSkillManagerToggleRequest }
+  | { action: "save-platforms"; request: DesktopSkillPlatformSaveRequest }
+  | { action: "consolidate-preflight"; request: DesktopSkillConsolidateRequest }
+  | { action: "consolidate"; request: DesktopSkillConsolidateRequest & { token: string } }
+  | { action: "update-builtin"; request: { id: string } }
+  | { action: "reveal"; request: { id: string } };
+
+export interface DesktopSkillSearchConfig {
+  localEnabled: boolean;
+  apiEnabled: boolean;
+  apiProvider: string;
+  apiModel: string;
+  maxTokens: number;
+  temperature: number;
+  timeoutMs: number;
+  minConfidence: number;
+  providers: Array<{ id: string; name: string; defaultModel: string; models: string[] }>;
+}
+
+export interface DesktopSkillSearchConfigResponse {
+  ok: true;
+  search: DesktopSkillSearchConfig;
+}
+
+export type DesktopSkillSearchConfigUpdate = Omit<DesktopSkillSearchConfig, "providers">;
+
+
 export interface DesktopMemoryCapabilities {
   hybridSearch: boolean;
   vectorSearch: boolean;
@@ -2071,8 +2494,8 @@ export interface DesktopMemorySummary {
   enabled: boolean;
   configEnabled: boolean;
   backend: string;
-  embeddingProviderId: string;
-  embeddingModel: string;
+  /** Resolved embedding target; null means lexical retrieval. */
+  embedding: { providerId: string; providerName: string; model: string } | null;
   capabilities: DesktopMemoryCapabilities;
 }
 
@@ -2159,7 +2582,7 @@ export interface DesktopMemoryCandidate {
   updatedAt: string;
 }
 
-export type DesktopMemoryAction = "profile" | "restore-state" | "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
+export type DesktopMemoryAction = "profile" | "restore-state" | "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "forget" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
 export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; agentId?: string; channel?: string; userId?: string; botId?: string; ownerId?: string; conversationId?: string; projectId?: string; includeOwner?: boolean; includeAgentSelf?: boolean; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
 export interface DesktopMemoryActionResponse { ok: true; profile?: DesktopMemoryProfile; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
@@ -2274,15 +2697,13 @@ export interface DesktopPluginSettingField {
 export interface DesktopPluginsSummary {
   items: DesktopPluginItem[];
   counts: { total: number; active: number; external: number };
-  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embeddingProviderId: string; embeddingModel: string; embeddingProviders: Array<{ value: string; label: string }>; reflectionTime: string; reflectionNotifications: boolean; reflectionNotificationTarget: string; reflectionNotificationTargets: Array<{ value: string; label: string }>; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; projects: Array<{ value: string; label: string }>; scanModels: Array<{ value: string; label: string }> };
+  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embedding: { providerId: string; providerName: string; model: string } | null; reflectionTime: string; reflectionNotifications: boolean; reflectionNotificationTarget: string; reflectionNotificationTargets: Array<{ value: string; label: string }>; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; projects: Array<{ value: string; label: string }>; scanModels: Array<{ value: string; label: string }> };
   featureSettings: Array<{ pluginKey: string; name: string; description: string; fields: DesktopPluginSettingField[] }>;
 }
 
 export interface DesktopPluginsUpdateRequest {
   memoryEnabled: boolean;
   memoryBackend: string;
-  memoryEmbeddingProviderId: string;
-  memoryEmbeddingModel: string;
   memoryReflectionTime: string;
   memoryReflectionNotifications: boolean;
   memoryReflectionNotificationTarget: string;

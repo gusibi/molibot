@@ -13,6 +13,13 @@ test("ordinary Agent executes its own identity and restores only its Session aft
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const requests: Array<{ model: string; messages: Array<{ role: string; content: unknown }> }> = [];
   const provider = createServer(async (req, res) => {
+    // The runtime may probe /embeddings for the memory pipeline; this fixture
+    // only speaks chat completions and records those requests.
+    if (!String(req.url ?? "").includes("/chat/completions")) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("not found");
+      return;
+    }
     let text = ""; for await (const part of req) text += part;
     const body = JSON.parse(text); requests.push(body);
     res.writeHead(200, { "Content-Type": "text/event-stream" });

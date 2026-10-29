@@ -36,7 +36,7 @@
 
 ### 原生内核和 adapter
 
-- `src/lib/server/agent/durable/piKernel.ts`：共享 registry、ToolTask preparation、authority/ownership、恢复守卫、事件和清理。
+- `src/lib/server/agent/durable/piToolRegistry.ts`：共享 registry、ToolTask preparation、authority/ownership、恢复守卫、事件和清理。
 - `src/lib/server/agent/durable/piConversation.ts`：managed Harness/Conversation、稳定入站与 projection owner、动态工具配置、原生 continuation、生命周期。
 - `src/lib/server/agent/core/piRunSession.ts`：上层状态/事件 adapter，尚未接入正式 Runner。
 - `src/lib/server/agent/durable/piPreparationEffects.ts`：原 ToolTask memo 中的具名阶段 intent/receipt；未知结果必须保持原任务并阻止模型重试。
@@ -96,7 +96,7 @@ pnpm check
 pnpm build
 ```
 
-原生关联测试入口：`durable/piKernel.test.ts`、`durable/piConversation.test.ts`、`durable/piToolResult.test.ts`、`core/piRunSession.test.ts`。生产回归入口：`core/runner.test.ts`、`core/approvalSuspension.test.ts`、`tools/bash-output.test.ts`、`tools/bashApprovalWait.test.ts`、`tools/preparedTool.test.ts`、`tools/subagent.test.ts` 与共享审批恢复测试。
+原生关联测试入口：`durable/piExecution.test.ts`、`durable/piConversation.test.ts`、`durable/piToolResult.test.ts`、`core/piRunSession.test.ts`。生产回归入口：`core/runner.test.ts`、`core/approvalSuspension.test.ts`、`tools/bash-output.test.ts`、`tools/bashApprovalWait.test.ts`、`tools/preparedTool.test.ts`、`tools/subagent.test.ts` 与共享审批恢复测试。
 
 PiKernel 强杀测试使用 localhost 假 Provider，必要时申请仅用于隔离测试的网络权限；不是付费或生产验收。真实 UI/渠道/生产入口的验收按 spec 和 AGENTS 执行，不能用纯内核测试代替。文档记录状态必须与实际入口一致。
 

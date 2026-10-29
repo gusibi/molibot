@@ -24,6 +24,7 @@ export const UI_TAGS = ["@chat", "@approval", "@navigation", "@recovery", "@sett
 /** Settings changes also run the整对象 round-trip regression at the integration layer. */
 export const SETTINGS_SUITES = [
   "src/lib/server/settings/store.test.ts",
+  "src/lib/server/settings/providerIdentity.test.ts",
   "src/lib/server/settings/sanitize.test.ts",
   "src/lib/server/settings/personalAgentRoundtrip.test.ts",
   "src/lib/server/settings/sessionAutoArchiveRoundtrip.test.ts"

@@ -21,7 +21,8 @@ export const GET: RequestHandler = async ({ url }) => {
   const runtime = getRuntime();
   const summary = buildDesktopMemorySummary(runtime.getSettings(), {
     enabled: runtime.memory.isEnabled(),
-    capabilities: runtime.memory.capabilities()
+    capabilities: runtime.memory.capabilities(),
+    embedding: runtime.embeddingResolver.status()
   });
   const payload: DesktopMemoryResponse = { ok: true, summary };
   return json(payload, { headers: { "Cache-Control": "no-store" } });
@@ -118,6 +119,9 @@ export const POST: RequestHandler = async ({ request }) => {
     else if (body.action === "delete") {
       if (!body.id?.trim()) throw new Error("id is required");
       payload = { ok: true, deleted: await memory.delete(scope, body.id.trim()) };
+    } else if (body.action === "forget") {
+      if (!body.id?.trim()) throw new Error("id is required");
+      payload = { ok: true, deleted: await memory.forget(scope, body.id.trim(), { reason: "user_forget" }) };
     } else if (body.action === "update") {
       if (!body.id?.trim()) throw new Error("id is required");
       const item = await memory.update(scope, body.id.trim(), { content: body.content, tags: body.tags, expiresAt: body.expiresAt === null ? null : body.expiresAt, pinned: body.pinned, allowInjection: body.allowInjection });

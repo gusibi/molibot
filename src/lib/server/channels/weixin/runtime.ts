@@ -569,19 +569,20 @@ export class WeixinManager extends BaseChannelRuntime {
             filePath,
             error: error instanceof Error ? error.message : String(error)
           });
-        }
-        if (isInlineTextFile(filePath)) {
-          try {
-            const inlineText = readFileSync(filePath, "utf8").trim();
-            if (inlineText) {
-              await fallbackCtx.respond(inlineText);
-              return;
+          if (isInlineTextFile(filePath)) {
+            try {
+              const inlineText = readFileSync(filePath, "utf8").trim();
+              if (inlineText) {
+                await fallbackCtx.respond(inlineText);
+                return;
+              }
+            } catch {
+              // Fall through to plain failure notice.
             }
-          } catch {
-            // Fall through to plain failure notice.
           }
+          await fallbackCtx.respond(`微信这边回文件失败了：${filePath.split("/").pop() || "附件"}`);
+          throw error;
         }
-        await fallbackCtx.respond(`微信这边回文件失败了：${filePath.split("/").pop() || "附件"}`);
       }
     });
 

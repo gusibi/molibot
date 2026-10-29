@@ -7,9 +7,11 @@ import {
   buildAnthropicBaseUrl,
   buildAnthropicCompatibleHeaders,
   buildOpenAICompatibleHeaders,
+  callDirectCustomProvider,
   testCustomProvider
 } from "$lib/server/providers/customProtocol.js";
 import { readWorkspaceVisionSmokeImage } from "$lib/server/providers/visionSmokeFixture.js";
+import type { CustomProviderConfig } from "$lib/server/settings/index.js";
 
 test("custom protocol helpers build documented image-capable request headers", () => {
   assert.deepEqual(buildOpenAICompatibleHeaders({ apiKey: "test-key" }), {
@@ -22,6 +24,39 @@ test("custom protocol helpers build documented image-capable request headers", (
     "x-api-key": "test-key",
     "anthropic-version": "2023-06-01"
   });
+});
+
+test("background direct provider calls carry the session affinity header", async () => {
+  const originalFetch = globalThis.fetch;
+  const headers: Headers[] = [];
+  globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+    headers.push(new Headers(init?.headers));
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: {} }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }) as typeof fetch;
+  const provider: CustomProviderConfig = {
+    id: "cli-proxy",
+    name: "CliProxy",
+    enabled: true,
+    protocol: "openai-compatible",
+    baseUrl: "https://example.invalid",
+    apiKey: "test-key",
+    models: [],
+    defaultModel: "model",
+    path: "/v1/chat/completions"
+  };
+  const history = [{ id: "m1", conversationId: "c1", role: "user", content: "hi", createdAt: "2026-10-26T00:00:00.000Z" }] as never;
+  const settings = { defaultThinkingLevel: "off", systemPrompt: "system", maxOutputTokens: 100 } as never;
+  try {
+    await callDirectCustomProvider(provider, "model", history, settings, "", "s-test");
+    await callDirectCustomProvider(provider, "model", history, settings, "");
+    assert.equal(headers[0]?.get("x-molibot-session"), "s-test");
+    assert.equal(headers[1]?.get("x-molibot-session"), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("MiMo Anthropic path preserves the /anthropic prefix for SDK baseUrl", () => {

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import ChatMarkdown from "./ChatMarkdown.svelte";
   import { processPresentation } from "./processPresentation";
   import AngleDown from "reicon-svelte/icons/AngleDown";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
@@ -10,7 +9,6 @@
   import { finalizeTranscriptActivities, transcriptProcessSummary } from "./transcript";
   import { formatDuration } from "../presentation";
   import ProcessTimeline from "./ProcessTimeline.svelte";
-  import ThinkingCard from "./ThinkingCard.svelte";
 
   export let blocks: TranscriptProcessBlock[];
   export let copy: Translation;
@@ -33,26 +31,17 @@
   $: liveDuration = presentation.startedAt === undefined ? 0 : Math.max(0, now - presentation.startedAt);
   $: summary = transcriptProcessSummary(blocks);
   $: isFailed = failed || (summary.interrupted && !live);
-  $: thinkingText = blocks.flatMap(block => block.kind === "thinking" ? [block.content] : []).join("\n\n");
-  $: executionBlocks = blocks.filter(block => block.kind !== "thinking");
   $: displayBlocks = live
-    ? executionBlocks
-    : executionBlocks.map((block) => block.kind === "activities"
+    ? blocks
+    : blocks.map((block) => block.kind === "activities"
       ? { ...block, activities: finalizeTranscriptActivities(block.activities) ?? [] }
       : block);
 
   const durationLabel = formatDuration;
 </script>
 
-{#if thinkingText.trim()}
-  <ThinkingCard text={thinkingText} label={copy.thinking} thinking={live && !responding} />
-{/if}
-
 {#if live && !responding}
   <div class="turn-process-overview">
-    {#each presentation.commentary as block (block.id)}
-      <ChatMarkdown {resolveImage} source={block.content} {copy} {endpoint} className="turn-progress-commentary markdown-body" contentKey={`${stateKey}-progress-${block.id}`} />
-    {/each}
     <div class="turn-progress-current" role="status">
       <span>{presentation.status}</span>
       {#if presentation.detail}<span class="turn-progress-detail">{presentation.detail}</span>{/if}
@@ -61,7 +50,6 @@
   </div>
 {/if}
 
-{#if displayBlocks.length}
 <details class="turn-process" bind:open={opened} data-state={live ? "live" : isFailed ? "error" : "complete"}>
   <summary class="turn-process-summary">
     {#if live}
@@ -73,7 +61,7 @@
     {:else}
       {#if isFailed}<TriangleWarning size={14} aria-hidden="true" />{:else}<CheckCircle size={14} aria-hidden="true" />{/if}
     {/if}
-    <span>{live ? copy.executionDetails : isFailed ? copy.runFailed : copy.runCompleted}</span>
+    <span>{copy.viewProcess}</span>
     {#if summary.toolCount}<small>{copy.turnSummaryTools.replace("{count}", String(summary.toolCount))}</small>{/if}
     {#if summary.fileCount}<small>{copy.turnSummaryFiles.replace("{count}", String(summary.fileCount))}</small>{/if}
     {#if summary.durationMs}<small class="turn-process-duration">{durationLabel(summary.durationMs)}</small>{/if}
@@ -81,8 +69,9 @@
   </summary>
   {#if opened}
     <div class="turn-process-body">
-      <ProcessTimeline {resolveImage} blocks={displayBlocks} {copy} {stateKey} {live} {onOpenPath} {endpoint} />
+      {#if displayBlocks.length}
+        <ProcessTimeline {resolveImage} blocks={displayBlocks} {copy} {stateKey} {live} {onOpenPath} {endpoint} />
+      {/if}
     </div>
   {/if}
 </details>
-{/if}

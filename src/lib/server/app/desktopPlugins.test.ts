@@ -6,7 +6,6 @@ import { defaultRuntimeSettings } from "$lib/server/settings/defaults";
 import type { PluginCatalog } from "$lib/server/plugins/types";
 
 const requestDefaults = {
-  memoryEmbeddingProviderId: "", memoryEmbeddingModel: "",
   memoryReflectionTime: "03:00", memoryReflectionNotifications: false,
   memoryReflectionNotificationTarget: "",
   memoryDailyMaterials: { ...defaultRuntimeSettings.plugins.memory.dailyMaterials }
@@ -110,7 +109,7 @@ test("plugin save preserves omitted passwords, replaces or clears explicitly", (
 
 test("plugin save validates and persists daily materials project settings", () => {
   const settings = { plugins: { memory: { enabled: true, backend: "mory", dailyMaterials: { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true } }, cloudflareHtml: {}, hooks: [] } } as unknown as RuntimeSettings;
-  const input = { ...requestDefaults, memoryEnabled: true, memoryBackend: "mory", memoryEmbeddingProviderId: "", memoryEmbeddingModel: "", memoryReflectionTime: "03:00", memoryReflectionNotifications: true, memoryDailyMaterials: { enabled: true, time: "22:45", projectId: "momo-agent", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: false, scanTokenBudget: 120000, scanModelKey: "" }, values: {} };
+  const input = { ...requestDefaults, memoryEnabled: true, memoryBackend: "mory", memoryReflectionTime: "03:00", memoryReflectionNotifications: true, memoryDailyMaterials: { enabled: true, time: "22:45", projectId: "momo-agent", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: false, scanTokenBudget: 120000, scanModelKey: "" }, values: {} };
   const saved = buildDesktopPluginsSettings(settings, { channels: [], providers: [], extensions: [], miniApps: [], features: [], memoryBackends: [{ kind: "memory-backend", key: "mory", name: "Mory", version: "1", source: "built-in", status: "active" }] } as PluginCatalog, input, { get: (id: string) => id === "momo-agent" ? { id } : null } as any);
   assert.deepEqual(saved.memory.dailyMaterials, input.memoryDailyMaterials);
 });
@@ -137,8 +136,6 @@ test("plugin summary and save expose the shared memory task target from authoriz
   const saved = buildDesktopPluginsSettings(settings, catalog, { ...requestDefaults,
     memoryEnabled: true,
     memoryBackend: "mory",
-    memoryEmbeddingProviderId: "",
-    memoryEmbeddingModel: "",
     memoryReflectionTime: "03:00",
     memoryReflectionNotifications: true,
     memoryReflectionNotificationTarget: summary.memory.reflectionNotificationTargets[0].value,

@@ -180,7 +180,7 @@ export function createPiModelOperations(deps: PiModelOperationsDeps): ModelOpera
 
     async classify(input, signal, id = randomUUID()) {
       const model = locate("classifier", input.model) as ClassifierModel<any> | undefined;
-      if (!model) throw new Error(input.model ? `No classifier model for "${input.model}". Call models.list() to see valid keys.` : "No classifier model is available.");
+      if (!model) throw new Error(input.model ? `No classifier model for "${input.model}". Discover configured models with models.getAvailableOfType("classifier").` : "No classifier model is available.");
       signal?.throwIfAborted();
       await deps.authorize?.("classify", { key: modelKey("classifier", model.provider, model.id), id });
       signal?.throwIfAborted();
@@ -195,7 +195,7 @@ export function createPiModelOperations(deps: PiModelOperationsDeps): ModelOpera
 
     async generateImages(input, signal, id = randomUUID()) {
       const model = locate("image", input.model) as import("@earendil-works/pi-ai").ImageModel<import("@earendil-works/pi-ai").ImageApi> | undefined;
-      if (!model) throw new Error(input.model ? `No image model for "${input.model}". Call models.list() to see valid keys.` : "No image model is available.");
+      if (!model) throw new Error(input.model ? `No image model for "${input.model}". Discover configured models with models.getAvailableOfType("image").` : "No image model is available.");
       if (input.images?.length && (model as { input?: unknown[] }).input?.includes("image") !== true) {
         throw new Error("The selected image model does not support reference images.");
       }

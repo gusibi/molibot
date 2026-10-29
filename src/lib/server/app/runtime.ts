@@ -19,6 +19,7 @@ import { ensureBuiltinSkills } from "$lib/server/agent/skills/bootstrap.js";
 import { getToolSandboxEnvStartupReport } from "$lib/server/agent/tools/sandbox.js";
 import { reconcileMcpServers } from "$lib/server/agent/tools/mcp.js";
 import { config, liveServicesDisabled } from "$lib/server/app/env.js";
+import { join } from "node:path";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
 import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, deliverMemoryReviewBatch, deliverMemoryTaskNotification, formatDailyMaterialsNotification, resolveMemoryReflectionNotificationTarget, TaskScheduler, type InternalTaskExecutionResult } from "$lib/server/agent/taskScheduler.js";
 import { executeOwnerMemoryReflection, formatOwnerMemoryReflectionNotification, OwnerMemoryReflectionError, type OwnerMemoryReflectionResult } from "$lib/server/agent/ownerMemoryReflection.js";
@@ -26,6 +27,10 @@ import { MessageRouter } from "$lib/server/channels/shared/messageRouter.js";
 import { initDb, storagePaths } from "$lib/server/infra/db/storage.js";
 import { recordRuntimeInitFailure, recordRuntimeReady } from "$lib/server/app/runtimeHealth.js";
 import { MemoryGateway } from "$lib/server/memory/gateway.js";
+import { MemoryWriter } from "$lib/server/memory/memoryWriter.js";
+import { MemoryExtractionService, type MemoryExtractionExtractor, type MemoryExtractionOutput } from "$lib/server/memory/memoryExtraction.js";
+import { MemoryExtractionStateStore } from "$lib/server/memory/memoryExtractionStore.js";
+import { EmbeddingModelResolver } from "$lib/server/memory/embeddingResolver.js";
 import type { PluginCatalog, ProviderPlugin } from "$lib/server/plugins/types.js";
 import { AssistantService } from "$lib/server/providers/assistantService.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
@@ -79,6 +84,8 @@ interface RuntimeState {
   pluginCatalog: PluginCatalog;
   providerPlugins: ProviderPlugin[];
   memory: MemoryGateway;
+  memoryExtraction: MemoryExtractionService;
+  embeddingResolver: EmbeddingModelResolver;
   memoryReviewStore: MemoryReviewStore;
   memoryReview: MemoryCandidateReview;
   memorySyncTimer: ReturnType<typeof setInterval> | null;
@@ -402,7 +409,9 @@ function initializeRuntime(): RuntimeState {
             createdAt: new Date().toISOString()
           }
         ],
-        prompt
+        prompt,
+        "",
+        { sessionId: input.conversationId }
       );
       const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
       // A throw here is intentional: malformed model output must surface as
@@ -424,6 +433,94 @@ function initializeRuntime(): RuntimeState {
       ownerId: "owner",
       botId: "web"
     });
+    const memoryExtractor: MemoryExtractionExtractor = async (input) => {
+      const transcript = input.messages
+        .map((message) => `${message.role} [${message.createdAt}]: ${message.content}`)
+        .join("\n");
+      const related = input.relatedMemories
+        .map((memory) => `- ${memory.subject || "(no subject)"}: ${memory.value}`)
+        .join("\n");
+      const prompt = [
+        "Extract durable personal memory from this conversation transcript.",
+        "Return JSON only: {\"noUsefulInformation\":false,\"memories\":[{\"domain\":\"owner|project|agent_self\",\"type\":\"user_preference|user_fact|skill|event|task|world_knowledge\",\"subject\":\"stable_snake_case\",\"value\":\"complete durable statement in the user's language\",\"confidence\":0.0,\"reason\":\"why it matters\",\"sensitivity\":\"normal|sensitive\",\"supersedesSubject\":\"optional existing subject\"}]}",
+        "Only include what the user would expect an assistant to remember later: identity, stable preferences, constraints, relationships, ongoing projects, decisions, and corrections.",
+        "Never include reminders, transient execution state, tool output, secrets or credentials, the assistant's own suggestions, or guesses.",
+        "Mark health, medication, allergies, location, address, identity documents, relationships, politics, religion, sexuality, and income as sensitivity=\"sensitive\".",
+        "Write each value as a complete self-contained statement. Use a stable subject (for example user.employer); a later correction with the same subject replaces the old value.",
+        "Authorized related memories (when this conversation corrects or evolves one, reuse its exact subject as both subject and supersedesSubject; otherwise use a new stable subject):",
+        related || "(none)",
+        "When nothing is worth keeping, return exactly {\"noUsefulInformation\":true}.",
+        `Session: ${input.conversationId} (channel ${input.channel}${input.projectId ? `, project ${input.projectId}` : ""})`,
+        transcript || "(no eligible messages)"
+      ].join("\n\n");
+      const response = await assistant.reply(
+        [
+          {
+            id: `memory-extract:${input.conversationId}`,
+            conversationId: input.conversationId,
+            role: "user",
+            content: prompt,
+            createdAt: new Date().toISOString()
+          }
+        ],
+        prompt,
+        "",
+        { modelKey: currentSettings.value.modelRouting.compactionModelKey || undefined, sessionId: input.conversationId }
+      );
+      const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
+      // A throw is intentional: malformed model output must surface as a
+      // failed extraction, never as proof that nothing was worth keeping.
+      return JSON.parse(raw) as MemoryExtractionOutput;
+    };
+    const memoryExtraction = new MemoryExtractionService({
+      // Only completed local/project Sessions: external channel Sessions are a
+      // read-only projection and keep their own extraction path.
+      listSessions: (options) => {
+        const page = sessionLifecycle.queryManaged({ state: "active", ...options });
+        const sharing = new Map(currentSettings.value.agents.map((agent) => [agent.id, agent.shareOwnerMemory !== false]));
+        return {
+          total: page.total,
+          items: page.items.map((item) => ({
+            ...item,
+            shareOwner: item.agentId ? sharing.get(item.agentId) !== false : true
+          }))
+        };
+      },
+      listMessages: (conversationId) => sessions.listMessages(conversationId),
+      store: new MemoryExtractionStateStore(join(storagePaths.memoryDir, "extraction-state.json")),
+      writer: new MemoryWriter(memory),
+      extractor: memoryExtractor,
+      relatedMemories: async (scope, messages) => {
+        const profile = await memory.buildProfile({
+          ...scope,
+          ownerId: scope.ownerId ?? "owner",
+          botId: scope.botId ?? "web",
+          includeOwner: scope.shareOwner !== false,
+          includeAgentSelf: true
+        });
+        const query = messages
+          .filter((message) => message.role === "user")
+          .map((message) => message.content)
+          .join("\n")
+          .slice(0, 2_000)
+          .trim();
+        const searched = query ? await memory.search(scope, { query, mode: "hybrid", limit: 8 }) : [];
+        const seen = new Set<string>();
+        return [...profile.stablePreferences, ...profile.profileFacts, ...searched]
+          .filter((row) => {
+            const subject = String(row.subject ?? "").trim().toLowerCase();
+            if (!subject || seen.has(subject)) return false;
+            seen.add(subject);
+            return true;
+          })
+          .slice(0, 16)
+          .map((row) => ({ subject: String(row.subject), value: row.content }));
+      },
+      enabled: () => currentSettings.value.plugins.memory.enabled,
+      ownerId: "owner",
+      botId: "web",
+      log: (line) => console.log(`${memoryLabel("memory")} ${line}`)
+    });
     memory.setProfileSummarizer(async (profile) => {
       const lines = [...profile.stablePreferences, ...profile.profileFacts, ...profile.currentFocus]
         .map((record) => `- [${record.type}] ${record.content.replace(/\s+/g, " ").trim()}`)
@@ -440,9 +537,12 @@ function initializeRuntime(): RuntimeState {
         role: "user",
         content: prompt,
         createdAt: new Date().toISOString()
-      }], prompt);
+      }], prompt, "", {
+        sessionId: profile.meta.scope.conversationId || `profile-summary:${profile.meta.scope.botId}`
+      });
     });
     const router = new MessageRouter(sessions, assistant, memory);
+    let embeddingResolver!: EmbeddingModelResolver;
     const applySettingsPatch = (patch: Partial<RuntimeSettings>): RuntimeSettings => {
       // Always merge patches on top of the latest persisted settings snapshot.
       // This prevents stale in-memory runtime copies (for example another long-lived dev process)
@@ -462,12 +562,42 @@ function initializeRuntime(): RuntimeState {
       }
       state.settingsStore.save(state.settings);
       reconcileRoomAgents();
+      void embeddingResolver?.ensure().catch((error) => {
+        console.error(`${memoryLabel("memory")} embedding_probe_failed`, error);
+      });
       if (!liveServicesDisabled()) {
         applyChannelPlugins(state, applySettingsPatch);
         state.taskScheduler.restart(state.channelManagers, state.settings);
       }
       return state.settings;
     };
+
+    let embeddingBackfillRunning = false;
+    const backfillMemoryEmbeddings = async (reason: string): Promise<void> => {
+      if (embeddingBackfillRunning || !currentSettings.value.plugins.memory.enabled) return;
+      embeddingBackfillRunning = true;
+      try {
+        let updated = 0;
+        for (let batch = 0; batch < 50; batch += 1) {
+          const result = await memory.backfillEmbeddings(100);
+          updated += result.updatedCount;
+          if (result.updatedCount === 0 || result.remainingCount === 0) break;
+        }
+        if (updated > 0) {
+          console.log(`${memoryLabel("memory")} embedding_backfill reason=${reason} updated=${updated}`);
+        }
+      } catch (error) {
+        console.error(`${memoryLabel("memory")} embedding_backfill_failed reason=${reason}`, error);
+      } finally {
+        embeddingBackfillRunning = false;
+      }
+    };
+    embeddingResolver = new EmbeddingModelResolver({
+      getSettings: () => currentSettings.value,
+      updateSettings: (patch) => applySettingsPatch(patch),
+      onResolved: () => { void backfillMemoryEmbeddings("resolved"); },
+      log: (line) => console.log(`${memoryLabel("memory")} ${line}`)
+    });
 
     const reflectionState = new ReflectionStateStore(storagePaths.moryDbFile);
     const memoryReviewStore = new MemoryReviewStore(storagePaths.moryDbFile);
@@ -493,7 +623,7 @@ function initializeRuntime(): RuntimeState {
           role: "user",
           content: prompt,
           createdAt: new Date().toISOString()
-        }], prompt);
+        }], prompt, "", { sessionId: projection.conversationId });
         const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
         const parsed = JSON.parse(raw) as { memories?: Array<Record<string, unknown>> };
         if (!Array.isArray(parsed.memories)) throw new Error("Reflection extractor returned invalid JSON.");
@@ -539,7 +669,7 @@ function initializeRuntime(): RuntimeState {
         role: "user",
         content: prompt,
         createdAt: new Date().toISOString()
-      }], prompt, "", { modelKey: currentSettings.value.plugins.memory.dailyMaterials.scanModelKey })
+      }], prompt, "", { modelKey: currentSettings.value.plugins.memory.dailyMaterials.scanModelKey, sessionId: "daily-materials" })
     );
     let state!: RuntimeState;
     let durableExecutionRuntime!: DurableExecutionRuntime;
@@ -721,6 +851,8 @@ function initializeRuntime(): RuntimeState {
       pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [], extensions: [], miniApps: [] },
       providerPlugins: [],
       memory,
+      memoryExtraction,
+      embeddingResolver,
       memoryReviewStore,
       memoryReview,
       memorySyncTimer: null,
@@ -892,7 +1024,30 @@ function initializeRuntime(): RuntimeState {
           .catch((error) => {
             console.error(`${memoryLabel("memory")} ${color("periodic_sync_failed", `${ANSI_BOLD}${ANSI_RED}`)}`, error);
           });
+        void state.memoryExtraction.runSweep()
+          .catch((error) => {
+            console.error(`${memoryLabel("memory")} extraction_sweep_failed`, error);
+          });
       }, 60_000);
+      // Startup catch-up: a Session that went idle before a restart is picked
+      // up once, without waiting for the first interval tick.
+      void state.memoryExtraction.runSweep()
+        .catch((error) => {
+          console.error(`${memoryLabel("memory")} extraction_sweep_failed`, error);
+        });
+      // Resolve the embedding model once, then re-embed rows written before
+      // the model existed (or before a model switch).
+      void embeddingResolver.ensure()
+        .then((resolution) => {
+          if (!resolution) return;
+          console.log(
+            `${memoryLabel("memory")} embedding_ready provider=${color(resolution.providerName, ANSI_CYAN)} model=${color(resolution.model, ANSI_CYAN)}`
+          );
+          return backfillMemoryEmbeddings("startup");
+        })
+        .catch((error) => {
+          console.error(`${memoryLabel("memory")} embedding_startup_failed`, error);
+        });
       applyChannelPlugins(state, applySettingsPatch);
       state.taskScheduler.start(state.channelManagers, state.settings);
     }

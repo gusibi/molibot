@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Context } from "@earendil-works/chord";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
@@ -34,4 +35,12 @@ const invocation = new AsyncLocalStorage<NativeInvocation>();
 export const currentPiInvocation = (): NativeInvocation | undefined => invocation.getStore();
 export function withPiInvocation<T>(value: NativeInvocation, work: () => Promise<T>): Promise<T> {
   return invocation.run(value, work);
+}
+
+/** Host call identities become stable native keys; Pi owns task and result deduplication. */
+export function nativeNestedToolKey(id: string): string {
+  return `host-${createHash("sha256").update(id).digest("hex")}`;
+}
+export function nativeNestedToolCallId(parent: string, id: string): string {
+  return `${parent}/${nativeNestedToolKey(id)}`;
 }

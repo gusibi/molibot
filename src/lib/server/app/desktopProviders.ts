@@ -56,6 +56,7 @@ export function buildDesktopProviderItem(
     hasApiKey: typeof provider.apiKey === "string" && provider.apiKey.trim().length > 0,
     modelCount: models.length,
     defaultModel: provider.defaultModel ?? "",
+    embeddingModel: provider.embeddingModel ?? "",
     path: provider.path ?? "",
     thinkingFormat: sanitizeOptionalThinkingFormat(provider.thinkingFormat) ?? null,
     models: models.map(buildDesktopProviderModel)

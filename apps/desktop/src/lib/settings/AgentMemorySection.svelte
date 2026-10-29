@@ -36,7 +36,7 @@
   });
 </script>
 
-<p class="agent-settings-hint">{zh ? "记忆来自对话中的明确保存，以及对话提取后的候选确认。运行时会召回相关记录；Agent 也可用 memory 工具主动检索。资料包含来源和状态，由记忆服务维护。" : "Memories come from explicit saves in conversations and confirmed extraction candidates. Relevant records are recalled at runtime; the Agent can also search with the memory tool. Records retain sources and state in the memory service."}</p>
+<p class="agent-settings-hint">{zh ? "记忆来自对话中的明确保存，以及对话提取后的候选确认。运行时会召回相关记录；Agent 也可用 recall_memory 主动检索。资料包含来源和状态，由记忆服务维护。" : "Memories come from explicit saves in conversations and confirmed extraction candidates. Relevant records are recalled at runtime; the Agent can also search with recall_memory. Records retain sources and state in the memory service."}</p>
 <p class="agent-settings-hint">{zh ? "这里显示当前 Agent 的记忆及已授权的共享个人记忆。共享开关保存后生效；对话和项目记忆按具体会话范围召回。记忆后端、候选审核和全局维护在通用记忆中心管理。" : "This view shows Agent memories and authorized shared owner memories. The sharing switch takes effect after saving. Conversation and project memories are recalled within their conversation scope. Manage the backend, candidate review and maintenance in the shared memory center."}</p>
 {#if isNew}
   <p>{zh ? "创建并保存 Agent 后可查看其记忆。" : "Create and save the Agent to view its memories."}</p>

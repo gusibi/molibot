@@ -54,6 +54,10 @@ molibot evals — run the golden set against a throwaway service
   --keep-data-dir     leave the scratch DATA_DIR in place for inspection
   --list              print the selected tasks and exit
 
+  MOLIBOT_EVAL_PROFILE_ID=<id>  Web instance the harness drives (default personal).
+                                Set this when seeding real settings whose Web
+                                instance has a different id.
+
 The service runs on a temporary DATA_DIR with MOLIBOT_DISABLE_EXTERNAL_CHANNELS=1,
 so it can never answer as your Telegram/Feishu/WeChat bot. Requires a build:
   corepack pnpm build

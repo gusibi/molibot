@@ -18,10 +18,10 @@ const SERIALIZED_TOOL_NAMES = new Set([
   "subagent",
   "publishHtml",
   "codexSubagent",
-  "claudeCodeSubagent"
+  "claudeCodeSubagent",
+  "save_memory",
+  "forget_memory"
 ]);
-
-const SERIALIZED_MEMORY_ACTIONS = new Set(["add", "update", "delete", "flush", "sync", "compact"]);
 
 const DESTRUCTIVE_BASH_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   {
@@ -98,13 +98,8 @@ function validateBashCommand(command: string): string | null {
   return null;
 }
 
-export function shouldSerializeToolCall(toolName: string, args: unknown): boolean {
-  if (SERIALIZED_TOOL_NAMES.has(toolName)) return true;
-  if (toolName === "memory") {
-    const action = String((args as { action?: unknown })?.action ?? "").trim().toLowerCase();
-    return SERIALIZED_MEMORY_ACTIONS.has(action);
-  }
-  return false;
+export function shouldSerializeToolCall(toolName: string, _args: unknown): boolean {
+  return SERIALIZED_TOOL_NAMES.has(toolName);
 }
 
 export function getPreferredToolExecutionMode(): ToolExecutionMode {
@@ -130,9 +125,11 @@ export function validateToolCallPreflight(
     return protectedPathReason(resolvedPath, options.workspaceDir);
   }
 
-  if (toolName === "memory") {
+  if (toolName === "memory" || toolName === "save_memory") {
     const action = String(args.action ?? "").trim().toLowerCase();
-    if ((action === "add" || action === "update") && typeof args.content === "string" && matchesReminderIntent(args.content)) {
+    const content = toolName === "save_memory" ? args.fact : args.content;
+    const isWrite = toolName === "save_memory" || action === "add" || action === "update";
+    if (isWrite && typeof content === "string" && matchesReminderIntent(content)) {
       return "Scheduling or reminder-like content should use toolSearch to load runtimeTask, not memory.";
     }
   }

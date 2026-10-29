@@ -25,6 +25,16 @@ function assistantEntry(
   return { ...base, message: { ...base.message, ...details } as AgentMessage };
 }
 
+function delivered(
+  id: string,
+  content: unknown,
+  minute: number,
+  delivery: "process" | "final" | "partial",
+  details: Record<string, unknown> = {}
+): SessionMessageEntry {
+  return { ...assistantEntry(id, content, minute, details), delivery };
+}
+
 test("missing closing answers cannot shift later turns or preserve wrong stored bindings", () => {
   const entries = [
     { ...entry("u1", "user", [{ type: "text", text: "publish" }], 0), runId: "run1" },
@@ -175,9 +185,127 @@ test("preserves thinking, tool and text interleaving as ordered transcript steps
     "activity:Read a.ts",
     "text:I found the cause.",
     "activity:Edit a.ts",
-    "text:Fixed."
+    "result:Fixed."
   ]);
   assert.equal(reply?.usage?.totalTokens, 16);
+});
+
+for (const stopReason of ["waiting_for_approval", "aborted"] as const) test(`process-only ${stopReason} never becomes a legacy answer`, () => {
+  const projection = projectConversationMessages({ conversationId: "session", metadata: [], entries: [
+    entry("u", "user", [{ type: "text", text: "Save settings" }], 0),
+    delivered("progress", [{ type: "text", text: "I will save the settings." }, { type: "toolCall", id: "save", name: "write", arguments: {} }], 1, "process", { stopReason: "toolUse" }),
+    delivered("waiting", [], 2, "process", { stopReason })
+  ] });
+  const reply = projection.messages.find(message => message.role === "assistant");
+  assert.equal(reply?.content, "");
+  assert.equal(reply?.resultKind, "none");
+  assert.equal(reply?.stopReason, stopReason);
+  assert.ok(reply?.steps?.some(step => step.kind === "text" && step.content.includes("save the settings")));
+  assert.ok(!reply?.steps?.some(step => step.kind === "result"));
+});
+
+test("a marked final deliverable answers alone; narration stays process", () => {
+  // The spec's core case: the model gives suggestions and a question, quietly
+  // saves a memory, then delivers the complete final reply. The runtime marks
+  // only that reply; narration and the tool stay process, and copy/search/
+  // preview (all readers of `content`) see the deliverable, not the log.
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "帮我改配置" }], 0),
+      entry("a-1", "assistant", [
+        { type: "thinking", thinking: "先看配置" },
+        { type: "text", text: "我先看下当前配置。" },
+        { type: "toolCall", id: "c-read", name: "read", arguments: { path: "config.yml" } }
+      ], 1),
+      entry("r-1", "toolResult", [{ type: "text", text: "raw" }], 2),
+      delivered("a-2", [{ type: "text", text: "配置已改好：端口换成 8080。要顺便打开热重载吗？" }], 3, "final", { stopReason: "stop" })
+    ],
+    metadata: []
+  });
+
+  const reply = result.messages.find((message) => message.role === "assistant");
+  assert.equal(reply?.resultKind, "final");
+  assert.equal(reply?.content, "配置已改好：端口换成 8080。要顺便打开热重载吗？");
+  assert.deepEqual(reply?.steps?.map((step) => step.kind === "activity" ? step.kind : `${step.kind}:${"content" in step ? step.content : ""}`), [
+    "thinking:先看配置",
+    "text:我先看下当前配置。",
+    "activity",
+    "result:配置已改好：端口换成 8080。要顺便打开热重载吗？"
+  ]);
+});
+
+test("multiple marked final replies join into one deliverable in order", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "完成这个任务" }], 0),
+      delivered("a-primary", [{ type: "text", text: "完整交付报告" }], 1, "final", { stopReason: "stop" }),
+      assistantEntry("a-progress", [
+        { type: "thinking", thinking: "queued follow-up" },
+        { type: "text", text: "处理中间状态" },
+        { type: "toolCall", id: "call-1" }
+      ], 2, { stopReason: "toolUse" }),
+      entry("tool", "toolResult", [{ type: "text", text: "done" }], 3),
+      delivered("a-supplement", [{ type: "text", text: "补充收尾说明" }], 4, "final", { stopReason: "stop" })
+    ],
+    metadata: []
+  });
+
+  const replies = result.messages.filter((message) => message.role === "assistant");
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0]?.resultKind, "final");
+  assert.equal(replies[0]?.content, "完整交付报告\n\n补充收尾说明");
+  assert.deepEqual(replies[0]?.steps?.map((step) => step.kind === "activity" || step.kind === "result" ? step.kind : `${step.kind}:${"content" in step ? step.content : ""}`), [
+    "result",
+    "thinking:queued follow-up",
+    "text:处理中间状态",
+    "activity",
+    "result"
+  ]);
+});
+
+test("a marked partial answer survives an unfinished end as the result", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "创建一个记账小程序" }], 0),
+      entry("a-text", "assistant", [{ type: "text", text: "已创建 expense-tracker。" }], 1),
+      entry("a-tool", "assistant", [{ type: "toolCall", id: "call-1" }], 2),
+      delivered("a-partial", [{ type: "text", text: "已创建 expense-tracker。" }], 3, "partial", { stopReason: "aborted", errorMessage: "Request aborted" })
+    ],
+    metadata: []
+  });
+
+  const reply = result.messages.find((message) => message.role === "assistant");
+  assert.equal(reply?.resultKind, "partial");
+  assert.equal(reply?.content, "已创建 expense-tracker。");
+  assert.equal(reply?.stopReason, "aborted");
+  // The unmarked early narration stays process text, never the result.
+  assert.deepEqual(reply?.steps?.filter((step) => "content" in step).map((step) => `${step.kind}:${step.content}`), [
+    "text:已创建 expense-tracker。",
+    "result:已创建 expense-tracker。"
+  ]);
+});
+
+test("a final supersedes an earlier partial: the partial reads as process", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      entry("u", "user", [{ type: "text", text: "继续" }], 0),
+      delivered("a-partial", [{ type: "text", text: "工具预算前的部分答案" }], 1, "partial", { stopReason: "stop" }),
+      delivered("a-final", [{ type: "text", text: "续写后的完整交付" }], 2, "final", { stopReason: "stop" })
+    ],
+    metadata: []
+  });
+
+  const reply = result.messages.find((message) => message.role === "assistant");
+  assert.equal(reply?.resultKind, "final");
+  assert.equal(reply?.content, "续写后的完整交付");
+  assert.deepEqual(reply?.steps?.filter((step) => "content" in step).map((step) => `${step.kind}:${step.content}`), [
+    "text:工具预算前的部分答案",
+    "result:续写后的完整交付"
+  ]);
 });
 
 test("migrates matching legacy text but preserves unmatched display-only commands", () => {
@@ -262,7 +390,9 @@ test("pairs by stored sourceEntryId regardless of list position", () => {
     ]
   });
   const paired = result.messages.find((message) => message.id === "m-a");
+  // Unmarked turn: legacy semantics keep the recorded tail segment only.
   assert.equal(paired?.content, "late reply");
+  assert.equal(paired?.resultKind, "legacy");
   // Stored id already matched, so nothing new to persist for that row.
   assert.equal(result.resolvedSourceEntries.some((e) => e.id === "m-a"), false);
 });
@@ -289,13 +419,17 @@ test("folds multiple terminal assistant replies from one user turn into one answ
 
   const replies = result.messages.filter((message) => message.role === "assistant");
   assert.equal(replies.length, 1);
-  assert.equal(replies[0]?.content, "完整交付报告\n\n补充收尾说明");
+  // Unmarked multi-reply turn: legacy semantics — the tail segment stands in,
+  // flagged so the UI can say the result was not fully recorded.
+  assert.equal(replies[0]?.content, "补充收尾说明");
+  assert.equal(replies[0]?.resultKind, "legacy");
   assert.equal(result.sourceEntryByMessageId.get(replies[0]!.id), "a-supplement");
   assert.deepEqual(replies[0]?.steps?.map((step) => step.kind === "activity" ? step.kind : `${step.kind}:${"content" in step ? step.content : ""}`), [
+    "text:完整交付报告",
     "thinking:A queued runtime follow-up arrived.",
     "text:处理中间状态",
     "activity",
-    "text:完整交付报告\n\n补充收尾说明"
+    "result:补充收尾说明"
   ]);
 });
 

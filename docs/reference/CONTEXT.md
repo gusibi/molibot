@@ -77,6 +77,80 @@ _Avoid_: Agent self-knowledge, private conversation history
 Knowledge about an Agent’s own identity and role, isolated by its stable identity. It does not imply support for privately retaining individual user facts for that Agent.
 _Avoid_: Owner memory, all facts learned in a private conversation
 
+### Memory lifecycle
+
+**Memory Record**:
+One stored, in-effect version of a durable memory.
+_Avoid_: item, row, entry
+
+**Memory Proposal**:
+An extracted memory that has not been accepted; never recalled.
+_Avoid_: candidate, pending memory, draft, 待确认记忆
+
+**Memory Revision**:
+A record that replaces an earlier record for the same subject.
+_Avoid_: update, overwrite, conflict
+
+**Memory Subject**:
+The stable slot a memory occupies, which decides what a new value revises. The same subject may appear in only one active record.
+_Avoid_: key, topic, path
+
+**Memory Scope**:
+The execution context a read or write runs in (channel, user, Bot, Agent, project); it determines which namespaces are authorized.
+_Avoid_: namespace, tenant
+
+**Memory Domain**:
+What a memory is about and who owns it: the owner, a project, the Agent itself, or published content.
+_Avoid_: namespace, category
+
+**Sensitive Fact**:
+A memory about health, medication, allergies, location, identity, relationships, politics, religion, sexuality, or income. It becomes a proposal until the user confirms it.
+_Avoid_: private memory, risky memory
+
+**Memory Extraction**:
+Turning conversation into proposals or records.
+_Avoid_: flush, reflection, session extraction, import
+
+**Memory Recall**:
+Selecting records for the current turn.
+_Avoid_: search, retrieval, lookup
+
+**Memory Injection**:
+The records finally placed in the model's prompt for a turn.
+_Avoid_: context, attachment
+
+**Referenced Memory**:
+A record the reply actually used, as opposed to one merely injected.
+_Avoid_: used, cited
+
+**Stable Profile**:
+The always-injected view of a user's preferences and facts.
+_Avoid_: summary, persona, user model, 用户画像
+
+**Embedding Lane**:
+One independently configured embedding target: name, host URL, API key and model. Multiple lanes may exist; exactly one is active.
+_Avoid_: vector provider, embedding config, 向量服务商
+
+**Embedding Target**:
+The active embedding lane used to vectorize memories for recall; absent means lexical retrieval only.
+_Avoid_: vector provider, embedding config, 向量服务商
+
+**Memory Active**:
+A record available for recall.
+_Avoid_: confirmed, approved, saved
+
+**Memory Disputed**:
+A record the user has marked wrong, or one that contradicts another record for the same subject; not injected until resolved.
+_Avoid_: conflicted, flagged, pending
+
+**Memory Archived**:
+A record kept for history but no longer recalled.
+_Avoid_: deleted, removed
+
+**Memory Forgotten**:
+A memory removed on request and suppressed from being extracted again.
+_Avoid_: deleted, cleared
+
 **Turn Retention Policy**:
 One canonical policy attached to every entry produced by a user turn. `standard` allows future Agent Context, conversation search, and memory; `no_memory` allows context/search but forbids memory; `not_searchable` allows context but forbids both search and memory; `turn_only` keeps a visible audit transcript but forbids all three. Missing policy means `standard`.
 _Avoid_: Privacy flag, temporary prompt instruction

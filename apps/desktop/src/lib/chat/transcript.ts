@@ -17,6 +17,8 @@ export type TranscriptMessage = {
   id?: string;
   role: string;
   content: string;
+  /** Answer semantics of `content`; absent/legacy = recorded tail, possibly incomplete. */
+  resultKind?: "final" | "partial" | "none" | "legacy";
   createdAt?: string;
   model?: string;
   thinking?: string;
@@ -33,38 +35,48 @@ export type { TurnFileItem } from "./turnFiles";
 
 export type TranscriptRenderBlock =
   | { id: string; kind: "text"; content: string }
+  | { id: string; kind: "result"; content: string }
   | { id: string; kind: "thinking"; content: string }
   | { id: string; kind: "plan"; plan: DesktopConversationPlan }
   | { id: string; kind: "activities"; activities: DesktopConversationActivity[] };
 
-export type TranscriptProcessBlock = Exclude<TranscriptRenderBlock, { kind: "plan" }>;
+/**
+ * Process disclosure input: thinking, tool runs, and the narration the model
+ * emits around them. Result text never folds into this view.
+ */
+export type TranscriptProcessBlock = Exclude<TranscriptRenderBlock, { kind: "plan" } | { kind: "result" }>;
+
+export type TranscriptAnswerBlock = Extract<TranscriptRenderBlock, { kind: "result" } | { kind: "plan" }>;
 
 /**
- * A completed assistant turn has one compact process disclosure, followed by
- * the answer. Text emitted before the last reasoning/tool step belongs to that
- * process (models often narrate before calling a tool); text after it is the
- * final response. Plan cards stay outside the disclosure because they require
- * a visible user decision.
+ * A turn is one unified process disclosure plus one independent answer: the
+ * process group (thinking, tools, narration — collapsed, expandable) sits
+ * above the result area, which carries the runtime-marked deliverable (and
+ * the proposed Plan decision). Exactly one process entry per turn; no tool
+ * card ever wedges into the answer (conversation answer visibility spec).
  */
-export function transcriptCompletedTurnSections(blocks: TranscriptRenderBlock[]): {
+export function transcriptTurnSections(blocks: TranscriptRenderBlock[]): {
   process: TranscriptProcessBlock[];
-  response: TranscriptRenderBlock[];
+  response: TranscriptAnswerBlock[];
 } {
   const proposedPlans = blocks.filter((block) => block.kind === "plan" && block.plan.status === "proposed");
   const orderedBlocks = proposedPlans.length
     ? [...blocks.filter((block) => block.kind !== "plan" || block.plan.status !== "proposed"), ...proposedPlans]
     : blocks;
-  const firstPlan = orderedBlocks.findIndex((block) => block.kind === "plan");
-  const processLimit = firstPlan < 0 ? orderedBlocks.length : firstPlan;
-  let processEnd = -1;
-  for (let index = 0; index < processLimit; index += 1) {
-    if (orderedBlocks[index].kind === "thinking" || orderedBlocks[index].kind === "activities") processEnd = index;
-  }
-  if (processEnd < 0) return { process: [], response: orderedBlocks };
   return {
-    process: orderedBlocks.slice(0, processEnd + 1) as TranscriptProcessBlock[],
-    response: orderedBlocks.slice(processEnd + 1)
+    process: orderedBlocks.filter((block): block is TranscriptProcessBlock => block.kind === "thinking" || block.kind === "activities" || block.kind === "text"),
+    response: orderedBlocks.filter((block): block is TranscriptAnswerBlock => block.kind === "result" || block.kind === "plan")
   };
+}
+
+/** True when a legacy turn kept only its tail segment: the answer may be incomplete. */
+export function transcriptResultUnrecorded(message: TranscriptMessage, processBlocks: TranscriptProcessBlock[]): boolean {
+  if (message.role !== "assistant") return false;
+  if (message.resultKind && message.resultKind !== "legacy") return false;
+  // A turn whose only recorded step is the tail text could not have lost
+  // anything in front of it; the notice is for turns that actually ran a
+  // process (tools, thinking, narration) before the recorded tail.
+  return processBlocks.length > 0;
 }
 
 export function transcriptProcessSummary(blocks: TranscriptProcessBlock[]): {
@@ -97,10 +109,14 @@ export function transcriptRenderBlocks(message: TranscriptMessage): TranscriptRe
     : [
         ...(message.thinking ? [{ id: `${message.id ?? "message"}-thinking`, kind: "thinking" as const, content: message.thinking }] : []),
         ...((message.activities ?? []).map((activity) => ({ id: `${message.id ?? "message"}-${activity.key}`, kind: "activity" as const, activity }))),
-        ...(message.content ? [{ id: `${message.id ?? "message"}-text`, kind: "text" as const, content: message.content }] : [])
       ];
+  // `content` is the committed reply, also for messages without an execution
+  // transcript. Live callers pass no committed content until the result arrives.
+  const displaySteps = message.content.trim()
+    ? [...steps.filter(step => step.kind !== "result"), { id: `${message.id ?? "message"}-result`, kind: "result" as const, content: message.content }]
+    : steps;
   const blocks: TranscriptRenderBlock[] = [];
-  for (const step of steps) {
+  for (const step of displaySteps) {
     if (step.kind !== "activity") {
       blocks.push(step);
       continue;

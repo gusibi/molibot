@@ -52,6 +52,8 @@ export interface ManagedSessionItem {
   source: ManagedSessionSource;
   channel: string;
   botId: string;
+  /** Owning Agent identity; absent for legacy channel projections. */
+  agentId?: string;
   projectId?: string;
   ownerExternalUserId: string | null;
   createdAt: string;
@@ -470,6 +472,7 @@ export function queryManagedSessions(deps: SessionQueryDeps, filters: ManagedSes
       source: candidate.source,
       channel: candidate.channel,
       botId: candidate.botId,
+      agentId: candidate.conversation.agentId,
       projectId: candidate.projectId,
       ownerExternalUserId: candidate.ownerExternalUserId,
       createdAt: candidate.conversation.createdAt,

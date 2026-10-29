@@ -5,7 +5,7 @@ import { createModels, createAssistantMessageEventStream, type SimpleStreamOptio
 import type { AgentOptions, AgentState, AgentEvent, AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import type { AgentEvent as PiEvent, ModelRef } from "@earendil-works/pi-durable";
 import { PiConversationRuntime, type PiConversationOptions } from "$lib/server/agent/durable/piConversation.js";
-import { decodePiToolDetails, encodePiToolDetails } from "$lib/server/agent/durable/piToolResult.js";
+import { decodePiNestedResult, decodePiToolDetails, encodePiToolDetails } from "$lib/server/agent/durable/piToolResult.js";
 import { getPiModels, SESSION_AFFINITY_HEADER } from "$lib/server/providers/piRuntime.js";
 import { stripTransientRuntimeNoticesFromMessages } from "./runtimeNotices.js";
 
@@ -161,7 +161,7 @@ export class PiRunSession {
     this.state.tools = [...tools];
     if (!this.runtime) return Promise.resolve();
     this.configuration = this.configuration.then(async () => {
-      this.runtime!.registerTools(tools);
+      this.runtime!.registerTools([...tools, ...(this.binding?.nativeTools?.() ?? [])]);
       await this.runtime!.configure({ tools: tools.map(tool => tool.name) });
     });
     return this.configuration;
@@ -289,6 +289,7 @@ export class PiRunSession {
           await this.refresh();
           if (!api) throw new Error("Pi tool hook has no native task identity.");
           const assistantMessage = await this.runtime!.toolOrigin(api.taskId, call.id);
+          this.toolOrigins.set(call.id, assistantMessage);
           const decision = await this.beforeToolCall?.({ assistantMessage, toolCall: call, args: call.arguments, context: this.state }, signal);
           await this.updateTools(this.state.tools);
           return decision?.block ? { kind: "deny", reason: decision.reason ?? "Tool execution was denied." } : { kind: "allow" };
@@ -296,6 +297,7 @@ export class PiRunSession {
         afterTool: async (call, result, api) => {
           await this.refresh();
           const assistantMessage = await this.runtime!.toolOrigin(api.taskId, call.id);
+          this.toolOrigins.set(call.id, assistantMessage);
           // pi-durable 1.3 renamed ToolExecutionResult.content to output.
           const hostResult = { content: result.output ?? [], ...decodePiToolDetails(result.details), usage: result.usage, isError: result.isError };
           const override = await this.afterToolCall?.({ assistantMessage, toolCall: call, args: call.arguments, context: this.state,
@@ -435,16 +437,16 @@ export class PiRunSession {
       const text = event.output && ("set" in event.output ? event.output.set : event.output.append);
       await this.emit({ type: "tool_execution_update", toolCallId: event.toolCallId, toolName: event.toolName, args: this.toolArgs.get(event.toolCallId),
         partialResult: { content: text ? [{ type: "text", text }] : [], details: event.details } });
-    } else if (event.type === "tool_execution_end" && event.entry) {
-      const context = await this.runtime!.context();
-      const index = context.entries.findIndex(entry => entry.id === event.entry?.id);
-      const origin = context.entries.slice(0, index < 0 ? undefined : index).flatMap(entry => entry.model ?? []).reverse()
-        .find((message): message is AssistantMessage => message.role === "assistant" && message.content.some(block => block.type === "toolCall" && block.id === event.toolCallId));
+    } else if (event.type === "tool_execution_end") {
+      const origin = this.toolOrigins.get(event.toolCallId) ?? (event.parentToolCallId ? this.toolOrigins.get(event.parentToolCallId) : undefined);
       if (origin) this.toolOrigins.set(event.toolCallId, origin);
       const message = event.entry?.model?.find(message => message.role === "toolResult");
+      const result = event.result ? decodePiNestedResult(event.result) : {
+        content: message?.content ?? [{ type: "text" as const, text: "Tool execution ended without a committed result." }],
+        ...decodePiToolDetails(message?.details), isError: message?.isError ?? true
+      };
       await this.emit({ type: "tool_execution_end", toolCallId: event.toolCallId, toolName: event.toolName,
-        result: { content: message?.content ?? [{ type: "text", text: "Tool execution ended without a committed result." }], ...decodePiToolDetails(message?.details) },
-        isError: message?.isError ?? true });
+        result, isError: Boolean(result.isError) });
     }
   }
 

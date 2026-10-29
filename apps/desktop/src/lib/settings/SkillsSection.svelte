@@ -22,7 +22,7 @@
 
 {#if !session.serviceReady}
   <SettingGroup><EmptyState title={session.text.skillsUnavailable} icon="sparkle" /></SettingGroup>
-{:else if skillsStore.loading || !skillsStore.skills}
+{:else if skillsStore.loading || !skillsStore.searchDraft}
   <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
 {:else}
   {#if skillsStore.searchDraft}
@@ -49,7 +49,7 @@
       </form>
     </details>
   {/if}
-  {#if skillsStore.searchSaved}<p class="settings-action-message" aria-live="polite">{session.text.skillsSearchSaved}</p>{/if}
+  {#if skillsStore.saved}<p class="settings-action-message" aria-live="polite">{session.text.skillsSearchSaved}</p>{/if}
 {/if}
 
 {#if skillsSearchDirty}

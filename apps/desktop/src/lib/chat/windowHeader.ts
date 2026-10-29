@@ -16,6 +16,7 @@ export type WindowHeaderContent = {
   title: string;
   sourceLabel: string;
   agentLabel: string;
+  onAgentClick: (() => void) | null;
   subtitle: string;
   searching: boolean;
   actions: Snippet | null;
@@ -26,6 +27,7 @@ export const emptyWindowHeader: WindowHeaderContent = {
   title: "",
   sourceLabel: "",
   agentLabel: "",
+  onAgentClick: null,
   subtitle: "",
   searching: false,
   actions: null,

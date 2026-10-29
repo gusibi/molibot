@@ -93,16 +93,10 @@ async function uploadMediaToCdn(params: {
   });
 
   const uploadParam = uploadUrlResp.upload_param;
-  if (!uploadParam) {
-    logger.error(
-      `${label}: getUploadUrl returned no upload_param, resp=${JSON.stringify(uploadUrlResp)}`,
-    );
-    throw new Error(`${label}: getUploadUrl returned no upload_param`);
-  }
-
   const { downloadParam: downloadEncryptedQueryParam } = await uploadBufferToCdn({
     buf: plaintext,
     uploadParam,
+    uploadFullUrl: uploadUrlResp.upload_full_url,
     filekey,
     cdnBaseUrl,
     aeskey,

@@ -187,6 +187,8 @@ export interface MemoryInjectionItem {
   snapshot: {
     displayText: string;
     content: string;
+    /** Stable fact slot; lets injection dedupe profile and retrieved rows. */
+    subject?: string;
     layer: MemoryRecord["layer"];
     type?: string;
     confidence?: number;

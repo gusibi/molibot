@@ -94,9 +94,19 @@ export interface ConversationPlan {
 
 export type ConversationStep =
   | { id: string; kind: "text"; content: string }
+  /** The turn's deliverable text, marked by the runtime (never inferred on read). */
+  | { id: string; kind: "result"; content: string }
   | { id: string; kind: "thinking"; content: string }
   | { id: string; kind: "activity"; activity: ConversationActivity }
   | { id: string; kind: "plan"; plan: ConversationPlan };
+
+/**
+ * How the turn's answer semantics were recorded. "final" = the runtime
+ * committed a complete deliverable; "partial" = a valid answer formed before
+ * an unfinished end; "legacy" = the entry predates result semantics, so
+ * `content` is the recorded tail segment, not a guaranteed complete result.
+ */
+export type ConversationResultKind = "final" | "partial" | "none" | "legacy";
 
 export interface InboundMessage {
   channel: Channel;
@@ -138,6 +148,8 @@ export interface ConversationMessage {
   role: Role;
   content: string;
   createdAt: string;
+  /** Answer semantics of `content` for assistant turns; absent = legacy. */
+  resultKind?: ConversationResultKind;
   model?: string;
   platformMessageId?: string;
   attachments?: ConversationAttachment[];

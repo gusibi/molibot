@@ -18,6 +18,7 @@ export function createOwnedModelOperations(base: ModelOperations, options: {
     description: "Call the selected configured model. Remote execution may incur charges.",
     parameters: schemas[operation],
     replay: "safe",
+    callers: ["tools"],
     classification: { risk: "medium", source: "builtin", effect: "network" },
     async execute(id: string, args: any, signal?: AbortSignal) {
       const value = operation === "classify" ? await base.classify(args, signal, id) : await base.generateImages(args, signal, id);
@@ -47,9 +48,10 @@ export function createOwnedModelStream(stream: import("$lib/server/plugins/piExt
   const tool = options.wrap({ name: "modelsStream", label: "Chat with a model", description: "Stream a configured chat model; remote execution may incur charges.",
     parameters: Type.Object({ model: Type.Object({ provider: Type.String(), id: Type.String() }), context: Type.Any(), options: Type.Optional(Type.Any()), simple: Type.Boolean(), callId: Type.Optional(Type.String()) }),
     replay: "safe",
+    callers: ["tools"],
     classification: { risk: "medium", source: "builtin", effect: "network" },
     async execute(id: string, args: any, signal?: AbortSignal) {
-      const value = await stream!(args, sinks.get(id) ?? (() => undefined), signal ?? new AbortController().signal);
+      const value = await stream!(args, sinks.get(args.callId ?? id) ?? (() => undefined), signal ?? new AbortController().signal);
       return { content: [{ type: "text" as const, text: "Model stream completed." }], details: { modelResult: value } };
     }
   } as AgentTool<any>);
@@ -57,7 +59,7 @@ export function createOwnedModelStream(stream: import("$lib/server/plugins/piExt
     const id = input.callId ?? randomUUID();
     sinks.set(id, emit);
     try {
-      const outcome = await options.invoke(tool, id, input, signal);
+      const outcome = await options.invoke(tool, id, { ...input, callId: id }, signal);
       if (outcome.isError || (outcome.result as any).terminate) {
         const error = new Error(outcome.result.content.filter(block => block.type === "text").map(block => block.text).join("\n"));
         if ((outcome.result as any).terminate) Object.assign(error, { suspendedResult: outcome.result });

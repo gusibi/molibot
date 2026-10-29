@@ -198,9 +198,13 @@ export class ConversationController {
     const chunks = this.pendingLiveChunks;
     this.pendingLiveChunks = [];
     for (const chunk of chunks) {
-      this.appendLiveText(chunk.kind, chunk.content);
-      if (chunk.kind === "text") this.streamingText += chunk.content;
-      else this.streamingThinking += chunk.content;
+      if (chunk.kind === "text") {
+        this.appendLiveText("text", chunk.content);
+        this.streamingText += chunk.content;
+      } else {
+        this.appendLiveText("thinking", chunk.content);
+        this.streamingThinking += chunk.content;
+      }
     }
   }
 
@@ -212,7 +216,7 @@ export class ConversationController {
     this.scheduleStreamFlush();
   }
 
-  private appendLiveText(kind: "text" | "thinking", delta: string): void {
+  private appendLiveText(kind: "text" | "thinking" | "result", delta: string): void {
     if (!delta) return;
     const previous = this.liveSteps.at(-1);
     if (previous?.kind === kind) {
@@ -440,12 +444,12 @@ export class ConversationController {
         },
         onReplace: (text) => {
           this.activity = "";
-          // Replacement supersedes anything still buffered.
+          // Keep the process transcript; replacement changes only the result.
           this.pendingLiveChunks = this.pendingLiveChunks.filter((chunk) => chunk.kind !== "text");
           this.flushStreamBuffers();
           this.streamingText = text;
-          this.liveSteps = this.liveSteps.filter((step) => step.kind !== "text");
-          this.appendLiveText("text", text);
+          this.liveSteps = this.liveSteps.filter((step) => step.kind !== "result");
+          this.appendLiveText("result", text);
         },
         onThinking: (delta) => {
           this.bufferLiveText("thinking", delta);
@@ -462,10 +466,13 @@ export class ConversationController {
         },
         onDone: (done) => {
           this.flushStreamBuffers();
-          this.streamingText = done.response || this.streamingText;
+          this.streamingText = done.response;
           this.streamingThinking = done.thinkingText || this.streamingThinking;
-          if (done.response && !this.liveSteps.some((step) => step.kind === "text")) {
-            this.appendLiveText("text", done.response);
+          this.liveSteps = this.liveSteps.filter((step) => step.kind !== "result");
+          if (done.response) {
+            // The finished turn's committed answer supersedes any provisional
+            // answer-phase text streamed before tools ran.
+            this.appendLiveText("result", done.response);
           }
           if (done.thinkingText && !this.liveSteps.some((step) => step.kind === "thinking")) {
             this.appendLiveText("thinking", done.thinkingText);

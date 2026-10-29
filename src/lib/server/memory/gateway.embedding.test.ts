@@ -19,8 +19,22 @@ test("rotating an embedding API key reconfigures the backend", async () => {
   };
   let apiKey = "old-secret";
   const settings = () => ({
-    plugins: { memory: { enabled: true, backend: "mory", embeddingProviderId: "provider", embeddingModel: "embed-v1" } },
-    customProviders: [{ id: "provider", enabled: true, baseUrl: "https://embedding.invalid/v1", apiKey }]
+    plugins: {
+      memory: {
+        enabled: true,
+        backend: "mory",
+        embeddingModels: [{
+          id: "embedding-a",
+          name: "Embedding A",
+          enabled: true,
+          baseUrl: "https://embedding.invalid/v1",
+          apiKey,
+          model: "embed-v1"
+        }],
+        activeEmbeddingModelId: "embedding-a"
+      }
+    },
+    customProviders: []
   }) as any;
   const gateway = new MemoryGateway(settings, {} as any, undefined, {
     candidateStore: candidates, backends: { mory: backend },

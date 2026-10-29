@@ -20,6 +20,8 @@
   export let onClose: () => void;
 
   let input: HTMLInputElement;
+
+  export function focus(): void { input?.focus(); }
   let wasOpen = false;
   $: if (open !== wasOpen) {
     wasOpen = open;

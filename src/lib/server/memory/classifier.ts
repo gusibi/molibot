@@ -1,4 +1,5 @@
 import { scoreLexical } from "#mory";
+import { dedupeByMemoryIdentity } from "./memoryIdentity.js";
 import type { MemoryAddInput, MemoryLayer, MemoryRecord } from "$lib/server/memory/types.js";
 
 export interface MemoryWriteAssessment {
@@ -228,12 +229,20 @@ export function prepareMemoryAddInput(input: MemoryAddInput): MemoryAddInput {
   };
 }
 
-export function assessMemoryWrite(input: MemoryAddInput): MemoryWriteAssessment {
+/**
+ * Shared write policy. `minContentLength` exists because an extracted,
+ * structured fact ("不吃辣") is complete at a length the free-form "remember
+ * this" path treated as noise.
+ */
+export function assessMemoryWrite(
+  input: MemoryAddInput,
+  options: { minContentLength?: number } = {}
+): MemoryWriteAssessment {
   const prepared = prepareMemoryAddInput(input);
   const content = prepared.content;
   const lower = content.toLowerCase();
 
-  if (!content || content.length < 8) {
+  if (!content || content.length < (options.minContentLength ?? 8)) {
     return { allowed: false, reason: "内容太短，不值得写入长期记忆。" };
   }
 
@@ -293,7 +302,10 @@ export function selectPromptMemoryRows(
   query: string,
   limit: number
 ): { longTerm: MemoryRecord[]; daily: MemoryRecord[] } {
-  const sorted = rows
+  // One active record per subject: pick the newest before ranking, so an
+  // older row cannot win on class weight or a stale value cannot be injected.
+  const newest = dedupeByMemoryIdentity(rows);
+  const sorted = newest
     .slice()
     .sort((a, b) => {
       const scoreDelta = memoryPriority(b, query) - memoryPriority(a, query);

@@ -56,6 +56,12 @@ test("desktop HTTP scope allows the Adaptive Thinking settings and test routes",
   }
 });
 
+test("desktop HTTP scope allows the embedding lane settings route", () => {
+  for (const host of ["127.0.0.1", "localhost"]) {
+    assert.ok(allowedUrls.has(`http://${host}:*/api/settings/embedding-models*`));
+  }
+});
+
 test("desktop HTTP scope allows project registry and session routes", () => {
   assert.ok(allowedUrls.has("http://127.0.0.1:*/api/settings/projects*"));
   assert.ok(allowedUrls.has("http://localhost:*/api/settings/projects*"));

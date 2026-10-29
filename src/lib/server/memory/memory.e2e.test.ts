@@ -15,7 +15,7 @@ async function withMemory(run: (gateway: MemoryGateway, backend: MoryMemoryBacke
   const candidates = new MemoryCandidateStore(join(dir, "candidates.sqlite"));
   const profileSnapshots = new MemoryProfileSnapshotStore(join(dir, "profile-snapshots.sqlite"));
   const gateway = new MemoryGateway(
-    () => ({ plugins: { memory: { enabled: true, backend: "mory", embeddingProviderId: "", embeddingModel: "" } }, customProviders: [] }) as any,
+    () => ({ plugins: { memory: { enabled: true, backend: "mory" } }, customProviders: [] }) as any,
     {} as any,
     undefined,
     { candidateStore: candidates, profileSnapshotStore: profileSnapshots, backends: { mory: backend }, backendDefinitions: [{ key: "mory", name: "mory", description: "test", create: () => backend }], importers: [] }

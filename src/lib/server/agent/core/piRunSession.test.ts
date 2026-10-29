@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createAssistantMessageEventStream, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
+import { getCurrentTools, createAssistantMessageEventStream, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { getPiModels, SESSION_AFFINITY_HEADER } from "$lib/server/providers/piRuntime.js";
 import { PiRunSession } from "./piRunSession.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -751,4 +751,119 @@ test("opening an existing run recovers its answer while excluding imported conve
     assert.doesNotMatch(JSON.stringify(recovered), /OLD CONVERSATION ANSWER/);
     assert.match(JSON.stringify(recovered), /Done/);
   } finally { await first.close(); await restored?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+for (const denied of [false, true]) test(`official nested calls ${denied ? "deny before effects" : "reuse results and preserve callbacks"} through the production adapter`, { timeout: 10000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-official-nested-"));
+  let requests = 0;
+  let effects = 0;
+  const origins: Array<{ name: string; timestamp: number }> = [];
+  const live: Array<{ id: string; name: string; isError: boolean }> = [];
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "Run", messages: [], tools: [
+    { name: "parent", label: "Parent", description: "Parent", parameters: { type: "object", properties: {} }, execute: async () => {
+      const { api, context } = currentPiInvocation()!;
+      const first = await api.executeTool("leaf", {}, context, { key: "read" });
+      const second = await api.executeTool("leaf", {}, context, { key: "read" });
+      assert.deepEqual(second, first);
+      assert.equal(first.isError, denied);
+      if (!denied) {
+        assert.equal(first.structuredOutput, "overridden leaf");
+        const { decodePiToolDetails } = await import("../durable/piToolResult.js");
+        assert.deepEqual(decodePiToolDetails(first.details).details, { receipt: "leaf" });
+      }
+      return { content: [{ type: "text", text: denied ? "Denied safely" : "Nested completed" }], details: {} };
+    } },
+    { name: "leaf", label: "Leaf", description: "Leaf", parameters: { type: "object", properties: {} }, execute: async () => {
+      effects++; return { content: [{ type: "text", text: "raw leaf" }], details: {} };
+    } }
+  ] }, getApiKey: () => "fixture",
+    beforeToolCall: async context => {
+      origins.push({ name: context.toolCall.name, timestamp: context.assistantMessage.timestamp });
+      return denied && context.toolCall.name === "leaf" ? { block: true, reason: "Fixture denied" } : undefined;
+    },
+    afterToolCall: async context => context.toolCall.name === "leaf"
+      ? { content: [{ type: "text", text: "overridden leaf" }], details: { receipt: "leaf" } } : undefined,
+    streamFn: () => {
+      const first = ++requests === 1;
+      const message: AssistantMessage = { ...answer(), timestamp: 42, stopReason: first ? "toolUse" : "stop",
+        content: first ? [{ type: "toolCall", id: "parent-call", name: "parent", arguments: {} }] : [{ type: "text", text: "Done" }] };
+      const stream = createAssistantMessageEventStream();
+      stream.push({ type: "done", reason: first ? "toolUse" : "stop", message }); stream.end(); return stream;
+    } });
+  run.subscribe(event => { if (event.type === "tool_execution_end") live.push({ id: event.toolCallId, name: event.toolName, isError: event.isError }); });
+  try {
+    run.startTurn(); run.bindRun(binding(directory)); await run.prompt("Use a nested tool");
+    assert.equal(effects, denied ? 0 : 1);
+    assert.deepEqual(origins, [{ name: "parent", timestamp: 42 }, { name: "leaf", timestamp: 42 }]);
+    assert.equal(requests, 2);
+    assert.equal(run.state.messages.filter(message => message.role === "toolResult").length, 1);
+    assert.equal(live.filter(event => event.id === "parent-call/read" && event.name === "leaf" && event.isError === denied).length, 1);
+  } finally { await run.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("native model streams remain hidden and deliver events after tool refresh", { timeout: 10000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-model-stream-"));
+  const { createOwnedModelStream } = await import("../models/ownedModelOperations.js");
+  const events: unknown[] = [];
+  const owned = createOwnedModelStream(async (_input, emit) => {
+    emit({ type: "delta", text: "hello" }); return { message: answer() };
+  }, { wrap: tool => tool, invoke: (tool, id, args, signal) => currentPiInvocation()!.nested(tool, id, args, signal) });
+  let requests = 0;
+  let calls = 0;
+  const parent = { name: "parent", label: "Parent", description: "Parent", parameters: { type: "object" as const, properties: {} }, execute: async () => {
+    calls++;
+    const value = await owned.stream({ model: { provider: model.provider, id: model.id }, context: { messages: [] }, options: undefined, simple: true }, event => events.push(event), new AbortController().signal);
+    assert.equal(value.message.stopReason, "stop");
+    return { content: [{ type: "text" as const, text: "Stream completed" }], details: {} };
+  } };
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "Run", messages: [], tools: [parent] }, getApiKey: () => "fixture",
+    beforeToolCall: async () => { await run.updateTools([parent]); return undefined; },
+    streamFn: (_model, context) => {
+      assert.ok(!getCurrentTools(context.messages).map(tool => tool.name).includes("modelsStream"));
+      const first = ++requests === 1;
+      const message: AssistantMessage = { ...answer(), stopReason: first ? "toolUse" : "stop",
+        content: first ? [{ type: "toolCall", id: "stream-parent", name: "parent", arguments: {} }] : [{ type: "text", text: "Done" }] };
+      const stream = createAssistantMessageEventStream(); stream.push({ type: "done", reason: first ? "toolUse" : "stop", message }); stream.end(); return stream;
+    } });
+  try {
+    run.startTurn(); run.bindRun({ ...binding(directory), nativeTools: () => [owned.tool] }); await run.prompt("Stream");
+    assert.equal(calls, 1); assert.deepEqual(events, [{ type: "delta", text: "hello" }]);
+    assert.equal(requests, 2);
+    assert.match(JSON.stringify(run.state.messages), /Stream completed/);
+  } finally { await run.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("a nested timeout waits for the native tool handler to settle", { timeout: 10000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-nested-timeout-"));
+  const cancelled = new AbortController();
+  let settled = false;
+  let requests = 0;
+  const leaf = { name: "slow", label: "Slow", description: "Slow", parameters: { type: "object" as const, properties: {} },
+    execute: async (_id: string, _args: unknown, signal?: AbortSignal) => {
+      cancelled.abort(new Error("fixture timeout"));
+      await new Promise<void>(resolve => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      await new Promise(resolve => setImmediate(resolve));
+      settled = true;
+      return { content: [{ type: "text" as const, text: "Stopped" }], details: {} };
+    } };
+  const parent = { ...leaf, name: "parent", execute: async () => {
+    await assert.rejects(currentPiInvocation()!.nested(leaf, "slow-host", {}, cancelled.signal), /fixture timeout/);
+    assert.equal(settled, true, "the parent must not release its effect slot while the handler is still running");
+    return { content: [{ type: "text" as const, text: "Timeout settled" }], details: {} };
+  } };
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "Run", messages: [], tools: [parent, leaf] }, getApiKey: () => "fixture",
+    streamFn: () => {
+      const first = ++requests === 1;
+      const message: AssistantMessage = { ...answer(), stopReason: first ? "toolUse" : "stop",
+        content: first ? [{ type: "toolCall", id: "timeout-parent", name: "parent", arguments: {} }] : [{ type: "text", text: "Done" }] };
+      const stream = createAssistantMessageEventStream(); stream.push({ type: "done", reason: first ? "toolUse" : "stop", message }); stream.end(); return stream;
+    } });
+  try {
+    run.startTurn(); run.bindRun(binding(directory)); await run.prompt("Timeout");
+    assert.equal(settled, true); assert.equal(requests, 2);
+    assert.match(JSON.stringify(run.state.messages), /Timeout settled/);
+  } finally { await run.close(); rmSync(directory, { recursive: true, force: true }); }
 });

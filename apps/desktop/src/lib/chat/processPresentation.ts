@@ -1,9 +1,8 @@
 import type { Translation } from "../i18n";
 import type { TranscriptProcessBlock } from "./transcript";
 
-/** Human commentary stays separate from reasoning and execution payloads. */
+/** A short live status; the process disclosure owns all model-authored text. */
 export function processPresentation(blocks: TranscriptProcessBlock[], copy: Translation) {
-  const commentary = blocks.flatMap(block => block.kind === "text" && block.content.trim() ? [block] : []).slice(-2);
   const activities = blocks.flatMap(block => block.kind === "activities" ? block.activities : []);
   const running = activities.filter(activity => activity.state === "running");
   const current = running.find(activity => activity.kind === "tool" && activity.tool !== "subagent") ?? running.at(-1);
@@ -17,5 +16,5 @@ export function processPresentation(blocks: TranscriptProcessBlock[], copy: Tran
   const label = current?.label?.trim();
   const detail = label && label !== tool && !label.startsWith("Tool started:") && current?.kind === "tool" ? label : "";
   const starts = activities.flatMap(activity => activity.startedAt ? [Date.parse(activity.startedAt)] : []).filter(Number.isFinite);
-  return { commentary, status, detail, startedAt: starts.length ? Math.min(...starts) : undefined };
+  return { status, detail, startedAt: starts.length ? Math.min(...starts) : undefined };
 }

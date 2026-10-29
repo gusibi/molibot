@@ -4,23 +4,56 @@ import {
   clampTranscriptSearchIndex,
   finalizeTranscriptActivities,
   findTranscriptMatches,
-  transcriptCompletedTurnSections,
-  transcriptProcessSummary
+  transcriptProcessSummary,
+  transcriptResultUnrecorded,
+  transcriptRenderBlocks,
+  transcriptTurnSections
 } from "./transcript";
 import { formatCompactTokens, modelShortLabel } from "../presentation";
 
-test("completed turns fold every pre-answer reasoning, narration, and tool block into one process", () => {
+test("committed content without steps renders as an answer, including plain and external messages", () => {
+  for (const resultKind of [undefined, "final", "partial", "legacy"] as const) {
+    const message = { id: "answer", role: "assistant", content: "The actual answer.", resultKind };
+    const sections = transcriptTurnSections(transcriptRenderBlocks(message));
+    assert.equal(sections.process.length, 0);
+    assert.deepEqual(sections.response.map(block => block.kind === "result" ? block.content : ""), [message.content]);
+  }
+});
+
+test("committed result content is authoritative while unmarked steps remain inspectable process", () => {
+  const message = {
+    id: "answer", role: "assistant", content: "Complete answer and follow-up question.", resultKind: "final" as const,
+    steps: [
+      { id: "progress", kind: "text" as const, content: "Checking the records." },
+      { id: "old-result", kind: "result" as const, content: "Saved." }
+    ]
+  };
+  const sections = transcriptTurnSections(transcriptRenderBlocks(message));
+  assert.deepEqual(sections.process.map(block => block.kind === "text" ? block.content : ""), ["Checking the records."]);
+  assert.deepEqual(sections.response.map(block => block.kind === "result" ? block.content : ""), [message.content]);
+  assert.deepEqual(findTranscriptMatches([message], "follow-up"), [message.id]);
+  assert.deepEqual(findTranscriptMatches([message], "Checking the records"), []);
+});
+
+test("live text is process until a result is explicitly committed", () => {
+  const steps = [{ id: "progress", kind: "text" as const, content: "I will check this." }];
+  const sections = transcriptTurnSections(transcriptRenderBlocks({ role: "assistant", content: "", steps }));
+  assert.deepEqual(sections.response, []);
+  assert.equal(sections.process[0].kind, "text");
+});
+
+test("narration folds into the one process group; the marked result stays the answer", () => {
   const activity = { key: "read", kind: "tool" as const, label: "Read", state: "success" as const, durationMs: 1250 };
   const blocks = [
     { id: "thinking-1", kind: "thinking" as const, content: "Inspect the project" },
-    { id: "preamble", kind: "text" as const, content: "I will read the relevant files." },
+    { id: "narration", kind: "text" as const, content: "I will read the relevant files." },
     { id: "read", kind: "activities" as const, activities: [activity] },
-    { id: "answer", kind: "text" as const, content: "Here is the answer." }
+    { id: "answer", kind: "result" as const, content: "Here is the answer." }
   ];
 
-  const sections = transcriptCompletedTurnSections(blocks);
-  assert.deepEqual(sections.process, blocks.slice(0, 3));
-  assert.deepEqual(sections.response, blocks.slice(3));
+  const sections = transcriptTurnSections(blocks);
+  assert.deepEqual(sections.process, [blocks[0], blocks[1], blocks[2]]);
+  assert.deepEqual(sections.response, [blocks[3]]);
   assert.deepEqual(transcriptProcessSummary(sections.process), {
     toolCount: 1,
     fileCount: 0,
@@ -30,24 +63,30 @@ test("completed turns fold every pre-answer reasoning, narration, and tool block
   });
 });
 
-test("plans and plain answers are never hidden inside the completed process disclosure", () => {
+test("thinking, narration and tool blocks share one process section; plain answers stand alone", () => {
   const plan = {
     id: "plan-1",
     title: "Plan",
     summary: "Summary",
-    status: "proposed" as const,
+    status: "accepted" as const,
     steps: [],
     recommendedMode: "manual" as const,
     artifactPath: "plans/plan-1.md"
   };
   const blocks = [
     { id: "thinking", kind: "thinking" as const, content: "Think" },
-    { id: "plan", kind: "plan" as const, plan }
+    { id: "narration", kind: "text" as const, content: "Looking into it." },
+    { id: "tools", kind: "activities" as const, activities: [{ key: "read", kind: "tool" as const, label: "Read", state: "success" as const }] },
+    { id: "plan", kind: "plan" as const, plan },
+    { id: "answer", kind: "result" as const, content: "Done" }
   ];
-  assert.deepEqual(transcriptCompletedTurnSections(blocks), { process: [blocks[0]], response: [blocks[1]] });
-  assert.deepEqual(transcriptCompletedTurnSections([{ id: "answer", kind: "text", content: "Done" }]), {
+  assert.deepEqual(transcriptTurnSections(blocks), {
+    process: [blocks[0], blocks[1], blocks[2]],
+    response: [blocks[3], blocks[4]]
+  });
+  assert.deepEqual(transcriptTurnSections([{ id: "answer", kind: "result", content: "Done" }]), {
     process: [],
-    response: [{ id: "answer", kind: "text", content: "Done" }]
+    response: [{ id: "answer", kind: "result", content: "Done" }]
   });
 });
 
@@ -68,11 +107,39 @@ test("a proposed Plan remains the final visible decision when later process bloc
     kind: "activities" as const,
     activities: [{ key: "read", kind: "tool" as const, label: "Read", state: "success" as const }]
   };
-  const answer = { id: "answer", kind: "text" as const, content: "Ready for confirmation." };
+  const answer = { id: "answer", kind: "result" as const, content: "Ready for confirmation." };
 
-  const sections = transcriptCompletedTurnSections([thinking, planBlock, activity, answer]);
+  const sections = transcriptTurnSections([thinking, planBlock, activity, answer]);
   assert.deepEqual(sections.process, [thinking, activity]);
   assert.deepEqual(sections.response, [answer, planBlock]);
+});
+
+test("a trailing tool after the answer never splits the prose", () => {
+  // The common assistant shape: full answer, quiet memory write, short final
+  // delivery. Tools and narration join the one process group; only the marked
+  // deliverable renders in the answer area.
+  const tool = (key: string) => ({ id: key, kind: "activities" as const, activities: [{ key, kind: "tool" as const, label: key, state: "success" as const }] });
+  const sections = transcriptTurnSections([
+    { id: "thinking", kind: "thinking" as const, content: "想一下" },
+    { id: "narration", kind: "text" as const, content: "先给完整回答。" },
+    tool("save_memory"),
+    { id: "final", kind: "result" as const, content: "配置已改好。要顺便打开热重载吗？" }
+  ]);
+  assert.deepEqual(sections.process.map(block => block.id), ["thinking", "narration", "save_memory"]);
+  assert.deepEqual(sections.response.map(block => block.kind === "result" ? block.content : ""), ["配置已改好。要顺便打开热重载吗？"]);
+});
+
+test("the unrecorded-result notice applies only to legacy turns that actually ran a process", () => {
+  const activity = { id: "a", kind: "activities" as const, activities: [{ key: "read", kind: "tool" as const, label: "Read", state: "success" as const }] };
+  const narration = { id: "n", kind: "text" as const, content: "narration" };
+  const legacyWithProcess = transcriptTurnSections([activity, narration]);
+  assert.equal(transcriptResultUnrecorded({ role: "assistant", content: "tail" }, legacyWithProcess.process), true);
+  assert.equal(transcriptResultUnrecorded({ role: "assistant", content: "tail", resultKind: "legacy" }, legacyWithProcess.process), true);
+  assert.equal(transcriptResultUnrecorded({ role: "assistant", content: "tail", resultKind: "final" }, legacyWithProcess.process), false);
+  assert.equal(transcriptResultUnrecorded({ role: "assistant", content: "tail", resultKind: "partial" }, legacyWithProcess.process), false);
+  // A turn with no process could not have lost anything in front of its tail.
+  assert.equal(transcriptResultUnrecorded({ role: "assistant", content: "tail" }, []), false);
+  assert.equal(transcriptResultUnrecorded({ role: "user", content: "hi" }, legacyWithProcess.process), false);
 });
 
 test("a stale running activity is detected as an interruption", () => {

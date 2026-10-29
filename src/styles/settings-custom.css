@@ -4102,3 +4102,627 @@
   }
 
 .settings-status-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+
+/* ── Embedding Lab ─────────────────────────────────────────────────────── */
+.embedding-lab {
+  width: min(1240px, 100%);
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.embedding-lab .embedding-lab-hero {
+  display: grid !important;
+  flex-direction: initial !important;
+  gap: 2rem !important;
+  margin-bottom: 0 !important;
+}
+
+.embedding-lab .embedding-lab-title {
+  font-family: inherit !important;
+  font-size: clamp(3.4rem, 8vw, 6.8rem) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.075em !important;
+  line-height: 0.82 !important;
+  color: var(--foreground) !important;
+}
+
+.embedding-lab .embedding-lab-title em {
+  font-family: Georgia, "Times New Roman", serif !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.06em !important;
+  color: color-mix(in oklab, var(--foreground) 64%, #7c6cff) !important;
+}
+
+.embedding-lab-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  gap: 2rem;
+  min-height: 360px;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 52%, transparent);
+  border-radius: 2rem;
+  background:
+    radial-gradient(circle at 12% 8%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 34%),
+    radial-gradient(circle at 82% 88%, color-mix(in oklab, #6d7cff 18%, transparent), transparent 38%),
+    var(--card);
+}
+
+.embedding-lab-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image:
+    linear-gradient(color-mix(in oklab, var(--foreground) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--foreground) 7%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(125deg, transparent 10%, black 58%, transparent 94%);
+}
+
+.embedding-lab-hero-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.embedding-lab-back {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+.embedding-lab-back:hover { color: var(--foreground); }
+
+.embedding-lab-eyebrow {
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.embedding-lab-title {
+  margin: 0;
+  color: var(--foreground);
+  font-size: clamp(3.4rem, 8vw, 6.8rem);
+  font-weight: 600;
+  letter-spacing: -0.075em;
+  line-height: 0.82;
+}
+.embedding-lab-title em {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: -0.06em;
+  color: color-mix(in oklab, var(--foreground) 64%, #7c6cff);
+}
+
+.embedding-lab-lede {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.98rem;
+  line-height: 1.65;
+}
+
+.embedding-lab-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+}
+
+.embedding-lab-orbit {
+  position: relative;
+  align-self: center;
+  justify-self: center;
+  width: min(330px, 32vw);
+  aspect-ratio: 1;
+  min-width: 220px;
+}
+.embedding-lab-orbit-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+.embedding-lab-orbit-ring--one { inset: 8%; animation: embedding-spin 28s linear infinite; }
+.embedding-lab-orbit-ring--two { inset: 21%; border-style: dashed; animation: embedding-spin 19s linear infinite reverse; }
+.embedding-lab-orbit-ring--three { inset: 34%; border-color: color-mix(in oklab, #7c6cff 42%, var(--foreground)); }
+
+.embedding-lab-orbit-ring--one::after,
+.embedding-lab-orbit-ring--two::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  top: -4px;
+  left: 50%;
+  border-radius: 50%;
+  background: #7c6cff;
+  box-shadow: 0 0 18px #7c6cff;
+}
+.embedding-lab-orbit-ring--two::after { background: #38c7a4; box-shadow: 0 0 18px #38c7a4; }
+
+.embedding-lab-orbit-dot {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--foreground);
+  opacity: 0.5;
+}
+.embedding-lab-orbit-dot--one { width: 5px; height: 5px; top: 17%; left: 22%; }
+.embedding-lab-orbit-dot--two { width: 4px; height: 4px; bottom: 20%; right: 18%; }
+
+.embedding-lab-orbit-core {
+  position: absolute;
+  inset: 39%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  text-align: center;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--background) 82%, transparent);
+  border: 1px solid color-mix(in oklab, var(--foreground) 16%, transparent);
+  box-shadow: 0 18px 50px color-mix(in oklab, var(--foreground) 14%, transparent);
+  backdrop-filter: blur(14px);
+}
+.embedding-lab-orbit-core small {
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.embedding-lab-orbit-core strong {
+  max-width: 90%;
+  overflow: hidden;
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embedding-lab-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 1.1rem;
+  background: color-mix(in oklab, var(--card) 88%, transparent);
+}
+.embedding-lab-strip-main { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.embedding-lab-strip-kicker {
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.embedding-lab-strip-main strong {
+  overflow: hidden;
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.embedding-lab-strip-note { color: var(--muted-foreground); font-size: 0.76rem; line-height: 1.45; }
+.embedding-lab-strip-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+
+.embedding-lab-notices { display: flex; flex-direction: column; gap: 0.45rem; }
+.embedding-lab-toast {
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.8rem;
+  border: 1px solid color-mix(in oklab, #28a948 28%, var(--border));
+  background: color-mix(in oklab, #28a948 8%, var(--card));
+  color: var(--foreground);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.embedding-lab-toast--quiet { border-color: color-mix(in oklab, var(--border) 60%, transparent); background: var(--card); color: var(--muted-foreground); }
+.embedding-lab-toast--error { border-color: color-mix(in oklab, #fc0035 36%, var(--border)); background: color-mix(in oklab, #fc0035 8%, var(--card)); }
+
+.embedding-lab-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.embedding-lab-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1.25rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 56%, transparent);
+  border-radius: 1.35rem;
+  background: var(--card);
+  animation: embedding-rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 55ms);
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+.embedding-lab-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in oklab, var(--foreground) 24%, var(--border));
+  box-shadow: 0 20px 48px color-mix(in oklab, var(--foreground) 8%, transparent);
+}
+.embedding-lab-card--active {
+  border-color: color-mix(in oklab, #7c6cff 52%, var(--border));
+  background:
+    linear-gradient(145deg, color-mix(in oklab, #7c6cff 8%, transparent), transparent 46%),
+    var(--card);
+}
+.embedding-lab-card--active::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, #7c6cff, #38c7a4 55%, transparent);
+}
+
+.embedding-lab-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.embedding-lab-index {
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+}
+.embedding-lab-badges { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+.embedding-lab-card-heading { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.embedding-lab-card-heading h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.embedding-lab-card-heading code {
+  overflow: hidden;
+  color: color-mix(in oklab, var(--foreground) 72%, #7c6cff);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embedding-lab-card-host {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in oklab, var(--border) 52%, transparent);
+  border-radius: 0.65rem;
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+}
+.embedding-lab-card-host span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.embedding-lab-copy {
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.1rem;
+}
+.embedding-lab-copy:hover { color: var(--foreground); }
+
+.embedding-lab-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 0; }
+.embedding-lab-meta div { min-width: 0; }
+.embedding-lab-meta dt {
+  margin-bottom: 0.2rem;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.56rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.embedding-lab-meta dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embedding-lab-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: auto;
+  padding-top: 0.25rem;
+}
+.embedding-lab-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.embedding-lab-add-card {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.8rem;
+  min-height: 92px;
+  padding: 1.25rem;
+  text-align: left;
+  border: 1px dashed color-mix(in oklab, var(--foreground) 24%, transparent);
+  border-radius: 1.35rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+}
+.embedding-lab-add-card:hover {
+  border-color: color-mix(in oklab, var(--foreground) 52%, transparent);
+  background: color-mix(in oklab, var(--muted) 30%, transparent);
+  color: var(--foreground);
+}
+.embedding-lab-add-card span { font-size: 2rem; line-height: 1; font-weight: 300; }
+.embedding-lab-add-card strong { color: inherit; font-size: 1rem; }
+.embedding-lab-add-card small { max-width: 16rem; color: var(--muted-foreground); font-size: 0.72rem; line-height: 1.5; }
+
+.embedding-lab-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  padding: clamp(2.5rem, 7vw, 5rem) 1.5rem;
+  text-align: center;
+  border: 1px dashed color-mix(in oklab, var(--foreground) 20%, transparent);
+  border-radius: 1.5rem;
+}
+.embedding-lab-empty-mark {
+  color: color-mix(in oklab, var(--foreground) 28%, transparent);
+  font-size: 3rem;
+  line-height: 1;
+}
+.embedding-lab-empty h2 { margin: 0; font-size: 1.5rem; letter-spacing: -0.04em; }
+.embedding-lab-empty p { max-width: 30rem; margin: 0; color: var(--muted-foreground); font-size: 0.85rem; line-height: 1.6; }
+
+.embedding-lab-skeleton { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+.embedding-lab-skeleton div {
+  min-height: 270px;
+  border-radius: 1.35rem;
+  background: linear-gradient(100deg, var(--muted) 20%, color-mix(in oklab, var(--muted) 45%, var(--card)) 40%, var(--muted) 60%);
+  background-size: 220% 100%;
+  animation: embedding-shimmer 1.4s ease-in-out infinite;
+}
+
+.embedding-lab-local {
+  padding: 1.25rem;
+  border: 1px solid color-mix(in oklab, var(--border) 56%, transparent);
+  border-radius: 1.35rem;
+  background: color-mix(in oklab, var(--muted) 22%, var(--card));
+}
+.embedding-lab-local-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.embedding-lab-local-head p { max-width: 46rem; margin: 0.4rem 0 0; color: var(--muted-foreground); font-size: 0.8rem; line-height: 1.55; }
+.embedding-lab-local-dot { width: 9px; height: 9px; margin-top: 0.35rem; border-radius: 50%; background: color-mix(in oklab, var(--foreground) 20%, transparent); }
+.embedding-lab-local-dot.is-on { background: #28a948; box-shadow: 0 0 0 4px color-mix(in oklab, #28a948 14%, transparent); }
+
+.embedding-lab-local-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+.embedding-lab-local-card { padding: 0.9rem; border: 1px solid color-mix(in oklab, var(--border) 52%, transparent); border-radius: 0.9rem; background: var(--card); }
+.embedding-lab-local-title { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.embedding-lab-local-title strong { font-size: 0.85rem; }
+.embedding-lab-local-title span { color: var(--muted-foreground); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.62rem; }
+.embedding-lab-local-models { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.65rem; }
+.embedding-lab-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--border) 62%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 26%, transparent);
+  color: var(--foreground);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.66rem;
+}
+.embedding-lab-model-chip b { color: #28a948; font-family: inherit; font-size: 0.6rem; font-weight: 600; }
+.embedding-lab-model-chip:hover { border-color: color-mix(in oklab, #28a948 44%, var(--border)); }
+.embedding-lab-model-chip:disabled { opacity: 0.55; cursor: progress; }
+
+.embedding-lab-local-empty { margin-top: 0.9rem; }
+.embedding-lab-local-empty p { margin: 0 0 0.5rem; color: var(--muted-foreground); font-size: 0.8rem; }
+.embedding-lab-local-empty pre {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  overflow: auto;
+  border: 1px solid color-mix(in oklab, var(--border) 52%, transparent);
+  border-radius: 0.7rem;
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.embedding-lab-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  justify-content: flex-end;
+  background: color-mix(in oklab, #000 46%, transparent);
+  backdrop-filter: blur(7px);
+  animation: embedding-fade 180ms ease both;
+}
+.embedding-lab-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: min(560px, 100%);
+  height: 100%;
+  padding: 1.5rem;
+  overflow-y: auto;
+  border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  background: var(--background);
+  box-shadow: -30px 0 80px color-mix(in oklab, #000 22%, transparent);
+  animation: embedding-slide 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.embedding-lab-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.embedding-lab-editor-head h2 { margin: 0.35rem 0 0; font-size: 1.8rem; letter-spacing: -0.05em; }
+.embedding-lab-editor-desc { margin: 0; color: var(--muted-foreground); font-size: 0.8rem; line-height: 1.55; }
+.embedding-lab-close {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.embedding-lab-close:hover { color: var(--foreground); border-color: var(--foreground); }
+
+.embedding-lab-form { display: flex; flex-direction: column; gap: 1rem; }
+.embedding-lab-field { display: flex; flex-direction: column; gap: 0.4rem; }
+.embedding-lab-hint { margin: 0; color: var(--muted-foreground); font-size: 0.7rem; line-height: 1.5; }
+.embedding-lab-key-row { display: flex; gap: 0.4rem; align-items: center; }
+.embedding-lab-key-row input { flex: 1; }
+.embedding-lab-reveal {
+  flex-shrink: 0;
+  height: 2.25rem;
+  padding: 0 0.65rem;
+  border: 1px solid color-mix(in oklab, var(--border) 66%, transparent);
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 0.68rem;
+}
+.embedding-lab-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid color-mix(in oklab, var(--border) 52%, transparent);
+  border-radius: 0.8rem;
+  background: color-mix(in oklab, var(--muted) 20%, transparent);
+}
+.embedding-lab-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+@keyframes embedding-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes embedding-spin { to { transform: rotate(360deg); } }
+@keyframes embedding-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+@keyframes embedding-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes embedding-slide {
+  from { transform: translateX(28px); opacity: 0.6; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@media (max-width: 980px) {
+  .embedding-lab-hero { grid-template-columns: 1fr; min-height: 0; }
+  .embedding-lab-orbit { width: min(260px, 60vw); justify-self: start; }
+  .embedding-lab-grid { grid-template-columns: 1fr; }
+  .embedding-lab-local-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .embedding-lab { padding: 0.75rem 0.9rem 3rem; }
+  .embedding-lab-hero { border-radius: 1.4rem; padding: 1.25rem; }
+  .embedding-lab-title { font-size: clamp(3rem, 18vw, 5rem); }
+  .embedding-lab-strip { align-items: flex-start; flex-direction: column; }
+  .embedding-lab-strip-actions { width: 100%; justify-content: space-between; }
+  .embedding-lab-card { border-radius: 1.1rem; padding: 1rem; }
+  .embedding-lab-meta { grid-template-columns: 1fr; }
+  .embedding-lab-editor { border-left: 0; border-radius: 0; padding: 1.1rem; }
+  .embedding-lab-editor-actions { position: sticky; bottom: 0; background: var(--background); padding-bottom: 0.5rem; }
+  .embedding-lab-skeleton { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .embedding-lab-card,
+  .embedding-lab-orbit-ring--one,
+  .embedding-lab-orbit-ring--two,
+  .embedding-lab-skeleton div,
+  .embedding-lab-overlay,
+  .embedding-lab-editor {
+    animation: none !important;
+  }
+  .embedding-lab-card { transition: none; }
+}
+
+.embedding-lab-probe {
+  align-self: flex-start;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid color-mix(in oklab, #28a948 30%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in oklab, #28a948 8%, transparent);
+  color: #279141;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.02em;
+}
+.embedding-lab-probe.is-error {
+  border-color: color-mix(in oklab, #fc0035 34%, var(--border));
+  background: color-mix(in oklab, #fc0035 8%, transparent);
+  color: #d8001b;
+}
+
+.embedding-lab-copy:focus-visible,
+.embedding-lab-model-chip:focus-visible,
+.embedding-lab-reveal:focus-visible,
+.embedding-lab-close:focus-visible,
+.embedding-lab-add-card:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.embedding-lab-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.embedding-lab-stats span { display: inline-flex; align-items: baseline; gap: 0.35rem; }
+.embedding-lab-stats span + span { padding-left: 1rem; border-left: 1px solid color-mix(in oklab, var(--foreground) 18%, transparent); }
+.embedding-lab-stats b { color: var(--foreground); font-size: 0.78rem; font-weight: 600; letter-spacing: 0; }

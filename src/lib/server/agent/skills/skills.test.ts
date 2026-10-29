@@ -13,7 +13,7 @@ import {
   type LoadedSkill
 } from "$lib/server/agent/skills/skills.js";
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -318,4 +318,47 @@ test("disable-model-invocation keeps a skill loadable but hides it from every mo
 
   // Explicit invocation must still resolve it — that is the flag's entire point.
   assert.equal(modelDiscoverableSkills(skills).length, 1);
+});
+
+test("a linked Skill directory is loaded, and disabling matches the entry that points at it", () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-skills-link-"));
+  const workspace = join(root, "moli-t");
+  const shared = join(root, "shared", "pdf");
+  const linkPath = join(workspace, "skills", "pdf");
+  mkdirSync(join(workspace, "skills"), { recursive: true });
+  mkdirSync(shared, { recursive: true });
+  writeFileSync(join(shared, "SKILL.md"), `---\nname: pdf\ndescription: linked copy\n---\nbody\n`);
+  symlinkSync(shared, linkPath);
+
+  try {
+    const loaded = loadSkillsFromWorkspace(workspace);
+    assert.equal(loaded.skills.length, 1);
+    assert.equal(loaded.skills[0]?.name, "pdf");
+    assert.equal(loaded.skills[0]?.filePath, join(linkPath, "SKILL.md"));
+
+    // The disabled path is the entry, not the resolved target: the same content
+    // remains loadable through a different entry that the owner left enabled.
+    const disabled = loadSkillsFromWorkspace(workspace, undefined, { disabledSkillPaths: [join(linkPath, "SKILL.md")] });
+    assert.equal(disabled.skills.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a broken link is reported without hiding the other Skills", () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-skills-broken-"));
+  const workspace = join(root, "moli-t");
+  const skillsDir = join(workspace, "skills");
+  mkdirSync(join(skillsDir, "ok"), { recursive: true });
+  writeFileSync(join(skillsDir, "ok", "SKILL.md"), `---\nname: ok\ndescription: works\n---\n`);
+  symlinkSync(join(root, "missing-target"), join(skillsDir, "gone"));
+
+  try {
+    const result = loadSkillsFromWorkspace(workspace);
+    assert.equal(result.skills.length, 1);
+    assert.equal(result.skills[0]?.name, "ok");
+    assert.match(result.diagnostics.join("\n"), /Broken link skipped/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -40,6 +40,9 @@ import {
 import { appendMemoryGovernanceRejection } from "$lib/server/memory/governanceLog.js";
 import type { MemoryTraceFeedbackValue, SqliteMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 import { MemoryProfileBuilder, type MemoryProfileResult, type MemoryProfileScope } from "$lib/server/memory/profileBuilder.js";
+import { dedupeByMemoryIdentity } from "$lib/server/memory/memoryIdentity.js";
+import { embeddingEndpoint, isLocalEmbeddingModel, resolveEmbeddingTarget } from "$lib/server/memory/activeProvider.js";
+import { SESSION_AFFINITY_HEADER } from "$lib/server/providers/sessionAffinity.js";
 import { deriveMemoryAccessScope, namespaceForDomain } from "$lib/server/memory/namespaces.js";
 import { tokenizeWords } from "#mory";
 import { getMemoryProfileSnapshotStore, type MemoryProfileSnapshotStore } from "$lib/server/memory/profileSnapshotStore.js";
@@ -96,24 +99,28 @@ export class MemoryGateway {
 
   private configureEmbedding(backend: MemoryBackend, settings: RuntimeSettings): void {
     if (!backend.configureEmbedder) return;
-    const providerId = settings.plugins.memory.embeddingProviderId?.trim();
-    const model = settings.plugins.memory.embeddingModel?.trim();
-    const provider = settings.customProviders.find((item) => item.id === providerId && item.enabled);
-    const apiKeyDigest = provider?.apiKey
-      ? createHash("sha256").update(provider.apiKey).digest("hex")
-      : "missing";
-    const key = provider && model ? `${provider.id}:${provider.baseUrl}:${model}:${apiKeyDigest}` : "disabled";
+    const target = resolveEmbeddingTarget(settings);
+    const model = target?.model;
+    const apiKeyDigest = target?.apiKey
+      ? createHash("sha256").update(target.apiKey).digest("hex")
+      : "local";
+    const key = target && model ? `${target.id}:${target.baseUrl}:${model}:${apiKeyDigest}` : "disabled";
     if (key === this.embeddingConfigKey) return;
     this.embeddingConfigKey = key;
-    if (!provider || !model || !provider.apiKey) {
+    if (!target || !model || (!target.apiKey && !isLocalEmbeddingModel(target))) {
       backend.configureEmbedder(undefined, undefined);
       return;
     }
-    const endpoint = `${provider.baseUrl.replace(/\/+$/, "").replace(/\/(chat\/completions|responses)$/i, "")}/embeddings`;
+    const endpoint = embeddingEndpoint(target);
     backend.configureEmbedder(async (text) => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        [SESSION_AFFINITY_HEADER]: "molibot-memory-embedding"
+      };
+      if (target.apiKey) headers.Authorization = `Bearer ${target.apiKey}`;
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.apiKey}` },
+        headers,
         body: JSON.stringify({ model, input: text })
       });
       if (!response.ok) throw new Error(`Embedding request failed with status ${response.status}.`);
@@ -121,7 +128,7 @@ export class MemoryGateway {
       const embedding = payload.data?.[0]?.embedding;
       if (!Array.isArray(embedding) || embedding.length === 0) throw new Error("Embedding provider returned no vector.");
       return embedding.map(Number);
-    }, `${provider.id}:${model}`);
+    }, `${target.id}:${model}`);
   }
 
   getActiveBackendKey(): string {
@@ -386,7 +393,11 @@ export class MemoryGateway {
     scope = authorized;
     const namespace = input.namespace ?? (input.domain ? namespaceForDomain(scope, input.domain) : undefined);
     if (namespace && !deriveMemoryAccessScope(scope, { includeContent: true }).authorizedNamespaces.includes(namespace)) throw new Error("Memory namespace is not authorized for this Agent");
-    const assessed = assessMemoryWrite(input);
+    const assessed = assessMemoryWrite(input, {
+      // A structured fact already carries its own identity; the free-text
+      // length heuristic must not reject "不吃辣" after the Writer accepted it.
+      minContentLength: input.subject?.trim() && input.type ? 2 : undefined
+    });
     if (!assessed.allowed || !assessed.prepared) {
       if (this.governanceLogPath) {
         appendMemoryGovernanceRejection({
@@ -458,6 +469,33 @@ export class MemoryGateway {
     }
     return deleted;
   }
+
+  /**
+   * Remove a memory the user asked to forget and suppress the same fact from
+   * being extracted or imported again. A plain `delete` is an admin action;
+   * forgetting carries the user's intent.
+   */
+  async forget(scope: MemoryScope, id: string, options: { reason?: string } = {}): Promise<boolean> {
+    const authorized = this.authorizedAgentScope(scope);
+    if (!authorized) return false;
+    scope = authorized;
+    if (!this.isEnabled()) return false;
+    const existing = await this.getBackend().get(scope, id);
+    if (!existing) return false;
+    try {
+      await this.suppressPrivacy(scope, id, {
+        idempotencyKey: `forget:${id}`,
+        reason: options.reason ?? "user_forget"
+      });
+    } catch {
+      // A legacy row without a canonical identity can still be deleted; the
+      // suppression is best-effort rather than a reason to keep the memory.
+    }
+    const deleted = await this.getBackend().delete(scope, id);
+    if (deleted) suppressImportedMemory(scope, existing.layer, existing.content);
+    return deleted;
+  }
+
 
   async update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
     const authorized = this.authorizedAgentScope(scope);
@@ -784,6 +822,7 @@ export class MemoryGateway {
         snapshot: {
           displayText: record.content,
           content: record.content,
+          subject: record.subject,
           layer: record.layer,
           type: record.type,
           confidence: record.confidence,
@@ -1003,13 +1042,5 @@ export class MemoryGateway {
 }
 
 function dedupeMemoryRows(rows: MemoryRecord[]): MemoryRecord[] {
-  const seen = new Set<string>();
-  const deduped: MemoryRecord[] = [];
-  for (const row of rows) {
-    const key = `${row.layer}:${normalizeMemoryContent(row.content).toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(row);
-  }
-  return deduped;
+  return dedupeByMemoryIdentity(rows);
 }

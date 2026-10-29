@@ -14,7 +14,9 @@ import { Agent, FormData as UndiciFormData, fetch as undiciFetch } from "undici"
  * check the thing the user would actually see happen.
  */
 
-const EVAL_PROFILE_ID = "personal";
+// The seeded owner config may name its Web instance differently. Override this
+// when running against real settings instead of the historical "personal" seed.
+const EVAL_PROFILE_ID = process.env.MOLIBOT_EVAL_PROFILE_ID?.trim() || "personal";
 const EVAL_HTTP_TIMEOUT_MS = 15 * 60 * 1000;
 const EVAL_HTTP_DISPATCHER = new Agent({
   headersTimeout: EVAL_HTTP_TIMEOUT_MS,
@@ -234,6 +236,11 @@ export async function runTaskTurns(endpoint, task, { fixtureDir, thinkingLevel }
     conversationId = result.conversationId;
     sessions.set(conversationId, userId);
     replies.push(result.reply);
+    if (turn.waitAfterMs > 0) {
+      // Memory extraction is deliberately idle-driven; a turn that must observe
+      // it in the next Session waits for the runtime's 60s sweep to catch up.
+      await new Promise((resolve) => setTimeout(resolve, turn.waitAfterMs));
+    }
   }
 
   // Tools are the union across every session the task touched: a memory task

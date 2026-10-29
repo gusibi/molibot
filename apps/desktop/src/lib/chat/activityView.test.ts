@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DesktopConversationActivity } from "@molibot/desktop-contract";
 import {
-  activityFileSummary,
-  activityHeadline,
   activityTimelineItems,
   activityToolIcon,
   activityToolName,
@@ -77,56 +75,6 @@ test("a failed call always falls back to plain text", () => {
 test("an activity with no payload has no body", () => {
   assert.equal(classifyActivityBody(activity({ summary: "" })), null);
   assert.equal(classifyActivityBody(activity({ summary: "   " })), null);
-});
-
-test("the head names the running step, then the failed one, then the last", () => {
-  const running = activityHeadline([
-    activity({ key: "a-1", label: "one" }),
-    activity({ key: "b-2", label: "two", state: "running" }),
-    activity({ key: "c-3", label: "three" })
-  ]);
-  assert.deepEqual(
-    { label: running?.label, index: running?.index, total: running?.total, running: running?.running },
-    { label: "two", index: 2, total: 3, running: true }
-  );
-
-  const failed = activityHeadline([
-    activity({ key: "a-1", label: "one" }),
-    activity({ key: "b-2", label: "two", state: "error" }),
-    activity({ key: "c-3", label: "three" })
-  ]);
-  assert.equal(failed?.label, "two");
-  assert.equal(failed?.failed, true);
-
-  const done = activityHeadline([
-    activity({ key: "a-1", label: "one" }),
-    activity({ key: "c-3", label: "three" })
-  ]);
-  assert.equal(done?.label, "three");
-  assert.equal(done?.running, false);
-});
-
-test("an empty activity list has no head", () => {
-  assert.equal(activityHeadline([]), null);
-});
-
-test("file summary splits written from read and never counts a path twice", () => {
-  const summary = activityFileSummary([
-    activity({ key: "read-1", tool: "read", paths: ["a.ts"] }),
-    activity({ key: "edit-2", tool: "edit", paths: ["a.ts"], mutates: true }),
-    activity({ key: "read-3", tool: "read", paths: ["b.ts"] }),
-    activity({ key: "read-4", tool: "read", paths: ["b.ts"] })
-  ]);
-  // `a.ts` was read and then written: written is the fact worth surfacing.
-  assert.deepEqual(summary.written, ["a.ts"]);
-  assert.deepEqual(summary.read, ["b.ts"]);
-});
-
-test("a failed call's paths are not reported as touched", () => {
-  const summary = activityFileSummary([
-    activity({ key: "edit-1", tool: "edit", paths: ["a.ts"], mutates: true, state: "error" })
-  ]);
-  assert.deepEqual(summary, { written: [], read: [] });
 });
 
 test("adjacent successful calls with the same readable action become one group", () => {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import AngleRight from "reicon-svelte/icons/AngleRight";
   import ChatLine from "reicon-svelte/icons/ChatLine";
+  import Lightbulb from "reicon-svelte/icons/Lightbulb";
   import { ACTIVITY_GROUP_ICONS } from "./activityIcons";
   import type { Translation } from "../i18n";
   import type { TranscriptProcessBlock } from "./transcript";
@@ -9,7 +10,7 @@
   import { activityTimelineItems, type ActivityGroupAction, type ActivityTimelineItem } from "./activityView";
   import { formatDuration } from "../presentation";
 
-  export let blocks: Exclude<TranscriptProcessBlock, { kind: "thinking" }>[];
+  export let blocks: TranscriptProcessBlock[];
   export let copy: Translation;
   export let stateKey: string;
   export let live = false;
@@ -34,14 +35,14 @@
   const durationLabel = formatDuration;
 </script>
 
-<div class="process-timeline" data-live={live}>
+<div class="process-timeline" data-live={live} role="list" aria-label={copy.viewProcess}>
   {#each blocks as block (block.id)}
     {#if block.kind === "activities"}
       {@const items = activityTimelineItems(block.activities)}
       {#each items as item (item.key)}
         {#if item.kind === "group"}
           {@const GroupIcon = ACTIVITY_GROUP_ICONS[item.action]}
-          <div class="process-timeline-entry process-timeline-group">
+          <div class="process-timeline-entry process-timeline-group" role="listitem">
             <GroupIcon size={14} aria-hidden="true" />
             <details class="process-activity-group">
               <summary>
@@ -49,7 +50,7 @@
                 {#if item.durationMs}<small>{durationLabel(item.durationMs)}</small>{/if}
                 <AngleRight class="process-activity-caret" size={14} aria-hidden="true" />
               </summary>
-              <div class="process-activity-group-list">
+              <div class="process-activity-group-list" role="list">
                 {#each item.activities as activity (activity.key)}
                   <ProcessActivityItem {activity} {copy} {onOpenPath} />
                 {/each}
@@ -60,8 +61,13 @@
           <ProcessActivityItem activity={item.activity} {copy} {onOpenPath} />
         {/if}
       {/each}
+    {:else if block.kind === "thinking"}
+      <div class="process-timeline-entry process-timeline-thinking" role="listitem" aria-label={copy.thinking}>
+        <Lightbulb size={14} aria-hidden="true" />
+        <div class="turn-process-text turn-process-thought">{block.content}</div>
+      </div>
     {:else if block.content}
-      <div class="process-timeline-entry process-timeline-text">
+      <div class="process-timeline-entry process-timeline-text" role="listitem">
         <ChatLine size={14} aria-hidden="true" />
         <ChatMarkdown {resolveImage} source={block.content} {copy} {endpoint} className="turn-process-text markdown-body" contentKey={`${stateKey}-${block.id}`} />
       </div>

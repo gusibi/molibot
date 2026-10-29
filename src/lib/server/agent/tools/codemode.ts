@@ -1,184 +1,161 @@
-import { fork } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { createHash } from "node:crypto";
 import { Type } from "@sinclair/typebox";
-import { parseCodemodeSource } from "@earendil-works/pi-codemode/source";
+import { CodemodeSandbox } from "@earendil-works/pi-codemode";
+import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { Models } from "@earendil-works/pi-ai";
+import type { ToolExecutionApi, NestedToolExecutionResult } from "@earendil-works/pi-durable";
+import type { JsonValue } from "@earendil-works/chord";
 import type { ModelOperations } from "$lib/server/agent/models/modelOperations.js";
+import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
 
-const schema = Type.Object({ code: Type.String() });
-
-type NestedResult = { result: AgentToolResult<unknown>; isError: boolean };
 interface CodemodeOptions {
   getTools(): AgentTool<any>[];
-  invoke(tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal): Promise<NestedResult>;
+  invoke(tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal): Promise<{ result: AgentToolResult<unknown>; isError: boolean }>;
   artifactDir: string;
   workspaceDir: string;
-  /** Model work shared with pi extensions; omitted when the caller cannot authorize it. */
   models?: ModelOperations;
+  modelCatalog?: Models;
 }
 
-const MODEL_DECLARATIONS = [
-  { name: "models.list", description: "List classifier and image models with credential availability.", signature: "(): Promise<Array<{ key: string; type: string; provider: string; model: string; name: string; available: boolean }>>" },
-  { name: "models.classify", description: "Run a structured classifier against a state and questions.", signature: "(input: { model?: string; state: object; questions: object }): Promise<{ model: string; answers: Record<string, unknown>; usage?: unknown }>" },
-  { name: "models.generateImages", description: "Generate images from a prompt with optional reference images. Pass a returned image to image() to display it.", signature: "(input: { model?: string; prompt: string; images?: string[] }): Promise<{ model: string; images: Array<{ type: \"image\"; ref: string; mimeType: string; data: string }>; text?: string; usage?: unknown }>" }
-] as const;
-
-async function invokeModelOperation(models: ModelOperations, member: string, args: unknown, signal: AbortSignal, callId: string): Promise<unknown> {
-  if (member === "list") return models.catalog();
-  if (member === "classify") return models.classify(args as Parameters<ModelOperations["classify"]>[0], signal, callId);
-  if (member === "generateImages") return models.generateImages(args as Parameters<ModelOperations["generateImages"]>[0], signal, callId);
-  throw new Error(`Unknown model operation: models.${member}`);
-}
-
-/** The VM has no host I/O; every external operation re-enters the tool dispatcher. */
-/**
- * A generated image is inlined for vision only up to this size (base64 chars).
- * Larger ones are replaced by a text reference so one image cannot flood the
- * model context or the transcript; the bytes stay in the workspace artifact.
- */
 const INLINE_IMAGE_MAX_BASE64 = 700_000;
 
-/** Inline a generated image for vision only up to the cap; larger ones become a text artifact reference. */
-export function inlineOrReferenceImages(
-  images: Array<{ type: "image"; ref?: string; data: string; mimeType: string }>
-): Array<{ type: "image"; data: string; mimeType: string } | { type: "text"; text: string }> {
-  const out: Array<{ type: "image"; data: string; mimeType: string } | { type: "text"; text: string }> = [];
-  for (const block of images) {
-    out.push(block.data.length <= INLINE_IMAGE_MAX_BASE64
-      ? { type: "image", data: block.data, mimeType: block.mimeType }
-      : { type: "text", text: `[Generated image too large to inline (${block.mimeType}); saved to this run's workspace artifacts${block.ref ? `: ${block.ref}` : ""}.]` });
-  }
-  return out;
+/** Oversized image bytes stay in artifacts, outside the model context. */
+export function inlineOrReferenceImages(images: Array<{ type: "image"; ref?: string; data: string; mimeType: string }>): AgentToolResult<unknown>["content"] {
+  return images.map(block => block.data.length <= INLINE_IMAGE_MAX_BASE64
+    ? { type: "image", data: block.data, mimeType: block.mimeType }
+    : { type: "text", text: `[Generated image too large to inline (${block.mimeType}); saved to this run's workspace artifacts${block.ref ? `: ${block.ref}` : ""}.]` });
 }
 
-/** Match a displayed image to the artifact the host persisted: the sandbox strips whitespace from base64. */
-function imageKey(data: string): string {
-  return data.replace(/\s+/g, "");
-}
-
-export function createCodemodeTool(options: CodemodeOptions): AgentTool<typeof schema> {
+/** Official Codemode owns execution, discovery, store and journals; the host owns effects and artifacts. */
+export function createCodemodeTool(options: CodemodeOptions): AgentTool<any> {
+  // No VM exists until execute(). The official sandbox owns its worker lifecycle.
+  const createOfficial = (sandbox: CodemodeSandbox) => createCodemodeExtension({ sandbox, models: Boolean(options.models) });
+  const declaration = createOfficial(new CodemodeSandbox()).tools!.find(tool => tool.name === "codemode")!;
   return {
-    name: "codemode", label: "Codemode",
-    description: "Run bounded JavaScript using await tools.<name>(args), ALL_TOOLS, searchTools(query), describeTool(name), text(value), and return. When models are enabled, also await models.list(), models.classify({state,questions}), models.generateImages({prompt,images?}); pass a returned image object to image() to display it. Tools return their result object with content and details. No direct files, network, Node, credentials, timers or nested Codemode. Parallelize independent reads with Promise.all; await every operation. Failed scripts keep partial output; completed operations are not rolled back. A suspended script cannot be replayed: use its receipts to plan remaining work. Optional first line: // @options: {\"timeout_ms\":60000,\"max_output_tokens\":2000}. store/load values are local to this execution.",
-    parameters: schema,
-    // Only nested calls act on the host; each has its own permission boundary.
+    name: declaration.name, label: "Codemode", description: declaration.description,
+    constrainedSampling: declaration.constrainedSampling,
+    outputLimits: declaration.outputLimits,
+    parameters: declaration.parameters as AgentTool<any>["parameters"],
+    replay: "safe",
     classification: { risk: "low", source: "builtin", effect: "read" },
     async execute(toolCallId, params, signal) {
       signal?.throwIfAborted();
-      const parsed = parseCodemodeSource(params.code);
-      const timeoutMs = Math.min(parsed.options.timeoutMs ?? 60_000, 300_000);
-      const maxChars = Math.min(parsed.options.maxOutputTokens ?? 2_000, 8_000) * 4;
-      const catalog = options.getTools().filter(tool => tool.name !== "codemode");
-      const calls = new Map<number, { controller: AbortController; promise: Promise<void> }>();
-      // Artifact paths of generated images, keyed by their bytes: the sandbox
-      // `image()` helper keeps only data+mimeType, so the path is reattached here.
-      const generatedImageRefs = new Map<string, string>();
-      const invocationIds: string[] = [];
-      let terminal = false;
-      let suspension: Record<string, any> | undefined;
-      const outputName = `codemode-${createHash("sha256").update(toolCallId).digest("hex").slice(0, 24)}.txt`;
-      await mkdir(options.artifactDir, { recursive: true });
-      const outputPath = join(options.artifactDir, outputName);
-      const outputRef = relative(options.workspaceDir, outputPath);
-      const child = fork(join(process.env.MOLIBOT_APP_ROOT?.trim() || process.cwd(), "scripts/runtime/codemode-worker.mjs"), [], {
-        execArgv: ["--max-old-space-size=128"], serialization: "advanced", stdio: ["ignore", "ignore", "ignore", "ipc"],
-        env: { PATH: process.env.PATH, ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) }
-      });
-      let finish!: (value: any) => void;
-      const completed = new Promise<any>(resolve => { finish = resolve; });
-      let requestedStop: any;
-      let forceTimer: ReturnType<typeof setTimeout> | undefined;
-      const finalize = (result: any) => { child.kill("SIGKILL"); finish(result); };
-      const stop = (result: any, preserveOutput = false) => {
-        if (terminal) return;
-        terminal = true;
-        for (const call of calls.values()) call.controller.abort();
-        if (preserveOutput && child.connected) {
-          requestedStop = result;
-          child.send({ kind: "abort" });
-          forceTimer = setTimeout(() => finalize(result), 2_000);
-        } else finalize(result);
+      const invocation = currentPiInvocation();
+      if (!invocation) throw new Error("Codemode requires an active native execution owner.");
+      const { api, context } = invocation;
+      const sandbox = new CodemodeSandbox({ memoryLimitBytes: 64 * 1024 * 1024, timeoutMs: 300_000 });
+      const extension = createOfficial(sandbox);
+      const official = extension.tools!.find(tool => tool.name === "codemode")!;
+      const modelTools = extension.tools!.filter(tool => tool.name !== "codemode");
+      let partialOutput: AgentToolResult<unknown>["content"] = [];
+      const start = sandbox.start.bind(sandbox);
+      sandbox.start = (source, runOptions) => {
+        const run = start(source, { ...runOptions, timeoutMs: Math.min(runOptions?.timeoutMs ?? 300_000, 300_000) });
+        void run.result.then(result => { partialOutput = result.output.filter(block => block.type === "text" || block.type === "image") as typeof partialOutput; }).catch(() => {});
+        return run;
       };
-      const abort = () => stop({ ok: false, errorKind: "aborted", text: "Codemode cancelled. Completed tool operations were not rolled back." }, true);
-      signal?.addEventListener("abort", abort, { once: true });
-      const timer = setTimeout(() => stop({ ok: false, errorKind: "timeout", text: "Codemode deadline exceeded. Completed tool operations were not rolled back." }, true), timeoutMs + 2_000);
-      child.on("error", error => stop({ ok: false, errorKind: "sandbox", text: error.message }));
-      child.on("close", () => requestedStop ? finalize(requestedStop) : stop({ ok: false, errorKind: "sandbox", text: "Codemode process exited without a result. Inspect completed tool receipts before replanning." }));
-      child.on("message", (message: any) => {
-        if (message.kind === "result" && requestedStop) {
-          finalize({ ...message, ...requestedStop, text: [message.text, requestedStop.text].filter(Boolean).join("\n") });
-          return;
-        }
-        if (terminal) return;
-        if (message.kind === "result") { stop(message); return; }
-        if (message.kind === "cancel") { calls.get(message.id)?.controller.abort(); return; }
-        if (message.kind !== "call") return;
-        const controller = new AbortController();
-        const id = `${toolCallId}:codemode:${message.id}`;
-        invocationIds.push(id);
-        const promise = (async () => {
-          try {
-            if (typeof message.name === "string" && message.name.startsWith("models.")) {
-              if (!options.models) throw new Error("Model operations are not available to this script.");
-              const value = await invokeModelOperation(options.models, message.name.slice("models.".length), message.args, controller.signal, id);
-              if (message.name === "models.generateImages" && value && typeof value === "object") {
-                for (const image of (value as { images?: Array<{ data?: unknown; ref?: unknown }> }).images ?? []) {
-                  if (typeof image.data === "string" && typeof image.ref === "string") generatedImageRefs.set(imageKey(image.data), image.ref);
-                }
-              }
-              if (!terminal && child.connected) child.send({ kind: "reply", id: message.id, value });
-              return;
+      const controller = new AbortController();
+      const ownedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+      const ownedContext = { ...context, abortSignal: ownedSignal };
+      const tools = options.getTools().filter(tool => tool.name !== "codemode");
+      const pending = new Set<Promise<unknown>>();
+      const invocationIds: string[] = [];
+      const imageRefs = new Map<string, string>();
+      let suspension: (AgentToolResult<unknown> & { metadata?: Record<string, unknown> }) | undefined;
+      const env = new NodeExecutionEnv({ cwd: options.workspaceDir });
+      // The formatter writes only into this run's scratch directory.
+      env.createTempDir = async prefix => {
+        await mkdir(options.artifactDir, { recursive: true });
+        return { ok: true, value: await mkdtemp(join(options.artifactDir, prefix ?? "pi-codemode-")) };
+      };
+      const bridge: ToolExecutionApi = {
+        ...api, env,
+        agent: async ctx => ({ ...await api.agent(ctx), callable: [
+          ...tools.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters, structuredOutputSchema: Type.Any() })),
+          ...modelTools
+        ] } as Awaited<ReturnType<ToolExecutionApi["agent"]>>),
+        models: options.modelCatalog ?? api.models,
+        executeTool: (name, args, _ctx, nested) => {
+          const id = `${toolCallId}:codemode:${nested?.key?.replace(/^c/, "")}`;
+          invocationIds.push(id);
+          const work = (async (): Promise<NestedToolExecutionResult> => {
+            ownedSignal.throwIfAborted();
+            const tool = tools.find(tool => tool.name === name);
+            const modelTool = modelTools.find(tool => tool.name === name);
+            if (modelTool && options.models) {
+              // Keep official model argument validation and results, but route paid calls
+              // through the host's owned model tools for approval, budget and media usage.
+              const models = new Proxy(bridge.models, { get(target, key) {
+                if (key === "classify") return async (model: { provider: string; id: string }, input: any) => {
+                  if (input.images?.length) throw new Error("Classifier reference images are not supported by this host.");
+                  const value = await options.models!.classify({ model: `classifier|${model.provider}|${model.id}`, state: input.state, questions: input.questions }, ownedSignal, id);
+                  return { ...value, provider: model.provider, model: model.id, stopReason: "stop", timestamp: Date.now() };
+                };
+                if (key === "generateImages") return async (model: { provider: string; id: string }, input: any) => {
+                  const value = await options.models!.generateImages({ model: `image|${model.provider}|${model.id}`,
+                    prompt: input.input.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n"),
+                    images: input.input.filter((block: any) => block.type === "image").map((block: any) => `data:${block.mimeType};base64,${block.data}`) }, ownedSignal, id);
+                  for (const image of value.images) imageRefs.set(image.data.replace(/\s+/g, ""), image.ref);
+                  return { provider: model.provider, model: model.id, output: [...(value.text ? [{ type: "text", text: value.text }] : []), ...value.images], usage: value.usage, stopReason: "stop", timestamp: Date.now() };
+                };
+                const value = Reflect.get(target, key);
+                return typeof value === "function" ? value.bind(target) : value;
+              } });
+              const value = await modelTool.execute!(args, { ...bridge, models }, ownedContext);
+              return { taskId: api.taskId, structuredOutput: value.structuredOutput, isError: Boolean(value.isError), diagnostics: value.diagnostics ?? [] };
             }
-            const tool = catalog.find(tool => tool.name === message.name);
-            if (!tool || tool.name === "codemode") throw new Error("Tool is not available to this script.");
-            const outcome = await options.invoke(tool, id, message.args, controller.signal);
+            if (!tool) throw new Error("Tool is not available to this script.");
+            const outcome = await options.invoke(tool, id, args, ownedSignal);
             const result = outcome.result as AgentToolResult<unknown> & { terminate?: boolean; error?: string; metadata?: Record<string, unknown> };
             if (result.terminate) {
-              suspension = { details: result.details, metadata: result.metadata };
-              const reason = result.content.filter(block => block.type === "text").map(block => block.text).join("\n");
-              stop({ ok: false, text: `${reason}\nCodemode stopped. Completed receipts are retained. Do not replay this script; replan only the remaining operations.` }, true);
-              return;
+              suspension = result;
+              controller.abort(new Error("Codemode awaits a decision."));
+              throw new Error("Codemode awaits a decision.");
             }
-            if (outcome.isError || result.error) throw new Error(result.error || result.content.filter(block => block.type === "text").map(block => block.text).join("\n") || "Tool call failed.");
-            if (!terminal && child.connected) child.send({ kind: "reply", id: message.id, value: result });
-          } catch (error) {
-            const suspended = (error as { suspendedResult?: AgentToolResult<unknown> & { metadata?: Record<string, unknown> } }).suspendedResult;
-            if (suspended) {
-              suspension = { details: suspended.details, metadata: suspended.metadata };
-              stop({ ok: false, text: `${error instanceof Error ? error.message : String(error)}\nModel operation awaits a decision. Completed receipts are retained; replan remaining work.` }, true);
-              return;
-            }
-            if (!terminal && child.connected) child.send({ kind: "reply", id: message.id, error: error instanceof Error ? error.message : String(error) });
-          }
-        })();
-        calls.set(message.id, { controller, promise });
-      });
-      const exited = new Promise<void>(resolve => child.once("close", () => resolve()));
+            const isError = outcome.isError || Boolean(result.error);
+            const error = result.error || result.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+            return { taskId: api.taskId, ...(!isError ? { structuredOutput: JSON.parse(JSON.stringify(result)) as JsonValue } : {}),
+              isError, diagnostics: isError ? [{ severity: "error", message: error || "Tool call failed." }] : [] };
+          })().catch(error => {
+            const suspended = (error as { suspendedResult?: typeof suspension }).suspendedResult;
+            if (suspended) { suspension = suspended; controller.abort(error); }
+            if (ownedSignal.aborted) throw error;
+            return { taskId: api.taskId, isError: true, diagnostics: [{ severity: "error", message: error instanceof Error ? error.message : String(error) }] } satisfies NestedToolExecutionResult;
+          });
+          pending.add(work);
+          void work.finally(() => pending.delete(work)).catch(() => {});
+          return work;
+        }
+      };
       try {
-        child.send({ kind: "execute", code: parsed.code, timeoutMs, maxChars, outputPath, outputRef,
-          tools: catalog.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters })),
-          ...(options.models ? { models: MODEL_DECLARATIONS } : {}) });
-        if (signal?.aborted) abort();
-        const result = await completed;
-        await Promise.allSettled([...calls.values()].map(call => call.promise));
-        await exited;
-        const displayImages = Array.isArray(result.images)
-          ? inlineOrReferenceImages((result.images as Array<{ type: "image"; ref?: string; data: string; mimeType: string }>)
-              .map(image => ({ ...image, ref: image.ref ?? generatedImageRefs.get(imageKey(image.data)) })))
-          : [];
-        return { content: [{ type: "text", text: result.text || "Script completed." }, ...displayImages],
-          details: { ...suspension?.details, invocationIds, calls: result.calls ?? [], errorKind: result.errorKind,
-            ...(result.truncated ? { outputRef } : {}), requiresReplan: !result.ok },
-          ...(suspension ? { terminate: true, metadata: suspension.metadata } : {}),
-          ...(!result.ok ? { error: result.text || "Codemode failed." } : {}) };
+        const result = await official.execute!(params, bridge, ownedContext);
+        const content = (result.output ?? []).flatMap(block => block.type === "image"
+          ? inlineOrReferenceImages([{ ...block, ref: imageRefs.get(block.data.replace(/\s+/g, "")) }])
+          : [{ ...block, text: block.text.split(`${options.workspaceDir}/`).join("") }]);
+        const details = result.details as Record<string, JsonValue> | undefined;
+        const fullOutputPath = typeof details?.fullOutputPath === "string" ? details.fullOutputPath : undefined;
+        return { content, details: { ...details, invocationIds, ...(fullOutputPath ? { outputRef: relative(options.workspaceDir, fullOutputPath) } : {}), requiresReplan: Boolean(result.isError) },
+          ...(result.isError ? { error: content.filter(block => block.type === "text").map(block => block.text).join("\n"), isError: true } : {}) };
+      } catch (error) {
+        let remaining = 8000;
+        const partial = partialOutput.flatMap(block => block.type === "image"
+          ? inlineOrReferenceImages([{ ...block, ref: imageRefs.get(block.data.replace(/\s+/g, "")) }])
+          : (() => {
+              const text = block.text.slice(0, remaining);
+              remaining -= text.length;
+              return text ? [{ type: "text" as const, text }] : [];
+            })());
+        if (suspension) return { ...suspension, content: [...partial, ...suspension.content], terminate: true };
+        if (ownedSignal.aborted) return { content: [...partial, { type: "text", text: "Codemode cancelled. Completed operations were not rolled back." }], details: { invocationIds, errorKind: "aborted", requiresReplan: true }, error: "Codemode cancelled." };
+        throw error;
       } finally {
-        clearTimeout(timer);
-        clearTimeout(forceTimer);
-        signal?.removeEventListener("abort", abort);
-        if (!terminal) abort();
+        controller.abort();
+        await sandbox.close();
+        await Promise.allSettled([...pending]);
       }
     }
-  } as AgentTool<typeof schema>;
+  } as AgentTool<any>;
 }

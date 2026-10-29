@@ -2,7 +2,7 @@ import type { ChannelManager } from "$lib/server/channels/registry.js";
 import { PiRecoveryStore, type PiRecoveryRecord } from '$lib/server/agent/core/piRecoveryStore.js';
 
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
-import { CompactionTask, GenerationTask, ToolTask, type Cursor } from '@earendil-works/pi-durable';
+import { CompactionTask, GenerationTask, ToolTask, type Cursor, type ToolTaskInput } from '@earendil-works/pi-durable';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { existsSync } from 'node:fs';
 
@@ -68,8 +68,10 @@ async function inspectNativeExecution(storagePath: string): Promise<Pick<PiRecov
           if (kind === GenerationTask.definition.name && phase === "request") return { disposition: "review", reason: PI_RECOVERY_REVIEW_MODEL, uncertainCallIds };
           if (kind === CompactionTask.definition.name && phase === "summarize") return { disposition: "review", reason: PI_RECOVERY_REVIEW_MODEL, uncertainCallIds };
           if (kind === ToolTask.definition.name && phase === "execute" && (checkpoint as { replay?: unknown }).replay !== "safe") {
-            const input = task.input as { callId?: unknown } | undefined;
-            if (input && typeof input.callId === "string") uncertainCallIds.push(input.callId);
+            const input = task.input as ToolTaskInput | undefined;
+            const callId = input?.kind === "nested" ? input.call.id : input?.callId;
+            if (typeof callId !== "string") throw new Error("Unsafe tool has no native call identity.");
+            uncertainCallIds.push(callId);
           }
         }
         cursor = page.next;

@@ -153,6 +153,8 @@ export interface CustomProviderConfig {
   apiKey: string;
   models: ProviderModelConfig[];
   defaultModel: string;
+  /** @deprecated One-time migration source; embedding lanes live in plugins.memory.embeddingModels. */
+  embeddingModel?: string;
   path: string;
   thinkingFormat?: CustomProviderThinkingFormat;
 }
@@ -300,11 +302,21 @@ export interface MemoryReflectionNotificationTarget {
   chatId: string;
 }
 
+export interface EmbeddingModelConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
 export interface MemoryBackendSettings {
   enabled: boolean;
   backend: string;
-  embeddingProviderId: string;
-  embeddingModel: string;
+  /** Independent embedding targets; one active target is used by memory. */
+  embeddingModels: EmbeddingModelConfig[];
+  activeEmbeddingModelId: string;
   reflectionTime: string;
   reflectionNotifications: boolean;
   reflectionNotificationTarget: MemoryReflectionNotificationTarget | null;

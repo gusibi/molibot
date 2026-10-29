@@ -114,10 +114,15 @@ function normalizeTurns(context, task) {
     if (!Array.isArray(files) || files.some((file) => typeof file !== "string")) {
       fail(`${context} turn ${index + 1}`, "files must be a list of fixture paths");
     }
+    const waitAfterMs = turn.wait_after_ms === undefined ? 0 : Number(turn.wait_after_ms);
+    if (!Number.isFinite(waitAfterMs) || waitAfterMs < 0) {
+      fail(`${context} turn ${index + 1}`, "wait_after_ms must be a non-negative number");
+    }
     return {
       prompt: turn.prompt,
       files,
-      newSession: turn.new_session === true
+      newSession: turn.new_session === true,
+      waitAfterMs
     };
   });
 }

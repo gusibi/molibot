@@ -24,6 +24,19 @@ test("captures added and updated memory receipts from structured memory tool res
   assert.deepEqual(memoryWriteReceiptsFromToolCall({ action: "search" }, { details: { rows: [memory] } }), []);
 });
 
+test("captures save_memory receipts and treats a revision as updated", () => {
+  assert.equal(memoryWriteReceiptsFromToolCall({ fact: "Uses Svelte" }, { details: { item: memory } }, "save_memory")[0]?.operation, "added");
+  assert.equal(
+    memoryWriteReceiptsFromToolCall(
+      { fact: "Uses Svelte 5" },
+      { details: { item: { ...memory, supersedes: "memory-0" } } },
+      "save_memory"
+    )[0]?.operation,
+    "updated"
+  );
+  assert.deepEqual(memoryWriteReceiptsFromToolCall({ id: "memory-1" }, { details: { deleted: true } }, "forget_memory"), []);
+});
+
 test("captures each memory persisted by flush", () => {
   const receipts = memoryWriteReceiptsFromToolCall(
     { action: "flush" },

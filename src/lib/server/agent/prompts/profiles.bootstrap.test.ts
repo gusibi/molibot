@@ -8,7 +8,6 @@ import { ensureGlobalProfileDefaults, getAgentDir, getGlobalProfileDir } from ".
 
 const EXPECTED_DEFAULTS = [
   "AGENTS.md",
-  "BOOTSTRAP.md",
   "IDENTITY.md",
   "SOUL.md",
   "TOOLS.md",

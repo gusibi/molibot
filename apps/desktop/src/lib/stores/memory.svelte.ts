@@ -193,7 +193,7 @@ export async function deleteMemoryItem(item: DesktopMemoryItem): Promise<void> {
   if (!endpoint || memoryStore.busyAction || !window.confirm(session.text.memoryDeleteConfirm)) return;
   memoryStore.busyAction = item.id;
   try {
-    await runDesktopMemoryAction(endpoint, { action: "delete", channel: item.channel, userId: item.externalUserId, id: item.id });
+    await runDesktopMemoryAction(endpoint, { action: "forget", channel: item.channel, userId: item.externalUserId, id: item.id });
     memoryStore.items = memoryStore.items.filter((candidate) => candidate.id !== item.id);
     memoryStore.actionMessage = session.text.memoryDeleted;
   } catch (cause) {

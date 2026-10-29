@@ -70,3 +70,8 @@ export function formatIsoInTimeZone(date: Date, timeZone: string): string {
   const offset = getOffsetString(date, timeZone);
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
 }
+
+export function weekdayInTimeZone(date: Date, timeZone: string): string {
+  const normalized = normalizeTimeZone(timeZone);
+  return new Intl.DateTimeFormat("en-US", { timeZone: normalized, weekday: "long" }).format(date);
+}

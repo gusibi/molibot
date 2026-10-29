@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { dedupeByMemoryIdentity } from "$lib/server/memory/memoryIdentity.js";
 import type { MemoryAccessScope, MemoryNamespace, MemoryRecord } from "$lib/server/memory/types.js";
 
 export interface MemoryProfileScope extends MemoryAccessScope {
@@ -108,8 +109,11 @@ export class MemoryProfileBuilder {
     const rows = page.items.filter((record) => Boolean(record.namespace && authorized.has(record.namespace)));
     const eligible = rows.filter((record) => isEligible(record, nowMs));
     const excluded = rows.length - eligible.length;
-    const stablePreferences = eligible.filter((record) => record.type === "user_preference").sort((a, b) => compareProfileStability(a, b, nowMs)).slice(0, limit);
-    const profileFacts = eligible.filter((record) => record.type === "user_fact").sort((a, b) => compareProfileStability(a, b, nowMs)).slice(0, limit);
+    const profileEligible = dedupeByMemoryIdentity(
+      eligible.filter((record) => record.type === "user_preference" || record.type === "user_fact")
+    );
+    const stablePreferences = profileEligible.filter((record) => record.type === "user_preference").sort((a, b) => compareProfileStability(a, b, nowMs)).slice(0, limit);
+    const profileFacts = profileEligible.filter((record) => record.type === "user_fact").sort((a, b) => compareProfileStability(a, b, nowMs)).slice(0, limit);
     const currentFocus = eligible.filter((record) =>
       (record.type === "task" || record.type === "event")
       && (record.domain === "project" || record.namespace?.startsWith("chat:"))

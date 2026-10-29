@@ -22,10 +22,11 @@ function injected(memoryId: string, shortId: string): MemoryInjectionItem {
   };
 }
 
-test("memoryToolHitsFromToolCall extracts search hits with the query", () => {
+test("memoryToolHitsFromToolCall extracts recall_memory hits with the query", () => {
   const hits = memoryToolHitsFromToolCall(
-    { action: "search", query: "减肥 周期" },
-    { details: { rows: [{ id: "mem-1", content: "week 20 target 66.80~67.00kg", layer: "long_term", tags: [], updatedAt: "2026-07-15T00:00:00.000Z" }] } }
+    { query: "减肥 周期" },
+    { details: { rows: [{ id: "mem-1", content: "week 20 target 66.80~67.00kg", layer: "long_term", tags: [], updatedAt: "2026-07-15T00:00:00.000Z" }] } },
+    "recall_memory"
   );
   assert.equal(hits.length, 1);
   assert.equal(hits[0].memoryId, "mem-1");
@@ -33,10 +34,12 @@ test("memoryToolHitsFromToolCall extracts search hits with the query", () => {
   assert.equal(hits[0].query, "减肥 周期");
 });
 
-test("memoryToolHitsFromToolCall ignores list and write actions", () => {
+test("memoryToolHitsFromToolCall ignores list, save, and forget", () => {
   const rows = [{ id: "mem-1", content: "x", layer: "daily", tags: [], updatedAt: "2026-07-15T00:00:00.000Z" }];
   assert.deepEqual(memoryToolHitsFromToolCall({ action: "list" }, { details: { rows } }), []);
   assert.deepEqual(memoryToolHitsFromToolCall({ action: "add", content: "x" }, { details: { rows } }), []);
+  assert.deepEqual(memoryToolHitsFromToolCall({ fact: "x" }, { details: { rows } }, "save_memory"), []);
+  assert.deepEqual(memoryToolHitsFromToolCall({ id: "mem-1" }, { details: { rows } }, "forget_memory"), []);
 });
 
 test("buildReferencedItems resolves citations and dedupes against tool hits", () => {

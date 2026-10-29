@@ -6,5 +6,5 @@ export const AGENT_TOOL_GROUPS = [
   { id: "media", zh: "图片、视频与语音生成", en: "Image, video and speech generation", tools: ["imageGenerate", "videoGenerate", "ttsGenerate"] },
   { id: "mcp", zh: "MCP 工具", en: "MCP tools", tools: ["loadMcp", "mcpInvoke"] },
   { id: "subagent", zh: "委派子 Agent", en: "Delegate to subagents", tools: ["subagent"] },
-  { id: "memory", zh: "记忆工具", en: "Memory tool", tools: ["memory"] }
+  { id: "memory", zh: "记忆工具", en: "Memory tools", tools: ["save_memory", "recall_memory", "forget_memory"] }
 ] as const;

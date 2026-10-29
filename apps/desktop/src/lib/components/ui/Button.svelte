@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Shared button: renders the global primary, secondary or icon button
+  // Shared button: renders the global primary, secondary, icon and text button
   // styles so every surface reads as one control family. Surfaces must not
   // fork these styles with surface-scoped overrides (that is how the project
   // settings dialog ended up with pill buttons nobody recognised).
@@ -23,7 +23,7 @@
     onclick = () => {},
     children
   }: {
-    variant?: "primary" | "secondary" | "icon";
+    variant?: "primary" | "secondary" | "icon" | "text";
     danger?: boolean;
     type?: "button" | "submit";
     disabled?: boolean;
@@ -37,6 +37,6 @@
   } = $props();
 </script>
 
-<button {type} {disabled} {title} aria-label={ariaLabel ?? title} aria-pressed={ariaPressed} aria-expanded={ariaExpanded} class={`${variant === "icon" ? "icon-button" : variant === "primary" ? "primary-button" : "secondary-button"}${danger ? " danger-action" : ""}${className ? ` ${className}` : ""}`} {onclick}>
+<button {type} {disabled} {title} aria-label={ariaLabel ?? title} aria-pressed={ariaPressed} aria-expanded={ariaExpanded} class={`${variant === "icon" ? "icon-button" : variant === "primary" ? "primary-button" : variant === "text" ? "text-button" : "secondary-button"}${danger ? " danger-action" : ""}${className ? ` ${className}` : ""}`} {onclick}>
   {@render children()}
 </button>

@@ -27,8 +27,8 @@ const IDEMPOTENT_TOOLS = new Set(["write", "edit", "documentExport"]);
  * Idempotent writes are deliberately excluded — replaying a write would also
  * re-fire its intent/receipt hooks and could double-count usage. Composite
  * orchestrators (`codemode`, `subagent`, `mcpInvoke`) are excluded too: their nested calls
- * carry their own replay policy, and a suspended Codemode script is explicitly
- * not replayable.
+ * carry their own replay policy. Official Codemode declares safe replay through
+ * its persisted journal; this name-based classifier does not grant it.
  */
 const REPLAY_SAFE_TOOLS = new Set(
   [...PURE_TOOLS, "grep", "find", "ls", "conversation_search"].filter((id) => id !== "codemode" && id !== "subagent" && id !== "mcpInvoke")
@@ -69,10 +69,8 @@ function targetSummary(toolId: string, input: unknown): string {
 }
 
 function classify(toolId: string, input: unknown): SideEffectClass {
-  if (toolId === "memory") {
-    const action = inputRecord(input).action;
-    return ["search", "list", "get", "read", "inspect"].includes(String(action)) ? "pure" : "non_idempotent";
-  }
+  if (toolId === "recall_memory") return "pure";
+  if (toolId === "save_memory" || toolId === "forget_memory") return "non_idempotent";
   if (PURE_TOOLS.has(toolId)) return "pure";
   if (IDEMPOTENT_TOOLS.has(toolId)) return "idempotent";
   if (toolId === "runtimeTask") {

@@ -11,6 +11,7 @@ import {
   resolveThinkingLevel
 } from "$lib/server/providers/customThinking.js";
 import { ModelRegistryService, resolveModelOutputTokens } from "$lib/server/providers/modelRegistry.js";
+import { SESSION_AFFINITY_HEADER } from "$lib/server/providers/sessionAffinity.js";
 import type { ConversationMessage } from "$lib/shared/types/message.js";
 
 export interface DirectProviderReply {
@@ -191,8 +192,10 @@ export async function callDirectCustomProvider(
   model: string,
   history: ConversationMessage[],
   settings: Pick<RuntimeSettings, "defaultThinkingLevel" | "systemPrompt" | "maxOutputTokens">,
-  memoryContext: string
+  memoryContext: string,
+  sessionId?: string
 ): Promise<DirectProviderReply> {
+  const affinityHeaders: Record<string, string> = sessionId ? { [SESSION_AFFINITY_HEADER]: sessionId } : {};
   const protocol = resolveCustomProviderProtocol(provider.protocol);
   const systemPrompt = memoryContext.trim()
     ? `${settings.systemPrompt}\n\nRelevant memory:\n${memoryContext.trim()}`
@@ -213,7 +216,7 @@ export async function callDirectCustomProvider(
     );
     const response = await fetch(buildDirectProviderUrl(provider), {
       method: "POST",
-      headers: buildAnthropicCompatibleHeaders(provider),
+      headers: { ...buildAnthropicCompatibleHeaders(provider), ...affinityHeaders },
       body: JSON.stringify(requestBody)
     });
     const textBody = await response.text();
@@ -253,7 +256,7 @@ export async function callDirectCustomProvider(
   );
   const response = await fetch(buildDirectProviderUrl(provider), {
     method: "POST",
-    headers: buildOpenAICompatibleHeaders(provider),
+    headers: { ...buildOpenAICompatibleHeaders(provider), ...affinityHeaders },
     body: JSON.stringify(requestBody)
   });
   const textBody = await response.text();

@@ -58,6 +58,7 @@ test("queued Weixin admission restores the normalized shape and persists its log
 
 interface RuntimeTurnOptions {
   response: { sendText: (text: string) => Promise<unknown> };
+  uploadWithoutHandle: (filePath: string, title: string | undefined, text: string | undefined, ctx: { respond: (text: string) => Promise<void> }) => Promise<void>;
   replaceWithoutEdit: (text: string, state: { hasResponded: boolean; accumulatedText: string }) => Promise<void>;
 }
 
@@ -73,7 +74,7 @@ async function deliverWeixinTurn(drive: (options: RuntimeTurnOptions) => Promise
       await drive(options);
     }
   }) as { processEvent: (event: { chatId: string }, preferReplyInitial?: boolean) => Promise<void> };
-  await runtime.processEvent({ chatId: "weixin-error-chat" });
+  await runtime.processEvent({ chatId: "weixin-error-chat", sourceMessage: { _contextToken: "test-context" } } as never);
   return sent;
 }
 
@@ -93,4 +94,28 @@ test("the buffered error still fires on Weixin when the run produced no normal r
     await options.response.sendText("_Error: boom_");
   });
   assert.ok(sent.join("\n").includes("Error: boom"), "error fallback is the only notice a silent run gets");
+});
+
+test("Weixin failed attachment delivery rejects after notifying the user", async () => {
+  const previousState = process.env.OPENCLAW_STATE_DIR;
+  process.env.OPENCLAW_STATE_DIR = dataRoot;
+  try {
+    const { registerWeixinAccountId, saveWeixinAccount } = await import("#weixin-agent-sdk/src/auth/accounts.js");
+    registerWeixinAccountId("test-account");
+    saveWeixinAccount("test-account", { token: "test-token" });
+    const notices: string[] = [];
+    await deliverWeixinTurn(async (options) => {
+      await assert.rejects(
+        options.uploadWithoutHandle(join(dataRoot, "missing.mp3"), undefined, undefined, {
+          respond: async (text) => { notices.push(text); }
+        }),
+        /ENOENT/
+      );
+    });
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /微信这边回文件失败了：missing.mp3/);
+  } finally {
+    if (previousState === undefined) delete process.env.OPENCLAW_STATE_DIR;
+    else process.env.OPENCLAW_STATE_DIR = previousState;
+  }
 });

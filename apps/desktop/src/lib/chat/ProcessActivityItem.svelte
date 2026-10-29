@@ -56,7 +56,7 @@
   }
 </script>
 
-<div class="process-timeline-entry process-timeline-tool" data-state={activity.state}>
+<div class="process-timeline-entry process-timeline-tool" data-state={activity.state} role="listitem">
   {#if activity.state === "running"}
     <div class="timeline-wave-node" aria-hidden="true">
       <span class="timeline-wave-bar"></span>

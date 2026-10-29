@@ -48,7 +48,7 @@ export type ModelReply =
   /** Streamed text, split into `chunks` deltas (optionally spaced by `delayMs`). */
   | { type: 'text'; text: string; chunks?: number; delayMs?: number }
   /** Streamed tool calls, preceded by optional text. */
-  | { type: 'toolCalls'; calls: ToolCallSpec[]; text?: string }
+  | { type: 'toolCalls'; calls: ToolCallSpec[]; text?: string; thinking?: string }
   /** Stream `text`, then pause until `release(key)` or the client disconnects. */
   | { type: 'hold'; text: string; key: string; tail?: string; delayMs?: number }
   /** Reject before any bytes: HTTP status (429, 500, …) with an error body. */
@@ -211,6 +211,12 @@ export async function startModelService() {
         return;
       }
       case 'toolCalls': {
+        if (reply.thinking) {
+          for (const part of splitText(reply.thinking)) {
+            writer.frame({ reasoning_content: part }, null);
+            await delay(8);
+          }
+        }
         if (reply.text) {
           for (const part of splitText(reply.text)) {
             writer.frame({ content: part }, null);

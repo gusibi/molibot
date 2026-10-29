@@ -2,6 +2,7 @@
   import type { DesktopMemoryCandidate, DesktopMemoryItem } from "@molibot/desktop-contract";
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
   import Bookmark from "reicon-svelte/icons/Bookmark";
+  import Box from "reicon-svelte/icons/Box";
   import Briefcase from "reicon-svelte/icons/Briefcase";
   import CalendarCheck from "reicon-svelte/icons/CalendarCheck";
   import ChatDots from "reicon-svelte/icons/ChatDots";
@@ -156,6 +157,9 @@
         <i aria-hidden="true">{#if memoryStore.memory.enabled}<CheckCircle weight="Filled" size={13} />{:else}<TriangleWarning size={13} />{/if}</i>
         {memoryStore.memory.enabled ? session.text.memoryEnabledStatus : session.text.memoryDisabledStatus}
       </span>
+      <button class="secondary-button" type="button" onclick={() => navigateSettings("embeddingModels")}>
+        <Box size={13} aria-hidden="true" />{session.text.embeddingModels}
+      </button>
       <button class="secondary-button memory-advanced-button" type="button" onclick={() => advancedOpen = true}>
         <Tuning size={13} aria-hidden="true" />{session.text.memoryAdvanced}
       </button>
@@ -350,7 +354,7 @@
               <article class="memory-record">
                 <button class="memory-record-main" type="button" onclick={() => void beginMemoryEdit(item)}>
                   <strong>{item.content}</strong>
-                  <span>{item.domain ?? "chat"} · {item.type ?? item.layer}{item.hasConflict ? ` · ${session.text.memoryConflict}` : ""}{item.pinned ? ` · ${session.text.memoryPinned}` : ""}</span>
+                  <span>{item.subject ? `${item.subject} · ` : ""}{item.domain ?? "chat"} · {item.type ?? item.layer}{item.hasConflict ? ` · ${session.text.memoryConflict}` : ""}{item.pinned ? ` · ${session.text.memoryPinned}` : ""}</span>
                   <span>{item.allowInjection === false ? session.text.memoryInjectionDisabled : session.text.memoryInjectionEnabled} · {formatMemoryDate(item.updatedAt, session.locale)}</span>
                   {#if item.tags.length}<span class="memory-record-tags">{#each item.tags as tag}<em>{tag}</em>{/each}</span>{/if}
                 </button>
@@ -474,14 +478,14 @@
               <div class="memory-advanced-action-row">
                 <span>
                   {memoryStore.memory.capabilities.vectorSearch ? session.text.yes : session.text.no}
-                  {#if memoryStore.memory.embeddingModel}
-                    <small>({memoryStore.memory.embeddingModel})</small>
+                  {#if memoryStore.memory.embedding?.model}
+                    <small>({memoryStore.memory.embedding.model})</small>
                   {/if}
                 </span>
                 <button
                   class="secondary-button"
                   type="button"
-                  onclick={() => { advancedOpen = false; navigateSettings("plugins", { pluginId: "memory" }); }}
+                  onclick={() => { advancedOpen = false; navigateSettings("providers"); }}
                 >{session.text.memoryConfigureVector}</button>
               </div>
             </div>

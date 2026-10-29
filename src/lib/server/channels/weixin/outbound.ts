@@ -4,12 +4,15 @@ import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname } from "node:path";
-import { getUploadUrl as vendorGetUploadUrl, sendMessage as vendorSendMessage } from "#weixin-agent-sdk/src/api/api.js";
+import { buildBaseInfo, classifyFetchError, getUploadUrl as vendorGetUploadUrl, sendMessage as vendorSendMessage } from "#weixin-agent-sdk/src/api/api.js";
 import { listWeixinAccountIds, resolveWeixinAccount } from "#weixin-agent-sdk/src/auth/accounts.js";
 import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
 import { sendWeixinMediaFile } from "#weixin-agent-sdk/src/messaging/send-media.js";
 import { downloadRemoteImageToTemp } from "#weixin-agent-sdk/src/cdn/upload.js";
 import { MessageItemType, MessageState, MessageType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
+import { buildCdnUploadUrl } from "#weixin-agent-sdk/src/cdn/cdn-url.js";
+import { describeNetworkError, networkRuntimeInfo, safeDiagnosticText } from "#weixin-agent-sdk/src/util/network-diagnostics.js";
+import { redactUrl } from "#weixin-agent-sdk/src/util/redact.js";
 import { momWarn } from "$lib/server/agent/common/log.js";
 
 const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
@@ -43,6 +46,7 @@ const EXTENSION_TO_MIME: Record<string, string> = {
 type UploadMediaType = 1 | 2 | 3 | 4;
 
 interface UploadUrlResponse {
+  upload_full_url?: string;
   upload_param?: string;
   thumb_upload_param?: string;
   ret?: number;
@@ -64,10 +68,6 @@ interface ActiveWeixinAccount {
   baseUrl: string;
 }
 
-function ensureTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value : `${value}/`;
-}
-
 function paddedSize(size: number): number {
   const remainder = size % 16;
   return remainder === 0 ? size + 16 : size + (16 - remainder);
@@ -81,16 +81,6 @@ function encryptAesEcb(data: Buffer, key: Buffer): Buffer {
 function randomWechatUin(): string {
   const value = randomBytes(4).readUInt32BE(0);
   return Buffer.from(String(value), "utf8").toString("base64");
-}
-
-function splitForLog(value: string, chunkSize = 320): string[] {
-  const text = String(value ?? "");
-  if (!text) return [];
-  const chunks: string[] = [];
-  for (let index = 0; index < text.length; index += chunkSize) {
-    chunks.push(text.slice(index, index + chunkSize));
-  }
-  return chunks;
 }
 
 function detectImageMimeType(data: Buffer): string | null {
@@ -262,7 +252,8 @@ async function prepareWechatAudioAttachment(filePath: string, plaintext: Buffer,
 
 async function uploadBufferToCdn(params: {
   plaintext: Buffer;
-  uploadParam: string;
+  uploadParam?: string;
+  uploadFullUrl?: string;
   fileKey: string;
   cdnBaseUrl: string;
   aesKey: Buffer;
@@ -270,58 +261,83 @@ async function uploadBufferToCdn(params: {
   sourceName: string;
 }): Promise<string> {
   const ciphertext = encryptAesEcb(params.plaintext, params.aesKey);
-  const url = new URL(
-    `upload?encrypted_query_param=${encodeURIComponent(params.uploadParam)}&filekey=${encodeURIComponent(params.fileKey)}`,
-    ensureTrailingSlash(params.cdnBaseUrl)
-  );
+  const url = buildCdnUploadUrl({
+    cdnBaseUrl: params.cdnBaseUrl,
+    uploadParam: params.uploadParam,
+    uploadFullUrl: params.uploadFullUrl,
+    filekey: params.fileKey
+  });
   const wechatUin = randomWechatUin();
   momWarn("weixin", "cdn_upload_request", {
     source: params.sourceName,
     mediaType: params.mediaType,
-    cdnUrl: url.toString(),
-    cdnHost: url.origin,
-    cdnPath: url.pathname,
+    cdnUrl: redactUrl(url),
+    cdnHost: new URL(url).origin,
+    cdnPath: new URL(url).pathname,
     fileKey: params.fileKey,
-    uploadParamChunks: splitForLog(params.uploadParam),
+    uploadAddressKind: params.uploadFullUrl?.trim() ? "full_url" : "parameter",
+    uploadParamLength: params.uploadParam?.length ?? 0,
+    runtime: { ...networkRuntimeInfo(), sdkChannelVersion: buildBaseInfo().channel_version },
     plaintextSize: params.plaintext.length,
     ciphertextSize: ciphertext.length,
     headers: {
       contentType: "application/octet-stream",
       contentLength: String(ciphertext.length),
-      xWechatUin: wechatUin
+      hasWechatUin: true
     }
   });
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "Content-Length": String(ciphertext.length),
-      "X-WECHAT-UIN": wechatUin
-    },
-    body: new Uint8Array(ciphertext)
-  });
+  const startedAt = performance.now();
+  let stage = "request";
+  let response: Response;
+  let raw: string;
+  try {
+    // Native fetch supplies the length; an explicit value is rejected by Undici 8 dispatchers.
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-WECHAT-UIN": wechatUin
+      },
+      body: new Uint8Array(ciphertext)
+    });
+    stage = "response_body";
+    raw = await response.text();
+  } catch (error) {
+    const failure = classifyFetchError(error);
+    momWarn("weixin", "cdn_upload_failed", {
+      fileKey: params.fileKey, source: params.sourceName, mediaType: params.mediaType,
+      stage, elapsedMs: Math.round(performance.now() - startedAt),
+      endpoint: redactUrl(url), classification: { ...failure, description: safeDiagnosticText(failure.description) },
+      runtime: { ...networkRuntimeInfo(), sdkChannelVersion: buildBaseInfo().channel_version }, errorDetails: describeNetworkError(error)
+    });
+    throw new Error(
+      `Weixin CDN upload failed: ${failure.type}${failure.code ? ` (${failure.code})` : ""}: ${safeDiagnosticText(failure.description)}`,
+      { cause: error }
+    );
+  }
 
-  const raw = await response.text();
   const encryptedParamHeader = response.headers.get("x-encrypted-param")?.trim() || "";
   momWarn("weixin", "cdn_upload_response", {
     source: params.sourceName,
     mediaType: params.mediaType,
     status: response.status,
     statusText: response.statusText,
-    responseBodyChunks: splitForLog(raw),
+    fileKey: params.fileKey,
+    elapsedMs: Math.round(performance.now() - startedAt),
+    responseBody: safeDiagnosticText(raw),
     responseHeaders: {
-      xEncryptedParam: encryptedParamHeader
+      hasEncryptedParam: Boolean(encryptedParamHeader)
     }
   });
   if (!response.ok) {
     throw new Error(
       [
-        `Weixin CDN upload failed ${response.status}: ${raw || "(empty body)"}`,
+        `Weixin CDN upload failed ${response.status}: ${safeDiagnosticText(raw) || "(empty body)"}`,
         `source=${params.sourceName}`,
         `mediaType=${params.mediaType}`,
-        `cdnHost=${url.origin}`,
-        `cdnPath=${url.pathname}`,
-        `uploadParamLength=${params.uploadParam.length}`,
+        `cdnHost=${new URL(url).origin}`,
+        `cdnPath=${new URL(url).pathname}`,
+        `uploadParamLength=${params.uploadParam?.length ?? 0}`,
         `fileKey=${params.fileKey}`,
         `plaintextSize=${params.plaintext.length}`,
         `ciphertextSize=${ciphertext.length}`
@@ -377,36 +393,47 @@ async function uploadMedia(params: {
     source: basename(params.filePath),
     mediaType: params.mediaType,
     baseUrl: params.baseUrl,
-    requestBody
+    fileKey, rawSize, fileSizeCiphertext,
+    runtime: { ...networkRuntimeInfo(), sdkChannelVersion: buildBaseInfo().channel_version }
   });
 
+  const addressStartedAt = performance.now();
   const uploadUrl = await vendorGetUploadUrl({
     baseUrl: params.baseUrl,
     token: params.token,
     timeoutMs: 15_000,
     ...requestBody
+  }).catch((error) => {
+    momWarn("weixin", "getuploadurl_failed", {
+      fileKey, source: basename(params.filePath), mediaType: params.mediaType,
+      elapsedMs: Math.round(performance.now() - addressStartedAt),
+      runtime: { ...networkRuntimeInfo(), sdkChannelVersion: buildBaseInfo().channel_version }, errorDetails: describeNetworkError(error)
+    });
+    throw error;
   }) as UploadUrlResponse;
   momWarn("weixin", "getuploadurl_response", {
     source: basename(params.filePath),
     mediaType: params.mediaType,
+    fileKey,
+    elapsedMs: Math.round(performance.now() - addressStartedAt),
     response: {
-      upload_param: uploadUrl.upload_param,
-      thumb_upload_param: uploadUrl.thumb_upload_param,
+      hasUploadFullUrl: Boolean(uploadUrl.upload_full_url?.trim()),
+      hasUploadParam: Boolean(uploadUrl.upload_param),
+      hasThumbUploadParam: Boolean(uploadUrl.thumb_upload_param),
       ret: uploadUrl.ret,
       errcode: uploadUrl.errcode,
-      errmsg: uploadUrl.errmsg,
-      uploadParamChunks: splitForLog(uploadUrl.upload_param ?? ""),
-      thumbUploadParamChunks: splitForLog(uploadUrl.thumb_upload_param ?? "")
+      errmsg: safeDiagnosticText(uploadUrl.errmsg)
     }
   });
 
-  if (!uploadUrl.upload_param) {
-    throw new Error(uploadUrl.errmsg || "Weixin getuploadurl returned no upload_param");
+  if (!uploadUrl.upload_full_url?.trim() && !uploadUrl.upload_param) {
+    throw new Error(uploadUrl.errmsg || "Weixin getuploadurl returned no upload URL");
   }
 
   const downloadEncryptedQueryParam = await uploadBufferToCdn({
     plaintext: params.plaintext,
     uploadParam: uploadUrl.upload_param,
+    uploadFullUrl: uploadUrl.upload_full_url,
     fileKey,
     cdnBaseUrl: params.cdnBaseUrl,
     aesKey,
