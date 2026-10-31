@@ -3,6 +3,8 @@ import { addImageCost, type ImageCostTotals } from "$lib/shared/usageCosts";
 import type { AiUsageRecord, UsageStatsResponse } from "$lib/server/usage/tracker";
 import type {
   DesktopUsageDailyPoint,
+  DesktopUsageActivity,
+  DesktopUsageScenario,
   DesktopUsageDimensionRow,
   DesktopUsageModelRow,
   DesktopUsageRange,
@@ -161,6 +163,65 @@ function projectRecord(record: AiUsageRecord): DesktopUsageRecord {
   };
 }
 
+function usageScenario(record: AiUsageRecord): DesktopUsageScenario {
+  if (record.appId || record.channel === "miniapp") return "miniapp";
+  if (record.capability === "image") return "image";
+  if (record.capability === "transcription" || record.api === "audio-transcriptions") return "transcription";
+  if (record.channel === "project") return "project";
+  if (record.sessionId) return "conversation";
+  return "other";
+}
+
+/** Requests count ledger entries, including retries and tool loops, never user messages. */
+function buildActivity(records: AiUsageRecord[], today: string, localDateKey: (value: string) => string): DesktopUsageActivity {
+  const startDate = shiftDateKey(today, -364);
+  const allDays = new Map<string, { date: string; requests: number; totalTokens: number }>();
+  const scenarios = new Map<DesktopUsageScenario, { id: DesktopUsageScenario; requests: number; totalTokens: number }>();
+  const annualRecords: AiUsageRecord[] = [];
+  let recordedTokens = 0;
+  for (const record of records) {
+    if (!Number.isFinite(Date.parse(record.ts))) continue;
+    const date = localDateKey(record.ts);
+    if (date > today) continue;
+    const point = allDays.get(date) ?? { date, requests: 0, totalTokens: 0 };
+    point.requests++;
+    point.totalTokens += record.totalTokens;
+    recordedTokens += record.totalTokens;
+    allDays.set(date, point);
+    if (date >= startDate) {
+      annualRecords.push(record);
+      const id = usageScenario(record);
+      const row = scenarios.get(id) ?? { id, requests: 0, totalTokens: 0 };
+      row.requests++;
+      row.totalTokens += record.totalTokens;
+      scenarios.set(id, row);
+    }
+  }
+  const dates = [...allDays.keys()].sort();
+  let longestStreak = 0;
+  let streak = 0;
+  let previous = "";
+  let peakDailyTokens = 0;
+  let peakDate: string | null = null;
+  for (const date of dates) {
+    streak = previous && shiftDateKey(previous, 1) === date ? streak + 1 : 1;
+    longestStreak = Math.max(longestStreak, streak);
+    previous = date;
+    if (allDays.get(date)!.totalTokens > peakDailyTokens) {
+      peakDailyTokens = allDays.get(date)!.totalTokens;
+      peakDate = date;
+    }
+  }
+  let currentStreak = 0;
+  let cursor = allDays.has(today) ? today : shiftDateKey(today, -1);
+  while (allDays.has(cursor)) { currentStreak++; cursor = shiftDateKey(cursor, -1); }
+  const days = dateRange(startDate, today).map(date => allDays.get(date) ?? { date, requests: 0, totalTokens: 0 });
+  const activeDays = days.filter(day => day.requests > 0).length;
+  const requests = days.reduce((sum, day) => sum + day.requests, 0);
+  const frequencies = (key: "agentId" | "channel") => rankedDimensions(annualRecords, record => record[key] || "unknown").map(({ id, requests, totalTokens }) => ({ id, requests, totalTokens })).sort((a, b) => b.requests - a.requests || a.id.localeCompare(b.id));
+  return { agents: frequencies("agentId"), channels: frequencies("channel"), startDate, endDate: today, coverageStart: dates[0] ?? null, recordedTokens, peakDailyTokens, peakDate, activeDays, currentStreak, longestStreak, requests, averageRequestsPerActiveDay: activeDays ? requests / activeDays : 0, days, scenarios: [...scenarios.values()].sort((a, b) => b.requests - a.requests || a.id.localeCompare(b.id)) };
+}
+
 export function buildDesktopUsageSummary(stats: Pick<UsageStatsResponse, "records" | "timezone" | "generatedAt"> & { windows: Record<DesktopUsageRange, { startDate: string; endDate: string }> }, rawQuery: Partial<DesktopUsageQuery> = {}): DesktopUsageSummary {
   const query = sanitizeDesktopUsageQuery(rawQuery);
   const localDateKey = dateKeys(stats.timezone);
@@ -197,6 +258,7 @@ export function buildDesktopUsageSummary(stats: Pick<UsageStatsResponse, "record
     totals: summarize(filtered),
     windows,
     daily: [...dailyMap.values()],
+    activity: buildActivity(dimensionRecords, stats.windows.today.endDate, localDateKey),
     trend: buildTrend(filtered, selectedWindow.startDate, selectedWindow.endDate, stats.timezone, query.range, localDateKey),
     rankings: {
       models: rankedModels(filtered),
@@ -217,6 +279,5 @@ export function desktopUsageFromRecords(records: AiUsageRecord[], timezone: stri
   const makeWindow = (startDate: string, endDate = today) => ({ startDate, endDate });
   const yesterday = shiftDateKey(today, -1);
   const windows = { today: makeWindow(today), yesterday: makeWindow(yesterday, yesterday), last7Days: makeWindow(shiftDateKey(today, -6)), last30Days: makeWindow(shiftDateKey(today, -29)) };
-  const recentRecords = records.filter(record => { const day = localDateKey(record.ts); return day >= windows.last30Days.startDate && day <= today; });
-  return buildDesktopUsageSummary({ timezone, generatedAt: now.toISOString(), records: recentRecords, windows }, query);
+  return buildDesktopUsageSummary({ timezone, generatedAt: now.toISOString(), records, windows }, query);
 }

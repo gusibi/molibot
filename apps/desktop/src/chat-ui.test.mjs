@@ -36,7 +36,6 @@ const multiSelectControl = read("./lib/components/ui/MultiSelectControl.svelte")
 const emptyState = read("./lib/components/ui/EmptyState.svelte");
 const searchField = read("./lib/components/ui/SearchField.svelte");
 const groupHeader = read("./lib/chat/GroupHeader.svelte");
-const design = read("../../../DESIGN.md");
 const tauriConfig = JSON.parse(read("../src-tauri/tauri.conf.json"));
 const tauriCargo = read("../src-tauri/Cargo.toml");
 const svelteStyleSources = listSvelteSources().flatMap((source) => [...source.matchAll(/<style(?:\s[^>]*)?>([\s\S]*?)<\/style>/g)].map((match) => match[1]));
@@ -642,7 +641,6 @@ test("Settings and Chat expose one edge-to-edge native macOS sidebar material", 
   const catppuccinLight = styles.match(/:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="light"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   const catppuccinDark = styles.match(/:root\[data-theme-family="catppuccin"\]\[data-resolved-appearance="dark"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
   const daybreak = styles.match(/:root\[data-theme-family="midnight"\]\[data-resolved-appearance="light"\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  assert.match(design, /native macOS sidebar material/);
   assert.equal(tauriConfig.app.macOSPrivateApi, true);
   assert.match(tauriCargo, /tauri\s*=\s*\{[^\n]*features\s*=\s*\[[^\]]*"macos-private-api"/);
   for (const window of tauriConfig.app.windows) {
@@ -734,7 +732,6 @@ test("macOS semantic palette keeps dark workspace surfaces distinct from pure bl
       assert.doesNotMatch(value, /^#(?:000|000000|0a0a0a)$/i, `--${token} must not flatten the macOS dark hierarchy`);
     }
   }
-  assert.match(design, /macOS semantic color roles/);
 });
 
 test("Chat keeps native sidebar material outside the opaque transcript canvas and hidden project actions do not steal title width", () => {
@@ -828,7 +825,6 @@ test("sidebar supports collapsing with smooth animation, threshold snap, and a f
   assert.match(view, /onclick=\{toggleSidebarCollapse\}/);
   assert.ok(listSvelteSources().every((source) => !source.includes("sidebar-expand-btn")));
   assert.doesNotMatch(styles, /\.sidebar-expand-btn/);
-  assert.match(design, /title-bar control cluster/);
   assert.match(view, /class:sidebar-collapsed=\{sidebarCollapsed && !homeNarrow\}/);
   assert.match(view, /toggleSidebarCollapse\(\)/);
   assert.match(view, /SIDEBAR_COLLAPSE_THRESHOLD = 160/);
@@ -1013,6 +1009,46 @@ test("installed Skills recomputes its card list when async store data arrives", 
   assert.doesNotMatch(sections.skills, /\$: filteredSkills/);
 });
 
+test("discovered Skills are manageable: status facet, card actions, locations and removal", () => {
+  // The discovered view gains a second facet: where content lives and how
+  // entries are wired (shared tree, duplicates, link vs copy).
+  assert.match(sections.skills, /const statusOptions = \$derived\.by\(/);
+  assert.match(sections.skills, /statusFilter === "shared" && !skill\.inSharedDir/);
+  assert.match(sections.skills, /statusFilter === "duplicate" && !skill\.duplicate && !skill\.conflict/);
+  // Card actions are icon-first with tooltips, not repeated prose.
+  assert.match(sections.skills, /variant="icon" title=\{copy\.skillDiscoveredInstall\}/);
+  assert.match(sections.skills, /onclick=\{\(\) => openRemoveDiscovered\(skill\.id, skill\.name\)\}/);
+  // Locations popover: every entry path with its link/copy state.
+  assert.match(sections.skills, /<Popover\.Root>/);
+  assert.match(sections.skills, /class="skills-locations-popover"/);
+  assert.match(sections.skills, /data-broken=\{location\.status === "broken"\}/);
+  // Per-entry removal and the whole-group removal confirm through AlertDialog.
+  assert.match(sections.skills, /openRemoveEntry\(location\)/);
+  assert.match(sections.skills, /open=\{removeTarget !== null\}/);
+  assert.match(sections.skills, /confirmRemoveDiscovered\(\)/);
+  // The consolidate dialog has exactly one destination: the shared tree.
+  assert.match(sections.skills, /consolidatePreflight\?\.destination\.root/);
+  assert.doesNotMatch(sections.skills, /consolidateDestinationOptions/);
+  // An existing destination copy is confirmable, not a dead end: the primary
+  // button becomes "replace & consolidate" and re-runs the preflight for a
+  // fresh token.
+  assert.match(sections.skills, /const consolidateReplaceOnly = \$derived\(/);
+  assert.match(sections.skills, /conflicts\.every\(\(conflict\) => conflict\.code === "replace_required"\)/);
+  assert.match(sections.skills, /copy\.skillConsolidateReplaceConfirm/);
+  assert.match(sections.skills, /loadConsolidateCheck\(\{ \.\.\.consolidateRequest\(\), replaceDestination: true \}\)/);
+  // Git-installed Skills can check their pinned commit against the source.
+  assert.match(sections.skills, /checkManagedSkillUpdate\(id\)/);
+  assert.match(sections.skills, /function startGitUpdate/);
+  // Store wires the two new actions.
+  assert.match(skillsStoreSource, /action: "remove-discovered"/);
+  assert.match(skillsStoreSource, /action: "check-update"/);
+  // Copy exists in both locales.
+  for (const key of ["skillStatusLabel", "skillStatusShared", "skillLocationLink", "skillRemoveBackupNote", "skillUpdateApply", "skillConsolidateReplaceConfirm", "skillConsolidateReplaceNote"]) {
+    assert.match(i18n, new RegExp(`${key}: "`), `${key} missing from i18n`);
+  }
+  assert.doesNotMatch(i18n, /skillConsolidateGlobal/);
+});
+
 const formSectionKey = { mcp: "mcp", channel: "channels", task: "tasks", memory: "memory" };
 
 test("chat composer keeps keyboard guidance in the textarea placeholder", () => {
@@ -1156,6 +1192,8 @@ test("issue 13 Chat renders an Agent message unit and a compact 720px composer",
   // that selects an Agent shows it beside the Bot; a Project passes none.
   assert.match(transcript, /export let agentName = ""/);
   assert.match(transcript, /\{#if agentName\}<span>\{agentName\}<\/span>\{\/if\}/);
+  assert.match(transcript, /data-same-agent=\{agentName === \(message\.authorName \?\? assistantName\) \|\| undefined\}/);
+  assert.match(styles, /\.assistant-identity\[data-same-agent="true"\] > span \{ display: none; \}/);
   assert.doesNotMatch(transcript, /copy\.agentRole/);
   assert.match(view, /agentName=\{activeAgentName\}/);
   assert.match(view, /agentName=\{activeExternalAgentName\}/);
@@ -1905,7 +1943,7 @@ test("an attachment's file record reaches the transcript after it arrives", () =
   // (a) `{#each}` iterates groups derived from `attachments` alone, so looking
   // a file up through a bare helper called from a `{@const}` reads `actions`
   // where the compiler cannot see it and the cells never re-render. The `$:`
-  // must name `actions` explicitly (CLAUDE.md pitfall #2).
+  // must name `actions` explicitly (docs/pitfalls.md pitfall #2).
   assert.match(transcriptAttachmentsSource, /\$:\s*groups = resolveGroups\(actions, attachments\)/);
   assert.doesNotMatch(transcriptAttachmentsSource, /\{@const file = fileOf\(/);
   assert.doesNotMatch(transcriptAttachmentsSource, /\{@const mediaUrl = mediaUrlOf\(/);
@@ -2019,8 +2057,6 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.doesNotMatch(view, /const firstBot = externalNav/);
   // Project and Chat share the same collapsible group rhythm and DESIGN's compact 32px Session row.
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
-  assert.match(design, /label-13:\s*[\s\S]*?fontSize:\s*13px[\s\S]*?lineHeight:\s*16px/);
-  assert.match(design, /button-small:\s*[\s\S]*?height:\s*32px/);
   assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*32px[^}]*padding:\s*4px 8px 4px 24px/s);
   // A session row's title is UI text (the `label` rank) and its timestamp is
   // supporting data (`meta`). They were both 12px, which is why a row read as
@@ -2113,9 +2149,6 @@ test("composer Bot identity is initial-only and uses restrained distinct menu co
   assert.doesNotMatch(botMention, /mention-at|mention-name|mention-caret|mention-lock/);
   assert.match(botAvatar, /"#0059ec", "#279141", "#00927f", "#8500d1", "#c41562", "#aa4d00"/);
   assert.match(botAvatar, /color-mix\(in srgb, var\(--c\) 12%, var\(--fill, transparent\)\)/);
-  for (const color of ["#0059ec", "#279141", "#00927f", "#8500d1", "#c41562", "#aa4d00"]) {
-    assert.match(design, new RegExp(color, "i"));
-  }
 });
 
 test("Project Session groups reveal history in batches of 10", () => {
@@ -2816,9 +2849,19 @@ test("automation status chips follow Geist tokens and stay legible in CJK", () =
 test("automation workspace keeps a stable list and detail without row cards", () => {
   assert.match(sections.tasks, /class="automation-workspace-layout"/);
   assert.match(sections.tasks, /class="workspace-detail-placeholder"/);
+  assert.match(sections.tasks, /class="automation-agenda"/);
+  assert.match(sections.tasks, /class="automation-next-up-card"/);
+  assert.match(sections.tasks, /class="automation-week-strip"/);
+  assert.match(sections.tasks, /class="automation-agenda-timeline"/);
+  assert.match(sections.tasks, /session\.text\.tasksNextRun/);
+  assert.match(sections.tasks, /taskTargetLabel\(task\)/);
+  assert.doesNotMatch(sections.tasks, /<span class="task-target-pill">\{task\.channel\}<\/span>/);
+  assert.doesNotMatch(styles, /\.task-target-pill\s*\{[^}]*text-transform:\s*uppercase/s);
   assert.match(styles, /\.automation-workspace-layout\s*\{[^}]*grid-template-columns:\s*320px minmax\(0, 1fr\)/s);
   assert.match(styles, /\.automation-task-row\s*\{[^}]*border:\s*0;[^}]*border-bottom:\s*1px solid var\(--separator\)/s);
   assert.match(styles, /\.automation-task-row\.active\s*\{[^}]*var\(--selection-bg\)[^}]*var\(--on-selection\)/s);
+  const macosSheet = read("./themes/macos.css");
+  assert.match(macosSheet, /\[data-theme-region="chat"\] \.automation-task-row:not\(:hover\):not\(\.active\):not\(:focus-visible\) \{ border-radius: 0; \}/);
 });
 
 test("task and skill categories use shared accessible selectors within independent pages", () => {
@@ -3223,8 +3266,10 @@ test("turn process uses one disclosure with an ordered timeline", () => {
   assert.match(processTimeline, /process-timeline-text/);
   assert.match(processActivityItem, /timeline-wave-node/);
   assert.match(processActivityItem, /process-tool-icon/);
+  assert.match(processActivityItem, /process-tool-row/);
   assert.match(processActivityItem, /activityToolIcon/);
   assert.match(turnProcess, /timeline-wave-node/);
+  assert.match(styles, /\.process-timeline-entry \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
 });
 
 // Completed reasoning text and tool summaries are the bulk of a transcript's
@@ -3400,7 +3445,6 @@ test("settings form controls share standardized macOS control tokens and time fi
   assert.match(styles, /--select-trigger-h:\s*var\(--control-h\);/);
   assert.match(styles, /--select-min-w:\s*130px;/);
   assert.match(styles, /--select-max-w:\s*260px;/);
-  assert.match(design, /--control-h:\s*28px/);
   assert.match(styles, /\.settings-field input\s*\{[^}]*height:\s*var\(--control-h\)/s);
   assert.match(styles, /\.select-control-trigger\s*\{[^}]*height:\s*var\(--select-trigger-h\)/s);
   assert.match(selectControl, /Select\.Root/);
@@ -3873,7 +3917,6 @@ test("mermaid blocks share preview, source copy, and zoom controls in every surf
   assert.match(viewer, /<Dialog/);
   assert.match(viewer, /<MediaViewer kind="image"/);
   assert.match(viewer, /data:image\/svg\+xml/);
-  assert.match(design, /Rendered Mermaid blocks expose one compact, persistent Preview \/ Source segmented/);
 });
 
 test("D2 blocks use the service renderer and keep a safe source fallback", () => {
@@ -4592,7 +4635,8 @@ test("Chat and sidebar typography goes through the type scale, never raw px", ()
     // name was 13px over a 12px schedule over a 12px status, and the pane title
     // sat at 18px — a rank the scale does not contain.
     "automation", "one-shot", "task-", "execution-state", "row-outcome",
-    "system-task", "workspace-page-title", "workspace-empty"
+    "system-task", "workspace-page-title", "workspace-empty",
+    "agent-home", "agent-history", "turn-process", "process-"
   ];
   const inScope = (selector) => [...selector.matchAll(/\.([a-z][\w-]*)/gi)]
     .some((match) => scopePrefixes.some((prefix) => match[1] === prefix || match[1].startsWith(prefix)));
@@ -6287,7 +6331,7 @@ test("Agent history shares source icons and right-aligned times in two columns",
   assert.match(browser, /class="agent-history-columns"/);
   const row = read("./lib/chat/AgentConversationRow.svelte");
   assert.match(row, /class="agent-history-conversation-copy"/);
-  assert.doesNotMatch(row, /class="agent-history-source"/);
+  assert.match(row, /\{#if showSource\}<span class="agent-history-source">\{sourceLabel\}<\/span>\{\/if\}/);
   assert.match(row, /item\.readOnly/);
   assert.match(browser, /<SelectControl value=\{scope\}/);
   assert.match(row, /<time datetime=\{item\.updatedAt\}/);
@@ -6346,17 +6390,17 @@ test("Agent home and full history share the conversation row", () => {
   const row = read("./lib/chat/AgentConversationRow.svelte");
   assert.match(home, /<AgentConversationRow \{item\} source=\{item.channel\}/);
   assert.match(browser, /<AgentConversationRow \{item\} source=\{item.source\}/);
-  assert.match(row, /class="agent-history-row" onclick=\{onSelect\}/);
+  assert.match(row, /class="agent-history-row" class:with-source=\{showSource\} onclick=\{onSelect\}/);
   assert.doesNotMatch(home, /agent-home-session/);
   assert.doesNotMatch(styles, /\.agent-home-session/);
 });
 
 
-test("new conversation centers the real composer above compact suggestions and three recent sessions", () => {
+test("new conversation centers the real composer above compact suggestions and four recent sessions", () => {
   const home = read("./lib/chat/AgentHome.svelte");
   assert.match(view, /<AgentHome [\s\S]*?composer=\{conversationComposer\}[\s\S]*?sessions=\{agentHomeDisplaySessions\}/);
   assert.match(view, /sessions=\{agentHomeDisplaySessions\}/);
-  assert.match(view, /agentHomeSessions\.filter\(\(item\) => !handoverSessionIds\.has\(item\.sessionId\)\)[\s\S]*?\.slice\(0, 3\)/);
+  assert.match(view, /agentHomeSessions\.filter\(\(item\) => !handoverSessionIds\.has\(item\.sessionId\)\)[\s\S]*?\.slice\(0, 4\)/);
   assert.match(view, /floating=\{!draftMode\}/);
   const standardHome = home.slice(home.indexOf('{:else}\n  <section class="agent-home"'));
   assert.ok(standardHome.indexOf("{@render composer()}") < standardHome.indexOf('class="agent-home-tasks"'));
@@ -6396,7 +6440,7 @@ test("Agent sidebar opens home without loading or rendering conversations", () =
  test("Room entry shares the Agent homepage and creates sessions only on send", () => {
   const room = read("./lib/chat/RoomWorkspace.svelte");
   assert.match(room, /<AgentHome /);
-  assert.match(room, /homeSessions.slice\(0, 3\)/);
+  assert.match(room, /homeSessions.slice\(0, 4\)/);
   assert.match(room, /showHome = !sessionId/);
   assert.doesNotMatch(room, /room-session-picker|savedSession|rememberSession/);
   const newConversation = room.slice(room.indexOf("function newConversation()"), room.indexOf("async function action("));

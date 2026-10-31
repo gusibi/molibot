@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import Magnifier from "reicon-svelte/icons/Magnifier";
   import type { DesktopExtractionStatus, DesktopManagedSessionItem, DesktopManagedViewState } from "../api";
   import type { DesktopSessionFile } from "@molibot/desktop-contract";
   import {
@@ -30,6 +32,7 @@
     resetSessionFilters,
     turnSessionPage,
     toggleSessionRow,
+    toggleSessionOne,
     toggleSessionPage,
     selectAllMatchingSessions,
     openSessionPreview,
@@ -46,6 +49,15 @@
     removeSessionBotOverride
   } from "../stores/sessionManagement.svelte";
 
+  let filtersOpen = $state(false);
+  let policyOpen = $state(false);
+  let policyEndpoint = "";
+  const advancedFilterCount = $derived([
+    Boolean(sessionManagementStore.botIds.trim()), sessionManagementStore.inactiveDays !== "any",
+    Boolean(sessionManagementStore.fromDate), Boolean(sessionManagementStore.toDate),
+    sessionManagementStore.empty, sessionManagementStore.short,
+    sessionManagementStore.extractionFilter !== "any", sessionManagementStore.processedOnly
+  ].filter(Boolean).length);
   let newBotId = $state("");
   let newBotMode = $state<"inherit" | "disabled" | "custom">("inherit");
   let newBotDays = $state(30);
@@ -95,7 +107,7 @@
   ]);
   const selCount = $derived(sessionManagementSelectedCount());
   const pageIds = $derived(sessionManagementStore.items.map((item) => item.conversationId));
-  const allChecked = $derived(pageIds.length > 0 && pageIds.every((id) => id in sessionManagementStore.selected));
+  const allChecked = $derived(Boolean(sessionManagementStore.selectAll) || (pageIds.length > 0 && pageIds.every((id) => id in sessionManagementStore.selected)));
   const showRestore = $derived(sessionManagementStore.view !== "active");
   const pageIdx = $derived(Math.floor(sessionManagementStore.pageOffset / SESSION_MANAGEMENT_PAGE_SIZE));
   const pageCount = $derived(Math.max(1, Math.ceil(sessionManagementStore.total / SESSION_MANAGEMENT_PAGE_SIZE)));
@@ -107,13 +119,13 @@
 
   $effect(() => {
     const readyEndpoint = session.serviceReady ? session.endpoint : null;
-    if (readyEndpoint) {
-      untrack(() => {
-        if (readyEndpoint !== sessionManagementStore.endpoint) {
-          void loadManagedSessions(readyEndpoint);
-          void loadSessionPolicy(readyEndpoint);
-        }
-      });
+    if (readyEndpoint) untrack(() => void loadManagedSessions(readyEndpoint));
+  });
+
+  $effect(() => {
+    if (policyOpen && endpoint && policyEndpoint !== endpoint) {
+      policyEndpoint = endpoint;
+      untrack(() => void loadSessionPolicy(endpoint));
     }
   });
 
@@ -134,10 +146,6 @@
     return item.botId ? `${copy.sessionMgmtSourceLocal} · ${item.botId}` : copy.sessionMgmtSourceLocal;
   }
 
-  function rowStateLabel(item: DesktopManagedSessionItem, copy: Translation): string {
-    const stateLabel = item.state === "active" ? copy.sessionMgmtTabActive : item.state === "archived" ? copy.sessionMgmtTabArchived : copy.sessionMgmtTabTrash;
-    return item.retain ? `${stateLabel} · ${copy.sessionMgmtRetain}` : stateLabel;
-  }
 
   /** Web profile that owns the session's workspace; external/project branches
    * of the files API ignore it but require it non-empty. */
@@ -274,12 +282,18 @@
     return formatMessageTime(value, session.text.groupYesterday);
   }
 
+  function onRowCheck(event: Event, item: DesktopManagedSessionItem, idx: number): void {
+    toggleSessionOne(item.conversationId, item.version, (event.currentTarget as HTMLInputElement).checked);
+    sessionManagementStore.lastSelectedIdx = idx;
+  }
+
   function onRowClick(event: MouseEvent, item: DesktopManagedSessionItem, idx: number): void {
     if ((event.target as HTMLElement | null)?.closest?.("button,input,label,a")) return;
     toggleSessionRow(item.conversationId, idx, event.shiftKey);
   }
 
   function onRowKeydown(event: KeyboardEvent, item: DesktopManagedSessionItem, idx: number): void {
+    if (event.target !== event.currentTarget) return;
     if (event.key === " " && (event.target as HTMLElement)?.tagName !== "INPUT") {
       event.preventDefault();
       toggleSessionRow(item.conversationId, idx, event.shiftKey);
@@ -294,57 +308,60 @@
 {#if !session.serviceReady || !endpoint}
   <div class="settings-card"><EmptyState title={session.text.sessionMgmtUnavailable} icon="clock-counter-clockwise" /></div>
 {:else}
-  <div class="settings-card" data-session-management="filters">
-    <div class="settings-form">
-      <div class="settings-field settings-field-wide" data-session-views>
-        <nav class="memory-center-tabs" aria-label={session.text.sessionMgmtViews}>
-          {#each viewTabs as tab (tab.id)}
-            <button type="button" class:active={sessionManagementStore.view === tab.id} aria-current={sessionManagementStore.view === tab.id ? "page" : undefined} onclick={() => setSessionView(endpoint, tab.id)}>{tab.label} ({tab.count})</button>
-          {/each}
-        </nav>
-      </div>
+  <div class="session-manager-shell">
+  <div class="session-manager-heading">
+    <nav class="memory-center-tabs session-manager-tabs" aria-label={session.text.sessionMgmtViews}>
+      {#each viewTabs as tab (tab.id)}
+        <button type="button" class:active={sessionManagementStore.view === tab.id} aria-current={sessionManagementStore.view === tab.id ? "page" : undefined} disabled={sessionManagementStore.bulkBusy || sessionManagementStore.selectingAll} onclick={() => setSessionView(endpoint, tab.id)}>{tab.label} <span>{tab.count}</span></button>
+      {/each}
+    </nav>
+    <button class="icon-button" type="button" aria-label={session.text.sessionMgmtRefresh} title={session.text.sessionMgmtRefresh} disabled={sessionManagementStore.loading || sessionManagementStore.bulkBusy || sessionManagementStore.selectingAll} onclick={() => void loadManagedSessions(endpoint)}><Refresh size={16} aria-hidden="true" /></button>
+  </div>
+  <form class="session-manager-search" onsubmit={event => { event.preventDefault(); applySessionFilters(endpoint); }}>
+    <label class="search-field"><Magnifier size={16} aria-hidden="true" /><input type="search" aria-label={session.text.sessionMgmtFilterKeyword} bind:value={sessionManagementStore.keyword} autocomplete="off" spellcheck="false" placeholder={session.text.sessionMgmtFilterKeywordPh} /></label>
+    <SelectControl value={sessionManagementStore.source} ariaLabel={session.text.sessionMgmtFilterSource} options={sourceOptions} onChange={value => { sessionManagementStore.source = value; applySessionFilters(endpoint); }} />
+    <button class="secondary-button" type="submit">{session.text.sessionMgmtApply}</button>
+  </form>
+  <div class="session-manager-filter-actions">
+    <button class="text-button" type="button" aria-expanded={filtersOpen} aria-controls="session-manager-advanced" onclick={() => filtersOpen = !filtersOpen}>{session.text.sessionMgmtMoreFilters}{#if advancedFilterCount} <span class="tnum">{advancedFilterCount}</span>{/if}</button>
+    {#if advancedFilterCount || sessionManagementStore.keyword || sessionManagementStore.source !== "all"}<button class="text-button" type="button" onclick={() => resetSessionFilters(endpoint)}>{session.text.sessionMgmtReset}</button>{/if}
+  </div>
+  {#if filtersOpen}
+    <div class="settings-card" id="session-manager-advanced" data-session-management="filters">
+      <div class="settings-form">
       <label class="settings-field"><span>{session.text.sessionMgmtFilterBot}</span><input bind:value={sessionManagementStore.botIds} autocomplete="off" spellcheck="false" placeholder={session.text.sessionMgmtFilterBotPh} onchange={() => applySessionFilters(endpoint)} /></label>
-      <div class="settings-field"><span>{session.text.sessionMgmtFilterSource}</span><SelectControl value={sessionManagementStore.source} ariaLabel={session.text.sessionMgmtFilterSource} options={sourceOptions} onChange={(value) => { sessionManagementStore.source = value; applySessionFilters(endpoint); }} /></div>
-      <label class="settings-field"><span>{session.text.sessionMgmtFilterKeyword}</span><input bind:value={sessionManagementStore.keyword} autocomplete="off" spellcheck="false" placeholder={session.text.sessionMgmtFilterKeywordPh} onchange={() => applySessionFilters(endpoint)} /></label>
       <div class="settings-field"><span>{session.text.sessionMgmtFilterInactive}</span><SelectControl value={sessionManagementStore.inactiveDays} ariaLabel={session.text.sessionMgmtFilterInactive} options={inactiveOptions} onChange={(value) => { sessionManagementStore.inactiveDays = value; applySessionFilters(endpoint); }} /></div>
       <label class="settings-field"><span>{session.text.sessionMgmtFilterFrom}</span><input type="date" bind:value={sessionManagementStore.fromDate} onchange={() => applySessionFilters(endpoint)} /></label>
       <label class="settings-field"><span>{session.text.sessionMgmtFilterTo}</span><input type="date" bind:value={sessionManagementStore.toDate} onchange={() => applySessionFilters(endpoint)} /></label>
-      <label class="settings-field"><span>{session.text.sessionMgmtFilterEmpty}</span><span class="inline-check"><input type="checkbox" bind:checked={sessionManagementStore.empty} onchange={() => applySessionFilters(endpoint)} /></span></label>
-      <label class="settings-field"><span>{session.text.sessionMgmtFilterShort}</span><span class="inline-check"><input type="checkbox" bind:checked={sessionManagementStore.short} onchange={() => applySessionFilters(endpoint)} /></span></label>
+      <div class="session-manager-toggle"><span>{session.text.sessionMgmtFilterEmpty}</span><IosSwitch checked={sessionManagementStore.empty} ariaLabel={session.text.sessionMgmtFilterEmpty} onCheckedChange={checked => { sessionManagementStore.empty = checked; applySessionFilters(endpoint); }} /></div>
+      <div class="session-manager-toggle"><span>{session.text.sessionMgmtFilterShort}</span><IosSwitch checked={sessionManagementStore.short} ariaLabel={session.text.sessionMgmtFilterShort} onCheckedChange={checked => { sessionManagementStore.short = checked; applySessionFilters(endpoint); }} /></div>
       <div class="settings-field"><span>{session.text.sessionMgmtFilterExtraction}</span><SelectControl value={sessionManagementStore.extractionFilter} ariaLabel={session.text.sessionMgmtFilterExtraction} options={extractionOptions} onChange={(value) => { sessionManagementStore.extractionFilter = value; applySessionFilters(endpoint); }} /></div>
-      <label class="settings-field"><span>{session.text.sessionMgmtProcessedOnly}</span><span class="inline-check"><input type="checkbox" bind:checked={sessionManagementStore.processedOnly} onchange={() => applySessionFilters(endpoint)} /></span></label>
-      <div class="settings-field settings-field-wide settings-row-actions">
-        <button class="secondary-button" type="button" onclick={() => applySessionFilters(endpoint)}>{session.text.sessionMgmtApply}</button>
-        <button class="secondary-button" type="button" onclick={() => resetSessionFilters(endpoint)}>{session.text.sessionMgmtReset}</button>
+      <div class="session-manager-toggle"><span>{session.text.sessionMgmtProcessedOnly}</span><IosSwitch checked={sessionManagementStore.processedOnly} ariaLabel={session.text.sessionMgmtProcessedOnly} onCheckedChange={checked => { sessionManagementStore.processedOnly = checked; applySessionFilters(endpoint); }} /></div>
       </div>
     </div>
-  </div>
+  {/if}
 
   <div class="settings-card" data-session-management="list">
-    <div class="settings-row">
-      <div class="profile-info">
-        <strong>{fill(session.text.sessionMgmtSelectedCount, { count: selCount })}</strong>
-        <p>{consequenceText}</p>
-        <p>{session.text.sessionMgmtConsequenceDelete}</p>
-        <p>{session.text.sessionMgmtConsequenceExtract}</p>
-        {#if sessionManagementStore.selectAll}<p>{fill(session.text.sessionMgmtSelectAllNote, { count: sessionManagementStore.selectAll.count })}</p>{/if}
-      </div>
+    <div class="session-manager-selection" aria-label={session.text.sessionMgmtSelection}>
+      <span>{fill(session.text.sessionMgmtSelectedCount, { count: selCount })}</span>
       <div class="settings-row-actions">
-        <button class="secondary-button" type="button" disabled={sessionManagementStore.loading || sessionManagementStore.items.length === 0} onclick={() => toggleSessionPage(!allChecked)}>{session.text.sessionMgmtSelectPage}</button>
-        <button class="secondary-button" type="button" disabled={sessionManagementStore.selectingAll || sessionManagementStore.loading || sessionManagementStore.total === 0} onclick={() => void selectAllMatchingSessions(endpoint)}>{session.text.sessionMgmtSelectAll}</button>
-        {#if sessionManagementStore.view === "active"}
-          <button class="primary-button" type="button" disabled={selCount === 0 || sessionManagementStore.bulkBusy} onclick={() => void runSessionBulk(endpoint, "archive")}>{session.text.sessionMgmtArchive}</button>
-        {/if}
-        {#if showRestore}
-          <button class="primary-button" type="button" disabled={selCount === 0 || sessionManagementStore.bulkBusy} onclick={() => void runSessionBulk(endpoint, "restore")}>{session.text.sessionMgmtRestore}</button>
-        {/if}
-        <button class="secondary-button" type="button" disabled={selCount === 0 || sessionManagementStore.bulkBusy} onclick={() => void runSessionExtraction(endpoint)}>{session.text.sessionMgmtExtractArchive}</button>
-        <button class="secondary-button danger-action" type="button" disabled={selCount === 0 || sessionManagementStore.bulkBusy} onclick={() => void requestSessionDelete(endpoint)}>{session.text.sessionMgmtDelete}</button>
-        {#if sessionManagementStore.bulkFailed > 0 && sessionManagementStore.lastOperationId}
-          <button class="secondary-button" type="button" disabled={sessionManagementStore.bulkBusy} onclick={() => void retrySessionBulk(endpoint)}>{session.text.sessionMgmtRetry}</button>
-        {/if}
+        <button class="text-button" type="button" disabled={sessionManagementStore.loading || sessionManagementStore.bulkBusy || sessionManagementStore.items.length === 0} onclick={() => toggleSessionPage(!allChecked)}>{session.text.sessionMgmtSelectPage}</button>
+        <button class="text-button" type="button" disabled={sessionManagementStore.selectingAll || sessionManagementStore.bulkBusy || sessionManagementStore.loading || sessionManagementStore.total === 0} onclick={() => void selectAllMatchingSessions(endpoint)}>{session.text.sessionMgmtSelectAll}</button>
       </div>
     </div>
+    {#if selCount > 0}
+      <div class="session-manager-bulk">
+        <div class="settings-row-actions">
+          {#if sessionManagementStore.view === "active"}<button class="primary-button" type="button" disabled={sessionManagementStore.loading || sessionManagementStore.bulkBusy} onclick={() => void runSessionBulk(endpoint, "archive")}>{session.text.sessionMgmtArchive}</button>{/if}
+          {#if showRestore}<button class="primary-button" type="button" disabled={sessionManagementStore.loading || sessionManagementStore.bulkBusy} onclick={() => void runSessionBulk(endpoint, "restore")}>{session.text.sessionMgmtRestore}</button>{/if}
+          <button class="secondary-button" type="button" disabled={sessionManagementStore.loading || sessionManagementStore.bulkBusy} onclick={() => void runSessionExtraction(endpoint)}>{session.text.sessionMgmtExtractArchive}</button>
+          <button class="secondary-button danger-action" type="button" disabled={sessionManagementStore.loading || sessionManagementStore.bulkBusy} onclick={() => void requestSessionDelete(endpoint)}>{sessionManagementStore.view === "trashed" ? session.text.sessionMgmtDeletePermanently : session.text.sessionMgmtDelete}</button>
+        </div>
+        <details class="session-manager-help"><summary>{session.text.sessionMgmtActionDetails}</summary><p>{consequenceText}</p><p>{sessionManagementStore.view === "trashed" ? session.text.sessionMgmtDeletePermanent : session.text.sessionMgmtConsequenceDelete}</p><p>{session.text.sessionMgmtConsequenceExtract}</p></details>
+        {#if sessionManagementStore.selectAll}<p class="session-manager-note">{fill(session.text.sessionMgmtSelectAllNote, { count: sessionManagementStore.selectAll.count })}</p>{/if}
+      </div>
+    {/if}
+    {#if sessionManagementStore.bulkFailed > 0 && sessionManagementStore.lastOperationId}<div class="session-manager-bulk"><button class="secondary-button" type="button" disabled={sessionManagementStore.bulkBusy} onclick={() => void retrySessionBulk(endpoint)}>{session.text.sessionMgmtRetry}</button></div>{/if}
 
     {#if sessionManagementStore.bulkCounts}
       <p class="settings-action-message" aria-live="polite">{fill(session.text.sessionMgmtOpDone, { ok: sessionManagementStore.bulkCounts.succeeded, skip: sessionManagementStore.bulkCounts.skipped, fail: sessionManagementStore.bulkCounts.failed })}</p>
@@ -375,7 +392,8 @@
       <div role="listbox" aria-multiselectable="true" aria-label={session.text.sessionMgmtViews}>
       {#each sessionManagementStore.items as item, idx (item.conversationId)}
         <div
-          class="settings-row"
+          class="settings-row session-manager-row"
+          class:selected={item.conversationId in sessionManagementStore.selected || Boolean(sessionManagementStore.selectAll)}
           data-session-row={idx}
           tabindex="0"
           role="option"
@@ -386,18 +404,18 @@
           <label class="inline-check">
             <input
               type="checkbox"
-              checked={item.conversationId in sessionManagementStore.selected}
-              onchange={(event) => toggleSessionRow(item.conversationId, idx, (event as unknown as MouseEvent).shiftKey)}
+              checked={item.conversationId in sessionManagementStore.selected || Boolean(sessionManagementStore.selectAll)}
+              onchange={(event) => onRowCheck(event, item, idx)}
               onclick={(event) => event.stopPropagation()}
               aria-label={item.title || item.conversationId}
             />
           </label>
           <div class="profile-info">
             <strong>{item.title || item.conversationId}</strong>
-            <p>{sourceLabel(item, session.text)} · {item.lastActivityAt ? formatNaturalDateTime(item.lastActivityAt, session.locale) : "—"} · {item.userTurnCount} {session.text.sessionMgmtColTurns}</p>
+            <p class="session-manager-row-meta"><span>{sourceLabel(item, session.text)}</span><time datetime={item.lastActivityAt || undefined}>{item.lastActivityAt ? formatNaturalDateTime(item.lastActivityAt, session.locale) : "—"}</time><span>{item.userTurnCount} {session.text.sessionMgmtColTurns}</span></p>
           </div>
           <div class="settings-row-actions">
-            <StatusBadge label={rowStateLabel(item, session.text)} state={item.state === "active" ? "ready" : item.state === "archived" ? "warning" : "error"} />
+            {#if item.retain}<span class="session-manager-note">{session.text.sessionMgmtRetain}</span>{/if}
             <StatusBadge label={sessionExtractionLabel(rowExtractionStatus(item))} state={rowExtractionStatus(item) === "failed" ? "error" : rowExtractionStatus(item) === "unprocessed" ? "disconnected" : "ready"} />
             <button class="secondary-button" type="button" onclick={() => openPreview(item)}>{session.text.sessionMgmtPreviewRow}</button>
           </div>
@@ -476,6 +494,9 @@
     </Dialog>
   {/if}
 
+  <details class="session-manager-policy" bind:open={policyOpen}>
+    <summary><span>{session.text.sessionMgmtPolicyTitle}</span><span class="session-manager-note">{session.text.sessionMgmtPolicyManage}</span></summary>
+  {#if policyOpen}
   <div class="settings-card" data-session-management="policy">
     <div class="settings-row">
       <div class="profile-info"><strong>{session.text.sessionMgmtPolicyTitle}</strong><p>{session.text.sessionMgmtPolicyDesc}</p></div>
@@ -529,13 +550,17 @@
     {/if}
   </div>
 
+  {/if}
+  </details>
+  {#if policyOpen}
   <footer class="settings-footbar">
-    <span class="settings-footbar-label">{sessionManagementStore.policySaving ? session.text.loading : sessionManagementStore.policyMessage || sessionManagementStore.policyError}</span>
+    <span class="settings-footbar-label">{sessionManagementStore.policySaving ? session.text.loading : sessionManagementStore.policyMessage || sessionManagementStore.policyError || session.text.sessionMgmtPolicyTitle}</span>
     <div class="settings-footbar-actions">
       <button class="secondary-button" type="button" disabled={sessionManagementStore.policyLoading || sessionManagementStore.policySaving || !endpoint} onclick={() => void loadSessionPolicy(endpoint)}>{session.text.sessionMgmtReset}</button>
       <button class="primary-button" type="button" disabled={sessionManagementStore.policyLoading || sessionManagementStore.policySaving || !endpoint} onclick={() => void saveSessionPolicy(endpoint)}>{sessionManagementStore.policySaving ? session.text.loading : session.text.save}</button>
     </div>
   </footer>
+  {/if}
 
   {#if sessionManagementStore.confirmDelete && sessionManagementStore.deleteFacts}
     <Dialog
@@ -559,4 +584,5 @@
       </footer>
     </Dialog>
   {/if}
+  </div>
 {/if}

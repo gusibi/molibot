@@ -251,6 +251,7 @@ function toRecord(row: PersistedMemoryNode, fallbackScope: MemoryScope): MemoryR
   const meta = parseMeta(row.detail, fallbackScope, inferredLayer);
   return {
     id: row.id,
+    hasEmbedding: Boolean(row.embedding?.length),
     channel: meta.channel,
     externalUserId: meta.externalUserId,
     content: row.value,

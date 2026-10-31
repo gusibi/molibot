@@ -376,7 +376,7 @@
     {#if showHome}
       <div class="chat-start-page">
         <AgentHome agent={{name: view.room.title, description: participants.map(agent => agent.name).join(" · ")}}
-          sessions={historyExpanded ? homeSessions : homeSessions.slice(0, 3)} {historyExpanded} {locale} {copy} actions={[]}
+          sessions={historyExpanded ? homeSessions : homeSessions.slice(0, 4)} {historyExpanded} {locale} {copy} actions={[]}
           composer={roomComposer} onPrompt={prompt => input = prompt} onSession={item => open(selected, item.sessionId)}
           onHistory={() => historyExpanded = !historyExpanded} formatTime={value => formatMessageTime(value, copy.groupYesterday)} />
       </div>

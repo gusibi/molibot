@@ -100,10 +100,12 @@
       </div>
     </details>
   {:else}
-    <span class="process-timeline-label">
-      <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
-      <span class="process-tool-label-text">{activity.label}</span>
-    </span>
-    {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
+    <div class="process-tool-row">
+      <span class="process-timeline-label">
+        <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
+        <span class="process-tool-label-text">{activity.label}</span>
+      </span>
+      {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
+    </div>
   {/if}
 </div>

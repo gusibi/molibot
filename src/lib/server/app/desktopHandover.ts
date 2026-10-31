@@ -44,7 +44,7 @@ const ATTENTION_EXECUTION_STATUSES = new Set<DurableExecutionStatus>(["planned",
 /** A parked run older than this is dead state left by a killed process, not a live wait. */
 const WAITING_RUN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const DETAIL_LIMIT = 220;
-const RESULT_LIMIT = 180;
+const RESULT_LIMIT = 260;
 
 export interface HandoverTaskInput {
   type: string;
@@ -148,6 +148,17 @@ function clip(text: string, limit: number): string {
   return `${normalized.slice(0, limit - 1).trimEnd()}…`;
 }
 
+function clipPreview(text: string, limit: number): string {
+  const normalized = String(text ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/^#{1,6}\s+/, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit - 1).trimEnd()}…`;
+}
+
 /**
  * Turns a provider diagnostic into a short line a person can act on.
  *
@@ -221,7 +232,7 @@ function itemFromLease(
   const failure = failed ? summarizeFailure(lease.lastError || noticesByRun.get(lease.runId)) : {};
   const resultPreview = failed
     ? ""
-    : clip(resultTextOf(lease.result) || previewOf(lease.sessionId), RESULT_LIMIT);
+    : clipPreview(resultTextOf(lease.result) || previewOf(lease.sessionId), RESULT_LIMIT);
   return {
     id: `task:${lease.id}`,
     kind,

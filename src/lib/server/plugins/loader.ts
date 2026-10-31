@@ -172,7 +172,7 @@ export function applyChannelPlugins(state: any, applySettingsPatch: (patch: Part
   // process that owns the data directory; anything else is a second voice on
   // the same account (prd.md §3.41). The exemption is declared by the plugin,
   // so this stays a shared rule with the difference injected by the caller
-  // rather than a per-channel conditional (CLAUDE.md pitfall 7).
+  // rather than a per-channel conditional (docs/pitfalls.md pitfall 7).
   const ownership = ensureServiceOwnership();
   const channelsSuppressed = externalChannelsDisabled();
   if (channelsSuppressed) {

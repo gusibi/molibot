@@ -305,7 +305,6 @@
   .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: 1px;
     gap: 2px;
     padding: 0 0 6px;
     margin-bottom: 0;
@@ -325,13 +324,14 @@
     color: var(--label-primary, #171717);
     text-align: left;
     font-size: var(--fs-label);
+    line-height: var(--lh-label);
     transition: background var(--duration-instant) var(--ease-standard);
   }
   .nav-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
   .nav-item.active :global(svg) { color: var(--accent, #006bff); }
   .nav-item :global(svg) { color: var(--label-secondary, #666); }
-  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
 
   /* Collapsed presentation: a slim icon rail plus an on-demand list flyout. */
   .sidebar-collapsed {
@@ -366,7 +366,7 @@
   .rail-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); }
   .rail-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); }
   .rail-item.active :global(svg) { color: var(--accent, #006bff); }
-  .rail-notification { position: absolute; top: 2px; right: 2px; display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .rail-notification { position: absolute; top: 2px; right: 2px; display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
   .rail-spacer { flex: 1 1 auto; }
   .rail-avatar {
     display: grid;

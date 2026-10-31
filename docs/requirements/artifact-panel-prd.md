@@ -13,7 +13,7 @@
 > - **Revision v6** (2026-08-09): `.xls` / `.xlsx` is now a lazy `SpreadsheetTable` viewer in both Project and Session scopes. The viewer fetches bytes through the existing authorized transport, parses with the packaged SheetJS dependency, exposes sheet tabs with sticky headers and row numbers, caps the rendered DOM at 5,000 data rows per sheet, and leaves DOCX/PPTX/unknown binaries on the SystemOpen fallback.
 > - **Revision v7** (2026-08-09): `.docx` and the Word MIME type now use a lazy `DocxPreview` viewer in both scopes. Mammoth converts the authorized bytes to Markdown, the existing sanitized Markdown renderer owns the final HTML surface, external file access and embedded image loads are disabled, and PPTX/unknown binaries remain on the SystemOpen fallback.
 > - **Revision v8** (2026-08-09): `.pptx` and the PowerPoint MIME type now use a lazy `PptxPreview` viewer in both scopes. The MIT-licensed `@silurus/ooxml` Canvas/WASM renderer paints bounded, continuously scrollable read-only slides; external hyperlinks and Google Fonts are disabled, and legacy `.ppt`/unknown binaries remain on the SystemOpen fallback.
-> - **Implementer note**: read CLAUDE.md "Recurring Pitfalls" before starting — #2 (Svelte 5 reactivity), #4 (three theme states), #6 (path validation / no absolute host paths in WebView), #7 (shared modules, no forks), #16 (resizable column layout floors), #17 (third-party widget theming), #20 (UI reference marker ≠ filesystem path) all directly apply to this surface.
+> - **Implementer note**: read docs/pitfalls.md before starting — #2 (Svelte 5 reactivity), #4 (three theme states), #6 (path validation / no absolute host paths in WebView), #7 (shared modules, no forks), #16 (resizable column layout floors), #17 (third-party widget theming), #20 (UI reference marker ≠ filesystem path) all directly apply to this surface.
 
 ## Problem Statement
 
@@ -193,7 +193,7 @@ Mini App tab 不显示文件操作条（它没有"路径"语义），保留其�
 
 ## Delivery Notes
 
-- 每个 slice 交付后按 CLAUDE.md 更新 `features.md` 与 `CHANGELOG.md`（含验证结果）。
+- 每个 slice 交付后按 AGENTS.md §9 更新 `features.md` 与 `CHANGELOG.md`（含验证结果）。
 - Slice 0 先行且独立合入；Slice 1 的 1a/1b/1c 可并行；Slice 2、3 依赖 Slice 0 的 registry。
 - i18n：所有新增 UI 文案进 `apps/desktop/src/lib/i18n.ts`，中英双语。
 - 开关类控件（如出现）一律 `IosSwitch`。

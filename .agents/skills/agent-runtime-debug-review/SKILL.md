@@ -9,7 +9,7 @@ Trace the failing operation across its actual runtime boundaries. Fix the owning
 
 ## Establish the contract and evidence
 
-- Read applicable `AGENTS.md` rules. Before diagnosing a bug, search matching symptoms or panels in `CHANGELOG.md`, `docs/archive/changelog-*.md`, and `CLAUDE.md` Recurring Pitfalls. Start from the previous root cause and guard; explain why that guard missed this case.
+- Read applicable `AGENTS.md` rules. Before diagnosing a bug, search matching symptoms or panels in `CHANGELOG.md`, `docs/archive/changelog-*.md`, and `docs/pitfalls.md` (index in `docs/pitfalls.md`). Start from the previous root cause and guard; explain why that guard missed this case.
 - Define the expected observable outcome from existing requirements, tests, and the user's request. For assistant capability status, use `docs/requirements/personal-assistant-capability-matrix.md`; historical delivery notes do not authorize new work.
 - For change reviews, establish the requested diff/base and distinguish pre-existing or unrelated working-tree changes. Review the changed behavior and necessary callers, not the whole runtime.
 - Collect the smallest useful evidence: input, expected/actual behavior, run/session/scope/tool-call identities, relevant logs, and persisted state. Missing logs or a screenshot-only report calls for read-only investigation, not an automatic approval question.

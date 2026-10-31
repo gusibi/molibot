@@ -5,7 +5,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
  *
  * Sandbox and permission mode resolve through exactly the same five levels, and
  * a second hand-written copy of that precedence would drift the first time
- * someone fixed a bug in one of them (CLAUDE.md pitfall 7). So the chain lives
+ * someone fixed a bug in one of them (docs/pitfalls.md pitfall 7). So the chain lives
  * here once and each setting supplies only its own lookups.
  *
  * Precedence, most specific first:

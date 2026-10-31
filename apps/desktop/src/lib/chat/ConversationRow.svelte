@@ -393,6 +393,7 @@
     background: var(--card-bg);
     color: var(--label-primary, #171717);
     font-size: var(--fs-label);
+    line-height: var(--lh-label);
   }
   .row-rename-input:focus-visible {
     outline: none;
@@ -451,6 +452,7 @@
     background: transparent;
     color: var(--label-primary, #171717);
     font-size: var(--fs-label);
+    line-height: var(--lh-label);
     text-align: left;
     cursor: pointer;
   }

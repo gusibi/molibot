@@ -150,6 +150,13 @@ function createDeferredToolEntry(options: {
   };
 }
 
+export interface MomTools extends Array<AgentTool<any>> {
+  getNativeTools(): AgentTool<any>[];
+  getChildTools(): AgentTool<any>[];
+  wrapTool(tool: AgentTool<any>): AgentTool<any>;
+  loadDeferredTools(names: string[]): string[];
+}
+
 export function createMomTools(options: {
   agentId?: string;
   /** Ledger attribution for usage records (media usageScope); falls back to `agentId`. Project runs pass "project". */
@@ -188,7 +195,7 @@ export function createMomTools(options: {
   setSelectedMcpServerIds: (next: Set<string>) => void;
   getLoadedMcpTools: () => AgentTool<any>[];
   refreshLoadedMcpTools: () => Promise<{ statuses: McpServerStatus[]; toolCount: number }>;
-  onLocalToolsChanged?: (tools: AgentTool<any>[]) => void;
+  onLocalToolsChanged?: (tools: MomTools) => void;
   exposeLoadMcpTool?: boolean;
   /** A leading @mini-app selector preloads and exclusively exposes that app. */
   miniAppId?: string;
@@ -210,7 +217,7 @@ export function createMomTools(options: {
   extensionAbort?: () => void;
   /** Trigger compaction from a pi extension (`ctx.compact()`). */
   extensionCompact?: (instructions?: string) => void | Promise<void>;
-}): AgentTool<any>[] {
+}): MomTools {
   // Tools a pi extension may invoke through `ctx.executeTool()`: exactly the set
   // the model can call, so permission/approval/budget apply the same way.
   const runtimeCallableTools = (): AgentTool<any>[] => [
@@ -763,7 +770,9 @@ export function createMomTools(options: {
       activeLocalTools: getActiveTools().map((tool) => tool.name)
     });
     if (loaded.length > 0) {
-      options.onLocalToolsChanged?.(getActiveTools());
+      // The Runner retains execution helpers on this collection across refreshes.
+      resultTools.splice(0, resultTools.length, ...getActiveTools());
+      options.onLocalToolsChanged?.(resultTools);
     }
     return loaded;
   };
@@ -1121,10 +1130,11 @@ export function createMomTools(options: {
   });
   for (const tool of commandTools) piExtensionToolNames.add(tool.name);
   const nativeCommandTools = commandTools.map(wrapWithToolRuntime);
-  const resultTools = getActiveTools();
-  (resultTools as any).getNativeTools = () => [...(ownedModels?.tools ?? []), ...(ownedStream ? [ownedStream.tool] : []), ...nativeCommandTools];
-  (resultTools as any).wrapTool = wrapWithToolRuntime;
-  (resultTools as any).loadDeferredTools = loadDeferredTools;
-  (resultTools as any).getChildTools = () => [readToolDef, bashToolDef, editToolDef, writeToolDef].filter(tool => !agentDisabledTools.has(tool.id)).map(toAgentTool);
+  const resultTools: MomTools = Object.assign(getActiveTools(), {
+    getNativeTools: () => [...(ownedModels?.tools ?? []), ...(ownedStream ? [ownedStream.tool] : []), ...nativeCommandTools],
+    wrapTool: wrapWithToolRuntime,
+    loadDeferredTools,
+    getChildTools: () => [readToolDef, bashToolDef, editToolDef, writeToolDef].filter(tool => !agentDisabledTools.has(tool.id)).map(toAgentTool)
+  });
   return resultTools;
 }

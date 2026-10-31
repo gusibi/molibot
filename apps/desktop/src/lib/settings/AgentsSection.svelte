@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import DirectoryActions from "../components/ui/DirectoryActions.svelte";
+  import DirectoryToolbar from "../components/ui/DirectoryToolbar.svelte";
+  import SkeletonRows from "../components/ui/SkeletonRows.svelte";
   import SharedAgentRulesSection from "./SharedAgentRulesSection.svelte";
   import AgentAvatar from "../components/ui/AgentAvatar.svelte";
   import Button from "../components/ui/Button.svelte";
@@ -21,13 +25,18 @@
     updateAgentFromTemplate
   } from "../stores/agents.svelte";
 
+  let query = $state("");
+  let status = $state<"all" | "enabled" | "disabled">("all");
+  const filteredAgents = $derived.by(() => {
+    const term = query.trim().toLocaleLowerCase(session.locale);
+    return (agentsStore.agents?.items ?? []).filter(agent => (status === "all" || agent.enabled === (status === "enabled")) && (!term || [agent.name, agent.description, agent.id].join("\n").toLocaleLowerCase(session.locale).includes(term)));
+  });
   let sharedRulesOpen = $state(false);
   let deletingAgent = $state<NonNullable<typeof agentsStore.agents>["items"][number] | null>(null);
 
   $effect(() => {
-    if (session.serviceReady && session.endpoint && session.endpoint !== agentsStore.endpoint) {
-      void loadAgents(session.endpoint);
-    }
+    const endpoint = session.serviceReady ? session.endpoint : null;
+    if (endpoint) untrack(() => void loadAgents(endpoint));
   });
 
   async function handleConfirmDelete(): Promise<void> {
@@ -42,42 +51,51 @@
   <SharedAgentRulesSection onClose={() => sharedRulesOpen = false} />
 {:else if !session.serviceReady}
   <SettingGroup><EmptyState title={session.text.agentsUnavailable} icon="robot" /></SettingGroup>
-{:else if agentsStore.loading || !agentsStore.agents}
-  <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
+{:else if agentsStore.error && !agentsStore.agents}
+  <SettingGroup><div class="directory-load-error" role="alert"><strong>{session.text.directoryLoadFailed}</strong><p>{agentsStore.error}</p><Button onclick={() => session.endpoint && loadAgents(session.endpoint)}>{session.text.retryLoading}</Button></div></SettingGroup>
+{:else if !agentsStore.agents}
+  <SettingGroup><SkeletonRows count={4} label={session.text.loading} /></SettingGroup>
 {:else}
-  <SettingGroup title={session.locale === "zh-CN" ? "共享配置" : "Shared configuration"}>
-    <SettingRow title={session.locale === "zh-CN" ? "共享规则" : "Shared rules"} description={session.locale === "zh-CN" ? "所有 Agent 都会读取。专属规则在此基础上补充，模型等明确选择优先于共享默认值。" : "Read by every Agent. Agent rules extend this baseline; explicit model choices take priority over shared defaults."}>
+  <div class="directory-shell agent-directory" aria-busy={agentsStore.loading}>
+  {#if agentsStore.error}<div class="directory-load-error" role="alert"><p>{agentsStore.error}</p><Button onclick={() => session.endpoint && loadAgents(session.endpoint)}>{session.text.retryLoading}</Button></div>{/if}
+  <SettingGroup title={session.text.directoryShared} contentClass="directory-shared-settings">
+    <SettingRow title={session.text.directorySharedRules}>
+      <svelte:fragment slot="detail"><details class="directory-shared-detail"><summary>{session.text.directoryDetails}</summary><p>{session.text.directorySharedHint}</p></details></svelte:fragment>
       <Button onclick={() => sharedRulesOpen = true}>{session.text.agentEdit}</Button>
-    </SettingRow><SettingRow title={session.locale === "zh-CN" ? "默认 Agent" : "Default Agent"} description={session.locale === "zh-CN" ? "用于全局新对话；已有机器人绑定和对话归属不变。" : "Used for global new conversations. Existing bot bindings and conversations keep their Agent."}>
-    <SelectControl value={agentsStore.agents?.defaultAgentId ?? "default"} options={agentsStore.agents.items.filter(agent => agent.enabled).map(agent => ({ value: agent.id, label: agent.name }))} ariaLabel={session.locale === "zh-CN" ? "默认 Agent" : "Default Agent"} onChange={async id => { if (!session.endpoint) return; try { await setDesktopDefaultAgent(session.endpoint, id); await loadAgents(session.endpoint); notifySettingsChanged(); } catch (cause) { session.error = String(cause); } }} />
+    </SettingRow><SettingRow title={session.text.directoryDefaultAgent}>
+    <svelte:fragment slot="detail"><details class="directory-shared-detail"><summary>{session.text.directoryDetails}</summary><p>{session.text.directoryDefaultHint}</p></details></svelte:fragment>
+    <SelectControl value={agentsStore.agents?.defaultAgentId ?? "default"} options={agentsStore.agents.items.filter(agent => agent.enabled).map(agent => ({ value: agent.id, label: agent.name }))} ariaLabel={session.text.directoryDefaultAgent} onChange={async id => { if (!session.endpoint) return; try { await setDesktopDefaultAgent(session.endpoint, id); await loadAgents(session.endpoint); notifySettingsChanged(); } catch (cause) { session.error = String(cause); } }} />
   </SettingRow></SettingGroup>
 
-  <SettingGroup title={session.text.agents} description={`${session.locale === "zh-CN" ? "选择一个 Agent 进行编辑。" : "Choose an Agent to edit."} ${session.text.agentsTotal}: ${agentsStore.agents.counts.total} · ${session.text.agentsEnabledCount}: ${agentsStore.agents.counts.enabled}`}>
-    <svelte:fragment slot="action">
-      <button class="secondary-button" type="button" disabled={agentsStore.agentEdit !== null} onclick={beginNewAgent}>{session.text.agentAdd}</button>
-    </svelte:fragment>
+  <DirectoryToolbar {query} {status} summary={`${session.text.agentsTotal}: ${agentsStore.agents.counts.total}`} total={agentsStore.agents.counts.total} enabled={agentsStore.agents.counts.enabled} shown={filteredAgents.length} searchLabel={session.text.directoryAgentSearch} onQuery={value => query = value} onStatus={value => status = value}>
+    {#snippet actions()}<Button variant="primary" disabled={agentsStore.agentEdit !== null} onclick={beginNewAgent}>{session.text.agentAdd}</Button>{/snippet}
+  </DirectoryToolbar>
+  <SettingGroup ariaLabel={session.text.agents}>
     {#if agentsStore.agents.counts.total === 0}
       <EmptyState title={session.text.agentsEmpty} description={session.text.agentsHint} icon="robot" />
+    {:else if filteredAgents.length === 0}
+      <EmptyState title={session.text.directoryNoMatches} description={session.text.directoryNoMatchesHint} icon="magnifying-glass"><Button onclick={() => { query = ""; status = "all"; }}>{session.text.directoryClear}</Button></EmptyState>
     {:else}
-      {#each agentsStore.agents.items as agent (agent.id)}
-        <div class="settings-row agent-management-row" in:listIn out:listOut animate:listFlip>
+      {#each filteredAgents as agent (agent.id)}
+        <div class="settings-row agent-management-row directory-entity-row" data-agent-id={agent.id}>
           <AgentAvatar name={agent.name} src={agent.avatar || ""} />
           <div class="profile-info">
-            <strong>{agent.name}</strong>
-            {#if agent.description}<p>{agent.description}</p>{/if}
-            <p>{session.text.agentPermissionMode}: {agent.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[agent.permissionMode]} · {session.text.agentModelOverrides}: {agent.modelOverrides}</p>
+            <div class="directory-entity-title"><strong>{agent.name}</strong>{#if agent.id === agentsStore.agents.defaultAgentId}<span class="directory-default-label">{session.text.directoryDefault}</span>{/if}</div>
+            {#if agent.description}<p class="directory-description" title={agent.description}>{agent.description}</p>{/if}
+            <details class="directory-row-details"><summary>{session.text.directoryDetails}</summary><dl><div><dt>ID</dt><dd><code>{agent.id}</code></dd></div><div><dt>{session.text.agentPermissionMode}</dt><dd>{agent.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[agent.permissionMode]}</dd></div><div><dt>{session.text.agentModelOverrides}</dt><dd>{agent.modelOverrides}</dd></div></dl></details>
           </div>
-          <span class="status-badge" data-state={agent.enabled ? "ready" : "disconnected"}>{agent.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
+          <span class="directory-enabled-state" data-enabled={agent.enabled}><i aria-hidden="true"></i>{agent.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
           <div class="settings-row-actions">
-            <Button disabled={agentsStore.editorLoading} ariaLabel={session.locale === "zh-CN" ? `编辑 ${agent.name} 的设置` : `Edit settings for ${agent.name}`} onclick={() => void beginAgentEdit(agent.id)}>{session.text.agentEdit}</Button>
-            <button class="secondary-button danger-action" type="button" disabled={agentsStore.saving} onclick={() => (deletingAgent = agent)}>{session.text.agentDelete}</button>
+            <Button variant="text" disabled={agentsStore.editorLoading} ariaLabel={session.locale === "zh-CN" ? `编辑 ${agent.name} 的设置` : `Edit settings for ${agent.name}`} onclick={() => void beginAgentEdit(agent.id)}>{session.text.agentEdit}</Button>
+            <DirectoryActions label={session.text.directoryMoreActions.replace("{name}", agent.name)} disabled={agentsStore.saving} items={[{ label: session.text.agentDelete, danger: true, onSelect: () => deletingAgent = agent }]} />
           </div>
         </div>
       {/each}
     {/if}
   </SettingGroup>
   {#if !agentsStore.agentEdit && agentsStore.templates.length > 0}
-    <SettingGroup title={session.text.agentTemplates} description={session.text.agentTemplatesHint}>
+    <details class="directory-template-disclosure"><summary>{session.text.agentTemplates}<span>{agentsStore.templates.length}{#if agentsStore.templates.some(template => template.updateAvailable || template.modified)} · {session.text.agentTemplateUpdateAvailable}{/if}</span></summary>
+    <SettingGroup ariaLabel={session.text.agentTemplates} description={session.text.agentTemplatesHint}>
       {#each agentsStore.templates as template (template.id)}
         <div class="settings-row" in:listIn out:listOut animate:listFlip>
           <div class="profile-info">
@@ -124,8 +142,9 @@
         </div>
       {/each}
     </SettingGroup>
+    </details>
   {/if}
-
+  </div>
 {/if}
 
 {#if deletingAgent}
@@ -137,7 +156,7 @@
     onOpenChange={(next) => { if (!next) deletingAgent = null; }}
   >
     <header class="modal-head"><strong id="agent-delete-title">{session.text.agentDelete}</strong></header>
-    <div class="modal-body"><p id="agent-delete-description">{session.text.agentDeleteConfirm}</p></div>
+    <div class="modal-body"><p id="agent-delete-description"><strong>{deletingAgent.name}</strong> · {session.text.agentDeleteConfirm}</p></div>
     <footer class="provider-modal-foot">
       <button class="secondary-button" type="button" onclick={() => (deletingAgent = null)}>{session.text.cancel}</button>
       <button class="primary-button danger-action" type="button" onclick={() => void handleConfirmDelete()}>{session.text.agentDelete}</button>

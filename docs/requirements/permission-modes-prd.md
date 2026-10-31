@@ -5,7 +5,7 @@
 > - **Status**: 切片 0–4 已交付（2026-08-10）。Plan 在工具暴露前收窄为只读工具 + `exitPlan`，计划落为 Session artifact，并通过共享 DecisionCard 修改/拒绝/接受；接受后转换为同一 Session 关联的多步骤 Durable Execution，逐步执行、留证和验收。权限模式已从模型菜单独立，位于附件按钮右侧。
 > - **PRD index entry**: `prd.md` §3.64 (2026-08-09)
 > - **Revision**: v1 (2026-08-09) — initial version from product-owner discussion. Two decisions fixed by the product owner up front: **Bypass 不做**（不提供无条件放行档），**默认档为 Accept edits**。
-> - **Implementer note**: read CLAUDE.md "Recurring Pitfalls" before starting — #2（Svelte 5 reactivity，per-session 选择被全局刷新重置是同一个 bug 家族）、#7（共享模块不许 fork）、#11（settings round-trip）、#14a（guard 让 turn 收尾，不是杀掉它）、#15（沙箱 fail closed）、#16c（pill 不能加 container-type）、#21d（第三方代码的进程故障域）、#23（automation lease 不能被卡住）、#32（通道交互回执的两阶段投递）全部直接命中这个改动面。
+> - **Implementer note**: read docs/pitfalls.md before starting — #2（Svelte 5 reactivity，per-session 选择被全局刷新重置是同一个 bug 家族）、#7（共享模块不许 fork）、#11（settings round-trip）、#14a（guard 让 turn 收尾，不是杀掉它）、#15（沙箱 fail closed）、#16c（pill 不能加 container-type）、#21d（第三方代码的进程故障域）、#23（automation lease 不能被卡住）、#32（通道交互回执的两阶段投递）全部直接命中这个改动面。
 
 ---
 
@@ -143,7 +143,7 @@ Accept edits 的"允许写的根"必须**显式声明**为 project root + worksp
 
 Manual 模式会让 `write` / `edit` 也需要审批。`ApprovalService` 已经是 façade（`approvalService.ts:44` 的 `BrokerApprovalService`），**HostBash 收敛为它的一个 backend**，而不是并列的第二套 UI。
 
-CLAUDE.md 已经记录过这条坑："统一审批卡的 list 与 resolve 必须覆盖同一组后端并按 Session 校验" —— 这次正是那个战场。同时要把审批卡的"一直允许"接到已有但从未被生成过的 `ApprovalScope`（`once | turn | session | workspace | persistent`），并给 broker 侧补上 HostBash 已有的 bot/project owner 概念。
+docs/pitfalls.md #70 已经记录过这条坑："统一审批卡的 list 与 resolve 必须覆盖同一组后端并按 Session 校验" —— 这次正是那个战场。同时要把审批卡的"一直允许"接到已有但从未被生成过的 `ApprovalScope`（`once | turn | session | workspace | persistent`），并给 broker 侧补上 HostBash 已有的 bot/project owner 概念。
 
 ### 7. Plan 模式：工具集收窄，不是调用后拒绝
 

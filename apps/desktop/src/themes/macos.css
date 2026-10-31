@@ -202,6 +202,7 @@
       elevation communicates the grid. Every other family keeps the shared
       sheet rendering untouched. Loaded last via themes/index.css. */
 :root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row { border-radius: var(--rounded-sm); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row:not(:hover):not(.active):not(:focus-visible) { border-radius: 0; }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skills-grid.list-mode { gap: 2px; }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skills-grid.list-mode .installed-skill-card:not(.selected) { background: transparent; border: 0; border-bottom: 1px solid var(--separator); border-radius: var(--rounded-sm); }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .installed-skills-grid.list-mode .installed-skill-card.selected { background: color-mix(in srgb, var(--selection-bg) 16%, transparent); border: 0; border-bottom: 1px solid transparent; border-radius: var(--rounded-sm); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection-bg) 40%, transparent); }
@@ -213,7 +214,7 @@
 :root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active,
 :root[data-theme-family="macos"] [data-theme-region="chat"] .automation-workspace-layout.detail-open .automation-task-row.active { background: color-mix(in srgb, var(--selection-bg) 16%, transparent); color: var(--label-primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection-bg) 40%, transparent); }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active .automation-task-card-title { color: var(--label-primary); }
-:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active :is(.row-outcome, .task-schedule-line, .task-target-pill) { color: var(--label-secondary); }
+:root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active :is(.row-outcome, .task-schedule-line, .task-target-pill, .task-next-run-hint) { color: var(--label-secondary); }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active .workspace-row-error { color: var(--danger); }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .plans-row.active { background: color-mix(in srgb, var(--selection-bg) 16%, transparent); color: var(--label-primary); border-color: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection-bg) 40%, transparent); }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .plans-row.active strong { color: var(--label-primary); }

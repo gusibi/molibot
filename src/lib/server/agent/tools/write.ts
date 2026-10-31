@@ -101,7 +101,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
 
       // The operator's deny list is checked before a single byte is written —
       // a side effect that precedes its own validation is worse than a crash
-      // (CLAUDE.md pitfall 26d).
+      // (docs/pitfalls.md pitfall 26d).
       assertWriteAllowedByFilesystemPolicy(filePath, options.filesystemPolicy, options.workspaceDir);
 
       // Share the edit tool's per-file lock so a write cannot land in the middle

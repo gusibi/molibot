@@ -30,7 +30,7 @@ export const DESKTOP_DEV_PORT = 1420;
  * match, and SvelteKit rejects every same-origin multipart POST with
  * "Cross-site POST form submissions are forbidden".
  *
- * That is the same failure as the two WebView origins above (CLAUDE.md pitfall
+ * That is the same failure as the two WebView origins above (docs/pitfalls.md pitfall
  * 25), which is why it hid for so long: `tauri://localhost` is explicitly
  * trusted, so the packaged desktop app worked and only the *plain Web* surface
  * was broken. Trusting more origins cannot fix it — the origin is legitimate

@@ -91,6 +91,26 @@ export interface DesktopUsageRecord extends DesktopUsageTotals {
   api: string;
 }
 
+export type DesktopUsageScenario = "conversation" | "project" | "miniapp" | "image" | "transcription" | "other";
+
+export interface DesktopUsageActivity {
+  startDate: string;
+  endDate: string;
+  coverageStart: string | null;
+  recordedTokens: number;
+  peakDailyTokens: number;
+  peakDate: string | null;
+  activeDays: number;
+  currentStreak: number;
+  longestStreak: number;
+  requests: number;
+  averageRequestsPerActiveDay: number;
+  days: Array<{ date: string; requests: number; totalTokens: number }>;
+  scenarios: Array<{ id: DesktopUsageScenario; requests: number; totalTokens: number }>;
+  agents: Array<{ id: string; requests: number; totalTokens: number }>;
+  channels: Array<{ id: string; requests: number; totalTokens: number }>;
+}
+
 export interface DesktopUsageSummary {
   timezone: string;
   generatedAt: string;
@@ -106,6 +126,7 @@ export interface DesktopUsageSummary {
   totals: DesktopUsageTotals;
   windows: DesktopUsageWindow[];
   daily: DesktopUsageDailyPoint[];
+  activity: DesktopUsageActivity;
   trend: DesktopUsageTrendPoint[];
   rankings: {
     models: DesktopUsageModelRow[];
@@ -2135,9 +2156,23 @@ export interface DesktopDiscoveredSkill {
   /** A Molibot entry with the same name already exists. */
   nameExists: boolean;
   conflict: boolean;
+  /** The same name exists in more than one physical directory. */
+  duplicate: boolean;
+  /** Every entry pointing at this content is a symbolic link. */
+  linked: boolean;
+  /** The content lives inside the shared `~/.agents/skills` tree. */
+  inSharedDir: boolean;
   entryCount: number;
   health: "ok" | "invalid" | "broken";
   updatedAt: string;
+}
+
+/** One filesystem entry that resolves to a Skill, wherever a tool reads it. */
+export interface DesktopSkillLocation {
+  platformLabel: string;
+  path: string;
+  isLink: boolean;
+  status: "ok" | "broken";
 }
 
 export interface DesktopSkillPlatformRoot {
@@ -2169,7 +2204,7 @@ export interface DesktopSkillDiagnostic {
 
 export interface DesktopSkillOperationView {
   id: string;
-  kind: "install" | "replace" | "distribute" | "uninstall" | "restore" | "toggle" | "platform" | "consolidate";
+  kind: "install" | "replace" | "distribute" | "uninstall" | "restore" | "toggle" | "platform" | "consolidate" | "maintenance";
   status: "pending" | "committed" | "failed" | "recovered";
   targetPath: string;
   error: string;
@@ -2207,7 +2242,8 @@ export interface DesktopSkillManagerSummary {
     localInstall: boolean;
     distribute: boolean;
     uninstall: boolean;
-    updates: boolean;
+    /** Skills installed from a Git repository can check the source for updates. */
+    gitUpdate: boolean;
   };
   /** Project targets the distribution step may write to. */
   targets: Array<{ id: string; label: string; kind: "platform" | "project"; writable: boolean; reason: string }>;
@@ -2255,6 +2291,8 @@ export interface DesktopSkillManagerDetail {
   builtin: DesktopBuiltinSkillState | null;
   treeProblems: Array<{ code: string; message: string; path: string }>;
   readBy: string[];
+  /** Every filesystem entry that resolves to this Skill, across all tools. */
+  locations: DesktopSkillLocation[];
   /** What the real Runtime loader does with this entry in its own context. */
   runtime: {
     loaded: boolean;
@@ -2393,14 +2431,12 @@ export interface DesktopSkillPlatformSaveRequest {
   removed?: string[];
 }
 
-export type DesktopSkillConsolidateSourceKind = "discovered" | "installation";
-export type DesktopSkillConsolidateDestinationKind = "molibot-global" | "project";
+export type DesktopSkillConsolidateSourceKind = "discovered";
 export type DesktopSkillConsolidateSourceAction = "link" | "remove" | "keep";
 
 export interface DesktopSkillConsolidateRequest {
   sourceKind: DesktopSkillConsolidateSourceKind;
   id: string;
-  destination: { kind: DesktopSkillConsolidateDestinationKind; ownerId?: string };
   /** What happens to the original entry after the canonical copy is written. */
   sourceAction: DesktopSkillConsolidateSourceAction;
   replaceDestination: boolean;
@@ -2408,6 +2444,8 @@ export interface DesktopSkillConsolidateRequest {
 
 export interface DesktopSkillConsolidatePreflight {
   ok: true;
+  alreadyShared: boolean;
+  parentLink: { path: string; target: string } | null;
   token: string;
   source: {
     name: string;
@@ -2420,12 +2458,10 @@ export interface DesktopSkillConsolidatePreflight {
     totalBytes: number;
   };
   destination: {
-    kind: DesktopSkillConsolidateDestinationKind;
     label: string;
     root: string;
     path: string;
     exists: boolean;
-    managed: boolean;
   };
   backLink: { path: string; label: string } | null;
   conflicts: Array<{ code: string; message: string; path: string }>;
@@ -2440,14 +2476,116 @@ export interface DesktopSkillConsolidateResponse {
 
 export interface DesktopSkillConsolidateResult {
   ok: boolean;
-  status: "consolidated" | "failed" | "stale";
+  status: "consolidated" | "already_shared" | "failed" | "stale";
   message: string;
-  id: string;
   destinationPath: string;
   backupPath: string;
 }
 
+export interface DesktopSkillRemoveDiscoveredRequest {
+  id: string;
+  /** Remove one entry only; omit to remove every entry of the group. */
+  entryDir?: string;
+}
+
+export interface DesktopSkillRemoveDiscoveredResult {
+  ok: boolean;
+  message: string;
+  removed: Array<{ path: string; kind: "link" | "copy" }>;
+  backups: string[];
+  /** Links left behind that no longer resolve after this removal. */
+  brokenLinks: string[];
+}
+
+export interface DesktopSkillCheckUpdateRequest {
+  id: string;
+}
+
+export interface DesktopSkillCheckUpdateResult {
+  ok: boolean;
+  message: string;
+  repository: string;
+  subdirectory: string;
+  currentCommit: string;
+  latestCommit: string;
+  hasUpdate: boolean;
+  localChanges: boolean;
+}
+
+export interface DesktopSkillMaintenanceEntry {
+  id: string;
+  name: string;
+  path: string;
+  realPath: string;
+  platforms: string[];
+  scope: string;
+  isLink: boolean;
+  writable: boolean;
+  hash: string;
+  bytes: number;
+  problems: string[];
+}
+
+export interface DesktopSkillMaintenanceGroup {
+  id: string;
+  name: string;
+  scope: string;
+  relation: "identical" | "different" | "linked" | "single";
+  entries: DesktopSkillMaintenanceEntry[];
+  destination: string;
+  writable: boolean;
+}
+
+export interface DesktopSkillMaintenanceBackup {
+  id: string;
+  path: string;
+  originalPath: string;
+  createdAt: string;
+  bytes: number;
+  isLink: boolean;
+  references: string[];
+  writable: boolean;
+}
+
+export interface DesktopSkillMaintenanceScan {
+  groups: DesktopSkillMaintenanceGroup[];
+  backups: DesktopSkillMaintenanceBackup[];
+  brokenLinks: Array<{ id: string; path: string; target: string; platforms: string[]; writable: boolean }>;
+  warnings: string[];
+  scannedAt: string;
+}
+
+export interface DesktopSkillMaintenanceSelection { groupId: string; sourceId: string }
+export type DesktopSkillMaintenanceRequest = (
+  | { kind: "consolidate"; selections: DesktopSkillMaintenanceSelection[] }
+  | { kind: "restore" | "delete-backup" | "remove-link"; id: string }
+) & { /** Server-generated preview time; apply must echo the plan request. */ preparedAt?: string };
+
+export interface DesktopSkillMaintenancePlan {
+  token: string;
+  request: DesktopSkillMaintenanceRequest;
+  changes: Array<{ path: string; action: "canonical" | "link" | "restore" | "delete" | "unlink"; target: string; backupPath: string }>;
+  conflicts: Array<{ code: "invalid_selection" | "unsafe" | "invalid_name" | "unknown_destination" | "backup_readonly" | "backup_referenced" | "incomplete_scan" | "invalid_backup" | "link_readonly" | "overlap" | "nested"; path: string }>;
+  executable: boolean;
+}
+
+export interface DesktopSkillMaintenanceResult {
+  ok: boolean;
+  status: "completed" | "stale" | "failed";
+  error: string;
+}
+
+export interface DesktopSkillMaintenanceComparison {
+  left: DesktopSkillMaintenanceEntry;
+  right: DesktopSkillMaintenanceEntry;
+  files: Array<{ path: string; status: "added" | "removed" | "changed"; left: string | null; right: string | null; preview: "text" | "binary" | "too-large" | "metadata" }>;
+}
+
 export type DesktopSkillManagerAction =
+  | { action: "maintenance-scan" }
+  | { action: "maintenance-compare"; request: { leftId: string; rightId: string } }
+  | { action: "maintenance-preflight"; request: DesktopSkillMaintenanceRequest }
+  | { action: "maintenance-apply"; request: { operation: DesktopSkillMaintenanceRequest; token: string } }
   | { action: "preflight"; request: DesktopSkillPreflightRequest }
   | { action: "install"; request: DesktopSkillInstallRequest }
   | { action: "distribute"; request: DesktopSkillDistributeRequest }
@@ -2457,6 +2595,8 @@ export type DesktopSkillManagerAction =
   | { action: "save-platforms"; request: DesktopSkillPlatformSaveRequest }
   | { action: "consolidate-preflight"; request: DesktopSkillConsolidateRequest }
   | { action: "consolidate"; request: DesktopSkillConsolidateRequest & { token: string } }
+  | { action: "remove-discovered"; request: DesktopSkillRemoveDiscoveredRequest }
+  | { action: "check-update"; request: DesktopSkillCheckUpdateRequest }
   | { action: "update-builtin"; request: { id: string } }
   | { action: "reveal"; request: { id: string } };
 
@@ -2506,6 +2646,7 @@ export interface DesktopMemoryResponse {
 
 export interface DesktopMemoryItem {
   id: string;
+  hasEmbedding?: boolean;
   channel: string;
   externalUserId: string;
   content: string;

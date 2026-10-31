@@ -1,5 +1,6 @@
 <script lang="ts">
   import { flushSync } from "svelte";
+  import { Popover } from "bits-ui";
   import Code from "../icons/duotone/components/Code.svelte";
   import Cpu from "../icons/duotone/components/Cpu.svelte";
   import FileText from "../icons/duotone/components/FileText.svelte";
@@ -16,13 +17,17 @@
   import Download from "reicon-svelte/icons/Download";
   import Copy from "reicon-svelte/icons/Copy";
   import ArrowsRotate from "reicon-svelte/icons/ArrowsRotate";
+  import LinkIcon from "reicon-svelte/icons/Link";
   import Reorder from "reicon-svelte/icons/Reorder";
+  import Refresh from "reicon-svelte/icons/Refresh";
   import FolderOpenIcon from "reicon-svelte/icons/FolderOpen";
   import Magnifier from "reicon-svelte/icons/Magnifier";
+  import Trash from "reicon-svelte/icons/Trash";
   import Warning from "reicon-svelte/icons/Warning";
   import X from "reicon-svelte/icons/X";
   import type { Translation } from "../i18n";
   import ChatHeader from "./ChatHeader.svelte";
+  import SkillMaintenance from "./SkillMaintenance.svelte";
   import WorkspaceSearch from "../components/ui/WorkspaceSearch.svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import Button from "../components/ui/Button.svelte";
@@ -34,12 +39,14 @@
   import { loadDesktopSkillDetail, loadDesktopSkillFile } from "../api";
   import { captureRectMap, listFlip, listIn, listOut, playLayoutFlip } from "../motion/listMotion";
   import {
+    checkManagedSkillUpdate,
     consolidateManagedSkill,
     distributeManagedSkill,
     installManagedSkill,
     loadConsolidateCheck,
     loadPreflight,
     loadSkillManager,
+    removeDiscoveredSkill,
     revealManagedSkill,
     saveSkillPlatforms,
     unlinkDistribution,
@@ -50,11 +57,13 @@
   } from "../stores/skills.svelte";
   import type {
     DesktopDiscoveredSkill,
+    DesktopSkillCheckUpdateResult,
     DesktopSkillConsolidatePreflight,
     DesktopSkillConsolidateResult,
     DesktopSkillDistributeResult,
     DesktopSkillFileEntry,
     DesktopSkillInstallMethod,
+    DesktopSkillLocation,
     DesktopSkillManagerDetail,
     DesktopSkillManagerEntry,
     DesktopSkillManagerScope,
@@ -81,6 +90,8 @@
    * can never disagree.
    */
   let sourceFilter = $state("all");
+  /** Discovered-only facet: where the content lives and how entries are wired. */
+  let statusFilter = $state("all");
   let selectedId = $state<string | null>(null);
   let gridEl = $state<HTMLElement | null>(null);
 
@@ -122,9 +133,11 @@
 
   // ── Consolidate sheet ────────────────────────────────────────────────────
   let consolidateOpen = $state(false);
-  let consolidateSourceKind = $state<"discovered" | "installation">("installation");
+  let consolidateName = $state("");
+  let consolidateReady = $state(false);
+  let consolidateCheckVersion = 0;
+  let consolidateReturnFocus: HTMLElement | null = null;
   let consolidateSourceId = $state("");
-  let consolidateDestination = $state("molibot-global");
   let consolidateSourceAction = $state<"link" | "remove" | "keep">("link");
   let consolidateReplace = $state(false);
   let consolidatePreflight = $state<DesktopSkillConsolidatePreflight | null>(null);
@@ -132,6 +145,15 @@
   let consolidateBusy = $state(false);
   let consolidateError = $state("");
   let consolidateResult = $state<DesktopSkillConsolidateResult | null>(null);
+
+  // ── Discovered removal ───────────────────────────────────────────────────
+  let removeTarget = $state<{ id: string; name: string; entries: DesktopSkillLocation[]; whole: boolean } | null>(null);
+  let removing = $state(false);
+  let removeError = $state("");
+
+  // ── Git update check ─────────────────────────────────────────────────────
+  let updateCheck = $state<DesktopSkillCheckUpdateResult | null>(null);
+  let updateCheckId = $state("");
 
   // ── Distribute sheet ─────────────────────────────────────────────────────
   let distributeOpen = $state(false);
@@ -214,6 +236,10 @@
   const filteredDiscovered = $derived(
     discoveredSkills.filter((skill) => {
       if (sourceFilter !== "all" && discoveredSourceKey(skill) !== sourceFilter) return false;
+      if (statusFilter === "shared" && !skill.inSharedDir) return false;
+      if (statusFilter === "duplicate" && !skill.duplicate && !skill.conflict) return false;
+      if (statusFilter === "link" && !skill.linked) return false;
+      if (statusFilter === "copy" && skill.linked) return false;
       if (!normalizedQuery) return true;
       return [skill.name, skill.description, skill.platformLabel, skill.sharedWith.join(" "), skill.platformId]
         .join("\n")
@@ -258,6 +284,18 @@
       ...[...groups.entries()]
         .sort((a, b) => rank(a[0]) - rank(b[0]) || a[1].label.localeCompare(b[1].label))
         .map(([value, group]) => ({ value, label: `${group.label} (${group.count})` }))
+    ];
+  });
+
+  /** Discovered-only status facet: shared tree, duplicates, link vs copy. */
+  const statusOptions = $derived.by(() => {
+    const count = (predicate: (skill: DesktopDiscoveredSkill) => boolean): number => discoveredSkills.filter(predicate).length;
+    return [
+      { value: "all", label: `${copy.skillStatusAll} (${discoveredSkills.length})` },
+      { value: "shared", label: `${copy.skillStatusShared} (${count((skill) => skill.inSharedDir)})` },
+      { value: "duplicate", label: `${copy.skillStatusDuplicate} (${count((skill) => skill.duplicate || skill.conflict)})` },
+      { value: "link", label: `${copy.skillStatusLink} (${count((skill) => skill.linked)})` },
+      { value: "copy", label: `${copy.skillStatusCopy} (${count((skill) => !skill.linked)})` }
     ];
   });
 
@@ -413,6 +451,7 @@
   }
 
   function conflictText(code: string, fallback: string): string {
+    if (code === "shared_entry_remove") return copy.skillConsolidateSharedRemove;
     if (code === "external_content") return copy.skillConflictExternal;
     if (code === "invalid_name") return copy.skillConflictInvalidName;
     if (code === "symlink_escape") return copy.skillConflictLinkEscape;
@@ -508,6 +547,7 @@
     closeSkill();
     view = next;
     sourceFilter = "all";
+    statusFilter = "all";
   }
 
   async function loadDetail(skillId: string): Promise<void> {
@@ -520,6 +560,8 @@
       const next = await loadDesktopSkillDetail(endpoint, skillId);
       if (seq !== detailSeq) return;
       detail = next;
+      updateCheck = null;
+      updateCheckId = "";
       expandedDirs = [];
       const skillFile = next.files.find((entry) => entry.kind === "file" && entry.path.toLowerCase() === "skill.md")
         ?? next.files.find((entry) => entry.kind === "file");
@@ -699,51 +741,48 @@
 
   // ── Distribute / uninstall ───────────────────────────────────────────────
 
-  function consolidateDestinationOptions(): Array<{ value: string; label: string }> {
-    const options: Array<{ value: string; label: string }> = [{ value: "molibot-global", label: copy.skillConsolidateGlobal }];
-    for (const target of summary?.targets ?? []) {
-      if (target.kind !== "project") continue;
-      options.push({
-        value: target.id,
-        label: copy.skillConsolidateProject.replace("{name}", target.label)
-      });
-    }
-    return options;
-  }
-
   function consolidateRequest() {
-    const destination = consolidateDestination === "molibot-global"
-      ? { kind: "molibot-global" as const }
-      : { kind: "project" as const, ownerId: consolidateDestination };
     return {
-      sourceKind: consolidateSourceKind,
+      sourceKind: "discovered" as const,
       id: consolidateSourceId,
-      destination,
       sourceAction: consolidateSourceAction,
       replaceDestination: consolidateReplace
     };
   }
 
   async function runConsolidatePreflight(): Promise<void> {
+    const version = ++consolidateCheckVersion;
+    const request = consolidateRequest();
     consolidateLoading = true;
+    consolidateReady = false;
     consolidateError = "";
     consolidateResult = null;
-    consolidatePreflight = null;
     try {
-      consolidatePreflight = await loadConsolidateCheck(consolidateRequest());
+      const preview = await loadConsolidateCheck(request);
+      if (version !== consolidateCheckVersion || !consolidateOpen) return;
+      consolidatePreflight = preview;
+      consolidateReady = true;
     } catch (cause) {
+      if (version !== consolidateCheckVersion || !consolidateOpen) return;
       consolidateError = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      consolidateLoading = false;
+      if (version === consolidateCheckVersion) consolidateLoading = false;
     }
   }
 
-  function openConsolidate(): void {
-    if (!detail || detail.id.startsWith("builtin:")) return;
+  function consolidatePath(path: string): string {
+    const root = consolidatePreflight?.destination.root ?? "";
+    const home = root.endsWith("/.agents/skills") ? root.slice(0, -"/.agents/skills".length) : "";
+    return home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
+  }
+
+  function openConsolidate(event?: MouseEvent): void {
+    if (!detail || detail.kind !== "discovered") return;
+    consolidateReturnFocus = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     consolidateOpen = true;
-    consolidateSourceKind = detail.kind === "discovered" ? "discovered" : "installation";
+    consolidateName = detail.name;
+    consolidatePreflight = null;
     consolidateSourceId = detail.id;
-    consolidateDestination = "molibot-global";
     consolidateSourceAction = "link";
     consolidateReplace = false;
     consolidateError = "";
@@ -752,23 +791,44 @@
   }
 
   function avoidStaleConsolidate(): void {
-    consolidatePreflight = null;
     void runConsolidatePreflight();
   }
 
+  /** The only blocker is an existing destination copy, which the owner may confirm replacing. */
+  const consolidateReplaceOnly = $derived(
+    Boolean(
+      consolidatePreflight
+        && consolidatePreflight.conflicts.length > 0
+        && consolidatePreflight.conflicts.every((conflict) => conflict.code === "replace_required")
+    )
+  );
+
   async function confirmConsolidate(): Promise<void> {
-    if (!consolidatePreflight) return;
+    if (!consolidatePreflight || !consolidateReady || consolidateLoading || consolidateBusy) return;
     consolidateBusy = true;
     consolidateError = "";
     try {
-      const result = await consolidateManagedSkill({ ...consolidateRequest(), token: consolidatePreflight.token });
+      // The replace confirmation is the button itself: a plan that only blocks
+      // on an existing destination copy is re-confirmed with
+      // replaceDestination, which changes the preflight token, so the fresh
+      // plan is fetched before the write.
+      let token = consolidatePreflight.token;
+      if (consolidateReplaceOnly && !consolidateReplace) {
+        consolidateReplace = true;
+        const confirmed = await loadConsolidateCheck({ ...consolidateRequest(), replaceDestination: true });
+        consolidatePreflight = confirmed;
+        if (!confirmed.installable) {
+          consolidateError = confirmed.conflicts[0]?.message ?? copy.skillInstallStale;
+          return;
+        }
+        token = confirmed.token;
+      }
+      const result = await consolidateManagedSkill({ ...consolidateRequest(), replaceDestination: consolidateReplace, token });
       if (result.ok) {
         consolidateResult = result;
-        // A consolidated external Skill is no longer a discovered row: its
-        // content now lives in the canonical copy. Leaving an empty detail pane
-        // open would strand the reader on a stale selection.
-        if (consolidateSourceKind === "discovered") closeSkill();
-        else void loadDetail(result.id);
+        // The discovered row now describes the shared copy; leaving an empty
+        // detail pane open would strand the reader on a stale selection.
+        closeSkill();
       } else {
         consolidateError = result.status === "stale" ? copy.skillInstallStale : result.message;
         if (result.status === "stale") await runConsolidatePreflight();
@@ -778,6 +838,77 @@
     } finally {
       consolidateBusy = false;
     }
+  }
+
+  // ── Discovered removal ───────────────────────────────────────────────────
+
+  function openRemoveDiscovered(id: string, name: string): void {
+    removeTarget = { id, name, entries: [], whole: true };
+    removeError = "";
+  }
+
+  function openRemoveEntry(location: DesktopSkillLocation): void {
+    if (!detail) return;
+    removeTarget = { id: detail.id, name: detail.name, entries: [location], whole: false };
+    removeError = "";
+  }
+
+  async function confirmRemoveDiscovered(): Promise<void> {
+    if (!removeTarget) return;
+    removing = true;
+    removeError = "";
+    const target = removeTarget;
+    try {
+      const result = await removeDiscoveredSkill(
+        target.id,
+        target.whole ? undefined : target.entries[0]?.path
+      );
+      if (result.ok) {
+        removeTarget = null;
+        closeSkill();
+      } else {
+        removeError = result.message;
+      }
+    } catch (cause) {
+      removeError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      removing = false;
+    }
+  }
+
+  // ── Git update check ─────────────────────────────────────────────────────
+
+  async function runUpdateCheck(): Promise<void> {
+    if (!detail || detail.kind !== "installed") return;
+    const id = detail.id;
+    updateCheckId = id;
+    try {
+      updateCheck = await checkManagedSkillUpdate(id);
+    } catch (cause) {
+      updateCheck = null;
+      skillManagerStore.actionError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (updateCheckId === id) updateCheckId = "";
+    }
+  }
+
+  /** Reinstall from the same Git source at HEAD; the replace flow keeps a backup. */
+  function startGitUpdate(): void {
+    if (!detail?.source) return;
+    installOpen = true;
+    installDone = false;
+    installMessage = "";
+    installSourceKind = "git";
+    installGitRepo = detail.source.path;
+    installGitRef = "";
+    installGitSubdir = detail.source.subdirectory;
+    installMethod = detail.method === "link" ? "link" : "copy";
+    installScope = detail.scope === "external" ? "global" : detail.scope;
+    installOwnerId = detail.ownerId;
+    installRename = "";
+    preflight = null;
+    preflightError = "";
+    updateCheck = null;
   }
 
   function openDistribute(): void {
@@ -910,6 +1041,7 @@
 
 {#snippet headerActions()}
   <div class="workspace-header-tools">
+    <SkillMaintenance {copy} endpoint={serviceEndpoint ?? ""} />
     <WorkspaceSearch value={query} label={copy.skillsFilter} placeholder={copy.skillsFilterHint} closeLabel={copy.closeSearch} onInput={(value) => (query = value)} />
     <Button variant="icon" title={copy.skillInstallCta} onclick={() => openInstallFor()}>
       <AddSquare size={17} aria-hidden="true" />
@@ -977,6 +1109,16 @@
           onChange={(value) => { sourceFilter = value; closeSkill(); }}
         />
       </div>
+      {#if view === "discovered"}
+        <div class="skills-source-filter">
+          <SelectControl
+            value={statusFilter}
+            ariaLabel={copy.skillStatusLabel}
+            options={statusOptions}
+            onChange={(value) => { statusFilter = value; closeSkill(); }}
+          />
+        </div>
+      {/if}
       <span class="workspace-filter-summary">
         {view === "discovered" ? copy.skillDiscoveredHint : copy.skillMolibotHint}
       </span>
@@ -1106,6 +1248,7 @@
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
               <article
                 class="installed-skill-card discovered-card"
+                data-skill-name={skill.name}
                 in:listIn={{ disabled: Boolean(normalizedQuery) }}
                 out:listOut={{ disabled: Boolean(normalizedQuery) }}
                 animate:listFlip={{ disabled: Boolean(normalizedQuery) }}
@@ -1131,15 +1274,18 @@
                 </div>
                 <div class="installed-skill-foot">
                   <div class="installed-skill-meta">
-                    {#if skill.conflict}<span class="installed-skill-meta-pill warning">{copy.skillNameExists}</span>{/if}
+                    {#if skill.duplicate || skill.conflict}<span class="installed-skill-meta-pill warning" title={skill.duplicate ? copy.skillDuplicateHint : copy.skillNameExists} role="img" aria-label={skill.duplicate ? copy.skillDuplicateHint : copy.skillNameExists}><Warning size={12} aria-hidden="true" /></span>{/if}
+                    {#if skill.linked}<span class="installed-skill-meta-pill" title={copy.skillLinkedHint} role="img" aria-label={copy.skillLinkedHint}><LinkIcon size={12} aria-hidden="true" /></span>{/if}
+                    {#if skill.inSharedDir}<span class="installed-skill-meta-pill" title={copy.skillStatusSharedHint}>{copy.skillStatusSharedShort}</span>{/if}
                     <span class="installed-skill-meta-pill">{countText(copy.skillEntryCount, copy.skillEntryCountOne, skill.entryCount)}</span>
                   </div>
                   <div class="installed-skill-actions">
                     {#if skill.installed}
-                      <span class="installed-skill-state">{copy.skillDiscoveredInstalled}</span>
+                      <span class="installed-skill-state" title={copy.skillDiscoveredInstalled} role="img" aria-label={copy.skillDiscoveredInstalled}><Check size={14} aria-hidden="true" /></span>
                     {:else}
-                      <Button variant="secondary" class="compact" onclick={() => openInstallFor(skill)}><AddSquare size={13} aria-hidden="true" />{copy.skillDiscoveredInstall}</Button>
+                      <Button variant="icon" title={copy.skillDiscoveredInstall} ariaLabel={copy.skillDiscoveredInstall} onclick={() => openInstallFor(skill)}><AddSquare size={14} aria-hidden="true" /></Button>
                     {/if}
+                    <Button variant="icon" title={copy.skillRemoveCta} ariaLabel={copy.skillRemoveCta} onclick={() => openRemoveDiscovered(skill.id, skill.name)}><Trash size={14} aria-hidden="true" /></Button>
                   </div>
                 </div>
               </article>
@@ -1271,7 +1417,7 @@
         <p class="installed-skill-id-badge" translate="no">{detail?.baseDir ?? ""}</p>
       </div>
       <div class="skills-detail-head-actions">
-        {#if detail && !detail.id.startsWith("builtin:")}
+        {#if detail?.kind === "discovered"}
           <Button variant="icon" title={copy.skillConsolidateCta} onclick={openConsolidate}><Reorder size={16} aria-hidden="true" /></Button>
         {/if}
         {#if detail?.kind === "installed" && detail.managed}
@@ -1302,7 +1448,30 @@
             {#if detail.scope !== "external"}<span class="skills-chip">{methodLabel(detail.method)}</span>{/if}
             {#if detail.version}<span class="skills-chip">v{detail.version}</span>{/if}
             {#if detail.source && detail.scope !== "external"}<span class="skills-chip" title={detail.source.path}>{detail.source.label}</span>{/if}
-            {#if detail.readBy.length}<span class="skills-chip">{copy.skillSharedPill.replace("{list}", detail.readBy.join(", "))}</span>{/if}
+            {#if detail.locations.length}
+              <Popover.Root>
+                <Popover.Trigger class="skills-chip skills-chip-button" title={copy.skillLocationsHint}>
+                  {detail.readBy.length ? copy.skillSharedPill.replace("{list}", detail.readBy.join(", ")) : copy.skillLocationsCta}
+                  <AngleDown size={11} aria-hidden="true" />
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content class="skills-locations-popover" align="start" sideOffset={6}>
+                    <h4>{copy.skillLocationsTitle}</h4>
+                    <ul>
+                      {#each detail.locations as location (location.path)}
+                        <li>
+                          <span class="skills-locations-platform">{location.platformLabel}</span>
+                          <code translate="no">{location.path}</code>
+                          <span class="skills-locations-kind" data-link={location.isLink} data-broken={location.status === "broken"}>
+                            {#if location.status === "broken"}{copy.skillLocationBroken}{:else if location.isLink}<LinkIcon size={11} aria-hidden="true" />{copy.skillLocationLink}{:else}<Copy size={11} aria-hidden="true" />{copy.skillLocationCopy}{/if}
+                          </span>
+                        </li>
+                      {/each}
+                    </ul>
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            {/if}
             {#if activeDistributions.length}
               <span class="skills-chip" title={activeDistributions.map((distribution) => distribution.targetPath).join("\n")}>
                 {copy.skillDetailDistributions} {activeDistributions.length}
@@ -1315,6 +1484,36 @@
 
           {#if detail.description}
             <p class="skills-detail-summary" title={detail.description}>{detail.description}</p>
+          {/if}
+
+          {#if detail.kind === "installed" && detail.source && (detail.source.kind === "git" || detail.source.kind === "local") && !detail.builtin && detail.source.path}
+            <section class="skills-detail-section skills-update-panel" aria-label={copy.skillUpdateTitle}>
+              <div class="skills-update-row">
+                <div class="skills-update-facts">
+                  <h3>{copy.skillUpdateTitle}</h3>
+                  <p>
+                    {#if detail.method === "link"}{copy.skillUpdateLinkHint}{:else if detail.source.kind === "local"}{copy.skillUpdateLocalHint}{:else}
+                      <code translate="no">{detail.source.commit.slice(0, 8) || "—"}</code>{copy.skillUpdateCommitHint}
+                    {/if}
+                  </p>
+                </div>
+                {#if detail.method !== "link" && detail.source.kind === "git"}
+                  <Button variant="secondary" class="compact" disabled={updateCheckId === detail.id} onclick={() => void runUpdateCheck()}>
+                    <Refresh size={13} aria-hidden="true" />{updateCheckId === detail.id ? copy.skillUpdateChecking : copy.skillUpdateCheck}
+                  </Button>
+                {/if}
+              </div>
+              {#if updateCheck && updateCheckId !== detail.id}
+                <div class="skills-update-result" data-tone={updateCheck.ok ? (updateCheck.hasUpdate ? "update" : "ok") : "danger"} role="status">
+                  <p>{updateCheck.message}</p>
+                  {#if updateCheck.ok && updateCheck.hasUpdate}
+                    <p class="skills-update-commits"><code translate="no">{updateCheck.currentCommit.slice(0, 8)}</code> → <code translate="no">{updateCheck.latestCommit.slice(0, 8)}</code></p>
+                    {#if updateCheck.localChanges}<p class="skills-update-warning"><Warning size={12} aria-hidden="true" />{copy.skillUpdateLocalChanges}</p>{/if}
+                    <Button variant="primary" class="compact" onclick={startGitUpdate}>{copy.skillUpdateApply}</Button>
+                  {/if}
+                </div>
+              {/if}
+            </section>
           {/if}
 
           <section class="skills-detail-section skills-detail-content">
@@ -1436,6 +1635,28 @@
                 </Button>
               {/if}
             </div>
+          {/if}
+
+          {#if detail.kind === "discovered"}
+            <section class="skills-detail-section" aria-label={copy.skillLocationsTitle}>
+              <h3>{copy.skillLocationsTitle}<span class="skills-detail-files-count">{detail.locations.length}</span></h3>
+              <p class="skills-detail-muted">{copy.skillLocationsManageHint}</p>
+              <ul class="skills-locations-list">
+                {#each detail.locations as location (location.path)}
+                  <li class="skills-locations-row">
+                    <span class="skills-locations-platform">{location.platformLabel}</span>
+                    <code class="skills-locations-path" translate="no">{location.path}</code>
+                    <span class="skills-locations-kind" data-link={location.isLink} data-broken={location.status === "broken"}>
+                      {#if location.status === "broken"}{copy.skillLocationBroken}{:else if location.isLink}<LinkIcon size={11} aria-hidden="true" />{copy.skillLocationLink}{:else}<Copy size={11} aria-hidden="true" />{copy.skillLocationCopy}{/if}
+                    </span>
+                    <Button variant="icon" title={copy.skillRemoveEntryCta} ariaLabel={`${copy.skillRemoveEntryCta}: ${location.path}`} onclick={() => openRemoveEntry(location)}><Trash size={13} aria-hidden="true" /></Button>
+                  </li>
+                {/each}
+              </ul>
+              <div class="skills-danger-zone">
+                <Button variant="secondary" danger onclick={() => { if (detail) openRemoveDiscovered(detail.id, detail.name); }}>{copy.skillRemoveAllCta}</Button>
+              </div>
+            </section>
           {/if}
 
           {#if detail.kind === "installed" && detail.managed}
@@ -1655,115 +1876,91 @@
   </div>
 </Dialog>
 
-<Dialog open={consolidateOpen} busy={consolidateBusy} contentClass="skills-install-dialog" labelledBy="skills-consolidate-title" onOpenChange={(next) => (consolidateOpen = next)}>
-  <div class="skills-sheet">
-    <header class="skills-sheet-head">
+<Dialog open={consolidateOpen} busy={consolidateBusy} contentClass="skills-install-dialog skill-consolidate-dialog" labelledBy="skills-consolidate-title" describedBy="skills-consolidate-description" onCloseAutoFocus={(event) => {
+  const target = consolidateReturnFocus?.isConnected ? consolidateReturnFocus
+    : gridEl?.querySelector<HTMLElement>(`[data-skill-name="${CSS.escape(consolidateName)}"]`) ?? gridEl?.querySelector<HTMLElement>('[tabindex="0"]');
+  if (target) { event.preventDefault(); target.focus({ preventScroll: true }); }
+}} onOpenChange={(next) => (consolidateOpen = next)}>
+  <div class="skills-sheet consolidate-shell">
+    <header class="skills-sheet-head consolidate-head">
       <div>
+        <div class="consolidate-eyebrow"><Reorder size={14} aria-hidden="true" /><span>{copy.skillConsolidateLibrary}</span></div>
         <h2 id="skills-consolidate-title">{copy.skillConsolidateTitle}</h2>
-        <p>{copy.skillConsolidateIntro}</p>
+        <p id="skills-consolidate-description">{copy.skillConsolidateIntro}</p>
       </div>
-      <Button variant="icon" title={copy.skillClose} onclick={() => (consolidateOpen = false)}><X size={15} aria-hidden="true" /></Button>
+      <Button variant="icon" title={copy.skillClose} disabled={consolidateBusy} onclick={() => (consolidateOpen = false)}><X size={16} aria-hidden="true" /></Button>
     </header>
-
-    {#if consolidateResult}
-      <div class="skills-sheet-success" role="status">
-        <Check size={18} aria-hidden="true" />
-        <div>
-          <strong>{copy.skillConsolidateDone}</strong>
-          <p>{consolidateResult.message}</p>
+    <div class="skills-sheet-body consolidate-body">
+      <div class="consolidate-identity"><span class="consolidate-skill-icon"><FileText size={20} aria-hidden="true" /></span><div><strong>{consolidateName}</strong><span>{consolidatePreflight?.source.platformLabel ?? copy.skillConsolidateChecking}</span></div></div>
+      {#if consolidateResult}
+        <div class="consolidate-success" role="status">
+          <span class="consolidate-success-mark"><Check size={26} aria-hidden="true" /></span>
+          <strong>{consolidateResult.status === "already_shared" ? copy.skillConsolidateAlreadyShared : copy.skillConsolidateDone}</strong>
+          <p>{consolidateResult.status === "already_shared" ? copy.skillConsolidateAlreadySharedHint : copy.skillConsolidateDoneHint}</p>
+          <code translate="no">{consolidatePath(consolidateResult.destinationPath)}</code>
+          {#if consolidateResult.backupPath}<p>{copy.skillConsolidateRecovery}</p><code translate="no">{consolidatePath(consolidateResult.backupPath)}</code>{/if}
         </div>
-      </div>
-      <footer class="skills-sheet-foot">
-        <Button variant="primary" onclick={() => (consolidateOpen = false)}>{copy.skillClose}</Button>
-      </footer>
-    {:else}
-      <div class="skills-sheet-body">
-        <div class="skills-field-row">
-          <label class="skills-field">
-            <span>{copy.skillConsolidateDestination}</span>
-            <SelectControl
-              value={consolidateDestination}
-              ariaLabel={copy.skillConsolidateDestination}
-              options={consolidateDestinationOptions()}
-              onChange={(value) => { consolidateDestination = value; consolidateReplace = false; avoidStaleConsolidate(); }}
-            />
-          </label>
-        </div>
-
-        <div class="skills-method">
-          <div class="segmented" role="group" aria-label={copy.skillConsolidateSourceAction}>
+      {:else}
+        <section class="consolidate-choice" aria-label={copy.skillConsolidateSourceAction}>
+          <div class="consolidate-section-label">{copy.skillConsolidateSourceAction}</div>
+          <div class="segmented consolidate-actions" data-action={consolidateSourceAction} role="group" aria-label={copy.skillConsolidateSourceAction}>
+            <span class="consolidate-selection" aria-hidden="true"></span>
             {#each [
-              { value: "link", label: copy.skillConsolidateKeepLink },
-              { value: "remove", label: copy.skillConsolidateRemove },
-              { value: "keep", label: copy.skillConsolidateKeep }
+              { value: "link", label: copy.skillConsolidateKeepLink, short: copy.skillConsolidateLinkShort },
+              { value: "remove", label: copy.skillConsolidateRemove, short: copy.skillConsolidateRemoveShort },
+              { value: "keep", label: copy.skillConsolidateKeep, short: copy.skillConsolidateKeepShort }
             ] as action (action.value)}
-              <Button
-                class={`segmented-item${consolidateSourceAction === action.value ? " active" : ""}`}
-                aria-pressed={consolidateSourceAction === action.value}
-                onclick={() => { consolidateSourceAction = action.value as "link" | "remove" | "keep"; avoidStaleConsolidate(); }}
-              >{action.label}</Button>
+              <Button variant="text" class="segmented-item" ariaLabel={action.label} aria-pressed={consolidateSourceAction === action.value} disabled={consolidateBusy} onclick={() => { if (consolidateSourceAction !== action.value) { consolidateSourceAction = action.value as "link" | "remove" | "keep"; avoidStaleConsolidate(); } }}>{action.short}</Button>
             {/each}
           </div>
-          <p>{consolidateSourceAction === "link" ? copy.skillConsolidateKeepLinkHint : consolidateSourceAction === "remove" ? copy.skillConsolidateRemoveHint : copy.skillConsolidateKeepHint}</p>
-        </div>
-
-        {#if consolidateError}<p class="skills-sheet-error" role="alert">{consolidateError}</p>{/if}
-        {#if consolidateLoading}<p class="skills-detail-muted" role="status">{copy.skillInstallChecking}</p>{/if}
-
-        {#if consolidatePreflight}
-          <div class="skills-preflight" aria-live="polite">
-            <div class="skills-preflight-head">
-              <strong>{consolidatePreflight.source.name}</strong>
-              <span>{consolidatePreflight.source.platformLabel}</span>
-            </div>
-            <div class="skills-preflight-flow">
-              <div>
-                <span>{copy.skillConsolidateSourceAction}</span>
-                <code translate="no">{consolidatePreflight.source.path}</code>
-              </div>
-              <ArrowRight size={14} aria-hidden="true" />
-              <div>
-                <span>{copy.skillConsolidateDestination}</span>
-                <code translate="no">{consolidatePreflight.destination.path}</code>
-              </div>
-            </div>
-            {#if consolidatePreflight.backLink}
-              <div class="skills-preflight-flow">
-                <div>
-                  <span>{copy.skillConsolidateBackLink}</span>
-                  <code translate="no">{consolidatePreflight.backLink.path}</code>
-                </div>
-              </div>
-            {/if}
-            <div class="skills-preflight-plan">
-              <span>{copy.skillInstallPlan}</span>
-              <ul>
-                <li>{countText(copy.skillInstallPlanFiles, copy.skillInstallPlanFilesOne, consolidatePreflight.plan.files)}</li>
-                <li>{formatBytes(consolidatePreflight.plan.bytes)}</li>
-              </ul>
-            </div>
-            {#if consolidatePreflight.conflicts.length}
-              <div class="skills-preflight-block" data-tone="danger">
-                <strong>{copy.skillInstallConflicts}</strong>
-                <ul>
-                  {#each consolidatePreflight.conflicts as conflict}
-                    <li><span>{conflictText(conflict.code, conflict.message)}</span>{#if conflict.path}<code translate="no">{conflict.path}</code>{/if}</li>
-                  {/each}
-                </ul>
-              </div>
-            {:else}
-              <p class="skills-preflight-ok"><Check size={13} aria-hidden="true" />{copy.skillInstallNoConflicts}</p>
-            {/if}
+          <div class="consolidate-choice-description">
+            {#key consolidateSourceAction}<p class="consolidate-state-enter">{consolidatePreflight?.alreadyShared && consolidateSourceAction !== "remove" ? copy.skillConsolidateSharedChoice : consolidateSourceAction === "link" ? copy.skillConsolidateKeepLinkHint : consolidateSourceAction === "remove" ? copy.skillConsolidateRemoveHint : copy.skillConsolidateKeepHint}</p>{/key}
           </div>
-        {/if}
-      </div>
-      <footer class="skills-sheet-foot">
-        <Button variant="secondary" onclick={() => (consolidateOpen = false)}>{copy.skillCancel}</Button>
-        <Button variant="primary" disabled={consolidateBusy || consolidateLoading || !consolidatePreflight || !consolidatePreflight.installable} onclick={() => void confirmConsolidate()}>
-          {consolidateBusy ? copy.agentTemplateUpdating : copy.skillConsolidateConfirm}
-        </Button>
-      </footer>
-    {/if}
+        </section>
+        <section class="consolidate-preview" aria-label={copy.skillConsolidatePreview} aria-busy={consolidateLoading} data-pending={consolidateLoading && !!consolidatePreflight}>
+          {#if consolidatePreflight}
+            <div class="consolidate-route">
+              <div><span><FolderOpenIcon size={14} aria-hidden="true" />{copy.skillConsolidateSourceAction}</span><code title={consolidatePreflight.source.path} translate="no">{consolidatePath(consolidatePreflight.source.path)}</code></div>
+              <div><span><ArrowRight size={14} aria-hidden="true" />{copy.skillConsolidateDestination}</span><code title={consolidatePreflight.destination.path} translate="no">{consolidatePath(consolidatePreflight.destination.path)}</code></div>
+            </div>
+            <details class="consolidate-path-details">
+              <summary aria-label={consolidatePreflight.parentLink ? copy.skillConsolidateParentLink : copy.skillConsolidatePaths}>{consolidatePreflight.parentLink ? copy.skillConsolidateParentLink : copy.skillConsolidatePaths}</summary>
+              <dl>
+                <div><dt>{copy.skillConsolidateSourceAction}</dt><dd><code translate="no">{consolidatePreflight.source.path}</code></dd></div>
+                <div><dt>{copy.skillConsolidateDestination}</dt><dd><code translate="no">{consolidatePreflight.destination.root}</code><code translate="no">{consolidatePreflight.destination.path}</code></dd></div>
+                {#if consolidatePreflight.parentLink}<div><dt>{copy.skillConsolidateParentLink}</dt><dd><code translate="no">{consolidatePreflight.parentLink.path} → {consolidatePreflight.parentLink.target}</code></dd></div>{/if}
+              </dl>
+            </details>
+          {:else}
+            <div class="consolidate-skeleton" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          {/if}
+        </section>
+        <div class="consolidate-feedback" aria-live="polite">
+          {#if consolidateError}
+            <div class="consolidate-feedback-row" data-tone="error"><Warning size={18} aria-hidden="true" /><div><strong>{copy.skillConsolidateCheckFailed}</strong><p role="alert">{consolidateError}</p><Button variant="text" onclick={() => void runConsolidatePreflight()}>{copy.skillConsolidateRetry}</Button></div></div>
+          {:else if consolidateLoading}
+            <div class="consolidate-feedback-row" role="status"><ArrowsRotate class="consolidate-checking" size={18} aria-hidden="true" /><div><strong>{copy.skillConsolidateChecking}</strong><p>{copy.skillConsolidateCheckingHint}</p></div></div>
+          {:else if consolidatePreflight}
+            <div class="consolidate-state-enter">
+              {#if consolidatePreflight.conflicts.length}
+                <div class="consolidate-feedback-row" data-tone={consolidateReplaceOnly ? "warning" : "error"}><Warning size={18} aria-hidden="true" /><div><strong>{consolidateReplaceOnly ? copy.skillConsolidateReplaceTitle : copy.skillInstallConflicts}</strong>{#each consolidatePreflight.conflicts as conflict}<p>{conflictText(conflict.code, conflict.message)}</p>{/each}{#if consolidateReplaceOnly}<p>{copy.skillConsolidateReplaceNote}</p>{/if}</div></div>
+              {:else}
+                <div class="consolidate-feedback-row" data-tone="success" role="status"><Check size={18} aria-hidden="true" /><div><strong>{consolidatePreflight.alreadyShared ? copy.skillConsolidateAlreadyShared : copy.skillConsolidateReady}</strong><p>{consolidatePreflight.alreadyShared ? copy.skillConsolidateNoChanges : `${countText(copy.skillInstallPlanFiles, copy.skillInstallPlanFilesOne, consolidatePreflight.plan.files)} · ${formatBytes(consolidatePreflight.plan.bytes)}`}</p></div></div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
+    <footer class="skills-sheet-foot consolidate-foot">
+      <span class="consolidate-foot-note">{#if consolidateResult}<Check size={13} aria-hidden="true" />{consolidateResult.status === "already_shared" ? copy.skillConsolidateAlreadyShared : consolidateResult.backupPath ? copy.skillConsolidateRecoveryShort : copy.skillConsolidateDone}{:else}<LinkIcon size={13} aria-hidden="true" />{copy.skillConsolidateFootnote}{/if}</span>
+      {#if consolidateResult}
+        <Button variant="primary" onclick={() => (consolidateOpen = false)}>{copy.skillClose}</Button>
+      {:else}
+        <Button variant="secondary" disabled={consolidateBusy} onclick={() => (consolidateOpen = false)}>{copy.skillCancel}</Button>
+        <Button variant="primary" disabled={consolidateBusy || consolidateLoading || !consolidateReady || !consolidatePreflight || (!consolidatePreflight.installable && !consolidateReplaceOnly)} onclick={() => void confirmConsolidate()}>{consolidateBusy ? copy.agentTemplateUpdating : consolidatePreflight?.alreadyShared ? copy.skillConsolidateAcknowledge : consolidateReplaceOnly ? copy.skillConsolidateReplaceConfirm : copy.skillConsolidateConfirm}</Button>
+      {/if}
+    </footer>
   </div>
 </Dialog>
 
@@ -1845,6 +2042,33 @@
     <footer class="skills-sheet-foot">
       <Button variant="secondary" onclick={() => (uninstallTarget = null)}>{copy.skillCancel}</Button>
       <Button variant="primary" danger disabled={uninstalling} onclick={() => void confirmUninstall()}>{uninstalling ? copy.agentTemplateUpdating : copy.skillUninstallConfirm}</Button>
+    </footer>
+  </div>
+</AlertDialog>
+
+<AlertDialog
+  open={removeTarget !== null}
+  busy={removing}
+  contentClass="skills-confirm-dialog"
+  labelledBy="skills-remove-title"
+  describedBy="skills-remove-body"
+  onOpenChange={(next) => { if (!next) removeTarget = null; }}
+>
+  <div class="skills-confirm">
+    <h2 id="skills-remove-title">{removeTarget?.whole ? copy.skillRemoveTitle.replace("{name}", removeTarget?.name ?? "") : copy.skillRemoveEntryTitle}</h2>
+    <p id="skills-remove-body">{removeTarget?.whole ? copy.skillRemoveBody.replace("{name}", removeTarget?.name ?? "") : copy.skillRemoveEntryBody}</p>
+    {#if removeTarget && removeTarget.entries.length}
+      <ul class="skills-remove-paths">
+        {#each removeTarget.entries as entry (entry.path)}
+          <li><code translate="no">{entry.path}</code><span>{entry.isLink ? copy.skillLocationLink : copy.skillLocationCopy}</span></li>
+        {/each}
+      </ul>
+    {/if}
+    <p class="skills-confirm-note">{copy.skillRemoveBackupNote}</p>
+    {#if removeError}<p class="skills-sheet-error" role="alert">{removeError}</p>{/if}
+    <footer class="skills-sheet-foot">
+      <Button variant="secondary" onclick={() => (removeTarget = null)}>{copy.skillCancel}</Button>
+      <Button variant="primary" danger disabled={removing} onclick={() => void confirmRemoveDiscovered()}>{removing ? copy.agentTemplateUpdating : copy.skillRemoveConfirm}</Button>
     </footer>
   </div>
 </AlertDialog>

@@ -92,7 +92,7 @@ function normalizeTokenBudget(value: number | undefined): number {
   return Math.min(MAX_SCAN_TOKEN_BUDGET, Math.max(MIN_SCAN_TOKEN_BUDGET, Math.round(n)));
 }
 
-// Rough CJK-aware token estimate (CLAUDE.md pitfall #7): CJK characters count as
+// Rough CJK-aware token estimate (docs/pitfalls.md pitfall #7): CJK characters count as
 // ~1 token each; other characters as ~1/4. Whitespace-splitting or chars/4 alone
 // under-counts Chinese ~3-4x and would silently disable the batching guard.
 function estimateTokens(text: string): number {

@@ -270,7 +270,7 @@
     {:else}
       <div class="assistant-layout">
         <div class="message-stack">
-        <div class="assistant-identity">
+        <div data-same-agent={agentName === (message.authorName ?? assistantName) || undefined} class="assistant-identity">
           {#if message.authorAgentId}<BotAvatar botId={message.authorAgentId} name={message.authorName ?? assistantName} size={22} />{:else}<img class="assistant-avatar" src={appLogo.src} alt="" width="22" height="22" />{/if}
           <strong>{message.authorName ?? assistantName}</strong>
           {#if agentName}<span>{agentName}</span>{/if}

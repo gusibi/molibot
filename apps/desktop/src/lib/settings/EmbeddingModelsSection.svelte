@@ -464,30 +464,29 @@
       <section class="embedding-overview is-empty" aria-label={copy.emptyTitle}>
         <div class="embedding-empty-art" aria-hidden="true">
           <svg viewBox="0 0 220 112" fill="none">
-            <path d="M28 78 62 52 96 62 128 30 160 46 192 24" stroke="currentColor" stroke-opacity=".26" stroke-width="1" stroke-linecap="round" />
-            <path d="M62 52 74 88 112 96 150 82 160 46" stroke="currentColor" stroke-opacity=".16" stroke-width="1" stroke-linecap="round" />
-            <circle cx="28" cy="78" r="2.6" fill="currentColor" fill-opacity=".45" />
-            <circle cx="62" cy="52" r="2.6" fill="currentColor" fill-opacity=".45" />
-            <circle cx="96" cy="62" r="2.6" fill="currentColor" fill-opacity=".45" />
+            <path d="M28 78 62 52 96 62 128 30 160 46 192 24" stroke="currentColor" stroke-opacity=".4" stroke-width="1" stroke-linecap="round" />
+            <path d="M62 52 74 88 112 96 150 82 160 46" stroke="currentColor" stroke-opacity=".26" stroke-width="1" stroke-linecap="round" />
+            <circle cx="28" cy="78" r="2.6" fill="currentColor" fill-opacity=".6" />
+            <circle cx="62" cy="52" r="2.6" fill="currentColor" fill-opacity=".6" />
+            <circle cx="96" cy="62" r="2.6" fill="currentColor" fill-opacity=".6" />
             <circle cx="128" cy="30" r="4.5" fill="var(--accent)" fill-opacity=".9" />
             <circle cx="128" cy="30" r="10" stroke="var(--accent)" stroke-opacity=".24" />
-            <circle cx="160" cy="46" r="2.6" fill="currentColor" fill-opacity=".45" />
-            <circle cx="192" cy="24" r="2.6" fill="currentColor" fill-opacity=".45" />
-            <circle cx="74" cy="88" r="2.6" fill="currentColor" fill-opacity=".45" />
-            <circle cx="112" cy="96" r="2.6" fill="currentColor" fill-opacity=".45" />
-            <circle cx="150" cy="82" r="2.6" fill="currentColor" fill-opacity=".45" />
+            <circle cx="160" cy="46" r="2.6" fill="currentColor" fill-opacity=".6" />
+            <circle cx="192" cy="24" r="2.6" fill="currentColor" fill-opacity=".6" />
+            <circle cx="74" cy="88" r="2.6" fill="currentColor" fill-opacity=".6" />
+            <circle cx="112" cy="96" r="2.6" fill="currentColor" fill-opacity=".6" />
+            <circle cx="150" cy="82" r="2.6" fill="currentColor" fill-opacity=".6" />
           </svg>
         </div>
         <div class="embedding-empty-copy">
           <span class="embedding-kicker">{copy.emptyKicker}</span>
           <h3>{copy.emptyTitle}</h3>
           <p>{copy.emptyDescription}</p>
+          <p class="embedding-empty-note"><i aria-hidden="true"></i>{copy.statusLexical}</p>
         </div>
         <div class="embedding-empty-actions">
           <button class="primary-button" type="button" onclick={openNew}><Plus size={14} aria-hidden="true" />{copy.add}</button>
-          <button class="secondary-button" type="button" onclick={() => void load()} disabled={loading}>{copy.refresh}</button>
         </div>
-        <p class="embedding-empty-note">{copy.statusLexical}</p>
       </section>
     {:else}
       <section class="embedding-overview" aria-label={copy.recallTitle}>
@@ -749,7 +748,7 @@
     border-radius: var(--rounded-md);
     background: var(--card-bg);
   }
-  .embedding-overview.is-empty { display: grid; justify-items: center; padding: 34px 28px 30px; text-align: center; }
+  .embedding-overview.is-empty { display: grid; grid-template-columns: 168px minmax(0, 1fr) auto; align-items: center; gap: 20px; padding: 18px 22px; text-align: left; }
   .embedding-overview.is-skeleton { display: grid; gap: 0; padding: 0 0 8px; }
   .embedding-overview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 20px 20px 16px; }
   .embedding-overview-copy { display: grid; min-width: 0; gap: 5px; }
@@ -769,14 +768,15 @@
   .embedding-overview-stats span { display: inline-flex; align-items: baseline; gap: 4px; }
   .embedding-overview-stats b { color: var(--label-primary); font-size: var(--fs-label); font-weight: 600; }
 
-  .embedding-empty-art { width: 220px; height: 112px; margin-bottom: 6px; color: var(--label-primary); }
+  .embedding-empty-art { width: 168px; height: 104px; margin: 0; color: var(--label-primary); }
   .embedding-empty-art svg { width: 100%; height: 100%; }
-  .embedding-empty-copy { display: grid; justify-items: center; gap: 5px; max-width: 430px; }
+  .embedding-empty-copy { display: grid; justify-items: start; gap: 4px; max-width: 54ch; }
   .embedding-empty-copy h3 { margin: 3px 0 0; color: var(--label-primary); font-size: var(--fs-heading); font-weight: 600; line-height: var(--lh-heading); }
   .embedding-empty-copy p { margin: 0; color: var(--label-secondary); font-size: var(--fs-label); line-height: 1.55; }
-  .embedding-empty-actions { display: flex; gap: 6px; margin-top: 14px; }
-  .embedding-empty-actions .primary-button, .embedding-empty-actions .secondary-button { gap: 5px; }
-  .embedding-empty-note { margin: 14px 0 0; color: var(--label-secondary); font-size: var(--fs-meta); line-height: 16px; }
+  .embedding-empty-actions { display: flex; flex: none; gap: 6px; }
+  .embedding-empty-actions .primary-button { gap: 5px; }
+  .embedding-empty-note { display: flex; align-items: center; gap: 6px; margin: 3px 0 0; color: var(--label-secondary); font-size: var(--fs-meta); line-height: 16px; }
+  .embedding-empty-note i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--label-tertiary); }
 
   .embedding-skeleton-hero { display: grid; gap: 8px; padding: 20px; }
   .embedding-skeleton-hero span, .embedding-skeleton-hero i, .embedding-skeleton-hero em { height: 10px; border-radius: var(--radius-small); background: var(--fill-hover); animation: skeleton-pulse var(--duration-panel) ease-in-out infinite alternate; }
@@ -889,6 +889,9 @@
     .embedding-local-row { flex-wrap: wrap; }
     .embedding-local-models { justify-content: flex-start; width: 100%; margin-left: 38px; }
     :global(.entity-editor-dialog.embedding-editor) { width: calc(100vw - 24px); }
-    .embedding-empty-art { width: 180px; height: 92px; }
+    .embedding-overview.is-empty { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 20px; justify-items: start; }
+    .embedding-empty-art { width: 132px; height: 88px; }
+    .embedding-empty-actions { width: 100%; }
+    .embedding-empty-actions .primary-button { flex: 1; }
   }
 </style>

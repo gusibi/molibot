@@ -777,7 +777,7 @@ export abstract class BaseChannelRuntime {
       // Blocking holds the execution lease in `running`, which reads as a live
       // owner, and `hasActiveForTask` then suppresses every later run of that
       // task as `task_already_running` — the task goes quiet permanently
-      // (CLAUDE.md pitfall 23). Suspending instead is the product decision of
+      // (docs/pitfalls.md pitfall 23). Suspending instead is the product decision of
       // 2026-08-10: the run ends cleanly as `waiting_for_approval`, the lease
       // settles, and an approval resumes it out of band.
       //

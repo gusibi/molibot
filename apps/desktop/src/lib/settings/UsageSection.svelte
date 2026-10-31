@@ -13,6 +13,7 @@
   import { USAGE_RANGES, loadUsage, resetUsageFilters, updateUsageQuery, usageStore, usageWindowLabel } from "../stores/usage.svelte";
   import { trendLinePath } from "./charts";
   import { cacheHitRate, compactCount, percentage } from "./analytics";
+  import UsageActivity from "./UsageActivity.svelte";
   import AnalyticsRanking from "./AnalyticsRanking.svelte";
   import AnalyticsComposition from "./AnalyticsComposition.svelte";
 
@@ -76,6 +77,11 @@
       </div>
     </div>
     <div class="analytics-status"><span>{usage.window.startDate} → {usage.window.endDate} · {usage.timezone}</span><span role="status">{usageStore.refreshing ? session.text.traceRefreshing : `${session.text.usageUpdatedAt} ${formatDate(usage.generatedAt)}`}</span></div>
+    {#if usage.activity}
+      <UsageActivity activity={usage.activity} agentNames={usage.options.agents} />
+    {:else}
+      <div class="settings-card analytics-error" role="status"><p>{session.text.usageActivityUnavailable}</p></div>
+    {/if}
     <section class="settings-card analytics-trend" aria-label={session.text.analyticsTrend}>
       <header class="analytics-panel-head"><strong>{session.text.analyticsTrend}</strong><span>{usageWindowLabel(usage.range, session.text)}</span></header>
       <div class="analytics-trend-plot"><div class="analytics-trend-scale" aria-hidden="true"><span>{usage.totals.totalTokens > 0 ? compactCount(tokenMax) : "0"}</span><span>{usage.totals.totalTokens > 0 ? compactCount(tokenMax / 2) : "0"}</span><span>0</span></div><div class="trend-wrap"><svg class="trend-svg" viewBox="0 0 100 44" preserveAspectRatio="none" role="img" aria-label={session.text.analyticsTrend}><title>{trend.map(point => `${point.label}: ${formatTokenCount(point.totalTokens)}`).join('; ')}</title>{#each [5, 22.5, 40] as y}<line class="trend-grid" x1="0" y1={y} x2="100" y2={y} vector-effect="non-scaling-stroke" />{/each}<path class="analytics-trend-line" d={tokenLine} vector-effect="non-scaling-stroke" /></svg><div class="trend-axis">{#each trend.filter((_, i) => i === 0 || i === Math.floor(trend.length / 2) || i === trend.length - 1) as point}<span>{point.label}</span>{/each}</div></div></div>

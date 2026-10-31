@@ -88,7 +88,7 @@
   <article class="message-row assistant streaming-message">
     <div class="assistant-layout">
       <div class="message-stack">
-        <div class="assistant-identity">{#if authorAgentId}<BotAvatar botId={authorAgentId} name={assistantName} size={22} />{:else}<img class="assistant-avatar" src={appLogo.src} alt="" width="22" height="22" />{/if}<strong>{assistantName}</strong>{#if agentName}<span>{agentName}</span>{/if}{#if onStop}<button type="button" class="message-action" title={copy.stop} aria-label={`${copy.stop} · ${assistantName}`} onclick={onStop}><StopCircle size={14} /></button>{/if}</div>
+        <div data-same-agent={agentName === assistantName || undefined} class="assistant-identity">{#if authorAgentId}<BotAvatar botId={authorAgentId} name={assistantName} size={22} />{:else}<img class="assistant-avatar" src={appLogo.src} alt="" width="22" height="22" />{/if}<strong>{assistantName}</strong>{#if agentName}<span>{agentName}</span>{/if}{#if onStop}<button type="button" class="message-action" title={copy.stop} aria-label={`${copy.stop} · ${assistantName}`} onclick={onStop}><StopCircle size={14} /></button>{/if}</div>
         <!-- The pre-card phase hint. It only covers the void between sending
              and the first streamed content: the moment thinking or an
              activity arrives, the process card below is the running

@@ -51,7 +51,7 @@
    * and blob-URL maps are populated *after* first render — attachments arrive
    * before their bytes — so a missed invalidation is not a subtle staleness
    * bug: every image stays on its "not loaded yet" chip forever. Same family as
-   * the `{#each fn()}` trap in CLAUDE.md pitfall #2.
+   * the `{#each fn()}` trap in docs/pitfalls.md pitfall #2.
    */
   function resolveGroups(
     source: TranscriptAttachmentActions | null,

@@ -18,7 +18,7 @@
   title: 修改已有文件
   why: |
     第二轮改第一轮的文件。这里同时验证了会话内的上下文延续，以及
-    CLAUDE.md pitfall 20：文件改动的说法必须有真实的 write/edit 回执支撑。
+    docs/pitfalls.md pitfall 20：文件改动的说法必须有真实的 write/edit 回执支撑。
   baseline: pass
   turns:
     - prompt: |

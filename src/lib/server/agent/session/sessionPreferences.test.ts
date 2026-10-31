@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 
 /**
- * Session preference round-trips (CLAUDE.md pitfall 11).
+ * Session preference round-trips (docs/pitfalls.md pitfall 11).
  *
  * The rule is save → *fresh store* → load, against a temporary directory: a
  * getter that reads back from the same in-process instance proves nothing about

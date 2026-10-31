@@ -1244,7 +1244,7 @@
   $: agentHomeDisplaySessions = (selectedAgentId === defaultAgentId && handover
     ? agentHomeSessions.filter((item) => !handoverSessionIds.has(item.sessionId))
     : agentHomeSessions
-  ).slice(0, 3);
+  ).slice(0, 4);
   let hasUnassignedHistory = false;
   let agentSessionsRequest = 0;
   $: selectedAgent = onboardingAgents.find(agent => agent.id === selectedAgentId);

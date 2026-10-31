@@ -52,7 +52,7 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
       const filePath = resolveToolPath(ctx.cwd, params.path, ctx.sessionSource);
       ensureAllowedPath(filePath);
       // Checked before the read-modify-write cycle, so a denied file is never
-      // even opened for mutation (CLAUDE.md pitfall 26d).
+      // even opened for mutation (docs/pitfalls.md pitfall 26d).
       assertWriteAllowedByFilesystemPolicy(filePath, options.filesystemPolicy, options.workspaceDir);
 
       if (params.oldText === params.newText) {

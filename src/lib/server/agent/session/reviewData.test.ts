@@ -73,7 +73,7 @@ test("listAgentWorkspaces and readRunHistory discover multi-channel and project 
     assert.equal(workspaces.length, 3);
     assert.deepEqual(workspaces.map(w => w.botId), ["feishu-momo", "personal", "project:my-app"]);
 
-    const history = readRunHistory(tmpRoot, 10);
+    const history = await readRunHistory(tmpRoot, 10);
     assert.equal(history.items.length, 3);
     assert.equal(history.items[0]?.runId, "run-project-1");
     assert.equal(history.items[1]?.runId, "run-feishu-1");
@@ -83,3 +83,55 @@ test("listAgentWorkspaces and readRunHistory discover multi-channel and project 
   }
 });
 
+
+test("recent history resolves draft references only for returned rows and reads migration aliases once", async () => {
+  const { mock } = await import('node:test');
+  const fs = await import('node:fs');
+  const { syncBuiltinESMExports } = await import('node:module');
+  const root = mkdtempSync(join(tmpdir(), 'molibot-review-history-perf-'));
+  const workspace = join(root, 'sessions', 'assistant');
+  const manifestPath = join(root, 'runtime', 'agent-storage-migration', 'manifest.json');
+  mkdirSync(workspace, { recursive: true });
+  mkdirSync(join(root, 'runtime', 'agent-storage-migration'), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify({ phase: 'completed', sessions: [], files: Array.from({ length: 1000 }, (_, i) => ({ source: `legacy/${i}`, target: `sessions/assistant/skill-drafts/${i}.md` })), published: {} }));
+  writeFileSync(join(workspace, 'run-summaries.jsonl'), Array.from({ length: 1000 }, (_, i) => JSON.stringify({ runId: `run-${i}`, createdAt: new Date(i * 1000).toISOString(), finalText: 'x'.repeat(2048), skillDraft: { filePath: 'skill-drafts/test.md' } })).join('\n'));
+  const originalRead = fs.readFileSync;
+  let manifestReads = 0;
+  const spy = mock.method(fs.default, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
+    if (String(args[0]) === manifestPath) manifestReads++;
+    return (originalRead as Function)(...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    let yielded = false;
+    const tick = new Promise<void>(done => setImmediate(() => { yielded = true; done(); }));
+    const start = performance.now();
+    const history = await readRunHistory(root, 20);
+    console.log(`history fixture: ${Math.round(performance.now() - start)}ms, migration manifest reads=${manifestReads}`);
+    assert.equal(history.items.length, 20);
+    assert.equal(history.items[0]?.runId, 'run-999');
+    assert.equal(manifestReads, 1, 'migration manifest must not be reparsed for every historical run');
+    assert.equal(yielded, true, 'history reading must yield so health and other requests can run');
+    await tick;
+  } finally {
+    spy.mock.restore();
+    syncBuiltinESMExports();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("history preserves global time ordering across unordered logs and skips corrupt lines", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-review-order-"));
+  try {
+    for (const agent of ["alpha", "beta"]) {
+      const workspace = join(root, "sessions", agent);
+      mkdirSync(workspace, { recursive: true });
+      const times = agent === "alpha" ? [8, 1, 6] : [2, 9, 4];
+      writeFileSync(join(workspace, "run-summaries.jsonl"), times.map(time => JSON.stringify({ runId: `run-${time}`, createdAt: new Date(time * 1000).toISOString() })).join("\n") + "\ninvalid JSON\n");
+    }
+    const result = await readRunHistory(root, 3);
+    assert.deepEqual(result.items.map(item => item.runId), ["run-9", "run-8", "run-6"]);
+    assert.equal(result.diagnostics.length, 2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

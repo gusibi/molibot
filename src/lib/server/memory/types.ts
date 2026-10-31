@@ -47,6 +47,7 @@ export interface MemorySkillDraftSuggestion {
 
 export interface MemoryRecord {
   id: string;
+  hasEmbedding?: boolean;
   channel: string;
   externalUserId: string;
   content: string;

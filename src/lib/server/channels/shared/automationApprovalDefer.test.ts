@@ -15,7 +15,7 @@ const baseRuntime = readFileSync(join(here, "baseRuntime.ts"), "utf8");
  * for it. Without the default, an unattended run waits in
  * `pollApprovalRequest` and holds its execution lease in `running` — which
  * `hasActiveForTask` reads as a live owner, suppressing every later run of the
- * task as `task_already_running` (CLAUDE.md pitfall 23).
+ * task as `task_already_running` (docs/pitfalls.md pitfall 23).
  *
  * Asserted against the source rather than by driving a whole channel runtime:
  * the property is one wiring decision, and a test that stood up a runtime

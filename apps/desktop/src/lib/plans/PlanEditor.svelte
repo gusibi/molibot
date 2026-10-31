@@ -68,9 +68,9 @@
 </script>
 
 {#if initialized}
-<section class="plans-editor settings-form" aria-label={copy.planEditorTitle}>
-  <h3>{copy.planEditorTitle}</h3>
-  <p class="settings-hint" role="status">{copy.planEditorDraftSaved}</p>
+<section class="plans-editor" aria-label={copy.planEditorTitle}>
+  <header class="plans-editor-heading"><h3>{copy.planEditorTitle}</h3><p class="settings-hint" role="status">{copy.planEditorDraftSaved}</p></header>
+  <div class="plans-editor-body">
   {#if conflict}<div class="plans-alert" role="alert"><strong>{copy.planEditorConflict}</strong><p>{copy.planBoardVersion} {detail.execution.currentPlanVersion} · {detail.meta.title}</p><p>{detail.tasks.map(task => `${task.title}: ${task.steps.map(step => step.title).join(" / ")}`).join("\n")}</p><Button onclick={() => { draft = { ...draft, expectedVersion: detail.execution.version }; preview = true; }}>{copy.planEditorReapply}</Button></div>{/if}
   {#if error}<div class="plans-alert" role="alert">{error}</div>{/if}
   {#if preview}
@@ -82,7 +82,7 @@
     <label class="settings-field"><span>{copy.planEditorName}</span><input bind:value={draft.title} disabled={busy} /></label>
     <label class="settings-field"><span>{copy.planEditorSummary}</span><textarea bind:value={draft.summary} disabled={busy} rows="2"></textarea></label>
     {#each draft.tasks as task, index}
-      <section class="plans-rework-task">
+      <section class="plans-rework-task" aria-label={`${copy.planBoardReworkTitle} ${index + 1}`}>
         <label class="settings-field"><span>{copy.planBoardReworkTitle} {index + 1}</span><input bind:value={task.title} disabled={busy} /></label>
         <label class="settings-field"><span>{copy.planEditorSummary}</span><textarea bind:value={task.description} disabled={busy} rows="2"></textarea></label>
         <div class="plans-rework-actions">
@@ -91,7 +91,7 @@
           <Button disabled={busy || task.steps.some(step => step.id && completedIds.has(step.id))} onclick={() => draft.tasks = draft.tasks.filter((_, at) => at !== index)}>{copy.planBoardReworkRemove}</Button>
         </div>
         {#each task.steps as step, position}
-          <div class="plans-editor-step">
+          <div class="plans-editor-step" class:completed={Boolean(step.id && completedIds.has(step.id))}>
             <label class="settings-field"><span>{copy.planEditorStep} {position + 1}{step.id && completedIds.has(step.id) ? ` · ${copy.planStatusCompleted}` : ""}</span><input bind:value={step.title} disabled={busy || Boolean(step.id && completedIds.has(step.id))} /></label>
             <label class="settings-field"><span>{copy.planEditorSummary}</span><textarea bind:value={step.description} disabled={busy || Boolean(step.id && completedIds.has(step.id))} rows="2"></textarea></label>
             <div class="plans-rework-actions">
@@ -106,14 +106,15 @@
     {/each}
     <Button disabled={busy || !valid} onclick={() => draft.tasks = [...draft.tasks, { title: "", steps: [{ title: "" }] }]}>{copy.planBoardReworkAdd}</Button>
     <label class="settings-field"><span>{copy.planEditorCriteria}</span><textarea rows="3" value={draft.acceptanceCriteria.map(item => item.description).join("\n")} oninput={(event) => draft.acceptanceCriteria = event.currentTarget.value.split("\n").map(description => ({ description, required: true }))}></textarea></label>
-    <label class="settings-field"><span>{copy.planEditorInstruction}</span><textarea bind:value={instruction} rows="2" disabled={busy}></textarea></label>
-    <Button disabled={busy || !instruction.trim()} onclick={() => void propose()}>{busy ? copy.loading : copy.planEditorPropose}</Button>
+    <div class="plans-editor-assist"><label class="settings-field"><span>{copy.planEditorInstruction}</span><textarea bind:value={instruction} rows="2" disabled={busy}></textarea></label>
+    <Button disabled={busy || !instruction.trim()} onclick={() => void propose()}>{busy ? copy.loading : copy.planEditorPropose}</Button></div>
   {/if}
+  </div>
   <div class="plans-editor-footer">
     <Button disabled={busy} onclick={onClose}>{copy.planEditorKeepDraft}</Button>
     <Button disabled={busy} onclick={discard}>{copy.planEditorDiscard}</Button>
     {#if preview}<Button disabled={busy} onclick={() => preview = false}>{copy.planEditorTitle}</Button><Button variant="primary" disabled={busy || !valid || conflict || detail.execution.status === "running" || detail.execution.status === "queued" || detail.execution.status === "verifying" || detail.execution.status === "waiting_for_approval"} onclick={() => void save()}>{copy.save}</Button>
-    {:else}<Button disabled={busy || !valid} onclick={() => preview = true}>{copy.planEditorPreview}</Button>{/if}
+    {:else}<Button variant="primary" disabled={busy || !valid} onclick={() => preview = true}>{copy.planEditorPreview}</Button>{/if}
   </div>
 </section>
 {/if}

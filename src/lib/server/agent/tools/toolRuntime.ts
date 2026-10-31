@@ -236,7 +236,7 @@ export class ToolRuntime {
         // that distinction load-bearing: Manual asks before a medium-risk
         // `write`, and an unattended automation run must be able to suspend
         // instead of blocking on `pollApprovalRequest` — a blocked run holds its
-        // execution lease in `running` forever (CLAUDE.md pitfall 23).
+        // execution lease in `running` forever (docs/pitfalls.md pitfall 23).
         const deferred = await call.context.onApprovalRequest?.({
           backend: "approval_broker",
           requestId: decision.request.id,

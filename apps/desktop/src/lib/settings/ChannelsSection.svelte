@@ -1,4 +1,11 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import DirectoryActions from "../components/ui/DirectoryActions.svelte";
+  import DirectoryToolbar from "../components/ui/DirectoryToolbar.svelte";
+  import AgentAvatar from "../components/ui/AgentAvatar.svelte";
+  import Button from "../components/ui/Button.svelte";
+  import SkeletonRows from "../components/ui/SkeletonRows.svelte";
+  import { CHANNEL_LOGOS } from "../chat/activityIcons";
   import X from "reicon-svelte/icons/X";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
@@ -6,9 +13,7 @@
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
-  import SettingRow from "../components/ui/SettingRow.svelte";
   import { session } from "../stores/session.svelte";
-  import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { agentsStore, loadAgents } from "../stores/agents.svelte";
   import { PROFILE_FILE_NAMES } from "./profileFiles";
   import { labeledOptions, progressOptionLabels, reasoningOptionLabels, type ProgressValue, type ReasoningValue } from "./displaySettings";
@@ -31,6 +36,20 @@
     updateChannelEdit
   } from "../stores/channels.svelte";
 
+  let query = $state("");
+  let status = $state<"all" | "enabled" | "disabled">("all");
+  let platform = $state<"all" | DesktopExternalChannel>("all");
+  const allPlatforms = [WEB_CHANNEL, ...DESKTOP_CHANNELS];
+  const agentMap = $derived(new Map((agentsStore.agents?.items ?? []).map(agent => [agent.id, agent])));
+  const filteredGroups = $derived.by(() => {
+    const term = query.trim().toLocaleLowerCase(session.locale);
+    return allPlatforms.map(channel => {
+      const group = channelsStore.channels?.groups.find(group => group.channel === channel);
+      const instances = (group?.instances ?? []).filter(inst => (status === "all" || inst.enabled === (status === "enabled")) && (!term || [inst.name, inst.id, inst.agentId, agentMap.get(inst.agentId)?.name ?? "", externalChannelLabel(channel, session.locale)].join("\n").toLocaleLowerCase(session.locale).includes(term)));
+      return { channel, instances, total: group?.total ?? 0, enabled: group?.enabled ?? 0 };
+    }).filter(group => (platform === "all" || platform === group.channel) && (group.instances.length > 0 || (!term && status === "all")));
+  });
+  const shown = $derived(filteredGroups.reduce((total, group) => total + group.instances.length, 0));
   let deletingChannelInstance = $state<{ channel: DesktopExternalChannel; id: string; name: string } | null>(null);
 
   // Inherit-first option lists; the inherit label shows the current global value
@@ -57,15 +76,12 @@
   const editingWeb = $derived(channelsStore.channelEdit?.channel === WEB_CHANNEL);
 
   $effect(() => {
-    if (session.serviceReady && session.endpoint && session.endpoint !== channelsStore.endpoint) {
-      void loadChannels(session.endpoint);
-    }
+    const endpoint = session.serviceReady ? session.endpoint : null;
+    if (endpoint) untrack(() => void loadChannels(endpoint));
   });
-  // The linked-agent dropdown needs the agents list.
   $effect(() => {
-    if (session.serviceReady && session.endpoint && session.endpoint !== agentsStore.endpoint) {
-      void loadAgents(session.endpoint);
-    }
+    const endpoint = session.serviceReady ? session.endpoint : null;
+    if (endpoint) untrack(() => { if (endpoint !== agentsStore.endpoint) void loadAgents(endpoint); });
   });
 
   async function handleConfirmDelete(): Promise<void> {
@@ -78,48 +94,50 @@
 
 {#snippet channelInstances(channel: DesktopExternalChannel, instances: DesktopChannelInstance[])}
   {#each instances as inst (inst.id)}
-    <div class="settings-row" in:listIn out:listOut animate:listFlip>
+    <div class="settings-row directory-entity-row directory-channel-row" data-channel-id={inst.id}>
+      <AgentAvatar name={agentMap.get(inst.agentId)?.name ?? inst.name} src={agentMap.get(inst.agentId)?.avatar ?? ""} />
       <div class="profile-info">
         <strong>{inst.name}</strong>
-        <p>{inst.agentId ? `${session.text.channelLinkedAgent}: ${inst.agentId}` : session.text.noLinkedAgent} · {session.text.channelAllowedChats}: {inst.allowedChatCount} · {session.text.channelPermissionMode}: {inst.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[inst.permissionMode]}{#if inst.display && channel !== WEB_CHANNEL} · {session.text.channelDisplayCustom}{/if}</p>
+        <p class="directory-description">{session.text.channelLinkedAgent}: {agentMap.get(inst.agentId)?.name ?? (inst.agentId || session.text.noLinkedAgent)}{#if inst.display && channel !== WEB_CHANNEL} · {session.text.channelDisplayCustom}{/if}</p>
+        <details class="directory-row-details"><summary>{session.text.directoryDetails}</summary><dl><div><dt>ID</dt><dd><code>{inst.id}</code></dd></div><div><dt>Agent ID</dt><dd><code>{inst.agentId || "—"}</code></dd></div>{#if channel !== WEB_CHANNEL}<div><dt>{session.text.channelAllowedChats}</dt><dd>{inst.allowedChatCount}</dd></div>{/if}<div><dt>{session.text.channelPermissionMode}</dt><dd>{inst.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[inst.permissionMode]}</dd></div></dl></details>
       </div>
       <div class="settings-row-actions">
-        <span class="status-badge" data-state={inst.enabled ? "ready" : "disconnected"}>{inst.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
-        <button class="secondary-button" type="button" disabled={channelsStore.editorLoading} onclick={() => void beginChannelEdit(channel, inst.id)}>{session.text.channelEdit}</button>
-        <button class="secondary-button danger-action" type="button" disabled={channelsStore.saving} onclick={() => (deletingChannelInstance = { channel, id: inst.id, name: inst.name })}>{session.text.channelDelete}</button>
+        <span class="directory-enabled-state" data-enabled={inst.enabled}><i aria-hidden="true"></i>{inst.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
+        <button class="text-button" type="button" disabled={channelsStore.editorLoading} onclick={() => void beginChannelEdit(channel, inst.id)}>{session.text.channelEdit}</button>
+        <DirectoryActions label={session.text.directoryMoreActions.replace("{name}", inst.name)} disabled={channelsStore.saving} items={[{ label: session.text.channelDelete, danger: true, onSelect: () => deletingChannelInstance = { channel, id: inst.id, name: inst.name } }]} />
       </div>
     </div>
   {/each}
 {/snippet}
 
-{#snippet channelGroup(channel: DesktopExternalChannel)}
-  {@const group = channelsStore.channels?.groups.find((item) => item.channel === channel)}
-  <SettingGroup title={externalChannelLabel(channel, session.locale)} description={`${group?.enabled ?? 0}/${group?.total ?? 0}`}>
+{#snippet channelGroup(group: (typeof filteredGroups)[number])}
+  <SettingGroup title={externalChannelLabel(group.channel, session.locale)} description={`${group.enabled} ${session.text.providerEnabled} · ${group.total} ${session.text.directoryInstances}`}>
     <svelte:fragment slot="action">
-      <button class="secondary-button" type="button" disabled={channelsStore.channelEdit !== null} onclick={() => beginNewChannel(channel)}>{session.text.channelAdd}</button>
+      <button class="secondary-button" type="button" disabled={channelsStore.channelEdit !== null} onclick={() => beginNewChannel(group.channel)}>{session.text.channelAdd}</button>
     </svelte:fragment>
-    {#if !group || group.instances.length === 0}
-      <EmptyState title={session.text.channelsEmpty} icon="chat-circle-dots" />
-    {:else}
-      {@render channelInstances(channel, group.instances)}
-    {/if}
+    {#if group.instances.length === 0}<p class="directory-empty-group">{session.text.channelsEmpty}</p>{:else}{@render channelInstances(group.channel, group.instances)}{/if}
   </SettingGroup>
 {/snippet}
 
 {#if !session.serviceReady}
   <SettingGroup><EmptyState title={session.text.channelsUnavailable} icon="chat-circle-dots" /></SettingGroup>
-{:else if channelsStore.loading || !channelsStore.channels}
-  <SettingGroup><div class="settings-row"><p>{session.text.loading}</p></div></SettingGroup>
+{:else if channelsStore.error && !channelsStore.channels}
+  <SettingGroup><div class="directory-load-error" role="alert"><strong>{session.text.directoryLoadFailed}</strong><p>{channelsStore.error}</p><Button onclick={() => session.endpoint && loadChannels(session.endpoint)}>{session.text.retryLoading}</Button></div></SettingGroup>
+{:else if !channelsStore.channels}
+  <SettingGroup><SkeletonRows count={4} label={session.text.loading} /></SettingGroup>
 {:else}
-  <SettingGroup ariaLabel={session.text.channelsTotal}>
-    <SettingRow title={session.text.channelsTotal}>
-      <span class="diag-value">{channelsStore.channels.counts.totalInstances} · {session.text.agentsEnabledCount}: {channelsStore.channels.counts.enabledInstances}</span>
-    </SettingRow>
-  </SettingGroup>
-  {@render channelGroup(WEB_CHANNEL)}
-  {#each DESKTOP_CHANNELS as channel (channel)}
-    {@render channelGroup(channel)}
-  {/each}
+  <div class="directory-shell channel-directory" aria-busy={channelsStore.loading}>
+  {#if channelsStore.error}<div class="directory-load-error" role="alert"><p>{channelsStore.error}</p><Button onclick={() => session.endpoint && loadChannels(session.endpoint)}>{session.text.retryLoading}</Button></div>{/if}
+  {#if agentsStore.error}<div class="directory-load-error" role="alert"><p>{agentsStore.error}</p><Button onclick={() => session.endpoint && loadAgents(session.endpoint)}>{session.text.retryLoading}</Button></div>{/if}
+  <DirectoryToolbar {query} {status} total={channelsStore.channels.counts.totalInstances} enabled={channelsStore.channels.counts.enabledInstances} {shown} searchLabel={session.text.directoryChannelSearch} onQuery={value => query = value} onStatus={value => status = value} />
+  <nav class="directory-platforms" aria-label={session.text.channels}>
+    <button type="button" class:active={platform === "all"} aria-pressed={platform === "all"} onclick={() => platform = "all"}>{session.text.directoryAllChannels}</button>
+    {#each allPlatforms as channel}<button type="button" class:active={platform === channel} aria-pressed={platform === channel} onclick={() => platform = channel}><img src={CHANNEL_LOGOS[channel]} alt="" width="16" height="16" />{externalChannelLabel(channel, session.locale)}<span>{channelsStore.channels.groups.find(group => group.channel === channel)?.total ?? 0}</span></button>{/each}
+  </nav>
+  {#if shown === 0 && (query.trim() || status !== "all")}
+    <SettingGroup><EmptyState title={session.text.directoryNoMatches} description={session.text.directoryNoMatchesHint} icon="magnifying-glass"><Button onclick={() => { query = ""; status = "all"; platform = "all"; }}>{session.text.directoryClear}</Button></EmptyState></SettingGroup>
+  {:else}{#each filteredGroups as group (group.channel)}{@render channelGroup(group)}{/each}{/if}
+  </div>
   {#if channelsStore.channelEdit}
     {@const savedInstance = channelsStore.channels.groups.find((group) => group.channel === channelsStore.channelEdit?.channel)?.instances.find((instance) => instance.id === channelsStore.channelEdit?.previousId)}
     <Dialog open={true} busy={channelsStore.saving} contentClass="entity-editor-dialog" labelledBy="channel-editor-title" onOpenChange={(next) => { if (!next) channelsStore.channelEdit = null; }}>
@@ -194,7 +212,7 @@
       onOpenChange={(next) => { if (!next) deletingChannelInstance = null; }}
     >
       <header class="modal-head"><strong id="channel-delete-title">{session.text.channelDelete}</strong></header>
-      <div class="modal-body"><p id="channel-delete-description">{session.text.channelDeleteConfirm}</p></div>
+      <div class="modal-body"><p id="channel-delete-description"><strong>{deletingChannelInstance.name}</strong> · {session.text.channelDeleteConfirm}</p></div>
       <footer class="provider-modal-foot">
         <button class="secondary-button" type="button" onclick={() => (deletingChannelInstance = null)}>{session.text.cancel}</button>
         <button class="primary-button danger-action" type="button" onclick={() => void handleConfirmDelete()}>{session.text.channelDelete}</button>

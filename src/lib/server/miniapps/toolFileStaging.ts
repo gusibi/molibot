@@ -45,7 +45,7 @@ function stagedKindOf(fileName: string): "image" | "file" {
  *
  * Path resolution is deliberately the agent file tools' own (`resolveToolPath`
  * plus the shared allowed-roots guard): the same `~/x` must mean the same file
- * here as it does to `read`/`bash` (CLAUDE.md pitfall 6), and anything the file
+ * here as it does to `read`/`bash` (docs/pitfalls.md pitfall 6), and anything the file
  * tools may not read may not be staged either. Every check - guard, existence,
  * size, kind - runs before the first byte is copied, so a rejected input leaves
  * no partial staging behind (pitfall 26d).

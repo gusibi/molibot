@@ -343,7 +343,7 @@ test("ToolRuntime stops polling and expires when signal is aborted", async () =>
   assert.match(result.error ?? "", /aborted/i);
   assert.equal(executed, false);
   // Aborting the wait must leave the request in its `expired` terminal state
-  // rather than leaving it pending forever (CLAUDE.md pitfall 23).
+  // rather than leaving it pending forever (docs/pitfalls.md pitfall 23).
   const requests = store.listPendingRequests();
   assert.equal(requests.length, 0, "an aborted wait must not leave a pending request behind");
 });

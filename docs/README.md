@@ -25,6 +25,12 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 | `agent-dev-series/` | Agent development article series. |
 | `superpowers/` | Superpowers planning, specification, and review documents. |
 
+## 开发与界面规范
+
+- [开发与验证指南](guides/development-workflow.md)：实现、修复、持久化、定向验证与记录维护。
+- [设计规范](../DESIGN.md)：视觉与交互核心约定，含主题、布局、动效和页面专项入口。
+- [Pitfalls](pitfalls.md)：按模块分类的事故索引与完整复盘。
+
 ## Common entrypoints
 
 ### Features

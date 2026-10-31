@@ -38,11 +38,23 @@ export function agentFileAliases(workspaceDir: string, source?: Partial<SessionS
   }
   return out;
 }
+/** Resolve a batch against one migration snapshot; ambiguity still requires a source. */
+export function createAgentFileReferenceResolver(workspaceDir: string, source?: Partial<SessionSource>): (reference: string) => string {
+  const aliases = new Map<string, Set<string>>();
+  for (const item of agentFileAliases(workspaceDir, source)) {
+    const paths = aliases.get(item.reference) ?? new Set<string>();
+    paths.add(item.local);
+    aliases.set(item.reference, paths);
+  }
+  return reference => {
+    const matches = aliases.get(reference);
+    if (matches && matches.size > 1) throw new Error("Ambiguous historical file reference; include the Session source");
+    const mapped = matches?.values().next().value;
+    return mapped ? resolve(workspaceDir, mapped) : isAbsolute(reference) ? resolve(reference) : resolve(workspaceDir, reference);
+  };
+}
 export function resolveAgentFileReference(workspaceDir: string, reference: string, source?: Partial<SessionSource>): string {
-  const matches = agentFileAliases(workspaceDir, source).filter(item => item.reference === reference);
-  if (new Set(matches.map(item => item.local)).size > 1) throw new Error("Ambiguous historical file reference; include the Session source");
-  const mapped = matches[0];
-  return mapped ? resolve(workspaceDir, mapped.local) : isAbsolute(reference) ? resolve(reference) : resolve(workspaceDir, reference);
+  return createAgentFileReferenceResolver(workspaceDir, source)(reference);
 }
 export function sessionReferencesFile(workspaceDir: string, local: string, body: string, source?: Partial<SessionSource>): boolean {
   return body.includes(local) || createSessionFileReferenceMatcher(workspaceDir, body, source)(local);

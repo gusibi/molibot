@@ -1,4 +1,7 @@
 <script lang="ts">
+  import ChatDots from "reicon-svelte/icons/ChatDots";
+  import CalendarCheck from "reicon-svelte/icons/CalendarCheck";
+  import { CHANNEL_LOGOS } from "./activityIcons";
   import MoonSleep from "reicon-svelte/icons/MoonSleep";
   import Run from "reicon-svelte/icons/Run";
   import Check from "reicon-svelte/icons/Check";
@@ -327,12 +330,15 @@
   <section class="agent-home-history" aria-labelledby="agent-home-recent-title">
     <div class="agent-home-section-heading">
       <h2 id="agent-home-recent-title">{locale === "zh-CN" ? (historyExpanded ? "全部对话" : "最近对话") : (historyExpanded ? "All conversations" : "Recent conversations")}</h2>
-      <Button class="agent-icon-action" title={locale === "zh-CN" ? (historyExpanded ? "收起" : "查看全部") : (historyExpanded ? "Show recent" : "View all")} onclick={onHistory}><ArrowRight size={16} aria-hidden="true" /></Button>
+      <button type="button" class="agent-home-section-link" onclick={onHistory}>
+        {locale === "zh-CN" ? (historyExpanded ? "收起" : "查看全部") : (historyExpanded ? "Show recent" : "View all")}
+        <ArrowRight size={14} aria-hidden="true" />
+      </button>
     </div>
     {#if sessions.length}
-      <div class="agent-history-rows">
+      <div class="agent-history-rows agent-home-recent">
         {#each sessions as item (item.sessionId)}
-          <AgentConversationRow {item} source={item.channel} sourceLabel={item.channel === "web" ? copy.channelWeb : item.channel === "telegram" ? copy.channelTelegram : item.channel === "feishu" ? copy.channelFeishu : item.channel === "qq" ? copy.channelQq : copy.channelWeixin} {locale} {formatTime} onSelect={() => onSession(item)} onDelete={onDelete ? () => onDelete(item) : undefined} onCopyPath={onCopyPath ? () => onCopyPath(item) : undefined} onRevealInFinder={onRevealInFinder ? () => onRevealInFinder(item) : undefined} />
+          <AgentConversationRow {item} source={item.channel} sourceLabel={item.channel === "web" ? copy.channelWeb : item.channel === "telegram" ? copy.channelTelegram : item.channel === "feishu" ? copy.channelFeishu : item.channel === "qq" ? copy.channelQq : copy.channelWeixin} {locale} {formatTime} showSource onSelect={() => onSession(item)} onDelete={onDelete ? () => onDelete(item) : undefined} onCopyPath={onCopyPath ? () => onCopyPath(item) : undefined} onRevealInFinder={onRevealInFinder ? () => onRevealInFinder(item) : undefined} />
         {/each}
       </div>
     {:else if showEmpty}
@@ -463,7 +469,7 @@
     {@render composer()}
   </section>
 {:else if showHandover && handover}
-  <section class="agent-home agent-home--brief" aria-label={agent.name} use:handoverKeys>
+  <section class="agent-home agent-home--brief" class:agent-home--quiet-brief={displayItems.length === 0 && handover.pending.length === 0} aria-label={agent.name} use:handoverKeys>
     <header class="agent-home-head">
       <div class="agent-home-head-who">
         {#if onActivity}
@@ -564,27 +570,26 @@
       </section>
     {/if}
 
-    {#if crossChannel}
-      <div class="agent-home-cross-channel" data-testid="handover-cross-channel">
-        <div class="agent-home-cross-channel-main">
-          <span class="agent-home-cross-channel-title">{copy.handoverCrossChannel.replace("{count}", String(crossChannel.count))}</span>
-          <span class="agent-home-cross-channel-meta">{crossChannelMeta}</span>
-        </div>
-        <button type="button" class="agent-home-more" onclick={onHistory}>{copy.handoverCrossChannelOpen}</button>
+    {#if crossChannel || handover.nextScheduled}
+      <div class="agent-home-signals">
+        {#if crossChannel}
+          <article class="agent-home-signal" data-testid="handover-cross-channel">
+            <span class="agent-home-signal-icon" aria-hidden="true"><ChatDots size={16} /></span>
+            <h2 class="agent-home-signal-title">{copy.handoverCrossChannel.replace("{count}", String(crossChannel.count))}</h2>
+            <span class="agent-home-signal-meta">{crossChannelMeta}</span>
+            {#if crossChannel.channels.length}<span class="agent-home-signal-platforms" aria-hidden="true">{#each crossChannel.channels as channel}{#if CHANNEL_LOGOS[channel]}<img src={CHANNEL_LOGOS[channel]} alt="" width="16" height="16" />{/if}{/each}</span>{/if}
+            <button type="button" class="agent-home-signal-action" onclick={onHistory}>{copy.handoverCrossChannelOpen}<ArrowRight size={13} aria-hidden="true" /></button>
+          </article>
+        {/if}
+        {#if handover.nextScheduled}
+          <article class="agent-home-signal" aria-label={copy.handoverBandNext}>
+            <span class="agent-home-signal-icon" aria-hidden="true"><CalendarCheck size={16} /></span>
+            <h2 class="agent-home-signal-title">{handover.nextScheduled.title}</h2>
+            <span class="agent-home-signal-meta">{copy.handoverBandNext} · {formatTime(handover.nextScheduled.at)}</span>
+            <span class="agent-home-signal-meta">{handover.nextScheduled.source === "durable" ? copy.handoverKindPlan : copy.handoverKindTask}</span>
+          </article>
+        {/if}
       </div>
-    {/if}
-
-    {#if handover.nextScheduled}
-      <section class="agent-home-band">
-        <div class="agent-home-band-head">
-          <span class="agent-home-band-label">{copy.handoverBandNext}</span>
-        </div>
-        <div class="agent-home-next">
-          <time>{formatTime(handover.nextScheduled.at)}</time>
-          <span class="agent-home-next-title">{handover.nextScheduled.title}</span>
-          <span class="agent-home-meta">{handover.nextScheduled.source === "durable" ? copy.handoverKindPlan : copy.handoverKindTask}</span>
-        </div>
-      </section>
     {/if}
 
     {@render composer()}
@@ -611,7 +616,7 @@
       <div class="agent-home-tasks" role="group" aria-label={copy.emptyChatQuickStart}>
         {#each actions as action (action.label)}
           {@const Icon = emptyActionIcon(action.icon)}
-          <Button class="agent-home-task" onclick={() => onPrompt(action.prompt)}><Icon size={16} aria-hidden="true" /><span>{action.label}</span></Button>
+          <button type="button" class="agent-home-task" onclick={() => onPrompt(action.prompt)}><Icon size={16} aria-hidden="true" /><span>{action.label}</span></button>
         {/each}
       </div>
     {/if}

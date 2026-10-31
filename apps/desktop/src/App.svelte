@@ -17,6 +17,7 @@
   import PlugCircle from "reicon-svelte/icons/PlugCircle";
   import PuzzlePiece from "reicon-svelte/icons/PuzzlePiece";
   import Radio from "reicon-svelte/icons/Radio";
+  import Check from "reicon-svelte/icons/Check";
   import ShieldCheck from "reicon-svelte/icons/ShieldCheck";
   import Soundwave from "reicon-svelte/icons/Soundwave";
   import Stethoscope from "reicon-svelte/icons/Stethoscope";
@@ -1225,7 +1226,7 @@
           <p class="settings-nav-group-label">{group.label}</p>
           {#each group.items as item (item.id)}
             {@const NavIcon = item.icon}
-            <button class:active={activeSection === item.id} class="settings-nav" type="button" aria-label={item.label} title={item.label} onclick={() => selectSettingsSection(item.id)}>
+            <button class:active={activeSection === item.id} class="settings-nav" type="button" aria-label={item.label} aria-current={activeSection === item.id ? "page" : undefined} title={item.label} onclick={() => selectSettingsSection(item.id)}>
               <span class="nav-tile" aria-hidden="true"><NavIcon size={16} weight="Filled" /></span>
               <span class="nav-label">{item.label}</span>
             </button>
@@ -1293,48 +1294,6 @@
           </SettingRow>
         </SettingGroup>
 
-        <SettingGroup title={text.softwareUpdate} description={text.softwareUpdateHint}>
-          <SettingRow
-            title={text.softwareUpdate}
-            description={updaterStore.available
-              ? `${text.updateAvailable}: v${updaterStore.newVersion}`
-              : updaterStore.readyToRestart
-                ? `${text.updateReady}: v${updaterStore.newVersion}`
-                : `${text.currentVersion}: v${appVersion ?? updaterStore.currentVersion ?? "..."}`}
-          >
-            {#if updaterStore.readyToRestart}
-              <button
-                class="primary-button"
-                type="button"
-                onclick={relaunchApp}
-              >
-                {text.restartToUpdate}
-              </button>
-            {:else if updaterStore.downloading}
-              <button class="secondary-button" type="button" disabled>
-                {updaterStore.downloadProgress}%
-              </button>
-            {:else if updaterStore.available}
-              <button
-                class="primary-button"
-                type="button"
-                onclick={downloadAndInstallUpdate}
-              >
-                {text.downloadAndInstall}
-              </button>
-            {:else}
-              <button
-                class="secondary-button"
-                type="button"
-                disabled={updaterStore.checking}
-                onclick={() => checkForUpdates(true)}
-              >
-                {updaterStore.checking ? text.checkingUpdates : text.checkUpdates}
-              </button>
-            {/if}
-          </SettingRow>
-        </SettingGroup>
-
         <SettingGroup title={text.theme} contentClass="appearance-card">
           <div class="appearance-block">
             <p class="appearance-label">{text.appearanceMode}</p>
@@ -1368,8 +1327,9 @@
                   aria-pressed={!activeImportedThemeId && themeFamily === preview.value}
                   onclick={() => changeThemeFamily(preview.value)}
                 >
-                  <span class="theme-preview" aria-hidden="true"><span class="tp-side"></span><span class="tp-body"></span></span>
+                  <span class="theme-preview" aria-hidden="true"><span class="tp-side"><i></i><i></i><i></i></span><span class="tp-body"><i></i><i></i><i></i><span class="tp-composer"></span></span></span>
                   <span class="theme-name">{text[preview.labelKey]}</span>
+                  {#if !activeImportedThemeId && themeFamily === preview.value}<span class="appearance-selected" aria-hidden="true"><Check size={12} /></span>{/if}
                   <span class="theme-variants">{text[preview.lightVariantKey]} · {text[preview.darkVariantKey]}</span>
                 </button>
               {/each}
@@ -1467,10 +1427,53 @@
                 >
                   <span class="logo-preview" aria-hidden="true"><img src={`/app-icons/${logo.id}.png`} alt="" width="44" height="44" /></span>
                   <span class="logo-name">{appLogoLabel(logo, locale)}</span>
+                  {#if appLogo.id === logo.id}<span class="appearance-selected" aria-hidden="true"><Check size={12} /></span>{/if}
                 </button>
               {/each}
             </div>
           </div>
+        </SettingGroup>
+
+        <SettingGroup title={text.softwareUpdate} description={text.softwareUpdateHint}>
+          <SettingRow
+            title={text.softwareUpdate}
+            description={updaterStore.available
+              ? `${text.updateAvailable}: v${updaterStore.newVersion}`
+              : updaterStore.readyToRestart
+                ? `${text.updateReady}: v${updaterStore.newVersion}`
+                : `${text.currentVersion}: v${appVersion ?? updaterStore.currentVersion ?? "..."}`}
+          >
+            {#if updaterStore.readyToRestart}
+              <button
+                class="primary-button"
+                type="button"
+                onclick={relaunchApp}
+              >
+                {text.restartToUpdate}
+              </button>
+            {:else if updaterStore.downloading}
+              <button class="secondary-button" type="button" disabled>
+                {updaterStore.downloadProgress}%
+              </button>
+            {:else if updaterStore.available}
+              <button
+                class="primary-button"
+                type="button"
+                onclick={downloadAndInstallUpdate}
+              >
+                {text.downloadAndInstall}
+              </button>
+            {:else}
+              <button
+                class="secondary-button"
+                type="button"
+                disabled={updaterStore.checking}
+                onclick={() => checkForUpdates(true)}
+              >
+                {updaterStore.checking ? text.checkingUpdates : text.checkUpdates}
+              </button>
+            {/if}
+          </SettingRow>
         </SettingGroup>
 
         <SettingGroup title={text.service}>

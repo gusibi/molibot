@@ -25,7 +25,8 @@ export type SkillOperationKind =
   | "restore"
   | "toggle"
   | "platform"
-  | "consolidate";
+  | "consolidate"
+  | "maintenance";
 
 export type SkillOperationStatus = "pending" | "committed" | "failed" | "recovered";
 

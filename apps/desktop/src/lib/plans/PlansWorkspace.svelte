@@ -152,7 +152,7 @@
   </div>
   <div class="plans-workspace workspace-master-detail" class:detail-open={showDetailPane}>
   <aside class="plans-rail" aria-label={copy.planBoardTitle}>
-    <p class="plans-connection-status" role="status">{online ? copy.planEditorLive : copy.planEditorOffline}{lastUpdated ? ` · ${copy.planBoardUpdated} ${formatTime(lastUpdated)}` : ""}</p>
+    <p class="plans-connection-status" class:online role="status"><span class="plans-live-dot" aria-hidden="true"></span>{online ? copy.planEditorLive : copy.planEditorOffline}{lastUpdated ? ` · ${copy.planBoardUpdated} ${formatTime(lastUpdated)}` : ""}</p>
 
     {#if listLoading && items.length === 0}
       <div class="plans-state" role="status">{copy.loading}</div>
@@ -172,13 +172,13 @@
               onclick={() => void selectPlan(item.planId)}
             >
               <span class="plans-row-top">
-                <strong>{item.title}</strong>
+                <strong title={item.title}>{item.title}</strong>
                 <span class="plans-chip" data-plan-status={item.planStatus}>{planStatusLabel(item.planStatus)}</span>
               </span>
               <span class="plans-row-sub">
                 <span class="plans-mono" translate="no">{item.shortHandle}</span>
                 <span class="plans-dot" aria-hidden="true">·</span>
-                <span class="plans-count">{item.progress.completed}/{item.progress.total}</span>
+                <span class="plans-count">{copy.planBoardStepsCount.replace("{done}", String(item.progress.completed)).replace("{total}", String(item.progress.total))}</span>
                 {#if item.projectId}<span class="plans-dot" aria-hidden="true">·</span><span translate="no">{item.projectId}</span>{/if}
               </span>
               {#if item.progress.currentStepTitle}<span class="plans-row-step">{item.progress.currentStepTitle}</span>{/if}
@@ -194,7 +194,21 @@
     {#if detailLoading && !detail}
       <div class="plans-state" role="status"><Loader size={16} aria-hidden="true" />{copy.loading}</div>
     {:else if !detail}
-      <WorkspaceEmpty title={copy.planBoardSelectHint} />
+      {#if listLoading}
+        <div class="plans-state" role="status">{copy.loading}</div>
+      {:else if listError}
+        <div class="plans-state" role="alert"><p>{copy.planBoardLoadFailed}</p><Button onclick={() => void refreshList()}>{copy.retryLoading}</Button></div>
+      {:else}
+        <div class="plans-landing">
+          <div class="plans-landing-heading"><span class="plans-landing-mark"><Layers size={24} aria-hidden="true" /></span><h2>{copy.planBoardOverviewTitle}</h2><p>{copy.planBoardOverviewHint}</p></div>
+          <div class="plans-overview-stats" role="group" aria-label={copy.tasksByStatus}>
+            {#each filterItems.filter(item => ["in_progress", "needs_attention", "archived"].includes(item.value)) as item (item.value)}
+              <button type="button" class="plans-stat" data-plan-status={item.value} aria-pressed={filter === item.value} onclick={() => { filter = item.value; offset = 0; }}><span>{item.label}</span><strong>{item.count}</strong></button>
+            {/each}
+          </div>
+          <WorkspaceEmpty title={copy.planBoardSelectHint} />
+        </div>
+      {/if}
     {:else}
       <header class="plans-detail-head">
         <button type="button" class="plans-back" aria-label={copy.planBoardTitle} onclick={() => { selectedId = ""; detail = null; }}><X size={15} aria-hidden="true" /></button>
@@ -213,6 +227,7 @@
         </div>
       </header>
 
+      {#if !editorOpen}
       {#if canContinue}<div class="plans-execution-options">
         <SelectControl value={mode} ariaLabel={copy.planEditorMode} options={[{ value: "manual", label: copy.permissionModeManual }, { value: "accept_edits", label: copy.permissionModeAcceptEdits }]} onChange={value => mode = value as typeof mode} />
         <SelectControl value={receiver} ariaLabel={copy.planEditorReceiver} options={[{ value: "current", label: copy.planEditorCurrentSession, disabled: !targetSessionId }, { value: "source", label: copy.planBoardOpenSession, disabled: !detail.execution.sourceUiSessionId && !detail.binding }, { value: "new", label: copy.planEditorNewSession }]} onChange={value => receiver = value} />
@@ -228,27 +243,28 @@
             <Button danger disabled={busy || Boolean(detail.controlRequest)} onclick={() => void control("cancel")}>{copy.durableCancel}</Button>
           {/if}
           {#if canDelete}<Button danger disabled={busy} onclick={() => void deletePlan()}>{copy.planBoardDelete}</Button>{/if}
-          {#if canComplete}<Button disabled={busy} onclick={() => void completePlan()}>{copy.planBoardMarkComplete}</Button>{/if}
+          {#if canComplete}<Button variant="primary" disabled={busy} onclick={() => void completePlan()}>{copy.planBoardMarkComplete}</Button>{/if}
           {#if canOpenSession}<Button onclick={() => void continuePlan(false)}>{copy.planBoardOpenSession}</Button>{/if}
           {#if canContinue}<Button variant="primary" disabled={busy || editorOpen} onclick={() => void continuePlan(true)}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</Button>{/if}
         </div>
       </div>
 
-      <div class="plans-detail-scroll">
+      {/if}
+      <div class="plans-detail-scroll" class:editing={editorOpen}>
         {#if editorOpen}
           {#key detail.execution.id}<PlanEditor {detail} {endpoint} {copy} onClose={() => editorOpen = false} onSaved={(next) => { if (selectedId === next.execution.id && (!detail || next.execution.version >= detail.execution.version)) { detail = next; editorOpen = false; } void refreshList(true); }} />{/key}
-        {/if}
+        {:else}
         {#each detail.approvals.filter(item => item.status === "pending") as approval}
-          <section class="plans-card"><h3>{approval.title}</h3><p>{approval.summary}</p><Button disabled={busy} onclick={() => void decide("approval", approval.id, "rejected")}>{copy.planReject}</Button><Button variant="primary" disabled={busy} onclick={() => void decide("approval", approval.id, "approved")}>{copy.planEditorApproveOnce}</Button></section>
+          <section class="plans-card plans-attention"><h3>{approval.title}</h3><p>{approval.summary}</p><div class="plans-response-actions"><Button disabled={busy} onclick={() => void decide("approval", approval.id, "rejected")}>{copy.planReject}</Button><Button variant="primary" disabled={busy} onclick={() => void decide("approval", approval.id, "approved")}>{copy.planEditorApproveOnce}</Button></div></section>
         {/each}
         {#each detail.decisions.filter(item => item.status === "open") as decision}
-          <section class="plans-card"><h3>{copy.planBoardStatusAttention}</h3><p>{decision.question}</p>{#each decision.options as answer}<Button disabled={busy} onclick={() => void decide("answer", decision.id, answer)}>{answer === "confirm_completion" ? copy.planBoardMarkComplete : answer === "completed" ? copy.planStatusCompleted : answer === "not_completed" ? copy.continueAction : copy.continueAction}</Button>{/each}</section>
+          <section class="plans-card plans-attention"><h3>{copy.planBoardStatusAttention}</h3><p>{decision.question}</p><div class="plans-response-actions">{#each decision.options as answer}<Button disabled={busy} onclick={() => void decide("answer", decision.id, answer)}>{answer === "confirm_completion" ? copy.planBoardMarkComplete : answer === "completed" ? copy.planStatusCompleted : answer === "not_completed" ? copy.continueAction : copy.continueAction}</Button>{/each}</div></section>
         {/each}
         <section class="plans-card plans-overview">
           {#if detail.meta.summary}<p class="plans-summary-text">{detail.meta.summary}</p>{/if}
+          <div class="plans-progress-heading"><h3 class="plans-section-title">{copy.planBoardProgress}</h3><span class="plans-count">{copy.planBoardStepsCount.replace("{done}", String(completedCount)).replace("{total}", String(totalCount))}</span></div>
           <div class="plans-progress">
             <div class="plans-progress-track" role="progressbar" aria-label={copy.planBoardProgress} aria-valuenow={progressPercent} aria-valuemin="0" aria-valuemax="100"><span style={"transform: scaleX(" + progressPercent / 100 + ")"}></span></div>
-            <span class="plans-progress-count">{completedCount}/{totalCount}</span>
           </div>
           {#if detail.projection.nextStep}<p class="plans-current"><span>{copy.planBoardCurrentStep}</span>{detail.projection.nextStep.title}</p>{/if}
           {#if waitingText}<p class="plans-waiting"><strong>{copy.durableWaitingReason}</strong>{waitingText}</p>{/if}
@@ -256,12 +272,12 @@
         </section>
 
         <section class="plans-card">
-          <h3 class="plans-section-title">{copy.planBoardTasks}</h3>
+          <h3 class="plans-section-title">{copy.planBoardTasks}<span class="plans-section-count">{detail.tasks.length}</span></h3>
           <ol class="plans-tasks">
-            {#each detail.tasks as task (task.id)}
+            {#each detail.tasks as task, taskIndex (task.id)}
               <li class="plans-task">
                 <header class="plans-task-head">
-                  <strong>{task.title}</strong>
+                  <strong><span class="plans-task-index">{String(taskIndex + 1).padStart(2, "0")}</span>{task.title}</strong>
                   <span>{taskProgress(task)}</span>
                 </header>
                 {#if task.description}<p class="plans-task-desc">{task.description}</p>{/if}
@@ -293,7 +309,7 @@
 
         {#if currentCriteria.length > 0}
           <section class="plans-card">
-            <h3 class="plans-section-title">{copy.planBoardAcceptance}</h3>
+            <h3 class="plans-section-title">{copy.planBoardAcceptance}<span class="plans-section-count">{currentCriteria.length}</span></h3>
             <ul class="plans-criteria">
               {#each currentCriteria as criterion (criterion.id)}
                 <li class="plans-criterion" data-result={criterion.result}>
@@ -310,7 +326,7 @@
           </section>
         {/if}
 
-
+        {/if}
       </div>
 
       {#if actionError}<p class="plans-action-error" role="alert">{actionError}</p>{/if}

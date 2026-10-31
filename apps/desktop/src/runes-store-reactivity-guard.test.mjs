@@ -1,4 +1,4 @@
-// Machine guard for Recurring Pitfall #2 (CLAUDE.md), the *imported runes
+// Machine guard for Recurring Pitfall #2 (docs/pitfalls.md), the *imported runes
 // store* variant — a sibling of `reactive-statement-guard.test.mjs`, which
 // covers the no-arg-helper variant.
 //

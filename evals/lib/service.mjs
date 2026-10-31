@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 /**
  * A disposable Molibot service for one eval run.
  *
- * Three rules, all learned the hard way (prd.md §3.41, CLAUDE.md pitfall 30):
+ * Three rules, all learned the hard way (prd.md §3.41, docs/pitfalls.md pitfall 30):
  *
  *  1. The service is started through `scripts/start-server.mjs`, never
  *     `node build/index.js`. The launcher is what acquires the lease, installs
@@ -63,7 +63,7 @@ async function waitForDeepHealth(endpoint, { timeoutMs, isAlive }) {
     try {
       // The deep probe builds the runtime. `/health` and the handshake are
       // static literals and answer 200 from a process whose getRuntime()
-      // throws on every request (CLAUDE.md pitfall 21a).
+      // throws on every request (docs/pitfalls.md pitfall 21a).
       const response = await fetch(`${endpoint}/api/desktop/health?deep=1`);
       const body = await response.json().catch(() => null);
       if (response.ok && body?.ok !== false) return body;

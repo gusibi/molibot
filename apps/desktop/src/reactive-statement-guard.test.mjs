@@ -1,4 +1,4 @@
-// Machine guard for Recurring Pitfall #2 (CLAUDE.md): in legacy Svelte a
+// Machine guard for Recurring Pitfall #2 (docs/pitfalls.md): in legacy Svelte a
 // reactive statement like `$: x = helper();` only depends on the (hoisted,
 // never-changing) function identifier, so state read inside the helper is not
 // tracked — the derivation runs once and goes stale. Shipped bugs: blank first

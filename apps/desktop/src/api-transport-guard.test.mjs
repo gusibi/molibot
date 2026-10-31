@@ -1,4 +1,4 @@
-// Machine guard for Recurring Pitfall (CLAUDE.md): the desktop webview origin
+// Machine guard for Recurring Pitfall #74 (docs/pitfalls.md): the desktop webview origin
 // is Tauri's custom protocol while the sidecar API is http://127.0.0.1:<port>,
 // so a raw `fetch` from UI code is a cross-origin request and the sidecar sends
 // no CORS headers — preflighted calls fail with a confusing generic error and

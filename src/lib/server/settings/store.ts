@@ -2033,7 +2033,7 @@ export class SettingsStore {
       skillDrafts: settings.skillDrafts,
       disabledSkillPaths: settings.disabledSkillPaths,
       // Enumerated serializers are how a new field silently resets on restart
-      // (CLAUDE.md pitfall 11); the round-trip test asserts this line exists.
+      // (docs/pitfalls.md pitfall 11); the round-trip test asserts this line exists.
       permissionMode: settings.permissionMode,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds,

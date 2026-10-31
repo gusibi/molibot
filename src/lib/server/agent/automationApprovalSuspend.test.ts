@@ -10,7 +10,7 @@ import { EventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js"
  *
  * Product decision 2026-08-10 chose the suspend + async-resume path over
  * "automation is fixed Auto and fails". That is the friendlier semantic, but it
- * only holds if the lease is settled at the moment of suspension. CLAUDE.md
+ * only holds if the lease is settled at the moment of suspension. docs/pitfalls.md
  * pitfall 23 is exactly this failure: a lease left in `running` is read as an
  * owner that is still alive, so `hasActiveForTask` suppresses every later run
  * of that task as `task_already_running` — the task goes quiet forever and the

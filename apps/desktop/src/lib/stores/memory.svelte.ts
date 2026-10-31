@@ -21,7 +21,9 @@ export const memoryStore = $state({
   allScopes: true,
   busyAction: "",
   actionMessage: "",
-  rejectionQuery: ""
+  rejectionQuery: "",
+  rejectionsLoading: false,
+  rejectionsError: false
 });
 
 let memoryLoadGeneration = 0;
@@ -37,25 +39,24 @@ export async function loadMemory(endpoint: string): Promise<void> {
     memoryStore.profile = null;
     memoryStore.candidates = [];
     memoryStore.rejections = [];
+    memoryStore.rejectionsError = false;
   }
   session.error = "";
   const summaryPromise = loadDesktopMemory(endpoint);
   const recordPromise = runDesktopMemoryAction(endpoint, { action: "list", allScopes: true, limit: 200 });
   const candidatePromise = runDesktopMemoryAction(endpoint, { action: "list-candidates", limit: 200 });
-  const rejectionPromise = loadDesktopMemoryRejections(endpoint);
   const profilePromise = runDesktopMemoryAction(endpoint, { action: "profile", includeOwner: true, includeAgentSelf: true });
-  const secondaryPromise = Promise.allSettled([recordPromise, candidatePromise, rejectionPromise]);
+  const secondaryPromise = Promise.allSettled([recordPromise, candidatePromise]);
   try {
     const summary = await summaryPromise;
     if (generation !== memoryLoadGeneration) return;
     memoryStore.memory = summary;
     memoryStore.loading = false;
 
-    const [records, candidates, rejections] = await secondaryPromise;
+    const [records, candidates] = await secondaryPromise;
     if (generation !== memoryLoadGeneration) return;
     if (records.status === "fulfilled") memoryStore.items = records.value.items ?? [];
     if (candidates.status === "fulfilled") memoryStore.candidates = candidates.value.candidates ?? [];
-    if (rejections.status === "fulfilled") memoryStore.rejections = rejections.value.items;
 
     // The LLM-synthesized profile is the slowest dataset. Let records and
     // candidates paint the overview first, then settle the profile on its own
@@ -74,6 +75,21 @@ export async function loadMemory(endpoint: string): Promise<void> {
     setError(cause);
   } finally {
     if (generation === memoryLoadGeneration) memoryStore.loading = false;
+  }
+}
+
+export async function refreshMemoryRejections(): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || memoryStore.rejectionsLoading) return;
+  memoryStore.rejectionsLoading = true;
+  memoryStore.rejectionsError = false;
+  try {
+    const result = await loadDesktopMemoryRejections(endpoint);
+    if (session.endpoint === endpoint) memoryStore.rejections = result.items;
+  } catch {
+    if (session.endpoint === endpoint) memoryStore.rejectionsError = true;
+  } finally {
+    memoryStore.rejectionsLoading = false;
   }
 }
 

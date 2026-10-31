@@ -9,7 +9,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 /**
  * The five-level chain is shared by the sandbox flag and the permission mode.
  * These assert the precedence itself, so a change in one consumer cannot
- * quietly re-order it for the other (CLAUDE.md pitfall 7).
+ * quietly re-order it for the other (docs/pitfalls.md pitfall 7).
  */
 
 function settingsFixture(): RuntimeSettings {

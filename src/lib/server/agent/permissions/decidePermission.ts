@@ -67,7 +67,7 @@ export interface DecidePermissionInput {
  *    correctness checks are orthogonal and keep working.
  * 3. **An unavailable sandbox never downgrades a restricted mode to `allow`.**
  *    The call site reports `host` containment when the sandbox could not
- *    start, and restricted modes gate host execution (CLAUDE.md pitfall 15 —
+ *    start, and restricted modes gate host execution (docs/pitfalls.md pitfall 15 —
  *    enabled sandbox must fail closed). Auto does not consult the sandbox at
  *    all, so the failure mode cannot arise there.
  */
@@ -98,7 +98,7 @@ export function decidePermission(input: DecidePermissionInput): PermissionDecisi
     case "manage":
       // Downloads and executes third-party code. Restricted modes ask: "install
       // this plugin" can arrive in content the agent read rather than from the
-      // owner (CLAUDE.md pitfall 21d).
+      // owner (docs/pitfalls.md pitfall 21d).
       return "ask";
 
     case "write":

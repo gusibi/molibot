@@ -37,6 +37,7 @@ export function externalChannelLabel(channel: DesktopExternalChannel, currentLoc
 export const channelsStore = $state({
   channels: null as DesktopChannelsSummary | null,
   loading: false,
+  error: "",
   endpoint: "",
   channelEdit: null as ChannelEditor | null,
   saving: false,
@@ -49,19 +50,26 @@ export const channelsStore = $state({
   qrError: ""
 });
 
+let listGeneration = 0;
+
 let qrModulePromise: Promise<QrModule> | null = null;
 
 export async function loadChannels(endpoint: string): Promise<void> {
+  const generation = ++listGeneration;
+  channelsStore.error = "";
   channelsStore.endpoint = endpoint;
   channelsStore.loading = true;
   session.error = "";
   try {
-    channelsStore.channels = await loadDesktopChannels(endpoint);
+    const channels = await loadDesktopChannels(endpoint);
+    if (generation !== listGeneration) return;
+    channelsStore.channels = channels;
   } catch (cause) {
+    if (generation !== listGeneration) return;
+    channelsStore.error = cause instanceof Error ? cause.message : String(cause);
     channelsStore.endpoint = "";
-    setError(cause);
   } finally {
-    channelsStore.loading = false;
+    if (generation === listGeneration) channelsStore.loading = false;
   }
 }
 

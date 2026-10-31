@@ -22,7 +22,7 @@ Image recognition and PDF OCR never accept an arbitrary model id from the Agent.
 ## Start here
 
 1. Create an Agent and select its provider route.
-2. Review Skills from Settings or add project-local Skills when working in a project.
+2. Review Skills in the Skills workspace or add project-local Skills when working in a project.
 3. Add an MCP server only when an Agent needs that external capability.
 
 ## Boundaries
@@ -32,6 +32,8 @@ Tool availability is governed by the active Agent, runtime configuration, and ex
 Connections may be shared by the runtime, but tool visibility remains Session-scoped. Loading an MCP server in one Session neither exposes it to another Session nor unloads the other Session's selected servers.
 
 ## Related documentation
+
+- [Skill maintenance](skill-maintenance.md)
 
 - [Plugin authoring](../guides/plugins/plugin-authoring.md)
 - [Deferred tool authoring](../guides/tools/deferred-tool-authoring.md)

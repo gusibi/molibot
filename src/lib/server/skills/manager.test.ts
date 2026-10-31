@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -261,7 +262,9 @@ test("one physical directory read by several platforms is one entry with shared 
   const overview = h.manager.getOverview();
   assert.equal(overview.discovered.length, 1);
   const item = overview.discovered[0];
-  assert.equal(item.entryCount, 2);
+  // Two platforms read the same path; the entry count describes real
+  // entry points, so one physical directory is one entry.
+  assert.equal(item.entryCount, 1);
   assert.equal(item.sharedWith.includes("OpenCode"), true);
 
   installCopy(h.manager, item.id);
@@ -573,8 +576,40 @@ test("two discovered Skills with the same name but different content are listed 
   const overview = h.manager.getOverview();
   const variants = overview.discovered.filter((item) => item.name === "pdf");
   assert.equal(variants.length, 2);
-  assert.equal(variants.every((item) => item.conflict === true), true);
+  assert.equal(variants.every((item) => item.duplicate === true), true);
+  assert.equal(variants.every((item) => item.conflict === false), true);
   assert.deepEqual(variants.map((item) => item.platformLabel).sort(), ["Claude Code", "Codex"]);
+});
+
+test("discovered entries report link state, the shared tree and per-entry locations", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  const sharedDir = join(h.homeDir, ".agents", "skills");
+  const content = join(sharedDir, "linked-one");
+  writeSkill(content, "linked-one", "shared body");
+  mkdirSync(join(h.homeDir, ".claude", "skills"), { recursive: true });
+  symlinkSync(content, join(h.homeDir, ".claude", "skills", "linked-one"));
+  writeSkill(join(h.homeDir, ".claude", "skills", "solid"), "solid", "real copy");
+
+  const overview = h.manager.getOverview();
+
+  // One physical copy in the shared tree plus one link entry: not all links,
+  // and flagged as living in the shared tree.
+  const linked = overview.discovered.find((item) => item.name === "linked-one");
+  assert.ok(linked);
+  assert.equal(linked.inSharedDir, true);
+  assert.equal(linked.linked, false);
+  assert.equal(linked.entryCount, 2);
+  const linkedDetail = h.manager.getDetail(linked.id);
+  const locations = new Map(linkedDetail.locations.map((location) => [location.path, location]));
+  assert.equal(locations.get(content)?.isLink, false);
+  assert.equal(locations.get(join(h.homeDir, ".claude", "skills", "linked-one"))?.isLink, true);
+
+  // A single real folder is a copy, not a link.
+  const solid = overview.discovered.find((item) => item.name === "solid");
+  assert.ok(solid);
+  assert.equal(solid.inSharedDir, false);
+  assert.equal(solid.linked, false);
 });
 
 test("a platform cannot be configured to scan the whole disk or the home directory itself", (t) => {
@@ -648,55 +683,57 @@ test("renaming a Copy rewrites the directory and frontmatter name; a Link cannot
   assert.equal(h.manager.getOverview().installed.find((item) => item.name === "pdf-copy")?.managed, true);
 });
 
-test("consolidating a discovered Skill keeps one copy and leaves a link where it lived", (t) => {
+test("consolidating a discovered Skill moves the canonical copy into the shared tree and leaves a link", (t) => {
   const h = createHarness();
   t.after(() => rmSync(h.root, { recursive: true, force: true }));
   const source = join(h.homeDir, ".claude", "skills", "shared-one");
   writeSkill(source, "shared-one", "canonical body");
+  const sharedDir = join(h.homeDir, ".agents", "skills");
 
   const request = {
     sourceKind: "discovered" as const,
     id: discoveredId(h.manager, "shared-one"),
-    destination: { kind: "molibot-global" as const },
     sourceAction: "link" as const,
     replaceDestination: false
   };
   const preflight = h.manager.preflightConsolidate(request);
   assert.equal(preflight.installable, true, JSON.stringify(preflight.conflicts));
-  assert.equal(preflight.destination.path, join(h.globalSkillsDir, "shared-one"));
+  assert.equal(preflight.destination.path, join(sharedDir, "shared-one"));
   assert.equal(preflight.backLink?.path, source);
 
   const result = h.manager.consolidate({ ...request, token: preflight.token });
   assert.equal(result.ok, true, result.message);
 
-  // One canonical copy, and the original platform entry is now a link to it.
+  // One canonical copy in the shared tree; the original platform entry is now a link to it.
   assert.equal(lstatSync(source).isSymbolicLink(), true);
-  assert.equal(readlinkSync(source), realpathSync(join(h.globalSkillsDir, "shared-one")));
-  assert.equal(readFileSync(join(h.globalSkillsDir, "shared-one", "SKILL.md"), "utf8").includes("canonical body"), true);
+  assert.equal(readlinkSync(source), realpathSync(join(sharedDir, "shared-one")));
+  assert.equal(readFileSync(join(sharedDir, "shared-one", "SKILL.md"), "utf8").includes("canonical body"), true);
 
+  // The shared tree is not a Molibot root, so nothing is recorded as installed.
   const overview = h.manager.getOverview();
-  const installed = overview.installed.find((item) => item.name === "shared-one");
-  assert.equal(installed?.scope, "global");
-  // The link keeps the external tool's visibility on the canonical content.
-  assert.equal(installed?.readBy.includes("Claude Code"), true);
-  assert.equal(installed?.activeDistributions, 1);
+  assert.equal(overview.installed.some((item) => item.name === "shared-one"), false);
+  const discovered = overview.discovered.find((item) => item.name === "shared-one");
+  assert.ok(discovered);
+  assert.equal(discovered.inSharedDir, true);
 
-  // Removing the canonical copy must not orphan the platform link.
-  const blocked = h.manager.uninstall({ id: installed?.id ?? "" });
-  assert.equal(blocked.status, "blocked");
-  assert.equal(existsSync(join(h.globalSkillsDir, "shared-one", "SKILL.md")), true);
+  // The detail lists every entry that resolves to the shared content.
+  const detail = h.manager.getDetail(discovered.id);
+  const paths = detail.locations.map((location) => location.path);
+  assert.equal(paths.includes(source), true);
+  assert.equal(paths.includes(join(sharedDir, "shared-one")), true);
+  assert.equal(detail.locations.find((location) => location.path === source)?.isLink, true);
 });
 
-test("consolidating with the entry removed moves the Skill and keeps a backup", (t) => {
+test("consolidating with the entry removed moves the Skill into the shared tree and keeps a backup", (t) => {
   const h = createHarness();
   t.after(() => rmSync(h.root, { recursive: true, force: true }));
   const source = join(h.homeDir, ".codex", "skills", "moved");
   writeSkill(source, "moved", "moved body");
+  const sharedDir = join(h.homeDir, ".agents", "skills");
 
   const request = {
     sourceKind: "discovered" as const,
     id: discoveredId(h.manager, "moved"),
-    destination: { kind: "molibot-global" as const },
     sourceAction: "remove" as const,
     replaceDestination: false
   };
@@ -706,28 +743,28 @@ test("consolidating with the entry removed moves the Skill and keeps a backup", 
   assert.ok(result.ok, result.message);
 
   assert.equal(existsSync(source), false);
-  assert.equal(existsSync(join(h.globalSkillsDir, "moved", "SKILL.md")), true);
+  assert.equal(existsSync(join(sharedDir, "moved", "SKILL.md")), true);
   const backup = readdirSync(dirname(source)).find((name) => name.startsWith("moved.backup-"));
   assert.ok(backup);
   assert.equal(readFileSync(join(dirname(source), backup, "SKILL.md"), "utf8").includes("moved body"), true);
 
-  // The original still shows up as a recoverable external copy? No: it is gone,
-  // so discovery no longer offers it, while the canonical copy is installed.
+  // The canonical copy stays external: discovered under the shared tree, not installed.
   const overview = h.manager.getOverview();
-  assert.equal(overview.installed.some((item) => item.name === "moved"), true);
-  assert.equal(overview.discovered.some((item) => item.name === "moved"), false);
+  assert.equal(overview.installed.some((item) => item.name === "moved"), false);
+  const discovered = overview.discovered.find((item) => item.name === "moved");
+  assert.ok(discovered);
+  assert.equal(discovered.inSharedDir, true);
 });
 
 test("consolidation asks before replacing the destination and keeps a backup", (t) => {
   const h = createHarness();
   t.after(() => rmSync(h.root, { recursive: true, force: true }));
-  writeSkill(join(h.globalSkillsDir, "target"), "target", "existing content");
+  writeSkill(join(h.homeDir, ".agents", "skills", "target"), "target", "existing content");
   writeSkill(join(h.homeDir, ".claude", "skills", "target"), "target", "incoming");
 
   const request = {
     sourceKind: "discovered" as const,
     id: discoveredId(h.manager, "target"),
-    destination: { kind: "molibot-global" as const },
     sourceAction: "link" as const,
     replaceDestination: false
   };
@@ -739,7 +776,7 @@ test("consolidation asks before replacing the destination and keeps a backup", (
   assert.equal(confirmed.installable, true);
   const result = h.manager.consolidate({ ...request, replaceDestination: true, token: confirmed.token });
   assert.ok(result.ok, result.message);
-  assert.equal(readFileSync(join(h.globalSkillsDir, "target", "SKILL.md"), "utf8").includes("incoming"), true);
+  assert.equal(readFileSync(join(h.homeDir, ".agents", "skills", "target", "SKILL.md"), "utf8").includes("incoming"), true);
   assert.ok(result.backupPath);
   assert.equal(readFileSync(join(result.backupPath, "SKILL.md"), "utf8").includes("existing content"), true);
 });
@@ -764,4 +801,223 @@ test("a Skill already living in Molibot's own root is managed, not 'not installe
   const removed = h.manager.uninstall({ id: entry.id });
   assert.equal(removed.status, "removed");
   assert.equal(existsSync(join(h.globalSkillsDir, "legacy")), false);
+});
+
+test("removing a discovered Skill unlinks links and backs up real folders", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  const source = join(h.homeDir, ".claude", "skills", "gone");
+  writeSkill(source, "gone", "real content");
+  mkdirSync(join(h.homeDir, ".codex", "skills"), { recursive: true });
+  symlinkSync(source, join(h.homeDir, ".codex", "skills", "gone"));
+
+  const result = h.manager.removeDiscovered({ id: discoveredId(h.manager, "gone") });
+  assert.ok(result.ok, result.message);
+  assert.equal(existsSync(source), false);
+  assert.equal(existsSync(join(h.homeDir, ".codex", "skills", "gone")), false);
+  assert.equal(result.removed.filter((entry) => entry.kind === "link").length, 1);
+  assert.equal(result.removed.filter((entry) => entry.kind === "copy").length, 1);
+  assert.equal(result.backups.length, 1);
+  assert.equal(readFileSync(join(result.backups[0], "SKILL.md"), "utf8").includes("real content"), true);
+  assert.equal(h.manager.getOverview().discovered.some((item) => item.name === "gone"), false);
+});
+
+test("removing one discovered entry leaves the rest of the group readable", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  const source = join(h.homeDir, ".claude", "skills", "partial");
+  writeSkill(source, "partial", "real content");
+  mkdirSync(join(h.homeDir, ".codex", "skills"), { recursive: true });
+  symlinkSync(source, join(h.homeDir, ".codex", "skills", "partial"));
+  const id = discoveredId(h.manager, "partial");
+
+  const detail = h.manager.getDetail(id);
+  const linkPath = detail.locations.find((location) => location.isLink)?.path;
+  assert.ok(linkPath);
+  const result = h.manager.removeDiscovered({ id, entryDir: linkPath });
+  assert.ok(result.ok, result.message);
+  assert.equal(existsSync(linkPath), false);
+  assert.equal(existsSync(source), true);
+
+  const item = h.manager.getOverview().discovered.find((candidate) => candidate.name === "partial");
+  assert.ok(item);
+  assert.equal(item.entryCount, 1);
+});
+
+test("removing a real folder reports the sibling links left pointing at it", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  const source = join(h.homeDir, ".claude", "skills", "hub");
+  writeSkill(source, "hub", "content");
+  mkdirSync(join(h.homeDir, ".codex", "skills"), { recursive: true });
+  symlinkSync(source, join(h.homeDir, ".codex", "skills", "hub"));
+  const id = discoveredId(h.manager, "hub");
+
+  const detail = h.manager.getDetail(id);
+  const realPath = detail.locations.find((location) => !location.isLink)?.path;
+  assert.ok(realPath);
+  const result = h.manager.removeDiscovered({ id, entryDir: realPath });
+  assert.ok(result.ok, result.message);
+  assert.equal(result.brokenLinks.length, 1);
+  assert.equal(lstatSync(join(h.homeDir, ".codex", "skills", "hub")).isSymbolicLink(), true);
+});
+
+test("a Git-installed Skill can check its source for updates", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  const repo = join(h.root, "repo");
+  mkdirSync(repo, { recursive: true });
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  git("init", "-q");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Test");
+  writeSkill(join(repo, "skills", "pdf"), "pdf", "v1");
+  git("add", ".");
+  git("commit", "-q", "-m", "v1");
+
+  const request = {
+    source: { kind: "git" as const, repository: repo, subdirectory: "skills/pdf" },
+    method: "copy" as const,
+    scope: "global" as const
+  };
+  const preflight = h.manager.preflight(request);
+  const installed = h.manager.install({ ...request, token: preflight.token, replace: false });
+  assert.ok(installed.ok, installed.message);
+
+  // The source is unchanged: no update.
+  const before = h.manager.checkUpdate({ id: installed.id });
+  assert.equal(before.ok, true, before.message);
+  assert.equal(before.hasUpdate, false);
+  assert.equal(before.currentCommit, preflight.source.commit);
+
+  // Unrelated upstream commits are not an update for this Skill.
+  writeFileSync(join(repo, "README.md"), "docs", "utf8");
+  git("add", ".");
+  git("commit", "-q", "-m", "docs only");
+  const docsOnly = h.manager.checkUpdate({ id: installed.id });
+  assert.equal(docsOnly.hasUpdate, false, docsOnly.message);
+  assert.notEqual(docsOnly.latestCommit, before.currentCommit);
+
+  // A new commit touching the Skill subdirectory is an update.
+  writeSkill(join(repo, "skills", "pdf"), "pdf", "v2");
+  git("add", ".");
+  git("commit", "-q", "-m", "v2");
+  const after = h.manager.checkUpdate({ id: installed.id });
+  assert.equal(after.hasUpdate, true, after.message);
+  assert.notEqual(after.latestCommit, docsOnly.latestCommit);
+});
+
+test("a locally installed Skill cannot check for updates", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  writeSkill(join(h.homeDir, ".claude", "skills", "local-only"), "local-only");
+  installCopy(h.manager, discoveredId(h.manager, "local-only"));
+
+  const entry = h.manager.getOverview().installed.find((item) => item.name === "local-only");
+  assert.ok(entry);
+  assert.throws(
+    () => h.manager.checkUpdate({ id: entry.id }),
+    /Only Skills installed from a Git repository/
+  );
+});
+
+for (const destinationKind of ["copy", "link"] as const) {
+  test(`consolidation deduplicates an existing ${destinationKind} into shared content`, (t) => {
+    const h = createHarness();
+    t.after(() => rmSync(h.root, { recursive: true, force: true }));
+    const source = join(h.homeDir, ".claude", "skills", "dedup");
+    const target = join(h.homeDir, ".agents", "skills", "dedup");
+    writeSkill(source, "dedup", "same content");
+    if (destinationKind === "copy") writeSkill(target, "dedup", "same content");
+    else {
+      mkdirSync(dirname(target), { recursive: true });
+      symlinkSync(source, target);
+    }
+    const id = `discovered:${createHash("sha256").update(realpathSync(source)).digest("hex").slice(0, 16)}`;
+    const request = { sourceKind: "discovered" as const, id, sourceAction: "link" as const, replaceDestination: false };
+    const preview = h.manager.preflightConsolidate(request);
+    assert.equal(preview.installable, true, JSON.stringify(preview.conflicts));
+    const result = h.manager.consolidate({ ...request, token: preview.token });
+    assert.equal(result.ok, true, result.message);
+    assert.equal(lstatSync(target).isDirectory(), true);
+    assert.equal(lstatSync(source).isSymbolicLink(), true);
+    assert.equal(realpathSync(source), realpathSync(target));
+    assert.match(readFileSync(join(source, "SKILL.md"), "utf8"), /same content/);
+    assert.equal(h.manager.getOverview().discovered.find((item) => item.name === "dedup")?.inSharedDir, true);
+  });
+}
+
+test("consolidation rejects a destination changed since preview", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  const source = join(h.homeDir, ".claude", "skills", "changed-target");
+  const target = join(h.homeDir, ".agents", "skills", "changed-target");
+  writeSkill(source, "changed-target", "incoming");
+  const request = { sourceKind: "discovered" as const, id: discoveredId(h.manager, "changed-target"), sourceAction: "link" as const, replaceDestination: true };
+  const preview = h.manager.preflightConsolidate(request);
+  writeSkill(target, "changed-target", "new local edit");
+  const result = h.manager.consolidate({ ...request, token: preview.token });
+  assert.equal(result.status, "stale");
+  assert.equal(lstatSync(source).isDirectory(), true);
+  assert.match(readFileSync(join(target, "SKILL.md"), "utf8"), /new local edit/);
+});
+
+test("consolidation compares support files before treating skills as duplicates", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  const source = join(h.homeDir, ".claude", "skills", "support-files");
+  const target = join(h.homeDir, ".agents", "skills", "support-files");
+  writeSkill(source, "support-files");
+  writeSkill(target, "support-files");
+  writeFileSync(join(source, "helper.js"), "source");
+  writeFileSync(join(target, "helper.js"), "target");
+  const id = `discovered:${createHash("sha256").update(realpathSync(source)).digest("hex").slice(0, 16)}`;
+  const request = { sourceKind: "discovered" as const, id, sourceAction: "link" as const, replaceDestination: false };
+  const preview = h.manager.preflightConsolidate(request);
+  assert.equal(preview.installable, false);
+  assert.equal(preview.conflicts[0]?.code, "replace_required");
+  assert.equal(h.manager.consolidate({ ...request, token: preview.token }).ok, false);
+  assert.equal(readFileSync(join(target, "helper.js"), "utf8"), "target");
+  assert.equal(lstatSync(source).isDirectory(), true);
+});
+
+for (const action of ["link", "keep", "remove"] as const) {
+  test(`consolidation recognizes a linked platform root when choosing ${action}`, (t) => {
+    const h = createHarness();
+    t.after(() => rmSync(h.root, { recursive: true, force: true }));
+    const shared = join(h.homeDir, ".agents", "skills");
+    const claude = join(h.homeDir, ".claude", "skills");
+    writeSkill(join(shared, "root-alias"), "root-alias", "one physical copy");
+    mkdirSync(dirname(claude), { recursive: true });
+    symlinkSync(shared, claude);
+    const before = readdirSync(shared);
+    const request = { sourceKind: "discovered" as const, id: discoveredId(h.manager, "root-alias"), sourceAction: action, replaceDestination: false };
+    const preview = h.manager.preflightConsolidate(request);
+    assert.equal(preview.installable, action !== "remove", JSON.stringify(preview.conflicts));
+    const result = h.manager.consolidate({ ...request, token: preview.token });
+    assert.equal(result.ok, action !== "remove", result.message);
+    if (action !== "remove") assert.equal(result.status, "already_shared");
+    assert.deepEqual(readdirSync(shared), before);
+    assert.equal(realpathSync(join(claude, "root-alias")), realpathSync(join(shared, "root-alias")));
+    assert.equal(lstatSync(claude).isSymbolicLink(), true);
+    assert.match(readFileSync(join(shared, "root-alias", "SKILL.md"), "utf8"), /one physical copy/);
+  });
+}
+
+test("consolidation materializes a shared entry link without creating a self link", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  const outside = join(h.homeDir, "unregistered", "materialize");
+  writeSkill(outside, "materialize", "source stays readable");
+  const target = join(h.homeDir, ".agents", "skills", "materialize");
+  mkdirSync(dirname(target), { recursive: true });
+  symlinkSync(outside, target);
+  const request = { sourceKind: "discovered" as const, id: discoveredId(h.manager, "materialize"), sourceAction: "link" as const, replaceDestination: false };
+  const preview = h.manager.preflightConsolidate(request);
+  assert.equal(preview.installable, true, JSON.stringify(preview.conflicts));
+  const result = h.manager.consolidate({ ...request, token: preview.token });
+  assert.equal(result.ok, true, result.message);
+  assert.equal(lstatSync(target).isDirectory(), true);
+  assert.match(readFileSync(join(target, "SKILL.md"), "utf8"), /source stays readable/);
+  assert.equal(lstatSync(outside).isDirectory(), true);
 });

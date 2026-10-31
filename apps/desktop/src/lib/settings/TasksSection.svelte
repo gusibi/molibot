@@ -26,6 +26,7 @@
   import type { DesktopTaskSummary } from "@molibot/desktop-contract";
   import { timezoneOptions } from "./timezones";
   import TaskScheduleBuilder from "./TaskScheduleBuilder.svelte";
+  import { cronSortMinutes, listCronOccurrences, nextCronOccurrence } from "./taskSchedule";
   import { externalChannelLabel } from "../stores/channels.svelte";
   import ConversationTranscript from "../chat/ConversationTranscript.svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -36,7 +37,7 @@
   import SkeletonRows from "../components/ui/SkeletonRows.svelte";
   import Dialog from "../components/ui/Dialog.svelte";
   import AlertDialog from "../components/ui/AlertDialog.svelte";
-  import { formatNaturalDateTime, formatNaturalSchedule } from "../presentation";
+  import { formatDuration, formatNaturalDateTime, formatNaturalSchedule } from "../presentation";
   import { listFlip, listIn, listOut } from "../motion/listMotion";
   import { DirectManipulation, type ManipulationSnapshot } from "../native/directManipulation";
   import { ActivityScheduler, documentActivityVisibility, interactiveActivityPolicy } from "../native/activityScheduler";
@@ -69,6 +70,9 @@
 
   let selectedTaskId = $state("");
   let activeTaskView = $state<"user" | "project" | "one-shot" | "system">("user");
+  let selectedAgendaDayKey = $state("all");
+  let agendaIncludePaused = $state(false);
+  let nowTick = $state(Date.now());
   let detailDragOffset = $state(0);
   let detailGesturePhase = $state<ManipulationSnapshot["phase"]>("idle");
   let detailGestureFrame = 0;
@@ -152,9 +156,11 @@
   });
 
   onMount(() => {
+    nowTick = Date.now();
     taskScheduler = new ActivityScheduler(
       interactiveActivityPolicy,
       async () => {
+        nowTick = Date.now();
         if (session.serviceReady && session.endpoint) await refreshTasks();
       },
       documentActivityVisibility
@@ -179,6 +185,8 @@
     tasksStore.tasks?.items.filter((item) => matchesTaskView(item) && (!tasksStore.query.trim() || [taskTitle(item), item.text, item.channel, item.botId, item.chatId, item.projectName, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase()))) ?? []
   );
 
+  const referenceNow = $derived(new Date(nowTick));
+
   const oneShotTaskItems = $derived([...filteredTaskItems].sort((a, b) => {
     if (a.reminderUnread !== b.reminderUnread) return a.reminderUnread ? -1 : 1;
     if (a.status === "completed" && b.status !== "completed") return 1;
@@ -186,8 +194,21 @@
     return (a.status === "completed" ? b.completedAt.localeCompare(a.completedAt) : a.scheduleText.localeCompare(b.scheduleText));
   }));
 
+  const periodicTaskItems = $derived([...filteredTaskItems].sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    if (a.enabled) {
+      const nextA = nextCronOccurrence(a.scheduleText, referenceNow, 366)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const nextB = nextCronOccurrence(b.scheduleText, referenceNow, 366)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      if (nextA !== nextB) return nextA - nextB;
+    }
+    const sortA = cronSortMinutes(a.scheduleText);
+    const sortB = cronSortMinutes(b.scheduleText);
+    if (sortA !== sortB) return sortA - sortB;
+    return taskTitle(a).localeCompare(taskTitle(b), session.locale);
+  }));
+
   const displayTaskItems = $derived(
-    activeTaskView === "one-shot" ? oneShotTaskItems : filteredTaskItems
+    activeTaskView === "one-shot" ? oneShotTaskItems : periodicTaskItems
   );
 
   const taskCategoryCounts = $derived({
@@ -311,6 +332,7 @@
   function selectTaskCategory(category: "user" | "project" | "one-shot" | "system"): void {
     activeTaskView = category;
     selectedTaskId = "";
+    selectedAgendaDayKey = "all";
     tasksStore.selected = new Set();
   }
 
@@ -373,6 +395,239 @@
   function runningExecution(task: DesktopTaskSummary["items"][number]) {
     return task.executions.find((execution) => execution.status === "running" || execution.status === "retry_wait");
   }
+
+  function taskTargetLabel(task: DesktopTaskSummary["items"][number]): string {
+    if (task.category === "project" && task.projectName) return task.projectName;
+    if (task.category === "system" || task.channel === "system") return session.text.tasksTargetSystem;
+    if (task.channel === "web") return "Web";
+    if (task.channel === "telegram" || task.channel === "feishu" || task.channel === "qq" || task.channel === "weixin") {
+      return externalChannelLabel(task.channel, session.locale);
+    }
+    if (task.channel) return task.channel;
+    if (task.type === "one-shot") return session.text.tasksOneShotTab;
+    return "";
+  }
+
+  function dateDayKey(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  function isSameLocalDay(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+
+  function formatClockTime(date: Date): string {
+    return new Intl.DateTimeFormat(session.locale, {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(date);
+  }
+
+  function dayPeriodLabel(date: Date): string {
+    const hour = date.getHours();
+    if (hour < 6) return session.text.tasksPeriodEarly;
+    if (hour < 12) return session.text.tasksPeriodMorning;
+    if (hour < 18) return session.text.tasksPeriodAfternoon;
+    return session.text.tasksPeriodEvening;
+  }
+
+  function formatRelativeUntil(target: Date, fromDate: Date = referenceNow): string {
+    const diffMs = target.getTime() - fromDate.getTime();
+    if (diffMs <= 60_000) return session.text.tasksRelativeSoon;
+    const diffMinutes = Math.round(diffMs / 60_000);
+    if (diffMinutes < 60) {
+      return session.text.tasksRelativeInMinutes.replace("{count}", String(Math.max(1, diffMinutes)));
+    }
+    const diffHours = Math.round(diffMinutes / 60);
+    if (diffHours < 36) {
+      return session.text.tasksRelativeInHours.replace("{count}", String(diffHours));
+    }
+    const diffDays = Math.max(1, Math.round(diffHours / 24));
+    return session.text.tasksRelativeInDays.replace("{count}", String(diffDays));
+  }
+
+  function formatNextOccurrenceStamp(target: Date, fromDate: Date = referenceNow): string {
+    const timeText = formatClockTime(target);
+    if (isSameLocalDay(target, fromDate)) {
+      return `${session.text.tasksAgendaToday} ${timeText}`;
+    }
+    const tomorrow = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate() + 1);
+    if (isSameLocalDay(target, tomorrow)) {
+      return `${session.text.tasksAgendaTomorrow} ${timeText}`;
+    }
+    const monthDay = new Intl.DateTimeFormat(session.locale, { month: "numeric", day: "numeric" }).format(target);
+    return `${monthDay} ${timeText}`;
+  }
+
+  function taskNextOccurrence(task: DesktopTaskSummary["items"][number], includePaused = false): Date | null {
+    if (task.type === "periodic") {
+      if (!task.enabled && !includePaused) return null;
+      return nextCronOccurrence(task.scheduleText, referenceNow, 366);
+    }
+    if (task.type === "one-shot") {
+      if (task.status === "completed" || task.status === "error" || task.status === "skipped") return null;
+      const ms = Date.parse(task.scheduleText);
+      if (!Number.isFinite(ms) || ms < referenceNow.getTime() - 60_000) return null;
+      return new Date(ms);
+    }
+    return null;
+  }
+
+  function taskNextRunText(task: DesktopTaskSummary["items"][number]): string {
+    if (task.type === "one-shot") {
+      if (task.status === "completed") return session.text.tasksReminderReminded;
+      const next = taskNextOccurrence(task);
+      return next ? `${formatNextOccurrenceStamp(next)} · ${formatRelativeUntil(next)}` : taskScheduleText(task);
+    }
+    if (!task.enabled) return session.text.tasksPaused;
+    const next = taskNextOccurrence(task);
+    if (!next) return session.text.tasksSchedulePending;
+    return `${formatNextOccurrenceStamp(next)} · ${formatRelativeUntil(next)}`;
+  }
+
+  function executionDurationText(execution: DesktopTaskSummary["items"][number]["executions"][number]): string {
+    if (!execution.startedAt || !execution.finishedAt) return "";
+    const startMs = Date.parse(execution.startedAt);
+    const endMs = Date.parse(execution.finishedAt);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return "";
+    return formatDuration(endMs - startMs);
+  }
+
+  const enabledTaskCount = $derived(
+    displayTaskItems.filter((task) => task.type === "one-shot"
+      ? task.status !== "completed" && task.status !== "error" && task.status !== "skipped"
+      : task.enabled
+    ).length
+  );
+  const pausedTaskCount = $derived(
+    displayTaskItems.filter((task) => task.type === "periodic" && !task.enabled).length
+  );
+  const effectiveIncludePaused = $derived(
+    agendaIncludePaused || (enabledTaskCount === 0 && pausedTaskCount > 0)
+  );
+
+  const nextUpcomingRun = $derived.by(() => {
+    let best: { task: DesktopTaskSummary["items"][number]; at: Date } | null = null;
+    for (const task of displayTaskItems) {
+      const next = taskNextOccurrence(task, false);
+      if (!next) continue;
+      if (!best || next.getTime() < best.at.getTime()) {
+        best = { task, at: next };
+      }
+    }
+    return best;
+  });
+
+  interface AgendaSlotItem {
+    key: string;
+    task: DesktopTaskSummary["items"][number];
+    at: Date;
+    timeText: string;
+    periodText: string;
+    relativeText: string;
+    isNextUp: boolean;
+  }
+
+  interface AgendaDayGroup {
+    key: string;
+    date: Date;
+    isToday: boolean;
+    isTomorrow: boolean;
+    shortLabel: string;
+    dayNumber: string;
+    fullLabel: string;
+    items: AgendaSlotItem[];
+  }
+
+  const agendaDays = $derived.by((): AgendaDayGroup[] => {
+    const startOfToday = new Date(referenceNow.getFullYear(), referenceNow.getMonth(), referenceNow.getDate(), 0, 0, 0, 0);
+    const endOfWindow = new Date(referenceNow.getFullYear(), referenceNow.getMonth(), referenceNow.getDate() + 6, 23, 59, 59, 999);
+    const weekdayShortFmt = new Intl.DateTimeFormat(session.locale, { weekday: "short" });
+    const monthDayFmt = new Intl.DateTimeFormat(session.locale, { month: "short", day: "numeric", weekday: "short" });
+
+    const days: AgendaDayGroup[] = [];
+    const dayMap = new Map<string, AgendaDayGroup>();
+
+    for (let offset = 0; offset < 7; offset += 1) {
+      const d = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), startOfToday.getDate() + offset);
+      const key = dateDayKey(d);
+      const isToday = offset === 0;
+      const isTomorrow = offset === 1;
+      const shortLabel = isToday
+        ? session.text.tasksAgendaToday
+        : isTomorrow
+          ? session.text.tasksAgendaTomorrow
+          : weekdayShortFmt.format(d);
+      const prefix = isToday
+        ? `${session.text.tasksAgendaToday} · `
+        : isTomorrow
+          ? `${session.text.tasksAgendaTomorrow} · `
+          : "";
+      const group: AgendaDayGroup = {
+        key,
+        date: d,
+        isToday,
+        isTomorrow,
+        shortLabel,
+        dayNumber: String(d.getDate()).padStart(2, "0"),
+        fullLabel: `${prefix}${monthDayFmt.format(d)}`,
+        items: []
+      };
+      days.push(group);
+      dayMap.set(key, group);
+    }
+
+    const nextUpKey = nextUpcomingRun ? `${nextUpcomingRun.task.id}@${nextUpcomingRun.at.getTime()}` : "";
+
+    for (const task of displayTaskItems) {
+      if (task.type === "periodic") {
+        if (!task.enabled && !effectiveIncludePaused) continue;
+        const occurrences = listCronOccurrences(task.scheduleText, referenceNow, endOfWindow, 28);
+        for (const at of occurrences) {
+          const group = dayMap.get(dateDayKey(at));
+          if (!group) continue;
+          const slotKey = `${task.id}@${at.getTime()}`;
+          group.items.push({
+            key: slotKey,
+            task,
+            at,
+            timeText: formatClockTime(at),
+            periodText: dayPeriodLabel(at),
+            relativeText: formatRelativeUntil(at, referenceNow),
+            isNextUp: slotKey === nextUpKey
+          });
+        }
+      } else if (task.type === "one-shot") {
+        const next = taskNextOccurrence(task, false);
+        if (!next || next.getTime() > endOfWindow.getTime()) continue;
+        const group = dayMap.get(dateDayKey(next));
+        if (!group) continue;
+        const slotKey = `${task.id}@${next.getTime()}`;
+        group.items.push({
+          key: slotKey,
+          task,
+          at: next,
+          timeText: formatClockTime(next),
+          periodText: dayPeriodLabel(next),
+          relativeText: formatRelativeUntil(next, referenceNow),
+          isNextUp: slotKey === nextUpKey
+        });
+      }
+    }
+
+    for (const day of days) {
+      day.items.sort((a, b) => a.at.getTime() - b.at.getTime() || taskTitle(a.task).localeCompare(taskTitle(b.task), session.locale));
+    }
+    return days;
+  });
+
+  const totalAgendaSlots = $derived(agendaDays.reduce((sum, day) => sum + day.items.length, 0));
+  const visibleAgendaDays = $derived(
+    selectedAgendaDayKey === "all"
+      ? agendaDays.filter((day) => day.items.length > 0)
+      : agendaDays.filter((day) => day.key === selectedAgendaDayKey)
+  );
 </script>
 
 {#snippet taskActions()}
@@ -397,7 +652,7 @@
 {:else if !tasksStore.tasks}
   <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
 {:else}
-  {#if presentation !== "workspace"}<div class="automation-category-bar">{@render taskActions()}</div>{/if}
+  {#if presentation !== "workspace" && presentation !== "project"}<div class="automation-category-bar">{@render taskActions()}</div>{/if}
   <div class="automation-workspace" id="tasks-main-panel">
     {#if presentation === "workspace"}<p class="workspace-description" title={session.text.autoTasksHint}>{session.text.autoTasksHint}</p>{/if}
     <div class="workspace-filterbar">
@@ -411,13 +666,18 @@
       {#if projectId}<span class="workspace-filter-count">{session.text.tasksTotal} <strong>{displayTaskItems.length}</strong></span>{/if}
       <span class="workspace-filter-summary" title={activeTaskView === "one-shot"
         ? `${session.text.tasksReminderPending} ${oneShotCounts.pending} · ${session.text.tasksReminderReminded} ${oneShotCounts.reminded} · ${session.text.tasksReminderUnread} ${oneShotCounts.unread}`
-        : `${session.text.tasksRunCount} ${projectId ? projectRunTotal : executionTotals.total} · ${session.text.tasksSuccessful} ${executionTotals.completed} · ${session.text.tasksFailed} ${executionTotals.failed}`}>
+        : projectId
+          ? `${session.text.tasksRunCount} ${projectRunTotal}`
+          : `${session.text.tasksRunCount} ${executionTotals.total} · ${session.text.tasksSuccessful} ${executionTotals.completed} · ${session.text.tasksFailed} ${executionTotals.failed}`}>
         {#if activeTaskView === "one-shot"}
           {session.text.tasksReminderPending} {oneShotCounts.pending} · {session.text.tasksReminderReminded} {oneShotCounts.reminded} · {session.text.tasksReminderUnread} {oneShotCounts.unread}
+        {:else if projectId}
+          {session.text.tasksRunCount} {projectRunTotal}
         {:else}
-          {session.text.tasksRunCount} {projectId ? projectRunTotal : executionTotals.total} · {session.text.tasksSuccessful} {executionTotals.completed} · {session.text.tasksFailed} {executionTotals.failed}
+          {session.text.tasksRunCount} {executionTotals.total} · {session.text.tasksSuccessful} {executionTotals.completed} · {session.text.tasksFailed} {executionTotals.failed}
         {/if}
       </span>
+      {#if presentation === "project"}{@render taskActions()}{/if}
     </div>
       <div class:detail-open={Boolean(selectedTask)} class="automation-workspace-layout">
         <div class="automation-workspace-list">
@@ -458,21 +718,19 @@
 
               <div class="automation-task-card-footer">
                 {#if task.enabled && task.lastRun && ["failed", "aborted", "interrupted"].includes(task.lastRun.status)}<span class="workspace-row-error"><TriangleWarning size={12} aria-hidden="true" />{taskLatestResultText(task)}</span>{/if}
-                {#if !projectId}
-                  {#if task.category === "project" && task.projectName}
-                    <span class="task-target-pill">{task.projectName}</span>
-                  {:else if task.channel}
-                    <span class="task-target-pill">{task.channel}</span>
-                  {:else if task.type === "one-shot"}
-                    <span class="task-target-pill">{session.text.tasksOneShotTab}</span>
-                  {:else if task.category === "system"}
-                    <span class="task-target-pill">{session.text.tasksSystemTab}</span>
-                  {/if}
+                {#if !projectId && taskTargetLabel(task)}
+                  <span class="task-target-pill">{taskTargetLabel(task)}</span>
                 {/if}
                 <span class="task-schedule-line">
                   <Clock size={12} aria-hidden="true" />
                   <span>{taskScheduleText(task)}</span>
                 </span>
+                {#if task.type === "periodic" && task.enabled}
+                  {@const nextRun = taskNextOccurrence(task)}
+                  {#if nextRun}
+                    <span class="task-next-run-hint" title={`${session.text.tasksNextRun}: ${formatNextOccurrenceStamp(nextRun)}`}>{formatRelativeUntil(nextRun)}</span>
+                  {/if}
+                {/if}
                 {#if task.type === "one-shot" && task.executions[0]}
                   <button class="task-session-link" type="button" title={session.text.tasksOpenSession} aria-label={session.text.tasksOpenSession} disabled={!task.executions[0].sessionId || Boolean(tasksStore.busy)} onclick={(event) => { event.stopPropagation(); void openTaskSession(task.id, task.executions[0].id); }}><ChatDots size={13} aria-hidden="true" /></button>
                 {/if}
@@ -519,6 +777,7 @@
               <div><dt>{session.text.tasksScheduleState}</dt><dd>{selectedTask.type === "one-shot" ? oneShotStatusText(selectedTask) : taskScheduleStatusText(selectedTask)}</dd></div>
               <div><dt>{session.text.tasksLatestResult}</dt><dd><span class={`execution-state state-${selectedTask.lastRun?.status ?? "none"}`}><i></i>{selectedTask.type === "one-shot" ? oneShotStatusText(selectedTask) : taskLatestResultText(selectedTask)}</span></dd></div>
               <div><dt>{session.text.tasksSchedule}</dt><dd><CalendarDays size={13} aria-hidden="true" />{taskScheduleText(selectedTask)}</dd></div>
+              <div><dt>{session.text.tasksNextRun}</dt><dd>{taskNextRunText(selectedTask)}</dd></div>
               <div><dt>{session.text.tasksLastRun}</dt><dd>{formatTaskTime(selectedTask.lastRun?.startedAt || selectedTask.lastTriggeredAt || selectedTask.completedAt || "")}</dd></div>
             </dl>
             <section class="automation-task-detail-copy" aria-label={session.text.tasksText}><span>{session.text.tasksText}</span><p>{selectedTask.text}</p></section>
@@ -539,9 +798,10 @@
                 <p>{session.text.tasksNoExecutions}</p>
               {:else}
                 {#each selectedTask.executions as execution (execution.id)}
+                  {@const durationLabel = executionDurationText(execution)}
                   <div class="automation-task-run-row">
                     <span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span>
-                    <span>{formatTaskTime(execution.startedAt)}</span>
+                    <span>{formatTaskTime(execution.startedAt)}{#if durationLabel} · {durationLabel}{/if}</span>
                     <button class="task-session-link" type="button" title={execution.sessionId} disabled={Boolean(tasksStore.busy) || !execution.sessionId} onclick={() => void openTaskSession(selectedTask.id, execution.id)}>{execution.sessionId ? (selectedTask.category === "system" ? session.text.tasksOpenExecution : session.text.tasksOpenSession) : session.text.tasksSessionCleaned}</button>
                   </div>
                 {/each}
@@ -551,7 +811,140 @@
           </article>
         {/key}
       {:else}
-        <div class="workspace-detail-placeholder"><WorkspaceEmpty title={session.text.tasksSelect} description={session.text.autoTasksHint} /></div>
+        <div class="workspace-detail-placeholder" class:has-agenda={displayTaskItems.length > 0 && totalAgendaSlots > 0}>
+          {#if displayTaskItems.length > 0 && totalAgendaSlots > 0}
+            <section class="automation-agenda" aria-label={session.text.tasksAgendaTitle}>
+              <header class="automation-agenda-head">
+                <div class="automation-agenda-title">
+                  <h3>{session.text.tasksAgendaTitle}</h3>
+                  <p>{session.text.tasksAgendaSubtitle}</p>
+                </div>
+                {#if pausedTaskCount > 0 && enabledTaskCount > 0}
+                  <button
+                    type="button"
+                    class:active={agendaIncludePaused}
+                    class="agenda-filter-chip"
+                    aria-pressed={agendaIncludePaused}
+                    onclick={() => (agendaIncludePaused = !agendaIncludePaused)}
+                  >
+                    <span>{session.text.tasksAgendaIncludePaused}</span>
+                    <strong>{pausedTaskCount}</strong>
+                  </button>
+                {/if}
+              </header>
+
+              {#if nextUpcomingRun}
+                <button
+                  type="button"
+                  class="automation-next-up-card"
+                  onclick={() => (selectedTaskId = nextUpcomingRun.task.id)}
+                >
+                  <span class="next-up-badge"><i class="next-up-dot" aria-hidden="true"></i>{session.text.tasksNextUp}</span>
+                  <div class="next-up-main">
+                    <strong>{taskTitle(nextUpcomingRun.task)}</strong>
+                    {#if !projectId && taskTargetLabel(nextUpcomingRun.task)}
+                      <span class="next-up-target">{taskTargetLabel(nextUpcomingRun.task)}</span>
+                    {/if}
+                  </div>
+                  <div class="next-up-timing">
+                    <span class="next-up-stamp">{formatNextOccurrenceStamp(nextUpcomingRun.at)}</span>
+                    <span class="next-up-countdown">{formatRelativeUntil(nextUpcomingRun.at)}</span>
+                  </div>
+                </button>
+              {:else if enabledTaskCount === 0 && pausedTaskCount > 0}
+                <div class="automation-agenda-paused-banner" role="status">
+                  <Pause size={13} aria-hidden="true" />
+                  <span>{session.text.tasksAgendaAllPausedBanner}</span>
+                </div>
+              {/if}
+
+              <div class="automation-week-strip" role="group" aria-label={session.text.tasksAgendaTitle}>
+                <button
+                  type="button"
+                  class:active={selectedAgendaDayKey === "all"}
+                  class="week-strip-all"
+                  aria-pressed={selectedAgendaDayKey === "all"}
+                  onclick={() => (selectedAgendaDayKey = "all")}
+                >
+                  <span>{session.text.tasksAgendaAllDays}</span>
+                  <strong>{totalAgendaSlots}</strong>
+                </button>
+                {#each agendaDays as day (day.key)}
+                  <button
+                    type="button"
+                    class:active={selectedAgendaDayKey === day.key}
+                    class:today={day.isToday}
+                    class:empty={day.items.length === 0}
+                    class="week-strip-day"
+                    aria-pressed={selectedAgendaDayKey === day.key}
+                    onclick={() => (selectedAgendaDayKey = selectedAgendaDayKey === day.key ? "all" : day.key)}
+                  >
+                    <span class="week-day-name">{day.shortLabel}</span>
+                    <strong class="week-day-num">{day.dayNumber}</strong>
+                    <span class="week-day-dots" aria-hidden="true">
+                      {#if day.items.length === 0}
+                        <i class="empty-dot"></i>
+                      {:else}
+                        {#each day.items.slice(0, 4) as slot (slot.key)}
+                          <i class:paused={!slot.task.enabled} class:next={slot.isNextUp}></i>
+                        {/each}
+                      {/if}
+                    </span>
+                  </button>
+                {/each}
+              </div>
+
+              <div class="automation-agenda-timeline">
+                {#each visibleAgendaDays as day (day.key)}
+                  <div class="automation-agenda-day">
+                    <header class="agenda-day-header">
+                      <h4>{day.fullLabel}</h4>
+                      <span>{day.items.length}</span>
+                    </header>
+                    {#if day.items.length === 0}
+                      <p class="agenda-day-empty">{session.text.tasksAgendaNoRunsDay}</p>
+                    {:else}
+                      <div class="agenda-day-slots">
+                        {#each day.items as slot (slot.key)}
+                          <button
+                            type="button"
+                            class:is-next={slot.isNextUp}
+                            class:is-paused={!slot.task.enabled}
+                            class="agenda-slot-row"
+                            onclick={() => (selectedTaskId = slot.task.id)}
+                          >
+                            <div class="agenda-slot-time">
+                              <strong>{slot.timeText}</strong>
+                              <span>{slot.periodText}</span>
+                            </div>
+                            <span class="agenda-slot-axis" aria-hidden="true"><i></i></span>
+                            <div class="agenda-slot-body">
+                              <strong class="agenda-slot-title">{taskTitle(slot.task)}</strong>
+                              <span class="agenda-slot-sub">
+                                {#if !projectId && taskTargetLabel(slot.task)}{taskTargetLabel(slot.task)} · {/if}{taskScheduleText(slot.task)}
+                              </span>
+                            </div>
+                            <div class="agenda-slot-trailing">
+                              {#if !slot.task.enabled}
+                                <span class="agenda-slot-tag paused">{session.text.tasksPaused}</span>
+                              {:else if slot.isNextUp}
+                                <span class="agenda-slot-tag next">{slot.relativeText}</span>
+                              {:else}
+                                <span class="agenda-slot-tag">{slot.relativeText}</span>
+                              {/if}
+                            </div>
+                          </button>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {:else}
+            <WorkspaceEmpty title={session.text.tasksSelect} description={session.text.tasksDetailEmptyHint} />
+          {/if}
+        </div>
       {/if}
       </div>
   </div>

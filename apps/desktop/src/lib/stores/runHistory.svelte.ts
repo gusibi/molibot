@@ -1,11 +1,14 @@
 // Run history dashboard — state + orchestration.
 import { loadDesktopRunHistory } from "../api";
 import type { DesktopRunHistoryItem } from "@molibot/desktop-contract";
-import { session, setError } from "./session.svelte";
+import { session } from "./session.svelte";
 
 export const runHistoryStore = $state({
   runHistory: [] as DesktopRunHistoryItem[],
   query: "",
+  outcome: "all" as "all" | "success" | "partial" | "failed",
+  loaded: false,
+  error: "",
   botId: "all",
   page: 1,
   pageSize: 20,
@@ -21,33 +24,44 @@ export function runHistoryOutcomeLabel(outcome: "success" | "partial" | "failed"
   return copy.runHistoryOutcome_failed;
 }
 
-export async function loadRunHistory(endpoint: string, options?: { refresh?: boolean }): Promise<void> {
+let inFlight: { endpoint: string; promise: Promise<void> } | null = null;
+
+export function loadRunHistory(endpoint: string): Promise<void> {
+  if (inFlight?.endpoint === endpoint) return inFlight.promise;
   const generation = ++runHistoryStore.generation;
-  const isInitial = runHistoryStore.runHistory.length === 0;
-  if (isInitial && !options?.refresh) {
-    runHistoryStore.loading = true;
-  } else {
-    runHistoryStore.refreshing = true;
+  if (runHistoryStore.endpoint !== endpoint) {
+    runHistoryStore.runHistory = [];
+    runHistoryStore.loaded = false;
+    runHistoryStore.page = 1;
+    runHistoryStore.botId = "all";
   }
-  session.error = "";
-  try {
-    const items = await loadDesktopRunHistory(endpoint);
-    if (generation !== runHistoryStore.generation) return;
-    runHistoryStore.runHistory = items;
-    runHistoryStore.endpoint = endpoint;
-  } catch (cause) {
-    if (generation !== runHistoryStore.generation) return;
-    setError(cause);
-  } finally {
-    if (generation === runHistoryStore.generation) {
-      runHistoryStore.loading = false;
-      runHistoryStore.refreshing = false;
+  runHistoryStore.endpoint = endpoint;
+  runHistoryStore.loading = !runHistoryStore.loaded;
+  runHistoryStore.refreshing = runHistoryStore.loaded;
+  runHistoryStore.error = "";
+  const promise = (async () => {
+    try {
+      const items = await loadDesktopRunHistory(endpoint);
+      if (generation !== runHistoryStore.generation) return;
+      runHistoryStore.runHistory = items;
+      runHistoryStore.loaded = true;
+    } catch (cause) {
+      if (generation !== runHistoryStore.generation) return;
+      runHistoryStore.error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (generation === runHistoryStore.generation) {
+        runHistoryStore.loading = false;
+        runHistoryStore.refreshing = false;
+        inFlight = null;
+      }
     }
-  }
+  })();
+  inFlight = { endpoint, promise };
+  return promise;
 }
 
 export function refreshRunHistory(): void {
   if (session.endpoint) {
-    void loadRunHistory(session.endpoint, { refresh: true });
+    void loadRunHistory(session.endpoint);
   }
 }

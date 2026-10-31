@@ -9,7 +9,7 @@ Reduce the active document corpus without erasing history that can still guide w
 
 ## Read the contracts
 
-Read [docs/README.md](../../../docs/README.md) (the directory map and filing rules), the document-layering rules in [AGENTS.md](../../../AGENTS.md) (which root document owns which purpose, the 256KB archive cap, and the capability-matrix rule), and the target document itself before classifying. Use current code, configuration, newer documents, and inbound links to establish whether a document's rationale still owns or constrains anything.
+Read [docs/README.md](../../../docs/README.md) (the directory map and filing rules), the document-layering rules in [AGENTS.md](../../../AGENTS.md) (which root document owns which purpose, the capability-matrix rule; detailed archive rules live in `docs/guides/development-workflow.md`), and the target document itself before classifying. Use current code, configuration, newer documents, and inbound links to establish whether a document's rationale still owns or constrains anything.
 
 ## Check supersession when adding a document
 
@@ -33,7 +33,7 @@ Do not archive toward a quota. Inspect every document in scope, classify analogo
 
 Archive files live in `docs/archive/` (`docs/archive/prd-archive-YYYY-QN.md`, `features-archive-YYYY-QN.md`, `changelog-YYYY-QN.md`). For a standalone plan/requirement document, move it under `docs/archive/` with a YYYY-QN prefix or, when it fits an existing archive collection, append its content to the matching archive file:
 
-1. Move the complete document; if the root record files (`prd.md`, `features.md`, `CHANGELOG.md`) exceed ~256KB, move their old entries into the quarterly archive files first, keeping only the recent 1-2 months of active entries plus index links, per [AGENTS.md](../../../AGENTS.md).
+1. Move the complete document; if the root record files (`prd.md`, `features.md`, `CHANGELOG.md`) exceed ~256KB, move their old entries into the quarterly archive files first, keeping only the recent 1-2 months of active entries plus index links, per [the development guide](../../../docs/guides/development-workflow.md).
 2. Do not rewrite the archived body; it is a historical snapshot. Add only an `Archived: YYYY-MM-DD` line at the top when the archive file is a collection with dated entries.
 3. Search for inbound links from active prose. Redirect them to current authority, retarget them to the archived path only when the historical snapshot is intentionally cited, or delete them.
 4. Update the capability matrix in the same change when a document's status affects a capability's state (已交付 / 部分交付 / 待验证 / 未开始).

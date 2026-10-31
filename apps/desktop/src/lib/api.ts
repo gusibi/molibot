@@ -1148,7 +1148,8 @@ export async function loadDesktopRunHistory(endpoint: string, limit = 200): Prom
   const query = new URLSearchParams({ limit: String(limit) });
   const payload = await requestJson<DesktopRunHistoryResponse>(
     endpoint,
-    `/api/desktop/run-history?${query.toString()}`
+    `/api/desktop/run-history?${query.toString()}`,
+    { signal: AbortSignal.timeout(20_000) }
   );
   return payload.items;
 }

@@ -357,9 +357,20 @@
     }
   }
 
+  /** An enabled engine with no usable candidate is not "on" yet. */
+  const engineState = $derived(!edit?.enabled ? "off" : autoCanBeSelected ? "on" : "setup");
+  const engineLabel = $derived(
+    !edit?.enabled
+      ? session.text.decisionModelsStateOff
+      : autoCanBeSelected
+        ? session.text.decisionModelsStateOn
+        : session.text.decisionModelsStateSetup
+  );
+
   const policySummary = $derived.by(() => {
     if (!edit) return "";
     if (!edit.enabled || edit.defaultStrategy === "fixed") return session.text.decisionModelsPreviewFixed;
+    if (!autoCanBeSelected) return session.text.decisionModelsPreviewPending.replace("{fallback}", levelLabel(edit.fallbackThinkingLevel));
     return session.text.decisionModelsPreviewAuto
       .replace("{model}", selectedModel ? displayName(selectedModel) : session.text.decisionModelsNoSelection)
       .replace("{ceiling}", levelLabel(edit.maxThinkingLevel))
@@ -379,10 +390,10 @@
       <div class="decision-overview-main">
         <span class="decision-kicker">{session.text.decisionModelsKicker}</span>
         <div class="decision-overview-title">
-          <strong>{edit.enabled ? session.text.decisionModelsOnTitle : session.text.decisionModelsOffTitle}</strong>
-          <span class="decision-state" data-state={edit.enabled ? "on" : "off"}><i aria-hidden="true"></i>{edit.enabled ? session.text.decisionModelsStateOn : session.text.decisionModelsStateOff}</span>
+          <strong>{!edit.enabled ? session.text.decisionModelsOffTitle : autoCanBeSelected ? session.text.decisionModelsOnTitle : session.text.decisionModelsSetupTitle}</strong>
+          <span class="decision-state" data-state={engineState}><i aria-hidden="true"></i>{engineLabel}</span>
         </div>
-        <p class="decision-overview-sub">{!edit.enabled ? session.text.decisionModelsOffHint : edit.defaultStrategy === "auto" ? session.text.decisionModelsOnHint : session.text.decisionModelsOnFixedHint}</p>
+        <p class="decision-overview-sub">{!edit.enabled ? session.text.decisionModelsOffHint : !autoCanBeSelected ? session.text.decisionModelsSetupHint : edit.defaultStrategy === "auto" ? session.text.decisionModelsOnHint : session.text.decisionModelsOnFixedHint}</p>
         <div class="decision-facts">
           <span><b>{session.text.decisionModelsModelFact}</b><em>{selectedModel ? displayName(selectedModel) : session.text.decisionModelsNoSelection}</em></span>
           <span><b>{session.text.adaptiveThinkingDefaultStrategy}</b><em>{edit.defaultStrategy === "auto" ? session.text.decisionModelsStrategyAutoShort : session.text.decisionModelsStrategyFixedShort}</em></span>
@@ -415,7 +426,7 @@
                   <span class="decision-model-name">
                     <strong>{displayName(model)}</strong>
                     {#if isActive}<span class="decision-pill is-active">{session.text.decisionModelsSelectedForAuto}</span>{/if}
-                    {#if model.enabled === false}<span class="decision-pill">{session.text.decisionModelsDisabled}</span>{/if}
+                    {#if model.enabled === false}<span class="decision-pill">{session.text.decisionModelsDisabled}</span>{:else if !ready}<span class="decision-pill is-warn" title={session.text.decisionModelsUseUnavailable}>{session.text.decisionModelsNeedsSetup}</span>{/if}
                   </span>
                   <small>{modelSummary(model, modelOptions)}</small>
                 </span>
@@ -724,6 +735,8 @@
   .decision-state[data-state="on"] { border-color: color-mix(in srgb, var(--online, #279141) 32%, var(--control-border)); color: var(--online, #279141); }
   .decision-state[data-state="on"] i { background: var(--online, #279141); box-shadow: 0 0 0 3px color-mix(in srgb, var(--online, #279141) 12%, transparent); }
   .decision-state[data-state="off"] i { background: var(--label-tertiary); }
+  .decision-state[data-state="setup"] { border-color: color-mix(in srgb, var(--warning) 34%, var(--control-border)); color: var(--warning-text, var(--warning)); }
+  .decision-state[data-state="setup"] i { background: var(--warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 12%, transparent); }
 
   .decision-facts { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 22px; margin: 14px -20px 0; padding: 11px 20px 12px; border-top: 1px solid var(--hairline); }
   .decision-facts span { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; }
@@ -750,6 +763,7 @@
   .decision-model-identity small { overflow: hidden; color: var(--label-secondary); font-family: var(--font-mono); font-size: var(--fs-meta); line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
   .decision-pill { padding: 1px 7px; border: 1px solid var(--control-border); border-radius: var(--rounded-full); color: var(--label-secondary); font-size: 10px; font-weight: 600; letter-spacing: .02em; line-height: 15px; text-transform: uppercase; }
   .decision-pill.is-active { border-color: color-mix(in srgb, var(--accent) 34%, var(--control-border)); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--accent); }
+  .decision-pill.is-warn { border-color: color-mix(in srgb, var(--warning) 34%, var(--control-border)); color: var(--warning-text, var(--warning)); }
   .decision-model-caret { display: inline-flex; flex: none; color: var(--label-tertiary); transition: transform var(--duration-fast) var(--ease-standard); }
   .decision-model-trigger[aria-expanded="true"] .decision-model-caret { transform: rotate(180deg); }
   .decision-model-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--rounded-sm); }

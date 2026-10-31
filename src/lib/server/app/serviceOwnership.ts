@@ -18,7 +18,7 @@ import {
  *
  * So ownership is asserted by the runtime itself: adopt the launcher's lease
  * when there is one, otherwise take it, and refuse live channels when another
- * live process holds it. Same class as CLAUDE.md pitfall 23 — liveness is
+ * live process holds it. Same class as docs/pitfalls.md pitfall 23 — liveness is
  * ownership, and no other signal stands in for it.
  */
 export type ServiceOwnership =

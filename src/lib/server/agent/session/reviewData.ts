@@ -1,10 +1,12 @@
-import { resolveAgentFileReference } from "$lib/server/sessions/agentFileReferences.js";
+import { createAgentFileReferenceResolver } from "$lib/server/sessions/agentFileReferences.js";
 import { isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
 import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
+import { setImmediate as yieldToRequests } from "node:timers/promises";
 import { join, resolve } from "node:path";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import type { RunSummary } from "$lib/server/agent/session/runSummary.js";
-import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 
 export interface AgentWorkspaceRef {
   botId: string;
@@ -206,74 +208,98 @@ export function parseSkillDraftItem(input: {
   };
 }
 
-export function readRunHistory(dataRoot: string, limit = 200): { items: RunHistoryItem[]; diagnostics: string[] } {
+export async function readRunHistory(dataRoot: string, limit = 200): Promise<{ items: RunHistoryItem[]; diagnostics: string[] }> {
   const diagnostics: string[] = [];
-  const items: RunHistoryItem[] = [];
+  const maxItems = Math.max(1, Math.min(500, Math.floor(limit) || 200));
+  const candidates: Array<{ parsed: RunSummary & { createdAt?: string }; workspace: AgentWorkspaceRef; filePath: string }> = [];
+  const seenFiles = new Set<string>();
+  let scannedLines = 0;
+  const compare = (a: (typeof candidates)[number], b: (typeof candidates)[number]) => {
+    const timeA = Date.parse(a.parsed.createdAt ?? "") || 0;
+    const timeB = Date.parse(b.parsed.createdAt ?? "") || 0;
+    return timeB - timeA || b.parsed.runId.localeCompare(a.parsed.runId);
+  };
 
   for (const workspace of listAgentWorkspaces(dataRoot)) {
     const histories = [join(workspace.workspaceDir, workspace.chatId, "run-summaries.jsonl")];
     const historyRoot = join(workspace.workspaceDir, "run-history");
-    if (isAgentWorkspace(workspace.workspaceDir) && existsSync(historyRoot)) for (const name of readdirSync(historyRoot)) histories.push(join(historyRoot, name, "run-summaries.jsonl"));
-    for (const filePath of histories) {
-    if (!existsSync(filePath)) continue;
-
-    let content = "";
-    try {
-      content = readFileSync(filePath, "utf8");
-    } catch (error) {
-      diagnostics.push(`Failed to read ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
-
-    const lines = content.split(/\r?\n/).filter(Boolean);
-    for (let index = 0; index < lines.length; index += 1) {
-      const parsed = parseRunSummaryLine(lines[index] ?? "", new Date(0).toISOString());
-      if (!parsed) {
-        diagnostics.push(`Skipped invalid summary line ${index + 1} in ${filePath}`);
-        continue;
+    if (isAgentWorkspace(workspace.workspaceDir) && existsSync(historyRoot)) {
+      for (const entry of readdirSync(historyRoot, { withFileTypes: true })) {
+        if (entry.isDirectory()) histories.push(join(historyRoot, entry.name, "run-summaries.jsonl"));
       }
-      const createdAt = String((parsed as RunSummary & { createdAt?: string }).createdAt ?? new Date(0).toISOString());
-      items.push({
-        runId: parsed.runId,
-        workspaceId: parsed.workspaceId,
-        createdAt,
-        botId: workspace.botId,
-        chatId: workspace.chatId,
-        workspaceDir: workspace.workspaceDir,
-        filePath,
-        stopReason: parsed.stopReason,
-        durationMs: parsed.durationMs,
-        finalText: parsed.finalText,
-        toolNames: unique(parsed.toolNames),
-        failedToolNames: unique(parsed.failedToolNames),
-        explicitSkillNames: unique(parsed.explicitSkillNames),
-        usedFallbackModel: parsed.usedFallbackModel,
-        modelFailureSummaries: unique(parsed.modelFailureSummaries),
-        reflectionOutcome: parsed.reflection?.outcome ?? (
-          parsed.stopReason === "error"
-            ? "failed"
-            : parsed.stopReason === "waiting_for_approval"
-              ? "partial"
-              : "success"
-        ),
-        reflectionSummary: parsed.reflection?.summary ?? "",
-        nextAction: parsed.reflection?.nextAction ?? "",
-        memorySelectedCount: Number(parsed.memorySnapshot?.selectedCount ?? 0),
-        skillDraftPath: parsed.skillDraft?.filePath && isAgentWorkspace(workspace.workspaceDir) ? resolveAgentFileReference(workspace.workspaceDir, parsed.skillDraft.filePath) : String(parsed.skillDraft?.filePath ?? "")
-      });
+    }
+    for (const filePath of histories) {
+      if (seenFiles.has(filePath) || !existsSync(filePath)) continue;
+      seenFiles.add(filePath);
+      const lines = createInterface({ input: createReadStream(filePath, { encoding: "utf8" }), crlfDelay: Infinity });
+      let lineNumber = 0;
+      try {
+        for await (const line of lines) {
+          lineNumber++;
+          if (++scannedLines % 128 === 0) await yieldToRequests();
+          if (!line.trim()) continue;
+          const parsed = parseRunSummaryLine(line, new Date(0).toISOString());
+          if (!parsed) {
+            diagnostics.push(`Skipped invalid summary line ${lineNumber} in ${filePath}`);
+            continue;
+          }
+          const candidate = { parsed, workspace, filePath };
+          // Keep only the newest candidates, including when imported logs arrive out of order.
+          let low = 0;
+          let high = candidates.length;
+          while (low < high) {
+            const mid = (low + high) >>> 1;
+            if (compare(candidate, candidates[mid]!) < 0) high = mid;
+            else low = mid + 1;
+          }
+          if (low < maxItems) {
+            candidates.splice(low, 0, candidate);
+            if (candidates.length > maxItems) candidates.pop();
+          }
+        }
+      } catch (error) {
+        diagnostics.push(`Failed to read ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        lines.close();
+      }
     }
   }
 
-  }
-  items.sort((a, b) => {
-    const timeOrder = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    return timeOrder !== 0 ? timeOrder : b.runId.localeCompare(a.runId);
+  const resolvers = new Map<string, (reference: string) => string>();
+  const items = candidates.map(({ parsed, workspace, filePath }): RunHistoryItem => {
+    let skillDraftPath = String(parsed.skillDraft?.filePath ?? "");
+    if (skillDraftPath && isAgentWorkspace(workspace.workspaceDir)) {
+      let resolveReference = resolvers.get(workspace.workspaceDir);
+      if (!resolveReference) {
+        resolveReference = createAgentFileReferenceResolver(workspace.workspaceDir);
+        resolvers.set(workspace.workspaceDir, resolveReference);
+      }
+      skillDraftPath = resolveReference(skillDraftPath);
+    }
+    return {
+      runId: parsed.runId,
+      workspaceId: parsed.workspaceId,
+      createdAt: parsed.createdAt ?? new Date(0).toISOString(),
+      botId: workspace.botId,
+      chatId: workspace.chatId,
+      workspaceDir: workspace.workspaceDir,
+      filePath,
+      stopReason: parsed.stopReason,
+      durationMs: parsed.durationMs,
+      finalText: parsed.finalText,
+      toolNames: unique(parsed.toolNames),
+      failedToolNames: unique(parsed.failedToolNames),
+      explicitSkillNames: unique(parsed.explicitSkillNames),
+      usedFallbackModel: parsed.usedFallbackModel,
+      modelFailureSummaries: unique(parsed.modelFailureSummaries),
+      reflectionOutcome: parsed.reflection?.outcome ?? (parsed.stopReason === "error" ? "failed" : parsed.stopReason === "waiting_for_approval" ? "partial" : "success"),
+      reflectionSummary: parsed.reflection?.summary ?? "",
+      nextAction: parsed.reflection?.nextAction ?? "",
+      memorySelectedCount: Number(parsed.memorySnapshot?.selectedCount ?? 0),
+      skillDraftPath
+    };
   });
-
-  return {
-    items: items.slice(0, Math.max(1, limit)),
-    diagnostics
-  };
+  return { items, diagnostics };
 }
 
 export function readSkillDrafts(dataRoot: string): { items: SkillDraftItem[]; diagnostics: string[] } {

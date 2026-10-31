@@ -39,7 +39,7 @@ export interface FilesystemPolicy {
  *   `createPathGuard`; this predicate only ever denies. Letting a policy string
  *   widen where the file tools may write would make `allowWrite` a second,
  *   weaker path guard — exactly the "one path string, two meanings" failure in
- *   CLAUDE.md pitfall 6.
+ *   docs/pitfalls.md pitfall 6.
  *
  * Absence of a policy means no policy, never "deny everything": every existing
  * construction site passes nothing and must keep behaving as it did.

@@ -9,8 +9,8 @@ description: Use when reviewing a pull request or change in the molipibot repo �
 
 ## Sources of truth
 
-- [AGENTS.md](../../../AGENTS.md): standing repository rules — document layering, capability-matrix governance, verification conventions (tests + `svelte-check` + build), cold-start smoke walkthroughs, and the recurring-pitfalls process rules.
-- [CLAUDE.md](../../../CLAUDE.md): Recurring Pitfalls and prior-fix history for the touched panels; a fix that repeats a documented root cause is a process failure.
+- [AGENTS.md](../../../AGENTS.md): standing repository rules — document layering, capability-matrix governance, verification selection in `docs/guides/development-workflow.md`, cold-start smoke walkthroughs, bug-fix process rules, and the linked pitfall index.
+- [docs/pitfalls.md](../../../docs/pitfalls.md): full Recurring Pitfalls and prior-fix history for the touched panels; a fix that repeats a documented root cause is a process failure.
 - [DESIGN.md](../../../DESIGN.md): the design system for page, UI, and interaction changes; shadcn-svelte component reuse rules.
 - [prose-standard](../prose-standard/SKILL.md): required coverage and editorial judgment for comments, docs, prompts, and visible strings.
 - [doc-standards](../doc-standards/SKILL.md) and [doc-lifecycle](../doc-lifecycle/SKILL.md): document placement and lifecycle rules for plan/requirement/design documents.
@@ -22,7 +22,7 @@ description: Use when reviewing a pull request or change in the molipibot repo �
 2. **Docs match the code.** Config, defaults, errors, wire fields, events, and public behavior update the owning documentation (README, `features.md`, `docs/features/`, guides, JSDoc) in the same diff. Comments state non-obvious contracts; flag implementation narration, test walkthroughs, review history, and duplicated rationale for deletion or a link to their one home. Settings changes must round-trip: a settings field change requires a save → new store → load regression (temp database), per [AGENTS.md](../../../AGENTS.md).
 3. **Capability status is shipped, not promised.** A change that alters a capability's status updates `personal-assistant-capability-matrix.md` (已交付 / 部分交付 / 待验证 / 未开始) in the same diff, with current evidence. `prd.md` entries and `features.md` lines are history, not status.
 4. **Bundled content bumps its version.** Changes to built-in Skills (`src/lib/server/agent/skills/bootstrap.ts` descriptor), built-in Agent templates (`src/lib/server/agent/prompts/templates/<id>/`), or built-in Mini App templates bump the version so existing workspaces get the update; an owner-edited copy is backed up as `<id>.backup-<timestamp>` before overwrite, per [AGENTS.md](../../../AGENTS.md).
-5. **Required evidence exists.** Verify the author ran the repository's verification convention (tests + `svelte-check` + build) and, for UI/desktop changes, the cold-start smoke path: restart → first open/click of affected panels → session/page switch → service interruption recovery. Review the semantic gaps automation cannot detect (first-open blank, click-no-response, config reset after restart).
+5. **Required evidence exists.** Verify the author ran checks selected for the affected behavior under `docs/guides/development-workflow.md` and, for UI/desktop changes, the cold-start smoke path: restart → first open/click of affected panels → session/page switch → service interruption recovery. Review the semantic gaps automation cannot detect (first-open blank, click-no-response, config reset after restart).
 
 ## Manual checks
 

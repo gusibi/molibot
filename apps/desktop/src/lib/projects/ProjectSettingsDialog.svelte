@@ -120,27 +120,49 @@
 </script>
 
 <Dialog open={true} busy={Boolean(projectsStore.busy)} contentClass="project-settings-modal" labelledBy="project-settings-title" describedBy="project-settings-hint" onOpenChange={(next) => { if (!next) onClose(); }}>
-  <header class="modal-head"><div><strong id="project-settings-title">{copy.projectSettings}</strong><p id="project-settings-hint">{copy.projectSettingsHint}</p></div><button class="modal-close" type="button" aria-label={copy.dialogClose} disabled={Boolean(projectsStore.busy)} onclick={onClose}><X size={16} aria-hidden="true" /></button></header>
-  <div class="project-settings-tabs" role="tablist" aria-label={copy.projectSettings} use:tablist>
-    <button id="project-settings-tab-general" class:active={activeTab === "general"} type="button" role="tab" aria-selected={activeTab === "general"} aria-controls="project-settings-panel-general" onclick={() => activeTab = "general"}>{copy.projectGeneralTab}</button>
-    <button id="project-settings-tab-automations" class:active={activeTab === "automations"} type="button" role="tab" aria-selected={activeTab === "automations"} aria-controls="project-settings-panel-automations" onclick={() => activeTab = "automations"}>{copy.projectAutomationsTab}</button>
-  </div>
+  <header class="modal-head">
+    <div class="project-settings-head-copy">
+      <strong id="project-settings-title">{copy.projectSettings}</strong>
+      <p id="project-settings-hint">{copy.projectSettingsHint}</p>
+    </div>
+    <div class="project-settings-head-actions">
+      <div class="project-settings-tabs" role="tablist" aria-label={copy.projectSettings} use:tablist>
+        <button id="project-settings-tab-general" class:active={activeTab === "general"} type="button" role="tab" aria-selected={activeTab === "general"} aria-controls="project-settings-panel-general" onclick={() => activeTab = "general"}>{copy.projectGeneralTab}</button>
+        <button id="project-settings-tab-automations" class:active={activeTab === "automations"} type="button" role="tab" aria-selected={activeTab === "automations"} aria-controls="project-settings-panel-automations" onclick={() => activeTab = "automations"}>{copy.projectAutomationsTab}</button>
+      </div>
+      <button class="modal-close" type="button" aria-label={copy.dialogClose} disabled={Boolean(projectsStore.busy)} onclick={onClose}><X size={16} aria-hidden="true" /></button>
+    </div>
+  </header>
   {#if activeTab === "general"}
     <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
     <form class="project-settings-form" id="project-settings-panel-general" role="tabpanel" aria-labelledby="project-settings-tab-general" onsubmit={(event) => { event.preventDefault(); void save(); }}>
     <div class="modal-body project-settings-body">
-      <div class="settings-form">
-        <label class="settings-field"><span>{copy.projectName}</span><input bind:value={name} autocomplete="off" required /></label>
-        <label class="settings-field"><span>{copy.projectPath}</span><input value={project.rootPath} autocomplete="off" spellcheck="false" readonly /></label>
-        <label class="settings-field settings-field-wide"><span>{copy.projectInstructions}</span><textarea rows="5" bind:value={instructions} placeholder={withEllipsis(copy.projectInstructionsHint)}></textarea></label>
-        <label class="settings-field"><span>{copy.projectDefaultModel}</span><SelectControl value={modelKey} ariaLabel={copy.projectDefaultModel} options={[{ value: "", label: copy.projectFollowGlobal }, ...modelOptions.map((model) => ({ value: model.key, label: modelOptionCopy(model).name }))]} onChange={(value) => modelKey = value} /></label>
-        <label class="settings-field"><span>{copy.projectDefaultThinking}</span><SelectControl value={thinkingLevel} ariaLabel={copy.projectDefaultThinking} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "auto", label: autoAvailable ? copy.providerThinkingAuto : copy.providerThinkingAutoUnavailable, disabled: !autoAvailable }, ...thinkingLevelOptions.map((level) => ({ value: level, label: thinkingLabel(level) }))]} onChange={(value) => thinkingLevel = value as "" | DesktopThinkingSelection} /></label>
-        <label class="settings-field"><span>{copy.projectToolProgress}</span><SelectControl value={toolProgress} ariaLabel={copy.projectToolProgress} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "new", label: copy.projectDisplayNew }, { value: "all", label: copy.projectDisplayAll }, { value: "verbose", label: copy.projectDisplayVerbose }]} onChange={(value) => toolProgress = value as typeof toolProgress} /></label>
-        <label class="settings-field"><span>{copy.projectReasoning}</span><SelectControl value={showReasoning} ariaLabel={copy.projectReasoning} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "on", label: copy.projectDisplayOn }, { value: "stream", label: copy.projectDisplayStream }, { value: "new", label: copy.projectDisplayNew }]} onChange={(value) => showReasoning = value as typeof showReasoning} /></label>
-        <label class="settings-field"><span>{copy.projectRunlogNotice}</span><SelectControl value={runLogNotice} ariaLabel={copy.projectRunlogNotice} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "on", label: copy.projectDisplayOn }, { value: "off", label: copy.projectDisplayOff }]} onChange={(value) => runLogNotice = value} /></label>
+      <div class="settings-form project-settings-grid">
+        <div class="project-identity-grid settings-field-wide">
+          <label class="settings-field"><span>{copy.projectName}</span><input bind:value={name} autocomplete="off" required /></label>
+          <label class="settings-field"><span>{copy.projectPath}</span><input class="project-path-input" value={project.rootPath} title={project.rootPath} autocomplete="off" spellcheck="false" readonly /></label>
+        </div>
+        <label class="settings-field settings-field-wide"><span>{copy.projectInstructions}</span><textarea rows="2" bind:value={instructions} placeholder={withEllipsis(copy.projectInstructionsHint)}></textarea></label>
+        <div class="project-defaults-card settings-field-wide">
+          <div class="project-defaults-primary">
+            <label class="settings-field"><span>{copy.projectDefaultModel}</span><SelectControl value={modelKey} ariaLabel={copy.projectDefaultModel} options={[{ value: "", label: copy.projectFollowGlobal }, ...modelOptions.map((model) => ({ value: model.key, label: modelOptionCopy(model).name }))]} onChange={(value) => modelKey = value} /></label>
+            <label class="settings-field"><span>{copy.projectDefaultThinking}</span><SelectControl value={thinkingLevel} ariaLabel={copy.projectDefaultThinking} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "auto", label: autoAvailable ? copy.providerThinkingAuto : copy.providerThinkingAutoUnavailable, disabled: !autoAvailable }, ...thinkingLevelOptions.map((level) => ({ value: level, label: thinkingLabel(level) }))]} onChange={(value) => thinkingLevel = value as "" | DesktopThinkingSelection} /></label>
+          </div>
+          <div class="project-defaults-secondary">
+            <label class="settings-field"><span>{copy.projectToolProgress}</span><SelectControl value={toolProgress} ariaLabel={copy.projectToolProgress} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "new", label: copy.projectDisplayNew }, { value: "all", label: copy.projectDisplayAll }, { value: "verbose", label: copy.projectDisplayVerbose }]} onChange={(value) => toolProgress = value as typeof toolProgress} /></label>
+            <label class="settings-field"><span>{copy.projectReasoning}</span><SelectControl value={showReasoning} ariaLabel={copy.projectReasoning} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "off", label: copy.projectDisplayOff }, { value: "on", label: copy.projectDisplayOn }, { value: "stream", label: copy.projectDisplayStream }, { value: "new", label: copy.projectDisplayNew }]} onChange={(value) => showReasoning = value as typeof showReasoning} /></label>
+            <label class="settings-field"><span>{copy.projectRunlogNotice}</span><SelectControl value={runLogNotice} ariaLabel={copy.projectRunlogNotice} options={[{ value: "", label: copy.projectFollowGlobal }, { value: "on", label: copy.projectDisplayOn }, { value: "off", label: copy.projectDisplayOff }]} onChange={(value) => runLogNotice = value} /></label>
+          </div>
+        </div>
         <div class="settings-field settings-field-wide project-commands">
-          <span>{copy.projectCommands}</span>
-          <small class="project-commands-hint">{copy.projectCommandsHint}</small>
+          <div class="project-commands-head">
+            <div class="project-commands-heading">
+              <span class="project-commands-title">{copy.projectCommands}{#if customCommands.length > 0}<em class="project-commands-count">{customCommands.length}</em>{/if}</span>
+              <small class="project-commands-hint">{copy.projectCommandsHint}</small>
+            </div>
+            <Button variant="secondary" class="project-command-add" onclick={addCustomCommand}><Plus size={14} aria-hidden="true" />{copy.projectCommandAdd}</Button>
+          </div>
+          {#if commandError}<small class="project-commands-error" role="alert"><TriangleWarning weight="Filled" size={12} aria-hidden="true" />{commandError}</small>{/if}
           <div class="project-commands-list">
             {#if customCommands.length === 0}
               <p class="project-commands-empty">{copy.projectCommandsEmpty}</p>
@@ -153,13 +175,9 @@
                 <label class="project-command-label" for={`project-command-desc-${index}`}>{copy.projectCommandDescriptionLabel}</label>
                 <input id={`project-command-desc-${index}`} class="project-command-desc" value={command.description ?? ""} placeholder={withEllipsis(copy.projectCommandDescriptionPlaceholder)} autocomplete="off" oninput={(event) => updateCustomCommand(index, { description: (event.currentTarget as HTMLInputElement).value })} />
                 <label class="project-command-label project-command-label-top" for={`project-command-content-${index}`}>{copy.projectCommandContentLabel}</label>
-                <textarea id={`project-command-content-${index}`} class="project-command-content" rows="3" value={command.content} placeholder={withEllipsis(copy.projectCommandContentPlaceholder)} oninput={(event) => updateCustomCommand(index, { content: (event.currentTarget as HTMLTextAreaElement).value })}></textarea>
+                <textarea id={`project-command-content-${index}`} class="project-command-content" rows="2" value={command.content} placeholder={withEllipsis(copy.projectCommandContentPlaceholder)} oninput={(event) => updateCustomCommand(index, { content: (event.currentTarget as HTMLTextAreaElement).value })}></textarea>
               </div>
             {/each}
-          </div>
-          <div class="project-commands-foot">
-            <Button variant="secondary" class="project-command-add" onclick={addCustomCommand}><Plus size={14} aria-hidden="true" />{copy.projectCommandAdd}</Button>
-            {#if commandError}<small class="project-commands-error" role="alert"><TriangleWarning weight="Filled" size={12} aria-hidden="true" />{commandError}</small>{/if}
           </div>
         </div>
       </div>

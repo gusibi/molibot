@@ -223,12 +223,13 @@
     text-align: left;
     font: inherit;
     font-size: var(--fs-label);
+    line-height: var(--lh-label);
     cursor: pointer;
     transition: background var(--duration-instant) var(--ease-standard);
   }
   .sidebar-room-row:hover { background: var(--fill); }
   .sidebar-room-row.active { background: var(--fill); font-weight: 600; }
   .sidebar-room-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sidebar-room-meta { flex: 0 0 auto; color: var(--label-tertiary); font-size: var(--fs-meta); }
-  .rooms-empty { margin: 0; padding: 6px 8px 6px 32px; color: var(--label-tertiary); font-size: var(--fs-label); }
+  .sidebar-room-meta { flex: 0 0 auto; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-variant-numeric: tabular-nums; }
+  .rooms-empty { margin: 0; padding: 6px 8px 6px 32px; color: var(--label-tertiary); font-size: var(--fs-label); line-height: var(--lh-label); }
 </style>

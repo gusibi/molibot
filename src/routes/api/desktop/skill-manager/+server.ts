@@ -45,6 +45,16 @@ export const POST: RequestHandler = async ({ request }) => {
   const manager = getSkillManager();
   try {
     switch (body.action) {
+      case "maintenance-scan":
+        return json({ ok: true, scan: manager.maintenance().scan() }, { headers: NO_STORE });
+      case "maintenance-compare":
+        return json({ ok: true, comparison: manager.maintenance().compare(body.request.leftId, body.request.rightId) }, { headers: NO_STORE });
+      case "maintenance-preflight":
+        return json({ ok: true, plan: manager.maintenance().preflight(body.request) }, { headers: NO_STORE });
+      case "maintenance-apply": {
+        const result = manager.applyMaintenance(body.request.operation, body.request.token);
+        return json({ ok: true, result, summary: manager.getOverview() }, { headers: NO_STORE });
+      }
       case "preflight": {
         const result = body.request;
         if (result.method !== "copy" && result.method !== "link") return fail("Unknown install method");
@@ -68,6 +78,14 @@ export const POST: RequestHandler = async ({ request }) => {
       case "consolidate": {
         const result = manager.consolidate(body.request);
         return json({ ok: true, result, summary: manager.getOverview() }, { headers: NO_STORE });
+      }
+      case "remove-discovered": {
+        const result = manager.removeDiscovered(body.request);
+        return json({ ok: true, result, summary: manager.getOverview() }, { headers: NO_STORE });
+      }
+      case "check-update": {
+        const result = manager.checkUpdate(body.request);
+        return json({ ok: true, result }, { headers: NO_STORE });
       }
       case "unlink-distribution": {
         const result = manager.removeDistribution(body.request);

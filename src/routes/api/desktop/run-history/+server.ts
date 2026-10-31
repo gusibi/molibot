@@ -11,7 +11,7 @@ import type { DesktopRunHistoryResponse } from "$lib/shared/desktop";
 
 export const GET: RequestHandler = async ({ url }) => {
   const limit = Math.max(1, Math.min(500, Number(url.searchParams.get("limit") ?? 200) || 200));
-  const { items } = readRunHistory(resolve(config.dataDir), limit);
+  const { items } = await readRunHistory(resolve(config.dataDir), limit);
   const desktopItems = items.map(buildDesktopRunHistoryItem);
   const payload: DesktopRunHistoryResponse = {
     ok: true,

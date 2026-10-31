@@ -1,0 +1,101 @@
+import { mkdir, writeFile, readFile, lstat, realpath, symlink, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { test, expect } from './support/fixtures';
+import { openChat } from './support/actions';
+
+test('skill maintenance consolidates, compares, restores, cleans and recovers after service interruption @workspace', async ({ page, request, instance }, testInfo) => {
+  test.info().annotations.push({ type: 'expected-page-error', description: 'ResizeObserver loop completed with undelivered notifications' });
+  test.setTimeout(120_000);
+  const claude = join(instance.home, '.claude', 'skills');
+  const codex = join(instance.home, '.codex', 'skills');
+  const shared = join(instance.home, '.agents', 'skills');
+  async function skill(root: string, name: string, body: string) {
+    const path = join(root, name);
+    await mkdir(path, { recursive: true });
+    await writeFile(join(path, 'SKILL.md'), `---\nname: ${name}\ndescription: maintenance fixture\n---\n${body}\n`);
+    return path;
+  }
+  const same = await skill(claude, 'maintenance-same', 'same');
+  await skill(codex, 'maintenance-same', 'same');
+  const different = await skill(claude, 'maintenance-different', 'keep claude');
+  await skill(shared, 'maintenance-different', 'old shared');
+  await mkdir(codex, { recursive: true });
+  const broken = join(codex, 'maintenance-broken');
+  await symlink(join(instance.home, 'missing-maintenance-target'), broken);
+  await instance.restartService();
+  await openChat(page);
+  const nav = page.getByRole('navigation', { name: 'Chat', exact: true });
+  await nav.getByRole('button', { name: 'Skills', exact: true }).click();
+  await page.getByRole('button', { name: 'Skill maintenance', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Skill maintenance', exact: true });
+  await expect(dialog.getByRole('region', { name: 'maintenance-same', exact: true })).toContainText('Identical content');
+  const differentGroup = dialog.getByRole('region', { name: 'maintenance-different', exact: true });
+  await expect(differentGroup).toContainText('Same name, different content');
+  await differentGroup.getByRole('button', { name: 'Compare with selected content', exact: true }).click();
+  const comparison = dialog.getByRole('region', { name: 'File differences', exact: true });
+  await expect(comparison).toContainText('keep claude');
+  await expect(comparison).toContainText('old shared');
+  // Selecting a version is independent from choosing the groups to consolidate.
+  await differentGroup.getByLabel('Content to keep: maintenance-different', { exact: true }).click();
+  await page.getByRole('option', { name: different, exact: true }).click();
+  await dialog.getByRole('button', { name: 'Select identical groups', exact: true }).click();
+  await differentGroup.getByRole('button', { name: 'Select group', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Review consolidation (2)', exact: true }).click();
+  const plan = page.getByRole('alertdialog', { name: 'Review file changes', exact: true });
+  await expect(plan).toContainText(shared);
+  await expect(plan).toContainText('Recovery backup path');
+  await plan.getByRole('button', { name: 'Apply reviewed changes', exact: true }).click();
+  await expect(dialog.getByText('Maintenance completed. The list has been rescanned.', { exact: true })).toBeVisible();
+  expect((await lstat(same)).isSymbolicLink()).toBe(true);
+  expect(await realpath(same)).toBe(await realpath(join(shared, 'maintenance-same')));
+  expect(await readFile(join(shared, 'maintenance-different', 'SKILL.md'), 'utf8')).toContain('keep claude');
+
+  await dialog.getByRole('button', { name: /^Backups/ }).click();
+  const sharedBackup = (await readdir(shared)).find(name => name.startsWith('maintenance-different.backup-'))!;
+  const backupPath = join(shared, sharedBackup);
+  const backup = dialog.getByRole('region', { name: backupPath, exact: true });
+  await backup.getByRole('button', { name: 'Restore backup', exact: true }).click();
+  await expect(plan).toContainText('selected backup is retained');
+  await plan.getByRole('button', { name: 'Apply reviewed changes', exact: true }).click();
+  await expect(dialog.getByText('Maintenance completed. The list has been rescanned.', { exact: true })).toBeVisible();
+  expect(await readFile(join(shared, 'maintenance-different', 'SKILL.md'), 'utf8')).toContain('old shared');
+  await backup.getByRole('button', { name: 'Delete backup', exact: true }).click();
+  await expect(plan).toContainText('cannot be undone');
+  await plan.getByRole('button', { name: 'Apply reviewed changes', exact: true }).click();
+  await expect(backup).toHaveCount(0);
+  expect((await readdir(shared)).includes(sharedBackup)).toBe(false);
+
+  await dialog.getByRole('button', { name: /^Links and references/ }).click();
+  const brokenRow = dialog.getByRole('region', { name: broken, exact: true });
+  await brokenRow.getByRole('button', { name: 'Remove broken link', exact: true }).click();
+  await plan.getByRole('button', { name: 'Apply reviewed changes', exact: true }).click();
+  await expect(brokenRow).toHaveCount(0);
+  await expect(dialog.getByRole('region', { name: 'maintenance-same', exact: true })).toContainText('Already sharing one copy');
+  expect((await readdir(codex)).includes('maintenance-broken')).toBe(false);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => {
+    document.documentElement.dataset.resolvedAppearance = 'dark';
+    window.dispatchEvent(new StorageEvent('storage', { key: 'molibot-desktop-locale', newValue: 'zh-CN' }));
+  });
+  await expect(page.getByRole('heading', { name: '技能维护', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^链接与引用/ })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('skill-maintenance-zh-dark-mobile.png') });
+  const width = await page.locator('.skill-maintenance-dialog').evaluate(el => ({ client: el.clientWidth, scroll: el.scrollWidth }));
+  expect(width.scroll).toBeLessThanOrEqual(width.client + 1);
+  await page.getByRole('dialog', { name: '技能维护', exact: true }).getByRole('button', { name: '关闭', exact: true }).last().click();
+  await instance.stopService();
+  await page.getByRole('button', { name: '技能维护', exact: true }).click();
+  const chineseDialog = page.getByRole('dialog', { name: '技能维护', exact: true });
+  await expect(chineseDialog.getByRole('alert')).toBeVisible();
+  await instance.startService();
+  await chineseDialog.getByRole('button', { name: '扫描维护项目', exact: true }).click();
+  await expect(chineseDialog.getByRole('alert')).toHaveCount(0);
+  expect((await lstat(same)).isSymbolicLink()).toBe(true);
+  const scanResponse = await request.post(instance.endpoint + '/api/desktop/skill-manager', { data: { action: 'maintenance-scan' } });
+  expect(scanResponse.ok()).toBe(true);
+  const finalScan = (await scanResponse.json()).scan;
+  expect(finalScan.groups.some((group: { name: string; relation: string }) => group.name === 'maintenance-same' && group.relation === 'linked')).toBe(true);
+  const count = finalScan.brokenLinks.length + finalScan.groups.reduce((total: number, group: { entries: unknown[] }) => total + group.entries.length, 0);
+  await expect(chineseDialog.getByRole('button', { name: `链接与引用 (${count})`, exact: true })).toBeVisible();
+});

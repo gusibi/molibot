@@ -29,7 +29,7 @@
 - id: G2
   title: 修改代码要留下真实痕迹
   why: |
-    CLAUDE.md pitfall 20 的正面版本：说加了函数，文件里就得真的有。
+    docs/pitfalls.md pitfall 20 的正面版本：说加了函数，文件里就得真的有。
     同时验证原有内容没被整篇重写覆盖掉。
   baseline: pass
   timeout_ms: 240000

@@ -4,12 +4,14 @@
   import { CHANNEL_LOGOS, CONVERSATION_SOURCE_ICONS } from "./activityIcons";
   import type { DesktopConversationItem, DesktopConversationSearchItem, DesktopConversationSearchSource } from "@molibot/desktop-contract";
 
-  let { item, source, sourceLabel, locale, formatTime, onSelect, onDelete, onCopyPath, onRevealInFinder, selectable = false, selected = false, onToggle }: {
+  let { item, source, sourceLabel, locale, formatTime, onSelect, onDelete, onCopyPath, onRevealInFinder, selectable = false, selected = false, showSource = false, onToggle }: {
     onDelete?: () => void | Promise<void>;
     onCopyPath?: () => void | Promise<void>;
     onRevealInFinder?: () => void | Promise<void>;
     selectable?: boolean;
     selected?: boolean;
+    /** Render the source name beside the timestamp; homes have no source column. */
+    showSource?: boolean;
     onToggle?: () => void;
     item: DesktopConversationItem | DesktopConversationSearchItem;
     source: DesktopConversationSearchSource;
@@ -33,8 +35,9 @@
 {#snippet row()}
   <div class="agent-history-selectable">
     {#if selectable}<label class="agent-history-select"><Checkbox.Root class="list-selection-checkbox" checked={selected} aria-label={`${locale === "zh-CN" ? "选择" : "Select"} ${item.title}`} onCheckedChange={() => onToggle?.()}><span aria-hidden="true">✓</span></Checkbox.Root></label>{/if}
-<button type="button" class="agent-history-row" onclick={onSelect}>
+<button type="button" class="agent-history-row" class:with-source={showSource} onclick={onSelect}>
   <span class="agent-history-conversation"><span class="agent-history-conversation-icon" title={sourceDescription} role="img" aria-label={sourceDescription}>{#if CHANNEL_LOGOS[source]}<img class="channel-logo" src={CHANNEL_LOGOS[source]} alt="" width="20" height="20" aria-hidden="true" />{:else}<SourceIcon size={20} aria-hidden="true" />{/if}</span><span class="agent-history-conversation-copy"><strong>{item.title}</strong><small>{preview}</small></span></span>
+  {#if showSource}<span class="agent-history-source">{sourceLabel}</span>{/if}
   <time datetime={item.updatedAt}>{formatTime(item.updatedAt)}</time>
 </button>
 

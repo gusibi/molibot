@@ -57,7 +57,7 @@
 - id: B4
   title: 看不懂的时候要说看不懂，而且不许乱调工具
   why: |
-    CLAUDE.md pitfall 26：配了图片模型却编造图片内容，还顺手调了 imageGenerate
+    docs/pitfalls.md pitfall 26：配了图片模型却编造图片内容，还顺手调了 imageGenerate
     往聊天里发了一张不相干的图。这条同时守住「不编造」和「无副作用」。
     图里是一块纯色，没有任何人。
   baseline: unknown

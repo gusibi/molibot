@@ -766,7 +766,7 @@ test("a raised tool-call budget carries the failure budget with it unless one is
 });
 
 test("model max output tokens survives a settings store restart", () => {
-  // CLAUDE.md pitfall 11: append to `toStaticSettings` or the field silently
+  // docs/pitfalls.md pitfall 11: append to `toStaticSettings` or the field silently
   // resets on restart. This field is hand-edited in settings.json, so a reset
   // would silently drop a raised output limit back to 8192.
   const root = mkdtempSync(path.join(tmpdir(), "molibot-max-output-settings-"));
@@ -789,7 +789,7 @@ test("model max output tokens survives a settings store restart", () => {
 });
 
 test("permission mode survives a settings store restart at every level", () => {
-  // CLAUDE.md pitfall 11: a new settings field needs save -> fresh store ->
+  // docs/pitfalls.md pitfall 11: a new settings field needs save -> fresh store ->
   // load against a temporary database, because narrow serialization silently
   // resets fields on restart. `toStaticSettings` enumerates its fields, so
   // omitting one there is exactly how that happens.

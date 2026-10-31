@@ -9,6 +9,7 @@ import {
   saveDesktopSkillSearch
 } from "../api";
 import type {
+  DesktopSkillCheckUpdateResult,
   DesktopSkillConsolidatePreflight,
   DesktopSkillConsolidateRequest,
   DesktopSkillConsolidateResult,
@@ -19,6 +20,7 @@ import type {
   DesktopSkillPlatformSaveRequest,
   DesktopSkillPreflightRequest,
   DesktopSkillPreflightResult,
+  DesktopSkillRemoveDiscoveredResult,
   DesktopSkillSearchConfig,
   DesktopSkillUninstallResult
 } from "@molibot/desktop-contract";
@@ -226,6 +228,31 @@ export async function loadConsolidateCheck(request: DesktopSkillConsolidateReque
   const endpoint = session.endpoint;
   if (!endpoint) throw new Error("The service is not connected");
   return loadConsolidatePreflight(endpoint, request);
+}
+
+export async function removeDiscoveredSkill(
+  id: string,
+  entryDir?: string
+): Promise<DesktopSkillRemoveDiscoveredResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ result: DesktopSkillRemoveDiscoveredResult }>(endpoint, `discovered:${id}`, {
+    action: "remove-discovered",
+    request: entryDir ? { id, entryDir } : { id }
+  });
+  if (!payload?.result) throw new Error(skillManagerStore.actionError || "Removal failed");
+  return payload.result;
+}
+
+export async function checkManagedSkillUpdate(id: string): Promise<DesktopSkillCheckUpdateResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ result: DesktopSkillCheckUpdateResult }>(endpoint, `check-update:${id}`, {
+    action: "check-update",
+    request: { id }
+  });
+  if (!payload?.result) throw new Error(skillManagerStore.actionError || "The update check failed");
+  return payload.result;
 }
 
 export async function unlinkDistribution(id: string, deleteFiles: boolean): Promise<boolean> {

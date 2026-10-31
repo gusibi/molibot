@@ -3,6 +3,8 @@
   import { Portal } from "bits-ui";
   import Button from "../components/ui/Button.svelte";
   import Loader from "reicon-svelte/icons/Loader";
+  import Refresh from "reicon-svelte/icons/Refresh";
+  import Share from "reicon-svelte/icons/Share";
   import Expand from "reicon-svelte/icons/Expand";
   import ExitFullscreen from "reicon-svelte/icons/ExitFullscreen";
   import X from "reicon-svelte/icons/X";
@@ -43,9 +45,11 @@
   // brightness and type scale then follows the app without duplicating the ramp
   // on the server. The published snapshot keeps the fallback palette.
   const REPORT_TOKENS = [
-    "--card-bg", "--surface-secondary", "--label-primary", "--label-secondary", "--separator",
-    "--accent", "--online", "--skill-accent", "--font-ui", "--font-mono",
-    "--fs-body", "--fs-label", "--fs-meta", "--fs-page", "--radius-small", "--radius-control",
+    "--card-bg", "--surface-secondary", "--label-primary", "--label-secondary", "--label-tertiary",
+    "--separator", "--hairline", "--fill", "--fill-hover",
+    "--accent", "--online", "--danger", "--warning", "--skill-accent", "--font-ui", "--font-mono",
+    "--fs-body", "--lh-body", "--fs-label", "--lh-label", "--fs-meta", "--lh-meta", "--fs-page", "--lh-page",
+    "--radius-small", "--radius-control", "--radius-panel",
     "--syntax-code-bg", "--syntax-code-fg", "--syntax-code-border"
   ];
   function reportThemeStyle(family: string): string {
@@ -57,11 +61,79 @@
       .join(";");
     // The drawer already shows the title; the report's own <h1> is the
     // published-snapshot header, so hide the duplicate only while embedded.
-    return `<style data-theme-family="${family}">:root{${declarations}}main>header h1{display:none}main>header p{margin:0 0 8px}</style>`;
+    return `<style data-theme-family="${family}">:root{${declarations};--subtle:var(--label-tertiary,#8e8e93);--hairline:var(--separator,rgba(0,0,0,.06));--fill:rgba(127,127,127,.07)}
+body{font-size:var(--fs-body,13px);line-height:var(--lh-body,1.5);-webkit-font-smoothing:antialiased}
+main{padding:14px 16px 20px}
+main>header h1{display:none}
+main>header p{display:flex;align-items:center;gap:8px;margin:0;min-width:0;color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px)}
+.status-pill{display:inline-flex;align-items:center;gap:5px;flex:none;height:20px;padding:0 8px;border-radius:999px;background:var(--fill);color:var(--ink);font-size:var(--fs-meta,11px);font-weight:600}
+.status-pill::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--green)}
+.run-id{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--fs-meta,11px);color:var(--subtle)}
+.stats{display:grid !important;grid-template-columns:repeat(4,minmax(0,1fr)) !important;border:1px solid var(--line);border-radius:var(--radius-panel,10px);background:var(--panel);margin:12px 0;overflow:hidden}
+.stats div{padding:11px 14px;border-right:1px solid var(--line)}
+.stats div:last-child{border-right:0}
+.stats small{display:block;color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px)}
+.stats strong{display:block;margin-top:3px;font-size:17px;line-height:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.legend-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;margin:0 0 8px;padding:0 2px;color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px)}
+.legend-items{display:inline-flex;align-items:center;flex-wrap:wrap;gap:12px}
+.legend-dot{display:inline-flex;align-items:center;gap:5px}
+.legend-dot::before{content:"";width:7px;height:7px;border-radius:999px;background:var(--muted)}
+.legend-dot.model_call::before{background:var(--blue)}
+.legend-dot.tool_call::before{background:var(--green)}
+.legend-dot.subagent_task::before{background:var(--purple)}
+.hint{margin:0;color:var(--subtle);font-size:var(--fs-meta,11px);cursor:help;border-bottom:1px dotted var(--line)}
+.waterfall{border:1px solid var(--line);border-radius:var(--radius-panel,10px);background:var(--bg);overflow:hidden}
+.axis,summary{display:grid !important;grid-template-columns:minmax(248px,52%) minmax(100px,1fr) 54px !important;align-items:center;gap:10px !important;padding:7px 12px !important;margin:0 !important}
+.axis{padding-block:6px !important;background:var(--panel);border-bottom:1px solid var(--line);color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px);font-weight:500}
+.axis-scale{display:flex;justify-content:space-between;font-family:var(--font-mono,ui-monospace,monospace);font-variant-numeric:tabular-nums;color:var(--subtle)}
+.axis-dur{text-align:right}
+details{border-top:1px solid var(--line)}
+.axis+details{border-top:0}
+summary{min-height:36px;cursor:pointer;list-style:none;transition:background 120ms ease}
+summary::-webkit-details-marker{display:none}
+summary:hover{background:var(--fill)}
+details[open]>summary{background:var(--panel);border-bottom:1px solid var(--line)}
+.name{display:flex;flex-direction:row;align-items:center;gap:6px;min-width:0}
+.name::before{content:"›";flex:none;display:inline-block;width:10px;text-align:center;color:var(--subtle);font-size:13px;line-height:1;transition:transform 140ms ease,color 140ms ease}
+details[open]>summary .name::before{transform:rotate(90deg);color:var(--ink)}
+.name strong{flex:1;min-width:0;font-size:var(--fs-label,13px);line-height:var(--lh-label,18px);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+summary:has(i.run) .name strong{font-weight:600}
+.name small{flex:none;display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:4px;background:var(--fill);color:var(--muted);font-size:var(--fs-meta,11px) !important;line-height:18px;font-weight:500;text-transform:none !important;letter-spacing:0 !important}
+summary:has(i.model_call) .name small{background:color-mix(in srgb,var(--blue) 11%,transparent);color:var(--blue)}
+summary:has(i.tool_call) .name small{background:color-mix(in srgb,var(--green) 11%,transparent);color:var(--green)}
+summary:has(i.subagent_task) .name small{background:color-mix(in srgb,var(--purple) 11%,transparent);color:var(--purple)}
+summary:has(i.model_call) .name strong,summary:has(i.tool_call) .name strong{font-family:var(--font-mono,ui-monospace,monospace);font-size:12px}
+.track{position:relative;height:7px !important;border-radius:999px;background:var(--fill) !important;overflow:hidden}
+i{height:100% !important;min-width:6px;display:block;position:relative;top:0 !important;background:var(--muted);border-radius:999px !important}
+i[style*="width:0%"]{min-width:0}
+.metric{text-align:right;font-family:var(--font-mono,ui-monospace,monospace);font-variant-numeric:tabular-nums;font-size:var(--fs-meta,11px) !important;line-height:16px;color:var(--muted);white-space:nowrap}
+summary:has(i.run) .metric{color:var(--ink);font-weight:600}
+.metric small{display:block;font-family:var(--font-ui,-apple-system,sans-serif);font-size:var(--fs-meta,11px) !important;line-height:14px;color:var(--subtle)}
+.metric small[data-status=success]{display:none}
+section{margin:10px 12px 12px 24px;padding:10px 12px !important;border:1px solid var(--line);border-radius:var(--radius-control,8px);background:var(--panel)}
+dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;margin:0}
+dd{margin:2px 0 0;font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px);font-family:var(--font-mono,ui-monospace,monospace);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;color:var(--ink)}
+dt{color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px)}
+h3{margin:10px 0 4px;color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px);font-weight:600}
+pre{margin:0;max-height:220px;overflow:auto;padding:8px 10px;border:1px solid var(--syntax-code-border,var(--line));border-radius:var(--radius-control,6px);background:var(--syntax-code-bg,var(--r-bg));color:var(--syntax-code-fg,var(--r-ink));font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--fs-meta,11px);line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+footer{margin-top:12px;padding:0 2px;color:var(--subtle);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px);font-variant-numeric:tabular-nums}
+</style>`;
   }
   function injectReportTheme(source: string, resolved: string, family: string): string {
     if (!source) return source;
-    const themed = source.replace(/data-theme="[^"]*"/, `data-theme="${resolved === "dark" ? "dark" : "light"}"`);
+    let themed = source.replace(/data-theme="[^"]*"/, `data-theme="${resolved === "dark" ? "dark" : "light"}"`);
+    if (!themed.includes('class="waterfall"')) {
+      themed = themed
+        .replace(/<header><h1>([^<]*)<\/h1><p>([^<]*?) · ([^<]*)<\/p><\/header>/, `<header><h1>$1</h1><p><span class="status-pill" data-status="success">$3</span><span class="run-id" title="$2">$2</span></p></header>`)
+        .replace(/<strong>(\d{4,})<\/strong>/g, (_, num) => `<strong>${Number(num).toLocaleString("en-US")}</strong>`)
+        .replace(/<dd>(\d{4,})<\/dd>/g, (_, num) => `<dd>${Number(num).toLocaleString("en-US")}</dd>`)
+        .replace(/padding-inline-start:(\d+)px/g, (_, px) => `padding-inline-start:${Math.round(Number(px) * 8 / 12)}px`)
+        .replace(/<span class="metric">([^<]*)<small>(成功|success)<\/small><\/span>/gi, `<span class="metric">$1<small data-status="success">$2</small></span>`)
+        .replace(/<p class="hint">([^<]*)<\/p><div class="axis"><span>0 s<\/span><span>([^<]*)<\/span><\/div>([\s\S]*?)<footer>/, (_, hint, endDur, details) => {
+          const isZh = themed.includes('lang="zh"');
+          return `<div class="legend-bar"><span class="legend-items"><span class="legend-dot run">${isZh ? "本轮执行" : "Run"}</span><span class="legend-dot model_call">${isZh ? "模型" : "Model"}</span><span class="legend-dot tool_call">${isZh ? "工具" : "Tool"}</span><span class="legend-dot subagent_task">${isZh ? "子 Agent" : "Subagent"}</span></span><p class="hint" title="${hint}">${isZh ? "点击步骤展开详情" : "Click a step for details"}</p></div><div class="waterfall"><div class="axis"><span>${isZh ? "执行步骤" : "Step"}</span><span class="axis-scale"><span>0 s</span><span>${endDur}</span></span><span class="axis-dur">${isZh ? "耗时" : "Duration"}</span></div>${details}</div><footer>`;
+        });
+    }
     const style = reportThemeStyle(family);
     return style ? themed.replace("</head>", `${style}</head>`) : themed;
   }
@@ -115,6 +187,23 @@
           <h2 id="trace-report-title">{zh ? "调用链" : "Call trace"}</h2>
         </div>
         <div class="trace-report-header-actions">
+          <Button
+            class="secondary-button trace-report-share-btn"
+            disabled={busy}
+            title={zh ? "分享公开链接（不含参数与结果摘要）" : "Share public link (excludes argument and result previews)"}
+            onclick={publish}
+          >
+            <Share size={13} aria-hidden="true" />
+            <span>{zh ? "分享公开链接" : "Share link"}</span>
+          </Button>
+          <button
+            class="icon-button"
+            type="button"
+            disabled={busy}
+            title={zh ? "刷新" : "Refresh"}
+            aria-label={zh ? "刷新" : "Refresh"}
+            onclick={() => load(endpoint, runIds, session.locale, appearance === "dark" ? "dark" : "light")}
+          ><Refresh size={15} aria-hidden="true" /></button>
           <button
             class="icon-button"
             type="button"
@@ -126,12 +215,12 @@
         </div>
       </header>
       <div class="memory-trace-body trace-report-body">
-        <div class="trace-report-toolbar">
-          <Button class="secondary-button" disabled={busy} onclick={() => load(endpoint, runIds, session.locale, appearance === "dark" ? "dark" : "light")}>{zh ? "刷新" : "Refresh"}</Button>
-          <Button class="secondary-button" disabled={busy} onclick={publish}>{zh ? "分享公开链接（不含摘要）" : "Share public link (no previews)"}</Button>
-        </div>
-        {#if errorText}<p class="trace-report-error" role="alert">{errorText}</p>{/if}
-        {#if url}<p class="trace-report-url"><a href={url} target="_blank" rel="noreferrer">{url}</a></p>{/if}
+        {#if errorText || url}
+          <div class="trace-report-notices">
+            {#if errorText}<p class="trace-report-error" role="alert">{errorText}</p>{/if}
+            {#if url}<p class="trace-report-url"><span>{zh ? "公开链接：" : "Public link:"}</span><a href={url} target="_blank" rel="noreferrer">{url}</a></p>{/if}
+          </div>
+        {/if}
         {#if busy && !html}<div class="memory-trace-state" role="status"><Loader size={14} aria-hidden="true" />{zh ? "加载中…" : "Loading…"}</div>{/if}
         {#if html}<iframe title={zh ? "调用链报告" : "Call trace report"} sandbox="" style:color-scheme={appearance} srcdoc={themedHtml}></iframe>{/if}
       </div>

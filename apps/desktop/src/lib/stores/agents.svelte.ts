@@ -12,6 +12,7 @@ export const agentsStore = $state({
   agents: null as DesktopAgentsSummary | null,
   templates: [] as DesktopAgentTemplateSummary[],
   loading: false,
+  error: "",
   endpoint: "",
   agentEdit: null as AgentEditor | null,
   saving: false,
@@ -20,6 +21,8 @@ export const agentsStore = $state({
   editorLoading: false,
   actionMessage: ""
 });
+
+let listGeneration = 0;
 
 let agentEditorGeneration = 0;
 
@@ -34,6 +37,8 @@ function emptyAgentFiles(): Record<string, string> {
 }
 
 export async function loadAgents(endpoint: string): Promise<void> {
+  const generation = ++listGeneration;
+  agentsStore.error = "";
   agentsStore.endpoint = endpoint;
   agentsStore.loading = true;
   session.error = "";
@@ -42,13 +47,15 @@ export async function loadAgents(endpoint: string): Promise<void> {
       loadDesktopAgents(endpoint),
       loadDesktopAgentTemplates(endpoint)
     ]);
+    if (generation !== listGeneration) return;
     agentsStore.agents = agents;
     agentsStore.templates = templates;
   } catch (cause) {
+    if (generation !== listGeneration) return;
+    agentsStore.error = cause instanceof Error ? cause.message : String(cause);
     agentsStore.endpoint = "";
-    setError(cause);
   } finally {
-    agentsStore.loading = false;
+    if (generation === listGeneration) agentsStore.loading = false;
   }
 }
 

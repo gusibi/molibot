@@ -146,7 +146,7 @@ function toolNameFromActivityKey(key) {
  * SvelteKit rejects a form-shaped POST whose `Origin` does not match the
  * request URL, and `fetch` from Node sends no `Origin` at all — so every
  * attachment upload came back "Cross-site POST form submissions are forbidden"
- * before this existed (CLAUDE.md pitfall 25, third surface).
+ * before this existed (docs/pitfalls.md pitfall 25, third surface).
  *
  * The fix belongs here, not in `csrf-trusted-origins.mjs`: this client really
  * is same-origin with the service it just started, so it should say so. Adding

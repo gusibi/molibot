@@ -9,7 +9,7 @@ The repository's document-layering rules live in [AGENTS.md](../../../AGENTS.md)
 
 ## Sources of truth (read, don't re-summarize)
 
-- [AGENTS.md](../../../AGENTS.md) — which root document owns which purpose: `features.md` for shipped facts, `prd.md` for planned/priority work, `CHANGELOG.md` for release summaries, `README.md` for entry/navigation, `docs/` for topical documentation; plus the archive rule (256KB cap, quarterly archive into `docs/archive/`).
+- [AGENTS.md](../../../AGENTS.md) — which root document owns which purpose: `features.md` for shipped facts, `prd.md` for planned/priority work, `CHANGELOG.md` for release summaries, `README.md` for entry/navigation, `docs/` for topical documentation; with detailed archive rules in `docs/guides/development-workflow.md`.
 - [docs/README.md](../../../docs/README.md) — the purpose-first directory map (`features/`, `guides/`, `requirements/`, `adr/`, `designs/`, `research/`, `reviews/`, `work/`, `reference/`, `articles/`, `images/`, `archive/`) and the filing rules.
 - [docs/adr/](../../../docs/adr/) — accepted architecture decisions and the reasoning behind them; the home for "why this design won".
 - [features.md](../../../features.md) and [docs/requirements/personal-assistant-capability-matrix.md](../../../docs/requirements/personal-assistant-capability-matrix.md) — the current capability status (交付/部分交付/待验证/未开始); never regenerate tasks from stale copy in `prd.md`, `features.md`, or `CHANGELOG.md`.
@@ -23,7 +23,7 @@ Apply the layering rules to every human-facing document in scope:
 3. Classify the document from its intended use, not its path or title. A tutorial must lead through ordered work to an observable outcome; a reference must support lookup within an explicit scope without requiring sequential reading.
 4. For a tutorial, privately classify the starting reader and concepts as beginner, intermediate, or advanced. Trace each concept to its prerequisites, reorder premature material, and move optional advanced detail to a later tutorial or reference.
 5. Split substantial mixed forms. Put a small secondary form in a clearly labeled section.
-6. Check the file-size rule before appending: `AGENTS.md` caps the root record files (`features.md`, `prd.md`, `CHANGELOG.md`) at ~256KB with quarterly archive into `docs/archive/`; a change that would blow the cap should trigger the archive step first, not a new sibling file.
+6. Check the file-size rule before appending: `docs/guides/development-workflow.md` caps the root record files (`features.md`, `prd.md`, `CHANGELOG.md`) at ~256KB with quarterly archive into `docs/archive/`; a change that would blow the cap should trigger the archive step first, not a new sibling file.
 
 Before renaming or moving any doc, grep for inbound references (`grep -rn 'old-name' --include='*.md' .` plus Markdown link targets and `#fragment` anchors), then fix every inbound link in the same change. A move is atomic: remove from the old home, add to the new home, update every inbound link, and never leave a stub.
 
@@ -42,8 +42,8 @@ Keep every load-bearing rule, preferably as one to three lines plus a link to it
 
 ## When a record file exceeds the archive cap
 
-Apply the archive rule in [AGENTS.md](../../../AGENTS.md): move old entries into `docs/archive/features-archive-YYYY-QN.md`, `docs/archive/changelog-YYYY-QN.md`, and `docs/archive/prd-archive-YYYY-QN.md`, keeping only the recent 1-2 months of active entries plus index links in the main files. Add to the main files only; never rewrite archive files.
+Apply the archive rule in [the development guide](../../../docs/guides/development-workflow.md): move old entries into `docs/archive/features-archive-YYYY-QN.md`, `docs/archive/changelog-YYYY-QN.md`, and `docs/archive/prd-archive-YYYY-QN.md`, keeping only the recent 1-2 months of active entries plus index links in the main files. Add to the main files only; never rewrite archive files.
 
 ## Validation and PR hygiene
 
-Run at least `git diff --check` and the repository's lint/typecheck gates; if code comments or JSDoc changed, keep the touched behavior tests green. The PR body should state which documents were touched, where new content was placed and why, any deliberately long exception, and the checks run.
+Run `git diff --check` and check moved links. Select further checks by affected behavior under `docs/guides/development-workflow.md`; documentation-only changes do not require unrelated typechecks. If code comments or JSDoc changed, keep the touched behavior tests green. The PR body should state which documents were touched, where new content was placed and why, any deliberately long exception, and the checks run.

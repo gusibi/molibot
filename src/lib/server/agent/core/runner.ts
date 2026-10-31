@@ -1425,7 +1425,7 @@ export class MomRunner implements RunnerLike {
       return [];
     };
 
-    let localTools: ReturnType<typeof createMomTools> = [];
+    let localTools!: ReturnType<typeof createMomTools>;
     let activeModelSupportsVision = false;
     let loadedMcpTools: Awaited<ReturnType<typeof getMcpToolsForRuntime>> = [];
     const refreshLoadedMcpTools = async (): Promise<{
@@ -1445,10 +1445,7 @@ export class MomRunner implements RunnerLike {
           });
         }
       });
-      const wrapHelper = (localTools as any).wrapTool;
-      const wrappedMcpTools = wrapHelper
-        ? mcpTools.map((t) => wrapHelper(t))
-        : mcpTools;
+      const wrappedMcpTools = mcpTools.map(tool => localTools.wrapTool(tool));
       loadedMcpTools = wrappedMcpTools;
       this.agent.state.tools = [...localTools, ...wrappedMcpTools];
       const statuses = getMcpServerStatuses(scoped, this.store.getWorkspaceDir());
@@ -1729,10 +1726,7 @@ export class MomRunner implements RunnerLike {
         });
       }
     });
-    const wrapHelper = (localTools as any).wrapTool;
-    const wrappedMcpTools = wrapHelper
-      ? mcpTools.map((t) => wrapHelper(t))
-      : mcpTools;
+    const wrappedMcpTools = mcpTools.map(tool => localTools.wrapTool(tool));
     loadedMcpTools = wrappedMcpTools;
     momLog("runner", "mcp_tools_loaded", {
       runId,
@@ -2244,7 +2238,7 @@ export class MomRunner implements RunnerLike {
         childCompaction: { enabled: settings.subagentRuntime.compactionEnabled, reserveTokens: settings.compaction.reserveTokens, keepRecentTokens: settings.compaction.keepRecentTokens },
         approvedRecoveryCallIds: ctx.approvedRecoveryCallIds,
         childBudgetLimits: { maxToolCalls: settings.subagentRuntime.maxToolCalls, maxToolFailures: settings.subagentRuntime.maxToolFailures, maxModelAttempts: settings.subagentRuntime.maxModelRetries },
-        childTools: () => (localTools as unknown as { getChildTools: () => AgentTool[] }).getChildTools(),
+        childTools: () => localTools.getChildTools(),
         beforeChildTool: taskId => {
           const recorded = budget.tryStartTool(`pi:${executionKey}:${taskId}`);
           if (!recorded.ok) throw new Error(recorded.reason);
@@ -2290,7 +2284,7 @@ export class MomRunner implements RunnerLike {
           budget.tryRecordModelFailure(taskId);
         },
         nativeToolCall: nativeRecovery?.context.nativeToolCall ?? ctx.nativeToolCall,
-        nativeTools: () => (localTools as unknown as { getNativeTools: () => AgentTool[] }).getNativeTools(),
+        nativeTools: () => localTools.getNativeTools(),
         recoverTools: async names => {
           this.selectedMcpServerIds = new Set(Array.isArray(nativeRecovery?.mcpServerIds ?? recoveringSuspension?.mcpServerIds)
             ? (nativeRecovery?.mcpServerIds ?? recoveringSuspension!.mcpServerIds as unknown[]).filter((id): id is string => typeof id === "string") : []);
@@ -2305,10 +2299,10 @@ export class MomRunner implements RunnerLike {
           await refreshLoadedMcpTools();
           const missing = names.filter(name => !this.agent.state.tools.some(tool => tool.name === name));
           if (missing.length) {
-            const load = (localTools as unknown as { loadDeferredTools?: (names: string[]) => string[] }).loadDeferredTools;
-            load?.(missing);
+            const load = localTools.loadDeferredTools;
+            load(missing);
           }
-          return [...this.agent.state.tools, ...(localTools as unknown as { getNativeTools: () => AgentTool[] }).getNativeTools()];
+          return [...this.agent.state.tools, ...localTools.getNativeTools()];
         }
       });
       this.agent.state.messages = prepareMessagesForModelContext(
@@ -3763,7 +3757,7 @@ export class MomRunner implements RunnerLike {
             agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId, sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
             provider: receipt.provider, model: receipt.model, api: receipt.api, inputTokens: receipt.usage.input, outputTokens: receipt.usage.output,
             cacheReadTokens: receipt.usage.cacheRead, cacheWriteTokens: receipt.usage.cacheWrite, totalTokens: receipt.usage.totalTokens }),
-          childTools: () => (localTools as unknown as { getChildTools: () => AgentTool[] }).getChildTools(),
+          childTools: () => localTools.getChildTools(),
           beforeGeneration: () => { if (budget.getExceededKind() === "modelFailures") throw new Error(budget.getExceededReason()); }
         });
         savedSkillDraft = saveSkillDraft({

@@ -8,7 +8,7 @@ import { createEditTool } from "$lib/server/agent/tools/edit.js";
 import { isWriteDeniedByFilesystemPolicy } from "$lib/server/agent/tools/filesystemPolicy.js";
 
 /**
- * One path string must mean one thing in every tool (CLAUDE.md pitfall 6).
+ * One path string must mean one thing in every tool (docs/pitfalls.md pitfall 6).
  *
  * `toolSandbox.filesystem.denyWrite` defaults to `[".env", ".env.*", "*.pem",
  * "*.key"]` and is enforced for `bash`, because bash runs inside the sandbox

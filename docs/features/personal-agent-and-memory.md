@@ -27,6 +27,10 @@ Unknown historical ownership is never guessed. Use Desktop’s explicit claim ac
 
 Memory is configurable and reviewable. It is not a claim that every conversation will be remembered forever, and it should not replace source documents or project history.
 
+- **Memory navigation and uncollected records**: Desktop Memory is organized into four views: Overview, Topics, All Memories, and Uncollected (`概览、主题、全部记忆、未收录`). Uncollected (`未收录`) lists inputs that did not pass write checks (ordered by content, rejection reason, source, write action, and timestamp, with search across content/reason/source and matched/loaded counts) and states explicitly that they do not participate in recall; Advanced Management holds status and maintenance actions only, without duplicating the memory or uncollected lists.
+- **Overview reading and review**: The profile initially shows a 180-character preview; expand it to read the full returned profile and its selection metadata. Pending candidates have a counted disclosure above the reading panels. Empty focus, attention, recent and preference panels are omitted. Recent memories and stable preferences show three entries each with a path to All Memories; preference entries open their memory editor. Maintenance and vector-model navigation stay separate from the view tabs.
+- **Per-record vector status**: Desktop All Memories displays the database-backed embedding presence per record (`已有向量 / 未生成向量 / 向量状态未知`) using the shared status badge rather than inferring vector presence from model configuration or service availability. Running backfill from Advanced Management refreshes All Memories on completion.
+
 ## Related documentation
 
 - [Memory usage, trace, and feedback design](../designs/memory/memory-usage-trace-and-feedback.md) (delivered)

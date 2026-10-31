@@ -128,7 +128,7 @@ test("a rejection records no grant", () => {
 test("a resolve aimed at another session is refused", () => {
   // The unified card lists both backends, so the resolve half has to validate
   // ownership too — otherwise one session could answer another's prompt
-  // (CLAUDE.md: list and resolve must cover the same backends, per session).
+  // (docs/pitfalls.md #70: list and resolve must cover the same backends, per session).
   const broker = new ApprovalBroker(new MemoryApprovalBrokerStore());
   const request = createDefaultApprovalRequest(toolDef(), { path: "notes.md" }, ctx());
   broker.createRequest(request);

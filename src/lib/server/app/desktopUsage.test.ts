@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AiUsageRecord, UsageStatsResponse, UsageTotals } from "$lib/server/usage/tracker";
-import { buildDesktopUsageSummary, sanitizeDesktopUsageQuery } from "./desktopUsage";
+import { buildDesktopUsageSummary, desktopUsageFromRecords, sanitizeDesktopUsageQuery } from "./desktopUsage";
 
 function emptyTotals(): UsageTotals {
   return { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 };
@@ -129,4 +129,57 @@ test("buildDesktopUsageSummary ranks usage per session within the selected windo
 
   const today = buildDesktopUsageSummary(fixture(), { range: "today", modelId: "all", botId: "all", channel: "all", page: 1, pageSize: 20 });
   assert.deepEqual(today.rankings.sessions.map((row) => row.id), ["s-20260628-aaaa", "s-20260628-bbbb"]);
+});
+
+test("activity covers a timezone-aligned year while cumulative totals include retained older records", () => {
+  const sample = (ts: string, totalTokens: number, extra = {}) => ({ ...records[0], ts, totalTokens, ...extra });
+  const summary = desktopUsageFromRecords([
+    sample('2024-01-01T00:00:00Z', 900),
+    sample('2026-06-26T16:30:00Z', 10),
+    sample('2026-06-27T16:30:00Z', 20),
+    sample('2026-06-27T17:30:00Z', 30),
+    sample('2026-06-29T00:00:00Z', 1000)
+  ], 'Asia/Shanghai', { range: 'today' }, new Date('2026-06-28T12:00:00Z'));
+  assert.equal(summary.activity.days.length, 365);
+  assert.equal(summary.activity.days.at(-1)?.date, '2026-06-28');
+  assert.equal(summary.activity.days.at(-1)?.requests, 2);
+  assert.equal(summary.activity.recordedTokens, 960);
+  assert.equal(summary.activity.activeDays, 2);
+  assert.equal(summary.activity.currentStreak, 2);
+  assert.equal(summary.activity.longestStreak, 2);
+  assert.equal(summary.activity.peakDailyTokens, 900);
+  assert.equal(summary.activity.averageRequestsPerActiveDay, 1.5);
+});
+
+test("activity respects dimension filters, counts zero-token requests and leaves an empty ledger at zero", () => {
+  const sample = { ...records[0], ts: '2026-06-27T10:00:00Z', totalTokens: 0, sessionId: undefined, appId: 'notes', channel: 'miniapp', agentId: 'research' };
+  const now = new Date('2026-06-28T10:00:00Z');
+  const summary = desktopUsageFromRecords([sample, { ...sample, agentId: 'other' }], 'UTC', { range: 'today', agentId: 'research' }, now);
+  assert.equal(summary.totals.requests, 0);
+  assert.equal(summary.activity.currentStreak, 1, 'yesterday keeps an ongoing streak until today ends');
+  assert.equal(summary.activity.requests, 1);
+  assert.equal(summary.activity.activeDays, 1);
+  assert.equal(summary.activity.scenarios[0]?.id, 'miniapp');
+  assert.equal(summary.activity.scenarios[0]?.requests, 1);
+  const empty = desktopUsageFromRecords([], 'UTC', {}, now).activity;
+  assert.equal(empty.currentStreak, 0);
+  assert.equal(empty.longestStreak, 0);
+  assert.equal(empty.averageRequestsPerActiveDay, 0);
+  assert.equal(empty.coverageStart, null);
+});
+
+test("activity streaks cross leap days and frequency rankings sort by requests rather than tokens", () => {
+  const base = { ...records[0], agentId: 'single', ts: '2024-02-28T12:00:00Z', totalTokens: 10000 };
+  const summary = desktopUsageFromRecords([
+    base,
+    { ...base, ts: '2024-02-29T12:00:00Z', totalTokens: 1, channel: 'miniapp', appId: 'notes', agentId: 'frequent' },
+    { ...base, ts: '2024-03-01T12:00:00Z', totalTokens: 1, channel: 'miniapp', appId: 'notes', agentId: 'frequent' }
+  ], 'America/New_York', {}, new Date('2024-03-01T18:00:00Z'));
+  assert.equal(summary.activity.days.length, 365);
+  assert.equal(summary.activity.currentStreak, 3);
+  assert.equal(summary.activity.longestStreak, 3);
+  assert.deepEqual(summary.activity.scenarios.map(row => [row.id, row.requests]), [['miniapp', 2], ['conversation', 1]]);
+  assert.equal(summary.activity.agents[0]?.id, 'frequent');
+  assert.equal(summary.activity.channels[0]?.id, 'miniapp');
+  assert.equal(summary.activity.scenarios.reduce((n, row) => n + row.requests, 0), summary.activity.requests);
 });

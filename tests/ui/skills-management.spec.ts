@@ -142,7 +142,7 @@ test('skill manager discovers, installs, verifies and keeps platform rules @work
   await expect.poll(async () => (await manager()).installed.some((item: { name: string; method: string }) => item.name === 'external-demo' && item.method === 'copy')).toBe(true);
   // The source stays in the external tree; discovery now says it is installed.
   expect((await readFile(join(external, 'SKILL.md'), 'utf8')).includes('Discovered fixture')).toBe(true);
-  await expect(discoveredCard.getByText('Installed', { exact: true })).toBeVisible();
+  await expect(discoveredCard.getByRole('img', { name: 'Installed', exact: true })).toBeVisible();
 
   // The external catalogue is split by platform, and the source facet filters
   // it without leaving the view.
@@ -155,10 +155,13 @@ test('skill manager discovers, installs, verifies and keeps platform rules @work
   await sourceFilter.click();
   await page.getByRole('option', { name: /^All sources/ }).click();
 
-  // Consolidation: one canonical copy in Molibot, a link left in Codex.
+  // Consolidation: one canonical copy in the shared ~/.agents/skills tree, a
+  // link left in Codex. The shared tree is not a Molibot root, so the Skill
+  // stays discovered and is flagged as living in the shared folder.
   const codexOnly = join(instance.home, '.codex', 'skills', 'codex-only');
   await mkdir(codexOnly, { recursive: true });
   await writeFile(join(codexOnly, 'SKILL.md'), '---\nname: codex-only\ndescription: Codex only fixture\n---\nbody\n');
+  const sharedTree = join(instance.home, '.agents', 'skills');
   await page.getByRole('button', { name: 'Scan again', exact: true }).click();
   await openExternal();
   const codexCard = page.locator('.installed-skill-card').filter({ hasText: 'codex-only' });
@@ -169,15 +172,17 @@ test('skill manager discovers, installs, verifies and keeps platform rules @work
   await expect(detailPane.locator('.skills-install-fab')).toBeVisible();
   await detailPane.getByRole('button', { name: 'Consolidate', exact: true }).click();
   const consolidateSheet = page.locator('.skills-install-dialog');
-  await expect(consolidateSheet.getByText(join(root, 'codex-only'), { exact: true })).toBeVisible();
+  await consolidateSheet.getByText('View full paths', { exact: true }).click();
+  await expect(consolidateSheet.getByText(codexOnly, { exact: true })).toBeVisible();
+  await expect(consolidateSheet.getByText(sharedTree, { exact: true })).toBeVisible();
   await consolidateSheet.getByRole('button', { name: 'Consolidate', exact: true }).click();
   await expect(consolidateSheet.getByText('Consolidated', { exact: true })).toBeVisible();
   await consolidateSheet.locator('.skills-sheet-foot').getByRole('button', { name: 'Close', exact: true }).click();
   expect((await lstat(codexOnly)).isSymbolicLink()).toBe(true);
-  expect(await readlink(codexOnly)).toBe(await realpath(join(root, 'codex-only')));
-  const consolidated = (await manager()).installed.find((item: { name: string; scope: string }) => item.name === 'codex-only');
-  expect(consolidated.scope).toBe('global');
-  expect(consolidated.readBy).toContain('Codex');
+  expect(await readlink(codexOnly)).toBe(await realpath(join(sharedTree, 'codex-only')));
+  const sharedCopy = (await manager()).discovered.find((item: { name: string }) => item.name === 'codex-only');
+  expect(sharedCopy.inSharedDir).toBe(true);
+  expect((await manager()).installed.some((item: { name: string }) => item.name === 'codex-only')).toBe(false);
 
   // A Link install keeps one shared copy: the source edit is the entry's content.
   const linkedSource = join(instance.home, '.codex', 'skills', 'linked-demo');

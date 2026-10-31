@@ -1,3 +1,4 @@
+import { SkillMaintenance, rollbackMaintenance, type MaintenanceRoot } from "$lib/server/skills/maintenance.js";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -16,20 +17,26 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type {
   DesktopDiscoveredSkill,
+  DesktopSkillCheckUpdateRequest,
+  DesktopSkillCheckUpdateResult,
   DesktopSkillConsolidatePreflight,
   DesktopSkillConsolidateRequest,
   DesktopSkillConsolidateResult,
   DesktopSkillDiagnostic,
   DesktopSkillDistributeResult,
   DesktopSkillInstallResult,
+  DesktopSkillLocation,
   DesktopSkillManagerDetail,
   DesktopSkillManagerEntry,
   DesktopSkillManagerScope,
   DesktopSkillManagerSummary,
+  DesktopSkillMaintenanceRequest,
   DesktopSkillPlatform,
   DesktopSkillPlatformSaveRequest,
   DesktopSkillPreflightRequest,
   DesktopSkillPreflightResult,
+  DesktopSkillRemoveDiscoveredRequest,
+  DesktopSkillRemoveDiscoveredResult,
   DesktopSkillSourceView,
   DesktopSkillUninstallResult
 } from "$lib/shared/desktop.js";
@@ -158,6 +165,12 @@ function safeRealPath(path: string): string | null {
   }
 }
 
+/** Parent aliases identify the same entry; a link at the entry itself is separate. */
+function sameDirectoryEntry(left: string, right: string): boolean {
+  return basename(left) === basename(right)
+    && (safeRealPath(dirname(left)) ?? dirname(left)) === (safeRealPath(dirname(right)) ?? dirname(right));
+}
+
 /**
  * The unified Skill Manager.
  *
@@ -193,6 +206,20 @@ export class SkillManager {
       dataDir: this.options.dataDir,
       projects: this.options.projects()
     };
+  }
+
+  /**
+   * The cross-tool shared Skill tree. Molibot never loads it (Runtime has its
+   * own roots), but it is the canonical consolidation target: one copy that
+   * Claude Code, OpenCode, OpenClaw and friends all read.
+   */
+  private get sharedSkillsDir(): string {
+    return join(this.options.homeDir ?? homedir(), ".agents", "skills");
+  }
+
+  private isInSharedDir(realPath: string): boolean {
+    const root = safeRealPath(this.sharedSkillsDir) ?? this.sharedSkillsDir;
+    return isWithin(root, realPath);
   }
 
   // ── Platform configuration ────────────────────────────────────────────────
@@ -389,6 +416,38 @@ export class SkillManager {
       .sort((a, b) => a.localeCompare(b));
   }
 
+  /**
+   * Every filesystem entry that resolves to one physical Skill directory,
+   * across all configured tools. Shared roots mean the same path can serve
+   * several platforms, so entries are deduplicated by path.
+   */
+  private collectLocations(realDir: string, extraEntry?: string): DesktopSkillLocation[] {
+    const locations = new Map<string, DesktopSkillLocation>();
+    const add = (platformLabel: string, path: string): void => {
+      if (locations.has(path)) return;
+      let isLink = false;
+      let status: DesktopSkillLocation["status"] = "ok";
+      try {
+        isLink = lstatSync(path).isSymbolicLink();
+        status = existsSync(path) ? "ok" : "broken";
+      } catch {
+        status = "broken";
+      }
+      locations.set(path, { platformLabel, path, isLink, status });
+    };
+    for (const platform of this.effectivePlatforms()) {
+      const label = platform.kind === "preset" ? platformLabel(platform.id) : platform.label;
+      for (const root of resolvePlatformRoots(platform, this.scanContext())) {
+        for (const entry of this.scan(root.path).entries) {
+          if (entry.realDir !== realDir) continue;
+          add(label, entry.entryDir);
+        }
+      }
+    }
+    if (extraEntry) add("Molibot", extraEntry);
+    return [...locations.values()].sort((a, b) => a.path.localeCompare(b.path));
+  }
+
   // ── Overview ─────────────────────────────────────────────────────────────
 
   ensureRecovered(): void {
@@ -477,14 +536,10 @@ export class SkillManager {
       namesInScope.add(name);
       const record = this.reconcileManaged(records.get(item.entry.filePath) ?? this.adopt(item));
       const health = this.healthOf(item.entry, record, manifest.ok, disabled.has(item.entry.filePath));
-      const tree = record.managed && existsSync(item.entry.entryDir)
-        ? inspectSkillTree(item.entry.entryDir, { maxFiles: 600, maxTotalBytes: 24 * 1024 * 1024 })
-        : null;
-      if (record.managed && tree && tree.hash && tree.hash !== record.observedHash) {
-        record.observedHash = tree.hash;
-        record.updatedAt = this.iso();
-        this.store.upsertInstallation(record);
-      }
+      // The catalogue list must stay O(entries): hashing every file of every
+      // Skill here made each overview a full-tree walk of the whole library.
+      // Freshness (observedHash/localChanges/fileCount) is the detail view's
+      // job — installedDetail re-hashes the one Skill the owner opened.
       const builtin = record.scope === "global"
         ? builtins.find((candidate) => join(this.options.globalSkillsDir, candidate.id) === item.entry.entryDir) ?? null
         : null;
@@ -501,7 +556,7 @@ export class SkillManager {
         managed: record.managed,
         health,
         mcpServerCount: manifest.ok ? this.mcpCount(manifest.frontmatter) : 0,
-        fileCount: record.managed ? (tree?.fileCount ?? record.fileCount) : record.fileCount,
+        fileCount: record.fileCount,
         updatedAt: this.modifiedAt(item.entry.filePath),
         duplicateEntryCount: duplicateCounts.get(item.entry.realDir) ?? 1,
         readBy: this.readBy(item.entry.realDir, readership),
@@ -632,7 +687,7 @@ export class SkillManager {
         localInstall: true,
         distribute: true,
         uninstall: true,
-        updates: false
+        gitUpdate: this.hasGit()
       },
       targets: this.distributionTargets(),
       agents: this.listAgentIds().map((id) => ({
@@ -652,7 +707,8 @@ export class SkillManager {
     const grouped = new Map<string, {
       realDir: string;
       platforms: Set<string>;
-      entryCount: number;
+      entryDirs: Set<string>;
+      linkCount: number;
       name: string;
       description: string;
       health: "ok" | "invalid";
@@ -675,14 +731,20 @@ export class SkillManager {
           const current = grouped.get(key);
           if (current) {
             current.platforms.add(platform.id);
-            current.entryCount += 1;
+            // Shared roots mean several platforms read the same path; the
+            // counts must describe real entry points, not platform views.
+            if (!current.entryDirs.has(entry.entryDir)) {
+              current.entryDirs.add(entry.entryDir);
+              if (this.isLinkEntry(entry.entryDir)) current.linkCount += 1;
+            }
             if (!current.description && manifest.ok) current.description = manifest.description;
             continue;
           }
           grouped.set(key, {
             realDir: entry.realDir,
             platforms: new Set([platform.id]),
-            entryCount: 1,
+            entryDirs: new Set([entry.entryDir]),
+            linkCount: this.isLinkEntry(entry.entryDir) ? 1 : 0,
             name: manifest.ok ? manifest.name : basename(entry.entryDir),
             description: manifest.ok ? manifest.description : "",
             health: manifest.ok ? "ok" : "invalid",
@@ -707,17 +769,20 @@ export class SkillManager {
         sharedWith: this.readBy(group.realDir, readership).filter((label) => label !== platformLabel(platformId)),
         nameExists: namesInScope.has(group.name),
         conflict: namesInScope.has(group.name),
-        entryCount: group.entryCount,
+        duplicate: false,
+        linked: group.linkCount === group.entryDirs.size,
+        inSharedDir: this.isInSharedDir(group.realDir),
+        entryCount: group.entryDirs.size,
         health: group.health,
         updatedAt: group.updatedAt
       });
     }
-    // Same name, different real directory is a conflict the owner must resolve
-    // by comparing content, not a reason to hide one of them.
+    // Same name, different physical directory is a duplicate the owner must
+    // resolve by comparing content, not a reason to hide one of them.
     const nameGroups = new Map<string, number>();
     for (const item of discovered) nameGroups.set(item.name, (nameGroups.get(item.name) ?? 0) + 1);
     for (const item of discovered) {
-      if ((nameGroups.get(item.name) ?? 0) > 1) item.conflict = true;
+      if ((nameGroups.get(item.name) ?? 0) > 1) item.duplicate = true;
     }
     return discovered.sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -884,10 +949,11 @@ export class SkillManager {
     if (id.startsWith("builtin:")) return this.builtinPlaceholderDetail(id.slice("builtin:".length));
 
     if (id.startsWith("discovered:")) {
-      const overview = this.getOverview();
-      const item = overview.discovered.find((candidate) => candidate.id === id);
-      if (!item) throw new Error("Unknown Skill");
-      return this.discoveredDetail(item);
+      // Locate the entry directly: opening one external Skill must not pay for
+      // a full catalogue rescan of every configured platform root.
+      const entryDir = this.findDiscoveredDir(id);
+      if (!entryDir) throw new Error("Unknown Skill");
+      return this.discoveredDetail(id, entryDir);
     }
     throw new Error("Unknown Skill");
   }
@@ -924,6 +990,7 @@ export class SkillManager {
       builtin: { ...builtin, skillId: `builtin:${builtin.id}` },
       treeProblems: [],
       readBy: [],
+      locations: [],
       runtime: {
         loaded: false,
         reason: "missing",
@@ -1026,24 +1093,24 @@ export class SkillManager {
         path: problem.path
       })),
       readBy: this.readBy(realDir, this.readership()),
+      locations: this.collectLocations(realDir, record.entryDir),
       runtime: this.runtimeCheck(record)
     };
   }
 
-  private discoveredDetail(item: DesktopDiscoveredSkill): DesktopSkillManagerDetail {
-    const entryDir = this.findDiscoveredDir(item.id);
-    if (!entryDir) throw new Error("Unknown Skill");
+  private discoveredDetail(id: string, entryDir: string): DesktopSkillManagerDetail {
     const frontmatter = this.frontmatterRows(entryDir);
     const tree = inspectSkillTree(entryDir);
     const realDir = safeRealPath(entryDir) ?? entryDir;
+    const platform = this.discoveredPlatform(entryDir);
     return {
       kind: "discovered",
-      id: item.id,
+      id,
       name: frontmatter.name,
       description: frontmatter.description,
       scope: "external",
       ownerId: "",
-      ownerLabel: item.platformLabel,
+      ownerLabel: platform.label,
       enabled: false,
       method: "external",
       managed: false,
@@ -1056,11 +1123,11 @@ export class SkillManager {
       files: this.baseFiles(entryDir),
       mcpServers: this.mcpList(frontmatter.rows),
       version: frontmatter.version,
-      updatedAt: item.updatedAt,
+      updatedAt: this.modifiedAt(join(entryDir, "SKILL.md")),
       liveContent: true,
       source: {
         kind: "local",
-        label: item.platformLabel,
+        label: platform.label,
         commit: "",
         subdirectory: "",
         path: realDir
@@ -1074,6 +1141,7 @@ export class SkillManager {
         path: problem.path
       })),
       readBy: this.readBy(realDir, this.readership()),
+      locations: this.collectLocations(realDir),
       runtime: {
         loaded: false,
         reason: "not_loaded",
@@ -1082,17 +1150,25 @@ export class SkillManager {
     };
   }
 
-  private findDiscoveredDir(id: string): string | null {
+  private findDiscoveredEntries(id: string): Array<{ entryDir: string; realDir: string }> {
     const wanted = id.replace(/^discovered:/, "");
+    const found: Array<{ entryDir: string; realDir: string }> = [];
+    const seen = new Set<string>();
     for (const platform of this.effectivePlatforms()) {
       if (platform.id === "molibot" || !platform.enabled) continue;
       for (const root of resolvePlatformRoots(platform, this.scanContext())) {
         for (const entry of this.scan(root.path).entries) {
-          if (hashId(entry.realDir) === wanted) return entry.entryDir;
+          if (hashId(entry.realDir) !== wanted || seen.has(entry.entryDir)) continue;
+          seen.add(entry.entryDir);
+          found.push({ entryDir: entry.entryDir, realDir: entry.realDir });
         }
       }
     }
-    return null;
+    return found;
+  }
+
+  private findDiscoveredDir(id: string): string | null {
+    return this.findDiscoveredEntries(id)[0]?.entryDir ?? null;
   }
 
   /**
@@ -1718,8 +1794,8 @@ export class SkillManager {
    * into an external tool's folder is confirmed through this preflight.
    */
   preflightConsolidate(request: DesktopSkillConsolidateRequest): DesktopSkillConsolidatePreflight {
-    const source = this.resolveConsolidateSource(request);
-    const destination = this.resolveConsolidateDestination(request.destination);
+    const source = this.resolveConsolidateSource(request.id);
+    const destination = this.resolveConsolidateDestination();
     const conflicts: DesktopSkillConsolidatePreflight["conflicts"] = [];
 
     if (source.tree.problems.length > 0) {
@@ -1739,51 +1815,33 @@ export class SkillManager {
       conflicts.push({ code: "invalid_target", message: cause instanceof Error ? cause.message : String(cause), path: "" });
     }
 
-    const destinationRecord = destinationPath
-      ? this.store.getInstallationByEntry(join(destinationPath, "SKILL.md"))
-      : null;
     const destinationExists = destinationPath ? existsNoFollow(destinationPath) : false;
-    if (destinationExists) {
-      if (safeRealPath(destinationPath) === source.realDir) {
-        conflicts.push({
-          code: "already_consolidated",
-          message: "This Skill already lives in the destination folder.",
-          path: destinationPath
-        });
-      } else if (destinationRecord && !destinationRecord.managed) {
-        conflicts.push({
-          code: "external_content",
-          message: "Something Molibot does not manage already occupies the destination.",
-          path: destinationPath
-        });
-      } else if (!request.replaceDestination) {
-        conflicts.push({
-          code: "replace_required",
-          message: "The destination already holds content; confirm replacing it.",
-          path: destinationPath
-        });
-      }
+    const destinationTree = destinationExists ? inspectSkillTree(destinationPath) : null;
+    const identical = Boolean(destinationTree && destinationTree.problems.length === 0
+      && destinationTree.hash === source.tree.hash);
+    const sameEntry = Boolean(destinationPath && sameDirectoryEntry(source.entryDir, destinationPath));
+    const alreadyShared = destinationExists && sameEntry && !this.isLinkEntry(destinationPath);
+    if (sameEntry && request.sourceAction === "remove") {
+      conflicts.push({ code: "shared_entry_remove", message: "The original path is the shared entry itself, reached directly or through a parent link; removing it would remove the shared content.", path: source.entryDir });
+    } else if (destinationExists && !identical && !request.replaceDestination) {
+      conflicts.push({ code: "replace_required", message: "The destination already holds content; confirm replacing it.", path: destinationPath });
     }
-
-    let backLink: DesktopSkillConsolidatePreflight["backLink"] = null;
-    if (request.sourceAction === "link") {
-      const sourceRoot = safeRealPath(dirname(source.entryDir)) ?? dirname(source.entryDir);
-      const destinationRoot = safeRealPath(destination.root) ?? destination.root;
-      if (sourceRoot === destinationRoot) {
-        conflicts.push({
-          code: "same_root",
-          message: "The Skill already sits in the destination folder.",
-          path: source.entryDir
-        });
-      } else {
-        backLink = { path: source.entryDir, label: source.platformLabel };
-      }
-    }
+    const backLink: DesktopSkillConsolidatePreflight["backLink"] = request.sourceAction === "link" && !sameEntry
+      ? { path: source.entryDir, label: source.platformLabel } : null;
+    const parentPath = dirname(source.entryDir);
+    const parentLink = this.isLinkEntry(parentPath)
+      ? { path: parentPath, target: safeRealPath(parentPath) ?? parentPath } : null;
 
     const token = fingerprint({
       source: source.realDir,
+      sourceEntry: source.entryDir,
+      sourceParent: safeRealPath(parentPath),
       hash: source.tree.hash,
       destination: destinationPath,
+      destinationRealDir: destinationExists ? safeRealPath(destinationPath) : null,
+      destinationHash: destinationTree?.hash ?? null,
+      destinationProblems: destinationTree?.problems ?? [],
+      destinationIsLink: destinationExists && this.isLinkEntry(destinationPath),
       sourceAction: request.sourceAction,
       replaceDestination: request.replaceDestination
     });
@@ -1791,6 +1849,8 @@ export class SkillManager {
     return {
       ok: true,
       token,
+      alreadyShared,
+      parentLink,
       source: {
         name: source.name,
         path: source.entryDir,
@@ -1802,12 +1862,10 @@ export class SkillManager {
         totalBytes: source.tree.totalBytes
       },
       destination: {
-        kind: destination.kind,
         label: destination.label,
         root: destination.root,
         path: destinationPath,
-        exists: destinationExists,
-        managed: Boolean(destinationRecord?.managed)
+        exists: destinationExists
       },
       backLink,
       conflicts,
@@ -1829,7 +1887,6 @@ export class SkillManager {
         ok: false,
         status: "stale",
         message: "The source or destination changed after the preview. Review it again.",
-        id: "",
         destinationPath: preflight.destination.path,
         backupPath: ""
       };
@@ -1839,20 +1896,26 @@ export class SkillManager {
         ok: false,
         status: "failed",
         message: preflight.conflicts[0]?.message ?? "This consolidation has conflicts",
-        id: "",
         destinationPath: preflight.destination.path,
         backupPath: ""
       };
     }
 
-    const source = this.resolveConsolidateSource(request);
-    const destination = this.resolveConsolidateDestination(request.destination);
+    if (preflight.alreadyShared) {
+      return { ok: true, status: "already_shared", message: "This entry already reads the single shared copy. No files were moved or replaced.", destinationPath: preflight.destination.path, backupPath: "" };
+    }
+
+    const source = this.resolveConsolidateSource(request.id);
+    const destination = this.resolveConsolidateDestination();
     const destinationPath = preflight.destination.path;
-    const destinationRecord = this.store.getInstallationByEntry(join(destinationPath, "SKILL.md"));
     const operationId = randomUUID();
     const stagingPath = join(destination.root, `.staging-${operationId}`);
     let destinationBackup = "";
     let sourceBackup = "";
+    let destinationWritten = false;
+    const reuseDestination = existsNoFollow(destinationPath)
+      && !this.isLinkEntry(destinationPath)
+      && inspectSkillTree(destinationPath).hash === source.tree.hash;
 
     this.store.beginOperation({
       id: operationId,
@@ -1881,7 +1944,7 @@ export class SkillManager {
         }
         renameSync(sourceBackup, source.entryDir);
       }
-      if (existsNoFollow(destinationPath) && !destinationBackup) {
+      if (destinationWritten && existsNoFollow(destinationPath) && !destinationBackup) {
         if (this.isLinkEntry(destinationPath)) unlinkSync(destinationPath);
         else rmSync(destinationPath, { recursive: true, force: true });
       }
@@ -1892,50 +1955,25 @@ export class SkillManager {
     };
 
     try {
-      if (existsNoFollow(destinationPath)) {
-        destinationBackup = join(dirname(destinationPath), skillBackupName(basename(destinationPath)));
-        renameSync(destinationPath, destinationBackup);
+      if (!reuseDestination) {
+        // Read first: the destination may be a link back to the source.
+        copySkillTree({ sourceDir: source.entryDir, targetDir: stagingPath, inspection: source.tree });
+        if (existsNoFollow(destinationPath)) {
+          destinationBackup = join(dirname(destinationPath), skillBackupName(basename(destinationPath)));
+          renameSync(destinationPath, destinationBackup);
+        }
+        renameSync(stagingPath, destinationPath);
+        destinationWritten = true;
       }
-      copySkillTree({
-        sourceDir: source.entryDir,
-        targetDir: stagingPath,
-        inspection: source.tree
-      });
-      renameSync(stagingPath, destinationPath);
       const verification = inspectSkillEntry(destinationPath);
       if (!verification.ok) throw new Error(`The consolidated copy is not readable: ${verification.message}`);
-      const written = inspectSkillTree(destinationPath);
 
-      if (request.sourceAction !== "keep") {
+      if (request.sourceAction !== "keep" && !sameDirectoryEntry(source.entryDir, destinationPath)) {
         sourceBackup = join(dirname(source.entryDir), skillBackupName(basename(source.entryDir)));
         renameSync(source.entryDir, sourceBackup);
         if (request.sourceAction === "link") {
           symlinkSync(safeRealPath(destinationPath) ?? destinationPath, source.entryDir);
         }
-      }
-
-      const record = this.recordConsolidatedInstallation({
-        destinationPath,
-        destination,
-        previous: destinationRecord,
-        name: verification.name,
-        hash: written.hash,
-        fileCount: written.fileCount,
-        source
-      });
-
-      if (request.sourceAction === "link") {
-        this.store.upsertDistribution({
-          id: randomUUID(),
-          installationId: record.id,
-          targetPath: source.entryDir,
-          targetLabel: source.platformLabel,
-          platformId: source.platformId,
-          method: "link",
-          status: "active",
-          createdAt: this.iso(),
-          updatedAt: this.iso()
-        });
       }
 
       this.store.finishOperation(operationId, "committed", {
@@ -1950,7 +1988,6 @@ export class SkillManager {
           : request.sourceAction === "remove"
             ? `Moved ${verification.name} into ${destination.label}. The original entry was removed (a backup is kept).`
             : `Copied ${verification.name} into ${destination.label}. The original entry was left as its own copy.`,
-        id: record.id,
         destinationPath,
         backupPath: destinationBackup || sourceBackup
       };
@@ -1963,7 +2000,6 @@ export class SkillManager {
           ok: false,
           status: "failed",
           message: `${message}. The original entry was restored.`,
-          id: "",
           destinationPath,
           backupPath: ""
         };
@@ -1976,7 +2012,6 @@ export class SkillManager {
           ok: false,
           status: "failed",
           message: `${message}. Recovery material was kept; the original entry may still need attention.`,
-          id: "",
           destinationPath,
           backupPath: destinationBackup || sourceBackup
         };
@@ -1984,37 +2019,17 @@ export class SkillManager {
     }
   }
 
-  private resolveConsolidateSource(request: DesktopSkillConsolidateRequest): {
+  private resolveConsolidateSource(id: string): {
     entryDir: string;
     realDir: string;
     tree: SkillTreeInspection;
     name: string;
     platformId: string;
     platformLabel: string;
-    installation: SkillInstallationRecord | null;
   } {
-    if (request.sourceKind === "installation") {
-      const record = this.store.getInstallation(request.id);
-      if (!record) throw new Error("Unknown Skill");
-      if (!existsSync(record.entryDir)) throw new Error("The installed Skill is missing from disk");
-      const tree = inspectSkillTree(record.entryDir);
-      const manifest = inspectSkillEntry(record.entryDir);
-      const ownerLabel = record.scope === "project"
-        ? this.options.projects().find((project) => project.id === record.ownerId)?.name ?? record.ownerId
-        : record.scope === "agent"
-          ? this.options.getAgentLabel?.(record.ownerId) ?? record.ownerId
-          : "";
-      return {
-        entryDir: record.entryDir,
-        realDir: safeRealPath(record.entryDir) ?? record.entryDir,
-        tree,
-        name: manifest.ok ? manifest.name : record.skillName,
-        platformId: "molibot",
-        platformLabel: record.scope === "global" ? "Molibot" : ownerLabel || "Molibot",
-        installation: record
-      };
-    }
-    const entryDir = this.findDiscoveredDir(request.id);
+    const entries = this.findDiscoveredEntries(id);
+    const entryDir = entries.find((entry) => !this.isLinkEntry(entry.entryDir))?.entryDir
+      ?? entries[0]?.entryDir;
     if (!entryDir) throw new Error("The discovered Skill is no longer present");
     const tree = inspectSkillTree(entryDir);
     const manifest = inspectSkillEntry(entryDir);
@@ -2025,68 +2040,49 @@ export class SkillManager {
       tree,
       name: manifest.ok ? manifest.name : basename(entryDir),
       platformId: platform.id || "external",
-      platformLabel: platform.label,
-      installation: null
+      platformLabel: platform.label
     };
   }
 
-  private resolveConsolidateDestination(destination: DesktopSkillConsolidateRequest["destination"]): {
-    kind: DesktopSkillConsolidateRequest["destination"]["kind"];
-    root: string;
-    label: string;
-    scope: SkillScopeKind;
-    ownerId: string;
-  } {
-    if (destination.kind === "molibot-global") {
-      return { kind: destination.kind, root: this.options.globalSkillsDir, label: "Molibot global", scope: "global", ownerId: "" };
+  /**
+   * The one consolidation target: the cross-tool shared tree. Molibot-owned
+   * scopes are deliberately not targets — pushing a Skill to a specific tool
+   * is what distribute does.
+   */
+  private resolveConsolidateDestination(): { root: string; label: string } {
+    return { root: this.sharedSkillsDir, label: "the shared skills folder (~/.agents/skills)" };
+  }
+
+  maintenance(): SkillMaintenance {
+    this.recoverIncompleteOperations();
+    const roots: MaintenanceRoot[] = [];
+    for (const platform of this.effectivePlatforms()) {
+      for (const root of resolvePlatformRoots(platform, this.scanContext())) {
+        const project = this.options.projects().find((project) => project.id === root.ownerId);
+        roots.push({ path: root.path, label: platform.label,
+          scope: root.scope === "project" ? `project:${root.ownerId}` : "global",
+          destination: project ? join(project.rootPath, ".agents", "skills") : this.sharedSkillsDir,
+          writable: platform.writable });
+      }
     }
-    const project = this.options.projects().find((candidate) => candidate.id === destination.ownerId);
-    if (!project) throw new Error("Select a registered project for this destination");
-    return {
-      kind: destination.kind,
-      root: join(project.rootPath, ".agents", "skills"),
-      label: project.name,
-      scope: "project",
-      ownerId: project.id
-    };
+    for (const root of this.managedRoots()) {
+      roots.push({ path: root.root, label: root.ownerLabel || "Molibot", scope: root.scope === "global" ? "global" : `${root.scope}:${root.ownerId}`,
+        destination: root.scope === "global" ? this.sharedSkillsDir : root.scope === "project" ? root.root : "", writable: true });
+    }
+    return new SkillMaintenance(roots, this.store);
   }
 
-  private recordConsolidatedInstallation(input: {
-    destinationPath: string;
-    destination: { scope: SkillScopeKind; ownerId: string; label: string };
-    previous: SkillInstallationRecord | null;
-    name: string;
-    hash: string;
-    fileCount: number;
-    source: { platformId: string; platformLabel: string; realDir: string };
-  }): SkillInstallationRecord {
-    const sourceId = hashId(`source:consolidate:${input.source.realDir}`);
-    this.store.upsertSource({
-      id: sourceId,
-      kind: "local",
-      label: input.source.platformLabel,
-      locator: { path: input.source.realDir, platformId: input.source.platformId },
-      createdAt: this.iso()
-    });
-    const record: SkillInstallationRecord = {
-      id: input.previous?.id ?? randomUUID(),
-      skillName: input.name,
-      entryPath: join(input.destinationPath, "SKILL.md"),
-      entryDir: input.destinationPath,
-      method: "copy",
-      scope: input.destination.scope,
-      ownerId: input.destination.ownerId,
-      managed: true,
-      sourceId,
-      status: "ok",
-      baselineHash: input.hash,
-      observedHash: input.hash,
-      fileCount: input.fileCount,
-      installedAt: input.previous?.installedAt ?? this.iso(),
-      updatedAt: this.iso()
-    };
-    this.store.upsertInstallation(record);
-    return record;
+  applyMaintenance(request: DesktopSkillMaintenanceRequest, token: string) {
+    const result = this.maintenance().apply(request, token);
+    this.scanCache.clear();
+    if (result.ok) {
+      for (const installation of this.store.listInstallations()) {
+        if (!existsSync(installation.entryDir)) continue;
+        const method = this.isLinkEntry(installation.entryDir) ? "link" : "copy";
+        if (method !== installation.method) this.store.upsertInstallation({ ...installation, method, updatedAt: this.iso() });
+      }
+    }
+    return result;
   }
 
   // ── Enable / disable ──────────────────────────────────────────────────────
@@ -2333,6 +2329,151 @@ export class SkillManager {
     });
   }
 
+  // ── Discovered entries ────────────────────────────────────────────────────
+
+  /**
+   * Remove where other tools read a discovered Skill. A link entry is only
+   * unlinked, never its target; a real directory is renamed to a timestamped
+   * backup in place, never hard-deleted. Links are removed before real
+   * directories so nothing dangles mid-operation.
+   */
+  removeDiscovered(request: DesktopSkillRemoveDiscoveredRequest): DesktopSkillRemoveDiscoveredResult {
+    this.scanCache.clear();
+    const empty: DesktopSkillRemoveDiscoveredResult = { ok: false, message: "", removed: [], backups: [], brokenLinks: [] };
+    const group = this.findDiscoveredEntries(request.id);
+    if (group.length === 0) {
+      return { ...empty, message: "The discovered Skill is no longer present." };
+    }
+    const targets = request.entryDir
+      ? group.filter((entry) => entry.entryDir === request.entryDir)
+      : group;
+    if (targets.length === 0) {
+      return { ...empty, message: "That entry does not belong to the discovered Skill." };
+    }
+    const targetEntries = new Set(targets.map((entry) => entry.entryDir));
+    // Link vs copy is decided once, before any entry is removed: unlinking a
+    // link changes what a second lstat would report about the same path.
+    const plan = targets.map((entry) => ({ entryDir: entry.entryDir, isLink: this.isLinkEntry(entry.entryDir) }));
+    const removedRealDirs = new Set(
+      plan.filter((step) => !step.isLink).map((step) => group.find((entry) => entry.entryDir === step.entryDir)?.realDir ?? "").filter(Boolean)
+    );
+    // Sibling links in the same group that resolve into a removed real
+    // directory cannot survive it; report them instead of failing the removal.
+    const brokenLinks = group
+      .filter((entry) => !targetEntries.has(entry.entryDir) && this.isLinkEntry(entry.entryDir) && removedRealDirs.has(entry.realDir))
+      .map((entry) => entry.entryDir);
+
+    const operationId = randomUUID();
+    this.store.beginOperation({
+      id: operationId,
+      kind: "uninstall",
+      status: "pending",
+      targetPath: targets[0].entryDir,
+      stagingPath: "",
+      backupPath: "",
+      payload: { discovered: true, entries: targets.map((entry) => entry.entryDir) },
+      error: "",
+      createdAt: this.iso(),
+      updatedAt: this.iso()
+    });
+
+    const removed: DesktopSkillRemoveDiscoveredResult["removed"] = [];
+    const backups: string[] = [];
+    try {
+      for (const step of plan) {
+        if (!step.isLink) continue;
+        unlinkSync(step.entryDir);
+        removed.push({ path: step.entryDir, kind: "link" });
+      }
+      for (const step of plan) {
+        if (step.isLink) continue;
+        const backup = join(dirname(step.entryDir), skillBackupName(basename(step.entryDir)));
+        renameSync(step.entryDir, backup);
+        removed.push({ path: step.entryDir, kind: "copy" });
+        backups.push(backup);
+      }
+      this.store.finishOperation(operationId, "committed", { backupPath: backups[0] ?? "" });
+      const links = removed.filter((entry) => entry.kind === "link").length;
+      const copies = removed.length - links;
+      const parts = [
+        links ? `${links} link${links === 1 ? "" : "s"} unlinked` : "",
+        copies ? `${copies} folder${copies === 1 ? "" : "s"} backed up` : ""
+      ].filter(Boolean);
+      return {
+        ok: true,
+        message: `${parts.join(", ") || "Nothing to remove"}.${backups.length ? ` Backups: ${backups.join(", ")}` : ""}${
+          brokenLinks.length ? ` ${brokenLinks.length} link(s) now point at removed content.` : ""
+        }`,
+        removed,
+        backups,
+        brokenLinks
+      };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      this.store.finishOperation(operationId, "failed", { error: message, backupPath: backups[0] ?? "" });
+      return { ...empty, message: `${message} Some entries may already have been removed; rescan to see the current state.` };
+    }
+  }
+
+  // ── Updates ───────────────────────────────────────────────────────────────
+
+  /**
+   * Compare a Git-installed Skill against its source repository. The pinned
+   * commit's tree for the Skill subdirectory is compared with the tree HEAD
+   * points at now, so unrelated upstream commits do not read as an update.
+   */
+  checkUpdate(request: DesktopSkillCheckUpdateRequest): DesktopSkillCheckUpdateResult {
+    const record = this.store.getInstallation(request.id);
+    if (!record) throw new Error("Unknown Skill");
+    const source = record.sourceId ? this.store.getSource(record.sourceId) : null;
+    if (!source || source.kind !== "git" || !source.locator.remote || !source.locator.commit) {
+      throw new Error("Only Skills installed from a Git repository can check for updates");
+    }
+    const repository = resolve(source.locator.remote);
+    const subdirectory = source.locator.subdir ?? "";
+    const localChanges = Boolean(
+      existsSync(record.entryDir) && inspectSkillTree(record.entryDir).hash !== record.baselineHash
+    );
+    const revParse = (expr: string): string => {
+      try {
+        return execFileSync("git", ["-C", repository, "rev-parse", expr], {
+          stdio: ["ignore", "pipe", "pipe"]
+        }).toString("utf8").trim();
+      } catch {
+        return "";
+      }
+    };
+    const currentCommit = source.locator.commit;
+    const currentTree = revParse(`${currentCommit}:${subdirectory}`);
+    const latestCommit = revParse("HEAD^{commit}");
+    const latestTree = latestCommit ? revParse(`${latestCommit}:${subdirectory}`) : "";
+    if (!currentTree || !latestCommit || !latestTree) {
+      return {
+        ok: false,
+        message: "Could not read the source repository; it may have moved or the Skill subdirectory may be gone.",
+        repository: source.locator.remote,
+        subdirectory,
+        currentCommit,
+        latestCommit,
+        hasUpdate: false,
+        localChanges
+      };
+    }
+    const hasUpdate = currentTree !== latestTree;
+    return {
+      ok: true,
+      message: hasUpdate
+        ? "An update is available in the source repository."
+        : "The installed Skill matches the source repository.",
+      repository: source.locator.remote,
+      subdirectory,
+      currentCommit,
+      latestCommit,
+      hasUpdate,
+      localChanges
+    };
+  }
+
   // ── Operations ────────────────────────────────────────────────────────────
 
   /**
@@ -2346,6 +2487,11 @@ export class SkillManager {
   recoverIncompleteOperations(): void {
     for (const operation of this.store.listPendingOperations()) {
       try {
+        if (operation.kind === "maintenance") {
+          rollbackMaintenance(operation.payload);
+          this.store.finishOperation(operation.id, "recovered", { error: "Interrupted maintenance was recovered. Reversible changes were rolled back; backup cleanup may already have completed. Rescan before retrying." });
+          continue;
+        }
         if (operation.kind === "consolidate") {
           const sourceEntryPath = String(operation.payload.sourceEntryPath ?? "");
           const sourceBackup = sourceEntryPath
@@ -2389,8 +2535,24 @@ export class SkillManager {
 
   // ── File preview ──────────────────────────────────────────────────────────
 
+  /**
+   * Resolve only the directory a Skill id points at. Previewing one file must
+   * not build the full detail projection (tree hash, readership, locations),
+   * and it must never trigger a whole-catalogue rescan.
+   */
+  private resolveSkillBaseDir(id: string): string {
+    const record = this.store.getInstallation(id);
+    if (record) return record.entryDir;
+    if (id.startsWith("builtin:")) return join(this.options.globalSkillsDir, id.slice("builtin:".length));
+    if (id.startsWith("discovered:")) {
+      const entryDir = this.findDiscoveredDir(id);
+      if (!entryDir) throw new Error("Unknown Skill");
+      return entryDir;
+    }
+    throw new Error("Unknown Skill");
+  }
+
   readFile(id: string, relativePath: string): { content: string; truncated: boolean; binary: boolean } {
-    const detail = this.getDetail(id);
-    return readSkillFileContent(detail.baseDir, relativePath);
+    return readSkillFileContent(this.resolveSkillBaseDir(id), relativePath);
   }
 }
