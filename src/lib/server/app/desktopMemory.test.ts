@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import type { MemoryBackendCapabilities } from "$lib/server/memory/types";
-import { buildDesktopMemorySummary, desktopAgentMemoryScope, desktopAgentMemoryRecords } from "./desktopMemory";
+import { buildDesktopMemorySummary, desktopAgentMemoryScope, desktopAgentMemoryRecords, readDesktopHomeMemoryReview } from "./desktopMemory";
 
 function caps(overrides: Partial<MemoryBackendCapabilities> = {}): MemoryBackendCapabilities {
   return {
@@ -64,4 +64,20 @@ test("Agent memory records exclude other Agents, conversations, content and unau
   const scope = { agentId: "researcher", botId: "researcher", channel: "web", externalUserId: "desktop-agent-memory", ownerId: "owner", shareOwner: false };
   assert.deepEqual(desktopAgentMemoryRecords(scope, records).map(item => item.namespace), ["agent:researcher"]);
   assert.deepEqual(desktopAgentMemoryRecords({ ...scope, shareOwner: true }, records).map(item => item.namespace), ["agent:researcher", "owner:owner"]);
+});
+
+test("home memory review uses the saved sharing scope and reports bounded or unavailable data honestly", () => {
+  const settings = { defaultAgentId: "researcher", agents: [{ id: "researcher", shareOwnerMemory: false }] } as unknown as RuntimeSettings;
+  let namespaces: string[] = [];
+  const memory = { listReviewCandidates: (scope: string[], limit: number) => {
+    namespaces = scope;
+    assert.equal(limit, 11);
+    return Array.from({ length: 11 }, (_, index) => ({ id: String(index), sources: [] })) as unknown as import("$lib/server/memory/types").MemoryCandidate[];
+  } };
+  assert.equal(readDesktopHomeMemoryReview(settings, memory).hasMore, true);
+  assert.deepEqual(namespaces, ["agent:researcher"]);
+  settings.agents[0].shareOwnerMemory = true;
+  assert.equal(readDesktopHomeMemoryReview(settings, memory).items.length, 10);
+  assert.deepEqual(namespaces, ["agent:researcher", "owner:owner"]);
+  assert.deepEqual(readDesktopHomeMemoryReview(settings, { listReviewCandidates: () => { throw new Error("unavailable"); } }), { items: [], hasMore: false, unavailable: true });
 });

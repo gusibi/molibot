@@ -75,6 +75,7 @@
 - **#31** 定向操作看目标 id 的结果，不看总数；显式重连不继承后台吞错。
 - **#32** 飞书按钮两段式：先回处理中卡片，再按 `open_message_id` 更新结果，失败发文本回执。
 - **#35** transcript 存在、未来上下文、会话搜索、记忆资格是四件事，所有投影都查共享保留策略。
+- **#77** 同一记忆抽取流程的多种触发共用增量进度；分批游标只覆盖实际处理的连续范围。
 - **#36** 文档导出读回校验后再改名；`delivery=text` 语义统一；离线传输必须 reject。
 - **#42** 复制回调先核对每个自由变量；`tsc` 看新增错误。
 - **#49** scratch 产物的 `relativePath` 从 `scratchBase` 计算（含日期段）。
@@ -158,6 +159,8 @@ an approved Host Bash command can execute from two places — inside the run (`b
 ## 13. Desktop settings invalidation
 
 (fixed 3+ times): Settings and Chat share one WebView, so a successful Provider/Agent/Profile/model mutation must publish the shared same-document settings event; do not rely on `BroadcastChannel` for local cache freshness. A consumer that is connecting or already refreshing must retain one pending refresh and replay it after settlement instead of dropping the event. An event only reaches mounted consumers: mutually exclusive Settings sections cannot depend on hearing each other's save event, so a section that projects another section's mutable records must refresh on every entry instead of trusting an endpoint-keyed cache. Guard both the real save → Chat selector seam and Provider save → re-enter Models seam whenever a settings mutation changes model options.
+
+首页轮询恢复也属于数据失效：一次失败后重新读到活动状态，必须立即刷新交接投影，不能继续等待正常的 30 秒节流，否则已恢复的服务仍显示旧内容并禁用审批或记忆确认。守卫：`tests/ui/agent-home.spec.ts` 的记忆审核用例模拟中断和恢复，要求不切换页面即可重新操作。
 
 ## 14. User cancellation is not an error, and Stop is not a queue reset
 
@@ -415,3 +418,7 @@ webview 源是 Tauri 自定义协议、sidecar API 在 `http://127.0.0.1:<port>`
 ## 76. 行级键盘操作不能截获子控件
 
 会话管理的行处理器曾拦截子按钮冒泡的空格键，阻止默认按钮激活并误切换行选择。行级快捷键先核对 `event.target === event.currentTarget`，子控件保留原生键盘操作。守卫：`session-management-polish.spec.ts` 在真实页面聚焦“查看”并按空格，确认打开预览且选择不变；纯 store 选择测试没有经过 DOM 事件冒泡路径。
+
+## 77. 多触发抽取共享进度，游标不能越过未处理范围
+
+空闲抽取和每日反思各自维护进度时，同一段消息会被重复送模；分批只发送前 80 条却把游标推进到整段末尾，还会永久漏掉后续消息。共享入口统一筛选、抽取、写入和进度，触发器只指定范围与调度方式；提交成功后只推进到实际处理批次的末尾，失败保留已有成功游标。守卫：`memoryExtraction.test.ts` 验证单会话/全部互操作、并发、分批和旧进度迁移；`app/memoryRuntime.test.ts` 通过正式每日事件入口核对模型调用次数。

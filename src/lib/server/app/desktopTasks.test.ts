@@ -349,3 +349,12 @@ test("task ids resolve to server-side paths and reject unknown ids", () => {
   assert.throws(() => resolveDesktopOneShotTaskPaths([source], [id]), /Unknown one-shot task/);
   assert.equal(resolveDesktopTaskPaths([source, reminder], [reminderId]).get(reminderId), reminder.filePath);
 });
+
+test("system reflection result preserves committed memory counts", () => {
+  const result = buildDesktopSystemTaskExecution({
+    status: "completed", startedAt: "2026-11-01T00:00:00Z", attempt: 1, maxAttempts: 1,
+    result: { kind: "memory-reflection", completedTargets: 1, scannedConversations: 4, scannedMessages: 20, createdCandidates: 3, committedMemories: 2 }
+  } as Parameters<typeof buildDesktopSystemTaskExecution>[0]);
+  assert.equal(result.result?.kind, "memory-reflection");
+  if (result.result?.kind === "memory-reflection") assert.equal(result.result.committedMemories, 2);
+});

@@ -1,6 +1,6 @@
 # Personal Assistant Capability Matrix
 
-Last verified: 2026-10-29
+Last verified: 2026-10-31
 
 This file is the single current-status source for Molibot's work/life assistant capabilities. `prd.md` sections below the current-status banner are design and delivery history: their old status wording must not be used to create new work. `features.md` and `CHANGELOG.md` remain delivery logs, not backlogs.
 
@@ -19,8 +19,9 @@ This file is the single current-status source for Molibot's work/life assistant 
 |---|---|---|---|
 | Personal Agent | Agent 为中心的导航与稳定 Session 身份 | 已交付 | 2026-10-10：[V1 需求](personal-agent-experience-v1.md) 已实施，固定执行身份、按 Bot 绑定自动关联历史及 Momo/global 身份归一、授权记忆、生命周期和 Desktop 导航已验证；[验证记录](../work/progress/personal-agent-desktop-v1/progress.md) 说明隔离预览及原生验证边界。2026-10-21 按定稿规则完成执行身份收敛、准入模式、删除三态与结构化阻塞、外部认领落盘、记忆范围判别、桌面客户端身份收口（草稿显式 Agent ID、服务端 `canExecute` 与排序、重启恢复上次助手页面）与启动归属核对（冲突只诊断）。证据：定向 369 + 134 项、Desktop 536 项、源码守卫 317 项、浏览器 UI 13 项（WebKit `@navigation` 7 + Chromium `@smoke` 6），类型检查 0 错误 0 警告。**2026-10-22 owner 验收通过**（原生窗口与外部渠道按 owner 确认；自动项同日于合并工作区复跑 425 + 3 项通过）。 |
 | Personal Agent | 首页交接（Agent Handover） | 已交付 | 2026-10-23：V1 交付 `PA-HD1`–`PA-HD10`、`PA-HD12`、`PA-HD13`。默认 Agent 首页显示交接投影，其他 Agent 保持开始对话；窗口在离开首页时写入 `lastAcknowledgedAt`，待决定项不受窗口约束；计数与条目、排序、去重只在 `desktopHandover` 读模型一处定义；审批按 `requestId` 与源会话共享状态并可重复处理；Host Bash、Durable/Plan 审批与等待中的 Session 运行都带来源；上一代快照只保留一份。证据：读模型 13 项（含 Durable 审批行 ID/版本与跨来源去重、失败归类与截断、交付结果预览、等待运行标题与残留过滤）、`GET/POST /api/desktop/handover` 4 项（含窗口、上一代、导航写入不丢字段、审批幂等、Plan 首批准入、来源会话删除后条目与审批一并失效）、cron 下次触发 3 项、设置整对象 round-trip 与 sanitizer 4 项、WebKit `agent-home.spec.ts` 15 项（含中英、明暗、窄窗、服务中断、繁忙日信息密度、新窗口进交接、等待行直达来源会话、跨天分组、方向键与聚焦预览）；交接区圆角、表面与控件全部走主题 token，已在 macOS/Windows 98/System 6/Terminal/Brutalism/Rosé Pine/Cyberpunk 明暗与窄窗截图核对。边界：`PA-HD11`（Open Loop）按方案未进入 V1；模型润色未实现（V1 默认关闭，不提供开启入口）；普通对话运行没有步骤级进度，条目只显示任务摘要与时长；散落产物没有统一索引。交接内审批分派有独立用例 4 项，Durable 审批按审批行 ID 走工具审批桥接，失败原因在首页可见（2026-10-24 修正）。`pnpm verify:feature`（本机磁盘不足，全量用例 ENOSPC）与原生 App 复核未执行。 |
+| Personal Agent | 工作首页成果展示（Issue #68） | 部分交付 | 2026-11-01 增量：首页独立读取任务页的最新执行记录（排除 Project），保留其他助手与系统任务结果，不受交接已读窗口影响；按执行 ID 展开正文，记忆整理显示扫描、候选与已保存数量，计划显示状态与步骤进度并进入原计划页，带文件回执的成果复用原文件预览。技能草稿单独进入记忆中心，替换/争议候选显示核对提示；接下来展示最近三项调度。验证：相关服务端 61 项通过，Desktop svelte-check 无错误或警告，根 TypeScript 检查通过；首页 22 项回归中的布局问题已修正，布局、记忆审核与执行读取 3 项定向复测通过。边界：任务文件已删除后的长期成果索引、旧记忆逐项对照、直接定位计划行与原生验收尚未完成。 2026-11-01：保留现有身份、运行与业务入口，按成果／决定在上、输入／快捷起点／单行最近对话在下布局；首页支持个人与当前助手候选的来源、确认、编辑后确认及忽略，复用原候选库与记忆动作。候选独立于交接时间窗，版本冲突、断连和恢复有定向验证（服务端 46 项、首页及关联导航 WebKit 23 项）；主题消费共享 token，macOS 明暗、Rosé Pine、Brutalism 零圆角和 Terminal 窄窗已隔离走查。 2026-10-31：交付方可在 Runtime Task 上声明 `briefing`／`topic-proposals`／`document`／`generic` 阅读描述，共享完成路径随本次结果保存并写入投递回执；读模型校验长度、集合与链接后，主区展示简报重点与来源、推荐选题、文档摘要或真实通用文本。同一任务只显示最新期次，重试不复制，开放决定保留；待决定显示目标与操作范围；执行概览显示结果与真实下一步；生成与投递状态分开。证据：定向服务端 57 项（含读模型、完成路径、任务工具、交接 API 与事件）、WebKit `agent-home.spec.ts` 20 项（新增用例连续 5 次通过），类型检查与构建通过。边界：真实生成流程尚未自动产出专用阅读描述，需交付方在任务上声明；产物预览、渲染内“稍后处理”、完整单元 C 验收、原生 Tauri 与全量 `pnpm verify:feature` 未执行。 |
 | Personal Agent | 授权事项的持续跟进与交付 | 未开始 | [三阶段 PRD](proactive-assistant-v1-spec.md)，2026-10-18 方案修订，待实施评审（未批准排期）。现有反思、Runtime Task 和渠道按钮只是复用基础，不证明跟进闭环已交付。 |
-| Personal Agent | 记忆的用户可见、纠正与删除 | 未开始 | 记忆作用域与授权已交付，但用户尚无入口查看、纠正或删除 Agent 记住的内容。未批准排期。 |
+| Personal Agent | 记忆的用户可见、纠正与删除 | 部分交付 | 2026-11-01：首页可查看个人及当前助手待确认候选，按来源确认、编辑后确认或忽略，并进入原记忆中心。候选审核的生产 API 和隔离 UI 已验证；不以本次首页交付宣称所有记忆删除、隐私治理与原生 App 场景已验收。 |
 | Personal Agent | 跨渠道连续性 | 未开始 | V1 明确不做跨渠道续聊；外部渠道历史在 Desktop 只读。未批准排期。 |
 | Personal Agent | Agent 人设对行为影响的可验证性 | 未开始 | 身份在导航与执行层已固定，但不同 Agent 在语气与行为上确实不同，尚无评测证明。未批准排期。 |
 | Personal Agent | 个人场景端到端验收（如日程简报、事项跟进、记忆纠错） | 未开始 | 现有 golden-set 覆盖运行时能力，不覆盖个人助理场景。未批准排期。 |

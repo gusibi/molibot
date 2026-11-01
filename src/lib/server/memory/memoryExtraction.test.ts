@@ -15,7 +15,7 @@ function statePort(initial: Record<string, MemoryExtractionState> = {}): MemoryE
 }
 
 function message(id: string, role: "user" | "assistant", createdAt: string, content = "内容") {
-  return { id, role, content, createdAt } as never;
+  return { id, conversationId: "session-1", role, content, createdAt };
 }
 
 function session(overrides: Partial<MemoryExtractionSession> = {}): MemoryExtractionSession {
@@ -35,6 +35,10 @@ function session(overrides: Partial<MemoryExtractionSession> = {}): MemoryExtrac
 function harness(options: {
   messages: ReturnType<typeof message>[];
   session?: MemoryExtractionSession;
+  sessions?: MemoryExtractionSession[];
+  legacyWatermarks?: () => string[];
+  pendingReviewCandidates?: () => string[];
+  read?: (id: string) => ReturnType<typeof message>[];
   now?: Date;
   relatedMemories?: (scope: never, messages: Array<{ id: string; role: string; content: string; createdAt: string }>) => Promise<Array<{ subject: string; value: string }>>;
   extract?: (input: {
@@ -51,9 +55,11 @@ function harness(options: {
   const store = statePort();
   const writeResult: MemoryWriteResult = { committed: ["memory-1"], proposals: [], skipped: 0, failures: [] };
   const service = new MemoryExtractionService({
-    listSessions: () => ({ items: [options.session ?? session()], total: 1 }),
-    listMessages: () => options.messages as never,
+    listSessions: () => ({ items: options.sessions ?? [options.session ?? session()], total: options.sessions?.length ?? 1 }),
+    listMessages: (id) => options.read ? options.read(id) : options.messages,
     store,
+    legacyWatermarks: options.legacyWatermarks,
+    pendingReviewCandidates: options.pendingReviewCandidates,
     writer: {
       write: async (_scope, items, _sources, runKey) => {
         writes.push({ items, runKey });
@@ -263,4 +269,153 @@ test("no useful information advances the watermark without writing", async () =>
   assert.equal(result.failed, 0);
   assert.equal(h.writes.length, 0);
   assert.equal(h.store.get("session-1")?.processedThroughId, "m2");
+});
+
+
+test("single-session and daily all-session selection share the same watermark", async () => {
+  const h = harness({
+    sessions: [session(), session({ conversationId: "session-2" })],
+    messages: [message("m1", "user", "2026-10-25T09:58:00.000Z"), message("m2", "assistant", "2026-10-25T09:58:30.000Z")]
+  });
+  const single = await h.service.runSweep({ conversationId: "session-1" });
+  assert.equal(single.attempted, 1);
+  assert.equal(h.store.get("session-2"), null);
+  const daily = await h.service.runSweep({ mode: "daily" });
+  assert.equal(daily.attempted, 1);
+  assert.equal(h.calls.length, 2);
+  assert.equal((await h.service.runSweep()).attempted, 0);
+});
+
+test("daily selection includes external sessions and is not limited to three sessions", async () => {
+  const h = harness({
+    sessions: Array.from({ length: 5 }, (_, i) => session({ conversationId: `external-${i}`, source: "external", channel: "telegram" })),
+    messages: [message("u", "user", "2026-10-25T09:58:00.000Z"), message("a", "assistant", "2026-10-25T09:58:30.000Z")]
+  });
+  assert.equal((await h.service.runSweep({ mode: "daily" })).attempted, 5);
+  assert.equal((await h.service.runSweep()).attempted, 0);
+});
+
+test("daily extraction waits for an in-flight idle extraction instead of skipping or repeating it", async () => {
+  let release!: () => void;
+  let started!: () => void;
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const barrier = new Promise<void>((resolve) => { release = resolve; });
+  const h = harness({
+    messages: [message("u", "user", "2026-10-25T09:58:00.000Z"), message("a", "assistant", "2026-10-25T09:58:30.000Z")],
+    extract: async () => { started(); await barrier; return { noUsefulInformation: true }; }
+  });
+  const idle = h.service.runSweep({ conversationId: "session-1" });
+  await entered;
+  let dailyDone = false;
+  const daily = h.service.runSweep({ mode: "daily" }).then((result) => { dailyDone = true; return result; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(dailyDone, false);
+  release();
+  await idle;
+  assert.equal((await daily).attempted, 0);
+  assert.equal(h.calls.length, 1);
+});
+
+test("bounded batches advance only through messages actually extracted", async () => {
+  const messages = [message("m0", "user", "2026-10-25T09:50:00.000Z"), message("m1", "assistant", "2026-10-25T09:50:01.000Z")];
+  const h = harness({ messages });
+  await h.service.runSweep();
+  for (let i = 2; i < 164; i++) messages.push(message(`m${i}`, i % 2 === 0 ? "user" : "assistant", "2026-10-25T09:58:30.000Z"));
+  await h.service.runSweep();
+  assert.equal(h.store.get("session-1")?.processedThroughId, "m81");
+  await h.service.runSweep({ mode: "daily" });
+  assert.equal(h.store.get("session-1")?.processedThroughId, "m163");
+  assert.deepEqual(h.calls.slice(1).flatMap((call) => call.messages.map((m) => m.id)), messages.slice(2).map((m) => m.id));
+});
+
+
+test("legacy daily checkpoint is imported without changing or replaying the old store", async () => {
+  const h = harness({
+    messages: [message("u", "user", "2026-10-25T09:58:00.000Z"), message("a", "assistant", "2026-10-25T09:58:30.000Z")],
+    legacyWatermarks: () => ["2026-10-25T09:58:30.000Z:a"]
+  });
+  assert.equal((await h.service.runSweep({ mode: "daily" })).attempted, 0);
+  assert.equal(h.store.get("session-1")?.processedThroughId, "a");
+  assert.equal(h.calls.length, 0);
+});
+
+test("daily review includes idle proposals even when the transcript has no new messages", async () => {
+  const h = harness({
+    messages: [message("u", "user", "2026-10-25T09:58:00.000Z"), message("a", "assistant", "2026-10-25T09:58:30.000Z")],
+    pendingReviewCandidates: () => ["idle-proposal"]
+  });
+  await h.service.runSweep();
+  const daily = await h.service.runSweep({ mode: "daily" });
+  assert.equal(daily.attempted, 0);
+  assert.deepEqual(daily.pendingReviewCandidateIds, ["idle-proposal"]);
+});
+
+test("daily target filtering never broadens the authorized Agent, Bot or chat", async () => {
+  const h = harness({
+    sessions: [session(), session({ conversationId: "foreign-agent", agentId: "other" }), session({ conversationId: "foreign-chat", ownerExternalUserId: "other" }), session({ conversationId: "foreign-bot", botId: "other" })],
+    messages: [message("u", "user", "2026-10-25T09:58:00.000Z"), message("a", "assistant", "2026-10-25T09:58:30.000Z")]
+  });
+  const result = await h.service.runSweep({ mode: "daily", target: { ownerId: "owner", botId: "default", agentId: "default", sourceScopes: [{ channel: "web", externalUserId: "web:default:chat" }] } });
+  assert.equal(result.attempted, 1);
+  assert.equal(h.store.get("foreign-agent"), null);
+  assert.equal(h.store.get("foreign-chat"), null);
+  assert.equal(h.store.get("foreign-bot"), null);
+});
+
+
+test("migration keeps the furthest successful checkpoint across old idle and daily stores", async () => {
+  const h = harness({
+    messages: [message("u1", "user", "2026-10-25T09:57:00.000Z"), message("a1", "assistant", "2026-10-25T09:57:30.000Z"), message("u2", "user", "2026-10-25T09:58:00.000Z"), message("a2", "assistant", "2026-10-25T09:58:30.000Z")],
+    legacyWatermarks: () => ["2026-10-25T09:58:30.000Z:a2"]
+  });
+  h.store.set("session-1", { processedThroughId: "a1", revision: "old", updatedAt: "2026-10-25T09:57:30.000Z", attempts: 0 });
+  assert.equal((await h.service.runSweep({ mode: "daily" })).attempted, 0);
+  assert.equal(h.store.get("session-1")?.processedThroughId, "a2");
+  assert.equal(h.calls.length, 0);
+});
+
+test("aborting extraction after model output never writes or advances the checkpoint", async () => {
+  const controller = new AbortController();
+  const h = harness({
+    messages: [message("u", "user", "2026-10-25T09:58:00.000Z"), message("a", "assistant", "2026-10-25T09:58:30.000Z")],
+    extract: async () => { controller.abort(new Error("stop")); return { noUsefulInformation: true }; }
+  });
+  await assert.rejects(h.service.runSweep({ mode: "daily", signal: controller.signal }), /stop/);
+  assert.equal(h.store.get("session-1"), null);
+  assert.equal(h.writes.length, 0);
+});
+
+test("missing extraction payload cannot masquerade as no useful information", async () => {
+  const h = harness({
+    messages: [message("u", "user", "2026-10-25T09:58:00.000Z"), message("a", "assistant", "2026-10-25T09:58:30.000Z")],
+    extract: async () => ({})
+  });
+  assert.equal((await h.service.runSweep({ mode: "daily" })).failed, 1);
+  assert.equal(h.store.get("session-1")?.processedThroughId, "");
+});
+
+
+test("one exchange longer than the batch limit still progresses without dropping messages", async () => {
+  const messages = [message("u0", "user", "2026-10-25T09:58:00.000Z"), message("a0", "assistant", "2026-10-25T09:58:30.000Z")];
+  const h = harness({ messages });
+  await h.service.runSweep();
+  for (let i = 1; i <= 81; i++) messages.push(message(`u${i}`, "user", "2026-10-25T09:58:30.000Z"));
+  messages.push(message("last", "assistant", "2026-10-25T09:58:30.000Z"));
+  assert.equal((await h.service.runSweep({ mode: "daily" })).failed, 0);
+  assert.equal(h.calls[1].messages.length, 82);
+  assert.equal(h.store.get("session-1")?.processedThroughId, "last");
+});
+
+
+test("one unreadable Session fails without preventing extraction of its siblings", async () => {
+  const messages = [message("u", "user", "2026-10-25T09:58:00.000Z"), message("a", "assistant", "2026-10-25T09:58:30.000Z")];
+  const h = harness({ messages, sessions: [session(), session({ conversationId: "session-2" })], read: (id) => {
+    if (id === "session-1") throw new Error("transcript unavailable");
+    return messages;
+  } });
+  const result = await h.service.runSweep({ mode: "daily" });
+  assert.equal(result.failed, 1);
+  assert.equal(result.committed, 1);
+  assert.equal(h.store.get("session-1")?.processedThroughId, "");
+  assert.equal(h.store.get("session-2")?.processedThroughId, "a");
 });

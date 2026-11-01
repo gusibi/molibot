@@ -6403,8 +6403,8 @@ test("new conversation centers the real composer above compact suggestions and f
   assert.match(view, /agentHomeSessions\.filter\(\(item\) => !handoverSessionIds\.has\(item\.sessionId\)\)[\s\S]*?\.slice\(0, 4\)/);
   assert.match(view, /floating=\{!draftMode\}/);
   const standardHome = home.slice(home.indexOf('{:else}\n  <section class="agent-home"'));
-  assert.ok(standardHome.indexOf("{@render composer()}") < standardHome.indexOf('class="agent-home-tasks"'));
-  assert.ok(standardHome.indexOf('class="agent-home-tasks"') < standardHome.indexOf("{@render recentConversations(true)}"));
+  assert.ok(standardHome.indexOf("{@render composer()}") < standardHome.indexOf("{@render quickStarts()}"));
+  assert.ok(standardHome.indexOf("{@render quickStarts()}") < standardHome.indexOf("{@render recentConversations(true)}"));
   assert.doesNotMatch(home, /agent-home-description|agent-home-task-hint/);
   assert.match(view, /class="chat-start-page"[\s\S]*?{:else}\s*<ChatMessagesPane/);
 });

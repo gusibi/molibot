@@ -401,6 +401,87 @@ export type DesktopHandoverDetailCode =
   | "run_budget"
   | "other";
 
+/**
+ * What a delivery is for reading. The deliverer declares the type and its
+ * bounded content; the runtime adds the period, run and time. `generic` is the
+ * first-class fallback for an ordinary text result, never a guessed type.
+ */
+export type DesktopDeliveryDisplayType = "briefing" | "topic-proposals" | "document" | "generic";
+
+export interface DesktopDeliverySourceReference {
+  label: string;
+  /** Only http(s) links survive projection; a source without one stays text. */
+  url?: string;
+}
+
+export interface DesktopBriefingHighlight {
+  title: string;
+  takeaway: string;
+  sources?: DesktopDeliverySourceReference[];
+}
+
+export interface DesktopBriefingDisplay {
+  type: "briefing";
+  title: string;
+  introduction?: string;
+  /** At most three; the page does not invent a fourth. */
+  highlights: DesktopBriefingHighlight[];
+  /** Optional body preview; the exact source document is opened from the item. */
+  bodyPreview?: string;
+  artifactPath?: string;
+}
+
+export interface DesktopTopicCandidate {
+  id: string;
+  title: string;
+  angle: string;
+  rationale?: string;
+  outline?: string[];
+  materials?: string[];
+  sources?: DesktopDeliverySourceReference[];
+}
+
+export interface DesktopTopicProposalsDisplay {
+  type: "topic-proposals";
+  title: string;
+  /** Only when the deliverer explicitly ranked one candidate. */
+  recommendedCandidateId?: string;
+  candidates: DesktopTopicCandidate[];
+}
+
+export interface DesktopDocumentDisplay {
+  type: "document";
+  title: string;
+  summary?: string;
+  artifactPath?: string;
+}
+
+export interface DesktopGenericDisplay {
+  type: "generic";
+  title?: string;
+  summary?: string;
+  artifactPath?: string;
+}
+
+export type DesktopDeliveryDisplay =
+  | DesktopBriefingDisplay
+  | DesktopTopicProposalsDisplay
+  | DesktopDocumentDisplay
+  | DesktopGenericDisplay;
+
+/**
+ * Delivery is reported separately from generation. Missing evidence stays
+ * `unknown`; a completed run is not the same claim as a delivery receipt.
+ */
+export type DesktopDeliveryState = "delivered" | "failed" | "unknown" | "not_required";
+
+export interface DesktopDeliveryReceipt {
+  status: DesktopDeliveryState;
+  channel?: string;
+  at?: string;
+  detail?: string;
+}
+
 export interface DesktopHandoverItem {
   id: string;
   kind: DesktopHandoverItemKind;
@@ -411,6 +492,8 @@ export interface DesktopHandoverItem {
   channel?: string;
   runId?: string;
   taskId?: string;
+  /** The planned trigger slot this result belongs to; retries share one period. */
+  periodSlot?: string;
   /** User-authored task text or the run's message preview; never model prose. */
   title: string;
   /** Error summary for a failure, or the delivered result of a task. */
@@ -419,9 +502,14 @@ export interface DesktopHandoverItem {
   detailCode?: DesktopHandoverDetailCode;
   /** What the run actually delivered, when the session still has it. */
   resultPreview?: string;
+  /** Typed reading surface declared by the deliverer, validated by the read model. */
+  display?: DesktopDeliveryDisplay;
+  delivery?: DesktopDeliveryReceipt;
   durationMs?: number;
   /** Attempts including retries; only set for task executions. */
   attempts?: number;
+  /** The task's real next run, when the scheduler knows one. */
+  nextRunAt?: string;
 }
 
 export type DesktopHandoverPendingKind = "approval" | "decision" | "plan" | "run";
@@ -452,6 +540,14 @@ export interface DesktopHandoverPending {
   planId?: string;
   /** Options for a decision or the two plan approval modes. */
   options?: string[];
+  /** The relier's own goal, available from the plan execution when one exists. */
+  goal?: string;
+  /** What the action covers, e.g. an approval's summary. */
+  scope?: string;
+  /** The deliverer's recommendation, only when the source provides one. */
+  recommendation?: string;
+  /** A real deadline from the source; never inferred from age. */
+  deadline?: string;
   /** False when this surface cannot resolve the item in place (e.g. channel-only approval). */
   actionable: boolean;
 }
@@ -493,7 +589,16 @@ export interface DesktopHandoverSnapshot {
   itemCount: number;
   pendingCount: number;
   counts: DesktopHandoverCounts;
-  items: Array<Omit<DesktopHandoverItem, "detail">>;
+  items: Array<Omit<DesktopHandoverItem, "detail" | "display">>;
+}
+
+/** Pending personal/Agent candidates, independent of the handover event window. */
+export interface DesktopHomeMemoryReview {
+  skillDraftCount?: number;
+  skillDraftHasMore?: boolean;
+  items: DesktopMemoryCandidate[];
+  hasMore: boolean;
+  unavailable: boolean;
 }
 
 export interface DesktopHandover {
@@ -503,7 +608,9 @@ export interface DesktopHandover {
   counts: DesktopHandoverCounts;
   items: DesktopHandoverItem[];
   pending: DesktopHandoverPending[];
+  memoryReview?: DesktopHomeMemoryReview;
   nextScheduled?: DesktopHandoverNextScheduled;
+  nextScheduledItems?: DesktopHandoverNextScheduled[];
   /** Replies the user already saw on another channel; one aggregate only. */
   crossChannel?: DesktopHandoverCrossChannel;
   /** The frozen previous generation, only while a quick return can still use it. */
@@ -736,7 +843,7 @@ export interface DesktopTaskSessionMessage {
 }
 
 export type DesktopSystemTaskExecutionResult =
-  | { kind: "memory-reflection"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdCandidates: number }
+  | { kind: "memory-reflection"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdCandidates: number; committedMemories?: number }
   | { kind: "daily-materials"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdFiles: string[] };
 
 export interface DesktopSystemTaskExecution {
@@ -2700,7 +2807,10 @@ export interface DesktopMemoryProfile {
 }
 
 export interface DesktopMemoryCandidate {
+  supersedesMemoryId?: string;
+  disputesMemoryId?: string;
   id: string;
+  confirmedMemoryId?: string;
   status: "pending" | "confirmed" | "ignored" | "edited-then-confirmed";
   namespace: string;
   domain: "owner" | "project" | "agent_self" | "content";
@@ -2724,7 +2834,7 @@ export interface DesktopMemoryCandidate {
 }
 
 export type DesktopMemoryAction = "profile" | "restore-state" | "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "forget" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
-export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; agentId?: string; channel?: string; userId?: string; botId?: string; ownerId?: string; conversationId?: string; projectId?: string; includeOwner?: boolean; includeAgentSelf?: boolean; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
+export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; expectedUpdatedAt?: string; agentId?: string; channel?: string; userId?: string; botId?: string; ownerId?: string; conversationId?: string; projectId?: string; includeOwner?: boolean; includeAgentSelf?: boolean; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
 export interface DesktopMemoryActionResponse { ok: true; profile?: DesktopMemoryProfile; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
 export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }

@@ -254,3 +254,44 @@ test("runtimeTask rejects reminders and non-project invariants inside a project 
     rmSync(projectEventsDir, { recursive: true, force: true });
   }
 });
+
+test("runtimeTask saves a validated delivery display with the task", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runtime-display-"));
+  try {
+    const tool = makeTool(workspaceDir);
+    const created = resultJson(await tool.execute("create-display", {
+      action: "create",
+      type: "periodic",
+      name: "briefing",
+      schedule: "0 8 * * *",
+      timezone: "Asia/Shanghai",
+      text: "Write the morning briefing",
+      display: {
+        type: "briefing",
+        title: "Morning briefing",
+        highlights: [{ title: "Invoices", takeaway: "Three are due today.", sources: [{ label: "Ledger", url: "https://example.com/ledger" }] }]
+      }
+    }));
+    const taskId = String((created.task as { taskId: string }).taskId);
+    const persisted = readOnlyEvent(workspaceDir);
+    assert.equal(persisted.display?.type, "briefing");
+    assert.equal(readOnlyEvent(workspaceDir).display?.type === "briefing" ? readOnlyEvent(workspaceDir).display?.title : "", "Morning briefing");
+
+    await tool.execute("update-display", {
+      action: "update",
+      taskId,
+      patch: {
+        display: { type: "document", title: "Briefing archive", summary: "One file per day." }
+      }
+    });
+    assert.equal(readOnlyEvent(workspaceDir).display?.type, "document");
+
+    await assert.rejects(() => tool.execute("bad-display", {
+      action: "update",
+      taskId,
+      patch: { display: { type: "briefing", title: "" } }
+    }), /display must be a valid/);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});

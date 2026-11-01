@@ -9,6 +9,7 @@ import { PlanService } from "$lib/server/agent/plans/service.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { readDesktopHandover, type HandoverTaskInput } from "$lib/server/app/desktopHandover.js";
 import type { DesktopHandoverResponse } from "$lib/shared/desktop.js";
+import { readDesktopHomeMemoryReview } from "$lib/server/app/desktopMemory.js";
 import { GET as listTasks } from "../../settings/tasks/+server.js";
 
 /**
@@ -45,7 +46,8 @@ export const GET: RequestHandler = async () => {
       onOrphanedApproval: (requestId) => { runtime.hostBashStore.expirePending(requestId); },
       plans: new PlanService(),
       coordinator: new DurableExecutionCoordinator(),
-      tasks: taskPayload.items ?? []
+      tasks: taskPayload.items ?? [],
+      memoryReview: () => readDesktopHomeMemoryReview(runtime.getSettings(), runtime.memory)
     });
     const payload: DesktopHandoverResponse = { ok: true, handover };
     return json(payload, { headers: { "Cache-Control": "no-store" } });

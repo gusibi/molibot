@@ -206,7 +206,8 @@ function projectSystemTaskResult(value: unknown): DesktopSystemTaskExecutionResu
       completedTargets: executionCount(result.completedTargets),
       scannedConversations: executionCount(result.scannedConversations),
       scannedMessages: executionCount(result.scannedMessages),
-      createdCandidates: executionCount(result.createdCandidates)
+      createdCandidates: executionCount(result.createdCandidates),
+      ...(typeof result.committedMemories === "number" ? { committedMemories: executionCount(result.committedMemories) } : {})
     };
   }
   if (result.kind === "daily-materials") {

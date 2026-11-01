@@ -21,6 +21,7 @@ export interface InternalTaskExecutionResult {
   scannedConversations?: number;
   scannedMessages?: number;
   createdCandidates?: number;
+  committedMemories?: number;
   createdFiles?: string[];
   archivedCount?: number;
   dormantCount?: number;

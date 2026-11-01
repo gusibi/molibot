@@ -451,3 +451,147 @@ test("A promised delivery is still the only result when an ad-hoc reply is newer
 
   assert.deepEqual(handover.items.map((item) => item.taskId ?? "ad-hoc"), ["task-promise"]);
 });
+
+test("A typed briefing is validated and reaches the page with its source links", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      leases: [lease({
+        result: {
+          text: "Morning briefing delivered",
+          display: {
+            type: "briefing",
+            title: "Three things worth your attention",
+            introduction: "A short read for today.",
+            highlights: [{
+              title: "Agent reliability",
+              takeaway: "Clear completion criteria mattered more than model choice.",
+              sources: [
+                { label: "Research note", url: "https://example.com/research" },
+                { label: "Unsafe", url: "javascript:alert(1)" }
+              ]
+            }]
+          }
+        }
+      })]
+    })
+  });
+
+  const display = handover.items[0]?.display;
+  assert.equal(display?.type, "briefing");
+  assert.equal(display?.title, "Three things worth your attention");
+  assert.equal(display && display.type === "briefing" ? display.highlights.length : 0, 1);
+  assert.deepEqual(
+    display && display.type === "briefing" ? display.highlights[0]?.sources : undefined,
+    [{ label: "Research note", url: "https://example.com/research" }, { label: "Unsafe" }],
+    "only http(s) links survive; the label itself stays readable"
+  );
+});
+
+test("A malformed display never hides the real delivered text", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      leases: [lease({
+        result: {
+          text: "The actual delivered answer",
+          display: { type: "briefing", title: "", highlights: [{ title: "A" }] }
+        }
+      })]
+    })
+  });
+
+  const item = handover.items[0];
+  assert.equal(item?.display, undefined);
+  assert.equal(item?.resultPreview, "The actual delivered answer");
+});
+
+test("One task shows its latest period, not one card per scheduled day", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      leases: [
+        lease({ id: "older", runId: "run-older", triggerSlot: "2026-10-21T08:00", finishedAt: "2026-10-21T08:01:00.000Z" }),
+        lease({ id: "newer", runId: "run-newer", triggerSlot: "2026-10-22T08:00", finishedAt: "2026-10-22T08:01:00.000Z" })
+      ],
+      pending: [pending()]
+    })
+  });
+
+  assert.equal(handover.items.length, 1, "a daily task contributes one current result");
+  assert.equal(handover.items[0]?.id, "task:newer");
+  assert.equal(handover.items[0]?.periodSlot, "2026-10-22T08:00");
+  assert.equal(handover.pending.length, 1, "an open decision survives a new period");
+});
+
+test("Delivery evidence is reported separately from successful generation", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      leases: [
+        lease({
+          id: "external",
+          runId: "run-external",
+          channel: "feishu",
+          result: {
+            text: "Sent to Feishu",
+            delivery: { status: "delivered", channel: "feishu", at: "2026-10-22T07:01:00.000Z" }
+          }
+        }),
+        lease({ id: "in-app", runId: "run-in-app", taskId: "task-2", result: { text: "Available here" } })
+      ]
+    })
+  });
+
+  assert.equal(handover.items.find((item) => item.id === "task:external")?.delivery?.status, "delivered");
+  assert.equal(handover.items.find((item) => item.id === "task:in-app")?.delivery, undefined, "no receipt is not a delivery claim");
+  assert.equal(handover.items.find((item) => item.id === "task:in-app")?.resultPreview, "Available here");
+});
+
+test("The execution row carries the real next scheduled run by task identity", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      leases: [lease()],
+      schedules: [schedule({ taskId: "task-1", at: "2026-10-24T08:00:00.000Z" })]
+    })
+  });
+
+  assert.equal(handover.items[0]?.nextRunAt, "2026-10-24T08:00:00.000Z");
+  assert.equal(handover.nextScheduled?.taskId, "task-1");
+});
+
+test("an independent one-shot run keeps its own identity instead of being folded into the latest period", () => {
+  const handover = buildDesktopHandover({
+    now: NOW,
+    settings: settings(),
+    evidence: evidence({
+      leases: [
+        lease({ id: "first", runId: "run-first", eventType: "one-shot", triggerSlot: "2026-10-22T07:00", finishedAt: "2026-10-22T07:01:00.000Z" }),
+        lease({ id: "second", runId: "run-second", eventType: "one-shot", triggerSlot: "2026-10-22T09:00", finishedAt: "2026-10-22T09:01:00.000Z" })
+      ]
+    })
+  });
+
+  assert.deepEqual(handover.items.map((item) => item.id), ["task:second", "task:first"]);
+});
+
+test("a failed memory source keeps the home actionable without inventing a zero pending count", () => {
+  const review = { items: [], hasMore: false, unavailable: true };
+  const handover = buildDesktopHandover({ now: NOW, settings: settings(), evidence: evidence({ memoryReview: review }) });
+  assert.equal(handover.state, "active");
+  assert.equal(handover.memoryReview?.unavailable, true);
+  assert.equal(handover.items.length, 0);
+});
+
+test("home exposes the next three schedules in chronological order", () => {
+  const schedules = [4, 1, 3, 2].map(hour => schedule({ title: `Task ${hour}`, at: new Date(NOW.getTime() + hour * 3600000).toISOString() }));
+  const home = buildDesktopHandover({ now: NOW, settings: settings(), evidence: evidence({ schedules }) });
+  assert.deepEqual(home.nextScheduledItems?.map(item => item.title), ["Task 1", "Task 2", "Task 3"]);
+  assert.equal(home.nextScheduled?.title, "Task 1");
+});

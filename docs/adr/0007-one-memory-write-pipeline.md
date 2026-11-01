@@ -17,7 +17,7 @@ One extraction pipeline feeds one writer.
 - Sensitive facts become proposals and wait for review.
 - Maintenance (dedupe, import sync, embedding backfill) runs as a background job and leaves the model-facing tool surface.
 
-Nightly consolidation remains, but only for cross-session inference and cleanup; it is no longer the primary path for ordinary facts.
+Idle extraction and daily reflection use the same incremental entry point, extractor, writer and per-Session checkpoint. A conversation filter selects one Session; the daily trigger visits all eligible Sessions to catch up and then runs maintenance. Daily reflection does not run a separate cross-session inference pass. This trigger contract was updated on 2026-11-01.
 
 ## Consequences
 

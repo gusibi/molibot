@@ -194,16 +194,29 @@ export class MemoryCandidateStore {
     return row ? parseRow(row) : null;
   }
 
-  list(status?: MemoryCandidateStatus, limit = 200): MemoryCandidate[] {
+  list(status?: MemoryCandidateStatus, limit = 200, offset = 0): MemoryCandidate[] {
     const safeLimit = Math.max(1, Math.min(1000, Math.round(limit)));
+    const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
     const rows = status
-      ? this.db.prepare("SELECT * FROM memory_candidates WHERE status = ? ORDER BY created_at DESC LIMIT ?").all(status, safeLimit)
-      : this.db.prepare("SELECT * FROM memory_candidates WHERE status != 'confirming' ORDER BY created_at DESC LIMIT ?").all(safeLimit);
+      ? this.db.prepare("SELECT * FROM memory_candidates WHERE status = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?").all(status, safeLimit, safeOffset)
+      : this.db.prepare("SELECT * FROM memory_candidates WHERE status != 'confirming' ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?").all(safeLimit, safeOffset);
     return (rows as CandidateRow[]).map(parseRow).sort((left, right) =>
       (right.occurrenceCount ?? 1) - (left.occurrenceCount ?? 1)
       || right.confidence - left.confidence
       || right.updatedAt.localeCompare(left.updatedAt)
     );
+  }
+
+  /** Filter in storage before bounding the result; unrelated namespaces cannot crowd out reviewable items. */
+  listReviewCandidates(namespaces: string[], limit = 11, skills = false): MemoryCandidate[] {
+    if (!namespaces.length) return [];
+    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+    const rows = this.db.prepare(`SELECT * FROM memory_candidates
+      WHERE status = 'pending'
+        AND json_extract(payload_json, '$.namespace') IN (${namespaces.map(() => "?").join(",")})
+        AND ${skills ? "json_extract(payload_json, '$.skillDraftSuggestion') IS NOT NULL" : "json_extract(payload_json, '$.type') != 'skill' AND json_extract(payload_json, '$.skillDraftSuggestion') IS NULL"}
+      ORDER BY created_at DESC, id DESC LIMIT ?`).all(...namespaces, safeLimit);
+    return (rows as CandidateRow[]).map(parseRow);
   }
 
   reserveConfirmation(id: string): MemoryCandidate | null {

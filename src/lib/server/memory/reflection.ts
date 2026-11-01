@@ -4,9 +4,9 @@ import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { Channel, ConversationMessage } from "$lib/shared/types/message.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
-import type { MemoryCandidateCreateInput, MemoryRecord, MemoryScope } from "$lib/server/memory/types.js";
-import { MemoryCandidateValidationError, type MemoryGateway } from "$lib/server/memory/gateway.js";
-import { agentNamespace, chatNamespace, contentNamespace, ownerNamespace, projectNamespace } from "$lib/server/memory/namespaces.js";
+import type { MemoryScope } from "$lib/server/memory/types.js";
+import type { MemoryGateway } from "./gateway.js";
+import type { MemoryExtractionService, MemoryExtractionTarget } from "./memoryExtraction.js";
 import { decodeExternalSessionId, listExternalSessionsFromContexts, readExternalTranscriptFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
 import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 import { listAuthorizedConversationSources } from "$lib/server/sessions/conversationAuthorization.js";
@@ -15,12 +15,8 @@ export interface ReflectionSourceScope extends MemoryScope {
   projectId?: string;
 }
 
-export interface ReflectionTarget {
-  ownerId: string;
-  botId: string;
-  agentId?: string;
+export interface ReflectionTarget extends MemoryExtractionTarget {
   timezone: string;
-  sourceScopes: ReflectionSourceScope[];
 }
 
 export interface ReflectionMessage extends ConversationMessage {
@@ -39,35 +35,6 @@ export interface ReflectionSourceProjection {
 export interface ReflectionSourceReader {
   read(target: ReflectionTarget, localDate: string): Promise<ReflectionSourceProjection[]>;
 }
-
-export interface ReflectionExtractor {
-  extract(input: {
-    target: ReflectionTarget;
-    runKey: string;
-    localDate: string;
-    projection: ReflectionSourceProjection;
-    relatedMemories: ReflectionRelatedMemory[];
-    signal?: AbortSignal;
-  }): Promise<ReflectionExtractedCandidate[]>;
-}
-
-export interface ReflectionRelatedMemory {
-  ref: `R${number}`;
-  namespace: NonNullable<MemoryRecord["namespace"]>;
-  domain: NonNullable<MemoryRecord["domain"]>;
-  type: NonNullable<MemoryRecord["type"]>;
-  subject: string;
-  path: string;
-  summary: string;
-  record: MemoryRecord;
-}
-
-export type ReflectionExtractedCandidate = Omit<MemoryCandidateCreateInput, "runKey" | "fingerprint" | "sources" | "path"> & {
-  sources?: MemoryCandidateCreateInput["sources"];
-  path?: string;
-  supersedesRef?: string;
-  disputesRef?: string;
-};
 
 type WatermarkRow = { watermark: string };
 
@@ -252,136 +219,51 @@ export interface ReflectionRunResult {
   scannedConversations: number;
   scannedMessages: number;
   createdCandidates: number;
+  committedMemories: number;
   pendingReviewCandidateIds: string[];
 }
 
-export class MemoryReflectionService {
-  constructor(
-    private readonly gateway: MemoryGateway,
-    private readonly reader: ReflectionSourceReader,
-    private readonly state: ReflectionStateStore,
-    private readonly extractor: ReflectionExtractor
-  ) {}
+/** Daily scheduling adapter over the same incremental pipeline used by idle Sessions. */
+export async function runMemoryReflection(
+  extraction: MemoryExtractionService,
+  options: { timezone: string; target?: ReflectionTarget; now?: Date; signal?: AbortSignal }
+): Promise<ReflectionRunResult> {
+  const localDate = reflectionLocalDate(options.now ?? new Date(), options.timezone);
+  const targetId = options.target ? reflectionTargetId(options.target) : "owner";
+  const result = await extraction.runSweep({ mode: "daily", target: options.target, signal: options.signal });
+  const outcome = {
+    targetId, runKey: `${targetId}:${localDate}`, localDate,
+    scannedConversations: result.scanned,
+    scannedMessages: result.scannedMessages,
+    createdCandidates: result.proposals,
+    committedMemories: result.committed,
+    pendingReviewCandidateIds: result.pendingReviewCandidateIds
+  };
+  if (result.failed > 0) throw new MemoryReflectionError(result.failed, outcome);
+  return outcome;
+}
 
-  async run(target: ReflectionTarget, options: { now?: Date; signal?: AbortSignal } = {}): Promise<ReflectionRunResult> {
-    const localDate = previousReflectionLocalDate(options.now ?? new Date(), target.timezone);
-    const targetId = reflectionTargetId(target);
-    const runKey = `${targetId}:${localDate}`;
-    const projections = await this.reader.read(target, localDate);
-    let scannedMessages = 0;
-    let createdCandidates = 0;
-    const pendingReviewCandidateIds = new Set<string>();
-    for (const projection of projections) {
-      if (options.signal?.aborted) throw options.signal.reason ?? new Error("Reflection aborted.");
-      scannedMessages += projection.messages.length;
-      const query = projection.messages.filter((message) => message.role === "user").map((message) => message.content).join("\n").slice(0, 4_000);
-      const relatedRows = await this.gateway.search({
-        ...projection.scope,
-        ownerId: target.ownerId,
-        botId: target.botId,
-        agentId: target.agentId
-      }, { query, mode: "hybrid", limit: 12 });
-      const relatedMemories: ReflectionRelatedMemory[] = relatedRows
-        .filter((record): record is MemoryRecord & { namespace: NonNullable<MemoryRecord["namespace"]>; domain: NonNullable<MemoryRecord["domain"]>; type: NonNullable<MemoryRecord["type"]>; subject: string; path: string } =>
-          Boolean(record.namespace && record.domain && record.type && record.subject && record.path)
-        )
-        .map((record, index) => ({
-          ref: `R${index + 1}` as const,
-          namespace: record.namespace,
-          domain: record.domain,
-          type: record.type,
-          subject: record.subject,
-          path: record.path,
-          summary: record.content.replace(/\s+/g, " ").trim().slice(0, 180),
-          record
-        }));
-      const relatedByRef = new Map(relatedMemories.map((memory) => [memory.ref, memory]));
-      const extracted = await this.extractor.extract({ target, runKey, localDate, projection, relatedMemories, signal: options.signal });
-      if (options.signal?.aborted) throw options.signal.reason ?? new Error("Reflection aborted.");
-      for (const item of extracted) {
-        const relationRef = item.supersedesRef || item.disputesRef;
-        const related = relationRef ? relatedByRef.get(relationRef as `R${number}`) : undefined;
-        if (relationRef && !related) continue;
-        if (item.supersedesRef && related && item.type !== related.type) continue;
-        const equivalent = relatedMemories.find((memory) => memory.record.content.replace(/\s+/g, " ").trim().toLocaleLowerCase() === item.value.replace(/\s+/g, " ").trim().toLocaleLowerCase());
-        if (equivalent) {
-          // Same durable fact mentioned again: reinforce the confirmed memory
-          // instead of silently dropping the repetition. Best-effort — a failed
-          // reinforcement must not block sibling candidates or the watermark.
-          try {
-            await this.gateway.reinforceMemory({ ...projection.scope, ownerId: target.ownerId, botId: target.botId, agentId: target.agentId }, equivalent.record.id);
-          } catch {
-            // ignore
-          }
-          continue;
-        }
-        const sourceMessages = projection.messages.filter((message) =>
-          message.role === "user" || (item.type === "skill" && message.role === "assistant")
-        );
-        // Source identity is runtime-owned evidence. Never trust an extractor to
-        // invent a message id or claim a successful execution from another run.
-        const sources = sourceMessages.map((message) => ({
-          channel: message.channel,
-          sessionId: message.sessionId,
-          conversationMessageId: message.id,
-          platformMessageId: message.platformMessageId,
-          observedAt: message.createdAt
-        }));
-        try {
-          const candidate = item.supersedesRef && related ? {
-            ...item,
-            namespace: related.namespace,
-            domain: related.domain,
-            type: related.type,
-            subject: related.subject,
-            path: related.path,
-            supersedesMemoryId: related.record.id
-          } : item.disputesRef && related ? { ...item, disputesMemoryId: related.record.id } : item;
-          const { supersedesRef: _supersedesRef, disputesRef: _disputesRef, ...candidateInput } = candidate;
-          const candidateWrite = {
-            ...candidateInput,
-            namespace: target.agentId ? recommendedCandidateNamespace(target, projection.scope, candidateInput.domain) : candidateInput.namespace,
-            path: candidateInput.path || `mory://${candidateInput.type}/${candidateInput.subject}`,
-            runKey,
-            sources
-          };
-          const created = target.agentId
-            ? this.gateway.createScopedCandidate({ ...projection.scope, ownerId: target.ownerId, botId: target.botId, agentId: target.agentId }, candidateWrite)
-            : this.gateway.createCandidate(candidateWrite);
-          if (created) {
-            createdCandidates += 1;
-            const finalCandidate = await this.gateway.maybeAutoConfirmCandidate(created.id);
-            if (finalCandidate?.status === "pending") pendingReviewCandidateIds.add(created.id);
-          }
-        } catch (cause) {
-          // LLM extraction is untrusted; one malformed candidate must not block
-          // valid siblings or replay the whole projection on the next run.
-          if (!(cause instanceof MemoryCandidateValidationError)) throw cause;
-        }
-      }
-      if (options.signal?.aborted) throw options.signal.reason ?? new Error("Reflection aborted.");
-      const last = projection.messages.at(-1);
-      if (last) this.state.set(targetId, projection.conversationId, `${last.createdAt}:${last.id}`, runKey);
-    }
-    return {
-      targetId,
-      runKey,
-      localDate,
-      scannedConversations: projections.length,
-      scannedMessages,
-      createdCandidates,
-      pendingReviewCandidateIds: [...pendingReviewCandidateIds]
-    };
+export class MemoryReflectionError extends Error {
+  constructor(readonly failedSessions: number, readonly result: ReflectionRunResult) {
+    super(`Memory extraction failed or is backing off for ${failedSessions} Session(s).`);
+    this.name = "MemoryReflectionError";
   }
 }
 
-export function recommendedCandidateNamespace(target: ReflectionTarget, scope: ReflectionSourceScope, domain: MemoryCandidateCreateInput["domain"]): MemoryCandidateCreateInput["namespace"] {
-  if (domain === "owner") return ownerNamespace(target.ownerId);
-  if (domain === "project") return projectNamespace({ ...scope, ownerId: target.ownerId }) ?? chatNamespace(scope);
-  if (domain === "agent_self") {
-    const agentId = String(target.agentId ?? scope.agentId ?? "").trim();
-    if (!agentId) throw new Error("Agent-scoped reflection requires an Agent identity (agent_self).");
-    return agentNamespace(agentId);
+
+/** Pending proposals can originate from idle extraction; transcript progress must not hide them from daily review. */
+export function pendingMemoryReviewCandidates(
+  memory: Pick<MemoryGateway, "listCandidates">,
+  sessionIds: ReadonlySet<string>
+): string[] {
+  const ids = new Set<string>();
+  const limit = 1000;
+  for (let offset = 0; ; offset += limit) {
+    const page = memory.listCandidates("pending", limit, offset);
+    for (const candidate of page) {
+      if (candidate.sources.some((source) => source.sessionId && sessionIds.has(source.sessionId))) ids.add(candidate.id);
+    }
+    if (page.length < limit) break;
   }
-  return contentNamespace(target.botId);
+  return [...ids];
 }

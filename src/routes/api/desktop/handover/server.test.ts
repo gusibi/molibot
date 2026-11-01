@@ -281,3 +281,41 @@ test("an in-app chat reply stays out of results while other channels collapse in
   assert.equal(payload.handover.crossChannel?.count, 2);
   assert.deepEqual(payload.handover.crossChannel?.channels, ["feishu", "weixin"]);
 });
+
+test("home memory review survives ack and uses real confirmation, edit, ignore and stale-state checks", async () => {
+  runtime.updateSettings({ plugins: { ...runtime.settings.plugins, memory: { ...runtime.settings.plugins.memory, enabled: true } } });
+  const { POST: MEMORY } = await import("../memory/+server.js");
+  const conversation = runtime.sessions.createWebConversation("web:personal:web-anonymous", undefined, "default");
+  const message = runtime.sessions.appendMessage(conversation.id, "user", "Please put the conclusion first in reports.");
+  const make = (subject: string) => runtime.memory.createCandidate({
+    namespace: "owner:owner", domain: "owner", type: "user_preference", subject,
+    path: `mory://user_preference/${subject}`, value: `For ${subject}, present conclusions before supporting evidence.`,
+    confidence: 0.9, reason: "Explicit user preference", layer: "long_term",
+    sources: [{ channel: "web", sessionId: conversation.id, conversationMessageId: message.id }]
+  })!;
+  const first = make("home_review_first");
+  const second = make("home_review_second");
+  assert.ok(first && second);
+  await acknowledge();
+  const before = await readHandover();
+  assert.ok(before.handover.memoryReview.items.some((item: any) => item.id === first.id));
+  async function review(body: Record<string, unknown>) {
+    return MEMORY({ request: new Request("http://localhost/api/desktop/memory", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    }) } as Parameters<typeof MEMORY>[0]);
+  }
+  const conflict = await review({ action: "confirm-candidate", id: first.id, expectedUpdatedAt: "stale" });
+  assert.equal(conflict.status, 409);
+  const savedResponse = await review({ action: "confirm-candidate", id: first.id, expectedUpdatedAt: first.updatedAt, content: "Present the conclusion before supporting evidence in reports." });
+  assert.equal(savedResponse.status, 200);
+  const saved = (await savedResponse.json()).candidate;
+  assert.equal(saved.status, "edited-then-confirmed");
+  assert.ok(saved.confirmedMemoryId);
+  const record = await runtime.memory.getForGovernance({ channel: "web", externalUserId: conversation.id, ownerId: "owner", shareOwner: true }, saved.confirmedMemoryId);
+  assert.equal(record?.content, "Present the conclusion before supporting evidence in reports.");
+  assert.equal((await review({ action: "confirm-candidate", id: first.id, expectedUpdatedAt: first.updatedAt })).status, 409);
+  const ignored = await review({ action: "ignore-candidate", id: second.id, expectedUpdatedAt: second.updatedAt });
+  assert.equal((await ignored.json()).candidate.status, "ignored");
+  const after = await readHandover();
+  assert.ok(!after.handover.memoryReview.items.some((item: any) => item.id === first.id || item.id === second.id));
+});

@@ -1,6 +1,8 @@
 import { agentNamespace, ownerNamespace } from "$lib/server/memory/namespaces";
 import type { MemoryRecord } from "$lib/server/memory/types";
-import type { RuntimeSettings } from "$lib/server/settings/schema";
+import { DEFAULT_AGENT_ID, type RuntimeSettings } from "$lib/server/settings/schema";
+import type { MemoryGateway } from "$lib/server/memory/gateway";
+import type { DesktopHomeMemoryReview } from "$lib/shared/desktop";
 import type { MemoryBackendCapabilities } from "$lib/server/memory/types";
 import type { DesktopMemorySummary } from "$lib/shared/desktop";
 
@@ -48,4 +50,29 @@ export function desktopAgentMemoryScope(settings: RuntimeSettings, agentId: stri
 
 export function desktopAgentMemoryRecords(scope: ReturnType<typeof desktopAgentMemoryScope>, items: MemoryRecord[]): MemoryRecord[] {
   return items.filter(item => item.namespace === agentNamespace(scope.agentId) || (scope.shareOwner && item.namespace === ownerNamespace(scope.ownerId)));
+}
+
+/** The home uses the Agent's existing memory scope; Project and conversation candidates stay in the memory center. */
+export function readDesktopHomeMemoryReview(
+  settings: RuntimeSettings,
+  memory: Pick<MemoryGateway, "listReviewCandidates">
+): DesktopHomeMemoryReview {
+  try {
+    const scope = desktopAgentMemoryScope(settings, settings.defaultAgentId || DEFAULT_AGENT_ID);
+    const namespaces = [agentNamespace(scope.agentId), ...(scope.shareOwner ? [ownerNamespace(scope.ownerId)] : [])];
+    const candidates = memory.listReviewCandidates(namespaces, 11);
+    const skills = memory.listReviewCandidates(namespaces, 11, true);
+    return {
+      ...(skills.length ? { skillDraftCount: Math.min(10, skills.length), skillDraftHasMore: skills.length > 10 } : {}),
+      items: candidates.slice(0, 10).map(({ id, status, namespace, domain, type, subject, value, confidence, reason, sources, createdAt, updatedAt, supersedesMemoryId, disputesMemoryId }) => ({
+        id, status, namespace, domain, type, subject, value, confidence, reason,
+        sources: sources.slice(0, 3), createdAt, updatedAt,
+        ...(supersedesMemoryId ? { supersedesMemoryId } : {}), ...(disputesMemoryId ? { disputesMemoryId } : {})
+      })),
+      hasMore: candidates.length > 10,
+      unavailable: false
+    };
+  } catch {
+    return { items: [], hasMore: false, unavailable: true };
+  }
 }

@@ -19,7 +19,7 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   const home = page.locator('.agent-home');
   const signal = page.getByTestId('handover-cross-channel');
   await expect(signal).toContainText('Replied to 3 messages');
-  await expect(home.locator('.agent-history-row')).toHaveCount(3);
+  await expect(home.locator('.agent-history-row')).toHaveCount(2);
   const signalBox = await signal.boundingBox();
   const homeBox = await home.boundingBox();
   expect(signalBox!.width).toBeLessThan(homeBox!.width * 0.6);
@@ -54,7 +54,7 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   });
   await page.getByRole('button', { name: '折叠侧边栏', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
-  expect(await home.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await expect.poll(() => home.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await expect(composer(page)).toBeEnabled();
   await page.screenshot({ path: info.outputPath('home-quick-start-dark-narrow.png') });
   await page.setViewportSize({ width: 1120, height: 760 });
@@ -66,4 +66,5 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   await page.reload();
   await expect(signal).toBeVisible();
   await expect(composer(page)).toBeEnabled();
+  await page.unrouteAll({ behavior: 'wait' });
 });

@@ -3,6 +3,12 @@ import { join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createRuntimeTaskId, type MomEvent } from "$lib/server/agent/events.js";
+import { normalizeDeliveryDisplay } from "$lib/server/app/taskDelivery.js";
+import type { DesktopDeliveryDisplay } from "$lib/shared/desktop.js";
+
+const displaySchema = Type.Optional(Type.Any({
+  description: "Optional bounded reading surface saved with each delivered result: { type: 'briefing' | 'topic-proposals' | 'document' | 'generic', title, introduction?, highlights?, candidates?, summary?, artifactPath? }. Omit for the generic text result."
+}));
 
 const createSchema = Type.Object({
   action: Type.Literal("create"),
@@ -13,7 +19,8 @@ const createSchema = Type.Object({
   schedule: Type.Optional(Type.String({ description: "Five-field cron expression. Required for periodic." })),
   timezone: Type.Optional(Type.String({ description: "IANA timezone. Required for periodic." })),
   delivery: Type.Optional(Type.Union([Type.Literal("text"), Type.Literal("agent")])),
-  sessionMode: Type.Optional(Type.Union([Type.Literal("fresh"), Type.Literal("chat")]))
+  sessionMode: Type.Optional(Type.Union([Type.Literal("fresh"), Type.Literal("chat")])),
+  display: displaySchema
 });
 
 const taskPatchSchema = Type.Object({
@@ -23,7 +30,8 @@ const taskPatchSchema = Type.Object({
   schedule: Type.Optional(Type.String()),
   timezone: Type.Optional(Type.String()),
   delivery: Type.Optional(Type.Union([Type.Literal("text"), Type.Literal("agent")])),
-  sessionMode: Type.Optional(Type.Union([Type.Literal("fresh"), Type.Literal("chat")]))
+  sessionMode: Type.Optional(Type.Union([Type.Literal("fresh"), Type.Literal("chat")])),
+  display: displaySchema
 });
 
 const runtimeTaskSchema = Type.Union([
@@ -127,6 +135,13 @@ function newTaskId(eventsDir: string, name?: string): string {
   throw new Error("Unable to allocate a unique Runtime Task id.");
 }
 
+function displayFromInput(value: unknown): DesktopDeliveryDisplay | undefined {
+  if (value === undefined) return undefined;
+  const display = normalizeDeliveryDisplay(value);
+  if (!display) throw new Error("display must be a valid bounded briefing, topic-proposals, document or generic object.");
+  return display;
+}
+
 function publicTask(row: TaskFile) {
   const event = row.event;
   return {
@@ -134,6 +149,7 @@ function publicTask(row: TaskFile) {
     type: event.type,
     enabled: event.enabled !== false,
     text: event.text,
+    ...(event.display ? { display: event.display } : {}),
     ...(event.type === "todo" ? {} : {
       delivery: event.delivery ?? (event.type === "periodic" ? "agent" : "text"),
       sessionMode: event.sessionMode ?? (event.type === "periodic" ? "fresh" : "chat")
@@ -175,6 +191,7 @@ export function createRuntimeTaskTool(options: {
       "This tool never reads or writes Mini App Todo data. Mini Apps own their own optional data and business rules.",
       "Use action=create for reminders and automations; list/get before changing an ambiguous task; update by taskId; delete only when the user asked to remove it.",
       "Never use memory, shell sleeps, OS schedulers, or manually edited event JSON files for scheduling.",
+      "A periodic or one-shot Agent task may declare a bounded display reading surface (briefing, topic-proposals, document, generic) so its result can be read as a briefing or proposal on the Agent home; omit it for an ordinary generic text result.",
       "In a Project chat this tool manages the Project's automations: only periodic Agent tasks are supported there (agent delivery, fresh session mode), and reminders or todos are rejected."
     ].join("\n"),
     parameters: runtimeTaskSchema,
@@ -209,6 +226,8 @@ export function createRuntimeTaskTool(options: {
         }
         if (patch.delivery !== undefined) next.delivery = patch.delivery;
         if (patch.sessionMode !== undefined) next.sessionMode = patch.sessionMode;
+        const display = displayFromInput(patch.display);
+        if (display) next.display = display;
         if (next.type === "todo") {
           if (patch.at !== undefined || patch.schedule !== undefined || patch.timezone !== undefined || patch.delivery !== undefined || patch.sessionMode !== undefined) {
             throw new Error("todo tasks do not accept schedule or delivery fields.");
@@ -247,6 +266,7 @@ export function createRuntimeTaskTool(options: {
       }
       mkdirSync(eventsDir, { recursive: true });
       const taskId = newTaskId(eventsDir, params.name);
+      const display = displayFromInput(params.display);
       const common = {
         taskId,
         enabled: true,
@@ -255,6 +275,7 @@ export function createRuntimeTaskTool(options: {
         ...(isProjectChat ? { target: { kind: "project" as const, projectId: options.projectId! } } : {}),
         sessionId: options.sessionId,
         text,
+        ...(display ? { display } : {}),
         status: { state: "pending" as const, runCount: 0 }
       };
       const event: UserRuntimeTask = params.type === "todo"

@@ -12,6 +12,7 @@ import type { DurableExecutionStatus, PlanDetail } from "$lib/server/agent/durab
 import type { DesktopSessionRun } from "$lib/shared/desktop.js";
 import type {
   DesktopHandover,
+  DesktopHomeMemoryReview,
   DesktopHandoverCounts,
   DesktopHandoverCrossChannel,
   DesktopHandoverDetailCode,
@@ -21,6 +22,7 @@ import type {
   DesktopHandoverPending,
   DesktopHandoverSnapshot
 } from "$lib/shared/desktop.js";
+import { normalizeDeliveryDisplay, normalizeDeliveryReceipt } from "./taskDelivery.js";
 
 /**
  * Agent Handover read model (PA-HD1–13).
@@ -47,6 +49,7 @@ const DETAIL_LIMIT = 220;
 const RESULT_LIMIT = 260;
 
 export interface HandoverTaskInput {
+  taskId?: string;
   type: string;
   enabled: boolean;
   text: string;
@@ -63,6 +66,7 @@ export interface HandoverEvidence {
   leases: EventExecutionLease[];
   pending: DesktopHandoverPending[];
   schedules: DesktopHandoverNextScheduled[];
+  memoryReview?: DesktopHomeMemoryReview;
 }
 
 export interface BuildHandoverInput {
@@ -94,6 +98,7 @@ export interface HandoverReadDeps {
   plans: Pick<PlanService, "read">;
   coordinator: Pick<DurableExecutionCoordinator, "list">;
   tasks: HandoverTaskInput[];
+  memoryReview?: () => DesktopHomeMemoryReview;
   now?: Date;
 }
 
@@ -133,13 +138,17 @@ function durationMs(startedAt?: string, finishedAt?: string): number | undefined
   return end - start;
 }
 
-function taskTextOf(lease: EventExecutionLease): string {
+function eventPayloadOf(lease: EventExecutionLease): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(lease.eventPayloadJson) as { text?: unknown };
-    return typeof parsed.text === "string" ? parsed.text.trim() : "";
+    const parsed = JSON.parse(lease.eventPayloadJson) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
   } catch {
-    return "";
+    return {};
   }
+}
+
+function taskTextOf(payload: Record<string, unknown>): string {
+  return typeof payload.text === "string" ? payload.text.trim() : "";
 }
 
 function clip(text: string, limit: number): string {
@@ -222,6 +231,7 @@ function itemFromLease(
   const scopeAgent = lease.leaseScope.startsWith("agent:") ? lease.leaseScope.slice("agent:".length) : "";
   const agentId = scopeAgent || agentIdForSession(lease.sessionId) || "";
   if (agentId !== defaultAgentId) return null;
+  const payload = eventPayloadOf(lease);
   const failed = lease.status !== "completed";
   const kind: DesktopHandoverItemKind = failed
     ? "task-failed"
@@ -233,6 +243,13 @@ function itemFromLease(
   const resultPreview = failed
     ? ""
     : clipPreview(resultTextOf(lease.result) || previewOf(lease.sessionId), RESULT_LIMIT);
+  const resultRecord = lease.result && typeof lease.result === "object" && !Array.isArray(lease.result)
+    ? lease.result as Record<string, unknown>
+    : undefined;
+  const display = failed
+    ? undefined
+    : normalizeDeliveryDisplay(resultRecord?.display) ?? normalizeDeliveryDisplay(payload.display);
+  const delivery = failed ? undefined : normalizeDeliveryReceipt(resultRecord?.delivery);
   return {
     id: `task:${lease.id}`,
     kind,
@@ -242,13 +259,41 @@ function itemFromLease(
     ...(lease.channel ? { channel: lease.channel } : {}),
     runId: lease.runId,
     ...(lease.taskId ? { taskId: lease.taskId } : {}),
-    title: taskTextOf(lease),
+    ...(lease.triggerSlot ? { periodSlot: lease.triggerSlot } : {}),
+    title: taskTextOf(payload),
     ...(failure.detail !== undefined ? { detail: failure.detail } : {}),
     ...(failure.detailCode ? { detailCode: failure.detailCode } : {}),
     ...(resultPreview ? { resultPreview } : {}),
+    ...(display ? { display } : {}),
+    ...(delivery ? { delivery } : {}),
     ...(duration !== undefined ? { durationMs: duration } : {}),
     attempts: Math.max(1, lease.attempt)
   };
+}
+
+/**
+ * A periodic task produces one current period, not a card per day. Retries
+ * share the planned slot; a newer slot replaces the previous one, and the
+ * older periods remain available through the task's execution history. A
+ * one-shot or immediate run keeps its own identity per trigger.
+ */
+function latestPeriodLeases(leases: EventExecutionLease[]): EventExecutionLease[] {
+  const latest = new Map<string, EventExecutionLease>();
+  const standalone: EventExecutionLease[] = [];
+  for (const lease of leases) {
+    if (!lease.taskId) {
+      standalone.push(lease);
+      continue;
+    }
+    const key = lease.eventType === "periodic"
+      ? `periodic:${lease.taskId}`
+      : `run:${lease.taskId}:${lease.triggerSlot}`;
+    const existing = latest.get(key);
+    const at = Date.parse(String(lease.finishedAt ?? lease.startedAt ?? ""));
+    const existingAt = Date.parse(String(existing?.finishedAt ?? existing?.startedAt ?? ""));
+    if (!existing || at > existingAt) latest.set(key, lease);
+  }
+  return [...latest.values(), ...standalone];
 }
 
 function countsOf(items: DesktopHandoverItem[], pending: DesktopHandoverPending[]): DesktopHandoverCounts {
@@ -322,7 +367,7 @@ export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover
     if (!noticesByRun.has(notice.runId)) noticesByRun.set(notice.runId, noticeDetailOf(notice));
   }
 
-  const leaseItems = input.evidence.leases
+  const leaseItems = latestPeriodLeases(input.evidence.leases)
     .map((lease) => itemFromLease(lease, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId, previewOf))
     .filter((item): item is DesktopHandoverItem => Boolean(item));
   const leaseRunIds = new Set(leaseItems.map((item) => item.runId).filter(Boolean));
@@ -332,7 +377,18 @@ export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover
   // one aggregate card so the page acknowledges them without repeating them.
   const crossChannel = buildCrossChannel(adHocRuns, input.projectSessionIds ?? new Set(), defaultAgentId);
 
+  const nextRunByTask = new Map<string, string>();
+  for (const schedule of input.evidence.schedules) {
+    if (!schedule.taskId || Date.parse(schedule.at) <= input.now.getTime()) continue;
+    const existing = nextRunByTask.get(schedule.taskId);
+    if (!existing || Date.parse(schedule.at) < Date.parse(existing)) nextRunByTask.set(schedule.taskId, schedule.at);
+  }
+
   const items = [...leaseItems]
+    .map((item) => {
+      const nextRunAt = item.taskId ? nextRunByTask.get(item.taskId) : undefined;
+      return nextRunAt ? { ...item, nextRunAt } : item;
+    })
     .sort((left, right) => {
       // Failures first; inside finished work a promised delivery outranks an
       // ad-hoc reply, because the promise is the part the owner could not see.
@@ -357,7 +413,10 @@ export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover
     .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))[0];
   const counts = countsOf(items, pending);
   const lastAcknowledgedAt = String(input.settings.desktopNavigation?.lastAcknowledgedAt ?? "").trim() || undefined;
-  const state = !lastAcknowledgedAt && items.length === 0 && pending.length === 0 && !nextScheduled && !crossChannel
+  const memoryReview = input.evidence.memoryReview;
+  const state = memoryReview && (memoryReview.items.length > 0 || memoryReview.skillDraftCount || memoryReview.unavailable)
+    ? "active"
+    : !lastAcknowledgedAt && items.length === 0 && pending.length === 0 && !nextScheduled && !crossChannel
     ? "first-run"
     : items.length === 0 && pending.length === 0 && !crossChannel
       ? "quiet"
@@ -372,7 +431,8 @@ export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover
     counts,
     items,
     pending,
-    ...(nextScheduled ? { nextScheduled } : {}),
+    ...(memoryReview ? { memoryReview } : {}),
+    ...(nextScheduled ? { nextScheduled, nextScheduledItems: input.evidence.schedules.filter(entry => Date.parse(entry.at) > input.now.getTime()).sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(0, 3) } : {}),
     ...(crossChannel ? { crossChannel } : {}),
     ...(previous ? { previous } : {})
   };
@@ -396,7 +456,7 @@ export function compactHandoverSnapshot(handover: DesktopHandover, capturedAt: s
     itemCount: handover.items.length,
     pendingCount: handover.pending.length,
     counts: handover.counts,
-    items: handover.items.slice(0, MAX_ITEMS).map(({ detail: _detail, ...item }) => item)
+    items: handover.items.slice(0, MAX_ITEMS).map(({ detail: _detail, display: _display, ...item }) => item)
   };
 }
 
@@ -441,12 +501,12 @@ export function readDesktopHandover(deps: HandoverReadDeps): DesktopHandover {
     if (task.managed?.by === "molibot") return [];
     if (task.type === "periodic") {
       const at = nextCronOccurrence(task.scheduleText, now);
-      return at ? [{ at, title: task.text, source: "task" as const, ...(task.botId ? { agentId: task.botId } : {}) }] : [];
+      return at ? [{ at, title: task.text, source: "task" as const, ...(task.botId ? { agentId: task.botId } : {}), ...(task.taskId ? { taskId: task.taskId } : {}) }] : [];
     }
     if (task.type === "one-shot") {
       const at = Date.parse(task.scheduleText);
       return Number.isFinite(at) && at > now.getTime()
-        ? [{ at: new Date(at).toISOString(), title: task.text, source: "task" as const, ...(task.botId ? { agentId: task.botId } : {}) }]
+        ? [{ at: new Date(at).toISOString(), title: task.text, source: "task" as const, ...(task.botId ? { agentId: task.botId } : {}), ...(task.taskId ? { taskId: task.taskId } : {}) }]
         : [];
     }
     return [];
@@ -462,6 +522,7 @@ export function readDesktopHandover(deps: HandoverReadDeps): DesktopHandover {
       notices,
       leases,
       pending,
+      ...(deps.memoryReview ? { memoryReview: deps.memoryReview() } : {}),
       schedules: [...taskSchedules, ...executionSchedules]
     }
   });
@@ -490,6 +551,7 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
       ...(record.sessionId ? { sessionId: record.sessionId } : {}),
       ...(record.channel ? { channel: record.channel } : {}),
       requestId: record.id,
+      ...(record.reason ? { scope: record.reason } : {}),
       actionable: record.scopeId.startsWith("web:")
     });
   }
@@ -509,6 +571,7 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
       agentId: request.requestedBy?.agentId || agentIdForSession(request.sessionId) || "",
       ...(request.sessionId ? { sessionId: request.sessionId } : {}),
       requestId: request.id,
+      ...(request.reason ? { scope: request.reason } : {}),
       actionable: false
     });
   }
@@ -545,6 +608,8 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
         approvalId: approval.id,
         executionId: detail.execution.id,
         expectedVersion: detail.execution.version,
+        goal: detail.execution.goal,
+        ...(approval.summary ? { scope: approval.summary } : {}),
         actionable: true
       });
     }
@@ -561,6 +626,8 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
         decisionId: decision.id,
         expectedVersion: detail.execution.version,
         options: decision.options,
+        goal: detail.execution.goal,
+        ...(detail.meta.summary ? { scope: detail.meta.summary } : {}),
         actionable: true
       });
     }
@@ -579,6 +646,8 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
           executionId: detail.execution.id,
           expectedVersion: detail.execution.version,
           options: ["manual", "accept_edits"],
+          goal: detail.execution.goal,
+          ...(detail.meta.summary ? { scope: detail.meta.summary } : {}),
           actionable: true
         });
       } else {
@@ -592,6 +661,8 @@ function collectPending(deps: HandoverReadDeps, now: Date): DesktopHandoverPendi
           ...(sessionId ? { sessionId } : {}),
           ...(channel ? { channel } : {}),
           executionId: detail.execution.id,
+          goal: detail.execution.goal,
+          ...(detail.meta.summary ? { scope: detail.meta.summary } : {}),
           actionable: false
         });
       }

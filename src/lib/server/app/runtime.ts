@@ -22,13 +22,14 @@ import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { join } from "node:path";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
 import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, deliverMemoryReviewBatch, deliverMemoryTaskNotification, formatDailyMaterialsNotification, resolveMemoryReflectionNotificationTarget, TaskScheduler, type InternalTaskExecutionResult } from "$lib/server/agent/taskScheduler.js";
-import { executeOwnerMemoryReflection, formatOwnerMemoryReflectionNotification, OwnerMemoryReflectionError, type OwnerMemoryReflectionResult } from "$lib/server/agent/ownerMemoryReflection.js";
+import { formatOwnerMemoryReflectionNotification, type OwnerMemoryReflectionResult } from "$lib/server/agent/ownerMemoryReflection.js";
 import { MessageRouter } from "$lib/server/channels/shared/messageRouter.js";
 import { initDb, storagePaths } from "$lib/server/infra/db/storage.js";
 import { recordRuntimeInitFailure, recordRuntimeReady } from "$lib/server/app/runtimeHealth.js";
 import { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { MemoryWriter } from "$lib/server/memory/memoryWriter.js";
-import { MemoryExtractionService, type MemoryExtractionExtractor, type MemoryExtractionOutput } from "$lib/server/memory/memoryExtraction.js";
+import { MemoryExtractionService, matchesExtractionTarget, type MemoryExtractionExtractor, type MemoryExtractionOutput } from "$lib/server/memory/memoryExtraction.js";
+import { memoryExtractionSources } from "$lib/server/memory/extractionSources.js";
 import { MemoryExtractionStateStore } from "$lib/server/memory/memoryExtractionStore.js";
 import { EmbeddingModelResolver } from "$lib/server/memory/embeddingResolver.js";
 import type { PluginCatalog, ProviderPlugin } from "$lib/server/plugins/types.js";
@@ -62,7 +63,7 @@ import { createDefaultHookManager, type HookManager } from "$lib/server/agent/ho
 import { resolveTraceApprovalFact } from "$lib/server/agent/hooks/traceStore.js";
 import { onApprovalResolved } from "$lib/server/approval/resolutionEvents.js";
 import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.js";
-import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, previousReflectionLocalDate, recommendedCandidateNamespace, type ReflectionExtractor, type ReflectionTarget } from "$lib/server/memory/reflection.js";
+import { runMemoryReflection, pendingMemoryReviewCandidates, MemoryReflectionError, reflectionTargetId, ReflectionStateStore, SessionReflectionSourceReader, previousReflectionLocalDate, type ReflectionTarget } from "$lib/server/memory/reflection.js";
 import { MemoryCandidateReview, MemoryReviewStore } from "$lib/server/memory/review.js";
 import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInternal } from "$lib/server/memory/dailyMaterials.js";
 import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
@@ -96,7 +97,6 @@ interface RuntimeState {
   modelErrorTracker: ModelErrorTracker;
   taskScheduler: TaskScheduler;
   reflectionState: ReflectionStateStore;
-  reflectionService: MemoryReflectionService;
   maintenanceService: MemoryMaintenanceService;
   dailyMaterialsService: DailyMaterialsService;
   dailyMaterialsBackfill: DailyMaterialsBackfillJob;
@@ -472,21 +472,26 @@ function initializeRuntime(): RuntimeState {
       // failed extraction, never as proof that nothing was worth keeping.
       return JSON.parse(raw) as MemoryExtractionOutput;
     };
+    const reflectionState = new ReflectionStateStore(storagePaths.moryDbFile);
     const memoryExtraction = new MemoryExtractionService({
-      // Only completed local/project Sessions: external channel Sessions are a
-      // read-only projection and keep their own extraction path.
-      listSessions: (options) => {
-        const page = sessionLifecycle.queryManaged({ state: "active", ...options });
-        const sharing = new Map(currentSettings.value.agents.map((agent) => [agent.id, agent.shareOwnerMemory !== false]));
-        return {
-          total: page.total,
-          items: page.items.map((item) => ({
-            ...item,
-            shareOwner: item.agentId ? sharing.get(item.agentId) !== false : true
-          }))
-        };
+      ...memoryExtractionSources(
+        (filters) => sessionLifecycle.queryManaged(filters), sessions, config.dataDir,
+        (agentId) => currentSettings.value.agents.find((agent) => agent.id === agentId)?.shareOwnerMemory !== false
+      ),
+      eligible: (session) => {
+        const agent = currentSettings.value.agents.find((agent) => agent.id === session.agentId);
+        if (agent?.enabled === false) return false;
+        return session.source !== "external" || collectMemoryReflectionInternals(currentSettings.value)
+          .some((internal) => internal.target && matchesExtractionTarget(session, internal.target as ReflectionTarget));
       },
-      listMessages: (conversationId) => sessions.listMessages(conversationId),
+      pendingReviewCandidates: (sessionIds) => pendingMemoryReviewCandidates(memory, sessionIds),
+      legacyWatermarks: (session) => collectMemoryReflectionInternals(currentSettings.value)
+        .flatMap((internal) => {
+          const target = internal.target as ReflectionTarget;
+          const watermark = matchesExtractionTarget(session, target)
+            ? reflectionState.get(reflectionTargetId(target), session.conversationId) : undefined;
+          return watermark ? [watermark] : [];
+        }),
       store: new MemoryExtractionStateStore(join(storagePaths.memoryDir, "extraction-state.json")),
       writer: new MemoryWriter(memory),
       extractor: memoryExtractor,
@@ -599,62 +604,10 @@ function initializeRuntime(): RuntimeState {
       log: (line) => console.log(`${memoryLabel("memory")} ${line}`)
     });
 
-    const reflectionState = new ReflectionStateStore(storagePaths.moryDbFile);
     const memoryReviewStore = new MemoryReviewStore(storagePaths.moryDbFile);
     const memoryReview = new MemoryCandidateReview(memory, memoryReviewStore);
-    const reflectionExtractor: ReflectionExtractor = {
-      extract: async ({ target, projection, relatedMemories }) => {
-        const transcript = projection.messages.map((message) => `${message.role}: ${message.content}`).join("\n");
-        const related = relatedMemories.map((memory) =>
-          `${memory.ref} | ${memory.namespace} | ${memory.type}/${memory.subject} | ${memory.path} | ${memory.summary}`
-        ).join("\n");
-        const prompt = [
-          "Classify durable information as: a new fact, an evolution that supersedes one related memory, or a contradiction that disputes one related memory.",
-          "Return JSON only: {\"memories\":[{\"domain\":\"owner|project|agent_self|content\",\"type\":\"user_preference|user_fact|skill|event|task|world_knowledge\",\"subject\":\"stable_snake_case\",\"value\":\"complete durable statement\",\"confidence\":0.0,\"reason\":\"why it matters\",\"supersedesRef\":\"R1 optional\",\"disputesRef\":\"R2 optional\"}]}",
-          "Use only the supplied R tokens. Never copy or invent internal IDs. For supersedes, the server will inherit namespace, type, subject and canonical path from the referenced record.",
-          "Do not extract reminders, transient execution state, guesses, or the summary itself.",
-          related ? `Authorized related memories:\n${related}` : "Authorized related memories: (none)",
-          projection.latestSummary ? `Recent summary (context only): ${projection.latestSummary}` : "",
-          transcript
-        ].filter(Boolean).join("\n\n");
-        const response = await assistant.reply([{
-          id: `reflection:${projection.conversationId}`,
-          conversationId: projection.conversationId,
-          role: "user",
-          content: prompt,
-          createdAt: new Date().toISOString()
-        }], prompt, "", { sessionId: projection.conversationId });
-        const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
-        const parsed = JSON.parse(raw) as { memories?: Array<Record<string, unknown>> };
-        if (!Array.isArray(parsed.memories)) throw new Error("Reflection extractor returned invalid JSON.");
-        return parsed.memories.map((item) => {
-          const domain = String(item.domain ?? "owner") as "owner" | "project" | "agent_self" | "content";
-          const type = String(item.type ?? "user_fact") as "user_preference" | "user_fact" | "skill" | "event" | "task" | "world_knowledge";
-          const subject = String(item.subject ?? "").trim();
-          return {
-            namespace: recommendedCandidateNamespace(target, projection.scope, domain),
-            domain,
-            type,
-            subject,
-            path: `mory://${type}/${subject}`,
-            value: String(item.value ?? ""),
-            confidence: Number(item.confidence ?? 0.7),
-            reason: String(item.reason ?? "reflection"),
-            layer: type === "event" ? "daily" as const : "long_term" as const,
-            supersedesRef: typeof item.supersedesRef === "string" ? item.supersedesRef : undefined,
-            disputesRef: typeof item.disputesRef === "string" ? item.disputesRef : undefined
-          };
-        });
-      }
-    };
     const reflectionTrashExcluded = (conversationId: string): boolean =>
       getSessionLifecycleStore().get(conversationId)?.state === "trashed";
-    const reflectionService = new MemoryReflectionService(
-      memory,
-      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, undefined, reflectionTrashExcluded),
-      reflectionState,
-      reflectionExtractor
-    );
     const maintenanceService = new MemoryMaintenanceService(
       memory,
       new MemoryMaintenanceStore(storagePaths.moryDbFile),
@@ -704,53 +657,34 @@ function initializeRuntime(): RuntimeState {
         return durableExecutionRuntime.run(event, filename);
       }
       if (event.internal?.kind === "memory-reflection") {
-        if (event.internal.target) {
-          const result = await reflectionService.run(event.internal.target as ReflectionTarget);
-          await maintenanceService.run(event.internal.target as MemoryMaintenanceTarget, { triggerKey: `reflection:${filename}:${event.internal.target.botId}` });
-          console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
-          if (currentSettings.value.plugins.memory.reflectionNotifications) {
-            await deliverReflectionReview({
-              completedTargets: 1,
-              scannedConversations: result.scannedConversations,
-              scannedMessages: result.scannedMessages,
-              createdCandidates: result.createdCandidates,
-              pendingReviewCandidateIds: result.pendingReviewCandidateIds,
-              localDate: result.localDate,
-              failedTargets: 0
-            }, filename);
-          }
-          return {
-            kind: "memory-reflection",
-            completedTargets: 1,
-            scannedConversations: result.scannedConversations,
-            scannedMessages: result.scannedMessages,
-            createdCandidates: result.createdCandidates
-          };
-        }
-        let result: OwnerMemoryReflectionResult;
+        const target = event.internal.target as ReflectionTarget | undefined;
+        const targets = target ? [target] : collectMemoryReflectionInternals(currentSettings.value)
+          .map((internal) => internal.target as ReflectionTarget);
+        let extracted;
         try {
-          result = await executeOwnerMemoryReflection(
-            collectMemoryReflectionInternals(currentSettings.value),
-            async (internal) => {
-              const targetResult = await reflectionService.run(internal.target as ReflectionTarget);
-              if (internal.target) await maintenanceService.run(internal.target as MemoryMaintenanceTarget, { triggerKey: `reflection:${filename}:${internal.target.botId}` });
-              console.log(`${memoryLabel("reflection")} completed file=${filename} target=${internal.target?.botId} candidates=${targetResult.createdCandidates} messages=${targetResult.scannedMessages}`);
-              return targetResult;
-            }
-          );
-        } catch (cause) {
-          if (cause instanceof OwnerMemoryReflectionError && currentSettings.value.plugins.memory.reflectionNotifications) {
-            await deliverReflectionReview(cause.result, filename);
+          extracted = await runMemoryReflection(memoryExtraction, {
+            timezone: currentSettings.value.timezone, target
+          });
+        } catch (error) {
+          if (error instanceof MemoryReflectionError && currentSettings.value.plugins.memory.reflectionNotifications) {
+            await deliverReflectionReview({ ...error.result, completedTargets: 0, failedTargets: targets.length || 1, failedSessions: error.failedSessions }, filename);
           }
-          throw cause;
+          throw error;
         }
+        for (const maintenanceTarget of targets) {
+          await maintenanceService.run(maintenanceTarget as MemoryMaintenanceTarget, {
+            triggerKey: `reflection:${filename}:${maintenanceTarget.botId}`
+          });
+        }
+        const result: OwnerMemoryReflectionResult = {
+          ...extracted, completedTargets: targets.length, failedTargets: 0
+        };
+        console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
         if (currentSettings.value.plugins.memory.reflectionNotifications) await deliverReflectionReview(result, filename);
         return {
-          kind: "memory-reflection",
-          completedTargets: result.completedTargets,
-          scannedConversations: result.scannedConversations,
-          scannedMessages: result.scannedMessages,
-          createdCandidates: result.createdCandidates
+          kind: "memory-reflection", completedTargets: result.completedTargets,
+          scannedConversations: result.scannedConversations, scannedMessages: result.scannedMessages,
+          createdCandidates: result.createdCandidates, committedMemories: result.committedMemories
         };
       }
       if (event.internal?.kind === "memory-maintenance") {
@@ -863,7 +797,6 @@ function initializeRuntime(): RuntimeState {
       modelErrorTracker,
       taskScheduler,
       reflectionState,
-      reflectionService,
       maintenanceService,
       dailyMaterialsService,
       dailyMaterialsBackfill,

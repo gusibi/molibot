@@ -39,6 +39,12 @@ export const POST: RequestHandler = async ({ request }) => {
     const agentScope = body.agentId !== undefined ? desktopAgentMemoryScope(getRuntime().getSettings(), body.agentId) : null;
     const scope = agentScope ?? memoryScope(body);
     if (agentScope && (!["list", "search"].includes(body.action) || body.allScopes)) throw new Error("Agent memory view supports scoped list and search only");
+    if (body.expectedUpdatedAt !== undefined && (body.action === "confirm-candidate" || body.action === "ignore-candidate")) {
+      const current = memory.getCandidate(String(body.id ?? "").trim());
+      if (!current || current.status !== "pending" || current.updatedAt !== body.expectedUpdatedAt || current.skillDraftSuggestion) {
+        return json({ ok: false, error: "Candidate changed or is no longer pending. Refresh before reviewing." }, { status: 409 });
+      }
+    }
     let payload: DesktopMemoryActionResponse;
     if (body.action === "profile") {
       const defaultProfile = resolveDesktopWebProfiles(getRuntime().getSettings()).find((profile) => profile.enabled);

@@ -7,6 +7,8 @@ import {
 } from "$lib/server/agent/eventsLeaseStore.js";
 import { settleWithCooperativeTimeout } from "$lib/server/agent/core/cooperativeTimeout.js";
 import { momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { taskResultWithDelivery } from "$lib/server/app/taskDelivery.js";
+import type { DesktopDeliveryDisplay } from "$lib/shared/desktop.js";
 
 export interface EventStatus {
   state: "pending" | "running" | "completed" | "skipped" | "error";
@@ -87,6 +89,12 @@ interface EventBase {
     durable?: { executionId: string; expectedVersion: number };
   };
   sessionMode?: EventSessionMode;
+  /**
+   * Optional bounded reading surface for this task's result. The runtime saves
+   * it with the execution result and fills period/run/time itself; a task that
+   * omits it still shows its real text as a generic delivery.
+   */
+  display?: DesktopDeliveryDisplay;
   status?: EventStatus;
 }
 
@@ -690,7 +698,12 @@ export class EventsWatcher {
           }
           return;
         }
-        if (store.markCompleted(lease.id, lease.runId, outcome.result)) {
+        if (store.markCompleted(lease.id, lease.runId, taskResultWithDelivery({
+          result: outcome.result,
+          display: eventForAttempt.display,
+          channel: lease.channel,
+          finishedAt: new Date().toISOString()
+        }))) {
           this.markDone(filename, eventForAttempt, "executed", triggerSlot, currentRunId);
         }
         return;

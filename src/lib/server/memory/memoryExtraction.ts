@@ -6,6 +6,13 @@ import type { ExtractedMemoryItem, MemoryWriterPort } from "./memoryWriter.js";
 import { normalizeSubject } from "./memoryWriter.js";
 import type { MemoryExtractionState, MemoryExtractionStatePort } from "./memoryExtractionStore.js";
 
+export interface MemoryExtractionTarget {
+  ownerId: string;
+  botId: string;
+  agentId?: string;
+  sourceScopes: MemoryScope[];
+}
+
 const MAX_TAIL_MESSAGES = 80;
 const MAX_TAIL_CHARS = 24_000;
 const DOMAINS = new Set(["owner", "project", "agent_self"]);
@@ -51,6 +58,8 @@ export type MemoryExtractionExtractor = (input: {
 
 export interface MemoryExtractionSweepResult {
   scanned: number;
+  scannedMessages: number;
+  pendingReviewCandidateIds: string[];
   attempted: number;
   committed: number;
   proposals: number;
@@ -60,7 +69,7 @@ export interface MemoryExtractionSweepResult {
 }
 
 export interface MemoryExtractionServiceDeps {
-  listSessions: (options: { limit: number; offset: number }) => {
+  listSessions: (options: { limit: number; offset: number; mode?: "idle" | "daily" }) => {
     items: MemoryExtractionSession[];
     total: number;
   };
@@ -68,6 +77,10 @@ export interface MemoryExtractionServiceDeps {
   store: MemoryExtractionStatePort;
   writer: MemoryWriterPort;
   extractor: MemoryExtractionExtractor;
+  pendingReviewCandidates?: (sessionIds: ReadonlySet<string>) => string[];
+  eligible?: (session: MemoryExtractionSession) => boolean;
+  /** Import successful checkpoints from the previous daily pipeline, without modifying its store. */
+  legacyWatermarks?: (session: MemoryExtractionSession) => string[];
   /** Related records let the extractor reuse a subject instead of inventing a new one. */
   relatedMemories?: (
     scope: MemoryScope,
@@ -79,22 +92,22 @@ export interface MemoryExtractionServiceDeps {
   botId?: string;
   /** A Session must be quiet this long before its tail is extracted. */
   minIdleMs?: number;
-  /** Bound model cost per sweep; the rest waits for the next tick. */
+  /** Bound idle model calls per sweep; daily runs drain the selected backlog. */
   maxSessionsPerSweep?: number;
-  /** Never bootstrap the entire history on first run. */
+  /** Idle discovery lookback; daily catch-up also visits older Sessions. */
   maxLookbackMs?: number;
   now?: () => Date;
   log?: (line: string) => void;
 }
 
 /**
- * Automatic memory extraction for idle Sessions. Runs on the runtime's memory
- * timer: no per-channel hooks, no per-turn model call, and no dependency on the
- * manual "extract and archive" flow. The watermark makes repeated sweeps
- * idempotent; a failed extraction backs off instead of retrying every minute.
+ * Shared incremental extraction for one selected Session or all authorized
+ * Sessions. Idle ticks use a bounded budget; daily runs drain the backlog.
+ * Both triggers use the same checkpoint, extractor and write policy. Daily
+ * requests wait for an active sweep; periodic idle ticks coalesce instead.
  */
 export class MemoryExtractionService {
-  private inFlight = false;
+  private inFlight: Promise<void> | null = null;
   private readonly ownerId: string;
   private readonly botId: string;
   private readonly minIdleMs: number;
@@ -111,138 +124,142 @@ export class MemoryExtractionService {
     this.now = deps.now ?? (() => new Date());
   }
 
-  async runSweep(options: { force?: boolean } = {}): Promise<MemoryExtractionSweepResult> {
-    if (this.inFlight) {
-      return { scanned: 0, attempted: 0, committed: 0, proposals: 0, skipped: 0, failed: 0, skippedBecauseInFlight: true };
+  async runSweep(options: {
+    conversationId?: string;
+    target?: MemoryExtractionTarget;
+    mode?: "idle" | "daily";
+    force?: boolean;
+    signal?: AbortSignal;
+  } = {}): Promise<MemoryExtractionSweepResult> {
+    const empty = (skippedBecauseInFlight = false): MemoryExtractionSweepResult => ({
+      scanned: 0, scannedMessages: 0, pendingReviewCandidateIds: [], attempted: 0,
+      committed: 0, proposals: 0, skipped: 0, failed: 0, skippedBecauseInFlight
+    });
+    while (this.inFlight) {
+      if (options.mode !== "daily") return empty(true);
+      await this.inFlight;
+      options.signal?.throwIfAborted();
     }
-    if (this.deps.enabled && !this.deps.enabled()) {
-      return { scanned: 0, attempted: 0, committed: 0, proposals: 0, skipped: 0, failed: 0, skippedBecauseInFlight: false };
-    }
-    this.inFlight = true;
-    const result: MemoryExtractionSweepResult = {
-      scanned: 0,
-      attempted: 0,
-      committed: 0,
-      proposals: 0,
-      skipped: 0,
-      failed: 0,
-      skippedBecauseInFlight: false
-    };
-
+    if (this.deps.enabled && !this.deps.enabled()) return empty();
+    let release!: () => void;
+    this.inFlight = new Promise<void>((resolve) => { release = resolve; });
+    const result = empty();
+    const daily = options.mode === "daily";
+    const pending = new Set<string>();
     try {
       const now = this.now();
       const nowMs = now.getTime();
-      const sessions = this.collectSessions();
+      const sessions = this.collectSessions(options.mode).filter((session) =>
+        (!this.deps.eligible || this.deps.eligible(session))
+        && (!options.conversationId || session.conversationId === options.conversationId)
+        && (!options.target || matchesExtractionTarget(session, options.target))
+      );
       result.scanned = sessions.length;
-
+      if (daily) {
+        for (const id of this.deps.pendingReviewCandidates?.(new Set(sessions.map((session) => session.conversationId))) ?? []) pending.add(id);
+      }
       for (const session of sessions) {
-        if (result.attempted >= this.maxSessionsPerSweep) break;
-        if (session.source === "external") continue;
+        options.signal?.throwIfAborted();
+        if (!daily && result.attempted >= this.maxSessionsPerSweep) break;
         const activity = Date.parse(session.lastActivityAt ?? session.updatedAt ?? "");
         if (!Number.isFinite(activity)) continue;
-        if (nowMs - activity > this.maxLookbackMs) continue;
-
-        const state = this.deps.store.get(session.conversationId);
-        if (state?.retryAfter && Date.parse(state.retryAfter) > nowMs) continue;
-
-        // A long continuous conversation may never go idle for 90s. After 20
-        // completed turns, let it through at most once every ten minutes.
+        let state = this.deps.store.get(session.conversationId);
+        if (!daily && nowMs - activity > this.maxLookbackMs) continue;
+        if (state?.retryAfter && Date.parse(state.retryAfter) > nowMs) {
+          if (daily) result.failed += 1;
+          continue;
+        }
         const turns = (session.userTurnCount ?? 0) + (session.assistantTurnCount ?? 0);
         const lastExtraction = state ? Date.parse(state.updatedAt) : 0;
         const longSessionDue = turns >= 20
           && (!state || (Number.isFinite(lastExtraction) && nowMs - lastExtraction >= 10 * 60_000));
-        if (!options.force && !longSessionDue && nowMs - activity < this.minIdleMs) continue;
-
-        const messages = this.eligibleMessages(session.conversationId);
-        const last = messages.at(-1);
-        // Only completed exchanges: an assistant still working has no reply yet,
-        // and extracting the user half would remember a question as a fact.
-        if (!last || last.role !== "assistant") continue;
-        if (state?.processedThroughId === last.id) continue;
-
-        const tail = tailAfter(messages, state?.processedThroughId);
-        if (tail.length === 0) continue;
-
-        result.attempted += 1;
+        if (!daily && !options.force && !longSessionDue && nowMs - activity < this.minIdleMs) continue;
+        let messages: MemoryExtractionMessage[];
         try {
-          const scope = this.scopeFor(session);
-          const relatedMemories = this.deps.relatedMemories
-            ? await this.deps.relatedMemories(scope, tail)
-            : [];
-          const output = await this.deps.extractor({
-            conversationId: session.conversationId,
-            channel: session.channel,
-            botId: session.botId || this.botId,
-            projectId: session.projectId ?? null,
-            agentId: session.agentId ?? null,
-            messages: tail,
-            relatedMemories
-          });
-          const relatedSubjects = new Set(relatedMemories.map((memory) => normalizeSubject(memory.subject)));
-          const items = normalizeOutput(output).map((item) => {
-            // Only an existing related subject may be revised; a hallucinated
-            // supersedesSubject must not overwrite an unrelated fact.
-            const target = item.supersedesSubject ? normalizeSubject(item.supersedesSubject) : "";
-            return target && relatedSubjects.has(target) ? { ...item, subject: target } : item;
-          });
-          if (items.length === 0) {
-            this.deps.store.set(session.conversationId, succeeded(last.id, messages, now));
-            continue;
+          messages = this.eligibleMessages(session.conversationId);
+          if (messages.at(-1)?.role !== "assistant") continue;
+          const legacy = new Set(this.deps.legacyWatermarks?.(session) ?? []);
+          const legacyIndex = messages.findLastIndex((message) => legacy.has(`${message.createdAt}:${message.id}`));
+          const currentIndex = messages.findIndex((message) => message.id === state?.processedThroughId);
+          if (legacyIndex > currentIndex) {
+            state = succeeded(messages[legacyIndex].id, messages, now);
+            this.deps.store.set(session.conversationId, state);
           }
-
-          const write = await this.deps.writer.write(
-            scope,
-            items,
-            tail.map((message) => ({
-              channel: session.channel,
-              sessionId: session.conversationId,
-              conversationMessageId: message.id,
-              observedAt: message.createdAt
-            })),
-            `extract:${session.conversationId}:${last.id}`
-          );
-          result.committed += write.committed.length;
-          result.proposals += write.proposals.length;
-          result.skipped += write.skipped;
-
-          if (write.failures.length > 0) {
-            this.deps.store.set(
-              session.conversationId,
-              failed(state, messages, now, write.failures.join("；"))
-            );
-            result.failed += 1;
-            continue;
-          }
-          this.deps.store.set(session.conversationId, succeeded(last.id, messages, now));
         } catch (error) {
-          this.deps.store.set(
-            session.conversationId,
-            failed(state, messages, now, error instanceof Error ? error.message : String(error))
-          );
+          this.deps.store.set(session.conversationId, failed(state, [], now, error instanceof Error ? error.message : String(error)));
           result.failed += 1;
+          continue;
         }
+        do {
+          const tail = tailAfter(messages, state?.processedThroughId);
+          const last = tail.at(-1);
+          if (!last) break;
+          result.attempted += 1;
+          result.scannedMessages += tail.length;
+          try {
+            const scope = this.scopeFor(session);
+            const relatedMemories = await this.deps.relatedMemories?.(scope, tail) ?? [];
+            const output = await this.deps.extractor({
+              conversationId: session.conversationId,
+              channel: session.channel,
+              botId: session.botId || this.botId,
+              projectId: session.projectId ?? null,
+              agentId: session.agentId ?? null,
+              messages: tail,
+              relatedMemories
+            });
+            options.signal?.throwIfAborted();
+            const relatedSubjects = new Set(relatedMemories.map((memory) => normalizeSubject(memory.subject)));
+            const items = normalizeOutput(output).map((item) => {
+              const target = item.supersedesSubject ? normalizeSubject(item.supersedesSubject) : "";
+              return target && relatedSubjects.has(target) ? { ...item, subject: target } : item;
+            });
+            if (items.length > 0) {
+              const write = await this.deps.writer.write(
+                scope, items,
+                tail.map((message) => ({
+                  channel: session.channel, sessionId: session.conversationId,
+                  conversationMessageId: message.id, observedAt: message.createdAt
+                })),
+                `extract:${session.conversationId}:${last.id}`
+              );
+              result.committed += write.committed.length;
+              result.proposals += write.proposals.length;
+              result.skipped += write.skipped;
+              for (const id of write.proposals) pending.add(id);
+              if (write.failures.length > 0) throw new Error(write.failures.join("；"));
+            }
+            options.signal?.throwIfAborted();
+            state = succeeded(last.id, messages, now);
+            this.deps.store.set(session.conversationId, state);
+          } catch (error) {
+            options.signal?.throwIfAborted();
+            this.deps.store.set(session.conversationId, failed(state, messages, now, error instanceof Error ? error.message : String(error)));
+            result.failed += 1;
+            break;
+          }
+        } while (daily);
       }
     } finally {
-      this.inFlight = false;
+      this.inFlight = null;
+      release();
     }
-
+    result.pendingReviewCandidateIds = [...pending];
     if (result.attempted > 0) {
-      this.deps.log?.(
-        `extraction sweep scanned=${result.scanned} attempted=${result.attempted} committed=${result.committed} proposals=${result.proposals} skipped=${result.skipped} failed=${result.failed}`
-      );
+      this.deps.log?.(`extraction sweep scanned=${result.scanned} attempted=${result.attempted} committed=${result.committed} proposals=${result.proposals} skipped=${result.skipped} failed=${result.failed}`);
     }
     return result;
   }
 
-  private collectSessions(): MemoryExtractionSession[] {
+  private collectSessions(mode?: "idle" | "daily"): MemoryExtractionSession[] {
     const collected: MemoryExtractionSession[] = [];
     const pageSize = 100;
     let offset = 0;
     for (;;) {
-      const page = this.deps.listSessions({ limit: pageSize, offset });
+      const page = this.deps.listSessions({ limit: pageSize, offset, mode });
       collected.push(...page.items);
       offset += page.items.length;
-      if (page.items.length === 0 || offset >= page.total || collected.length >= 500) break;
+      if (page.items.length === 0 || offset >= page.total) break;
     }
     return collected;
   }
@@ -280,22 +297,26 @@ function tailAfter(messages: MemoryExtractionMessage[], processedThroughId: stri
   const start = processedThroughId
     ? Math.max(0, messages.findIndex((message) => message.id === processedThroughId) + 1)
     : Math.max(0, messages.length - MAX_TAIL_MESSAGES);
-  const sliced = messages.slice(start, start + MAX_TAIL_MESSAGES);
-  // Keep the most recent exchange even when it alone is large, but never send
-  // an unbounded transcript to the extraction model.
+  const firstReply = messages.findIndex((message, index) => index >= start && message.role === "assistant");
+  const sliced = messages.slice(start, Math.max(start + MAX_TAIL_MESSAGES, firstReply + 1));
   let used = 0;
-  let from = sliced.length;
-  while (from > 0) {
-    const next = sliced[from - 1];
-    if (used + next.content.length > MAX_TAIL_CHARS && from < sliced.length) break;
-    used += next.content.length;
-    from -= 1;
+  let end = 0;
+  let completedEnd = 0;
+  for (const message of sliced) {
+    if (used + message.content.length > MAX_TAIL_CHARS && completedEnd > 0) break;
+    used += message.content.length;
+    end += 1;
+    if (message.role === "assistant") completedEnd = end;
   }
-  return sliced.slice(from);
+  // Advance through a contiguous completed range, never past an unsent batch.
+  return sliced.slice(0, completedEnd);
 }
 
 function normalizeOutput(output: MemoryExtractionOutput | null | undefined): ExtractedMemoryItem[] {
-  if (!output || typeof output !== "object") return [];
+  if (!output || typeof output !== "object"
+    || (!Array.isArray(output.memories) && output.noUsefulInformation !== true)) {
+    throw new Error("Extractor returned malformed output.");
+  }
   const raw = Array.isArray(output.memories) ? output.memories : [];
   const valid = raw.filter((item): item is ExtractedMemoryItem => {
     if (!item || typeof item !== "object") return false;
@@ -341,4 +362,13 @@ function failed(
     lastError: error.slice(0, 500),
     retryAfter: new Date(now.getTime() + backoffMs).toISOString()
   };
+}
+
+
+export function matchesExtractionTarget(session: MemoryExtractionSession, target: MemoryExtractionTarget): boolean {
+  if (target.agentId && session.agentId !== target.agentId) return false;
+  return target.sourceScopes.some((scope) => scope.projectId
+    ? session.projectId === scope.projectId
+    : !session.projectId && session.botId === target.botId && session.channel === scope.channel
+      && session.ownerExternalUserId === scope.externalUserId);
 }

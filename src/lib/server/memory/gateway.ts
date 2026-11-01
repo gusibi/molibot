@@ -214,9 +214,13 @@ export class MemoryGateway {
     return { revoked: true, predecessorRestored: true, needsReview: false };
   }
 
-  listCandidates(status?: MemoryCandidateStatus, limit?: number): MemoryCandidate[] {
+  listCandidates(status?: MemoryCandidateStatus, limit?: number, offset?: number): MemoryCandidate[] {
     if (!this.isEnabled()) return [];
-    return this.candidates.list(status, limit);
+    return this.candidates.list(status, limit, offset);
+  }
+
+  listReviewCandidates(namespaces: string[], limit = 11, skills = false): MemoryCandidate[] {
+    return this.isEnabled() ? this.candidates.listReviewCandidates(namespaces, limit, skills) : [];
   }
 
   getCandidate(id: string): MemoryCandidate | null {

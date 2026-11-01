@@ -1,40 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ReflectionStateStore, SessionReflectionSourceReader, runMemoryReflection, pendingMemoryReviewCandidates, MemoryReflectionError, type ReflectionTarget } from "./reflection.js";
+import { MemoryExtractionService } from "./memoryExtraction.js";
+import { MemoryExtractionStateStore } from "./memoryExtractionStore.js";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { MemoryCandidateStore } from "./candidateStore.js";
-import { MemoryGateway } from "./gateway.js";
-import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, reflectionTargetId, type ReflectionSourceProjection, type ReflectionTarget } from "./reflection.js";
-import type { MemoryBackend, MemoryRecord } from "./types.js";
-
-function harness(agents: Array<{ id: string; enabled: boolean; shareOwnerMemory?: boolean }> = []) {
-  const dir = mkdtempSync(join(tmpdir(), "molibot-reflection-"));
-  const candidates = new MemoryCandidateStore(join(dir, "candidates.sqlite"));
-  const state = new ReflectionStateStore(join(dir, "reflection.sqlite"));
-  const backend: MemoryBackend = {
-    capabilities: () => ({ supportsHybridSearch: true, supportsVectorSearch: false, supportsIncrementalFlush: true, supportsLayeredMemory: true, supportsCandidates: true }),
-    add: async () => { throw new Error("pending reflection candidate must not write backend"); },
-    get: async () => null, search: async () => [], searchAll: async () => [], delete: async () => false, update: async () => null,
-    flush: async () => ({ scannedMessages: 0, addedCount: 0, memories: [], updatedCursorConversations: 0 }),
-    compact: async () => ({ scannedCount: 0, removedCount: 0, scopesAffected: 0 })
-  };
-  const gateway = new MemoryGateway(
-    () => ({ agents, plugins: { memory: { enabled: true, backend: "mory" } } }) as any,
-    {} as any,
-    undefined,
-    { candidateStore: candidates, backends: { mory: backend }, backendDefinitions: [{ key: "mory", name: "mory", description: "test", create: () => backend }], importers: [] }
-  );
-  const target: ReflectionTarget = { ownerId: "owner", botId: "momo", timezone: "Asia/Shanghai", sourceScopes: [{ channel: "web", externalUserId: "profile-1", botId: "momo" }] };
-  const targetId = reflectionTargetId(target);
-  const projection: ReflectionSourceProjection = {
-    scope: target.sourceScopes[0],
-    conversationId: "session-1",
-    messages: [{ id: "message-1", conversationId: "session-1", sessionId: "session-1", channel: "web", role: "user", content: "你每次都写太长了", createdAt: "2026-07-11T02:00:00.000Z" }]
-  };
-  const cleanup = () => { candidates.close(); state.close(); rmSync(dir, { recursive: true, force: true }); };
-  return { candidates, state, gateway, backend, target, targetId, projection, cleanup };
-}
+import { join } from "node:path";
 
 test("reflection source excludes every policy that is not memory-eligible", async () => {
   const state = new ReflectionStateStore(":memory:");
@@ -62,257 +33,71 @@ test("reflection source excludes every policy that is not memory-eligible", asyn
   }
 });
 
-test("reflection creates pending candidate once and advances watermark only after success", async () => {
-  const h = harness();
-  try {
-    const reader = { read: async () => h.state.get(h.targetId, "session-1") ? [] : [h.projection] };
-    const extractor = { extract: async () => [{ namespace: "owner:owner" as const, domain: "owner" as const, type: "user_preference" as const, subject: "answer_length", path: "mory://user_preference/answer_length", value: "主人明确希望回答更加简短直接", confidence: 0.92, reason: "主人抱怨回答过长", layer: "long_term" as const }] };
-    const service = new MemoryReflectionService(h.gateway, reader, h.state, extractor);
-    const first = await service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z") });
-    const second = await service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z") });
-    assert.equal(first.createdCandidates, 1);
-    assert.equal(first.localDate, "2026-07-10");
-    assert.deepEqual(first.pendingReviewCandidateIds, [h.candidates.list("pending")[0]?.id]);
-    assert.equal(second.createdCandidates, 0);
-    assert.deepEqual(second.pendingReviewCandidateIds, []);
-    assert.equal(h.candidates.list("pending").length, 1);
-    assert.ok(h.state.get(h.targetId, "session-1"));
-  } finally { h.cleanup(); }
+
+function fixture(t: import("node:test").TestContext) {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-shared-reflection-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const statePath = join(dir, "extraction-state.json");
+  let calls = 0;
+  let fail = false;
+  let sensitive = false;
+  const messages = [
+    { id: "u", conversationId: "s", role: "user" as const, content: "我喜欢简短回答", createdAt: "2026-10-31T12:00:00Z" },
+    { id: "a", conversationId: "s", role: "assistant" as const, content: "好的", createdAt: "2026-10-31T12:00:01Z" }
+  ];
+  const makeService = () => new MemoryExtractionService({
+    listSessions: () => ({ total: 1, items: [{ conversationId: "s", source: "local", channel: "web", botId: "momo", agentId: "a", ownerExternalUserId: "profile", updatedAt: "2026-10-31T12:00:01Z", lastActivityAt: "2026-10-31T12:00:01Z" }] }),
+    listMessages: () => messages,
+    store: new MemoryExtractionStateStore(statePath),
+    extractor: async () => { calls++; if (fail) throw new Error("model unavailable"); return { memories: [{ domain: "owner", type: "user_preference", subject: "answer_length", value: "偏好简短回答" }] }; },
+    writer: { write: async () => ({ committed: sensitive ? [] : ["memory"], proposals: sensitive ? ["pending"] : [], skipped: 0, failures: [] }) },
+    now: () => new Date("2026-11-01T00:00:00Z")
+  });
+  return { makeService, calls: () => calls, fail: () => { fail = true; }, sensitive: () => { sensitive = true; } };
+}
+
+test("idle then daily reflection reopens the same durable checkpoint without another model call", async (t) => {
+  const h = fixture(t);
+  await h.makeService().runSweep({ conversationId: "s" });
+  const result = await runMemoryReflection(h.makeService(), { timezone: "Asia/Shanghai", now: new Date("2026-11-01T00:00:00Z") });
+  assert.equal(result.localDate, "2026-11-01");
+  assert.equal(result.scannedMessages, 0);
+  assert.equal(result.createdCandidates, 0);
+  assert.equal(h.calls(), 1);
 });
 
-test("reflection returns an enriched older pending candidate exactly once", async () => {
-  const h = harness();
-  try {
-    const older = h.gateway.createCandidate({
-      runKey: "older-run",
-      namespace: "owner:owner",
-      domain: "owner",
-      type: "user_preference",
-      subject: "answer_length",
-      path: "mory://user_preference/answer_length",
-      value: "主人明确希望回答更加简短直接",
-      confidence: 0.88,
-      reason: "older evidence",
-      sources: [{ channel: "web", sessionId: "older-session", conversationMessageId: "older-message", observedAt: "2026-07-09T02:00:00.000Z" }],
-      layer: "long_term"
-    });
-    assert.ok(older);
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
-      extract: async () => [{
-        namespace: "owner:owner" as const,
-        domain: "owner" as const,
-        type: "user_preference" as const,
-        subject: "answer_length",
-        path: "mory://user_preference/answer_length",
-        value: "主人明确希望回答更加简短直接",
-        confidence: 0.92,
-        reason: "new evidence",
-        layer: "long_term" as const
-      }]
-    });
-    const result = await service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z") });
-    assert.equal(result.createdCandidates, 1);
-    assert.deepEqual(result.pendingReviewCandidateIds, [older.id]);
-  } finally { h.cleanup(); }
+test("daily then idle uses the same checkpoint and returns pending proposals for review", async (t) => {
+  const h = fixture(t);
+  h.sensitive();
+  const service = h.makeService();
+  const result = await runMemoryReflection(service, { timezone: "Asia/Shanghai" });
+  assert.equal(result.scannedMessages, 2);
+  assert.equal(result.createdCandidates, 1);
+  assert.deepEqual(result.pendingReviewCandidateIds, ["pending"]);
+  assert.equal((await service.runSweep({ conversationId: "s" })).attempted, 0);
+  assert.equal(h.calls(), 1);
 });
 
-test("reflection excludes a candidate that auto-confirmed before notification", async () => {
-  const h = harness();
-  try {
-    h.gateway.maybeAutoConfirmCandidate = (async (id: string) => ({
-      ...h.candidates.get(id)!,
-      status: "confirmed" as const,
-      confirmedMemoryId: "memory-auto"
-    })) as typeof h.gateway.maybeAutoConfirmCandidate;
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
-      extract: async () => [{
-        namespace: "owner:owner" as const,
-        domain: "owner" as const,
-        type: "user_preference" as const,
-        subject: "answer_length",
-        path: "mory://user_preference/answer_length",
-        value: "主人明确希望回答更加简短直接",
-        confidence: 0.92,
-        reason: "new evidence",
-        layer: "long_term" as const
-      }]
-    });
-    const result = await service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z") });
-    assert.equal(result.createdCandidates, 1);
-    assert.deepEqual(result.pendingReviewCandidateIds, []);
-  } finally { h.cleanup(); }
+test("daily extraction failure and retry backoff cannot report completion", async (t) => {
+  const h = fixture(t);
+  h.fail();
+  const service = h.makeService();
+  await assert.rejects(runMemoryReflection(service, { timezone: "Asia/Shanghai" }), MemoryReflectionError);
+  await assert.rejects(runMemoryReflection(service, { timezone: "Asia/Shanghai" }), /backing off/);
+  assert.equal(h.calls(), 1);
 });
 
-test("03:00 reflection reads the previous complete local calendar day", async () => {
-  const h = harness();
-  try {
-    let requestedDate = "";
-    const service = new MemoryReflectionService(h.gateway, {
-      read: async (_target, localDate) => { requestedDate = localDate; return []; }
-    }, h.state, { extract: async () => [] });
-    const result = await service.run(h.target, { now: new Date("2026-07-12T19:00:00.000Z") });
-    assert.equal(requestedDate, "2026-07-12");
-    assert.ok(result.runKey.endsWith(":2026-07-12"));
-  } finally { h.cleanup(); }
-});
 
-test("invalid extracted candidate does not suppress valid siblings or watermark advancement", async () => {
-  const h = harness();
-  try {
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
-      extract: async () => [
-        { namespace: "owner:owner" as const, domain: "owner" as const, type: "user_preference" as const, subject: "", value: "无效候选", confidence: 0.9, reason: "invalid", layer: "long_term" as const },
-        { namespace: "owner:owner" as const, domain: "owner" as const, type: "user_preference" as const, subject: "answer_length", value: "主人明确希望回答更加简短直接", confidence: 0.92, reason: "主人抱怨回答过长", layer: "long_term" as const }
-      ]
-    });
-    const result = await service.run(h.target, { now: new Date("2026-07-12T19:00:00.000Z") });
-    assert.equal(result.createdCandidates, 1);
-    assert.equal(h.candidates.list("pending").length, 1);
-    assert.ok(h.state.get(h.targetId, "session-1"));
-  } finally { h.cleanup(); }
-});
-
-test("candidate storage failures still abort reflection without advancing watermark", async () => {
-  const h = harness();
-  try {
-    h.gateway.createCandidate = (() => { throw new Error("candidate database unavailable"); }) as typeof h.gateway.createCandidate;
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
-      extract: async () => [{ namespace: "owner:owner" as const, domain: "owner" as const, type: "user_preference" as const, subject: "answer_length", value: "主人明确希望回答更加简短直接", confidence: 0.92, reason: "主人抱怨回答过长", layer: "long_term" as const }]
-    });
-    await assert.rejects(service.run(h.target, { now: new Date("2026-07-12T19:00:00.000Z") }), /candidate database unavailable/);
-    assert.equal(h.state.get(h.targetId, "session-1"), undefined);
-  } finally { h.cleanup(); }
-});
-
-test("aborted reflection does not advance watermark or create candidates", async () => {
-  const h = harness();
-  try {
-    const controller = new AbortController();
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
-      extract: async () => { controller.abort(new Error("stop")); return []; }
-    });
-    await assert.rejects(service.run(h.target, { now: new Date("2026-07-11T12:00:00.000Z"), signal: controller.signal }), /stop/);
-    assert.equal(h.state.get(h.targetId, "session-1"), undefined);
-    assert.equal(h.candidates.list("pending").length, 0);
-  } finally { h.cleanup(); }
-});
-
-test("reflection resolves authorized supersedes refs and inherits canonical identity", async () => {
-  const h = harness();
-  try {
-    const existing: MemoryRecord = {
-      id: "memory-answer-length", channel: "web", externalUserId: "profile-1", content: "主人偏好较长且完整的回答", tags: [], layer: "long_term",
-      namespace: "owner:owner", domain: "owner", type: "user_preference", subject: "answer_length", path: "mory://user_preference/answer_length",
-      state: "active", version: 1, confidence: 0.9, utility: 0.5, accessCount: 0, injectionCount: 0,
-      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
-    };
-    h.backend.search = async () => [existing];
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
-      extract: async ({ relatedMemories }) => {
-        assert.equal(relatedMemories[0]?.ref, "R1");
-        return [{
-          namespace: "owner:forged" as const, domain: "owner" as const, type: "user_preference" as const,
-          subject: "forged_subject", path: "mory://user_preference/forged_path", value: "主人现在偏好简短直接的回答",
-          confidence: 0.94, reason: "explicit correction", layer: "long_term" as const, supersedesRef: "R1"
-        }];
-      }
-    });
-    assert.equal((await service.run(h.target, { now: new Date("2026-07-12T19:00:00.000Z") })).createdCandidates, 1);
-    const candidate = h.candidates.list("pending")[0];
-    assert.equal(candidate?.namespace, existing.namespace);
-    assert.equal(candidate?.subject, existing.subject);
-    assert.equal(candidate?.path, existing.path);
-    assert.equal(candidate?.supersedesMemoryId, existing.id);
-  } finally { h.cleanup(); }
-});
-
-test("reflection rejects duplicate values and forged refs without blocking the watermark", async () => {
-  const h = harness();
-  try {
-    const existing = {
-      id: "memory-existing", channel: "web", externalUserId: "profile-1", content: "主人明确偏好简短直接的回答", tags: [], layer: "long_term" as const,
-      namespace: "owner:owner" as const, domain: "owner" as const, type: "user_preference" as const, subject: "answer_length", path: "mory://user_preference/answer_length",
-      state: "active" as const, version: 1, confidence: 0.9, utility: 0.5, accessCount: 0, injectionCount: 0,
-      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
-    };
-    h.backend.search = async () => [existing];
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
-      extract: async () => [
-        { namespace: "owner:owner", domain: "owner", type: "user_preference", subject: "answer_length", path: existing.path, value: existing.content, confidence: 0.9, reason: "duplicate", layer: "long_term" },
-        { namespace: "owner:owner", domain: "owner", type: "user_preference", subject: "answer_length", path: existing.path, value: "new value", confidence: 0.9, reason: "forged", layer: "long_term", supersedesRef: "R999" }
-      ]
-    });
-    assert.equal((await service.run(h.target, { now: new Date("2026-07-12T19:00:00.000Z") })).createdCandidates, 0);
-    assert.ok(h.state.get(h.targetId, "session-1"));
-  } finally { h.cleanup(); }
-});
-
-test("repeated mention reinforces the confirmed memory instead of dropping it", async () => {
-  const h = harness();
-  try {
-    const existing: MemoryRecord = {
-      id: "memory-existing", channel: "web", externalUserId: "profile-1", content: "主人明确偏好简短直接的回答", tags: [], layer: "long_term",
-      namespace: "owner:owner", domain: "owner", type: "user_preference", subject: "answer_length", path: "mory://user_preference/answer_length",
-      state: "active", version: 1, confidence: 0.5, utility: 0.5, accessCount: 0, injectionCount: 0,
-      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
-    };
-    h.backend.search = async () => [existing];
-    h.backend.get = async (_scope, id) => (id === existing.id ? existing : null);
-    const updates: Array<{ id: string; confidence?: number }> = [];
-    h.backend.update = async (_scope, id, input) => {
-      updates.push({ id, confidence: input.confidence });
-      return { ...existing, confidence: input.confidence ?? existing.confidence };
-    };
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, {
-      extract: async () => [
-        { namespace: "owner:owner", domain: "owner", type: "user_preference", subject: "answer_length", path: existing.path, value: existing.content, confidence: 0.9, reason: "duplicate", layer: "long_term" }
-      ]
-    });
-    assert.equal((await service.run(h.target, { now: new Date("2026-07-12T19:00:00.000Z") })).createdCandidates, 0);
-    assert.equal(updates.length, 1);
-    assert.equal(updates[0].id, existing.id);
-    assert.ok(Math.abs((updates[0].confidence ?? 0) - 0.52) < 1e-9);
-    assert.ok(h.state.get(h.targetId, "session-1"));
-  } finally { h.cleanup(); }
-});
-
-test("skill reflection keeps runtime-owned assistant evidence and rejects extractor-forged sources", async () => {
-  const h = harness();
-  try {
-    const projection = {
-      ...h.projection,
-      messages: [
-        ...h.projection.messages,
-        { id: "successful-assistant-entry", conversationId: "session-1", sessionId: "session-1", channel: "web", role: "assistant" as const, content: "已完成并验证发布流程", createdAt: "2026-07-11T02:01:00.000Z" }
-      ]
-    };
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [projection] }, h.state, {
-      extract: async () => [{
-        namespace: "owner:owner" as const, domain: "owner" as const, type: "skill" as const,
-        subject: "release_check", value: "发布前运行完整测试并核对版本与变更摘要", confidence: 0.9,
-        reason: "successful workflow", layer: "long_term" as const,
-        sources: [{ channel: "web", sessionId: "forged", conversationMessageId: "forged-success" }]
-      }]
-    });
-    await service.run(h.target, { now: new Date("2026-07-12T19:00:00.000Z") });
-    const sources = h.candidates.list("pending")[0]?.sources ?? [];
-    assert.deepEqual(sources.map((source) => source.conversationMessageId), ["message-1", "successful-assistant-entry"]);
-    assert.equal(sources.some((source) => source.sessionId === "forged"), false);
-  } finally { h.cleanup(); }
-});
-
-test("reflection pins private candidates to the Agent and refuses unauthorized owner writes", async () => {
-  const h = harness([{ id: "researcher", enabled: true, shareOwnerMemory: false }]);
-  try {
-    const target = { ...h.target, agentId: "researcher" };
-    const service = new MemoryReflectionService(h.gateway, { read: async () => [h.projection] }, h.state, { extract: async () => [
-      { namespace: "agent:foreign", domain: "agent_self", type: "skill", layer: "long_term", subject: "research", value: "PRIVATE_SKILL", confidence: 0.95, reason: "user_explicit" },
-      { namespace: "owner:owner", domain: "owner", type: "user_preference", layer: "long_term", subject: "answer_length", value: "OWNER_LEAK", confidence: 0.95, reason: "user_explicit" }
-    ] });
-    const result = await service.run(target, { now: new Date("2026-07-12T02:00:00.000Z") });
-    assert.equal(result.createdCandidates, 1);
-    const candidates = h.gateway.listCandidates();
-    assert.equal(candidates[0].namespace, "agent:researcher");
-    assert.equal(candidates[0].value, "PRIVATE_SKILL");
-  } finally { h.cleanup(); }
+test("daily review paginates all pending proposals and restricts them to selected Sessions", () => {
+  const candidates = Array.from({ length: 1005 }, (_, i) => ({ id: `c${i}`, sources: [{ sessionId: i === 1 ? "foreign" : "selected" }] }));
+  const offsets: number[] = [];
+  const memory = { listCandidates: (_status: unknown, limit = 1000, offset = 0) => {
+    offsets.push(offset);
+    return candidates.slice(offset, offset + limit) as never;
+  } };
+  const ids = pendingMemoryReviewCandidates(memory, new Set(["selected"]));
+  assert.equal(ids.length, 1004);
+  assert.equal(ids.includes("c1"), false);
+  assert.equal(ids.includes("c1004"), true);
+  assert.deepEqual(offsets, [0, 1000]);
 });

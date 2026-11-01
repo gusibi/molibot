@@ -17,7 +17,7 @@ import {
   listMemoryReflectionNotificationTargets,
   resolveMemoryReflectionNotificationTarget
 } from "./taskScheduler";
-import { executeOwnerMemoryReflection, formatOwnerMemoryReflectionNotification, OwnerMemoryReflectionError } from "./ownerMemoryReflection";
+import { formatOwnerMemoryReflectionNotification } from "./ownerMemoryReflection";
 
 test("internal memory reflection bypasses channel task delivery", async () => {
   let internalCalls = 0;
@@ -186,44 +186,27 @@ test("daily materials completion notice is aggregated and deduplicates output pa
   );
 });
 
-test("owner reflection formats one aggregate completion notice, including zero output", async () => {
-  const result = await executeOwnerMemoryReflection(
-    [{ kind: "memory-reflection", target: { ownerId: "owner", botId: "a", timezone: "Asia/Shanghai", sourceScopes: [] } } as any],
-    async () => ({ localDate: "2026-08-07", scannedMessages: 0, createdCandidates: 0, pendingReviewCandidateIds: [] })
-  );
-  const notice = formatOwnerMemoryReflectionNotification(result, { pendingReviewCount: 0, skillDraftCount: 0 });
+test("daily reflection notice reports no changes without inventing new memories", () => {
+  const notice = formatOwnerMemoryReflectionNotification({
+    completedTargets: 1, failedTargets: 0, localDate: "2026-11-01", scannedConversations: 1,
+    scannedMessages: 0, createdCandidates: 0, pendingReviewCandidateIds: []
+  }, { pendingReviewCount: 0, skillDraftCount: 0 });
   assert.match(notice, /0 条消息/);
   assert.match(notice, /新增 0 条/);
 });
 
-test("owner reflection aggregates Bot results into one notice and reports terminal failure", async () => {
-  const success = await executeOwnerMemoryReflection(
-    [{ target: { botId: "a" } } as any, { target: { botId: "b" } } as any],
-    async (internal) => internal.target?.botId === "a"
-      ? { localDate: "2026-08-07", scannedMessages: 3, createdCandidates: 1, pendingReviewCandidateIds: ["candidate-1"] }
-      : { localDate: "2026-08-07", scannedMessages: 4, createdCandidates: 2, pendingReviewCandidateIds: ["candidate-1", "candidate-2"] }
-  );
-  assert.deepEqual(success.pendingReviewCandidateIds, ["candidate-1", "candidate-2"]);
-  const successNotice = formatOwnerMemoryReflectionNotification(success, { pendingReviewCount: 2, skillDraftCount: 0 });
-  assert.match(successNotice, /2 个 Bot/);
-  assert.match(successNotice, /7 条消息/);
-  assert.match(successNotice, /新增 3 条候选/);
-  assert.match(successNotice, /本次有 2 条待确认记忆/);
-
-  await assert.rejects(() => executeOwnerMemoryReflection(
-    [{ target: { botId: "a" } } as any, { target: { botId: "b" } } as any],
-    async (internal) => {
-      if (internal.target?.botId === "b") throw new Error("boom");
-      return { localDate: "2026-08-07", scannedMessages: 2, createdCandidates: 1, pendingReviewCandidateIds: ["candidate-1"] };
-    }
-  ), (error: unknown) => {
-    assert.ok(error instanceof OwnerMemoryReflectionError);
-    assert.deepEqual(error.result.pendingReviewCandidateIds, ["candidate-1"]);
-    const notice = formatOwnerMemoryReflectionNotification(error.result, { pendingReviewCount: 1, skillDraftCount: 0 });
-    assert.match(notice, /执行失败/);
-    assert.match(notice, /1 个 Bot/);
-    return true;
-  });
+test("daily reflection notice distinguishes saved facts, pending review and failed Sessions", () => {
+  const result = {
+    completedTargets: 2, failedTargets: 0, localDate: "2026-11-01", scannedConversations: 3,
+    scannedMessages: 7, createdCandidates: 1, pendingReviewCandidateIds: ["candidate-1"], committedMemories: 2
+  };
+  const success = formatOwnerMemoryReflectionNotification(result, { pendingReviewCount: 3, skillDraftCount: 0 });
+  assert.match(success, /保存 2 条记忆/);
+  assert.match(success, /新增 1 条候选/);
+  assert.match(success, /本次有 3 条待确认记忆/);
+  const failure = formatOwnerMemoryReflectionNotification({ ...result, failedTargets: 1, failedSessions: 1 }, { pendingReviewCount: 3, skillDraftCount: 0 });
+  assert.match(failure, /1 个会话提取失败或等待重试/);
+  assert.doesNotMatch(failure, /Bot 已完成/);
 });
 
 test("memory review delivery skips recorded items and stops when a target is not private", async () => {

@@ -259,3 +259,34 @@ test("repeated successful skill evidence becomes review-only draft suggestion", 
   gateway.ignoreCandidate(ignored.id);
   assert.equal(skill("ignored-2", "i2", "ok-i2", "2026-07-14T00:00:00Z"), null);
 }));
+
+
+test("candidate pagination has stable boundaries even when creation timestamps tie", () => withStore((store) => {
+  const created = Array.from({ length: 7 }, (_, i) => store.create({ ...candidate(`偏好 ${i}`), subject: `preference_${i}`, path: `mory://user_preference/preference_${i}` })!);
+  const listed = [0, 3, 6].flatMap((offset) => store.list("pending", 3, offset));
+  assert.equal(listed.length, 7);
+  assert.deepEqual(new Set(listed.map((c) => c.id)), new Set(created.map((c) => c.id)));
+  assert.equal(store.list("pending", 3, 9).length, 0);
+}));
+
+test("review candidates filter namespaces and drafts before applying the bound and never revive resolved rows", async () => {
+  await withStore((store) => {
+    for (let i = 0; i < 15; i += 1) {
+      store.create({ ...candidate(`Project-only fact ${i}`), namespace: "project:owner:private", domain: "project", subject: `project-${i}`, path: `mory://event/project-${i}` });
+    }
+    const first = store.create(candidate("Use concise report conclusions"))!;
+    const second = store.create({ ...candidate("Show maintenance cost in comparisons"), subject: "comparison", path: "mory://user_preference/comparison" })!;
+    const skill = store.create({ ...candidate("Skill proposal"), type: "skill", subject: "skill" })!;
+    assert.equal(store.listReviewCandidates(["owner:owner"], 11, true).length, 0);
+    store.setSkillDraftSuggestion(skill.id, { description: "Reusable workflow", inputs: [], outputs: [], boundaries: [], successfulExecutionCount: 2 });
+    assert.deepEqual(store.listReviewCandidates(["owner:owner"], 11, true).map(item => item.id), [skill.id]);
+    assert.deepEqual(store.listReviewCandidates(["agent:other"], 11, true), []);
+    const visible = store.listReviewCandidates(["owner:owner"], 2);
+    assert.deepEqual(new Set(visible.map(item => item.id)), new Set([first.id, second.id]));
+    store.ignore(first.id);
+    store.reserveConfirmation(second.id);
+    store.completeConfirmation(second.id, candidate("Show maintenance cost in comparisons"), "saved-memory", false);
+    assert.equal(store.listReviewCandidates(["owner:owner"]).length, 0);
+    assert.deepEqual(store.listReviewCandidates([]), []);
+  });
+});

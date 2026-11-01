@@ -534,3 +534,44 @@ test("disabled Agent trigger records a skipped reason and a restarted watcher do
     if (JSON.parse(readFileSync(join(root, filename), "utf8")).status.lastSlotKey === status.lastSlotKey) assert.equal(calls, 0);
   } finally { watcher.stop(); leases.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("a completed task saves its declared reading surface and delivery receipt with the result", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-display-"));
+  const filename = "event.json";
+  const eventPath = join(eventsDir, filename);
+  const event: MomEvent = {
+    type: "one-shot",
+    at: "2026-06-04T17:00:00.000Z",
+    chatId: "chat-1",
+    text: "write the briefing",
+    taskId: "morning-briefing",
+    display: {
+      type: "briefing",
+      title: "Morning briefing",
+      highlights: [{ title: "Invoices", takeaway: "Three are due today." }]
+    }
+  };
+  writeFileSync(eventPath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+
+  const watcher = new EventsWatcher(
+    eventsDir,
+    async () => "The briefing was delivered.",
+    { leaseStore: store, channel: "feishu" }
+  ) as unknown as {
+    runLeasedEvent: (event: MomEvent, filename: string, triggerSlot: string, runId: string) => Promise<void>;
+  };
+
+  try {
+    await watcher.runLeasedEvent(event, filename, "2026-06-04T17:00", "briefing-run");
+    const [lease] = store.listFinishedSince(new Date(0).toISOString());
+    const result = lease?.result as { text?: string; display?: { type?: string }; delivery?: { status?: string } } | undefined;
+    assert.equal(result?.text, "The briefing was delivered.", "the real run result stays the source of the text");
+    assert.equal(result?.display?.type, "briefing", "the declared reading surface is saved with the result");
+    assert.equal(result?.delivery?.status, "delivered");
+    assert.equal(readStatus(eventPath).state, "completed");
+  } finally {
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});

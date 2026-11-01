@@ -415,6 +415,7 @@
   // instead of pretending the page is quiet.
   let handover: DesktopHandover | null = null;
   let handoverLoading = false;
+  let handoverRequestGeneration = 0;
   let handoverStale = false;
   let handoverBusyId = "";
   let handoverError = "";
@@ -431,19 +432,20 @@
     const endpoint = connectedEndpoint;
     const generation = connectionGeneration;
     if (!connectionReady || !endpoint) return;
+    const request = ++handoverRequestGeneration;
     handoverRefreshedAt = Date.now();
     handoverLoading = true;
     try {
       const next = await loadDesktopHandover(endpoint);
-      if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      if (request !== handoverRequestGeneration || generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
       handover = next;
       handoverStale = false;
     } catch {
-      if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
+      if (request !== handoverRequestGeneration || generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
       // Keep the content already on screen; only the freshness label changes.
       handoverStale = true;
     } finally {
-      handoverLoading = false;
+      if (request === handoverRequestGeneration) handoverLoading = false;
     }
   }
 
@@ -616,10 +618,11 @@
     try {
       const items = await loadDesktopAgentActivity(endpoint);
       if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      const recovered = !agentActivityReady || handoverStale;
       agentActivities = items;
       agentActivityReady = true;
       agentActivityError = "";
-      refreshHandoverIfDue();
+      refreshHandoverIfDue(recovered);
     } catch (cause) {
       if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
       agentActivities = [];
@@ -4561,14 +4564,24 @@
             <AgentHome activity={agentActivities.find(item => item.agentId === selectedAgentId)} activityReady={agentActivityReady} onActivity={() => openAgentOverview(selectedAgentId)} composer={conversationComposer} agent={selectedAgent} agentId={selectedAgentId} sessions={agentHomeDisplaySessions} {locale} {copy}
               handover={selectedAgentId === defaultAgentId ? handover : null}
               handoverLoading={selectedAgentId === defaultAgentId && handoverLoading}
-              handoverStale={selectedAgentId === defaultAgentId && handoverStale}
+              handoverStale={selectedAgentId === defaultAgentId && (handoverStale || !connectionReady)}
               handoverError={selectedAgentId === defaultAgentId ? handoverError : ""}
               handoverBusyId={handoverBusyId}
               agentLabel={(id) => onboardingAgents.find(agent => agent.id === id)?.name ?? copy.handoverUnknownSource}
+              onTasks={() => openWorkspacePane("automations")}
+              onPlans={() => openWorkspacePane("plans")}
+              onFiles={() => openAgentFiles(selectedAgentId)}
+              onResultFile={async (sessionId, file) => {
+                await openHandoverSource({ sessionId });
+                if ((viewMode === "external" ? activeExternalSessionId : chatState.activeSessionId) === sessionId) openTurnFiles([file], file.key);
+              }}
               onHandoverOpen={openHandoverSource}
               onHandoverResolve={resolveHandoverApproval}
               onHandoverAnswer={answerHandoverDecision}
               onHandoverPlan={approveHandoverPlan}
+              endpoint={connectedEndpoint || ""}
+              onMemoryChanged={refreshHandover}
+              onOpenMemory={() => openSettings("memory")}
               actions={agentCanExecute ? emptyQuickStarts(copy) : []}
               onPrompt={fillEmptyPrompt} onSession={openSession} onDelete={deleteAgentConversation}
               onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}

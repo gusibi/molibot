@@ -6,6 +6,7 @@ import { SettingsStore } from '../../../src/lib/server/settings/store.js';
 import { SqliteTraceStore } from '../../../src/lib/server/agent/hooks/traceStore.js';
 import { getEventExecutionLeaseStore } from '../../../src/lib/server/agent/eventsLeaseStore.js';
 import { HostBashStore } from '../../../src/lib/server/hostBash/store.js';
+import { MemoryCandidateStore } from '../../../src/lib/server/memory/candidateStore.js';
 import { SessionStore } from '../../../src/lib/server/sessions/store.js';
 import { assertIsolatedDataDir, isInsideDir } from './guard.js';
 
@@ -47,14 +48,14 @@ function seedSession(): string {
 const leases = getEventExecutionLeaseStore();
 
 /** A completed scheduled task: the only kind of item the home counts as a result. */
-function seedCompletedTask(input: { sessionId: string; text: string; finishedAt: Date; runId: string; taskId: string; preview?: string }): void {
+function seedCompletedTask(input: { sessionId: string; text: string; finishedAt: Date; runId: string; taskId: string; preview?: string; display?: unknown; triggerSlot?: string }): void {
   const startedAt = new Date(input.finishedAt.getTime() - 45_000);
   const acquired = leases.acquire({
     now: startedAt,
     leaseScope: "agent:default",
     eventFile: `${input.taskId}.json`,
     eventType: "periodic",
-    triggerSlot: `seed:${input.taskId}`,
+    triggerSlot: input.triggerSlot ?? `seed:${input.taskId}`,
     chatId: "web:personal:web-anonymous",
     sessionId: input.sessionId,
     channel: "web",
@@ -62,15 +63,19 @@ function seedCompletedTask(input: { sessionId: string; text: string; finishedAt:
     runId: input.runId,
     maxAttempts: 1,
     timeoutMs: 60_000,
-    eventPayloadJson: JSON.stringify({ text: input.text })
+    eventPayloadJson: JSON.stringify({ text: input.text, ...(input.display ? { display: input.display } : {}) })
   });
   if (!acquired) throw new Error(`Could not seed ${input.taskId}`);
-  leases.markCompleted(acquired.id, input.runId, { text: input.preview ?? `${input.text} delivered` }, input.finishedAt);
+  leases.markCompleted(acquired.id, input.runId, {
+    text: input.preview ?? `${input.text} delivered`,
+    ...(input.display ? { display: input.display } : {}),
+    delivery: { status: "not_required", channel: "web", at: input.finishedAt.toISOString() }
+  }, input.finishedAt);
 }
 
 function resetHandoverState(): void {
   for (const meta of sessions.listAllWebConversationMeta()) {
-    if (meta.conversation.title === SEED_TITLE) {
+    if (scenario === 'first-run' || meta.conversation.title === SEED_TITLE) {
       sessions.deleteConversation(meta.conversation.id, 'web', meta.externalUserId);
     }
   }
@@ -94,6 +99,12 @@ function resetHandoverState(): void {
 }
 
 resetHandoverState();
+if (scenario !== 'memory') {
+  const memorySettings = new SettingsStore();
+  const saved = memorySettings.load();
+  saved.plugins.memory.enabled = false;
+  memorySettings.save(saved);
+}
 
 if (scenario === 'active') {
   const sessionId = seedSession();
@@ -293,4 +304,87 @@ if (scenario === 'editorial') {
       owner: { kind: 'agent', id: 'default' }
     });
   }
+}
+
+
+if (scenario === 'typed') {
+  seedCompletedTask({
+    sessionId: seedSession(),
+    text: 'Morning briefing',
+    preview: 'Three things worth your attention today.',
+    finishedAt: now,
+    runId: 'handover-typed-briefing',
+    taskId: 'handover-typed-briefing',
+    display: {
+      type: 'briefing',
+      title: 'Three things worth your attention',
+      introduction: 'A short read assembled from this morning\'s sources.',
+      highlights: [
+        { title: 'Agent reliability', takeaway: 'Clear completion criteria mattered more than model choice.', sources: [{ label: 'Research note', url: 'https://example.com/research' }] },
+        { title: 'Local models', takeaway: 'Two new releases are worth a look.' }
+      ]
+    }
+  });
+  seedCompletedTask({
+    sessionId: seedSession(),
+    text: 'Topic ideas',
+    preview: 'One recommended angle and two alternatives.',
+    finishedAt: new Date(now.getTime() - 60_000),
+    runId: 'handover-typed-topics',
+    taskId: 'handover-typed-topics',
+    display: {
+      type: 'topic-proposals',
+      title: 'What to write next',
+      recommendedCandidateId: 'reliability',
+      candidates: [
+        { id: 'reliability', title: 'Why agent reliability is a product decision', angle: 'Show how completion criteria change the user experience.', rationale: 'It connects the week\'s research to a decision the reader can make.', outline: ['The failure that looked like a model problem', 'What changed when criteria became explicit'] },
+        { id: 'tools', title: 'A field guide to local tools', angle: 'Compare three practical setups.' }
+      ]
+    }
+  });
+  seedCompletedTask({
+    sessionId: seedSession(),
+    text: 'Daily digest',
+    preview: 'The older edition, already replaced.',
+    finishedAt: new Date(now.getTime() - 26 * 60 * 60_000),
+    runId: 'handover-typed-period-older',
+    taskId: 'handover-typed-period',
+    triggerSlot: 'seed:older'
+  });
+  seedCompletedTask({
+    sessionId: seedSession(),
+    text: 'Daily digest',
+    preview: 'The current edition.',
+    finishedAt: new Date(now.getTime() - 60_000),
+    runId: 'handover-typed-period-newer',
+    taskId: 'handover-typed-period',
+    triggerSlot: 'seed:newer'
+  });
+}
+
+if (scenario === 'memory') {
+  const settingsStore = new SettingsStore();
+  const settings = settingsStore.load();
+  settings.plugins.memory.enabled = true;
+  settings.plugins.memory.autoConfirm.enabled = false;
+  settingsStore.save(settings);
+  const sessionId = seedSession();
+  const source = sessions.appendMessage(sessionId, 'user', 'Please put conclusions first, then let me expand the evidence.');
+  const candidates = new MemoryCandidateStore(storagePaths.moryDbFile);
+  const reviewDb = new DatabaseSync(storagePaths.moryDbFile);
+  reviewDb.prepare("DELETE FROM memory_candidates WHERE run_key = 'home-review-ui'").run();
+  reviewDb.close();
+  try {
+    for (const [index, value] of [
+      'Put conclusions first in long reports, with evidence available on demand.',
+      'Include maintenance cost when comparing technical options.',
+      'Organize weekly reports into completed work, decisions and next steps.'
+    ].entries()) {
+      candidates.create({ namespace: 'owner:owner', domain: 'owner', type: 'user_preference',
+        subject: `home_review_${now.getTime()}_${index}`, path: `mory://user_preference/home_review_${now.getTime()}_${index}`, value,
+        confidence: 0.9, reason: 'Explicit preference in the source conversation', layer: 'long_term',
+        runKey: 'home-review-ui', sources: [{ channel: 'web', sessionId, conversationMessageId: source.id }] });
+    }
+  } finally { candidates.close(); }
+  seedCompletedTask({ sessionId, text: 'Daily research briefing', finishedAt: now, runId: 'memory-brief-run', taskId: 'memory-brief', preview: 'The report and its supporting notes are ready.' });
 }
