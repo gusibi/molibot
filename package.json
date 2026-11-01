@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.9.69",
+  "version": "2.9.70",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
