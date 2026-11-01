@@ -116,7 +116,11 @@
 
       <!-- Content -->
       <div class="content" id="content">
-        <section class="section" id="open-section">
+        <div class="boot-loading" id="boot-loading" role="status">
+          <span class="boot-spinner" aria-hidden="true"></span>
+          <span data-i18n="loading">Loading…</span>
+        </div>
+        <section class="section" id="open-section" hidden>
           <ul class="group-card" id="open-list"></ul>
           <div class="empty-state" id="open-empty" hidden>
             <div class="empty-icon-wrap">
@@ -131,7 +135,7 @@
         <section class="section done-section" id="done-section">
           <div class="section-header-row">
             <h2 class="section-title" data-i18n="completed">Completed</h2>
-            <button type="button" class="done-clear-btn" id="clear-done-btn" data-i18n="clearCompleted" title="Clear completed items">Clear</button>
+            <button type="button" class="done-clear-btn" id="clear-done-btn" data-i18n="clearCompleted" data-i18n-title="clearCompletedTitle" title="Clear completed items">Clear</button>
           </div>
           <ul class="group-card" id="done-list"></ul>
         </section>

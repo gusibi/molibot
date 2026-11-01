@@ -402,6 +402,7 @@
   let requestedRoomId = "";
   let roomEditRequested = false;
   let roomNavigationRevision = 0;
+  let requestedPlanId = "";
   let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let agentActivities: DesktopAgentActivityItem[] = [];
@@ -552,6 +553,10 @@
    */
   async function openHandoverSource(input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }): Promise<void> {
     const endpoint = connectedEndpoint;
+    if (input.planId || input.executionId) {
+      openWorkspacePane("plans", input.planId || input.executionId);
+      return;
+    }
     if (input.sessionId && endpoint) {
       const known = [...ordinarySessions, ...agentHomeSessions].find((item) => item.sessionId === input.sessionId);
       if (known) {
@@ -594,10 +599,6 @@
       // so say why instead of silently opening an unrelated list.
       handoverError = copy.handoverSourceMissing;
       void refreshHandover();
-      return;
-    }
-    if (input.planId || input.executionId) {
-      openWorkspacePane("plans");
       return;
     }
     openAgentHistory(defaultAgentId);
@@ -3777,7 +3778,8 @@
     clearInspector();
   }
 
-  function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
+  function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">, planId = ""): void {
+    requestedPlanId = pane === "plans" ? planId : "";
     closeAgentSettings();
     agentFilesActive = false;
     agentHistoryActive = false;
@@ -4363,6 +4365,7 @@
         onOpenMiniAppAiSettings={() => openSettings("models")}
         formatTime={formatListTime}
         targetSessionId={projectPaneActive ? activeProjectSessionId : activeSessionId}
+        targetPlanId={requestedPlanId}
         onContinuePlan={continuePlan}
       />
     {:else}
@@ -4569,7 +4572,7 @@
               handoverBusyId={handoverBusyId}
               agentLabel={(id) => onboardingAgents.find(agent => agent.id === id)?.name ?? copy.handoverUnknownSource}
               onTasks={() => openWorkspacePane("automations")}
-              onPlans={() => openWorkspacePane("plans")}
+              onPlans={(planId) => openWorkspacePane("plans", planId)}
               onFiles={() => openAgentFiles(selectedAgentId)}
               onResultFile={async (sessionId, file) => {
                 await openHandoverSource({ sessionId });

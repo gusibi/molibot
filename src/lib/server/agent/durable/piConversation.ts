@@ -2,14 +2,14 @@ import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 import type { JsonValue, JsonRepresentation } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { RunBudget } from "$lib/server/agent/core/runtimeBudget.js";
 import { RunBudgetStore } from "$lib/server/agent/core/runBudgetStore.js";
 import { join } from "node:path";
 import { defineDoc, defineEntry, GenerationTask, Harness, LiveDoc, NestedCallDoc, ToolTask, watchEvents,
   AssistantEntry, UsageDoc, AgentDoc, configure as configureAgent, type AgentChange, type AgentEventStream, type Conversation, type EntryRecord, type ModelRef,
   type UserInput, type Cursor, type TaskId, type EntryId, type ConversationId } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { openPiStorage } from "$lib/server/agent/durable/piStorage.js";
 import { nativeNestedToolKey, type NativeInvocation, type NativeChildOptions, type NativeChildSession } from "./piInvocation.js";
 import { decodePiNestedResult, decodePiToolDetails } from "./piToolResult.js";
 import { isSafeReadOnlySubagentCommand } from "$lib/server/agent/tools/subagent.js";
@@ -17,9 +17,9 @@ import { assistantHasUsableOutput, planLengthRecovery } from "$lib/server/agent/
 import { claimPiStorage, createPiToolRegistry, type PiToolRegistryOptions } from "./piToolRegistry.js";
 
 const ChildPolicy = defineDoc<{ deadlineAt: number }>({ kind: "molibot.child-policy", version: 1,
-  scope: "conversation", history: "latest", fork: "current", initial: () => ({ deadlineAt: 0 }) });
+  scope: "conversation", history: "latest", fork: "current", checkpointWhen: () => false, initial: () => ({ deadlineAt: 0 }) });
 const ChildUsageProjection = defineDoc<{ models: Record<string, JsonRepresentation<import("@earendil-works/pi-ai").Usage>> }>({ kind: "molibot.child-usage-projection", version: 1,
-  scope: "conversation", history: "latest", fork: "initial", initial: () => ({ models: {} }) });
+  scope: "conversation", history: "latest", fork: "initial", checkpointWhen: () => false, initial: () => ({ models: {} }) });
 const ChildUsageReceipt = defineEntry<{ provider: string; model: string; api: string; usage: JsonValue }>("molibot.child-usage-receipt");
 const ChildBinding = defineEntry<{ taskId: number; key: string; conversationId: number; model: JsonValue; catalog: JsonValue[]; instructions: string; tools: string[] }>("molibot.child-binding");
 const Binding = defineEntry<{ key: string; requestId: string; content: JsonValue; runId: string }>("molibot.runner-binding");
@@ -124,7 +124,7 @@ export class PiConversationRuntime {
       });
       const key = createHash("sha256").update(JSON.stringify({ scope: this.options.scope, catalog,
         admission: this.options.admissionKey ?? this.options.tools.map(tool => ({ name: tool.name, parameters: tool.parameters, replay: tool.replay })) })).digest("hex");
-      const storage = await openNodeSqliteStorage(path);
+      const storage = await openPiStorage(path);
       try {
       // Rebuild child model catalogs before the scheduler reserves recovered generations.
       let conversationsCursor: Cursor | undefined;
@@ -273,7 +273,7 @@ export class PiConversationRuntime {
     }
     this.registerTools([...this.options.tools.filter(candidate => candidate.name !== tool.name), tool]);
     const key = nativeNestedToolKey(id);
-    const callContext = signal ? { ...context, abortSignal: context.abortSignal ? AbortSignal.any([context.abortSignal, signal]) : signal } : context;
+    const callContext = signal ? withAbortSignal(signal, context) : context;
     try {
       const result = await api.executeTool(tool.name, args as import("@earendil-works/pi-durable").JsonObject, callContext, { key });
       return { result: decodePiNestedResult(result), isError: result.isError };
@@ -719,7 +719,10 @@ export class PiConversationRuntime {
   private async assertRecovery(): Promise<void> {
     const inspection = await this.harness!.inspect(BACKGROUND_CONTEXT);
     const approved = new Set(this.options.approvedRecoveryCallIds ?? []);
-    for (const { record } of inspection.tasks) {
+    for (const { record, state } of inspection.tasks) {
+      if (state.kind === "blocked" && state.reason === "restart_limit") {
+        throw new Error(`Pi task ${record.id} is paused after repeated interruptions without progress. Review the execution before retrying.`);
+      }
       if (record.kind !== ToolTask.definition.name || !("checkpoint" in record.state)) continue;
       const checkpoint = record.state.checkpoint;
       if (checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint) && checkpoint.phase === "execute") {

@@ -17,14 +17,6 @@ const SUMMARY_PREFIX = "[context summary]";
 const MAX_SERIALIZED_CHARS = 120000;
 const MAX_SUMMARY_TOKENS = 1600;
 
-/**
- * pi derives the summary's `maxTokens` as `0.8 * reserveTokens`. Pass a budget
- * that reproduces the summary length this project has always used, rather than
- * the (much larger) compaction reserve, which is a threshold setting and not a
- * statement about how long a summary should be.
- */
-const SUMMARY_RESERVE_TOKENS = Math.ceil(MAX_SUMMARY_TOKENS / 0.8);
-
 const SUMMARY_RETRY_DELAYS_MS = [500, 2000];
 
 /** Half the summary budget: the prefix bridges into the suffix, it is not a history. */
@@ -409,7 +401,7 @@ async function generateSummaryWithRetry(options: {
       const { text } = await generateSummaryWithUsage(
         options.messages,
         options.model,
-        SUMMARY_RESERVE_TOKENS,
+        undefined,
         options.apiKey,
         undefined,
         options.signal,
@@ -418,7 +410,10 @@ async function generateSummaryWithRetry(options: {
         undefined,
         // Custom providers are not in pi's builtin registry, so pi's default
         // completion path would fail on them; route through the shared runtime.
-        options.streamFn ?? streamWithPiRuntime
+        (model, context, streamOptions) => (options.streamFn ?? streamWithPiRuntime)(model, context, {
+          ...streamOptions,
+          maxTokens: Math.min(model.maxTokens ?? MAX_SUMMARY_TOKENS, MAX_SUMMARY_TOKENS)
+        })
       );
       return text.trim();
     } catch (error) {

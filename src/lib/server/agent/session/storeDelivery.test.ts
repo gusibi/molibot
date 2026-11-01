@@ -56,3 +56,18 @@ test("marking an unknown entry is a no-op and never invents a deliverable", () =
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('recorded execution reads never borrow an untagged Session or sibling execution', () => {
+  const { store, dir } = makeStore();
+  try {
+    store.saveContext(CHAT, [assistantMessage('Later untagged answer')], SID);
+    assert.deepEqual(store.loadRecordedRunContext(CHAT, SID, 'missing-run'), []);
+    assert.ok(store.loadContextForRun(CHAT, SID, 'missing-run').length > 0, 'legacy runtime context loading keeps its existing behavior');
+    const own = assistantMessage('Requested execution answer', 'stop');
+    store.appendContextMessage(CHAT, own, SID, { runId: 'requested' });
+    store.appendContextMessage(CHAT, assistantMessage('Sibling execution answer'), SID, { runId: 'sibling' });
+    store.appendContextMessage(CHAT, assistantMessage('Temporary control message'), SID, { runId: 'requested', retention: 'turn_only' });
+    assert.deepEqual(new MomRuntimeStore(dir).loadRecordedRunContext(CHAT, SID, 'requested'), [own]);
+    assert.deepEqual(store.loadRecordedRunContext(CHAT, SID, ''), []);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

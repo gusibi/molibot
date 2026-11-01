@@ -97,11 +97,13 @@ export function streamWithPiRuntime(
   options?: ModelsSimpleStreamOptions
 ): AssistantMessageEventStream {
   const enhancedOptions = withSessionAffinityHeaders(options);
-  const telemetryContext = enhancedOptions?.telemetryContext;
-  if (telemetryContext) {
+  // Models records native request spans; direct custom-provider streams need the host wrapper.
+  if (isBuiltinModel(model)) return models.streamSimple(model, context, enhancedOptions);
+  const telemetry = enhancedOptions?.telemetry;
+  if (telemetry) {
     const output = createAssistantMessageEventStream();
     const startedAt = Date.now();
-    void telemetryContext.startSpan({
+    void telemetry.startSpan({
       name: "pi.ai.request",
       attributes: {
         "pi.ai.operation": "stream",
@@ -116,7 +118,7 @@ export function streamWithPiRuntime(
       let httpStatus: number | undefined;
       const stream = streamProvider(model, context, {
         ...enhancedOptions,
-        telemetryContext: span,
+        telemetry: span,
         onResponse: async (response, responseModel) => {
           httpStatus = response.status;
           await enhancedOptions?.onResponse?.(response, responseModel);

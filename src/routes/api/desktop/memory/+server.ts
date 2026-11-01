@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { buildDesktopMemorySummary, desktopAgentMemoryScope, desktopAgentMemoryRecords } from "$lib/server/app/desktopMemory";
+import { readDesktopMemoryComparison, buildDesktopMemorySummary, desktopAgentMemoryScope, desktopAgentMemoryRecords } from "$lib/server/app/desktopMemory";
 import type { DesktopMemoryResponse } from "$lib/shared/desktop";
 import type { DesktopMemoryActionRequest, DesktopMemoryActionResponse, DesktopMemoryRejectionsResponse } from "$lib/shared/desktop";
 import { resolve } from "node:path";
@@ -38,7 +38,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const memory = getRuntime().memory;
     const agentScope = body.agentId !== undefined ? desktopAgentMemoryScope(getRuntime().getSettings(), body.agentId) : null;
     const scope = agentScope ?? memoryScope(body);
-    if (agentScope && (!["list", "search"].includes(body.action) || body.allScopes)) throw new Error("Agent memory view supports scoped list and search only");
+    if (agentScope && (!["list", "search", "compare-candidate"].includes(body.action) || body.allScopes)) throw new Error("Agent memory view supports scoped list and search only");
     if (body.expectedUpdatedAt !== undefined && (body.action === "confirm-candidate" || body.action === "ignore-candidate")) {
       const current = memory.getCandidate(String(body.id ?? "").trim());
       if (!current || current.status !== "pending" || current.updatedAt !== body.expectedUpdatedAt || current.skillDraftSuggestion) {
@@ -46,7 +46,9 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     }
     let payload: DesktopMemoryActionResponse;
-    if (body.action === "profile") {
+    if (body.action === "compare-candidate") {
+      payload = { ok: true, comparison: await readDesktopMemoryComparison(getRuntime().getSettings(), memory, { id: String(body.id ?? "").trim(), expectedUpdatedAt: body.expectedUpdatedAt, agentId: body.agentId }) };
+    } else if (body.action === "profile") {
       const defaultProfile = resolveDesktopWebProfiles(getRuntime().getSettings()).find((profile) => profile.enabled);
       const botId = String(body.botId ?? defaultProfile?.agentId ?? defaultProfile?.id ?? "default").trim() || "default";
       const externalUserId = String(body.userId ?? "desktop-memory-center").trim() || "desktop-memory-center";

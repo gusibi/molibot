@@ -428,7 +428,10 @@ function MiniChat() {
           <ChatMessageList
             density="spacious"
             isStreaming={generatingHere}>
-            {messages.length === 0 && <div className="empty-state">
+            {loading && <div className="empty-state" role="status">
+              <Heading level={2}>{copy.loading}</Heading>
+            </div>}
+            {!loading && messages.length === 0 && <div className="empty-state">
               <div className="empty-orbit" aria-hidden="true"><ChatBubbleLeftRightIcon /></div>
               <Heading level={2}>{copy.emptyTitle}</Heading>
               <Text type="body" color="secondary">{copy.emptyBody}</Text>

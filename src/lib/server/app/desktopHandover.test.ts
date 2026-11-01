@@ -337,10 +337,10 @@ test("A finished task shows what it actually delivered", () => {
           taskId: "task-report",
           eventPayloadJson: JSON.stringify({ text: "Morning briefing" })
         }),
-        result: undefined
+        result: { text: "Good morning — three invoices are due today." }
       }]
     },
-    sessionSummary: (sessionId) => sessionId === "session-report" ? { preview: "Good morning — three invoices are due today." } : {}
+    sessionSummary: (sessionId) => sessionId === "session-report" ? { preview: "A later unrelated session answer" } : {}
   }));
 
   const item = handover.items.find((entry) => entry.taskId === "task-report");
@@ -594,4 +594,10 @@ test("home exposes the next three schedules in chronological order", () => {
   const home = buildDesktopHandover({ now: NOW, settings: settings(), evidence: evidence({ schedules }) });
   assert.deepEqual(home.nextScheduledItems?.map(item => item.title), ["Task 1", "Task 2", "Task 3"]);
   assert.equal(home.nextScheduled?.title, "Task 1");
+});
+
+test('a historical result never borrows a later session preview and retains exact execution identity', () => {
+  const home = buildDesktopHandover({ now: NOW, settings: settings(), evidence: evidence({ leases: [lease({ result: undefined })] }) });
+  assert.equal(home.items[0].executionId, 'lease-1');
+  assert.equal(home.items[0].resultPreview, undefined);
 });

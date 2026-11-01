@@ -1,7 +1,7 @@
 import type { ChannelManager } from "$lib/server/channels/registry.js";
 import { PiRecoveryStore, type PiRecoveryRecord } from '$lib/server/agent/core/piRecoveryStore.js';
 
-import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
+import { openPiStorage } from "$lib/server/agent/durable/piStorage.js";
 import { CompactionTask, GenerationTask, ToolTask, type Cursor, type ToolTaskInput } from '@earendil-works/pi-durable';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { existsSync } from 'node:fs';
@@ -53,7 +53,7 @@ export function piRecoveryCandidates(dataRoot: string, status: (runId: string) =
  * the native checkpoint.
  */
 async function inspectNativeExecution(storagePath: string): Promise<Pick<PiRecoveryInspection, "disposition" | "reason" | "uncertainCallIds">> {
-  const storage = await openNodeSqliteStorage(storagePath);
+  const storage = await openPiStorage(storagePath);
   const uncertainCallIds: string[] = [];
   try {
     for (const kind of [GenerationTask.definition.name, CompactionTask.definition.name, ToolTask.definition.name]) {

@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { buildDesktopSystemTaskExecution, buildDesktopTaskSessionMessages, buildDesktopTaskSummary, desktopTaskId, resolveDesktopOneShotTaskPaths, resolveDesktopTaskPaths, type DesktopTaskExecutionLoader } from "$lib/server/app/desktopTasks";
+import { buildDesktopSystemTaskExecution, buildDesktopTaskExecutionMessages, buildDesktopTaskSummary, desktopTaskId, resolveDesktopOneShotTaskPaths, resolveDesktopTaskPaths, type DesktopTaskExecutionLoader } from "$lib/server/app/desktopTasks";
 import type { DesktopTaskActionRequest, DesktopTaskActionResponse, DesktopTaskResponse, DesktopTaskTarget } from "$lib/shared/desktop";
 import { resolve } from "node:path";
 import { MomRuntimeStore } from "$lib/server/agent/session/store";
@@ -141,8 +141,8 @@ export const POST: RequestHandler = async ({ request }) => {
         const conversation = getRuntime().sessions.getProjectConversation(item.projectId, execution.sessionId);
         if (!conversation) throw new Error("Project automation session not found");
         const store = new MomRuntimeStore(projectRuntimeWorkspaceDir(item.projectId));
-        const messages = buildDesktopTaskSessionMessages(
-          store.loadContextForRun(conversation.externalUserId, execution.sessionId, execution.runId)
+        const messages = buildDesktopTaskExecutionMessages(
+          store.loadRecordedRunContext(conversation.externalUserId, execution.sessionId, execution.runId), execution
         );
         const response: DesktopTaskActionResponse = {
           ok: true,
@@ -162,8 +162,8 @@ export const POST: RequestHandler = async ({ request }) => {
       if (markerIndex < 0) throw new Error("Unsupported task path");
       const workspaceDir = resolve(item.filePath).slice(0, markerIndex);
       const store = new MomRuntimeStore(workspaceDir);
-      const messages = buildDesktopTaskSessionMessages(
-        store.loadContextForRun(item.chatId, execution.sessionId, execution.runId)
+      const messages = buildDesktopTaskExecutionMessages(
+        store.loadRecordedRunContext(item.chatId, execution.sessionId, execution.runId), execution
       );
       const response: DesktopTaskActionResponse = {
         ok: true,

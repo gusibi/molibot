@@ -319,3 +319,63 @@ test("home memory review survives ack and uses real confirmation, edit, ignore a
   const after = await readHandover();
   assert.ok(!after.handover.memoryReview.items.some((item: any) => item.id === first.id || item.id === second.id));
 });
+
+test('home memory comparison reads the original saved record without resolving the candidate', async () => {
+  runtime.updateSettings({ plugins: { ...runtime.settings.plugins, memory: { ...runtime.settings.plugins.memory, enabled: true } } });
+  const { POST: MEMORY } = await import('../memory/+server.js');
+  const conversation = runtime.sessions.createWebConversation('web:personal:web-anonymous', undefined, 'default');
+  const source = runtime.sessions.appendMessage(conversation.id, 'user', 'Please replace the introduction preference with conclusions first.');
+  const sources = [{ channel: 'web', sessionId: conversation.id, conversationMessageId: source.id }];
+  const first = runtime.memory.createCandidate({ namespace: 'owner:owner', domain: 'owner', type: 'user_preference', subject: 'comparison_original', path: 'mory://user_preference/comparison_original', value: 'Prefer detailed introductions.', confidence: 0.9, reason: 'Original preference', layer: 'long_term', sources })!;
+  const saved = await runtime.memory.confirmCandidate(first.id);
+  assert.ok(saved?.confirmedMemoryId);
+  const second = runtime.memory.createCandidate({ namespace: 'owner:owner', domain: 'owner', type: 'user_preference', subject: 'comparison_updated', path: 'mory://user_preference/comparison_updated', value: 'Prefer conclusions before introductions.', confidence: 0.9, reason: 'Updated preference', layer: 'long_term', sources, supersedesMemoryId: saved.confirmedMemoryId })!;
+  const call = async (body: Record<string, unknown>) => MEMORY({ request: new Request('http://localhost/api/desktop/memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) } as Parameters<typeof MEMORY>[0]);
+  const response = await call({ action: 'compare-candidate', id: second.id, expectedUpdatedAt: second.updatedAt });
+  assert.equal(response.status, 200);
+  const comparison = (await response.json()).comparison;
+  assert.equal(comparison.originals[0].content, 'Prefer detailed introductions.');
+  assert.equal(runtime.memory.getCandidate(second.id)?.status, 'pending');
+  const stale = await call({ action: 'compare-candidate', id: second.id, expectedUpdatedAt: 'stale' });
+  assert.notEqual(stale.status, 200);
+  const confirmed = await call({ action: 'confirm-candidate', id: second.id, expectedUpdatedAt: second.updatedAt });
+  assert.equal((await confirmed.json()).candidate.status, 'confirmed');
+  assert.notEqual((await call({ action: 'compare-candidate', id: second.id, expectedUpdatedAt: second.updatedAt })).status, 200);
+});
+
+test('task result API reads the requested execution rather than a later run in the same Session', async () => {
+  const { GET: TASKS, POST: TASK_ACTION } = await import('../tasks/+server.js');
+  const list = await TASKS({ url: new URL('http://localhost/api/desktop/tasks') } as Parameters<typeof TASKS>[0]);
+  const summary = (await list.json()).summary;
+  const target = summary.targets.find((item: any) => item.kind === 'channel' && item.channel === 'web');
+  assert.ok(target, 'the isolated web target is available');
+  const call = async (body: Record<string, unknown>) => TASK_ACTION({ request: new Request('http://localhost/api/desktop/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) } as Parameters<typeof TASK_ACTION>[0]);
+  const createdResponse = await call({ action: 'create', task: { ...target, text: 'Exact execution read', delivery: 'agent', schedule: '0 0 1 1 *', timezone: 'Asia/Shanghai', sessionMode: 'fresh' } });
+  assert.equal(createdResponse.status, 200, await createdResponse.clone().text());
+  const created = await createdResponse.json();
+  const task = created.summary.items.find((item: any) => item.id === created.affected[0]);
+  assert.ok(task);
+  const session = runtime.sessions.createWebConversation('web:personal:web-anonymous', undefined, 'default');
+  const store = getEventExecutionLeaseStore();
+  const executions: string[] = [];
+  for (const [index, text] of ['Original exact edition', 'Later unrelated edition'].entries()) {
+    const now = new Date(Date.now() + index * 1000);
+    const runId = `exact-api-run-${index}`;
+    const execution = store.acquire({ now, leaseScope: 'agent:default', eventFile: 'exact-reader.json', eventType: 'periodic', triggerSlot: `slot-${index}`, chatId: task.chatId, sessionId: session.id, channel: 'web', taskId: task.taskId, runId, maxAttempts: 1, timeoutMs: 60000, eventPayloadJson: JSON.stringify({ text: task.text }) });
+    assert.ok(execution);
+    store.markCompleted(execution.id, runId, { text }, now);
+    executions.push(execution.id);
+  }
+  const { MomRuntimeStore } = await import('$lib/server/agent/session/store.js');
+  const { agentWorkspaceDir } = await import('$lib/server/sessions/agentStorage.js');
+  const { requireBotAgentId } = await import('$lib/server/sessions/executionIdentity.js');
+  const workspace = agentWorkspaceDir(root, requireBotAgentId(runtime.getSettings(), task.channel, task.botId));
+  new MomRuntimeStore(workspace).saveContext(task.chatId, [{ role: 'assistant', content: [{ type: 'text', text: 'Later untagged Session answer' }], timestamp: Date.now() } as import('@earendil-works/pi-agent-core').AgentMessage], session.id);
+  const result = await call({ action: 'session', id: task.id, executionId: executions[0] });
+  assert.equal(result.status, 200, await result.clone().text());
+  const body = await result.json();
+  assert.equal(body.session.messages.at(-1).content, 'Original exact edition');
+  assert.equal(JSON.stringify(body.session).includes('Later unrelated edition'), false);
+  assert.equal(JSON.stringify(body.session).includes('Later untagged Session answer'), false);
+  assert.notEqual((await call({ action: 'session', id: task.id, executionId: 'unknown-execution' })).status, 200);
+});

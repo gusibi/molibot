@@ -1,3 +1,4 @@
+import { withAbortSignal } from "@earendil-works/chord/context";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { Type } from "@sinclair/typebox";
@@ -59,7 +60,7 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<any> {
       };
       const controller = new AbortController();
       const ownedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
-      const ownedContext = { ...context, abortSignal: ownedSignal };
+      const ownedContext = withAbortSignal(ownedSignal, context);
       const tools = options.getTools().filter(tool => tool.name !== "codemode");
       const pending = new Set<Promise<unknown>>();
       const invocationIds: string[] = [];

@@ -34,12 +34,6 @@
 
         <div class="topbar-spacer"></div>
 
-        <!-- Document word count & stats -->
-        <div class="doc-stats" id="doc-stats" hidden>
-          <span class="doc-stat-pill" id="stat-words">0 字</span>
-          <span class="doc-stat-pill" id="stat-read-time">约 1 分钟</span>
-        </div>
-
         <!-- Controls Group -->
         <div class="topbar-actions">
           <!-- Upload Images button -->
@@ -152,6 +146,13 @@
       <main class="main" id="main">
         <!-- Preview View -->
         <div class="paper-wrap" id="paper-wrap">
+          <!-- Boot loading — replaced by the empty state or the document once
+               the first settings/documents fetch resolves. -->
+          <div class="boot-loading" id="boot-loading" hidden role="status">
+            <span class="boot-spinner" aria-hidden="true"></span>
+            <span data-i18n="loading">加载中…</span>
+          </div>
+
           <!-- Empty State -->
           <div class="empty-card" id="empty" hidden>
             <div class="empty-illustration">
@@ -193,7 +194,8 @@
           <!-- Document Meta & Article Card -->
           <div class="article-container" id="article-container" hidden>
             <div class="article-toolbar" id="article-toolbar">
-              <div class="article-stat-group">
+              <!-- Single source of truth for document stats (JS updates these by id). -->
+              <div class="article-stat-group" id="doc-stats">
                 <span class="stat-badge" id="stat-words">0 字</span>
                 <span class="stat-badge" id="stat-read-time">约 1 分钟</span>
                 <span class="stat-badge" id="stat-images">0 张图</span>

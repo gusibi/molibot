@@ -76,3 +76,27 @@ export function readDesktopHomeMemoryReview(
     return { items: [], hasMore: false, unavailable: true };
   }
 }
+
+/** Resolve only the candidate's declared predecessors inside the saved Agent scope. */
+export async function readDesktopMemoryComparison(
+  settings: RuntimeSettings,
+  memory: Pick<MemoryGateway, 'isEnabled' | 'getCandidate' | 'getForGovernance'>,
+  input: { id: string; expectedUpdatedAt?: string; agentId?: string }
+): Promise<import('$lib/shared/desktop').DesktopMemoryComparison> {
+  if (!memory.isEnabled()) throw new Error('Memory is disabled');
+  const scope = desktopAgentMemoryScope(settings, input.agentId || settings.defaultAgentId || DEFAULT_AGENT_ID);
+  const candidate = memory.getCandidate(input.id);
+  const namespaces = [agentNamespace(scope.agentId), ...(scope.shareOwner ? [ownerNamespace(scope.ownerId)] : [])];
+  if (!candidate || candidate.status !== 'pending' || candidate.skillDraftSuggestion || !namespaces.includes(candidate.namespace)
+    || !input.expectedUpdatedAt || candidate.updatedAt !== input.expectedUpdatedAt) throw new Error('Candidate changed or is unavailable');
+  const originals: import('$lib/shared/desktop').DesktopMemoryComparison['originals'] = [];
+  for (const [relation, id] of [['replaces', candidate.supersedesMemoryId], ['disputes', candidate.disputesMemoryId]] as const) {
+    if (!id) continue;
+    const original = await memory.getForGovernance(scope, id);
+    const available = Boolean(original && !original.privacySuppressed && original.namespace === candidate.namespace && namespaces.includes(original.namespace));
+    originals.push({ relation, available, ...(available && original ? { content: original.content, updatedAt: original.updatedAt } : {}) });
+  }
+  const current = memory.getCandidate(input.id);
+  if (!current || current.status !== 'pending' || current.updatedAt !== candidate.updatedAt) throw new Error('Candidate changed during comparison');
+  return { candidateId: candidate.id, candidateUpdatedAt: candidate.updatedAt, originals };
+}

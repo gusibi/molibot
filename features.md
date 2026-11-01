@@ -1,4 +1,22 @@
+## 2026-11-01 — 内置小程序获奖级品质基线修复
+
+- 共享 M3 基线修正（note / todo / meeting-notes / md-preview / 模板五处同步）：浅色 `--md-on-surface-variant` 49.8%→60% 黑（11–12px 元信息在全部浅色表面 ≥5.3:1）、`--md-error` #ff383c→#cc2f36（白字与小字双向 ≥4.5:1，深色不变）；prompt-box 莫兰迪文本次级/弱化色与暗色主色加深、10px 元信息提至 11px；note Smartisan 信纸墨色 #8f7b67→#6e5a3f（信纸对比 2.96→4.81:1）。`#007aff` 品牌蓝按 macOS 惯例保留未动。
+- 动效：全部六个小程序清零 `transition: all`（20 处逐处枚举实际过渡属性），补齐 `prefers-reduced-motion` 降级；meeting-notes 降级态保留 busy 按钮文字（原先文字透明 + spinner 冻结导致加载态不可见）；prompt-box 时长收敛为 `--pb-dur-fast` token。
+- 交互：todo 任务删除与「清空已完成」、note 笔记删除改为二段式 arm 确认（2.5s 超时自动解除；todo 复用此前已存在但未接线的确认文案）；md-preview 文档删除接入既有 `confirmDialog`，取消键在前获得默认焦点；md-preview Esc 关闭弹层、确认弹窗聚焦安全侧并归还焦点；note 卡片与折叠输入条、prompt-box 筛选标签（span→button）与卡片详情/图片（role=button）补齐键盘可达；todo / md-preview / prompt-box 补全局 `:focus-visible` 焦点环。
+- 状态：todo / note / md-preview / meeting-notes 首次加载显示骨架（慢启动不再被误读为空列表）；mini-chat 加载中不再渲染空态文案；prompt-box 新增独立错误态（原因 + 重试），不再与「暂无提示词」混淆；md-preview 文档统计去除顶栏与工具条重复 ID（`stat-words`/`stat-read-time`/`stat-images` 唯一化并接通图片计数）。
+- 竞态：todo / note 列表加载补请求序号守卫；todo 新增、note 编辑保存、md-preview 上传/保存设置/测试连接、prompt-box 同前补重复提交锁。
+- 机器守卫：`uiDesignBaseline.test.ts` 新增三条守卫并覆盖全部六个小程序（含 astryx 双子的 ui-src 源）——禁 `transition: all`、有动效必须带 `prefers-reduced-motion` 回退、基线对比度 token 明暗两套按 WCAG 公式实算 ≥4.5:1；守卫经负样本注入验证确实拦截。
+- 验证：miniapps 模块 22 个测试文件 216 项全部通过（含六个 app 的 UI 断言与守卫）；prompt-box / mini-chat 经 `pnpm prompt-box:build` / `pnpm mini-chat:build` 重建 bundle；六个内置小程序 manifest 版本各 bump 一位（1.2.1 / 1.8.1 / 2.3.1 / 1.8.11 / 1.2.1 / 1.2.1）。隔离实例冷启动走查与桌面 Playwright 套件未执行（本次未动桌面宿主与原生层）；对比度修复后的真实渲染截图走查待用户抽查。
+
+## 2026-11-01 — Pi 1.4 运行时适配
+
+- 八个直接依赖统一锁定 1.4.0；适配请求遥测、Chord 上下文、文档检查点与摘要预算。暂停的恢复任务明确报错，未知副作用不自动重放。
+- 正常执行与启动恢复在迁移旧执行库前保存包含 WAL 的一致备份，备份失败不迁移。切换和回滚见 [Pi 升级指南](docs/guides/pi-upgrade.md)。
+- 核心定向回归 100 项及适配代码、直接调用方的定向类型检查通过；真实 Provider、当前服务与原生安装包未验证。扩展回归和仓库检查的范围外失败见升级指南。
+
 ## 2026-11-01 — Agent 首页成果与记忆审核
+
+- 原成果区和任务卡片共用本期结果面板，以执行 ID 读取正文与文件回执；来源对话独立打开。计划卡片直达对应计划详情；记忆候选展示授权范围内的原值与本次建议，读取失败或原记录不可见时禁用确认。相关服务端与状态守卫 86 项、首页 WebKit 27 项回归及新增失败边界复测通过；执行定位字段经临时 Settings 整对象 round-trip 验证，根／桌面类型检查与生产构建通过。
 
 - 默认首页保留助手身份、运行入口和原业务动作，成果／待决定在上，输入框、快捷起点及单行最近对话在下；共享会话行的打开、右键操作和完整历史保持可用。
 - 首页逐条审核当前助手可读的个人及助手记忆候选，支持来源、确认、编辑后确认与忽略，复用原候选库；版本冲突不覆盖新候选，断连禁用写入，恢复后立即刷新。

@@ -28,7 +28,9 @@ const STRINGS = {
     clearDate: "Clear", schedule: "Deadline and reminder",
     today: "Today", tomorrow: "Tomorrow", yesterday: "Yesterday", nextMonday: "Next Mon",
     overdue: "Overdue", noDate: "No date", insertIntoComposer: "Insert into composer",
-    clearCompleted: "Clear", clearCompletedConfirm: "Clear all completed items?"
+    clearCompleted: "Clear", clearCompletedConfirm: "Clear all completed items?",
+    clearCompletedTitle: "Clear completed items", confirm: "Confirm",
+    deleteArmed: "Tap again to delete", loading: "Loading…"
   },
   zh: {
     all: "全部", inbox: "收件箱", search: "搜索", newTodo: "新建待办",
@@ -43,7 +45,9 @@ const STRINGS = {
     clearDate: "清除", schedule: "截止与提醒",
     today: "今天", tomorrow: "明天", yesterday: "昨天", nextMonday: "下周一",
     overdue: "已逾期", noDate: "无日期", insertIntoComposer: "填入输入框",
-    clearCompleted: "清空", clearCompletedConfirm: "确定清空已完成的待办任务吗？"
+    clearCompleted: "清空", clearCompletedConfirm: "确定清空已完成的待办任务吗？",
+    clearCompletedTitle: "清空已完成的任务", confirm: "确认",
+    deleteArmed: "再次点击确认删除", loading: "加载中…"
   },
 };
 
@@ -84,6 +88,8 @@ const $ = (id) => document.getElementById(id);
 
 const el = {
   backdrop: $("backdrop"),
+  bootLoading: $("boot-loading"),
+  openSection: $("open-section"),
   currentListName: $("current-list-name"),
   openCount: $("open-count"),
   listPicker: $("list-picker"),
@@ -307,7 +313,23 @@ if (el.chipNextWeek) {
 }
 
 if (el.clearDoneBtn) {
+  // Two-step inline confirm (no dialogs in this app by design): the first
+  // click arms the button, the second within the window clears. The confirm
+  // copy existed before but nothing ever showed it.
+  const disarmClearBtn = () => {
+    el.clearDoneBtn.dataset.armed = "false";
+    el.clearDoneBtn.textContent = t.clearCompleted;
+    el.clearDoneBtn.title = t.clearCompletedTitle;
+  };
   el.clearDoneBtn.addEventListener("click", async () => {
+    if (el.clearDoneBtn.dataset.armed !== "true") {
+      el.clearDoneBtn.dataset.armed = "true";
+      el.clearDoneBtn.textContent = t.confirm;
+      el.clearDoneBtn.title = t.clearCompletedConfirm;
+      window.setTimeout(() => { if (!halted) disarmClearBtn(); }, 2500);
+      return;
+    }
+    disarmClearBtn();
     await mutate(() => api("/todos/clear-completed", {
       method: "POST",
       body: JSON.stringify({ listId: activeList || undefined })
@@ -323,10 +345,14 @@ el.scheduleClear.addEventListener("click", () => {
 });
 
 // — Composer form submit —
+// The submit lock blocks double-Enter / double-click from creating duplicates.
+let adding = false;
 el.composerForm.addEventListener("submit", (e) => {
   e.preventDefault();
+  if (adding) return;
   const title = el.title.value.trim();
   if (!title) return;
+  adding = true;
 
   const payload = { title, priority: composerPriority, pinned: composerPinned };
   if (activeList) payload.listId = activeList;
@@ -336,6 +362,7 @@ el.composerForm.addEventListener("submit", (e) => {
 
   void mutate(() => api("/todos", { method: "POST", body: JSON.stringify(payload) }))
     .then(() => {
+      adding = false;
       el.title.value = "";
       composerPriority = 2; composerPinned = false;
       el.priDot.className = "opt-dot pri-normal";
@@ -844,8 +871,25 @@ function renderItem(todo, index) {
   delBtn.type = "button";
   delBtn.className = "action-btn del-btn";
   delBtn.title = t.delete;
+  delBtn.setAttribute("aria-label", t.delete);
   delBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`;
   delBtn.addEventListener("click", () => {
+    // Same two-step inline confirm as clear-completed: first click arms,
+    // second deletes; any re-render disarms by rebuilding the row, and a
+    // timeout disarms an abandoned arm the same way.
+    if (delBtn.dataset.armed !== "true") {
+      delBtn.dataset.armed = "true";
+      delBtn.title = t.deleteArmed;
+      delBtn.setAttribute("aria-label", t.deleteArmed);
+      window.setTimeout(() => {
+        if (delBtn.isConnected && delBtn.dataset.armed === "true") {
+          delBtn.dataset.armed = "false";
+          delBtn.title = t.delete;
+          delBtn.setAttribute("aria-label", t.delete);
+        }
+      }, 2500);
+      return;
+    }
     void mutate(() => api(`/todos/${encodeURIComponent(todo.id)}`, { method: "DELETE" }));
   });
   actions.appendChild(delBtn);
@@ -893,7 +937,12 @@ function followDeepLink() {
   setTimeout(() => target.classList.remove("deep-link-target"), 2000);
 }
 
+let loadListSeq = 0;
+
 async function loadList() {
+  // Sequence guard: only the newest request may paint the shared lists, so a
+  // slow response from a superseded filter can never overwrite newer state.
+  const seq = ++loadListSeq;
   const sp = new URLSearchParams();
   sp.set("status", "all");
   if (activeList) sp.set("listId", activeList);
@@ -902,6 +951,7 @@ async function loadList() {
 
   try {
     const { todos } = await api(`/todos?${sp}`);
+    if (seq !== loadListSeq) return;
     const open = todos.filter((x) => !x.completed);
     const done = todos.filter((x) => x.completed);
 
@@ -1008,6 +1058,9 @@ async function start() {
     acknowledgeReminders();
   } catch (err) {
     if (!halted) setStatus(err.message, "error");
+  } finally {
+    if (el.bootLoading) el.bootLoading.hidden = true;
+    el.openSection.hidden = false;
   }
   pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
 }

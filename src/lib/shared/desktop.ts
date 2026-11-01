@@ -483,6 +483,7 @@ export interface DesktopDeliveryReceipt {
 }
 
 export interface DesktopHandoverItem {
+  executionId?: string;
   id: string;
   kind: DesktopHandoverItemKind;
   occurredAt: string;
@@ -754,6 +755,7 @@ export type DesktopTaskState = "pending" | "running" | "completed" | "skipped" |
 export type DesktopTaskCategory = "user" | "project" | "system";
 
 export interface DesktopTaskItem {
+  maintenance?: boolean;
   id: string;
   taskId: string;
   category: DesktopTaskCategory;
@@ -2833,9 +2835,14 @@ export interface DesktopMemoryCandidate {
   updatedAt: string;
 }
 
-export type DesktopMemoryAction = "profile" | "restore-state" | "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "forget" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
+export interface DesktopMemoryComparison {
+  candidateId: string;
+  candidateUpdatedAt: string;
+  originals: Array<{ relation: "replaces" | "disputes"; available: boolean; content?: string; updatedAt?: string }>;
+}
+export type DesktopMemoryAction = "compare-candidate" | "profile" | "restore-state" | "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "forget" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
 export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; expectedUpdatedAt?: string; agentId?: string; channel?: string; userId?: string; botId?: string; ownerId?: string; conversationId?: string; projectId?: string; includeOwner?: boolean; includeAgentSelf?: boolean; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
-export interface DesktopMemoryActionResponse { ok: true; profile?: DesktopMemoryProfile; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
+export interface DesktopMemoryActionResponse { ok: true; comparison?: DesktopMemoryComparison; profile?: DesktopMemoryProfile; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
 export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }
 

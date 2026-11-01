@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
-import type { MemoryBackendCapabilities } from "$lib/server/memory/types";
+import type { MemoryBackendCapabilities, MemoryCandidate, MemoryRecord } from "$lib/server/memory/types";
 import { buildDesktopMemorySummary, desktopAgentMemoryScope, desktopAgentMemoryRecords, readDesktopHomeMemoryReview } from "./desktopMemory";
 
 function caps(overrides: Partial<MemoryBackendCapabilities> = {}): MemoryBackendCapabilities {
@@ -80,4 +80,41 @@ test("home memory review uses the saved sharing scope and reports bounded or una
   assert.equal(readDesktopHomeMemoryReview(settings, memory).items.length, 10);
   assert.deepEqual(namespaces, ["agent:researcher", "owner:owner"]);
   assert.deepEqual(readDesktopHomeMemoryReview(settings, { listReviewCandidates: () => { throw new Error("unavailable"); } }), { items: [], hasMore: false, unavailable: true });
+});
+
+function comparisonCandidate(overrides: Partial<MemoryCandidate> = {}): MemoryCandidate {
+  return { id: 'candidate', fingerprint: 'comparison', status: 'pending', namespace: 'owner:owner', domain: 'owner', type: 'user_preference', subject: 'report_style', path: 'mory://user_preference/report_style', value: 'Conclusions first', confidence: 0.9, reason: 'User update', sources: [], layer: 'long_term', createdAt: 'v1', updatedAt: 'v1', supersedesMemoryId: 'old', ...overrides };
+}
+function comparisonRecord(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
+  return { id: 'old', namespace: 'owner:owner', channel: 'web', externalUserId: 'owner', content: 'Original preference', tags: [], layer: 'long_term', state: 'active', version: 1, accessCount: 0, injectionCount: 0, createdAt: 'original-v1', updatedAt: 'original-v1', ...overrides };
+}
+
+test('candidate comparison exposes only declared originals in the saved namespace', async () => {
+  const { readDesktopMemoryComparison } = await import('./desktopMemory');
+  const settings = { defaultAgentId: 'researcher', agents: [{ id: 'researcher', shareOwnerMemory: true }] } as RuntimeSettings;
+  const candidate = comparisonCandidate({ disputesMemoryId: 'private' });
+  const memory = {
+    isEnabled: () => true,
+    getCandidate: () => candidate,
+    getForGovernance: async (_scope: unknown, id: string) => comparisonRecord({ id, content: id === 'old' ? 'Original preference' : 'Secret preference', privacySuppressed: id === 'private' })
+  };
+  const comparison = await readDesktopMemoryComparison(settings, memory, { id: candidate.id, expectedUpdatedAt: 'v1' });
+  assert.deepEqual(comparison.originals, [{ relation: 'replaces', available: true, content: 'Original preference', updatedAt: 'original-v1' }, { relation: 'disputes', available: false }]);
+  assert.equal(JSON.stringify(comparison).includes('Secret'), false);
+  await assert.rejects(readDesktopMemoryComparison(settings, memory, { id: candidate.id, expectedUpdatedAt: 'stale' }));
+  settings.agents[0].shareOwnerMemory = false;
+  await assert.rejects(readDesktopMemoryComparison(settings, memory, { id: candidate.id, expectedUpdatedAt: 'v1' }));
+  settings.agents[0].shareOwnerMemory = true;
+  candidate.namespace = 'project:owner:private';
+  await assert.rejects(readDesktopMemoryComparison(settings, memory, { id: candidate.id, expectedUpdatedAt: 'v1' }));
+});
+
+test('candidate comparison rejects a candidate resolved while loading originals', async () => {
+  const { readDesktopMemoryComparison } = await import('./desktopMemory');
+  const settings = { defaultAgentId: 'researcher', agents: [{ id: 'researcher', shareOwnerMemory: true }] } as RuntimeSettings;
+  let candidate = comparisonCandidate();
+  await assert.rejects(readDesktopMemoryComparison(settings, {
+    isEnabled: () => true, getCandidate: () => candidate,
+    getForGovernance: async () => { candidate = { ...candidate, status: 'ignored', updatedAt: 'v2' }; return null; }
+  }, { id: candidate.id, expectedUpdatedAt: 'v1' }), /changed/);
 });

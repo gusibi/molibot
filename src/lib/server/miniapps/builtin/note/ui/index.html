@@ -157,12 +157,17 @@
 
       <p class="note-status" id="status" role="status" aria-live="polite" hidden></p>
 
-      <section class="note-group" id="pinned-group">
+      <div class="boot-loading" id="boot-loading" role="status">
+        <span class="boot-spinner" aria-hidden="true"></span>
+        <span data-i18n="loading">Loading…</span>
+      </div>
+
+      <section class="note-group" id="pinned-group" hidden>
         <h2 class="note-group-title" data-i18n="pinnedSection">置顶</h2>
         <div class="note-grid" id="pinned-list"></div>
       </section>
 
-      <section class="note-group" id="other-group">
+      <section class="note-group" id="other-group" hidden>
         <h2 class="note-group-title" id="other-group-title" data-i18n="notesSection">其他</h2>
         <div class="note-grid" id="other-list"></div>
         <p class="note-empty" id="empty-msg" data-i18n="noNotes" hidden>暂无笔记</p>

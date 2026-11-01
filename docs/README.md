@@ -65,6 +65,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 ### Architecture and operation
 
 - [Architecture decisions (ADR)](adr/)
+- [Pi runtime upgrade and rollback](guides/pi-upgrade.md) — 1.4 compatibility, execution database backups and service cutover
 - [Pi Codemode integration validation](reviews/pi-codemode-integration-validation.md) — shared authorization, approval continuation, execution isolation and input measurement
 - [pi-mono upgrade assessment](reviews/pi-mono-upgrade-assessment.md)
 - [Market positioning research](research/market-positioning.md)

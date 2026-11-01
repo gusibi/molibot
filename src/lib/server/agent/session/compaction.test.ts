@@ -529,3 +529,23 @@ test("capOversizedMessages keeps a CJK blob under the token budget", () => {
     `expected <= 5000 tokens, got ${estimateContextTokens(result.messages)}`
   );
 });
+
+
+for (const maxTokens of [512, 32768]) test(`summary requests retain the host output budget with Pi 1.4 (model limit ${maxTokens})`, async () => {
+  const limits: number[] = [];
+  const model = { provider: "test", id: "test-model", maxTokens };
+  const result = await compactContextMessages({
+    messages: [textMessage("user", "A".repeat(12000)), textMessage("assistant", "B".repeat(12000)),
+      textMessage("user", "keep this")],
+    model: model as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 10 }, reason: "manual",
+    streamFn: ((_model: any, _context: any, options: any) => {
+      limits.push(options?.maxTokens);
+      return { result: async () => ({ role: "assistant", content: [{ type: "text", text: "Short summary" }],
+        stopReason: "stop", usage: { input: 10, output: 5 }, timestamp: Date.now() }) };
+    }) as any
+  });
+  assert.equal(result.changed, true);
+  assert.deepEqual(limits, [Math.min(1600, maxTokens)]);
+  assert.equal(model.maxTokens, maxTokens);
+});

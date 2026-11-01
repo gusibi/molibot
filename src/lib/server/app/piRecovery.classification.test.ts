@@ -1,6 +1,9 @@
+import { applySqliteMigrations, SQLITE_MIGRATIONS } from "@earendil-works/pi-durable/storage/sqlite";
+import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
+import { DatabaseSync } from "node:sqlite";
 import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -166,4 +169,22 @@ for (const replay of [undefined, "safe"] as const) test(`native nested ${replay 
     assert.equal(inspection.disposition, replay === "safe" ? "resume" : "review");
     assert.deepEqual(inspection.uncertainCallIds ?? [], replay === "safe" ? [] : ["call-1/leaf"]);
   } finally { await settle(run, work); rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test("startup recovery preserves schema v1 before its inspection migrates the native execution", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-recovery-upgrade-"));
+  const file = join(directory, "pi.sqlite");
+  try {
+    const legacy = await openNodeSqliteDatabase(file);
+    try { await applySqliteMigrations(legacy, SQLITE_MIGRATIONS.slice(0, 1)); }
+    finally { await legacy.close(); }
+    saveOwner(directory, file);
+    await inspectPiRecovery(directory, () => "running");
+    const backups = readdirSync(directory).filter(name => name.includes("backup-pi-schema-v1") && name.endsWith(".sqlite"));
+    assert.equal(backups.length, 1);
+    const original = new DatabaseSync(join(directory, backups[0]), { readOnly: true });
+    try { assert.equal(original.prepare("SELECT version FROM durable_schema WHERE singleton = 1").get()?.version, 1); }
+    finally { original.close(); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

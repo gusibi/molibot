@@ -1099,6 +1099,7 @@ function sanitizeHandoverSnapshot(input: unknown) {
           ...(item.channel ? { channel: String(item.channel) } : {}),
           ...(item.runId ? { runId: String(item.runId) } : {}),
           ...(item.taskId ? { taskId: String(item.taskId) } : {}),
+          ...(item.executionId ? { executionId: String(item.executionId) } : {}),
           title: String(item.title ?? ""),
           ...(Number.isFinite(Number(item.durationMs)) ? { durationMs: Number(item.durationMs) } : {}),
           ...(Number.isFinite(Number(item.attempts)) ? { attempts: Number(item.attempts) } : {})

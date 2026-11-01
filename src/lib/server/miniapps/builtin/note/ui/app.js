@@ -20,6 +20,7 @@ const STRINGS = {
     notesSection: "Others",
     archivedSection: "Archive",
     noNotes: "No notes found",
+    loading: "Loading…",
     disabled: "This Mini App is switched off.",
     unavailable: "The app could not start.",
     offline: "Molibot is not reachable.",
@@ -68,6 +69,7 @@ const STRINGS = {
     notesSection: "其他",
     archivedSection: "归档",
     noNotes: "暂无笔记",
+    loading: "加载中…",
     disabled: "该 Mini App 已被禁用。",
     unavailable: "应用启动失败。",
     offline: "无法连接 Molibot。",
@@ -173,6 +175,8 @@ const elements = {
   otherGroupTitle: document.getElementById("other-group-title"),
   otherList: document.getElementById("other-list"),
   emptyMsg: document.getElementById("empty-msg"),
+  bootLoading: document.getElementById("boot-loading"),
+  otherGroup: document.getElementById("other-group"),
   colorDots: document.querySelectorAll(".color-dot"),
   viewToggleBtn: document.getElementById("view-toggle-btn"),
   themeToggleBtn: document.getElementById("theme-toggle-btn"),
@@ -336,6 +340,18 @@ function collapseComposer() {
 }
 
 elements.composerCollapsed.addEventListener("click", expandComposer);
+// New-note is the other primary flow: same treatment as the cards, so a
+// keyboard user can Tab to the collapsed bar and press Enter to expand it.
+elements.composerCollapsed.tabIndex = 0;
+elements.composerCollapsed.setAttribute("role", "button");
+// Read the label from STRINGS, not the placeholder text: the data-i18n pass
+// has not run yet at this point, so the markup still holds the zh default.
+elements.composerCollapsed.setAttribute("aria-label", t.takeNote || "New note");
+elements.composerCollapsed.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  expandComposer();
+});
 elements.composerCloseBtn.addEventListener("click", collapseComposer);
 
 elements.composerPinBtn.addEventListener("click", () => {
@@ -1080,8 +1096,11 @@ elements.modalColorDots.forEach((dot) => {
   });
 });
 
+// The save lock blocks double-clicks from firing two PATCHes; mutate() swallows
+// its own errors, so the lock releases in the then() that always runs.
+let savingEdit = false;
 elements.modalSaveBtn.addEventListener("click", () => {
-  if (!editingNoteId) return;
+  if (savingEdit || !editingNoteId) return;
   const title = elements.editTitle.value.trim();
   const content = elements.editContent.value.trim();
   const labelsStr = elements.editLabels.value.trim();
@@ -1089,6 +1108,7 @@ elements.modalSaveBtn.addEventListener("click", () => {
 
   if (!title && !content) return;
 
+  savingEdit = true;
   void mutate(() => api(`/notes/${encodeURIComponent(editingNoteId)}`, {
     method: "PATCH",
     body: JSON.stringify({
@@ -1099,6 +1119,7 @@ elements.modalSaveBtn.addEventListener("click", () => {
       is_pinned: editingIsPinned
     })
   })).then(() => {
+    savingEdit = false;
     closeEditModal();
   });
 });
@@ -1116,6 +1137,17 @@ function renderCard(note) {
   // 点击卡片本体直接唤起编辑弹窗
   card.addEventListener("click", (event) => {
     if (event.target.closest("a") || event.target.closest(".card-header-actions") || event.target.closest(".card-dropdown")) return;
+    openEditModal(note);
+  });
+  // The card is a button for keyboards too, not a click-only div — opening a
+  // note is one of the two primary flows and was mouse-only before this.
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.setAttribute("aria-label", `${locale === "zh" ? "打开笔记" : "Open note"} ${(note.title || note.content || "").slice(0, 60)}`.trim());
+  card.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (event.target.closest("a") || event.target.closest(".card-header-actions") || event.target.closest(".card-dropdown")) return;
+    event.preventDefault();
     openEditModal(note);
   });
 
@@ -1165,6 +1197,13 @@ function renderCard(note) {
   deleteItem.innerHTML = `${SVG_ICONS.delete} <span>删除笔记</span>`;
   deleteItem.addEventListener("click", (e) => {
     e.stopPropagation();
+    // Two-step inline confirm: deletion is permanent (manifest: "cannot be
+    // undone"), so the first tap re-labels the item and only the second deletes.
+    if (deleteItem.dataset.armed !== "true") {
+      deleteItem.dataset.armed = "true";
+      deleteItem.querySelector("span").textContent = locale === "zh" ? "确认删除（不可恢复）" : "Delete permanently?";
+      return;
+    }
     closeAllDropdowns();
     void mutate(() => api(`/notes/${encodeURIComponent(note.id)}`, { method: "DELETE" }));
   });
@@ -1329,8 +1368,13 @@ function applyFilteredNotes() {
   }
 }
 
+let loadNotesSeq = 0;
+
 async function loadNotes() {
   if (halted) return;
+  // Sequence guard: a slow response from a superseded tab/search must never
+  // overwrite what the newest request rendered.
+  const seq = ++loadNotesSeq;
   const isArchived = currentTab === "archived";
   const query = elements.searchInput.value.trim();
 
@@ -1340,6 +1384,7 @@ async function loadNotes() {
   }
 
   const { notes } = await api(url);
+  if (seq !== loadNotesSeq) return;
   cachedNotes = notes || [];
 
   if (!isArchived && !query && elements.tpNotesCount) {
@@ -1511,6 +1556,11 @@ async function start() {
     setStatus(null);
   } catch (error) {
     if (!halted) setStatus(error.message, "error");
+  } finally {
+    if (elements.bootLoading) elements.bootLoading.hidden = true;
+    // pinnedGroup stays under applyFilteredNotes' control (it flips on every
+    // render); only the other-group shell needs revealing here.
+    if (elements.otherGroup) elements.otherGroup.hidden = false;
   }
   pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
 }

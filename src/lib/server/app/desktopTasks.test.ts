@@ -358,3 +358,18 @@ test("system reflection result preserves committed memory counts", () => {
   assert.equal(result.result?.kind, "memory-reflection");
   if (result.result?.kind === "memory-reflection") assert.equal(result.result.committedMemories, 2);
 });
+
+test('home maintenance classification uses managed identity rather than task title', () => {
+  assert.equal(buildDesktopTaskItem(item({ managed: { by: 'molibot', scope: 'owner', kind: 'session-trash-expiry' } })).maintenance, true);
+  assert.equal(buildDesktopTaskItem(item({ text: 'Daily expired-trash purge' })).maintenance, false);
+  assert.equal(buildDesktopTaskItem(item({ managed: { by: 'molibot', scope: 'owner', kind: 'memory-reflection' } })).maintenance, false);
+});
+
+test('execution reader uses the requested run result when its transcript has no answer', async () => {
+  const { buildDesktopTaskExecutionMessages } = await import('./desktopTasks');
+  const execution = { result: { text: 'The original run result' }, startedAt: '2026-11-01T00:00:00Z', finishedAt: '2026-11-01T00:01:00Z' };
+  assert.deepEqual(buildDesktopTaskExecutionMessages([], execution), [{ role: 'assistant', content: 'The original run result', createdAt: execution.finishedAt }]);
+  const messages = buildDesktopTaskExecutionMessages([{ role: 'assistant', content: 'Retained transcript answer', timestamp: Date.now() }], execution);
+  assert.equal(messages[0].content, 'Retained transcript answer');
+  assert.equal(messages.length, 1);
+});

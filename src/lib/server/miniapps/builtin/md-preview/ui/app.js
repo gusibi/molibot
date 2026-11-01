@@ -14,6 +14,7 @@ import { renderThemedHtml } from "./render.js";
 const STRINGS = {
   zh: {
     noDocument: "未打开文档",
+    loading: "加载中…",
     theme: "主题",
     upload: "上传图片",
     copy: "复制",
@@ -35,6 +36,7 @@ const STRINGS = {
     test: "测试连接",
     back: "返回预览",
     delete: "删除",
+    deleteConfirm: "确定删除该文档？删除后不可恢复。",
     copied: "已复制微信排版，直接在公众号编辑器粘贴即可",
     copiedHtml: "已复制 HTML 代码到剪贴板",
     copiedRaw: "已复制 Markdown 原文到剪贴板",
@@ -57,6 +59,7 @@ const STRINGS = {
   },
   en: {
     noDocument: "No document",
+    loading: "Loading…",
     theme: "Theme",
     upload: "Upload",
     copy: "Copy",
@@ -78,6 +81,7 @@ const STRINGS = {
     test: "Test Connection",
     back: "Back",
     delete: "Delete",
+    deleteConfirm: "Delete this document? This cannot be undone.",
     copied: "Copied - ready to paste into WeChat editor",
     copiedHtml: "HTML code copied to clipboard",
     copiedRaw: "Raw Markdown copied to clipboard",
@@ -161,6 +165,8 @@ const el = {
   statWords: document.getElementById("stat-words"),
   statReadTime: document.getElementById("stat-read-time"),
   statImages: document.getElementById("stat-images"),
+  bootLoading: document.getElementById("boot-loading"),
+  statImages: document.getElementById("stat-images"),
   settings: document.getElementById("settings"),
   dialog: document.getElementById("dialog"),
   dialogText: document.getElementById("dialog-text"),
@@ -232,6 +238,13 @@ function closeAllPopovers() {
 }
 
 el.backdrop.addEventListener("click", closeAllPopovers);
+
+// Escape closes the topmost layer. An open confirm dialog owns its Escape
+// (its handler resolves the promise); when none is open, popovers close.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !el.dialog.hidden) return;
+  closeAllPopovers();
+});
 
 // - Documents Management -
 
@@ -413,11 +426,27 @@ function renderDocMenu() {
     remove.setAttribute("aria-label", t.delete);
     remove.addEventListener("click", (event) => {
       event.stopPropagation();
-      void deleteDocument(doc.id);
+      // Destructive and not undoable — route through the same dialog the copy
+      // flow already uses instead of deleting on the first tap. Cancel leads
+      // so the auto-focused button (and plain Enter) is the safe choice.
+      void (async () => {
+        const choice = await confirmDialog(t.deleteConfirm, [[t.cancel, ""], [t.delete, "primary"]]);
+        if (choice !== t.delete) return;
+        await deleteDocument(doc.id);
+      })();
     });
 
     li.append(label, meta, remove);
+    li.tabIndex = 0;
+    li.setAttribute("role", "button");
+    li.setAttribute("aria-label", `${label.textContent}${meta.textContent ? ` (${meta.textContent})` : ""}`);
     li.addEventListener("click", () => {
+      closeAllPopovers();
+      void openDocument(doc.id);
+    });
+    li.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
       closeAllPopovers();
       void openDocument(doc.id);
     });
@@ -543,7 +572,19 @@ function stripHtml(html) {
 
 // - Upload -
 
+// The in-flight guard blocks double-clicks from firing concurrent uploads.
+let uploading = false;
 async function uploadPending() {
+  if (uploading || !state.docId) return;
+  uploading = true;
+  try {
+    await runUploadPending();
+  } finally {
+    uploading = false;
+  }
+}
+
+async function runUploadPending() {
   if (!state.docId) return;
   showToast(t.uploading);
   const result = await api(`/documents/${encodeURIComponent(state.docId)}/upload`, {
@@ -566,8 +607,10 @@ async function uploadPending() {
 
 function confirmDialog(message, buttons) {
   return new Promise((resolve) => {
+    const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     el.dialogText.textContent = message;
     el.dialogActions.textContent = "";
+    let firstButton = null;
     for (const [label, variant] of buttons) {
       const button = document.createElement("button");
       button.type = "button";
@@ -578,8 +621,14 @@ function confirmDialog(message, buttons) {
         resolve(label);
       });
       el.dialogActions.append(button);
+      firstButton ??= button;
     }
     const onBackdrop = () => {
+      close();
+      resolve(t.cancel);
+    };
+    const onKeydown = (event) => {
+      if (event.key !== "Escape") return;
       close();
       resolve(t.cancel);
     };
@@ -587,10 +636,14 @@ function confirmDialog(message, buttons) {
       el.dialog.hidden = true;
       el.dialogBackdrop.hidden = true;
       el.dialogBackdrop.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKeydown);
+      restoreFocus?.focus();
     }
     el.dialogBackdrop.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKeydown);
     el.dialog.hidden = false;
     el.dialogBackdrop.hidden = false;
+    firstButton?.focus();
   });
 }
 
@@ -629,24 +682,36 @@ async function loadSettings() {
   }
 }
 
+let savingSettings = false;
 async function saveSettings() {
-  const patch = { theme: state.themeId };
-  for (const [key, input] of Object.entries(settingInputs)) {
-    if (key === "secretAccessKey" && !input.value) continue;
-    patch[key] = input.value;
+  if (savingSettings) return;
+  savingSettings = true;
+  try {
+    const patch = { theme: state.themeId };
+    for (const [key, input] of Object.entries(settingInputs)) {
+      if (key === "secretAccessKey" && !input.value) continue;
+      patch[key] = input.value;
+    }
+    await api("/settings", { method: "PUT", body: JSON.stringify(patch) });
+    await loadSettings();
+    showToast(t.settingsSaved, "success");
+  } finally {
+    savingSettings = false;
   }
-  await api("/settings", { method: "PUT", body: JSON.stringify(patch) });
-  await loadSettings();
-  showToast(t.settingsSaved, "success");
 }
 
+let testingSettings = false;
 async function testSettings() {
-  showToast(t.test + "…");
+  if (testingSettings) return;
+  testingSettings = true;
   try {
+    showToast(t.test + "…");
     await api("/settings/test", { method: "POST", body: "{}" });
     showToast(t.settingsTestOk, "success");
   } catch (cause) {
     showToast(cause instanceof Error ? cause.message : String(cause), "error");
+  } finally {
+    testingSettings = false;
   }
 }
 
@@ -846,6 +911,8 @@ window.addEventListener("focus", () => {
 // - Boot -
 
 (async function boot() {
+  el.bootLoading.hidden = false;
+  el.empty.hidden = true;
   try {
     await loadSettings();
     await refreshDocuments();
@@ -856,5 +923,8 @@ window.addEventListener("focus", () => {
     showView("preview");
   } catch (cause) {
     showToast(cause instanceof Error ? cause.message : String(cause), "error");
+  } finally {
+    el.bootLoading.hidden = true;
+    if (!state.document) el.empty.hidden = false;
   }
 })();

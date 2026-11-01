@@ -17,6 +17,7 @@ const snapshot: DesktopHandoverSnapshot = {
   items: [
     {
       id: "task:lease-1",
+      executionId: "lease-1",
       kind: "task-failed",
       occurredAt: "2026-10-23T08:00:00.000Z",
       agentId: "default",
@@ -51,6 +52,7 @@ test("Handover window and previous generation round-trip through a fresh store",
 
   const initial = structuredClone(defaultRuntimeSettings);
   new SettingsStore().save(initial);
+  const baseline = new SettingsStore().load();
   const staticBefore = readFileSync(storagePaths.settingsFile, "utf8");
 
   const navigation = {
@@ -66,6 +68,7 @@ test("Handover window and previous generation round-trip through a fresh store",
 
   const loaded = new SettingsStore().load();
   assert.deepEqual(loaded.desktopNavigation, navigation);
+  assert.deepEqual(loaded, { ...baseline, desktopNavigation: navigation });
 });
 
 test("Handover settings sanitizer keeps a valid generation and drops an invalid one", () => {

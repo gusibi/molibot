@@ -462,15 +462,23 @@ test('home keeps content above the composer and reviews memories through the ori
 
 test('home keeps task outcomes and reads the exact execution with retry @agent-home', async ({ page }) => {
   let reads = 0;
+  let edition = 'home-execution';
+  // This case tests per-execution receipts; isolate the legacy unload acknowledgment.
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = (input, init) => String(input).includes('/api/desktop/handover/ack')
+      ? Promise.resolve(new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } }))
+      : original(input, init);
+  });
   await page.route('**/api/desktop/handover/ack', route => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/desktop/tasks', async route => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
-      expect(body.executionId).toBe('home-execution');
+      expect(body.executionId).toBe(edition);
       if (++reads === 1) return route.fulfill({ status: 500, json: { error: 'temporary' } });
       return route.fulfill({ json: { ok: true, session: { taskId: 'home-task', sessionId: 'home-source', messages: [{ role: 'assistant', content: 'Exact execution result', createdAt: '2026-11-01T01:00:00Z' }] } } });
     }
-    await route.fulfill({ json: { ok: true, summary: { items: [{ id: 'home-row', taskId: 'home-task', category: 'user', systemKind: '', botId: 'another-agent', projectId: '', type: 'periodic', enabled: true, text: 'Daily outcome retained', status: 'pending', updatedAt: '2026-11-01T01:00:00Z', active: false, executions: [{ id: 'home-execution', status: 'completed', sessionId: 'home-source', runId: 'home-run', startedAt: '2026-11-01T01:00:00Z', attempt: 1, maxAttempts: 1 }] }], counts: { total: 1, byType: {}, byStatus: {}, byScope: {}, byChannel: {} }, targets: [] } } });
+    await route.fulfill({ json: { ok: true, summary: { items: [{ id: 'home-row', taskId: 'home-task', category: 'user', systemKind: '', botId: 'another-agent', projectId: '', type: 'periodic', enabled: true, text: 'Daily outcome retained', status: 'pending', updatedAt: '2026-11-01T01:00:00Z', active: false, executions: [{ id: edition, status: 'completed', sessionId: 'home-source', runId: 'home-run', startedAt: '2026-11-01T01:00:00Z', attempt: 1, maxAttempts: 1 }] }], counts: { total: 1, byType: {}, byStatus: {}, byScope: {}, byChannel: {} }, targets: [] } } });
   });
   await openChat(page);
   const work = page.locator('.agent-home-work');
@@ -482,4 +490,178 @@ test('home keeps task outcomes and reads the exact execution with retry @agent-h
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await work.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   await page.screenshot({ path: '.test-tmp/home-work-narrow.png', fullPage: true });
+  await work.getByRole('button', { name: 'Collapse', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Daily outcome retained', exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.agent-home')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Daily outcome retained', exact: true })).toHaveCount(0);
+  edition = 'home-next-execution';
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Daily outcome retained', exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1024 });
+  await page.evaluate(() => {
+    for (const [key, newValue] of [['molibot-desktop-locale', 'zh-CN'], ['molibot-desktop-appearance', 'dark'], ['molibot-desktop-theme-family', 'brutalism']]) {
+      localStorage.setItem(key, newValue);
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
+    }
+  });
+  await expect(page.getByRole('button', { name: '已阅收起', exact: true })).toBeVisible();
+  await work.screenshot({ path: '.test-tmp/home-work-cards-brutalism.png' });
+  await page.getByRole('button', { name: '已阅收起', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Daily outcome retained', exact: true })).toHaveCount(0);
+
+});
+
+test('home result cards reserve four lines for both short and long tasks @agent-home', async ({ page }) => {
+  await page.route('**/api/desktop/tasks', route => route.fulfill({ json: { ok: true, summary: {
+    items: ['Short task', 'Long task instructions '.repeat(80)].map((text, i) => ({
+      id: `size-${i}`, taskId: `size-${i}`, category: 'user', systemKind: '', botId: 'default', projectId: '', type: 'periodic', enabled: true, text, status: 'pending', active: false, updatedAt: '2026-11-01T01:00:00Z',
+      executions: [{ id: `size-run-${i}`, status: 'completed', sessionId: 'source', runId: `run-${i}`, startedAt: '2026-11-01T01:00:00Z', attempt: 1, maxAttempts: 1 }]
+    })), targets: [], counts: { total: 2, byType: {}, byStatus: {}, byScope: {}, byChannel: {} }
+  } } }));
+  await page.route('**/api/desktop/plans?**', route => route.fulfill({ json: { ok: true, items: [], total: 0 } }));
+  await openChat(page);
+  const cards = page.locator('.agent-home-work-card');
+  await expect(cards).toHaveCount(2);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1024 });
+    const bounds = await cards.evaluateAll(nodes => nodes.map(node => {
+      const title = node.querySelector('.agent-home-work-title')!;
+      return { height: node.getBoundingClientRect().height, titleHeight: title.getBoundingClientRect().height,
+        limit: parseFloat(getComputedStyle(title).lineHeight) * 4,
+        buttonBottom: node.querySelector('.agent-home-work-actions')!.getBoundingClientRect().bottom - node.getBoundingClientRect().top };
+    }));
+    expect(Math.abs(bounds[0].height - bounds[1].height)).toBeLessThan(1);
+    expect(bounds[0].height).toBeLessThan(350);
+    expect(bounds[1].titleHeight).toBeLessThanOrEqual(bounds[1].limit + 1);
+    expect(Math.abs(bounds[0].buttonBottom - bounds[1].buttonBottom)).toBeLessThan(1);
+  }
+  await page.setViewportSize({ width: 1440, height: 1024 });
+  await page.evaluate(() => {
+    for (const [key, newValue] of [['molibot-desktop-appearance', 'dark'], ['molibot-desktop-theme-family', 'brutalism']]) {
+      localStorage.setItem(key, newValue);
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
+    }
+  });
+  await expect(cards).toHaveCount(2);
+  await page.locator('.agent-home-work').screenshot({ path: '.test-tmp/home-fixed-card-height.png' });
+});
+
+test('cross-channel summary stays read after return and reload until a newer reply arrives @agent-home', async ({ page, instance }) => {
+  await seedHandover(instance, 'cross-channel');
+  const payload = await (await page.request.get(`${instance.endpoint}/api/desktop/handover`)).json();
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = (input, init) => String(input).includes('/api/desktop/handover/ack')
+      ? Promise.resolve(new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } }))
+      : original(input, init);
+  });
+  await page.route('**/api/desktop/handover', route => route.fulfill({ json: payload }));
+  await openChat(page);
+  const card = page.getByTestId('handover-cross-channel');
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: 'View all', exact: true }).click();
+  await page.getByRole('button', { name: 'Momo', exact: true }).click();
+  await expect(page.locator('.agent-home')).toBeVisible();
+  await expect(card).toHaveCount(0);
+  await expect(page.locator('.agent-home-work-heading')).toHaveCount(0);
+  await expect(page.locator('.agent-home-dashboard')).toHaveCount(0);
+  await page.waitForLoadState('networkidle');
+  await page.reload();
+  await expect(page.locator('.agent-home')).toBeVisible();
+  await expect(card).toHaveCount(0);
+  await expect(page.locator('.agent-home-work-heading')).toHaveCount(0);
+  await expect(page.locator('.agent-home-dashboard')).toHaveCount(0);
+  payload.handover.crossChannel.latestAt = new Date(Date.parse(payload.handover.crossChannel.latestAt) + 60_000).toISOString();
+  await page.waitForLoadState('networkidle');
+  await page.reload();
+  await expect(card).toBeVisible();
+  await page.waitForLoadState('networkidle');
+});
+
+test('legacy delivery and task card read their exact executions through the same reader @agent-home', async ({ page, instance }) => {
+  await seedHandover(instance, 'active');
+  const payload = await (await page.request.get(`${instance.endpoint}/api/desktop/handover`)).json();
+  const old = payload.handover.items.find((item: any) => item.kind === 'task-completed');
+  expect(old.executionId).toBeTruthy();
+  let denied = false;
+  const requested: string[] = [];
+  await page.route('**/api/desktop/tasks', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      requested.push(body.executionId);
+      return denied ? route.fulfill({ status: 403, json: { ok: false, error: 'Access revoked' } }) : route.fulfill({ json: { ok: true, session: { taskId: old.taskId, sessionId: old.sessionId, messages: [{ role: 'assistant', content: body.executionId === old.executionId ? 'Original edition exact content' : 'Newer edition exact content', createdAt: old.occurredAt }] } } });
+    }
+    return route.fulfill({ json: { ok: true, summary: { items: [{ id: 'reader-row', taskId: old.taskId, category: 'user', systemKind: '', botId: 'default', projectId: '', type: 'periodic', enabled: true, text: 'Newer edition card', active: false, updatedAt: old.occurredAt, executions: [{ id: 'newer-edition', status: 'completed', sessionId: old.sessionId, runId: 'newer-run', startedAt: old.occurredAt }] }], targets: [], counts: { total: 1, byType: {}, byStatus: {}, byScope: {}, byChannel: {} } } } });
+  });
+  await openChat(page);
+  await page.getByTestId('handover-entries').getByRole('button', { name: 'Read this edition', exact: true }).click();
+  const reader = page.getByTestId('home-task-result');
+  await expect(reader).toContainText('Original edition exact content');
+  await expect(reader).not.toContainText('Newer edition exact content');
+  expect(requested.at(-1)).toBe(old.executionId);
+  await reader.getByRole('button', { name: 'Collapse', exact: true }).click();
+  await page.getByRole('button', { name: 'Newer edition card', exact: true }).click();
+  await expect(reader).toContainText('Newer edition exact content');
+  expect(requested.at(-1)).toBe('newer-edition');
+  await reader.getByRole('button', { name: 'Collapse', exact: true }).click();
+  denied = true;
+  await page.getByTestId('handover-entries').getByRole('button', { name: 'Read this edition', exact: true }).click();
+  await expect(reader.getByRole('alert')).toBeVisible();
+  await expect(reader).not.toContainText('Original edition exact content');
+});
+
+test('home plan card opens the exact persisted plan detail @agent-home', async ({ page, instance }) => {
+  const title = `Home target plan ${Date.now()}`;
+  const response = await page.request.post(`${instance.endpoint}/api/desktop/plans`, { data: { action: 'create', botId: 'default', title, summary: 'Exact home navigation target', tasks: [{ title: 'Review the result', steps: [{ title: 'Read retained evidence' }] }] } });
+  expect(response.ok(), await response.text()).toBe(true);
+  const created = (await response.json()).item;
+  const planId = created.execution.id;
+  let detailUnavailable = true;
+  await page.route('**/api/desktop/plans?stream=true', route => route.fulfill({ contentType: 'text/event-stream', body: 'data: {"type":"heartbeat"}\n\n' }));
+  await page.route(`**/api/desktop/plans?id=${planId}`, route => detailUnavailable
+    ? route.fulfill({ status: 403, json: { ok: false, error: 'Plan detail temporarily unavailable' } }) : route.continue());
+  await openChat(page);
+  await page.locator('.agent-home-work-card').getByRole('button', { name: title, exact: true }).click();
+  await expect(page.locator('.plans-detail').getByRole('alert')).toContainText('Plan detail temporarily unavailable');
+  detailUnavailable = false;
+  await page.locator('.plans-detail').getByRole('alert').getByRole('button').click();
+  await expect(page.locator('.plans-detail h2')).toHaveText(title);
+  await expect(page.locator('.plans-detail')).toContainText('Exact home navigation target');
+  const read = await page.request.get(`${instance.endpoint}/api/desktop/plans?id=${planId}`);
+  expect((await read.json()).item.execution.id).toBe(planId);
+});
+
+test('home shows memory old and proposed values and keeps confirmation disabled until comparison succeeds @agent-home', async ({ page, instance }) => {
+  await seedHandover(instance, 'memory');
+  let comparisons = 0;
+  let originalAvailable = true;
+  await page.route('**/api/desktop/handover', async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.handover.memoryReview.items[0].supersedesMemoryId = 'comparison-original';
+    await route.fulfill({ json: payload });
+  });
+  await page.route('**/api/desktop/memory', async route => {
+    const body = route.request().method() === 'POST' ? route.request().postDataJSON() : {};
+    if (body.action !== 'compare-candidate') return route.continue();
+    if (++comparisons === 1) return route.fulfill({ status: 503, json: { ok: false, error: 'Unavailable' } });
+    return route.fulfill({ json: { ok: true, comparison: { candidateId: body.id, candidateUpdatedAt: body.expectedUpdatedAt, originals: [{ relation: 'replaces', available: originalAvailable, ...(originalAvailable ? { content: 'Previously preferred long introductions.' } : {}) }] } } });
+  });
+  await openChat(page);
+  const review = page.getByRole('region', { name: 'Worth remembering?', exact: true });
+  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeDisabled();
+  await expect(review.getByRole('alert')).toBeVisible();
+  await review.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(review.getByRole('region', { name: 'Memory comparison', exact: true })).toContainText('Previously preferred long introductions.');
+  await expect(review.getByRole('heading', { name: 'Proposed memory', exact: true })).toBeVisible();
+  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeEnabled();
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  await review.getByRole('textbox', { name: 'Edit candidate' }).fill('Prefer conclusions first, with the original evidence retained.');
+  await expect(review.getByRole('region', { name: 'Memory comparison', exact: true })).toContainText('Prefer conclusions first, with the original evidence retained.');
+  originalAvailable = false;
+  await review.getByTitle('Next pending memory', { exact: true }).click();
+  await review.getByTitle('Previous pending memory', { exact: true }).click();
+  await expect(review.getByRole('region', { name: 'Memory comparison', exact: true })).toContainText('deleted or is outside the current scope');
+  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeDisabled();
 });

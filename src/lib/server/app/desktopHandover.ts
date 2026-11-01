@@ -74,8 +74,6 @@ export interface BuildHandoverInput {
   settings: RuntimeSettings;
   evidence: HandoverEvidence;
   projectSessionIds?: ReadonlySet<string>;
-  /** Delivered text of a Session, used for a result preview. */
-  previewOf?: (sessionId: string) => string;
 }
 
 export interface HandoverReadDeps {
@@ -223,8 +221,7 @@ function itemFromLease(
   lease: EventExecutionLease,
   noticesByRun: Map<string, string>,
   projectSessionIds: ReadonlySet<string>,
-  defaultAgentId: string,
-  previewOf: (sessionId: string) => string
+  defaultAgentId: string
 ): DesktopHandoverItem | null {
   if (!COMPLETED_LEASE_STATUSES.has(lease.status)) return null;
   if (projectSessionIds.has(lease.sessionId)) return null;
@@ -242,7 +239,7 @@ function itemFromLease(
   const failure = failed ? summarizeFailure(lease.lastError || noticesByRun.get(lease.runId)) : {};
   const resultPreview = failed
     ? ""
-    : clipPreview(resultTextOf(lease.result) || previewOf(lease.sessionId), RESULT_LIMIT);
+    : clipPreview(resultTextOf(lease.result), RESULT_LIMIT);
   const resultRecord = lease.result && typeof lease.result === "object" && !Array.isArray(lease.result)
     ? lease.result as Record<string, unknown>
     : undefined;
@@ -252,6 +249,7 @@ function itemFromLease(
   const delivery = failed ? undefined : normalizeDeliveryReceipt(resultRecord?.delivery);
   return {
     id: `task:${lease.id}`,
+    executionId: lease.id,
     kind,
     occurredAt: isoOf(lease.finishedAt, lease.lastHeartbeatAt),
     agentId,
@@ -361,14 +359,13 @@ function buildCrossChannel(
 export function buildDesktopHandover(input: BuildHandoverInput): DesktopHandover {
   const nowIso = input.now.toISOString();
   const defaultAgentId = String(input.settings.defaultAgentId || DEFAULT_AGENT_ID);
-  const previewOf = input.previewOf ?? (() => "");
   const noticesByRun = new Map<string, string>();
   for (const notice of input.evidence.notices) {
     if (!noticesByRun.has(notice.runId)) noticesByRun.set(notice.runId, noticeDetailOf(notice));
   }
 
   const leaseItems = latestPeriodLeases(input.evidence.leases)
-    .map((lease) => itemFromLease(lease, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId, previewOf))
+    .map((lease) => itemFromLease(lease, noticesByRun, input.projectSessionIds ?? new Set(), defaultAgentId))
     .filter((item): item is DesktopHandoverItem => Boolean(item));
   const leaseRunIds = new Set(leaseItems.map((item) => item.runId).filter(Boolean));
   const adHocRuns = input.evidence.runs.filter((fact) => !leaseRunIds.has(fact.runId));
@@ -472,12 +469,6 @@ export function readDesktopHandover(deps: HandoverReadDeps): DesktopHandover {
   const runs = facts.filter((fact) => fact.factType === "run");
   const notices = facts.filter((fact) => fact.factType === "runtime_notice");
   const leases = deps.leaseStore.listFinishedSince(since);
-  const summaries = new Map<string, { title?: string; preview?: string }>();
-  const previewOf = (sessionId: string): string => {
-    if (!sessionId || !deps.sessionSummary) return "";
-    if (!summaries.has(sessionId)) summaries.set(sessionId, deps.sessionSummary(sessionId) ?? {});
-    return summaries.get(sessionId)?.preview ?? "";
-  };
 
   const projectSessionIds = new Set(
     [...new Set([...runs.map((fact) => fact.sessionId), ...leases.map((lease) => lease.sessionId)])]
@@ -516,7 +507,6 @@ export function readDesktopHandover(deps: HandoverReadDeps): DesktopHandover {
     now,
     settings: deps.settings,
     projectSessionIds,
-    previewOf,
     evidence: {
       runs,
       notices,

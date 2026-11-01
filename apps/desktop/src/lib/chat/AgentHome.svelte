@@ -9,8 +9,10 @@
   import Minus from "reicon-svelte/icons/Minus";
   import CircleInfo from "reicon-svelte/icons/CircleInfo";
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
+  import { hasUnreadCrossChannel, readHomeReceipts, markHomeReceipt } from "./homeWork";
   import AgentConversationRow from "./AgentConversationRow.svelte";
+  import HomeTaskResult from "./HomeTaskResult.svelte";
   import AgentHomeWork from "./AgentHomeWork.svelte";
   import AgentHomeMemory from "./AgentHomeMemory.svelte";
   import AgentHomeDelivery from "./AgentHomeDelivery.svelte";
@@ -101,11 +103,12 @@
     onMemoryChanged?: () => Promise<void>;
     onOpenMemory?: () => void;
     onTasks?: () => void;
-    onPlans?: () => void;
+    onPlans?: (planId?: string) => void;
     onFiles?: () => void;
     onResultFile?: (sessionId: string, file: import("./turnFiles").TurnFileItem) => void;
   } = $props();
 
+  let openedResult = $state<DesktopHandoverItem | null>(null);
   let itemsExpanded = $state(false);
   let pendingExpanded = $state(false);
   let executionsExpanded = $state(false);
@@ -146,7 +149,32 @@
   const hiddenPending = $derived(Math.max(0, (handover?.pending.length ?? 0) - PENDING_PREVIEW));
 
   const displayCounts = $derived(showingPrevious && handover?.previous ? handover.previous.counts : handover?.counts ?? { completed: 0, failed: 0, pending: 0, recovered: 0 });
-  const crossChannel = $derived(handover?.crossChannel);
+  let crossChannelSeen = $state<string | undefined>();
+  let crossChannelReadError = $state(false);
+  $effect(() => {
+    const key = `molibot-home-read:${endpoint}`;
+    const id = `cross-channel:${agentId}`;
+    crossChannelReadError = false;
+    untrack(() => {
+      try { crossChannelSeen = readHomeReceipts(localStorage.getItem(key))[id]; } catch { crossChannelSeen = undefined; }
+    });
+    const sync = (event: StorageEvent) => { if (event.key === key) crossChannelSeen = readHomeReceipts(event.newValue)[id]; };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  });
+  const crossChannel = $derived(hasUnreadCrossChannel(handover?.crossChannel, crossChannelSeen) ? handover?.crossChannel : undefined);
+  function openCrossChannelHistory(): void {
+    if (crossChannel && !handoverStale) {
+      try {
+        const key = `molibot-home-read:${endpoint}`;
+        const next = markHomeReceipt(readHomeReceipts(localStorage.getItem(key)), `cross-channel:${agentId}`, crossChannel.latestAt);
+        localStorage.setItem(key, JSON.stringify(next));
+        crossChannelSeen = crossChannel.latestAt;
+        crossChannelReadError = false;
+      } catch { crossChannelReadError = true; }
+    }
+    onHistory();
+  }
   const crossChannelMeta = $derived(crossChannel
     ? [
         crossChannel.channels.map(channelLabel).join(locale === "zh-CN" ? "、" : ", "),
@@ -255,12 +283,11 @@
   }
 
   function openItem(item: DesktopHandoverItem): void {
-    onHandoverOpen?.({
-      sessionId: item.sessionId,
-      channel: item.channel,
-      title: itemLabel(item),
-      agentId: item.agentId
-    });
+    openedResult = item;
+  }
+
+  function openSource(item: DesktopHandoverItem): void {
+    onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: itemLabel(item), agentId: item.agentId });
   }
 
   function openPending(item: DesktopHandoverPending): void {
@@ -440,8 +467,9 @@
             <div class="agent-home-card-foot">
               <span class="agent-home-meta">{itemMeta(heroItem, false)}</span>
               {#if !heroItem.display}
-                <Button variant="primary" disabled={!heroItem.sessionId} onclick={() => openItem(heroItem)}>{copy.handoverOpenSource}<ArrowRight size={14} aria-hidden="true" /></Button>
+                <Button variant="primary" disabled={!heroItem.sessionId} onclick={() => openItem(heroItem)}>{copy.handoverReadDelivery}<ArrowRight size={14} aria-hidden="true" /></Button>
               {/if}
+              {#if heroItem.sessionId}<Button variant="text" onclick={() => openSource(heroItem)}>{copy.handoverOpenSource}</Button>{/if}
             </div>
           </article>
 
@@ -593,8 +621,11 @@
       </div>
     {/if}
 
-    <div class="agent-home-work-heading"><h2>{copy.homePrepared}</h2><p class="agent-home-meta" data-testid="handover-summary">{handoverSummary}</p></div>
+    {#if displayItems.length || handover.pending.length || showMemory || crossChannel || handover.nextScheduled}
+      <div class="agent-home-work-heading"><h2>{copy.homePrepared}</h2><p class="agent-home-meta" data-testid="handover-summary">{handoverSummary}</p></div>
+    {/if}
 
+    {#if heroItem || handover.pending.length || showMemory}
     <div class="agent-home-dashboard" class:has-results={Boolean(heroItem)} class:has-decisions={Boolean(handover.pending.length || showMemory)} use:measureDashboard>
       {#if wideDashboard}
         {@render resultsSection()}
@@ -604,6 +635,13 @@
         {@render resultsSection()}
       {/if}
     </div>
+    {/if}
+
+    {#if openedResult}
+      {#key `${endpoint}:${openedResult.executionId}`}
+        <HomeTaskResult {endpoint} taskId={openedResult.taskId ?? ""} executionId={openedResult.executionId ?? ""} {locale} stale={handoverStale} {onFiles} {onResultFile} onClose={() => openedResult = null} />
+      {/key}
+    {/if}
 
     {#if displayItems.length > 0}
       <details class="agent-home-band agent-home-executions" bind:open={executionDetailsOpen}>
@@ -662,6 +700,7 @@
       </section>
     {/if}
 
+    {#if crossChannelReadError}<p class="agent-home-handover-stale" role="alert">{locale === "zh-CN" ? "回复提醒的已阅状态保存失败，请重试。" : "Could not save read status for replies. Please retry."}</p>{/if}
     {#if crossChannel || handover.nextScheduled}
       <div class="agent-home-signals">
         {#if crossChannel}
@@ -670,7 +709,7 @@
             <h2 class="agent-home-signal-title">{copy.handoverCrossChannel.replace("{count}", String(crossChannel.count))}</h2>
             <span class="agent-home-signal-meta">{crossChannelMeta}</span>
             {#if crossChannel.channels.length}<span class="agent-home-signal-platforms" aria-hidden="true">{#each crossChannel.channels as channel}{#if CHANNEL_LOGOS[channel]}<img src={CHANNEL_LOGOS[channel]} alt="" width="16" height="16" />{/if}{/each}</span>{/if}
-            <button type="button" class="agent-home-signal-action" onclick={onHistory}>{copy.handoverCrossChannelOpen}<ArrowRight size={13} aria-hidden="true" /></button>
+            <button type="button" class="agent-home-signal-action" onclick={openCrossChannelHistory}>{copy.handoverCrossChannelOpen}<ArrowRight size={13} aria-hidden="true" /></button>
           </article>
         {/if}
         {#if handover.nextScheduled}

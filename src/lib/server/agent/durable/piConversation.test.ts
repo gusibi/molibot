@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import { createModels, createAssistantMessageEventStream, Type, type AssistantMessage, type Model, type TranscriptContext } from "@earendil-works/pi-ai";
 import { HostBashStore } from "$lib/server/hostBash/store.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
@@ -221,4 +222,44 @@ test("closing during initialization settles cleanup before another owner opens t
     try { await restored.open({ requestId: "inbound", content: "Retry", resume: true }); await restored.runInput(); }
     finally { await restored.close(); }
   } finally { release(); await runtime.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test("a Pi task parked by the restart limit fails recovery instead of waiting forever", { timeout: 5000 }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-parked-"));
+  let reached!: () => void;
+  const requesting = new Promise<void>(resolve => { reached = resolve; });
+  const models = createModels();
+  const stream = (_model: unknown, _context: unknown, opts?: { signal?: AbortSignal }) => {
+    reached();
+    const result = createAssistantMessageEventStream();
+    opts?.signal?.addEventListener("abort", () => result.push({ type: "error", reason: "aborted", error: {
+      role: "assistant", api: model.api, provider: model.provider, model: model.id, content: [], stopReason: "aborted", timestamp: Date.now(),
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+    } }), { once: true });
+    return result;
+  };
+  models.setProvider({ id: "fixture", name: "Fixture", getModels: () => [model], stream, streamSimple: stream,
+    auth: { apiKey: { name: "Fixture", resolve: async () => ({ auth: { apiKey: "fixture" } }) } } });
+  const create = () => new PiConversationRuntime(options(directory, models));
+  const first = create();
+  try {
+    await first.open({ requestId: "inbound", content: "Run" });
+    const running = first.runInput();
+    void running.catch(() => {});
+    await requesting;
+    await first.close();
+    await running.catch(() => {});
+    const db = new DatabaseSync(join(directory, "pi.sqlite"));
+    try { db.exec("UPDATE tasks SET record = json_set(record, '$.restarts', 5) WHERE status != 'terminal'"); }
+    finally { db.close(); }
+    const restored = create();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await restored.open({ requestId: "inbound", content: "Run", resume: true });
+      const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("recovery remained blocked")), 1000); });
+      await assert.rejects(Promise.race([restored.runInput(), deadline]), /paused after repeated interruptions/);
+    } finally { if (timer) clearTimeout(timer); await restored.close(); }
+  } finally { await first.close(); rmSync(directory, { recursive: true, force: true }); }
 });

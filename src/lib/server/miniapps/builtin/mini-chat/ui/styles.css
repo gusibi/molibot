@@ -227,3 +227,10 @@
     .astryx-chat-message-list > div { padding-inline: 8px; }
   }
 }
+
+/* Reduced motion — the thinking pulse and panel slide snap to their end state.
+   Unlayered on purpose: it must win over the layered product rules above;
+   Astryx ships its own reduction for library components. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

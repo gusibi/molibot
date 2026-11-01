@@ -6,7 +6,7 @@
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
   import Button from "../components/ui/Button.svelte";
   import { runDesktopMemoryAction } from "../api";
-  import type { DesktopHomeMemoryReview } from "@molibot/desktop-contract";
+  import type { DesktopHomeMemoryReview, DesktopMemoryComparison } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
 
   let { review, endpoint, stale, copy, locale = "en", formatTime, onChanged, onOpenMemory }: {
@@ -20,6 +20,24 @@
     onOpenMemory: () => void;
   } = $props();
 
+  let comparison = $state<DesktopMemoryComparison | null>(null);
+  let comparisonLoading = $state(false);
+  let comparisonError = $state(false);
+  let comparisonRevision = $state(0);
+  $effect(() => {
+    const item = candidate, target = endpoint;
+    comparisonRevision;
+    comparison = null; comparisonError = false; comparisonLoading = false;
+    if (!item || !target || stale || (!item.supersedesMemoryId && !item.disputesMemoryId)) return;
+    let disposed = false;
+    comparisonLoading = true;
+    void runDesktopMemoryAction(target, { action: "compare-candidate", id: item.id, expectedUpdatedAt: item.updatedAt }).then(response => {
+      if (disposed) return;
+      if (response.comparison?.candidateId !== item.id || response.comparison.candidateUpdatedAt !== item.updatedAt) throw new Error("Candidate changed");
+      comparison = response.comparison;
+    }).catch(() => { if (!disposed) comparisonError = true; }).finally(() => { if (!disposed) comparisonLoading = false; });
+    return () => { disposed = true; };
+  });
   let index = $state(0);
   let editingId = $state("");
   let editingVersion = $state("");
@@ -122,10 +140,24 @@
     <Button variant="text" disabled={busy || stale} onclick={() => void onChanged()}>{copy.retry}</Button>
   {:else if candidate}
     <div class="agent-home-memory-meta"><span>{candidate.domain === "owner" ? copy.homeMemoryPersonal : copy.homeMemoryAgent}</span><time datetime={candidate.createdAt}>{formatTime(candidate.createdAt)}</time></div>
-    {#if candidate.supersedesMemoryId || candidate.disputesMemoryId}<p class="agent-home-handover-stale">{candidate.disputesMemoryId ? (locale === 'zh-CN' ? '这条候选与已有记忆存在分歧。请先在记忆中心核对。' : 'This candidate disputes an existing memory. Review it in the memory center first.') : (locale === 'zh-CN' ? '确认后会替换已有记忆，请先核对原记录。' : 'Confirmation replaces an existing memory. Review the original first.')}<Button variant="text" onclick={onOpenMemory}>{locale === 'zh-CN' ? '核对原记忆' : 'Review original'}</Button></p>{/if}
+    {#if candidate.supersedesMemoryId || candidate.disputesMemoryId}
+      <section class="agent-home-memory-comparison" aria-label={locale === "zh-CN" ? "记忆新旧对照" : "Memory comparison"}>
+        {#if comparisonLoading}<p role="status">{locale === "zh-CN" ? "正在读取原记忆…" : "Loading the original memory…"}</p>
+        {:else if comparisonError}<p role="alert">{locale === "zh-CN" ? "原记忆读取失败，请重试后再确认。" : "Could not read the original memory. Retry before confirming."}</p><Button variant="text" disabled={stale} onclick={() => comparisonRevision++}>{copy.retry}</Button>
+        {:else if comparison}
+          {#each comparison.originals as original}
+            <div><h3>{locale === "zh-CN" ? (original.relation === "replaces" ? "将被替换的记忆" : "存在分歧的记忆") : (original.relation === "replaces" ? "Memory to replace" : "Disputed memory")}</h3>
+              <p>{original.available ? original.content : (locale === "zh-CN" ? "原记忆已删除或不在当前可见范围内，请在记忆中心核对后再确认。" : "The original memory was deleted or is outside the current scope. Review it in the memory center before confirming.")}</p>
+            </div>
+          {/each}
+          <h3>{locale === "zh-CN" ? "本次建议" : "Proposed memory"}</h3>
+          <p>{editingId === candidate.id ? draft : candidate.value}</p>
+        {/if}
+      </section>
+    {/if}
     {#if editingId === candidate.id}
       <textarea class="agent-home-memory-edit" aria-label={copy.memoryCandidateEdit} bind:value={draft} disabled={disabled}></textarea>
-    {:else}
+    {:else if !comparison}
       <p class="agent-home-memory-value">{candidate.value}</p>
     {/if}
     {#if reference}
@@ -138,7 +170,7 @@
       {/key}
     {/if}
     <div class="agent-home-card-actions">
-      <Button variant="primary" disabled={disabled} onclick={() => void resolve("confirm")}><Check size={14} aria-hidden="true" />{editingId === candidate.id ? copy.homeMemorySaveEdit : copy.homeMemoryConfirm}</Button>
+      <Button variant="primary" disabled={disabled || Boolean((candidate.supersedesMemoryId || candidate.disputesMemoryId) && (!comparison || comparisonLoading || comparisonError || comparison.originals.some(original => !original.available)))} onclick={() => void resolve("confirm")}><Check size={14} aria-hidden="true" />{editingId === candidate.id ? copy.homeMemorySaveEdit : copy.homeMemoryConfirm}</Button>
       <Button variant="text" disabled={disabled} onclick={() => void resolve("ignore")}>{copy.homeMemoryIgnore}</Button>
       <Button variant="text" disabled={disabled} onclick={() => { draft = candidate.value; editingId = candidate.id; editingVersion = candidate.updatedAt; }}>{copy.homeMemoryEdit}</Button>
     </div>

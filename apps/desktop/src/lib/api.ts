@@ -1466,6 +1466,15 @@ export async function loadDesktopTaskHistory(endpoint: string, id: string, page:
   if (!payload.history) throw new Error("Execution history not found");
   return payload.history;
 }
+/** Resolve the stable task identity, then read only the requested execution. */
+export async function loadDesktopHomeTaskResult(endpoint: string, taskId: string, executionId: string): Promise<NonNullable<DesktopTaskActionResponse["session"]>> {
+  if (!taskId || !executionId) throw new Error("Task execution identity is required");
+  const summary = await loadDesktopTasks(endpoint);
+  const task = summary.items.find(item => item.taskId === taskId && !item.projectId);
+  if (!task) throw new Error("Task is unavailable");
+  return loadDesktopTaskSession(endpoint, task.id, executionId);
+}
+
 export async function loadDesktopTaskSession(
   endpoint: string,
   id: string,

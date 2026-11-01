@@ -1,6 +1,7 @@
 const strings = {
   en: {
     title:"Meeting Notes", subtitle:"A calm record of every conversation.", live:"Live", history:"History",
+    loading:"Loading…",
     readyTitle:"Ready when you are", readyBody:"Record an in-person meeting. Audio is saved safely as you speak.", privacy:"Audio stays on this device until it is processed.",
     newMeeting:"Start meeting", pause:"Pause", resume:"Resume", endMeeting:"End meeting", finishNow:"End now", cancel:"Cancel",
     finishConfirm:"End recording and generate the final notes?", finishHint:"Your saved audio and transcript will be kept.", recording:"Recording", paused:"Paused", captureHealthy:"Microphone active", capturePaused:"Microphone paused", captureStopped:"Preparing your notes",
@@ -19,6 +20,7 @@ const strings = {
   },
   zh: {
     title:"会议纪要", subtitle:"安静地记录每一次重要对话。", live:"会议现场", history:"历史记录",
+    loading:"加载中…",
     readyTitle:"准备好了，随时开始", readyBody:"记录线下面对面会议，音频会在你说话时持续安全保存。", privacy:"音频会保留在本机，直到完成处理。",
     newMeeting:"开始会议", pause:"暂停", resume:"继续录音", endMeeting:"结束会议", finishNow:"确认结束", cancel:"取消",
     finishConfirm:"结束录音并生成最终纪要吗？", finishHint:"已经保存的音频和转写内容都会保留。", recording:"正在录音", paused:"已暂停", captureHealthy:"麦克风工作正常", capturePaused:"麦克风已暂停", captureStopped:"正在整理会议内容",
@@ -46,7 +48,7 @@ document.querySelectorAll("[data-i18n]").forEach((node) => { node.textContent = 
 document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => { node.placeholder = t[node.dataset.i18nPlaceholder] || node.placeholder; });
 
 const el = Object.fromEntries([
-  "view-tabs","live-tab","history-tab","status","live-view","history-view","live-empty","live-session","new","live-title","live-state-label","record-dot","timer","capture-health","recording-sync","pause","stop","finish-confirm","finish-now","finish-cancel","live-detail","history-list-pane","history-new","history-search","history-count","history-filters","meetings","empty","history-detail","history-back","detail"
+  "view-tabs","live-tab","history-tab","status","live-view","history-view","live-empty","live-session","new","live-title","live-state-label","record-dot","timer","capture-health","recording-sync","pause","stop","finish-confirm","finish-now","finish-cancel","live-detail","history-list-pane","history-new","history-search","history-count","history-filters","meetings","boot_loading","empty","history-detail","history-back","detail"
 ].map((id) => [id.replaceAll("-", "_"), document.getElementById(id)]));
 el.live_title.setAttribute("aria-label", t.meetingTitle);
 el.history_filters.setAttribute("aria-label", t.filterLabel);
@@ -587,6 +589,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 await load().catch((cause) => status(cause.message, true));
+el.boot_loading?.remove();
 await refreshCapture().catch((cause) => status(cause.message, true));
 if (view === "history" && selected) await showHistoryDetail(selected).catch((cause) => status(cause.message, true));
 setView(view);

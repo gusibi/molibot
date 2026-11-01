@@ -11,15 +11,22 @@
     --pb-morandi-border: #E2E6EA;
     --pb-morandi-border-hover: #B8C4CE;
     --pb-morandi-text-primary: #242B33;
-    --pb-morandi-text-secondary: #6B7A88;
-    --pb-morandi-text-muted: #94A2AF;
+    /* secondary/muted deepened so every text use clears 4.5:1 on card and page
+       backgrounds (they are used at 10-12px, where AA has no large-text leeway). */
+    --pb-morandi-text-secondary: #5E6D7B;
+    --pb-morandi-text-muted: #687785;
+    /* Motion */
+    --pb-dur-fast: 120ms;
     background: var(--pb-morandi-bg);
   }
 
   [data-theme="dark"] {
-    --pb-morandi-primary: #7C98AD;
-    --pb-morandi-primary-hover: #90ABC0;
-    --pb-morandi-primary-light: rgba(124, 152, 173, 0.18);
+    /* Primary darkened from #7C98AD: it only ever backs white labels (header
+       button, active tag chip) and #7C98AD gave 3.0:1. Hover goes darker,
+       mirroring the light theme's hover direction. */
+    --pb-morandi-primary: #52697C;
+    --pb-morandi-primary-hover: #44586A;
+    --pb-morandi-primary-light: rgba(82, 105, 124, 0.18);
     --pb-morandi-sage: #7E978E;
     --pb-morandi-sage-light: rgba(126, 151, 142, 0.18);
     --pb-morandi-clay: #A3887E;
@@ -29,7 +36,7 @@
     --pb-morandi-border-hover: #3E4A59;
     --pb-morandi-text-primary: #E5EBF0;
     --pb-morandi-text-secondary: #90A0B0;
-    --pb-morandi-text-muted: #627282;
+    --pb-morandi-text-muted: #8494A1;
     background: var(--pb-morandi-bg);
   }
 
@@ -141,7 +148,7 @@
     background: var(--pb-morandi-card-bg);
     color: var(--pb-morandi-text-secondary);
     cursor: pointer;
-    transition: all 120ms ease;
+    transition: background-color var(--pb-dur-fast) ease, border-color var(--pb-dur-fast) ease, color var(--pb-dur-fast) ease;
   }
 
   .prompt-box-header-btn svg {
@@ -228,7 +235,8 @@
     background: color-mix(in srgb, var(--pb-morandi-border) 45%, var(--pb-morandi-card-bg));
     color: var(--pb-morandi-text-secondary);
     border: 1px solid var(--pb-morandi-border);
-    transition: all 120ms ease;
+    font-family: inherit;
+    transition: background-color var(--pb-dur-fast) ease, border-color var(--pb-dur-fast) ease, color var(--pb-dur-fast) ease;
     user-select: none;
     white-space: nowrap;
   }
@@ -255,13 +263,13 @@
     gap: 2px;
     padding: 2px 6px;
     border-radius: 999px;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--pb-morandi-text-secondary);
     background: transparent;
     border: 1px dashed var(--pb-morandi-border);
     cursor: pointer;
     white-space: nowrap;
-    transition: all 120ms ease;
+    transition: color var(--pb-dur-fast) ease, border-color var(--pb-dur-fast) ease;
   }
 
   .prompt-box-clear-filters-btn:hover {
@@ -404,7 +412,7 @@
     background: color-mix(in srgb, var(--pb-morandi-bg) 60%, var(--pb-morandi-card-bg));
     color: var(--pb-morandi-text-secondary);
     cursor: pointer;
-    transition: all 120ms ease;
+    transition: background-color var(--pb-dur-fast) ease, border-color var(--pb-dur-fast) ease, color var(--pb-dur-fast) ease;
   }
 
   .prompt-box-icon-action-btn svg {
@@ -436,7 +444,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--pb-morandi-text-muted);
     margin-left: auto;
     white-space: nowrap;
@@ -533,7 +541,7 @@
     cursor: pointer;
     max-height: 260px;
     overflow: hidden;
-    transition: all 120ms ease;
+    transition: border-color var(--pb-dur-fast) ease;
     flex-shrink: 0;
   }
 
@@ -568,6 +576,13 @@
     border-radius: 6px;
     background: var(--pb-morandi-card-bg);
     border: 1px solid var(--pb-morandi-border);
+  }
+
+  /* The inline input hides its own outline; the container is the visible
+     control, so it carries the focus ring via :focus-within. */
+  .prompt-box-tag-chips-container:focus-within {
+    border-color: var(--pb-morandi-primary);
+    box-shadow: 0 0 0 3px var(--pb-morandi-primary-light);
   }
 
   .prompt-box-tag-editable-chip {
@@ -638,7 +653,7 @@
     color: var(--pb-morandi-text-secondary);
     border: 1px solid var(--pb-morandi-border);
     cursor: pointer;
-    transition: all 120ms ease;
+    transition: background-color var(--pb-dur-fast) ease, border-color var(--pb-dur-fast) ease, color var(--pb-dur-fast) ease;
   }
 
   .prompt-box-quick-tag-btn:hover {
@@ -696,7 +711,7 @@
     background: transparent;
     border: 1px solid transparent;
     cursor: pointer;
-    transition: all 120ms ease;
+    transition: background-color var(--pb-dur-fast) ease, border-color var(--pb-dur-fast) ease, color var(--pb-dur-fast) ease;
     white-space: nowrap;
   }
 
@@ -738,7 +753,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--pb-morandi-text-muted);
     padding-top: 2px;
   }
@@ -811,4 +826,26 @@
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
+}
+
+/* Reduced motion — custom spin/toast/hover motion snaps to its end state.
+   Unlayered on purpose: it must win over the layered product rules above;
+   Astryx ships its own reduction for library components. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* Keyboard focus rings for the product-layer controls. Astryx tokens its own
+   components; these cover the custom buttons and role=button surfaces. */
+.prompt-box-header-btn:focus-visible,
+.prompt-box-icon-action-btn:focus-visible,
+.prompt-box-tag-chip:focus-visible,
+.prompt-box-clear-filters-btn:focus-visible,
+.prompt-box-quick-tag-btn:focus-visible,
+.prompt-box-snippet-btn:focus-visible,
+.prompt-box-chip-del:focus-visible,
+.prompt-box-card-left:focus-visible,
+.prompt-box-card-image-wrap:focus-visible {
+  outline: 2px solid var(--pb-morandi-primary);
+  outline-offset: 2px;
 }

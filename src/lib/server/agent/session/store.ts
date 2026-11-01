@@ -840,12 +840,19 @@ export class MomRuntimeStore {
   }
 
   /** Read only one execution from a shared task archive; legacy Sessions fall back to their full context. */
-  loadContextForRun(chatId: string, sessionId: string, runId: string): AgentMessage[] {
+  /** Read only messages owned by this execution; missing records never borrow the active Session. */
+  loadRecordedRunContext(chatId: string, sessionId: string, runId: string): AgentMessage[] {
     const id = this.sanitizeSessionId(sessionId);
     const run = String(runId ?? "").trim();
-    const messages = this.readSessionFileEntries(chatId, id)
+    if (!run) return [];
+    return this.readSessionFileEntries(chatId, id)
       .filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.runId === run && entry.retention !== "turn_only")
       .map((entry) => entry.message);
+  }
+
+  loadContextForRun(chatId: string, sessionId: string, runId: string): AgentMessage[] {
+    const id = this.sanitizeSessionId(sessionId);
+    const messages = this.loadRecordedRunContext(chatId, id, runId);
     if (messages.length > 0 || this.readSessionOrigin(chatId, id)?.archiveMode === "shared") {
       return messages;
     }

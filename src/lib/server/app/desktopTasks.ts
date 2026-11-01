@@ -77,6 +77,17 @@ function taskSessionCreatedAt(value: unknown): string {
   return date && !Number.isNaN(date.getTime()) ? date.toISOString() : "";
 }
 
+/** Prefer the run's transcript; retained execution text covers runs without assistant messages. */
+export function buildDesktopTaskExecutionMessages(messages: unknown[], execution: Pick<EventExecutionLease, "result" | "finishedAt" | "startedAt">): DesktopTaskSessionMessage[] {
+  const projected = buildDesktopTaskSessionMessages(messages);
+  if (projected.some(message => message.role === "assistant" && message.content.trim())) return projected;
+  const result = execution.result;
+  const record = result && typeof result === "object" ? result as Record<string, unknown> : {};
+  const text = typeof result === "string" ? result : ["text", "notificationText", "message", "summary"].map(key => record[key]).find(value => typeof value === "string" && value.trim());
+  if (typeof text === "string" && text.trim()) projected.push({ role: "assistant", content: text.trim(), createdAt: execution.finishedAt || execution.startedAt });
+  return projected;
+}
+
 export function buildDesktopTaskSessionMessages(messages: unknown[]): DesktopTaskSessionMessage[] {
   const projected: DesktopTaskSessionMessage[] = [];
   // One automation round = one transcript turn, shaped like a live chat turn:
@@ -401,6 +412,7 @@ export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: Deskt
   return {
     id: desktopTaskId(item.filePath),
     taskId,
+    maintenance: item.managed?.by === "molibot" && ["memory-maintenance", "session-auto-archive", "session-trash-expiry"].includes(item.managed.kind ?? ""),
     category: systemKind ? "system" : item.projectId ? "project" : "user",
     systemKind,
     channel: item.channel,

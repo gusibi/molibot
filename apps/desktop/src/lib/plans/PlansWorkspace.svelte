@@ -19,6 +19,8 @@
   export let copy: Translation;
   export let endpoint: string;
   export let targetSessionId = "";
+  export let targetPlanId = "";
+  let appliedTargetPlanId = "";
   export let formatTime: (iso: string) => string = (iso) => iso;
   export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
   type FilterBucket = "all" | DesktopPlanStatus;
@@ -32,12 +34,17 @@
   let items: DesktopPlanListItem[] = [];
   let listLoading = true, listError = "", search = "", selectedId = "", detailLoading = false, busy = false, actionError = "", editorOpen = false;
   let detail: DesktopPlanDetail | null = null;
+  let detailError = "";
   let filter: FilterBucket = "all";
   let offset = 0, total = 0, projectId = "", mounted = false, online = false, lastUpdated = "", listSeq = 0, requestSeq = 0;
   let projectIds: string[] = [];
   let mode: "manual" | "accept_edits" = "manual";
   let receiver = "current";
   let counts: Record<string, number> = {};
+  $: if (mounted && targetPlanId && targetPlanId !== appliedTargetPlanId) {
+    appliedTargetPlanId = targetPlanId;
+    void selectPlan(targetPlanId);
+  }
   $: visibleItems = items;
   $: filterItems = filterOptions.map(({ value, key }) => ({ value, label: copy[key], count: counts[value] ?? 0 }));
   $: statuses = filter === "all" ? undefined : Object.entries({ planned: "not_started", queued: "in_progress", running: "in_progress", verifying: "in_progress", completed: "archived", cancelled: "finished", paused: "needs_attention", waiting_for_user: "needs_attention", waiting_for_approval: "needs_attention", recovery_required: "needs_attention", partial: "needs_attention", failed: "needs_attention" }).filter(([, bucket]) => bucket === filter).map(([status]) => status);
@@ -85,16 +92,16 @@
   }
   async function selectPlan(planId: string): Promise<void> {
     if (selectedId === planId && detail) return;
-    selectedId = planId; detail = null; editorOpen = false; actionError = "";
+    selectedId = planId; detail = null; detailError = ""; editorOpen = false; actionError = "";
     await loadDetail(planId);
   }
   async function loadDetail(planId: string, silent = false): Promise<void> {
     const seq = ++requestSeq;
-    if (!silent) detailLoading = true;
+    if (!silent) { detailLoading = true; detailError = ""; }
     try {
       const next = await loadDesktopPlan(endpoint, planId);
       if (seq === requestSeq && selectedId === planId && (!detail || next.execution.version >= detail.execution.version)) detail = next;
-    } catch (cause) { if (!silent && seq === requestSeq) actionError = String(cause instanceof Error ? cause.message : cause); }
+    } catch (cause) { if (seq === requestSeq && (!silent || !detail)) detailError = String(cause instanceof Error ? cause.message : cause); }
     finally { if (seq === requestSeq) detailLoading = false; }
   }
   async function action(input: DesktopPlanActionRequest): Promise<void> {
@@ -193,6 +200,8 @@
   <section class="plans-detail" aria-label={detail?.meta.title ?? copy.planBoardTitle}>
     {#if detailLoading && !detail}
       <div class="plans-state" role="status"><Loader size={16} aria-hidden="true" />{copy.loading}</div>
+    {:else if !detail && detailError}
+      <div class="plans-state" role="alert"><p>{detailError}</p><Button onclick={() => void loadDetail(selectedId)}>{copy.retryLoading}</Button></div>
     {:else if !detail}
       {#if listLoading}
         <div class="plans-state" role="status">{copy.loading}</div>

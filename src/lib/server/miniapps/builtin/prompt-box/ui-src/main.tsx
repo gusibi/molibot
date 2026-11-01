@@ -114,6 +114,8 @@ const copy = zh ? {
   remoteSynced: '已同步',
   localOnly: '本地',
   loadFailed: '加载失败，请重试',
+  loadFailedTitle: '加载失败',
+  retry: '重试',
   testAndSync: '保存并同步',
   sortUpdatedDesc: '更新时间',
   sortCreatedDesc: '创建时间',
@@ -182,6 +184,8 @@ const copy = zh ? {
   remoteSynced: 'Synced',
   localOnly: 'Local',
   loadFailed: 'Failed to load data',
+  loadFailedTitle: "Couldn't load prompts",
+  retry: 'Retry',
   testAndSync: 'Save & Sync',
   sortUpdatedDesc: 'Updated',
   sortCreatedDesc: 'Created',
@@ -298,6 +302,7 @@ function PromptBoxApp() {
     lastSyncTime: null
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -341,7 +346,11 @@ function PromptBoxApp() {
       ]);
       setPrompts(promptsRes.prompts || []);
       setSettings(settingsRes.settings);
+      setLoadError(false);
     } catch (e: any) {
+      // Distinguish "failed" from "empty": without this the error path rendered
+      // the happy-path empty state and the user had no way to retry.
+      setLoadError(true);
       showToast(e.message || copy.loadFailed);
     } finally {
       setLoading(false);
@@ -624,6 +633,7 @@ function PromptBoxApp() {
                   type="button"
                   className="prompt-box-header-btn"
                   title={syncing ? copy.syncing : copy.sync}
+                  aria-label={syncing ? copy.syncing : copy.sync}
                   disabled={syncing}
                   onClick={handleSyncOrRefresh}
                 >
@@ -633,6 +643,7 @@ function PromptBoxApp() {
                   type="button"
                   className="prompt-box-header-btn primary"
                   title={copy.addPrompt}
+                  aria-label={copy.addPrompt}
                   onClick={() => {
                     setEditingPrompt({ title: '', content: '', description: '', tags: [] });
                     setEditorMode('edit');
@@ -646,6 +657,7 @@ function PromptBoxApp() {
                   type="button"
                   className="prompt-box-header-btn"
                   title={copy.settings}
+                  aria-label={copy.settings}
                   onClick={() => {
                     setSettingsFormKey(settings.apiKey || '');
                     setSettingsFormUrl(settings.apiUrl || 'https://pb.onlinestool.com/api');
@@ -697,23 +709,25 @@ function PromptBoxApp() {
                 {/* Multi-Tag Filter Chips */}
                 {allTagsWithCounts.length > 0 && (
                   <div className="prompt-box-tags-scroll">
-                    <span
+                    <button
+                      type="button"
                       className={`prompt-box-tag-chip ${selectedTags.length === 0 ? 'active' : ''}`}
                       onClick={() => setSelectedTags([])}
                     >
                       {copy.allTags}
-                    </span>
+                    </button>
                     {allTagsWithCounts.map(({ tag, count }) => {
                       const isSelected = selectedTags.includes(tag);
                       return (
-                        <span
+                        <button
                           key={tag}
+                          type="button"
                           className={`prompt-box-tag-chip ${isSelected ? 'active' : ''}`}
                           onClick={() => toggleTagFilter(tag)}
                         >
                           #{tag}
                           <span className="prompt-box-tag-chip-count">{count}</span>
-                        </span>
+                        </button>
                       );
                     })}
 
@@ -738,6 +752,27 @@ function PromptBoxApp() {
               {loading ? (
                 <div className="prompt-box-loading">
                   <ArrowPathIcon width={24} height={24} className="spin-animation" />
+                </div>
+              ) : loadError ? (
+                <div className="prompt-box-empty-wrap">
+                  <EmptyState
+                    title={copy.loadFailedTitle}
+                    description={copy.loadFailed}
+                    icon={<ArrowPathIcon width={32} height={32} />}
+                    actions={
+                      <Button
+                        label={copy.retry}
+                        variant="primary"
+                        size="sm"
+                        icon={<ArrowPathIcon width={14} height={14} />}
+                        onClick={() => {
+                          setLoadError(false);
+                          setLoading(true);
+                          void loadData();
+                        }}
+                      />
+                    }
+                  />
                 </div>
               ) : prompts.length === 0 ? (
                 <div className="prompt-box-empty-wrap">
@@ -800,16 +835,26 @@ function PromptBoxApp() {
                     const imageUrl = resolvePromptImage(item);
                     const excerpt = getExcerptText(item);
                     const firstTag = item.tags && item.tags.length > 0 ? item.tags[0] : null;
+                    const openDetail = () => {
+                      setActiveDetailPrompt(item);
+                      setDetailDialogOpen(true);
+                    };
 
                     return (
                       <Card key={item.id} variant="default" className="prompt-box-card">
                         <div className="prompt-box-card-layout">
-                          {/* Left Column: Title, Description, Actions */}
+                          {/* Left Column: Title, Description, Actions.
+                              role=button (not <button>): this row contains real
+                              action buttons, which cannot nest. */}
                           <div
                             className="prompt-box-card-left"
-                            onClick={() => {
-                              setActiveDetailPrompt(item);
-                              setDetailDialogOpen(true);
+                            role="button"
+                            tabIndex={0}
+                            onClick={openDetail}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter' && e.key !== ' ') return;
+                              e.preventDefault();
+                              openDetail();
                             }}
                           >
                             <div className="prompt-box-card-title-row">
@@ -836,6 +881,7 @@ function PromptBoxApp() {
                                   type="button"
                                   className={`prompt-box-icon-action-btn ${insertedId === item.id ? 'active' : ''}`}
                                   title={insertedId === item.id ? copy.inserted : copy.insertComposer}
+                                  aria-label={insertedId === item.id ? copy.inserted : copy.insertComposer}
                                   onClick={() => handleInsertComposer(item)}
                                 >
                                   {insertedId === item.id ? (
@@ -848,6 +894,7 @@ function PromptBoxApp() {
                                   type="button"
                                   className={`prompt-box-icon-action-btn ${copiedId === item.id ? 'active' : ''}`}
                                   title={copiedId === item.id ? copy.copied : copy.copyContent}
+                                  aria-label={copiedId === item.id ? copy.copied : copy.copyContent}
                                   onClick={() => handleCopyContent(item)}
                                 >
                                   {copiedId === item.id ? (
@@ -860,6 +907,7 @@ function PromptBoxApp() {
                                   type="button"
                                   className="prompt-box-icon-action-btn"
                                   title={copy.editPrompt}
+                                  aria-label={copy.editPrompt}
                                   onClick={() => {
                                     setEditingPrompt({ ...item });
                                     setEditorMode('edit');
@@ -873,6 +921,7 @@ function PromptBoxApp() {
                                   type="button"
                                   className="prompt-box-icon-action-btn danger"
                                   title={copy.deletePrompt}
+                                  aria-label={copy.deletePrompt}
                                   onClick={() => {
                                     setPromptToDelete(item);
                                     setDeleteDialogOpen(true);
@@ -897,7 +946,16 @@ function PromptBoxApp() {
                           {imageUrl && (
                             <div
                               className="prompt-box-card-image-wrap"
+                              role="button"
+                              tabIndex={0}
+                              aria-label={copy.previewImage}
                               onClick={(e) => {
+                                e.stopPropagation();
+                                setPreviewImageUrl(imageUrl);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== 'Enter' && e.key !== ' ') return;
+                                e.preventDefault();
                                 e.stopPropagation();
                                 setPreviewImageUrl(imageUrl);
                               }}
