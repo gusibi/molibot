@@ -13,6 +13,30 @@ import {
 import { readWorkspaceVisionSmokeImage } from "$lib/server/providers/visionSmokeFixture.js";
 import type { CustomProviderConfig } from "$lib/server/settings/index.js";
 
+for (const protocol of ["openai-compatible", "anthropic"] as const) {
+  test(`${protocol} provider probes share one session header across capability checks`, async (t) => {
+    const sessions: string[] = [];
+    t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+      const session = new Headers(init?.headers).get("x-molibot-session");
+      sessions.push(session ?? "");
+      return new Response(JSON.stringify(session ? { choices: [{ message: { content: "ok" } }] } : { error: "MissingSessionID" }), {
+        status: session ? 200 : 400
+      });
+    });
+    const payload = { protocol, baseUrl: "https://example.invalid", apiKey: "fixture-key", model: "fixture-unknown-model", tags: ["text", "vision"] as ("text" | "vision")[] };
+    const first = await testCustomProvider(payload);
+    assert.equal(first.ok, true, first.message);
+    assert.equal(first.verification.vision, "passed");
+    const count = sessions.length;
+    assert.equal(count, protocol === "anthropic" ? 2 : 3);
+    assert.ok(sessions[0]);
+    assert.ok(sessions.every(session => session === sessions[0]));
+    assert.equal((await testCustomProvider(payload)).ok, true);
+    assert.ok(sessions[count]);
+    assert.notEqual(sessions[0], sessions[count]);
+  });
+}
+
 test("custom protocol helpers build documented image-capable request headers", () => {
   assert.deepEqual(buildOpenAICompatibleHeaders({ apiKey: "test-key" }), {
     "Content-Type": "application/json",

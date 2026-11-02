@@ -40,6 +40,8 @@ test('thinking and tools form one flat chronological timeline @chat', async ({ p
   await expect(live).not.toHaveAttribute('open');
   await live.locator('summary').first().click();
   await expect(live.getByText(thoughts[2], { exact: true })).toBeVisible();
+  await expect(live.locator('.turn-process-summary')).toContainText('Thinking');
+  await expect(page.locator('.streaming-message .turn-process-overview')).toHaveCount(0);
   await expect(live.locator('.thinking-card')).toHaveCount(0);
   const expected = [thoughts[0], progress[0], labels[0], thoughts[1], progress[1], labels[1], thoughts[2]];
   async function expectOrder(container: typeof live) {
@@ -48,12 +50,15 @@ test('thinking and tools form one flat chronological timeline @chat', async ({ p
     for (let index = 0; index < expected.length; index++) await expect(items.nth(index)).toContainText(expected[index]);
   }
   await expectOrder(live);
+  await live.locator('.turn-process-summary').click();
+  await page.screenshot({ path: testInfo.outputPath('timeline-live-collapsed.png') });
   instance.model.release(marker);
   await expectReply(page, final);
   const history = page.locator('article').filter({ hasText: final }).last();
   const process = history.locator('.turn-process');
   await expect(process).toHaveCount(1);
   await expect(process).not.toHaveAttribute('open');
+  await expect(process.locator('.turn-process-summary')).toContainText('View process');
   await process.locator('summary').first().click();
   await expectOrder(process);
   await expect(process.getByText(final, { exact: true })).toHaveCount(0);
@@ -85,4 +90,13 @@ test('thinking and tools form one flat chronological timeline @chat', async ({ p
   await expect(process.locator('.thinking-card')).toHaveCount(0);
   await expectReply(page, final);
   await page.screenshot({ path: testInfo.outputPath('timeline-dark-narrow.png') });
+  replyTo(instance.model, `timeline-thinking-${marker}`, {
+    type: 'thinking', thinking: `THINKING:${marker}`, text: `DONE:${marker}`, key: `thinking-${marker}`
+  });
+  await sendText(page, `timeline-thinking-${marker}`);
+  await expect(live.locator('.turn-process-summary')).toContainText('正在思考');
+  await expect(page.locator('.streaming-message .turn-process-overview')).toHaveCount(0);
+  instance.model.release(`thinking-${marker}`);
+  await expectReply(page, `DONE:${marker}`);
+  await expect(page.locator('article').filter({ hasText: `DONE:${marker}` }).last().locator('.turn-process-summary')).toContainText('查看过程');
 });

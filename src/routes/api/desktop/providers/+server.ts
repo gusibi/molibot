@@ -17,7 +17,9 @@ import type {
   DesktopProvidersResponse,
   DesktopProviderCreateRequest,
   DesktopProviderSubmitResponse,
-  DesktopProviderUpdateRequest
+  DesktopProviderUpdateRequest,
+  DesktopProviderKeyRevealRequest,
+  DesktopProviderKeyRevealResponse
 } from "$lib/shared/desktop";
 
 export const GET: RequestHandler = async () => {
@@ -30,11 +32,24 @@ export const GET: RequestHandler = async () => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: DesktopProviderCreateRequest;
+  let body: DesktopProviderCreateRequest | DesktopProviderKeyRevealRequest;
   try {
-    body = (await request.json()) as DesktopProviderCreateRequest;
+    body = (await request.json()) as DesktopProviderCreateRequest | DesktopProviderKeyRevealRequest;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" } satisfies DesktopProviderSubmitResponse, { status: 400 });
+  }
+
+  if (!body || typeof body !== "object") return json({ ok: false, error: "Invalid request" }, { status: 400 });
+  if ("action" in body) {
+    if (body.action !== "reveal-api-key" || typeof body.id !== "string" || !body.id.trim()) {
+      return json({ ok: false, error: "Invalid reveal request" }, { status: 400 });
+    }
+    const id = body.id.trim();
+    const provider = getRuntime().getSettings().customProviders.find(provider => provider.id === id);
+    if (!provider?.apiKey) return json({ ok: false, error: "No saved API key for this provider" }, { status: 404 });
+    return json({ ok: true, apiKey: provider.apiKey } satisfies DesktopProviderKeyRevealResponse, {
+      headers: { "Cache-Control": "no-store" }
+    });
   }
 
   const id = String(body.id ?? "").trim();

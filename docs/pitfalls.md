@@ -31,6 +31,7 @@
 - **#51** 共享默认样式用 `:where()` 零特异性，让变体可以覆盖。
 - **#69** 侧栏菜单和遮罩 Portal 到 `body`。
 - **#76** 行级键盘操作只处理行本身的事件，不拦截子按钮与复选框。
+- **#80** 搜索结果替换文件浏览区，与下方预览并存；打开文件不退出搜索。
 
 **复用与渲染**
 
@@ -67,6 +68,7 @@
 - **#72** 上下文预算守在最终 Provider 边界（含 system prompt 和工具 schema）；只裁剪送模副本。
 - **#75** 父 Agent 失败重试只在失败后计数；子任务预算 / 超时作为失败工具结果交回。
 - **#78** Chord `Context` 用官方派生 API 保留取消、遥测与值，不用对象展开复制。
+- **#79** 服务商连接测试也要提供会话标识；Header 守卫覆盖真实探测入口。
 
 **输入、工具与载荷**
 
@@ -131,7 +133,7 @@ referencing an undefined `var(--token)` or keyframe fails silently (no error, ju
 
 ## 6. Path validation vs. external IDs
 
-external channel identifiers legitimately contain `@ : + %` (e.g. WeChat `...@im.wechat`). Don't tighten segment/path validation without covering these; conversely, never expose absolute host paths, secrets, or saved API keys to the WebView — return opaque IDs and replace/clear semantics for credentials. Corollary (fixed 2+ times): **one path string must mean one thing in every tool.** `bash` goes through a shell and expands `~`/`$HOME`; `resolveToolPath` used `path.resolve`, so the same `~/x` became `<scratch>/~/x` and failed with a "Path not found" pointing at a path that never existed. Equally, an allowed-roots list is a *product* decision, not a security default: `miniapp-creator` scaffolds into `<dataRoot>/miniapps/apps` and then asks the agent to edit the result, so a guard that omits that root makes the whole workflow read-only through `bash cat`. Whenever a Skill or scaffolder writes outside cwd/Workspace, check the guard in the same change. Guarded by the home-expansion and Mini-App-root assertions in `src/lib/server/agent/tools/path.test.ts`.
+external channel identifiers legitimately contain `@ : + %` (e.g. WeChat `...@im.wechat`). Don't tighten segment/path validation without covering these; conversely, never expose absolute host paths or secrets in ordinary WebView projections — return opaque IDs and replace/clear semantics for credentials. Provider API keys may be returned only after the user explicitly clicks reveal, through a no-store request; keep the temporary value separate from the edit draft and discard it on hide, provider/page switch, or disconnect. Guarded by `tests/ui/provider-key-reveal.spec.ts` (saved-key display, draft isolation, stale-response rejection, retry, and summary redaction). Corollary (fixed 2+ times): **one path string must mean one thing in every tool.** `bash` goes through a shell and expands `~`/`$HOME`; `resolveToolPath` used `path.resolve`, so the same `~/x` became `<scratch>/~/x` and failed with a "Path not found" pointing at a path that never existed. Equally, an allowed-roots list is a *product* decision, not a security default: `miniapp-creator` scaffolds into `<dataRoot>/miniapps/apps` and then asks the agent to edit the result, so a guard that omits that root makes the whole workflow read-only through `bash cat`. Whenever a Skill or scaffolder writes outside cwd/Workspace, check the guard in the same change. Guarded by the home-expansion and Mini-App-root assertions in `src/lib/server/agent/tools/path.test.ts`.
 
 ## 7. Reuse shared modules, no forked copies
 
@@ -430,3 +432,11 @@ webview 源是 Tauri 自定义协议、sidecar API 在 `http://127.0.0.1:<port>`
 ## 78. Chord 调用上下文不能用对象展开复制
 
 Pi 1.4 的 Chord `Context.telemetry` 由原型 getter 和内部上下文链提供。`{ ...context, abortSignal }` 不保留这个属性及 `value()`，会让原生嵌套调用或 Codemode 模型请求在读取 `propagation` 时失败。局部取消统一使用 `withAbortSignal(signal, context)`；清理和遥测派生也使用相应的官方 API。旧守卫未覆盖新版运行时对遥测的真实读取；`piRunSession.test.ts` 的隐藏模型流与嵌套超时用例、`codemode.integration.test.ts` 和 `codemode.native.test.ts` 直接经过 Pi 1.4 请求与恢复路径，升级后可拦住这类丢失。
+
+## 79. 连接探测也需要会话标识
+
+（2026-11-02）内置 OpenCode 的设置页测试返回 `MissingSessionID`：`checkProviderConnectivity` 没有传 `sessionId`，Pi 无法生成 `x-opencode-session`；自定义模型的 `testCustomProvider` 也没有发送 `x-molibot-session`。两类测试各生成临时会话标识，自定义模型同次测试的连接、角色和视觉探测共用该标识。聊天请求已有会话头，不能证明测试入口正常。守卫：`providerConnectivity.test.ts` 经真实 Pi 入口捕获 `opencode` / `opencode-go` 出站 Header；`customProtocol.test.ts` 覆盖两种协议的多次能力探测和独立测试的身份隔离。此前 helper 测试只覆盖已传 `sessionId` 的请求，未检查连接测试调用方。
+
+## 80. 加载成功不代表预览可见
+
+搜索结果属于文件浏览区，应与下方预览共用分隔条，不能和整个预览区互斥。打开文件只更新预览，不关闭搜索或切回文件树；加载中与失败态也须保留列表，目录展开与正文加载并行。旧守卫只检查搜索调用了 `openFile`，没有验证列表和正文同时可见。`project-file-search.spec.ts` 通过真实文件接口验证上下布局、连续切换、目录延迟、键盘定位、文件删除报错及退出搜索后保留预览。

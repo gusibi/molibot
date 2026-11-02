@@ -3340,7 +3340,8 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   // Raw tool and reasoning logs never force themselves open.
   assert.doesNotMatch(conversationLiveView, /forceOpen=/);
   assert.match(turnProcess, /let opened = false/);
-  assert.match(turnProcess, /presentation\.commentary/);
+  assert.doesNotMatch(turnProcess, /turn-process-overview|turn-progress-current/);
+  assert.match(turnProcess, /live && !responding \? presentation\.status : copy\.viewProcess/);
   assert.match(turnProcess, /copy\.viewProcess/);
 });
 

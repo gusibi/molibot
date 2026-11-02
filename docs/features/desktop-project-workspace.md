@@ -7,6 +7,7 @@ The macOS Desktop app brings chat, project context, files, automations, and Sett
 - Work in ordinary chats or attach conversations to a local project.
 - Keep project sessions separate from ordinary personal conversations.
 - Inspect project files, changes, and session attachments from the project workspace.
+- Search project filenames or contents. Click a result or press Enter to preview it below the search results, keeping the query and list available for browsing other matches. Plain-text and code matches scroll to the matching line. Close search to return to the file tree while keeping the preview open.
 - Use the same configured providers, Agent profiles, memory controls, and task tools available through the local runtime.
 
 ## Start here

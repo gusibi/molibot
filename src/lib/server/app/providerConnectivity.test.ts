@@ -1,6 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { checkProviderConnectivity, pickProbeModel } from "$lib/server/app/providerConnectivity.js";
+import { getPiModels } from "$lib/server/providers/piRuntime.js";
+
+for (const providerId of ["opencode", "opencode-go"]) {
+  test(`${providerId} connectivity probes send a fresh session header through Pi`, async (t) => {
+    const model = getPiModels().getModels(providerId).find(model => model.api === "openai-completions")!;
+    assert.ok(model);
+    const sessions: string[] = [];
+    t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+      const session = new Headers(init?.headers).get("x-opencode-session");
+      sessions.push(session ?? "");
+      if (!session) return new Response(JSON.stringify({ error: { type: "MissingSessionID" } }), { status: 400 });
+      return new Response('data: {"id":"fixture","choices":[{"index":0,"delta":{"content":"PONG"},"finish_reason":null}]}\n\ndata: {"id":"fixture","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', {
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+    for (let index = 0; index < 2; index++) {
+      const result = await checkProviderConnectivity({ providerId, modelId: model.id, apiKey: "fixture-key" });
+      assert.equal(result.ok, true, result.error);
+      assert.equal(result.reply, "PONG");
+    }
+    assert.equal(sessions.length, 2);
+    assert.ok(sessions.every(Boolean));
+    assert.notEqual(sessions[0], sessions[1]);
+  });
+}
 
 const catalog = [
   { id: "model-a", provider: "fake", api: "anthropic-messages" },

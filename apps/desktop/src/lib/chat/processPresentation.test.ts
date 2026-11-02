@@ -21,5 +21,6 @@ test("visible progress uses structured status, never model commentary, thinking 
 test("missing commentary gets a localized honest status and ignores terminal tools", () => {
   const blocks: TranscriptProcessBlock[] = [{ id: "tools", kind: "activities", activities: [{ key: "parent", kind: "tool", tool: "subagent", label: "subagent", state: "running" }, { key: "done", kind: "tool", tool: "read", label: "read", state: "success" }] }];
   assert.equal(processPresentation(blocks, translator("en")).status, "A subagent is working on the delegated task…");
-  assert.equal(processPresentation([], translator("zh-CN")).status, "正在处理下一步…");
+  assert.equal(processPresentation([], translator("zh-CN")).status, "正在思考");
+  assert.equal(processPresentation([], translator("en")).status, "Thinking");
 });

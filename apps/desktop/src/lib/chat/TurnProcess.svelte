@@ -30,6 +30,7 @@
   $: presentation = processPresentation(blocks, copy);
   $: liveDuration = presentation.startedAt === undefined ? 0 : Math.max(0, now - presentation.startedAt);
   $: summary = transcriptProcessSummary(blocks);
+  $: durationMs = live && !responding ? liveDuration : summary.durationMs;
   $: isFailed = failed || (summary.interrupted && !live);
   $: displayBlocks = live
     ? blocks
@@ -39,16 +40,6 @@
 
   const durationLabel = formatDuration;
 </script>
-
-{#if live && !responding}
-  <div class="turn-process-overview">
-    <div class="turn-progress-current" role="status">
-      <span>{presentation.status}</span>
-      {#if presentation.detail}<span class="turn-progress-detail">{presentation.detail}</span>{/if}
-      {#if liveDuration}<small>{durationLabel(liveDuration)}</small>{/if}
-    </div>
-  </div>
-{/if}
 
 <details class="turn-process" bind:open={opened} data-state={live ? "live" : isFailed ? "error" : "complete"}>
   <summary class="turn-process-summary">
@@ -61,10 +52,10 @@
     {:else}
       {#if isFailed}<TriangleWarning size={14} aria-hidden="true" />{:else}<CheckCircle size={14} aria-hidden="true" />{/if}
     {/if}
-    <span>{copy.viewProcess}</span>
+    <span role="status">{live && !responding ? presentation.status : copy.viewProcess}</span>
     {#if summary.toolCount}<small>{copy.turnSummaryTools.replace("{count}", String(summary.toolCount))}</small>{/if}
     {#if summary.fileCount}<small>{copy.turnSummaryFiles.replace("{count}", String(summary.fileCount))}</small>{/if}
-    {#if summary.durationMs}<small class="turn-process-duration">{durationLabel(summary.durationMs)}</small>{/if}
+    {#if durationMs}<small class="turn-process-duration">{durationLabel(durationMs)}</small>{/if}
     <AngleDown class="turn-process-caret" size={14} aria-hidden="true" />
   </summary>
   {#if opened}

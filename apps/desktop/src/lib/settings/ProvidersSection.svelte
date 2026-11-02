@@ -36,7 +36,7 @@
     type DesktopProvidersSummary,
     type DesktopProviderUpdateRequest
   } from "@molibot/desktop-contract";
-  import { matchModelCapabilities, type InferredModelMatchResponse } from "../api";
+  import { matchModelCapabilities, revealDesktopProviderApiKey, type InferredModelMatchResponse } from "../api";
   import { invoke } from "@tauri-apps/api/core";
   import { onDestroy } from "svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
@@ -111,6 +111,56 @@
   let pendingDeleteProviderId = $state("");
   let pendingSwitchProviderId = $state("");
   let apiKeyVisible = $state(false);
+  let revealedApiKey = $state("");
+  let apiKeyRevealing = $state(false);
+  let apiKeyRevealError = $state("");
+  let apiKeyRevealVersion = 0;
+
+  function resetApiKeyReveal(): void {
+    apiKeyRevealVersion++;
+    apiKeyVisible = false;
+    revealedApiKey = "";
+    apiKeyRevealing = false;
+    apiKeyRevealError = "";
+  }
+
+  $effect(() => {
+    // Invalidate pending reads after edits, navigation, save, or service changes.
+    providersStore.providerEdit;
+    providersStore.editClearApiKey;
+    session.endpoint;
+    session.serviceReady;
+    resetApiKeyReveal();
+  });
+  onDestroy(resetApiKeyReveal);
+
+  async function toggleApiKeyVisibility(): Promise<void> {
+    if (apiKeyVisible) { resetApiKeyReveal(); return; }
+    if (providersStore.editApiKey || !savedEditProvider?.hasApiKey || providersStore.editClearApiKey) {
+      apiKeyVisible = true;
+      return;
+    }
+    const endpoint = session.endpoint;
+    const id = editor?.id;
+    if (!endpoint || !session.serviceReady || !id || apiKeyRevealing) return;
+    const version = ++apiKeyRevealVersion;
+    const draft = providersStore.providerEdit;
+    const isCurrent = () => version === apiKeyRevealVersion && draft === providersStore.providerEdit
+      && endpoint === session.endpoint && session.serviceReady
+      && !providersStore.editClearApiKey && !providersStore.editApiKey;
+    apiKeyRevealing = true;
+    apiKeyRevealError = "";
+    try {
+      const key = await revealDesktopProviderApiKey(endpoint, id);
+      if (!isCurrent()) return;
+      revealedApiKey = key;
+      apiKeyVisible = true;
+    } catch {
+      if (isCurrent()) apiKeyRevealError = session.text.providerApiKeyRevealFailed;
+    } finally {
+      if (version === apiKeyRevealVersion) apiKeyRevealing = false;
+    }
+  }
   let modelEditorIndex = $state<number | null>(null);
   let modelEditorDraft = $state<DesktopProviderModel | null>(null);
   let modelSamplingDraft = $state("");
@@ -843,7 +893,14 @@
               <input
                 class="provider-input"
                 type={apiKeyVisible ? "text" : "password"}
-                bind:value={providersStore.editApiKey}
+                value={providersStore.editApiKey || (apiKeyVisible ? revealedApiKey : "")}
+                aria-label={session.text.providerApiKey}
+                oninput={(event) => {
+                  const visible = apiKeyVisible;
+                  resetApiKeyReveal();
+                  providersStore.editApiKey = event.currentTarget.value;
+                  apiKeyVisible = visible;
+                }}
                 placeholder={savedEditProvider?.hasApiKey && !providersStore.editClearApiKey ? "••••••••••••••••" : session.text.providerApiKeyPlaceholder}
                 autocomplete="new-password"
                 spellcheck="false"
@@ -853,8 +910,11 @@
                 type="button"
                 aria-label={apiKeyVisible ? session.text.providerApiKeyHide : session.text.providerApiKeyShow}
                 title={apiKeyVisible ? session.text.providerApiKeyHide : session.text.providerApiKeyShow}
-                onclick={() => (apiKeyVisible = !apiKeyVisible)}
-              >{#if apiKeyVisible}<EyeSlash size={15} aria-hidden="true" />{:else}<Eye size={15} aria-hidden="true" />{/if}</button>
+                aria-pressed={apiKeyVisible}
+                aria-busy={apiKeyRevealing}
+                disabled={apiKeyRevealing || !session.serviceReady}
+                onclick={() => void toggleApiKeyVisibility()}
+              >{#if apiKeyRevealing}<Loader size={15} aria-hidden="true" />{:else if apiKeyVisible}<EyeSlash size={15} aria-hidden="true" />{:else}<Eye size={15} aria-hidden="true" />{/if}</button>
               <button
                 class="provider-input-action"
                 type="button"
@@ -863,7 +923,11 @@
                 onclick={() => void verifyProvider(editor.id)}
               >{providersStore.testingId === editor.id ? session.text.onboardingProviderTesting : session.text.providerApiKeyCheck}</button>
             </div>
+            {#if apiKeyRevealError}<small class="provider-field-error" role="alert">{apiKeyRevealError}</small>{/if}
             <p class="provider-field-hint">{savedEditProvider?.hasApiKey ? session.text.providerApiKeySaved : session.text.providerCreateKeyHint}</p>
+            {#if providersStore.actionMessage && !modelEditorDraft}
+              <p class:run-history-failed={providersStore.actionFailed} class="settings-action-message provider-pane-message" role="status">{providersStore.actionMessage}</p>
+            {/if}
           </section>
 
           {#if !editor.isBuiltin}
@@ -976,9 +1040,6 @@
             </div>
           </details>
 
-          {#if providersStore.actionMessage && !modelEditorDraft}
-            <p class:run-history-failed={providersStore.actionFailed} class="settings-action-message provider-pane-message" aria-live="polite">{providersStore.actionMessage}</p>
-          {/if}
         </div>
 
         {#if editorIsDirty || editor.isNew}

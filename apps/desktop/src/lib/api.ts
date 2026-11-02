@@ -124,6 +124,7 @@ import type {
   DesktopProvidersResponse,
   DesktopProvidersSummary,
   DesktopProviderSubmitResponse,
+  DesktopProviderKeyRevealResponse,
   DesktopProviderGlobalsRequest,
   DesktopProviderCreateRequest,
   DesktopProviderItem,
@@ -3852,6 +3853,15 @@ export async function createDesktopProvider(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(provider)
   });
+}
+
+export async function revealDesktopProviderApiKey(endpoint: string, id: string): Promise<string> {
+  const payload = await requestJson<DesktopProviderKeyRevealResponse>(endpoint, "/api/desktop/providers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "reveal-api-key", id })
+  });
+  return payload.apiKey;
 }
 
 /**

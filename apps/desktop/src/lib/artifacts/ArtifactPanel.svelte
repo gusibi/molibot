@@ -362,6 +362,10 @@
   ]);
   /** True while the panel is showing its Mini App surface rather than files. */
   const miniAppActive = $derived(store.mode === "miniapps");
+  const projectSearchActive = $derived(scope === "project" && store.searchOpen && !miniAppActive);
+  $effect(() => {
+    if (projectSearchActive) browserCollapsed = false;
+  });
   const miniAppTabs = $derived(store.miniAppTabs);
   const fileTabs = $derived(store.fileTabs);
   /** Mini App catalog entry for the visible app's head. */
@@ -966,10 +970,7 @@
     </button>
   </div>
 
-  {#if scope === "project" && store.searchOpen && !miniAppActive}
-    <FileSearchPanel {store} {copy} />
-  {:else}
-    {#if !miniAppActive}
+    {#if !miniAppActive && !projectSearchActive}
       <div class="project-file-tabs" role="tablist" aria-label={copy.projectFilesPanel} use:tablist>
         {#if scope === "project"}
           <button type="button" role="tab" id="project-file-tab-files" aria-selected={tab === "files"} aria-controls="project-file-panel" class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.projectFilesTab}</button>
@@ -990,7 +991,7 @@
       </div>
     {/if}
 
-    <div id="project-file-panel" class="project-panel-body" role="tabpanel" aria-labelledby={`project-file-tab-${tab}`} class:browser-collapsed={(browserCollapsed && fileTabs.length) || miniAppActive}>
+    <div id="project-file-panel" class="project-panel-body" role="tabpanel" aria-label={projectSearchActive ? copy.projectSearch : undefined} aria-labelledby={projectSearchActive ? undefined : `project-file-tab-${tab}`} class:browser-collapsed={(browserCollapsed && fileTabs.length) || miniAppActive}>
       {#if actionError}
         <div class="project-panel-error" role="alert">{actionError}</div>
       {/if}
@@ -1055,7 +1056,11 @@
       {/if}
 
       <div class="artifact-file-surface" class:is-hidden={miniAppActive}>
-      {#if scope === "project"}
+      {#if projectSearchActive}
+        <div class="project-browser" bind:this={browserElement}>
+          <FileSearchPanel {store} {copy} />
+        </div>
+      {:else if scope === "project"}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <div
           class="project-browser"
@@ -1569,7 +1574,6 @@
         {/if}
       </div>
     </div>
-  {/if}
 
   {#if !miniAppActive}
     {#if scope === "project"}

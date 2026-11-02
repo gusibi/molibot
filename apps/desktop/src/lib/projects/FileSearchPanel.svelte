@@ -51,8 +51,10 @@
   async function choose(index: number): Promise<void> {
     const hit = flatHits[index];
     if (!hit) return;
-    await store.revealPath(hit.path);
-    await store.openFile(hit.path, { revealLine: hit.line });
+    await Promise.all([
+      store.openFile(hit.path, { revealLine: hit.line }),
+      store.revealPath(hit.path)
+    ]);
   }
 
   function onKeydown(event: KeyboardEvent): void {

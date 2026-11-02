@@ -1716,6 +1716,17 @@ export interface DesktopProvidersResponse {
   summary: DesktopProvidersSummary;
 }
 
+/** Explicit reveal only; provider summaries never include credentials. */
+export interface DesktopProviderKeyRevealRequest {
+  action: "reveal-api-key";
+  id: string;
+}
+
+export interface DesktopProviderKeyRevealResponse {
+  ok: true;
+  apiKey: string;
+}
+
 /** Creates a persisted provider config; custom IDs activate custom mode while built-in IDs remain on Pi routing. */
 export interface DesktopProviderCreateRequest extends DesktopProviderUpdateRequest {
   apiKey: string;

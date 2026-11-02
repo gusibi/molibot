@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import { getPiCatalogModels, streamWithPiRuntime } from "$lib/server/providers/piRuntime.js";
@@ -124,6 +125,7 @@ export async function checkProviderConnectivity(
       context as never,
       {
         maxTokens: PROBE_MAX_TOKENS,
+        sessionId: `provider-test:${randomUUID()}`,
         signal: controller.signal,
         ...(options.apiKey?.trim() ? { apiKey: options.apiKey.trim() } : {})
       } as never

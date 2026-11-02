@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   CustomProviderConfig,
   CustomProviderProtocol,
@@ -291,6 +292,11 @@ export async function callDirectCustomProvider(
 
 export async function testCustomProvider(payload: ProviderTestPayload): Promise<ProviderTestResult> {
   const protocol = resolveCustomProviderProtocol(payload.protocol);
+  // All capability checks in one probe share affinity without joining a chat session.
+  const headers = {
+    ...(protocol === "anthropic" ? buildAnthropicCompatibleHeaders(payload) : buildOpenAICompatibleHeaders(payload)),
+    [SESSION_AFFINITY_HEADER]: `provider-test:${randomUUID()}`
+  };
   const declaredTags = Array.isArray(payload.tags)
     ? payload.tags.filter((tag): tag is ModelCapabilityTag => TESTABLE_CAPABILITY_SET.has(tag as ModelCapabilityTag))
     : [];
@@ -303,7 +309,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
       max_tokens: 8,
       messages: [{ role: "user", content: "ping" }]
     };
-    const connectivity = await runRequest(url, buildAnthropicCompatibleHeaders(payload), basePayload);
+    const connectivity = await runRequest(url, headers, basePayload);
     if (!connectivity.ok) {
       for (const tag of declaredTags) {
         verification[tag] = tag === "text" || tag === "vision" ? "failed" : "untested";
@@ -327,7 +333,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
           mimeType: "image/png",
           data: SAMPLE_PNG_BASE64
         };
-        const visionProbe = await runRequest(url, buildAnthropicCompatibleHeaders(payload), {
+        const visionProbe = await runRequest(url, headers, {
           model: payload.model,
           max_tokens: 8,
           messages: [{
@@ -370,7 +376,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
     temperature: 0,
     max_tokens: 8
   };
-  const connectivity = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
+  const connectivity = await runRequest(url, headers, {
     ...basePayload,
     messages: [{ role: "user", content: "ping" }]
   });
@@ -391,7 +397,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
   }
 
   verification.text = "passed";
-  const developerProbe = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
+  const developerProbe = await runRequest(url, headers, {
     ...basePayload,
     messages: [{ role: "developer", content: "You are a test." }, { role: "user", content: "ping" }]
   });
@@ -408,7 +414,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
         mimeType: "image/png",
         data: SAMPLE_PNG_BASE64
       };
-      const visionProbe = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
+      const visionProbe = await runRequest(url, headers, {
         ...basePayload,
         messages: [
           {
