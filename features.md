@@ -1,3 +1,9 @@
+## 2026-11-05 — Pi 扩展交互与上下文生命周期
+
+原生交互无 Desktop 客户端时快速失败，断连及无人应答有明确期限；Web 设置可切换运行方式，后台终端由用户主动打开。会话永久清除同步删除原生上下文与缓存；Git 子目录保留根依赖，原生会话接入已配置聊天模型。普通失败仍需核对副作用，环境继承和备份范围见 [Pi 扩展说明](docs/features/pi-extensions.md)。
+
+验证：本地回归覆盖无客户端、断连、应答期限、模型切换、受控 `!` shell、清理与重启发现；真实 Runner 验证模型预算和归属。实际第三方包、Windows、付费模型和原生安装包仍待验证。
+
 ## 2026-11-01 — 内置小程序获奖级品质基线修复
 
 - 共享 M3 基线修正（note / todo / meeting-notes / md-preview / 模板五处同步）：浅色 `--md-on-surface-variant` 49.8%→60% 黑（11–12px 元信息在全部浅色表面 ≥5.3:1）、`--md-error` #ff383c→#cc2f36（白字与小字双向 ≥4.5:1，深色不变）；prompt-box 莫兰迪文本次级/弱化色与暗色主色加深、10px 元信息提至 11px；note Smartisan 信纸墨色 #8f7b67→#6e5a3f（信纸对比 2.96→4.81:1）。`#007aff` 品牌蓝按 macOS 惯例保留未动。
@@ -1429,26 +1435,6 @@ Desktop 以 Agent 为普通对话入口，默认 Agent 始终置顶并标记，�
 - **图标替换**：项目 → Filled `Package`（分区头与折叠态图标栏，替换 `feed-duotone`）；自动任务 → Filled `SendClock`（替换 `sort-time-duotone`）；计划 → Filled `Bulb2`（替换 `layers-duotone`）。`package` 与 `send-clock` 官方只有 Filled/Outline、没有 duotone，`bulb2` 按 owner 指定也用 Filled，统一走 `reicon-svelte` 组件并传 `weight="Filled"`。
 
 验证：`node --test` 9 个桌面结构守卫套件 288 项全绿（同步更新「list-section headings」守卫以断言新的折叠分支）；`svelte-check` 0 错误（1 条既有、与本次无关的 `<nav role=tablist>` 警告）；`vite build` 通过。未在隔离预览实例做冷启动走查（未重启用户正在使用的桌面服务）。
-
-## 2026-10-07 — 模型输出上限可配置 + 输出截断自愈（阶段 A 基础切片）
-
-修复线上问题：子代理用推理模型翻译一篇约 6800 词的英文长文时，最后一条响应 `stopReason: length`、`output: 8192 / reasoning: 8192`，即 8192 的输出预算全被「思考」吃光，正文一个字没写就断了，父 Agent 收到 `Status: length; not completed.` 后停住。根因是自定义 Provider 的模型输出上限被硬编码为 8192，且推理 token 与正文共用这一预算；上下文窗口（这些模型是 1M）与此无关。
-
-已交付：
-
-- **输出上限可配置（写入 settings.json，无设置页控件）**：新增 `maxOutputTokens`（默认 32768，环境变量 `MOLIBOT_MAX_OUTPUT_TOKENS`，范围 256–262144）。模型注册表能识别出模型已知输出上限时按 `min(配置值, 已知上限)` 收敛，避免向 fallback 的小上限模型请求超限 `max_tokens`；未知自定义模型用配置值。`toStaticSettings`/`sanitize`/`RawSettings` 已同步，随设置持久化；主模型（`resolveCustomModel`）、子代理模型（`buildModelFromRoute`）及直连 Provider 的 Anthropic 生成路径均读取该值。用户手动在 settings.json 提高它后重启即可让长翻译/长报告跑完。
-- **C：输出截断识别与自愈**：子代理生成循环现在识别 `stopReason: length`。若该次响应既无正文也无工具调用（预算全花在 reasoning），自动关闭 thinking 后继续已提交上下文并重试（最多 2 次）；重试仍截断则记录结构化停止原因 `length_exceeded`，不再静默当成功。纯函数 `assistantHasUsableOutput` / `planLengthRecovery` 单元覆盖。
-- **A：委托拆分引导**：`subagent` 工具描述明确要求长源材料（整章/数千词文章）按段落拆分后分派，暗示单个委派任务有输出预算上限；`length_exceeded` 作为结构化 `runtimeStopKind` 回传父 Agent，父 Agent 据此拆分重派。
-
-验证：`store.test.ts` 新增 `maxOutputTokens` 重启 round-trip（含越界钳制），settings 55 项、subagentRuntime/piConversation 相关 47 项、agent 全量 1128/1130（唯一失败为既有、与本改动无关的 `standalone skill drafter`）通过；`npm run check` 与文档能力矩阵守卫通过。
-
-## 2026-10-07 — 规模化自主长任务：多工作项请求的确定性升级（阶段 A 基础切片）
-
-修复线上问题：用户一次发来 4 篇文章链接要求「都保存为博客并发布」，任务却按普通 Run 执行、两次尝试后停在半成品并报「还不能发布」。根因是长任务识别的唯一入口是「首次非幂等工具」时的模型 preflight，而该 preflight 复用主模型；主模型当时不稳定，`evaluateDurablePreflightWithModel` 抛错后按设计静默回退成普通 Run，于是没有创建 Durable Execution（该会话在 durable 库中 0 条记录），自然也不会有跨轮续跑、逐项验收或目标追踪。
-
-已交付：确定性升级新增两个不依赖 preflight 模型的信号——一条消息里 ≥2 个 URL 且带内容动作（保存/收录/整理/翻译/发布…），或批量/复数指代（逐篇/每篇/批量/全部/所有/这些/几篇…）加内容动作，直接创建 Durable Execution（`multi_item_request` / `bulk_content_request`）。同时 `evaluateDurablePreflightWithModel` 的降级分支（模型报错、未完成、不可用、结构化输出非法、promote 缺字段）现在标记 `degraded`；运行器在 preflight 降级且消息命中确定性信号时走确定性升级，而不是静默转普通 Run；Session 计划执行与已绑定执行不受该回退影响，避免重复创建。
-
-验证：`activation.test.ts`（多 URL、批量指代激活；单 URL、比较链接、单篇保存不激活；降级回退升级）、`preflight.test.ts`（结构化非法与不可用均标记 degraded）、`runner.test.ts`、全套 durable + plans + core（145）+ 路由（42）通过；agent 全量 1126/1128（唯一失败为既有、与本改动无关的 `standalone skill drafter`）。尚未交付：「继续」绑定既有目标、调度器代码派发与规模化验收。
 
 ## Archive Index / 归档索引
 - [2026 Q4 Features Archive — 10 月 3–7 日历史交付](docs/archive/features-archive-2026-Q4.md)

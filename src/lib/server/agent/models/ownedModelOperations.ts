@@ -44,22 +44,25 @@ export function createOwnedModelStream(stream: import("$lib/server/plugins/piExt
   wrap(tool: AgentTool<any>): AgentTool<any>;
   invoke(tool: AgentTool<any>, id: string, args: unknown, signal: AbortSignal): Promise<{ result: AgentToolResult<unknown>; isError: boolean }>;
 }) {
-  const sinks = new Map<string, (event: unknown) => void>();
+  const sinks = new Map<string, { emit: (event: unknown) => void; callbacks: Pick<import("$lib/server/plugins/piExtensions/toolBridge.js").PiExtensionStreamInput, "onPayload" | "onResponse" | "onProviderStreamEvent"> }>();
   const tool = options.wrap({ name: "modelsStream", label: "Chat with a model", description: "Stream a configured chat model; remote execution may incur charges.",
-    parameters: Type.Object({ model: Type.Object({ provider: Type.String(), id: Type.String() }), context: Type.Any(), options: Type.Optional(Type.Any()), simple: Type.Boolean(), callId: Type.Optional(Type.String()) }),
+    parameters: Type.Object({ model: Type.Object({ provider: Type.String(), id: Type.String() }), context: Type.Any(), options: Type.Optional(Type.Any()), simple: Type.Boolean(), callId: Type.Optional(Type.String()), requiresNativeCallbacks: Type.Optional(Type.Boolean()), requestHeaders: Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Null()]))) }),
     replay: "safe",
     callers: ["tools"],
     classification: { risk: "medium", source: "builtin", effect: "network" },
     async execute(id: string, args: any, signal?: AbortSignal) {
-      const value = await stream!(args, sinks.get(args.callId ?? id) ?? (() => undefined), signal ?? new AbortController().signal);
+      const binding = sinks.get(args.callId ?? id);
+      if (args.requiresNativeCallbacks && !binding) throw new Error("Native provider callbacks are unavailable after restart. Check the interrupted operation before starting another request.");
+      const value = await stream!({ ...args, ...binding?.callbacks }, binding?.emit ?? (() => undefined), signal ?? new AbortController().signal);
       return { content: [{ type: "text" as const, text: "Model stream completed." }], details: { modelResult: value } };
     }
   } as AgentTool<any>);
   return { tool, stream: async (input: import("$lib/server/plugins/piExtensions/toolBridge.js").PiExtensionStreamInput, emit: (event: unknown) => void, signal: AbortSignal) => {
     const id = input.callId ?? randomUUID();
-    sinks.set(id, emit);
+    const { onPayload, onResponse, onProviderStreamEvent, ...serializable } = input;
+    sinks.set(id, { emit, callbacks: { onPayload, onResponse, onProviderStreamEvent } });
     try {
-      const outcome = await options.invoke(tool, id, { ...input, callId: id }, signal);
+      const outcome = await options.invoke(tool, id, { ...serializable, callId: id, ...(onPayload || onResponse || onProviderStreamEvent ? { requiresNativeCallbacks: true } : {}) }, signal);
       if (outcome.isError || (outcome.result as any).terminate) {
         const error = new Error(outcome.result.content.filter(block => block.type === "text").map(block => block.text).join("\n"));
         if ((outcome.result as any).terminate) Object.assign(error, { suspendedResult: outcome.result });

@@ -15,7 +15,7 @@ const extensionManageSchema = Type.Object({
     Type.Literal("disable")
   ], { description: "What to do. `inspect` resolves a link without installing anything." }),
   target: Type.Optional(Type.String({
-    description: "For install/inspect: an npm package name or a link (npm page, repository, or monorepo subdirectory). For uninstall/enable/disable: the installed extension id."
+    description: "For install/inspect: a Pi source (npm:package or git:host/owner/repo@tag), npm package name, or a link (npm page, repository, or monorepo subdirectory). For uninstall/enable/disable: the installed extension id."
   }))
 });
 
@@ -64,6 +64,7 @@ export function createExtensionManageTool(options: {
       plugins: {
         ...settings.plugins,
         piExtensions: {
+          ...settings.plugins.piExtensions,
           enabled: settings.plugins.piExtensions.enabled,
           entries: {
             ...entries,
@@ -132,6 +133,7 @@ export function createExtensionManageTool(options: {
           plugins: {
             ...settings.plugins,
             piExtensions: {
+              ...settings.plugins.piExtensions,
               enabled: settings.plugins.piExtensions.enabled,
               entries: { ...entriesOf(settings), [result.id!]: { enabled: true, disabledBots: [] } }
             }
@@ -151,6 +153,7 @@ export function createExtensionManageTool(options: {
           if (row.error) lines.push(`Problem: ${row.error}`);
         }
         lines.push("New tools become available on the next turn.");
+        if (options.getSettings().plugins.piExtensions.mode === "native") lines.push("Use piExtensionRun for this extension's tools, commands and original terminal UI.");
         return text(lines.join("\n"));
       }
 
@@ -163,7 +166,7 @@ export function createExtensionManageTool(options: {
         options.updateSettings({
           plugins: {
             ...settings.plugins,
-            piExtensions: { enabled: settings.plugins.piExtensions.enabled, entries }
+            piExtensions: { ...settings.plugins.piExtensions, enabled: settings.plugins.piExtensions.enabled, entries }
           }
         });
         await host.reload();

@@ -31,6 +31,7 @@ export interface LoadedPiExtension {
   eventHandlerCounts?: Record<string, number>;
   commandNames: string[];
   flagNames: string[];
+  registrationCount?: number;
   unsupported: UnsupportedPiCapability[];
 }
 
@@ -51,7 +52,7 @@ export interface PiExtensionProcessDescriptor extends Omit<LoadedPiExtension, "e
 export type PiExtensionHostRequestHandler = (method: string, input: any, emit: (event: unknown) => void, signal?: AbortSignal) => Promise<any>;
 
 export interface PiExtensionProcessClient {
-  request(method: string, input: unknown, signal?: AbortSignal): Promise<any>;
+  request(method: string, input: unknown, signal?: AbortSignal, timeoutMs?: number): Promise<any>;
   setFlags(flags: Record<string, unknown>): void;
   onFault(listener: (error: Error) => void): void;
   dispose(): void;
@@ -76,6 +77,8 @@ export interface PiExtensionRuntimeSnapshot {
   /** Serialized pi-ai `Model` (no headers), so `ctx.model.provider`/`id` are real. */
   model?: Record<string, unknown>;
   thinkingLevel?: string;
+  /** Configured host chat models, serialized without credentials for native switching. */
+  availableModels?: Record<string, unknown>[];
   /** Serialized `ScopedModel[]`; empty when no model scoping is configured. */
   scopedModels: Array<{ model: Record<string, unknown>; thinkingLevel?: string }>;
   isIdle: boolean;

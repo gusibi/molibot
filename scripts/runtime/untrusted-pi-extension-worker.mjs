@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 let extensions = [];
 let extensionRuntime = null;
@@ -113,6 +113,11 @@ function describe(extension, agentDir) {
     eventHandlerCounts: Object.fromEntries([...extension.handlers.entries()].map(([name, handlers]) => [name, handlers.length])),
     commandNames: [...extension.commands.keys()],
     flagNames: [...extension.flags.keys()],
+    registrationCount: [
+      ...(extensionRuntime?.pendingProviderRegistrations ?? []),
+      ...(extensionRuntime?.pendingNativeProviderRegistrations ?? []),
+      ...(extensionRuntime?.pendingVirtualModelRegistrations ?? [])
+    ].filter((registration) => registration.extensionPath === extension.path).length + (extension.markdownTransformer ? 1 : 0) + (extension.toolRenderers?.length ?? 0),
     unsupported,
     tools: [...extension.tools.values()].map(({ definition }) => ({
       name: definition.name,
@@ -370,7 +375,12 @@ function findExtension(id) {
 async function dispatch(message, signal) {
   const input = message.input ?? {};
   if (message.method === "load") {
-    const result = await discoverAndLoadExtensions([], input.cwd, input.agentDir);
+    const root = path.join(input.agentDir, "extensions");
+    const paths = input.extensionPaths ?? (existsSync(root) ? readdirSync(root).filter((name) => !name.startsWith(".")).map((name) => path.join(root, name)) : []);
+    const loader = new DefaultResourceLoader({ cwd: input.cwd, agentDir: input.agentDir, settingsManager: SettingsManager.inMemory({}),
+      noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, additionalExtensionPaths: paths });
+    await loader.reload();
+    const result = loader.getExtensions();
     extensions = result.extensions;
     extensionRuntime = result.runtime;
     for (const extension of extensions) {

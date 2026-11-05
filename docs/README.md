@@ -38,6 +38,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Personal Agent and Memory](features/personal-agent-and-memory.md)
 - [Channels and Surfaces](features/channels-and-surfaces.md)
 - [Tools, Skills, and MCP](features/tools-skills-and-mcp.md)
+- [Pi 扩展](features/pi-extensions.md) — 对话安装、设置管理、原生终端与兼容边界
 - [Automation, Approvals, and Sandbox](features/automation-approvals-and-sandbox.md)
 - [Scheduled Task Execution and Recovery](features/scheduled-task-execution-and-recovery.md)
 - [Desktop Project Workspace](features/desktop-project-workspace.md)
@@ -51,6 +52,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Automatic Durable Execution PRD](requirements/automatic-durable-execution-prd.md) — long-task foundation, partially delivered
 - [Pi capabilities integration spec](requirements/pi-capabilities-integration-spec.md) — phased Durable kernel replacement, Deferred responses, Codemode and optional image backend
 - [Pi capability completion spec](requirements/pi-capability-completion-spec.md) — approved ordinary-task recovery, MCP OAuth, Codemode model API and extension runtime interfaces; [Issue #64](https://github.com/gusibi/molibot/issues/64)
+- [Pi 扩展安装、管理与运行兼容](requirements/pi-extension-compatibility-spec.md) — 已确认的官方 Pi 终端宿主、执行归属与兼容验收范围
 - [Durable wakeup queue and executor hardening](requirements/durable-wakeup-queue-and-executor-hardening.md) — SQLite 唤醒队列、事务内入队、租约与错误分级；[technical design](designs/agent-runtime/durable-wakeup-queue-and-runtime-hardening-spec.md)
 - [Permission Modes PRD](requirements/permission-modes-prd.md) — Plan/Manual/Accept/Auto session scope
 - [Feature verification automation](requirements/feature-verification-spec.md) — isolated instance, scripted model, `verify:feature`, and the [UI/native coverage manifest](../tests/ui/COVERAGE.md)

@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createAssistantMessageEventStream, type AssistantMessage } from '@earendil-works/pi-ai';
 import { getPiModels } from '../../src/lib/server/providers/piRuntime.js';
@@ -18,6 +18,7 @@ const settings = { ...defaultRuntimeSettings, permissionMode: (mode.startsWith('
   customProviders: [{ id: 'fixture', name: 'Fixture', enabled: true, protocol: 'openai-compatible' as const,
     baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-key', path: '/chat/completions', defaultModel: 'fixture',
     models: [{ id: 'fixture', enabled: true, tags: ['text'], supportedRoles: ['system', 'user', 'assistant', 'tool'] }] }] };
+settings.plugins = { ...settings.plugins, piExtensions: { ...settings.plugins.piExtensions, mode: mode.startsWith('native_') ? 'native' : 'server' } };
 if (mode === 'compact') settings.compaction = { ...settings.compaction, keepRecentTokens: 20 };
 const events: unknown[] = [];
 const receipts: any[] = [];
@@ -53,6 +54,44 @@ export default function(pi: any) { pi.registerCommand("fixture_command", { descr
  if (read.isError) throw new Error(JSON.stringify(read));
  return { content: [{ type: "text", text: "Extension verified" }], details: { result, entries: entries.length } };
 } }); }`);
+let customServer: import('node:http').Server | undefined;
+const nativeChoicePath = join(directory, 'native-choice.txt');
+const { piExtensionTerminalHost } = await import('../../src/lib/server/plugins/piExtensions/nativeTerminal.js');
+if (mode.startsWith('native_')) {
+  process.env.HOME = join(directory, 'native-home');
+  mkdirSync(process.env.HOME, { recursive: true });
+  writeFileSync(join(extensionDir, 'index.ts'), `import {writeFileSync} from 'node:fs';
+export default function(pi) {pi.registerCommand('native_command',{handler:async(args)=>{writeFileSync(${JSON.stringify(nativeChoicePath)},'command:'+args);}}); pi.on('session_start', async (_,ctx) => {
+  const value = await ctx.ui.custom((tui,theme,keys,done) => ({render(){return ['Native runner choice'];},handleInput(data){if(data === '\\r')done('accepted');}}));
+  writeFileSync(${JSON.stringify(nativeChoicePath)},value);
+  ${mode === 'native_custom' ? "const other=ctx.modelRegistry.find('fixture-custom','alt'); if(!other) throw new Error('Missing custom model'); await pi.setModel(other);" : ''}
+});}`);
+  piExtensionTerminalHost.heartbeat();
+  const heartbeat = setInterval(() => piExtensionTerminalHost.heartbeat(), 1500);
+  heartbeat.unref();
+  const answered = new Set<string>();
+  piExtensionTerminalHost.subscribe(id => {
+    if (!answered.has(id) && piExtensionTerminalHost.output(id).output.includes('Native runner choice')) {
+      answered.add(id);
+      void piExtensionTerminalHost.input(id, '\r');
+    }
+  });
+}
+if (mode === 'native_custom') {
+  const { createServer } = await import('node:http');
+  customServer = createServer((request, response) => {
+    request.resume();
+    if (request.headers.authorization !== 'Bearer fixture-key') { response.writeHead(401); response.end(); return; }
+    ledger.push('custom');
+    response.writeHead(200, {'content-type':'text/event-stream'});
+    response.write(`data: ${JSON.stringify({id:'custom-fixture',object:'chat.completion.chunk',created:1,model:'alt',choices:[{index:0,delta:{role:'assistant',content:'Custom fixture'},finish_reason:null}]})}\n\n`);
+    response.write(`data: ${JSON.stringify({id:'custom-fixture',object:'chat.completion.chunk',created:1,model:'alt',choices:[{index:0,delta:{},finish_reason:'stop'}],usage:{prompt_tokens:3,completion_tokens:1,total_tokens:4}})}\n\n`);
+    response.end('data: [DONE]\n\n');
+  });
+  await new Promise<void>(resolve=>customServer!.listen(0,'127.0.0.1',resolve));
+  const address=customServer.address() as import('node:net').AddressInfo;
+  settings.customProviders.push({...settings.customProviders[0],id:'fixture-custom',baseUrl:`http://127.0.0.1:${address.port}/v1`,defaultModel:'alt',models:[{...settings.customProviders[0].models[0],id:'alt'}]});
+}
 const scratch = new MomRuntimeStore(workspace).getScratchDir('chat');
 mkdirSync(scratch, { recursive: true });
 writeFileSync(join(scratch, 'input.txt'), 'owned input');
@@ -104,7 +143,7 @@ text({ answers: results, text: generated.output.filter(x => x.type === 'text').m
 agent.streamFunction = (_model: unknown, requestContext: unknown) => {
  requestContexts.push(requestContext);
  const stream = createAssistantMessageEventStream();
- const content: any[] = generations++ === 0 ? [{ type: 'toolCall', id: 'work', name: mode === 'extension' ? 'model_fixture' : ['stream', 'deferred', 'stream_cancel', 'manual_stream', 'compact'].includes(mode) ? 'stream_fixture' : 'codemode', arguments: ['extension', 'stream', 'deferred', 'stream_cancel', 'manual_stream', 'compact'].includes(mode) ? {} : { code } }] : [{ type: 'text', text: 'Fixture complete' }];
+ const content: any[] = generations++ === 0 ? [{ type: 'toolCall', id: 'work', name: ['native_extension','native_custom'].includes(mode) ? 'piExtensionRun' : mode === 'extension' ? 'model_fixture' : ['stream', 'deferred', 'stream_cancel', 'manual_stream', 'compact'].includes(mode) ? 'stream_fixture' : 'codemode', arguments: ['native_extension','native_custom'].includes(mode) ? { prompt: 'Native fixture work' } : ['extension', 'stream', 'deferred', 'stream_cancel', 'manual_stream', 'compact'].includes(mode) ? {} : { code } }] : [{ type: 'text', text: 'Fixture complete' }];
  const answer: AssistantMessage = { role: 'assistant', api: model.api, provider: model.provider, model: model.id, content, stopReason: content[0].type === 'toolCall' ? 'toolUse' : 'stop', timestamp: Date.now(), usage };
  stream.push({ type: 'done', reason: answer.stopReason as any, message: answer }); stream.end(); return stream;
 };
@@ -115,7 +154,7 @@ const context = { approvalWaitTimeoutMs: 20, channel: 'web', workspaceDir: works
   setWorking: async () => {}, setTyping: async () => {}, deleteMessage: async () => {}, uploadFile: async () => {} };
 try {
  const commandOutput: string[] = [];
- const outcome = mode === "command" ? await runner.runExtensionCommand({ toolName: "piCommand__fixture__fixture_command", command: "fixture_command", args: "", respond: async text => { commandOutput.push(text); } }) : await runner.run(context);
+ const outcome = mode === "native_command" ? await runner.runExtensionCommand({ toolName: "piCommand__fixture__native_command", command: "native_command", args: "verified", respond: async text => { commandOutput.push(text); } }) : mode === "command" ? await runner.runExtensionCommand({ toolName: "piCommand__fixture__fixture_command", command: "fixture_command", args: "", respond: async text => { commandOutput.push(text); } }) : await runner.run(context);
  const { SqliteImageTaskStore } = await import('../../src/lib/server/agent/imageGenerate/imageTaskStore.js');
  const store = new SqliteImageTaskStore();
  const tasks = store.getUsageTasks().map(task => store.getTask(task.id)); store.close();
@@ -125,7 +164,7 @@ try {
  const messages = agent.state.messages;
  const { getApprovalBroker } = await import("../../src/lib/server/approval/approvalBroker.js");
  const approvals = getApprovalBroker().listPendingRequests();
- await new Promise<void>((resolve, reject) => process.send!({ type: 'result', outcome, ledger, receipts, tasks, messages, events, approvals, commandOutput, generations, modelBudgetReceipts, requestContexts }, error => error ? reject(error) : resolve()));
+ await new Promise<void>((resolve, reject) => process.send!({ type: 'result', outcome, ledger, receipts, tasks, messages, events, approvals, commandOutput, generations, modelBudgetReceipts, requestContexts, nativeTerminals: piExtensionTerminalHost.list(), nativeChoice: mode.startsWith('native_') ? readFileSync(nativeChoicePath, 'utf8') : undefined }, error => error ? reject(error) : resolve()));
  const { getPiExtensionHost } = await import('../../src/lib/server/plugins/piExtensions/host.js'); getPiExtensionHost().dispose();
- clearInterval(keepAlive); process.disconnect?.();
-} catch (error) { clearInterval(keepAlive); process.send?.({ type: 'error', error: String(error) }); process.exitCode = 1; process.disconnect?.(); }
+ customServer?.closeAllConnections(); customServer?.close(); clearInterval(keepAlive); process.disconnect?.();
+} catch (error) { customServer?.closeAllConnections(); customServer?.close(); clearInterval(keepAlive); process.send?.({ type: 'error', error: String(error) }); process.exitCode = 1; process.disconnect?.(); }

@@ -503,6 +503,7 @@ test("pi extension enable state and per-bot exclusions survive a settings store 
 
     const restarted = new SettingsStore().load();
     assert.equal(restarted.plugins.piExtensions.enabled, true);
+    assert.equal(restarted.plugins.piExtensions.mode, "server", "legacy settings retain their existing runtime");
     assert.equal(restarted.plugins.piExtensions.entries["hello-ext"].enabled, false);
     assert.deepEqual(restarted.plugins.piExtensions.entries["hello-ext"].disabledBots, ["momo", "work-bot"]);
     assert.deepEqual(restarted.plugins.piExtensions.entries["hello-ext"].flags, { verbose: true });
@@ -510,6 +511,25 @@ test("pi extension enable state and per-bot exclusions survive a settings store 
   } finally {
     storagePaths.settingsFile = originalSettingsFile;
     storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("native Pi runtime mode survives a whole settings round-trip", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-native-pi-settings-"));
+  const originalFile = storagePaths.settingsFile;
+  const originalDb = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+  try {
+    new SettingsStore().save(defaultRuntimeSettings);
+    const expected = new SettingsStore().load();
+    expected.plugins.piExtensions = { enabled: true, mode: "native", entries: { native: { enabled: true, disabledBots: ["excluded"], flags: { example: "value" } } } };
+    new SettingsStore().save(expected);
+    assert.deepEqual(new SettingsStore().load(), expected);
+  } finally {
+    storagePaths.settingsFile = originalFile;
+    storagePaths.settingsDbFile = originalDb;
     rmSync(root, { recursive: true, force: true });
   }
 });

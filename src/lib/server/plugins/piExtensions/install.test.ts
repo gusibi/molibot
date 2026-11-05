@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -35,6 +35,62 @@ test("specs that are not a package name or a git URL are rejected before anythin
   const empty = await installPiExtension({ source: "npm", spec: "   " });
   assert.equal(empty.ok, false);
   assert.match(empty.error!, /required/);
+});
+
+test("installation validation executes factories outside the host process", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-ext-validation-owner-"));
+  const marker = join(root, "factory-pid");
+  writeFileSync(join(root, "index.ts"), `import {writeFileSync} from 'node:fs';
+export default function(pi) {
+  writeFileSync(${JSON.stringify(marker)}, String(process.pid));
+  pi.registerFlag('validation-fixture', {type:'boolean', default:false});
+}`);
+  assert.deepEqual(await validatePiExtensionDir(root), { ok: true });
+  assert.notEqual(Number(readFileSync(marker, "utf8")), process.pid);
+});
+
+test("a factory that exits fails validation without exiting the installer", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-ext-validation-exit-"));
+  writeFileSync(join(root, "index.ts"), "export default function() { process.exit(74); }");
+  const result = await validatePiExtensionDir(root);
+  assert.equal(result.ok, false);
+  assert.match(result.error!, /exited unexpectedly.*code 74/);
+});
+
+test("npm installation retains sibling dependencies after the staging directory is removed", async () => {
+  const bin = mkdtempSync(join(tmpdir(), "molibot-ext-npm-fixture-"));
+  const executable = join(bin, "npm");
+  writeFileSync(executable, `#!${process.execPath}
+const fs = require('node:fs');
+fs.mkdirSync('node_modules/pi-deps-fixture/src', {recursive:true});
+fs.mkdirSync('node_modules/pi-fixture-dep', {recursive:true});
+fs.writeFileSync('node_modules/pi-deps-fixture/package.json', JSON.stringify({name:'pi-deps-fixture',version:'1.0.0',pi:{extensions:['src/tool.ts']}}));
+fs.writeFileSync('node_modules/pi-deps-fixture/src/tool.ts', "import {name} from 'pi-fixture-dep'; export default function(pi) {pi.registerFlag(name, {type:'boolean',default:false});}");
+fs.writeFileSync('node_modules/pi-fixture-dep/package.json', JSON.stringify({name:'pi-fixture-dep',version:'1.0.0',main:'index.js'}));
+fs.writeFileSync('node_modules/pi-fixture-dep/index.js', "exports.name = 'fixture-dependency';");
+`);
+  chmodSync(executable, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    const result = await installPiExtension({ source: "npm", spec: "pi-deps-fixture" });
+    assert.equal(result.ok, true, result.error);
+    const target = extensionInstallDir("pi-deps-fixture")!;
+    assert.deepEqual(await validatePiExtensionDir(target), { ok: true });
+    const { loadPiExtensions } = await import("$lib/server/plugins/piExtensions/load.js");
+    const loaded = await loadPiExtensions();
+    try {
+      const extension = loaded.extensions.find((entry) => entry.id === "pi-deps-fixture");
+      assert.ok(extension, "the production discovery path must find the installed package");
+      assert.equal(extension.name, "pi-deps-fixture");
+      assert.deepEqual(extension.flagNames, ["fixture-dependency"]);
+    } finally {
+      loaded.client?.dispose();
+    }
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
 });
 
 /**
@@ -192,4 +248,37 @@ test("uninstall removes the install directory and refuses unsafe ids", () => {
 
   assert.equal(uninstallPiExtension("removable").ok, false, "removing twice reports not installed");
   assert.equal(uninstallPiExtension("../escape").ok, false, "traversal is refused");
+});
+
+test("a provider-only extension passes installation validation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-provider-only-"));
+  writeFileSync(join(root, "index.ts"), `export default function(pi) { pi.registerProvider('fixture-provider', {baseUrl:'https://fixture.invalid',apiKey:'fixture',api:'openai-completions',models:[]}); }`);
+  assert.deepEqual(await validatePiExtensionDir(root), {ok:true});
+});
+
+for (const workspace of [false, true]) test(`git subdirectories retain repository-root dependencies after staging cleanup (${workspace ? "workspace package" : "no manifest"})`, async () => {
+  const repo = mkdtempSync(join(tmpdir(), "pi-git-root-deps-"));
+  const bin = mkdtempSync(join(tmpdir(), "pi-git-root-deps-bin-"));
+  mkdirSync(join(repo, "extensions", "git-deps-fixture"), {recursive:true});
+  writeFileSync(join(repo, "package.json"), JSON.stringify({name:"root-deps",version:"1.0.0",type:"module",dependencies:{"fixture-dep":"1.0.0"}, ...(workspace ? {workspaces:["extensions/*"]} : {})}));
+  if (workspace) writeFileSync(join(repo,"extensions","git-deps-fixture","package.json"),JSON.stringify({name:"git-deps-fixture",version:"1.0.0",dependencies:{"fixture-dep":"1.0.0"}}));
+  writeFileSync(join(repo, "extensions", "git-deps-fixture", "index.ts"), `import {name} from 'fixture-dep'; export default function(pi) {pi.registerFlag(name,{type:'boolean',default:false});}`);
+  writeFileSync(join(bin,"npm"), `#!${process.execPath}\nconst fs=require('node:fs');${workspace ? "process.chdir('../..');" : ""}fs.mkdirSync('node_modules/fixture-dep',{recursive:true});fs.writeFileSync('node_modules/fixture-dep/package.json',JSON.stringify({name:'fixture-dep',main:'index.js'}));fs.writeFileSync('node_modules/fixture-dep/index.js',"exports.name='git-root-dependency';");`);
+  chmodSync(join(bin,"npm"),0o755);
+  execFileSync("git",["init","-q",repo]);
+  execFileSync("git",["-C",repo,"add","."]);
+  execFileSync("git",["-C",repo,"-c","user.name=Test","-c","user.email=test@example.invalid","commit","-qm","fixture"]);
+  const previousPath=process.env.PATH;
+  process.env.PATH=`${bin}:${previousPath??""}`;
+  try {
+    const result=await installPiExtension({source:"git",spec:`file://${repo}`,subdir:"extensions/git-deps-fixture"});
+    assert.equal(result.ok,true,result.error);
+    const {loadPiExtensions}=await import("$lib/server/plugins/piExtensions/load.js");
+    const loaded=await loadPiExtensions();
+    try {
+      const installed=loaded.extensions.find(item=>item.id==="git-deps-fixture");
+      assert.ok(installed, JSON.stringify(loaded.errors));
+      assert.deepEqual(installed.flagNames,["git-root-dependency"]);
+    } finally {loaded.client?.dispose();}
+  } finally {if(previousPath===undefined) delete process.env.PATH; else process.env.PATH=previousPath;}
 });

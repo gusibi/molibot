@@ -9,10 +9,9 @@ import { loadPiExtensionsInProcess } from "$lib/server/plugins/piExtensions/proc
 /**
  * Load every installed pi extension from `${DATA_DIR}/extensions`.
  *
- * pi's loader is reused as-is (jiti + its `index.ts` / `package.json#pi.extensions`
- * discovery rules); pi's ExtensionRunner is not, because it requires pi's own
- * SessionManager and ModelRegistry, which Molibot does not have. Loading never
- * throws: a broken extension becomes an error row in the catalog.
+ * Official package discovery runs inside the bounded worker, without project
+ * settings or context files. Broken packages become catalog errors. Server
+ * invocation and native interactive execution bind their own runtime later.
  */
 export async function loadPiExtensions(): Promise<PiExtensionLoadResult> {
   const agentDir = piExtensionsAgentDir();

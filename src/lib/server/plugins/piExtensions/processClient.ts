@@ -28,8 +28,8 @@ function errorPayload(error: unknown): { name: string; message: string; stack?: 
   };
 }
 
-function scriptPath(): string {
-  return path.join(process.env.MOLIBOT_APP_ROOT?.trim() || process.cwd(), "scripts", "runtime", "untrusted-pi-extension-worker.mjs");
+function scriptPath(native: boolean): string {
+  return path.join(process.env.MOLIBOT_APP_ROOT?.trim() || process.cwd(), "scripts", "runtime", native ? "native-pi-extension-worker.mjs" : "untrusted-pi-extension-worker.mjs");
 }
 
 function killTree(child: ChildProcess): void {
@@ -175,6 +175,7 @@ class ProcessClient implements PiExtensionProcessClient {
 
   dispose(): void {
     this.disposed = true;
+    this.fail(new Error("Pi extension runtime was disposed."));
     try { if (this.child.connected) this.child.disconnect(); } catch { /* already disconnected */ }
     killTree(this.child);
   }
@@ -194,13 +195,10 @@ class ProcessClient implements PiExtensionProcessClient {
   }
 }
 
-export async function loadPiExtensionsInProcess(input: { cwd: string; agentDir: string }): Promise<{
-  client: PiExtensionProcessClient;
-  extensions: PiExtensionProcessDescriptor[];
-  errors: Array<{ id: string; entryPath: string; error: string }>;
-}> {
-  const child = fork(scriptPath(), [], {
+export function createPiExtensionProcessClient(options: { native?: boolean; env?: NodeJS.ProcessEnv } = {}): PiExtensionProcessClient {
+  const child = fork(scriptPath(options.native === true), [], {
     detached: process.platform !== "win32",
+    ...(options.env ? { env: options.env } : {}),
     serialization: "advanced",
     stdio: ["ignore", "ignore", "pipe", "ipc"],
     execArgv: ["--max-old-space-size=256"]
@@ -212,6 +210,15 @@ export async function loadPiExtensionsInProcess(input: { cwd: string; agentDir: 
   if (child.stderr instanceof Socket) child.stderr.unref();
   child.unref();
   child.channel?.unref();
+  return client;
+}
+
+export async function loadPiExtensionsInProcess(input: { cwd: string; agentDir: string; extensionPaths?: string[] }): Promise<{
+  client: PiExtensionProcessClient;
+  extensions: PiExtensionProcessDescriptor[];
+  errors: Array<{ id: string; entryPath: string; error: string }>;
+}> {
+  const client = createPiExtensionProcessClient();
   try {
     const loaded = await client.request("load", input, undefined, LOAD_TIMEOUT_MS);
     return { client, extensions: loaded.extensions, errors: loaded.errors };

@@ -37,6 +37,7 @@ import { createSkillSearchTool } from "$lib/server/agent/tools/skillSearch.js";
 import { createSubagentTool } from "$lib/server/agent/tools/subagent.js";
 import { createSwitchModelTool } from "$lib/server/agent/tools/switchModel.js";
 import { createExtensionManageTool } from "$lib/server/agent/tools/extensionManage.js";
+import { createPiExtensionRunTool } from "$lib/server/agent/tools/piExtensionRun.js";
 import { createMiniAppManageTool } from "$lib/server/agent/tools/miniAppManage.js";
 import { createToolSearchTool, type DeferredToolEntry } from "$lib/server/agent/tools/toolSearch.js";
 import { getWriteToolDefinition } from "$lib/server/agent/tools/write.js";
@@ -213,6 +214,7 @@ export function createMomTools(options: {
   piExtensionRuntime?: () => import("$lib/server/plugins/piExtensions/types.js").PiExtensionRuntimeSnapshot | undefined | Promise<import("$lib/server/plugins/piExtensions/types.js").PiExtensionRuntimeSnapshot | undefined>;
   /** Chat streaming for pi extension contexts; omitted when unavailable. */
   extensionModelStream?: (input: import("$lib/server/plugins/piExtensions/toolBridge.js").PiExtensionStreamInput, emit: (event: unknown) => void, signal: AbortSignal) => Promise<unknown>;
+  extensionNativeModels?: import("$lib/server/plugins/piExtensions/toolBridge.js").PiExtensionToolOptions["nativeModels"];
   /** Abort the run from a pi extension (`ctx.abort()`). */
   extensionAbort?: () => void;
   /** Trigger compaction from a pi extension (`ctx.compact()`). */
@@ -595,7 +597,7 @@ export function createMomTools(options: {
         name: originalTool.label ?? originalTool.name,
         description: originalTool.description,
         inputSchema: originalTool.parameters,
-        delegatesEffects: piExtensionToolNames.has(originalTool.name),
+        delegatesEffects: piExtensionToolNames.has(originalTool.name) || originalTool.name === "piExtensionRun",
         risk,
         source,
         effect,
@@ -1102,7 +1104,7 @@ export function createMomTools(options: {
 
   const piHost = getPiExtensionHost();
   const piResult = createPiExtensionTools(
-    piHost.getActiveExtensions(options.getSettings(), botId),
+    piHost.getServerExtensions(options.getSettings(), botId),
     {
       cwd: options.cwd,
       ...(options.piExtensionRuntime ? { runtime: options.piExtensionRuntime } : {}),
@@ -1123,11 +1125,34 @@ export function createMomTools(options: {
   piExtensionTools = piResult.tools.map((tool) => wrapSerializedTool(tool));
   for (const tool of piExtensionTools) piExtensionToolNames.add(tool.name);
 
-  const commandTools = createPiExtensionCommandTools(piHost.getActiveExtensions(options.getSettings(), botId), {
+  const nativeExtensions = piHost.getNativeExtensions(options.getSettings(), botId);
+  let nativePiTool: AgentTool<any> | undefined;
+  if (nativeExtensions.length > 0 && !agentDisabledTools.has("piExtensionRun")) {
+    nativePiTool = createPiExtensionRunTool({ cwd: options.cwd, reservedToolNames: new Set(), sessionId: options.sessionId, runId: options.runId, botId, getSettings: options.getSettings,
+      runtime: options.piExtensionRuntime, executeTool: executeExtensionTool, streamModel: extensionStream, modelOperations: codemodeModels,
+      nativeModels: options.extensionNativeModels, abort: options.extensionAbort, compact: options.extensionCompact, toolCatalog: extensionToolCatalog });
+    const nativeEntry = createDeferredToolEntry({
+      name: "piExtensionRun", description: "Run installed Pi extensions with their original interactive UI and lifecycle.",
+      keywords: ["pi", "extension", "terminal", "扩展", "终端", ...nativeExtensions.flatMap((extension) => [extension.id, extension.name, ...extension.toolNames, ...extension.commandNames])],
+      tool: nativePiTool,
+      loadDeferredTools
+    });
+    deferredTools.push(nativeEntry.entry);
+    if (nativeEntry.stub) tools.push(nativeEntry.stub);
+  }
+
+  const commandTools = createPiExtensionCommandTools(piHost.getServerExtensions(options.getSettings(), botId), {
     cwd: options.cwd, reservedToolNames: new Set(), runtime: options.piExtensionRuntime,
     executeTool: executeExtensionTool, modelOperations: codemodeModels, streamModel: extensionStream,
     abort: options.extensionAbort, compact: options.extensionCompact, toolCatalog: extensionToolCatalog
   });
+  if (nativePiTool) for (const extension of nativeExtensions) for (const command of extension.commands ?? []) {
+    const delegate = nativePiTool;
+    commandTools.push({ name: `piCommand__${extension.id}__${command.name}`, label: `/${command.name}`, description: command.description ?? "Native Pi extension command",
+      parameters: Type.Object({ args: Type.String() }),
+      execute: (id: string, args: any, signal?: AbortSignal, onUpdate?: any) => delegate.execute(id, { prompt: `/${command.name} ${args.args}`.trim() }, signal, onUpdate)
+    });
+  }
   for (const tool of commandTools) piExtensionToolNames.add(tool.name);
   const nativeCommandTools = commandTools.map(wrapWithToolRuntime);
   const resultTools: MomTools = Object.assign(getActiveTools(), {

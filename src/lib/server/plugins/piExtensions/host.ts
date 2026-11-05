@@ -95,6 +95,14 @@ export class PiExtensionHost {
     });
   }
 
+  getServerExtensions(settings: RuntimeSettings, botId?: string): LoadedPiExtension[] {
+    return settings.plugins.piExtensions.mode === "native" ? [] : this.getActiveExtensions(settings, botId);
+  }
+
+  getNativeExtensions(settings: RuntimeSettings, botId?: string): LoadedPiExtension[] {
+    return settings.plugins.piExtensions.mode === "native" ? this.getActiveExtensions(settings, botId) : [];
+  }
+
   /**
    * Remember tool names that lost to a built-in, so the settings page can say
    * why part of an extension is inert instead of leaving it silently dropped.
@@ -149,7 +157,7 @@ export class PiExtensionHost {
         toolNames: extension.toolNames,
         eventNames: extension.eventNames,
         commandNames: extension.commandNames,
-        unsupported: extension.unsupported
+        unsupported: settings.plugins.piExtensions.mode === "native" ? [] : extension.unsupported
       };
     });
 

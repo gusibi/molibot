@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-for (const mode of ["codemode", "extension", "manual", "plan", "command", "stream", "deferred", "stream_cancel", "manual_stream", "compact"]) test(`production Runner ${mode} uses native model ownership and the original Session`, { timeout: 60000 }, async () => {
+for (const mode of ["codemode", "extension", "manual", "plan", "command", "stream", "deferred", "stream_cancel", "manual_stream", "compact", "native_extension", "native_command", "native_custom"]) test(`production Runner ${mode} uses native model ownership and the original Session`, { timeout: 60000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "molibot-model-runner-"));
   const child = fork("evals/fixtures/pi-model-runner-worker.ts", [], {
     execArgv: ["--import", "./scripts/register-loader.js", "--import", "tsx"],
@@ -31,6 +31,36 @@ for (const mode of ["codemode", "extension", "manual", "plan", "command", "strea
       return;
     }
     assert.equal(result.outcome.stopReason, "stop", JSON.stringify(result));
+    if (mode === "native_command") {
+      assert.deepEqual(result.ledger, []);
+      assert.equal(result.generations, 0);
+      assert.equal(result.nativeChoice, "command:verified");
+      assert.equal(result.nativeTerminals[0].status, "completed");
+      assert.equal(result.nativeTerminals[0].sessionId, "session");
+      assert.equal(result.modelBudgetReceipts.length, 0);
+      return;
+    }
+    if (mode === "native_custom") {
+      assert.deepEqual(result.ledger, ["custom"], JSON.stringify(result));
+      assert.equal(result.nativeChoice, "accepted");
+      assert.equal(result.nativeTerminals[0].status, "completed");
+      assert.equal(result.modelBudgetReceipts.length, 1);
+      assert.ok(JSON.stringify(result.messages).includes("Custom fixture"));
+      assert.equal(result.receipts.filter((row:any)=>row.provider==="fixture-custom" && row.model==="alt").length,1);
+      return;
+    }
+    if (mode === "native_extension") {
+      assert.deepEqual(result.ledger, ["stream"], JSON.stringify({ messages: result.messages, nativeTerminals: result.nativeTerminals }));
+      assert.equal(result.nativeChoice, "accepted");
+      assert.equal(result.nativeTerminals[0].status, "completed");
+      assert.equal(result.nativeTerminals[0].sessionId, "session");
+      assert.equal(result.modelBudgetReceipts.length, 1);
+      assert.equal(result.receipts.filter((row: any) => String(row.requestId).includes(":extension:model:")).length, 1);
+      assert.ok(JSON.stringify(result.messages).includes("Streamed fixture"));
+      assert.ok(JSON.stringify(result.requestContexts[0]).includes('"name":"piExtensionRun"'));
+      assert.ok(!JSON.stringify(result.requestContexts[0]).includes('"name":"model_fixture"'));
+      return;
+    }
     if (mode === "compact") {
       assert.ok(JSON.stringify(result.messages).includes("Compaction requested"), JSON.stringify(result));
       assert.equal(result.generations, 3, JSON.stringify({ generations: result.generations, messages: result.messages }));

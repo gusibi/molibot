@@ -1,3 +1,4 @@
+import { piExtensionTerminalHost } from "$lib/server/plugins/piExtensions/nativeTerminal.js";
 import { roomHasWork, purgeRoomArtifacts } from "$lib/server/rooms/runtime.js";
 import { resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
@@ -131,6 +132,7 @@ export function buildSessionTrashPorts(
 ): SessionTrashCleanupPorts {
   return {
     lifecycle,
+    deleteNativeContext: (conversationId: string) => piExtensionTerminalHost.purgeSession(conversationId),
     deleteUiConversation: (conversationId: string) => {
       const owner = sessions.getWebConversationOwner(conversationId);
       if (owner) {

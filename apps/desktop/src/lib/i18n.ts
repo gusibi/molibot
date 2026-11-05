@@ -6385,3 +6385,42 @@ export function translator(locale: Locale) {
 }
 
 export type Translation = ReturnType<typeof translator>;
+
+export const piExtensionsCopy = {
+  "zh-CN": {
+    title: "Pi 扩展", description: "通过包名或仓库链接安装，为 Agent 添加工具、命令与事件。",
+    mode: "运行方式", modeHint: "原生 Pi 提供扩展原有终端界面，需要 Desktop 接管交互；Web 与渠道不能回答终端界面。服务器模式保留现有工具接口。下一轮对话生效。", nativeMode: "原生 Pi 与终端面板", serverMode: "服务器兼容接口",
+    reviewHint: "请先核对已执行的操作。确认后将保留原记录，并让下次任务使用新的 Pi 上下文。", reviewContext: "已核对，允许新建上下文",
+    terminalInput: "Pi 终端输入", terminalWaitingApproval: "等待宿主审批。已执行的操作不会重放。",
+    terminalTitle: "Pi 扩展终端", terminalHint: "直接回答扩展交互。隐藏面板会保留任务，Esc 交给终端处理。", stopTerminal: "停止任务", hideTerminal: "隐藏面板", terminalDisconnected: "服务已断开，终端输入暂不可用。", terminalCompleted: "兼容任务已完成。", terminalStopped: "兼容任务已停止。", terminalFailed: "兼容任务执行失败。",
+    master: "启用 Pi 扩展", masterHint: "关闭后，已安装扩展仍保留，但不参与 Agent 执行。",
+    source: "包名或链接", placeholder: "npm 包名、npm 页面或 GitHub 仓库链接",
+    inspect: "检查来源", install: "安装扩展", installNotice: "安装会运行第三方代码。请核对来源后安装。",
+    reload: "重新加载", loading: "正在加载扩展…", empty: "尚未安装 Pi 扩展。也可以在聊天中让 Agent 帮你安装。",
+    search: "搜索已安装扩展", noMatch: "没有匹配的扩展", busy: "处理中…",
+    enabled: "已启用", disabled: "已禁用", error: "加载异常", paused: "总开关已关闭",
+    tools: "工具", commands: "命令", events: "事件", unsupported: "尚未支持的能力",
+    boundary: "原生方式使用 Pi 1.4 终端运行时；第三方包仍需满足自身平台与依赖要求。",
+    uninstall: "卸载", confirmUninstall: "确认卸载此扩展？", cancel: "取消",
+    installed: "已安装并重新加载；新工具在下一轮对话中可用。", removed: "扩展已卸载。", refreshed: "扩展列表已重新加载。",
+    installFailed: "操作未完成，请检查错误后重试。", restricted: "部分 Agent 已禁用此扩展",
+  },
+  en: {
+    title: "Pi Extensions", description: "Install a package or repository to add Agent tools, commands and events.",
+    mode: "Runtime", modeHint: "Native Pi preserves extension terminal UI and needs Desktop for interaction; Web and channels cannot answer terminal dialogs. Server mode retains existing tool interfaces. Applies next turn.", nativeMode: "Native Pi with terminal", serverMode: "Server compatibility",
+    reviewHint: "Check the effects already performed. This keeps the original records and allows the next task to start a fresh Pi context.", reviewContext: "Effects checked — allow a fresh context",
+    terminalInput: "Pi terminal input", terminalWaitingApproval: "Waiting for host approval. Earlier effects are not replayed.",
+    terminalTitle: "Pi Extension Terminal", terminalHint: "Answer extension interactions here. Hiding keeps the task running; Esc goes to the terminal.", stopTerminal: "Stop task", hideTerminal: "Hide panel", terminalDisconnected: "Service disconnected. Terminal input is unavailable.", terminalCompleted: "Native task completed.", terminalStopped: "Native task stopped.", terminalFailed: "Native task failed.",
+    master: "Enable Pi extensions", masterHint: "Turning this off retains installed extensions but excludes them from Agent runs.",
+    source: "Package or link", placeholder: "npm package, npm page or GitHub repository link",
+    inspect: "Check source", install: "Install extension", installNotice: "Installation runs third-party code. Check the source before installing.",
+    reload: "Reload", loading: "Loading extensions…", empty: "No Pi extensions installed. You can also ask your Agent to install one in chat.",
+    search: "Search installed extensions", noMatch: "No matching extensions", busy: "Working…",
+    enabled: "Enabled", disabled: "Disabled", error: "Load error", paused: "Master switch is off",
+    tools: "Tools", commands: "Commands", events: "Events", unsupported: "Unsupported capabilities",
+    boundary: "Native mode uses the Pi 1.4 terminal runtime; third-party packages still need their platform and runtime dependencies.",
+    uninstall: "Uninstall", confirmUninstall: "Uninstall this extension?", cancel: "Cancel",
+    installed: "Installed and reloaded. New tools are available on the next turn.", removed: "Extension uninstalled.", refreshed: "Extension list reloaded.",
+    installFailed: "The operation did not complete. Check the error before retrying.", restricted: "Disabled for some Agents",
+  }
+} as const;

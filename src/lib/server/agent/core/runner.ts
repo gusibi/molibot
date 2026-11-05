@@ -1,3 +1,4 @@
+import { configuredPiExtensionChatModels, resolvePiExtensionChatModel } from "$lib/server/plugins/piExtensions/configuredModels.js";
 import { nativeModelResult } from "$lib/server/agent/models/nativeModelResult.js";
 import { clearPiExtensionRunHost } from "$lib/server/plugins/piExtensions/runHost.js";
 import { matchesSuspendedRun, requireEnabledAgent } from "$lib/server/sessions/sessionAgentService.js";
@@ -1516,7 +1517,7 @@ export class MomRunner implements RunnerLike {
   // budget as Codemode model work; provider events are forwarded as they arrive.
   extensionModelStream: executionPolicy.readOnly || permissionMode === "plan" ? undefined : async (input, emit, signal) => {
     const models = getPiModels();
-    const model = models.getModel(input.model.provider, input.model.id);
+    const model = resolvePiExtensionChatModel(settings, models, input.model);
     if (!model) throw new Error(`Unknown chat model: ${input.model.provider}/${input.model.id}`);
     this.activeToolAuthority?.("modelsStream", {});
     const started = budget.tryStartModelTurn(`pi:${runId}:extension:model:${input.callId}`);
@@ -1535,9 +1536,16 @@ export class MomRunner implements RunnerLike {
         cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
     }
     };
-    const streamOptions = { ...((input.options ?? {}) as Record<string, unknown>), signal, maxRetries: 0 } as Parameters<typeof models.stream>[2];
+    const streamOptions = { ...((input.options ?? {}) as Record<string, unknown>), signal, maxRetries: 0,
+      ...(input.onPayload ? { onPayload: input.onPayload } : {}),
+      ...(input.onResponse ? { onResponse: input.onResponse } : {}),
+      ...(input.onProviderStreamEvent ? { onProviderStreamEvent: input.onProviderStreamEvent } : {}),
+      ...(input.requestHeaders ? { headers: input.requestHeaders } : {})
+    } as Parameters<typeof models.stream>[2];
     let message = await nativeModelResult({ model: input.model, context: input.context, options: input.options, simple: input.simple }, async () => {
-      const stream = input.simple ? models.streamSimple(model, context, streamOptions as Parameters<typeof models.streamSimple>[2]) : models.stream(model, context, streamOptions);
+      const stream = models.getModel(model.provider, model.id)
+        ? input.simple ? models.streamSimple(model, context, streamOptions as Parameters<typeof models.streamSimple>[2]) : models.stream(model, context, streamOptions)
+        : streamWithPiRuntime(model, context, { ...streamOptions, apiKey: await resolveApiKeyForModel(model, settings), sessionId: this.sessionId } as Parameters<typeof streamWithPiRuntime>[2]);
       for await (const event of stream) emit(event);
       return stream.result();
     }, account);
@@ -1558,6 +1566,23 @@ export class MomRunner implements RunnerLike {
       throw error;
     }
     return { message };
+  },
+  extensionNativeModels: executionPolicy.readOnly || permissionMode === "plan" ? undefined : {
+    beforeCall: (model, callId, signal) => {
+      signal.throwIfAborted();
+      this.activeToolAuthority?.(model.kind === "chat" ? "modelsStream" : model.kind === "image" ? "modelsGenerateImages" : "modelsClassify", {});
+      const started = budget.tryStartModelTurn(`pi:${runId}:extension:model:${callId}`);
+      if (!started.ok) throw new Error(started.reason);
+    },
+    recordUsage: (model, raw, callId) => {
+      const usage = raw as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { total?: number } } | undefined;
+      if (!usage) return;
+      this.usageTracker.record({ requestId: `pi:${runId}:extension:model:${callId}`,
+        channel: this.channel, botId, agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
+        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: model.provider, model: model.id, api: model.api,
+        estimatedCostUsd: usage.cost?.total, inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0,
+        cacheReadTokens: usage.cacheRead ?? 0, cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
+    }
   },
   runNestedToolCall: async (tool, id, args, signal, onUpdate) => {
         signal.throwIfAborted();
@@ -1582,18 +1607,20 @@ export class MomRunner implements RunnerLike {
       piExtensionRuntime: async () => {
         const cwd = this.currentWorkingDir();
         const session = await this.agent.extensionSessionSource();
+        const modelCatalog = await getPiExtensionModelCatalog()();
         return buildPiExtensionRuntimeSnapshot({
           cwd,
           systemPrompt: this.renderedSystemPrompt,
           sessionId: this.sessionId,
           model: this.agent.state.model,
           thinkingLevel: this.agent.state.thinkingLevel,
+          availableModels: configuredPiExtensionChatModels(settings, getPiModels(), modelCatalog),
           // No per-session model scoping is configured, so the usable set is unrestricted.
           scopedModels: [],
           isIdle: !this.agent.state.isStreaming,
           pendingMessages: this.agent.pendingMessageCount(),
           contextUsage: { tokens: this.activeContextEstimate?.estimatedTokens ?? null, contextWindow: this.agent.state.model.contextWindow },
-          models: await getPiExtensionModelCatalog()(),
+          models: modelCatalog,
           session: { ...session, cwd }
         });
       },

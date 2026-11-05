@@ -8578,3 +8578,6 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head { b
 .agent-home-memory-comparison { display: grid; gap: 12px; margin: 12px 0; padding: 16px; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--surface-secondary); overflow-wrap: anywhere; }
 .agent-home-memory-comparison h3 { margin: 0 0 4px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 500; }
 .agent-home-memory-comparison p { margin: 0; white-space: pre-wrap; }
+
+/* Official Pi dark ANSI content uses a fixed terminal palette in every app theme. */
+.pi-terminal-surface { --pi-terminal-bg: #181818; --pi-terminal-fg: #e8e8e8; }

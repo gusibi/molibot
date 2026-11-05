@@ -58,3 +58,11 @@ test("context usage reports a null percent when tokens are unknown", () => {
   const snapshot = buildPiExtensionRuntimeSnapshot({ cwd: "/w", isIdle: false, contextUsage: { tokens: null, contextWindow: 1000 } });
   assert.deepEqual(snapshot.contextUsage, { tokens: null, contextWindow: 1000, percent: null });
 });
+
+test("configured native models are detached and stripped of credential headers", () => {
+  const other = {provider:"fixture",id:"other",headers:{Authorization:"fixture-secret"},cost:{input:1}};
+  const snapshot=buildPiExtensionRuntimeSnapshot({cwd:"/w",isIdle:false,availableModels:[other,null]});
+  assert.deepEqual(snapshot.availableModels,[{provider:"fixture",id:"other",cost:{input:1}}]);
+  other.cost.input=99;
+  assert.equal((snapshot.availableModels![0].cost as {input:number}).input,1);
+});

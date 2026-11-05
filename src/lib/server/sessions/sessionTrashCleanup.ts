@@ -18,6 +18,8 @@ export interface SessionTrashCleanupPorts {
   listAgentChatIds: (conversationId: string) => string[];
   /** Removes Session-owned Agent Context files. Missing counts as success; failure throws. */
   deleteAgentSession: (chatId: string, sessionId: string) => void;
+  /** Removes native extension context independently of Agent Context enumeration. */
+  deleteNativeContext: (conversationId: string) => void;
   /** Finalizes search deletion (durable tombstone; nothing can resurrect the projection). */
   finalizeSearchConversation: (conversationId: string) => void;
   /** Ownership recheck before purging someone else's trash. Defaults to allow. */
@@ -142,6 +144,7 @@ export class SessionTrashCleanupService {
     const row = this.lifecycle.get(conversationId);
     const version = row?.version ?? 0;
     const steps: Array<{ name: string; run: () => void }> = [
+      { name: "native", run: () => this.ports.deleteNativeContext(conversationId) },
       { name: "search", run: () => this.ports.finalizeSearchConversation(conversationId) },
       { name: "ui", run: () => this.ports.deleteUiConversation(conversationId) },
       {

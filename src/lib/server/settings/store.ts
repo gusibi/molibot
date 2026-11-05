@@ -1063,7 +1063,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(raw.plugins?.cloudflareHtml);
   const hookPlugins = sanitizeHookPluginEntries(raw.plugins?.hooks);
   const piExtensions = sanitizePiExtensionSettings(
-    raw.plugins?.piExtensions,
+    raw.plugins?.piExtensions && typeof raw.plugins.piExtensions === "object" && !Array.isArray(raw.plugins.piExtensions) && !("mode" in raw.plugins.piExtensions)
+      ? { ...raw.plugins.piExtensions, mode: "server" }
+      : raw.plugins?.piExtensions,
     defaultRuntimeSettings.plugins.piExtensions
   );
   const miniApps = sanitizeMiniAppSettings(

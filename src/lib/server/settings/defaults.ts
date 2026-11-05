@@ -577,6 +577,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     hooks: [],
     piExtensions: {
       enabled: String(process.env.PI_EXTENSIONS_ENABLED ?? "true").toLowerCase() !== "false",
+      mode: "native",
       entries: {}
     },
     miniApps: {

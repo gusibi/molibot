@@ -121,7 +121,7 @@ function botIdFrom(hookEvent: HookEvent<any>): string | undefined {
 export function createPiExtensionHookPlugin(deps: EventBridgeDeps): HookPlugin {
   const getExtensions = deps.getExtensions
     ?? ((settings: RuntimeSettings, botId?: string) =>
-      getPiExtensionHost().getActiveExtensions(settings, botId));
+      getPiExtensionHost().getServerExtensions(settings, botId));
 
   const contextFor = (extension: LoadedPiExtension, hookEvent: HookEvent<any>) =>
     createHeadlessExtensionContext({

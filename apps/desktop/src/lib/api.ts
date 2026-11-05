@@ -728,6 +728,62 @@ export interface DesktopContractPluginItem {
   capabilities: string[];
 }
 
+export interface DesktopPiExtension {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  enabled: boolean;
+  disabledBots: string[];
+  toolNames: string[];
+  commandNames: string[];
+  eventNames: string[];
+  unsupported: string[];
+  error?: string;
+}
+
+export interface DesktopPiExtensionsResponse {
+  ok: boolean;
+  mode?: "server" | "native";
+  masterEnabled?: boolean;
+  extensions?: DesktopPiExtension[];
+  description?: string;
+  id?: string;
+}
+
+export type DesktopPiExtensionAction =
+  | { action: "setMode"; mode: "server" | "native" }
+  | { action: "resolve" | "install"; input: string }
+  | { action: "toggle"; id: string; enabled: boolean }
+  | { action: "uninstall"; id: string }
+  | { action: "setMaster"; enabled: boolean }
+  | { action: "reload" };
+
+export async function loadDesktopPiExtensions(endpoint: string): Promise<DesktopPiExtensionsResponse> {
+  return requestJson(endpoint, "/api/settings/plugins/extensions");
+}
+
+export async function loadDesktopPiTerminals(endpoint: string): Promise<import("@molibot/shared/piExtensionTerminal").PiExtensionTerminalSummary[]> {
+  const result = await requestJson<{ terminals: import("@molibot/shared/piExtensionTerminal").PiExtensionTerminalSummary[] }>(endpoint, "/api/settings/plugins/extensions/terminal?client=desktop");
+  return result.terminals;
+}
+
+export async function loadDesktopPiTerminalOutput(endpoint: string, id: string, after: number): Promise<import("@molibot/shared/piExtensionTerminal").PiExtensionTerminalOutput> {
+  return requestJson(endpoint, `/api/settings/plugins/extensions/terminal?id=${encodeURIComponent(id)}&after=${after}&client=desktop`);
+}
+
+export async function runDesktopPiTerminalAction(endpoint: string, action: { id: string; action: "input"; data: string } | { id: string; action: "resize"; columns: number; rows: number } | { id: string; action: "stop" | "review" }): Promise<void> {
+  await requestJson(endpoint, "/api/settings/plugins/extensions/terminal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
+}
+
+export async function runDesktopPiExtensionAction(endpoint: string, input: DesktopPiExtensionAction): Promise<DesktopPiExtensionsResponse> {
+  return requestJson(endpoint, "/api/settings/plugins/extensions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+}
+
 export type DesktopCorePluginId = "memory" | "daily-materials";
 
 export interface DesktopCorePluginItem {

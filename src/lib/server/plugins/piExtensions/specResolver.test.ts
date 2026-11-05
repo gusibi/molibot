@@ -27,6 +27,17 @@ test("bare npm package names resolve to an npm install", () => {
   });
 });
 
+test("Pi install source strings resolve without manual rewriting", () => {
+  assert.deepEqual(resolved("npm:@example/pi-tools@1.0.0"), {
+    source: "npm", spec: "@example/pi-tools@1.0.0", id: "pi-tools", kind: "npm-name"
+  });
+  assert.deepEqual(resolved("git:github.com/example/pi-tools@v1"), {
+    source: "git", spec: "https://github.com/example/pi-tools.git", ref: "v1", id: "pi-tools", kind: "git-url"
+  });
+  assert.equal(rejected("npm:https://example.invalid/package").ok, false);
+  assert.equal(rejected("git:github.com/example/pi-tools@--upload-pack=bad").ok, false);
+});
+
 test("an npm page URL resolves to the package it shows", () => {
   assert.deepEqual(resolved("https://www.npmjs.com/package/pi-subagents"), {
     source: "npm", spec: "pi-subagents", id: "pi-subagents", kind: "npm-url"

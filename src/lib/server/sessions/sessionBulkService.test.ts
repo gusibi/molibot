@@ -54,6 +54,7 @@ function setup(): Fixture {
   // Same shape as the production wiring: the lifecycle purge port goes through
   // the trash cleanup service's cross-store purge (UI file + lifecycle row).
   const trashCleanup = new SessionTrashCleanupService({
+    deleteNativeContext: () => {},
     lifecycle,
     deleteUiConversation: (id) => {
       const owner = sessions.getWebConversationOwner(id);

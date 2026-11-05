@@ -672,7 +672,7 @@ export function sanitizePiExtensionSettings(
     };
   }
 
-  return { enabled, entries };
+  return { enabled, entries, mode: source.mode === "native" || source.mode === "server" ? source.mode : current.mode ?? "server" };
 }
 
 /** App ids are also directory names; the pattern is the host's, kept in sync. */

@@ -40,6 +40,10 @@ export interface PiExtensionToolOptions {
    * message. Omitted when the caller cannot authorize it.
    */
   streamModel?: (input: PiExtensionStreamInput, emit: (event: unknown) => void, signal: AbortSignal) => Promise<unknown>;
+  nativeModels?: {
+    beforeCall: (model: { provider: string; id: string; api: string; kind: string }, callId: string, signal: AbortSignal) => void | Promise<void>;
+    recordUsage: (model: { provider: string; id: string; api: string; kind: string }, usage: unknown, callId: string) => void;
+  };
 }
 
 export interface PiExtensionStreamInput {
@@ -48,6 +52,10 @@ export interface PiExtensionStreamInput {
   context: unknown;
   options: unknown;
   simple: boolean;
+  onPayload?: (payload: unknown, model: unknown) => Promise<unknown>;
+  onResponse?: (response: unknown) => Promise<void>;
+  onProviderStreamEvent?: (event: unknown) => Promise<void>;
+  requestHeaders?: Record<string, string | null>;
 }
 
 /** The callable capabilities a host session exposes; a subset of the tool options. */
@@ -60,7 +68,8 @@ export function bindPiExtensionHostSession(
   client: PiExtensionProcessClient,
   options: PiExtensionHostCapabilities,
   signal: AbortSignal | undefined,
-  callerId: string
+  callerId: string,
+  extra?: import("./types.js").PiExtensionHostRequestHandler
 ): string | undefined {
   if (!options.executeTool && !options.modelOperations && !options.streamModel && !options.abort && !options.compact) return undefined;
   const token = randomUUID();
@@ -112,6 +121,7 @@ export function bindPiExtensionHostSession(
       await options.compact(typeof input?.customInstructions === "string" ? input.customInstructions : undefined);
       return null;
     }
+    if (extra) return extra(method, input, emit, ownedSignal);
     throw new Error(`Unsupported extension host method: ${method}`);
   });
   return token;

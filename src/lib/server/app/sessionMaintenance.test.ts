@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
+import { piExtensionTerminalHost } from "$lib/server/plugins/piExtensions/nativeTerminal.js";
 import { dirname as sessionDataRoot } from "node:path";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -130,4 +132,23 @@ test("B3: startup reconciliation completes a recorded cleanup intent", (t) => {
   assert.ok(outcomes.some((item) => item.conversationId === conversation.id && item.status === "succeeded"));
   assert.equal(fx.sessions.getConversationById(conversation.id, "web", OWNER), null);
   assert.equal(fx.lifecycle.get(conversation.id), null);
+});
+
+
+test("permanent trash purge removes native contexts even after UI ownership has already gone", (t) => {
+  const fx = setup();
+  t.after(() => fx.teardown());
+  const id = makeExpiredTrash(fx, "native-purge");
+  const dir = path.join(fx.root, "pi-native", createHash("sha256").update(id).digest("hex"));
+  mkdirSync(path.join(dir, "sessions"), { recursive: true });
+  writeFileSync(path.join(dir, "state.json"), JSON.stringify({status:"running"}));
+  writeFileSync(path.join(dir, "owner.json"), JSON.stringify({id:"native-purge-terminal",sessionId:id,runId:"run",extensionIds:["fixture"]}));
+  writeFileSync(path.join(dir, "sessions", "private.jsonl"), "fixture conversation");
+  assert.equal(piExtensionTerminalHost.list().some(item => item.sessionId === id), true);
+  // A previous partial cleanup can already have removed the UI owner.
+  fx.sessions.deleteConversation(id, "web", OWNER);
+  buildSessionTrashCleanup(fx.sessions, fx.lifecycle).purgeTrashedNow(id);
+  assert.equal(existsSync(dir), false);
+  assert.equal(piExtensionTerminalHost.list().some(item => item.sessionId === id), false);
+  assert.equal(fx.lifecycle.get(id), null);
 });

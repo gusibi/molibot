@@ -127,6 +127,9 @@ export function getRuntimeToolClassification(
   if (toolName === "extensionManage" || toolName === "miniAppManage") {
     return { risk: "critical", source: "builtin", effect: "manage", thirdPartyHint: "undeclared" };
   }
+  if (toolName === "piExtensionRun") {
+    return { risk: "high", source: "plugin", effect: "installed_app", thirdPartyHint: "undeclared" };
+  }
   // Mini App tools are owner-installed plugin code. They are classified from
   // the manifest and must never fall through to the builtin/low default below,
   // which would attribute app behaviour to Molibot itself.

@@ -7,6 +7,7 @@
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
   import SettingRow from "../components/ui/SettingRow.svelte";
+  import PiExtensionsSection from "./PiExtensionsSection.svelte";
   import { session, notifySettingsChanged, NAVIGATE_SETTINGS_EVENT } from "../stores/session.svelte";
   import {
     desktopPluginSettingsFrameUrl,
@@ -443,6 +444,7 @@
         {/each}
       {/if}
     </SettingGroup>
+    <PiExtensionsSection endpoint={session.serviceReady ? session.endpoint ?? "" : ""} locale={session.locale} />
   {:else}
     <div class="plugin-detail-toolbar"><button class="tertiary-button" type="button" onclick={backToList}><ArrowLeft size={14} aria-hidden="true" />{copy.back}</button>{#if detailMessage}<span class="plugin-detail-message" aria-live="polite">{detailMessage}</span>{/if}</div>
 

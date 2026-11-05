@@ -33,6 +33,7 @@
   import { onMount } from "svelte";
   import ChatView from "./ChatView.svelte";
   import AppFooterMark from "./lib/components/AppFooterMark.svelte";
+  import PiExtensionTerminalPanel from "./lib/components/PiExtensionTerminalPanel.svelte";
   import Users2 from "./lib/icons/duotone/components/Users2.svelte";
   import { tablist } from "./lib/a11y/tablist";
   import ExecutionPermissionsSection from "./lib/settings/ExecutionPermissionsSection.svelte";
@@ -1589,5 +1590,6 @@
 {/if}
 
 <UpdateDialog {locale} />
+<PiExtensionTerminalPanel endpoint={session.endpoint ?? ""} connected={session.serviceReady} locale={session.locale} />
 
 <AgentStorageMigration serviceAvailable={status?.service.state === "ready"} onError={(error) => storageCheckError = error} endpoint={status?.service.endpoint ?? null} {locale} bind:open={storageMigrationOpen} onPending={(pending) => storageMigrationPending = pending} onReady={(ready) => storageReady = ready} />

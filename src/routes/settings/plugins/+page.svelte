@@ -6,6 +6,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
+  import * as Select from "$lib/components/ui/select";
   import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { locale } from "$lib/ui/i18n";
   import type { PluginCatalogItem } from "$lib/server/plugins/contract/catalog";
@@ -61,6 +62,10 @@
       dailyDesc: "从已授权会话提取每日素材并写入指定项目。",
       extTitle: "pi 扩展（兼容插件）",
       extDesc: "安装 pi 生态扩展。它们可以提供工具、事件与命令，但不提供 Molibot 独立设置页面。",
+      extMode: "运行方式",
+      extModeHint: "原生 Pi 提供扩展原有终端界面，需要 Desktop 接管交互；Web 与渠道不能回答终端界面。服务器模式保留现有工具接口。下一轮对话生效。",
+      extNativeMode: "原生 Pi 与终端面板",
+      extServerMode: "服务器兼容接口",
       extMaster: "启用 pi 扩展",
       extMasterDesc: "关闭后，所有已安装的 pi 扩展均不生效。",
       extSpecLabel: "包名或链接",
@@ -102,6 +107,10 @@
       dailyDesc: "Extract daily material from authorized conversations and write it to a project.",
       extTitle: "pi Extensions (Compatibility)",
       extDesc: "Install pi ecosystem extensions. They may provide tools, events, and commands, but do not provide Molibot settings pages.",
+      extMode: "Runtime",
+      extModeHint: "Native Pi preserves extension terminal UI and needs Desktop for interaction; Web and channels cannot answer terminal dialogs. Server mode retains existing tool interfaces. Applies next turn.",
+      extNativeMode: "Native Pi with terminal",
+      extServerMode: "Server compatibility",
       extMaster: "Enable pi extensions",
       extMasterDesc: "When disabled, no installed pi extension is active.",
       extSpecLabel: "Package or link",
@@ -133,6 +142,7 @@
   let corePlugins = $state<CorePluginItem[]>([]);
   let extensions = $state<ExtensionEntry[]>([]);
   let extensionsMaster = $state(true);
+  let extensionMode = $state<"native" | "server">("server");
   let extensionSpec = $state("");
   let extensionBusy = $state(false);
 
@@ -188,6 +198,7 @@
       contractPlugins = Array.isArray(contractData.items) ? contractData.items : [];
       extensions = Array.isArray(extensionsData.extensions) ? extensionsData.extensions : [];
       extensionsMaster = extensionsData.masterEnabled !== false;
+      extensionMode = extensionsData.mode === "native" ? "native" : "server";
     } catch (error) {
       errorMessage = `${copy.failedLoad}: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
@@ -230,6 +241,7 @@
         body: JSON.stringify(body)
       }));
       extensions = Array.isArray(data.extensions) ? data.extensions : extensions;
+      if (data.mode === "native" || data.mode === "server") extensionMode = data.mode;
       if (typeof data.masterEnabled === "boolean") extensionsMaster = data.masterEnabled;
       actionMessage = successMessage;
     } catch (error) {
@@ -308,6 +320,14 @@
       <section class="channel-card">
         <div class="channel-card-header"><div><h2 class="channel-card-title">{copy.extTitle}</h2><p class="channel-card-desc">{copy.extDesc}</p></div></div>
         <div class="channel-card-body space-y-5">
+          <div class="channel-field">
+            <Label for="ext-mode">{copy.extMode}</Label>
+            <Select.Root type="single" value={extensionMode} onValueChange={(mode) => { if (mode === "native" || mode === "server") void extensionAction({ action: "setMode", mode }); }} disabled={extensionBusy}>
+              <Select.Trigger id="ext-mode" aria-label={copy.extMode}>{extensionMode === "native" ? copy.extNativeMode : copy.extServerMode}</Select.Trigger>
+              <Select.Content><Select.Item value="native" label={copy.extNativeMode}>{copy.extNativeMode}</Select.Item><Select.Item value="server" label={copy.extServerMode}>{copy.extServerMode}</Select.Item></Select.Content>
+            </Select.Root>
+            <span class="channel-hint">{copy.extModeHint}</span>
+          </div>
           <div class="channel-toggle-row"><div class="channel-toggle-label"><Label for="ext-master">{copy.extMaster}</Label><p>{copy.extMasterDesc}</p></div><IosSwitch id="ext-master" checked={extensionsMaster} onCheckedChange={(enabled) => extensionAction({ action: "setMaster", enabled })} /></div>
           <div class="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"><div class="channel-field"><Label for="ext-spec">{copy.extSpecLabel}</Label><Input id="ext-spec" bind:value={extensionSpec} placeholder={copy.extSpecPlaceholder} /><span class="channel-hint">{copy.extSpecHint}</span></div><div class="flex gap-2"><Button type="button" size="sm" onclick={installExtension} disabled={extensionBusy || !extensionSpec.trim()}>{extensionBusy ? copy.extInstalling : copy.extInstall}</Button><Button type="button" variant="outline" size="sm" onclick={() => extensionAction({ action: "reload" }, copy.extReloaded)} disabled={extensionBusy}>{copy.extReload}</Button></div></div>
           {#if extensions.length === 0}

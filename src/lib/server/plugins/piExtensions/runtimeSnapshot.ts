@@ -17,6 +17,7 @@ export interface PiExtensionRuntimeSource {
   /** A pi-ai `Model`; only its serializable, credential-free fields are kept. */
   model?: unknown;
   thinkingLevel?: string;
+  availableModels?: readonly unknown[];
   scopedModels?: ReadonlyArray<{ model: unknown; thinkingLevel?: string }>;
   /** Whether the agent is idle. Extension calls run mid-turn, so this is usually false. */
   isIdle: boolean;
@@ -59,6 +60,7 @@ export function buildPiExtensionRuntimeSnapshot(source: PiExtensionRuntimeSource
     ...(source.sessionId ? { sessionId: source.sessionId } : {}),
     ...(model ? { model } : {}),
     ...(source.thinkingLevel ? { thinkingLevel: source.thinkingLevel } : {}),
+    ...(source.availableModels ? { availableModels: source.availableModels.flatMap(value => { const model = serializeModel(value); return model ? [model] : []; }) } : {}),
     scopedModels,
     isIdle: source.isIdle,
     hasPendingMessages: (source.pendingMessages ?? 0) > 0,

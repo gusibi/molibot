@@ -18,12 +18,14 @@ export const GET: RequestHandler = async () => {
     root: piExtensionsRootDir(),
     loaded: host.isLoaded(),
     masterEnabled: runtime.getSettings().plugins.piExtensions.enabled !== false,
+    mode: runtime.getSettings().plugins.piExtensions.mode ?? "server",
     extensions: host.listCatalog(runtime.getSettings())
   });
 };
 
 interface ExtensionActionBody {
-  action?: "install" | "resolve" | "uninstall" | "reload" | "toggle" | "setBots" | "setMaster";
+  action?: "install" | "resolve" | "uninstall" | "reload" | "toggle" | "setBots" | "setMaster" | "setMode";
+  mode?: "server" | "native";
   /** Whatever the user pasted: package name, npm URL, or repository link. */
   input?: string;
   /** Explicit form, still accepted for scripted callers. */
@@ -67,6 +69,11 @@ export const POST: RequestHandler = async ({ request }) => {
   const currentEntries = () => runtime.getSettings().plugins.piExtensions.entries ?? {};
 
   switch (body.action) {
+    case "setMode": {
+      if (body.mode !== "native" && body.mode !== "server") return json({ ok: false, error: "Invalid Pi runtime mode." }, { status: 400 });
+      updatePluginsConfig(runtime, { piExtensions: { ...runtime.getSettings().plugins.piExtensions, mode: body.mode } });
+      return json({ ok: true, mode: body.mode, extensions: host.listCatalog(runtime.getSettings()) });
+    }
     // Dry run: show the user what a pasted link was understood to mean.
     case "resolve": {
       const parsed = readInstallRequest(body);
@@ -95,12 +102,13 @@ export const POST: RequestHandler = async ({ request }) => {
       // tools and commands work without a restart.
       updatePluginsConfig(runtime, {
         piExtensions: {
-          enabled: runtime.getSettings().plugins.piExtensions.enabled,
+          ...runtime.getSettings().plugins.piExtensions,
+          mode: runtime.getSettings().plugins.piExtensions.mode,
           entries: { ...currentEntries(), [result.id!]: { enabled: true, disabledBots: [] } }
         }
       });
       await host.reload();
-      return json({ ok: true, id: result.id, extensions: host.listCatalog(runtime.getSettings()) });
+      return json({ ok: true, id: result.id, mode: runtime.getSettings().plugins.piExtensions.mode ?? "server", extensions: host.listCatalog(runtime.getSettings()) });
     }
 
     case "uninstall": {
@@ -111,7 +119,7 @@ export const POST: RequestHandler = async ({ request }) => {
       const entries = { ...currentEntries() };
       delete entries[body.id];
       updatePluginsConfig(runtime, {
-        piExtensions: { enabled: runtime.getSettings().plugins.piExtensions.enabled, entries }
+        piExtensions: { ...runtime.getSettings().plugins.piExtensions, entries }
       });
       await host.reload();
       return json({ ok: true, extensions: host.listCatalog(runtime.getSettings()) });
@@ -128,7 +136,7 @@ export const POST: RequestHandler = async ({ request }) => {
       const existing = currentEntries()[body.id];
       updatePluginsConfig(runtime, {
         piExtensions: {
-          enabled: runtime.getSettings().plugins.piExtensions.enabled,
+          ...runtime.getSettings().plugins.piExtensions,
           entries: {
             ...currentEntries(),
             [body.id]: {
@@ -147,7 +155,7 @@ export const POST: RequestHandler = async ({ request }) => {
       const existing = currentEntries()[body.id];
       updatePluginsConfig(runtime, {
         piExtensions: {
-          enabled: runtime.getSettings().plugins.piExtensions.enabled,
+          ...runtime.getSettings().plugins.piExtensions,
           entries: {
             ...currentEntries(),
             [body.id]: {
@@ -163,7 +171,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     case "setMaster": {
       updatePluginsConfig(runtime, {
-        piExtensions: { enabled: Boolean(body.enabled), entries: currentEntries() }
+        piExtensions: { ...runtime.getSettings().plugins.piExtensions, enabled: Boolean(body.enabled), entries: currentEntries() }
       });
       return json({
         ok: true,

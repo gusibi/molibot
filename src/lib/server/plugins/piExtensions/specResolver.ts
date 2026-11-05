@@ -44,6 +44,29 @@ export function resolveExtensionInput(rawInput: string): ResolveExtensionInputRe
   const input = rawInput.trim().replace(/\/+$/, "");
   if (!input) return { ok: false, error: "Nothing to install" };
 
+  if (input.startsWith("npm:")) {
+    const spec = input.slice(4);
+    if (!NPM_NAME.test(spec)) return { ok: false, error: "Invalid npm package source" };
+    return resolveExtensionInput(spec);
+  }
+
+  if (input.startsWith("git:")) {
+    const source = input.slice(4);
+    // Pi's short git source can pin a branch or tag after the repository.
+    // Do not confuse the user part of an SSH URL with a ref separator.
+    const separator = source.lastIndexOf("@");
+    const hasRef = separator > 0 && !(source.startsWith("git@") && separator === 3);
+    const repository = hasRef ? source.slice(0, separator) : source;
+    const ref = hasRef ? source.slice(separator + 1) : undefined;
+    if (ref !== undefined && (!/^[\w./-]+$/.test(ref) || ref.startsWith("-"))) {
+      return { ok: false, error: "Invalid git branch or tag" };
+    }
+    const result = resolveExtensionInput(repository.startsWith("git@") || repository.includes("://")
+      ? repository : `https://${repository}`);
+    if (!result.ok || result.resolved.source !== "git") return { ok: false, error: "Invalid git repository source" };
+    return { ok: true, resolved: { ...result.resolved, ...(ref ? { ref } : {}) } };
+  }
+
   // file:///path/to/repo — installing a locally developed extension.
   if (input.startsWith("file://")) {
     const path = input.slice("file://".length);

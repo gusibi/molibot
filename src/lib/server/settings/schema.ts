@@ -374,6 +374,8 @@ export interface PiExtensionEntrySettings {
 export interface PiExtensionsSettings {
   /** Master switch: false disables every installed extension. */
   enabled: boolean;
+  /** Existing installations keep server mode until explicitly switched. */
+  mode?: "server" | "native";
   entries: Record<string, PiExtensionEntrySettings>;
 }
 

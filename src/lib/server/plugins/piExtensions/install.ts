@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
+import { loadPiExtensionsInProcess } from "$lib/server/plugins/piExtensions/processClient.js";
 import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { extensionInstallDir, piExtensionsRootDir } from "$lib/server/plugins/piExtensions/paths.js";
 
@@ -134,16 +134,12 @@ function resolveEntries(dir: string): string[] {
     try {
       const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { pi?: { extensions?: unknown } };
       const declared = parsed.pi?.extensions;
-      if (Array.isArray(declared)) {
-        const entries = declared
-          .map((entry) => join(dir, String(entry)))
-          .filter((entry) => existsSync(entry));
-        if (entries.length > 0) return entries;
-      }
+      if (Array.isArray(declared) && declared.length > 0) return [dir];
     } catch {
       // fall through to the index checks
     }
   }
+  if (existsSync(join(dir, "extensions"))) return [dir];
   for (const candidate of ["index.ts", "index.js"]) {
     const entry = join(dir, candidate);
     if (existsSync(entry)) return [entry];
@@ -169,29 +165,24 @@ export async function validatePiExtensionDir(dir: string): Promise<{ ok: boolean
     };
   }
 
-  // Explicit entry paths, and an agent dir that does not exist, so pi loads
-  // exactly what was staged and nothing from the real install root.
-  const loaded = await discoverAndLoadExtensions(entries, dir, join(dir, ".no-agent-dir"));
-  if (loaded.errors.length > 0) {
-    return { ok: false, error: `Not a loadable pi extension: ${loaded.errors[0].error}` };
-  }
-
-  const registersSomething = loaded.extensions.some((extension) =>
-    extension.tools.size > 0
-    || extension.handlers.size > 0
-    || extension.commands.size > 0
-    || extension.flags.size > 0
-    || extension.shortcuts.size > 0
-    || extension.messageRenderers.size > 0
-  );
-  if (!registersSomething) {
-    return {
-      ok: false,
-      error: "This package loads but registers no tools, events or commands, so it is not a pi extension"
+  // Validation executes third-party factories, so use the same bounded child
+  // process as runtime loading. An absent agent dir excludes installed plugins.
+  let loaded: Awaited<ReturnType<typeof loadPiExtensionsInProcess>> | undefined;
+  try {
+    loaded = await loadPiExtensionsInProcess({ cwd: dir, agentDir: join(dir, ".no-agent-dir"), extensionPaths: entries });
+    if (loaded.errors.length > 0) return { ok: false, error: `Not a loadable pi extension: ${loaded.errors[0].error}` };
+    const registersSomething = loaded.extensions.some((extension) =>
+      extension.toolNames.length > 0 || extension.eventNames.length > 0
+      || extension.commandNames.length > 0 || extension.flagNames.length > 0 || extension.unsupported.length > 0 || (extension.registrationCount ?? 0) > 0
+    );
+    return registersSomething ? { ok: true } : {
+      ok: false, error: "This package loads but registers no tools, events or commands, so it is not a pi extension"
     };
+  } catch (error) {
+    return { ok: false, error: `Not a loadable pi extension: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    loaded?.client.dispose();
   }
-
-  return { ok: true };
 }
 
 /** The single directory npm unpacked into a staging dir (`node_modules/<name>`). */
@@ -212,6 +203,27 @@ function resolveNpmPackageDir(stagingDir: string, spec: string): string | null {
     if (statSync(candidate).isDirectory()) return candidate;
   }
   return null;
+}
+
+/** Keep dependencies at their installed depth and point discovery at the selected package. */
+function writeResourceManifest(layoutDir: string, packageDir: string, manifest: any, rootManifest = {}) {
+  writeFileSync(join(layoutDir, "package.json"), JSON.stringify({
+    ...rootManifest,
+    name: manifest.name,
+    version: manifest.version,
+    description: manifest.description,
+    pi: Object.fromEntries(["extensions", "skills", "prompts", "themes"].map((kind) => {
+      const declared = manifest.pi?.[kind];
+      const patterns = Array.isArray(declared) ? declared : kind === "extensions"
+        ? (existsSync(join(packageDir, "extensions")) ? ["extensions"] : ["index.ts", "index.js"].filter((name) => existsSync(join(packageDir, name))))
+        : existsSync(join(packageDir, kind)) ? [kind] : [];
+      const prefix = relative(layoutDir, packageDir).split(sep).join("/");
+      return [kind, patterns.map((pattern: string) => {
+        const modifier = /^[!+-]/.test(pattern) ? pattern[0] : "";
+        return `${modifier}${prefix}/${pattern.slice(modifier.length).replace(/^\.\//, "")}`;
+      })];
+    }))
+  }));
 }
 
 /**
@@ -245,7 +257,13 @@ export async function installPiExtension(
       if (!install.ok) return { ok: false, error: `npm install failed for ${request.spec}`, log: install.output };
       const packageDir = resolveNpmPackageDir(stagingDir, request.spec);
       if (!packageDir) return { ok: false, error: "npm install produced no package directory", log: install.output };
-      sourceDir = packageDir;
+      // Keep npm's complete node_modules layout: dependencies can be hoisted
+      // beside the package. Moving only the package loses them during cleanup.
+      const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
+      const entries = resolveEntries(packageDir);
+      if (entries.length === 0) return { ok: false, error: "The npm package has no pi extension entry point" };
+      writeResourceManifest(stagingDir, packageDir, manifest);
+      sourceDir = stagingDir;
     } else {
       const cloneArgs = ["clone", "--depth", "1"];
       // `--` before the URL so a spec starting with `-` can never be read as a
@@ -277,17 +295,28 @@ export async function installPiExtension(
         };
       }
 
-      // Dependencies install where the manifest is: a monorepo package declares
-      // its own, and falling back to the repo root would install the whole
-      // workspace for one extension.
-      const manifestDir = existsSync(join(sourceDir, "package.json"))
-        ? sourceDir
-        : existsSync(join(repoDir, "package.json")) ? repoDir : null;
+      const hasOwnManifest = existsSync(join(sourceDir, "package.json"));
+      const manifestDir = hasOwnManifest ? sourceDir : existsSync(join(repoDir, "package.json")) ? repoDir : null;
       if (manifestDir) {
         const deps = await run("npm", ["install", "--omit=dev"], manifestDir);
         if (!deps.ok) {
           momWarn("plugins", "pi_extension_install_deps_failed", { id, spec: request.spec });
           return { ok: false, error: "Dependency install failed for the cloned repository", log: deps.output };
+        }
+      }
+      if (sourceDir !== repoDir) {
+        let borrowsDependencies = false;
+        for (let parent = dirname(sourceDir); parent !== dirname(repoDir); parent = dirname(parent)) {
+          if (existsSync(join(parent, "node_modules"))) { borrowsDependencies = true; break; }
+        }
+        if ((!hasOwnManifest && manifestDir === repoDir) || borrowsDependencies) {
+          // npm workspaces may hoist dependencies even when the child has its
+          // own manifest. Preserve their installed depth, not just the child.
+          if (!resolveEntries(sourceDir).length) return { ok: false, error: "The repository subdirectory has no pi extension entry point" };
+          const rootManifest = existsSync(join(repoDir, "package.json")) ? JSON.parse(readFileSync(join(repoDir, "package.json"), "utf8")) : {};
+          const manifest = hasOwnManifest ? JSON.parse(readFileSync(join(sourceDir, "package.json"), "utf8")) : { name: id, version: rootManifest.version, description: rootManifest.description };
+          writeResourceManifest(repoDir, sourceDir, manifest, rootManifest);
+          sourceDir = repoDir;
         }
       }
     }

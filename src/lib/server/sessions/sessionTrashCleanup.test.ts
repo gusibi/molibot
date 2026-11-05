@@ -55,6 +55,7 @@ function setup(): Fixture {
   const agentCalls: Array<{ chatId: string; sessionId: string }> = [];
   const failStep: { value: "search" | "ui" | "agent" | null } = { value: null };
   const cleanup = new SessionTrashCleanupService({
+    deleteNativeContext: () => {},
     lifecycle,
     clock,
     deleteUiConversation: (conversationId) => {
@@ -230,6 +231,7 @@ test("restart reopens intents and reconciles them", (t) => {
   });
   assert.deepEqual(reopened.listCleanupIntents().map((intent) => intent.conversationId), [id]);
   const cleanup = new SessionTrashCleanupService({
+    deleteNativeContext: () => {},
     lifecycle: reopened,
     deleteUiConversation: (conversationId) => {
       const owner = fx.sessions.getWebConversationOwner(conversationId);
@@ -251,6 +253,7 @@ test("unauthorized purge requests are skipped without touching trash", (t) => {
   const id = makeTrashedSession(fx, "guarded uniquekey zeta");
   const guarded = new SessionTrashCleanupService({
     lifecycle: fx.lifecycle,
+    deleteNativeContext: () => { throw new Error("must not run"); },
     deleteUiConversation: () => { throw new Error("must not run"); },
     listAgentChatIds: () => [],
     deleteAgentSession: () => { throw new Error("must not run"); },
@@ -276,4 +279,27 @@ test("purgeSingleExpired backs the lifecycle purge callback without resurrecting
   assert.equal(outcomes[0]?.status, "failed");
   assert.equal(fx.lifecycle.get(id)?.state, "trashed");
   assert.equal(fx.agentContexts.get(OWNER)?.has(id), true);
+});
+
+
+test("native cleanup failure keeps the UI and a recoverable purge intent", (t) => {
+  const fx=setup();
+  t.after(()=>fx.teardown());
+  const id=makeTrashedSession(fx,"native-cleanup-busy");
+  let busy=true;
+  let deleted=false;
+  const cleanup=new SessionTrashCleanupService({
+    lifecycle:fx.lifecycle,
+    deleteNativeContext:()=>{if(busy) throw new Error("Native writer is active");deleted=true;},
+    deleteUiConversation:()=>fx.sessions.deleteConversation(id,"web",OWNER),
+    listAgentChatIds:()=>[],deleteAgentSession:()=>{},finalizeSearchConversation:()=>{}
+  });
+  assert.throws(()=>cleanup.purgeTrashedNow(id),/Native writer is active/);
+  assert.ok(fx.sessions.getConversationById(id,"web",OWNER));
+  assert.equal(fx.lifecycle.listCleanupIntents()[0]?.conversationId,id);
+  assert.equal(deleted,false);
+  busy=false;
+  assert.equal(cleanup.reconcilePending().find(item=>item.conversationId===id)?.status,"succeeded");
+  assert.equal(deleted,true);
+  assert.equal(fx.lifecycle.get(id),null);
 });
