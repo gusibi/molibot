@@ -1,20 +1,34 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import type { Terminal } from "@xterm/xterm";
   import type { PiExtensionTerminalSummary } from "@molibot/shared/piExtensionTerminal";
   import "@xterm/xterm/css/xterm.css";
   import Dialog from "./ui/Dialog.svelte";
+  import Button from "./ui/Button.svelte";
+  import SelectControl from "./ui/SelectControl.svelte";
   import { loadDesktopPiTerminals, loadDesktopPiTerminalOutput, runDesktopPiTerminalAction } from "../api";
   import { piExtensionsCopy } from "../i18n";
 
-  let { endpoint, connected, locale }: { endpoint: string; connected: boolean; locale: string } = $props();
+  let { endpoint, connected, locale, sessionId, visible, onAttention = () => {} }: { endpoint: string; connected: boolean; locale: string; sessionId: string; visible: boolean; onAttention?: (items: PiExtensionTerminalSummary[]) => void } = $props();
   let copy = $derived(piExtensionsCopy[locale === "zh-CN" ? "zh-CN" : "en"]);
   let terminals = $state<PiExtensionTerminalSummary[]>([]);
   let selectedId = $state("");
   let open = $state(false);
   let error = $state("");
   let element = $state<HTMLDivElement | null>(null);
-  let selected = $derived(terminals.find((terminal) => terminal.id === selectedId));
+  let scoped = $derived(visible && sessionId ? terminals.filter(terminal => terminal.sessionId === sessionId) : []);
+  let actionable = $derived(scoped.filter(terminal => terminal.status === "running" && (terminal.customInteraction || terminal.dialog) || terminal.requiresReview && !terminal.contextReviewed));
+  let selected = $derived(scoped.find((terminal) => terminal.id === selectedId));
+  let pending = $derived(scoped.find(terminal => terminal.status === "running" && terminal.dialog));
+  let interactionOpen = $state(false);
+  let seenDialogId = $state("");
+  let draft = $state("");
+  let submitting = $state(false);
+  let retryingSharing = $state(false);
+  let sharingError = $state("");
+  let dialogError = $state("");
+  const drafts = new Map<string,string>();
+  let activeDraftKey = "";
   let generation = 0;
   let view: Terminal | undefined;
   let inputQueue = Promise.resolve();
@@ -22,12 +36,36 @@
   let nextListAt = 0;
 
   $effect(() => {
+    if (!visible || !selected) open = false;
+  });
+
+  $effect(() => {
+    const dialog = pending?.dialog;
+    const key = dialog ? `${endpoint}:${dialog.id}` : "";
+    if (activeDraftKey) drafts.set(activeDraftKey, draft);
+    while (drafts.size > 32) drafts.delete(drafts.keys().next().value!);
+    activeDraftKey = key;
+    if (!dialog) { interactionOpen = false; seenDialogId = ""; return; }
+    if (dialog.id !== seenDialogId) {
+      seenDialogId = dialog.id;
+      draft = drafts.get(key) ?? dialog.initialValue ?? "";
+      dialogError = "";
+      interactionOpen = true;
+      open = false;
+    }
+  });
+
+  $effect(() => {
     const target = endpoint;
     generation++;
     terminals = [];
+    untrack(() => onAttention([]));
+    drafts.clear();
+    activeDraftKey = "";
     selectedId = "";
     open = false;
     error = "";
+    sharingError = "";
     nextListAt = 0;
     void target;
   });
@@ -45,7 +83,12 @@
           if (disposed || current !== generation) return;
           nextListAt = Date.now() + 1500;
           terminals = result;
-          if (!result.some(terminal => terminal.id === selectedId)) selectedId = result.find(terminal => terminal.status === "running")?.id ?? result[0]?.id ?? "";
+          onAttention(result.filter(terminal => terminal.status === "running" && Boolean(terminal.dialog || terminal.customInteraction) || terminal.requiresReview && !terminal.contextReviewed));
+          const liveDrafts = new Set(result.flatMap(terminal => terminal.dialog ? [`${target}:${terminal.dialog.id}`] : []));
+          for (const key of drafts.keys()) if (!liveDrafts.has(key)) drafts.delete(key);
+          if (activeDraftKey && !liveDrafts.has(activeDraftKey)) activeDraftKey = "";
+          const currentScope = result.filter(terminal => terminal.sessionId === sessionId);
+          if (!currentScope.some(terminal => terminal.id === selectedId)) selectedId = currentScope.find(terminal => terminal.status === "running")?.id ?? currentScope[0]?.id ?? "";
           if (!result.length) open = false;
         }
         if (open && selectedId && view) {
@@ -120,7 +163,7 @@
 
   async function review(): Promise<void> {
     if (!selectedId) return;
-    try { await runDesktopPiTerminalAction(endpoint, { action: "review", id: selectedId }); }
+    try { await runDesktopPiTerminalAction(endpoint, { action: "review", id: selectedId }); nextListAt = 0; }
     catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
   }
 
@@ -129,11 +172,80 @@
     try { await runDesktopPiTerminalAction(endpoint, { action: "stop", id: selectedId }); }
     catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
   }
+
+  async function retrySharing(): Promise<void> {
+    const id=selectedId,target=endpoint,current=generation;
+    if(!id || retryingSharing || !connected)return;
+    retryingSharing=true;sharingError="";
+    try {await runDesktopPiTerminalAction(target,{action:"retrySharing",id});if(current===generation)nextListAt=0;}
+    catch(cause){if(current===generation && id===selectedId)sharingError=cause instanceof Error?cause.message:String(cause);}
+    finally{retryingSharing=false;}
+  }
+
+  function dismissInput(event: KeyboardEvent): void {
+    if (event.key === "Escape" && !event.isComposing && !submitting) {
+      event.preventDefault();
+      event.stopPropagation();
+      interactionOpen = false;
+    }
+  }
+
+  async function respond(value: string | boolean | null): Promise<void> {
+    const owner = pending;
+    const dialog = owner?.dialog;
+    if (!owner || !dialog || submitting || !connected) return;
+    const current = generation;
+    submitting = true;
+    dialogError = "";
+    try {
+      await runDesktopPiTerminalAction(endpoint, { action: "respond", id: owner.id, dialogId: dialog.id, value });
+      if (current !== generation) return;
+      terminals = terminals.map(entry => entry.id === owner.id && entry.dialog?.id === dialog.id ? { ...entry, dialog: undefined } : entry);
+      drafts.delete(`${endpoint}:${dialog.id}`);
+      if (activeDraftKey === `${endpoint}:${dialog.id}`) activeDraftKey = "";
+      nextListAt = 0;
+    } catch (cause) { if (current === generation && pending?.id === owner.id && pending?.dialog?.id === dialog.id) dialogError = cause instanceof Error ? cause.message : String(cause); }
+    finally { submitting = false; }
+  }
 </script>
 
-{#if terminals.length}
-  <button class="secondary-button pi-terminal-launcher" type="button" onclick={() => { selectedId ||= terminals[0].id; open = true; }}>{copy.terminalTitle}{terminals.some((terminal) => terminal.status === "running") ? " · ●" : ""}</button>
+{#if actionable.length}
+  <button class="secondary-button pi-terminal-launcher" type="button" onclick={() => { if (pending) interactionOpen = true; else { selectedId = actionable[0].id; open = true; } }}>{pending ? copy.interactionTitle : copy.terminalTitle}{actionable.some((terminal) => terminal.status === "running") ? " · ●" : ""}</button>
 {/if}
+<Dialog open={interactionOpen && Boolean(pending?.dialog)} busy={submitting} closeOnOutside={false} contentClass="pi-interaction-dialog" labelledBy="pi-interaction-title" onOpenChange={value => interactionOpen = value}>
+  {#if pending?.dialog}
+    <header>
+      <p class="pi-interaction-source">{copy.interactionTitle} · {pending.extensionIds.join(", ")}</p>
+      <h2 id="pi-interaction-title">{pending.dialog.title}</h2>
+    </header>
+    <div class="modal-body pi-interaction-body">
+      {#if pending.dialog.message}<p>{pending.dialog.message}</p>{/if}
+      {#if pending.dialog.kind === "select"}
+        <div class="pi-interaction-options">
+          {#each pending.dialog.options ?? [] as option, index (index)}
+            <Button disabled={submitting || !connected} onclick={() => void respond(option)}>{option}</Button>
+          {/each}
+        </div>
+      {:else if pending.dialog.kind === "editor"}
+        <textarea class="pi-interaction-editor" aria-label={pending.dialog.title} bind:value={draft} disabled={submitting || !connected} onkeydown={dismissInput}></textarea>
+      {:else if pending.dialog.kind === "input"}
+        <input class="pi-interaction-input" aria-label={pending.dialog.title} placeholder={pending.dialog.placeholder ?? ""} bind:value={draft} disabled={submitting || !connected} onkeydown={event => { dismissInput(event); if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); void respond(draft); } }} />
+      {/if}
+      {#if dialogError || error}<p class="pi-terminal-error" role="alert">{dialogError || error}</p>{/if}
+      {#if !connected}<p role="status">{copy.terminalDisconnected}</p>{/if}
+    </div>
+    <footer class="pi-interaction-actions">
+      <Button disabled={submitting} onclick={() => interactionOpen = false}>{copy.laterInteraction}</Button>
+      <Button disabled={submitting || !connected} onclick={() => void respond(null)}>{copy.cancelInteraction}</Button>
+      {#if pending.dialog.kind === "confirm"}
+        <Button disabled={submitting || !connected} onclick={() => void respond(false)}>{copy.declineInteraction}</Button>
+        <Button variant="primary" disabled={submitting || !connected} onclick={() => void respond(true)}>{copy.confirmInteraction}</Button>
+      {:else if pending.dialog.kind !== "select"}
+        <Button variant="primary" disabled={submitting || !connected} onclick={() => void respond(draft)}>{copy.submitInteraction}</Button>
+      {/if}
+    </footer>
+  {/if}
+</Dialog>
 <Dialog {open} busy={selected?.status === "running"} closeOnOutside={false} contentClass="pi-terminal-dialog" labelledBy="pi-terminal-title" onOpenChange={(value) => open = value}>
   <header class="pi-terminal-header">
     <div><h2 id="pi-terminal-title">{copy.terminalTitle}</h2><p>{copy.terminalHint}</p></div>
@@ -142,14 +254,23 @@
       <button class="secondary-button" type="button" onclick={() => open = false}>{copy.hideTerminal}</button>
     </div>
   </header>
-  {#if terminals.length > 1}
-    <select aria-label={copy.terminalTitle} bind:value={selectedId}>{#each terminals as terminal (terminal.id)}<option value={terminal.id}>{terminal.extensionIds.join(", ")} · {terminal.status}</option>{/each}</select>
+  {#if scoped.length > 1}
+    <SelectControl ariaLabel={copy.terminalTitle} value={selectedId} onChange={value => selectedId = value} options={scoped.map(terminal => ({ value: terminal.id, label: `${terminal.extensionIds.join(", ")} · ${terminal.status}` }))} />
   {/if}
   {#if !connected}<p role="status">{copy.terminalDisconnected}</p>{/if}
-  {#if error || selected?.error}<p class="pi-terminal-error" role="alert">{error || selected?.error}</p>{/if}
+  {#if sharingError || error || selected?.error}<p class="pi-terminal-error" role="alert">{sharingError || error || selected?.error}</p>{/if}
   {#if selected && selected.status !== "running"}<p role="status">{selected.status === "completed" ? copy.terminalCompleted : selected.status === "stopped" ? copy.terminalStopped : selected.status === "waiting_approval" ? copy.terminalWaitingApproval : copy.terminalFailed}</p>{/if}
+  {#if selected?.cleanupStatus}
+    <p role="status">{selected.cleanupStatus === "running" ? copy.cleanupRunning : selected.cleanupStatus === "hooks_completed" ? copy.cleanupCompleted : selected.cleanupStatus === "unknown" ? copy.cleanupUnknown : copy.cleanupPending}</p>
+  {/if}
+  {#if selected?.sharingStatus && selected.sharingStatus !== "unverified"}
+    <p role="status">{selected.sharingStatus === "released" ? copy.sharingReleased : selected.sharingStatus === "stopping" ? copy.sharingStopping : copy.sharingUnknown}</p>
+  {/if}
+  {#if selected?.sharingRetryable}
+    <Button disabled={retryingSharing || !connected} onclick={() => void retrySharing()}>{retryingSharing ? copy.sharingStopping : copy.retrySharing}</Button>
+  {/if}
   {#if selected?.requiresReview && !selected.contextReviewed}
-    <p>{copy.reviewHint}</p><button class="secondary-button" type="button" onclick={review}>{copy.reviewContext}</button>
+    <p>{copy.reviewHint}</p><button class="secondary-button" type="button" disabled={Boolean(selected.sharingRetryable) || retryingSharing} onclick={review}>{copy.reviewContext}</button>
   {/if}
   <div class="pi-terminal-surface" bind:this={element} aria-label={copy.terminalTitle}></div>
 </Dialog>

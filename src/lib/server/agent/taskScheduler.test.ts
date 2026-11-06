@@ -203,7 +203,7 @@ test("daily reflection notice distinguishes saved facts, pending review and fail
   const success = formatOwnerMemoryReflectionNotification(result, { pendingReviewCount: 3, skillDraftCount: 0 });
   assert.match(success, /保存 2 条记忆/);
   assert.match(success, /新增 1 条候选/);
-  assert.match(success, /本次有 3 条待确认记忆/);
+  assert.match(success, /截至本次整理，待确认记忆 3 条/);
   const failure = formatOwnerMemoryReflectionNotification({ ...result, failedTargets: 1, failedSessions: 1 }, { pendingReviewCount: 3, skillDraftCount: 0 });
   assert.match(failure, /1 个会话提取失败或等待重试/);
   assert.doesNotMatch(failure, /Bot 已完成/);

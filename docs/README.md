@@ -48,7 +48,7 @@ Archived material lives under `archive/`: quarterly root-record archives (`prd-a
 - [Assistant Capability Matrix](requirements/personal-assistant-capability-matrix.md) — the single four-state current-status source
 - [Personal Agent 工作首页 UI](designs/agent-home/personal-agent-dashboard-ui-spec.md) — 已确认的日报、选题、审批与执行概览布局；包含参考图、数据接线与定向验收，待实施
 - [Personal Agent：授权事项的持续跟进与交付](requirements/proactive-assistant-v1-spec.md) — 三阶段产品草案：项目跟进、个性化、外部来源与受控执行；[Phase One 实施 Spec](designs/agent-runtime/personal-agent-follow-up-spec.md)
-- [Large Autonomous Execution PRD](requirements/large-autonomous-execution-prd.md) — proposed continuous execution, dynamic decomposition and large-batch acceptance
+- [任务看板与 Agent／Team 自主执行 Spec](requirements/autonomous-loop-and-trigger-sources-spec.md) — 已确认产品方案，尚未实施；升级计划页，手动创建 Todo，单 Agent／串行 Team 自主执行，保留旧计划语义；trigger 插件后续单独实施。
 - [Automatic Durable Execution PRD](requirements/automatic-durable-execution-prd.md) — long-task foundation, partially delivered
 - [Pi capabilities integration spec](requirements/pi-capabilities-integration-spec.md) — phased Durable kernel replacement, Deferred responses, Codemode and optional image backend
 - [Pi capability completion spec](requirements/pi-capability-completion-spec.md) — approved ordinary-task recovery, MCP OAuth, Codemode model API and extension runtime interfaces; [Issue #64](https://github.com/gusibi/molibot/issues/64)

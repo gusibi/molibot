@@ -1,5 +1,7 @@
 # 规模化自主长任务 PRD
 
+> Archived: 2026-11-04。跨轮续跑、触发与审批语义已并入 [自主循环任务与多源触发层 Spec](../../requirements/autonomous-loop-and-trigger-sources-spec.md)（P0）；规模化执行层（工作项分解、依赖调度、并行）降级为该 Spec 的 P1 远期方向，启动时重新评估而非照搬本文。已交付的阶段 A 切片以[能力矩阵](../../requirements/personal-assistant-capability-matrix.md)为准。
+
 日期：2026-10-07。优先级：P1。阶段：方案设计；尚未实施。本文描述拟议行为，不代表能力已经交付。
 
 ## Problem Statement

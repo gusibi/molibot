@@ -420,6 +420,13 @@ fn configure_window_close_behavior(app: &tauri::App) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Loopback must never traverse a system proxy. VPN tools set a macOS-wide
+    // HTTP proxy; hyper-util reads the proxy host/port from System Configuration
+    // but ignores the exceptions list, so every desktop API call to the sidecar
+    // was routed through the proxy and intermittently black-holed (pitfall #82).
+    // NO_PROXY is read first and the system config never overrides it. Must run
+    // before any reqwest client (HTTP plugin, protocol handlers) is built.
+    std::env::set_var("NO_PROXY", "localhost,127.0.0.1,::1");
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_window(app, "chat");

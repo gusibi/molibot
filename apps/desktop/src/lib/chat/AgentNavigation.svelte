@@ -10,8 +10,8 @@
   import X from "reicon-svelte/icons/X";
   import Minus from "reicon-svelte/icons/Minus";
   import Map from "../icons/duotone/components/Map.svelte";
-  let { activities = [], activityReady = false, selectedAgentId = "", overviewActive = false, onOverview, hasUnassignedHistory = false, agents, defaultAgentId, deletedAgentIds = [], locale, copy, onAgent, onHistory, onFiles, onSettings }:
-    { activities?: DesktopAgentActivityItem[]; activityReady?: boolean; selectedAgentId?: string; overviewActive?: boolean; onOverview: () => void; hasUnassignedHistory?: boolean; defaultAgentId: string; agents: DesktopAgentItem[]; deletedAgentIds?: string[]; locale: "zh-CN" | "en"; copy: Translation; onAgent: (id: string) => void; onHistory: (id: string) => void; onFiles: (id: string) => void; onSettings: (id: string) => void } = $props();
+  let { attention = {}, onAttention = () => {}, activities = [], activityReady = false, selectedAgentId = "", overviewActive = false, onOverview, hasUnassignedHistory = false, agents, defaultAgentId, deletedAgentIds = [], locale, copy, onAgent, onHistory, onFiles, onSettings }:
+    { attention?: Record<string,{label:string;sessionId:string}>; onAttention?: (sessionId:string,agentId:string) => void; activities?: DesktopAgentActivityItem[]; activityReady?: boolean; selectedAgentId?: string; overviewActive?: boolean; onOverview: () => void; hasUnassignedHistory?: boolean; defaultAgentId: string; agents: DesktopAgentItem[]; deletedAgentIds?: string[]; locale: "zh-CN" | "en"; copy: Translation; onAgent: (id: string) => void; onHistory: (id: string) => void; onFiles: (id: string) => void; onSettings: (id: string) => void } = $props();
   // The server already ordered Agents (default first, then latest activity);
   // this view only hides Agents the owner kept out of the chat sidebar.
   const groups = $derived([...agents.filter(agent => agent.id === defaultAgentId || agent.visible !== false), ...deletedAgentIds.map(id => ({ id, name: `${id} (${locale === "zh-CN" ? "已删除" : "Deleted"})`, description: "", avatar: "", enabled: false })), ...(hasUnassignedHistory ? [{ id: "__unassigned__", name: locale === "zh-CN" ? "未归属历史" : "Unassigned history", description: "", avatar: "", enabled: false }] : [])]);
@@ -23,9 +23,10 @@
   {#each groups as agent (agent.id)}
     <RowContextMenu items={[{label: locale === "zh-CN" ? "全部对话" : "All conversations", onSelect: () => onHistory(agent.id)}, ...(agents.some(item => item.id === agent.id) ? [{label: locale === "zh-CN" ? "文件与附件" : "Files and attachments", onSelect: () => onFiles(agent.id)}, {label: locale === "zh-CN" ? "设置" : "Settings", onSelect: () => onSettings(agent.id)}] : [])]}>
     <div class="agent-navigation-group">
-      <GroupHeader label={agent.name || agent.id} active={!overviewActive && selectedAgentId === agent.id} open={false} expandable={false} actionLabel={copy.newChat} onAction={agent.enabled ? () => onAgent(agent.id) : null} onToggle={() => agent.enabled ? onAgent(agent.id) : onHistory(agent.id)}>
+      <GroupHeader label={agent.name || agent.id} active={!overviewActive && selectedAgentId === agent.id} open={false} expandable={false} actionLabel={copy.newChat} onAction={agent.enabled ? () => onAgent(agent.id) : null} onToggle={() => attention[agent.id] ? onAttention(attention[agent.id].sessionId,agent.id) : agent.enabled ? onAgent(agent.id) : onHistory(agent.id)}>
         {#snippet avatar()}<AgentAvatar name={agent.name || agent.id} src={agent.avatar ?? ""} />{/snippet}
         {#snippet status()}
+          {#if attention[agent.id]}<span class="agent-navigation-attention" role="status">{attention[agent.id].label}</span>{/if}
           {@const activity = activities.find(item => item.agentId === agent.id)}
           {@const label = agents.some(item => item.id === agent.id) ? agentActivityLabel(agent.enabled, activity, activityReady, copy) : ""}
           {#if label}

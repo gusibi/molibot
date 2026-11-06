@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, renameSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
-import type { PiExtensionTerminalOutput, PiExtensionTerminalSummary } from "$lib/shared/piExtensionTerminal.js";
+import type { PiExtensionDialog, PiExtensionTerminalOutput, PiExtensionTerminalSummary } from "$lib/shared/piExtensionTerminal.js";
 import { extensionInstallDir } from "./paths.js";
 import { createPiExtensionProcessClient } from "./processClient.js";
 import { bindPiExtensionHostSession, type PiExtensionToolOptions } from "./toolBridge.js";
@@ -12,6 +12,7 @@ import type { AgentToolCallOutcome } from "@earendil-works/pi-agent-core";
 const OUTPUT_LIMIT = 512 * 1024;
 const SESSION_LIMIT = 32;
 const RETENTION_MS = 60 * 60 * 1000;
+type NativeRunResult = { text: string; terminalId: string; images?: Array<{ type: "image"; mimeType: string; data: string }>; sharingStatus?: PiExtensionTerminalSummary["sharingStatus"]; suspension?: AgentToolCallOutcome["result"] };
 
 interface TerminalEntry {
   summary: PiExtensionTerminalSummary;
@@ -22,10 +23,12 @@ interface TerminalEntry {
   cursor: number;
   bytes: number;
   interactions?: Map<number, number>;
+  cleanupRetry?: Promise<void>;
+  dialogReply?: (value: string | boolean | null) => void;
 }
 
 interface NativeRunInput {
-  sessionId: string; runId: string; callId: string; prompt: string; extensions: LoadedPiExtension[];
+  sessionId: string; agentId?: string; runId: string; callId: string; prompt: string; extensions: LoadedPiExtension[];
   options: PiExtensionToolOptions; flags?: Record<string, boolean | string>; signal?: AbortSignal;
   onStarted?: (terminal: PiExtensionTerminalSummary) => void;
 }
@@ -43,7 +46,7 @@ export class PiExtensionTerminalHost {
 
   /** Refuse active writers; the trash cleanup intent retries after they stop. */
   purgeSession(sessionId: string): void {
-    if (this.ownedSessions.has(sessionId) || [...this.entries.values()].some(entry => entry.summary.sessionId === sessionId && entry.summary.status === "running")) {
+    if (this.ownedSessions.has(sessionId) || [...this.entries.values()].some(entry => entry.summary.sessionId === sessionId && (entry.summary.status === "running" || entry.summary.sharingRetryable))) {
       throw new Error("Stop the active native Pi task before permanently deleting this conversation.");
     }
     rmSync(this.sessionDir(sessionId), { recursive: true, force: true });
@@ -101,6 +104,7 @@ export class PiExtensionTerminalHost {
   review(id: string): void {
     const entry = this.get(id);
     if (this.ownedSessions.has(entry.summary.sessionId) || [...this.entries.values()].some((candidate) => candidate.summary.sessionId === entry.summary.sessionId && candidate.summary.status === "running")) throw new Error("Stop the active native task before reviewing its context.");
+    if (entry.summary.sharingRetryable) throw new Error("Retry stopping the task sharing before allowing a fresh native context.");
     const state = join(entry.agentDir, "state.json");
     if (!existsSync(state) || !this.needsReview(JSON.parse(readFileSync(state, "utf8")))) throw new Error("This context has no incomplete task to review.");
     if (existsSync(state)) renameSync(state, join(entry.agentDir, `state.reviewed-${randomUUID()}.json`));
@@ -109,16 +113,81 @@ export class PiExtensionTerminalHost {
 
   stop(id: string): void { this.getRunning(id).controller.abort(new Error("Stopped from the native Pi terminal.")); }
 
-  async run(input: NativeRunInput): Promise<{ text: string; terminalId: string; suspension?: AgentToolCallOutcome["result"] }> {
+  /** A reply resolves only the currently displayed request, once. */
+  respond(id: string, dialogId: string, value: unknown): void {
+    const entry = this.getRunning(id);
+    const dialog = entry.summary.dialog;
+    if (entry.controller.signal.aborted || !dialog || dialog.id !== dialogId || !entry.dialogReply) throw new Error("This Pi dialog is no longer pending or has expired.");
+    if (value !== null) {
+      if (dialog.kind === "select" && (typeof value !== "string" || !dialog.options?.includes(value))) throw new Error("Invalid Pi dialog option.");
+      if (dialog.kind === "confirm" && typeof value !== "boolean") throw new Error("A Pi confirmation requires a boolean reply.");
+      if (["input", "editor"].includes(dialog.kind) && (typeof value !== "string" || Buffer.byteLength(value) > 64 * 1024)) throw new Error("Invalid Pi text reply.");
+    }
+    entry.dialogReply(value as string | boolean | null);
+  }
+
+  private async dialog(entry: TerminalEntry, input: any, signal?: AbortSignal): Promise<string | boolean | null> {
+    if (entry.summary.dialog) throw new Error("This terminal already has a pending Pi dialog.");
+    if (!["select", "confirm", "input", "editor"].includes(input?.kind) || typeof input.title !== "string" || input.title.length > 4_000) throw new Error("Invalid Pi dialog.");
+    if (input.kind === "select" && (!Array.isArray(input.options) || input.options.length > 256 || input.options.some((value: unknown) => typeof value !== "string" || value.length > 2_000))) throw new Error("Invalid Pi dialog options.");
+    for (const field of ["message", "placeholder", "initialValue"]) if (input[field] !== undefined && (typeof input[field] !== "string" || input[field].length > 64 * 1024)) throw new Error("Invalid Pi dialog text.");
+    signal?.throwIfAborted();
+    const dialog: PiExtensionDialog = { id: randomUUID(), kind: input.kind, title: input.title, options: input.options, message: input.message, placeholder: input.placeholder, initialValue: input.initialValue };
+    let cleanup: (() => void) | undefined;
+    try {
+      return await new Promise((resolve, reject) => {
+        const onAbort = () => { entry.dialogReply = undefined; entry.summary.dialog = undefined; reject(signal?.reason ?? new Error("Pi dialog cancelled.")); };
+        cleanup = () => signal?.removeEventListener("abort", onAbort);
+        entry.dialogReply = value => {
+          entry.dialogReply = undefined;
+          entry.summary.dialog = undefined;
+          cleanup?.();
+          resolve(value);
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        entry.summary.dialog = dialog;
+        for (const listener of this.listeners) listener(entry.summary.id);
+      });
+    } finally {
+      cleanup?.();
+      entry.dialogReply = undefined;
+      entry.summary.dialog = undefined;
+    }
+  }
+
+  async retrySharing(id: string): Promise<void> {
+    const entry=this.get(id);
+    if(entry.summary.status === "running") throw new Error("Wait for the native task to finish before retrying sharing cleanup.");
+    if(entry.cleanupRetry)return entry.cleanupRetry;
+    if(!entry.client || !entry.summary.sharingRetryable) throw new Error("The cleanup connection is unavailable. Check and stop sharing in the system UI.");
+    const client=entry.client;
+    const operation=(async()=>{
+      entry.summary.sharingStatus="stopping";
+      try {
+        const outcome=await client.request("retrySharingCleanup",{statePath:join(entry.agentDir,"state.json")},undefined,10_000);
+        if(outcome?.status !== "released" || outcome.retryable) throw new Error("LCU sharing release is still unconfirmed.");
+        entry.summary.sharingStatus="released";entry.summary.sharingRetryable=false;
+        entry.summary.cleanupStatus="hooks_completed";
+        client.dispose();entry.client=undefined;
+      } catch(error) {
+        entry.summary.error=error instanceof Error?error.message:String(error);
+        entry.summary.sharingStatus="unknown";
+        throw error;
+      }
+    })().finally(()=>{entry.cleanupRetry=undefined;});
+    entry.cleanupRetry=operation;return operation;
+  }
+
+  async run(input: NativeRunInput): Promise<NativeRunResult> {
     if (this.ownedSessions.has(input.sessionId)) throw new Error("This conversation already owns an active native Pi terminal.");
     this.ownedSessions.add(input.sessionId);
     try { return await this.runOwned(input); }
     finally { this.ownedSessions.delete(input.sessionId); }
   }
 
-  private async runOwned(input: NativeRunInput): Promise<{ text: string; terminalId: string; suspension?: AgentToolCallOutcome["result"] }> {
+  private async runOwned(input: NativeRunInput): Promise<NativeRunResult> {
     this.prune(true);
-    if ([...this.entries.values()].some((entry) => entry.summary.sessionId === input.sessionId && entry.summary.status === "running")) {
+    if ([...this.entries.values()].some((entry) => entry.summary.sessionId === input.sessionId && (entry.summary.status === "running" || entry.summary.sharingRetryable))) {
       throw new Error("This conversation already owns an active native Pi terminal.");
     }
     if (this.entries.size >= SESSION_LIMIT) throw new Error("Native Pi terminal limit reached. Wait for an active task to finish.");
@@ -127,7 +196,7 @@ export class PiExtensionTerminalHost {
     const snapshot = await input.options.runtime?.();
     if (!snapshot?.model) throw new Error("The current run has no native Pi model snapshot.");
     input.signal?.throwIfAborted();
-    if ([...this.entries.values()].some((entry) => entry.summary.sessionId === input.sessionId && entry.summary.status === "running")) throw new Error("This conversation already owns an active native Pi terminal.");
+    if ([...this.entries.values()].some((entry) => entry.summary.sessionId === input.sessionId && (entry.summary.status === "running" || entry.summary.sharingRetryable))) throw new Error("This conversation already owns an active native Pi terminal.");
     if (this.entries.size >= SESSION_LIMIT) throw new Error("Native Pi terminal limit reached.");
     const id = randomUUID();
     const agentDir = this.sessionDir(input.sessionId);
@@ -135,13 +204,23 @@ export class PiExtensionTerminalHost {
     const env: NodeJS.ProcessEnv = { PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", TERM: "xterm-256color", COLORTERM: "truecolor" };
     for (const key of ["HOME", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "SystemRoot", "WINDIR", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "XDG_RUNTIME_DIR", "DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS",
       "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "TZ"]) if (process.env[key]) env[key] = process.env[key];
-    const client = createPiExtensionProcessClient({ native: true, env });
+    const client = createPiExtensionProcessClient({ native: true, env, onNativeLifecycle: stage => {
+      entry.summary.cleanupStatus = stage === "cleanup_started" ? "running" : stage === "cleanup_completed" ? "hooks_completed" : "unknown";
+      for (const listener of this.listeners) listener(entry.summary.id);
+    }, onNativeSharing: state => {
+      entry.summary.sharingStatus=state.status;entry.summary.sharingRetryable=state.retryable;
+      for (const listener of this.listeners) listener(entry.summary.id);
+    } });
     const controller = new AbortController();
     const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
     const entry: TerminalEntry = { agentDir, client, controller,
-      summary: { id, sessionId: input.sessionId, runId: input.runId, extensionIds: input.extensions.map((extension) => extension.id), status: "running", createdAt: Date.now() },
+      summary: { id, sessionId: input.sessionId, agentId: input.agentId, runId: input.runId, extensionIds: input.extensions.map((extension) => extension.id), status: "running", createdAt: Date.now(), cleanupStatus: "pending", sharingStatus: "unverified" },
       chunks: [], bytes: 0, cursor: 0 };
     this.entries.set(id, entry);
+    client.onFault(() => {
+      entry.client=undefined;entry.summary.sharingRetryable=false;
+      if(entry.summary.sharingStatus === "stopping")entry.summary.sharingStatus="unknown";
+    });
     const interactionMonitor = setInterval(() => {
       for (const startedAt of entry.interactions?.values() ?? []) {
         const error = this.interactionError(startedAt);
@@ -161,15 +240,17 @@ export class PiExtensionTerminalHost {
     const permits = new Map<string, { provider: string; id: string; api: string; kind: string }>();
     let token: string | undefined;
     try {
-      token = bindPiExtensionHostSession(client, ownedOptions, signal, input.callId, async (method, value, emit) => {
+      token = bindPiExtensionHostSession(client, ownedOptions, signal, input.callId, async (method, value, emit, callSignal) => {
+        if (method === "terminal.dialog") return this.dialog(entry, value, callSignal);
         if (method === "terminal.interactionStart") {
           const startedAt = this.timing.now();
           const error = this.interactionError(startedAt);
           if (error) { controller.abort(error); throw error; }
           (entry.interactions ??= new Map()).set(value.id, startedAt);
+          if (value.kind === "custom") entry.summary.customInteraction = true;
           return null;
         }
-        if (method === "terminal.interactionEnd") { entry.interactions?.delete(value.id); return null; }
+        if (method === "terminal.interactionEnd") { entry.interactions?.delete(value.id); if (!entry.interactions?.size) entry.summary.customInteraction = false; return null; }
         if (method === "nativeModel.hostStream") {
           const callback = (name: string, data: unknown, model?: unknown) => client.request("nativeModelCallback", { callbackId: value.callbackId, method: name, value: data, model }, signal);
           try {
@@ -218,7 +299,7 @@ export class PiExtensionTerminalHost {
       }, signal, 60 * 60 * 1000);
       signal.throwIfAborted();
       entry.summary.status = "completed";
-      return { text: result.text, terminalId: id };
+      return { text: result.text, images: result.images, sharingStatus: result.sharingStatus, terminalId: id };
     } catch (error) {
       if (suspension) {
         entry.summary.status = "waiting_approval";
@@ -230,9 +311,10 @@ export class PiExtensionTerminalHost {
       throw reason;
     } finally {
       clearInterval(interactionMonitor);
+      if (entry.summary.cleanupStatus !== "hooks_completed") entry.summary.cleanupStatus = "unknown";
       try { entry.summary.requiresReview = this.needsReview(JSON.parse(readFileSync(join(agentDir, "state.json"), "utf8"))); } catch { /* No native execution started. */ }
       if (token) client.releaseHostSession(token);
-      client.dispose();
+      if (!entry.summary.sharingRetryable) {client.dispose();entry.client=undefined;}
     }
   }
 
@@ -256,7 +338,7 @@ export class PiExtensionTerminalHost {
         const owner = JSON.parse(readFileSync(join(agentDir, "owner.json"), "utf8"));
         if (typeof owner.id !== "string" || typeof owner.sessionId !== "string" || !Array.isArray(owner.extensionIds)) continue;
         this.entries.set(owner.id, { agentDir, controller: new AbortController(), chunks: [], cursor: 0, bytes: 0,
-          summary: { ...owner, createdAt: Date.now(), status: "failed", requiresReview: true, error: state.status === "failed" ? "The native Pi task failed. Check its effects before allowing a fresh context." : "The service stopped before this native Pi task completed. Check its effects before allowing a fresh context." } });
+          summary: { ...owner, cleanupStatus: state.cleanupStatus === "hooks_completed" ? "hooks_completed" : "unknown", sharingStatus: state.sharingStatus === "released" ? "released" : state.sharingStatus === "unknown" || state.sharingRetryable ? "unknown" : "unverified", sharingRetryable:false, createdAt: Date.now(), status: "failed", requiresReview: true, error: state.status === "failed" ? "The native Pi task failed. Check its effects before allowing a fresh context." : "The service stopped before this native Pi task completed. Check its effects before allowing a fresh context." } });
       } catch { /* An incomplete state cannot be resumed or replayed. */ }
     }
   }
@@ -282,9 +364,9 @@ export class PiExtensionTerminalHost {
     return entry;
   }
   private prune(reserveSlot = false): void {
-    for (const [id, entry] of this.entries) if (entry.summary.status !== "running" && Date.now() - entry.summary.createdAt > RETENTION_MS) this.entries.delete(id);
+    for (const [id, entry] of this.entries) if (entry.summary.status !== "running" && !entry.summary.sharingRetryable && Date.now() - entry.summary.createdAt > RETENTION_MS) this.entries.delete(id);
     if (reserveSlot && this.entries.size >= SESSION_LIMIT) {
-      const oldest = [...this.entries].find(([, entry]) => entry.summary.status !== "running");
+      const oldest = [...this.entries].find(([, entry]) => entry.summary.status !== "running" && !entry.summary.sharingRetryable);
       if (oldest) this.entries.delete(oldest[0]);
     }
   }

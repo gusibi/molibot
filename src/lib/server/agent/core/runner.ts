@@ -166,6 +166,7 @@ import {
 } from "$lib/server/agent/core/runnerHelpers.js";
 
 import { prepareEnrichedInput } from "$lib/server/agent/core/runnerInputEnricher.js";
+import { resolvePiExtensionInvocation } from "$lib/server/plugins/piExtensions/invocation.js";
 import { resolveMiniAppInvocation } from "$lib/server/miniapps/invocation.js";
 import {
   describesUncalledMiniAppTool,
@@ -255,6 +256,7 @@ export class MomRunner implements RunnerLike {
   private activeProject: MomContext["project"] | undefined;
   /** An admitted approval parks the original native owner before any later operation. */
   private activeApprovalSuspension: { requestId: string } | null = null;
+  private activePiExtensionFailure: string | null = null;
   // Method access on purpose: a property read inside run()'s scope is narrowed
   // by control-flow analysis to the run-start `null` assignment (the real
   // assignments happen inside event callbacks), which types a truthy branch as
@@ -269,13 +271,13 @@ export class MomRunner implements RunnerLike {
    * The call's own input side (not the turn aggregate) is what equals the
    * context size the panel displays.
    */
-  async runExtensionCommand(input: { toolName: string; args: string; command: string; respond: (text: string) => Promise<void> }): Promise<RunResult> {
+  async runExtensionCommand(input: { toolName: string; args: string; command: string; respond: (text: string) => Promise<void>; uploadFile?: MomContext["uploadFile"] }): Promise<RunResult> {
     return this.run({
       channel: this.channel, workspaceDir: this.store.getWorkspaceDir(), chatDir: this.store.getChatDir(this.chatId),
       nativeToolCall: { name: input.toolName, args: { args: input.args } },
       message: { chatId: this.chatId, sessionId: this.sessionId, userId: this.chatId, text: `/${input.command} ${input.args}`.trim(), messageId: Date.now(), ts: String(Date.now() / 1000), attachments: [], imageContents: [], chatType: "private" },
       respond: async text => { await input.respond(text); }, replaceMessage: input.respond, respondInThread: input.respond,
-      setWorking: async () => {}, setTyping: async () => {}, deleteMessage: async () => {}, uploadFile: async () => {}
+      setWorking: async () => {}, setTyping: async () => {}, deleteMessage: async () => {}, uploadFile: input.uploadFile ?? (async () => { throw new Error("This channel cannot deliver Pi extension attachments."); })
     });
   }
 
@@ -403,7 +405,8 @@ export class MomRunner implements RunnerLike {
         settings,
         agentId: this.runtimeIdentity?.agentId,
         botProfileDir: this.store.getBotProfileDir(),
-        miniApps: promptMiniApps()
+        miniApps: promptMiniApps(),
+        piExtensions: getPiExtensionHost().getNativeExtensions(settings, this.store.getBotId())
       },
     );
 
@@ -759,6 +762,7 @@ export class MomRunner implements RunnerLike {
     const productionBeforeToolCall = agent.beforeToolCall;
     agent.beforeToolCall = async (context, signal) => {
       this.activeToolAuthority?.(context.toolCall.name, context.toolCall.arguments);
+      if (this.activePiExtensionFailure) return { block: true, reason: "Pi extension execution failed. This run cannot start fallback tools." };
       if (this.activeApprovalSuspension) {
         return {
           block: true,
@@ -954,6 +958,11 @@ export class MomRunner implements RunnerLike {
       this.agent.state.messages = prepareMessagesForModelContext(
         this.store.loadContextForRun(this.chatId, this.sessionId, contextRunId)
       );
+    } else if (!nativeRecovery && !recoveringSuspension) {
+      // Background delivery may commit messages while this idle Runner is cached.
+      this.agent.state.messages = prepareMessagesForModelContext(
+        this.store.loadContext(this.chatId, this.sessionId)
+      );
     }
 
     // Turn-lock heartbeat lease. Started inside the main try block (so the
@@ -1141,6 +1150,7 @@ export class MomRunner implements RunnerLike {
     this.abortRequested = false;
     this.activeDecisionAbortController = null;
     this.activeApprovalSuspension = null;
+    this.activePiExtensionFailure = null;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
     this.activePayloadContext = undefined;
     logRunDetail({
@@ -1290,6 +1300,14 @@ export class MomRunner implements RunnerLike {
       this.memory,
       { sessionId: executionScopeSessionId }
     );
+    // Prompt discovery and tool registration must share the loaded cold-start catalog.
+    await getPiExtensionHost().load().catch(() => undefined);
+    let piInvocation: ReturnType<typeof resolvePiExtensionInvocation> = null;
+    let piInvocationError: unknown;
+    try {
+      if (!miniAppInvocation && !executionPolicy.readOnly && permissionMode !== "plan") piInvocation = resolvePiExtensionInvocation(ctx.message.text, getPiExtensionHost().getNativeExtensions(settings, botId));
+    } catch (error) { piInvocationError = error; }
+    const selectedNativeToolCall = nativeRecovery?.context.nativeToolCall ?? ctx.nativeToolCall ?? (piInvocation ? {name: "piExtensionRun", args: {prompt: enrichedText}} : undefined);
     const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getBotProfileDir());
     // The per-turn memory snapshot and query are intentionally NOT part of this
     // key: the snapshot travels in the user-message envelope, so the system
@@ -1297,6 +1315,7 @@ export class MomRunner implements RunnerLike {
     // provider prefix caching stays valid across turns.
     const runPromptKey = JSON.stringify({
       base: nextPromptKey,
+      piExtensions: getPiExtensionHost().getNativeExtensions(settings, this.store.getBotId()).map(extension => [extension.id, extension.name, extension.description, extension.commandNames]),
       agentId: this.runtimeIdentity?.agentId,
       project: ctx.project ? getProjectPromptRefreshKey(ctx.project) : null
     });
@@ -1313,7 +1332,8 @@ export class MomRunner implements RunnerLike {
           agentId: this.runtimeIdentity?.agentId,
           botProfileDir: this.store.getBotProfileDir(),
           project: ctx.project,
-          miniApps: promptMiniApps()
+          miniApps: promptMiniApps(),
+          piExtensions: getPiExtensionHost().getNativeExtensions(settings, this.store.getBotId())
         },
       );
       if (this.activeHookContext) {
@@ -1481,10 +1501,6 @@ export class MomRunner implements RunnerLike {
       emittedHostBashApprovalIds.add(approval.requestId);
       return true;
     };
-    // Extension tools are collected synchronously inside createMomTools, so the
-    // host must be loaded first: on a cold start the very first turn would
-    // otherwise silently run without any extension-provided tools.
-    await getPiExtensionHost().load().catch(() => undefined);
     const traceContext = this.activeHookContext;
     localTools = createMomTools({
       replyToMessageId: ctx.message.platformParentMessageId,
@@ -1602,6 +1618,7 @@ export class MomRunner implements RunnerLike {
       },
       executionPolicy,
       extensionAbort: () => this.agent.abort(),
+      onPiExtensionFailure: message => { this.activePiExtensionFailure = message; },
       // Compaction costs tokens, so it is unavailable in Plan / read-only runs.
       extensionCompact: executionPolicy.readOnly || permissionMode === "plan" ? undefined : instructions => this.agent.compact(instructions),
       piExtensionRuntime: async () => {
@@ -2233,6 +2250,7 @@ export class MomRunner implements RunnerLike {
       stopTurnHeartbeat = this.turnOrchestratorFactory().startTurnHeartbeat(runId);
       this.activeRunBudget = budget;
       this.agent.startTurn();
+      if (piInvocationError) throw piInvocationError;
       ctx.clientSignal?.addEventListener("abort", onClientDisconnect, { once: true });
       if (ctx.clientSignal?.aborted) onClientDisconnect();
       const executionKey = JSON.stringify([botId, this.channel, this.chatId, this.sessionId, ctx.message.budgetId ?? runId]);
@@ -2247,7 +2265,7 @@ export class MomRunner implements RunnerLike {
           sessionId: this.sessionId, channel: this.channel, actor: ctx.message.userId, workspaceId,
           budgetId: ctx.message.budgetId, runtimeIdentity: this.runtimeIdentity,
           context: { project: ctx.project, modelKeyOverride: ctx.modelKeyOverride, retention: turnRetention, executionPolicy,
-            roomRouting: ctx.roomRouting, nativeToolCall: ctx.nativeToolCall },
+            roomRouting: ctx.roomRouting, nativeToolCall: selectedNativeToolCall },
           transport: ctx.deliveryTarget,
           models: modelCandidates.map(({ model }) => { const { headers: _headers, ...safe } = model; return safe as Model<any>; }), deferred: false });
       } finally { admissionStore.close(); }
@@ -2303,6 +2321,7 @@ export class MomRunner implements RunnerLike {
           if (!started.ok) throw new Error(started.reason);
         },
         beforeGeneration: taskId => {
+          if (this.activePiExtensionFailure) throw new Error(`Pi extension failed: ${this.activePiExtensionFailure}`);
           if (!taskId.includes(":child:")) this.nativeModelTaskId = taskId;
           if (budget.getExceededKind() === "modelFailures") throw new Error(budget.getExceededReason());
         },
@@ -2310,7 +2329,7 @@ export class MomRunner implements RunnerLike {
           // A failed generation reserves one retry; successful tool rounds spend none.
           budget.tryRecordModelFailure(taskId);
         },
-        nativeToolCall: nativeRecovery?.context.nativeToolCall ?? ctx.nativeToolCall,
+        nativeToolCall: selectedNativeToolCall,
         nativeTools: () => localTools.getNativeTools(),
         recoverTools: async names => {
           this.selectedMcpServerIds = new Set(Array.isArray(nativeRecovery?.mcpServerIds ?? recoveringSuspension?.mcpServerIds)
@@ -2933,6 +2952,7 @@ export class MomRunner implements RunnerLike {
               stopReason = "stop";
               break;
             }
+            if (this.activePiExtensionFailure) throw new Error(`Pi extension failed: ${this.activePiExtensionFailure}`);
             if (this.abortRequested) {
               stopReason = "aborted";
             }
@@ -3442,6 +3462,7 @@ export class MomRunner implements RunnerLike {
             attemptCount += 1;
           }
         } catch (error) {
+          if (this.activePiExtensionFailure) throw error;
           if (error instanceof DurableExecutionPromotionHandoff) {
             promotionHandoff = error;
             stopReason = "stop";

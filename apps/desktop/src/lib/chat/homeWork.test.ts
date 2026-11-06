@@ -30,3 +30,15 @@ test('cross-channel read watermark survives a shrinking window and admits only n
   assert.equal(hasUnreadCrossChannel({ latestAt: '2026-11-01T09:01:00Z' }, seen), true);
   assert.equal(hasUnreadCrossChannel({ latestAt: seen }, undefined), true);
 });
+
+
+test('empty successful memory reflection is quiet, while review, output and failures remain visible', () => {
+  const result = { kind: 'memory-reflection' as const, completedTargets: 1, scannedConversations: 495, scannedMessages: 0, createdCandidates: 0, committedMemories: 0, pendingReviewCount: 0, skillDraftCount: 0 };
+  assert.equal(shouldShowHomeTask(task(), {}, result), false);
+  assert.equal(shouldShowHomeTask(task(), {}, { ...result, pendingReviewCount: 2 }), true);
+  assert.equal(shouldShowHomeTask(task(), {}, { ...result, skillDraftCount: 1 }), true);
+  assert.equal(shouldShowHomeTask(task(), {}, { ...result, committedMemories: 1 }), true);
+  assert.equal(shouldShowHomeTask(task('failed'), {}, result), true);
+  assert.equal(shouldShowHomeTask(task('running', { active: true }), {}, result), true);
+  assert.equal(shouldShowHomeTask(task(), {}, { ...result, pendingReviewCount: undefined }), true);
+});

@@ -1,8 +1,10 @@
 <script lang="ts">
+  import type { PiExtensionTerminalSummary } from "@molibot/shared/piExtensionTerminal";
+  import PiExtensionTerminalPanel from "./lib/components/PiExtensionTerminalPanel.svelte";
   import Tuning3 from "./lib/icons/duotone/components/Tuning3.svelte";
   import Button from "./lib/components/ui/Button.svelte";
   import AgentCityStartup from "./lib/chat/AgentCityStartup.svelte";
-  import { isActiveDurableExecution, isOpenDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
+  import { isActiveDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Layers from "./lib/icons/duotone/components/Layers.svelte";
   import SessionActionsMenu from "./lib/chat/SessionActionsMenu.svelte";
@@ -167,7 +169,6 @@
   import ArtifactPanel from "./lib/artifacts/ArtifactPanel.svelte";
   import type { ArtifactScope } from "./lib/artifacts/viewerRegistry";
   import { shouldOpenArtifactAsDiff } from "./lib/artifacts/artifactOpenMode";
-  import DurableExecutionCard from "./lib/chat/DurableExecutionCard.svelte";
   import SessionPlanInspector from "./lib/chat/SessionPlanInspector.svelte";
   import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
@@ -755,12 +756,12 @@
       const signature = `${status}:${item.execution.version}`;
       const previousSignature = observedDurableExecutionSignatures.get(item.execution.id);
       observedDurableExecutionSignatures.set(item.execution.id, signature);
-      if (previousSignature && previousSignature !== signature && item.execution.sourceUiSessionId) {
+      if (previousSignature && (previousSignature !== signature || item.execution.status === "running" || item.execution.status === "queued") && item.execution.sourceUiSessionId) {
         if (projectPaneActive && item.execution.sourceUiSessionId === activeProjectSessionId) reloadActive = true;
         else if (!projectPaneActive && viewMode === "local" && item.execution.sourceUiSessionId === activeSessionId) reloadActive = true;
       }
     }
-    if (reloadActive) {
+    if (reloadActive && !sending) {
       void chatStore.reloadActive();
       void projectChatStore.reloadActive();
     }
@@ -814,7 +815,7 @@
   function startDurableExecutionPolling(): void {
     durableExecutionScheduler?.dispose();
     durableExecutionScheduler = new ActivityScheduler(
-      backgroundActivityPolicy,
+      agentActivityPolicy,
       refreshDurableExecutions,
       documentActivityVisibility
     );
@@ -1235,6 +1236,11 @@
   let agentFilesActive = false;
   $: if (agentFilesActive && (workspacePane !== "chat" || projectPaneActive || roomPaneActive || settingsVisible)) agentFilesActive = false;
   let agentHistoryActive = false;
+  let piAttentionItems: PiExtensionTerminalSummary[] = [];
+  $: piAttention = Object.fromEntries(piAttentionItems.map(item => {
+    const agentId = item.agentId ?? ordinarySessions.find(session => session.sessionId === item.sessionId)?.agentId ?? "";
+    return [agentId, {sessionId:item.sessionId,label:item.requiresReview ? (locale === "zh-CN" ? "需核对" : "Review needed") : (locale === "zh-CN" ? "待确认" : "Needs response")}];
+  }).filter(([id]) => Boolean(id)));
   let ordinarySessions: DesktopConversationItem[] = [];
   let agentHomeSessions: DesktopConversationItem[] = [];
   let agentHomeKey = "";
@@ -1535,12 +1541,10 @@
   $: headerAgentId = viewMode === "external" ? activeExternalAgentId : selectedAgentId;
   $: activeExternalAgentName = activeExternalAgentId ? (agentNameById.get(activeExternalAgentId) ?? activeExternalAgentId) : copy.agentUnassignedName;
   $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
-  $: linkedPlanExecutionIds = new Set(messages.map((message) => message.plan?.durableExecutionId).filter((id): id is string => Boolean(id)));
-  $: sessionDurableExecution = viewMode === "local" && activeSessionId
-    ? (durableExecutions.find((item) => item.execution.sourceUiSessionId === activeSessionId && isOpenDurableExecution(item) && !linkedPlanExecutionIds.has(item.execution.id)) ?? null)
-    : null;
   $: activeDurableExecutions = durableExecutions.filter(isActiveDurableExecution);
   $: durableActiveCount = activeDurableExecutions.length;
+  $: currentSessionId = projectPaneActive ? activeProjectSessionId : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
+  $: currentDurableExecution = activeDurableExecutions.find(item => item.execution.sourceUiSessionId === currentSessionId);
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
   $: searchMatchIds = findTranscriptMatches(viewMode === "external" ? externalTranscript?.messages ?? [] : messages, searchOpen ? searchQuery : "", copy.chatAssistantError);
   $: if (searchMatchIds.length !== previousSearchMatchCount) {
@@ -3737,6 +3741,12 @@
     durableExecutionScheduler?.wake("manual");
   }
 
+  function openActiveDurableExecutionInspector(): void {
+    const executionId = currentDurableExecution?.execution.id;
+    if (executionId) void openDurableExecutionInspector(executionId);
+    else openWorkspacePane("plans");
+  }
+
   function openMiniAppInspector(appId: string, deepLinkPath = ""): void {
     // Opening the panel is the owner seeing whatever the badge was announcing,
     // so the badge is retired here rather than by the app guessing.
@@ -4219,7 +4229,7 @@
     </div>
   {/if}
   {#snippet agentConversationContent()}
-    <AgentNavigation {hasUnassignedHistory} activities={agentActivities} activityReady={agentActivityReady} selectedAgentId={workspacePane === "chat" && !roomPaneActive && !projectPaneActive ? selectedAgentId : ""} overviewActive={workspacePane === "agents"} onOverview={() => openAgentOverview()} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} {locale} {copy} onAgent={openAgentChat} onHistory={openAgentHistory} onFiles={openAgentFiles} onSettings={(id) => void openAgentSettings(id)} />
+    <AgentNavigation attention={piAttention} onAttention={(sessionId,agentId) => void openHandoverSource({sessionId,agentId})} {hasUnassignedHistory} activities={agentActivities} activityReady={agentActivityReady} selectedAgentId={workspacePane === "chat" && !roomPaneActive && !projectPaneActive ? selectedAgentId : ""} overviewActive={workspacePane === "agents"} onOverview={() => openAgentOverview()} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} {locale} {copy} onAgent={openAgentChat} onHistory={openAgentHistory} onFiles={openAgentFiles} onSettings={(id) => void openAgentSettings(id)} />
   {/snippet}
   <ChatSidebar
     conversationContent={agentConversationContent}
@@ -4388,9 +4398,9 @@
           <button
             type="button"
             class="durable-header-badge"
-            aria-label={copy.planBoardNav}
-            title={copy.planBoardNav}
-            onclick={() => openWorkspacePane("plans")}
+            aria-label={copy.durableExecution}
+            title={copy.durableExecution}
+            onclick={openActiveDurableExecutionInspector}
           >
             <Layers size={16} aria-hidden="true" />
             <span>{durableActiveCount > 99 ? "99+" : durableActiveCount}</span>
@@ -4422,8 +4432,8 @@
           {#if conversationDetailActive}
             <SessionActionsMenu {locale}
               onSearch={async (trigger) => { if (!searchOpen) await toggleSearch(); searchReturnFocus = trigger ?? null; await tick(); transcriptSearch?.focus(); }}
-              onCopyPath={() => void copySessionPath({ sessionId: viewMode === "external" ? activeExternalSessionId : activeSessionId, target: "directory" })}
-              onOpenDirectory={() => void revealSessionInFinder({ sessionId: viewMode === "external" ? activeExternalSessionId : activeSessionId, target: "directory" })}
+              onCopyPath={() => void copySessionPath({ sessionId: viewMode === "external" ? activeExternalSessionId : activeSessionId, target: "file" })}
+              onRevealFile={() => void revealSessionInFinder({ sessionId: viewMode === "external" ? activeExternalSessionId : activeSessionId, target: "file" })}
               onDelete={() => deleteAgentConversation(viewMode === "external"
                 ? { sessionId: activeExternalSessionId, botId: activeExternalSessionItem?.botId || "", agentId: activeExternalAgentId }
                 : { sessionId: activeSessionId, botId: activeProfileId, agentId: selectedAgentId })} />
@@ -4649,14 +4659,6 @@
               onResolve={resolveApprovalId}
             />
           </div>
-        {/if}
-        {#if sessionDurableExecution}
-          <DurableExecutionCard
-            item={sessionDurableExecution}
-            {copy}
-            formatTime={formatListTime}
-            onOpen={openDurableExecutionInspector}
-          />
         {/if}
       </ChatMessagesPane>
       {/if}
@@ -5055,3 +5057,5 @@
     {onHapticCommit}
   />
 {/if}
+
+<PiExtensionTerminalPanel onAttention={items => piAttentionItems = items} endpoint={connectedEndpoint ?? ""} connected={serviceState === "ready"} {locale} sessionId={projectPaneActive ? activeProjectSessionId ?? "" : viewMode === "external" ? activeExternalSessionId ?? "" : activeSessionId ?? ""} visible={!settingsVisible && workspacePane === "chat" && !draftMode && !agentFilesActive && !agentHistoryActive && !roomPaneActive} />

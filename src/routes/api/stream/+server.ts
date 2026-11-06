@@ -24,10 +24,13 @@ import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
 import { buildRunnerProjectContext, resolveProjectContext } from "$lib/server/projects/context";
 import { parseStreamRequest, type ParsedStreamRequest } from "./request";
 import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
+import { activateDurableExecution } from "$lib/server/agent/durable/activation.js";
 import {
-  activateDurableExecution,
-  formatDurableActivationAcknowledgement
-} from "$lib/server/agent/durable/activation.js";
+  ensureDurableConversationResponse,
+  liveResponseMessage,
+  persistDurableConversationInput,
+} from "$lib/server/agent/durable/conversation.js";
+import { subscribeLiveConversation, type LiveConversationMessage } from "$lib/server/agent/durable/liveResponse.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
 import { tryAutoSummarizeConversationTitleAsync, hasDefaultConversationTitle } from "$lib/server/sessions/titleSummarizer.js";
 
@@ -259,13 +262,10 @@ export const POST: RequestHandler = async ({ request }) => {
   // Retry gate, not a first-turn gate (see /api/chat): retry while the title is
   // still the default; the summarizer's own title check protects renames.
   const shouldSummarizeTitle = !resumePlanId && hasDefaultConversationTitle(conversation.title);
-  {
-    runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
-      attachments: sessionAttachments,
-      contextBacked: true,
-      retention: turnRetention
-    });
-  }
+  const inputMessage = runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
+    attachments: sessionAttachments,
+    retention: turnRetention
+  });
 
   const encoder = new TextEncoder();
 
@@ -313,24 +313,108 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error;
   }
   if (durable) {
-    const response = formatDurableActivationAcknowledgement(
-      durable.item,
-      isChineseLocale(runtime.getSettings().locale)
-    );
+    persistDurableConversationInput(store, runtime.sessions, runnerChatId, inputMessage);
+    const responseId = ensureDurableConversationResponse(runtime.sessions, durable.item.execution, isChineseLocale(runtime.getSettings().locale));
+    const executionId = durable.item.execution.id;
+    const durableCoordinator = new DurableExecutionCoordinator();
+    const activeStatuses = new Set(["planned", "queued", "running", "verifying"]);
+    let streamText = "";
+    let streamThinking = "";
+    let emittedActivities = new Set<string>();
+    let stopHeartbeat: (() => void) | null = null;
+    let unsubscribe: (() => void) | null = null;
+    let statusTimer: ReturnType<typeof setInterval> | null = null;
+    let finished = false;
+    const cleanup = () => {
+      stopHeartbeat?.();
+      unsubscribe?.();
+      if (statusTimer) clearInterval(statusTimer);
+      stopHeartbeat = null;
+      unsubscribe = null;
+      statusTimer = null;
+    };
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        writeEvent(controller, encoder, "token", { delta: response });
-        writeEvent(controller, encoder, "done", {
+        const finish = (message: LiveConversationMessage, status: string) => {
+          if (finished) return;
+          finished = true;
+          if (message.content !== streamText) writeEvent(controller, encoder, "replace", { text: message.content });
+          const stopReason = status === "completed" ? "stop"
+            : status === "cancelled" ? "aborted"
+            : status === "waiting_for_user" ? "waiting_for_user"
+            : status === "waiting_for_approval" ? "waiting_for_approval"
+            : "error";
+          writeEvent(controller, encoder, "done", {
+            ok: status !== "failed" && status !== "recovery_required" && status !== "partial",
+            response: message.content,
+            conversationId: conversation.id,
+            profileId,
+            stopReason,
+            durableExecution: (() => {
+              try { return durableCoordinator.inspect("owner", executionId); } catch { return durable.item; }
+            })(),
+            diagnostics: [`activation=${durable.decision.activationPath}`, `reason=${durable.decision.reason}`, `status=${status}`],
+            thinkingText: message.thinking ?? streamThinking
+          });
+          cleanup();
+          try { controller.close(); } catch { /* the client may already be gone */ }
+        };
+        const emit = (message: LiveConversationMessage) => {
+          if (finished || message.id !== responseId) return;
+          if (message.content !== streamText) {
+            streamText = message.content;
+            writeEvent(controller, encoder, "replace", { text: streamText });
+          }
+          const thinking = message.thinking ?? "";
+          if (thinking.startsWith(streamThinking) && thinking.length > streamThinking.length) {
+            const delta = thinking.slice(streamThinking.length);
+            streamThinking = thinking;
+            writeEvent(controller, encoder, "thinking_delta", { delta });
+          } else if (thinking && thinking !== streamThinking) {
+            streamThinking = thinking;
+            writeEvent(controller, encoder, "thinking_delta", { delta: `\n\n${thinking}` });
+          }
+          for (const activity of message.activities ?? []) {
+            if (emittedActivities.has(activity.key) && activity.state !== "success" && activity.state !== "error") continue;
+            emittedActivities.add(activity.key);
+            writeEvent(controller, encoder, "runner_event", { diagnostic: "", activity });
+          }
+        };
+        stopHeartbeat = startStreamHeartbeat(controller, encoder);
+        writeEvent(controller, encoder, "durable_start", {
           ok: true,
-          response,
+          response: "",
           conversationId: conversation.id,
-          profileId,
-          stopReason: "stop",
           durableExecution: durable.item,
-          diagnostics: [`activation=${durable.decision.activationPath}`, `reason=${durable.decision.reason}`],
-          thinkingText: ""
+          diagnostics: [`activation=${durable.decision.activationPath}`, `reason=${durable.decision.reason}`]
         });
-        controller.close();
+        const responseRow = runtime.sessions.listMessageMetadata(conversation.id).find(message => message.id === responseId);
+        if (responseRow?.liveResponse) emit(liveResponseMessage(responseRow));
+        unsubscribe = subscribeLiveConversation(conversation.id, emit);
+        const checkStatus = () => {
+          if (finished) return;
+          try {
+            const detail = durableCoordinator.inspect("owner", executionId);
+            const status = detail.execution.status;
+            if (!activeStatuses.has(status)) {
+              const row = runtime.sessions.listMessageMetadata(conversation.id).find(message => message.id === responseId);
+              finish(row?.liveResponse ? liveResponseMessage(row) : {
+                ...(row ?? { id: responseId ?? executionId, conversationId: conversation.id, role: "assistant", content: streamText, createdAt: new Date().toISOString() }),
+                content: streamText,
+                thinking: streamThinking,
+                stopReason: "running"
+              } as LiveConversationMessage, status);
+            }
+          } catch {
+            // The live stream observes execution; polling errors must not cancel it.
+          }
+        };
+        statusTimer = setInterval(checkStatus, 1_000);
+        checkStatus();
+      },
+      cancel() {
+        finished = true;
+        cleanup();
       }
     });
     return new Response(stream, {

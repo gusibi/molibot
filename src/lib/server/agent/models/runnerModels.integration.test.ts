@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-for (const mode of ["codemode", "extension", "manual", "plan", "command", "stream", "deferred", "stream_cancel", "manual_stream", "compact", "native_extension", "native_command", "native_custom"]) test(`production Runner ${mode} uses native model ownership and the original Session`, { timeout: 60000 }, async () => {
+for (const mode of ["codemode", "extension", "manual", "plan", "command", "stream", "deferred", "stream_cancel", "manual_stream", "compact", "native_extension", "native_command", "native_custom", "native_failure", "native_image", "native_blank", "native_many_images", "native_observe", "native_route", "native_missing"]) test(`production Runner ${mode} uses native model ownership and the original Session`, { timeout: 60000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "molibot-model-runner-"));
   const child = fork("evals/fixtures/pi-model-runner-worker.ts", [], {
     execArgv: ["--import", "./scripts/register-loader.js", "--import", "tsx"],
@@ -30,6 +30,23 @@ for (const mode of ["codemode", "extension", "manual", "plan", "command", "strea
       } else assert.equal(result.messages.find((message: any) => message.role === "toolResult")?.isError, true, JSON.stringify(result.messages));
       return;
     }
+    if (["native_failure", "native_blank"].includes(mode)) {
+      assert.equal(result.outcome.stopReason, "error", JSON.stringify(result));
+      assert.equal(result.fallbackExecuted, false, "later shell calls in the same batch must not execute after native failure");
+      assert.equal(result.generations, 1, "native failure must not trigger fallback or empty-response retry");
+      assert.deepEqual(result.ledger, mode === "native_blank" ? ["stream", "stream", "stream"] : ["stream"]);
+      assert.equal(result.uploaded.length, 0);
+      assert.match(result.outcome.errorMessage, mode === "native_blank" ? /blank|transparent/ : /Fixture native model failed/);
+      return;
+    }
+    if (mode === "native_missing") {
+      assert.equal(result.outcome.stopReason,"error");
+      assert.equal(result.runnerStillRunning,false,"unavailable selectors must release the Runner");
+      assert.equal(result.generations,0);
+      assert.deepEqual(result.ledger,[]);
+      assert.match(result.outcome.errorMessage,/unavailable or disabled/);
+      return;
+    }
     assert.equal(result.outcome.stopReason, "stop", JSON.stringify(result));
     if (mode === "native_command") {
       assert.deepEqual(result.ledger, []);
@@ -38,6 +55,25 @@ for (const mode of ["codemode", "extension", "manual", "plan", "command", "strea
       assert.equal(result.nativeTerminals[0].status, "completed");
       assert.equal(result.nativeTerminals[0].sessionId, "session");
       assert.equal(result.modelBudgetReceipts.length, 0);
+      return;
+    }
+    if (["native_image", "native_many_images"].includes(mode)) {
+      assert.equal(result.uploaded.length, 1, "native tool image must go through the channel attachment adapter");
+      assert.equal(result.uploaded[0].data, result.fixtureImageData);
+      assert.equal(result.nativeTerminals[0].status, "completed");
+      assert.ok(result.messages.some((message:any)=>message.role === "toolResult" && JSON.stringify(message).includes("Delivered 1 image attachment")));
+      return;
+    }
+    if (mode === "native_route") {
+      assert.equal(result.generations,0,"explicit extension invocation must bypass model tool selection");
+      assert.equal(result.fallbackExecuted,false);
+      assert.deepEqual(result.ledger,["stream"]);
+      assert.ok(result.messages.some((message:any)=>message.toolName === "piExtensionRun"));
+      return;
+    }
+    if (mode === "native_observe") {
+      assert.equal(result.uploaded.length,0,"intermediate observations must never be auto-published");
+      assert.equal(result.nativeTerminals[0].status,"completed");
       return;
     }
     if (mode === "native_custom") {
@@ -57,7 +93,10 @@ for (const mode of ["codemode", "extension", "manual", "plan", "command", "strea
       assert.equal(result.modelBudgetReceipts.length, 1);
       assert.equal(result.receipts.filter((row: any) => String(row.requestId).includes(":extension:model:")).length, 1);
       assert.ok(JSON.stringify(result.messages).includes("Streamed fixture"));
-      assert.ok(JSON.stringify(result.requestContexts[0]).includes('"name":"piExtensionRun"'));
+      const piTool = result.requestContexts[0].exposedTools.find((tool: any) => tool.name === 'piExtensionRun');
+      assert.ok(piTool?.parameters.properties.prompt, 'native entry must expose the real task schema on the first model request');
+      assert.ok(piTool.description.includes('fixture'), 'installed extensions must be discoverable without guessing toolSearch keywords');
+      assert.ok(JSON.stringify(result.requestContexts[0]).includes('<installed-pi-extensions>'), 'first model request must include the loaded extension catalog');
       assert.ok(!JSON.stringify(result.requestContexts[0]).includes('"name":"model_fixture"'));
       return;
     }

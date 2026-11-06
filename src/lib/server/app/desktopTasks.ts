@@ -218,6 +218,8 @@ function projectSystemTaskResult(value: unknown): DesktopSystemTaskExecutionResu
       scannedConversations: executionCount(result.scannedConversations),
       scannedMessages: executionCount(result.scannedMessages),
       createdCandidates: executionCount(result.createdCandidates),
+      ...(typeof result.pendingReviewCount === "number" ? { pendingReviewCount: executionCount(result.pendingReviewCount) } : {}),
+      ...(typeof result.skillDraftCount === "number" ? { skillDraftCount: executionCount(result.skillDraftCount) } : {}),
       ...(typeof result.committedMemories === "number" ? { committedMemories: executionCount(result.committedMemories) } : {})
     };
   }

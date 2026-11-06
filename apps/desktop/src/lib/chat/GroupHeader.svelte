@@ -44,7 +44,7 @@
 </script>
 
 <div class="conv-group-head" class:open class:active>
-  <button class="conv-group-toggle" type="button" aria-current={active ? "page" : undefined} aria-expanded={expandable ? open : undefined} onclick={onToggle}>
+  <button class="conv-group-toggle" type="button" aria-label={label} aria-current={active ? "page" : undefined} aria-expanded={expandable ? open : undefined} onclick={onToggle}>
     <span class="conv-group-tile" aria-hidden="true">{#if avatar}{@render avatar()}{:else}<GroupIcon class="conv-group-icon" size={16} weight="Filled" />{/if}</span>
     <span class="conv-group-label">{label}</span>
     {#if status}{@render status()}{/if}

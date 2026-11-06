@@ -159,8 +159,24 @@ _Avoid_: Privacy flag, temporary prompt instruction
 A target-specific, non-cascading destructive operation, not a retention policy. A request must identify a memory item, message/turn, or Session; deleting conversation data tombstones its search projection, while deleting a memory also suppresses re-import of the same item. To remove both a source turn and a derived memory, name both targets.
 _Avoid_: Don't remember, hide, reset context
 
+**Kanban Task（看板任务）**:
+A user-delegated goal assigned to one Agent or an Agent Team, with a stable identity across execution, collaboration, waiting, and delivery. It may belong to a Project; it is distinct from a scheduling rule, a conversation, and one execution round.
+_Avoid_: Runtime Task, Mini App Todo, Room execution
+
+**Todo / Doing / Done（看板阶段）**:
+Todo means accepted but not started; Doing means started and not yet completed, including waits; Done means the task's completion conditions have been met, including human acceptance when required. These are stages of a Kanban Task, not individual Agent execution outcomes.
+_Avoid_: Runtime Task.todo, successful Run as task completion
+
+**Team Coordinator（团队负责人）**:
+The Agent responsible for choosing the next team member to advance a Kanban Task and deciding whether the combined results satisfy its completion conditions. This responsibility is distinct from an Agent Room's Primary Agent, which only selects the default recipient of a message.
+_Avoid_: Primary Agent, last speaker
+
+**Member Handoff（成员交接）**:
+A transfer of responsibility for advancing a Kanban Task from one executing team member to another, including a return for revision. Initial assignment and coordinator-only scheduling do not count as member handoffs; model turns inside one member's execution are counted separately.
+_Avoid_: model turn, tool call, coordinator decision as a handoff
+
 **Runtime Task**:
-A user-manageable Agent Runtime work item stored as watched-event JSON. Runtime Task is the only CRUD aggregate: `todo` is unscheduled and never dispatched, `one-shot` represents a reminder, and `periodic` represents an automation.
+A user-manageable Agent Runtime scheduling item stored as watched-event JSON. Within watched-event scheduling, Runtime Task is the only CRUD aggregate: `todo` is unscheduled and never dispatched, `one-shot` represents a reminder, and `periodic` represents an automation. It is distinct from a Kanban Task delegated to an Agent or Team.
 _Avoid_: Mini App Todo, Event, Notification
 
 **Runtime Event**:

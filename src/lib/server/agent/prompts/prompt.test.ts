@@ -902,3 +902,22 @@ test("shared collaboration rules reach every Agent exactly once alongside its ow
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("installed native Pi extensions are routed through the real entry and respect Agent disablement", () => {
+  const workspace = mkdtempSync(join(tmpdir(), "molibot-prompt-pi-routing-"));
+  try {
+    const piExtensions = [{id:'fixture-capture',name:'Fixture Capture',description:'Read a window and capture its image',commandNames:['capture']}];
+    const render = (settings = defaultRuntimeSettings) => buildSystemPromptPreview(workspace,'chat','session','(none)',{channel:'web',settings,agentId:'fixture',piExtensions});
+    const prompt = render();
+    assert.match(prompt, /<installed-pi-extensions>/);
+    assert.match(prompt, /fixture-capture/);
+    assert.match(prompt, /piExtensionRun\(\{prompt\}\)/);
+    assert.match(prompt, /never generate an approval response/);
+    assert.match(prompt, /Deliver output images as attachments/);
+    const hidden = render({...defaultRuntimeSettings,agents:[{id:'fixture',disabledTools:['piExtensionRun']} as any]});
+    assert.doesNotMatch(hidden, /<installed-pi-extensions>|fixture-capture/);
+    const absent = buildSystemPromptPreview(workspace,'chat','session','(none)',{channel:'web',settings:defaultRuntimeSettings});
+    assert.doesNotMatch(absent, /<installed-pi-extensions>/);
+    assert.equal(prompt.slice(0,prompt.indexOf('<installed-mini-apps>') === -1 ? prompt.indexOf('<installed-pi-extensions>') : prompt.indexOf('<installed-mini-apps>')).includes('fixture-capture'),false);
+  } finally {rmSync(workspace,{recursive:true,force:true});}
+});

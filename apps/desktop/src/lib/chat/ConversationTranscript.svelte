@@ -278,6 +278,7 @@
         {#if turnSections.process.length}
           <TurnProcess
             blocks={turnSections.process}
+            live={message.stopReason === "running"}
             {resolveImage}
             {copy}
             stateKey={`${key}:process`}

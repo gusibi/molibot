@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test, expect } from "./support/fixtures";
-import { openChat, openSettings, composer } from "./support/actions";
+import { openChat, openSettings, composer, replyTo, sendText, expectReply } from "./support/actions";
 
 test("Pi extension manager installs a local package and preserves enablement across service restart @pi-extensions", async ({ page, instance }, testInfo) => {
   // WebKit cancels the unrelated home acknowledgement on the deliberate reload.
@@ -82,14 +82,18 @@ test("Pi extension manager installs a local package and preserves enablement acr
   await expect(chineseManager.getByText("尚未安装 Pi 扩展。", { exact: false })).toBeVisible();
 });
 
-test("Pi terminal renders ANSI, forwards human input, stops and reopens @pi-extensions", async ({ page }, testInfo) => {
+test("Pi terminal renders ANSI, forwards human input, stops and reopens @pi-extensions", async ({ page, instance }, testInfo) => {
   let active = false;
   let status = "running";
   let reviewed = false;
+  let sharingStatus = "unverified";
+  let sharingRetryable = false;
+  let rejectSharingRetry = true;
   const inputs: string[] = [];
   const sizes: number[][] = [];
+  let scope = "";
   const frame = "\x1b[2J\x1b[H\x1b[32mNative Pi choice\x1b[0m\r\nPress Enter to continue";
-  const summary = () => ({id:"terminal-fixture",sessionId:"session",runId:"run",extensionIds:["fixture"],createdAt:Date.now(),status,contextReviewed:reviewed,requiresReview:status==="stopped"&&!reviewed});
+  const summary = () => ({id:"terminal-fixture",sessionId:scope,runId:"run",extensionIds:["fixture"],createdAt:Date.now(),status,sharingStatus,sharingRetryable,customInteraction:status==="running",contextReviewed:reviewed,requiresReview:status==="stopped"&&!reviewed});
   await page.route("**/api/settings/plugins/extensions/terminal*", async route => {
     const request = route.request();
     if (request.method() === "POST") {
@@ -97,7 +101,11 @@ test("Pi terminal renders ANSI, forwards human input, stops and reopens @pi-exte
       expect(action.id).toBe("terminal-fixture");
       if (action.action === "input") inputs.push(action.data);
       if (action.action === "resize") sizes.push([action.columns, action.rows]);
-      if (action.action === "stop") status = "stopped";
+      if (action.action === "stop") {status = "stopped";sharingStatus="unknown";sharingRetryable=true;}
+      if (action.action === "retrySharing") {
+        if(rejectSharingRetry){rejectSharingRetry=false;await route.fulfill({status:409,json:{ok:false,error:"Fixture sharing stop failed"}});return;}
+        sharingStatus="released";sharingRetryable=false;
+      }
       if (action.action === "review") reviewed = true;
       await route.fulfill({json:{ok:true}});
     } else {
@@ -107,6 +115,11 @@ test("Pi terminal renders ANSI, forwards human input, stops and reopens @pi-exte
     }
   });
   await openChat(page);
+  replyTo(instance.model, "Pi terminal UI fixture", {type:"text",text:"Pi fixture ready"});
+  page.on("request", request => {if(request.url().endsWith("/api/stream") && request.method() === "POST") scope=request.postDataJSON().conversationId;});
+  await sendText(page,"Pi terminal UI fixture");
+  await expectReply(page,"Pi fixture ready");
+  expect(scope).not.toBe("");
   await composer(page).fill("Draft while a background task starts");
   await composer(page).focus();
   active = true;
@@ -118,7 +131,10 @@ test("Pi terminal renders ANSI, forwards human input, stops and reopens @pi-exte
   await expect(panel).toBeVisible();
   await expect(panel.locator(".xterm-accessibility-tree")).toContainText("Native Pi choice");
   const input = panel.getByRole("textbox", {name:"Pi terminal input",exact:true});
-  await input.focus();
+  await panel.locator(".pi-terminal-surface").click({position:{x:40,y:40}});
+  await expect(input).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(() => inputs.join("")).toContain("\u001b[B");
   await page.keyboard.type("hello");
   await page.keyboard.press("Enter");
   await expect.poll(() => inputs.join("")).toContain("hello\r");
@@ -128,7 +144,13 @@ test("Pi terminal renders ANSI, forwards human input, stops and reopens @pi-exte
   await page.getByRole("button",{name:"Pi Extension Terminal · ●",exact:true}).click();
   await expect(panel.locator(".xterm-accessibility-tree")).toContainText("Native Pi choice");
   await panel.getByRole("button",{name:"Stop task",exact:true}).click();
-  await expect(panel.getByRole("status")).toContainText("stopped");
+  await expect(panel.getByRole("status").filter({hasText:"Native task stopped"})).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Effects checked — allow a fresh context",exact:true})).toBeDisabled();
+  await panel.getByRole("button",{name:"Retry stopping sharing",exact:true}).click();
+  await expect(panel.getByRole("alert")).toHaveText("Fixture sharing stop failed");
+  await panel.getByRole("button",{name:"Retry stopping sharing",exact:true}).click();
+  await expect(panel.getByRole("status").filter({hasText:"sharing was stopped and verified"})).toBeVisible();
+  await expect(panel.getByRole("button",{name:"Retry stopping sharing",exact:true})).toHaveCount(0);
   const before = inputs.length;
   await panel.getByRole("textbox",{name:"Pi terminal input",exact:true}).focus();
   await page.keyboard.type("ignored");
@@ -183,4 +205,77 @@ test("Web extension runtime selection persists and rejected saves retain the sto
   await page.getByRole("button",{name:"Theme",exact:true}).click();
   await page.getByText("Navigate Settings",{exact:true}).click();
   await extensionSettings.screenshot({path:testInfo.outputPath("pi-web-runtime-en-dark-mobile.png")});
+});
+
+test("Pi dialogs accept human replies in the current chat and stay out of other pages @pi-extensions", async ({page,instance},testInfo) => {
+  await page.routeWebSocket(url => url.searchParams.has('token'), () => {});
+  let scope = "unrelated-session";
+  let status = "running";
+  let dialog: any = {id:'pi-dialog-1',kind:'select',title:'Allow Computer Use to use Fixture?',options:['Allow once','Allow for this session','Always allow','Decline']};
+  const replies: any[] = [];
+  let rejectFirst = true;
+  await page.route("**/api/settings/plugins/extensions/terminal*",async route=>{
+    if(route.request().method()==='POST') {
+      const action=route.request().postDataJSON();
+      expect(action.action).toBe('respond');
+      expect(action.id).toBe('chat-pi-terminal');
+      expect(action.dialogId).toBe(dialog.id);
+      replies.push(action);
+      if(rejectFirst){rejectFirst=false;await route.fulfill({status:409,json:{ok:false,error:'Fixture reply rejected'}});return;}
+      if(dialog.kind==='select') dialog={id:'pi-dialog-2',kind:'input',title:'Fixture file name',placeholder:'Name'};
+      else {dialog=undefined;status='completed';}
+      await route.fulfill({json:{ok:true}});return;
+    }
+    await route.fulfill({json:{ok:true,terminals:[
+      {id:'chat-pi-terminal',sessionId:scope,agentId:scope==='unrelated-session'?undefined:'default',runId:'run',extensionIds:['fixture'],status,dialog,createdAt:1},
+      {id:'unrelated-pi-terminal',sessionId:'another-chat',runId:'other',extensionIds:['other'],status:'running',customInteraction:true,createdAt:1},
+      {id:'old-pi-terminal',sessionId:scope,runId:'old',extensionIds:['fixture'],status:'completed',createdAt:1}
+    ]}});
+  });
+  await openChat(page);
+  await expect(page.getByRole('button',{name:/Pi Extension Terminal|Pi extension needs your response/})).toHaveCount(0);
+  await expect(page.getByRole('dialog',{name:dialog.title,exact:true})).toHaveCount(0);
+  replyTo(instance.model,'Pi dialog UI fixture',{type:'text',text:'Pi dialog fixture ready'});
+  page.on('request',request=>{if(request.url().endsWith('/api/stream')&&request.method()==='POST')scope=request.postDataJSON().conversationId;});
+  await sendText(page,'Pi dialog UI fixture');
+  await expectReply(page,'Pi dialog fixture ready');
+  expect(scope).not.toBe('unrelated-session');
+  const choice=page.getByRole('dialog',{name:'Allow Computer Use to use Fixture?',exact:true});
+  await expect(choice).toBeVisible();
+  await expect(choice.getByRole('button',{name:'Always allow',exact:true})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(choice).toBeHidden();
+  await openSettings(page);
+  await expect(page.getByRole('button',{name:/Pi Extension Terminal|Pi extension needs your response/})).toHaveCount(0);
+  await expect(choice).toBeHidden();
+  await page.locator('.settings-back').click();
+  await expect(choice).toBeVisible();
+  await choice.getByRole('button',{name:'Allow once',exact:true}).click();
+  await expect(choice.getByRole('alert')).toHaveText('Fixture reply rejected');
+  await choice.getByRole('button',{name:'Allow once',exact:true}).click();
+  const input=page.getByRole('dialog',{name:'Fixture file name',exact:true});
+  await expect(input).toBeVisible();
+  await expect(choice).toBeHidden();
+  await input.getByRole('textbox',{name:'Fixture file name',exact:true}).fill('fixture-image.png');
+  await page.keyboard.press('Escape');
+  await expect(input).toBeHidden();
+  await page.getByRole('button',{name:'UI Second',exact:true}).click();
+  await expect(input).toBeHidden();
+  await expect(page.locator('.agent-navigation-attention')).toHaveText('Needs response');
+  await page.getByRole('button',{name:'Momo',exact:true}).click();
+  await expect(input).toBeVisible();
+  await expect(input.getByRole('textbox',{name:'Fixture file name',exact:true})).toHaveValue('fixture-image.png');
+  await page.keyboard.press('Escape');
+  await openSettings(page);
+  await page.locator('.settings-back').click();
+  await expect(input).toBeVisible();
+  await expect(input.getByRole('textbox',{name:'Fixture file name',exact:true})).toHaveValue('fixture-image.png');
+  await page.setViewportSize({width:390,height:844});
+  expect(await input.evaluate(element=>element.scrollWidth<=element.clientWidth)).toBe(true);
+  await input.screenshot({path:testInfo.outputPath('pi-chat-input-mobile.png')});
+  await input.getByRole('button',{name:'Submit',exact:true}).click();
+  await expect(input).toBeHidden();
+  await expect(page.getByRole('button',{name:/Pi Extension Terminal|Pi extension needs your response/})).toHaveCount(0);
+  await expect(page.locator('.agent-navigation-attention')).toHaveCount(0);
+  expect(replies.map(reply=>[reply.dialogId,reply.value])).toEqual([['pi-dialog-1','Allow once'],['pi-dialog-1','Allow once'],['pi-dialog-2','fixture-image.png']]);
 });

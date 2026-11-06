@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatMemoryReflectionSummary } from "@molibot/shared/memoryReflection";
   import { loadDesktopHomeTaskResult } from '../api';
   import { collectTurnFiles, type TurnFileItem } from './turnFiles';
   import Button from '../components/ui/Button.svelte';
@@ -34,7 +35,7 @@
   {:else if detail}
     {#if detail.execution?.result?.kind === 'memory-reflection'}
       {@const result = detail.execution.result}
-      <p>{zh ? `整理了 ${result.scannedConversations} 段对话、${result.scannedMessages} 条消息，产生 ${result.createdCandidates} 条记忆候选。` : `Reviewed ${result.scannedConversations} conversations and ${result.scannedMessages} messages; created ${result.createdCandidates} memory candidates.`}</p>
+      <p>{formatMemoryReflectionSummary(result, zh)}</p>
     {:else if detail.execution?.result?.kind === 'daily-materials'}
       <p>{zh ? '本次生成的素材' : 'Materials from this execution'}</p>
       {#each detail.execution.result.createdFiles as file}<p class="agent-home-work-text">{file}</p>{/each}

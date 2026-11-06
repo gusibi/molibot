@@ -512,7 +512,7 @@ test('home keeps task outcomes and reads the exact execution with retry @agent-h
 
 });
 
-test('home result cards reserve four lines for both short and long tasks @agent-home', async ({ page }) => {
+test('home result cards fit their content without reserved blank rows @agent-home', async ({ page, instance }) => {
   await page.route('**/api/desktop/tasks', route => route.fulfill({ json: { ok: true, summary: {
     items: ['Short task', 'Long task instructions '.repeat(80)].map((text, i) => ({
       id: `size-${i}`, taskId: `size-${i}`, category: 'user', systemKind: '', botId: 'default', projectId: '', type: 'periodic', enabled: true, text, status: 'pending', active: false, updatedAt: '2026-11-01T01:00:00Z',
@@ -523,18 +523,28 @@ test('home result cards reserve four lines for both short and long tasks @agent-
   await openChat(page);
   const cards = page.locator('.agent-home-work-card');
   await expect(cards).toHaveCount(2);
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 860, 390]) {
     await page.setViewportSize({ width, height: 1024 });
+    await expect.poll(() => cards.first().evaluate(node => node.getBoundingClientRect().height), { message: `Compact short card at ${width}px` }).toBeLessThan(180);
     const bounds = await cards.evaluateAll(nodes => nodes.map(node => {
       const title = node.querySelector('.agent-home-work-title')!;
       return { height: node.getBoundingClientRect().height, titleHeight: title.getBoundingClientRect().height,
         limit: parseFloat(getComputedStyle(title).lineHeight) * 4,
+        summaryTop: node.querySelector('.agent-home-work-summary')!.getBoundingClientRect().top,
+        titleBottom: title.getBoundingClientRect().bottom,
+        actionsTop: node.querySelector('.agent-home-work-actions')!.getBoundingClientRect().top,
+        summaryBottom: node.querySelector('.agent-home-work-summary')!.getBoundingClientRect().bottom,
         buttonBottom: node.querySelector('.agent-home-work-actions')!.getBoundingClientRect().bottom - node.getBoundingClientRect().top };
     }));
-    expect(Math.abs(bounds[0].height - bounds[1].height)).toBeLessThan(1);
-    expect(bounds[0].height).toBeLessThan(350);
+    expect(bounds[0].height).toBeLessThan(180);
+    expect(bounds[0].height).toBeLessThan(bounds[1].height);
     expect(bounds[1].titleHeight).toBeLessThanOrEqual(bounds[1].limit + 1);
-    expect(Math.abs(bounds[0].buttonBottom - bounds[1].buttonBottom)).toBeLessThan(1);
+    for (const card of bounds) {
+      expect(card.summaryTop - card.titleBottom).toBeLessThanOrEqual(12);
+      expect(card.actionsTop - card.summaryBottom).toBeLessThanOrEqual(12);
+      expect(card.buttonBottom).toBeLessThan(card.height);
+    }
+    expect(await cards.evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1))).toBe(true);
   }
   await page.setViewportSize({ width: 1440, height: 1024 });
   await page.evaluate(() => {
@@ -544,7 +554,17 @@ test('home result cards reserve four lines for both short and long tasks @agent-
     }
   });
   await expect(cards).toHaveCount(2);
-  await page.locator('.agent-home-work').screenshot({ path: '.test-tmp/home-fixed-card-height.png' });
+  await page.locator('.agent-home-work').screenshot({ path: '.test-tmp/home-content-sized-cards.png' });
+  await page.getByRole('button', { name: 'UI Second', exact: true }).click();
+  await page.getByRole('button', { name: 'Momo', exact: true }).click();
+  await expect(cards).toHaveCount(2);
+  await page.getByRole('button', { name: 'UI Second', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'UI Second' })).toBeVisible();
+  await instance.restartService();
+  await page.reload();
+  await page.getByRole('button', { name: 'Momo', exact: true }).click();
+  await expect(cards).toHaveCount(2);
+  await expect.poll(() => cards.first().evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(180);
 });
 
 test('cross-channel summary stays read after return and reload until a newer reply arrives @agent-home', async ({ page, instance }) => {

@@ -69,7 +69,8 @@ import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInter
 import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
 import { MemoryMaintenanceService, MemoryMaintenanceStore, type MemoryMaintenanceTarget } from "$lib/server/memory/maintenance.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
-import { planExecutionPolicy, deliverPlanAttempt } from "$lib/server/agent/plans/sessionDelivery.js";
+import { planExecutionPolicy } from "$lib/server/agent/plans/sessionDelivery.js";
+import { deliverDurableAttempt, updateDurableConversationOutput, updateDurableConversationProgress } from "$lib/server/agent/durable/conversation.js";
 import { DurableExecutionRuntime } from "$lib/server/agent/durable/runtime.js";
 import { getMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 import {
@@ -104,7 +105,7 @@ interface RuntimeState {
   sessionTrashCleanup: SessionTrashCleanupService;
   sessionBulk: SessionBulkService;
   sessionExtraction: SessionExtractionService;
-  runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
+  runInternalEvent: (event: MomEvent, filename: string) => Promise<InternalTaskExecutionResult | void>;
   hookManager: HookManager;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
@@ -633,7 +634,7 @@ function initializeRuntime(): RuntimeState {
     ): Promise<void> => {
       await deliverMemoryTaskNotification(state.channelManagers, currentSettings.value, text, { kind, filename });
     };
-    const deliverReflectionReview = async (result: OwnerMemoryReflectionResult, filename: string): Promise<void> => {
+    const deliverReflectionReview = async (result: OwnerMemoryReflectionResult & { pendingReviewCount?: number; skillDraftCount?: number }, filename: string): Promise<void> => {
       const target = resolveMemoryReflectionNotificationTarget(currentSettings.value);
       if (!target) return;
       const localDate = result.localDate || previousReflectionLocalDate(new Date(), currentSettings.value.timezone);
@@ -644,8 +645,8 @@ function initializeRuntime(): RuntimeState {
         candidateIds: result.pendingReviewCandidateIds
       });
       await sendMemoryNotice(formatOwnerMemoryReflectionNotification(result, {
-        pendingReviewCount: batch.items.length,
-        skillDraftCount: batch.skillDraftCount
+        pendingReviewCount: result.pendingReviewCount ?? batch.items.length,
+        skillDraftCount: result.skillDraftCount ?? batch.skillDraftCount
       }), "memory-reflection", filename);
       const delivery = await deliverMemoryReviewBatch(state.channelManagers, memoryReview, batch);
       console.log(
@@ -679,12 +680,17 @@ function initializeRuntime(): RuntimeState {
         const result: OwnerMemoryReflectionResult = {
           ...extracted, completedTargets: targets.length, failedTargets: 0
         };
+        const pending = result.pendingReviewCandidateIds.map(id => memory.getCandidate(id)).filter(candidate => candidate?.status === "pending");
+        const review = {
+          pendingReviewCount: pending.filter(candidate => !candidate!.skillDraftSuggestion).length,
+          skillDraftCount: pending.filter(candidate => candidate!.skillDraftSuggestion).length
+        };
         console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
-        if (currentSettings.value.plugins.memory.reflectionNotifications) await deliverReflectionReview(result, filename);
+        if (currentSettings.value.plugins.memory.reflectionNotifications) await deliverReflectionReview({ ...result, ...review }, filename);
         return {
           kind: "memory-reflection", completedTargets: result.completedTargets,
           scannedConversations: result.scannedConversations, scannedMessages: result.scannedMessages,
-          createdCandidates: result.createdCandidates, committedMemories: result.committedMemories
+          createdCandidates: result.createdCandidates, committedMemories: result.committedMemories, ...review
         };
       }
       if (event.internal?.kind === "memory-maintenance") {
@@ -820,11 +826,13 @@ function initializeRuntime(): RuntimeState {
         console.error(`${runtimeLabel("runtime")} durable_execution_store_fatal ${error.message}`);
       },
       resolvePlanPolicy: (_execution, binding) => planExecutionPolicy(state.settings, binding),
-      onPlanAttempt: input => deliverPlanAttempt(state.sessions, input)
+      onAttemptProgress: (execution, activities) => updateDurableConversationProgress(state.sessions, execution, activities),
+      onAttemptOutput: (execution, runId, field, delta) => updateDurableConversationOutput(state.sessions, execution, runId, field, delta),
+      onAttemptDelivery: input => deliverDurableAttempt(state.sessions, input)
     });
     if (!liveServicesDisabled()) {
       const durableStartup = durableExecutionRuntime.start();
-      void durableExecutionRuntime.reconcilePlanDeliveries();
+      void durableExecutionRuntime.reconcileAttemptDeliveries();
       if (durableStartup.started) {
         console.log(
           `[runtime] durable_execution_started reconciled=${durableStartup.reconciled} enqueued=${durableStartup.enqueued}`

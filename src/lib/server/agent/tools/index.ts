@@ -217,6 +217,7 @@ export function createMomTools(options: {
   extensionNativeModels?: import("$lib/server/plugins/piExtensions/toolBridge.js").PiExtensionToolOptions["nativeModels"];
   /** Abort the run from a pi extension (`ctx.abort()`). */
   extensionAbort?: () => void;
+  onPiExtensionFailure?: (message: string) => void;
   /** Trigger compaction from a pi extension (`ctx.compact()`). */
   extensionCompact?: (instructions?: string) => void | Promise<void>;
 }): MomTools {
@@ -1130,15 +1131,9 @@ export function createMomTools(options: {
   if (nativeExtensions.length > 0 && !agentDisabledTools.has("piExtensionRun")) {
     nativePiTool = createPiExtensionRunTool({ cwd: options.cwd, reservedToolNames: new Set(), sessionId: options.sessionId, runId: options.runId, botId, getSettings: options.getSettings,
       runtime: options.piExtensionRuntime, executeTool: executeExtensionTool, streamModel: extensionStream, modelOperations: codemodeModels,
-      nativeModels: options.extensionNativeModels, abort: options.extensionAbort, compact: options.extensionCompact, toolCatalog: extensionToolCatalog });
-    const nativeEntry = createDeferredToolEntry({
-      name: "piExtensionRun", description: "Run installed Pi extensions with their original interactive UI and lifecycle.",
-      keywords: ["pi", "extension", "terminal", "扩展", "终端", ...nativeExtensions.flatMap((extension) => [extension.id, extension.name, ...extension.toolNames, ...extension.commandNames])],
-      tool: nativePiTool,
-      loadDeferredTools
-    });
-    deferredTools.push(nativeEntry.entry);
-    if (nativeEntry.stub) tools.push(nativeEntry.stub);
+      nativeModels: options.extensionNativeModels, abort: options.extensionAbort, compact: options.extensionCompact, toolCatalog: extensionToolCatalog,
+      agentId: options.agentId ?? options.usageAgentId, imageOutputDir: outputLayout.scratchRoot, onFailure: options.onPiExtensionFailure });
+    tools.push(nativePiTool);
   }
 
   const commandTools = createPiExtensionCommandTools(piHost.getServerExtensions(options.getSettings(), botId), {

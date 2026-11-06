@@ -31,6 +31,25 @@ export interface TraceNode {
   attemptIndex?: number;
   candidateIndex?: number;
 }
+export interface TraceTokenTotals {
+  /** Uncached prompt tokens; providers report cache read/write separately. */
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+  /** cacheRead / (input + cacheRead + cacheWrite); null without any reported prompt tokens. */
+  hitRate: number | null;
+}
+
+export interface TraceSessionUsage {
+  runs: number;
+  modelCalls: number;
+  tokens: TraceTokenTotals;
+  /** Full prompt of the session's earliest model call (system prompt + tool schemas + first message). */
+  firstPromptTokens?: number;
+}
+
 export interface TraceReport {
   version: 1;
   generatedAt: string;
@@ -42,7 +61,22 @@ export interface TraceReport {
   toolCalls: number;
   totalTokens: number | null;
   usageComplete: boolean;
+  tokens: TraceTokenTotals;
+  session: TraceSessionUsage;
   nodes: TraceNode[];
+}
+
+function sumTokenTotals(facts: readonly { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; totalTokens?: number }[]): TraceTokenTotals {
+  const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+  for (const fact of facts) {
+    totals.input += fact.inputTokens ?? 0;
+    totals.output += fact.outputTokens ?? 0;
+    totals.cacheRead += fact.cacheReadTokens ?? 0;
+    totals.cacheWrite += fact.cacheWriteTokens ?? 0;
+    totals.total += fact.totalTokens ?? (fact.inputTokens ?? 0) + (fact.outputTokens ?? 0) + (fact.cacheReadTokens ?? 0) + (fact.cacheWriteTokens ?? 0);
+  }
+  const promptSide = totals.input + totals.cacheRead + totals.cacheWrite;
+  return { ...totals, hitRate: promptSide > 0 ? totals.cacheRead / promptSide : null };
 }
 
 /** Scope is supplied by the authenticated host or the executing tool, never by the model. */
@@ -69,12 +103,21 @@ export function queryTraceReport(store: SqliteTraceStore, target: TraceTarget, s
   const hasUsage = models.some(f => f.totalTokens !== undefined);
   const nodeId = (f: TraceFactRecord) => `${f.runId}:${f.factType}:${f.factId}`;
   const active = root.status === "started" || root.status === "waiting";
+  // Session totals aggregate every recorded run of this conversation, so the
+  // turn view can be read against the lifetime of the session it belongs to.
+  const sessionFacts = store.listFactsBySessionId(root.sessionId).filter(matches);
+  const sessionModels = sessionFacts.filter(f => f.factType === "model_call");
+  const sessionRuns = new Set(sessionFacts.filter(f => f.factType === "run").map(f => f.runId));
+  const firstCall = sessionModels.filter(f => f.startedAt).sort((a, b) => Date.parse(a.startedAt!) - Date.parse(b.startedAt!))[0];
+  const firstPromptTokens = firstCall ? (firstCall.inputTokens ?? 0) + (firstCall.cacheReadTokens ?? 0) + (firstCall.cacheWriteTokens ?? 0) : 0;
   return {
     version: 1, generatedAt: now.toISOString(), runId: root.runId, status: root.status, startedAt: root.startedAt,
     durationMs: active && root.startedAt ? Math.max(0, now.getTime() - Date.parse(root.startedAt)) : root.durationMs,
     modelCalls: models.length, toolCalls: facts.filter(f => f.factType === "tool_call").length,
     totalTokens: hasUsage ? models.reduce((n, f) => n + (f.totalTokens ?? 0), 0) : null,
     usageComplete: models.length > 0 && models.every(f => f.totalTokens !== undefined) && facts.filter(f => f.factType === "subagent_task").every(task => models.some(model => model.parentFactId === `subagent_task:${task.factId}`)),
+    tokens: sumTokenTotals(models),
+    session: { runs: sessionRuns.size, modelCalls: sessionModels.length, tokens: sumTokenTotals(sessionModels), ...(firstPromptTokens > 0 ? { firstPromptTokens } : {}) },
     nodes: facts.map(f => ({
       id: nodeId(f), parentId: f.factType === "run" ? undefined : f.parentFactId ? `${f.runId}:${f.parentFactId}` : nodeId(root),
       factId: f.factId, factType: f.factType, name: f.name, provider: f.provider, model: f.model,
@@ -131,10 +174,12 @@ export function queryTurnTraceReport(store: SqliteTraceStore, runIds: string[], 
   if (reports.length === 1) return reports[0];
   const starts = reports.flatMap(r => r.startedAt ? [Date.parse(r.startedAt)] : []);
   const endTimes = reports.flatMap(r => r.startedAt && r.durationMs !== undefined ? [Date.parse(r.startedAt) + r.durationMs] : []);
+  const tokens = sumTokenTotals(reports.flatMap(r => r.nodes).filter(node => node.factType === "model_call"));
   return { ...reports[0], runId: ids.join(", "), startedAt: starts.length ? new Date(Math.min(...starts)).toISOString() : undefined,
     durationMs: starts.length === reports.length && endTimes.length === reports.length ? Math.max(...endTimes) - Math.min(...starts) : undefined,
     status: reports.some(r => r.status === "started" || r.status === "waiting") ? "started" : reports.every(r => r.status === "success") ? "success" : "warning",
     totalTokens: reports.some(r => r.totalTokens !== null) ? reports.reduce((n,r) => n + (r.totalTokens ?? 0), 0) : null,
-    usageComplete: reports.every(r => r.usageComplete), modelCalls: reports.reduce((n,r) => n+r.modelCalls,0), toolCalls: reports.reduce((n,r) => n+r.toolCalls,0), nodes: reports.flatMap(r => r.nodes)
+    usageComplete: reports.every(r => r.usageComplete), modelCalls: reports.reduce((n,r) => n+r.modelCalls,0), toolCalls: reports.reduce((n,r) => n+r.toolCalls,0),
+    tokens, session: reports[0].session, nodes: reports.flatMap(r => r.nodes)
   };
 }

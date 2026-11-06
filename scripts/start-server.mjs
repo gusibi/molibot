@@ -63,6 +63,11 @@ if (process.env.MOLIBOT_DESKTOP_MANAGED !== "1" && installFileLogger) {
 const packageInfo = JSON.parse(readFileSync(path.join(releaseRoot, "package.json"), "utf8"));
 process.env.NODE_ENV ||= "production";
 process.env.HOST ||= "127.0.0.1";
+// The published endpoint uses `localhost` for loopback binds: macOS system-proxy
+// bypass lists usually cover `localhost` but not the `127.0.0.1` literal, so the
+// literal routed every desktop API call through an intercepting VPN proxy
+// (2026-11-06). Non-loopback binds keep the configured host verbatim.
+const serviceConnectHost = process.env.HOST === "127.0.0.1" ? "localhost" : process.env.HOST;
 const preferredPort = process.env.PORT || readConfiguredServicePort(dataDir);
 process.env.PORT = String(await findAvailableServicePort(preferredPort, process.env.HOST));
 process.env.MOLIBOT_VERSION ||= String(packageInfo.version || "0.0.0");
@@ -137,7 +142,7 @@ if (process.env.MOLIBOT_DESKTOP_MANAGED === "1") {
 try {
   writeServiceState(lease, {
     status: "starting",
-    endpoint: `http://${process.env.HOST}:${process.env.PORT}`,
+    endpoint: `http://${serviceConnectHost}:${process.env.PORT}`,
     version: process.env.MOLIBOT_VERSION,
     protocolVersion: 1,
     managedByDesktop: process.env.MOLIBOT_DESKTOP_MANAGED === "1"
@@ -153,7 +158,7 @@ try {
   }
   const address = httpServer?.address?.();
   const actualPort = typeof address === "object" && address ? address.port : Number(process.env.PORT);
-  const endpoint = `http://${process.env.HOST}:${actualPort}`;
+  const endpoint = `http://${serviceConnectHost}:${actualPort}`;
   const bootstrapResponse = await fetch(`${endpoint}/health`);
   if (!bootstrapResponse.ok) {
     throw new Error(`Runtime bootstrap failed: HTTP ${bootstrapResponse.status}`);

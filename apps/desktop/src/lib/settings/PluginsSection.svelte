@@ -437,7 +437,7 @@
           <div class="plugin-catalog-row">
             <button class="plugin-identity-button" type="button" onclick={() => openPluginDetail(plugin.id)}>
               <span class="plugin-icon" aria-hidden="true">{#if plugin.iconUri}<img src={pluginIconSource(plugin.iconUri)} alt="" width="24" height="24" />{:else}{plugin.name.charAt(0).toUpperCase()}{/if}</span>
-              <span class="plugin-copy"><span class="plugin-title-line"><strong>{plugin.name}</strong><small>{plugin.version === "built-in" ? plugin.sourceKind : `v${plugin.version} · ${plugin.sourceKind}`}</small></span><span class="plugin-description">{plugin.description}</span></span>
+              <span class="plugin-copy"><span class="plugin-title-line"><strong>{plugin.name}</strong><small>{plugin.version === "built-in" ? plugin.sourceKind : `v${plugin.version} · ${plugin.sourceKind}`}</small></span><span class="plugin-description" title={plugin.description}>{plugin.description}</span></span>
             </button>
             <span class="plugin-row-actions"><IosSwitch checked={plugin.enabled} ariaLabel={plugin.name} onCheckedChange={(enabled) => togglePlugin(plugin, enabled)} /><button class="secondary-button" type="button" onclick={() => openPluginDetail(plugin.id)}>{plugin.hasSettings ? copy.settings : copy.details}</button></span>
           </div>
@@ -454,7 +454,7 @@
       <SettingGroup contentClass="plugin-summary-card">
         <div class="plugin-summary">
           <span class="plugin-icon large" aria-hidden="true">{#if selectedPlugin.iconUri}<img src={pluginIconSource(selectedPlugin.iconUri)} alt="" width="40" height="40" />{:else}{selectedPlugin.name.charAt(0).toUpperCase()}{/if}</span>
-          <span class="plugin-copy"><span class="plugin-title-line"><strong>{selectedPlugin.name}</strong><small>{selectedPlugin.version === "built-in" ? selectedPlugin.sourceKind : `v${selectedPlugin.version} · ${selectedPlugin.sourceKind}`}</small></span><span class="plugin-description">{selectedPlugin.description}</span></span>
+          <span class="plugin-copy"><span class="plugin-title-line"><strong>{selectedPlugin.name}</strong><small>{selectedPlugin.version === "built-in" ? selectedPlugin.sourceKind : `v${selectedPlugin.version} · ${selectedPlugin.sourceKind}`}</small></span><span class="plugin-description" title={selectedPlugin.description}>{selectedPlugin.description}</span></span>
           <span class="plugin-summary-toggle"><small>{selectedPlugin.enabled ? copy.enabled : copy.disabled}</small><IosSwitch checked={selectedPlugin.enabled} ariaLabel={selectedPlugin.name} onCheckedChange={(enabled) => togglePlugin(selectedPlugin, enabled)} /></span>
         </div>
       </SettingGroup>

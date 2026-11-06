@@ -3,6 +3,7 @@
   import SettingRow from "../components/ui/SettingRow.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
+  import SearchField from "../components/ui/SearchField.svelte";
   import { piExtensionsCopy } from "../i18n";
   import { loadDesktopPiExtensions, runDesktopPiExtensionAction, type DesktopPiExtension, type DesktopPiExtensionAction } from "../api";
   import { notifySettingsChanged } from "../stores/session.svelte";
@@ -115,14 +116,14 @@
   <SettingRow title={copy.master} description={copy.masterHint}>
     <IosSwitch checked={masterDraft ?? masterEnabled} ariaLabel={copy.master} disabled={!ready || busy || loading} onCheckedChange={(enabled) => toggle(enabled)} />
   </SettingRow>
-  <SettingRow title={copy.mode} description={copy.modeHint}>
+  <SettingRow title={copy.mode} description={copy.modeHint} alignTop>
     <SelectControl value={mode} options={[{value:"native",label:copy.nativeMode},{value:"server",label:copy.serverMode}]} disabled={!ready || busy || loading} ariaLabel={copy.mode} onChange={(value) => act({action:"setMode",mode:value === "native" ? "native" : "server"})} />
   </SettingRow>
   <div class="pi-extensions-content">
     <form class="pi-install-form" onsubmit={(event) => { event.preventDefault(); void act({ action: "resolve", input: input.trim() }); }}>
       <label for="pi-extension-source">{copy.source}</label>
       <div class="pi-source-row">
-        <input id="pi-extension-source" class="text-input" placeholder={copy.placeholder} bind:value={input} disabled={busy} oninput={() => { preview = null; }} />
+        <input id="pi-extension-source" placeholder={copy.placeholder} bind:value={input} disabled={busy} oninput={() => { preview = null; }} />
         <button class="secondary-button" type="submit" disabled={!ready || busy || loading || !input.trim()}>{copy.inspect}</button>
       </div>
     </form>
@@ -134,55 +135,46 @@
       </div>
     {/if}
     {#if error}<p class="pi-error" role="alert">{error}</p>{/if}
-    {#if message}<p role="status">{message}</p>{/if}
+    {#if message}<p class="pi-message" role="status">{message}</p>{/if}
     {#if loading}<p class="pi-secondary" role="status">{copy.loading}</p>
     {:else if ready && extensions.length === 0}<p class="pi-secondary">{copy.empty}</p>
     {:else if ready}
-      <input class="text-input" type="search" aria-label={copy.search} placeholder={copy.search} bind:value={search} />
-      {#if filtered.length === 0}<p class="pi-secondary">{copy.noMatch}</p>{/if}
-      {#each filtered as extension (extension.id)}
-        <article class="pi-extension-row" aria-label={extension.name}>
-          <div class="pi-extension-heading">
-            <div class="pi-extension-identity"><strong>{extension.name}</strong>{#if extension.version !== "unknown"}<span class="pi-secondary">v{extension.version}</span>{/if}</div>
-            <IosSwitch checked={toggleDrafts[extension.id] ?? extension.enabled} ariaLabel={extension.name} disabled={busy || loading} onCheckedChange={(enabled) => toggle(enabled, extension.id)} />
-          </div>
-          <p class="pi-secondary">{extension.error ? copy.error : !masterEnabled ? copy.paused : extension.enabled ? copy.enabled : copy.disabled}{extension.disabledBots.length ? ` · ${copy.restricted}` : ""}</p>
-          {#if extension.description}<p>{extension.description}</p>{/if}
-          <details>
-            <summary>{copy.tools}: {extension.toolNames.length} · {copy.commands}: {extension.commandNames.length} · {copy.events}: {extension.eventNames.length}</summary>
-            {#if extension.toolNames.length}<p>{copy.tools}: {extension.toolNames.join(", ")}</p>{/if}
-            {#if extension.commandNames.length}<p>{copy.commands}: {extension.commandNames.map((name) => `/${name}`).join(", ")}</p>{/if}
-            {#if extension.eventNames.length}<p>{copy.events}: {extension.eventNames.join(", ")}</p>{/if}
-            {#if extension.unsupported.length}<p>{copy.unsupported}: {extension.unsupported.join(", ")}</p>{/if}
-          </details>
-          {#if extension.error}<p class="pi-error">{extension.error}</p>{/if}
-          <div class="pi-row-actions">
-            {#if removing === extension.id}
-              <span>{copy.confirmUninstall}</span>
-              <button class="secondary-button" type="button" disabled={busy} onclick={() => removing = null}>{copy.cancel}</button>
-              <button class="danger-button" type="button" disabled={busy} onclick={() => act({ action: "uninstall", id: extension.id })}>{copy.uninstall}</button>
-            {:else}<button class="tertiary-button" type="button" disabled={busy} onclick={() => removing = extension.id}>{copy.uninstall}</button>{/if}
-          </div>
-        </article>
-      {/each}
+      <div class="pi-extensions-list">
+        <SearchField value={search} label={copy.search} placeholder={copy.search} onInput={(value) => search = value} />
+        {#if filtered.length === 0}<p class="pi-secondary">{copy.noMatch}</p>{/if}
+        {#each filtered as extension (extension.id)}
+          <article class="pi-extension-row" aria-label={extension.name}>
+            <span class="plugin-icon" aria-hidden="true">{extension.name.charAt(0).toUpperCase()}</span>
+            <div class="plugin-copy">
+              <div class="plugin-title-line"><strong>{extension.name}</strong>{#if extension.version !== "unknown"}<small>v{extension.version}</small>{/if}</div>
+              {#if extension.description}<span class="plugin-description" title={extension.description}>{extension.description}</span>{/if}
+              {#if extension.error || !masterEnabled || !extension.enabled || extension.disabledBots.length > 0}
+                <div class="pi-extension-meta">
+                  <span class:pi-status-error={Boolean(extension.error)}>{extension.error ? copy.error : !masterEnabled ? copy.paused : extension.enabled ? copy.enabled : copy.disabled}</span>
+                  {#if extension.disabledBots.length > 0}<span>{copy.restricted}</span>{/if}
+                </div>
+              {/if}
+              <details class="pi-extension-detail">
+                <summary>{copy.tools}: {extension.toolNames.length} · {copy.commands}: {extension.commandNames.length} · {copy.events}: {extension.eventNames.length}</summary>
+                {#if extension.toolNames.length}<p>{copy.tools}: {extension.toolNames.join(", ")}</p>{/if}
+                {#if extension.commandNames.length}<p>{copy.commands}: {extension.commandNames.map((name) => `/${name}`).join(", ")}</p>{/if}
+                {#if extension.eventNames.length}<p>{copy.events}: {extension.eventNames.join(", ")}</p>{/if}
+                {#if extension.unsupported.length}<p>{copy.unsupported}: {extension.unsupported.join(", ")}</p>{/if}
+              </details>
+              {#if extension.error}<p class="pi-error">{extension.error}</p>{/if}
+            </div>
+            <span class="plugin-row-actions">
+              <IosSwitch checked={toggleDrafts[extension.id] ?? extension.enabled} ariaLabel={extension.name} disabled={busy || loading} onCheckedChange={(enabled) => toggle(enabled, extension.id)} />
+              {#if removing === extension.id}
+                <span class="pi-confirm">{copy.confirmUninstall}</span>
+                <button class="secondary-button" type="button" disabled={busy} onclick={() => removing = null}>{copy.cancel}</button>
+                <button class="danger-button" type="button" disabled={busy} onclick={() => act({ action: "uninstall", id: extension.id })}>{copy.uninstall}</button>
+              {:else}<button class="tertiary-button" type="button" disabled={busy} onclick={() => removing = extension.id}>{copy.uninstall}</button>{/if}
+            </span>
+          </article>
+        {/each}
+      </div>
     {/if}
-    <p class="pi-secondary">{copy.boundary}</p>
+    <p class="pi-boundary">{copy.boundary}</p>
   </div>
 </SettingGroup>
-
-<style>
-  .pi-extensions-content { display: grid; gap: 16px; padding: 16px; min-width: 0; }
-  .pi-install-form { display: grid; gap: 8px; }
-  .pi-source-row, .pi-extension-heading, .pi-row-actions { display: flex; align-items: center; gap: 12px; }
-  .pi-source-row input { flex: 1; min-width: 0; }
-  .pi-extension-heading { justify-content: space-between; }
-  .pi-extension-identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
-  .pi-extension-row { border-top: 1px solid var(--separator); padding-top: 16px; display: grid; gap: 8px; min-width: 0; }
-  .pi-row-actions { justify-content: flex-end; flex-wrap: wrap; }
-  .pi-install-preview { display: grid; justify-items: start; gap: 8px; }
-  p { margin: 0; overflow-wrap: anywhere; }
-  .pi-secondary { color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
-  .pi-error { color: var(--danger); white-space: pre-wrap; }
-  summary { cursor: pointer; font-size: var(--fs-meta); line-height: var(--lh-meta); overflow-wrap: anywhere; }
-  @media (max-width: 520px) { .pi-source-row { align-items: stretch; flex-direction: column; } }
-</style>

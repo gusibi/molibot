@@ -26,6 +26,9 @@ interface ProjectSessionsIndex {
 }
 
 export interface UiMessageMetadata extends Omit<ConversationMessage, "content"> {
+  /** Display-only checkpoint of an unfinished answer; never used as model context. */
+  liveResponse?: { runId: string; text: string; thinking: string };
+  thinking?: string;
   /** Normal chat content comes from Agent entries; only display-only messages keep content here. */
   content?: string;
   contextBacked: boolean;
@@ -670,6 +673,22 @@ export class SessionStore {
       }
     }
     return message;
+  }
+
+  /** Updates one displayed response while preserving its position and identity. */
+  updateConversationMessage(
+    conversationId: string,
+    messageId: string,
+    patch: Partial<Pick<UiMessageMetadata, "content" | "sourceEntryId" | "contextBacked" | "activities" | "stopReason" | "resultKind" | "liveResponse" | "thinking" | "steps">>
+  ): void {
+    const located = this.resolveSessionStorage(conversationId);
+    const message = located?.file.messageMetadata.find(item => item.id === messageId);
+    if (!located || !message) throw new Error("Conversation message is unavailable.");
+    Object.assign(message, patch);
+    if (message.contextBacked) delete message.content;
+    located.file.conversation.updatedAt = new Date().toISOString();
+    if (located.type === "web") writeWebSession(located.externalUserId, located.file);
+    else if (located.type === "project") writeProjectSession(located.projectId, located.file);
   }
 
   updateConversationPlan(

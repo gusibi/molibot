@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { formatMemoryReflectionSummary } from "@molibot/shared/memoryReflection";
   import { loadDesktopTasks, loadDesktopPlans, loadDesktopTaskSession, runDesktopTaskAction } from '../api';
   import { untrack } from 'svelte';
   import { shouldShowHomeTask, readHomeReceipts, markHomeReceipt, type HomeReceipts } from './homeWork';
   import type { TurnFileItem } from './turnFiles';
   import HomeTaskResult from './HomeTaskResult.svelte';
   import Button from '../components/ui/Button.svelte';
-  import type { DesktopTaskItem, DesktopPlanListItem } from '@molibot/desktop-contract';
+  import type { DesktopSystemTaskExecutionResult, DesktopTaskItem, DesktopPlanListItem } from '@molibot/desktop-contract';
   let { endpoint, locale, stale, revision, formatTime, onPlans, onTasks, onFiles, onResultFile, agentLabel } : {
     agentLabel: (id: string) => string;
     endpoint: string; locale: string; stale: boolean; revision: string;
@@ -19,6 +20,7 @@
   let selected = $state('');
   let selectedExecutionId = $state('');
 
+  let outcomes = $state<Record<string, DesktopSystemTaskExecutionResult>>({});
   let summaries = $state<Record<string, string>>({});
   let receipts = $state<HomeReceipts>({});
   let storageError = $state(false);
@@ -27,7 +29,7 @@
   let generation = 0;
   let detailGeneration = 0;
   const zh = $derived(locale === 'zh-CN');
-  const visible = $derived(tasks.filter(t => selected === t.id || shouldShowHomeTask(t, receipts)));
+  const visible = $derived(tasks.filter(t => selected === t.id || shouldShowHomeTask(t, receipts, outcomes[t.executions[0]?.id])));
   const visiblePlans = $derived(plans.filter(plan => plan.status !== 'completed' || receipts[`plan:${plan.planId}`] !== `${plan.version}:${plan.updatedAt}`));
   const labels = $derived<Record<string,string>>(zh ? { running:'执行中', retry_wait:'等待重试', completed:'已完成', failed:'执行失败', aborted:'已停止', interrupted:'已中断', skipped:'已跳过', waiting_approval:'待审批', queued:'排队中', verifying:'验证中', paused:'已暂停', partial:'部分完成', cancelled:'已取消', planned:'待启动', waiting_for_user:'需要你处理', waiting_for_approval:'待审批', recovery_required:'需要恢复' } : { running:'Running', retry_wait:'Retry pending', completed:'Completed', failed:'Failed', aborted:'Stopped', interrupted:'Interrupted', skipped:'Skipped', waiting_approval:'Approval required', queued:'Queued', verifying:'Verifying', paused:'Paused', partial:'Partially complete', cancelled:'Cancelled', planned:'Planned', waiting_for_user:'Your input needed', waiting_for_approval:'Approval required', recovery_required:'Recovery required' });
   async function refresh(target = endpoint) {
@@ -45,9 +47,8 @@
         const session = await loadDesktopTaskSession(target, task.id, task.executions[0].id);
         if (request !== generation || endpoint !== target) return;
         const outcome = session.execution?.result;
-        if (outcome?.kind === 'memory-reflection') summaries[task.id] = zh
-          ? `整理 ${outcome.scannedConversations} 段对话 · ${outcome.createdCandidates} 条候选${outcome.committedMemories === undefined ? '' : ` · 保存 ${outcome.committedMemories} 条记忆`}`
-          : `${outcome.scannedConversations} conversations · ${outcome.createdCandidates} candidates${outcome.committedMemories === undefined ? '' : ` · ${outcome.committedMemories} memories saved`}`;
+        if (outcome) outcomes[task.executions[0].id] = outcome;
+        if (outcome?.kind === 'memory-reflection') summaries[task.id] = formatMemoryReflectionSummary(outcome, zh);
         else if (outcome?.kind === 'daily-materials') summaries[task.id] = zh ? `生成 ${outcome.createdFiles.length} 份素材` : `${outcome.createdFiles.length} materials created`;
       }));
     } catch { if (request === generation) error = true; }
@@ -60,7 +61,7 @@
     });
     const sync = (event: StorageEvent) => { if (event.key === `molibot-home-read:${target}`) receipts = readHomeReceipts(event.newValue); };
     window.addEventListener('storage', sync);
-    tasks = []; plans = []; summaries = {}; selected = ''; selectedExecutionId = ''; loading = true;
+    tasks = []; plans = []; summaries = {}; outcomes = {}; selected = ''; selectedExecutionId = ''; loading = true;
     if (!target) loading = false;
     return () => { window.removeEventListener('storage', sync); generation++; detailGeneration++; };
   });

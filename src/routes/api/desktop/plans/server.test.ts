@@ -11,7 +11,7 @@ const { getDurableExecutionStore } = await import("$lib/server/agent/durable/sto
 const { config } = await import("$lib/server/app/env.js");
 const { DurableExecutionRuntime } = await import("$lib/server/agent/durable/runtime.js");
 const startWorker = mock.method(DurableExecutionRuntime.prototype, "start");
-const reconcileDeliveries = mock.method(DurableExecutionRuntime.prototype, "reconcilePlanDeliveries");
+const reconcileDeliveries = mock.method(DurableExecutionRuntime.prototype, "reconcileAttemptDeliveries");
 assert.equal(config.dataDir, root);
 const { storageMigrationStatus, confirmStorageMigration } = await import("$lib/server/sessions/agentStorageLifecycle.js");
 if (storageMigrationStatus().needed) await confirmStorageMigration();

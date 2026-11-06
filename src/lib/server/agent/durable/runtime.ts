@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { ConversationActivityCollector } from "$lib/server/app/conversationActivity.js";
+import type { ConversationActivity } from "$lib/shared/types/message.js";
 import { randomUUID } from "node:crypto";
 import { momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { PROCESS_OWNER_ID } from "$lib/server/agent/eventsLeaseStore.js";
@@ -23,6 +25,7 @@ import {
   DurableExecutionStoreFailedError
 } from "./store.js";
 import { DurableExecutionStore } from "./store.js";
+import { endDurableConversationOutput, updateDurableConversationOutput, type DurableAttemptDelivery } from "./conversation.js";
 
 export interface DurableExecutionRuntimeOptions {
   channelManagers: Map<string, Map<string, ChannelManager>>;
@@ -38,7 +41,9 @@ export interface DurableExecutionRuntimeOptions {
   /** Hook for the process supervisor; the store is unusable after this fires. */
   onStoreFatal?: (error: Error) => void;
   resolvePlanPolicy?: (execution: DurableExecution, binding: import("./types.js").PlanBinding) => import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
-  onPlanAttempt?: (input: { execution: DurableExecution; binding: import("./types.js").PlanBinding; runId: string; text: string }) => void | Promise<void>;
+  onAttemptProgress?: (execution: DurableExecution, activities: ConversationActivity[]) => void;
+  onAttemptOutput?: (execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string) => void;
+  onAttemptDelivery?: (input: DurableAttemptDelivery) => void | Promise<void>;
   queryableProbes?: Record<string, DurableQueryableProbe>;
 }
 
@@ -365,16 +370,16 @@ export class DurableExecutionRuntime {
     return this.store.reconcileOrphanedAttempts(this.processOwnerId);
   }
 
-  async reconcilePlanDeliveries(): Promise<void> {
-    if (!this.options.onPlanAttempt) return;
-    for (const pending of this.store.pendingPlanDeliveries()) {
+  async reconcileAttemptDeliveries(): Promise<void> {
+    if (!this.options.onAttemptDelivery) return;
+    for (const pending of this.store.pendingAttemptDeliveries()) {
       const execution = this.store.getById(pending.executionId);
       const binding = this.store.getPlanBinding(pending.executionId);
-      if (!execution || !binding) continue;
+      if (!execution) continue;
       try {
-        await this.options.onPlanAttempt({ execution, binding: { ...binding, sessionId: pending.sessionId }, runId: pending.runId, text: pending.text });
-        this.store.markPlanDelivered(pending.runId);
-      } catch (error) { momWarn("durableExecution", "plan_feedback_failed", { executionId: execution.id, error: String(error) }); }
+        await this.options.onAttemptDelivery({ execution, binding: binding ? { ...binding, sessionId: pending.sessionId } : undefined, sessionId: pending.sessionId, runId: pending.runId, text: pending.text });
+        this.store.markAttemptDelivered(pending.runId);
+      } catch (error) { momWarn("durableExecution", "attempt_delivery_failed", { executionId: execution.id, error: String(error) }); }
     }
   }
 
@@ -596,15 +601,13 @@ export class DurableExecutionRuntime {
       return { kind: "done" };
     }
 
-    // Session-originated executions (accepted plans, promoted runs) continue the
-    // conversation they came from so the owner can see the LLM calls, tool
-    // activity and output in the same Session. Only work without a source
-    // Session (scheduled/Project tasks) runs in a fresh task archive.
+    // Attempt instructions stay in an internal archive; only results return to the receiving conversation.
     const binding = this.store.getPlanBinding(detail.execution.id);
     const savedInput = binding ? this.store.getPlanInput(detail.execution.id) : undefined;
     const meta = binding ? this.store.getPlanMeta(detail.execution.id) : undefined;
     const task = binding ? this.store.getPlanTasks(detail.execution.id, detail.execution.currentPlanVersion).find(task => task.steps.some(item => item.id === step.id)) : undefined;
-    const sourceUiSessionId = binding ? undefined : detail.execution.sourceUiSessionId?.trim();
+    const deliverySessionId = binding?.sessionId ?? detail.execution.sourceUiSessionId?.trim();
+    const activityCollector = new ConversationActivityCollector();
     const inbound: ChannelInboundMessage = {
       chatId: sourceChatId,
       chatType: "private",
@@ -619,8 +622,7 @@ export class DurableExecutionRuntime {
       taskId: binding ? `durable-plan:${detail.execution.id}:${step.id}` : taskEvent.taskId,
       projectId: detail.execution.sourceProjectId,
       agentId: binding?.agentId,
-      ...(sourceUiSessionId ? { sessionId: sourceUiSessionId } : {}),
-      sessionMode: sourceUiSessionId ? "chat" : "fresh",
+      sessionMode: "fresh",
       runId,
       budgetId: JSON.stringify([detail.execution.ownerId, input.executionId, detail.execution.currentPlanVersion, step.id])
     };
@@ -734,6 +736,27 @@ export class DurableExecutionRuntime {
             control.signal.throwIfAborted();
           } : () => control.signal.throwIfAborted() },
         onRunnerEvent: async (runnerEvent) => {
+          if (runnerEvent.type === "assistant_message_event"
+            && (runnerEvent.event.type === "text_delta" || runnerEvent.event.type === "thinking_delta")) {
+            try {
+              this.options.onAttemptOutput?.(
+                detail.execution,
+                runId,
+                runnerEvent.event.type === "text_delta" ? "text" : "thinking",
+                runnerEvent.event.delta
+              );
+            } catch (error) {
+              momWarn("durableExecution", "live_output_failed", { executionId: input.executionId, error: String(error) });
+            }
+          }
+          const activity = activityCollector.record(runnerEvent);
+          if (activity) {
+            try {
+              this.options.onAttemptProgress?.(detail.execution, activityCollector.snapshot().map(activity => ({ ...activity, key: `${runId}:${activity.key}` })));
+            } catch (error) {
+              momWarn("durableExecution", "conversation_progress_failed", { executionId: input.executionId, error: String(error) });
+            }
+          }
           if (runnerEvent.type === "tool_execution_start" || runnerEvent.type === "tool_execution_end") {
             momLog("durableExecution", "attempt_tool", {
               executionId: input.executionId,
@@ -835,10 +858,11 @@ export class DurableExecutionRuntime {
       };
       inbound.imageContents = savedInput?.attachments.filter(item => item.isImage).map(item => ({ type: "image" as const, mimeType: item.mimeType ?? "image/jpeg", data: readFileSync(resolve(savedInput.workspaceDir, item.local)).toString("base64") })) ?? [];
       const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
+      endDurableConversationOutput(input.executionId, runId);
       const result = attemptResult.result;
-      if (binding && attemptResult.text && this.options.onPlanAttempt) {
-        this.store.recordPlanDelivery({ executionId: detail.execution.id, sessionId: binding.sessionId, runId, text: attemptResult.text });
-        await this.reconcilePlanDeliveries();
+      if (deliverySessionId && attemptResult.text) {
+        this.store.recordAttemptDelivery({ executionId: detail.execution.id, sessionId: deliverySessionId, runId, text: attemptResult.text });
+        await this.reconcileAttemptDeliveries();
       }
       if (attemptResult.contextSessionId) {
         this.store.setAttemptContextSession(input.executionId, claimed.attempt.id, this.processOwnerId, attemptResult.contextSessionId);
@@ -986,6 +1010,7 @@ export class DurableExecutionRuntime {
         }
       }
     } finally {
+      endDurableConversationOutput(input.executionId, runId);
       clearInterval(controlTimer);
       clearInterval(heartbeatTimer);
       const controlRequest = this.store.getControlRequest(input.executionId);

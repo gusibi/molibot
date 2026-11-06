@@ -6,9 +6,9 @@ const escape = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, char 
 export function renderTraceReport(report: TraceReport, language: "zh" | "en" = "zh", theme: "auto" | "light" | "dark" = "auto"): string {
   const zh = language === "zh";
   const text = zh ? {
-    title: "调用链", duration: "总耗时", models: "主模型调用", tools: "工具调用", missing: "未记录", partial: "部分用量", snapshot: "快照生成于", input: "输入", output: "输出", read: "缓存读取", write: "缓存写入", args: "参数摘要", result: "结果摘要", error: "错误摘要", started: "开始", finished: "结束", attempt: "重试索引", candidate: "模型候选索引", stepCol: "执行步骤", durationCol: "耗时", expandHint: "点击步骤展开详情", hint: "点击步骤展开详情。决策模型单独显示为运行事件，不计入主模型调用次数。横条表示实际时间范围；缩进表示因果关系，不表示时间包含。未结束的步骤仅在执行进行中显示已持续时间。未记录内部步骤的外部调用仅显示外层。", status: "状态"
+    title: "调用链", duration: "总耗时", models: "主模型调用", tools: "工具调用", missing: "未记录", partial: "部分用量", snapshot: "快照生成于", input: "输入", output: "输出", read: "缓存读取", write: "缓存写入", args: "参数摘要", result: "结果摘要", error: "错误摘要", started: "开始", finished: "结束", attempt: "重试索引", candidate: "模型候选索引", stepCol: "执行步骤", durationCol: "耗时", expandHint: "点击步骤展开详情", hint: "点击步骤展开详情。决策模型单独显示为运行事件，不计入主模型调用次数。横条表示实际时间范围；缩进表示因果关系，不表示时间包含。未结束的步骤仅在执行进行中显示已持续时间。未记录内部步骤的外部调用仅显示外层。", status: "状态", turnUsage: "本轮 Token 用量", sessionUsage: "会话累计", rounds: "轮", callsUnit: "次模型调用", hitRate: "命中率", firstPrompt: "首轮上下文", hitRateHint: "命中率 = 缓存读取 ÷ 全部输入（非缓存输入 + 缓存读取 + 缓存写入）", firstPromptHint: "会话首次模型调用的完整提示规模（系统提示词 + 工具定义 + 首条消息），随对话推进它会被缓存复用"
   } : {
-    title: "Call trace", duration: "Elapsed", models: "Main model calls", tools: "Tool calls", missing: "Not recorded", partial: "Partial usage", snapshot: "Snapshot generated", input: "Input", output: "Output", read: "Cache read", write: "Cache write", args: "Arguments preview", result: "Result preview", error: "Error preview", started: "Started", finished: "Finished", attempt: "Retry index", candidate: "Model candidate index", stepCol: "Step", durationCol: "Duration", expandHint: "Click a step for details", hint: "Expand a step for details. Decision models appear as separate runtime events and are not counted as main model calls. Bars show elapsed time; indentation shows causal relationships, not time containment. Unfinished steps only show elapsed time while the run is active. External calls only show internal steps when recorded.", status: "Status"
+    title: "Call trace", duration: "Elapsed", models: "Main model calls", tools: "Tool calls", missing: "Not recorded", partial: "Partial usage", snapshot: "Snapshot generated", input: "Input", output: "Output", read: "Cache read", write: "Cache write", args: "Arguments preview", result: "Result preview", error: "Error preview", started: "Started", finished: "Finished", attempt: "Retry index", candidate: "Model candidate index", stepCol: "Step", durationCol: "Duration", expandHint: "Click a step for details", hint: "Expand a step for details. Decision models appear as separate runtime events and are not counted as main model calls. Bars show elapsed time; indentation shows causal relationships, not time containment. Unfinished steps only show elapsed time while the run is active. External calls only show internal steps when recorded.", status: "Status", turnUsage: "Turn token usage", sessionUsage: "Session total", rounds: "runs", callsUnit: "model calls", hitRate: "Hit rate", firstPrompt: "First prompt", hitRateHint: "Hit rate = cache read / full prompt input (uncached input + cache read + cache write)", firstPromptHint: "Full prompt size of the session's first model call (system prompt + tool schemas + first message); later calls reuse it from cache"
   };
   const labels: Record<string, string> = zh ? { run: "本轮执行", model_call: "模型", tool_call: "工具", subagent_task: "子 Agent", approval: "审批", input_enrichment: "输入处理", runtime_notice: "运行事件", skill_usage: "技能", started: "进行中", waiting: "等待中", success: "成功", error: "失败", aborted: "已中断", blocked: "已阻止", info: "信息", warning: "警告" } : {};
   const label = (value: string) => labels[value] ?? value.replaceAll("_", " ");
@@ -21,7 +21,49 @@ export function renderTraceReport(report: TraceReport, language: "zh" | "en" = "
     insufficient_context: "决策上下文不足"
   } as Record<string, string>)[value] ?? value : value.replaceAll("_", " ")) : undefined;
   const duration = (value?: number) => value === undefined ? text.missing : `${(value / 1000).toFixed(2)} s`;
-  const formatTokens = (value: number | null | undefined) => value === null || value === undefined ? text.missing : value.toLocaleString("en-US");
+  // Compact K/M so big token counts stay readable at a glance; exact values
+  // ride the title attribute for hover. Mirrors the app's formatCompactTokens.
+  const compactTokens = (value: number): string => {
+    const n = Math.max(0, Math.round(value));
+    if (n < 1_000) return String(n);
+    if (n < 1_000_000) {
+      const k = n / 1_000;
+      return `${k >= 100 || n % 1_000 === 0 ? Math.round(k) : k.toFixed(1).replace(/\.0$/, "")}k`;
+    }
+    const m = n / 1_000_000;
+    return `${m >= 100 || n % 1_000_000 === 0 ? Math.round(m) : m.toFixed(1).replace(/\.0$/, "")}m`;
+  };
+  const formatTokens = (value: number | null | undefined) => value === null || value === undefined ? text.missing : compactTokens(value);
+  const exactTokens = (value: number | null | undefined) => value === null || value === undefined ? undefined : value.toLocaleString("en-US");
+  const formatRate = (rate: number | null | undefined) => rate === null || rate === undefined ? undefined : `${Math.round(rate * 100)}%`;
+  const rateClass = (rate: number | null | undefined) => rate === null || rate === undefined ? "" : rate >= 0.7 ? " rate-good" : rate < 0.3 ? " rate-low" : "";
+  // One stacked segment per non-zero token bucket; widths are shares of the turn total.
+  const tokenBar = (tokens: TraceReport["tokens"]): string => {
+    const total = tokens.total;
+    if (total <= 0) return "";
+    const segments = [["seg-read", tokens.cacheRead], ["seg-write", tokens.cacheWrite], ["seg-input", tokens.input], ["seg-output", tokens.output]] as const;
+    return `<div class="token-bar">${segments.filter(([, value]) => value > 0).map(([kind, value]) => `<i class="${kind}" style="width:${Math.max(1, Math.round(value / total * 100))}%"></i>`).join("")}</div>`;
+  };
+  const legendToken = (kind: "read" | "write" | "input" | "output", label: string, value: number) => `<span class="tok tok-${kind}">${escape(label)} <b title="${escape(exactTokens(value) ?? "")}">${escape(compactTokens(value))}</b></span>`;
+  const tokensPanel = (() => {
+    const turn = report.tokens;
+    const session = report.session;
+    const turnRecorded = turn.total > 0;
+    const parts: string[] = [`<div class="tokens-panel"><div class="tokens-title">${escape(text.turnUsage)}</div>`];
+    if (turnRecorded) {
+      parts.push(tokenBar(turn));
+      parts.push(`<div class="token-legend">${legendToken("read", text.read, turn.cacheRead)}${legendToken("write", text.write, turn.cacheWrite)}${legendToken("input", text.input, turn.input)}${legendToken("output", text.output, turn.output)}${formatRate(turn.hitRate) !== undefined ? `<span class="tok-hit" title="${escape(text.hitRateHint)}">${escape(text.hitRate)} <b class="rate${rateClass(turn.hitRate)}">${escape(formatRate(turn.hitRate)!)}</b></span>` : ""}</div>`);
+    } else {
+      parts.push(`<div class="token-empty">${escape(text.missing)}</div>`);
+    }
+    if (session.modelCalls > 0) {
+      const sessionRate = formatRate(session.tokens.hitRate);
+      parts.push(`<div class="session-line"><span class="session-label">${escape(text.sessionUsage)}</span><span>${escape(String(session.runs))} ${escape(text.rounds)} · ${escape(String(session.modelCalls))} ${escape(text.callsUnit)}</span><span>Tokens <b title="${escape(exactTokens(session.tokens.total) ?? "")}">${escape(compactTokens(session.tokens.total))}</b></span>${legendToken("read", text.read, session.tokens.cacheRead)}${legendToken("write", text.write, session.tokens.cacheWrite)}${legendToken("input", text.input, session.tokens.input)}${legendToken("output", text.output, session.tokens.output)}${sessionRate !== undefined ? `<span title="${escape(text.hitRateHint)}">${escape(text.hitRate)} <b class="rate${rateClass(session.tokens.hitRate)}">${escape(sessionRate)}</b></span>` : ""}${session.firstPromptTokens ? `<span title="${escape(text.firstPromptHint)}">${escape(text.firstPrompt)} <b title="${escape(exactTokens(session.firstPromptTokens) ?? "")}">${escape(compactTokens(session.firstPromptTokens))}</b></span>` : ""}</div>`);
+    }
+    parts.push("</div>");
+    return parts.join("");
+  })();
+  const statsHtml = `<div><small>${escape(text.duration)}</small><strong>${escape(duration(report.durationMs))}</strong></div><div><small>${escape(text.models)}</small><strong>${escape(String(report.modelCalls))}</strong></div><div><small>${escape(text.tools)}</small><strong>${escape(String(report.toolCalls))}</strong></div><div><small>Tokens${report.usageComplete ? "" : ` · ${escape(text.partial)}`}</small><strong${report.tokens.total > 0 ? ` title="${escape(exactTokens(report.tokens.total))}"` : ""}>${escape(report.tokens.total > 0 ? compactTokens(report.tokens.total) : text.missing)}</strong></div>`;
   // The report renders on the same machine that serves the app, so local wall
   // time is the user's time; published snapshots freeze it at publish time.
   const formatStamp = (value?: string) => {
@@ -62,8 +104,9 @@ export function renderTraceReport(report: TraceReport, language: "zh" | "en" = "
         ? `${node.name ?? kicker} · ${thinkingLevel(node.thinkingLevel)}`
         // A run node's raw name is the session id; the row reads as the run itself.
         : node.factType === "run" ? kicker : node.name ?? kicker;
-    const fields = [[text.started, formatStamp(node.startedAt)], [text.finished, formatStamp(node.finishedAt)], [text.input, node.inputTokens !== undefined ? formatTokens(node.inputTokens) : undefined], [text.output, node.outputTokens !== undefined ? formatTokens(node.outputTokens) : undefined], [text.read, node.cacheReadTokens !== undefined ? formatTokens(node.cacheReadTokens) : undefined], [text.write, node.cacheWriteTokens !== undefined ? formatTokens(node.cacheWriteTokens) : undefined], [text.attempt, node.attemptIndex], [text.candidate, node.candidateIndex], ["Provider", node.provider], ...(isDecision ? [[zh ? "决策模型" : "Decision model", node.decisionModel], [zh ? "决策结果" : "Decision result", thinkingLevel(node.thinkingLevel)], [zh ? "原因" : "Reason", decisionReason(node.fallbackReason)]] : [])];
-    return `<details><summary data-kind="${escape(node.factType)}"><span class="name" style="padding-inline-start:${Math.min(depth, 8) * 8}px">${kicker === name ? "" : `<small class="kind kind-${escape(node.factType)}">${escape(kicker)}</small>`}<strong>${escape(name)}</strong></span><span class="track"><i class="${escape(node.factType)}" style="margin-left:${offset}%;width:${width}%"></i></span><span class="metric">${escape(duration(node.durationMs ?? (known ? end - start : undefined)))}<small data-status="${escape(node.status)}">${escape(label(node.status))}</small></span></summary><section><dl>${fields.filter(([, value]) => value !== undefined).map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}${node.factType === "model_call" ? `<div><dt>Tokens</dt><dd>${escape(formatTokens(node.totalTokens))}</dd></div>` : ""}</dl>${[[text.args, node.argsPreview], [text.result, node.resultPreview], [text.error, node.errorPreview]].filter(([, value]) => value).map(([key, value]) => `<h3>${escape(key)}</h3><pre>${escape(value)}</pre>`).join("")}</section></details>`;
+    const fieldTitle = (value: number | undefined) => value === undefined ? "" : ` title="${escape(value.toLocaleString("en-US"))}"`;
+    const fields = [[text.started, formatStamp(node.startedAt), ""], [text.finished, formatStamp(node.finishedAt), ""], [text.input, node.inputTokens !== undefined ? formatTokens(node.inputTokens) : undefined, fieldTitle(node.inputTokens)], [text.output, node.outputTokens !== undefined ? formatTokens(node.outputTokens) : undefined, fieldTitle(node.outputTokens)], [text.read, node.cacheReadTokens !== undefined ? formatTokens(node.cacheReadTokens) : undefined, fieldTitle(node.cacheReadTokens)], [text.write, node.cacheWriteTokens !== undefined ? formatTokens(node.cacheWriteTokens) : undefined, fieldTitle(node.cacheWriteTokens)], [text.attempt, node.attemptIndex, ""], [text.candidate, node.candidateIndex, ""], ["Provider", node.provider, ""], ...(isDecision ? [[zh ? "决策模型" : "Decision model", node.decisionModel, ""], [zh ? "决策结果" : "Decision result", thinkingLevel(node.thinkingLevel), ""], [zh ? "原因" : "Reason", decisionReason(node.fallbackReason), ""]] : [])] as Array<[string, string | number | undefined, string]>;
+    return `<details><summary data-kind="${escape(node.factType)}"><span class="name" style="padding-inline-start:${Math.min(depth, 8) * 8}px">${kicker === name ? "" : `<small class="kind kind-${escape(node.factType)}">${escape(kicker)}</small>`}<strong>${escape(name)}</strong></span><span class="track"><i class="${escape(node.factType)}" style="margin-left:${offset}%;width:${width}%"></i></span><span class="metric">${escape(duration(node.durationMs ?? (known ? end - start : undefined)))}<small data-status="${escape(node.status)}">${escape(label(node.status))}</small></span></summary><section><dl>${fields.filter(([, value]) => value !== undefined).map(([key, value, title]) => `<div><dt>${escape(key)}</dt><dd${title}>${escape(value)}</dd></div>`).join("")}${node.factType === "model_call" ? `<div><dt>Tokens</dt><dd${fieldTitle(node.totalTokens)}>${escape(formatTokens(node.totalTokens))}</dd></div>` : ""}</dl>${[[text.args, node.argsPreview], [text.result, node.resultPreview], [text.error, node.errorPreview]].filter(([, value]) => value).map(([key, value]) => `<h3>${escape(key)}</h3><pre>${escape(value)}</pre>`).join("")}</section></details>`;
   }).join("");
   const midDuration = report.durationMs !== undefined ? duration(report.durationMs / 2) : "";
   return `<!doctype html><html lang="${language}" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${text.title}</title><style>
@@ -97,6 +140,28 @@ header p{ display:flex;align-items:center;gap:8px;margin:0;min-width:0;color:var
 .stats div:last-child{border-right:0}
 .stats small{display:block;color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px)}
 .stats strong{display:block;margin-top:3px;font-size:17px;line-height:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tokens-panel{border:1px solid var(--line);border-radius:var(--radius-panel,10px);background:var(--panel);margin:12px 0;padding:10px 14px 11px}
+.tokens-title{color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px);font-weight:600}
+.token-bar{display:flex;gap:2px;height:8px;margin-top:8px;border-radius:999px;overflow:hidden;background:var(--fill)}
+.token-bar i{display:block;height:100%;min-width:3px;border-radius:0}
+.token-bar i.seg-read{background:var(--blue)}
+.token-bar i.seg-write{background:var(--purple)}
+.token-bar i.seg-input{background:var(--muted)}
+.token-bar i.seg-output{background:var(--green)}
+.token-legend{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:9px;color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px);font-variant-numeric:tabular-nums}
+.tok{display:inline-flex;align-items:center;gap:5px}
+.tok::before{content:"";width:7px;height:7px;border-radius:999px;background:var(--muted)}
+.tok-read::before{background:var(--blue)}
+.tok-write::before{background:var(--purple)}
+.tok-input::before{background:var(--muted)}
+.tok-output::before{background:var(--green)}
+.tok b,.session-line b{font-weight:500;color:var(--ink);font-family:var(--font-mono,ui-monospace,monospace)}
+.tok-hit{margin-left:auto}
+b.rate-good{color:var(--green)}
+b.rate-low{color:var(--warn)}
+.token-empty{margin-top:7px;color:var(--subtle);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px)}
+.session-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px);font-variant-numeric:tabular-nums}
+.session-label{font-weight:600;color:var(--ink)}
 .legend-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;margin:0 0 8px;padding:0 2px;color:var(--muted);font-size:var(--fs-meta,11px);line-height:var(--lh-meta,16px)}
 .legend-items{display:inline-flex;align-items:center;flex-wrap:wrap;gap:12px}
 .legend-dot{display:inline-flex;align-items:center;gap:5px}
@@ -152,5 +217,5 @@ footer{margin-top:12px;padding:0 2px;color:var(--subtle);font-size:var(--fs-meta
 .axis,summary{grid-template-columns:minmax(130px,42%) minmax(0,1fr) 68px;gap:8px;padding-inline:8px}
 dl{grid-template-columns:1fr 1fr}
 }
-</style></head><body><main><header><h1>${text.title}</h1><p><span class="status-pill" data-status="${escape(report.status)}">${escape(label(report.status))}</span><span class="run-id" title="${escape(report.runId)}">${escape(report.runId)}</span></p></header><div class="stats">${[[text.duration, duration(report.durationMs)], [text.models, report.modelCalls], [text.tools, report.toolCalls], ["Tokens", `${formatTokens(report.totalTokens)}${report.usageComplete ? "" : ` · ${text.partial}`}`]].map(([key, value]) => `<div><small>${escape(key)}</small><strong>${escape(value)}</strong></div>`).join("")}</div><div class="legend-bar"><span class="legend-items"><span class="legend-dot run">${escape(label("run"))}</span><span class="legend-dot model_call">${escape(label("model_call"))}</span><span class="legend-dot tool_call">${escape(label("tool_call"))}</span><span class="legend-dot subagent_task">${escape(label("subagent_task"))}</span></span><p class="hint" title="${escape(text.hint)}">${escape(text.expandHint)}</p></div><div class="waterfall"><div class="axis"><span>${escape(text.stepCol)}</span><span class="axis-scale"><span>0 s</span>${midDuration ? `<span>${escape(midDuration)}</span>` : ""}<span>${escape(duration(report.durationMs))}</span></span><span class="axis-dur">${escape(text.durationCol)}</span></div>${rows}</div><footer>${text.snapshot} ${escape(formatStamp(report.generatedAt))}</footer></main></body></html>`;
+</style></head><body><main><header><h1>${text.title}</h1><p><span class="status-pill" data-status="${escape(report.status)}">${escape(label(report.status))}</span><span class="run-id" title="${escape(report.runId)}">${escape(report.runId)}</span></p></header><div class="stats">${statsHtml}</div>${tokensPanel}<div class="legend-bar"><span class="legend-items"><span class="legend-dot run">${escape(label("run"))}</span><span class="legend-dot model_call">${escape(label("model_call"))}</span><span class="legend-dot tool_call">${escape(label("tool_call"))}</span><span class="legend-dot subagent_task">${escape(label("subagent_task"))}</span></span><p class="hint" title="${escape(text.hint)}">${escape(text.expandHint)}</p></div><div class="waterfall"><div class="axis"><span>${escape(text.stepCol)}</span><span class="axis-scale"><span>0 s</span>${midDuration ? `<span>${escape(midDuration)}</span>` : ""}<span>${escape(duration(report.durationMs))}</span></span><span class="axis-dur">${escape(text.durationCol)}</span></div>${rows}</div><footer>${text.snapshot} ${escape(formatStamp(report.generatedAt))}</footer></main></body></html>`;
 }

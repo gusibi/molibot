@@ -772,7 +772,7 @@ export async function loadDesktopPiTerminalOutput(endpoint: string, id: string, 
   return requestJson(endpoint, `/api/settings/plugins/extensions/terminal?id=${encodeURIComponent(id)}&after=${after}&client=desktop`);
 }
 
-export async function runDesktopPiTerminalAction(endpoint: string, action: { id: string; action: "input"; data: string } | { id: string; action: "resize"; columns: number; rows: number } | { id: string; action: "stop" | "review" }): Promise<void> {
+export async function runDesktopPiTerminalAction(endpoint: string, action: { id: string; action: "input"; data: string } | { id: string; action: "resize"; columns: number; rows: number } | { id: string; action: "stop" | "review" | "retrySharing" } | {id: string; action: "respond"; dialogId: string; value: string | boolean | null}): Promise<void> {
   await requestJson(endpoint, "/api/settings/plugins/extensions/terminal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
 }
 

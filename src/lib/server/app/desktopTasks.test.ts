@@ -353,10 +353,14 @@ test("task ids resolve to server-side paths and reject unknown ids", () => {
 test("system reflection result preserves committed memory counts", () => {
   const result = buildDesktopSystemTaskExecution({
     status: "completed", startedAt: "2026-11-01T00:00:00Z", attempt: 1, maxAttempts: 1,
-    result: { kind: "memory-reflection", completedTargets: 1, scannedConversations: 4, scannedMessages: 20, createdCandidates: 3, committedMemories: 2 }
+    result: { kind: "memory-reflection", completedTargets: 1, scannedConversations: 4, scannedMessages: 20, createdCandidates: 3, committedMemories: 2, pendingReviewCount: 4, skillDraftCount: 1 }
   } as Parameters<typeof buildDesktopSystemTaskExecution>[0]);
   assert.equal(result.result?.kind, "memory-reflection");
-  if (result.result?.kind === "memory-reflection") assert.equal(result.result.committedMemories, 2);
+  if (result.result?.kind === "memory-reflection") {
+    assert.equal(result.result.committedMemories, 2);
+    assert.equal(result.result.pendingReviewCount, 4);
+    assert.equal(result.result.skillDraftCount, 1);
+  }
 });
 
 test('home maintenance classification uses managed identity rather than task title', () => {

@@ -1,5 +1,6 @@
-import { appendFileSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { PhotonImage } from '@silvia-odwyer/photon-node';
 import { createAssistantMessageEventStream, type AssistantMessage } from '@earendil-works/pi-ai';
 import { getPiModels } from '../../src/lib/server/providers/piRuntime.js';
 import { defaultRuntimeSettings } from '../../src/lib/server/settings/defaults.js';
@@ -10,6 +11,9 @@ import { inspectPiRecovery, pendingPiRecovery } from '../../src/lib/server/app/p
 
 const directory = process.env.DATA_DIR!;
 const mode = process.env.PI_MODEL_FIXTURE_MODE ?? 'codemode';
+const fixtureImage = new PhotonImage(new Uint8Array(mode === 'native_blank' ? Array(16).fill(255) : [255,0,0,255,0,255,0,255,0,0,255,255,0,0,0,255]),2,2);
+const fixtureFrames = Array.from({length:12},(_,index)=>{const frame=new PhotonImage(new Uint8Array([index,0,0,255,0,255,0,255,0,0,255,255,0,0,0,255]),2,2);try{return Buffer.from(frame.get_bytes()).toString('base64');}finally{frame.free();}});
+const fixtureImageData = Buffer.from(fixtureImage.get_bytes()).toString('base64'); fixtureImage.free();
 const keepAlive = setInterval(() => {}, 1000);
 const workspace = join(directory, 'sessions', 'fixture');
 mkdirSync(join(workspace, 'chat'), { recursive: true });
@@ -61,7 +65,7 @@ if (mode.startsWith('native_')) {
   process.env.HOME = join(directory, 'native-home');
   mkdirSync(process.env.HOME, { recursive: true });
   writeFileSync(join(extensionDir, 'index.ts'), `import {writeFileSync} from 'node:fs';
-export default function(pi) {pi.registerCommand('native_command',{handler:async(args)=>{writeFileSync(${JSON.stringify(nativeChoicePath)},'command:'+args);}}); pi.on('session_start', async (_,ctx) => {
+export default function(pi) {pi.registerTool({name:'native_capture',label:'Capture',description:'Simulated window capture',parameters:{type:'object',properties:{index:{type:'number'}}},execute:async(_id,args)=>({content:[{type:'image',mimeType:'image/png',data:['native_many_images','native_observe'].includes(${JSON.stringify(mode)}) ? ${JSON.stringify(fixtureFrames)}[args.index??0] : ${JSON.stringify(fixtureImageData)}}],details:{}})}); pi.registerCommand('native_command',{handler:async(args)=>{writeFileSync(${JSON.stringify(nativeChoicePath)},'command:'+args);}}); pi.on('session_start', async (_,ctx) => {
   const value = await ctx.ui.custom((tui,theme,keys,done) => ({render(){return ['Native runner choice'];},handleInput(data){if(data === '\\r')done('accepted');}}));
   writeFileSync(${JSON.stringify(nativeChoicePath)},value);
   ${mode === 'native_custom' ? "const other=ctx.modelRegistry.find('fixture-custom','alt'); if(!other) throw new Error('Missing custom model'); await pi.setModel(other);" : ''}
@@ -110,8 +114,10 @@ const usage = { input: 3, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 4
 const classifier = { type: 'classifier', provider: model.provider, id: 'cls', name: 'Fixture classifier', api: 'fixture', baseUrl: '', contextWindow: 4096 };
 const image = { type: 'image', provider: model.provider, id: 'img', name: 'Fixture image', api: 'fixture', baseUrl: '', input: ['text', 'image'], output: ['image'] };
 const ledger: string[] = [];
+let nativeModelCalls = 0;
 const chatStream = (_model: unknown, _context: unknown, options: any) => {
  ledger.push('stream');
+ if (mode === 'native_failure') throw new Error('Fixture native model failed');
  const stream = createAssistantMessageEventStream();
  if (mode === 'stream_cancel') {
    const partial: AssistantMessage = { role: 'assistant', api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), content: [], stopReason: 'aborted', usage };
@@ -119,7 +125,11 @@ const chatStream = (_model: unknown, _context: unknown, options: any) => {
    options.signal.addEventListener('abort', () => { ledger.push('cancelled'); stream.push({ type: 'error', reason: 'aborted', error: partial }); stream.end(); }, { once: true });
    return stream;
  }
- const answer: AssistantMessage = { role: 'assistant', api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), content: [{ type: 'text', text: 'Streamed fixture' }], stopReason: mode === 'deferred' ? 'deferred' : 'stop', usage,
+ const step = nativeModelCalls++;
+ const capture = ['native_image','native_blank'].includes(mode) ? step === 0 : ['native_many_images','native_observe'].includes(mode) && step < 10;
+ const selectImage = ['native_image','native_blank'].includes(mode) ? step === 1 : mode === 'native_many_images' && step === 10;
+ const ids = [...new Set(JSON.stringify(_context).match(/pi-image-[a-f0-9]{64}/g) ?? [])];
+ const answer: AssistantMessage = { role: 'assistant', api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), content: capture ? [{type:'toolCall',id:`capture-${step}`,name:'native_capture',arguments:{index:step}}] : selectImage ? [{type:'toolCall',id:'delivery',name:'molibot_deliver_images',arguments:{ids:ids.slice(-1),purpose:'screenshot'}}] : [{ type: 'text', text: 'Streamed fixture' }], stopReason: capture || selectImage ? 'toolUse' : mode === 'deferred' ? 'deferred' : 'stop', usage,
    ...(mode === 'deferred' ? { deferred: { provider: model.provider, modelId: model.id, api: model.api, id: 'owned-remote', pollAfterMs: 1 } } : {}) };
  stream.push({ type: 'done', reason: answer.stopReason as any, message: answer }); stream.end(); return stream;
 };
@@ -141,17 +151,20 @@ const generated = await models.generateImages({ provider: 'fixture', id: 'img' }
 for (const output of generated.output.filter(x => x.type === 'image')) image(output);
 text({ answers: results, text: generated.output.filter(x => x.type === 'text').map(x => x.text).join('\\n') });`;
 agent.streamFunction = (_model: unknown, requestContext: unknown) => {
- requestContexts.push(requestContext);
+ requestContexts.push({ ...(requestContext as any), exposedTools: agent.state.tools.map((tool: any) => ({ name: tool.name, parameters: tool.parameters, description: tool.description })) });
  const stream = createAssistantMessageEventStream();
- const content: any[] = generations++ === 0 ? [{ type: 'toolCall', id: 'work', name: ['native_extension','native_custom'].includes(mode) ? 'piExtensionRun' : mode === 'extension' ? 'model_fixture' : ['stream', 'deferred', 'stream_cancel', 'manual_stream', 'compact'].includes(mode) ? 'stream_fixture' : 'codemode', arguments: ['native_extension','native_custom'].includes(mode) ? { prompt: 'Native fixture work' } : ['extension', 'stream', 'deferred', 'stream_cancel', 'manual_stream', 'compact'].includes(mode) ? {} : { code } }] : [{ type: 'text', text: 'Fixture complete' }];
+ const content: any[] = generations++ === 0 ? [{ type: 'toolCall', id: 'work', name: ['native_extension','native_custom','native_failure','native_image','native_blank','native_many_images','native_observe','native_route'].includes(mode) ? 'piExtensionRun' : mode === 'extension' ? 'model_fixture' : ['stream', 'deferred', 'stream_cancel', 'manual_stream', 'compact'].includes(mode) ? 'stream_fixture' : 'codemode', arguments: ['native_extension','native_custom','native_failure','native_image','native_blank','native_many_images','native_observe','native_route'].includes(mode) ? { prompt: 'Native fixture work' } : ['extension', 'stream', 'deferred', 'stream_cancel', 'manual_stream', 'compact'].includes(mode) ? {} : { code } }] : [{ type: 'text', text: 'Fixture complete' }];
+ if (mode === 'native_route') {content.length=0;content.push({type:'toolCall',id:'model-bypass',name:'bash',arguments:{label:'Unexpected bypass',command:'touch forbidden-fallback.txt'}});}
+ if (mode === 'native_failure' && generations === 1) content.push({type:'toolCall',id:'forbidden-fallback',name:'bash',arguments:{label:'Forbidden fallback',command:'touch forbidden-fallback.txt'}});
  const answer: AssistantMessage = { role: 'assistant', api: model.api, provider: model.provider, model: model.id, content, stopReason: content[0].type === 'toolCall' ? 'toolUse' : 'stop', timestamp: Date.now(), usage };
  stream.push({ type: 'done', reason: answer.stopReason as any, message: answer }); stream.end(); return stream;
 };
+const uploaded: {path:string; data:string}[] = [];
 const context = { approvalWaitTimeoutMs: 20, channel: 'web', workspaceDir: workspace, chatDir: join(workspace, 'chat'),
-  message: { chatId: 'chat', sessionId: 'session', userId: 'actor', text: 'Do the work', messageId: 1,
+  message: { chatId: 'chat', sessionId: 'session', userId: 'actor', text: mode === 'native_missing' ? '@pi/missing capture' : mode === 'native_route' ? '使用 fixture 查看窗口' : 'Do the work', messageId: 1,
     ts: '1', attachments: [], imageContents: [], chatType: 'private' as const },
   respond: async () => {}, replaceMessage: async () => {}, respondInThread: async () => {},
-  setWorking: async () => {}, setTyping: async () => {}, deleteMessage: async () => {}, uploadFile: async () => {} };
+  setWorking: async () => {}, setTyping: async () => {}, deleteMessage: async () => {}, uploadFile: async (path: string) => {uploaded.push({path,data:readFileSync(path).toString('base64')});} };
 try {
  const commandOutput: string[] = [];
  const outcome = mode === "native_command" ? await runner.runExtensionCommand({ toolName: "piCommand__fixture__native_command", command: "native_command", args: "verified", respond: async text => { commandOutput.push(text); } }) : mode === "command" ? await runner.runExtensionCommand({ toolName: "piCommand__fixture__fixture_command", command: "fixture_command", args: "", respond: async text => { commandOutput.push(text); } }) : await runner.run(context);
@@ -164,7 +177,7 @@ try {
  const messages = agent.state.messages;
  const { getApprovalBroker } = await import("../../src/lib/server/approval/approvalBroker.js");
  const approvals = getApprovalBroker().listPendingRequests();
- await new Promise<void>((resolve, reject) => process.send!({ type: 'result', outcome, ledger, receipts, tasks, messages, events, approvals, commandOutput, generations, modelBudgetReceipts, requestContexts, nativeTerminals: piExtensionTerminalHost.list(), nativeChoice: mode.startsWith('native_') ? readFileSync(nativeChoicePath, 'utf8') : undefined }, error => error ? reject(error) : resolve()));
+ await new Promise<void>((resolve, reject) => process.send!({ type: 'result', runnerStillRunning: runner.isRunning(), fallbackExecuted: existsSync(join(scratch,'forbidden-fallback.txt')), uploaded, fixtureImageData: mode === 'native_many_images' ? fixtureFrames[9] : fixtureImageData, outcome, ledger, receipts, tasks, messages, events, approvals, commandOutput, generations, modelBudgetReceipts, requestContexts, nativeTerminals: piExtensionTerminalHost.list(), nativeChoice: mode.startsWith('native_') && existsSync(nativeChoicePath) ? readFileSync(nativeChoicePath, 'utf8') : undefined }, error => error ? reject(error) : resolve()));
  const { getPiExtensionHost } = await import('../../src/lib/server/plugins/piExtensions/host.js'); getPiExtensionHost().dispose();
  customServer?.closeAllConnections(); customServer?.close(); clearInterval(keepAlive); process.disconnect?.();
 } catch (error) { customServer?.closeAllConnections(); customServer?.close(); clearInterval(keepAlive); process.send?.({ type: 'error', error: String(error) }); process.exitCode = 1; process.disconnect?.(); }

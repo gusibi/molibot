@@ -1055,7 +1055,11 @@ test("chat composer keeps keyboard guidance in the textarea placeholder", () => 
   assert.match(view, /placeholder=\{sending \? copy\.queueHint : copy\.enterHint\}/);
   assert.match(chatComposerShell, /<textarea[^>]*bind:value[^>]*\{placeholder\}[^>]*onkeydown=\{onKeydown\}/);
   assert.match(chatComposerShell, /<textarea[^>]*rows="2"/);
-  assert.match(chatComposerShell, /scrollHeight/);
+  assert.doesNotMatch(chatComposerShell, /scrollHeight|style\.height/);
+  assert.match(chatComposerShell, /onbeforeinput=\{handleBeforeInput\}/);
+  assert.match(chatComposerShell, /translateY\(\$\{offset\}px\)/);
+  assert.match(chatComposerShell, /transform \$\{FLOW_MS\}ms var\(--ease-standard\)/);
+  assert.match(styles, /\.composer textarea \{[^}]*height: calc\(var\(--lh-body\) \* 2 \+ 2px\)/);
   assert.doesNotMatch(view, /class="composer-hint"/);
 });
 
@@ -4776,6 +4780,22 @@ test("queued messages can steer the running turn and survive Stop", () => {
   assert.match(stopBody, /this\.stopRequested = true/);
   assert.match(stopBody, /this\.drainQueue\(\)/);
   assert.match(controller, /if \(!this\.stopRequested && !isAbortCause\(cause, abort\.signal\)\)/);
+});
+
+test("queued follow-ups truncate inside a bounded shelf instead of scrolling", () => {
+  const listRule = styles.match(/\.queued-list \{([^}]*)\}/)?.[1] ?? "";
+  // A scrollbar inside the queue shelf is noise, and the old `max-height` +
+  // `overflow-y: auto` clipped the last row mid-height. Overflow folds into an
+  // expander row; the list itself never scrolls.
+  assert.doesNotMatch(listRule, /max-height|overflow-y|scrollbar-width|overscroll-behavior/);
+  assert.match(listRule, /overflow:\s*hidden/);
+  const textRule = styles.match(/\.queued-message-text \{([^}]*)\}/)?.[1] ?? "";
+  assert.match(textRule, /min-width:\s*0/);
+  assert.match(textRule, /text-overflow:\s*ellipsis/);
+  assert.match(queuedMessagesBar, /const COLLAPSED_ROWS = 3/);
+  assert.match(queuedMessagesBar, /visibleQueued/);
+  assert.match(queuedMessagesBar, /class="queued-toggle"/);
+  assert.match(queuedMessagesBar, /aria-expanded=\{expanded\}/);
 });
 
 test("OpenConnector is a first-class peer to MCP with a safe catalog and fixed save bar", () => {

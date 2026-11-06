@@ -1697,7 +1697,10 @@ fn supervise(
                 return;
             }
         };
-        let endpoint = format!("http://127.0.0.1:{port}");
+        // `localhost` instead of the `127.0.0.1` literal: macOS system-proxy
+        // bypass lists usually cover `localhost` but not the literal IP, which
+        // routed every webview API call through an intercepting VPN proxy.
+        let endpoint = format!("http://localhost:{port}");
         set_status(
             status,
             ServiceStatus {

@@ -47,3 +47,27 @@ test("no UI code calls fetch directly; API requests go through lib/api.ts", () =
     `Raw fetch from the webview is cross-origin to the sidecar and fails in the desktop app; add a helper in lib/api.ts (requestJson/fetchFromDesktop) instead:\n${offenders.join("\n")}`
   );
 });
+
+// The service endpoint is published as `http://localhost:<port>` (not the
+// `127.0.0.1` literal): macOS system-proxy bypass lists usually cover
+// `localhost` but not the literal IP, so the literal routed every desktop API
+// call through an intercepting VPN proxy (2026-11-06). Both host forms must
+// stay in the Tauri HTTP scope — the `127.0.0.1` form keeps a still-running
+// pre-rename endpoint working across an app update without a reconnect.
+test("Tauri HTTP scope covers localhost and 127.0.0.1 for every route", () => {
+  const capabilities = JSON.parse(
+    readFileSync(join(srcRoot, "..", "src-tauri", "capabilities", "default.json"), "utf8")
+  );
+  const urls = capabilities.permissions
+    .filter((entry) => typeof entry === "object" && entry.identifier === "http:default")
+    .flatMap((entry) => entry.allow.map((rule) => rule.url));
+  const missing = urls
+    .filter((url) => url.startsWith("http://127.0.0.1:"))
+    .filter((url) => !urls.includes(url.replace("http://127.0.0.1:", "http://localhost:")));
+  assert.deepEqual(
+    missing,
+    [],
+    `Scope entries below allow only the 127.0.0.1 literal; the published endpoint is localhost, so requests to these routes would be silently refused by the HTTP plugin. Add the http://localhost:* twin:\n${missing.join("\n")}`
+  );
+});
+

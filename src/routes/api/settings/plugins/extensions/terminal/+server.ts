@@ -20,7 +20,9 @@ export const POST: RequestHandler = async ({ request }) => {
     const input = await request.json();
     if (typeof input.id !== "string") throw new Error("Terminal id is required.");
     if (input.action === "input" && typeof input.data === "string") await piExtensionTerminalHost.input(input.id, input.data);
+    else if (input.action === "respond" && typeof input.dialogId === "string") piExtensionTerminalHost.respond(input.id, input.dialogId, input.value);
     else if (input.action === "resize") await piExtensionTerminalHost.resize(input.id, input.columns, input.rows);
+    else if (input.action === "retrySharing") await piExtensionTerminalHost.retrySharing(input.id);
     else if (input.action === "review") piExtensionTerminalHost.review(input.id);
     else if (input.action === "stop") piExtensionTerminalHost.stop(input.id);
     else throw new Error("Unsupported terminal action.");

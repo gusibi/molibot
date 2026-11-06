@@ -1,7 +1,7 @@
 <script lang="ts">
   import Plane2 from "../icons/duotone/components/Plane2.svelte";
   import Stop from "../icons/duotone/components/Stop.svelte";
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import type { Translation } from "../i18n";
   import { segmentComposerValue } from "./composerSuggestions.svelte";
   import { clipboardImageFiles } from "./clipboardFiles";
@@ -21,6 +21,10 @@
 
   let textarea: HTMLTextAreaElement;
   let highlight: HTMLDivElement | null = null;
+  let inputVisualScrollFrom: number | null = null;
+  let pendingVisualSource: number | null = null;
+  let flowFrame = 0;
+  const FLOW_MS = 160;
 
   /** Places the caret after a programmatic token replacement, keeping focus in the textarea. */
   export function setSelection(position: number): void {
@@ -43,19 +47,83 @@
   $: segments = segmentComposerValue(value);
   $: hasInvocation = segments.some((segment) => segment.kind !== null);
 
-  function resizeTextarea(): void {
-    if (!textarea) return;
-    if (!value) {
-      textarea.style.height = "";
-    } else {
-      textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
+  function syncScroll(): void {
+    if (highlight && textarea) highlight.scrollTop = textarea.scrollTop;
+  }
+
+  function currentTranslateY(): number {
+    const transform = getComputedStyle(textarea).transform;
+    if (transform === "none") return 0;
+    return new DOMMatrix(transform).m42;
+  }
+
+  function setFlowStyles(transform: string, transition: string): void {
+    for (const node of [textarea, highlight]) {
+      if (!node) continue;
+      node.style.transform = transform;
+      node.style.transition = transition;
     }
+  }
+
+  function cancelScrollFlow(): void {
+    if (flowFrame) cancelAnimationFrame(flowFrame);
+    flowFrame = 0;
+    pendingVisualSource = null;
+    const offset = currentTranslateY();
+    setFlowStyles("", "");
+    textarea.style.willChange = "";
+    if (offset !== 0) textarea.scrollTop = Math.max(0, textarea.scrollTop - offset);
     syncScroll();
   }
 
-  function syncScroll(): void {
-    if (highlight && textarea) highlight.scrollTop = textarea.scrollTop;
+  function handleBeforeInput(): void {
+    if (flowFrame) cancelAnimationFrame(flowFrame);
+    flowFrame = 0;
+    inputVisualScrollFrom = pendingVisualSource ?? textarea.scrollTop - currentTranslateY();
+    pendingVisualSource = null;
+  }
+
+  function handleInput(): void {
+    emitCaret();
+    const source = inputVisualScrollFrom;
+    inputVisualScrollFrom = null;
+    if (
+      source === null ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      document.documentElement.dataset.performance === "low"
+    ) {
+      setFlowStyles("", "");
+      textarea.style.willChange = "";
+      syncScroll();
+      return;
+    }
+
+    const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight);
+    pendingVisualSource = source;
+    setFlowStyles(`translateY(${lineHeight}px)`, "none");
+    textarea.style.willChange = "transform";
+    flowFrame = requestAnimationFrame(() => {
+      flowFrame = 0;
+      pendingVisualSource = null;
+      const settledTarget = textarea.scrollTop;
+      const offset = settledTarget - source;
+      if (Math.abs(offset) < 1) {
+        setFlowStyles("", "");
+        textarea.style.willChange = "";
+        return;
+      }
+      setFlowStyles(`translateY(${offset}px)`, "none");
+      void textarea.offsetHeight;
+      setFlowStyles("translateY(0px)", `transform ${FLOW_MS}ms var(--ease-standard)`);
+      syncScroll();
+    });
+    syncScroll();
+  }
+
+  function handleTransitionEnd(event: TransitionEvent): void {
+    if (event.propertyName !== "transform") return;
+    setFlowStyles("", "");
+    textarea.style.willChange = "";
   }
 
   function handlePaste(event: ClipboardEvent): void {
@@ -66,7 +134,9 @@
     onPasteFiles(files);
   }
 
-  $: value, tick().then(resizeTextarea);
+  $: value, tick().then(syncScroll);
+
+  onDestroy(cancelScrollFlow);
 </script>
 
 <div class="composer">
@@ -85,10 +155,14 @@
       {disabled}
       onkeydown={onKeydown}
       onpaste={handlePaste}
-      oninput={() => { resizeTextarea(); emitCaret(); }}
+      onbeforeinput={handleBeforeInput}
+      oninput={handleInput}
       onkeyup={emitCaret}
       onpointerup={emitCaret}
       onfocus={emitCaret}
+      onwheel={cancelScrollFlow}
+      ontouchmove={cancelScrollFlow}
+      ontransitionend={handleTransitionEnd}
       onscroll={syncScroll}
     ></textarea>
   </div>

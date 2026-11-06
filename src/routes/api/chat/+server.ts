@@ -55,10 +55,10 @@ import { getMiniAppHost } from "$lib/server/miniapps/registry";
 import { formatMiniAppList } from "$lib/server/miniapps/invocation";
 import {
   activateDurableExecution,
-  formatDurableActivationAcknowledgement,
   parseDurableRequestMode,
   type DurableRequestMode
 } from "$lib/server/agent/durable/activation.js";
+import { persistDurableConversationInput, ensureDurableConversationResponse } from "$lib/server/agent/durable/conversation.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
 import { ensureSessionPlanRecord } from "$lib/server/agent/plans/sessionIntegration.js";
 import { tryAutoSummarizeConversationTitleAsync, hasDefaultConversationTitle } from "$lib/server/sessions/titleSummarizer.js";
@@ -652,9 +652,8 @@ export const POST: RequestHandler = async ({ request }) => {
   // missing key) left the session titled "New Session" forever. The title check
   // inside the summarizer still protects user-renamed sessions.
   const shouldSummarizeTitle = hasDefaultConversationTitle(conversation.title);
-  runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
+  const inputMessage = runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
     attachments: sessionAttachments,
-    contextBacked: true,
     retention: turnRetention
   });
 
@@ -689,10 +688,9 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error;
   }
   if (durable) {
-    const response = formatDurableActivationAcknowledgement(
-      durable.item,
-      isChineseLocale(runtime.getSettings().locale)
-    );
+    persistDurableConversationInput(store, runtime.sessions, runnerChatId, inputMessage);
+    ensureDurableConversationResponse(runtime.sessions, durable.item.execution, isChineseLocale(runtime.getSettings().locale));
+    const response = "";
     return json({
       ok: true,
       response,

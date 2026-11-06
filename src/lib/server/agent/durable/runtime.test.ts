@@ -27,6 +27,49 @@ function fixture() {
   return { root, store, input };
 }
 
+test("Session-originated attempts stay internal and persist result delivery for retry after restart", async () => {
+  const { root, store, input } = fixture();
+  let reopened: DurableExecutionStore | undefined;
+  try {
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
+    const created = coordinator.create({ ...input, sourceUiSessionId: "source-session", sourceProjectId: "source-project" });
+    coordinator.activate({ ownerId: input.ownerId, executionId: created.execution.id, expectedVersion: created.execution.version });
+    let calls = 0;
+    const progress: string[] = [];
+    const options = { store, processOwnerId: "process-a", dataDir: root,
+      onAttemptProgress: (_execution: unknown, activities: Array<{ state: string }>) => { progress.push(activities[0].state); },
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          calls++;
+          assert.equal(message.sessionMode, "fresh");
+          assert.equal(message.sessionId, undefined);
+          assert.equal(message.projectId, "source-project");
+          await hooks.onRunnerEvent?.({ type: "tool_execution_start", toolCallId: "read-1", toolName: "read", label: "Read source" });
+          await hooks.onRunnerEvent?.({ type: "tool_execution_end", toolCallId: "read-1", toolName: "read", summary: "Read source", isError: false });
+          return { result: { stopReason: "stop" as const, runId: message.runId }, contextSessionId: "internal-attempt", text: "Actual answer" };
+        }
+      }]])]]) as any
+    };
+    const runtime = new DurableExecutionRuntime({ ...options, onAttemptDelivery: () => { throw new Error("delivery offline"); } });
+    await runNextWakeup(runtime, store, "process-a");
+    assert.equal(store.pendingAttemptDeliveries().length, 1);
+    store.close();
+    reopened = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
+    let deliveries = 0;
+    const restored = new DurableExecutionRuntime({ ...options, store: reopened, onAttemptDelivery: input => {
+      assert.equal(input.sessionId, "source-session");
+      assert.equal(input.text, "Actual answer");
+      deliveries++;
+    } });
+    await restored.reconcileAttemptDeliveries();
+    await restored.reconcileAttemptDeliveries();
+    assert.equal(deliveries, 1);
+    assert.equal(calls, 1);
+    assert.deepEqual(progress, ["running", "success"]);
+    assert.equal(reopened.pendingAttemptDeliveries().length, 0);
+  } finally { (reopened ?? store).close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 for (const scope of ["once", "session", "persistent"] as const) {
   test(`approved ${scope} execution resumes the suspended step and completes the plan`, async () => {
     const { root, store, input } = fixture();
@@ -637,12 +680,12 @@ test("bound plans retain original input files and summary after source deletion,
       assert.equal(readFileSync(join(root, message.attachments![0].local), "utf8"), "original data");
       return { result: { stopReason: "stop", runId: message.runId }, text: "Actual result" };
     } }]])]]) as any };
-    const runtime = new DurableExecutionRuntime({ ...options, onPlanAttempt: () => { throw new Error("offline feedback"); } });
+    const runtime = new DurableExecutionRuntime({ ...options, onAttemptDelivery: () => { throw new Error("offline feedback"); } });
     await runNextWakeup(runtime, store, "process-a");
-    assert.equal(store.pendingPlanDeliveries().length, 1);
-    const restarted = new DurableExecutionRuntime({ ...options, onPlanAttempt: input => { assert.equal(input.text, "Actual result"); assert.equal(input.binding.sessionId, "receiver"); delivered++; } });
-    await restarted.reconcilePlanDeliveries(); await restarted.reconcilePlanDeliveries();
-    assert.equal(delivered, 1); assert.equal(store.pendingPlanDeliveries().length, 0);
+    assert.equal(store.pendingAttemptDeliveries().length, 1);
+    const restarted = new DurableExecutionRuntime({ ...options, onAttemptDelivery: input => { assert.equal(input.text, "Actual result"); assert.equal(input.sessionId, "receiver"); delivered++; } });
+    await restarted.reconcileAttemptDeliveries(); await restarted.reconcileAttemptDeliveries();
+    assert.equal(delivered, 1); assert.equal(store.pendingAttemptDeliveries().length, 0);
   } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -845,7 +845,7 @@ export interface DesktopTaskSessionMessage {
 }
 
 export type DesktopSystemTaskExecutionResult =
-  | { kind: "memory-reflection"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdCandidates: number; committedMemories?: number }
+  | { kind: "memory-reflection"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdCandidates: number; committedMemories?: number; pendingReviewCount?: number; skillDraftCount?: number }
   | { kind: "daily-materials"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdFiles: string[] };
 
 export interface DesktopSystemTaskExecution {

@@ -28,7 +28,7 @@ Personal Agent 的价值是持续接住用户交代的事情，并减少用户�
 
 能力状态仅以 [能力矩阵](personal-assistant-capability-matrix.md) 为准，修订依据为其 2026-10-17 核验记录；复用基础不等于本方案已交付。
 
-本文件原位替代 2026-10-14 的“主动助手 V1”草案，并整合产品升级 PRD v0.1；三阶段以本文件为规划依据。[身份与导航规格](personal-agent-experience-v1.md)继续独立有效；[项目自动任务](project-automations-prd.md)、[持久执行](automatic-durable-execution-prd.md)及[大型自治目标](large-autonomous-execution-prd.md)保留各自职责，本方案不把这些未完成能力视为现成依赖。
+本文件原位替代 2026-10-14 的“主动助手 V1”草案，并整合产品升级 PRD v0.1；三阶段以本文件为规划依据。[身份与导航规格](personal-agent-experience-v1.md)继续独立有效；[项目自动任务](project-automations-prd.md)、[持久执行](automatic-durable-execution-prd.md)及[任务看板与自主执行](autonomous-loop-and-trigger-sources-spec.md)（已取代原“大型自治目标”专项）保留各自职责，本方案不把这些未完成能力视为现成依赖。
 
 ## 2. 首个完整场景
 

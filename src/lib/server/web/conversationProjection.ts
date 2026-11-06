@@ -10,6 +10,8 @@ import {
 } from "$lib/server/app/conversationProjection.js";
 import { getRuntimeContextForConversation, resolveRunnerChatId, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext.js";
 import { getMemoryTraceStore } from "$lib/server/memory/traceStore.js";
+import { getDurableExecutionStore } from "$lib/server/agent/durable/store.js";
+import { currentLiveConversationMessages, liveResponseMessage } from "$lib/server/agent/durable/conversation.js";
 
 interface ProjectionRuntime {
   sessions: SessionStore;
@@ -79,7 +81,26 @@ export function loadConversationProjection(input: {
   } catch {
     // Memory observability must never prevent conversation history from loading.
   }
+  const metadataById = new Map(runtime.sessions.listMessageMetadata(input.conversationId).map(message => [message.id, message]));
+  const liveById = new Map(currentLiveConversationMessages(input.conversationId).map(message => [message.id, message]));
   for (const message of result.messages) {
+    if (message.stopReason === "running") {
+      const live = liveById.get(message.id);
+      const metadata = metadataById.get(message.id);
+      const checkpoint = live ?? (metadata?.liveResponse ? liveResponseMessage(metadata) : undefined);
+      if (checkpoint) Object.assign(message, checkpoint);
+    }
+    if (message.stopReason === "running") {
+      const marker = message.activities?.find(activity => activity.key.startsWith("durable-response:"));
+      const execution = marker && getDurableExecutionStore().getById(marker.key.slice("durable-response:".length));
+      if (marker && execution?.sourceUiSessionId === input.conversationId && !["running", "queued", "verifying"].includes(execution.status)) {
+        const failed = ["failed", "recovery_required", "partial"].includes(execution.status);
+        message.stopReason = failed ? "error" : execution.status === "cancelled" ? "aborted" : execution.status;
+        message.errorMessage = failed ? execution.lastError : undefined;
+        message.activities = message.activities?.map(activity => activity.state === "running" ? { ...activity, state: failed ? "error" : "info", summary: execution.waitingReason ?? execution.lastError } : activity);
+        message.steps = message.activities?.map(activity => ({ id: `${message.id}-${activity.key}`, kind: "activity", activity }));
+      }
+    }
     if (!message.plan) continue;
     if (message.plan.durableExecutionId) {
       try {

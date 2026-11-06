@@ -278,8 +278,11 @@
   <QueuedMessagesBar
     queued={queuedMessages}
     label={copy.queued}
+    hint={copy.queuedHint}
     removeLabel={copy.removeQueued}
     confirmLabel={copy.confirmDelete}
+    expandLabel={copy.queuedExpand}
+    collapseLabel={copy.queuedCollapse}
     onRemove={onRemoveQueued}
     canSteer={sending}
     steerLabel={copy.steerQueued}

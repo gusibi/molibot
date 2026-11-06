@@ -44,26 +44,27 @@ test('session more menu reuses session actions and survives reconnect @chat @nav
   await expect(more).toBeFocused();
   await more.click();
   const response = page.waitForResponse(res => res.url().includes('/api/desktop/conversations/path?'));
-  await menu.getByRole('menuitem', { name: 'Copy session directory path', exact: true }).click();
+  await menu.getByRole('menuitem', { name: 'Copy session file path', exact: true }).click();
   const pathResponse = await response;
-  expect(new URL(pathResponse.url()).searchParams.get('target')).toBe('directory');
+  expect(new URL(pathResponse.url()).searchParams.get('target')).toBe('file');
   const path = (await pathResponse.json()).path;
-  expect(path).toBe(directory);
-  expect((await stat(path)).isDirectory()).toBe(true);
+  expect(dirname(path)).toBe(directory);
+  expect(path.endsWith(`${sessionId}.jsonl`)).toBe(true);
+  expect((await stat(path)).isFile()).toBe(true);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(path);
   const encodedSessionId = new URL(pathResponse.url()).searchParams.get('sessionId')!;
   const file = await request.get(`${instance.endpoint}/api/desktop/conversations/path?sessionId=${encodeURIComponent(encodedSessionId)}`);
-  expect(dirname((await file.json()).path)).toBe(path);
+  expect((await file.json()).path).toBe(path);
   expect((await request.get(`${instance.endpoint}/api/desktop/conversations/path?sessionId=missing&target=directory`)).status()).toBe(404);
   expect((await request.get(`${instance.endpoint}/api/desktop/conversations/path?sessionId=${encodeURIComponent(encodedSessionId)}&target=invalid`)).status()).toBe(400);
   // Finder is simulated so the test never opens an OS window.
   await page.route('**/api/desktop/conversations/reveal', route => {
-    expect(route.request().postDataJSON()).toMatchObject({ sessionId: encodedSessionId, target: 'directory' });
+    expect(route.request().postDataJSON()).toMatchObject({ sessionId: encodedSessionId, target: 'file' });
     return route.fulfill({ json: { ok: true, path } });
   });
   await more.click();
   const reveal = page.waitForResponse(res => res.url().endsWith('/api/desktop/conversations/reveal'));
-  await menu.getByRole('menuitem', { name: 'Open directory in Finder', exact: true }).click();
+  await menu.getByRole('menuitem', { name: 'Reveal session file in Finder', exact: true }).click();
   expect((await reveal).ok()).toBe(true);
   for (const [locale, appearance] of [['zh-CN', 'dark'], ['en-US', 'light']]) {
     await page.evaluate(({ locale, appearance }) => {
@@ -72,7 +73,7 @@ test('session more menu reuses session actions and survives reconnect @chat @nav
     }, { locale, appearance });
     await page.setViewportSize({ width: 560, height: 760 });
     await header.getByRole('button', { name: locale === 'zh-CN' ? '更多会话操作' : 'More conversation actions' }).click();
-    await expect(menu.getByRole('menuitem', { name: locale === 'zh-CN' ? '复制会话目录路径' : 'Copy session directory path' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: locale === 'zh-CN' ? '复制会话文件路径' : 'Copy session file path' })).toBeVisible();
     const bounds = await menu.boundingBox();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(560);

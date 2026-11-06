@@ -720,16 +720,16 @@ export class DurableExecutionStore {
     }
   }
 
-  recordPlanDelivery(input: { executionId: string; sessionId: string; runId: string; text: string }): void {
+  recordAttemptDelivery(input: { executionId: string; sessionId: string; runId: string; text: string }): void {
     this.db.prepare("INSERT OR IGNORE INTO durable_plan_deliveries (run_id, execution_id, session_id, response_text) VALUES (?, ?, ?, ?)").run(input.runId, input.executionId, input.sessionId, input.text);
   }
 
-  pendingPlanDeliveries(): Array<{ executionId: string; sessionId: string; runId: string; text: string }> {
+  pendingAttemptDeliveries(): Array<{ executionId: string; sessionId: string; runId: string; text: string }> {
     const rows = this.db.prepare("SELECT * FROM durable_plan_deliveries WHERE delivered_at IS NULL").all() as Array<{ execution_id: string; session_id: string; run_id: string; response_text: string }>;
     return rows.map(row => ({ executionId: row.execution_id, sessionId: row.session_id, runId: row.run_id, text: row.response_text }));
   }
 
-  markPlanDelivered(runId: string): void {
+  markAttemptDelivered(runId: string): void {
     this.db.prepare("UPDATE durable_plan_deliveries SET delivered_at = ? WHERE run_id = ?").run(nowIso(), runId);
   }
 

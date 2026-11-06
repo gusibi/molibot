@@ -17,6 +17,20 @@ function settings() {
 
 const pastedPrompts = '1. 专业精修\n保持附近每个元素不变，不要数字生成。\n2. 稍后继续：这是提示词示例。\n@prompt-box 收录这个提示词';
 
+test("the rendered activation question separates workflow feasibility advice from authorization to execute", async () => {
+  const message = "整个流程在临时容器执行，通过 Google Sheet 反复确认需求，再写 Google Doc 方案并执行，我这个流程可行吗？";
+  const provider = new LlmDecisionProvider(resolveModel(defaultRuntimeSettings), "test", async (_model, context) => {
+    assert.match(context.systemPrompt ?? "", /feasibility/i);
+    assert.match(context.systemPrompt ?? "", /explicitly asks the Agent to execute/i);
+    assert.match(context.systemPrompt ?? "", /可行吗/);
+    assert.match(JSON.stringify(context.messages), /我这个流程可行吗/);
+    return fauxAssistantMessage('{"level":"ordinary","confidence":0.99}');
+  });
+  const result = await decideDurableActivation({ message, settings: settings() }, async () => provider);
+  assert.equal(result.mode, "ordinary");
+  assert.equal(result.degraded, undefined);
+});
+
 test("activation sends the requested action and content to the selected decision provider", async () => {
   const result = await decideDurableActivation({ message: pastedPrompts, settings: settings() }, async () => ({
     async decide(input) {

@@ -64,3 +64,39 @@ Spec 对抗审查：固定/条件性槽位独立，旧 requestId 超重放窗口
 首页最终采用共享读模型组装候选状态；候选 SQL 在 limit 前过滤授权命名空间及技能草稿，原审核接口校验版本且前端核对真实确认回执。运行状态恢复会立即刷新交接，旧请求不能覆盖新读取。主题没有新增硬编码配色或分主题布局。单行历史继续使用共享组件，窄窗负边距已清理。
 
 Chord Context 的 telemetry/value/abortSignal 由类及原型维护，不能展开复制；两处调用已改为官方 withAbortSignal。Models 在 1.4 原生记录请求 span，内置模型跳过本地重复包装，自定义流保留包装。
+
+## Pi 扩展兼容与桌面管理（2026-11-04）
+
+已有 extensionManage 和 Web 扩展管理 API/UI；Desktop PluginsSection 仅列 core/contract。当前固定 @earendil-works/pi-coding-agent 1.4.0。服务器扩展并非完整交互式 Pi：UI、动态工具同步、事件及会话树存在差异。保留其它任务脏文件，不覆盖已有计划。
+
+Pi 扩展本次补充发现：安装校验直接执行第三方工厂于主进程，PID 回归先失败后修复；npm 安装移动单包目录会丢失同级依赖，离线假 npm 夹具复现并修复，正式加载路径也已加入守卫。Desktop 管理 UI 用既有 API，新增精确 Tauri scope，Rust build 通过。WebKit 页面重载触发已有 handover/ack 取消，按既有 fixture 精确标注端点，不屏蔽其它错误。
+
+## Pi 原生终端兼容（2026-11-04）
+
+用户已接受专用终端兼容面板。固定 Pi 1.4 的 InteractiveMode 支持 Terminal 注入，可以通过 IPC 接原始 ANSI 输入输出，无需 PTY。官方 AgentSession/AgentSessionRuntime 提供完整扩展生命周期；模型与基础工具需代理当前父运行的受控能力，不能额外加载本机 Pi 凭据或默认内置工具。
+
+原生 Pi 的 Provider 回调包含函数，不能进入 durable 原生工具的 JSON 参数。`createOwnedModelStream` 以 callId 关联临时回调，持久化仅保留需要回调的标志；恢复失去绑定时拒绝重发。回归验证参数可 structuredClone、实际回调变换生效和恢复不新增收费请求。官方包发现替代只解析 index/pi.extensions 的手写规则，验证 glob 排除、资源和 Provider-only 工厂。
+
+
+## Pi 扩展 CR 修复（2026-11-05）
+
+已确认 native 默认无交互客户端守卫；清理不能依赖 Agent chat 枚举。失败无法证明没有副作用，保留人工核对。Git 子目录根依赖在 staging 清理后丢失。
+
+原生 InteractiveMode 的 UI 上下文统一包装 select/confirm/input/custom/editor；宿主客户端租约与人工应答期限分别处理。Native purge 先于其他删除步骤，独立于 Agent chatId 枚举，运行/异步初始化中拒绝删除并保留重试意图。
+
+npm workspace 即使从带独立 manifest 的子包执行安装，也可能将依赖提升到父目录。新增先红后绿回归，按实际父目录 node_modules 保留完整仓库布局，资源清单仍限定所选扩展。
+
+可选的按Bot排除编辑UI保持原范围；Windows进程组、原生安装包、实际第三方扩展与付费模型未验证。官方内置 /new、/resume、/fork、/model TUI操作仍列为验收缺口，模型切换由正式pi.setModel及真实Runner本地HTTP路径验证。
+
+## Pi 扩展路由与聊天交互结论（2026-11-06）
+
+- 正式 Pi 入口曾只暴露 deferred stub；首轮缺任务 schema 和已安装扩展用途，且冷启动提示词构建早于扩展 load。修复应同时调整 schema 暴露、目录加载顺序及提示词刷新键。
+- 单工具 terminate 不足以阻止同批失败后的下一轮；生产 Runner 需同时拒绝尚未启动的工具及模型生成，并阻止外层空回复重试。
+- LCU v0.13.5 官方 Pi adapter 的授权走标准 ctx.ui.select，可保持原选项和返回值接到聊天弹窗，无需解析 ANSI 或修改第三方包。
+- Native 取消的旧 250ms 强杀会截断 shutdown。慢清理与清理抛错须有独立守卫；延长宽限后还需让挂起的 UI Promise 响应取消，避免仅延迟强杀。
+
+## Pi 二次收紧的责任边界（2026-11-06）
+
+- 工具可见性、明确指令的入口绑定、模型语义选择是三种不同保证；本轮明确指令前置绑定，并把选择保存到恢复上下文。任意自然语言理解不能用若干关键词宣称全覆盖，@pi/id 提供无歧义入口。
+- Computer Use 的图像观察不是渠道交付；缓存淘汰不应使长任务失败，交付必须显式选择并保留部分成功回执。纯色是内容特征，不是文件损坏证据。
+- 扩展 shutdown 回调结束不构成 OS 共享停止的独立证据；只能报告实际确认的清理阶段，无证据时保留共享未核实。

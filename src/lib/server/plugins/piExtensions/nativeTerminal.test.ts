@@ -3,6 +3,7 @@ import { mkdtempSync as fsMkdtempSync, writeFileSync, readFileSync, mkdirSync, r
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
+import { PhotonImage } from "@silvia-odwyer/photon-node";
 
 const temporaryDirectories: string[] = [];
 function mkdtempSync(prefix: string): string { const directory = fsMkdtempSync(prefix); temporaryDirectories.push(directory); return directory; }
@@ -64,6 +65,8 @@ export default function(pi) {
     assert.equal(readFileSync(receipt, "utf8"), "accepted");
     assert.equal(modelCalls, 1);
     assert.equal(host.output(terminalId).terminal.status, "completed");
+    assert.equal(host.output(terminalId).terminal.cleanupStatus,"hooks_completed");
+    assert.equal(host.output(terminalId).terminal.sharingStatus,"unverified");
     await assert.rejects(host.input(terminalId, "again"), /has ended/);
   } finally { unsubscribe(); }
 });
@@ -78,6 +81,24 @@ function options(cwd: string): any {
     } };
 }
 function extension(entryPath: string): any { return { id: "fixture", name: "Fixture", version: "1", entryPath, toolNames: [], eventNames: [], commandNames: [], flagNames: [], unsupported: [] }; }
+function writeNoiseImage(path: string, size: number): void {
+  const pixels = new Uint8Array(size * size * 4);
+  let seed = 1;
+  for (let i = 0; i < pixels.length; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    pixels[i] = seed & 255;
+  }
+  const image = new PhotonImage(pixels, size, size);
+  try { writeFileSync(path, JSON.stringify(Buffer.from(image.get_bytes()).toString("base64"))); }
+  finally { image.free(); }
+}
+function writeCaptureExtension(entryPath: string, imagePath: string): void {
+  writeFileSync(entryPath, `import { readFileSync } from 'node:fs';
+export default function(pi) {
+  pi.registerTool({ name: 'native_capture', label: 'Capture', description: 'Large fixture capture', parameters: { type: 'object', properties: {} },
+    execute: async () => ({ content: [{ type: 'image', mimeType: 'image/png', data: JSON.parse(readFileSync(${JSON.stringify(imagePath)}, 'utf8')) }], details: {} }) });
+}`);
+}
 
 test("native slash commands receive configured flags and execute without a model request", { timeout: 20_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "pi-native-command-"));
@@ -143,6 +164,83 @@ test("dynamic native tools are visible to the next model request and execute thr
   const result = await host.run({sessionId:"dynamic",runId:"dynamic",callId:"dynamic",prompt:"Use dynamic tool",extensions:[extension(entryPath)],options:opts});
   assert.equal(calls,2);
   assert.equal(result.text,"verified");
+});
+
+test("oversized tool-result images are re-encoded as JPEG without shrinking their dimensions", { timeout: 20_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-native-image-limit-"));
+  const imagePath = join(dir, "image.json");
+  writeNoiseImage(imagePath, 500);
+  const entryPath = join(dir, "index.ts");
+  writeCaptureExtension(entryPath, imagePath);
+  const opts = options(dir);
+  const visionModel = { ...model, input: ["text", "image"] };
+  opts.runtime = () => ({ cwd: dir, systemPrompt: "Fixture", model: visionModel, scopedModels: [], models: { chat: [], classifier: [], image: [], providerAuth: {} }, session: { cwd: dir, entries: [] } });
+  let calls = 0;
+  let observedId = "";
+  opts.streamModel = async (input: any, emit: (event: unknown) => void) => {
+    calls++;
+    const parts = input.context.messages.flatMap((message: any) => Array.isArray(message.content) ? message.content : []);
+    const text = parts.filter((part: any) => part.type === "text").map((part: any) => part.text).join("\n");
+    if (calls === 1) {
+      const message = { role: "assistant", content: [{ type: "toolCall", id: "capture", name: "native_capture", arguments: {} }], api: model.api, provider: model.provider, model: model.id, usage, stopReason: "toolUse", timestamp: Date.now() };
+      emit({ type: "done", reason: "toolUse", message }); return { message };
+    }
+    if (calls === 2) {
+      const images = parts.filter((part: any) => part.type === "image");
+      assert.equal(images.length, 1);
+      assert.equal(images[0].mimeType, "image/jpeg");
+      assert.ok(images[0].data.length <= 700 * 1024, `base64 ${images[0].data.length}`);
+      observedId = text.match(/pi-image-[a-f0-9]{64}/)?.[0] ?? "";
+      assert.ok(observedId, "the model must receive an observation id that selects the image");
+      const message = { role: "assistant", content: [{ type: "toolCall", id: "deliver", name: "molibot_deliver_images", arguments: { ids: [observedId], purpose: "screenshot" } }], api: model.api, provider: model.provider, model: model.id, usage, stopReason: "toolUse", timestamp: Date.now() };
+      emit({ type: "done", reason: "toolUse", message }); return { message };
+    }
+    assert.match(text, /Selected 1 final image/);
+    const message = { role: "assistant", content: [{ type: "text", text: "verified" }], api: model.api, provider: model.provider, model: model.id, usage, stopReason: "stop", timestamp: Date.now() };
+    emit({ type: "done", reason: "stop", message }); return { message };
+  };
+  const host = new PiExtensionTerminalHost();
+  const result = await host.run({ sessionId: "image-limit", runId: "image-limit", callId: "image-limit", prompt: "capture", extensions: [extension(entryPath)], options: opts });
+  assert.equal(calls, 3);
+  assert.match(result.text ?? "", /^verified/);
+  assert.equal(result.images?.length, 1);
+  assert.equal(result.images?.[0]?.mimeType, "image/jpeg");
+});
+
+test("older observations are dropped when the native request image budget would be exceeded", { timeout: 20_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-native-image-budget-"));
+  const imagePath = join(dir, "image.json");
+  writeNoiseImage(imagePath, 800);
+  const entryPath = join(dir, "index.ts");
+  writeCaptureExtension(entryPath, imagePath);
+  const opts = options(dir);
+  const visionModel = { ...model, input: ["text", "image"] };
+  opts.runtime = () => ({ cwd: dir, systemPrompt: "Fixture", model: visionModel, scopedModels: [], models: { chat: [], classifier: [], image: [], providerAuth: {} }, session: { cwd: dir, entries: [] } });
+  let calls = 0;
+  opts.streamModel = async (input: any, emit: (event: unknown) => void) => {
+    calls++;
+    const parts = input.context.messages.flatMap((message: any) => Array.isArray(message.content) ? message.content : []);
+    const images = parts.filter((part: any) => part.type === "image");
+    const text = parts.filter((part: any) => part.type === "text").map((part: any) => part.text).join("\n");
+    if (calls === 1) {
+      const message = { role: "assistant", content: [{ type: "toolCall", id: "capture-1", name: "native_capture", arguments: {} }], api: model.api, provider: model.provider, model: model.id, usage, stopReason: "toolUse", timestamp: Date.now() };
+      emit({ type: "done", reason: "toolUse", message }); return { message };
+    }
+    assert.equal(images.length, 1);
+    assert.equal(images[0].mimeType, "image/jpeg");
+    assert.ok(images[0].data.length <= 700 * 1024, `base64 ${images[0].data.length}`);
+    if (calls === 2) {
+      const message = { role: "assistant", content: [{ type: "toolCall", id: "capture-2", name: "native_capture", arguments: {} }], api: model.api, provider: model.provider, model: model.id, usage, stopReason: "toolUse", timestamp: Date.now() };
+      emit({ type: "done", reason: "toolUse", message }); return { message };
+    }
+    assert.match(text, /Earlier image omitted/);
+    const message = { role: "assistant", content: [{ type: "text", text: "verified" }], api: model.api, provider: model.provider, model: model.id, usage, stopReason: "stop", timestamp: Date.now() };
+    emit({ type: "done", reason: "stop", message }); return { message };
+  };
+  const host = new PiExtensionTerminalHost();
+  const result = await host.run({ sessionId: "image-budget", runId: "image-budget", callId: "image-budget", prompt: "capture twice", extensions: [extension(entryPath)], options: opts });
+  assert.equal(calls, 3);
+  assert.match(result.text ?? "", /^verified/);
 });
 
 test("official package discovery preserves glob exclusions, skills and prompt templates", { timeout: 20_000 }, async () => {
@@ -376,4 +474,229 @@ test("native initialization owns the session before the asynchronous snapshot re
   release();
   await rejected;
   host.purgeSession("initializing");
+});
+
+test("native tool approval selector accepts a structured human reply while tool execution is pending", { timeout: 15_000 }, async () => {
+  const dir=mkdtempSync(join(tmpdir(),"pi-native-selector-"));
+  const entryPath=join(dir,"index.ts");
+  const receipt=join(dir,"choice.json");
+  writeFileSync(entryPath,`import {writeFileSync} from 'node:fs'; export default function(pi) {
+    pi.registerTool({name:'fixture_approval',label:'Fixture approval',description:'Simulated application approval',parameters:{type:'object',properties:{}},
+      execute:async(id,args,signal,onUpdate,ctx)=>{
+        const choice=await ctx.ui.select('Allow fixture access?', ['Allow once','Allow for this session','Always allow','Decline']);
+        writeFileSync(${JSON.stringify(receipt)},JSON.stringify(choice));
+        return {content:[{type:'text',text:String(choice)}],details:{}};
+      }});
+  }`);
+  const host=new PiExtensionTerminalHost();
+  host.heartbeat();
+  const heartbeat=setInterval(()=>host.heartbeat(),1_000);
+  const opts=options(dir);
+  const base=opts.streamModel;
+  let calls=0;
+  opts.streamModel=async(input:any,emit:any)=>{
+    if(calls++>0)return base(input,emit);
+    const message={role:'assistant',provider:model.provider,model:model.id,api:model.api,usage,timestamp:Date.now(),stopReason:'toolUse',content:[{type:'toolCall',id:'approval',name:'fixture_approval',arguments:{}}]};
+    emit({type:'done',reason:'toolUse',message});return {message};
+  };
+  let sent=false;
+  const unsubscribe=host.subscribe(id=>{const dialog=host.output(id).terminal.dialog;if(!sent&&dialog?.title==='Allow fixture access?'){sent=true;host.respond(id,dialog.id,'Allow for this session');}});
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),8_000);
+  try {
+    await host.run({sessionId:'selector',runId:'run',callId:'call',prompt:'Use fixture approval',extensions:[extension(entryPath)],options:opts,signal:controller.signal});
+    assert.equal(JSON.parse(readFileSync(receipt,'utf8')),'Allow for this session');
+  } finally {clearInterval(heartbeat);clearTimeout(timeout);unsubscribe();}
+});
+
+test("native cancellation waits for extension shutdown before killing the process", { timeout: 15_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-native-shutdown-"));
+  const entryPath = join(dir, "index.ts");
+  const receipt = join(dir, "closed.txt");
+  writeFileSync(entryPath, `import {writeFileSync} from 'node:fs'; export default function(pi) {
+    pi.on('session_shutdown', async () => {await new Promise(resolve=>setTimeout(resolve,600)); writeFileSync(${JSON.stringify(receipt)},'closed');});
+    pi.registerCommand('hold',{handler:async(args,ctx)=>{ctx.ui.notify('Shutdown fixture ready'); await new Promise(resolve=>ctx.signal.addEventListener('abort',resolve,{once:true}));}});
+  }`);
+  const host = new PiExtensionTerminalHost();
+  const controller = new AbortController();
+  const unsubscribe = host.subscribe(id => {if(host.output(id).output.includes('Shutdown fixture ready')) controller.abort(new Error('Fixture stop'));});
+  try {
+    await assert.rejects(host.run({ sessionId: 'slow-shutdown', runId: 'run', callId: 'call', prompt: '/hold', extensions: [extension(entryPath)], options: options(dir), signal: controller.signal }), /aborted|Fixture stop/);
+    assert.equal(readFileSync(receipt, 'utf8'), 'closed');
+    assert.equal(host.list()[0].cleanupStatus,'hooks_completed');
+    assert.equal(host.list()[0].sharingStatus,'unverified');
+  } finally {unsubscribe();}
+});
+
+test("native shutdown errors cannot be reported as successful completion", { timeout: 15_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-native-shutdown-error-"));
+  const entryPath = join(dir, "index.ts");
+  writeFileSync(entryPath, `export default function(pi) {pi.on('session_shutdown', async()=>{throw new Error('Fixture cleanup failed');});}`);
+  const host = new PiExtensionTerminalHost();
+  await assert.rejects(host.run({sessionId:'shutdown-error',runId:'run',callId:'call',prompt:'go',extensions:[extension(entryPath)],options:options(dir)}), /Fixture cleanup failed/);
+  assert.equal(host.list()[0].status,'failed');
+  assert.equal(host.list()[0].cleanupStatus,'unknown');
+  assert.equal(host.list()[0].requiresReview,true);
+});
+
+test("native selection uses a structured human reply bound to the pending dialog", { timeout: 10_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-native-chat-dialog-"));
+  const entryPath = join(dir, "index.ts");
+  const receipt = join(dir, "choice.txt");
+  writeFileSync(entryPath, `import {writeFileSync} from 'node:fs';export default function(pi){pi.on('session_start',async(_,ctx)=>{const result=await ctx.ui.select('Allow fixture?', ['Allow once','Decline']);writeFileSync(${JSON.stringify(receipt)},String(result));});}`);
+  const host = new PiExtensionTerminalHost();
+  host.heartbeat();
+  const controller = new AbortController();
+  let replied = false;
+  const unsubscribe = host.subscribe(id => {
+    const summary = host.output(id).terminal;
+    const dialog = (summary as any).dialog;
+    if (!dialog || replied) return;
+    replied = true;
+    assert.equal(dialog.kind, 'select');
+    assert.throws(()=>(host as any).respond(id,'stale','Allow once'),/pending|expired/);
+    assert.throws(()=>(host as any).respond(id,dialog.id,'Forged option'),/option/);
+    (host as any).respond(id,dialog.id,'Allow once');
+    assert.throws(()=>(host as any).respond(id,dialog.id,'Decline'),/pending|expired/);
+  });
+  const timeout = setTimeout(()=>controller.abort(new Error('Structured dialog missing')),2_000);
+  try {
+    await host.run({sessionId:'structured-dialog',runId:'run',callId:'call',prompt:'go',extensions:[extension(entryPath)],options:options(dir),signal:controller.signal});
+    assert.equal(replied,true);
+    assert.equal(readFileSync(receipt,'utf8'),'Allow once');
+  } finally {clearTimeout(timeout);unsubscribe();}
+});
+
+test("native confirmation, input, editor, timeout and cancellation preserve Pi return values", {timeout:10_000}, async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'pi-dialog-values-'));
+  const entryPath=join(dir,'index.ts');
+  const receipt=join(dir,'values.json');
+  writeFileSync(entryPath,`import {writeFileSync} from 'node:fs';export default function(pi){pi.on('session_start',async(_,ctx)=>{
+    const confirm=await ctx.ui.confirm('Confirm fixture','Details');
+    const input=await ctx.ui.input('Input fixture','Placeholder');
+    const editor=await ctx.ui.editor('Editor fixture','Initial');
+    const cancelled=await ctx.ui.select('Cancel fixture',['Allow','Decline']);
+    const timeout=await ctx.ui.select('Timeout fixture',['Allow','Decline'],{timeout:20});
+    writeFileSync(${JSON.stringify(receipt)},JSON.stringify({confirm,input,editor,cancelled:cancelled===undefined,timeout:timeout===undefined}));
+  });}`);
+  const host=new PiExtensionTerminalHost();host.heartbeat();
+  const unsubscribe=host.subscribe(id=>{
+    const dialog=host.output(id).terminal.dialog;
+    if(!dialog || dialog.title==='Timeout fixture')return;
+    if(dialog.kind==='confirm'){assert.equal(dialog.message,'Details');assert.throws(()=>host.respond(id,dialog.id,'true'),/boolean/);host.respond(id,dialog.id,false);}
+    else if(dialog.kind==='input'){assert.equal(dialog.placeholder,'Placeholder');host.respond(id,dialog.id,'');}
+    else if(dialog.kind==='editor'){assert.equal(dialog.initialValue,'Initial');host.respond(id,dialog.id,'edited\ntext');}
+    else host.respond(id,dialog.id,null);
+  });
+  try {
+    await host.run({sessionId:'dialog-values',runId:'run',callId:'call',prompt:'go',extensions:[extension(entryPath)],options:options(dir)});
+    assert.deepEqual(JSON.parse(readFileSync(receipt,'utf8')),{confirm:false,input:'',editor:'edited\ntext',cancelled:true,timeout:true});
+    assert.equal(host.list()[0].dialog,undefined);
+  } finally {unsubscribe();}
+});
+
+test("stopping a pending Pi dialog clears it and rejects late human replies", {timeout:10_000}, async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'pi-dialog-stop-'));
+  const entryPath=join(dir,'index.ts');
+  writeFileSync(entryPath,`export default function(pi){pi.on('session_start',async(_,ctx)=>{await ctx.ui.confirm('Stop fixture','Pending');});pi.on('session_shutdown',async()=>{await new Promise(resolve=>setTimeout(resolve,300));});}`);
+  const host=new PiExtensionTerminalHost();host.heartbeat();
+  let stopped=false;
+  const unsubscribe=host.subscribe(id=>{
+    const dialog=host.output(id).terminal.dialog;
+    if(!dialog||stopped)return;
+    stopped=true;host.stop(id);
+    assert.equal(host.output(id).terminal.dialog,undefined);
+    assert.throws(()=>host.respond(id,dialog.id,true),/pending|expired/);
+  });
+  try {
+    await assert.rejects(host.run({sessionId:'dialog-stop',runId:'run',callId:'call',prompt:'go',extensions:[extension(entryPath)],options:options(dir)}),/Stopped from the native Pi terminal/);
+    assert.equal(stopped,true);
+    assert.equal(host.list()[0].requiresReview,true);
+  } finally {unsubscribe();}
+});
+
+test("cleanup killed after the grace period remains unknown rather than claiming sharing stopped", {timeout:25_000}, async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'pi-cleanup-unknown-'));
+  const entryPath=join(dir,'index.ts');
+  writeFileSync(entryPath,`export default function(pi){pi.on('session_start',async(_,ctx)=>{await ctx.ui.confirm('Grace fixture','Pending');});pi.on('session_shutdown',async()=>{await new Promise(resolve=>setTimeout(resolve,60_000));});}`);
+  const host=new PiExtensionTerminalHost();host.heartbeat();
+  let stopped=false, cleaning=false;
+  const unsubscribe=host.subscribe(id=>{
+    const terminal=host.output(id).terminal;
+    if(terminal.cleanupStatus==='running')cleaning=true;
+    if(!stopped&&terminal.dialog){stopped=true;host.stop(id);}
+  });
+  try {
+    await assert.rejects(host.run({sessionId:'unknown-cleanup',runId:'run',callId:'call',prompt:'go',extensions:[extension(entryPath)],options:options(dir)}),/Stopped from the native Pi terminal/);
+    assert.equal(cleaning,true);
+    assert.equal(host.list()[0].cleanupStatus,'unknown');
+    assert.equal(host.list()[0].sharingStatus,'unverified');
+    assert.equal(host.list()[0].requiresReview,true);
+  } finally {unsubscribe();}
+});
+
+test("the terminal HTTP route resolves only the current structured dialog", {timeout:10_000}, async()=>{
+  const {piExtensionTerminalHost:host}=await import('./nativeTerminal.js');
+  const {GET,POST}=await import('../../../../routes/api/settings/plugins/extensions/terminal/+server.js');
+  const dir=mkdtempSync(join(tmpdir(),'pi-dialog-http-'));
+  const entryPath=join(dir,'index.ts');
+  const receipt=join(dir,'reply.txt');
+  writeFileSync(entryPath,`import {writeFileSync} from 'node:fs';export default function(pi){pi.on('session_start',async(_,ctx)=>{const choice=await ctx.ui.select('HTTP fixture',['Allow once','Decline']);writeFileSync(${JSON.stringify(receipt)},String(choice));});}`);
+  const routeUrl=new URL('http://127.0.0.1/api/settings/plugins/extensions/terminal?client=desktop');
+  await GET({url:routeUrl} as any);
+  let ready!:(value:{id:string;dialogId:string})=>void;
+  const awaitingDialog=new Promise<{id:string;dialogId:string}>(resolve=>{ready=resolve;});
+  const unsubscribe=host.subscribe(id=>{const dialog=host.output(id).terminal.dialog;if(dialog)ready({id,dialogId:dialog.id});});
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(new Error('HTTP fixture timeout')),5_000);
+  const pending=host.run({sessionId:'dialog-http',runId:'run',callId:'call',prompt:'go',extensions:[extension(entryPath)],options:options(dir),signal:controller.signal});
+  try {
+    const request=await awaitingDialog;
+    const list=await (await GET({url:routeUrl} as any)).json();
+    assert.equal(list.terminals.find((item:any)=>item.id===request.id).dialog.id,request.dialogId);
+    const respond=(value:string)=>POST({request:new Request(routeUrl,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...request,action:'respond',value})})} as any);
+    assert.equal((await respond('forged option')).status,400);
+    assert.equal((await respond('Allow once')).status,200);
+    await pending;
+    assert.equal(readFileSync(receipt,'utf8'),'Allow once');
+    assert.equal((await respond('Decline')).status,400);
+  } finally {clearTimeout(timeout);controller.abort();await pending.catch(()=>{});unsubscribe();}
+});
+
+for (const scenario of ['success','cancel','retry']) test(`LCU auto-stop ${scenario} uses only the owned cleanup connection`, {timeout:15_000}, async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'pi-lcu-auto-stop-'));
+  const entryPath=join(dir,'index.ts'),receipt=join(dir,'effects.json'),allow=join(dir,'allow-stop');
+  const helper=join(process.cwd(),'scripts','runtime','lcu-auto-stop.mjs');
+  writeFileSync(entryPath,`import {writeFileSync,existsSync} from 'node:fs';import {withLcuAutoStop} from ${JSON.stringify(helper)};
+  export default function(pi){let apps=['owned.app'];const calls=[];const save=()=>writeFileSync(${JSON.stringify(receipt)},JSON.stringify(calls));
+    const client=withLcuAutoStop({hasHostControl:true,
+      controlStatus:async turn=>{calls.push(['status',turn]);save();return {computerUse:{activeApplications:apps.map(bundleIdentifier=>({bundleIdentifier}))}};},
+      controlStop:async turn=>{calls.push(['stop',turn]);save();if(${JSON.stringify(scenario)}==='retry'&&!existsSync(${JSON.stringify(allow)}))throw new Error('Fixture stop unavailable');apps=[];return {accepted:true,applicationId:turn.app};},
+      turnEnded:async turn=>{calls.push(['end',turn]);save();},close:async()=>{calls.push(['close']);save();}
+    },{deadlineMs:200,pollMs:1});const turn={sessionId:'owned-session',turnId:'owned-turn',event:'Stop'};
+    pi.on('agent_end',async(_,ctx)=>{try{await client.turnEnded(turn);}catch(error){ctx.ui.notify(error.message,'warning');}});
+    pi.on('session_shutdown',async()=>{try{await client.turnEnded(turn);}finally{await client.close();}});
+    ${scenario==='cancel' ? "pi.on('session_start',async(_,ctx)=>{await ctx.ui.confirm('Cancel LCU fixture','Pending');});" : ''}
+  }`);
+  const host=scenario==='retry'?(await import('./nativeTerminal.js')).piExtensionTerminalHost:new PiExtensionTerminalHost();host.heartbeat();let id='';let modelCalls=0;
+  const opts=options(dir),base=opts.streamModel;opts.streamModel=async(...args:any[])=>{modelCalls++;return base(...args);};
+  const unsubscribe=host.subscribe(current=>{if(scenario==='cancel'&&host.output(current).terminal.dialog)host.stop(current);});
+  try {
+    const running=host.run({sessionId:`lcu-${scenario}`,runId:'run',callId:'call',prompt:'go',extensions:[extension(entryPath)],options:opts,onStarted:terminal=>{id=terminal.id;}});
+    if(scenario==='success')await running;else await assert.rejects(running,scenario==='cancel'?/Stopped from/:/cleanup failed/);
+    if(scenario==='retry'){
+      assert.equal(host.output(id).terminal.sharingStatus,'unknown');assert.equal(host.output(id).terminal.sharingRetryable,true);
+      assert.throws(()=>host.review(id),/Retry stopping/);assert.throws(()=>host.purgeSession(`lcu-${scenario}`),/Stop the active/);
+      await assert.rejects(host.run({sessionId:`lcu-${scenario}`,runId:'next',callId:'next',prompt:'go',extensions:[extension(entryPath)],options:opts}),/already owns/);
+      writeFileSync(allow,'allowed');
+      const {POST}=await import('../../../../routes/api/settings/plugins/extensions/terminal/+server.js');
+      const response=POST({request:new Request('http://127.0.0.1/api/settings/plugins/extensions/terminal',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'retrySharing',id})})} as any);
+      const [http]=await Promise.all([response,host.retrySharing(id)]);assert.equal(http.status,200);
+    }
+    assert.equal(host.output(id).terminal.sharingStatus,'released');assert.equal(host.output(id).terminal.sharingRetryable,false);
+    const calls=JSON.parse(readFileSync(receipt,'utf8'));
+    assert.deepEqual(calls.filter((call:any)=>call[0]==='stop').map((call:any)=>call[1]),Array(scenario==='retry'?3:1).fill({sessionId:'owned-session',turnId:'owned-turn',app:'owned.app'}));
+    assert.equal(calls.filter((call:any)=>call[0]==='end').length,1);assert.equal(calls.at(-1)[0],'close');
+    assert.equal(modelCalls,scenario==='cancel'?0:1);
+  } finally {unsubscribe();}
 });

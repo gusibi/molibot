@@ -1,4 +1,4 @@
-import type { DesktopTaskItem } from '@molibot/desktop-contract';
+import type { DesktopSystemTaskExecutionResult, DesktopTaskItem } from '@molibot/desktop-contract';
 export type HomeReceipts = Record<string, string>;
 export function readHomeReceipts(raw: string | null): HomeReceipts {
   try {
@@ -11,11 +11,14 @@ export function readHomeReceipts(raw: string | null): HomeReceipts {
 export function markHomeReceipt(receipts: HomeReceipts, taskId: string, executionId: string): HomeReceipts {
   return Object.fromEntries([...Object.entries(receipts).filter(([id]) => id !== taskId), [taskId, executionId]].slice(-512));
 }
-export function shouldShowHomeTask(task: DesktopTaskItem, receipts: HomeReceipts): boolean {
+export function shouldShowHomeTask(task: DesktopTaskItem, receipts: HomeReceipts, result?: DesktopSystemTaskExecutionResult): boolean {
   const execution = task.executions[0];
   if (task.active || execution?.status === 'waiting_approval' || execution?.status === 'retry_wait') return true;
   if (!execution) return task.reminderUnread === true;
   if (task.maintenance && ['completed', 'skipped', 'aborted'].includes(execution.status)) return false;
+  if (execution.status === 'completed' && result?.kind === 'memory-reflection'
+    && result.createdCandidates === 0 && result.committedMemories === 0
+    && result.pendingReviewCount === 0 && result.skillDraftCount === 0) return false;
   return receipts[task.taskId] !== execution.id;
 }
 

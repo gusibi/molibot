@@ -35,7 +35,9 @@ test("the production daily event uses the idle extractor, Writer and checkpoint"
   const idle = await runtime.memoryExtraction.runSweep({ conversationId: conversation.id, force: true });
   assert.equal(idle.committed, 1);
   const event = { type: "periodic" as const, schedule: "0 3 * * *", timezone: "Asia/Shanghai", chatId: "internal-memory-reflection", text: "Daily memory reflection", internal: { kind: "memory-reflection" as const } };
-  await runtime.runInternalEvent(event, "memory-reflection.json");
+  const dailyResult = await runtime.runInternalEvent(event, "memory-reflection.json");
+  assert.equal(dailyResult?.pendingReviewCount, 0);
+  assert.equal(dailyResult?.skillDraftCount, 0);
   assert.equal(modelCalls, 1, "daily event must not re-extract the idle range");
 
   runtime.sessions.appendMessage(conversation.id, "user", "以后也保持简短");

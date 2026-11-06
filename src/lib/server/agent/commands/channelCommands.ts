@@ -2154,7 +2154,8 @@ export class SharedRuntimeCommandService<TTarget> {
     const sessionId = this.options.store.getActiveSession(input.scopeId);
     const runner = this.options.runners.get(input.scopeId, sessionId);
     await runner.runExtensionCommand({ toolName: piExtensionCommandToolName(extension.id, name), command: name, args: rawArg,
-      respond: text => this.options.sendText(input.target, text) });
+      respond: text => this.options.sendText(input.target, text),
+      ...(this.options.uploadFile ? { uploadFile: (path: string, title?: string, text?: string) => this.options.uploadFile!(input.target, path, title, text) } : {}) });
     return true;
   }
 

@@ -6,11 +6,11 @@
   import FolderOpen from "reicon-svelte/icons/FolderOpen";
   import Trash from "reicon-svelte/icons/Trash";
 
-  let { locale, onSearch, onCopyPath, onOpenDirectory, onDelete }: {
+  let { locale, onSearch, onCopyPath, onRevealFile, onDelete }: {
     locale: string;
     onSearch: (trigger?: HTMLButtonElement) => void;
     onCopyPath: () => void;
-    onOpenDirectory: () => void;
+    onRevealFile: () => void;
     onDelete: () => void | Promise<void>;
   } = $props();
   let trigger = $state<HTMLButtonElement | null>(null);
@@ -27,8 +27,8 @@
       onCloseAutoFocus={(event) => { event.preventDefault(); if (!searching) trigger?.focus(); searching = false; }}>
       <DropdownMenu.Item class="list-context-item" onSelect={() => { searching = true; onSearch(trigger ?? undefined); }}><MessageSearch size={16} aria-hidden="true" />{zh ? "搜索当前对话" : "Search this conversation"}</DropdownMenu.Item>
       <DropdownMenu.Separator class="session-actions-separator" />
-      <DropdownMenu.Item class="list-context-item" onSelect={onCopyPath}><Copy size={16} aria-hidden="true" />{zh ? "复制会话目录路径" : "Copy session directory path"}</DropdownMenu.Item>
-      <DropdownMenu.Item class="list-context-item" onSelect={onOpenDirectory}><FolderOpen size={16} aria-hidden="true" />{zh ? "在 Finder 中打开目录" : "Open directory in Finder"}</DropdownMenu.Item>
+      <DropdownMenu.Item class="list-context-item" onSelect={onCopyPath}><Copy size={16} aria-hidden="true" />{zh ? "复制会话文件路径" : "Copy session file path"}</DropdownMenu.Item>
+      <DropdownMenu.Item class="list-context-item" onSelect={onRevealFile}><FolderOpen size={16} aria-hidden="true" />{zh ? "在 Finder 中显示文件" : "Reveal session file in Finder"}</DropdownMenu.Item>
       <DropdownMenu.Separator class="session-actions-separator" />
       <DropdownMenu.Item class="list-context-item danger" onSelect={() => void onDelete()}><Trash size={16} aria-hidden="true" />{zh ? "删除对话" : "Delete conversation"}</DropdownMenu.Item>
     </DropdownMenu.Content>

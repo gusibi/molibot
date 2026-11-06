@@ -51,8 +51,10 @@ class ProcessClient implements PiExtensionProcessClient {
   private faultListener: ((error: Error) => void) | null = null;
   private disposed = false;
 
-  constructor(private readonly child: ChildProcess) {
+  constructor(private readonly child: ChildProcess, private readonly cancellationGraceMs = 250, private readonly onNativeLifecycle?: (stage: "cleanup_started" | "cleanup_completed" | "cleanup_failed") => void, private readonly onNativeSharing?: (state: {status: "unverified" | "stopping" | "released" | "unknown"; retryable: boolean}) => void) {
     child.on("message", (raw: any) => {
+      if (raw?.kind === "nativeSharing" && ["unverified", "stopping", "released", "unknown"].includes(raw.status) && typeof raw.retryable === "boolean") { this.onNativeSharing?.({status:raw.status,retryable:raw.retryable}); return; }
+      if (raw?.kind === "nativeLifecycle" && ["cleanup_started", "cleanup_completed", "cleanup_failed"].includes(raw.stage)) { this.onNativeLifecycle?.(raw.stage); return; }
       if (raw?.kind === "hostCancel") {
         const call = this.hostCalls.get(raw.id);
         if (call && call.token === raw.token) call.controller.abort(new Error("The extension cancelled this call."));
@@ -99,7 +101,7 @@ class ProcessClient implements PiExtensionProcessClient {
           pending.cancellation = new Error(`Pi extension ${method} was aborted.`);
           clearTimeout(pending.timer);
           try { this.child.send({ kind: "cancelInvocation", id }); } catch { terminate(pending.cancellation); return; }
-          pending.timer = setTimeout(() => terminate(pending.cancellation!), 250);
+          pending.timer = setTimeout(() => terminate(pending.cancellation!), this.cancellationGraceMs);
         };
         if (signal.aborted) { clearTimeout(timer); reject(new Error(`Pi extension ${method} was aborted.`)); return; }
         signal.addEventListener("abort", abort, { once: true });
@@ -195,7 +197,7 @@ class ProcessClient implements PiExtensionProcessClient {
   }
 }
 
-export function createPiExtensionProcessClient(options: { native?: boolean; env?: NodeJS.ProcessEnv } = {}): PiExtensionProcessClient {
+export function createPiExtensionProcessClient(options: { native?: boolean; env?: NodeJS.ProcessEnv; onNativeLifecycle?: (stage: "cleanup_started" | "cleanup_completed" | "cleanup_failed") => void; onNativeSharing?: (state: {status: "unverified" | "stopping" | "released" | "unknown"; retryable: boolean}) => void } = {}): PiExtensionProcessClient {
   const child = fork(scriptPath(options.native === true), [], {
     detached: process.platform !== "win32",
     ...(options.env ? { env: options.env } : {}),
@@ -203,7 +205,7 @@ export function createPiExtensionProcessClient(options: { native?: boolean; env?
     stdio: ["ignore", "ignore", "pipe", "ipc"],
     execArgv: ["--max-old-space-size=256"]
   });
-  const client = new ProcessClient(child);
+  const client = new ProcessClient(child, options.native ? 15_000 : 250, options.native ? options.onNativeLifecycle : undefined, options.native ? options.onNativeSharing : undefined);
   child.stderr?.on("data", (chunk) => {
     momWarn("plugins", "pi_extension_worker_stderr", { message: chunk.toString().slice(0, 4_000) });
   });

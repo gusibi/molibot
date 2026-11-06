@@ -1,9 +1,12 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { createProvider, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { createAgentSession, AgentSessionRuntime, DefaultResourceLoader, InteractiveMode, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, AgentSessionRuntime, DefaultResourceLoader, InteractiveMode, ModelRuntime, SessionManager, SettingsManager, resizeImage } from "@earendil-works/pi-coding-agent";
 import { PiExtensionTerminal } from "./pi-extension-terminal.mjs";
 import { ownedNativeModelRuntime } from "./pi-native-model-runtime.mjs";
+import {sharingSnapshot,retrySharingCleanup} from "./lcu-auto-stop.mjs";
+import { collectPiImages, selectPiImages } from "./pi-extension-images.mjs";
+import { NATIVE_IMAGE_RESIZE, limitNativeImageContext, withNativeImageLimits } from "./pi-native-image-limits.mjs";
 
 const pending = new Map();
 let nextId = 0;
@@ -14,17 +17,47 @@ let abort;
 const modelCallbacks = new Map();
 
 // Bind the official UI through the public session binding API.
-function guardInteractiveUI(ui, token) {
+function guardInteractiveUI(ui, token, signal) {
   if (!ui) return ui;
   return new Proxy(ui, {
     get(target, name) {
       const operation = target[name];
       if (!["select", "confirm", "input", "custom", "editor"].includes(name)) return typeof operation === "function" ? operation.bind(target) : operation;
       return async (...args) => {
+        signal.throwIfAborted();
         const id = ++nextId;
-        await host(token, "terminal.interactionStart", { id });
-        try { return await operation.apply(target, args); }
-        finally { await host(token, "terminal.interactionEnd", { id }); }
+        await host(token, "terminal.interactionStart", { id, kind: name });
+        let onAbort;
+        try {
+          signal.throwIfAborted();
+          if (name !== "custom") {
+            const opts = args[2];
+            const timeout = typeof opts?.timeout === "number" && Number.isFinite(opts.timeout) && opts.timeout >= 0
+              ? AbortSignal.timeout(Math.min(2 ** 31 - 1, Math.floor(opts.timeout))) : undefined;
+            const dialogSignal = AbortSignal.any([signal, ...(opts?.signal ? [opts.signal] : []), ...(timeout ? [timeout] : [])]);
+            const cancelled = name === "confirm" ? false : undefined;
+            if (dialogSignal.aborted) return cancelled;
+            try {
+              const value = await host(token, "terminal.dialog", {
+                kind: name, title: args[0],
+                ...(name === "select" ? { options: args[1] } : name === "confirm" ? { message: args[1] } : name === "editor" ? { initialValue: args[1] } : { placeholder: args[1] })
+              }, { signal: dialogSignal });
+              return value === null ? cancelled : value;
+            } catch (error) {
+              signal.throwIfAborted();
+              if (dialogSignal.aborted) return cancelled;
+              throw error;
+            }
+          }
+          const cancelled = new Promise((_, reject) => {
+            onAbort = () => reject(signal.reason);
+            signal.addEventListener("abort", onAbort, { once: true });
+          });
+          return await Promise.race([operation.apply(target, args), cancelled]);
+        } finally {
+          if (onAbort) signal.removeEventListener("abort", onAbort);
+          await host(token, "terminal.interactionEnd", { id });
+        }
       };
     }
   });
@@ -52,7 +85,7 @@ function stream(token, model, context, options, simple) {
   // headers may accompany the request without copying those secrets into IPC.
   const requestHeaders = Object.fromEntries(Object.entries(options?.headers ?? {}).filter(([key]) =>
     !/^(authorization|proxy-authorization|cookie|host|x-api-key|api-key|content-length|connection|transfer-encoding|x-molibot-session|x-opencode-session)$/i.test(key)));
-  void host(token, "nativeModel.hostStream", { callbackId, model: { provider: model.provider, id: model.id }, context, options: portable, requestHeaders, simple }, {
+  void host(token, "nativeModel.hostStream", { callbackId, model: { provider: model.provider, id: model.id }, context: limitNativeImageContext(context), options: portable, requestHeaders, simple }, {
     signal: options?.signal,
     onEvent: (event) => result.push(event)
   }).then(({ message }) => result.end(message)).catch((error) => {
@@ -71,6 +104,11 @@ function saveState(path, state) {
 }
 
 async function run(input, signal) {
+  let outputImages = [];
+  let selectedImages = [];
+  let imageError;
+  let shutdownError;
+  const controlledTools = new Set(input.tools.map(tool => tool.name));
   const { hostToken: token, snapshot, agentDir } = input;
   const statePath = join(agentDir, "state.json");
   mkdirSync(agentDir, { recursive: true, mode: 0o700 });
@@ -79,8 +117,10 @@ async function run(input, signal) {
   const settingsManager = SettingsManager.inMemory({ retry: { enabled: false }, cacheWarming: { enabled: false }, quietStartup: true, theme: "dark", tuiMode: "fullscreen", compaction: { enabled: false } });
   const baseModelRuntime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"), refreshOnCreate: false });
   const bridges = new Map();
-  const models = [...new Map([...(snapshot.availableModels ?? []), ...(snapshot.scopedModels ?? []).map((entry) => entry.model), snapshot.model]
-    .filter(Boolean).map(model => [`${model.provider}\0${model.id}`, model])).values()];
+  const nativeModel = withNativeImageLimits(snapshot.model);
+  const scopedModels = (snapshot.scopedModels ?? []).map((entry) => ({ ...entry, model: withNativeImageLimits(entry.model) }));
+  const models = [...new Map([...(snapshot.availableModels ?? []), ...scopedModels.map((entry) => entry.model), nativeModel]
+    .filter(Boolean).map(model => [`${model.provider}\0${model.id}`, withNativeImageLimits(model)])).values()];
   if (!models.length) throw new Error("A configured host model is required for native Pi execution.");
   for (const provider of new Set(models.map((model) => model.provider))) {
     const bridge = createProvider({ id: provider, models: models.filter((model) => model.provider === provider),
@@ -101,6 +141,37 @@ async function run(input, signal) {
     const resourceLoader = new DefaultResourceLoader({ cwd, agentDir, settingsManager, noExtensions: true, noSkills: true,
       noPromptTemplates: true, noThemes: true, noContextFiles: true, additionalExtensionPaths: input.extensionPaths,
       extensionFactories: [{ name: "molibot-host-shell", factory: (pi) => {
+        pi.registerTool({ name: "molibot_deliver_images", label: "Select images for delivery", description: "Explicitly select final images to send to the user after extension cleanup. Observation images are private working context until selected. Use ids returned by image tools. For window screenshots use purpose screenshot; solid artwork may use image. Selecting replaces the previous selection.",
+          parameters: {type:"object",properties:{ids:{type:"array",items:{type:"string"},minItems:1,maxItems:8},purpose:{type:"string",enum:["image","screenshot"]}},required:["ids","purpose"]},
+          execute: async (_id,args) => {
+            try {selectedImages = selectPiImages(outputImages,args.ids,args.purpose); imageError=undefined;}
+            catch(error){imageError=error;return {isError:true,content:[{type:"text",text:error.message}],details:{}};}
+            return {content:[{type:"text",text:`Selected ${selectedImages.length} final image(s). Delivery occurs only after extension cleanup.`}],details:{imageIds:selectedImages.map(image=>image.id)}};
+          }
+        });
+        pi.on("tool_result", async event => {
+          if (controlledTools.has(event.toolName) || event.isError) return;
+          if (!event.content.some(part => part.type === "image")) return;
+          try {
+            const content = [];
+            for (const part of event.content) {
+              if (part.type !== "image") { content.push(part); continue; }
+              let normalized = part;
+              try {
+                const resized = await resizeImage(Buffer.from(part.data, "base64"), part.mimeType, NATIVE_IMAGE_RESIZE);
+                if (resized) normalized = { type: "image", mimeType: resized.mimeType, data: resized.data };
+              } catch { /* Pi's own normalization still applies. */ }
+              content.push(normalized);
+            }
+            const imageCount = content.filter(part => part.type === "image").length;
+            outputImages = collectPiImages(content, outputImages);
+            const observed = outputImages.slice(-imageCount);
+            return {content:[...content,{type:"text",text:`Observed images (not delivered): ${JSON.stringify(observed.map(({id,width,height,uniform,visible})=>({id,width,height,uniform,visible})))}. Select intended final images with molibot_deliver_images; use purpose screenshot for a requested window capture.`}]};
+          } catch (error) {
+            imageError = error;
+            return { isError: true, content: [{ type: "text", text: error.message }] };
+          }
+        });
         pi.on("user_bash", async (event) => {
           const outcome = await host(token, "executeTool", { toolName: "bash", args: { label: "Pi terminal command", command: event.command } }, { signal });
           if (outcome.result?.terminate) throw new Error("Host approval suspended the native task.");
@@ -113,16 +184,28 @@ async function run(input, signal) {
         loaded.extensions.sort((a, b) => Number(b.path === "<inline:molibot-host-shell>") - Number(a.path === "<inline:molibot-host-shell>"));
         return loaded;
       },
-      systemPrompt: snapshot.systemPrompt });
+      systemPrompt: `${snapshot.systemPrompt}\n<native-pi-session>You are already running inside piExtensionRun. Use the registered extension tools directly. Never create a substitute client or answer a human approval in code. Image tool results are observations, not deliverables. Use molibot_deliver_images to select only the final requested images; screenshots must use purpose screenshot. Inspect the target application/window and the resulting image before claiming a screenshot succeeded.</native-pi-session>` });
     await resourceLoader.reload();
     const loaded = resourceLoader.getExtensions();
     const errors = loaded.errors;
     if (errors.length) throw new Error(`Native Pi extension load failed: ${errors.map((entry) => entry.error).join("; ")}`);
     const created = await createAgentSession({ cwd, agentDir, resourceLoader, modelRuntime, settingsManager, sessionManager, sessionStartEvent,
-      model: snapshot.model, thinkingLevel: snapshot.thinkingLevel ?? "off", scopedModels: snapshot.scopedModels, noTools: "builtin", customTools,
+      model: nativeModel, thinkingLevel: snapshot.thinkingLevel ?? "off", scopedModels, noTools: "builtin", customTools,
       excludeTools: ["read", "bash", "edit", "write", "find", "grep", "ls", "powershell"].filter((name) => !customTools.some((tool) => tool.name === name)) });
     const bindExtensions = created.session.bindExtensions.bind(created.session);
-    created.session.bindExtensions = (bindings) => bindExtensions({ ...bindings, uiContext: guardInteractiveUI(bindings.uiContext, token) });
+    created.session.bindExtensions = (bindings) => bindExtensions({ ...bindings, uiContext: guardInteractiveUI(bindings.uiContext, token, signal),
+      onError: error => {
+        if (["session_shutdown", "agent_end"].includes(error.event)) shutdownError = new Error(`Pi extension cleanup failed: ${error.error}`);
+        bindings.onError?.(error);
+      }
+    });
+    created.session.subscribe(event => {
+      if (event.type !== "tool_execution_end" || controlledTools.has(event.toolName) || event.isError) return;
+      if (!event.result?.content?.some(part => part.type === "image")) return;
+      try {
+        outputImages = collectPiImages(event.result.content, outputImages);
+      } catch (error) { imageError = error; }
+    });
     return { ...created, services: { cwd, agentDir, resourceLoader, modelRuntime, settingsManager, diagnostics: [] }, diagnostics: [] };
   };
   const sessionManager = previous?.sessionFile && existsSync(previous.sessionFile)
@@ -139,6 +222,7 @@ async function run(input, signal) {
   try {
     signal.throwIfAborted();
     await mode.init();
+    signal.throwIfAborted();
     // init() binds all native extension UI and shortcut handlers before prompting.
     const disposition = await runtime.session.prompt(input.prompt);
     await runtime.session.waitForIdle();
@@ -146,20 +230,35 @@ async function run(input, signal) {
     const text = disposition === "handled" ? "" : runtime.session.getLastAssistantText() ?? "";
     const last = [...runtime.session.messages].reverse().find((message) => message.role === "assistant");
     if (disposition !== "handled" && (last?.stopReason === "error" || last?.stopReason === "aborted")) throw new Error(last.errorMessage ?? `Native Pi ended with ${last.stopReason}.`);
+    if (imageError) throw imageError;
     completedState = { status: "completed", sessionFile: runtime.session.sessionFile };
-    return { text, sessionId: runtime.session.sessionId };
+    return { sharingStatus: sharingSnapshot().status, text: text + (outputImages.length && !selectedImages.length ? "\nNo image was selected for delivery; observed images have not been sent to the user." : ""), images: selectedImages, sessionId: runtime.session.sessionId };
   } catch (error) {
     if (!signal.aborted) saveState(statePath, { status: "failed", requiresReview: true, sessionFile: runtime.session.sessionFile });
     throw error;
   } finally {
     signal.removeEventListener("abort", stop);
-    mode.stop();
-    await runtime.dispose();
-    signal.throwIfAborted();
-    if (completedState) saveState(statePath, completedState);
-    terminal.stop();
-    mode = undefined;
-    runtime = undefined;
+    let hooksCompleted = false;
+    send({kind:"nativeLifecycle",stage:"cleanup_started"});
+    try {
+      let terminalError;
+      try { mode.stop(); } catch (error) { terminalError = error; }
+      await runtime.dispose();
+      if (shutdownError) throw shutdownError;
+      hooksCompleted = true;
+      send({kind:"nativeLifecycle",stage:"cleanup_completed"});
+      if (terminalError) throw terminalError;
+      signal.throwIfAborted();
+      saveState(statePath, {...(completedState ?? {status:"failed",requiresReview:true,sessionFile:runtime.session.sessionFile}),cleanupStatus:"hooks_completed",sharingStatus:sharingSnapshot().status,sharingRetryable:sharingSnapshot().retryable});
+    } catch (error) {
+      if (!hooksCompleted) send({kind:"nativeLifecycle",stage:"cleanup_failed"});
+      saveState(statePath, { cleanupStatus: hooksCompleted ? "hooks_completed" : "unknown", sharingStatus:sharingSnapshot().status, sharingRetryable:sharingSnapshot().retryable, status: signal.aborted ? "interrupted" : "failed", requiresReview: true, sessionFile: runtime.session.sessionFile });
+      throw error;
+    } finally {
+      terminal.stop();
+      mode = undefined;
+      runtime = undefined;
+    }
   }
 }
 
@@ -178,6 +277,15 @@ process.on("message", async (message) => {
   try {
     let value;
     if (message.method === "nativeRun") { abort = new AbortController(); value = await run(message.input, abort.signal); }
+    else if (message.method === "retrySharingCleanup") {
+      value = await retrySharingCleanup();
+      const statePath=message.input?.statePath;
+      // The parent supplies its already-owned state path; this branch starts no session.
+      if(typeof statePath === "string" && existsSync(statePath)) {
+        const state=JSON.parse(readFileSync(statePath,"utf8"));
+        saveState(statePath,{...state,cleanupStatus:"hooks_completed",sharingStatus:value.status,sharingRetryable:value.retryable});
+      }
+    }
     else if (message.method === "nativeModelCallback") {
       const callbacks = modelCallbacks.get(message.input.callbackId);
       if (!callbacks) throw new Error("The native model request has ended.");

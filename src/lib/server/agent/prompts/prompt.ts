@@ -410,6 +410,7 @@ export interface PromptMiniApp {
 }
 
 interface PromptBuildOptions {
+  piExtensions?: readonly { id: string; name: string; description?: string; commandNames: readonly string[] }[];
   botProfileDir?: string;
   /** Explicit configured identity for Room execution; independent of transport workspace. */
   agentId?: string;
@@ -514,6 +515,12 @@ function buildBaseSystemPromptWithOptions(
     // at the very tail leaves the large, static prefix above byte-identical across
     // turns, which helps providers that do prefix-based prompt caching.
     buildInstalledMiniAppsSection(options?.miniApps),
+    ...(disabledTools.has("piExtensionRun") || !options?.piExtensions?.length ? [] : [xmlBlock("installed-pi-extensions", [
+      "Use `piExtensionRun({prompt})` for tasks requesting these installed Pi extensions. Include the user's goal and constraints. Their tools may be registered dynamically inside Pi.",
+      "Do not substitute bash, scripts, a standalone MCP client, or another adapter for this entry. If it fails, report the failure and stop; do not bypass it. Human approval belongs to the terminal user; never generate an approval response.",
+      "For screenshots, inspect the actual image before claiming success. A blank image does not prove that the target window was captured. Deliver output images as attachments; a local path or a read result alone is not delivery.",
+      ...options.piExtensions.map(extension => `- ${extension.name} (${extension.id})${extension.description ? `: ${extension.description}` : ""}. Commands: ${extension.commandNames.map(name => `/${name}`).join(", ") || "none"}`)
+    ].join("\n"))]),
     "",
     buildSkillsRuntimeStateSection(vars),
     "",

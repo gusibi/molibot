@@ -44,7 +44,70 @@ test("message selection stays on the selected turn after a later run starts", ()
 });
 
 import { renderTraceReport } from "./render.js";
-import { publicTraceReport } from "./report.js";
+import { publicTraceReport, queryTurnTraceReport } from "./report.js";
+
+test("turn and session token totals split cache buckets and render compactly", () => {
+  const store = new SqliteTraceStore(":memory:");
+  try {
+    const hook = new TraceRecorderHook(store);
+    const scope = { channel: "web", chatId: "chat", sessionId: "session" };
+    const emit = (runId: string, stage: any, seconds: number, payload: Record<string, unknown>) => hook.handle({ stage, context: { ...scope, runId }, timestamp: new Date(100000 + seconds * 1000).toISOString(), payload } as any);
+    // Earlier turn: the first call carries the full prompt (system + tools + first message).
+    emit("r1", "run.started", 0, {});
+    emit("r1", "model.call.before", 0, { modelAttemptId: "a", model: "A" });
+    emit("r1", "model.call.after", 1, { modelAttemptId: "a", usage: { input: 12_000, output: 400, cacheRead: 0, cacheWrite: 0, totalTokens: 12_400 } });
+    emit("r1", "run.finished", 1, { status: "success" });
+    // Current turn: two calls that mostly hit the cache.
+    emit("r2", "run.started", 10, {});
+    emit("r2", "model.call.before", 10, { modelAttemptId: "b", model: "A" });
+    emit("r2", "model.call.after", 11, { modelAttemptId: "b", usage: { input: 1_000, output: 249, cacheRead: 40_000, cacheWrite: 2_000, totalTokens: 43_249 } });
+    emit("r2", "model.call.before", 11, { modelAttemptId: "c", model: "A" });
+    emit("r2", "model.call.after", 12, { modelAttemptId: "c", usage: { input: 1_000, output: 1_000, cacheRead: 48_000, cacheWrite: 0, totalTokens: 50_000 } });
+    emit("r2", "run.finished", 12, { status: "success" });
+
+    const report = queryTraceReport(store, { runId: "r2" }, scope);
+    assert.deepEqual(report.tokens, { input: 2_000, output: 1_249, cacheRead: 88_000, cacheWrite: 2_000, total: 93_249, hitRate: 88_000 / 92_000 });
+    assert.equal(report.session.runs, 2);
+    assert.equal(report.session.modelCalls, 3);
+    assert.equal(report.session.tokens.total, 105_649);
+    assert.equal(report.session.tokens.cacheRead, 88_000);
+    assert.equal(report.session.firstPromptTokens, 12_000);
+    // A multi-run turn sums its own calls but keeps the one session block.
+    const merged = queryTurnTraceReport(store, ["r1", "r2"], scope);
+    assert.equal(merged.tokens.total, 105_649);
+    assert.equal(merged.session.runs, 2);
+
+    const html = renderTraceReport(report, "zh");
+    assert.match(html, /<strong title="93,249">93\.2k<\/strong>/);
+    assert.match(html, /本轮 Token 用量/);
+    assert.match(html, /缓存读取 <b title="88,000">88k<\/b>/);
+    assert.match(html, /命中率 <b class="rate rate-good">96%<\/b>/);
+    assert.match(html, /会话累计/);
+    assert.match(html, /2 轮 · 3 次模型调用/);
+    assert.match(html, /Tokens <b title="105,649">106k<\/b>/);
+    assert.match(html, /首轮上下文 <b title="12,000">12k<\/b>/);
+    assert.match(html, /<dd title="43,249">43\.2k<\/dd>/);
+    // Published snapshots keep the aggregates (they carry no identifiers).
+    assert.match(renderTraceReport(publicTraceReport(report), "en"), /Session total/);
+  } finally { store.close(); }
+});
+
+test("a turn without recorded usage shows no token bar or hit rate", () => {
+  const store = new SqliteTraceStore(":memory:");
+  try {
+    const hook = new TraceRecorderHook(store);
+    const context = { runId: "r", channel: "web", chatId: "chat", sessionId: "session" };
+    hook.handle({ stage: "run.started", context, timestamp: new Date(100000).toISOString(), payload: {} } as any);
+    hook.handle({ stage: "run.finished", context, timestamp: new Date(101000).toISOString(), payload: { status: "success" } } as any);
+    const report = queryTraceReport(store, { runId: "r" }, context);
+    assert.equal(report.tokens.hitRate, null);
+    assert.equal(report.session.modelCalls, 0);
+    const html = renderTraceReport(report, "en");
+    assert.doesNotMatch(html, /class="token-bar"/);
+    assert.doesNotMatch(html, /class="session-line"/);
+    assert.match(html, /<div class="token-empty">Not recorded<\/div>/);
+  } finally { store.close(); }
+});
 
 test("HTML escapes trace content and public snapshots omit previews", () => {
   const store = new SqliteTraceStore(":memory:");

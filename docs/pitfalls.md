@@ -18,6 +18,7 @@
 - **#57** 未提交 final 的 assistant 条目都是过程文本，不按位置当结果。
 - **#64** 导航和编辑意图一起更新时，编辑意图附着在该次加载完成路径。
 - **#67** 会话身份不等于执行归属：断连 / 恢复只取消自己的 runId；历史成果按执行读取，不借用当前会话。
+- **#81** 正文提交后才能标记 `contextBacked`；长任务实时输出和结果都属于原会话，断开观察流不取消执行，缓存 Runner 在普通新回合读取最新上下文。
 
 **布局、样式与主题**
 
@@ -49,6 +50,7 @@
 - **#44** 跨 WebView → 原生 → 服务的能力每层都要接受同一域；新增 scope 测原生 `upstream_url`。
 - **#54** 桌面经 `tauriFetch` 调的 `/api/settings/...` 必须进 Tauri HTTP scope 白名单。
 - **#74** 桌面组件禁止原生 `fetch`，一律走 `apps/desktop/src/lib/api.ts`。
+- **#82** 桌面进程入口设 `NO_PROXY`（reqwest 不读 macOS 例外列表），端点发布为 `localhost`；字面量与域名规则都救不了已进代理的流量。
 - 原生 capability、CSP、协议改动都需要 Rust 重建 + 重启 App，WebView 热更新不生效。
 
 **Agent 运行时**
@@ -195,7 +197,7 @@ unsupported platforms, missing dependencies, and provider initialization errors 
 
 ## 21. A liveness probe must exercise the real runtime, and a supervisor must never close its own control channel
 
-(root cause of "service 503 behind a green light" + "crashed, had to restart the whole app" + "upgrade left `{workspace}/miniapps` uncreated"): (a) `/api/desktop/handshake` and `/health` are static literals — they answer 200 from a process whose `getRuntime()` throws on every request, and because `getRuntime()` caches nothing on failure the 503 is *permanent*. Any "is it alive" check the supervisor trusts must call a route that actually builds the runtime (`/api/desktop/health?deep=1`), gated behind a handshake capability so an older adopted build answering 404 is not read as unhealthy. (b) Adoption without version identity runs the *old* build's process after an upgrade, so none of the update's migrations or new directories run — compare the running version against the bundled `molibot-runtime.version` and replace on mismatch. (c) A guard *winds a run down; a supervisor must not give up*: returning after N failures drops the `Receiver`, and every later `request_restart`'s `let _ = send()` then fails silently — the "Restart service" button goes dead with nothing in any console. Report `Error` but keep retrying with capped backoff, and park on the channel (never return) after an unrecoverable setup failure. (d) Mini App / Pi 扩展必须保持进程故障域：第三方运行模块不得重新动态 `import()` 回服务进程；Mini App 维持每 App 子进程，Pi 扩展维持独立扩展进程，调用必须带 deadline、abort 与进程组清理。安装前校验也会执行扩展工厂，必须走相同的独立进程；不能只隔离正式工具执行。npm 及借用父目录依赖的 Git 子目录（包括 npm workspace）安装必须保留完整依赖布局；只移动 `node_modules/<包名>` 会在清理 staging 时丢掉提升到同级的依赖，校验必须覆盖移动后的正式发现入口。`install.test.ts` 用工厂 PID 与异常退出验证安装校验不在主进程运行。`nativeTerminal.test.ts` 守卫无人客户端、断连与应答期限，不能用客户端在线推断有人应答；会话永久清除必须独立清理原生上下文，不依赖可能为空的 Agent Context 枚举，且必须先排除活动写入者。原生宿主模型目录必须从实际配置和凭据可用性构建，不能把官方完整目录当作可用列表；自定义模型按宿主 settings 解析并保留凭据于宿主，`configuredModels.test.ts` 与 Runner 本地 HTTP 回归锁住发现、切换和用量归属。原生 Provider 回调函数只绑定当前 callId，不写入 durable 工具参数；恢复缺少绑定时拒绝重发，守卫见 `ownedModelOperations.test.ts`。主进程 crash handler 只负责服务自身故障报告，不得再被当作第三方隔离方案。(e) Directory bootstrap is data-driven with per-dir try/catch; a test asserts every `*Dir` in `storagePaths` is in the bootstrap list. Guarded by the supervisor Rust suite (`should_replace_adopted`, health classification, backoff cap, `supports_deep_health`), `scripts/runtime/crash-report.test.mjs`, `src/lib/server/infra/db/storage.test.ts`, `src/lib/server/app/runtimeHealth.test.ts`, Mini App process-isolation tests, and Pi extension load tests.
+(root cause of "service 503 behind a green light" + "crashed, had to restart the whole app" + "upgrade left `{workspace}/miniapps` uncreated"): (a) `/api/desktop/handshake` and `/health` are static literals — they answer 200 from a process whose `getRuntime()` throws on every request, and because `getRuntime()` caches nothing on failure the 503 is *permanent*. Any "is it alive" check the supervisor trusts must call a route that actually builds the runtime (`/api/desktop/health?deep=1`), gated behind a handshake capability so an older adopted build answering 404 is not read as unhealthy. (b) Adoption without version identity runs the *old* build's process after an upgrade, so none of the update's migrations or new directories run — compare the running version against the bundled `molibot-runtime.version` and replace on mismatch. (c) A guard *winds a run down; a supervisor must not give up*: returning after N failures drops the `Receiver`, and every later `request_restart`'s `let _ = send()` then fails silently — the "Restart service" button goes dead with nothing in any console. Report `Error` but keep retrying with capped backoff, and park on the channel (never return) after an unrecoverable setup failure. (d) Mini App / Pi 扩展必须保持进程故障域：第三方运行模块不得重新动态 `import()` 回服务进程；Mini App 维持每 App 子进程，Pi 扩展维持独立扩展进程，调用必须带 deadline、abort 与进程组清理。安装前校验也会执行扩展工厂，必须走相同的独立进程；不能只隔离正式工具执行。npm 及借用父目录依赖的 Git 子目录（包括 npm workspace）安装必须保留完整依赖布局；只移动 `node_modules/<包名>` 会在清理 staging 时丢掉提升到同级的依赖，校验必须覆盖移动后的正式发现入口。`install.test.ts` 用工厂 PID 与异常退出验证安装校验不在主进程运行。Pi 原生入口必须让首轮模型看到真实任务 schema 和已加载扩展目录；失败终止须同时阻止后续工具与模型请求，包括同批调用，不能只返回提示。原生图片须通过正式附件链路交付，不能把工具读取或文件路径当作发送完成；取消时须等待扩展 shutdown，清理报错不能写 completed。`runnerModels.integration.test.ts` 与原生终端、图片守卫覆盖这些边界。指定扩展的执行指令应在 Runner 绑定入口并保存到恢复上下文，不能仅靠模型偏好；选择不存在的 ID 要通过正常 Run 收尾路径报错，不能让预处理异常留下 busy 状态。图片观察缓存可淘汰旧帧，最终交付须另行选择；合法纯色图与目标可疑的截图分别判断。清理回调结束只确认回调，不作为操作系统共享释放的证据。LCU 主动停止要在 turnEnded／close 之前核验当前任务应用列表，并保留原始身份；停止或回合结束超时后，不能关闭重试所需连接，也不能用下一轮身份补发。回合结束请求仍在等待时，重试只能等待同一请求，不能重新生成 upstream turn。标准交互通过请求编号原子应答，过期、越界选项和重复回复均拒绝；`custom` 保留官方终端。`nativeTerminal.test.ts` 守卫无人客户端、断连与应答期限，不能用客户端在线推断有人应答；会话永久清除必须独立清理原生上下文，不依赖可能为空的 Agent Context 枚举，且必须先排除活动写入者。原生宿主模型目录必须从实际配置和凭据可用性构建，不能把官方完整目录当作可用列表；自定义模型按宿主 settings 解析并保留凭据于宿主，`configuredModels.test.ts` 与 Runner 本地 HTTP 回归锁住发现、切换和用量归属。原生 Provider 回调函数只绑定当前 callId，不写入 durable 工具参数；恢复缺少绑定时拒绝重发，守卫见 `ownedModelOperations.test.ts`。主进程 crash handler 只负责服务自身故障报告，不得再被当作第三方隔离方案。(e) Directory bootstrap is data-driven with per-dir try/catch; a test asserts every `*Dir` in `storagePaths` is in the bootstrap list. Guarded by the supervisor Rust suite (`should_replace_adopted`, health classification, backoff cap, `supports_deep_health`), `scripts/runtime/crash-report.test.mjs`, `src/lib/server/infra/db/storage.test.ts`, `src/lib/server/app/runtimeHealth.test.ts`, Mini App process-isolation tests, and Pi extension load tests.
 
 **Mini App 安装链补充守卫（pitfall 21(d)）：**候选包的 `validate` / smoke / install 同样属于第三方进程故障域，不得通过测试 seam 把候选模块动态 `import()` 回服务进程。机器守卫必须从 Agent `miniAppManage` 入口注入 `process.exit()`；只测已安装 App Host 不算覆盖安装链。
 
@@ -440,3 +442,19 @@ Pi 1.4 的 Chord `Context.telemetry` 由原型 getter 和内部上下文链提�
 ## 80. 加载成功不代表预览可见
 
 搜索结果属于文件浏览区，应与下方预览共用分隔条，不能和整个预览区互斥。打开文件只更新预览，不关闭搜索或切回文件树；加载中与失败态也须保留列表，目录展开与正文加载并行。旧守卫只检查搜索调用了 `openFile`，没有验证列表和正文同时可见。`project-file-search.spec.ts` 通过真实文件接口验证上下布局、连续切换、目录延迟、键盘定位、文件删除报错及退出搜索后保留预览。
+
+## 81. 会话元数据不能先于正文声明持久化成功
+
+长任务入口在普通 Runner 启动前返回，若此前已写入没有正文的 `contextBacked` 用户记录，重新加载只能显示空白时间戳。接收输入时先保留正文；只有 Agent 条目提交后才记录来源并移除元数据正文。后台 attempt 的控制输入留在内部归档，原会话复用同一条普通助手消息展示实时文本、思考、过程与结果，不新增模式通知或专用任务卡片。模型 delta 驱动当前 SSE，200ms 检查点只服务刷新恢复；断开观察流只取消订阅，不能取消执行。回答通过持久化交付队列返回原会话与模型上下文；交付失败重试不得重跑任务或重复追加回答。缓存 Runner 在普通新回合加载最新条目，原生恢复与审批续跑保留各自的恢复上下文。
+
+长任务识别判断用户要求执行的动作，流程可行性咨询不授权执行所描述的流程。原有分类器测试和项目路由测试分别覆盖自己的结果，漏掉了入口提前返回后的正文归属与回填。守卫：`chat/durableConversation.test.ts` 覆盖 Chat／Stream、普通／Project 会话、实时检查点、重载和交付中断；`tests/ui/durable-conversation.spec.ts` 用仍在输出的 fixture 模型验证任务未结束时的实时文本、刷新恢复、同一条助手消息、顶栏徽标打开右侧 Running 步骤面板和服务重启；`durable/runtime.test.ts` 覆盖重开数据库后的交付重试；`core/contextRefresh.test.ts` 检查下一次真实模型请求包含后台回答；`decision/durableActivation.test.ts` 检查最终分类提示词。
+
+## 82. loopback 字面量 `127.0.0.1` 会被系统代理截走，桌面进程必须设 `NO_PROXY` 且端点发布为 `localhost`
+
+（2026-11-07）桌面 App「偶尔卡住／无限加载」，与数据量无关：VPN 工具设置 macOS 系统级 HTTP 代理后，遵守系统代理的客户端（Tauri HTTP plugin 的 reqwest、WebKit）把发往 `http://127.0.0.1:<port>` 的请求全部交给代理进程——例外列表通常有 `localhost` 但没有 `127.0.0.1` 字面量。实测直连 26ms、经代理 640ms（约 25 倍），代理进程重载配置或切换节点时间歇黑洞；而 curl 正常（curl 不读系统代理）、服务端采样空闲，极易误判为服务端问题。
+
+两层根因，缺一不可：(a) hyper-util 的 macOS 适配只从 System Configuration 读代理主机／端口，**完全不读例外列表**（`mac::with_system` 只取 `HTTPEnable/HTTPProxy/HTTPPort`），所以仅靠系统 bypass 或 VPN「跳过域名」设置救不了 reqwest 路径；(b) 把端点改成 `localhost` 只让遵守例外列表的客户端（WebKit）绕开，reqwest 仍进代理，而代理收到的是**域名**请求，IP-CIDR 规则（`127.0.0.1/8,DIRECT`）匹配不到，落到远端节点连它自己的 localhost → 503「服务无法启动」。VPN 规则层的 DIRECT 只在流量已进代理后生效，且需按**域名**再配一条。
+
+修复：(1) 桌面 App 进程入口（`lib.rs run()`）设 `NO_PROXY=localhost,127.0.0.1,::1`——hyper-util `from_system()` 先读环境变量且 macOS 配置永不覆盖 `no` 字段，loopback 从此不进代理，外网流量（模型 API）照常走代理；(2) 服务端点发布为 `http://localhost:<port>`（`supervisor.rs` 托管模式与 `start-server.mjs` 独立启动，非 loopback 绑定保持原 host）。守卫：`api-transport-guard.test.mjs` 断言每个 `127.0.0.1` scope 条目都有 `localhost` 孪生。诊断手法：`lsof -p <app_pid>` 看应用连接指向（代理端口还是服务端口）、`scutil --proxy` 看例外列表、`curl --proxy http://<proxy>` 对比经代理与直连、看响应头里的 `proxy-connection`（出现即说明流量进了代理）。
+
+

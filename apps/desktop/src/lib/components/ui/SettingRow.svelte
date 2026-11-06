@@ -2,9 +2,10 @@
   export let title: string;
   export let description = "";
   export let stacked = false;
+  export let alignTop = false;
 </script>
 
-<div class:stacked class="settings-row setting-row">
+<div class:stacked class:align-top={alignTop} class="settings-row setting-row">
   <div class="setting-row-copy">
     <strong>{title}</strong>
     {#if description}<p>{description}</p>{/if}
