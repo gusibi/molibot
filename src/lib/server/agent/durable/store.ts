@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
+import { copyFileSync, existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureKanbanSchema, KanbanStore, releaseProjectSlotInTransaction } from "./kanbanStore.js";
 import {
   DURABLE_ENGINE_VERSION,
   DURABLE_EXECUTION_STATUSES,
@@ -678,9 +680,38 @@ export class DurableExecutionStore {
     // less fsync pressure; a corrupted database is never an accepted outcome of
     // this trade (SQLite's WAL still guarantees consistency).
     this.db.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+    this.backupBeforeKanbanUpgrade();
     this.ensureSchema();
     this.ensureColumn("durable_executions", "engine_version", "INTEGER NOT NULL DEFAULT 1");
     ensureWakeupSchema(this.db);
+    ensureKanbanSchema(this.db);
+  }
+
+  /**
+   * One-time copy of the pre-kanban store, so the additive kanban upgrade has a
+   * rollback point. Skipped for a fresh database and when the backup exists.
+   */
+  private backupBeforeKanbanUpgrade(): void {
+    try {
+      const hasSchema = this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'durable_executions'").get();
+      const hasKanban = this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'durable_kanban_tasks'").get();
+      if (!hasSchema || hasKanban) return;
+      const backupFile = `${this.changeKey}.pre-kanban`;
+      if (existsSync(backupFile)) return;
+      this.db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+      copyFileSync(this.changeKey, backupFile);
+    } catch {
+      // A failed backup must not block opening the store; the upgrade itself is
+      // purely additive and the original file stays untouched on failure.
+    }
+  }
+
+  private kanbanValue: KanbanStore | null = null;
+
+  /** Kanban Task storage sharing this aggregate's connection and transactions. */
+  get kanban(): KanbanStore {
+    if (!this.kanbanValue) this.kanbanValue = new KanbanStore(this.db, () => this.notify());
+    return this.kanbanValue;
   }
 
   /** The store stopped accepting work after an unrecoverable storage error. */
@@ -1822,6 +1853,7 @@ export class DurableExecutionStore {
       }
       this.db.prepare("INSERT OR REPLACE INTO durable_plan_tombstones (execution_id, owner_id, title, deleted_at) VALUES (?, ?, ?, ?)")
         .run(executionId, row.owner_id, this.getPlanMeta(executionId)?.title ?? row.goal, timestamp);
+      releaseProjectSlotInTransaction(this.db, executionId, input.now);
       this.db.prepare("DELETE FROM durable_executions WHERE id = ?").run(executionId);
       this.db.exec("COMMIT"); this.notify();
       return true;
@@ -1986,6 +2018,12 @@ export class DurableExecutionStore {
           throw new DurableExecutionBudgetError(input.executionId, "lifetime limit");
         }
       }
+      // A kanban task claims its Project advance slot in the same transaction
+      // as the attempt: either the round starts with the slot held, or it does
+      // not start at all.
+      if (input.projectKey) {
+        this.kanban.acquireProjectSlotInTransaction(input.executionId, input.projectKey, now);
+      }
       const attemptId = id("attempt");
       const leaseExpiresAt = new Date(now.getTime() + leaseDurationMs).toISOString();
       const nextStatus: DurableExecutionStatus = current.status === "queued" || current.status === "planned" || current.status === "recovery_required" ? "running" : current.status;
@@ -2104,6 +2142,7 @@ export class DurableExecutionStore {
       } else {
         discardPendingWakeupsInTransaction(this.db, input.executionId, `execution_${input.nextExecutionStatus}`, input.now);
       }
+      releaseProjectSlotInTransaction(this.db, input.executionId, input.now);
       const execution = rowToExecution(this.requireRow(input.executionId));
       this.db.exec("COMMIT"); this.notify();
       return execution;
@@ -2685,6 +2724,7 @@ export class DurableExecutionStore {
     } else {
       discardPendingWakeupsInTransaction(this.db, idValue, `execution_${nextStatus}`);
     }
+    releaseProjectSlotInTransaction(this.db, idValue);
     return rowToExecution(this.requireRow(idValue));
   }
 
@@ -2729,6 +2769,7 @@ export class DurableExecutionStore {
     } else {
       discardPendingWakeupsInTransaction(this.db, input.executionId, `execution_${nextStatus}`, input.now);
     }
+    releaseProjectSlotInTransaction(this.db, input.executionId, input.now);
     return rowToExecution(this.requireRow(input.executionId));
   }
 

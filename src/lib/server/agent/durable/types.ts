@@ -504,6 +504,143 @@ export interface PlanListFilter {
   limit?: number;
 }
 
+// ---- Kanban Task（看板任务） ------------------------------------------------
+// A Kanban Task is a Durable Execution task form: it reuses the aggregate's
+// identity, version CAS, lease, wakeups, approvals, evidence and budget. The
+// tables below live in the same store as the aggregate (ADR 0004).
+
+export type KanbanTaskForm = "single" | "team";
+export type KanbanApprovalPolicy = "deny" | "suspend";
+export type KanbanCompletionSource = "user" | "generated" | "pending";
+
+/** Frozen member snapshot taken at task start; later Team edits do not apply. */
+export interface KanbanMemberSnapshot {
+  agentId: string;
+  name: string;
+  modelKey?: string;
+  permissionMode?: string;
+}
+
+export interface KanbanTaskConfig {
+  executionId: string;
+  form: KanbanTaskForm;
+  title: string;
+  goal: string;
+  /** Team only: task coordinator; must be one of the member snapshot. */
+  coordinatorAgentId?: string;
+  members: KanbanMemberSnapshot[];
+  projectId?: string;
+  workDir?: string;
+  completionSource: KanbanCompletionSource;
+  budgetTokenLimit?: number;
+  handoffLimit: number;
+  approvalPolicy: KanbanApprovalPolicy;
+  humanAcceptance: boolean;
+  autoStart: boolean;
+  handoffCount: number;
+  /** The member currently advancing the task; single tasks bind their agent. */
+  currentAgentId?: string;
+  roundCount: number;
+  retryCount: number;
+  nextRetryAt?: string;
+  usageGapCount: number;
+  /** Reserved for phase-2 trigger sources; unused by the executor. */
+  sourceType?: string;
+  externalId?: string;
+  sourceUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateKanbanTaskInput {
+  /** Deterministic id for create idempotency. */
+  kanbanTaskId?: string;
+  ownerId: string;
+  botId: string;
+  form: KanbanTaskForm;
+  title: string;
+  goal: string;
+  /** Single task executor; stored in durable_plan_origins. */
+  agentId?: string;
+  coordinatorAgentId?: string;
+  members?: KanbanMemberSnapshot[];
+  projectId?: string;
+  workDir?: string;
+  completionConditions?: PlanCriterionInput[];
+  completionSource?: KanbanCompletionSource;
+  budgetTokenLimit?: number;
+  handoffLimit?: number;
+  approvalPolicy?: KanbanApprovalPolicy;
+  humanAcceptance?: boolean;
+  autoStart?: boolean;
+  sourceType?: string;
+  externalId?: string;
+  sourceUrl?: string;
+  now?: Date;
+}
+
+/** Structured receipt submitted through the task-scoped receipt tool. */
+export interface KanbanReceiptActions {
+  conclusion?: string;
+  evidence?: string[];
+  continueWork?: boolean;
+  handoffTo?: { agentId: string; brief: string };
+  question?: { text: string; options?: string[]; dedupKey?: string };
+  /** ISO timestamp for a scheduled review wakeup. */
+  verifyAt?: string;
+  requestCompletion?: boolean;
+  checklist?: Array<{ itemId?: string; text?: string; done?: boolean; remove?: boolean }>;
+}
+
+export interface KanbanReceipt {
+  receiptId: string;
+  executionId: string;
+  round: number;
+  actorAgentId: string;
+  actions: KanbanReceiptActions;
+  dedupKey: string;
+  expectedVersion: number;
+  createdAt: string;
+}
+
+export interface RecordKanbanReceiptInput {
+  executionId: string;
+  round: number;
+  actorAgentId: string;
+  actions: KanbanReceiptActions;
+  dedupKey: string;
+  expectedVersion: number;
+  processOwnerId: string;
+  now?: Date;
+}
+
+export interface KanbanChecklistItem {
+  itemId: string;
+  text: string;
+  done: boolean;
+  sortIndex: number;
+  updatedRound: number;
+}
+
+export interface KanbanUserInput {
+  inputId: string;
+  executionId: string;
+  text: string;
+  createdAt: string;
+  consumedRound: number | null;
+}
+
+export interface KanbanHandoffRecord {
+  id: string;
+  executionId: string;
+  round: number;
+  fromAgentId: string | null;
+  toAgentId: string;
+  kind: "assign" | "dispatch" | "return";
+  brief: string;
+  createdAt: string;
+}
+
 export interface ClaimAttemptInput {
   executionId: string;
   expectedVersion: number;
@@ -513,6 +650,11 @@ export interface ClaimAttemptInput {
   leaseDurationMs: number;
   /** Verification leases do not consume the task's Agent-attempt budget. */
   countTowardsAttemptBudget?: boolean;
+  /**
+   * Kanban Task Project advance slot, acquired in the claim transaction. A held
+   * slot aborts the claim with `KanbanProjectSlotHeldError`.
+   */
+  projectKey?: string;
   now?: Date;
 }
 
@@ -626,5 +768,13 @@ export class DurableExecutionEngineVersionError extends Error {
   constructor(id: string, engineVersion: number, supported: number) {
     super(`Durable Execution ${id} uses engine version ${engineVersion}; this build supports up to ${supported}.`);
     this.name = "DurableExecutionEngineVersionError";
+  }
+}
+
+/** Another Kanban Task currently holds the Project slot for this task. */
+export class KanbanProjectSlotHeldError extends Error {
+  constructor(readonly executionId: string, readonly projectKey: string, readonly holderExecutionId: string) {
+    super(`Kanban Task ${executionId} is queued behind ${holderExecutionId} for project slot ${projectKey}.`);
+    this.name = "KanbanProjectSlotHeldError";
   }
 }
