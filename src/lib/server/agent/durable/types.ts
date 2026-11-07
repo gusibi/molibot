@@ -576,6 +576,8 @@ export interface CreateKanbanTaskInput {
   approvalPolicy?: KanbanApprovalPolicy;
   humanAcceptance?: boolean;
   autoStart?: boolean;
+  /** Visible conversation the task streams into (spec 执行形态修订: 任务会话可见). */
+  sourceUiSessionId?: string;
   sourceType?: string;
   externalId?: string;
   sourceUrl?: string;

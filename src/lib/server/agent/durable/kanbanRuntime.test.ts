@@ -6,7 +6,7 @@ import test from "node:test";
 import type { ChannelInboundMessage, DurableAttemptHooks } from "$lib/server/agent/core/types.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { DurableExecutionRuntime } from "./runtime.js";
-import { buildKanbanBriefing, decideKanbanRoundOutcome, KANBAN_USAGE_GAP_REASON } from "./kanbanRuntime.js";
+import { buildKanbanBriefing, buildKanbanTaskBrief, decideKanbanRoundOutcome, KANBAN_USAGE_GAP_REASON } from "./kanbanRuntime.js";
 import { DurableExecutionStore } from "./store.js";
 import type { DurableWakeup, KanbanReceipt, KanbanTaskConfig } from "./types.js";
 import type { AcceptanceCriterion, KanbanChecklistItem, KanbanUserInput } from "./types.js";
@@ -88,6 +88,22 @@ test("briefing marks criterion results and lists pending user inputs", () => {
   assert.match(briefing, /已完成数据收集/);
   assert.match(briefing, /## 用户补充/);
   assert.match(briefing, /改用万元单位/);
+});
+
+test("the task brief reads as the initial prompt of the visible conversation", () => {
+  const brief = buildKanbanTaskBrief({
+    title: "整理周报",
+    goal: "产出本周数据周报",
+    workDir: "repo/weekly",
+    conditions: ["周报定稿并附数据来源"]
+  });
+  assert.match(brief, /\[看板任务\] 整理周报/);
+  assert.match(brief, /产出本周数据周报/);
+  assert.match(brief, /工作目录：repo\/weekly/);
+  assert.match(brief, /- 周报定稿并附数据来源/);
+  assert.doesNotMatch(brief, /kanban_receipt/, "the visible brief is a human-facing request, not round instructions");
+  const pending = buildKanbanTaskBrief({ title: "t", goal: "g", conditions: [] });
+  assert.match(pending, /第一轮会先提出明确的完成条件/);
 });
 
 test("settlement: question wins over everything; completion requests verification", () => {
@@ -1080,6 +1096,53 @@ test("the round's tool activity and final reply persist as the attempt's convers
     assert.equal(projections[0].activities[0].key, "call-1");
     assert.equal(projections[0].activities[0].tool, "bash");
     assert.equal(projections[0].activities[0].label, "运行测试");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a task bound to a visible session streams per-round rows and delivers the round reply", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store, { sourceUiSessionId: "conv-task-1" });
+    const executionId = task.executionId;
+    assert.equal(store.getById(executionId)!.sourceUiSessionId, "conv-task-1");
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+
+    const starts: Array<{ sessionId?: string; round?: number }> = [];
+    const outputs: Array<{ delta: string; round?: number }> = [];
+    const deliveries: Array<{ sessionId: string; text: string; round?: number }> = [];
+    let round = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      onAttemptStart: (execution, roundNumber) => starts.push({ sessionId: execution.sourceUiSessionId, round: roundNumber }),
+      onAttemptOutput: (_execution, _runId, _field, delta, roundNumber) => outputs.push({ delta, round: roundNumber }),
+      onAttemptDelivery: input => { deliveries.push({ sessionId: input.sessionId, text: input.text, round: input.round }); },
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          round += 1;
+          hooks.onRunnerEvent?.({ type: "assistant_message_event", event: { type: "text_delta", delta: `第 ${round} 轮输出` } } as any);
+          await hooks.submitKanbanReceipt!(round === 1
+            ? { conclusion: "开始收集数据", continueWork: true }
+            : { conclusion: "周报已完成", evidence: ["weekly.md"], requestCompletion: true });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, text: `第 ${round} 轮结论。` };
+        }
+      }]])]]) as any
+    });
+
+    // Round 1: the start hook sees the bound session, deltas carry the round,
+    // and the round reply is queued and dispatched to the visible session.
+    await runWakeupDirect(runtime, store, executionId, 2);
+    assert.deepEqual(starts, [{ sessionId: "conv-task-1", round: 1 }]);
+    assert.deepEqual(outputs, [{ delta: "第 1 轮输出", round: 1 }]);
+    assert.deepEqual(deliveries, [{ sessionId: "conv-task-1", text: "第 1 轮结论。", round: 1 }]);
+    assert.equal(store.pendingAttemptDeliveries().length, 0, "delivery is marked after dispatch");
+
+    // Round 2 keeps its own row: the delivery carries round 2.
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    assert.equal(store.getById(executionId)!.status, "verifying");
+    assert.ok(starts.some(entry => entry.round === 2));
+    assert.ok(deliveries.some(entry => entry.round === 2 && entry.text === "第 2 轮结论。"));
   } finally {
     cleanup();
   }

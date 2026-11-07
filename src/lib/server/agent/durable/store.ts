@@ -683,6 +683,7 @@ export class DurableExecutionStore {
     this.backupBeforeKanbanUpgrade();
     this.ensureSchema();
     this.ensureColumn("durable_executions", "engine_version", "INTEGER NOT NULL DEFAULT 1");
+    this.ensureColumn("durable_plan_deliveries", "round", "INTEGER");
     ensureWakeupSchema(this.db);
     ensureKanbanSchema(this.db);
   }
@@ -751,13 +752,13 @@ export class DurableExecutionStore {
     }
   }
 
-  recordAttemptDelivery(input: { executionId: string; sessionId: string; runId: string; text: string }): void {
-    this.db.prepare("INSERT OR IGNORE INTO durable_plan_deliveries (run_id, execution_id, session_id, response_text) VALUES (?, ?, ?, ?)").run(input.runId, input.executionId, input.sessionId, input.text);
+  recordAttemptDelivery(input: { executionId: string; sessionId: string; runId: string; text: string; round?: number }): void {
+    this.db.prepare("INSERT OR IGNORE INTO durable_plan_deliveries (run_id, execution_id, session_id, response_text, round) VALUES (?, ?, ?, ?, ?)").run(input.runId, input.executionId, input.sessionId, input.text, input.round ?? null);
   }
 
-  pendingAttemptDeliveries(): Array<{ executionId: string; sessionId: string; runId: string; text: string }> {
-    const rows = this.db.prepare("SELECT * FROM durable_plan_deliveries WHERE delivered_at IS NULL").all() as Array<{ execution_id: string; session_id: string; run_id: string; response_text: string }>;
-    return rows.map(row => ({ executionId: row.execution_id, sessionId: row.session_id, runId: row.run_id, text: row.response_text }));
+  pendingAttemptDeliveries(): Array<{ executionId: string; sessionId: string; runId: string; text: string; round?: number }> {
+    const rows = this.db.prepare("SELECT * FROM durable_plan_deliveries WHERE delivered_at IS NULL").all() as Array<{ execution_id: string; session_id: string; run_id: string; response_text: string; round: number | null }>;
+    return rows.map(row => ({ executionId: row.execution_id, sessionId: row.session_id, runId: row.run_id, text: row.response_text, ...(row.round === null ? {} : { round: row.round }) }));
   }
 
   markAttemptDelivered(runId: string): void {

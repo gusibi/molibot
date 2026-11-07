@@ -376,7 +376,9 @@ export class KanbanStore {
       const handleSequence = Number(sequenceRow.next);
       // The synthetic source chat isolates every attempt of this task: the
       // chat-scoped single-flight lock serializes rounds (and team members),
-      // and the per-agent event store keeps member contexts separate.
+      // and the per-agent event store keeps member contexts separate. The
+      // visible conversation (source_ui_session_id) is a delivery target only —
+      // live output and final replies stream there (spec 执行形态修订).
       this.db.prepare(`
         INSERT INTO durable_executions (
           id, short_handle, handle_sequence, owner_id, bot_id, source_channel, source_chat_id,
@@ -385,11 +387,11 @@ export class KanbanStore {
           budget_attempt_limit, budget_lifetime_days, tokens_used, attempts_used, created_at,
           started_at, updated_at, terminal_at, waiting_kind, waiting_reason, next_run_at,
           last_error, activation_path, activation_reason
-        ) VALUES (?, ?, ?, ?, ?, 'web', ?, NULL, ?, ?, '[]', 'planned', 1,
+        ) VALUES (?, ?, ?, ?, ?, 'web', ?, ?, ?, ?, '[]', 'planned', 1,
           1, NULL, NULL, ?, NULL, NULL, 0, 0, ?, NULL, ?, NULL, NULL, NULL, NULL, NULL, 'forced', 'kanban-task')
       `).run(
         executionId, `#${handleSequence}`, handleSequence, ownerId, botId,
-        `kanban:${executionId}`, input.projectId ?? null, goal,
+        `kanban:${executionId}`, text(input.sourceUiSessionId) || null, input.projectId ?? null, goal,
         input.budgetTokenLimit ?? DEFAULT_KANBAN_TOKEN_BUDGET,
         createdAt, createdAt
       );

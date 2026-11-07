@@ -54,6 +54,9 @@ test("kanban task creation persists the aggregate and config in one transaction"
     // The synthetic source chat isolates every attempt of this task.
     assert.equal(execution.sourceChatId, `kanban:${task.executionId}`);
     assert.equal(execution.sourceChannel, "web");
+    assert.equal(execution.sourceUiSessionId, undefined, "no visible session unless the creator binds one");
+    const bound = store.kanban.createTask(createTaskInput({ sourceUiSessionId: "conv-visible" }));
+    assert.equal(store.getById(bound.executionId)!.sourceUiSessionId, "conv-visible");
     const detail = store.getDetail(task.executionId);
     assert.ok(detail);
     assert.equal(detail.acceptanceCriteria.length, 1);

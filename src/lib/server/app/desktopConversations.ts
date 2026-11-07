@@ -164,6 +164,7 @@ export function buildWebItems(
       purpose,
       roomId: entry.conversation.origin === "agent-room" ? entry.conversation.id : undefined,
       readOnly: false,
+      ...(entry.conversation.origin === "kanban" ? { taskSession: true } : {}),
       // Ordinary lists omit the field entirely; only search collects a preview.
       ...(entry.lastMessageText ? { latestMessagePreview: entry.lastMessageText } : {}),
       ...(entry.conversation.parentSessionId

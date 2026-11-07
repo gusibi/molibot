@@ -8,6 +8,8 @@ Object.assign(process.env, { DATA_DIR: root, DB_DIR: join(root, "db"), SETTINGS_
 const { GET, POST } = await import("./+server.js");
 const { getRuntime } = await import("$lib/server/app/runtime.js");
 const { getDurableExecutionStore } = await import("$lib/server/agent/durable/store.js");
+const { getProjectStore } = await import("$lib/server/projects/store.js");
+const projectRoots: string[] = [];
 const { config } = await import("$lib/server/app/env.js");
 const { DurableExecutionRuntime } = await import("$lib/server/agent/durable/runtime.js");
 const startWorker = mock.method(DurableExecutionRuntime.prototype, "start");
@@ -99,4 +101,43 @@ test("kanban API: create auto-starts, board projects stages, bundle answers requ
   assert.deepEqual(bundleAfter.inputs.map((input: any) => input.text), ["先做第一部分"]);
 });
 
-test.after(() => { mock.restoreAll(); rmSync(root, { recursive: true, force: true }); });
+test("kanban API binds the task to a visible conversation seeded with the brief", async () => {
+  const created = await post({
+    action: "kanban_create", form: "single", title: "可见会话任务", goal: "产出本周数据周报",
+    agentId: "default", autoStart: false, completionConditions: [{ description: "周报定稿并附数据来源" }]
+  });
+  assert.equal(created.status, 200);
+  const sessionId = created.body.item.execution.sourceUiSessionId;
+  assert.ok(sessionId, "the task binds a visible session");
+  const conversation = runtime.sessions.getConversationById(sessionId, "web", "web:desktop:kanban");
+  assert.ok(conversation, "the bound conversation exists under the task owner");
+  assert.equal(conversation.origin, "kanban", "the session carries the task tag marker");
+  assert.equal(conversation.title, "可见会话任务");
+  assert.equal(conversation.agentId, "default");
+  const messages = runtime.sessions.listMessages(sessionId);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].content, /\[看板任务\] 可见会话任务/);
+  assert.match(messages[0].content, /产出本周数据周报/);
+  assert.match(messages[0].content, /周报定稿并附数据来源/);
+
+  // With a Project the conversation lives in the Project's session list.
+  const projectRoot = mkdtempSync(join(tmpdir(), "molibot-plan-api-project-"));
+  projectRoots.push(projectRoot);
+  const project = getProjectStore().create({ name: "kanban-visible", rootPath: projectRoot });
+  const withProject = await post({
+    action: "kanban_create", form: "single", title: "项目任务", goal: "在项目里执行",
+    agentId: "default", projectId: project.id, autoStart: false
+  });
+  assert.equal(withProject.status, 200);
+  const projectSessionId = withProject.body.item.execution.sourceUiSessionId;
+  assert.ok(projectSessionId);
+  const projectConversation = runtime.sessions.listProjectConversations(project.id).find(item => item.id === projectSessionId);
+  assert.ok(projectConversation, "the task session appears in the Project's session list");
+  assert.equal(projectConversation.origin, "kanban");
+  // Task creation failure must not leave an orphan session behind.
+  const failed = await post({ action: "kanban_create", form: "team", title: "坏任务", goal: "g", coordinatorAgentId: "someone-else", members: [{ agentId: "someone", name: "S" }], autoStart: false });
+  assert.equal(failed.status, 400);
+  assert.equal(runtime.sessions.listConversations("web", "web:desktop:kanban").some(item => item.title === "坏任务"), false, "failed creation cleans up its conversation");
+});
+
+test.after(() => { mock.restoreAll(); rmSync(root, { recursive: true, force: true }); for (const dir of projectRoots) rmSync(dir, { recursive: true, force: true }); });

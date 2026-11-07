@@ -70,7 +70,8 @@ import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfil
 import { MemoryMaintenanceService, MemoryMaintenanceStore, type MemoryMaintenanceTarget } from "$lib/server/memory/maintenance.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
 import { planExecutionPolicy } from "$lib/server/agent/plans/sessionDelivery.js";
-import { deliverDurableAttempt, updateDurableConversationOutput, updateDurableConversationProgress } from "$lib/server/agent/durable/conversation.js";
+import { deliverDurableAttempt, ensureDurableConversationResponse, updateDurableConversationOutput, updateDurableConversationProgress } from "$lib/server/agent/durable/conversation.js";
+import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import { DurableExecutionRuntime } from "$lib/server/agent/durable/runtime.js";
 import { getMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 import {
@@ -826,8 +827,9 @@ function initializeRuntime(): RuntimeState {
         console.error(`${runtimeLabel("runtime")} durable_execution_store_fatal ${error.message}`);
       },
       resolvePlanPolicy: (_execution, binding) => planExecutionPolicy(state.settings, binding),
-      onAttemptProgress: (execution, activities) => updateDurableConversationProgress(state.sessions, execution, activities),
-      onAttemptOutput: (execution, runId, field, delta) => updateDurableConversationOutput(state.sessions, execution, runId, field, delta),
+      onAttemptStart: (execution, round) => ensureDurableConversationResponse(state.sessions, execution, isChineseLocale(state.settings.locale), round),
+      onAttemptProgress: (execution, activities, round) => updateDurableConversationProgress(state.sessions, execution, activities, round),
+      onAttemptOutput: (execution, runId, field, delta, round) => updateDurableConversationOutput(state.sessions, execution, runId, field, delta, round),
       onAttemptDelivery: input => deliverDurableAttempt(state.sessions, input)
     });
     if (!liveServicesDisabled()) {

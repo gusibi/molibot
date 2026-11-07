@@ -45,8 +45,10 @@ export interface DurableExecutionRuntimeOptions {
   /** Hook for the process supervisor; the store is unusable after this fires. */
   onStoreFatal?: (error: Error) => void;
   resolvePlanPolicy?: (execution: DurableExecution, binding: import("./types.js").PlanBinding) => import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
-  onAttemptProgress?: (execution: DurableExecution, activities: ConversationActivity[]) => void;
-  onAttemptOutput?: (execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string) => void;
+  onAttemptProgress?: (execution: DurableExecution, activities: ConversationActivity[], round?: number) => void;
+  onAttemptOutput?: (execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string, round?: number) => void;
+  /** Invoked once per kanban round before dispatch so the visible conversation has a response row to stream into. */
+  onAttemptStart?: (execution: DurableExecution, round?: number) => void;
   onAttemptDelivery?: (input: DurableAttemptDelivery) => void | Promise<void>;
   queryableProbes?: Record<string, DurableQueryableProbe>;
 }
@@ -381,7 +383,7 @@ export class DurableExecutionRuntime {
       const binding = this.store.getPlanBinding(pending.executionId);
       if (!execution) continue;
       try {
-        await this.options.onAttemptDelivery({ execution, binding: binding ? { ...binding, sessionId: pending.sessionId } : undefined, sessionId: pending.sessionId, runId: pending.runId, text: pending.text });
+        await this.options.onAttemptDelivery({ execution, binding: binding ? { ...binding, sessionId: pending.sessionId } : undefined, sessionId: pending.sessionId, runId: pending.runId, text: pending.text, round: pending.round });
         this.store.markAttemptDelivered(pending.runId);
       } catch (error) { momWarn("durableExecution", "attempt_delivery_failed", { executionId: execution.id, error: String(error) }); }
     }
@@ -1453,6 +1455,10 @@ export class DurableExecutionRuntime {
     }, Math.max(1000, Math.floor(this.leaseDurationMs / 3)));
 
     try {
+      // The visible conversation gets a per-round response row before the run
+      // so live deltas have somewhere to land (spec 执行形态修订).
+      try { this.options.onAttemptStart?.(detail.execution, round); }
+      catch (error) { momWarn("durableExecution", "kanban_attempt_start_failed", { executionId, round, error: String(error) }); }
       const attemptHooks: DurableAttemptHooks = {
         execution: {
           clientSignal: control.signal,
@@ -1467,7 +1473,8 @@ export class DurableExecutionRuntime {
                 detail.execution,
                 runId,
                 runnerEvent.event.type === "text_delta" ? "text" : "thinking",
-                runnerEvent.event.delta
+                runnerEvent.event.delta,
+                round
               );
             } catch (error) {
               momWarn("durableExecution", "kanban_live_output_failed", { executionId, error: String(error) });
@@ -1476,7 +1483,7 @@ export class DurableExecutionRuntime {
           const activity = activityCollector.record(runnerEvent);
           if (activity) {
             try {
-              this.options.onAttemptProgress?.(detail.execution, activityCollector.snapshot().map(activity => ({ ...activity, key: `${runId}:${activity.key}` })));
+              this.options.onAttemptProgress?.(detail.execution, activityCollector.snapshot().map(activity => ({ ...activity, key: `${runId}:${activity.key}` })), round);
             } catch (error) {
               momWarn("durableExecution", "kanban_progress_failed", { executionId, error: String(error) });
             }
@@ -1586,8 +1593,16 @@ export class DurableExecutionRuntime {
         }
       };
       const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
+      endDurableConversationOutput(executionId, runId, round);
       if (attemptResult.contextSessionId) {
         this.store.setAttemptContextSession(executionId, claimed.attempt.id, this.processOwnerId, attemptResult.contextSessionId);
+      }
+      // The visible conversation receives the round's final reply through the
+      // same delivery queue plan attempts use (crash-safe, dedup by runId).
+      const deliverySessionId = detail.execution.sourceUiSessionId?.trim();
+      if (deliverySessionId && attemptResult.text) {
+        this.store.recordAttemptDelivery({ executionId, sessionId: deliverySessionId, runId, text: attemptResult.text, round });
+        await this.reconcileAttemptDeliveries();
       }
       // Durable conversation projection: the collector is in-memory only, so
       // snapshot tool activity plus the final reply into the store when the

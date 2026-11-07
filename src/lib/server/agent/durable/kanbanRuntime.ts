@@ -84,6 +84,31 @@ export function buildKanbanBriefing(input: KanbanBriefingInput): string {
   return lines.join("\n");
 }
 
+/**
+ * The initial prompt seeded into the visible task conversation (spec
+ * 执行形态修订: 任务内容作为一份详细的初始提示词驱动执行). Human-facing record
+ * of the request; the per-round model briefing stays in buildKanbanBriefing.
+ */
+export function buildKanbanTaskBrief(input: { title: string; goal: string; workDir?: string; conditions: string[] }): string {
+  const lines: string[] = [];
+  lines.push(`[看板任务] ${input.title}`);
+  lines.push("");
+  lines.push("## 目标");
+  lines.push(input.goal);
+  if (input.workDir) {
+    lines.push("");
+    lines.push(`工作目录：${input.workDir}`);
+  }
+  lines.push("");
+  lines.push("## 完成条件");
+  if (input.conditions.length === 0) {
+    lines.push("待定：第一轮会先提出明确的完成条件，确认后再开展实质性工作。");
+  } else {
+    for (const condition of input.conditions) lines.push(`- ${condition}`);
+  }
+  return lines.join("\n");
+}
+
 export type KanbanRoundNext =
   | { kind: "continue" }
   | { kind: "verify" }

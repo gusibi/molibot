@@ -21,7 +21,18 @@ interface LiveResponse {
   persistTimer?: ReturnType<typeof setTimeout>;
 }
 const liveResponses = new Map<string, LiveResponse>();
-function liveKey(executionId: string): string { return JSON.stringify([storagePaths.dataDir, executionId]); }
+function liveKey(executionId: string, round?: number): string {
+  return JSON.stringify([storagePaths.dataDir, executionId, round ?? null]);
+}
+
+/**
+ * The conversation row key for an execution's streaming response. Plan
+ * executions keep one row per execution; kanban rounds get one row per round
+ * so each round reads as its own conversation turn (spec 执行形态修订).
+ */
+function responseActivityKey(executionId: string, round?: number): string {
+  return round === undefined ? `durable-response:${executionId}` : `durable-response:${executionId}:${round}`;
+}
 
 export function liveResponseMessage(row: UiMessageMetadata, snapshot = row.liveResponse): LiveConversationMessage {
   const content = snapshot?.text ?? row.content ?? "";
@@ -57,13 +68,13 @@ function flushLiveResponse(state: LiveResponse): void {
 }
 
 /** Streams actual model deltas; disk checkpoints are bounded independently of display updates. */
-export function updateDurableConversationOutput(sessions: SessionStore, execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string): void {
+export function updateDurableConversationOutput(sessions: SessionStore, execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string, round?: number): void {
   if (!execution.sourceUiSessionId || !delta) return;
-  const key = liveKey(execution.id);
+  const key = liveKey(execution.id, round);
   let state = liveResponses.get(key);
   if (!state || state.snapshot.runId !== runId) {
-    if (state) endDurableConversationOutput(execution.id, state.snapshot.runId);
-    const row = sessions.listMessageMetadata(execution.sourceUiSessionId).find(message => message.activities?.some(activity => activity.key === `durable-response:${execution.id}`));
+    if (state) endDurableConversationOutput(execution.id, state.snapshot.runId, round);
+    const row = sessions.listMessageMetadata(execution.sourceUiSessionId).find(message => message.activities?.some(activity => activity.key === responseActivityKey(execution.id, round)));
     if (!row) return;
     const saved = row.liveResponse;
     state = { sessions, row, snapshot: saved?.runId === runId ? { ...saved } : { runId, text: saved?.text ?? "", thinking: saved?.thinking ?? row.thinking ?? "" } };
@@ -77,8 +88,8 @@ export function updateDurableConversationOutput(sessions: SessionStore, executio
   if (!state.persistTimer) state.persistTimer = setTimeout(() => flushLiveResponse(state!), 200);
 }
 
-export function endDurableConversationOutput(executionId: string, runId: string): void {
-  const key = liveKey(executionId);
+export function endDurableConversationOutput(executionId: string, runId: string, round?: number): void {
+  const key = liveKey(executionId, round);
   const state = liveResponses.get(key);
   if (!state || state.snapshot.runId !== runId) return;
   clearTimeout(state.publishTimer);
@@ -93,13 +104,15 @@ export interface DurableAttemptDelivery {
   sessionId: string;
   runId: string;
   text: string;
+  /** Set for kanban rounds: each round streams into its own response row. */
+  round?: number;
 }
 
 /** Background execution uses the same response row and process disclosure as a foreground turn. */
-export function ensureDurableConversationResponse(sessions: SessionStore, execution: DurableExecution, chinese = false): string | undefined {
+export function ensureDurableConversationResponse(sessions: SessionStore, execution: DurableExecution, chinese = false, round?: number): string | undefined {
   const sessionId = execution.sourceUiSessionId;
   if (!sessionId) return;
-  const key = `durable-response:${execution.id}`;
+  const key = responseActivityKey(execution.id, round);
   const existing = sessions.listMessageMetadata(sessionId).find(message => message.activities?.some(activity => activity.key === key));
   if (existing) return existing.id;
   const message = sessions.appendMessage(sessionId, "assistant", "", {
@@ -110,14 +123,14 @@ export function ensureDurableConversationResponse(sessions: SessionStore, execut
   return message.id;
 }
 
-export function updateDurableConversationProgress(sessions: SessionStore, execution: DurableExecution, activities: ConversationActivity[]): void {
+export function updateDurableConversationProgress(sessions: SessionStore, execution: DurableExecution, activities: ConversationActivity[], round?: number): void {
   if (!execution.sourceUiSessionId) return;
-  const response = sessions.listMessageMetadata(execution.sourceUiSessionId).find(message => message.activities?.some(activity => activity.key === `durable-response:${execution.id}`));
+  const response = sessions.listMessageMetadata(execution.sourceUiSessionId).find(message => message.activities?.some(activity => activity.key === responseActivityKey(execution.id, round)));
   if (!response) return;
   const merged = new Map(response.activities?.map(activity => [activity.key, activity]));
   for (const activity of activities) merged.set(activity.key, activity);
   sessions.updateConversationMessage(execution.sourceUiSessionId, response.id, { activities: [...merged.values()] });
-  const state = liveResponses.get(liveKey(execution.id));
+  const state = liveResponses.get(liveKey(execution.id, round));
   if (state) { state.row = { ...state.row, activities: [...merged.values()] }; publishLiveConversation(liveResponseMessage(state.row, state.snapshot)); }
 }
 
@@ -153,9 +166,9 @@ export function deliverDurableAttempt(
     role: "assistant", content: [{ type: "text", text: input.text }],
     usage: zeroAssistantUsage(), timestamp: Date.now()
   } as AgentMessage, id, { runId: input.runId, sourceId, delivery: "final", retention });
-  const response = sessions.listMessageMetadata(id).find(message => message.activities?.some(activity => activity.key === `durable-response:${input.execution.id}`));
+  const response = sessions.listMessageMetadata(id).find(message => message.activities?.some(activity => activity.key === responseActivityKey(input.execution.id, input.round)));
   if (response) {
-    const live = liveResponses.get(liveKey(input.execution.id));
+    const live = liveResponses.get(liveKey(input.execution.id, input.round));
     const snapshot = live?.snapshot ?? response.liveResponse;
     const previousText = snapshot?.text ?? response.liveResponse?.text ?? "";
     const deliveredThinking = snapshot?.thinking ?? response.liveResponse?.thinking ?? response.thinking ?? "";
@@ -166,13 +179,13 @@ export function deliverDurableAttempt(
       sourceEntryId, contextBacked: true, stopReason: "stop", resultKind: "final",
       liveResponse: { runId: `delivered:${input.runId}`, text: deliveredText, thinking: deliveredThinking },
       thinking: deliveredThinking,
-      activities: response.activities?.map(activity => activity.key === `durable-response:${input.execution.id}`
+      activities: response.activities?.map(activity => activity.key === responseActivityKey(input.execution.id, input.round)
         ? { ...activity, state: "success", finishedAt: new Date().toISOString() } : activity)
     });
     if (live) {
       clearTimeout(live.publishTimer);
       clearTimeout(live.persistTimer);
-      liveResponses.delete(liveKey(input.execution.id));
+      liveResponses.delete(liveKey(input.execution.id, input.round));
     }
     const projected = projectConversationMessages({ conversationId: id, entries: store.listSessionMessageEntries(chatId, id), metadata: sessions.listMessageMetadata(id) });
     const message = projected.messages.find(message => message.id === response.id);

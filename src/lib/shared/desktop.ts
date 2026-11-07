@@ -3641,6 +3641,8 @@ export interface DesktopConversationItem {
   channel: DesktopConversationChannel;
   purpose: DesktopConversationPurpose;
   readOnly: boolean;
+  /** Set for kanban task conversations so lists can render a task tag. */
+  taskSession?: boolean;
   latestMessagePreview?: string;
   parentSessionId?: string;
 }

@@ -7,6 +7,14 @@ import { resolveDurableToolApproval } from "$lib/server/agent/durable/approvalRe
 import { approveDesktopPlan } from "$lib/server/app/desktopPlans.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { PlanService } from "$lib/server/agent/plans/service.js";
+import { buildKanbanTaskBrief } from "$lib/server/agent/durable/kanbanRuntime.js";
+import { persistDurableConversationInput } from "$lib/server/agent/durable/conversation.js";
+import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
+import { projectRuntimeWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
+import { getProjectStore } from "$lib/server/projects/store.js";
+import { toWebExternalUserId } from "$lib/server/web/identity.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 import {
   DURABLE_EXECUTION_STATUSES,
   PlanDeletedError,
@@ -27,6 +35,19 @@ const plans = new PlanService();
 
 function ownerId(value: unknown): string {
   return String(value ?? "owner").trim() || "owner";
+}
+
+/** Best-effort removal of a task conversation whose task creation failed. */
+function cleanupTaskConversation(
+  runtime: ReturnType<typeof getRuntime>,
+  conversation: { id: string },
+  projectId: string,
+  sessionOwner: string
+): void {
+  try {
+    if (projectId) runtime.sessions.deleteProjectConversation(projectId, conversation.id);
+    else runtime.sessions.deleteConversation(conversation.id, "web", sessionOwner);
+  } catch { /* the task error is the one worth reporting */ }
 }
 
 function failure(cause: unknown): Response {
@@ -116,26 +137,73 @@ export const POST: RequestHandler = async ({ request }) => {
         // Field allowlist: identity/source fields (kanbanTaskId, sourceType,
         // externalId, sourceUrl) come from internal callers only.
         const raw = body as unknown as Record<string, unknown>;
-        const item = plans.createKanbanTask({
-          ownerId: owner,
-          botId: String(raw.botId ?? "default").trim() || "default",
-          form: raw.form === "team" ? "team" : "single",
-          title: String(raw.title ?? "").trim(),
-          goal: String(raw.goal ?? "").trim(),
-          ...(raw.agentId ? { agentId: String(raw.agentId).trim() } : {}),
-          ...(raw.coordinatorAgentId ? { coordinatorAgentId: String(raw.coordinatorAgentId).trim() } : {}),
-          ...(Array.isArray(raw.members) ? { members: raw.members } : {}),
-          ...(raw.projectId ? { projectId: String(raw.projectId).trim() } : {}),
-          ...(raw.workDir ? { workDir: String(raw.workDir).trim() } : {}),
-          ...(Array.isArray(raw.completionConditions) ? { completionConditions: raw.completionConditions } : {}),
-          ...(raw.completionSource === "user" ? { completionSource: "user" as const } : {}),
-          ...(Number.isFinite(Number(raw.budgetTokenLimit)) ? { budgetTokenLimit: Number(raw.budgetTokenLimit) } : {}),
-          ...(Number.isFinite(Number(raw.handoffLimit)) && Number(raw.handoffLimit) > 0 ? { handoffLimit: Number(raw.handoffLimit) } : {}),
-          ...(raw.approvalPolicy === "deny" || raw.approvalPolicy === "suspend" ? { approvalPolicy: raw.approvalPolicy } : {}),
-          ...(raw.humanAcceptance === true ? { humanAcceptance: true } : {}),
-          autoStart: raw.autoStart !== false
-        });
-        return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
+        const form = raw.form === "team" ? "team" as const : "single" as const;
+        const projectId = raw.projectId ? String(raw.projectId).trim() : "";
+        const executorAgentId = String((form === "single" ? raw.agentId : raw.coordinatorAgentId) ?? "").trim();
+        const title = String(raw.title ?? "").trim();
+        // Visible task conversation (spec 执行形态修订): with a Project it lives
+        // in the Project's session list, otherwise under the executor Agent.
+        const sessionOwner = toWebExternalUserId("kanban", "desktop");
+        let conversation: { id: string; externalUserId: string } | null = null;
+        if (projectId || executorAgentId) {
+          const runtime = getRuntime();
+          if (projectId && !getProjectStore().get(projectId)) throw new Error("Unknown project.");
+          // origin "kanban" marks the session as task-triggered (list tag).
+          conversation = projectId
+            ? runtime.sessions.createProjectConversation(projectId, sessionOwner, "web", "kanban")
+            : runtime.sessions.createWebConversation(sessionOwner, "kanban", executorAgentId || undefined);
+          try {
+            if (projectId) runtime.sessions.renameProjectConversation(projectId, conversation.id, title);
+            else runtime.sessions.renameConversation(conversation.id, "web", sessionOwner, title);
+            const brief = runtime.sessions.appendMessage(conversation.id, "user", buildKanbanTaskBrief({
+              title,
+              goal: String(raw.goal ?? "").trim() || title,
+              ...(raw.workDir ? { workDir: String(raw.workDir).trim() } : {}),
+              conditions: Array.isArray(raw.completionConditions)
+                ? raw.completionConditions.map(item => String((item as { description?: unknown })?.description ?? "").trim()).filter(Boolean)
+                : []
+            }));
+            // Context-back the brief so the session reads as one continuous
+            // conversation when the user opens it directly.
+            try {
+              persistDurableConversationInput(
+                new MomRuntimeStore(projectId ? projectRuntimeWorkspaceDir(projectId) : agentWorkspaceDir(storagePaths.dataDir, executorAgentId)),
+                runtime.sessions,
+                conversation.externalUserId,
+                brief
+              );
+            } catch { /* the visible message is already recorded; context backing is best-effort */ }
+          } catch (cause) {
+            cleanupTaskConversation(runtime, conversation, projectId, sessionOwner);
+            throw cause;
+          }
+        }
+        try {
+          const item = plans.createKanbanTask({
+            ownerId: owner,
+            botId: String(raw.botId ?? "default").trim() || "default",
+            form,
+            title,
+            goal: String(raw.goal ?? "").trim(),
+            ...(raw.agentId ? { agentId: String(raw.agentId).trim() } : {}),
+            ...(raw.coordinatorAgentId ? { coordinatorAgentId: String(raw.coordinatorAgentId).trim() } : {}),
+            ...(Array.isArray(raw.members) ? { members: raw.members } : {}),
+            ...(projectId ? { projectId } : {}),
+            ...(raw.workDir ? { workDir: String(raw.workDir).trim() } : {}),
+            ...(Array.isArray(raw.completionConditions) ? { completionConditions: raw.completionConditions } : {}),
+            ...(raw.completionSource === "user" ? { completionSource: "user" as const } : {}),
+            ...(Number.isFinite(Number(raw.budgetTokenLimit)) ? { budgetTokenLimit: Number(raw.budgetTokenLimit) } : {}),
+            ...(Number.isFinite(Number(raw.handoffLimit)) && Number(raw.handoffLimit) > 0 ? { handoffLimit: Number(raw.handoffLimit) } : {}),
+            ...(raw.approvalPolicy === "deny" || raw.approvalPolicy === "suspend" ? { approvalPolicy: raw.approvalPolicy } : {}),
+            ...(raw.humanAcceptance === true ? { humanAcceptance: true } : {}),
+            ...(conversation ? { sourceUiSessionId: conversation.id } : {}),
+            autoStart: raw.autoStart !== false
+          });
+          return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
+        } catch (cause) {
+          if (conversation) cleanupTaskConversation(getRuntime(), conversation, projectId, sessionOwner);
+          throw cause;
+        }
       }
       case "kanban_start":
         return json({ ok: true, item: plans.startKanbanTask({ ownerId: owner, executionId: String(body.planId), expectedVersion: Number(body.expectedVersion), actionId: String(body.actionId) }) }, { headers: { "Cache-Control": "no-store" } });
