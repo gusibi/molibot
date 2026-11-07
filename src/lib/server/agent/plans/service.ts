@@ -267,6 +267,15 @@ export class PlanService {
     return this.read(input.ownerId, input.executionId);
   }
 
+  /** Owner revision of completion conditions (story 53: 我也能查看和修订). */
+  setKanbanCompletionConditions(input: { ownerId: string; executionId: string; expectedVersion: number; descriptions: string[] }): PlanDetail {
+    this.read(input.ownerId, input.executionId);
+    const task = this.store.kanban.getTask(input.executionId);
+    if (!task) throw new DurableExecutionNotFoundError(input.executionId);
+    this.store.kanban.setCompletionConditions({ executionId: input.executionId, expectedVersion: input.expectedVersion, descriptions: input.descriptions });
+    return this.read(input.ownerId, input.executionId);
+  }
+
   /**
    * The board: kanban tasks and legacy plans projected onto Todo/Doing/Done/
    * 已取消 by execution status. Counts are computed over the full filtered set,

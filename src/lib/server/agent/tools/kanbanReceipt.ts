@@ -11,6 +11,7 @@ const kanbanReceiptSchema = Type.Object({
   questionOptions: Type.Optional(Type.Array(Type.String(), { description: "问题的候选选项（可选）。" })),
   verifyAt: Type.Optional(Type.String({ description: "预约复查时间（ISO 8601），到时唤醒回本任务核对。" })),
   requestCompletion: Type.Optional(Type.Boolean({ description: "申请完成：必须逐项核对完成条件并附证据。" })),
+  proposeConditions: Type.Optional(Type.Array(Type.String(), { description: "任务没有明确完成条件时，先提出可见的完成条件候选（不得缩小原目标）；提交后等待用户确认或修订。" })),
   checklist: Type.Optional(Type.Array(Type.Object({
     itemId: Type.Optional(Type.String()),
     text: Type.Optional(Type.String()),
@@ -29,6 +30,7 @@ export type KanbanReceiptToolInput = {
   questionOptions?: string[];
   verifyAt?: string;
   requestCompletion?: boolean;
+  proposeConditions?: string[];
   checklist?: Array<{ itemId?: string; text?: string; done?: boolean; remove?: boolean }>;
 };
 
@@ -58,6 +60,7 @@ export function getKanbanReceiptToolDefinition(): ToolDefinition {
         || receipt.question?.trim()
         || receipt.verifyAt?.trim()
         || receipt.requestCompletion
+        || (receipt.proposeConditions && receipt.proposeConditions.length > 0)
         || (receipt.checklist && receipt.checklist.length > 0)
       );
       if (!hasAction) {
@@ -72,6 +75,7 @@ export function getKanbanReceiptToolDefinition(): ToolDefinition {
           ...(receipt.question?.trim() ? { question: { text: receipt.question.trim(), ...(receipt.questionOptions?.length ? { options: receipt.questionOptions } : {}) } } : {}),
           ...(receipt.verifyAt?.trim() ? { verifyAt: receipt.verifyAt.trim() } : {}),
           ...(receipt.requestCompletion ? { requestCompletion: true } : {}),
+          ...(receipt.proposeConditions?.length ? { proposeConditions: receipt.proposeConditions.map(item => item.trim()).filter(Boolean) } : {}),
           ...(receipt.checklist?.length ? { checklist: receipt.checklist } : {})
         });
         if (!result.ok) return { ok: false, error: result.error };

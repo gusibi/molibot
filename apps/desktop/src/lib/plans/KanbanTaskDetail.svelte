@@ -3,6 +3,7 @@
   import Help from "reicon-svelte/icons/Help";
   import Loader from "reicon-svelte/icons/Loader";
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
+  import X from "reicon-svelte/icons/X";
   import Button from "../components/ui/Button.svelte";
   import type { DesktopKanbanTaskBundle } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
@@ -14,6 +15,7 @@
     busy: boolean;
     copy: Translation;
     formatTime: (iso: string) => string;
+    onBack: () => void;
     onStart: () => void;
     onPause: () => void;
     onCancel: () => void;
@@ -21,10 +23,14 @@
     onAnswer: (text: string) => void;
     onAddBudget: (tokens: number) => void;
     onApproval: (approvalId: string, status: "approved" | "rejected") => void;
+    onDecide: (decisionId: string, answer: string) => void;
+    onConditions: (descriptions: string[]) => void;
   }
-  let { bundle, loading, error, busy, copy, formatTime, onStart, onPause, onCancel, onComplete, onAnswer, onAddBudget, onApproval }: Props = $props();
+  let { bundle, loading, error, busy, copy, formatTime, onBack, onStart, onPause, onCancel, onComplete, onAnswer, onAddBudget, onApproval, onDecide, onConditions }: Props = $props();
 
   let answerText = $state("");
+  let conditionsEditing = $state(false);
+  let conditionsDraft = $state("");
 
   const status = $derived(bundle?.detail.execution.status ?? "");
   const active = $derived(["queued", "running", "verifying", "waiting_for_user", "waiting_for_approval"].includes(status));
@@ -86,6 +92,16 @@
     const tokens = Number(raw);
     if (Number.isFinite(tokens) && tokens > 0) onAddBudget(Math.round(tokens));
   }
+  function editConditions(): void {
+    conditionsDraft = currentCriteria.filter(criterion => !criterion.userEdited || criterion.result !== "passed").map(criterion => criterion.description).join("\n");
+    conditionsEditing = true;
+  }
+  function saveConditions(): void {
+    const descriptions = conditionsDraft.split("\n").map(line => line.trim()).filter(Boolean);
+    if (descriptions.length === 0) return;
+    conditionsEditing = false;
+    onConditions(descriptions);
+  }
 </script>
 
 {#if loading && !bundle}
@@ -94,6 +110,7 @@
   <div class="kanban-state" role="alert"><p>{error}</p></div>
 {:else if bundle}
   <header class="plans-detail-head">
+    <button type="button" class="plans-back" aria-label={copy.planBoardTitle} onclick={onBack}><X size={15} aria-hidden="true" /></button>
     <div class="plans-detail-title">
       <div class="plans-title-row">
         <h2>{bundle.task.title}</h2>
@@ -148,7 +165,7 @@
       <section class="plans-card plans-attention"><h3>{copy.planBoardStatusAttention}</h3><p>{decision.question}</p>
         <div class="plans-response-actions">
           {#each decision.options as answer (answer)}
-            <Button disabled={busy} onclick={() => { if (answer === "confirm_completion") onComplete(); }}>{answer === "confirm_completion" ? copy.planBoardMarkComplete : copy.continueAction}</Button>
+            <Button disabled={busy} onclick={() => onDecide(decision.id, answer)}>{answer === "confirm_completion" ? copy.planBoardMarkComplete : copy.continueAction}</Button>
           {/each}
         </div>
       </section>
@@ -162,8 +179,20 @@
     {/if}
 
     <section class="plans-card">
-      <h3 class="plans-section-title">{bundle.task.goal}</h3>
-      {#if currentCriteria.length > 0}
+      <div class="plans-progress-heading">
+        <h3 class="plans-section-title">{bundle.task.goal}</h3>
+        {#if !conditionsEditing}
+          <Button disabled={busy} onclick={editConditions}>{copy.kanbanConditionsEdit}</Button>
+        {/if}
+      </div>
+      {#if conditionsEditing}
+        <p class="plans-task-desc">{copy.kanbanConditionsHint}</p>
+        <textarea class="kanban-conditions-input" rows={Math.max(2, conditionsDraft.split("\n").length)} bind:value={conditionsDraft}></textarea>
+        <div class="plans-response-actions">
+          <Button disabled={busy} onclick={() => { conditionsEditing = false; }}>{copy.planBoardCancel}</Button>
+          <Button variant="primary" disabled={busy || conditionsDraft.trim().length === 0} onclick={saveConditions}>{copy.kanbanConditionsSave}</Button>
+        </div>
+      {:else if currentCriteria.length > 0}
         <ul class="plans-criteria">
           {#each currentCriteria as criterion (criterion.id)}
             <li class="plans-criterion" data-result={criterion.result}>
@@ -176,6 +205,8 @@
             </li>
           {/each}
         </ul>
+      {:else}
+        <p class="plans-task-desc">{copy.kanbanConditionsEmpty}</p>
       {/if}
     </section>
 

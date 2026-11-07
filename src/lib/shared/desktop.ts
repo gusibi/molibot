@@ -1373,6 +1373,7 @@ export type DesktopPlanActionRequest =
   | { action: "kanban_start"; ownerId?: string; planId: string; expectedVersion: number; actionId: string }
   | { action: "kanban_answer"; ownerId?: string; planId: string; text: string }
   | { action: "kanban_budget"; ownerId?: string; planId: string; expectedVersion: number; addTokens: number }
+  | { action: "kanban_conditions"; ownerId?: string; planId: string; expectedVersion: number; conditions: string[] }
   | {
       action: "revise";
       ownerId?: string;

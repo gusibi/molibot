@@ -2095,6 +2095,30 @@ export class DurableExecutionStore {
     }
   }
 
+  /**
+   * Parks a queued kanban task whose Project advance slot is held: it stays
+   * queued without a wakeup and shows what blocks it. The holder's terminal
+   * settlement releases the slot in the same transaction and wakes the oldest
+   * queued task, so polling (and version churn) would only burn writes.
+   */
+  parkQueuedForProjectSlot(executionId: string, expectedVersion: number, holderExecutionId: string, now = new Date()): DurableExecution {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.requireRow(executionId);
+      this.assertVersion(current, expectedVersion);
+      if (current.status !== "queued") throw new DurableExecutionTransitionError(current.status, "queued");
+      const timestamp = nowIso(now);
+      this.db.prepare("UPDATE durable_executions SET version = version + 1, next_run_at = NULL, waiting_kind = NULL, waiting_reason = ?, updated_at = ? WHERE id = ? AND version = ?")
+        .run(`等待同 Project 推进位（${holderExecutionId}）`, timestamp, executionId, expectedVersion);
+      const next = rowToExecution(this.requireRow(executionId));
+      this.db.exec("COMMIT"); this.notify();
+      return next;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   finishAttempt(input: FinishAttemptInput): DurableExecution {
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -2145,7 +2169,7 @@ export class DurableExecutionStore {
       }
       if (input.kanban) {
         if (input.kanban.consumeInputs !== false) {
-          this.kanban.consumeInputsInTransaction(input.executionId, input.kanban.round);
+          this.kanban.consumeInputsInTransaction(input.executionId, input.kanban.round, input.kanban.consumeInputIds);
         }
         this.kanban.applyRoundSettlementInTransaction({
           executionId: input.executionId,
@@ -2612,7 +2636,13 @@ export class DurableExecutionStore {
     if (!approval) throw new Error(`Approval request not found: ${input.approvalId}`);
     if (approval.status !== "pending") return rowToExecution(current);
     const timestamp = nowIso(input.now);
-    const nextStatus = input.status === "approved" ? "queued" : "failed";
+    // Kanban tasks (spec story 65): a rejection only blocks this operation -
+    // the executor gets the feedback as a pending input and looks for an
+    // authorized alternative instead of the task failing outright.
+    const kanbanTask = this.kanban.getTask(input.executionId);
+    const nextStatus = input.status === "approved" || kanbanTask
+      ? "queued"
+      : "failed";
     const reason = input.status === "approved"
       ? null
       : input.status === "expired" ? "The approval request expired." : "The approval request was rejected.";
@@ -2628,6 +2658,11 @@ export class DurableExecutionStore {
       this.db.prepare("UPDATE durable_steps SET status = 'pending', updated_at = ? WHERE execution_id = ? AND plan_version = ? AND status = 'running'").run(
         timestamp, input.executionId, current.current_plan_version
       );
+    } else if (kanbanTask) {
+      // The rejection feedback joins the next briefing through the input
+      // channel so the executor can look for an authorized alternative.
+      this.db.prepare("INSERT INTO durable_kanban_inputs (input_id, execution_id, text, created_at, consumed_round) VALUES (?, ?, ?, ?, NULL)")
+        .run(id("input"), input.executionId, `${input.status === "expired" ? "审批已过期" : "审批被拒绝"}：「${approval.title}」不会被执行；请改用已授权的替代方案或暂停等待处理，不要重复申请同一被拒操作。`, timestamp);
     }
     this.db.prepare(`
       UPDATE durable_executions

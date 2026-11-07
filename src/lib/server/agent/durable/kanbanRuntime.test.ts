@@ -164,7 +164,6 @@ function createSingleTask(store: DurableExecutionStore, overrides: Record<string
 test("a kanban task runs receipt-driven rounds: continue, then completion, then verify", async () => {
   const { store, cleanup } = runtimeFixture();
   try {
-    const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const task = createSingleTask(store);
     const executionId = task.executionId;
     store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
@@ -200,17 +199,13 @@ test("a kanban task runs receipt-driven rounds: continue, then completion, then 
     await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
     assert.equal(store.getById(executionId)!.status, "verifying");
 
-    // Verification of the subjective criterion parks on the user decision.
+    // Without human acceptance the executor's requestCompletion completes the
+    // task (story 51/52: subjective conditions are executor-certified; story 53
+    // evidence is filed as durable evidence for the acceptance record).
     await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
-    const waiting = store.getDetail(executionId)!;
-    assert.equal(waiting.execution.status, "waiting_for_user");
-    assert.equal(waiting.decisions.length, 1);
-
-    coordinator.answerDecision({
-      ownerId: "owner-1", executionId, decisionId: waiting.decisions[0]!.id,
-      answer: "confirm_completion", expectedVersion: waiting.execution.version, actionId: "confirm-1"
-    });
     assert.equal(store.getById(executionId)!.status, "completed");
+    const evidence = store.getDetail(executionId)!.evidenceRefs;
+    assert.ok(evidence.some(ref => ref.referenceType === "kanban-receipt" && ref.summary === "weekly.md"), "receipt evidence lands in durable evidence");
 
     // The task context: synthetic chat, fresh task-archive session, bound agent.
     assert.equal(inbounds[0].chatId, `kanban:${executionId}`);
@@ -373,6 +368,253 @@ test("a kanban task without completion conditions parks on the user instead of c
       answer: "confirm_completion", expectedVersion: waiting.execution.version, actionId: "confirm-zero-1"
     });
     assert.equal(store.getById(executionId)!.status, "completed");
+  } finally {
+    cleanup();
+  }
+});
+
+test("human acceptance keeps verification waiting for the owner before Done", async () => {
+  const { store, cleanup } = runtimeFixture();
+  const { DurableExecutionCoordinator } = await import("./coordinator.js");
+  try {
+    const task = createSingleTask(store, { humanAcceptance: true });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          await hooks.submitKanbanReceipt!({ conclusion: "已按来源核对", evidence: ["weekly.md"], requestCompletion: true });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: "kanban-ctx-1" };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    const waiting = store.getDetail(executionId)!;
+    assert.equal(waiting.execution.status, "waiting_for_user");
+    assert.equal(waiting.decisions.length, 1);
+
+    new DurableExecutionCoordinator(store, "process-a").answerDecision({
+      ownerId: "owner-1", executionId, decisionId: waiting.decisions[0]!.id,
+      answer: "confirm_completion", expectedVersion: waiting.execution.version, actionId: "confirm-human-1"
+    });
+    assert.equal(store.getById(executionId)!.status, "completed");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a pause during a running round settles the attempt and the control request", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async () => {
+          entered();
+          await gate;
+          return { result: { stopReason: "aborted" as const }, contextSessionId: "ctx-abort" };
+        }
+      }]])]]) as any
+    });
+
+    const running = runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    await started;
+    store.requestControl(executionId, store.getById(executionId)!.version, "pause");
+    release();
+    await running;
+    // The execution never stays "running" after a pause request (story 69).
+    assert.equal(store.getById(executionId)!.status, "paused");
+    assert.ok(!store.getControlRequest(executionId), "the control request is settled");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a task interrupted by a restart resumes its round loop after recovery review", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    // Another process claims the round and dies: expired lease, attempt left running.
+    store.claimAttempt({
+      executionId, expectedVersion: store.getById(executionId)!.version, processOwnerId: "process-dead",
+      runId: "dead-run", contextSessionId: "dead-ctx", leaseDurationMs: -1_000
+    });
+    store.reconcileOrphanedAttempts("process-a", new Date(Date.parse("2026-11-07T12:00:00.000Z")));
+    assert.equal(store.getById(executionId)!.status, "recovery_required");
+
+    let round = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          round += 1;
+          await hooks.submitKanbanReceipt!({ conclusion: "恢复后继续", continueWork: round === 1 });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: `ctx-recover-${round}` };
+        }
+      }]])]]) as any
+    });
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    assert.equal(store.kanban.getTask(executionId)!.roundCount, 1, "the interrupted task runs its round again");
+  } finally {
+    cleanup();
+  }
+});
+
+test("recovery parks on the user when the interrupted round recorded an unknown external effect", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const dead = store.claimAttempt({
+      executionId, expectedVersion: store.getById(executionId)!.version, processOwnerId: "process-dead",
+      runId: "dead-run", contextSessionId: "dead-ctx", leaseDurationMs: -1_000
+    });
+    store.kanban.recordRoundSideEffect({
+      executionId, round: 1, attemptId: dead.attempt.id, phase: "intent",
+      sideEffectClass: "non_idempotent", idempotencyKey: "key-1",
+      targetSummary: "web_search", contentSummary: "publish"
+    });
+    store.reconcileOrphanedAttempts("process-a", new Date(Date.parse("2026-11-07T12:00:00.000Z")));
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async () => { throw new Error("must not run while recovery review is open"); }
+      }]])]]) as any
+    });
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    const waiting = store.getDetail(executionId)!;
+    assert.equal(waiting.execution.status, "waiting_for_user");
+    assert.equal(waiting.decisions.length, 1);
+    assert.deepEqual(waiting.decisions[0]!.options, ["retry_after_recovery_review"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("inputs submitted while a round runs stay pending for the next briefing", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          entered();
+          await gate;
+          await hooks.submitKanbanReceipt!({ conclusion: "本轮完成", continueWork: true });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: "ctx-inputs" };
+        }
+      }]])]]) as any
+    });
+
+    const running = runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    await started;
+    // Arrives after the briefing was built, before the round settles (story 24).
+    store.kanban.recordInput({ executionId, text: "轮次运行中提交的补充" });
+    release();
+    await running;
+    assert.deepEqual(store.kanban.listInputs(executionId, true).map(input => input.text), ["轮次运行中提交的补充"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an executor proposal creates visible conditions and the owner revision replaces them", async () => {
+  const { store, cleanup } = runtimeFixture();
+  const { PlanService } = await import("../plans/service.js");
+  try {
+    const task = createSingleTask(store, { completionConditions: [] });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          await hooks.submitKanbanReceipt!({ conclusion: "先提出完成条件", proposeConditions: ["周报包含数据来源", "附升级注意事项"] });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: "ctx-propose" };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    // Without continueWork the proposal parks on the user (story 53).
+    assert.equal(store.getById(executionId)!.status, "waiting_for_user");
+    const proposed = store.kanban.getTask(executionId)!;
+    assert.equal(proposed.completionSource, "generated");
+    const criteria = store.getDetail(executionId)!.acceptanceCriteria.filter(criterion => criterion.planVersion === 1);
+    assert.deepEqual(criteria.map(criterion => criterion.description).sort(), ["周报包含数据来源", "附升级注意事项"]);
+
+    const plans = new PlanService(store);
+    const revised = plans.setKanbanCompletionConditions({
+      ownerId: "owner-1", executionId,
+      expectedVersion: store.getById(executionId)!.version,
+      descriptions: ["周报包含数据来源与单位换算"]
+    });
+    assert.equal(revised.execution.status, "waiting_for_user");
+    assert.equal(store.kanban.getTask(executionId)!.completionSource, "user");
+    const after = store.getDetail(executionId)!.acceptanceCriteria.filter(criterion => criterion.planVersion === 1);
+    assert.deepEqual(after.map(criterion => [criterion.description, criterion.userEdited]), [["周报包含数据来源与单位换算", true]]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a rejected approval requeues the kanban task with feedback instead of failing it", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          await hooks.onApprovalRequest!({
+            backend: "approval_broker",
+            requestId: "req-1",
+            prompt: {
+              request: { toolId: "host_shell", command: "rm draft", approvalMode: "once" },
+              title: "删除草稿文件",
+              body: "需要删除临时草稿。",
+              options: [{ id: "once" }, { id: "deny" }]
+            }
+          } as any);
+          return { result: { stopReason: "waiting_for_approval" as const }, contextSessionId: "ctx-approval" };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    assert.equal(store.getById(executionId)!.status, "waiting_for_approval");
+    const approval = store.getDetail(executionId)!.approvals.find(item => item.status === "pending")!;
+
+    store.runControlAction({
+      action: "resolve_approval", executionId, expectedVersion: store.getById(executionId)!.version,
+      actionId: "reject-1", approvalId: approval.id, status: "rejected", selectedScope: "once"
+    } as any);
+    // Story 65: rejection blocks this operation, not the task - the executor
+    // gets the feedback as a pending input and looks for an alternative.
+    assert.equal(store.getById(executionId)!.status, "queued");
+    assert.ok(store.kanban.listInputs(executionId, true).some(input => input.text.includes("审批被拒绝")));
   } finally {
     cleanup();
   }

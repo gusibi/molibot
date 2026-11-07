@@ -555,9 +555,18 @@ export class DurableExecutionRuntime {
 
     // A kanban task advances in receipt-driven rounds, not through plan steps.
     // Only a started (queued) task runs; `planned` waits for its start action.
+    // A `recovery_required` task resumes its round loop after the interrupted
+    // attempt has been reviewed (story 74).
     const kanbanTask = this.store.kanban.getTask(input.executionId);
     if (kanbanTask) {
-      if (detail.execution.status !== "queued") return { kind: "discarded" };
+      if (detail.execution.status === "recovery_required") {
+        const resumed = this.resumeKanbanRecovery(input.executionId, detail, filename);
+        if (!resumed) return { kind: "done" };
+        detail = this.store.getDetail(input.executionId)!;
+        expectedVersionForAttempt = detail.execution.version;
+      } else if (detail.execution.status !== "queued") {
+        return { kind: "discarded" };
+      }
       return this.executeKanbanRound({
         expectedVersion: expectedVersionForAttempt,
         task: kanbanTask,
@@ -1095,6 +1104,7 @@ export class DurableExecutionRuntime {
       handoff?: { fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string };
       retry?: { count: number; nextRetryAt?: string };
       consumeInputs?: boolean;
+      consumeInputIds?: string[];
     };
     nextRunAt?: Date;
     wakeupReason?: import("./types.js").WakeupReason;
@@ -1243,6 +1253,39 @@ export class DurableExecutionRuntime {
   }
 
   /**
+   * A kanban task whose attempt was interrupted by a crash or restart lands in
+   * `recovery_required`. Review the interrupted attempt's side-effect ledger:
+   * unknown-impact effects park on the user, everything else requeues the
+   * round loop (story 74).
+   */
+  private resumeKanbanRecovery(
+    executionId: string,
+    detail: NonNullable<ReturnType<DurableExecutionStore["getDetail"]>>,
+    filename: string
+  ): boolean {
+    const interrupted = detail.attempts.find(attempt => attempt.status === "interrupted");
+    const effects = interrupted ? this.store.kanban.listAttemptSideEffects(executionId, interrupted.id) : [];
+    const uncertain = effects.filter(effect => effect.sideEffectClass !== "idempotent");
+    if (uncertain.length > 0) {
+      this.store.openRecoveryDecision({
+        executionId,
+        expectedVersion: detail.execution.version,
+        question: `The interrupted round recorded ${uncertain.length} external effect(s) whose outcome is unknown. Review the external system before resuming.`,
+        options: ["retry_after_recovery_review"]
+      });
+      momLog("durableExecution", "kanban_recovery_review_required", {
+        executionId, attemptId: interrupted?.id, effects: uncertain.length, filename
+      });
+      return false;
+    }
+    this.store.transitionStatus(executionId, detail.execution.version, "queued", {
+      waitingReason: undefined
+    });
+    momLog("durableExecution", "kanban_recovery_resumed", { executionId, attemptId: interrupted?.id ?? null, filename });
+    return true;
+  }
+
+  /**
    * One kanban round: claim (with the Project advance slot), run the current
    * advancer in the task's isolated context, then settle from the structured
    * receipt. The synthetic `kanban:<id>` source chat keeps rounds (and team
@@ -1260,9 +1303,9 @@ export class DurableExecutionRuntime {
       const slot = this.store.kanban.getProjectSlot(projectKey);
       if (slot && slot.executionId !== executionId) {
         // A holder's settlement releases the slot in the same transaction as
-        // its terminal state, so a held slot here means the holder is genuinely
-        // still occupying the project.
-        this.store.deferQueued(executionId, input.expectedVersion);
+        // its terminal state and wakes the oldest queued task, so this task
+        // parks without a wakeup instead of spinning (spec 45/46).
+        this.store.parkQueuedForProjectSlot(executionId, input.expectedVersion, slot.executionId);
         momLog("durableExecution", "kanban_queued_for_project_slot", {
           executionId, projectKey, holder: slot.executionId, filename: input.label
         });
@@ -1292,7 +1335,7 @@ export class DurableExecutionRuntime {
       });
     } catch (cause) {
       if (cause instanceof KanbanProjectSlotHeldError) {
-        this.store.deferQueued(executionId, input.expectedVersion);
+        this.store.parkQueuedForProjectSlot(executionId, input.expectedVersion, cause.holderExecutionId);
         momLog("durableExecution", "kanban_queued_for_project_slot", {
           executionId, projectKey: cause.projectKey, holder: cause.holderExecutionId, filename: input.label
         });
@@ -1317,6 +1360,9 @@ export class DurableExecutionRuntime {
       ?? this.store.kanban.listReceipts(executionId).slice(-1)[0]
       ?? null;
     const pendingInputs = this.store.kanban.listInputs(executionId, true);
+    // Consume exactly the inputs this briefing presents (story 24): inputs
+    // submitted while the round runs stay pending for the next briefing.
+    const briefedInputIds = pendingInputs.map(inputRecord => inputRecord.inputId);
     // The brief a member received when the previous round dispatched to them;
     // it rides into their first briefing.
     const handoffBrief = currentTask.form === "team"
@@ -1486,17 +1532,49 @@ export class DurableExecutionRuntime {
           if (!current || current.leaseOwnerId !== this.processOwnerId) {
             return { ok: false, error: "The attempt no longer owns this kanban task." };
           }
+          const receiptActions = actions as KanbanReceiptActions;
           receiptCounter += 1;
           try {
             const recorded = this.store.kanban.transact(() => this.store.kanban.recordReceiptInTransaction({
               executionId,
               round,
               actorAgentId: currentTask.currentAgentId ?? "",
-              actions: actions as KanbanReceiptActions,
+              actions: receiptActions,
               dedupKey: `r${round}-t${receiptCounter}`,
               expectedVersion: current.version,
               processOwnerId: this.processOwnerId
             }));
+            if (recorded.recorded && receiptActions.evidence?.length) {
+              // Receipt evidence becomes durable evidence so deterministic
+              // checkers (evidence_present) and the acceptance record see it
+              // (story 51: 逐项核对完成条件并附证据).
+              try {
+                receiptActions.evidence.forEach((summary: string, index: number) => {
+                  if (!summary.trim()) return;
+                  this.store.addEvidence({
+                    executionId,
+                    attemptId: claimed.attempt.id,
+                    referenceType: "kanban-receipt",
+                    referenceId: `${recorded.receipt.receiptId}:${index}`,
+                    summary: summary.trim()
+                  });
+                });
+              } catch (cause) {
+                momWarn("durableExecution", "kanban_receipt_evidence_failed", {
+                  executionId, round, error: cause instanceof Error ? cause.message : String(cause)
+                });
+              }
+            }
+            if (recorded.recorded && receiptActions.proposeConditions?.length) {
+              try {
+                this.store.kanban.proposeCompletionConditions({ executionId, descriptions: receiptActions.proposeConditions! });
+                momLog("durableExecution", "kanban_conditions_proposed", { executionId, round, count: receiptActions.proposeConditions!.length, filename: input.label });
+              } catch (cause) {
+                momWarn("durableExecution", "kanban_conditions_propose_failed", {
+                  executionId, round, error: cause instanceof Error ? cause.message : String(cause)
+                });
+              }
+            }
             return { ok: true, receiptId: recorded.receipt.receiptId, recorded: recorded.recorded };
           } catch (cause) {
             return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
@@ -1513,7 +1591,7 @@ export class DurableExecutionRuntime {
       const tokensUsed = usageGap ? 0 : usage;
       // A settled receipt-driven round is a completed round: it clears the
       // retry ledger. Failure settlements override with their own retry state.
-      const kanbanLedger = { round, usageGap, retry: { count: 0 } as { count: number; nextRetryAt?: string } };
+      const kanbanLedger = { round, usageGap, consumeInputIds: briefedInputIds, retry: { count: 0 } as { count: number; nextRetryAt?: string } };
 
       if (attemptResult.approval || result.stopReason === "waiting_for_approval") {
         const approval = attemptResult.approval
@@ -1529,10 +1607,31 @@ export class DurableExecutionRuntime {
         });
         return { kind: "done" };
       }
-      if (leaseLost || result.stopReason === "aborted") {
+      if (leaseLost) {
         // Never write business state over a lease the runtime no longer owns;
         // recovery reconciles the interrupted attempt.
         momWarn("durableExecution", "kanban_attempt_aborted", { executionId, round, filename: input.label });
+        return { kind: "done" };
+      }
+      if (result.stopReason === "aborted") {
+        // A pause/cancel control request stopped the round. Mirror the legacy
+        // plan path: settle the interrupted attempt into recovery_required so
+        // the control request can be settled into paused/cancelled instead of
+        // the execution staying "running" forever (stories 69/71).
+        momWarn("durableExecution", "kanban_attempt_aborted", { executionId, round, filename: input.label });
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "failed",
+          nextExecutionStatus: "recovery_required",
+          reason: "The round was stopped by a pause or cancel request.",
+          tokensUsed
+        });
+        const controlRequest = this.store.getControlRequest(executionId);
+        if (controlRequest) {
+          this.abortDerivedWork(executionId, controlRequest === "cancel"
+            ? "The task was cancelled; derived work is stopping."
+            : "The task was paused; derived work is stopping.");
+        }
+        this.store.settleControl(executionId);
         return { kind: "done" };
       }
       if (result.stopReason === "error") {
@@ -1593,7 +1692,7 @@ export class DurableExecutionRuntime {
             nextExecutionStatus: "queued",
             reason: `第 ${round} 轮由 ${currentTask.currentAgentId ?? "负责人"} 交接给 ${target.agentId}，下一轮由其推进。`,
             tokensUsed,
-            kanban: { round, handoff: { fromAgentId: currentTask.currentAgentId ?? null, toAgentId: target.agentId, kind: "dispatch", brief: decision.brief } }
+            kanban: { round, consumeInputIds: briefedInputIds, handoff: { fromAgentId: currentTask.currentAgentId ?? null, toAgentId: target.agentId, kind: "dispatch", brief: decision.brief } }
           });
         }
       } else if (decision.kind === "wait_user") {
@@ -1742,8 +1841,13 @@ export class DurableExecutionRuntime {
       // A kanban task without effective completion conditions never
       // auto-completes (spec: 无有效条件时等待用户补充) - it parks on the
       // user together with the unproven-criteria flow below.
-      const noCriteria = this.store.kanban.getTask(detail.execution.id) !== null && required.length === 0;
-      const unproven = noCriteria || required.some((criterion) => criterion.result === "unproven");
+      const kanbanTask = this.store.kanban.getTask(detail.execution.id);
+      const noCriteria = kanbanTask !== null && required.length === 0;
+      // Human acceptance (story 52): the task is only Done when the owner
+      // confirms. Without it the executor's requestCompletion counts as the
+      // subjective criteria being met; deterministic failures still block.
+      const needsHumanJudgement = kanbanTask ? kanbanTask.humanAcceptance || noCriteria : true;
+      const unproven = noCriteria || (needsHumanJudgement && required.some((criterion) => criterion.result === "unproven"));
       if (!failed && unproven) {
         const decision = this.store.openDecision({
           executionId: detail.execution.id,

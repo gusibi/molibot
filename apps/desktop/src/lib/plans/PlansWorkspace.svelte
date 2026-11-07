@@ -189,6 +189,10 @@
     const version = kanbanBundle?.detail.execution.version;
     if (version) await action({ action: "kanban_budget", planId: selectedId, expectedVersion: version, addTokens: tokens });
   }
+  async function saveKanbanConditions(conditions: string[]) {
+    const version = kanbanBundle?.detail.execution.version;
+    if (version) await action({ action: "kanban_conditions", planId: selectedId, expectedVersion: version, conditions });
+  }
   async function decide(kind: "approval" | "answer", id: string, value: string) {
     const version = selectedKind === "kanban" ? kanbanBundle?.detail.execution.version : detail?.execution.version;
     if (!version) return;
@@ -246,12 +250,15 @@
           {copy}
           {formatTime}
           onStart={startKanban}
+          onBack={clearSelection}
           onPause={() => void control("pause")}
           onCancel={() => void control("cancel")}
           onComplete={() => void completeActive()}
           onAnswer={(text) => void answerKanban(text)}
           onAddBudget={(tokens) => void addKanbanBudget(tokens)}
           onApproval={(approvalId, status) => void decide("approval", approvalId, status)}
+          onDecide={(decisionId, answer) => void decide("answer", decisionId, answer)}
+          onConditions={(conditions) => void saveKanbanConditions(conditions)}
         />
       {/key}
       {#if actionError}<p class="plans-action-error" role="alert">{actionError}</p>{/if}

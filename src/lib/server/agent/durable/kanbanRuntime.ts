@@ -30,13 +30,16 @@ export function buildKanbanBriefing(input: KanbanBriefingInput): string {
     const current = task.members.find(member => member.agentId === task.currentAgentId);
     lines.push(`本轮执行成员：${current ? `${current.name}（${current.agentId}）` : task.currentAgentId ?? "负责人"}`);
   }
+  if (task.workDir) {
+    lines.push(`工作目录：${task.workDir}`);
+  }
   lines.push("");
   lines.push("## 目标");
   lines.push(task.goal);
   lines.push("");
   lines.push("## 完成条件（全部满足并附证据后才可申请完成）");
   if (input.criteria.length === 0) {
-    lines.push("尚未确定完成条件：先提出明确的、可见的完成条件（不要缩小目标），经用户确认前不要开展实质性工作。");
+    lines.push("尚未确定完成条件：本轮先通过 kanban_receipt 的 proposeConditions 提出明确的、可见的完成条件（不要缩小目标），然后停下等用户确认或修订；确认前不要开展实质性工作。");
   } else {
     for (const criterion of input.criteria) {
       const mark = criterion.result === "passed" ? "[已通过]" : criterion.result === "failed" ? "[未通过]" : "[未判定]";

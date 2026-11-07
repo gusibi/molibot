@@ -589,6 +589,8 @@ export interface KanbanReceiptActions {
   /** ISO timestamp for a scheduled review wakeup. */
   verifyAt?: string;
   requestCompletion?: boolean;
+  /** Condition candidates proposed when the task has none; the user confirms or revises them. */
+  proposeConditions?: string[];
   checklist?: Array<{ itemId?: string; text?: string; done?: boolean; remove?: boolean }>;
 }
 
@@ -683,6 +685,8 @@ export interface FinishAttemptInput {
     retry?: { count: number; nextRetryAt?: string };
     /** Failed/retrying rounds must not consume the pending user inputs. */
     consumeInputs?: boolean;
+    /** Inputs presented in this round's briefing; only these count as consumed (story 24). */
+    consumeInputIds?: string[];
   };
   /** Delays the queued wakeup (scheduled review). */
   nextRunAt?: Date;

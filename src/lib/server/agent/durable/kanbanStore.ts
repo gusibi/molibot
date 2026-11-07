@@ -615,8 +615,82 @@ export class KanbanStore {
     }));
   }
 
-  /** Marks this round's consumed inputs inside the round-settle transaction. */
-  consumeInputsInTransaction(executionId: string, round: number): void {
+  /**
+   * Persists condition candidates the executor proposed through its receipt
+   * (story 53: 先提出可见的完成条件，用户可修订). Subjective criteria only;
+   * the source becomes `generated` until the user revises it.
+   */
+  proposeCompletionConditions(input: { executionId: string; descriptions: string[]; now?: Date }): void {
+    const descriptions = input.descriptions.map(item => text(item)).filter(Boolean);
+    if (descriptions.length === 0) throw new Error("At least one condition description is required.");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const execution = this.requireExecutionRow(input.executionId);
+      this.requireTaskRow(input.executionId);
+      const existing = this.db.prepare("SELECT COUNT(*) AS count FROM durable_acceptance_criteria WHERE execution_id = ? AND plan_version = ?").get(input.executionId, execution.current_plan_version) as { count: number };
+      if (Number(existing.count) > 0) throw new Error("Completion conditions already exist; revise them instead of proposing new ones.");
+      const timestamp = nowIso(input.now);
+      const insert = this.db.prepare(`
+        INSERT INTO durable_acceptance_criteria (
+          id, execution_id, plan_version, description, required, checker_type, checker_key,
+          author, result, evidence_ref_id, user_edited, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 1, 'subjective', NULL, 'model', 'unproven', NULL, 0, ?, ?)
+      `);
+      for (const description of descriptions) insert.run(id("criterion"), input.executionId, execution.current_plan_version, description, timestamp, timestamp);
+      this.db.prepare("UPDATE durable_kanban_tasks SET completion_source = 'generated', updated_at = ? WHERE execution_id = ?").run(timestamp, input.executionId);
+      this.db.prepare("UPDATE durable_executions SET version = version + 1, updated_at = ? WHERE id = ?").run(timestamp, input.executionId);
+      this.db.exec("COMMIT"); this.notify();
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Owner revision of completion conditions (story 53): replaces the current
+   * unproven subjective criteria with the owner's list, marks them user-edited
+   * and returns the source to `user`.
+   */
+  setCompletionConditions(input: { executionId: string; expectedVersion: number; descriptions: string[]; now?: Date }): void {
+    const descriptions = input.descriptions.map(item => text(item)).filter(Boolean);
+    if (descriptions.length === 0) throw new Error("At least one condition description is required.");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const execution = this.requireExecutionRow(input.executionId);
+      this.assertVersion(execution, input.expectedVersion);
+      this.requireTaskRow(input.executionId);
+      const timestamp = nowIso(input.now);
+      this.db.prepare("DELETE FROM durable_acceptance_criteria WHERE execution_id = ? AND plan_version = ? AND result != 'passed' AND checker_type = 'subjective'").run(input.executionId, execution.current_plan_version);
+      const insert = this.db.prepare(`
+        INSERT INTO durable_acceptance_criteria (
+          id, execution_id, plan_version, description, required, checker_type, checker_key,
+          author, result, evidence_ref_id, user_edited, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 1, 'subjective', NULL, 'user', 'unproven', NULL, 1, ?, ?)
+      `);
+      for (const description of descriptions) insert.run(id("criterion"), input.executionId, execution.current_plan_version, description, timestamp, timestamp);
+      this.db.prepare("UPDATE durable_kanban_tasks SET completion_source = 'user', updated_at = ? WHERE execution_id = ?").run(timestamp, input.executionId);
+      this.db.prepare("UPDATE durable_executions SET version = version + 1, updated_at = ? WHERE id = ? AND version = ?").run(timestamp, input.executionId, input.expectedVersion);
+      this.db.exec("COMMIT"); this.notify();
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Marks this round's consumed inputs inside the round-settle transaction.
+   * When `inputIds` is given (the ids presented in this round's briefing),
+   * only those count as consumed; inputs submitted while the round ran stay
+   * pending for the next briefing (story 24).
+   */
+  consumeInputsInTransaction(executionId: string, round: number, inputIds?: string[]): void {
+    if (inputIds && inputIds.length > 0) {
+      const placeholders = inputIds.map(() => "?").join(", ");
+      this.db.prepare(`UPDATE durable_kanban_inputs SET consumed_round = ? WHERE execution_id = ? AND consumed_round IS NULL AND input_id IN (${placeholders})`)
+        .run(round, executionId, ...inputIds);
+      return;
+    }
+    if (inputIds) return;
     this.db.prepare("UPDATE durable_kanban_inputs SET consumed_round = ? WHERE execution_id = ? AND consumed_round IS NULL")
       .run(round, executionId);
   }

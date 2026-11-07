@@ -194,7 +194,9 @@ export function claimDueWakeups(
   db.exec("BEGIN IMMEDIATE");
   try {
     const rows = db.prepare(`
-      SELECT * FROM durable_wakeups w
+      SELECT w.*, t.project_id AS kanban_project_id, t.work_dir AS kanban_work_dir
+      FROM durable_wakeups w
+      LEFT JOIN durable_kanban_tasks t ON t.execution_id = w.execution_id
       WHERE w.status = 'pending' AND w.run_at <= ?
         AND NOT EXISTS (
           SELECT 1 FROM durable_wakeups c
@@ -202,8 +204,17 @@ export function claimDueWakeups(
         )
       ORDER BY w.run_at ASC, w.created_at ASC, w.id ASC
       LIMIT ?
-    `).all(timestamp, Math.max(1, Math.round(limit))) as unknown as WakeupRow[];
+    `).all(timestamp, Math.max(1, Math.round(limit))) as unknown as Array<WakeupRow & { kanban_project_id: string | null; kanban_work_dir: string | null }>;
+    // Same-Project wakeups serialize on the advance slot's creation order:
+    // only the oldest task per Project key is claimed in one batch, the rest
+    // stay due so the slot decides who runs first (spec 45/46).
+    const seenProjectKeys = new Set<string>();
     for (const row of rows) {
+      const projectKey = row.kanban_project_id
+        ? `project:${row.kanban_project_id}`
+        : row.kanban_work_dir ? `dir:${row.kanban_work_dir}` : null;
+      if (projectKey && seenProjectKeys.has(projectKey)) continue;
+      if (projectKey) seenProjectKeys.add(projectKey);
       const result = db.prepare(`
         UPDATE durable_wakeups
         SET status = 'claimed', claimed_by = ?, claimed_at = ?, attempts = attempts + 1, updated_at = ?

@@ -145,6 +145,11 @@ export const POST: RequestHandler = async ({ request }) => {
       }
       case "kanban_budget":
         return json({ ok: true, item: plans.addKanbanBudget({ ownerId: owner, executionId: String(body.planId), expectedVersion: Number(body.expectedVersion), addTokens: Number(body.addTokens) }) }, { headers: { "Cache-Control": "no-store" } });
+      case "kanban_conditions": {
+        const descriptions = Array.isArray(body.conditions) ? body.conditions.map(item => String(item ?? "").trim()).filter(Boolean) : [];
+        if (descriptions.length === 0) throw new Error("At least one completion condition is required.");
+        return json({ ok: true, item: plans.setKanbanCompletionConditions({ ownerId: owner, executionId: String(body.planId), expectedVersion: Number(body.expectedVersion), descriptions }) }, { headers: { "Cache-Control": "no-store" } });
+      }
       case "propose": {
         const detail = plans.read(owner, String(body.planId));
         if (detail.execution.version !== body.expectedVersion) throw new Error("Plan version conflict. Reload before generating a revision.");

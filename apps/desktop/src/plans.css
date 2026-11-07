@@ -366,6 +366,7 @@
 .kanban-checklist-marker { flex: none; display: inline-flex; margin-top: 2px; }
 .kanban-answer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .kanban-answer textarea { min-height: 44px; resize: vertical; padding: 9px 10px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); font: var(--fs-label)/var(--lh-label) var(--font-ui); }
+.kanban-conditions-input { width: 100%; resize: vertical; padding: 9px 10px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); font: var(--fs-label)/var(--lh-label) var(--font-ui); }
 .kanban-create { display: flex; flex-direction: column; max-height: min(86vh, 720px); }
 .kanban-create-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--separator); }
 .kanban-create-head h2 { margin: 0; font-size: var(--fs-section); line-height: var(--lh-section); font-weight: 600; }
