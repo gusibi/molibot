@@ -8,7 +8,9 @@
 
 验证：durable 看板运行时／存储／回执工具／plans 服务／Desktop plans API 定向 node:test 全部通过；`desktop:check` 0 错误 0 警告；看板／详情／创建对话框 Chromium 定向 UI 用例及受影响 plans UI 用例通过；隔离实例冷启动走查（空看板 → 建任务 → 回答 → 重启后投影与输入持久化）通过。desktop contract、api.ts、i18n、本文件与 CHANGELOG 与另一并行工作流交叉修改，暂存子集在 detached worktree 复核（svelte-check 0/0 + 服务端 7 项）。全量 `pnpm verify:feature`、完整 Playwright 套件（含 WebKit）与原生 Tauri 验收未执行；trigger 来源插件（GitHub Issue／飞书／表格）为第二阶段，未开始。
 
-双轴代码审查（规范 + Spec）后修复两处实现偏差：同 Project 推进位由按轮释放改为任务级持锁（等待／暂停／重试均持有，Done 或已取消才释放并唤醒同 Project 下一个排队任务，原测试断言的按轮交错按 Spec L169 判为错误并重写）；零完成条件的看板任务不再自动完成，verify 挂起等用户确认。同时收敛 `kanban_create` 请求体为字段白名单（identity／来源字段仅限内部调用方）、修掉 `boardPage` 清单进度重复查询与创建对话框死分支。审查确认的其余缺口（人工验收闭环、条件生成闭环、详情对话投影不含模型回复与工具调用、workDir／Team 选择器表单字段、交接纯调度计数、`queryable` 副作用 probe）记入能力矩阵边界，未在本轮实现。
+双轴代码审查（规范 + Spec）后修复两处实现偏差：同 Project 推进位由按轮释放改为任务级持锁（等待／暂停／重试均持有，Done 或已取消才释放并唤醒同 Project 下一个排队任务，原测试断言的按轮交错按 Spec L169 判为错误并重写）；零完成条件的看板任务不再自动完成，verify 挂起等用户确认。同时收敛 `kanban_create` 请求体为字段白名单（identity／来源字段仅限内部调用方）、修掉 `boardPage` 清单进度重复查询与创建对话框死分支。
+
+外部复查（另一 Agent 独立审查）确认的 5 个生命周期阻断缺陷全部修复并补定向用例：运行中暂停/取消现在会结算尝试与控制请求（不再永久停在 running）；崩溃恢复的看板任务按副作用台账审核后续跑或挂起（未知副作用进恢复审核）；轮次运行中提交的输入只在其简报呈现后才算消费；人工验收开关生效（关=执行者申请即完成，开=验收等待 owner）；`kanban_receipt` 新增 proposeConditions（无条件任务先提案再等用户），owner 经 `kanban_conditions` 动作与详情编辑器修订。同批修复：审批拒绝改为交回执行者（反馈进输入通道，不再直接 failed）、回执证据落 durable_evidence、排队任务停止 1 秒自旋改为无唤醒驻留并显示占用者、同 Project 唤醒按创建顺序每批只领取最旧一个。仍未交付（记入能力矩阵边界）：详情对话投影的模型回复与工具调用、workDir 接入执行目录、创建表单 workDir／Team 选择器等字段、交接纯调度计数、`queryable` probe。
 
 ## 2026-11-07 — 桌面服务端点 localhost 化
 
