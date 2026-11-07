@@ -828,6 +828,12 @@ function initializeRuntime(): RuntimeState {
       },
       resolvePlanPolicy: (_execution, binding) => planExecutionPolicy(state.settings, binding),
       onAttemptStart: (execution, round) => ensureDurableConversationResponse(state.sessions, execution, isChineseLocale(state.settings.locale), round),
+      onMemberReflow: ({ execution, text }) => {
+        const sessionId = execution.sourceUiSessionId?.trim();
+        if (!sessionId) return;
+        try { state.sessions.appendMessage(sessionId, "assistant", text); }
+        catch (error) { console.warn(`${runtimeLabel("runtime")} kanban_member_reflow_append_failed ${String(error)}`); }
+      },
       onAttemptProgress: (execution, activities, round) => updateDurableConversationProgress(state.sessions, execution, activities, round),
       onAttemptOutput: (execution, runId, field, delta, round) => updateDurableConversationOutput(state.sessions, execution, runId, field, delta, round),
       onAttemptDelivery: input => deliverDurableAttempt(state.sessions, input)

@@ -50,6 +50,11 @@ export interface DurableExecutionRuntimeOptions {
   onAttemptOutput?: (execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string, round?: number) => void;
   /** Invoked once per kanban round before dispatch so the visible conversation has a response row to stream into. */
   onAttemptStart?: (execution: DurableExecution, round?: number) => void;
+  /**
+   * Team member rounds reflow structured short messages into the main
+   * conversation (spec 执行形态修订 切片③: 接活确认 + 结论/证据摘要，不转发全过程).
+   */
+  onMemberReflow?: (input: { execution: DurableExecution; kind: "ack" | "receipt"; memberName: string; text: string }) => void;
   onAttemptDelivery?: (input: DurableAttemptDelivery) => void | Promise<void>;
   queryableProbes?: Record<string, DurableQueryableProbe>;
 }
@@ -1294,6 +1299,32 @@ export class DurableExecutionRuntime {
    * receipt. The synthetic `kanban:<id>` source chat keeps rounds (and team
    * members) serialized through the chat's single-flight lock.
    */
+  /** Team member rounds reflow structured short messages into the main conversation (spec 切片③). */
+  private reflowMemberRound(input: {
+    execution: DurableExecution;
+    task: KanbanTaskConfig;
+    kind: "ack" | "receipt";
+    conclusion?: string;
+    evidence?: string[];
+  }): void {
+    const task = input.task;
+    if (task.form !== "team" || !task.currentAgentId || task.currentAgentId === task.coordinatorAgentId) return;
+    const memberName = task.members.find(member => member.agentId === task.currentAgentId)?.name || task.currentAgentId;
+    const lines = input.kind === "ack"
+      ? [`【${memberName}】收到，我来执行这一轮。`]
+      : [`【${memberName} 回执】`];
+    if (input.kind === "receipt") {
+      if (input.conclusion) lines.push(input.conclusion);
+      if (input.evidence?.length) lines.push("", "证据：", ...input.evidence.map(item => `- ${item}`));
+      if (lines.length <= 1) return; // nothing to report
+    }
+    try {
+      this.options.onMemberReflow?.({ execution: input.execution, kind: input.kind, memberName, text: lines.join("\n") });
+    } catch (error) {
+      momWarn("durableExecution", "kanban_member_reflow_failed", { executionId: input.execution.id, kind: input.kind, error: String(error) });
+    }
+  }
+
   private async executeKanbanRound(input: {
     expectedVersion: number;
     task: KanbanTaskConfig;
@@ -1460,6 +1491,7 @@ export class DurableExecutionRuntime {
       // so live deltas have somewhere to land (spec 执行形态修订).
       try { this.options.onAttemptStart?.(detail.execution, round); }
       catch (error) { momWarn("durableExecution", "kanban_attempt_start_failed", { executionId, round, error: String(error) }); }
+      this.reflowMemberRound({ execution: detail.execution, task: currentTask, kind: "ack" });
       const attemptHooks: DurableAttemptHooks = {
         // Live steering (spec 执行形态修订 切片②): mid-run corrections inject
         // into the current round; the registry entry dies with the round.
@@ -1598,6 +1630,13 @@ export class DurableExecutionRuntime {
       };
       const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
       endDurableConversationOutput(executionId, runId, round);
+      const roundReceipt = this.store.kanban.listReceipts(executionId).filter(receipt => receipt.round === round).slice(-1)[0] ?? null;
+      if (roundReceipt?.actions.conclusion || roundReceipt?.actions.evidence?.length) {
+        this.reflowMemberRound({
+          execution: detail.execution, task: currentTask, kind: "receipt",
+          conclusion: roundReceipt.actions.conclusion, evidence: roundReceipt.actions.evidence
+        });
+      }
       if (attemptResult.contextSessionId) {
         this.store.setAttemptContextSession(executionId, claimed.attempt.id, this.processOwnerId, attemptResult.contextSessionId);
       }

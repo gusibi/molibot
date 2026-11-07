@@ -1148,6 +1148,58 @@ test("a task bound to a visible session streams per-round rows and delivers the 
   }
 });
 
+test("team member rounds reflow an ack and a receipt summary into the main conversation", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = store.kanban.createTask({
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "team",
+      title: "成员回流",
+      goal: "成员结果以结构化短消息回流主会话",
+      coordinatorAgentId: "agent-lead",
+      members: [
+        { agentId: "agent-lead", name: "Lead" },
+        { agentId: "agent-b", name: "小 B" }
+      ],
+      autoStart: false
+    });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const reflows: Array<{ kind: string; memberName: string; text: string }> = [];
+    let round = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      onMemberReflow: input => reflows.push({ kind: input.kind, memberName: input.memberName, text: input.text }),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          round += 1;
+          if (round === 1) {
+            await hooks.submitKanbanReceipt!({ conclusion: "交给 B", handoffTo: { agentId: "agent-b", brief: "实现登录修复" } });
+          } else {
+            await hooks.submitKanbanReceipt!({ conclusion: "登录修复完成", evidence: ["diff.patch"], continueWork: true });
+          }
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: `ctx-reflow-${round}` };
+        }
+      }]])]]) as any
+    });
+
+    // Round 1 is the coordinator: nothing reflows.
+    await runWakeupDirect(runtime, store, executionId, 2);
+    assert.equal(reflows.length, 0);
+    // Round 2 is member B: an ack at dispatch, a receipt summary after settle.
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    assert.deepEqual(reflows.map(entry => entry.kind), ["ack", "receipt"]);
+    assert.equal(reflows[0].memberName, "小 B");
+    assert.match(reflows[0].text, /【小 B】/);
+    assert.equal(reflows[1].memberName, "小 B");
+    assert.match(reflows[1].text, /登录修复完成/);
+    assert.match(reflows[1].text, /- diff\.patch/);
+  } finally {
+    cleanup();
+  }
+});
+
 test("a running round accepts steering; the registration dies with the round", async () => {
   const { store, cleanup } = runtimeFixture();
   const { steerKanbanRound } = await import("./kanbanSteer.js");
