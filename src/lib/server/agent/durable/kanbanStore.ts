@@ -220,6 +220,21 @@ export function ensureKanbanSchema(db: DatabaseSync): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_durable_kanban_handoffs_execution ON durable_kanban_handoffs(execution_id, created_at);
+    CREATE TABLE IF NOT EXISTS durable_kanban_side_effects (
+      id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
+      round INTEGER NOT NULL,
+      attempt_id TEXT,
+      phase TEXT NOT NULL CHECK (phase IN ('intent','receipt')),
+      side_effect_class TEXT NOT NULL CHECK (side_effect_class IN ('pure','idempotent','queryable','non_idempotent')),
+      idempotency_key TEXT NOT NULL,
+      target_summary TEXT NOT NULL,
+      content_summary TEXT NOT NULL,
+      external_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE (execution_id, round, phase, idempotency_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_durable_kanban_side_effects_attempt ON durable_kanban_side_effects(execution_id, attempt_id);
     CREATE TABLE IF NOT EXISTS durable_kanban_project_slots (
       project_key TEXT PRIMARY KEY,
       execution_id TEXT NOT NULL,
@@ -451,7 +466,9 @@ export class KanbanStore {
       const current = this.requireExecutionRow(input.executionId);
       if (current.owner_id !== input.ownerId) throw new DurableExecutionNotFoundError(input.executionId);
       this.assertVersion(current, input.expectedVersion);
-      if (!["planned", "paused", "recovery_required", "failed"].includes(current.status)) {
+      // `partial` is the budget-exhausted state; a top-up plus start resumes
+      // from there (追加后从当前状态继续).
+      if (!["planned", "paused", "recovery_required", "failed", "partial"].includes(current.status)) {
         throw new DurableExecutionTransitionError(current.status as never, "queued");
       }
       const timestamp = nowIso(input.now);
@@ -659,6 +676,42 @@ export class KanbanStore {
     }));
   }
 
+  /**
+   * Kanban rounds have no plan steps, so their tool side effects land in this
+   * task-scoped ledger (the legacy table hard-references durable_steps). Used
+   * by the retry guard: a non-idempotent intent without a receipt means the
+   * round must not be auto-retried.
+   */
+  recordRoundSideEffect(input: {
+    executionId: string;
+    round: number;
+    attemptId: string;
+    phase: "intent" | "receipt";
+    sideEffectClass: import("./types.js").SideEffectClass;
+    idempotencyKey: string;
+    targetSummary: string;
+    contentSummary: string;
+    externalId?: string;
+    now?: Date;
+  }): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO durable_kanban_side_effects (
+        id, execution_id, round, attempt_id, phase, side_effect_class,
+        idempotency_key, target_summary, content_summary, external_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id(`side-effect-${input.phase}`), input.executionId, input.round, input.attemptId,
+      input.phase, input.sideEffectClass, text(input.idempotencyKey),
+      text(input.targetSummary), text(input.contentSummary),
+      text(input.externalId) || null, nowIso(input.now)
+    );
+  }
+
+  listAttemptSideEffects(executionId: string, attemptId: string): Array<{ phase: "intent" | "receipt"; sideEffectClass: import("./types.js").SideEffectClass; idempotencyKey: string }> {
+    const rows = this.db.prepare("SELECT phase, side_effect_class, idempotency_key FROM durable_kanban_side_effects WHERE execution_id = ? AND attempt_id = ? ORDER BY created_at ASC").all(executionId, attemptId) as Array<{ phase: "intent" | "receipt"; side_effect_class: import("./types.js").SideEffectClass; idempotency_key: string }>;
+    return rows.map(row => ({ phase: row.phase, sideEffectClass: row.side_effect_class, idempotencyKey: row.idempotency_key }));
+  }
+
   getLatestReceipt(executionId: string): KanbanReceipt | null {
     const row = this.db.prepare(`
       SELECT * FROM durable_kanban_receipts WHERE execution_id = ?
@@ -747,6 +800,10 @@ export class KanbanStore {
       this.db.prepare("INSERT INTO durable_kanban_handoffs (id, execution_id, round, from_agent_id, to_agent_id, kind, brief, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .run(id("handoff"), input.executionId, input.round, input.handoff.fromAgentId, input.handoff.toAgentId, input.handoff.kind, input.handoff.brief, nowIso());
     }
+    // The retry ledger keeps its previous value unless this settlement
+    // explicitly records a retry or resets it after a completed round.
+    const retryCount = input.retry?.count ?? Number(row.retry_count);
+    const nextRetryAt = input.retry ? (input.retry.nextRetryAt ?? null) : (row.next_retry_at ?? null);
     this.db.prepare(`
       UPDATE durable_kanban_tasks SET
         round_count = MAX(round_count, ?),
@@ -757,8 +814,8 @@ export class KanbanStore {
       WHERE execution_id = ?
     `).run(
       input.round,
-      input.retry?.count ?? Number(row.retry_count),
-      input.retry?.nextRetryAt ?? null,
+      retryCount,
+      nextRetryAt,
       input.usageGap ? 1 : 0,
       nowIso(),
       input.executionId

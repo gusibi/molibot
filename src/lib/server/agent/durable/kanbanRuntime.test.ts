@@ -143,7 +143,7 @@ const USAGE = { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWri
 function runtimeFixture() {
   const root = mkdtempSync(join(tmpdir(), "molibot-kanban-runtime-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
-  const cleanup = () => { store.close(); rmSync(root, { recursive: true, force: true }); };
+  const cleanup = () => { try { store.close(); } catch { /* already closed by a restart check */ } rmSync(root, { recursive: true, force: true }); };
   return { root, store, cleanup };
 }
 
@@ -400,6 +400,187 @@ async function runWakeupDirect(runtime: DurableExecutionRuntime, _store: Durable
   const outcome = await runtime.runWakeup({ executionId, expectedVersion } as DurableWakeup);
   assert.equal(outcome.kind, "done", `wakeup outcome: ${JSON.stringify(outcome)}`);
 }
+
+// ---- Budget & retry guards --------------------------------------------------
+
+
+test("a failed round retries with 60s×4 backoff, keeps pending inputs, and resets after success", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    store.kanban.recordInput({ executionId, text: "失败前留下的补充" });
+    let round = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          round += 1;
+          if (round <= 2) throw new Error("model provider timed out");
+          await hooks.submitKanbanReceipt!({ conclusion: "重试后完成", continueWork: true });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: `ctx-retry-${round}` };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    let after = store.getById(executionId)!;
+    assert.equal(after.status, "queued");
+    const stored = store.kanban.getTask(executionId)!;
+    assert.equal(stored.retryCount, 1);
+    assert.ok(stored.nextRetryAt);
+    // The retry notice lands on the failed attempt's end_reason.
+    const failedAttempt = store.getDetail(executionId)!.attempts.find(attempt => attempt.endReason?.includes("自动重试"));
+    assert.ok(failedAttempt);
+    assert.match(failedAttempt.endReason ?? "", /自动重试（1\/3）/);
+    // The retry wakeup is due at the persisted backoff time.
+    const [retryWakeup] = store.pendingWakeups(executionId);
+    assert.ok(retryWakeup);
+    assert.ok(retryWakeup.runAt, "retry wakeup carries the backoff runAt");
+    // Failed rounds keep pending user inputs for the retried round.
+    assert.equal(store.kanban.listInputs(executionId, true).length, 1);
+
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    after = store.getById(executionId)!;
+    assert.equal(after.status, "queued");
+    assert.equal(store.kanban.getTask(executionId)!.retryCount, 2);
+    // Backoff grows ×4: second retry waits 240s.
+    const delay = Date.parse(store.kanban.getTask(executionId)!.nextRetryAt!) - Date.parse(after.updatedAt);
+    assert.ok(delay > 200_000 && delay <= 240_000, `second backoff ~240s, got ${delay}ms`);
+
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    assert.equal(store.getById(executionId)!.status, "queued");
+    const settled = store.kanban.getTask(executionId)!;
+    assert.equal(settled.retryCount, 0, "a successful round clears the retry ledger");
+    assert.equal(settled.nextRetryAt ?? null, null);
+    assert.equal(settled.roundCount, 3);
+    // The input is consumed by the round that finally ran.
+    assert.equal(store.kanban.listInputs(executionId, true).length, 0);
+    assert.equal(store.kanban.listInputs(executionId, false)[0].consumedRound, 3);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a round with an uncertain side effect never auto-retries and parks on the user", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          await hooks.onToolSideEffectPreflight!({
+            toolId: "write", toolCallId: "tool-1",
+            sideEffectClass: "non_idempotent", idempotencyKey: "publish-report",
+            targetSummary: "report service", contentSummary: "publish"
+          });
+          throw new Error("runner crashed after the side effect");
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    const parked = store.getById(executionId)!;
+    assert.equal(parked.status, "waiting_for_user");
+    assert.match(parked.waitingReason ?? "", /不确定的外部副作用/);
+    assert.equal(store.kanban.getTask(executionId)!.retryCount, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("after 3 retries a failing task parks on the user with an exhausted notice", async () => {
+  const { root, store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async () => { throw new Error("persistent failure"); }
+      }]])]]) as any
+    });
+
+    let expectedVersion = 2;
+    for (let round = 1; round <= 4; round += 1) {
+      await runWakeupDirect(runtime, store, executionId, expectedVersion);
+      const current = store.getById(executionId)!;
+      if (round < 4) {
+        assert.equal(current.status, "queued", `round ${round} should retry`);
+        assert.equal(store.kanban.getTask(executionId)!.retryCount, round);
+        expectedVersion = current.version;
+      } else {
+        assert.equal(current.status, "waiting_for_user", "the 4th failure must stop for the user");
+        assert.match(current.waitingReason ?? "", /自动重试已达上限/);
+        assert.equal(store.kanban.getTask(executionId)!.retryCount, 3);
+      }
+    }
+
+    // The retry ledger survives a restart.
+    store.close();
+    const reopened = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
+    assert.equal(reopened.kanban.getTask(executionId)!.retryCount, 3);
+    reopened.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("budget exhaustion parks the task as partial; a top-up plus start resumes it", async () => {
+  const { store, cleanup } = runtimeFixture();
+  const { PlanService } = await import("../plans/service.js");
+  try {
+    const service = new PlanService(store);
+    const created = service.createKanbanTask({
+      ownerId: "owner-1", botId: "bot-1", form: "single",
+      title: "小预算任务", goal: "用很少的预算跑完",
+      agentId: "agent-a", budgetTokenLimit: 100, autoStart: true
+    });
+    const executionId = created.execution.id;
+    let round = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          round += 1;
+          await hooks.submitKanbanReceipt!({ conclusion: `第 ${round} 轮`, continueWork: true });
+          return { result: { stopReason: "stop" as const, usage: { inputTokens: 60, outputTokens: 90, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 150 } }, contextSessionId: `ctx-budget-${round}` };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    assert.equal(store.getById(executionId)!.status, "queued");
+    assert.equal(round, 1);
+
+    // tokens_used (150) now exceeds the 100-token budget: the claim aborts.
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    const partial = store.getById(executionId)!;
+    assert.equal(partial.status, "partial");
+    assert.match(partial.lastError ?? "", /token limit/);
+    assert.equal(round, 1);
+
+    // Top-up alone does not resume; start does (追加后从当前状态继续).
+    service.addKanbanBudget({ ownerId: "owner-1", executionId, expectedVersion: partial.version, addTokens: 1000 });
+    assert.equal(store.getById(executionId)!.status, "partial");
+    const resumed = service.startKanbanTask({
+      ownerId: "owner-1", executionId,
+      expectedVersion: store.getById(executionId)!.version, actionId: "resume-after-topup"
+    });
+    assert.equal(resumed.execution.status, "queued");
+
+    await runWakeupDirect(runtime, store, executionId, resumed.execution.version);
+    assert.equal(round, 2);
+    assert.equal(store.kanban.getTask(executionId)!.roundCount, 2);
+  } finally {
+    cleanup();
+  }
+});
 
 // ---- Team execution ---------------------------------------------------------
 

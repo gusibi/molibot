@@ -121,3 +121,10 @@ export function decideKanbanRoundOutcome(input: {
 }
 
 export const KANBAN_USAGE_GAP_REASON = "用量统计缺口：上一轮模型用量缺失，已停止自动推进以避免预算失控。补充或确认后可继续。";
+
+/** Safe-retry guard: 60s initial backoff, ×4 per attempt, at most 3 retries; persisted, survives restart. */
+export const KANBAN_MAX_AUTO_RETRIES = 3;
+export function kanbanRetryDelayMs(retryCount: number): number {
+  return 60_000 * Math.pow(4, Math.max(0, retryCount));
+}
+export const KANBAN_RETRY_EXHAUSTED_SUFFIX = "\n\n自动重试已达上限（3 次）。请检查任务配置或运行环境后，确认是否继续重试或调整任务。";

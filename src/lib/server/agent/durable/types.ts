@@ -679,6 +679,10 @@ export interface FinishAttemptInput {
     usageGap?: boolean;
     /** Member dispatch settled with this round; updates current_agent_id and the handoff ledger. */
     handoff?: { fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string };
+    /** Safe-retry ledger for this round; every settlement resets the count unless a retry is recorded. */
+    retry?: { count: number; nextRetryAt?: string };
+    /** Failed/retrying rounds must not consume the pending user inputs. */
+    consumeInputs?: boolean;
   };
   /** Delays the queued wakeup (scheduled review). */
   nextRunAt?: Date;

@@ -2144,12 +2144,15 @@ export class DurableExecutionStore {
         discardPendingWakeupsInTransaction(this.db, input.executionId, `execution_${input.nextExecutionStatus}`, input.now);
       }
       if (input.kanban) {
-        this.kanban.consumeInputsInTransaction(input.executionId, input.kanban.round);
+        if (input.kanban.consumeInputs !== false) {
+          this.kanban.consumeInputsInTransaction(input.executionId, input.kanban.round);
+        }
         this.kanban.applyRoundSettlementInTransaction({
           executionId: input.executionId,
           round: input.kanban.round,
           usageGap: input.kanban.usageGap,
-          ...(input.kanban.handoff ? { handoff: input.kanban.handoff } : {})
+          ...(input.kanban.handoff ? { handoff: input.kanban.handoff } : {}),
+          ...(input.kanban.retry ? { retry: input.kanban.retry } : {})
         });
       }
       releaseProjectSlotInTransaction(this.db, input.executionId, input.now);

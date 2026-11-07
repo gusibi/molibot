@@ -13,7 +13,7 @@ import type { ChannelManager } from "$lib/server/channels/registry.js";
 import type { DurableExecution, DurableWakeup, DurableWakeupMode, ExecutionStep, SideEffectRecord, StepVerificationRule } from "./types.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { readDurableEvidence } from "./evidence.js";
-import { buildKanbanBriefing, decideKanbanRoundOutcome, KANBAN_USAGE_GAP_REASON } from "./kanbanRuntime.js";
+import { buildKanbanBriefing, decideKanbanRoundOutcome, KANBAN_USAGE_GAP_REASON, kanbanRetryDelayMs, KANBAN_MAX_AUTO_RETRIES, KANBAN_RETRY_EXHAUSTED_SUFFIX } from "./kanbanRuntime.js";
 import { kanbanProjectKey } from "./kanbanStore.js";
 import type { KanbanReceiptActions, KanbanTaskConfig } from "./types.js";
 import { KanbanProjectSlotHeldError } from "./types.js";
@@ -1089,7 +1089,13 @@ export class DurableExecutionRuntime {
     reason?: string;
     waitingKind?: DurableExecution["waitingKind"];
     tokensUsed?: number;
-    kanban?: { round: number; usageGap?: boolean; handoff?: { fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string } };
+    kanban?: {
+      round: number;
+      usageGap?: boolean;
+      handoff?: { fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string };
+      retry?: { count: number; nextRetryAt?: string };
+      consumeInputs?: boolean;
+    };
     nextRunAt?: Date;
     wakeupReason?: import("./types.js").WakeupReason;
   }): DurableExecution | null {
@@ -1354,32 +1360,23 @@ export class DurableExecutionRuntime {
     };
     const persistSideEffect = async (phase: "intent" | "receipt", effect: ToolSideEffect, result?: ToolResult): Promise<void> => {
       await serializeSideEffectWrite(async () => {
-        const current = this.store.getById(executionId);
-        if (!current) throw new DurableExecutionNotFoundError(executionId);
         const metadata = result?.metadata ?? {};
         const externalId = typeof metadata.externalId === "string"
           ? metadata.externalId
           : typeof metadata.receiptId === "string" ? metadata.receiptId : undefined;
-        // Kanban rounds are not steps; side effects attach to the attempt only.
-        const sideEffectStepId = `kanban-round-${round}`;
-        const record = phase === "intent"
-          ? this.store.recordSideEffectIntent({
-              executionId, stepId: sideEffectStepId, attemptId: claimed.attempt.id,
-              processOwnerId: this.processOwnerId, expectedVersion: current.version,
-              sideEffectClass: effect.sideEffectClass, idempotencyKey: effect.idempotencyKey,
-              targetSummary: effect.targetSummary, contentSummary: effect.contentSummary
-            })
-          : this.store.recordSideEffectReceipt({
-              executionId, stepId: sideEffectStepId, attemptId: claimed.attempt.id,
-              processOwnerId: this.processOwnerId, expectedVersion: current.version,
-              sideEffectClass: effect.sideEffectClass, idempotencyKey: effect.idempotencyKey,
-              targetSummary: effect.targetSummary,
-              contentSummary: result ? `${effect.contentSummary}; result=${JSON.stringify(result.content ?? result.error ?? "").slice(0, 800)}` : effect.contentSummary,
-              externalId,
-              payload: result ? { ok: result.ok, error: result.error } : undefined
-            });
+        // Kanban rounds are not steps; side effects land in the task-scoped
+        // ledger so the retry guard can see an unconfirmed non-idempotent intent.
+        this.store.kanban.recordRoundSideEffect({
+          executionId, round, attemptId: claimed.attempt.id, phase,
+          sideEffectClass: effect.sideEffectClass, idempotencyKey: effect.idempotencyKey,
+          targetSummary: effect.targetSummary,
+          contentSummary: phase === "receipt" && result
+            ? `${effect.contentSummary}; result=${JSON.stringify(result.content ?? result.error ?? "").slice(0, 800)}`
+            : effect.contentSummary,
+          externalId
+        });
         momLog("durableExecution", "kanban_side_effect_recorded", {
-          executionId, attemptId: claimed.attempt.id, phase, toolName: effect.toolId, recordId: record.id
+          executionId, attemptId: claimed.attempt.id, phase, toolName: effect.toolId
         });
       });
     };
@@ -1514,7 +1511,9 @@ export class DurableExecutionRuntime {
       const usage = result.usage?.totalTokens;
       const usageGap = !(typeof usage === "number" && Number.isFinite(usage));
       const tokensUsed = usageGap ? 0 : usage;
-      const kanbanLedger = { round, usageGap };
+      // A settled receipt-driven round is a completed round: it clears the
+      // retry ledger. Failure settlements override with their own retry state.
+      const kanbanLedger = { round, usageGap, retry: { count: 0 } as { count: number; nextRetryAt?: string } };
 
       if (attemptResult.approval || result.stopReason === "waiting_for_approval") {
         const approval = attemptResult.approval
@@ -1537,11 +1536,10 @@ export class DurableExecutionRuntime {
         return { kind: "done" };
       }
       if (result.stopReason === "error") {
-        this.settleAttemptSafe({
-          executionId, attemptId: claimed.attempt.id, status: "failed",
-          nextExecutionStatus: "recovery_required", waitingKind: "recovery",
+        this.settleKanbanRoundFailure({
+          executionId, attemptId: claimed.attempt.id, round,
           reason: result.errorMessage ?? "The kanban attempt ended with an error.",
-          tokensUsed, kanban: kanbanLedger
+          tokensUsed
         });
         return { kind: "done" };
       }
@@ -1634,15 +1632,53 @@ export class DurableExecutionRuntime {
       if (isTransientError(cause)) throw cause;
       const message = cause instanceof Error ? cause.message : String(cause);
       momWarn("durableExecution", "kanban_round_failed", { executionId, round, error: message });
-      this.settleAttemptSafe({
-        executionId, attemptId: claimed.attempt.id, status: "failed",
-        nextExecutionStatus: "recovery_required", waitingKind: "recovery", reason: message
-      });
+      this.settleKanbanRoundFailure({ executionId, attemptId: claimed.attempt.id, round, reason: message });
       return { kind: "done" };
     } finally {
       clearInterval(controlTimer);
       clearInterval(heartbeatTimer);
     }
+  }
+
+  /**
+   * Safe retry for failed kanban rounds (design §4: 60s ×4 backoff, at most 3
+   * retries, persisted across restart). A round that recorded a non-idempotent
+   * intent is never auto-retried — uncertainty about external state parks the
+   * task on the user. Failed rounds do not consume pending user inputs.
+   */
+  private settleKanbanRoundFailure(input: {
+    executionId: string;
+    attemptId: string;
+    round: number;
+    reason: string;
+    tokensUsed?: number;
+  }): void {
+    const task = this.store.kanban.getTask(input.executionId);
+    if (!task) return;
+    const uncertainSideEffect = this.store.kanban
+      .listAttemptSideEffects(input.executionId, input.attemptId)
+      .some(effect => effect.phase === "intent" && effect.sideEffectClass === "non_idempotent");
+    if (!uncertainSideEffect && task.retryCount < KANBAN_MAX_AUTO_RETRIES) {
+      const delayMs = kanbanRetryDelayMs(task.retryCount);
+      const nextRetryAt = new Date(Date.now() + delayMs);
+      this.settleAttemptSafe({
+        executionId: input.executionId, attemptId: input.attemptId, status: "failed",
+        nextExecutionStatus: "queued", nextRunAt: nextRetryAt,
+        reason: `${input.reason}\n\n自动重试（${task.retryCount + 1}/${KANBAN_MAX_AUTO_RETRIES}）：${Math.round(delayMs / 1000)} 秒后重试本轮。`,
+        ...(input.tokensUsed !== undefined ? { tokensUsed: input.tokensUsed } : {}),
+        kanban: { round: input.round, retry: { count: task.retryCount + 1, nextRetryAt: nextRetryAt.toISOString() }, consumeInputs: false }
+      });
+      return;
+    }
+    this.settleAttemptSafe({
+      executionId: input.executionId, attemptId: input.attemptId, status: "failed",
+      nextExecutionStatus: "waiting_for_user", waitingKind: "recovery",
+      reason: uncertainSideEffect
+        ? `${input.reason}\n\n本轮记录过不确定的外部副作用，为避免重复执行已停止自动重试；请确认外部状态后决定是否继续。`
+        : `${input.reason}${KANBAN_RETRY_EXHAUSTED_SUFFIX}`,
+      ...(input.tokensUsed !== undefined ? { tokensUsed: input.tokensUsed } : {}),
+      kanban: { round: input.round, consumeInputs: false }
+    });
   }
 
   private async verify(detail: NonNullable<ReturnType<DurableExecutionStore["getDetail"]>>, filename: string): Promise<void> {
