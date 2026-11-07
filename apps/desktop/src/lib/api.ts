@@ -184,7 +184,9 @@ import type {
   DesktopUsageSummary,
   DesktopWebProfile,
   DesktopWebProfilePatch,
-  DesktopWebProfilesResponse
+  DesktopWebProfilesResponse,
+  DesktopKanbanBoardPage,
+  DesktopKanbanTaskBundle
 } from "@molibot/desktop-contract";
 
 type SseHandler = (event: string, data: Record<string, unknown>) => void | Promise<void>;
@@ -1500,6 +1502,29 @@ export async function loadDesktopPlans(
 export async function loadDesktopPlan(endpoint: string, planId: string): Promise<DesktopPlanDetail> {
   const payload = await requestJson<DesktopPlanDetailResponse>(endpoint, "/api/desktop/plans?id=" + encodeURIComponent(planId));
   return payload.item;
+}
+
+/** Board page: kanban tasks and legacy plans projected onto the kanban stages. */
+export async function loadDesktopKanbanBoard(
+  endpoint: string,
+  params: { search?: string; projectId?: string; stage?: string; limit?: number; offset?: number } = {}
+): Promise<DesktopKanbanBoardPage> {
+  const query = new URLSearchParams({ view: "board" });
+  if (params.search) query.set("search", params.search);
+  if (params.projectId) query.set("projectId", params.projectId);
+  if (params.stage) query.set("stage", params.stage);
+  if (params.limit) query.set("limit", String(params.limit));
+  if (params.offset) query.set("offset", String(params.offset));
+  return requestJson<DesktopKanbanBoardPage>(endpoint, "/api/desktop/plans?" + query.toString());
+}
+
+/** Kanban task detail bundle: config, execution detail, receipts, checklist, pending inputs, handoffs. */
+export async function loadDesktopKanbanTask(endpoint: string, executionId: string): Promise<DesktopKanbanTaskBundle> {
+  const payload = await requestJson<DesktopKanbanTaskBundle>(
+    endpoint,
+    "/api/desktop/plans?kanban=true&id=" + encodeURIComponent(executionId)
+  );
+  return payload;
 }
 
 export async function loadDesktopPlanDiagnostics(endpoint: string, planId: string): Promise<DesktopPlanDiagnostics> {

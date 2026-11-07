@@ -196,6 +196,19 @@ export class PlanService {
     return { task, detail: this.read(ownerId, executionId) };
   }
 
+  /** Desktop detail bundle: task config, plan-level detail, receipt/checklist/input/handoff projections. */
+  getKanbanBundle(ownerId: string, executionId: string) {
+    const { task, detail } = this.getKanbanTask(ownerId, executionId);
+    return {
+      task,
+      detail,
+      receipts: this.store.kanban.listReceipts(executionId),
+      checklist: this.store.kanban.getChecklist(executionId),
+      inputs: this.store.kanban.listInputs(executionId, false),
+      handoffs: this.store.kanban.listHandoffs(executionId)
+    };
+  }
+
   startKanbanTask(input: { ownerId: string; executionId: string; expectedVersion: number; actionId: string }): PlanDetail {
     this.store.kanban.startTask({ executionId: input.executionId, ownerId: input.ownerId, expectedVersion: input.expectedVersion, actionId: input.actionId });
     return this.read(input.ownerId, input.executionId);

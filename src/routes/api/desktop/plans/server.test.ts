@@ -72,4 +72,31 @@ test("event connection starts with a reload notification and observes committed 
   assert.equal((await read("event-plan")).item.meta.title, "Event");
 });
 
+test("kanban API: create auto-starts, board projects stages, bundle answers requeue", async () => {
+  const created = await post({ action: "kanban_create", form: "single", title: "API kanban task", goal: "Ship it", agentId: "default", autoStart: true });
+  assert.equal(created.status, 200);
+  const executionId = created.body.item.execution.id;
+  assert.equal(created.body.item.execution.status, "queued");
+
+  const boardUrl = new URL("http://localhost/api/desktop/plans?view=board");
+  const board = await (await GET({ url: boardUrl, request: new Request(boardUrl) } as Parameters<typeof GET>[0])).json();
+  assert.equal(board.ok, true);
+  assert.ok(board.counts.doing >= 1, "auto-started task sits in Doing");
+  assert.ok(board.items.some((item: any) => item.executionId === executionId && item.kind === "kanban"));
+
+  const bundleUrl = new URL(`http://localhost/api/desktop/plans?kanban=true&id=${executionId}`);
+  const bundle = await (await GET({ url: bundleUrl, request: new Request(bundleUrl) } as Parameters<typeof GET>[0])).json();
+  assert.equal(bundle.ok, true);
+  assert.equal(bundle.task.form, "single");
+  assert.deepEqual(bundle.receipts, []);
+  assert.deepEqual(bundle.inputs, []);
+
+  const answered = await post({ action: "kanban_answer", planId: executionId, text: "先做第一部分" });
+  assert.equal(answered.status, 200);
+  const detail = await read(executionId);
+  assert.equal(detail.item.execution.status, "queued", "an answer on a queued task records input without a transition");
+  const bundleAfter = await (await GET({ url: bundleUrl, request: new Request(bundleUrl) } as Parameters<typeof GET>[0])).json();
+  assert.deepEqual(bundleAfter.inputs.map((input: any) => input.text), ["先做第一部分"]);
+});
+
 test.after(() => { mock.restoreAll(); rmSync(root, { recursive: true, force: true }); });

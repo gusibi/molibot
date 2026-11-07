@@ -67,12 +67,27 @@ export const GET: RequestHandler = async ({ url, request }) => {
     if (url.searchParams.has("ownerId") && url.searchParams.get("ownerId") !== owner) throw new Error("Unknown plan owner.");
     const planId = String(url.searchParams.get("id") ?? "").trim();
     if (planId) {
+      if (url.searchParams.get("kanban") === "true") {
+        return json({ ok: true, ...plans.getKanbanBundle(owner, planId) }, { headers: { "Cache-Control": "no-store" } });
+      }
       if (url.searchParams.get("diagnostics") === "true") {
         return json({ ok: true, diagnostics: plans.diagnostics(owner, planId) }, { headers: { "Cache-Control": "no-store" } });
       }
       const planVersion = Number(url.searchParams.get("planVersion") ?? "");
       const item = plans.read(owner, planId, Number.isFinite(planVersion) && planVersion > 0 ? planVersion : undefined);
       return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.searchParams.get("view") === "board") {
+      const page = plans.boardPage({
+        ownerId: owner,
+        search: String(url.searchParams.get("search") ?? "").trim() || undefined,
+        projectId: String(url.searchParams.get("projectId") ?? "").trim() || undefined,
+        stage: (["todo", "doing", "done", "cancelled"] as const).find(stage => stage === url.searchParams.get("stage")),
+        executorAgentId: String(url.searchParams.get("executorAgentId") ?? "").trim() || undefined,
+        offset: Number(url.searchParams.get("offset") ?? 0),
+        limit: Number(url.searchParams.get("limit") ?? 50)
+      });
+      return json({ ok: true, ...page }, { headers: { "Cache-Control": "no-store" } });
     }
     const filter: PlanListFilter = {
       ownerId: owner,
@@ -97,6 +112,22 @@ export const POST: RequestHandler = async ({ request }) => {
     const owner = "owner";
     if (body.ownerId && body.ownerId !== owner) throw new Error("Unknown plan owner.");
     switch (body.action) {
+      case "kanban_create": {
+        const item = plans.createKanbanTask({
+          ...(body as unknown as import("$lib/server/agent/durable/types.js").CreateKanbanTaskInput),
+          ownerId: owner,
+          botId: String(body.botId ?? "default").trim() || "default"
+        });
+        return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
+      }
+      case "kanban_start":
+        return json({ ok: true, item: plans.startKanbanTask({ ownerId: owner, executionId: String(body.planId), expectedVersion: Number(body.expectedVersion), actionId: String(body.actionId) }) }, { headers: { "Cache-Control": "no-store" } });
+      case "kanban_answer": {
+        const item = plans.answerKanbanTask({ ownerId: owner, executionId: String(body.planId), text: String(body.text ?? "").trim() });
+        return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
+      }
+      case "kanban_budget":
+        return json({ ok: true, item: plans.addKanbanBudget({ ownerId: owner, executionId: String(body.planId), expectedVersion: Number(body.expectedVersion), addTokens: Number(body.addTokens) }) }, { headers: { "Cache-Control": "no-store" } });
       case "propose": {
         const detail = plans.read(owner, String(body.planId));
         if (detail.execution.version !== body.expectedVersion) throw new Error("Plan version conflict. Reload before generating a revision.");

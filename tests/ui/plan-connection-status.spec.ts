@@ -25,7 +25,7 @@ test('plan connection hint stays inset, secondary and readable after recovery @p
       const text = range.getBoundingClientRect();
       const box = rail.getBoundingClientRect();
       const style = getComputedStyle(element);
-      const sub = rail.querySelector('.plans-row-sub')!;
+      const sub = rail.querySelector('.kanban-card-goal')!;
       return { inset: text.left - box.left, right: text.right - box.right, margin: style.marginTop, font: parseFloat(style.fontSize), color: style.color, secondary: getComputedStyle(sub).color, overflow: rail.scrollWidth - rail.clientWidth };
     });
     expect(geometry.inset).toBeGreaterThanOrEqual(16);

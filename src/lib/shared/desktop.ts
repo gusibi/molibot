@@ -1185,6 +1185,127 @@ export interface DesktopPlanDetailResponse {
   item: DesktopPlanDetail;
 }
 
+// ---- Kanban Task Board ------------------------------------------------------
+
+export type DesktopKanbanStage = "todo" | "doing" | "done" | "cancelled";
+
+export type DesktopKanbanDoingSubState =
+  | "queued" | "running" | "verifying" | "waiting_user" | "waiting_approval"
+  | "paused" | "recovery" | "stopped" | "pending_acceptance";
+
+export interface DesktopKanbanBoardItem {
+  executionId: string;
+  shortHandle: string;
+  kind: "kanban" | "legacy-plan";
+  stage: DesktopKanbanStage;
+  doingSubState?: DesktopKanbanDoingSubState;
+  title: string;
+  goal: string;
+  projectId?: string;
+  form?: "single" | "team";
+  executorLabel?: string;
+  currentAgentId?: string;
+  waitingReason?: string;
+  /** Legacy plans only: step progress. */
+  progress?: { completed: number; total: number };
+  /** Kanban tasks only: present when the task maintains a checklist. */
+  checklist?: { doneChecked: number; checkedTotal: number };
+  budgetTokensUsed?: number;
+  budgetTokenLimit?: number;
+  handoffCount?: number;
+  handoffLimit?: number;
+  autoStart?: boolean;
+  humanAcceptance?: boolean;
+  approvalPolicy?: "suspend" | "deny";
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopKanbanBoardPage {
+  ok: true;
+  total: number;
+  projectIds: string[];
+  counts: { all: number; todo: number; doing: number; done: number; cancelled: number };
+  items: DesktopKanbanBoardItem[];
+}
+
+export interface DesktopKanbanReceipt {
+  receiptId: string;
+  round: number;
+  actorAgentId: string;
+  actions: {
+    conclusion?: string;
+    evidence?: string[];
+    continueWork?: boolean;
+    handoffTo?: { agentId: string; brief: string };
+    question?: { text: string; options?: string[] };
+    verifyAt?: string;
+    requestCompletion?: boolean;
+  };
+  createdAt: string;
+}
+
+export interface DesktopKanbanChecklistItem {
+  itemId: string;
+  text: string;
+  done: boolean;
+  updatedRound: number;
+}
+
+export interface DesktopKanbanTaskBundle {
+  ok: true;
+  task: {
+    executionId: string;
+    form: "single" | "team";
+    title: string;
+    goal: string;
+    coordinatorAgentId?: string;
+    members: Array<{ agentId: string; name: string }>;
+    projectId?: string;
+    workDir?: string;
+    completionSource: "user" | "generated" | "pending";
+    budgetTokenLimit?: number;
+    handoffLimit: number;
+    approvalPolicy: "suspend" | "deny";
+    humanAcceptance: boolean;
+    autoStart: boolean;
+    handoffCount: number;
+    currentAgentId?: string;
+    roundCount: number;
+    retryCount: number;
+    nextRetryAt?: string;
+    usageGapCount: number;
+    createdAt: string;
+    updatedAt: string;
+  };
+  detail: DesktopPlanDetail;
+  receipts: DesktopKanbanReceipt[];
+  checklist: DesktopKanbanChecklistItem[];
+  /** All recorded user inputs; `consumedRound` marks the round that consumed them. */
+  inputs: Array<{ inputId: string; text: string; createdAt: string; consumedRound: number | null }>;
+  handoffs: Array<{ id: string; round: number; fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string; createdAt: string }>;
+}
+
+export interface DesktopKanbanCreateRequest {
+  action: "kanban_create";
+  form: "single" | "team";
+  title: string;
+  goal: string;
+  agentId?: string;
+  coordinatorAgentId?: string;
+  members?: Array<{ agentId: string; name: string }>;
+  projectId?: string;
+  workDir?: string;
+  completionConditions?: Array<{ description: string; required?: boolean }>;
+  completionSource?: "user" | "generated" | "pending";
+  budgetTokenLimit?: number;
+  handoffLimit?: number;
+  approvalPolicy?: "suspend" | "deny";
+  humanAcceptance?: boolean;
+  autoStart?: boolean;
+}
+
 /**
  * Read-only executor diagnostics for the plan detail page: lease ownership and
  * remaining time, wakeup rows, the last confirmed tool boundary and a
@@ -1248,6 +1369,10 @@ export type DesktopPlanActionRequest =
   | { action: "start" | "pause" | "resume" | "cancel"; ownerId?: string; planId: string; expectedVersion: number; actionId?: string; reason?: string }
   | { action: "delete"; ownerId?: string; planId: string; expectedVersion?: number }
   | { action: "complete"; ownerId?: string; planId: string; expectedVersion: number; actionId: string }
+  | DesktopKanbanCreateRequest
+  | { action: "kanban_start"; ownerId?: string; planId: string; expectedVersion: number; actionId: string }
+  | { action: "kanban_answer"; ownerId?: string; planId: string; text: string }
+  | { action: "kanban_budget"; ownerId?: string; planId: string; expectedVersion: number; addTokens: number }
   | {
       action: "revise";
       ownerId?: string;

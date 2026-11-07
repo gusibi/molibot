@@ -9,14 +9,20 @@ test('plan detail and rework keep long content readable and preserve draft throu
   ] }];
   const item = { execution: { id: 'detail-fixture', shortHandle: '#8', status: 'paused', version: 1, currentPlanVersion: 1, updatedAt: stamp, waitingReason: 'Review the remaining step before continuing.' }, meta: { title, summary: 'Read the source, verify the output, then review the evidence.' }, tasks, projection: { progress: { completed: 1, total: 2 }, nextStep: tasks[0].steps[1] }, acceptanceCriteria: [{ id: 'criterion-1', planVersion: 1, description: 'The output matches the requested contents.', required: true, result: 'unproven' }], approvals: [{ id: 'approval-1', title: 'Confirm file access', summary: 'Review the requested action before continuing.', status: 'pending' }], decisions: [], attempts: [], steps: [], plans: [], sideEffects: [], evidenceRefs: [] };
   await page.route('**/api/desktop/plans?*', async route => {
-    const detail = new URL(route.request().url()).searchParams.has('id');
+    const params = new URL(route.request().url()).searchParams;
+    if (route.request().method() === 'GET' && params.has('view')) {
+      const stamp = new Date().toISOString();
+      await route.fulfill({ json: { ok: true, total: 1, counts: { all: 1, todo: 0, doing: 1, done: 0, cancelled: 0 }, projectIds: [], items: [{ executionId: 'detail-fixture', shortHandle: '#8', kind: 'legacy-plan', stage: 'doing', doingSubState: 'paused', title, goal: 'Read the source, verify the output.', waitingReason: 'Review the remaining step before continuing.', progress: { completed: 1, total: 2 }, version: 1, createdAt: stamp, updatedAt: stamp }] } });
+      return;
+    }
+    const detail = params.has('id');
     await route.fulfill({ json: detail ? { ok: true, item } : { ok: true, total: 1, counts: { all: 1, needs_attention: 1 }, projectIds: [], items: [{ planId: 'detail-fixture', shortHandle: '#8', title, planStatus: 'needs_attention', progress: { completed: 1, total: 2 } }] } });
   });
   await page.goto('/');
   await expect(page.getByTestId('chat-composer')).toBeEnabled();
   const openPlans = () => page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
   await openPlans();
-  await page.locator('.plans-row').click();
+  await page.locator('.kanban-card').click();
   await expect(page.locator('.plans-detail h2')).toHaveText(title);
   await expect(page.locator('.plans-attention')).toContainText('Confirm file access');
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
@@ -51,10 +57,10 @@ test('plan detail and rework keep long content readable and preserve draft throu
   await assertFooterLayout();
   await page.screenshot({ path: testInfo.outputPath('plan-editor-narrow.png') });
   await page.locator('.plans-back').click();
-  await expect(page.locator('.plans-row')).toBeVisible();
+  await expect(page.locator('.kanban-card')).toBeVisible();
   item.execution.status = 'completed';
   item.approvals = [];
-  await page.locator('.plans-row').click();
+  await page.locator('.kanban-card').click();
   await expect(page.locator('.plans-execution-options')).toHaveCount(0);
   await expect(page.locator('.plans-actions-trailing button')).toHaveCount(1);
   await page.locator('.plans-criteria').scrollIntoViewIfNeeded();
