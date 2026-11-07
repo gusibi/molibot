@@ -923,10 +923,15 @@ export class KanbanStore {
   }): void {
     const row = this.requireTaskRow(input.executionId);
     if (input.handoff) {
-      const nextCount = Number(row.handoff_count) + 1;
-      // Initial assignment and coordinator-only scheduling do not count; the
-      // runtime pre-checks this limit and parks the task on the user.
-      if (input.handoff.kind !== "assign" && Number(row.handoff_count) >= Number(row.budget_handoff_limit)) {
+      // Coordinator pure scheduling (spec 155: 负责人串行派活) is not a member
+      // bounce: it re-points the task without consuming the handoff budget.
+      const coordinatorDispatch = input.handoff.kind === "dispatch"
+        && Boolean(row.coordinator_agent_id)
+        && input.handoff.fromAgentId === row.coordinator_agent_id;
+      const nextCount = coordinatorDispatch ? Number(row.handoff_count) : Number(row.handoff_count) + 1;
+      // Initial assignment and member-to-member handoffs count; the runtime
+      // pre-checks this limit and parks the task on the user.
+      if (input.handoff.kind !== "assign" && !coordinatorDispatch && Number(row.handoff_count) >= Number(row.budget_handoff_limit)) {
         throw new Error(`Kanban Task ${input.executionId} reached its member handoff limit of ${row.budget_handoff_limit}.`);
       }
       this.db.prepare("UPDATE durable_kanban_tasks SET handoff_count = ?, current_agent_id = ?, updated_at = ? WHERE execution_id = ?")

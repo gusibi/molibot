@@ -914,7 +914,9 @@ test("a team task dispatches members serially: brief rides along, current member
     await runWakeupDirect(runtime, store, executionId, 2);
     const afterDispatch = store.kanban.getTask(executionId)!;
     assert.equal(afterDispatch.currentAgentId, "agent-reviewer");
-    assert.equal(afterDispatch.handoffCount, 1);
+    // Coordinator pure scheduling re-points the task without consuming the
+    // member handoff budget (spec 155: 负责人串行派活).
+    assert.equal(afterDispatch.handoffCount, 0);
     assert.equal(afterDispatch.roundCount, 1);
     assert.equal(store.getById(executionId)!.status, "queued");
     const handoffs = store.kanban.listHandoffs(executionId);
@@ -995,7 +997,7 @@ test("dispatching to a non-member parks the task with a protocol violation inste
   }
 });
 
-test("the handoff limit stops automatic dispatch and parks the task on the user", async () => {
+test("the handoff limit counts member handoffs, not coordinator re-dispatches", async () => {
   const { store, cleanup } = runtimeFixture();
   try {
     const task = store.kanban.createTask({
@@ -1031,18 +1033,15 @@ test("the handoff limit stops automatic dispatch and parks the task on the user"
     });
 
     await runWakeupDirect(runtime, store, executionId, 2);
-    assert.equal(store.kanban.getTask(executionId)!.handoffCount, 1);
+    // Coordinator pure scheduling consumes no budget.
+    assert.equal(store.kanban.getTask(executionId)!.handoffCount, 0);
     assert.equal(store.getById(executionId)!.status, "queued");
 
+    // B → Lead is a member handoff and consumes the budget of 1.
     await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
-    const parked = store.getById(executionId)!;
-    assert.equal(parked.status, "waiting_for_user");
-    assert.match(parked.waitingReason ?? "", /交接上限/);
-    // The blocked dispatch consumed no budget and rotated nobody.
-    const after = store.kanban.getTask(executionId)!;
-    assert.equal(after.handoffCount, 1);
-    assert.equal(after.currentAgentId, "agent-b");
-    assert.equal(after.roundCount, 2);
+    assert.equal(store.kanban.getTask(executionId)!.handoffCount, 1);
+    assert.equal(store.kanban.getTask(executionId)!.currentAgentId, "agent-lead");
+    assert.equal(store.getById(executionId)!.status, "queued");
   } finally {
     cleanup();
   }
@@ -1081,6 +1080,73 @@ test("the round's tool activity and final reply persist as the attempt's convers
     assert.equal(projections[0].activities[0].key, "call-1");
     assert.equal(projections[0].activities[0].tool, "bash");
     assert.equal(projections[0].activities[0].label, "运行测试");
+  } finally {
+    cleanup();
+  }
+});
+
+test("member-to-member handoffs consume the limit while coordinator re-dispatches do not", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = store.kanban.createTask({
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "team",
+      title: "交付活动页",
+      goal: "设计、实现并复核活动页",
+      coordinatorAgentId: "agent-lead",
+      members: [
+        { agentId: "agent-lead", name: "Lead" },
+        { agentId: "agent-a", name: "A" },
+        { agentId: "agent-b", name: "B" }
+      ],
+      completionConditions: [{ description: "活动页上线", checkerType: "subjective" }],
+      handoffLimit: 1,
+      autoStart: false
+    });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+
+    let round = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          round += 1;
+          if (round === 1) {
+            // Coordinator scheduling: exempt from the budget.
+            await hooks.submitKanbanReceipt!({ conclusion: "拆解完成", continueWork: true, handoffTo: { agentId: "agent-a", brief: "请实现" } });
+          } else if (round === 2) {
+            // Member-to-member: consumes the budget of 1.
+            await hooks.submitKanbanReceipt!({ conclusion: "实现完成", continueWork: true, handoffTo: { agentId: "agent-b", brief: "请复核" } });
+          } else {
+            // Budget exhausted: the member handoff receipt parks the task on
+            // the user instead of dispatching another member round.
+            await hooks.submitKanbanReceipt!({ conclusion: "想再交给 A", handoffTo: { agentId: "agent-a", brief: "" } });
+          }
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: `lim-ctx-${round}` };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    assert.equal(store.kanban.getTask(executionId)!.handoffCount, 0);
+    assert.equal(store.kanban.getTask(executionId)!.currentAgentId, "agent-a");
+
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    const afterBounce = store.kanban.getTask(executionId)!;
+    assert.equal(afterBounce.handoffCount, 1);
+    assert.equal(afterBounce.currentAgentId, "agent-b");
+
+    // agent-b → anyone is a member handoff over the limit: the pre-check parks
+    // the task on the user instead of dispatching a round.
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    const parked = store.getById(executionId)!;
+    assert.equal(parked.status, "waiting_for_user");
+    assert.match(parked.waitingReason ?? "", /成员交接上限/);
+    // The round itself ran and its receipt was recorded; only the dispatch was
+    // refused, so the round counter reflects it.
+    assert.equal(store.kanban.getTask(executionId)!.roundCount, 3);
   } finally {
     cleanup();
   }

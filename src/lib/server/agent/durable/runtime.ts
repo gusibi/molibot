@@ -1705,7 +1705,10 @@ export class DurableExecutionRuntime {
             reason: `协议异常：交接目标 ${decision.agentId} 不在任务成员列表中。已保留本轮产物。`,
             tokensUsed, kanban: settlingLedger
           });
-        } else if (currentTask.handoffCount >= currentTask.handoffLimit) {
+        } else if (currentTask.handoffCount >= currentTask.handoffLimit
+          // Coordinator pure scheduling is exempt: the coordinator re-pointing
+          // the task consumes no handoff budget (mirrors the settlement guard).
+          && !(currentTask.coordinatorAgentId && currentTask.currentAgentId === currentTask.coordinatorAgentId)) {
           this.settleAttemptSafe({
             executionId, attemptId: claimed.attempt.id, status: "waiting",
             nextExecutionStatus: "waiting_for_user",
