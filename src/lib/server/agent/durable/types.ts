@@ -567,6 +567,8 @@ export interface CreateKanbanTaskInput {
   agentId?: string;
   coordinatorAgentId?: string;
   members?: KanbanMemberSnapshot[];
+  /** Visible read-only child sessions for members (spec 切片③), created by the caller. */
+  memberSessions?: Array<{ agentId: string; sessionId: string }>;
   projectId?: string;
   workDir?: string;
   completionConditions?: PlanCriterionInput[];

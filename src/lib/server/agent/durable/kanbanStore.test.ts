@@ -57,6 +57,20 @@ test("kanban task creation persists the aggregate and config in one transaction"
     assert.equal(execution.sourceUiSessionId, undefined, "no visible session unless the creator binds one");
     const bound = store.kanban.createTask(createTaskInput({ sourceUiSessionId: "conv-visible" }));
     assert.equal(store.getById(bound.executionId)!.sourceUiSessionId, "conv-visible");
+    // Member child sessions persist inside the creation transaction.
+    const team = store.kanban.createTask(createTaskInput({
+      form: "team",
+      agentId: undefined,
+      coordinatorAgentId: "agent-lead",
+      members: [{ agentId: "agent-lead", name: "Lead" }, { agentId: "agent-cr", name: "CR" }],
+      memberSessions: [{ agentId: "agent-lead", sessionId: "conv-lead" }, { agentId: "agent-cr", sessionId: "conv-cr" }]
+    }));
+    assert.equal(store.kanban.getMemberSession(team.executionId, "agent-lead"), "conv-lead");
+    assert.deepEqual(store.kanban.listMemberSessions(team.executionId), [
+      { agentId: "agent-cr", sessionId: "conv-cr" },
+      { agentId: "agent-lead", sessionId: "conv-lead" }
+    ]);
+    assert.equal(store.kanban.getMemberSession(team.executionId, "agent-ghost"), undefined);
     const detail = store.getDetail(task.executionId);
     assert.ok(detail);
     assert.equal(detail.acceptanceCriteria.length, 1);

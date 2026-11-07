@@ -167,6 +167,9 @@ export const POST: RequestHandler = async ({ request }) => {
         // in the Project's session list, otherwise under the executor Agent.
         const sessionOwner = toWebExternalUserId("kanban", "desktop");
         let conversation: { id: string; externalUserId: string } | null = null;
+        // Team tasks give each member a visible read-only child session nested
+        // under the main conversation (spec 执行形态修订 切片③).
+        const memberSessions: Array<{ agentId: string; sessionId: string }> = [];
         if (projectId || executorAgentId) {
           const runtime = getRuntime();
           if (projectId && !getProjectStore().get(projectId)) throw new Error("Unknown project.");
@@ -177,6 +180,18 @@ export const POST: RequestHandler = async ({ request }) => {
           try {
             if (projectId) runtime.sessions.renameProjectConversation(projectId, conversation.id, title);
             else runtime.sessions.renameConversation(conversation.id, "web", sessionOwner, title);
+            if (form === "team") {
+              const coordinatorAgentId = String(raw.coordinatorAgentId ?? "").trim();
+              for (const member of Array.isArray(raw.members) ? raw.members : []) {
+                const memberAgentId = String((member as { agentId?: unknown })?.agentId ?? "").trim();
+                // The coordinator works in the main conversation; only other members get child sessions.
+                if (!memberAgentId || memberAgentId === coordinatorAgentId) continue;
+                const memberName = String((member as { name?: unknown })?.name ?? "").trim() || memberAgentId;
+                const child = runtime.sessions.createWebConversation(sessionOwner, "kanban", memberAgentId, conversation.id);
+                runtime.sessions.renameConversation(child.id, "web", sessionOwner, `${title} · ${memberName}`);
+                memberSessions.push({ agentId: memberAgentId, sessionId: child.id });
+              }
+            }
             appendTaskConversationMessage(
               runtime,
               { ...conversation, ...(projectId ? {} : { agentId: executorAgentId }) },
@@ -191,6 +206,9 @@ export const POST: RequestHandler = async ({ request }) => {
               })
             );
           } catch (cause) {
+            for (const memberSession of memberSessions) {
+              try { runtime.sessions.deleteConversation(memberSession.sessionId, "web", sessionOwner); } catch { /* best-effort cleanup */ }
+            }
             cleanupTaskConversation(runtime, conversation, projectId, sessionOwner);
             throw cause;
           }
@@ -205,6 +223,7 @@ export const POST: RequestHandler = async ({ request }) => {
             ...(raw.agentId ? { agentId: String(raw.agentId).trim() } : {}),
             ...(raw.coordinatorAgentId ? { coordinatorAgentId: String(raw.coordinatorAgentId).trim() } : {}),
             ...(Array.isArray(raw.members) ? { members: raw.members } : {}),
+            ...(form === "team" && memberSessions.length > 0 ? { memberSessions } : {}),
             ...(projectId ? { projectId } : {}),
             ...(raw.workDir ? { workDir: String(raw.workDir).trim() } : {}),
             ...(Array.isArray(raw.completionConditions) ? { completionConditions: raw.completionConditions } : {}),
@@ -218,7 +237,13 @@ export const POST: RequestHandler = async ({ request }) => {
           });
           return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
         } catch (cause) {
-          if (conversation) cleanupTaskConversation(getRuntime(), conversation, projectId, sessionOwner);
+          if (conversation) {
+            const runtime = getRuntime();
+            for (const memberSession of memberSessions) {
+              try { runtime.sessions.deleteConversation(memberSession.sessionId, "web", sessionOwner); } catch { /* best-effort cleanup */ }
+            }
+            cleanupTaskConversation(runtime, conversation, projectId, sessionOwner);
+          }
           throw cause;
         }
       }

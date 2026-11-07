@@ -21,8 +21,8 @@ interface LiveResponse {
   persistTimer?: ReturnType<typeof setTimeout>;
 }
 const liveResponses = new Map<string, LiveResponse>();
-function liveKey(executionId: string, round?: number): string {
-  return JSON.stringify([storagePaths.dataDir, executionId, round ?? null]);
+function liveKey(executionId: string, round?: number, sessionId?: string): string {
+  return JSON.stringify([storagePaths.dataDir, executionId, round ?? null, sessionId ?? null]);
 }
 
 /**
@@ -68,13 +68,14 @@ function flushLiveResponse(state: LiveResponse): void {
 }
 
 /** Streams actual model deltas; disk checkpoints are bounded independently of display updates. */
-export function updateDurableConversationOutput(sessions: SessionStore, execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string, round?: number): void {
-  if (!execution.sourceUiSessionId || !delta) return;
-  const key = liveKey(execution.id, round);
+export function updateDurableConversationOutput(sessions: SessionStore, execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string, round?: number, sessionIdOverride?: string): void {
+  const sessionId = sessionIdOverride ?? execution.sourceUiSessionId;
+  if (!sessionId || !delta) return;
+  const key = liveKey(execution.id, round, sessionId);
   let state = liveResponses.get(key);
   if (!state || state.snapshot.runId !== runId) {
-    if (state) endDurableConversationOutput(execution.id, state.snapshot.runId, round);
-    const row = sessions.listMessageMetadata(execution.sourceUiSessionId).find(message => message.activities?.some(activity => activity.key === responseActivityKey(execution.id, round)));
+    if (state) endDurableConversationOutput(execution.id, state.snapshot.runId, round, sessionId);
+    const row = sessions.listMessageMetadata(sessionId).find(message => message.activities?.some(activity => activity.key === responseActivityKey(execution.id, round)));
     if (!row) return;
     const saved = row.liveResponse;
     state = { sessions, row, snapshot: saved?.runId === runId ? { ...saved } : { runId, text: saved?.text ?? "", thinking: saved?.thinking ?? row.thinking ?? "" } };
@@ -88,8 +89,8 @@ export function updateDurableConversationOutput(sessions: SessionStore, executio
   if (!state.persistTimer) state.persistTimer = setTimeout(() => flushLiveResponse(state!), 200);
 }
 
-export function endDurableConversationOutput(executionId: string, runId: string, round?: number): void {
-  const key = liveKey(executionId, round);
+export function endDurableConversationOutput(executionId: string, runId: string, round?: number, sessionId?: string): void {
+  const key = liveKey(executionId, round, sessionId);
   const state = liveResponses.get(key);
   if (!state || state.snapshot.runId !== runId) return;
   clearTimeout(state.publishTimer);
@@ -109,8 +110,8 @@ export interface DurableAttemptDelivery {
 }
 
 /** Background execution uses the same response row and process disclosure as a foreground turn. */
-export function ensureDurableConversationResponse(sessions: SessionStore, execution: DurableExecution, chinese = false, round?: number): string | undefined {
-  const sessionId = execution.sourceUiSessionId;
+export function ensureDurableConversationResponse(sessions: SessionStore, execution: DurableExecution, chinese = false, round?: number, sessionIdOverride?: string): string | undefined {
+  const sessionId = sessionIdOverride ?? execution.sourceUiSessionId;
   if (!sessionId) return;
   const key = responseActivityKey(execution.id, round);
   const existing = sessions.listMessageMetadata(sessionId).find(message => message.activities?.some(activity => activity.key === key));
@@ -123,14 +124,15 @@ export function ensureDurableConversationResponse(sessions: SessionStore, execut
   return message.id;
 }
 
-export function updateDurableConversationProgress(sessions: SessionStore, execution: DurableExecution, activities: ConversationActivity[], round?: number): void {
-  if (!execution.sourceUiSessionId) return;
-  const response = sessions.listMessageMetadata(execution.sourceUiSessionId).find(message => message.activities?.some(activity => activity.key === responseActivityKey(execution.id, round)));
+export function updateDurableConversationProgress(sessions: SessionStore, execution: DurableExecution, activities: ConversationActivity[], round?: number, sessionIdOverride?: string): void {
+  const sessionId = sessionIdOverride ?? execution.sourceUiSessionId;
+  if (!sessionId) return;
+  const response = sessions.listMessageMetadata(sessionId).find(message => message.activities?.some(activity => activity.key === responseActivityKey(execution.id, round)));
   if (!response) return;
   const merged = new Map(response.activities?.map(activity => [activity.key, activity]));
   for (const activity of activities) merged.set(activity.key, activity);
-  sessions.updateConversationMessage(execution.sourceUiSessionId, response.id, { activities: [...merged.values()] });
-  const state = liveResponses.get(liveKey(execution.id, round));
+  sessions.updateConversationMessage(sessionId, response.id, { activities: [...merged.values()] });
+  const state = liveResponses.get(liveKey(execution.id, round, sessionId));
   if (state) { state.row = { ...state.row, activities: [...merged.values()] }; publishLiveConversation(liveResponseMessage(state.row, state.snapshot)); }
 }
 

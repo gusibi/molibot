@@ -161,4 +161,38 @@ test("kanban steer falls back to a pending input when no round is running", asyn
   assert.match(messages[messages.length - 1].content, /优先用现有数据/);
 });
 
+test("team tasks create read-only member child sessions nested under the main conversation", async () => {
+  const created = await post({
+    action: "kanban_create", form: "team", title: "团队任务", goal: "多人协作",
+    coordinatorAgentId: "default",
+    members: [{ agentId: "default", name: "Momo" }, { agentId: "writer", name: "Writer" }],
+    autoStart: false
+  });
+  assert.equal(created.status, 200);
+  const executionId = created.body.item.execution.id;
+  const mainSessionId = created.body.item.execution.sourceUiSessionId;
+  assert.ok(mainSessionId);
+
+  const bundleUrl = new URL(`http://localhost/api/desktop/plans?kanban=true&id=${executionId}`);
+  const bundle = await (await GET({ url: bundleUrl, request: new Request(bundleUrl) } as Parameters<typeof GET>[0])).json();
+  // The coordinator works in the main conversation; only other members get child sessions.
+  assert.deepEqual(bundle.memberSessions.map((entry: any) => entry.agentId), ["writer"]);
+
+  for (const memberSession of bundle.memberSessions as Array<{ agentId: string; sessionId: string }>) {
+    const child = runtime.sessions.getConversationById(memberSession.sessionId, "web", "web:desktop:kanban");
+    assert.ok(child, "the member child session exists");
+    assert.equal(child.origin, "kanban");
+    assert.equal(child.parentSessionId, mainSessionId, "the child session nests under the main conversation");
+    assert.equal(child.agentId, memberSession.agentId);
+    assert.match(child.title, /团队任务 · /);
+  }
+
+  // Child sessions never appear flat in session lists (spec 切片③ 二级结构).
+  const { buildWebItems } = await import("$lib/server/app/desktopConversations.js");
+  const entries = runtime.sessions.listAllWebConversations().filter(item => item.externalUserId === "web:desktop:kanban");
+  const items = buildWebItems(entries, { webName: () => ({ name: "Momo", deleted: false }), externalName: () => ({ name: "Momo", deleted: false }) });
+  assert.ok(items.some(item => item.sessionId === mainSessionId), "the main task conversation stays listed");
+  assert.equal(items.some(item => item.sessionId === (bundle.memberSessions as Array<{ sessionId: string }>)[0].sessionId), false, "child sessions are not flat-listed");
+});
+
 test.after(() => { mock.restoreAll(); rmSync(root, { recursive: true, force: true }); for (const dir of projectRoots) rmSync(dir, { recursive: true, force: true }); });

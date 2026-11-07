@@ -148,11 +148,14 @@ export function buildWebItems(
   entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string; agentId?: string; origin?: string; parentSessionId?: string }; externalUserId: string; lastMessageText?: string }>,
   resolver: BotNameResolver
 ): DesktopConversationItem[] {
-  return entries.map((entry) => {
+  return entries.flatMap((entry) => {
+    // Kanban member child sessions hang under the main task conversation
+    // (spec 切片③: 二级结构) — they never appear flat in session lists.
+    if (entry.conversation.origin === "kanban" && entry.conversation.parentSessionId) return [];
     const profileId = parseWebProfileId(entry.externalUserId);
     const { name, deleted } = resolver.webName(profileId);
     const purpose = classifyWebPurpose(entry.conversation);
-    return {
+    return [{
       sessionId: entry.conversation.id,
       agentId: entry.conversation.agentId,
       title: entry.conversation.title || "New Session",
@@ -170,7 +173,7 @@ export function buildWebItems(
       ...(entry.conversation.parentSessionId
         ? { parentSessionId: entry.conversation.parentSessionId }
         : {})
-    };
+    }];
   });
 }
 

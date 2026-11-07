@@ -180,6 +180,12 @@ export function ensureKanbanSchema(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_durable_kanban_tasks_project ON durable_kanban_tasks(project_id, created_at);
+    CREATE TABLE IF NOT EXISTS durable_kanban_member_sessions (
+      execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      PRIMARY KEY (execution_id, agent_id)
+    );
     CREATE TABLE IF NOT EXISTS durable_kanban_receipts (
       receipt_id TEXT PRIMARY KEY,
       execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
@@ -413,6 +419,11 @@ export class KanbanStore {
         );
       }
       if (agentId) this.db.prepare("INSERT INTO durable_plan_origins VALUES (?, ?)").run(executionId, agentId);
+      for (const session of input.memberSessions ?? []) {
+        if (!text(session.agentId) || !text(session.sessionId)) continue;
+        this.db.prepare("INSERT INTO durable_kanban_member_sessions (execution_id, agent_id, session_id) VALUES (?, ?, ?)")
+          .run(executionId, text(session.agentId), text(session.sessionId));
+      }
       this.db.prepare("INSERT INTO durable_plan_meta (execution_id, title, summary, updated_at) VALUES (?, ?, '', ?)")
         .run(executionId, title, createdAt);
       this.db.prepare(`
@@ -805,6 +816,24 @@ export class KanbanStore {
       brief: row.brief,
       createdAt: row.created_at
     }));
+  }
+
+  /** Member child sessions (spec 切片③): one visible read-only session per member, created with the task. */
+  setMemberSession(executionId: string, agentId: string, sessionId: string): void {
+    this.db.prepare(`
+      INSERT INTO durable_kanban_member_sessions (execution_id, agent_id, session_id) VALUES (?, ?, ?)
+      ON CONFLICT(execution_id, agent_id) DO UPDATE SET session_id = excluded.session_id
+    `).run(executionId, agentId, sessionId);
+  }
+
+  getMemberSession(executionId: string, agentId: string): string | undefined {
+    const row = this.db.prepare("SELECT session_id FROM durable_kanban_member_sessions WHERE execution_id = ? AND agent_id = ?").get(executionId, agentId) as { session_id: string } | undefined;
+    return row?.session_id;
+  }
+
+  listMemberSessions(executionId: string): Array<{ agentId: string; sessionId: string }> {
+    const rows = this.db.prepare("SELECT agent_id, session_id FROM durable_kanban_member_sessions WHERE execution_id = ? ORDER BY agent_id").all(executionId) as Array<{ agent_id: string; session_id: string }>;
+    return rows.map(row => ({ agentId: row.agent_id, sessionId: row.session_id }));
   }
 
   /**

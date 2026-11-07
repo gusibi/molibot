@@ -206,7 +206,8 @@ export class PlanService {
       checklist: this.store.kanban.getChecklist(executionId),
       inputs: this.store.kanban.listInputs(executionId, false),
       handoffs: this.store.kanban.listHandoffs(executionId),
-      attempts: this.store.listAttemptActivities(executionId)
+      attempts: this.store.listAttemptActivities(executionId),
+      memberSessions: this.store.kanban.listMemberSessions(executionId)
     };
   }
 

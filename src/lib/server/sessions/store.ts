@@ -362,7 +362,7 @@ export class SessionStore {
     }
   }
 
-  private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string, agentId?: string): Conversation {
+  private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string, agentId?: string, parentSessionId?: string): Conversation {
     if (!projectId && agentId !== undefined && !agentId.trim()) throw new Error("Agent ID is required");
     const now = new Date().toISOString();
     const id = createRuntimeSessionId("session", {
@@ -377,6 +377,7 @@ export class SessionStore {
       updatedAt: now
     };
     if (origin) conversation.origin = origin;
+    if (parentSessionId) conversation.parentSessionId = parentSessionId;
     if (!projectId) conversation.agentId = agentId?.trim() || "default";
 
     if (projectId) {
@@ -1008,8 +1009,8 @@ export class SessionStore {
     return [];
   }
 
-  createWebConversation(externalUserId: string, origin?: string, agentId?: string): Conversation {
-    return this.createConversation("web", externalUserId, undefined, origin, agentId);
+  createWebConversation(externalUserId: string, origin?: string, agentId?: string, parentSessionId?: string): Conversation {
+    return this.createConversation("web", externalUserId, undefined, origin, agentId, parentSessionId);
   }
 
   /**

@@ -46,15 +46,16 @@ export interface DurableExecutionRuntimeOptions {
   /** Hook for the process supervisor; the store is unusable after this fires. */
   onStoreFatal?: (error: Error) => void;
   resolvePlanPolicy?: (execution: DurableExecution, binding: import("./types.js").PlanBinding) => import("$lib/server/agent/permissions/resolvePermissionMode.js").EffectiveExecutionPolicy;
-  onAttemptProgress?: (execution: DurableExecution, activities: ConversationActivity[], round?: number) => void;
-  onAttemptOutput?: (execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string, round?: number) => void;
+  onAttemptProgress?: (execution: DurableExecution, activities: ConversationActivity[], round?: number, sessionId?: string) => void;
+  onAttemptOutput?: (execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string, round?: number, sessionId?: string) => void;
   /** Invoked once per kanban round before dispatch so the visible conversation has a response row to stream into. */
-  onAttemptStart?: (execution: DurableExecution, round?: number) => void;
+  onAttemptStart?: (execution: DurableExecution, round?: number, sessionId?: string) => void;
   /**
-   * Team member rounds reflow structured short messages into the main
-   * conversation (spec 执行形态修订 切片③: 接活确认 + 结论/证据摘要，不转发全过程).
+   * Team member rounds reflow structured short messages (spec 执行形态修订 切片③):
+   * ack/receipt summaries go to the main conversation; the member's dispatch
+   * brief lands as a user message in their own child session (sessionId set).
    */
-  onMemberReflow?: (input: { execution: DurableExecution; kind: "ack" | "receipt"; memberName: string; text: string }) => void;
+  onMemberReflow?: (input: { execution: DurableExecution; kind: "ack" | "receipt" | "brief"; memberName: string; text: string; sessionId?: string }) => void;
   onAttemptDelivery?: (input: DurableAttemptDelivery) => void | Promise<void>;
   queryableProbes?: Record<string, DurableQueryableProbe>;
 }
@@ -1299,27 +1300,33 @@ export class DurableExecutionRuntime {
    * receipt. The synthetic `kanban:<id>` source chat keeps rounds (and team
    * members) serialized through the chat's single-flight lock.
    */
-  /** Team member rounds reflow structured short messages into the main conversation (spec 切片③). */
+  /** Team member rounds reflow structured short messages (spec 切片③): ack/receipt → main, brief → member child session. */
   private reflowMemberRound(input: {
     execution: DurableExecution;
     task: KanbanTaskConfig;
-    kind: "ack" | "receipt";
+    kind: "ack" | "receipt" | "brief";
+    sessionId?: string;
     conclusion?: string;
     evidence?: string[];
+    brief?: string;
   }): void {
     const task = input.task;
     if (task.form !== "team" || !task.currentAgentId || task.currentAgentId === task.coordinatorAgentId) return;
     const memberName = task.members.find(member => member.agentId === task.currentAgentId)?.name || task.currentAgentId;
-    const lines = input.kind === "ack"
-      ? [`【${memberName}】收到，我来执行这一轮。`]
-      : [`【${memberName} 回执】`];
-    if (input.kind === "receipt") {
+    let text: string;
+    if (input.kind === "ack") text = `【${memberName}】收到，我来执行这一轮。`;
+    else if (input.kind === "brief") {
+      if (!input.brief?.trim() || !input.sessionId) return;
+      text = input.brief;
+    } else {
+      const lines = [`【${memberName} 回执】`];
       if (input.conclusion) lines.push(input.conclusion);
       if (input.evidence?.length) lines.push("", "证据：", ...input.evidence.map(item => `- ${item}`));
       if (lines.length <= 1) return; // nothing to report
+      text = lines.join("\n");
     }
     try {
-      this.options.onMemberReflow?.({ execution: input.execution, kind: input.kind, memberName, text: lines.join("\n") });
+      this.options.onMemberReflow?.({ execution: input.execution, kind: input.kind, memberName, text, ...(input.sessionId ? { sessionId: input.sessionId } : {}) });
     } catch (error) {
       momWarn("durableExecution", "kanban_member_reflow_failed", { executionId: input.execution.id, kind: input.kind, error: String(error) });
     }
@@ -1388,6 +1395,15 @@ export class DurableExecutionRuntime {
 
     const currentTask = this.store.kanban.getTask(executionId)!;
     const detail = this.store.getDetail(executionId)!;
+    // Member rounds live in the member's own child session (spec 切片③): live
+    // output, the round reply and the dispatch brief land there, while the
+    // main conversation only receives the structured reflow summaries.
+    const isMemberRound = currentTask.form === "team"
+      && Boolean(currentTask.currentAgentId)
+      && currentTask.currentAgentId !== currentTask.coordinatorAgentId;
+    const memberSessionId = isMemberRound
+      ? this.store.kanban.getMemberSession(executionId, currentTask.currentAgentId!)
+      : undefined;
     const criteria = detail.acceptanceCriteria.filter(criterion => criterion.planVersion === detail.execution.currentPlanVersion);
     const checklist = this.store.kanban.getChecklist(executionId);
     const lastReceipt = this.store.kanban.listReceipts(executionId).filter(receipt => receipt.round === round).slice(-1)[0]
@@ -1489,9 +1505,12 @@ export class DurableExecutionRuntime {
     try {
       // The visible conversation gets a per-round response row before the run
       // so live deltas have somewhere to land (spec 执行形态修订).
-      try { this.options.onAttemptStart?.(detail.execution, round); }
+      try { this.options.onAttemptStart?.(detail.execution, round, memberSessionId); }
       catch (error) { momWarn("durableExecution", "kanban_attempt_start_failed", { executionId, round, error: String(error) }); }
       this.reflowMemberRound({ execution: detail.execution, task: currentTask, kind: "ack" });
+      if (memberSessionId && handoffBrief) {
+        this.reflowMemberRound({ execution: detail.execution, task: currentTask, kind: "brief", sessionId: memberSessionId, brief: handoffBrief });
+      }
       const attemptHooks: DurableAttemptHooks = {
         // Live steering (spec 执行形态修订 切片②): mid-run corrections inject
         // into the current round; the registry entry dies with the round.
@@ -1510,7 +1529,8 @@ export class DurableExecutionRuntime {
                 runId,
                 runnerEvent.event.type === "text_delta" ? "text" : "thinking",
                 runnerEvent.event.delta,
-                round
+                round,
+                memberSessionId
               );
             } catch (error) {
               momWarn("durableExecution", "kanban_live_output_failed", { executionId, error: String(error) });
@@ -1519,7 +1539,7 @@ export class DurableExecutionRuntime {
           const activity = activityCollector.record(runnerEvent);
           if (activity) {
             try {
-              this.options.onAttemptProgress?.(detail.execution, activityCollector.snapshot().map(activity => ({ ...activity, key: `${runId}:${activity.key}` })), round);
+              this.options.onAttemptProgress?.(detail.execution, activityCollector.snapshot().map(activity => ({ ...activity, key: `${runId}:${activity.key}` })), round, memberSessionId);
             } catch (error) {
               momWarn("durableExecution", "kanban_progress_failed", { executionId, error: String(error) });
             }
@@ -1629,7 +1649,7 @@ export class DurableExecutionRuntime {
         }
       };
       const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
-      endDurableConversationOutput(executionId, runId, round);
+      endDurableConversationOutput(executionId, runId, round, memberSessionId);
       const roundReceipt = this.store.kanban.listReceipts(executionId).filter(receipt => receipt.round === round).slice(-1)[0] ?? null;
       if (roundReceipt?.actions.conclusion || roundReceipt?.actions.evidence?.length) {
         this.reflowMemberRound({
@@ -1642,7 +1662,8 @@ export class DurableExecutionRuntime {
       }
       // The visible conversation receives the round's final reply through the
       // same delivery queue plan attempts use (crash-safe, dedup by runId).
-      const deliverySessionId = detail.execution.sourceUiSessionId?.trim();
+      // Member rounds deliver into the member's child session.
+      const deliverySessionId = memberSessionId ?? detail.execution.sourceUiSessionId?.trim();
       if (deliverySessionId && attemptResult.text) {
         this.store.recordAttemptDelivery({ executionId, sessionId: deliverySessionId, runId, text: attemptResult.text, round });
         await this.reconcileAttemptDeliveries();

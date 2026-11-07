@@ -827,15 +827,17 @@ function initializeRuntime(): RuntimeState {
         console.error(`${runtimeLabel("runtime")} durable_execution_store_fatal ${error.message}`);
       },
       resolvePlanPolicy: (_execution, binding) => planExecutionPolicy(state.settings, binding),
-      onAttemptStart: (execution, round) => ensureDurableConversationResponse(state.sessions, execution, isChineseLocale(state.settings.locale), round),
-      onMemberReflow: ({ execution, text }) => {
-        const sessionId = execution.sourceUiSessionId?.trim();
-        if (!sessionId) return;
-        try { state.sessions.appendMessage(sessionId, "assistant", text); }
+      onAttemptStart: (execution, round, sessionId) => ensureDurableConversationResponse(state.sessions, execution, isChineseLocale(state.settings.locale), round, sessionId),
+      onMemberReflow: ({ execution, kind, text, sessionId }) => {
+        const target = sessionId ?? execution.sourceUiSessionId?.trim();
+        if (!target) return;
+        // The member's dispatch brief is their child session's user-side input;
+        // ack/receipt summaries sign the main conversation as assistant turns.
+        try { state.sessions.appendMessage(target, kind === "brief" ? "user" : "assistant", text); }
         catch (error) { console.warn(`${runtimeLabel("runtime")} kanban_member_reflow_append_failed ${String(error)}`); }
       },
-      onAttemptProgress: (execution, activities, round) => updateDurableConversationProgress(state.sessions, execution, activities, round),
-      onAttemptOutput: (execution, runId, field, delta, round) => updateDurableConversationOutput(state.sessions, execution, runId, field, delta, round),
+      onAttemptProgress: (execution, activities, round, sessionId) => updateDurableConversationProgress(state.sessions, execution, activities, round, sessionId),
+      onAttemptOutput: (execution, runId, field, delta, round, sessionId) => updateDurableConversationOutput(state.sessions, execution, runId, field, delta, round, sessionId),
       onAttemptDelivery: input => deliverDurableAttempt(state.sessions, input)
     });
     if (!liveServicesDisabled()) {

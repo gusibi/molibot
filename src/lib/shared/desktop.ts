@@ -1287,6 +1287,8 @@ export interface DesktopKanbanTaskBundle {
   handoffs: Array<{ id: string; round: number; fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string; createdAt: string }>;
   /** Per-attempt conversation projection: tool activity and the final model reply, ordered by time. */
   attempts: Array<{ attemptId: string; runId: string; round: number | null; text: string; activities: DesktopConversationActivity[]; updatedAt: string }>;
+  /** Member child sessions (team tasks): read-only views nested under the main conversation. */
+  memberSessions: Array<{ agentId: string; sessionId: string }>;
 }
 
 export interface DesktopKanbanCreateRequest {
