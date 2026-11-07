@@ -451,7 +451,7 @@ test("a task interrupted by a restart resumes its round loop after recovery revi
       executionId, expectedVersion: store.getById(executionId)!.version, processOwnerId: "process-dead",
       runId: "dead-run", contextSessionId: "dead-ctx", leaseDurationMs: -1_000
     });
-    store.reconcileOrphanedAttempts("process-a", new Date(Date.parse("2026-11-07T12:00:00.000Z")));
+    store.reconcileOrphanedAttempts("process-a", new Date(Date.now() + 3_600_000));
     assert.equal(store.getById(executionId)!.status, "recovery_required");
 
     let round = 0;
@@ -487,7 +487,7 @@ test("recovery parks on the user when the interrupted round recorded an unknown 
       sideEffectClass: "non_idempotent", idempotencyKey: "key-1",
       targetSummary: "web_search", contentSummary: "publish"
     });
-    store.reconcileOrphanedAttempts("process-a", new Date(Date.parse("2026-11-07T12:00:00.000Z")));
+    store.reconcileOrphanedAttempts("process-a", new Date(Date.now() + 3_600_000));
     const runtime = new DurableExecutionRuntime({
       store, processOwnerId: "process-a", dataDir: join("__unused__"),
       channelManagers: new Map([["web", new Map([["bot-1", {
