@@ -205,7 +205,8 @@ export class PlanService {
       receipts: this.store.kanban.listReceipts(executionId),
       checklist: this.store.kanban.getChecklist(executionId),
       inputs: this.store.kanban.listInputs(executionId, false),
-      handoffs: this.store.kanban.listHandoffs(executionId)
+      handoffs: this.store.kanban.listHandoffs(executionId),
+      attempts: this.store.listAttemptActivities(executionId)
     };
   }
 
@@ -290,6 +291,12 @@ export class PlanService {
     };
     const statuses = filter.stage ? stageStatuses[filter.stage] : undefined;
     const summaries = this.store.kanban.listExecutionSummaries({ ownerId: filter.ownerId, statuses });
+    // Batched lookups: one query per table for the whole page instead of
+    // several queries per card.
+    const tasks = this.store.kanban.getTasksByExecutions(summaries.map(summary => summary.executionId));
+    const checklists = this.store.kanban.getChecklistsByExecutions(summaries.filter(summary => tasks.has(summary.executionId)).map(summary => summary.executionId));
+    const planAgents = this.store.listPlanAgentsByExecutions(summaries.filter(summary => !tasks.has(summary.executionId)).map(summary => summary.executionId));
+    const stepStatuses = this.store.listStepStatusesByExecutions(summaries.filter(summary => !tasks.has(summary.executionId)).map(summary => summary.executionId));
     const search = filter.search?.trim().toLowerCase();
     const items: KanbanBoardItem[] = [];
     const projectIds = new Set<string>();
@@ -301,7 +308,7 @@ export class PlanService {
       const subState = kanbanDoingSubStateOf(summary.status as DurableExecutionStatus);
       const base: KanbanBoardItem = {
         executionId: summary.executionId,
-        shortHandle: this.shortHandleOf(summary.executionId),
+        shortHandle: summary.shortHandle,
         kind: summary.isKanban ? "kanban" : "legacy-plan",
         stage,
         ...(subState ? { doingSubState: subState } : {}),
@@ -309,12 +316,12 @@ export class PlanService {
         goal: summary.goal,
         ...(summary.projectId ? { projectId: summary.projectId } : {}),
         ...(summary.waitingReason ? { waitingReason: summary.waitingReason } : {}),
-        version: this.versionOf(summary.executionId),
+        version: summary.version,
         createdAt: summary.createdAt,
         updatedAt: summary.updatedAt
       };
-      const task = summary.isKanban ? this.store.kanban.getTask(summary.executionId) : undefined;
-      const checklist = task ? checklistProgressOf(this.store.kanban.getChecklist(summary.executionId)) : undefined;
+      const task = tasks.get(summary.executionId);
+      const checklist = task ? checklistProgressOf(checklists.get(summary.executionId) ?? []) : undefined;
       if (task) {
         if (filter.executorAgentId) {
           const involved = task.form === "single"
@@ -329,7 +336,7 @@ export class PlanService {
           executorLabel: executorLabelOf(task),
           ...(task.currentAgentId ? { currentAgentId: task.currentAgentId } : {}),
           ...(checklist ? { checklist } : {}),
-          budgetTokensUsed: this.tokensUsedOf(summary.executionId),
+          budgetTokensUsed: summary.tokensUsed,
           ...(task.budgetTokenLimit != null ? { budgetTokenLimit: task.budgetTokenLimit } : {}),
           handoffCount: task.handoffCount,
           handoffLimit: task.handoffLimit,
@@ -339,34 +346,21 @@ export class PlanService {
         });
         continue;
       }
-      if (filter.executorAgentId && this.store.getPlanAgent(summary.executionId) !== filter.executorAgentId) continue;
-      items.push({ ...base, progress: this.legacyProgressOf(summary.executionId) });
+      if (filter.executorAgentId && planAgents.get(summary.executionId) !== filter.executorAgentId) continue;
+      const steps = (stepStatuses.get(summary.executionId) ?? []).filter(step => step.planVersion === summary.currentPlanVersion);
+      items.push({
+        ...base,
+        progress: {
+          completed: steps.filter(step => step.status === "completed" || step.status === "skipped").length,
+          total: steps.length
+        }
+      });
     }
     const counts: Record<KanbanBoardStage | "all", number> = { all: items.length, todo: 0, doing: 0, done: 0, cancelled: 0 };
     for (const item of items) counts[item.stage] += 1;
     const offset = filter.offset ?? 0;
     const limit = filter.limit ?? items.length;
     return { items: items.slice(offset, offset + limit), total: items.length, projectIds: [...projectIds].sort(), counts };
-  }
-
-  private legacyProgressOf(executionId: string): { completed: number; total: number } | undefined {
-    const execution = this.store.getById(executionId);
-    if (!execution) return undefined;
-    const detail = this.store.getDetail(executionId);
-    const steps = detail?.steps.filter(step => step.planVersion === execution.currentPlanVersion) ?? [];
-    return { completed: steps.filter(step => step.status === "completed" || step.status === "skipped").length, total: steps.length };
-  }
-
-  private shortHandleOf(executionId: string): string {
-    return this.store.getById(executionId)?.shortHandle ?? "";
-  }
-
-  private versionOf(executionId: string): number {
-    return this.store.getById(executionId)?.version ?? 0;
-  }
-
-  private tokensUsedOf(executionId: string): number {
-    return this.store.getById(executionId)?.tokensUsed ?? 0;
   }
 
   private toListItem(

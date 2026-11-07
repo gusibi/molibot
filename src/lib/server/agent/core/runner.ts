@@ -254,6 +254,7 @@ export class MomRunner implements RunnerLike {
    */
   private activeContextEstimate: Pick<SessionContextSnapshot, "contextWindow" | "estimatedTokens" | "breakdown"> | null = null;
   private activeProject: MomContext["project"] | undefined;
+  private activeWorkingDirOverride: string | undefined;
   /** An admitted approval parks the original native owner before any later operation. */
   private activeApprovalSuspension: { requestId: string } | null = null;
   private activePiExtensionFailure: string | null = null;
@@ -296,7 +297,7 @@ export class MomRunner implements RunnerLike {
   }
 
   private currentWorkingDir(): string {
-    return resolveSessionWorkingDir(this.activeProject, this.store.getScratchDir(this.chatId));
+    return this.activeWorkingDirOverride ?? resolveSessionWorkingDir(this.activeProject, this.store.getScratchDir(this.chatId));
   }
   private activeRunnerEventSink: NonNullable<MomContext["onRunnerEvent"]> | undefined;
   private activeRunBudget: RunBudget | undefined;
@@ -916,6 +917,7 @@ export class MomRunner implements RunnerLike {
       this.store.markSessionOrigin(this.chatId, this.sessionId, { agentId: this.runtimeIdentity.agentId });
     }
     this.activeProject = ctx.project;
+    this.activeWorkingDirOverride = ctx.workingDirOverride;
     this.activeToolAuthority = ctx.assertToolAuthority;
     this.activeExecutionPolicy = ctx.executionPolicy;
     const messageWithRun = ctx.message as ChannelInboundMessage & { runId?: string };
@@ -4006,6 +4008,7 @@ export class MomRunner implements RunnerLike {
       this.activeSkillLoadSeq = 0;
       this.submittedVideoTaskId = undefined;
       this.activeProject = undefined;
+      this.activeWorkingDirOverride = undefined;
       this.abortRequested = false;
       if (this.activeRunAcceptedSteering.length > 0) {
         this.agent.clearSteeringQueue();

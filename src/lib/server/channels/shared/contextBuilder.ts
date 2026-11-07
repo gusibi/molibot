@@ -36,6 +36,8 @@ interface BuildTextChannelContextOptions<TSent extends ContextSentMessageRef> {
   instanceId: string;
   activeSessionId: string;
   project?: MomContext["project"];
+  /** Task-scoped tool working directory override (Kanban Task workDir). */
+  workingDirOverride?: string;
   modelKeyOverride?: string;
   thinkingLevelOverride?: MomContext["thinkingLevelOverride"];
   /** Present when the scope is in Project mode: session messages must land in the project session store. */
@@ -135,6 +137,7 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
     workspaceDir: options.workspaceDir,
     chatDir: options.chatDir,
     project: options.project,
+    workingDirOverride: options.workingDirOverride,
     modelKeyOverride: options.modelKeyOverride,
     thinkingLevelOverride: options.thinkingLevelOverride,
     respond: async (text: string, shouldLog = true) => {

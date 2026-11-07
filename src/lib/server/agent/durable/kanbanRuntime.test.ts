@@ -1047,3 +1047,41 @@ test("the handoff limit stops automatic dispatch and parks the task on the user"
     cleanup();
   }
 });
+
+test("the round's tool activity and final reply persist as the attempt's conversation projection", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          await hooks.submitKanbanReceipt!({ conclusion: "跑完了验证", continueWork: true });
+          hooks.onRunnerEvent?.({
+            type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", label: "运行测试"
+          } as any);
+          return {
+            result: { stopReason: "stop" as const, usage: USAGE },
+            contextSessionId: "ctx-projection",
+            text: "已运行测试并通过。"
+          };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    const projections = store.listAttemptActivities(executionId);
+    assert.equal(projections.length, 1);
+    assert.equal(projections[0].round, 1);
+    assert.equal(projections[0].text, "已运行测试并通过。");
+    assert.equal(projections[0].activities.length, 1);
+    assert.equal(projections[0].activities[0].key, "call-1");
+    assert.equal(projections[0].activities[0].tool, "bash");
+    assert.equal(projections[0].activities[0].label, "运行测试");
+  } finally {
+    cleanup();
+  }
+});

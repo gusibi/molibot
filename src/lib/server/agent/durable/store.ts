@@ -768,6 +768,27 @@ export class DurableExecutionStore {
     return (this.db.prepare("SELECT agent_id FROM durable_plan_origins WHERE execution_id = ?").get(executionId) as { agent_id: string } | undefined)?.agent_id;
   }
 
+  /** Batched board projection helpers: one IN query per table, not one per card. */
+  listPlanAgentsByExecutions(executionIds: string[]): Map<string, string | undefined> {
+    const map = new Map<string, string | undefined>();
+    if (executionIds.length === 0) return map;
+    const rows = this.db.prepare(`SELECT execution_id, agent_id FROM durable_plan_origins WHERE execution_id IN (${executionIds.map(() => "?").join(",")})`).all(...executionIds) as Array<{ execution_id: string; agent_id: string }>;
+    for (const row of rows) map.set(row.execution_id, row.agent_id);
+    return map;
+  }
+
+  listStepStatusesByExecutions(executionIds: string[]): Map<string, Array<{ planVersion: number; status: string }>> {
+    const map = new Map<string, Array<{ planVersion: number; status: string }>>();
+    if (executionIds.length === 0) return map;
+    const rows = this.db.prepare(`SELECT execution_id, plan_version, status FROM durable_steps WHERE execution_id IN (${executionIds.map(() => "?").join(",")})`).all(...executionIds) as Array<{ execution_id: string; plan_version: number; status: string }>;
+    for (const row of rows) {
+      const list = map.get(row.execution_id) ?? [];
+      list.push({ planVersion: Number(row.plan_version), status: row.status });
+      map.set(row.execution_id, list);
+    }
+    return map;
+  }
+
   getPlanBinding(executionId: string): import("./types.js").PlanBinding | undefined {
     const row = this.db.prepare("SELECT * FROM durable_plan_bindings WHERE execution_id = ?").get(executionId) as { session_id: string; agent_id: string; mode: "manual" | "accept_edits"; approved_version: number } | undefined;
     return row ? { sessionId: row.session_id, agentId: row.agent_id, mode: row.mode, approvedVersion: row.approved_version } : undefined;
@@ -1439,6 +1460,67 @@ export class DurableExecutionStore {
       ORDER BY started_at DESC LIMIT 1
     `).get(text(executionId)) as AttemptRow | undefined;
     return row ? rowToAttempt(row) : null;
+  }
+
+  /**
+   * Persists the conversation projection of one attempt (tool activity and the
+   * final model reply) so task detail surfaces survive process restarts. The
+   * collector itself stays in-memory; this is the durable snapshot taken when
+   * the attempt's runner call returns.
+   */
+  saveAttemptActivity(input: {
+    executionId: string;
+    attemptId: string;
+    runId: string;
+    round?: number;
+    finalText?: string;
+    activities: import("$lib/shared/types/message.js").ConversationActivity[];
+    now?: Date;
+  }): void {
+    const timestamp = nowIso(input.now);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare(`
+        INSERT INTO durable_attempt_activities (attempt_id, execution_id, run_id, round, final_text, activities_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(attempt_id) DO UPDATE SET
+          final_text = excluded.final_text,
+          activities_json = excluded.activities_json,
+          round = excluded.round,
+          updated_at = excluded.updated_at
+      `).run(
+        input.attemptId, input.executionId, input.runId,
+        typeof input.round === "number" ? input.round : null,
+        input.finalText ?? "",
+        JSON.stringify(input.activities),
+        timestamp, timestamp
+      );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listAttemptActivities(executionId: string): Array<{
+    attemptId: string;
+    runId: string;
+    round: number | null;
+    text: string;
+    activities: import("$lib/shared/types/message.js").ConversationActivity[];
+    updatedAt: string;
+  }> {
+    const rows = this.db.prepare("SELECT * FROM durable_attempt_activities WHERE execution_id = ? ORDER BY updated_at ASC, rowid ASC").all(text(executionId)) as Array<{
+      attempt_id: string; run_id: string; round: number | null; final_text: string; activities_json: string; updated_at: string;
+    }>;
+    return rows.map(row => ({
+      attemptId: row.attempt_id,
+      runId: row.run_id,
+      round: row.round === null ? null : Number(row.round),
+      text: row.final_text,
+      activities: parseJson(row.activities_json, []),
+      updatedAt: row.updated_at
+    }));
   }
 
   getOpenApproval(executionId: string, requestId: string): DurableApprovalRequest | null {
@@ -2171,6 +2253,9 @@ export class DurableExecutionStore {
         if (input.kanban.consumeInputs !== false) {
           this.kanban.consumeInputsInTransaction(input.executionId, input.kanban.round, input.kanban.consumeInputIds);
         }
+        if (input.kanban.checklist?.length) {
+          this.kanban.applyChecklistInTransaction(input.executionId, input.kanban.round, input.kanban.checklist);
+        }
         this.kanban.applyRoundSettlementInTransaction({
           executionId: input.executionId,
           round: input.kanban.round,
@@ -2805,7 +2890,8 @@ export class DurableExecutionStore {
           AND checker_type = 'subjective' AND result = 'unproven'
       `).run(timestamp, input.executionId, current.current_plan_version);
     } else if (answer === "continue_work") {
-      this.appendContinuationPlanInTransaction(current, timestamp);
+      // Kanban rounds are receipt-driven and carry no plan steps; only legacy plans get a continuation step.
+      if (!this.kanban.getTask(input.executionId)) this.appendContinuationPlanInTransaction(current, timestamp);
     }
     const unresolved = this.db.prepare("SELECT COUNT(*) AS count FROM durable_acceptance_criteria WHERE execution_id = ? AND plan_version = ? AND required = 1 AND result != 'passed'").get(input.executionId, current.current_plan_version) as { count: number };
     if (answer === "confirm_completion" && unresolved.count > 0) throw new Error("Required verification has not passed. Review the remaining acceptance criteria.");
@@ -3096,6 +3182,17 @@ export class DurableExecutionStore {
       );
       CREATE INDEX IF NOT EXISTS idx_durable_attempts_execution_started ON durable_attempts(execution_id, started_at DESC);
       CREATE INDEX IF NOT EXISTS idx_durable_attempts_running ON durable_attempts(status, execution_id);
+      CREATE TABLE IF NOT EXISTS durable_attempt_activities (
+        attempt_id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL,
+        round INTEGER,
+        final_text TEXT NOT NULL DEFAULT '',
+        activities_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_durable_attempt_activities_execution ON durable_attempt_activities(execution_id, updated_at);
       CREATE TABLE IF NOT EXISTS durable_action_receipts (
         action_id TEXT NOT NULL,
         execution_id TEXT NOT NULL REFERENCES durable_executions(id) ON DELETE CASCADE,

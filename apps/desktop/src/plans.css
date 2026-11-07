@@ -360,6 +360,8 @@
 .kanban-feed-evidence { margin: 0; padding-inline-start: 18px; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 .kanban-feed-intents { display: flex; flex-wrap: wrap; gap: 6px; }
 .kanban-feed-intents span { padding: 1px 8px; border-radius: var(--rounded-sm); background: var(--fill); color: var(--label-secondary); font-size: var(--fs-meta); }
+.kanban-feed-process { color: var(--label-primary); }
+.kanban-feed-reply { margin: 0; padding: 0; border: none; background: none; font-size: var(--fs-label); line-height: var(--lh-label); color: var(--label-primary); }
 .kanban-checklist { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
 .kanban-checklist-item { display: flex; align-items: flex-start; gap: 8px; font-size: var(--fs-label); line-height: var(--lh-label); overflow-wrap: anywhere; }
 .kanban-checklist-item[data-done="true"] { color: var(--label-secondary); }
@@ -372,6 +374,9 @@
 .kanban-create-head h2 { margin: 0; font-size: var(--fs-section); line-height: var(--lh-section); font-weight: 600; }
 .kanban-create-body { flex: 1; display: grid; gap: 14px; padding: 16px 20px; overflow-y: auto; }
 .kanban-create-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.kanban-create-members { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; padding: 8px 10px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); max-height: 132px; overflow-y: auto; }
+.kanban-create-member { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--label-primary); cursor: pointer; }
+.kanban-create-hint { margin: 0; color: var(--label-tertiary); font-size: var(--fs-meta); }
 .kanban-create-autostart { display: inline-flex; align-items: center; gap: 8px; color: var(--label-secondary); font-size: var(--fs-label); }
 .kanban-create-error { margin: 0; color: var(--danger); font-size: var(--fs-meta); }
 .kanban-create-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--separator); }

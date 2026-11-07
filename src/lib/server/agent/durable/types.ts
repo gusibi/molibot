@@ -517,8 +517,11 @@ export type KanbanCompletionSource = "user" | "generated" | "pending";
 export interface KanbanMemberSnapshot {
   agentId: string;
   name: string;
-  modelKey?: string;
-  permissionMode?: string;
+  /**
+   * Deliberately no model/permission fields here: member model and permission
+   * resolve live from Agent settings at every dispatch (spec 164 — the frozen
+   * snapshot never carries authorization).
+   */
 }
 
 export interface KanbanTaskConfig {
@@ -581,6 +584,8 @@ export interface CreateKanbanTaskInput {
 
 /** Structured receipt submitted through the task-scoped receipt tool. */
 export interface KanbanReceiptActions {
+  /** Model-supplied stable idempotency key; a retry attempt resubmitting the same key is deduplicated. */
+  dedupKey?: string;
   conclusion?: string;
   evidence?: string[];
   continueWork?: boolean;
@@ -687,6 +692,8 @@ export interface FinishAttemptInput {
     consumeInputs?: boolean;
     /** Inputs presented in this round's briefing; only these count as consumed (story 24). */
     consumeInputIds?: string[];
+    /** Checklist changes from the settling receipt; applied at settlement so ignored duplicate receipts never mutate it. */
+    checklist?: KanbanReceiptActions["checklist"];
   };
   /** Delays the queued wakeup (scheduled review). */
   nextRunAt?: Date;

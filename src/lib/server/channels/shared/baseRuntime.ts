@@ -12,6 +12,7 @@ import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/ag
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { zeroAssistantUsage } from "$lib/server/agent/core/runnerHelpers.js";
 import { buildRunnerProjectContext } from "$lib/server/projects/context.js";
+import { resolveEffectiveExecutionPolicy } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { getTurnOrchestrator, resolveTurnDecisionPolicy } from "$lib/server/agent/core/turnOrchestrator.js";
@@ -661,6 +662,24 @@ export abstract class BaseChannelRuntime {
       throw new Error("Explicit Project runtime target is unavailable.");
     }
     const selectedProject = target.project;
+    // Kanban member runs reuse the Room member construction rules (spec 155):
+    // the member Agent's model and permission resolve live from settings at
+    // every dispatch — the frozen task snapshot never carries authorization
+    // (spec 164), so a deleted or disabled member fails the dispatch.
+    const kanbanMemberRun = event.isEvent
+      && typeof event.agentId === "string" && event.agentId.length > 0
+      && typeof event.taskId === "string" && event.taskId.startsWith("kanban:");
+    const memberAgent = kanbanMemberRun
+      ? this.getSettings().agents.find(agent => agent.id === event.agentId)
+      : undefined;
+    if (kanbanMemberRun && (!memberAgent || memberAgent.enabled === false)) {
+      this.running.delete(scopeId);
+      restorePreviousActiveSession();
+      throw new Error(`Kanban member Agent ${event.agentId} 不存在或已被禁用，本轮无法执行。`);
+    }
+    const memberPolicy = memberAgent
+      ? resolveEffectiveExecutionPolicy({ getSettings: this.getSettings, agentId: event.agentId })
+      : undefined;
     const sessionThinkingOverride = target.store.getSessionThinkingLevelOverride(target.chatId, target.sessionId);
     if (event.runId && target.conversationId) {
       getEventExecutionLeaseStore().attachSessionByRunId(event.runId, target.conversationId);
@@ -751,7 +770,8 @@ export abstract class BaseChannelRuntime {
       instanceId: this.instanceId,
       activeSessionId,
       project: buildRunnerProjectContext(selectedProject, target.store.getScratchDir(target.chatId)),
-      modelKeyOverride: selectedProject?.modelKey,
+      workingDirOverride: event.workingDir,
+      modelKeyOverride: memberAgent?.modelRouting?.textModelKey || selectedProject?.modelKey,
       thinkingLevelOverride: sessionThinkingOverride ?? selectedProject?.thinkingLevel,
       projectConversation: selectedProject && target.conversationId
         ? { projectId: selectedProject.id, conversationId: target.conversationId }
@@ -854,6 +874,7 @@ export abstract class BaseChannelRuntime {
     let runResult: RunResult | undefined;
     try {
       Object.assign(ctx, options.execution);
+      if (memberPolicy) ctx.executionPolicy = memberPolicy;
       const result = await runner.run(ctx);
       runResult = result;
       runStopReason = result.stopReason;

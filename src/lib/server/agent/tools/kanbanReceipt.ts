@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 
 const kanbanReceiptSchema = Type.Object({
+  dedupKey: Type.Optional(Type.String({ description: "本轮回执的稳定幂等键（如 r3-final）；恢复重试后重复提交同一回执时依赖它去重。" })),
   conclusion: Type.Optional(Type.String({ description: "本轮工作结论（做了什么、发现了什么）。" })),
   evidence: Type.Optional(Type.Array(Type.String(), { description: "支撑结论的证据引用或摘要。" })),
   continueWork: Type.Optional(Type.Boolean({ description: "是否继续下一轮工作。" })),
@@ -21,6 +22,7 @@ const kanbanReceiptSchema = Type.Object({
 });
 
 export type KanbanReceiptToolInput = {
+  dedupKey?: string;
   conclusion?: string;
   evidence?: string[];
   continueWork?: boolean;
@@ -68,6 +70,7 @@ export function getKanbanReceiptToolDefinition(): ToolDefinition {
       }
       try {
         const result = await ctx.submitKanbanReceipt({
+          ...(receipt.dedupKey?.trim() ? { dedupKey: receipt.dedupKey.trim() } : {}),
           conclusion: receipt.conclusion?.trim() || undefined,
           ...(receipt.evidence?.length ? { evidence: receipt.evidence } : {}),
           ...(receipt.continueWork ? { continueWork: true } : {}),

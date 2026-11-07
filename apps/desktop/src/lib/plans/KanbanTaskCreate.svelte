@@ -2,58 +2,65 @@
   import Dialog from "../components/ui/Dialog.svelte";
   import Button from "../components/ui/Button.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
-  import type { DesktopKanbanCreateRequest } from "@molibot/desktop-contract";
+  import type { DesktopAgentItem, DesktopKanbanCreateRequest } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
 
   interface Props {
     open: boolean;
     busy: boolean;
     copy: Translation;
+    projectIds: string[];
+    agents: DesktopAgentItem[];
     onCreate: (payload: DesktopKanbanCreateRequest) => void;
     onClose: () => void;
   }
-  let { open, busy, copy, onCreate, onClose }: Props = $props();
+  let { open, busy, copy, projectIds, agents, onCreate, onClose }: Props = $props();
 
   let form = $state<"single" | "team">("single");
   let title = $state("");
   let goal = $state("");
   let agentId = $state("");
   let coordinatorAgentId = $state("");
-  let membersText = $state("");
+  let selectedMembers = $state<string[]>([]);
   let projectId = $state("");
+  let workDir = $state("");
   let conditionsText = $state("");
   let budget = $state(2_000_000);
+  let handoffLimit = $state(8);
   let approvalPolicy = $state<"suspend" | "deny">("suspend");
+  let humanAcceptance = $state(false);
   let autoStart = $state(true);
   let validationError = $state("");
 
+  const enabledAgents = $derived(agents.filter(agent => agent.enabled));
+  const agentOptions = $derived(enabledAgents.map(agent => ({ value: agent.id, label: agent.name && agent.name !== agent.id ? `${agent.name} (${agent.id})` : agent.id })));
+  const memberOptions = $derived(selectedMembers.map(id => ({ value: id, label: memberLabel(id) })));
   const canSubmit = $derived(title.trim().length > 0 && (form === "single" ? agentId.trim().length > 0 : coordinatorAgentId.trim().length > 0));
 
+  function memberLabel(id: string): string {
+    const agent = agents.find(item => item.id === id);
+    return agent?.name && agent.name !== id ? `${agent.name} (${id})` : id;
+  }
   function reset(): void {
-    form = "single"; title = ""; goal = ""; agentId = ""; coordinatorAgentId = ""; membersText = "";
-    projectId = ""; conditionsText = ""; budget = 2_000_000; approvalPolicy = "suspend"; autoStart = true;
+    form = "single"; title = ""; goal = ""; agentId = ""; coordinatorAgentId = ""; selectedMembers = [];
+    projectId = ""; workDir = ""; conditionsText = ""; budget = 2_000_000; handoffLimit = 8;
+    approvalPolicy = "suspend"; humanAcceptance = false; autoStart = true;
     validationError = "";
   }
   function close(): void {
     reset();
     onClose();
   }
-  function parseMembers(): Array<{ agentId: string; name: string }> {
-    return membersText.split("\n")
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        const [id, ...rest] = line.split(",");
-        const agentId = id.trim();
-        return { agentId, name: rest.join(",").trim() || agentId };
-      })
-      .filter(member => member.agentId.length > 0);
+  function toggleMember(id: string, checked: boolean): void {
+    selectedMembers = checked
+      ? [...selectedMembers, id]
+      : selectedMembers.filter(member => member !== id);
+    if (coordinatorAgentId && !selectedMembers.includes(coordinatorAgentId)) coordinatorAgentId = "";
   }
   function submit(): void {
     if (form === "team") {
-      const members = parseMembers();
       const coordinator = coordinatorAgentId.trim();
-      if (!members.some(member => member.agentId === coordinator)) {
+      if (!selectedMembers.includes(coordinator)) {
         validationError = copy.kanbanFieldMembersPlaceholder;
         return;
       }
@@ -66,14 +73,17 @@
       goal: goal.trim() || title.trim(),
       ...(form === "single"
         ? { agentId: agentId.trim() }
-        : { coordinatorAgentId: coordinatorAgentId.trim(), members: parseMembers() }),
+        : { coordinatorAgentId: coordinatorAgentId.trim(), members: selectedMembers.map(id => ({ agentId: id, name: memberLabel(id) })) }),
       ...(projectId.trim() ? { projectId: projectId.trim() } : {}),
+      ...(workDir.trim() ? { workDir: workDir.trim() } : {}),
       ...(conditionsText.trim() ? {
         completionConditions: conditionsText.split("\n").map(line => line.trim()).filter(Boolean).map(description => ({ description }))
       } : {}),
       ...(conditionsText.trim() ? { completionSource: "user" as const } : {}),
       ...(Number.isFinite(budget) && budget > 0 ? { budgetTokenLimit: Math.round(budget) } : {}),
+      ...(Number.isFinite(handoffLimit) && handoffLimit > 0 ? { handoffLimit: Math.round(handoffLimit) } : {}),
       approvalPolicy,
+      ...(humanAcceptance ? { humanAcceptance: true } : {}),
       autoStart
     });
   }
@@ -96,20 +106,36 @@
         <textarea rows={2} bind:value={goal} placeholder={copy.kanbanFieldGoalPlaceholder}></textarea>
       </label>
       {#if form === "single"}
-        <label class="settings-field"><span>{copy.kanbanFieldAgent}</span>
-          <input type="text" bind:value={agentId} placeholder="default" />
-        </label>
+        <div class="settings-field"><span>{copy.kanbanFieldAgent}</span>
+          <SelectControl value={agentId} ariaLabel={copy.kanbanFieldAgent} options={agentOptions} onChange={value => agentId = value} />
+        </div>
       {:else}
-        <label class="settings-field"><span>{copy.kanbanFieldCoordinator}</span>
-          <input type="text" bind:value={coordinatorAgentId} placeholder="default" />
-        </label>
-        <label class="settings-field"><span>{copy.kanbanFieldMembers}</span>
-          <textarea rows={3} bind:value={membersText} placeholder={copy.kanbanFieldMembersPlaceholder}></textarea>
-        </label>
+        <div class="settings-field"><span>{copy.kanbanFieldCoordinator}</span>
+          <SelectControl value={coordinatorAgentId} ariaLabel={copy.kanbanFieldCoordinator} options={memberOptions} onChange={value => coordinatorAgentId = value} />
+        </div>
+        <div class="settings-field"><span>{copy.kanbanFieldMembers}</span>
+          {#if enabledAgents.length > 0}
+            <div class="kanban-create-members" role="group" aria-label={copy.kanbanFieldMembers}>
+              {#each enabledAgents as agent (agent.id)}
+                <label class="kanban-create-member">
+                  <input type="checkbox" checked={selectedMembers.includes(agent.id)} onchange={event => toggleMember(agent.id, event.currentTarget.checked)} />
+                  <span>{agent.name || agent.id}</span>
+                </label>
+              {/each}
+            </div>
+          {:else}
+            <p class="kanban-create-hint">{copy.kanbanMembersEmpty}</p>
+          {/if}
+        </div>
       {/if}
-      <label class="settings-field"><span>{copy.kanbanFieldProject}</span>
-        <input type="text" bind:value={projectId} />
-      </label>
+      <div class="kanban-create-row">
+        <div class="settings-field"><span>{copy.kanbanFieldProject}</span>
+          <SelectControl value={projectId} ariaLabel={copy.kanbanFieldProject} options={[{ value: "", label: copy.kanbanFieldNoProject }, ...projectIds.map(value => ({ value, label: value }))]} onChange={value => projectId = value} />
+        </div>
+        <label class="settings-field"><span>{copy.kanbanFieldWorkDir}</span>
+          <input type="text" bind:value={workDir} placeholder={copy.kanbanFieldWorkDirPlaceholder} />
+        </label>
+      </div>
       <label class="settings-field"><span>{copy.kanbanFieldConditions}</span>
         <textarea rows={3} bind:value={conditionsText}></textarea>
       </label>
@@ -117,10 +143,17 @@
         <label class="settings-field"><span>{copy.kanbanFieldBudget}</span>
           <input type="number" min={1} step={100_000} bind:value={budget} />
         </label>
+        <label class="settings-field"><span>{copy.kanbanFieldHandoffLimit}</span>
+          <input type="number" min={1} step={1} bind:value={handoffLimit} />
+        </label>
         <div class="settings-field"><span>{copy.kanbanFieldApproval}</span>
           <SelectControl value={approvalPolicy} ariaLabel={copy.kanbanFieldApproval} options={[{ value: "suspend", label: copy.kanbanApprovalSuspend }, { value: "deny", label: copy.kanbanApprovalDeny }]} onChange={value => approvalPolicy = value as typeof approvalPolicy} />
         </div>
       </div>
+      <label class="kanban-create-autostart">
+        <input type="checkbox" bind:checked={humanAcceptance} />
+        <span>{copy.kanbanFieldHumanAcceptance}</span>
+      </label>
       <label class="kanban-create-autostart">
         <input type="checkbox" bind:checked={autoStart} />
         <span>{copy.kanbanFieldAutoStart}</span>

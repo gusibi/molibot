@@ -1390,6 +1390,7 @@ export class DurableExecutionRuntime {
       isEvent: true,
       taskId: `kanban:${executionId}:${round}`,
       projectId: detail.execution.sourceProjectId,
+      workingDir: currentTask.workDir,
       agentId: currentTask.currentAgentId,
       sessionMode: "fresh",
       runId,
@@ -1534,13 +1535,16 @@ export class DurableExecutionRuntime {
           }
           const receiptActions = actions as KanbanReceiptActions;
           receiptCounter += 1;
+          // The model may pin a stable idempotency key; without one the
+          // attempt-local counter still prevents intra-attempt duplicates.
+          const modelDedupKey = typeof receiptActions.dedupKey === "string" && receiptActions.dedupKey.trim() ? receiptActions.dedupKey.trim() : undefined;
           try {
             const recorded = this.store.kanban.transact(() => this.store.kanban.recordReceiptInTransaction({
               executionId,
               round,
               actorAgentId: currentTask.currentAgentId ?? "",
               actions: receiptActions,
-              dedupKey: `r${round}-t${receiptCounter}`,
+              dedupKey: modelDedupKey ?? `r${round}-t${receiptCounter}`,
               expectedVersion: current.version,
               processOwnerId: this.processOwnerId
             }));
@@ -1584,6 +1588,23 @@ export class DurableExecutionRuntime {
       const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
       if (attemptResult.contextSessionId) {
         this.store.setAttemptContextSession(executionId, claimed.attempt.id, this.processOwnerId, attemptResult.contextSessionId);
+      }
+      // Durable conversation projection: the collector is in-memory only, so
+      // snapshot tool activity plus the final reply into the store when the
+      // attempt's runner call returns (detail surfaces read it after restarts).
+      try {
+        this.store.saveAttemptActivity({
+          executionId,
+          attemptId: claimed.attempt.id,
+          runId,
+          round,
+          finalText: attemptResult.text ?? "",
+          activities: activityCollector.snapshot()
+        });
+      } catch (cause) {
+        momWarn("durableExecution", "kanban_attempt_activity_save_failed", {
+          executionId, round, error: cause instanceof Error ? cause.message : String(cause)
+        });
       }
       const result = attemptResult.result;
       const usage = result.usage?.totalTokens;
@@ -1645,27 +1666,32 @@ export class DurableExecutionRuntime {
 
       const roundReceipts = this.store.kanban.listReceipts(executionId).filter(receipt => receipt.round === round);
       const receipt = roundReceipts.slice(-1)[0] ?? null;
+      // Only the settling receipt mutates the checklist; duplicate or
+      // superseded receipts recorded mid-round stay inert.
+      const settlingLedger = receipt?.actions.checklist?.length
+        ? { ...kanbanLedger, checklist: receipt.actions.checklist }
+        : kanbanLedger;
       const decision = decideKanbanRoundOutcome({ receipt, task: currentTask });
       if (decision.kind === "verify") {
         this.settleAttemptSafe({
           executionId, attemptId: claimed.attempt.id, status: "completed",
           nextExecutionStatus: "verifying",
           reason: "The executor requested completion; acceptance criteria are being checked.",
-          tokensUsed, kanban: kanbanLedger
+          tokensUsed, kanban: settlingLedger
         });
       } else if (decision.kind === "question") {
         this.settleAttemptSafe({
           executionId, attemptId: claimed.attempt.id, status: "waiting",
           nextExecutionStatus: "waiting_for_user",
           reason: decision.question.text,
-          tokensUsed, kanban: kanbanLedger
+          tokensUsed, kanban: settlingLedger
         });
       } else if (decision.kind === "schedule_review") {
         this.settleAttemptSafe({
           executionId, attemptId: claimed.attempt.id, status: "completed",
           nextExecutionStatus: "queued", nextRunAt: decision.runAt, wakeupReason: "verify",
           reason: "Scheduled review.",
-          tokensUsed, kanban: kanbanLedger
+          tokensUsed, kanban: settlingLedger
         });
       } else if (decision.kind === "handoff") {
         // 派发前重验: the target must still be in the frozen member snapshot,
@@ -1677,14 +1703,14 @@ export class DurableExecutionRuntime {
             executionId, attemptId: claimed.attempt.id, status: "waiting",
             nextExecutionStatus: "waiting_for_user",
             reason: `协议异常：交接目标 ${decision.agentId} 不在任务成员列表中。已保留本轮产物。`,
-            tokensUsed, kanban: kanbanLedger
+            tokensUsed, kanban: settlingLedger
           });
         } else if (currentTask.handoffCount >= currentTask.handoffLimit) {
           this.settleAttemptSafe({
             executionId, attemptId: claimed.attempt.id, status: "waiting",
             nextExecutionStatus: "waiting_for_user",
             reason: `已达到成员交接上限（${currentTask.handoffLimit} 次）：任务停止自动派发，等待你确认是否继续或结案。`,
-            tokensUsed, kanban: kanbanLedger
+            tokensUsed, kanban: settlingLedger
           });
         } else {
           this.settleAttemptSafe({
@@ -1700,20 +1726,20 @@ export class DurableExecutionRuntime {
           executionId, attemptId: claimed.attempt.id, status: "waiting",
           nextExecutionStatus: "waiting_for_user",
           reason: decision.reason,
-          tokensUsed, kanban: kanbanLedger
+          tokensUsed, kanban: settlingLedger
         });
       } else if (usageGap) {
         this.settleAttemptSafe({
           executionId, attemptId: claimed.attempt.id, status: "waiting",
           nextExecutionStatus: "waiting_for_user",
           reason: KANBAN_USAGE_GAP_REASON,
-          tokensUsed: 0, kanban: kanbanLedger
+          tokensUsed: 0, kanban: settlingLedger
         });
       } else {
         this.settleAttemptSafe({
           executionId, attemptId: claimed.attempt.id, status: "completed",
           nextExecutionStatus: "queued", reason: "The receipt requested another round.",
-          tokensUsed, kanban: kanbanLedger
+          tokensUsed, kanban: settlingLedger
         });
       }
       momLog("durableExecution", "kanban_round_settled", {

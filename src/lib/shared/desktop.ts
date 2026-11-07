@@ -1285,6 +1285,8 @@ export interface DesktopKanbanTaskBundle {
   /** All recorded user inputs; `consumedRound` marks the round that consumed them. */
   inputs: Array<{ inputId: string; text: string; createdAt: string; consumedRound: number | null }>;
   handoffs: Array<{ id: string; round: number; fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string; createdAt: string }>;
+  /** Per-attempt conversation projection: tool activity and the final model reply, ordered by time. */
+  attempts: Array<{ attemptId: string; runId: string; round: number | null; text: string; activities: DesktopConversationActivity[]; updatedAt: string }>;
 }
 
 export interface DesktopKanbanCreateRequest {

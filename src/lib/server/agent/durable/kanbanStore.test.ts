@@ -204,6 +204,46 @@ test("same-project tasks serialize through the Project slot; different projects 
   }
 });
 
+test("a free Project slot still defers to an older queued sibling (creation-order arbitration)", () => {
+  const database = tempDatabase();
+  try {
+    const store = new DurableExecutionStore(database.file);
+    // Both tasks are queued; the newer one reaches the worker batch first.
+    const taskA = store.kanban.createTask(createTaskInput({ projectId: "proj-1", title: "A" }));
+    store.kanban.startTask({ executionId: taskA.executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-a" });
+    const taskB = store.kanban.createTask(createTaskInput({ projectId: "proj-1", title: "B", now: new Date("2026-11-07T08:01:00.000Z") }));
+    store.kanban.startTask({ executionId: taskB.executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-b" });
+
+    const versionB = store.getById(taskB.executionId)!.version;
+    assert.throws(() => store.claimAttempt({
+      executionId: taskB.executionId,
+      expectedVersion: versionB,
+      processOwnerId: "process-1",
+      runId: "run-b",
+      contextSessionId: "ctx-b",
+      leaseDurationMs: 60_000,
+      projectKey: kanbanProjectKey({ projectId: "proj-1" })!
+    }), KanbanProjectSlotHeldError);
+    assert.equal(store.kanban.getProjectSlot("project:proj-1"), null);
+
+    // The older sibling outranks nothing and takes the free slot.
+    const claimedA = store.claimAttempt({
+      executionId: taskA.executionId,
+      expectedVersion: store.getById(taskA.executionId)!.version,
+      processOwnerId: "process-1",
+      runId: "run-a",
+      contextSessionId: "ctx-a",
+      leaseDurationMs: 60_000,
+      projectKey: kanbanProjectKey({ projectId: "proj-1" })!
+    });
+    assert.equal(claimedA.execution.status, "running");
+    assert.equal(store.kanban.getProjectSlot("project:proj-1")?.executionId, taskA.executionId);
+    store.close();
+  } finally {
+    database.cleanup();
+  }
+});
+
 test("receipts deduplicate by identity and reject conflicting bodies", () => {
   const database = tempDatabase();
   try {

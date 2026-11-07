@@ -509,7 +509,7 @@ export class KanbanStore {
   }
 
   /** Legacy plans and kanban tasks both project onto the board by execution status. */
-  listExecutionSummaries(filter: { ownerId: string; statuses?: string[] }): Array<{ executionId: string; status: string; goal: string; projectId: string | null; createdAt: string; updatedAt: string; isKanban: boolean; title: string; waitingReason: string | null }> {
+  listExecutionSummaries(filter: { ownerId: string; statuses?: string[] }): Array<{ executionId: string; status: string; goal: string; projectId: string | null; createdAt: string; updatedAt: string; isKanban: boolean; title: string; waitingReason: string | null; version: number; tokensUsed: number; shortHandle: string; currentPlanVersion: number }> {
     const clauses = ["e.owner_id = ?"];
     const params: Array<string | number | null> = [text(filter.ownerId)];
     if (filter.statuses && filter.statuses.length > 0) {
@@ -518,13 +518,14 @@ export class KanbanStore {
     }
     const rows = this.db.prepare(`
       SELECT e.id, e.status, e.goal, e.source_project_id, e.created_at, e.updated_at, e.waiting_reason,
+        e.version, e.tokens_used, e.short_handle, e.current_plan_version,
         m.title AS title, t.execution_id AS kanban_id
       FROM durable_executions e
       LEFT JOIN durable_plan_meta m ON m.execution_id = e.id
       LEFT JOIN durable_kanban_tasks t ON t.execution_id = e.id
       WHERE ${clauses.join(" AND ")}
       ORDER BY e.created_at ASC
-    `).all(...params) as unknown as Array<{ id: string; status: string; goal: string; source_project_id: string | null; created_at: string; updated_at: string; waiting_reason: string | null; title: string | null; kanban_id: string | null }>;
+    `).all(...params) as unknown as Array<{ id: string; status: string; goal: string; source_project_id: string | null; created_at: string; updated_at: string; waiting_reason: string | null; title: string | null; kanban_id: string | null; version: number; tokens_used: number; short_handle: string; current_plan_version: number }>;
     return rows.map(row => ({
       executionId: row.id,
       status: row.status,
@@ -534,8 +535,44 @@ export class KanbanStore {
       updatedAt: row.updated_at,
       isKanban: row.kanban_id != null,
       title: row.title ?? row.goal,
-      waitingReason: row.waiting_reason
+      waitingReason: row.waiting_reason,
+      version: Number(row.version),
+      tokensUsed: Number(row.tokens_used ?? 0),
+      shortHandle: row.short_handle,
+      currentPlanVersion: Number(row.current_plan_version)
     }));
+  }
+
+  /** Batched board projection: one query per table instead of one per card. */
+  getTasksByExecutions(executionIds: string[]): Map<string, KanbanTaskConfig> {
+    const map = new Map<string, KanbanTaskConfig>();
+    if (executionIds.length === 0) return map;
+    const rows = this.db.prepare(`
+      SELECT * FROM durable_kanban_tasks WHERE execution_id IN (${executionIds.map(() => "?").join(",")})
+    `).all(...executionIds) as unknown as KanbanTaskRow[];
+    for (const row of rows) map.set(row.execution_id, rowToTask(row));
+    return map;
+  }
+
+  getChecklistsByExecutions(executionIds: string[]): Map<string, KanbanChecklistItem[]> {
+    const map = new Map<string, KanbanChecklistItem[]>();
+    if (executionIds.length === 0) return map;
+    const rows = this.db.prepare(`
+      SELECT * FROM durable_kanban_checklist WHERE execution_id IN (${executionIds.map(() => "?").join(",")})
+      ORDER BY sort_index ASC, rowid ASC
+    `).all(...executionIds) as unknown as ChecklistRow[];
+    for (const row of rows) {
+      const list = map.get(row.execution_id) ?? [];
+      list.push({
+        itemId: row.item_id,
+        text: row.text,
+        done: Number(row.done) === 1,
+        sortIndex: Number(row.sort_index),
+        updatedRound: Number(row.updated_round)
+      });
+      map.set(row.execution_id, list);
+    }
+    return map;
   }
 
   getProjectSlot(projectKey: string): { executionId: string; acquiredAt: string } | null {
@@ -547,11 +584,29 @@ export class KanbanStore {
    * Acquires the Project slot inside the attempt-claim transaction. Throws
    * `KanbanProjectSlotHeldError` when another task holds it; the runtime then
    * defers with a capacity wakeup instead of consuming a round.
+   *
+   * Creation-order arbitration (spec 45/46): even when the slot itself is
+   * free, a same-key task created earlier and still queued outranks this one.
+   * The claim aborts and the runtime parks this task without a wakeup; the
+   * older sibling's settlement later releases the slot and wakes the oldest
+   * queued task, so no ordering deadlock is possible.
    */
   acquireProjectSlotInTransaction(executionId: string, projectKey: string, now = new Date()): void {
     const holder = this.db.prepare("SELECT execution_id FROM durable_kanban_project_slots WHERE project_key = ?").get(text(projectKey)) as { execution_id: string } | undefined;
     if (holder && holder.execution_id !== executionId) {
       throw new KanbanProjectSlotHeldError(executionId, projectKey, holder.execution_id);
+    }
+    if (!holder) {
+      const [keyKind, ...rest] = projectKey.split(":");
+      const keyValue = rest.join(":");
+      const older = this.db.prepare(`
+        SELECT t.execution_id FROM durable_kanban_tasks t
+        WHERE t.execution_id != ? AND t.${keyKind === "project" ? "project_id" : "work_dir"} = ?
+          AND t.created_at < (SELECT created_at FROM durable_kanban_tasks WHERE execution_id = ?)
+          AND EXISTS (SELECT 1 FROM durable_executions e WHERE e.id = t.execution_id AND e.status = 'queued')
+        ORDER BY t.created_at ASC LIMIT 1
+      `).get(executionId, keyValue, executionId) as { execution_id: string } | undefined;
+      if (older) throw new KanbanProjectSlotHeldError(executionId, projectKey, older.execution_id);
     }
     this.db.prepare("INSERT OR REPLACE INTO durable_kanban_project_slots (project_key, execution_id, acquired_at) VALUES (?, ?, ?)")
       .run(text(projectKey), executionId, nowIso(now));
@@ -825,7 +880,9 @@ export class KanbanStore {
     if (existing) {
       const receipt = this.rowToReceipt(existing);
       const same = JSON.stringify(receipt.actions) === JSON.stringify(input.actions);
-      if (!same) throw new DurableExecutionConflictError(input.executionId, input.expectedVersion, input.expectedVersion);
+      if (!same) {
+        throw new Error(`Kanban receipt conflict: round ${input.round} already recorded a different receipt from ${input.actorAgentId} under dedup key "${input.dedupKey}" (existing receipt ${existing.receipt_id}).`);
+      }
       return { recorded: false, receipt };
     }
     const timestamp = nowIso(input.now);
@@ -834,7 +891,10 @@ export class KanbanStore {
       INSERT INTO durable_kanban_receipts (receipt_id, execution_id, round, actor_agent_id, actions_json, dedup_key, expected_version, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(receiptId, input.executionId, input.round, input.actorAgentId, JSON.stringify(input.actions), input.dedupKey, input.expectedVersion, timestamp);
-    if (input.actions.checklist) this.applyChecklistInTransaction(input.executionId, input.round, input.actions.checklist);
+    // Checklist changes are NOT applied here: they ride with the round
+    // settlement (FinishAttemptInput.kanban.checklist) so that receipts which
+    // end up ignored (duplicates, superseded within the round) never mutate
+    // the checklist.
     const receipt: KanbanReceipt = {
       receiptId,
       executionId: input.executionId,

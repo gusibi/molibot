@@ -16,7 +16,8 @@
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import X from "reicon-svelte/icons/X";
   import type { DesktopDurableExecutionStatus, DesktopKanbanBoardItem, DesktopKanbanBoardPage, DesktopKanbanStage, DesktopKanbanTaskBundle, DesktopPlanDetail, DesktopPlanStatus, DesktopPlanActionRequest } from "@molibot/desktop-contract";
-  import { loadDesktopKanbanBoard, loadDesktopKanbanTask, loadDesktopPlan, runDesktopPlanAction, streamDesktopPlans } from "../api";
+  import { loadDesktopAgents, loadDesktopKanbanBoard, loadDesktopKanbanTask, loadDesktopPlan, runDesktopPlanAction, streamDesktopPlans } from "../api";
+  import type { DesktopAgentItem } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
 
   export let copy: Translation;
@@ -31,6 +32,7 @@
   let boardPage: DesktopKanbanBoardPage | null = null;
   let boardLoading = true, boardError = "", search = "", projectId = "", projectIds: string[] = [];
   let createOpen = false, createBusy = false, createError = "";
+  let agents: DesktopAgentItem[] = [];
   // Selection: a kanban task or a legacy plan.
   let selectedKind: "" | "kanban" | "plan" = "";
   let selectedId = "";
@@ -78,6 +80,7 @@
       if (!controller.signal.aborted) { online = false; timer = setTimeout(() => void connect(), 1000); }
     };
     void connect();
+    void loadDesktopAgents(endpoint).then(summary => { agents = summary.items; }).catch(() => { agents = []; });
     return () => { mounted = false; controller.abort(); clearTimeout(timer); };
   });
 
@@ -409,5 +412,5 @@
   </div>
 </div>
 
-<KanbanTaskCreate open={createOpen} busy={createBusy} {copy} onCreate={(payload) => void createTask(payload)} onClose={() => createOpen = false} />
+<KanbanTaskCreate open={createOpen} busy={createBusy} {copy} {projectIds} {agents} onCreate={(payload) => void createTask(payload)} onClose={() => createOpen = false} />
 {#if createError}<p class="plans-action-error" role="alert">{createError}</p>{/if}

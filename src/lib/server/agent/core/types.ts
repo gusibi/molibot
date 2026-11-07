@@ -47,6 +47,8 @@ export interface ChannelInboundMessage {
   agentId?: string;
   /** Explicit Project owner for a shared automation attempt. */
   projectId?: string;
+  /** Task-scoped working directory override (Kanban Task execution). */
+  workingDir?: string;
   // fresh: scheduled-event run should start a new task session instead of the chat's active session.
   sessionMode?: "fresh" | "chat";
   sessionId?: string;
@@ -252,6 +254,8 @@ export interface MomContext {
     showReasoning?: "off" | "on" | "stream" | "new";
     runLogNotice?: boolean;
   };
+  /** Overrides the tool working directory for this run (task workDir), winning over the project root. */
+  workingDirOverride?: string;
   thinkingLevelOverride?: RuntimeThinkingSelection;
   thinkingStrategySource?: "request" | "session" | "project" | "global";
   modelKeyOverride?: string;

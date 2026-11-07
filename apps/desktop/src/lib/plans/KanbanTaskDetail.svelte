@@ -5,8 +5,11 @@
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import X from "reicon-svelte/icons/X";
   import Button from "../components/ui/Button.svelte";
-  import type { DesktopKanbanTaskBundle } from "@molibot/desktop-contract";
+  import ChatMarkdown from "../chat/ChatMarkdown.svelte";
+  import ProcessTimeline from "../chat/ProcessTimeline.svelte";
+  import type { DesktopConversationActivity, DesktopKanbanTaskBundle } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
+  import type { TranscriptProcessBlock } from "../chat/transcript";
 
   interface Props {
     bundle: DesktopKanbanTaskBundle | null;
@@ -49,7 +52,8 @@
   type FeedEntry =
     | { kind: "input"; at: string; inputId: string; text: string; consumedRound: number | null }
     | { kind: "receipt"; at: string; receiptId: string; round: number; actorAgentId: string; conclusion: string; evidence: string[]; intents: string[]; question?: string }
-    | { kind: "handoff"; at: string; id: string; round: number; fromAgentId: string | null; toAgentId: string; brief: string };
+    | { kind: "handoff"; at: string; id: string; round: number; fromAgentId: string | null; toAgentId: string; brief: string }
+    | { kind: "attempt"; at: string; attemptId: string; runId: string; round: number | null; text: string; blocks: TranscriptProcessBlock[] };
 
   const feed = $derived.by((): FeedEntry[] => {
     if (!bundle) return [];
@@ -76,6 +80,19 @@
     for (const handoff of bundle.handoffs) {
       if (handoff.kind === "assign") continue;
       entries.push({ kind: "handoff", at: handoff.createdAt, id: handoff.id, round: handoff.round, fromAgentId: handoff.fromAgentId, toAgentId: handoff.toAgentId, brief: handoff.brief });
+    }
+    for (const attempt of bundle.attempts) {
+      // A suspended approval can leave the last tool "running" forever in the
+      // snapshot; the attempt is over, so it reads as info, not a live spinner.
+      const activities: DesktopConversationActivity[] = attempt.activities.map(activity =>
+        activity.state === "running" ? { ...activity, state: "info" } : activity
+      );
+      if (!attempt.text.trim() && activities.length === 0) continue;
+      entries.push({
+        kind: "attempt", at: attempt.updatedAt, attemptId: attempt.attemptId, runId: attempt.runId,
+        round: attempt.round, text: attempt.text,
+        blocks: activities.length > 0 ? [{ id: attempt.attemptId, kind: "activities", activities }] : []
+      });
     }
     return entries.sort((left, right) => left.at.localeCompare(right.at));
   });
@@ -211,7 +228,7 @@
     </section>
 
     <section class="kanban-feed" aria-label={copy.planBoardTitle}>
-      {#each feed as entry (entry.kind === "receipt" ? entry.receiptId : entry.kind === "handoff" ? entry.id : entry.inputId)}
+      {#each feed as entry (entry.kind === "receipt" ? entry.receiptId : entry.kind === "handoff" ? entry.id : entry.kind === "attempt" ? entry.attemptId : entry.inputId)}
         {#if entry.kind === "input"}
           <article class="kanban-feed-item kanban-feed-user" data-consumed={entry.consumedRound !== null}>
             <header><span class="kanban-feed-role">{copy.kanbanUserInputLabel}</span>{#if entry.consumedRound !== null}<span class="kanban-feed-round">{copy.kanbanRoundLabel.replace("{round}", String(entry.consumedRound))}</span>{/if}<time>{formatTime(entry.at)}</time></header>
@@ -222,6 +239,22 @@
             <header><span class="kanban-feed-role">{copy.kanbanHandoffLabel}</span><span class="kanban-feed-round">{copy.kanbanRoundLabel.replace("{round}", String(entry.round))}</span><time>{formatTime(entry.at)}</time></header>
             <p>{entry.fromAgentId ?? "—"} → {entry.toAgentId}</p>
             {#if entry.brief}<p class="kanban-feed-brief"><strong>{copy.kanbanHandoffBrief}</strong>{entry.brief}</p>{/if}
+          </article>
+        {:else if entry.kind === "attempt"}
+          <article class="kanban-feed-item kanban-feed-attempt">
+            <header>
+              <span class="kanban-feed-role">{copy.kanbanAttemptLabel}</span>
+              {#if entry.round !== null}<span class="kanban-feed-round">{copy.kanbanRoundLabel.replace("{round}", String(entry.round))}</span>{/if}
+              <time>{formatTime(entry.at)}</time>
+            </header>
+            {#if entry.blocks.length > 0}
+              <div class="kanban-feed-process">
+                <ProcessTimeline blocks={entry.blocks} {copy} stateKey={entry.attemptId} />
+              </div>
+            {/if}
+            {#if entry.text.trim()}
+              <ChatMarkdown source={entry.text} {copy} className="kanban-feed-reply markdown-body" contentKey={entry.attemptId} />
+            {/if}
           </article>
         {:else}
           <article class="kanban-feed-item kanban-feed-receipt">
