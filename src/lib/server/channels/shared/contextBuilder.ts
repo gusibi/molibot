@@ -54,6 +54,7 @@ interface BuildTextChannelContextOptions<TSent extends ContextSentMessageRef> {
   onApprovalRequest?: DurableAttemptHooks["onApprovalRequest"];
   consumeDurableApproval?: DurableAttemptHooks["consumeDurableApproval"];
   readDurableEvidence?: DurableAttemptHooks["readDurableEvidence"];
+  submitKanbanReceipt?: DurableAttemptHooks["submitKanbanReceipt"];
   onDurablePromotion?: (input: DurablePromotionRequest) => Promise<DurablePromotionResult>;
 }
 
@@ -226,6 +227,7 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
     onApprovalRequest: options.onApprovalRequest,
     consumeDurableApproval: options.consumeDurableApproval,
     readDurableEvidence: options.readDurableEvidence,
+    submitKanbanReceipt: options.submitKanbanReceipt,
     onDurablePromotion: options.onDurablePromotion
   };
 

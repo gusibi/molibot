@@ -32,7 +32,7 @@ test("boardPage projects stages and full-set counts for kanban tasks and legacy 
         { agentId: "agent-cr", name: "Reviewer" }
       ],
       projectId: "proj-1",
-      autoStart: true,
+      autoStart: false,
       now: new Date("2026-11-07T08:00:00.000Z")
     });
     store.kanban.transact(() => {
@@ -114,7 +114,8 @@ test("createKanbanTask validates inputs and startTask flows through the service"
       title: "Refactor the importer",
       goal: "Refactor and test.",
       agentId: "agent-coder",
-      completionConditions: [{ description: "Tests pass" }]
+      completionConditions: [{ description: "Tests pass" }],
+      autoStart: false
     });
     assert.equal(detail.execution.status, "planned");
     const started = service.startKanbanTask({
@@ -126,6 +127,61 @@ test("createKanbanTask validates inputs and startTask flows through the service"
     assert.equal(started.execution.status, "queued");
     service.addKanbanInput({ ownerId: "owner-1", executionId: detail.execution.id, text: "Target module: src/importer." });
     assert.equal(service.listKanbanInputs("owner-1", detail.execution.id, true).length, 1);
+    store.close();
+  } finally {
+    database.cleanup();
+  }
+});
+
+test("auto-start queues a new task and replays stay on the queue; answers requeue waiting tasks", () => {
+  const database = tempDatabase();
+  try {
+    const store = new DurableExecutionStore(database.file);
+    const service = new PlanService(store);
+    const created = service.createKanbanTask({
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "single",
+      title: "Summarize the meeting notes",
+      goal: "Produce the summary.",
+      agentId: "agent-a",
+      autoStart: true
+    });
+    assert.equal(created.execution.status, "queued");
+
+    // A replayed create with the same deterministic id must not double-start:
+    // the auto-start action receipt makes the second start a no-op.
+    const replayed = service.createKanbanTask({
+      kanbanTaskId: created.execution.id,
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "single",
+      title: "Summarize the meeting notes",
+      goal: "Produce the summary.",
+      agentId: "agent-a",
+      autoStart: true
+    });
+    assert.equal(replayed.execution.status, "queued");
+
+    // Park on the user (queued cannot transition directly, so claim a round
+    // first), answer, and confirm the task requeues with the input pending.
+    const claimed = store.claimAttempt({
+      executionId: created.execution.id, expectedVersion: replayed.execution.version,
+      processOwnerId: "process-test", runId: "run-park", contextSessionId: "ctx-park", leaseDurationMs: 60_000
+    });
+    const parked = store.transitionStatus(created.execution.id, claimed.execution.version, "waiting_for_user", { waitingKind: "user", waitingReason: "Which format?" });
+    const answered = service.answerKanbanTask({ ownerId: "owner-1", executionId: created.execution.id, text: "Use Markdown." });
+    assert.equal(answered.execution.status, "queued");
+    assert.equal(answered.execution.version, parked.version + 2);
+    const pending = service.listKanbanInputs("owner-1", created.execution.id, true);
+    assert.deepEqual(pending.map(input => input.text), ["Use Markdown."]);
+
+    // Answers on a task that is not waiting still record for the next round
+    // without an illegal transition.
+    store.transitionStatus(created.execution.id, answered.execution.version, "paused");
+    const answeredAgain = service.answerKanbanTask({ ownerId: "owner-1", executionId: created.execution.id, text: "Also keep it short." });
+    assert.equal(answeredAgain.execution.status, "paused");
+    assert.equal(service.listKanbanInputs("owner-1", created.execution.id, true).length, 2);
     store.close();
   } finally {
     database.cleanup();

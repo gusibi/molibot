@@ -1755,6 +1755,7 @@ export class MomRunner implements RunnerLike {
           : undefined),
       consumeDurableApproval: ctx.consumeDurableApproval,
       readDurableEvidence: ctx.readDurableEvidence,
+      submitKanbanReceipt: ctx.submitKanbanReceipt,
     });
     const scopedMcpServers = resolveScopedMcpServers();
 

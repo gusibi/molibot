@@ -108,6 +108,8 @@ export interface ToolExecutionContext {
   consumeDurableApproval?: (request: ToolApprovalConsumptionRequest) => Promise<false | "once" | "session" | "persistent">;
   /** Durable attempts may read only evidence references already attached to their execution. */
   readDurableEvidence?: (evidenceId: string) => Promise<DurableEvidenceRead>;
+  /** Kanban Task attempts record their structured round receipt through this hook. */
+  submitKanbanReceipt?: (actions: unknown) => Promise<{ ok: boolean; receiptId?: string; recorded?: boolean; error?: string }>;
 }
 
 export interface ToolSideEffect {

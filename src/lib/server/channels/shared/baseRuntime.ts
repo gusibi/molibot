@@ -611,6 +611,7 @@ export abstract class BaseChannelRuntime {
       onApprovalRequest?: DurableAttemptHooks["onApprovalRequest"];
       consumeDurableApproval?: DurableAttemptHooks["consumeDurableApproval"];
       readDurableEvidence?: DurableAttemptHooks["readDurableEvidence"];
+      submitKanbanReceipt?: DurableAttemptHooks["submitKanbanReceipt"];
       onRunComplete?: (result: RunResult, meta: {
         activeSessionId: string;
         threadEventCount: number;
@@ -787,6 +788,7 @@ export abstract class BaseChannelRuntime {
         ?? (event.isEvent ? async () => "defer" as const : undefined),
       consumeDurableApproval: options.consumeDurableApproval,
       readDurableEvidence: options.readDurableEvidence,
+      submitKanbanReceipt: options.submitKanbanReceipt,
       onDurablePromotion: event.isEvent
         ? undefined
         : async (input) => {
@@ -907,6 +909,7 @@ export abstract class BaseChannelRuntime {
       },
       consumeDurableApproval: hooks.consumeDurableApproval,
       readDurableEvidence: hooks.readDurableEvidence,
+      submitKanbanReceipt: hooks.submitKanbanReceipt,
       onRunComplete: async (_result, meta) => {
         contextSessionId = meta.activeSessionId;
       },

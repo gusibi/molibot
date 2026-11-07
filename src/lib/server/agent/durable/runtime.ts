@@ -13,6 +13,10 @@ import type { ChannelManager } from "$lib/server/channels/registry.js";
 import type { DurableExecution, DurableWakeup, DurableWakeupMode, ExecutionStep, SideEffectRecord, StepVerificationRule } from "./types.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { readDurableEvidence } from "./evidence.js";
+import { buildKanbanBriefing, decideKanbanRoundOutcome, KANBAN_USAGE_GAP_REASON } from "./kanbanRuntime.js";
+import { kanbanProjectKey } from "./kanbanStore.js";
+import type { KanbanReceiptActions, KanbanTaskConfig } from "./types.js";
+import { KanbanProjectSlotHeldError } from "./types.js";
 import { durableExecutionEventsDir, enqueueDurableExecutionEvent } from "./events.js";
 import { isStorageError, isTransientError } from "./storageErrors.js";
 import { migrateDurableEventFiles, pruneDurableEventFiles } from "./wakeupMigration.js";
@@ -549,6 +553,19 @@ export class DurableExecutionRuntime {
       return { kind: "done" };
     }
 
+    // A kanban task advances in receipt-driven rounds, not through plan steps.
+    // Only a started (queued) task runs; `planned` waits for its start action.
+    const kanbanTask = this.store.kanban.getTask(input.executionId);
+    if (kanbanTask) {
+      if (detail.execution.status !== "queued") return { kind: "discarded" };
+      return this.executeKanbanRound({
+        expectedVersion: expectedVersionForAttempt,
+        task: kanbanTask,
+        detail,
+        label: filename
+      });
+    }
+
     const sourceChatId = detail.execution.sourceChatId;
     const manager = sourceChatId
       ? this.options.channelManagers.get(detail.execution.sourceChannel)?.get(detail.execution.botId)
@@ -1072,6 +1089,9 @@ export class DurableExecutionRuntime {
     reason?: string;
     waitingKind?: DurableExecution["waitingKind"];
     tokensUsed?: number;
+    kanban?: { round: number; usageGap?: boolean };
+    nextRunAt?: Date;
+    wakeupReason?: import("./types.js").WakeupReason;
   }): DurableExecution | null {
     const attemptId = input.attemptId ?? this.store.runningAttempt(input.executionId)?.id;
     if (!attemptId) return null;
@@ -1089,7 +1109,10 @@ export class DurableExecutionRuntime {
           nextExecutionStatus: input.nextExecutionStatus,
           ...(input.reason ? { reason: input.reason } : {}),
           ...(input.waitingKind ? { waitingKind: input.waitingKind } : {}),
-          ...(input.tokensUsed !== undefined ? { tokensUsed: input.tokensUsed } : {})
+          ...(input.tokensUsed !== undefined ? { tokensUsed: input.tokensUsed } : {}),
+          ...(input.kanban ? { kanban: input.kanban } : {}),
+          ...(input.nextRunAt ? { nextRunAt: input.nextRunAt } : {}),
+          ...(input.wakeupReason ? { wakeupReason: input.wakeupReason } : {})
         });
       } catch (cause) {
         if (cause instanceof DurableExecutionConflictError) {
@@ -1211,6 +1234,389 @@ export class DurableExecutionRuntime {
       sideEffectClass: step.sideEffectClass,
       filename
     });
+  }
+
+  /**
+   * One kanban round: claim (with the Project advance slot), run the current
+   * advancer in the task's isolated context, then settle from the structured
+   * receipt. The synthetic `kanban:<id>` source chat keeps rounds (and team
+   * members) serialized through the chat's single-flight lock.
+   */
+  private async executeKanbanRound(input: {
+    expectedVersion: number;
+    task: KanbanTaskConfig;
+    detail: NonNullable<ReturnType<DurableExecutionStore["getDetail"]>>;
+    label: string;
+  }): Promise<WakeupExecutionOutcome> {
+    const executionId = input.task.executionId;
+    const projectKey = kanbanProjectKey(input.task);
+    if (projectKey) {
+      const slot = this.store.kanban.getProjectSlot(projectKey);
+      if (slot && slot.executionId !== executionId) {
+        // A holder's settlement releases the slot in the same transaction as
+        // its terminal state, so a held slot here means the holder is genuinely
+        // still occupying the project.
+        this.store.deferQueued(executionId, input.expectedVersion);
+        momLog("durableExecution", "kanban_queued_for_project_slot", {
+          executionId, projectKey, holder: slot.executionId, filename: input.label
+        });
+        return { kind: "done" };
+      }
+    }
+    const manager = this.options.channelManagers.get("web")?.get(input.detail.execution.botId);
+    if (!manager?.runDurableAttempt) {
+      this.store.transitionStatus(executionId, input.expectedVersion, "failed", {
+        lastError: "The kanban runner is unavailable for the web channel."
+      });
+      return { kind: "done" };
+    }
+
+    const round = input.task.roundCount + 1;
+    const runId = `kanban-attempt-${randomUUID()}`;
+    let claimed: ReturnType<DurableExecutionStore["claimAttempt"]>;
+    try {
+      claimed = this.store.claimAttempt({
+        executionId,
+        expectedVersion: input.expectedVersion,
+        processOwnerId: this.processOwnerId,
+        runId,
+        contextSessionId: `pending:${runId}`,
+        leaseDurationMs: this.leaseDurationMs,
+        ...(projectKey ? { projectKey } : {})
+      });
+    } catch (cause) {
+      if (cause instanceof KanbanProjectSlotHeldError) {
+        this.store.deferQueued(executionId, input.expectedVersion);
+        momLog("durableExecution", "kanban_queued_for_project_slot", {
+          executionId, projectKey: cause.projectKey, holder: cause.holderExecutionId, filename: input.label
+        });
+        return { kind: "done" };
+      }
+      if (cause instanceof DurableExecutionBudgetError) {
+        const current = this.store.getById(executionId);
+        if (current && current.version === input.expectedVersion && ["planned", "queued", "recovery_required"].includes(current.status)) {
+          this.store.transitionStatus(executionId, input.expectedVersion, "partial", { lastError: cause.message });
+        }
+        momWarn("durableExecution", "kanban_budget_exhausted", { executionId, reason: cause.message });
+        return { kind: "done" };
+      }
+      throw cause;
+    }
+
+    const currentTask = this.store.kanban.getTask(executionId)!;
+    const detail = this.store.getDetail(executionId)!;
+    const criteria = detail.acceptanceCriteria.filter(criterion => criterion.planVersion === detail.execution.currentPlanVersion);
+    const checklist = this.store.kanban.getChecklist(executionId);
+    const lastReceipt = this.store.kanban.listReceipts(executionId).filter(receipt => receipt.round === round).slice(-1)[0]
+      ?? this.store.kanban.listReceipts(executionId).slice(-1)[0]
+      ?? null;
+    const pendingInputs = this.store.kanban.listInputs(executionId, true);
+    const briefingText = buildKanbanBriefing({
+      task: currentTask,
+      round,
+      criteria,
+      checklist,
+      lastReceipt,
+      pendingInputs
+    });
+    const inbound: ChannelInboundMessage = {
+      chatId: detail.execution.sourceChatId ?? `kanban:${executionId}`,
+      chatType: "private",
+      messageId: Date.now(),
+      userId: "KANBAN_TASK",
+      userName: "KANBAN_TASK",
+      text: briefingText,
+      ts: (Date.now() / 1000).toFixed(6),
+      attachments: [],
+      imageContents: [],
+      isEvent: true,
+      taskId: `kanban:${executionId}:${round}`,
+      projectId: detail.execution.sourceProjectId,
+      agentId: currentTask.currentAgentId,
+      sessionMode: "fresh",
+      runId,
+      budgetId: JSON.stringify(["kanban", executionId, round])
+    };
+
+    const activityCollector = new ConversationActivityCollector();
+    let receiptCounter = 0;
+    let sideEffectWriteChain = Promise.resolve();
+    const serializeSideEffectWrite = <T>(work: () => T | Promise<T>): Promise<T> => {
+      const next = sideEffectWriteChain.then(work, work);
+      sideEffectWriteChain = next.then(() => undefined, () => undefined);
+      return next;
+    };
+    const persistSideEffect = async (phase: "intent" | "receipt", effect: ToolSideEffect, result?: ToolResult): Promise<void> => {
+      await serializeSideEffectWrite(async () => {
+        const current = this.store.getById(executionId);
+        if (!current) throw new DurableExecutionNotFoundError(executionId);
+        const metadata = result?.metadata ?? {};
+        const externalId = typeof metadata.externalId === "string"
+          ? metadata.externalId
+          : typeof metadata.receiptId === "string" ? metadata.receiptId : undefined;
+        // Kanban rounds are not steps; side effects attach to the attempt only.
+        const sideEffectStepId = `kanban-round-${round}`;
+        const record = phase === "intent"
+          ? this.store.recordSideEffectIntent({
+              executionId, stepId: sideEffectStepId, attemptId: claimed.attempt.id,
+              processOwnerId: this.processOwnerId, expectedVersion: current.version,
+              sideEffectClass: effect.sideEffectClass, idempotencyKey: effect.idempotencyKey,
+              targetSummary: effect.targetSummary, contentSummary: effect.contentSummary
+            })
+          : this.store.recordSideEffectReceipt({
+              executionId, stepId: sideEffectStepId, attemptId: claimed.attempt.id,
+              processOwnerId: this.processOwnerId, expectedVersion: current.version,
+              sideEffectClass: effect.sideEffectClass, idempotencyKey: effect.idempotencyKey,
+              targetSummary: effect.targetSummary,
+              contentSummary: result ? `${effect.contentSummary}; result=${JSON.stringify(result.content ?? result.error ?? "").slice(0, 800)}` : effect.contentSummary,
+              externalId,
+              payload: result ? { ok: result.ok, error: result.error } : undefined
+            });
+        momLog("durableExecution", "kanban_side_effect_recorded", {
+          executionId, attemptId: claimed.attempt.id, phase, toolName: effect.toolId, recordId: record.id
+        });
+      });
+    };
+
+    const control = new AbortController();
+    let leaseLost = false;
+    const checkControl = () => {
+      if (this.store.fatalError) { leaseLost = true; control.abort(); return; }
+      if (this.store.getControlRequest(executionId)) control.abort();
+    };
+    const controlTimer = setInterval(checkControl, 100);
+    const heartbeatTimer = setInterval(() => {
+      try {
+        if (!this.store.heartbeat(executionId, this.processOwnerId, this.leaseDurationMs)) {
+          leaseLost = true;
+          control.abort();
+          momWarn("durableExecution", "kanban_lease_lost", { executionId, attemptId: claimed.attempt.id });
+        }
+      } catch (error) {
+        if (isStorageError(error)) {
+          leaseLost = true;
+          this.store.markFatal(error);
+          control.abort();
+          momError("durableExecution", "store_fatal", { executionId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    }, Math.max(1000, Math.floor(this.leaseDurationMs / 3)));
+
+    try {
+      const attemptHooks: DurableAttemptHooks = {
+        execution: {
+          clientSignal: control.signal,
+          awaitToolQuiescence: true,
+          assertToolAuthority: () => control.signal.throwIfAborted()
+        },
+        onRunnerEvent: async (runnerEvent) => {
+          if (runnerEvent.type === "assistant_message_event"
+            && (runnerEvent.event.type === "text_delta" || runnerEvent.event.type === "thinking_delta")) {
+            try {
+              this.options.onAttemptOutput?.(
+                detail.execution,
+                runId,
+                runnerEvent.event.type === "text_delta" ? "text" : "thinking",
+                runnerEvent.event.delta
+              );
+            } catch (error) {
+              momWarn("durableExecution", "kanban_live_output_failed", { executionId, error: String(error) });
+            }
+          }
+          const activity = activityCollector.record(runnerEvent);
+          if (activity) {
+            try {
+              this.options.onAttemptProgress?.(detail.execution, activityCollector.snapshot().map(activity => ({ ...activity, key: `${runId}:${activity.key}` })));
+            } catch (error) {
+              momWarn("durableExecution", "kanban_progress_failed", { executionId, error: String(error) });
+            }
+          }
+          if (runnerEvent.type === "tool_execution_end") {
+            this.store.recordAttemptProgress({
+              attemptId: claimed.attempt.id,
+              toolCallId: runnerEvent.toolCallId,
+              toolId: runnerEvent.toolName,
+              status: runnerEvent.isError ? "failed" : "completed",
+              summary: runnerEvent.summary
+            });
+          }
+        },
+        onToolSideEffectPreflight: (effect) => persistSideEffect("intent", effect),
+        onToolSideEffectReceipt: (effect, result) => persistSideEffect("receipt", effect, result),
+        consumeDurableApproval: async (request: ToolApprovalConsumptionRequest) => serializeSideEffectWrite(() => {
+          const current = this.store.getById(executionId);
+          if (!current) throw new DurableExecutionNotFoundError(executionId);
+          const approval = this.store.getApprovalForKey(executionId, request.backend, request.actionKey);
+          if (!approval) return false;
+          const selectedScope = approval.selectedScope === "session" || approval.selectedScope === "persistent" ? approval.selectedScope : "once";
+          const consumed = this.store.consumeApprovedApproval({
+            executionId, approvalId: approval.id, expectedVersion: current.version, processOwnerId: this.processOwnerId
+          });
+          if (!consumed) return false;
+          momLog("durableExecution", "kanban_approval_consumed", { executionId, attemptId: claimed.attempt.id, approvalId: approval.id });
+          return selectedScope;
+        }),
+        onApprovalRequest: async (request: ToolApprovalRequest) => {
+          // `deny` fails the call without a card (spec: 审批策略拒绝; the executor
+          // looks for an authorized alternative instead of hanging unattended).
+          if (currentTask.approvalPolicy === "deny") return "deny";
+          const current = this.store.getById(executionId);
+          if (!current) throw new DurableExecutionNotFoundError(executionId);
+          const prompt = request.prompt;
+          this.store.recordApprovalRequest({
+            executionId, attemptId: claimed.attempt.id, expectedVersion: current.version,
+            processOwnerId: this.processOwnerId, requestId: request.requestId, backend: request.backend,
+            actionKey: [prompt.request.toolId, prompt.request.command, prompt.request.approvalMode].filter(Boolean).join(":"),
+            toolId: prompt.request.toolId, title: prompt.title, summary: prompt.body,
+            options: prompt.options.map(option => option.id)
+          });
+          return "defer";
+        },
+        readDurableEvidence: async (evidenceId: string) => {
+          const current = this.store.getDetail(executionId);
+          if (!current) throw new DurableExecutionNotFoundError(executionId);
+          const reader = manager.readDurableRunDetail?.bind(manager);
+          return readDurableEvidence(current, evidenceId, reader);
+        },
+        submitKanbanReceipt: async (actions) => {
+          const current = this.store.getById(executionId);
+          if (!current || current.leaseOwnerId !== this.processOwnerId) {
+            return { ok: false, error: "The attempt no longer owns this kanban task." };
+          }
+          receiptCounter += 1;
+          try {
+            const recorded = this.store.kanban.transact(() => this.store.kanban.recordReceiptInTransaction({
+              executionId,
+              round,
+              actorAgentId: currentTask.currentAgentId ?? "",
+              actions: actions as KanbanReceiptActions,
+              dedupKey: `r${round}-t${receiptCounter}`,
+              expectedVersion: current.version,
+              processOwnerId: this.processOwnerId
+            }));
+            return { ok: true, receiptId: recorded.receipt.receiptId, recorded: recorded.recorded };
+          } catch (cause) {
+            return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
+          }
+        }
+      };
+      const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
+      if (attemptResult.contextSessionId) {
+        this.store.setAttemptContextSession(executionId, claimed.attempt.id, this.processOwnerId, attemptResult.contextSessionId);
+      }
+      const result = attemptResult.result;
+      const usage = result.usage?.totalTokens;
+      const usageGap = !(typeof usage === "number" && Number.isFinite(usage));
+      const tokensUsed = usageGap ? 0 : usage;
+      const kanbanLedger = { round, usageGap };
+
+      if (attemptResult.approval || result.stopReason === "waiting_for_approval") {
+        const approval = attemptResult.approval
+          ? this.store.getOpenApproval(executionId, attemptResult.approval.requestId)
+          : undefined;
+        const approvalReason = approval
+          ? `${approval.title}\n${approval.summary}${approval.repeatCount > 1 ? `\nRepeated approval request #${approval.repeatCount}.` : ""}`
+          : "The attempt is waiting for approval before it can continue.";
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "waiting",
+          nextExecutionStatus: "waiting_for_approval", reason: approvalReason,
+          tokensUsed, kanban: kanbanLedger
+        });
+        return { kind: "done" };
+      }
+      if (leaseLost || result.stopReason === "aborted") {
+        // Never write business state over a lease the runtime no longer owns;
+        // recovery reconciles the interrupted attempt.
+        momWarn("durableExecution", "kanban_attempt_aborted", { executionId, round, filename: input.label });
+        return { kind: "done" };
+      }
+      if (result.stopReason === "error") {
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "failed",
+          nextExecutionStatus: "recovery_required", waitingKind: "recovery",
+          reason: result.errorMessage ?? "The kanban attempt ended with an error.",
+          tokensUsed, kanban: kanbanLedger
+        });
+        return { kind: "done" };
+      }
+
+      const roundReceipts = this.store.kanban.listReceipts(executionId).filter(receipt => receipt.round === round);
+      const receipt = roundReceipts.slice(-1)[0] ?? null;
+      const decision = decideKanbanRoundOutcome({ receipt, task: currentTask });
+      if (decision.kind === "verify") {
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "completed",
+          nextExecutionStatus: "verifying",
+          reason: "The executor requested completion; acceptance criteria are being checked.",
+          tokensUsed, kanban: kanbanLedger
+        });
+      } else if (decision.kind === "question") {
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "waiting",
+          nextExecutionStatus: "waiting_for_user",
+          reason: decision.question.text,
+          tokensUsed, kanban: kanbanLedger
+        });
+      } else if (decision.kind === "schedule_review") {
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "completed",
+          nextExecutionStatus: "queued", nextRunAt: decision.runAt, wakeupReason: "verify",
+          reason: "Scheduled review.",
+          tokensUsed, kanban: kanbanLedger
+        });
+      } else if (decision.kind === "handoff") {
+        // Team dispatch lands in the team slice; it must never happen silently.
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "waiting",
+          nextExecutionStatus: "waiting_for_user",
+          reason: `Handoff requested to ${decision.agentId} but team dispatch is not active for this task.`,
+          tokensUsed, kanban: kanbanLedger
+        });
+      } else if (decision.kind === "wait_user") {
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "waiting",
+          nextExecutionStatus: "waiting_for_user",
+          reason: decision.reason,
+          tokensUsed, kanban: kanbanLedger
+        });
+      } else if (usageGap) {
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "waiting",
+          nextExecutionStatus: "waiting_for_user",
+          reason: KANBAN_USAGE_GAP_REASON,
+          tokensUsed: 0, kanban: kanbanLedger
+        });
+      } else {
+        this.settleAttemptSafe({
+          executionId, attemptId: claimed.attempt.id, status: "completed",
+          nextExecutionStatus: "queued", reason: "The receipt requested another round.",
+          tokensUsed, kanban: kanbanLedger
+        });
+      }
+      momLog("durableExecution", "kanban_round_settled", {
+        executionId, round, decision: decision.kind, filename: input.label
+      });
+      return { kind: "done" };
+    } catch (cause) {
+      if (cause instanceof DurableExecutionStoreFailedError) throw cause;
+      if (isStorageError(cause)) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.store.markFatal(error);
+        momError("durableExecution", "store_fatal", { executionId, error: error.message });
+        throw error;
+      }
+      if (isTransientError(cause)) throw cause;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      momWarn("durableExecution", "kanban_round_failed", { executionId, round, error: message });
+      this.settleAttemptSafe({
+        executionId, attemptId: claimed.attempt.id, status: "failed",
+        nextExecutionStatus: "recovery_required", waitingKind: "recovery", reason: message
+      });
+      return { kind: "done" };
+    } finally {
+      clearInterval(controlTimer);
+      clearInterval(heartbeatTimer);
+    }
   }
 
   private async verify(detail: NonNullable<ReturnType<DurableExecutionStore["getDetail"]>>, filename: string): Promise<void> {

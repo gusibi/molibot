@@ -32,6 +32,7 @@ import { createDocumentExportTool } from "$lib/server/agent/tools/documentExport
 import { createProfileFilesTool } from "$lib/server/agent/tools/profileFiles.js";
 import { getReadToolDefinition } from "$lib/server/agent/tools/read.js";
 import { getDurableEvidenceToolDefinition } from "$lib/server/agent/tools/durableEvidence.js";
+import { getKanbanReceiptToolDefinition } from "$lib/server/agent/tools/kanbanReceipt.js";
 import { createSkillManageTool } from "$lib/server/agent/tools/skillManage.js";
 import { createSkillSearchTool } from "$lib/server/agent/tools/skillSearch.js";
 import { createSubagentTool } from "$lib/server/agent/tools/subagent.js";
@@ -208,6 +209,7 @@ export function createMomTools(options: {
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
   readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
+  submitKanbanReceipt?: ToolExecutionContext["submitKanbanReceipt"];
   /** Shared model work for Codemode scripts; omitted when the caller cannot authorize it. */
   modelOperationDeps?: Omit<import("$lib/server/agent/models/modelOperations.js").PiModelOperationsDeps, "artifactDir" | "workspaceDir">;
   /** Real run state handed to pi extension contexts; omitted when unavailable. */
@@ -576,7 +578,8 @@ export function createMomTools(options: {
       onSideEffectReceipt: options.onSideEffectReceipt,
       onApprovalRequest: options.onApprovalRequest,
       consumeDurableApproval: options.consumeDurableApproval,
-      readDurableEvidence: options.readDurableEvidence
+      readDurableEvidence: options.readDurableEvidence,
+      submitKanbanReceipt: options.submitKanbanReceipt
     };
   };
 
@@ -645,6 +648,12 @@ export function createMomTools(options: {
   const durableEvidenceTool = durableEvidenceToolDef
     ? toAgentTool(durableEvidenceToolDef)
     : undefined;
+
+  const kanbanReceiptToolDef = options.submitKanbanReceipt
+    ? getKanbanReceiptToolDefinition()
+    : undefined;
+  if (kanbanReceiptToolDef) registry.register(kanbanReceiptToolDef);
+  const kanbanReceiptTool = kanbanReceiptToolDef ? toAgentTool(kanbanReceiptToolDef) : undefined;
 
   const readToolDef = getReadToolDefinition({
     cwd: options.cwd,
@@ -1027,6 +1036,7 @@ export function createMomTools(options: {
     }),
     ...deferredEntries.flatMap((item) => item.stub ? [item.stub] : []),
     ...(durableEvidenceTool ? [durableEvidenceTool] : []),
+    ...(kanbanReceiptTool ? [kanbanReceiptTool] : []),
     toAgentTool(readToolDef),
     toAgentTool(bashToolDef),
     toAgentTool(editToolDef),

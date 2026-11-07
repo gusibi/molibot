@@ -2131,7 +2131,8 @@ export class DurableExecutionStore {
         enqueueWakeupInTransaction(this.db, {
           executionId: input.executionId,
           expectedVersion: advancedVersion,
-          reason: "advance"
+          reason: input.wakeupReason ?? "advance",
+          ...(input.nextRunAt ? { runAt: input.nextRunAt } : {})
         }, input.now);
       } else if (input.nextExecutionStatus === "verifying") {
         enqueueWakeupInTransaction(this.db, {
@@ -2141,6 +2142,14 @@ export class DurableExecutionStore {
         }, input.now);
       } else {
         discardPendingWakeupsInTransaction(this.db, input.executionId, `execution_${input.nextExecutionStatus}`, input.now);
+      }
+      if (input.kanban) {
+        this.kanban.consumeInputsInTransaction(input.executionId, input.kanban.round);
+        this.kanban.applyRoundSettlementInTransaction({
+          executionId: input.executionId,
+          round: input.kanban.round,
+          usageGap: input.kanban.usageGap
+        });
       }
       releaseProjectSlotInTransaction(this.db, input.executionId, input.now);
       const execution = rowToExecution(this.requireRow(input.executionId));

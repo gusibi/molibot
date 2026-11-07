@@ -362,12 +362,12 @@ export class KanbanStore {
           budget_attempt_limit, budget_lifetime_days, tokens_used, attempts_used, created_at,
           started_at, updated_at, terminal_at, waiting_kind, waiting_reason, next_run_at,
           last_error, activation_path, activation_reason
-        ) VALUES (?, ?, ?, ?, 'web', 'web', ?, NULL, ?, ?, '[]', 'planned', 1,
+        ) VALUES (?, ?, ?, ?, ?, 'web', ?, NULL, ?, ?, '[]', 'planned', 1,
           1, NULL, NULL, ?, NULL, NULL, 0, 0, ?, NULL, ?, NULL, NULL, NULL, NULL, NULL, 'forced', 'kanban-task')
       `).run(
-        executionId, `#${handleSequence}`, handleSequence, ownerId,
+        executionId, `#${handleSequence}`, handleSequence, ownerId, botId,
         `kanban:${executionId}`, input.projectId ?? null, goal,
-        input.budgetTokenLimit ?? null,
+        input.budgetTokenLimit ?? DEFAULT_KANBAN_TOKEN_BUDGET,
         createdAt, createdAt
       );
       this.db.prepare("INSERT INTO durable_plan_versions (execution_id, plan_version, revision_reason, author, created_at) VALUES (?, 1, 'kanban task', 'user', ?)")
@@ -403,7 +403,7 @@ export class KanbanStore {
         text(input.projectId) || null,
         text(input.workDir) || null,
         completionSource,
-        input.budgetTokenLimit ?? null,
+        input.budgetTokenLimit ?? DEFAULT_KANBAN_TOKEN_BUDGET,
         handoffLimit,
         approvalPolicy,
         input.humanAcceptance ? 1 : 0,

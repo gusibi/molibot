@@ -177,6 +177,16 @@ export class PlanService {
 
   createKanbanTask(input: CreateKanbanTaskInput): PlanDetail {
     const task = this.store.kanban.createTask(input);
+    if (task.autoStart) {
+      // Idempotent: the action receipt makes a replayed auto-start a no-op.
+      const detail = this.read(input.ownerId, task.executionId);
+      this.store.kanban.startTask({
+        executionId: task.executionId,
+        ownerId: input.ownerId,
+        expectedVersion: detail.execution.version,
+        actionId: `auto-start-${task.executionId}`
+      });
+    }
     return this.read(input.ownerId, task.executionId);
   }
 
@@ -194,6 +204,23 @@ export class PlanService {
   addKanbanInput(input: { ownerId: string; executionId: string; text: string }) {
     this.read(input.ownerId, input.executionId);
     return this.store.kanban.recordInput({ executionId: input.executionId, text: input.text });
+  }
+
+  /**
+   * Records a person's answer as a pending kanban input for the next round.
+   * When the task was parked on `waiting_for_user`, this also requeues it;
+   * otherwise the input rides along with the already-queued next round.
+   */
+  answerKanbanTask(input: { ownerId: string; executionId: string; text: string }): PlanDetail {
+    const detail = this.read(input.ownerId, input.executionId);
+    const wasWaiting = detail.execution.status === "waiting_for_user";
+    this.store.kanban.recordInput({ executionId: input.executionId, text: input.text });
+    if (wasWaiting) {
+      // Re-read after recordInput: it bumps the version the CAS needs.
+      const fresh = this.read(input.ownerId, input.executionId);
+      this.store.transitionStatus(input.executionId, fresh.execution.version, "queued");
+    }
+    return this.read(input.ownerId, input.executionId);
   }
 
   listKanbanInputs(ownerId: string, executionId: string, onlyPending = false) {

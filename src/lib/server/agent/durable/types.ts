@@ -673,6 +673,12 @@ export interface FinishAttemptInput {
   reason?: string;
   waitingKind?: DurableExecution["waitingKind"];
   tokensUsed?: number;
+  /** Kanban round bookkeeping fused into the settlement transaction. */
+  kanban?: { round: number; usageGap?: boolean };
+  /** Delays the queued wakeup (scheduled review). */
+  nextRunAt?: Date;
+  /** Overrides the queued wakeup reason (default `advance`). */
+  wakeupReason?: WakeupReason;
   now?: Date;
 }
 

@@ -115,6 +115,7 @@ export interface DurableAttemptHooks {
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
   readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
+  submitKanbanReceipt?: ToolExecutionContext["submitKanbanReceipt"];
 }
 
 export type RunnerUiEvent =
@@ -270,6 +271,7 @@ export interface MomContext {
   onApprovalRequest?: ToolExecutionContext["onApprovalRequest"];
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
   readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
+  submitKanbanReceipt?: ToolExecutionContext["submitKanbanReceipt"];
   sessionPlanProgress?: SessionPlanProgress;
   executionHistory?: string;
   onDurablePromotion?: (input: DurablePromotionRequest) => Promise<DurablePromotionResult>;
