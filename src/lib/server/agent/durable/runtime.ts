@@ -1089,7 +1089,7 @@ export class DurableExecutionRuntime {
     reason?: string;
     waitingKind?: DurableExecution["waitingKind"];
     tokensUsed?: number;
-    kanban?: { round: number; usageGap?: boolean };
+    kanban?: { round: number; usageGap?: boolean; handoff?: { fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string } };
     nextRunAt?: Date;
     wakeupReason?: import("./types.js").WakeupReason;
   }): DurableExecution | null {
@@ -1311,13 +1311,19 @@ export class DurableExecutionRuntime {
       ?? this.store.kanban.listReceipts(executionId).slice(-1)[0]
       ?? null;
     const pendingInputs = this.store.kanban.listInputs(executionId, true);
+    // The brief a member received when the previous round dispatched to them;
+    // it rides into their first briefing.
+    const handoffBrief = currentTask.form === "team"
+      ? this.store.kanban.listHandoffs(executionId).filter(record => record.round === round - 1 && record.kind === "dispatch").slice(-1)[0]?.brief
+      : undefined;
     const briefingText = buildKanbanBriefing({
       task: currentTask,
       round,
       criteria,
       checklist,
       lastReceipt,
-      pendingInputs
+      pendingInputs,
+      ...(handoffBrief ? { handoffBrief } : {})
     });
     const inbound: ChannelInboundMessage = {
       chatId: detail.execution.sourceChatId ?? `kanban:${executionId}`,
@@ -1565,13 +1571,33 @@ export class DurableExecutionRuntime {
           tokensUsed, kanban: kanbanLedger
         });
       } else if (decision.kind === "handoff") {
-        // Team dispatch lands in the team slice; it must never happen silently.
-        this.settleAttemptSafe({
-          executionId, attemptId: claimed.attempt.id, status: "waiting",
-          nextExecutionStatus: "waiting_for_user",
-          reason: `Handoff requested to ${decision.agentId} but team dispatch is not active for this task.`,
-          tokensUsed, kanban: kanbanLedger
-        });
+        // 派发前重验: the target must still be in the frozen member snapshot,
+        // and the task must have handoff budget left. The settlement layer
+        // re-checks the limit as a machine guard.
+        const target = currentTask.members.find(member => member.agentId === decision.agentId);
+        if (!target) {
+          this.settleAttemptSafe({
+            executionId, attemptId: claimed.attempt.id, status: "waiting",
+            nextExecutionStatus: "waiting_for_user",
+            reason: `协议异常：交接目标 ${decision.agentId} 不在任务成员列表中。已保留本轮产物。`,
+            tokensUsed, kanban: kanbanLedger
+          });
+        } else if (currentTask.handoffCount >= currentTask.handoffLimit) {
+          this.settleAttemptSafe({
+            executionId, attemptId: claimed.attempt.id, status: "waiting",
+            nextExecutionStatus: "waiting_for_user",
+            reason: `已达到成员交接上限（${currentTask.handoffLimit} 次）：任务停止自动派发，等待你确认是否继续或结案。`,
+            tokensUsed, kanban: kanbanLedger
+          });
+        } else {
+          this.settleAttemptSafe({
+            executionId, attemptId: claimed.attempt.id, status: "completed",
+            nextExecutionStatus: "queued",
+            reason: `第 ${round} 轮由 ${currentTask.currentAgentId ?? "负责人"} 交接给 ${target.agentId}，下一轮由其推进。`,
+            tokensUsed,
+            kanban: { round, handoff: { fromAgentId: currentTask.currentAgentId ?? null, toAgentId: target.agentId, kind: "dispatch", brief: decision.brief } }
+          });
+        }
       } else if (decision.kind === "wait_user") {
         this.settleAttemptSafe({
           executionId, attemptId: claimed.attempt.id, status: "waiting",

@@ -674,7 +674,12 @@ export interface FinishAttemptInput {
   waitingKind?: DurableExecution["waitingKind"];
   tokensUsed?: number;
   /** Kanban round bookkeeping fused into the settlement transaction. */
-  kanban?: { round: number; usageGap?: boolean };
+  kanban?: {
+    round: number;
+    usageGap?: boolean;
+    /** Member dispatch settled with this round; updates current_agent_id and the handoff ledger. */
+    handoff?: { fromAgentId: string | null; toAgentId: string; kind: "assign" | "dispatch" | "return"; brief: string };
+  };
   /** Delays the queued wakeup (scheduled review). */
   nextRunAt?: Date;
   /** Overrides the queued wakeup reason (default `advance`). */

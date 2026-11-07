@@ -26,6 +26,10 @@ export function buildKanbanBriefing(input: KanbanBriefingInput): string {
   const { task, round } = input;
   const lines: string[] = [];
   lines.push(`[看板任务 ${task.title}] 第 ${round} 轮`);
+  if (task.form === "team") {
+    const current = task.members.find(member => member.agentId === task.currentAgentId);
+    lines.push(`本轮执行成员：${current ? `${current.name}（${current.agentId}）` : task.currentAgentId ?? "负责人"}`);
+  }
   lines.push("");
   lines.push("## 目标");
   lines.push(task.goal);

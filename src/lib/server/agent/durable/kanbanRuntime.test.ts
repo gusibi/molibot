@@ -400,3 +400,182 @@ async function runWakeupDirect(runtime: DurableExecutionRuntime, _store: Durable
   const outcome = await runtime.runWakeup({ executionId, expectedVersion } as DurableWakeup);
   assert.equal(outcome.kind, "done", `wakeup outcome: ${JSON.stringify(outcome)}`);
 }
+
+// ---- Team execution ---------------------------------------------------------
+
+test("a team task dispatches members serially: brief rides along, current member rotates, handoffs are recorded", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = store.kanban.createTask({
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "team",
+      title: "发布周报",
+      goal: "写周报并复核",
+      coordinatorAgentId: "agent-lead",
+      members: [
+        { agentId: "agent-lead", name: "Lead" },
+        { agentId: "agent-reviewer", name: "Reviewer" }
+      ],
+      completionConditions: [{ description: "周报发布", checkerType: "subjective" }],
+      autoStart: false
+    });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+
+    const inbounds: ChannelInboundMessage[] = [];
+    const briefings: string[] = [];
+    let round = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          round += 1;
+          inbounds.push(message);
+          briefings.push(message.text);
+          if (round === 1) {
+            await hooks.submitKanbanReceipt!({ conclusion: "初稿完成", continueWork: true, handoffTo: { agentId: "agent-reviewer", brief: "请复核第二节的数字" } });
+          } else {
+            await hooks.submitKanbanReceipt!({ conclusion: "复核完成", continueWork: true });
+          }
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: `team-ctx-${round}` };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    const afterDispatch = store.kanban.getTask(executionId)!;
+    assert.equal(afterDispatch.currentAgentId, "agent-reviewer");
+    assert.equal(afterDispatch.handoffCount, 1);
+    assert.equal(afterDispatch.roundCount, 1);
+    assert.equal(store.getById(executionId)!.status, "queued");
+    const handoffs = store.kanban.listHandoffs(executionId);
+    assert.deepEqual(handoffs.map(record => [record.kind, record.fromAgentId, record.toAgentId]), [
+      ["assign", null, "agent-lead"],
+      ["dispatch", "agent-lead", "agent-reviewer"]
+    ]);
+
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    assert.equal(store.kanban.getTask(executionId)!.roundCount, 2);
+    // The reviewer runs in their own context and sees the dispatch brief once.
+    assert.equal(inbounds[1].agentId, "agent-reviewer");
+    assert.match(briefings[1], /本轮执行成员：Reviewer（agent-reviewer）/);
+    assert.match(briefings[1], /请复核第二节的数字/);
+    // The brief is tied to the dispatch round, not repeated forever.
+    assert.match(briefings[0], /本轮执行成员：Lead（agent-lead）/);
+    assert.equal(briefings[0].includes("请复核第二节的数字"), false);
+    assert.equal(store.getById(executionId)!.status, "queued");
+  } finally {
+    cleanup();
+  }
+});
+
+test("team creation without a coordinator or members defaults to the Primary Agent", () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = store.kanban.createTask({
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "team",
+      title: "默认负责人",
+      goal: " coordination defaults apply",
+      autoStart: false
+    });
+    assert.equal(task.coordinatorAgentId, "default");
+    assert.deepEqual(task.members, [{ agentId: "default", name: "default" }]);
+    assert.equal(task.currentAgentId, "default");
+    assert.deepEqual(store.kanban.listHandoffs(task.executionId).map(record => record.kind), ["assign"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("dispatching to a non-member parks the task with a protocol violation instead of rotating", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = store.kanban.createTask({
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "team",
+      title: "越权交接",
+      goal: "guards hold",
+      coordinatorAgentId: "agent-lead",
+      members: [{ agentId: "agent-lead", name: "Lead" }],
+      autoStart: false
+    });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          await hooks.submitKanbanReceipt!({ conclusion: "交给陌生人", handoffTo: { agentId: "agent-outsider", brief: "" } });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: "ctx-outsider" };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    const parked = store.getById(executionId)!;
+    assert.equal(parked.status, "waiting_for_user");
+    assert.match(parked.waitingReason ?? "", /不在任务成员列表中/);
+    const after = store.kanban.getTask(executionId)!;
+    assert.equal(after.currentAgentId, "agent-lead");
+    assert.equal(after.handoffCount, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the handoff limit stops automatic dispatch and parks the task on the user", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = store.kanban.createTask({
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "team",
+      title: "交接上限",
+      goal: "guards hold",
+      coordinatorAgentId: "agent-lead",
+      members: [
+        { agentId: "agent-lead", name: "Lead" },
+        { agentId: "agent-b", name: "B" }
+      ],
+      handoffLimit: 1,
+      autoStart: false
+    });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    let round = 0;
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          round += 1;
+          if (round === 1) {
+            await hooks.submitKanbanReceipt!({ conclusion: "交给 B", handoffTo: { agentId: "agent-b", brief: "" } });
+          } else {
+            await hooks.submitKanbanReceipt!({ conclusion: "再交给 Lead", handoffTo: { agentId: "agent-lead", brief: "" } });
+          }
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: `ctx-limit-${round}` };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    assert.equal(store.kanban.getTask(executionId)!.handoffCount, 1);
+    assert.equal(store.getById(executionId)!.status, "queued");
+
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    const parked = store.getById(executionId)!;
+    assert.equal(parked.status, "waiting_for_user");
+    assert.match(parked.waitingReason ?? "", /交接上限/);
+    // The blocked dispatch consumed no budget and rotated nobody.
+    const after = store.kanban.getTask(executionId)!;
+    assert.equal(after.handoffCount, 1);
+    assert.equal(after.currentAgentId, "agent-b");
+    assert.equal(after.roundCount, 2);
+  } finally {
+    cleanup();
+  }
+});

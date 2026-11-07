@@ -27,6 +27,8 @@ import { enqueueWakeupInTransaction } from "./wakeupStore.js";
 const TERMINAL_STATUSES = new Set(["completed", "cancelled"]);
 export const DEFAULT_KANBAN_HANDOFF_LIMIT = 8;
 export const DEFAULT_KANBAN_TOKEN_BUDGET = 2_000_000;
+/** Fallback Primary Agent for team coordinators; matches settings DEFAULT_AGENT_ID. */
+export const DEFAULT_KANBAN_PRIMARY_AGENT_ID = "default";
 
 function id(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -324,9 +326,15 @@ export class KanbanStore {
     const goal = text(input.goal) || title;
     if (!ownerId || !botId || !title || !goal) throw new Error("ownerId, botId, title and goal are required.");
     const form = input.form;
-    const members = form === "team" ? (input.members ?? []) : [];
-    const coordinatorAgentId = text(input.coordinatorAgentId) || undefined;
+    // Spec: 默认负责人 = Primary Agent. The store keeps a value-level fallback
+    // matching settings DEFAULT_AGENT_ID; callers that know the bot's actual
+    // primary agent pass it explicitly.
+    const coordinatorAgentId = text(input.coordinatorAgentId) || (form === "team" ? DEFAULT_KANBAN_PRIMARY_AGENT_ID : undefined);
     const agentId = text(input.agentId) || (form === "team" ? coordinatorAgentId : undefined);
+    // A team without an explicit member list starts as coordinator-only.
+    const members = form === "team"
+      ? (input.members && input.members.length > 0 ? input.members : [{ agentId: coordinatorAgentId!, name: coordinatorAgentId! }])
+      : [];
     if (form === "single" && !agentId) throw new Error("A single-agent kanban task requires an executor agent.");
     if (form === "team") {
       if (members.length === 0) throw new Error("A team kanban task requires at least one member.");

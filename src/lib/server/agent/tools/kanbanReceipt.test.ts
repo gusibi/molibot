@@ -45,7 +45,7 @@ test("kanban_receipt rejects empty receipts and works only inside a kanban attem
 
   const failed = await tool.handler({ continueWork: true }, {
     submitKanbanReceipt: async () => ({ ok: false, error: "lease lost" })
-  } as ToolExecutionContext);
+  } as unknown as ToolExecutionContext);
   assert.equal(failed.ok, false);
   assert.match(failed.error ?? "", /lease lost/);
 });

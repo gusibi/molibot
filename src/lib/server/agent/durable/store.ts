@@ -2148,7 +2148,8 @@ export class DurableExecutionStore {
         this.kanban.applyRoundSettlementInTransaction({
           executionId: input.executionId,
           round: input.kanban.round,
-          usageGap: input.kanban.usageGap
+          usageGap: input.kanban.usageGap,
+          ...(input.kanban.handoff ? { handoff: input.kanban.handoff } : {})
         });
       }
       releaseProjectSlotInTransaction(this.db, input.executionId, input.now);
