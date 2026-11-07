@@ -1,6 +1,7 @@
 import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
 import path from "node:path";
 import { getRuntime } from "$lib/server/app/runtime";
+import { kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool";
 import { MomRuntimeStore } from "$lib/server/agent/session/store";
 import { storagePaths } from "$lib/server/infra/db/storage";
@@ -158,6 +159,19 @@ export function steerWebRunner(input: {
     userId: input.userId,
     conversationId
   });
+  // Kanban task conversations route through the task, not a conversation
+  // runner: steering reaches the live round, member child sessions are
+  // read-only views (spec 执行形态修订).
+  const sessions = getRuntime().sessions;
+  const steerProjectId = sessions.getConversationProjectId(conversationId);
+  const steerConversation = steerProjectId
+    ? sessions.getProjectConversation(steerProjectId, conversationId)
+    : sessions.getConversationById(conversationId, "web", identity.externalUserId);
+  if (steerConversation) {
+    const action = kanbanConversationSendAction(steerConversation);
+    if (action.kind === "read_only") return { ok: true, delivered: false };
+    if (action.kind === "steer") return { ok: true, delivered: sendToKanbanTask(action.executionId, text).delivered };
+  }
   const { pool } = getRuntimeContextForConversation(identity.profileId, conversationId);
   const chatId = resolveRunnerChatId(conversationId, identity.externalUserId);
   const delivered = input.mode === "follow_up"

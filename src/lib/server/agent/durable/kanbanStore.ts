@@ -836,6 +836,12 @@ export class KanbanStore {
     return rows.map(row => ({ agentId: row.agent_id, sessionId: row.session_id }));
   }
 
+  /** Reverse lookup: the kanban task whose visible conversation is this session. */
+  getExecutionIdByUiSession(sessionId: string): string | undefined {
+    const row = this.db.prepare("SELECT k.execution_id AS id FROM durable_kanban_tasks k JOIN durable_executions e ON e.id = k.execution_id WHERE e.source_ui_session_id = ?").get(sessionId) as { id: string } | undefined;
+    return row?.id;
+  }
+
   /**
    * Kanban rounds have no plan steps, so their tool side effects land in this
    * task-scoped ledger (the legacy table hard-references durable_steps). Used

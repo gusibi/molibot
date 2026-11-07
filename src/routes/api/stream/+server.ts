@@ -17,6 +17,7 @@ import {
   resolveWebDurableBotId
 } from "$lib/server/web/identity";
 import { resolveRuntimeContext, resolveRunnerChatId, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext";
+import { kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment, ConversationPlan } from "$lib/shared/types/message";
@@ -185,6 +186,18 @@ export const POST: RequestHandler = async ({ request }) => {
       : resolveOrdinaryWebConversation(runtime.sessions, runtime.getSettings(), { externalUserId, profileId: identity.profileId, conversationId, agentId: body.agentId });
   } catch (cause) {
     return new Response(JSON.stringify({ ok: false, error: cause instanceof Error ? cause.message : String(cause) }), { status: 409, headers: { "Content-Type": "application/json" } });
+  }
+  // Kanban task conversations never free-run here (spec 执行形态修订): a send
+  // steers the live round or queues as a pending input; member child sessions
+  // are read-only views.
+  const kanbanAction = kanbanConversationSendAction(conversation);
+  if (kanbanAction.kind === "read_only") {
+    return new Response(JSON.stringify({ ok: false, error: "成员子会话是任务的只读视图，请在主任务会话中沟通。" }), { status: 409, headers: { "Content-Type": "application/json" } });
+  }
+  if (kanbanAction.kind === "steer") {
+    try { runtime.sessions.appendMessage(conversation.id, "user", message); } catch { /* the steer record stands on its own */ }
+    const delivered = sendToKanbanTask(kanbanAction.executionId, message).delivered;
+    return new Response(`event: done\ndata: ${JSON.stringify({ ok: true, response: "", conversationId: conversation.id, profileId, stopReason: delivered ? "steered" : "queued" })}\n\n`, { headers: { "Content-Type": "text/event-stream" } });
   }
   if (resumePlanId) {
     try {

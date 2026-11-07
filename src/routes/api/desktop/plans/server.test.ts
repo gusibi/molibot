@@ -195,4 +195,39 @@ test("team tasks create read-only member child sessions nested under the main co
   assert.equal(items.some(item => item.sessionId === (bundle.memberSessions as Array<{ sessionId: string }>)[0].sessionId), false, "child sessions are not flat-listed");
 });
 
+test("task conversations route sends to the task: child read-only, main steers", async () => {
+  const { POST: streamPost } = await import("../../stream/+server.js");
+  const { POST: steerPost } = await import("../../stream/steer/+server.js");
+  const created = await post({
+    action: "kanban_create", form: "team", title: "发送路由", goal: "插话进任务",
+    coordinatorAgentId: "default",
+    members: [{ agentId: "default", name: "Momo" }, { agentId: "writer", name: "Writer" }],
+    autoStart: false
+  });
+  assert.equal(created.status, 200);
+  const executionId = created.body.item.execution.id;
+  const mainSessionId = created.body.item.execution.sourceUiSessionId;
+  const bundleUrl = new URL(`http://localhost/api/desktop/plans?kanban=true&id=${executionId}`);
+  const bundle = await (await GET({ url: bundleUrl, request: new Request(bundleUrl) } as Parameters<typeof GET>[0])).json();
+  const childSessionId = (bundle.memberSessions as Array<{ sessionId: string }>)[0].sessionId;
+
+  // Member child sessions reject sends outright (read-only views).
+  const childResponse = await streamPost({ request: new Request("http://localhost/api/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profileId: "default", conversationId: childSessionId, message: "hello" }) }) } as Parameters<typeof streamPost>[0]);
+  assert.equal(childResponse.status, 409);
+  const childSteer = await steerPost({ request: new Request("http://localhost/api/stream/steer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profileId: "default", conversationId: childSessionId, text: "hello" }) }) } as Parameters<typeof steerPost>[0]);
+  assert.equal(childSteer.status, 409);
+
+  // The main task session steers: no round is running, so the text queues as a
+  // pending input and lands in the conversation as a user message.
+  const mainResponse = await streamPost({ request: new Request("http://localhost/api/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profileId: "default", conversationId: mainSessionId, message: "优先用现有数据" }) }) } as Parameters<typeof streamPost>[0]);
+  assert.equal(mainResponse.status, 200);
+  const streamText = await mainResponse.text();
+  assert.match(streamText, /event: done/);
+  assert.match(streamText, /"stopReason":"queued"/);
+  const bundleAfter = await (await GET({ url: bundleUrl, request: new Request(bundleUrl) } as Parameters<typeof GET>[0])).json();
+  assert.deepEqual(bundleAfter.inputs.map((input: any) => input.text), ["优先用现有数据"]);
+  const messages = runtime.sessions.listMessages(mainSessionId);
+  assert.match(messages[messages.length - 1].content, /优先用现有数据/);
+});
+
 test.after(() => { mock.restoreAll(); rmSync(root, { recursive: true, force: true }); for (const dir of projectRoots) rmSync(dir, { recursive: true, force: true }); });
