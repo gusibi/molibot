@@ -79,7 +79,8 @@
     revealInFinder: copy.openInFinder,
     placeholder: copy.renamePlaceholder,
     deletePrompt: copy.deleteConversationPrompt,
-    cancel: copy.cancelAction
+    cancel: copy.cancelAction,
+    taskTag: copy.sessionTaskTag
   });
 
   async function copySessionPath(sessionId: string, projectId: string): Promise<void> {
@@ -282,7 +283,7 @@
             {#each visibleProjectSessions as session (session.conversationId)}
               <div class="project-session-motion" in:listIn out:listOut animate:listFlip>
               <ConversationRow
-                item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false }}
+                item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false, taskSession: session.origin === "kanban" }}
                 active={activeSessionId === session.conversationId}
                 statusDot={$projectChatState.statusDots.get(sessionRuntimeKey("personal", session.conversationId)) ?? null}
                 formatTime={formatTime}

@@ -369,6 +369,13 @@
 .kanban-answer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .kanban-answer textarea { min-height: 44px; resize: vertical; padding: 9px 10px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); font: var(--fs-label)/var(--lh-label) var(--font-ui); }
 .kanban-conditions-input { width: 100%; resize: vertical; padding: 9px 10px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); font: var(--fs-label)/var(--lh-label) var(--font-ui); }
+/* Member child sessions (spec 执行形态修订 切片③): 二级入口 rows opening the
+   read-only member view. */
+.kanban-member-sessions { display: grid; margin: 12px 0 0; padding: 0; gap: 6px; list-style: none; }
+.kanban-member-session { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); font: inherit; text-align: left; cursor: pointer; transition: background var(--duration-instant) var(--ease-standard); }
+.kanban-member-session:hover { background: var(--fill); }
+.kanban-member-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-label); line-height: var(--lh-label); }
+.kanban-member-agent { flex: 0 0 auto; color: var(--label-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 .kanban-create { display: flex; flex-direction: column; max-height: min(86vh, 720px); }
 .kanban-create-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--separator); }
 .kanban-create-head h2 { margin: 0; font-size: var(--fs-section); line-height: var(--lh-section); font-weight: 600; }

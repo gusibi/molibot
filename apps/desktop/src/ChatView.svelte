@@ -1236,6 +1236,11 @@
   let agentFilesActive = false;
   $: if (agentFilesActive && (workspacePane !== "chat" || projectPaneActive || roomPaneActive || settingsVisible)) agentFilesActive = false;
   let agentHistoryActive = false;
+  // Member child sessions of a kanban task open as read-only views (spec 执行
+  // 形态修订 切片③): the server rejects sends with 409, so the composer hides
+  // while one is active and returns for every ordinary session selection.
+  let memberSessionReadOnly = false;
+  $: if (memberSessionReadOnly && (workspacePane !== "chat" || projectPaneActive || roomPaneActive || settingsVisible)) memberSessionReadOnly = false;
   let piAttentionItems: PiExtensionTerminalSummary[] = [];
   $: piAttention = Object.fromEntries(piAttentionItems.map(item => {
     const agentId = item.agentId ?? ordinarySessions.find(session => session.sessionId === item.sessionId)?.agentId ?? "";
@@ -2376,6 +2381,7 @@
     closeAgentSettings();
     agentFilesActive = false;
     agentHistoryActive = false;
+    memberSessionReadOnly = false;
     selectedAgentId = agentId;
     roomPaneActive = false;
     // The transport profile is a real Web profile; the Agent is carried as an
@@ -2408,6 +2414,7 @@
     closeAgentSettings();
     agentFilesActive = false;
     agentHistoryActive = false;
+    memberSessionReadOnly = false;
     selectedAgentId = item.agentId ?? "";
     agentNavigation = { ...agentNavigation, page: item.channel === "web" ? "session" : "external", agentId: selectedAgentId, sessionId: item.sessionId };
     persistAgentNavigation();
@@ -2434,6 +2441,29 @@
     chatStore.selectSession(item.botId, item.sessionId);
     persistSelected(item.botId, item.sessionId);
     void refreshFiles(item.botId, item.sessionId);
+  }
+
+  // Opens a kanban task's member child session. Child sessions are excluded
+  // from the conversation index lists, so this bypasses openSession and keys
+  // the registry by the member agent; transcript loading resolves the session's
+  // real owner server-side.
+  function openTaskMemberSession(input: { sessionId: string; agentId: string; title: string }): void {
+    if (!connectedEndpoint) return;
+    closeAgentSettings();
+    agentFilesActive = false;
+    agentHistoryActive = false;
+    memberSessionReadOnly = true;
+    selectedAgentId = input.agentId;
+    agentNavigation = { ...agentNavigation, page: "session", agentId: input.agentId, sessionId: input.sessionId };
+    persistAgentNavigation();
+    projectPaneActive = false;
+    roomPaneActive = false;
+    requestedRoomId = "";
+    workspacePane = "chat";
+    viewMode = "local";
+    closeExternalTranscript();
+    browserOpen = false;
+    void chatStore.selectSession(input.agentId, input.sessionId);
   }
 
   async function renameSession(item: DesktopConversationItem, title: string): Promise<void> {
@@ -4377,6 +4407,7 @@
         targetSessionId={projectPaneActive ? activeProjectSessionId : activeSessionId}
         targetPlanId={requestedPlanId}
         onContinuePlan={continuePlan}
+        onOpenMemberSession={openTaskMemberSession}
       />
     {:else}
     <ChatHeader
@@ -4669,7 +4700,7 @@
         hidden
         onchange={onFilesPicked}
       />
-      {#if !draftMode || !selectedAgent}{@render conversationComposer()}{/if}
+      {#if (!draftMode || !selectedAgent) && !memberSessionReadOnly}{@render conversationComposer()}{/if}
     {/if}
     {/if}
     {#if miniAppActionFeedback}

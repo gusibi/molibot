@@ -45,6 +45,7 @@
     placeholder: string;
     deletePrompt: string;
     cancel: string;
+    taskTag: string;
   };
   $: rowLabels = {
     running: copy.running,
@@ -58,7 +59,8 @@
     revealInFinder: copy.openInFinder,
     placeholder: copy.renamePlaceholder,
     deletePrompt: copy.deleteConversationPrompt,
-    cancel: copy.cancelAction
+    cancel: copy.cancelAction,
+    taskTag: copy.sessionTaskTag
   };
 
   async function copySessionPath(sessionId: string, projectId: string): Promise<void> {
@@ -147,7 +149,7 @@
         {#if isActiveProject}
           {#each projectsStore.sessions as session (session.conversationId)}
             <ConversationRow
-              item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false }}
+              item={{ title: session.title, updatedAt: session.updatedAt, readOnly: false, taskSession: session.origin === "kanban" }}
               active={session.conversationId === projectsStore.selectedSessionId}
               formatTime={formatSessionTime}
               labels={rowLabels}

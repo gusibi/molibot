@@ -30,6 +30,7 @@
   export let targetSessionId = "";
   export let targetPlanId = "";
   export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
+  export let onOpenMemberSession: (input: { sessionId: string; agentId: string; title: string }) => void = () => {};
 
   interface AgentStudioProps {
     agents: DesktopAgentItem[];
@@ -83,7 +84,7 @@
     {:else if pane === "miniapps"}
       <MiniAppsLaunchpad onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
     {:else if pane === "plans"}
-      <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} {targetSessionId} {targetPlanId} />
+      <PlansWorkspace {copy} endpoint={serviceEndpoint ?? ""} {formatTime} {onContinuePlan} {onOpenMemberSession} {targetSessionId} {targetPlanId} />
     {:else if AgentStudioComponent}
       <AgentStudioComponent {agents} {activities} {activityReady} {activityError} {focusedAgentId} {copy} {serviceReady} {onOpenAgentSettings} {onOpenAgentChat} />
     {:else}

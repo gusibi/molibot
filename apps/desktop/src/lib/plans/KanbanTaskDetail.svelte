@@ -2,6 +2,7 @@
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Help from "reicon-svelte/icons/Help";
   import Loader from "reicon-svelte/icons/Loader";
+  import Message from "reicon-svelte/icons/Message";
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
   import X from "reicon-svelte/icons/X";
   import Button from "../components/ui/Button.svelte";
@@ -19,6 +20,8 @@
     copy: Translation;
     formatTime: (iso: string) => string;
     onBack: () => void;
+    onOpenSession: (input: { sessionId: string; projectId?: string }) => void;
+    onOpenMemberSession: (input: { sessionId: string; agentId: string; title: string }) => void;
     onStart: () => void;
     onPause: () => void;
     onCancel: () => void;
@@ -29,7 +32,7 @@
     onDecide: (decisionId: string, answer: string) => void;
     onConditions: (descriptions: string[]) => void;
   }
-  let { bundle, loading, error, busy, copy, formatTime, onBack, onStart, onPause, onCancel, onComplete, onAnswer, onAddBudget, onApproval, onDecide, onConditions }: Props = $props();
+  let { bundle, loading, error, busy, copy, formatTime, onBack, onOpenSession, onOpenMemberSession, onStart, onPause, onCancel, onComplete, onAnswer, onAddBudget, onApproval, onDecide, onConditions }: Props = $props();
 
   let answerText = $state("");
   let conditionsEditing = $state(false);
@@ -109,6 +112,9 @@
     const tokens = Number(raw);
     if (Number.isFinite(tokens) && tokens > 0) onAddBudget(Math.round(tokens));
   }
+  function memberName(agentId: string): string {
+    return bundle?.task.members.find(member => member.agentId === agentId)?.name ?? agentId;
+  }
   function editConditions(): void {
     conditionsDraft = currentCriteria.filter(criterion => !criterion.userEdited || criterion.result !== "passed").map(criterion => criterion.description).join("\n");
     conditionsEditing = true;
@@ -159,6 +165,9 @@
     </div>
     <div class="plans-actions-trailing">
       {#if bundle.detail.controlRequest}<span role="status">{bundle.detail.controlRequest === "pause" ? copy.planEditorPausing : copy.planEditorCancelling}</span>{/if}
+      {#if bundle.detail.execution.sourceUiSessionId}
+        <Button variant="icon" title={copy.planBoardOpenSession} onclick={() => onOpenSession({ sessionId: bundle!.detail.execution.sourceUiSessionId!, projectId: bundle!.detail.execution.sourceProjectId })}><Message size={16} aria-hidden="true" /></Button>
+      {/if}
       {#if active}
         <Button disabled={busy || Boolean(bundle.detail.controlRequest)} onclick={onPause}>{copy.durablePause}</Button>
         <Button danger disabled={busy || Boolean(bundle.detail.controlRequest)} onclick={onCancel}>{copy.durableCancel}</Button>
@@ -280,6 +289,23 @@
         <p class="kanban-column-empty">{copy.kanbanEmptyColumn}</p>
       {/each}
     </section>
+
+    {#if bundle.task.form === "team" && bundle.memberSessions.length > 0}
+      <section class="plans-card">
+        <h3 class="plans-section-title">{copy.kanbanMemberSessionsTitle}<span class="plans-section-count">{bundle.memberSessions.length}</span></h3>
+        <ul class="kanban-member-sessions">
+          {#each bundle.memberSessions as member (member.sessionId)}
+            <li>
+              <button type="button" class="kanban-member-session" onclick={() => onOpenMemberSession({ sessionId: member.sessionId, agentId: member.agentId, title: `${bundle!.task.title} · ${memberName(member.agentId)}` })}>
+                <span class="kanban-member-name">{memberName(member.agentId)}</span>
+                <span class="kanban-member-agent" translate="no">{member.agentId}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+        <p class="plans-task-desc">{copy.kanbanMemberSessionsHint}</p>
+      </section>
+    {/if}
 
     <section class="plans-card">
       <div class="plans-progress-heading">

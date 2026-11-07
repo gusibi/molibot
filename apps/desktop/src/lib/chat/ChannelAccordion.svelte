@@ -64,6 +64,7 @@
       copyPath?: string;
       revealInFinder?: string;
       loading?: string;
+      taskTag?: string;
     };
     formatTime: (iso: string) => string;
     onToggle: () => void;
@@ -145,7 +146,8 @@
                   placeholder: labels.renamePlaceholder,
                   deletePrompt: labels.deletePrompt,
                   cancel: labels.cancel,
-                  forkedConversation: labels.forkedConversation
+                  forkedConversation: labels.forkedConversation,
+                  taskTag: labels.taskTag
                 }}
                 onSelect={() => onSelect(item)}
                 onRename={(title) => onRenameItem(item, title)}

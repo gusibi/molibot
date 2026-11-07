@@ -11,7 +11,7 @@
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
 
-  type ConversationRowItem = Pick<DesktopConversationItem, "title" | "updatedAt" | "readOnly" | "parentSessionId">;
+  type ConversationRowItem = Pick<DesktopConversationItem, "title" | "updatedAt" | "readOnly" | "parentSessionId" | "taskSession">;
 
   let {
     item,
@@ -47,6 +47,7 @@
       deletePrompt?: string;
       cancel?: string;
       forkedConversation?: string;
+      taskTag?: string;
     };
     onSelect: () => void;
     onRename?: (title: string) => void;
@@ -224,6 +225,7 @@
         <span class="row-branch" aria-label={labels.forkedConversation} title={labels.forkedConversation}>↳</span>
       {/if}
       <span class="row-title">{item.title}</span>
+      {#if item.taskSession}<span class="row-task-tag">{labels.taskTag}</span>{/if}
       {#if SourceIcon}<span class="conversation-source-mark" title={sourceLabel} aria-label={sourceLabel}><SourceIcon size={13} aria-hidden="true" /></span>{/if}
       <span class="row-time">{formatTime(item.updatedAt)}</span>
     </button>
@@ -375,6 +377,18 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* Task-session marker (spec 执行形态修订: 纯视觉标记): a quiet outlined chip
+     between the title and the timestamp; it changes nothing else about the row. */
+  .row-task-tag {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border: 1px solid var(--separator, rgba(0, 0, 0, 0.08));
+    border-radius: 9999px;
+    color: var(--label-secondary, #666666);
+    font-size: var(--fs-meta);
+    line-height: var(--lh-meta);
+    white-space: nowrap;
   }
   .row-time {
     flex: 0 0 auto;

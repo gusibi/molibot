@@ -135,6 +135,7 @@
     deletePrompt: copy.deleteConversationPrompt,
     cancel: copy.cancelAction,
     forkedConversation: copy.forkedConversation,
+    taskTag: copy.sessionTaskTag,
     newChat: copy.newChat,
     loading: copy.loading
   });

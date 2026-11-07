@@ -8062,6 +8062,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .agent-history-conversation-icon:not(:has(.channel-logo)) { background: var(--fill); }
 .agent-history-conversation-copy { display: grid; gap: 3px; min-width: 0; }
 .agent-history-conversation-copy strong { font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 600; }
+.agent-history-task-tag { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 9999px; color: var(--text-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 400; vertical-align: 1px; }
 .agent-history-conversation-copy small { color: var(--text-secondary); font-size: var(--fs-meta); line-height: var(--lh-meta); }
 .agent-history-conversation-copy > * { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .agent-history-columns > :last-child { text-align: right; }

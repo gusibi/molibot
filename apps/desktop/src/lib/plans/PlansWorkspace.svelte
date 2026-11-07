@@ -27,6 +27,7 @@
   let appliedTargetPlanId = "";
   export let formatTime: (iso: string) => string = (iso) => iso;
   export let onContinuePlan: (input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }) => void = () => {};
+  export let onOpenMemberSession: (input: { sessionId: string; agentId: string; title: string }) => void = () => {};
 
   // Board (kanban + legacy projection)
   let boardPage: DesktopKanbanBoardPage | null = null;
@@ -186,7 +187,9 @@
     if (version) await action({ action: "kanban_start", planId: selectedId, expectedVersion: version, actionId: crypto.randomUUID() });
   }
   async function answerKanban(text: string) {
-    await action({ action: "kanban_answer", planId: selectedId, text });
+    // 插话 (spec 执行形态修订): a live round receives the text immediately;
+    // with no round running the server queues it as a pending input.
+    await action({ action: "kanban_steer", planId: selectedId, text });
   }
   async function addKanbanBudget(tokens: number) {
     const version = kanbanBundle?.detail.execution.version;
@@ -254,6 +257,8 @@
           {formatTime}
           onStart={startKanban}
           onBack={clearSelection}
+          onOpenSession={(input) => onContinuePlan({ planId: selectedId, sessionId: input.sessionId, projectId: input.projectId, resume: false })}
+          onOpenMemberSession={onOpenMemberSession}
           onPause={() => void control("pause")}
           onCancel={() => void control("cancel")}
           onComplete={() => void completeActive()}
