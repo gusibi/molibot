@@ -8,6 +8,8 @@
 
 验证：durable 看板运行时／存储／回执工具／plans 服务／Desktop plans API 定向 node:test 全部通过；`desktop:check` 0 错误 0 警告；看板／详情／创建对话框 Chromium 定向 UI 用例及受影响 plans UI 用例通过；隔离实例冷启动走查（空看板 → 建任务 → 回答 → 重启后投影与输入持久化）通过。desktop contract、api.ts、i18n、本文件与 CHANGELOG 与另一并行工作流交叉修改，暂存子集在 detached worktree 复核（svelte-check 0/0 + 服务端 7 项）。全量 `pnpm verify:feature`、完整 Playwright 套件（含 WebKit）与原生 Tauri 验收未执行；trigger 来源插件（GitHub Issue／飞书／表格）为第二阶段，未开始。
 
+双轴代码审查（规范 + Spec）后修复两处实现偏差：同 Project 推进位由按轮释放改为任务级持锁（等待／暂停／重试均持有，Done 或已取消才释放并唤醒同 Project 下一个排队任务，原测试断言的按轮交错按 Spec L169 判为错误并重写）；零完成条件的看板任务不再自动完成，verify 挂起等用户确认。同时收敛 `kanban_create` 请求体为字段白名单（identity／来源字段仅限内部调用方）、修掉 `boardPage` 清单进度重复查询与创建对话框死分支。审查确认的其余缺口（人工验收闭环、条件生成闭环、详情对话投影不含模型回复与工具调用、workDir／Team 选择器表单字段、交接纯调度计数、`queryable` 副作用 probe）记入能力矩阵边界，未在本轮实现。
+
 ## 2026-11-07 — 桌面服务端点 localhost 化
 
 桌面服务端点发布为 `http://localhost:<port>`（supervisor 托管与 start-server 独立启动两条路径同步修改），并在桌面 App 进程入口设 `NO_PROXY=localhost,127.0.0.1,::1`，绕开 macOS 系统代理对 loopback 流量的劫持：reqwest 只读系统代理主机／端口、不读例外列表，此前桌面全部 API 请求经 VPN 系统代理回连本机服务，实测延迟约 25 倍（26ms → 640ms），代理重载或切换节点时间歇黑洞（含 503），表现为 Agent 首页、项目会话无限「正在加载」。外网流量（模型 API）照常走代理；非 loopback 绑定（局域网访问）保持原 host 不受影响；Tauri HTTP scope 白名单已双 host 覆盖。根因与诊断手法见 [Pitfall #82](docs/pitfalls.md)。

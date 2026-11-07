@@ -1739,7 +1739,11 @@ export class DurableExecutionRuntime {
       const verified = this.store.getDetail(detail.execution.id)!;
       const required = verified.acceptanceCriteria.filter((criterion) => criterion.planVersion === verified.execution.currentPlanVersion && criterion.required);
       const failed = required.some((criterion) => criterion.result === "failed");
-      const unproven = required.some((criterion) => criterion.result === "unproven");
+      // A kanban task without effective completion conditions never
+      // auto-completes (spec: 无有效条件时等待用户补充) - it parks on the
+      // user together with the unproven-criteria flow below.
+      const noCriteria = this.store.kanban.getTask(detail.execution.id) !== null && required.length === 0;
+      const unproven = noCriteria || required.some((criterion) => criterion.result === "unproven");
       if (!failed && unproven) {
         const decision = this.store.openDecision({
           executionId: detail.execution.id,

@@ -2155,7 +2155,12 @@ export class DurableExecutionStore {
           ...(input.kanban.retry ? { retry: input.kanban.retry } : {})
         });
       }
-      releaseProjectSlotInTransaction(this.db, input.executionId, input.now);
+      // Spec L169: the Project slot stays held through waiting, paused and
+      // retry states; only Done or cancelled releases it and wakes the next
+      // queued task on the same Project.
+      if (input.nextExecutionStatus === "completed" || input.nextExecutionStatus === "cancelled") {
+        releaseProjectSlotInTransaction(this.db, input.executionId, input.now);
+      }
       const execution = rowToExecution(this.requireRow(input.executionId));
       this.db.exec("COMMIT"); this.notify();
       return execution;
@@ -2737,7 +2742,7 @@ export class DurableExecutionStore {
     } else {
       discardPendingWakeupsInTransaction(this.db, idValue, `execution_${nextStatus}`);
     }
-    releaseProjectSlotInTransaction(this.db, idValue);
+    if (nextStatus === "cancelled") releaseProjectSlotInTransaction(this.db, idValue);
     return rowToExecution(this.requireRow(idValue));
   }
 
@@ -2782,7 +2787,7 @@ export class DurableExecutionStore {
     } else {
       discardPendingWakeupsInTransaction(this.db, input.executionId, `execution_${nextStatus}`, input.now);
     }
-    releaseProjectSlotInTransaction(this.db, input.executionId, input.now);
+    if (nextStatus === "completed") releaseProjectSlotInTransaction(this.db, input.executionId, input.now);
     return rowToExecution(this.requireRow(input.executionId));
   }
 

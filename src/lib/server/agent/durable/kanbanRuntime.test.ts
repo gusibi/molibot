@@ -321,13 +321,58 @@ test("tasks in the same Project serialize on the advance slot and the released s
     releaseA();
     await runningA;
     assert.equal(store.kanban.getTask(taskA.executionId)!.roundCount, 1);
-    assert.equal(store.kanban.getProjectSlot("project:proj-1"), null);
+    // The slot stays held while A only queued its next round: rounds of the
+    // same Project interleave never, only Done/cancelled releases (spec L169).
+    assert.equal(store.kanban.getProjectSlot("project:proj-1")?.executionId, taskA.executionId);
 
-    // The released slot lets B run its first round.
+    // B cannot start between A's rounds either.
+    await runWakeupDirect(runtime, store, taskB.executionId, store.getById(taskB.executionId)!.version);
+    assert.deepEqual(calls, [`kanban:${taskA.executionId}`]);
+    assert.equal(store.kanban.getTask(taskB.executionId)!.roundCount, 0);
+
+    // Cancelling A is terminal and releases the slot to B.
+    store.transitionStatus(taskA.executionId, store.getById(taskA.executionId)!.version, "cancelled");
     await runWakeupDirect(runtime, store, taskB.executionId, store.getById(taskB.executionId)!.version);
     assert.deepEqual(calls, [`kanban:${taskA.executionId}`, `kanban:${taskB.executionId}`]);
     assert.equal(store.kanban.getTask(taskB.executionId)!.roundCount, 1);
-    assert.equal(store.kanban.getProjectSlot("project:proj-1"), null);
+    assert.equal(store.kanban.getProjectSlot("project:proj-1")?.executionId, taskB.executionId);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a kanban task without completion conditions parks on the user instead of completing", async () => {
+  const { store, cleanup } = runtimeFixture();
+  const { DurableExecutionCoordinator } = await import("./coordinator.js");
+  try {
+    const task = createSingleTask(store, { completionConditions: [] });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          await hooks.submitKanbanReceipt!({ conclusion: "看起来做完了", evidence: ["out.md"], requestCompletion: true });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, contextSessionId: "kanban-ctx-1" };
+        }
+      }]])]]) as any
+    });
+
+    // Round 1 moves to verifying; verification finds no criteria and must not
+    // auto-complete (spec: 无有效条件时等待用户补充).
+    await runWakeupDirect(runtime, store, executionId, 2);
+    assert.equal(store.getById(executionId)!.status, "verifying");
+    await runWakeupDirect(runtime, store, executionId, store.getById(executionId)!.version);
+    const waiting = store.getDetail(executionId)!;
+    assert.equal(waiting.execution.status, "waiting_for_user");
+    assert.equal(waiting.decisions.length, 1);
+
+    // The user confirms completion explicitly; the task then completes.
+    new DurableExecutionCoordinator(store, "process-a").answerDecision({
+      ownerId: "owner-1", executionId, decisionId: waiting.decisions[0]!.id,
+      answer: "confirm_completion", expectedVersion: waiting.execution.version, actionId: "confirm-zero-1"
+    });
+    assert.equal(store.getById(executionId)!.status, "completed");
   } finally {
     cleanup();
   }

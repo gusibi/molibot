@@ -305,6 +305,7 @@ export class PlanService {
         updatedAt: summary.updatedAt
       };
       const task = summary.isKanban ? this.store.kanban.getTask(summary.executionId) : undefined;
+      const checklist = task ? checklistProgressOf(this.store.kanban.getChecklist(summary.executionId)) : undefined;
       if (task) {
         if (filter.executorAgentId) {
           const involved = task.form === "single"
@@ -318,9 +319,7 @@ export class PlanService {
           form: task.form,
           executorLabel: executorLabelOf(task),
           ...(task.currentAgentId ? { currentAgentId: task.currentAgentId } : {}),
-          ...(checklistProgressOf(this.store.kanban.getChecklist(summary.executionId))
-            ? { checklist: checklistProgressOf(this.store.kanban.getChecklist(summary.executionId)) }
-            : {}),
+          ...(checklist ? { checklist } : {}),
           budgetTokensUsed: this.tokensUsedOf(summary.executionId),
           ...(task.budgetTokenLimit != null ? { budgetTokenLimit: task.budgetTokenLimit } : {}),
           handoffCount: task.handoffCount,

@@ -113,10 +113,27 @@ export const POST: RequestHandler = async ({ request }) => {
     if (body.ownerId && body.ownerId !== owner) throw new Error("Unknown plan owner.");
     switch (body.action) {
       case "kanban_create": {
+        // Field allowlist: identity/source fields (kanbanTaskId, sourceType,
+        // externalId, sourceUrl) come from internal callers only.
+        const raw = body as unknown as Record<string, unknown>;
         const item = plans.createKanbanTask({
-          ...(body as unknown as import("$lib/server/agent/durable/types.js").CreateKanbanTaskInput),
           ownerId: owner,
-          botId: String(body.botId ?? "default").trim() || "default"
+          botId: String(raw.botId ?? "default").trim() || "default",
+          form: raw.form === "team" ? "team" : "single",
+          title: String(raw.title ?? "").trim(),
+          goal: String(raw.goal ?? "").trim(),
+          ...(raw.agentId ? { agentId: String(raw.agentId).trim() } : {}),
+          ...(raw.coordinatorAgentId ? { coordinatorAgentId: String(raw.coordinatorAgentId).trim() } : {}),
+          ...(Array.isArray(raw.members) ? { members: raw.members } : {}),
+          ...(raw.projectId ? { projectId: String(raw.projectId).trim() } : {}),
+          ...(raw.workDir ? { workDir: String(raw.workDir).trim() } : {}),
+          ...(Array.isArray(raw.completionConditions) ? { completionConditions: raw.completionConditions } : {}),
+          ...(raw.completionSource === "user" ? { completionSource: "user" as const } : {}),
+          ...(Number.isFinite(Number(raw.budgetTokenLimit)) ? { budgetTokenLimit: Number(raw.budgetTokenLimit) } : {}),
+          ...(Number.isFinite(Number(raw.handoffLimit)) && Number(raw.handoffLimit) > 0 ? { handoffLimit: Number(raw.handoffLimit) } : {}),
+          ...(raw.approvalPolicy === "deny" || raw.approvalPolicy === "suspend" ? { approvalPolicy: raw.approvalPolicy } : {}),
+          ...(raw.humanAcceptance === true ? { humanAcceptance: true } : {}),
+          autoStart: raw.autoStart !== false
         });
         return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
       }

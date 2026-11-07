@@ -68,7 +68,7 @@
         ? { agentId: agentId.trim() }
         : { coordinatorAgentId: coordinatorAgentId.trim(), members: parseMembers() }),
       ...(projectId.trim() ? { projectId: projectId.trim() } : {}),
-      ...(!form || conditionsText.trim() ? {
+      ...(conditionsText.trim() ? {
         completionConditions: conditionsText.split("\n").map(line => line.trim()).filter(Boolean).map(description => ({ description }))
       } : {}),
       ...(conditionsText.trim() ? { completionSource: "user" as const } : {}),
