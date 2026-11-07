@@ -30,6 +30,7 @@ import {
 } from "./store.js";
 import { DurableExecutionStore } from "./store.js";
 import { endDurableConversationOutput, updateDurableConversationOutput, type DurableAttemptDelivery } from "./conversation.js";
+import { registerKanbanSteer, unregisterKanbanSteer } from "./kanbanSteer.js";
 
 export interface DurableExecutionRuntimeOptions {
   channelManagers: Map<string, Map<string, ChannelManager>>;
@@ -1460,6 +1461,9 @@ export class DurableExecutionRuntime {
       try { this.options.onAttemptStart?.(detail.execution, round); }
       catch (error) { momWarn("durableExecution", "kanban_attempt_start_failed", { executionId, round, error: String(error) }); }
       const attemptHooks: DurableAttemptHooks = {
+        // Live steering (spec 执行形态修订 切片②): mid-run corrections inject
+        // into the current round; the registry entry dies with the round.
+        registerSteer: (steer) => registerKanbanSteer(executionId, steer),
         execution: {
           clientSignal: control.signal,
           awaitToolQuiescence: true,
@@ -1780,6 +1784,7 @@ export class DurableExecutionRuntime {
     } finally {
       clearInterval(controlTimer);
       clearInterval(heartbeatTimer);
+      unregisterKanbanSteer(executionId);
     }
   }
 

@@ -1148,6 +1148,43 @@ test("a task bound to a visible session streams per-round rows and delivers the 
   }
 });
 
+test("a running round accepts steering; the registration dies with the round", async () => {
+  const { store, cleanup } = runtimeFixture();
+  const { steerKanbanRound } = await import("./kanbanSteer.js");
+  try {
+    const task = createSingleTask(store);
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+
+    let releaseRound!: () => void;
+    const roundGate = new Promise<void>(resolve => { releaseRound = resolve; });
+    const steered: string[] = [];
+    const runtime = new DurableExecutionRuntime({
+      store, processOwnerId: "process-a", dataDir: join("__unused__"),
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (_message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          hooks.registerSteer?.((text) => { steered.push(text); return true; });
+          await roundGate;
+          await hooks.submitKanbanReceipt!({ conclusion: "按修正后的方向继续", continueWork: true });
+          return { result: { stopReason: "stop" as const, usage: USAGE }, text: "收到插话。" };
+        }
+      }]])]]) as any
+    });
+
+    const round = runWakeupDirect(runtime, store, executionId, 2);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(steerKanbanRound(executionId, "方向偏了，先用现有数据"), true, "the live round receives the steer");
+    assert.deepEqual(steered, ["方向偏了，先用现有数据"]);
+    releaseRound();
+    await round;
+
+    // Once the round settles nothing is registered: steering falls back.
+    assert.equal(steerKanbanRound(executionId, "再来一条"), false);
+  } finally {
+    cleanup();
+  }
+});
+
 test("member-to-member handoffs consume the limit while coordinator re-dispatches do not", async () => {
   const { store, cleanup } = runtimeFixture();
   try {

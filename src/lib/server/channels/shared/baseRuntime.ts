@@ -922,6 +922,11 @@ export abstract class BaseChannelRuntime {
         respondInThread: async () => {}
       },
       onRunnerEvent: hooks.onRunnerEvent,
+      // Mid-run steering (spec 执行形态修订 切片②): the resolved target's pool
+      // owns the live runner, so expose a steer closure for the attempt.
+      onTargetResolved: hooks.registerSteer
+        ? (target) => hooks.registerSteer!((text) => target.pool.steer(target.chatId, target.sessionId, text))
+        : undefined,
       onToolSideEffectPreflight: hooks.onToolSideEffectPreflight,
       onToolSideEffectReceipt: hooks.onToolSideEffectReceipt,
       onApprovalRequest: async (request) => {

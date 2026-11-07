@@ -140,4 +140,25 @@ test("kanban API binds the task to a visible conversation seeded with the brief"
   assert.equal(runtime.sessions.listConversations("web", "web:desktop:kanban").some(item => item.title === "坏任务"), false, "failed creation cleans up its conversation");
 });
 
+test("kanban steer falls back to a pending input when no round is running", async () => {
+  const created = await post({
+    action: "kanban_create", form: "single", title: "插话任务", goal: "产出周报",
+    agentId: "default", autoStart: false
+  });
+  assert.equal(created.status, 200);
+  const executionId = created.body.item.execution.id;
+  const sessionId = created.body.item.execution.sourceUiSessionId;
+  assert.ok(sessionId);
+
+  const steered = await post({ action: "kanban_steer", planId: executionId, text: "优先用现有数据，不要重新爬取" });
+  assert.equal(steered.status, 200);
+  assert.equal(steered.body.delivered, false, "no live round: the steer falls back to the input channel");
+  const bundleUrl = new URL(`http://localhost/api/desktop/plans?kanban=true&id=${executionId}`);
+  const bundle = await (await GET({ url: bundleUrl, request: new Request(bundleUrl) } as Parameters<typeof GET>[0])).json();
+  assert.deepEqual(bundle.inputs.map((input: any) => input.text), ["优先用现有数据，不要重新爬取"]);
+  const messages = runtime.sessions.listMessages(sessionId);
+  assert.ok(messages.length >= 2, "brief and steer both appear in the visible conversation");
+  assert.match(messages[messages.length - 1].content, /优先用现有数据/);
+});
+
 test.after(() => { mock.restoreAll(); rmSync(root, { recursive: true, force: true }); for (const dir of projectRoots) rmSync(dir, { recursive: true, force: true }); });

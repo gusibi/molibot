@@ -118,6 +118,11 @@ export interface DurableAttemptHooks {
   consumeDurableApproval?: ToolExecutionContext["consumeDurableApproval"];
   readDurableEvidence?: ToolExecutionContext["readDurableEvidence"];
   submitKanbanReceipt?: ToolExecutionContext["submitKanbanReceipt"];
+  /**
+   * Invoked once the attempt's runner target resolves; the callback receives a
+   * steer closure that injects text into the live run (false = not running).
+   */
+  registerSteer?: (steer: (text: string) => boolean) => void;
 }
 
 export type RunnerUiEvent =

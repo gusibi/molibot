@@ -8,6 +8,7 @@ import { approveDesktopPlan } from "$lib/server/app/desktopPlans.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { PlanService } from "$lib/server/agent/plans/service.js";
 import { buildKanbanTaskBrief } from "$lib/server/agent/durable/kanbanRuntime.js";
+import { steerKanbanRound } from "$lib/server/agent/durable/kanbanSteer.js";
 import { persistDurableConversationInput } from "$lib/server/agent/durable/conversation.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
@@ -35,6 +36,27 @@ const plans = new PlanService();
 
 function ownerId(value: unknown): string {
   return String(value ?? "owner").trim() || "owner";
+}
+
+/**
+ * Appends a user message to the task's visible conversation and context-backs
+ * it, so the session reads as one continuous dialogue when opened directly.
+ */
+function appendTaskConversationMessage(
+  runtime: ReturnType<typeof getRuntime>,
+  conversation: { id: string; externalUserId: string; agentId?: string },
+  projectId: string,
+  text: string
+): void {
+  const message = runtime.sessions.appendMessage(conversation.id, "user", text);
+  try {
+    persistDurableConversationInput(
+      new MomRuntimeStore(projectId ? projectRuntimeWorkspaceDir(projectId) : agentWorkspaceDir(storagePaths.dataDir, conversation.agentId ?? "")),
+      runtime.sessions,
+      conversation.externalUserId,
+      message
+    );
+  } catch { /* the visible message is already recorded; context backing is best-effort */ }
 }
 
 /** Best-effort removal of a task conversation whose task creation failed. */
@@ -155,24 +177,19 @@ export const POST: RequestHandler = async ({ request }) => {
           try {
             if (projectId) runtime.sessions.renameProjectConversation(projectId, conversation.id, title);
             else runtime.sessions.renameConversation(conversation.id, "web", sessionOwner, title);
-            const brief = runtime.sessions.appendMessage(conversation.id, "user", buildKanbanTaskBrief({
-              title,
-              goal: String(raw.goal ?? "").trim() || title,
-              ...(raw.workDir ? { workDir: String(raw.workDir).trim() } : {}),
-              conditions: Array.isArray(raw.completionConditions)
-                ? raw.completionConditions.map(item => String((item as { description?: unknown })?.description ?? "").trim()).filter(Boolean)
-                : []
-            }));
-            // Context-back the brief so the session reads as one continuous
-            // conversation when the user opens it directly.
-            try {
-              persistDurableConversationInput(
-                new MomRuntimeStore(projectId ? projectRuntimeWorkspaceDir(projectId) : agentWorkspaceDir(storagePaths.dataDir, executorAgentId)),
-                runtime.sessions,
-                conversation.externalUserId,
-                brief
-              );
-            } catch { /* the visible message is already recorded; context backing is best-effort */ }
+            appendTaskConversationMessage(
+              runtime,
+              { ...conversation, ...(projectId ? {} : { agentId: executorAgentId }) },
+              projectId,
+              buildKanbanTaskBrief({
+                title,
+                goal: String(raw.goal ?? "").trim() || title,
+                ...(raw.workDir ? { workDir: String(raw.workDir).trim() } : {}),
+                conditions: Array.isArray(raw.completionConditions)
+                  ? raw.completionConditions.map(item => String((item as { description?: unknown })?.description ?? "").trim()).filter(Boolean)
+                  : []
+              })
+            );
           } catch (cause) {
             cleanupTaskConversation(runtime, conversation, projectId, sessionOwner);
             throw cause;
@@ -210,6 +227,31 @@ export const POST: RequestHandler = async ({ request }) => {
       case "kanban_answer": {
         const item = plans.answerKanbanTask({ ownerId: owner, executionId: String(body.planId), text: String(body.text ?? "").trim() });
         return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
+      }
+      case "kanban_steer": {
+        const executionId = String(body.planId ?? "").trim();
+        const text = String(body.text ?? "").trim();
+        if (!text) throw new Error("Empty message.");
+        const { task, detail } = plans.getKanbanTask(owner, executionId);
+        const runtime = getRuntime();
+        // Live injection first (spec 执行形态修订 切片②); when no round is
+        // running the message falls back to the pending-input channel.
+        const delivered = steerKanbanRound(executionId, text);
+        if (!delivered) plans.answerKanbanTask({ ownerId: owner, executionId, text });
+        const sessionId = detail.execution.sourceUiSessionId?.trim();
+        if (sessionId) {
+          const projectIdOfSession = runtime.sessions.getConversationProjectId(sessionId) ?? "";
+          const ownerOfSession = projectIdOfSession ? "" : runtime.sessions.getWebConversationOwner(sessionId) ?? "";
+          const conversation = projectIdOfSession
+            ? runtime.sessions.getProjectConversation(projectIdOfSession, sessionId)
+            : ownerOfSession
+              ? runtime.sessions.getConversationById(sessionId, "web", ownerOfSession)
+              : null;
+          if (conversation) {
+            appendTaskConversationMessage(runtime, conversation, projectIdOfSession, text);
+          }
+        }
+        return json({ ok: true, delivered }, { headers: { "Cache-Control": "no-store" } });
       }
       case "kanban_budget":
         return json({ ok: true, item: plans.addKanbanBudget({ ownerId: owner, executionId: String(body.planId), expectedVersion: Number(body.expectedVersion), addTokens: Number(body.addTokens) }) }, { headers: { "Cache-Control": "no-store" } });
