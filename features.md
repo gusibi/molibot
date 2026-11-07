@@ -1,3 +1,13 @@
+## 2026-11-07 — 任务看板与 Agent／Team 自主执行（第一阶段）
+
+计划页升级为 Todo／Doing／Done 三列看板，附默认收起的「已取消」区域；旧计划按同一状态映射无损投影到看板，卡片拖拽映射为暂停／取消／开始（取消需确认）。手动创建单 Agent 或 Team 任务：负责人、成员（负责人必须在内）、Project、完成条件、累计预算（默认 2M tokens）、审批策略与自动开始；创建后默认自动开始进 Doing。
+
+执行为回执驱动的轮次：执行 Agent 通过回执工具汇报结论、证据、勾选清单、继续意图或提问，无回执不隐式续跑。任务级单飞（合成 chat `kanban:<executionId>`）保证同任务轮次串行；成员轮次使用任务专属上下文，不写 Room 会话记录。Team 任务由负责人按流程串行派活，交接台账与简报传入下一轮，派发前校验交接上限与成员资格。同 Project 任务经推进位串行。
+
+护栏齐备：挂起审批释放租约与执行槽、回答后重入队；预算耗尽转 partial，追加额度（台账保留）后续跑；失败轮次 60s×4 退避自动重试最多 3 次（计数与下次重试时间持久化，重启不丢），记录过非幂等副作用意图的轮次不自动重试、挂起等用户确认；失败轮次保留待处理输入。Desktop 详情为对话式视图：回执／交接／用户输入按时间合并成信息流，进度清单、提问与审批提示卡、回答输入框。API 新增看板投影（`view=board`）、任务 bundle（`kanban=true&id=`）与 `kanban_create`／`kanban_start`／`kanban_answer`／`kanban_budget` 四个动作。
+
+验证：durable 看板运行时／存储／回执工具／plans 服务／Desktop plans API 定向 node:test 全部通过；`desktop:check` 0 错误 0 警告；看板／详情／创建对话框 Chromium 定向 UI 用例及受影响 plans UI 用例通过；隔离实例冷启动走查（空看板 → 建任务 → 回答 → 重启后投影与输入持久化）通过。desktop contract、api.ts、i18n、本文件与 CHANGELOG 与另一并行工作流交叉修改，暂存子集在 detached worktree 复核（svelte-check 0/0 + 服务端 7 项）。全量 `pnpm verify:feature`、完整 Playwright 套件（含 WebKit）与原生 Tauri 验收未执行；trigger 来源插件（GitHub Issue／飞书／表格）为第二阶段，未开始。
+
 ## 2026-11-07 — 桌面服务端点 localhost 化
 
 桌面服务端点发布为 `http://localhost:<port>`（supervisor 托管与 start-server 独立启动两条路径同步修改），并在桌面 App 进程入口设 `NO_PROXY=localhost,127.0.0.1,::1`，绕开 macOS 系统代理对 loopback 流量的劫持：reqwest 只读系统代理主机／端口、不读例外列表，此前桌面全部 API 请求经 VPN 系统代理回连本机服务，实测延迟约 25 倍（26ms → 640ms），代理重载或切换节点时间歇黑洞（含 503），表现为 Agent 首页、项目会话无限「正在加载」。外网流量（模型 API）照常走代理；非 loopback 绑定（局域网访问）保持原 host 不受影响；Tauri HTTP scope 白名单已双 host 覆盖。根因与诊断手法见 [Pitfall #82](docs/pitfalls.md)。

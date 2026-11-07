@@ -1,6 +1,6 @@
 # 任务看板与 Agent／Team 自主执行 Spec
 
-日期：2026-11-05，2026-11-07 修订（自动开始、对话式详情、进度清单、流程来源、同项目串行）。阶段：产品方案已确认，尚未实施。本文描述拟议行为，不代表能力已经交付；实际状态以[能力矩阵](personal-assistant-capability-matrix.md)为准。术语见[领域词典](../reference/CONTEXT.md)。
+日期：2026-11-05，2026-11-07 修订（自动开始、对话式详情、进度清单、流程来源、同项目串行）并于同日交付第一阶段（看板、创建、执行循环、护栏与 Desktop UI；第二阶段起的 trigger 来源插件未开始）。实际状态以[能力矩阵](personal-assistant-capability-matrix.md)为准。术语见[领域词典](../reference/CONTEXT.md)。
 
 ## Problem Statement
 
@@ -304,7 +304,7 @@
 
 ### 文档关系
 
-- 本文是任务看板与自主 Team 执行的产品需求来源；[能力矩阵](personal-assistant-capability-matrix.md)是实际交付状态唯一来源，本轮能力为未开始。
+- 本文是任务看板与自主 Team 执行的产品需求来源；[能力矩阵](personal-assistant-capability-matrix.md)是实际交付状态唯一来源，本轮第一阶段能力已于 2026-11-07 交付，trigger 来源插件仍为未开始。
 - [计划看板 PRD](plan-board-prd.md)的独立计划列表、新建限制、完成自动归档与多列看板延后条款，被本文的新入口、三列投影和手动创建（可自动开始）方案取代；旧计划的执行、权限、修订和恢复规则保留。
 - [Automatic Durable Execution PRD](automatic-durable-execution-prd.md)继续维护基础执行、证据、副作用与恢复规则；本文扩展单 Agent／Team 任务形态，不要求开放式任务先建立完整线性计划。
 - 本文继续取代已归档的[规模化自主长任务 PRD](../archive/requirements/large-autonomous-execution-prd.md)。其阶段 A 已交付验收与阻塞报告不受影响。
