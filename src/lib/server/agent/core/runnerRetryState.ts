@@ -53,6 +53,39 @@ export function isRetryableModelError(message: string): boolean {
   return EXTRA_RETRYABLE_PATTERN.test(message);
 }
 
+/**
+ * Provider-wide capacity exhaustion (all credentials cooling down, an overloaded
+ * cell). Retrying the same candidate a second later cannot succeed while the
+ * cooldown window is open; fail over to another candidate when one exists.
+ */
+const CAPACITY_PATTERN = /prefill_cap_refused|model_cooldown|at capacity|overloaded|server (?:is )?busy|\b429\b/i;
+
+export function isProviderCapacityError(message: string): boolean {
+  return Boolean(message) && !NON_RETRYABLE_PATTERN.test(message) && CAPACITY_PATTERN.test(message);
+}
+
+/**
+ * Retry cadence for one candidate: honor the provider's own hint
+ * (`reset_seconds`, `retry after 30 s`, `Retry-After: 30`) instead of hammering
+ * a cooling-down credential every second until the failure budget is spent.
+ * The delay is clamped so one transient stall cannot freeze the run.
+ */
+const RETRY_HINT_PATTERNS = [
+  /reset_seconds["']?\s*[:=]\s*(\d+(?:\.\d+)?)/i,
+  /retry[-_ ]?after["']?\s*[:=]\s*(\d+(?:\.\d+)?)/i,
+  /retry shortly\s*\(?after\s+(\d+(?:\.\d+)?)\s*s/i,
+  /\(after\s+(\d+(?:\.\d+)?)\s*s\)/i
+];
+
+export function modelRetryDelayMs(message: string, fallbackMs = 1000, maxMs = 30_000): number {
+  for (const pattern of RETRY_HINT_PATTERNS) {
+    const match = String(message ?? "").match(pattern);
+    const seconds = match ? Number(match[1]) : NaN;
+    if (Number.isFinite(seconds) && seconds > 0) return Math.min(maxMs, Math.max(fallbackMs, Math.round(seconds * 1000)));
+  }
+  return fallbackMs;
+}
+
 export type PromptAttemptDecision =
   | { kind: "success" }
   | { kind: "aborted" }

@@ -235,13 +235,12 @@ export async function callDirectCustomProvider(
       provider: provider.id,
       model,
       api: "anthropic-messages",
-      usage: {
-        input: data.usage?.input_tokens ?? 0,
-        output: data.usage?.output_tokens ?? 0,
-        cacheRead: data.usage?.cache_read_input_tokens ?? 0,
-        cacheWrite: data.usage?.cache_creation_input_tokens ?? 0,
-        totalTokens: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
-      }
+      usage: normalizeDirectUsage({
+        input: data.usage?.input_tokens,
+        output: data.usage?.output_tokens,
+        cacheRead: data.usage?.cache_read_input_tokens,
+        cacheWrite: data.usage?.cache_creation_input_tokens
+      })
     };
   }
 
@@ -280,14 +279,31 @@ export async function callDirectCustomProvider(
     provider: provider.id,
     model,
     api: "openai-completions",
-    usage: {
-      input: data.usage?.prompt_tokens ?? 0,
-      output: data.usage?.completion_tokens ?? 0,
-      cacheRead: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
-      cacheWrite: 0,
-      totalTokens: data.usage?.total_tokens ?? 0
-    }
+    usage: (() => {
+      // `prompt_tokens` already includes the cached prefix; split it so `input`
+      // means uncached input on every path, matching pi-ai's parser.
+      const cacheRead = data.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+      return normalizeDirectUsage({
+        input: Math.max(0, (data.usage?.prompt_tokens ?? 0) - cacheRead),
+        output: data.usage?.completion_tokens,
+        cacheRead
+      });
+    })()
   };
+}
+
+/**
+ * Ledger contract shared with pi-ai: `input` is uncached input only, cache
+ * reads/writes are separate, and `totalTokens` is the sum of all four.
+ */
+function normalizeDirectUsage(raw: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }): NonNullable<DirectProviderReply["usage"]> {
+  const count = (value: number | undefined): number =>
+    typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+  const input = count(raw.input);
+  const output = count(raw.output);
+  const cacheRead = count(raw.cacheRead);
+  const cacheWrite = count(raw.cacheWrite);
+  return { input, output, cacheRead, cacheWrite, totalTokens: input + output + cacheRead + cacheWrite };
 }
 
 export async function testCustomProvider(payload: ProviderTestPayload): Promise<ProviderTestResult> {

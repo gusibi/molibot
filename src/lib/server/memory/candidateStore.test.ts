@@ -281,6 +281,11 @@ test("review candidates filter namespaces and drafts before applying the bound a
     store.setSkillDraftSuggestion(skill.id, { description: "Reusable workflow", inputs: [], outputs: [], boundaries: [], successfulExecutionCount: 2 });
     assert.deepEqual(store.listReviewCandidates(["owner:owner"], 11, true).map(item => item.id), [skill.id]);
     assert.deepEqual(store.listReviewCandidates(["agent:other"], 11, true), []);
+    const projectScoped = store.listReviewCandidates(["agent:other"], 100, false, ["project:owner:"]);
+    assert.equal(projectScoped.length, 15);
+    assert.ok(projectScoped.every(item => item.namespace === "project:owner:private"));
+    assert.deepEqual(store.listReviewCandidates(["agent:other"], 100, false, ["project:someoneelse:"]), []);
+    assert.equal(store.listReviewCandidates([], 100, false, ["project:owner:"]).length, 15);
     const visible = store.listReviewCandidates(["owner:owner"], 2);
     assert.deepEqual(new Set(visible.map(item => item.id)), new Set([first.id, second.id]));
     store.ignore(first.id);

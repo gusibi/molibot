@@ -642,11 +642,33 @@ export class KanbanStore {
         .run(Math.round(input.topup), JSON.stringify(topups), timestamp, input.executionId);
       this.db.prepare("UPDATE durable_executions SET budget_token_limit = COALESCE(budget_token_limit, 0) + ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?")
         .run(Math.round(input.topup), timestamp, input.executionId, current.version);
+      this.ensureRunWakeupInTransaction(input.executionId, input.now);
       this.db.exec("COMMIT"); this.notify();
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  /**
+   * Re-arms the runnable wakeup after a write inside the same transaction that
+   * advanced the execution version. Every wakeup is bound to the version that
+   * created it, so leaving the previous trigger in place means its claim is
+   * discarded as stale and the queued task never runs again. Idempotent for the
+   * current version; supersedes older pending rows.
+   */
+  private ensureRunWakeupInTransaction(executionId: string, now = new Date()): boolean {
+    const row = this.db.prepare("SELECT status, version, next_run_at FROM durable_executions WHERE id = ?")
+      .get(text(executionId)) as { status: string; version: number; next_run_at: string | null } | undefined;
+    if (!row) return false;
+    if (row.status !== "queued" && row.status !== "recovery_required") return false;
+    const runAt = row.next_run_at ? new Date(row.next_run_at) : now;
+    return enqueueWakeupInTransaction(this.db, {
+      executionId,
+      expectedVersion: Number(row.version),
+      reason: row.status === "recovery_required" ? "resume" : "advance",
+      runAt: Number.isFinite(runAt.getTime()) ? runAt : now
+    }, now);
   }
 
   recordInput(input: { executionId: string; text: string; now?: Date }): KanbanUserInput {
@@ -660,6 +682,7 @@ export class KanbanStore {
       this.db.prepare("INSERT INTO durable_kanban_inputs (input_id, execution_id, text, created_at, consumed_round) VALUES (?, ?, ?, ?, NULL)")
         .run(inputId, input.executionId, value, timestamp);
       this.db.prepare("UPDATE durable_executions SET version = version + 1, updated_at = ? WHERE id = ?").run(timestamp, input.executionId);
+      this.ensureRunWakeupInTransaction(input.executionId, input.now);
       const record: KanbanUserInput = { inputId, executionId: input.executionId, text: value, createdAt: timestamp, consumedRound: null };
       this.db.exec("COMMIT"); this.notify();
       return record;
@@ -707,6 +730,7 @@ export class KanbanStore {
       for (const description of descriptions) insert.run(id("criterion"), input.executionId, execution.current_plan_version, description, timestamp, timestamp);
       this.db.prepare("UPDATE durable_kanban_tasks SET completion_source = 'generated', updated_at = ? WHERE execution_id = ?").run(timestamp, input.executionId);
       this.db.prepare("UPDATE durable_executions SET version = version + 1, updated_at = ? WHERE id = ?").run(timestamp, input.executionId);
+      this.ensureRunWakeupInTransaction(input.executionId, input.now);
       this.db.exec("COMMIT"); this.notify();
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -738,6 +762,7 @@ export class KanbanStore {
       for (const description of descriptions) insert.run(id("criterion"), input.executionId, execution.current_plan_version, description, timestamp, timestamp);
       this.db.prepare("UPDATE durable_kanban_tasks SET completion_source = 'user', updated_at = ? WHERE execution_id = ?").run(timestamp, input.executionId);
       this.db.prepare("UPDATE durable_executions SET version = version + 1, updated_at = ? WHERE id = ? AND version = ?").run(timestamp, input.executionId, input.expectedVersion);
+      this.ensureRunWakeupInTransaction(input.executionId, input.now);
       this.db.exec("COMMIT"); this.notify();
     } catch (error) {
       this.db.exec("ROLLBACK");

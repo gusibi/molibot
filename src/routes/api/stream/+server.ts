@@ -17,7 +17,7 @@ import {
   resolveWebDurableBotId
 } from "$lib/server/web/identity";
 import { resolveRuntimeContext, resolveRunnerChatId, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext";
-import { kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
+import { appendTaskConversationMessage, kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment, ConversationPlan } from "$lib/shared/types/message";
@@ -195,7 +195,7 @@ export const POST: RequestHandler = async ({ request }) => {
     return new Response(JSON.stringify({ ok: false, error: "成员子会话是任务的只读视图，请在主任务会话中沟通。" }), { status: 409, headers: { "Content-Type": "application/json" } });
   }
   if (kanbanAction.kind === "steer") {
-    try { runtime.sessions.appendMessage(conversation.id, "user", message); } catch { /* the steer record stands on its own */ }
+    try { appendTaskConversationMessage(runtime.sessions, conversation, project?.id ?? "", message); } catch { /* the steer record stands on its own */ }
     const delivered = sendToKanbanTask(kanbanAction.executionId, message).delivered;
     return new Response(`event: done\ndata: ${JSON.stringify({ ok: true, response: "", conversationId: conversation.id, profileId, stopReason: delivered ? "steered" : "queued" })}\n\n`, { headers: { "Content-Type": "text/event-stream" } });
   }
@@ -606,7 +606,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 writeEvent(controller, encoder, "plan_proposal", planProposal);
                 return;
               }
-              if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end" || event.type === "subagent_execution") {
+              if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end" || event.type === "subagent_execution" || event.type === "model_retry") {
                 const activity = activityCollector.record(event);
                 writeEvent(controller, encoder, "runner_event", {
                   diagnostic: diagnostic ?? "",

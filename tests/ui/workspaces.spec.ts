@@ -171,11 +171,11 @@ test('skills, plans and launcher remain separate pages with real actions and emp
   await expect(page.locator('.workspace-scroll').getByRole('tab')).toHaveCount(0);
 
   await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
-  await expect(page.locator('.workspace-empty-art .startup-city')).toBeVisible();
-  await expect(page.locator('.plans-shell > .workspace-description')).toHaveText('Review, edit, and continue plans generated from a session.');
+  await expect(page.locator('.kanban-card', { hasText: planTitle })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('plans-unselected.png') });
   await page.locator('.chat-header').getByRole('button', { name: 'Search plans', exact: true }).click();
-  await page.getByRole('button', { name: new RegExp(planTitle) }).click();
+  await page.getByRole('searchbox', { name: 'Search plans', exact: true }).fill(planTitle);
+  await page.locator('.kanban-card', { hasText: planTitle }).click();
   await expect(page.getByRole('heading', { name: planTitle, exact: true })).toBeVisible();
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
   await page.screenshot({ path: testInfo.outputPath('plans.png') });
@@ -184,7 +184,8 @@ test('skills, plans and launcher remain separate pages with real actions and emp
   await page.locator('.plans-back').click();
   await expect(page.getByRole('searchbox', { name: 'Search plans', exact: true })).toBeVisible();
   await page.getByRole('searchbox', { name: 'Search plans', exact: true }).fill('no-such-plan');
-  await expect(page.getByText('No plans match.', { exact: true })).toBeVisible();
+  await expect(page.locator('.kanban-column')).toHaveCount(3);
+  await expect(page.locator('.kanban-add-card')).toBeVisible();
 
   await page.getByRole('button', { name: 'Mini Apps', exact: true }).click();
   await expect(page.locator('.plans-shell')).toHaveCount(0);
@@ -245,7 +246,7 @@ test('plan revisions preserve drafts, reject conflicts and survive cold recovery
   const readPlan = async () => (await (await request.get(instance.endpoint + `/api/desktop/plans?id=${planId}`)).json()).item;
   await openChat(page);
   await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
-  const row = page.locator('.plans-list').getByRole('button', { name: new RegExp(title) });
+  const row = page.locator('.kanban-card', { hasText: title });
   await row.click();
   await page.getByRole('button', { name: 'Edit plan', exact: true }).click();
   await page.getByRole('textbox', { name: 'Plan name', exact: true }).fill('Owner draft');
@@ -284,7 +285,7 @@ test('plan revisions preserve drafts, reject conflicts and survive cold recovery
   expect((await readPlan()).meta.title).toBe('Owner draft');
 });
 
-test('plans, skills and auto tasks align their top sections and count each filter @workspace @smoke', async ({ page, request, instance }, testInfo) => {
+test('workspace filters align and plans fill the content column @workspace @smoke', async ({ page, request, instance }, testInfo) => {
   const title = `Filter counts ${randomUUID().slice(0, 8)}`;
   await post(request, instance.endpoint, '/api/desktop/plans', {
     action: 'create', planId: `counts-${randomUUID()}`, botId: 'default', title,
@@ -308,6 +309,21 @@ test('plans, skills and auto tasks align their top sections and count each filte
       const filters = element.querySelector('.workspace-filterbar')!.getBoundingClientRect();
       return { descriptionY: description.y, descriptionH: description.height, filtersY: filters.y, filtersH: filters.height, dividerY: filters.bottom };
     });
+    await page.getByRole('button', { name: locale === 'en-US' ? 'Plans' : '计划', exact: true }).click();
+    await expect(page.locator('.kanban-card', { hasText: title })).toBeVisible();
+    const plans = page.locator('.plans-shell');
+    // The board owns the content column; there is no empty detail pane and no
+    // second explanatory header above it.
+    await expect(plans.locator('.workspace-description')).toHaveCount(0);
+    const planGeometry = await plans.evaluate(element => {
+      const board = element.querySelector('.kanban-board')!.getBoundingClientRect();
+      const shell = element.getBoundingClientRect();
+      return { board: board.width, shell: shell.width, columns: element.querySelectorAll('.kanban-column').length };
+    });
+    expect(planGeometry.columns).toBe(3);
+    expect(planGeometry.board).toBeGreaterThan(planGeometry.shell * 0.8);
+    expect(await plans.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+    if (width === 1120) await page.screenshot({ path: testInfo.outputPath(`plans-header-${locale}-${family}.png`) });
     await page.getByRole('button', { name: locale === 'en-US' ? 'Skills' : '技能', exact: true }).click();
     const skills = page.locator('.skills-shell');
     await expect(skills.locator('.workspace-skill-filters')).toBeVisible();
@@ -315,9 +331,13 @@ test('plans, skills and auto tasks align their top sections and count each filte
     const skillGeometry = await skills.evaluate(element => {
       const description = element.querySelector('.workspace-description')!.getBoundingClientRect();
       const filters = element.querySelector('.workspace-filterbar')!.getBoundingClientRect();
-      return { descriptionY: description.y, descriptionH: description.height, filtersY: filters.y, filtersH: filters.height, dividerY: filters.bottom };
+      const device = element.querySelector('.skills-device')?.getBoundingClientRect().height ?? 0;
+      return { descriptionY: description.y, descriptionH: description.height, filtersY: filters.y, filtersH: filters.height, dividerY: filters.bottom, device };
     });
-    expect(skillGeometry).toEqual(taskGeometry);
+    // Skills own a device/scan strip between the description and the filters;
+    // below that strip the filter row still matches the other workspaces.
+    const { device, ...skillFilterGeometry } = skillGeometry;
+    expect({ ...skillFilterGeometry, filtersY: skillFilterGeometry.filtersY - device, dividerY: skillFilterGeometry.dividerY - device }).toEqual(taskGeometry);
     // Grid tiles stay borderless at rest: a row of card top borders ~20px under
     // the divider reads as a second, inset divider line.
     const skillGridTops = await skills.evaluate(() => {
@@ -327,42 +347,17 @@ test('plans, skills and auto tasks align their top sections and count each filte
     });
     expect(skillGridTops.gridMarginTop).toBe('24px');
     expect(skillGridTops.cardBorderTop).toMatch(/rgba?\([^)]*,\s*0\s*\)/);
-    await page.getByRole('button', { name: locale === 'en-US' ? 'Plans' : '计划', exact: true }).click();
-    await expect(page.getByRole('button', { name: new RegExp(title) })).toBeVisible();
-    const plans = page.locator('.plans-shell');
-    const planGeometry = await plans.evaluate(element => {
-      const description = element.querySelector('.workspace-description')!.getBoundingClientRect();
-      const filters = element.querySelector('.workspace-filterbar')!.getBoundingClientRect();
-      return { descriptionY: description.y, descriptionH: description.height, filtersY: filters.y, filtersH: filters.height, dividerY: filters.bottom };
-    });
-    expect(planGeometry).toEqual(taskGeometry);
-    expect(await plans.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
-    if (width === 1120) await page.screenshot({ path: testInfo.outputPath(`plans-header-${locale}-${family}.png`) });
     }
   }
   await page.evaluate(() => {
     localStorage.setItem('molibot-desktop-locale', 'en-US');
     window.dispatchEvent(new StorageEvent('storage', { key: 'molibot-desktop-locale', newValue: 'en-US' }));
   });
-  const response = await request.get(instance.endpoint + '/api/desktop/plans?includeArchived=true&limit=200');
-  const { items } = await response.json();
-  const statuses = ['all', 'not_started', 'in_progress', 'needs_attention', 'finished', 'archived'];
-  const filters = page.locator('.workspace-plan-filters');
-  for (const [index, status] of statuses.entries()) {
-    const expected = items.filter((item: { planStatus: string }) => status === 'all' || item.planStatus === status).length;
-    const button = filters.getByRole('button').nth(index);
-    await expect(button.locator('.workspace-category-count')).toHaveText(String(expected));
-    await button.click();
-    await expect(button).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('.plans-list > li')).toHaveCount(expected);
-  }
   await page.locator('.chat-header').getByRole('button', { name: 'Search plans', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search plans', exact: true }).fill('no-match-for-filter-counts');
-  for (const count of await filters.locator('.workspace-category-count').all()) await expect(count).toHaveText('0');
-  await expect(page.locator('.plans-list > li')).toHaveCount(0);
+  await expect(page.locator('.kanban-card')).toHaveCount(0);
   await page.getByRole('searchbox', { name: 'Search plans', exact: true }).press('Escape');
-  await filters.getByRole('button').first().click();
-  await expect(page.getByRole('button', { name: new RegExp(title) })).toBeVisible();
+  await expect(page.locator('.kanban-card', { hasText: title })).toBeVisible();
 });
 
 

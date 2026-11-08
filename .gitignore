@@ -53,4 +53,8 @@ Thumbs.db
 
 # test
 evals/results/
+test-results/
 
+
+# local agent tooling
+.zcode/

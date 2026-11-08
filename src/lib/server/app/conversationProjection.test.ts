@@ -515,7 +515,7 @@ test("a turn with no text at all still shows its error as the bubble body", () =
 const contextSnapshot = (messages: number) => ({
   contextWindow: 100_000,
   estimatedTokens: 1_000,
-  breakdown: { messages, mcpTools: 0, systemTools: 0, systemPrompt: 0, skills: 0, other: 0 },
+  breakdown: { messages, memory: 0, files: 0, toolResults: 0, mcpTools: 0, systemTools: 0, systemPrompt: 0, skills: 0, other: 0 },
   inputTokens: 900 + messages,
   cacheReadTokens: 0,
   cacheWriteTokens: 0
@@ -597,3 +597,27 @@ for (const stopReason of ["stop", "aborted", "waiting_for_approval"]) {
     assert.equal(result.messages.at(-1)?.stopReason, stopReason);
   });
 }
+
+test("consecutive kanban-attempt assistant entries stay separated across rounds", () => {
+  const result = projectConversationMessages({
+    conversationId: "session",
+    entries: [
+      { ...entry("u-1", "user", [{ type: "text", text: "Task prompt" }], 0), runId: "kanban-attempt-1" },
+      { ...delivered("a-1", [{ type: "text", text: "Round 1 reply" }], 1, "final", { stopReason: "stop" }), runId: "kanban-attempt-1" },
+      { ...delivered("a-2", [{ type: "text", text: "Round 2 reply" }], 2, "final", { stopReason: "stop" }), runId: "kanban-attempt-2" }
+    ],
+    metadata: [
+      { id: "m-u-1", conversationId: "session", role: "user", createdAt: "2026-07-14T10:00:00.000Z", contextBacked: true, sourceEntryId: "u-1" },
+      { id: "m-a-1", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:01:00.000Z", contextBacked: true, sourceEntryId: "a-1" },
+      { id: "m-a-2", conversationId: "session", role: "assistant", createdAt: "2026-07-14T10:02:00.000Z", contextBacked: true, sourceEntryId: "a-2" }
+    ]
+  });
+  const assistants = result.messages.filter(message => message.role === "assistant");
+  assert.equal(assistants.length, 2);
+  assert.equal(assistants[0]?.id, "m-a-1");
+  assert.equal(assistants[0]?.content, "Round 1 reply");
+  assert.deepEqual(assistants[0]?.traceRunIds, ["kanban-attempt-1"]);
+  assert.equal(assistants[1]?.id, "m-a-2");
+  assert.equal(assistants[1]?.content, "Round 2 reply");
+  assert.deepEqual(assistants[1]?.traceRunIds, ["kanban-attempt-2"]);
+});

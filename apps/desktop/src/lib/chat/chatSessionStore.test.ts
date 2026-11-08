@@ -40,6 +40,62 @@ test("reconnect adopts orphaned runs for recovery instead of aborting them", asy
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("recovering an in-flight session keeps its persisted history visible while polling", async () => {
+  const originalFetch = globalThis.fetch;
+  let releasePoll!: () => void;
+  const pollGate = new Promise<void>((resolve) => { releasePoll = resolve; });
+  let pollCalls = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/session-runs")) {
+      pollCalls += 1;
+      if (pollCalls === 1) {
+        return new Response(JSON.stringify({
+          ok: true,
+          runs: [{ profileId: "default", sessionId: "s-recover", runId: "run-1" }]
+        }));
+      }
+      await pollGate;
+      return new Response(JSON.stringify({ ok: true, runs: [] }));
+    }
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.action === "list_pending") {
+      return new Response(JSON.stringify({ ok: true, approvals: [] }));
+    }
+    return new Response(JSON.stringify({ ok: true }));
+  };
+  try {
+    const store = new ChatSessionStore();
+    const history = [
+      { id: "m-1", conversationId: "s-recover", role: "user" as const, content: "first turn", createdAt: "2026-11-08T05:25:00Z" },
+      { id: "m-2", conversationId: "s-recover", role: "assistant" as const, content: "first reply", createdAt: "2026-11-08T05:28:00Z" }
+    ];
+    store.init({
+      endpoint: () => "http://isolated.invalid",
+      modelReady: () => true,
+      labels: () => ({
+        working: "Working", uploading: "Uploading", recognizingImage: "Recognizing",
+        stopped: "Stopped", idle: "Idle", resuming: "已处理，正在继续…"
+      }),
+      loadTranscript: async () => history
+    });
+
+    assert.equal(await store.reconnect(), 1);
+    await store.selectSession("default", "s-recover");
+    assert.equal(store.registry.active?.controller.sending, true);
+    assert.equal(store.registry.active?.controller.activity, "已处理，正在继续…");
+    assert.deepEqual(
+      store.registry.active?.messages.map((m) => m.content),
+      ["first turn", "first reply"],
+      "persisted history must remain visible while recoverRunningTurn is polling"
+    );
+
+    releasePoll();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 
 test("first send retains its draft settings while another Agent becomes active", async () => {
   const originalFetch = globalThis.fetch;

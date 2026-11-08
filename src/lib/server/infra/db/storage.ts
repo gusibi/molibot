@@ -14,6 +14,7 @@ export const storagePaths = {
   moryDbFile: path.resolve(config.databaseDir, "mory.sqlite"),
   sessionsDbFile: path.resolve(config.databaseDir, "sessions.db"),
   durableExecutionDbFile: path.resolve(config.databaseDir, "durable-execution.sqlite"),
+  notificationsDbFile: path.resolve(config.databaseDir, "notifications.sqlite"),
   memoryDir: path.resolve(config.dataDir, "memory"),
   projectsDir: path.resolve(config.dataDir, "projects"),
   webWorkspaceDir: path.resolve(config.webWorkspaceDir),

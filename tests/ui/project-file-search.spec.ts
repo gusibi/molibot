@@ -1,5 +1,6 @@
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { test, expect } from './support/fixtures';
 import { openChat } from './support/actions';
 
@@ -94,4 +95,45 @@ test('project search keeps results above previews for click, Enter and load erro
   await expect(panel.getByRole('button', { name: /notes.txt/ })).toBeVisible();
   await search.press('Enter');
   await expect(panel.getByRole('tabpanel', { name: 'notes.txt', exact: true })).toContainText('Filler line');
+});
+
+test('project chat header opens the context monitor for the selected project session @workspace', async ({ page, request, instance }, testInfo) => {
+  const key = randomUUID().slice(0, 8);
+  const root = join(instance.home, `context-project-${key}`);
+  await mkdir(root, { recursive: true });
+  const projectResponse = await request.post(instance.endpoint + '/api/settings/projects', {
+    headers: { origin: instance.endpoint }, data: { name: `Context project ${key}`, rootPath: root }
+  });
+  expect(projectResponse.ok(), await projectResponse.text()).toBe(true);
+  const { project } = await projectResponse.json();
+  const sessionResponse = await request.post(`${instance.endpoint}/api/settings/projects/${project.id}/sessions`, {
+    headers: { origin: instance.endpoint }, data: {}
+  });
+  expect(sessionResponse.ok(), await sessionResponse.text()).toBe(true);
+  const sessionBody = await sessionResponse.json();
+  const sessionId = sessionBody.session.conversationId;
+  const renameResponse = await request.patch(`${instance.endpoint}/api/settings/projects/${project.id}/sessions/${sessionId}`, {
+    headers: { origin: instance.endpoint }, data: { title: 'Fixed context title' }
+  });
+  expect(renameResponse.ok(), await renameResponse.text()).toBe(true);
+
+  await openChat(page);
+  const projectsToggle = page.getByRole('button', { name: 'Projects', exact: true }).last();
+  if (await projectsToggle.getAttribute('aria-expanded') !== 'true') await projectsToggle.click();
+  const group = page.locator('.project-tree-group').filter({ has: page.getByRole('button', { name: `Context project ${key}`, exact: true }) });
+  await group.getByRole('button', { name: `Context project ${key}`, exact: true }).click();
+  await group.locator('.conversation-row').first().click();
+
+  const trigger = page.locator('.chat-header').getByRole('button', { name: 'Context window', exact: true });
+  await expect(trigger).toBeVisible();
+  const sessionRefresh = page.waitForResponse(response => response.url().includes(`/api/settings/projects/${project.id}/sessions/${sessionId}`)
+    && response.request().method() === 'GET');
+  await trigger.click();
+  expect((await sessionRefresh).ok()).toBe(true);
+  const panel = page.locator('.context-window-popover');
+  await expect(panel.getByRole('heading', { level: 3, name: 'Context Window' })).toBeVisible();
+  await expect(panel).toContainText('Send a message — usage appears after the first reply');
+  await page.screenshot({ path: testInfo.outputPath('project-context-window.png') });
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
 });

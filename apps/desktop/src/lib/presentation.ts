@@ -87,23 +87,16 @@ export function formatCompactTokens(value: number): string {
   return `${formatted}m`;
 }
 
-/**
- * Token count in the unit the locale reads naturally: 万-based for Chinese
- * (26200 -> "2.62万"), `formatCompactTokens` for English (26200 -> "26.2k").
- */
-export function formatContextTokens(value: number, locale: Locale): string {
-  const n = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
-  if (locale !== "zh-CN" || n < 10_000) return formatCompactTokens(n);
-  const wan = n / 10_000;
-  const formatted = wan >= 100 ? Math.round(wan).toString() : wan.toFixed(2).replace(/\.?0+$/, "");
-  return `${formatted}万`;
+/** Context-window token count, always K/M-based (26200 -> "26.2K", 1000000 -> "1M"). */
+export function formatContextTokens(value: number, _locale: Locale): string {
+  return formatCompactTokens(value).toUpperCase();
 }
 
 /** One rendered row of the composer context-usage panel. */
 export interface ComposerContextUsageCategory {
-  key: "messages" | "mcpTools" | "systemTools" | "systemPrompt" | "skills" | "other";
+  key: "messages" | "memory" | "files" | "toolResults" | "tools" | "systemPrompt" | "skills";
   tokens: number;
-  /** Share of the estimated dispatch total, 0-100. */
+  /** Share of the dispatch total (reported when calibrated), 0-100. */
   percent: number;
 }
 
@@ -120,6 +113,8 @@ export interface ComposerContextUsage {
   percent: number;
   /** Empty for sessions without a dispatch snapshot: the category rows stay hidden. */
   categories: ComposerContextUsageCategory[];
+  /** True when the provider reported the prompt size and the categories are calibrated to it (no longer estimates). */
+  counted: boolean;
 }
 
 type ContextUsageSourceMessage = {
@@ -128,10 +123,11 @@ type ContextUsageSourceMessage = {
   contextBreakdown?: {
     contextWindow: number;
     estimatedTokens: number;
-    breakdown: Record<ComposerContextUsageCategory["key"], number>;
+    breakdown: Partial<Record<"messages" | "memory" | "files" | "toolResults" | "mcpTools" | "systemTools" | "systemPrompt" | "skills" | "other", number>>;
     inputTokens: number;
     cacheReadTokens: number;
     cacheWriteTokens: number;
+    reportedPromptTokens?: number;
   };
 };
 
@@ -192,19 +188,34 @@ export function deriveComposerContextUsage(
   const outputTokens = snapshot ? snapshotOutputTokens : Math.max(0, Math.round(lastUsage?.outputTokens ?? 0));
   const usedTokens = Math.max(0, Math.round(inputSide) + outputTokens);
   const percent = contextWindow > 0 ? Math.min(100, (usedTokens / contextWindow) * 100) : 0;
-  const total = snapshot && snapshot.estimatedTokens > 0 ? snapshot.estimatedTokens : 1;
-  const order: ComposerContextUsageCategory["key"][] = ["messages", "mcpTools", "systemTools", "systemPrompt", "skills", "other"];
+  const counted = (snapshot?.reportedPromptTokens ?? 0) > 0;
+  const raw = snapshot ? snapshot.breakdown : {};
+  const buckets: Record<ComposerContextUsageCategory["key"], number> = {
+    systemPrompt: raw.systemPrompt ?? 0,
+    skills: raw.skills ?? 0,
+    // Tool schemas collapse into one display bucket regardless of their origin.
+    tools: (raw.mcpTools ?? 0) + (raw.systemTools ?? 0) + (raw.other ?? 0),
+    memory: raw.memory ?? 0,
+    files: raw.files ?? 0,
+    toolResults: raw.toolResults ?? 0,
+    messages: raw.messages ?? 0
+  };
+  const total = Object.values(buckets).reduce((sum, tokens) => sum + tokens, 0) || 1;
+  const order: ComposerContextUsageCategory["key"][] = ["systemPrompt", "skills", "tools", "memory", "files", "toolResults", "messages"];
   const categories = snapshot
-    ? order.map((key) => {
-        const tokens = Math.max(0, Math.round(snapshot!.breakdown[key] ?? 0));
-        return { key, tokens, percent: (tokens / total) * 100 };
-      })
+    ? order
+        .map((key) => {
+          const tokens = Math.max(0, Math.round(buckets[key]));
+          return { key, tokens, percent: (tokens / total) * 100 };
+        })
+        .filter((category) => category.tokens > 0)
     : [];
   return {
     contextWindow,
     usedTokens,
     percent,
-    categories
+    categories,
+    counted
   };
 }
 

@@ -62,9 +62,11 @@ export interface SessionMessageEntry extends SessionEntryBase {
 }
 
 /**
- * Estimated category split of the dispatched context (see
- * `estimateContextBreakdown`) joined with the usage the provider reported for
- * that same call, so the UI can render both without re-deriving either side.
+ * Category split of the dispatched context (see `estimateContextBreakdown`)
+ * joined with the usage the provider reported for that same call, so the UI
+ * can render both without re-deriving either side. When `reportedPromptTokens`
+ * is present the breakdown has already been calibrated to it and the panels
+ * may treat the categories as measured values.
  */
 export interface SessionContextSnapshot {
   contextWindow: number;
@@ -73,6 +75,8 @@ export interface SessionContextSnapshot {
   inputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /** Provider-reported full prompt size (`input + cacheRead + cacheWrite`); absent when the call reported nothing. */
+  reportedPromptTokens?: number;
 }
 
 export interface SessionCompactionEntry extends SessionEntryBase {

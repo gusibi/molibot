@@ -10,6 +10,59 @@ export class ConversationActivityCollector {
   constructor(private readonly now: () => number = Date.now) {}
 
   record(event: RunnerUiEvent): ConversationActivity | undefined {
+    if (event.type === "model_retry") {
+      const key = "model-retry-progress";
+      const index = this.activities.findIndex((candidate) => candidate.key === key);
+      const existing = index >= 0 ? this.activities[index] : undefined;
+
+      if (event.phase === "recovered") {
+        if (!existing) return undefined;
+        const finishedAt = new Date(this.now()).toISOString();
+        const activity: ConversationActivity = {
+          ...existing,
+          state: "success",
+          label: "连接已恢复",
+          finishedAt,
+          ...(existing.startedAt ? { durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(existing.startedAt)) } : {})
+        };
+        this.activities[index] = activity;
+        return { ...activity };
+      }
+
+      if (event.phase === "failed") {
+        const finishedAt = new Date(this.now()).toISOString();
+        const activity: ConversationActivity = {
+          key,
+          kind: "retry",
+          tool: "retry",
+          label: `服务器繁忙，重试已达上限 (${event.maxRetries}/${event.maxRetries})`,
+          state: "error",
+          summary: (event.error || "").slice(0, MAX_SUMMARY_LENGTH),
+          startedAt: existing?.startedAt ?? new Date(this.now()).toISOString(),
+          finishedAt,
+          ...(existing?.startedAt ? { durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(existing.startedAt)) } : {})
+        };
+        if (index >= 0) this.activities[index] = activity;
+        else this.activities.push(activity);
+        return { ...activity };
+      }
+
+      const countdownPart = event.remainingSeconds && event.remainingSeconds > 0 ? ` (${event.remainingSeconds}s)` : "";
+      const label = `服务器繁忙，正在重新连接 ${event.attempt}/${event.maxRetries}${countdownPart}`;
+      const activity: ConversationActivity = {
+        key,
+        kind: "retry",
+        tool: "retry",
+        label,
+        state: "running",
+        summary: (event.error || existing?.summary || "").slice(0, MAX_SUMMARY_LENGTH),
+        startedAt: existing?.startedAt ?? new Date(this.now()).toISOString()
+      };
+      if (index >= 0) this.activities[index] = activity;
+      else this.activities.push(activity);
+      return { ...activity };
+    }
+
     if (event.type === "subagent_execution") {
       if (event.phase !== "task_start" && event.phase !== "task_end") return undefined;
       const parent = this.activities.findLast(activity => activity.kind === "tool" && activity.tool === "subagent" && activity.state === "running");

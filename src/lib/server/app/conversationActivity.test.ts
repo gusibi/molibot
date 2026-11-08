@@ -19,7 +19,8 @@ test("merges a tool start and end into one persisted activity", () => {
     toolName: "read_file",
     displayName: "Read file",
     isError: false,
-    summary: "Loaded 42 lines"
+    summary: "Loaded 42 lines",
+    tokenUsage: 120
   });
 
   assert.equal(ended?.key, started?.key);
@@ -35,7 +36,8 @@ test("merges a tool start and end into one persisted activity", () => {
     startedAt: "2026-08-10T10:00:00.000Z",
     finishedAt: "2026-08-10T10:00:02.300Z",
     durationMs: 2_300,
-    lineCount: 1
+    lineCount: 1,
+    tokenUsage: 120
   }]);
 });
 
@@ -313,4 +315,65 @@ test("subagent phases update one linked task without adding diagnostic rows or i
   assert.equal(collector.snapshot().length, 2);
   assert.equal(collector.snapshot().filter(activity => activity.kind === "tool").length, 1);
   assert.equal(collector.snapshot()[1].state, "success");
+});
+
+test("model_retry events record real-time countdown progress and transition to success", () => {
+  const collector = new ConversationActivityCollector();
+  const scheduled = collector.record({
+    type: "model_retry",
+    phase: "scheduled",
+    attempt: 1,
+    maxRetries: 5,
+    delayMs: 30000,
+    remainingSeconds: 30,
+    error: "429: the cell is at capacity; retry shortly (after 30 s)"
+  });
+  assert.equal(scheduled?.kind, "retry");
+  assert.equal(scheduled?.state, "running");
+  assert.equal(scheduled?.label, "服务器繁忙，正在重新连接 1/5 (30s)");
+  assert.match(scheduled?.summary ?? "", /429/);
+
+  const countdown = collector.record({
+    type: "model_retry",
+    phase: "countdown",
+    attempt: 1,
+    maxRetries: 5,
+    delayMs: 30000,
+    remainingSeconds: 28,
+    error: "429: the cell is at capacity; retry shortly (after 30 s)"
+  });
+  assert.equal(countdown?.label, "服务器繁忙，正在重新连接 1/5 (28s)");
+
+  const recovered = collector.record({
+    type: "model_retry",
+    phase: "recovered",
+    attempt: 1,
+    maxRetries: 5
+  });
+  assert.equal(recovered?.state, "success");
+  assert.equal(recovered?.label, "连接已恢复");
+});
+
+test("model_retry failed phase updates state to error with retry limit message", () => {
+  const collector = new ConversationActivityCollector();
+  collector.record({
+    type: "model_retry",
+    phase: "scheduled",
+    attempt: 5,
+    maxRetries: 5,
+    delayMs: 2000,
+    remainingSeconds: 2,
+    error: "429 Too Many Requests"
+  });
+
+  const failed = collector.record({
+    type: "model_retry",
+    phase: "failed",
+    attempt: 5,
+    maxRetries: 5,
+    error: "exceeded retry limit, last status: 429 Too Many Requests"
+  });
+  assert.equal(failed?.state, "error");
+  assert.equal(failed?.label, "服务器繁忙，重试已达上限 (5/5)");
+  assert.match(failed?.summary ?? "", /exceeded retry limit/);
 });

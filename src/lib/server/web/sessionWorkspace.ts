@@ -1,6 +1,20 @@
 import type { ConversationMessage } from "$lib/shared/types/message";
 import { getRuntime } from "$lib/server/app/runtime";
+import type { SessionStore } from "$lib/server/sessions/store";
 import { getProjectRuntimeContext, getRuntimeContextForConversation, resolveWebConversationIdentity } from "$lib/server/web/runtimeContext";
+
+/**
+ * Reads only the UI metadata rows needed to enumerate `attachments` and
+ * `activities.fileOutput`. Full transcript projection (`sessions.listMessages`)
+ * parses up to 16 MB of `.jsonl` agent entries and queries SQLite memory traces
+ * on every image byte request.
+ */
+function listConversationFileMessages(sessions: SessionStore, conversationId: string): ConversationMessage[] {
+  return sessions.listMessageMetadata(conversationId).map((metadata) => ({
+    ...metadata,
+    content: metadata.content ?? ""
+  }));
+}
 
 /**
  * Authorized lookup of a Session's workspace directory.
@@ -34,7 +48,7 @@ export function resolveAuthorizedConversation(input: {
     return {
       externalUserId: conversation.externalUserId,
       conversation,
-      messages: runtime.sessions.listMessages(conversation.id),
+      messages: listConversationFileMessages(runtime.sessions, conversation.id),
       workspaceDir: getProjectRuntimeContext(projectId).store.getWorkspaceDir()
     };
   }
@@ -52,7 +66,7 @@ export function resolveAuthorizedConversation(input: {
   return {
     externalUserId: identity.externalUserId,
     conversation,
-    messages: runtime.sessions.listMessages(conversation.id),
+    messages: listConversationFileMessages(runtime.sessions, conversation.id),
     workspaceDir: getRuntimeContextForConversation(identity.profileId, conversation.id).store.getWorkspaceDir()
   };
 }

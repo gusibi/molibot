@@ -139,7 +139,7 @@
     <p class="agent-home-memory-empty" role="alert">{copy.homeMemoryUnavailable}</p>
     <Button variant="text" disabled={busy || stale} onclick={() => void onChanged()}>{copy.retry}</Button>
   {:else if candidate}
-    <div class="agent-home-memory-meta"><span>{candidate.domain === "owner" ? copy.homeMemoryPersonal : copy.homeMemoryAgent}</span><time datetime={candidate.createdAt}>{formatTime(candidate.createdAt)}</time></div>
+    <div class="agent-home-memory-meta"><span>{candidate.domain === "owner" ? copy.homeMemoryPersonal : candidate.domain === "project" ? copy.homeMemoryProject : copy.homeMemoryAgent}</span><time datetime={candidate.createdAt}>{formatTime(candidate.createdAt)}</time></div>
     {#if candidate.supersedesMemoryId || candidate.disputesMemoryId}
       <section class="agent-home-memory-comparison" aria-label={locale === "zh-CN" ? "记忆新旧对照" : "Memory comparison"}>
         {#if comparisonLoading}<p role="status">{locale === "zh-CN" ? "正在读取原记忆…" : "Loading the original memory…"}</p>

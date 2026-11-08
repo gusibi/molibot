@@ -193,13 +193,15 @@
   .spreadsheet-table th,
   .spreadsheet-table td {
     min-width: 96px;
-    max-width: 480px;
-    padding: 5px 10px;
+    max-width: 360px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--separator);
-    overflow: hidden;
     text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    vertical-align: top;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    line-height: 1.5;
   }
   .spreadsheet-table thead th {
     position: sticky;

@@ -10,6 +10,7 @@
   import PlanCard from "./PlanCard.svelte";
   import { transcriptRenderBlocks, transcriptTurnSections } from "./transcript";
   import StreamingChatMarkdown from "./StreamingChatMarkdown.svelte";
+  import { chatImageResolver } from "./markdownImages";
   import TurnProcess from "./TurnProcess.svelte";
   import BotAvatar from "./BotAvatar.svelte";
   import { appLogo } from "../stores/appLogo.svelte";
@@ -110,7 +111,7 @@
             <PlanCard plan={block.plan} {copy} disabled={!messageActions?.onResolvePlan} onResolve={(decision, edits) => messageActions?.onResolvePlan?.({ role: "assistant", content: "", steps: liveSteps }, block.plan, decision, edits)} />
           {:else if block.content}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <StreamingChatMarkdown source={block.content} {copy} />
+            <StreamingChatMarkdown source={block.content} {copy} resolveImage={chatImageResolver({ role: "assistant", content: "", steps: liveSteps, activities }, attachmentActions)} />
           {/if}
         {/each}
       </div>

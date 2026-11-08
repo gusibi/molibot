@@ -20,6 +20,11 @@ export function projectNamespace(scope: MemoryScope): MemoryNamespace | undefine
     : undefined;
 }
 
+/** Prefix matching every project namespace of one owner (`project:<ownerId>:…`). */
+export function projectNamespacePrefix(ownerId = DEFAULT_OWNER_ID): string {
+  return `project:${segment(ownerId, DEFAULT_OWNER_ID)}:`;
+}
+
 export function agentNamespace(botId?: string): MemoryNamespace {
   return `agent:${segment(botId, "default")}`;
 }

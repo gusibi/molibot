@@ -49,6 +49,8 @@ export interface DesktopUsageTotals extends ImageCostTotals {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  /** Ledger-summed provider cost estimate; records without pricing contribute nothing, never zero-priced. */
+  estimatedCostUsd?: number;
 }
 
 export type DesktopUsageRange = "today" | "yesterday" | "last7Days" | "last30Days";
@@ -593,8 +595,45 @@ export interface DesktopHandoverSnapshot {
   items: Array<Omit<DesktopHandoverItem, "detail" | "display">>;
 }
 
+/**
+ * One standardized home notification: a pointer to something the owner should
+ * see or review, typed so the client can render the right card and resolve the
+ * detail from the owning system. Read state is server-side and owner-level.
+ */
+export type DesktopHomeNotificationType =
+  | "memory-review"
+  | "materials"
+  | "task-result"
+  | "task-failed"
+  | "action-required"
+  | "plan-completed"
+  | "cross-channel";
+
+export interface DesktopHomeNotification {
+  id: string;
+  type: DesktopHomeNotificationType;
+  /** The id of the entity this row points at (execution id, batch id…). */
+  refId?: string;
+  botId?: string;
+  projectId?: string;
+  /** Type-specific structured fields; the client renders per type. */
+  payload: Record<string, unknown>;
+  status: "unread" | "read" | "resolved";
+  createdAt: string;
+  readAt?: string;
+  updatedAt: string;
+}
+
+export interface DesktopHomeNotificationsResponse {
+  ok: boolean;
+  notifications?: DesktopHomeNotification[];
+  error?: string;
+}
+
 /** Pending personal/Agent candidates, independent of the handover event window. */
 export interface DesktopHomeMemoryReview {
+  /** Live pending count, capped at 100; drives the notification card. */
+  pendingReviewCount?: number;
   skillDraftCount?: number;
   skillDraftHasMore?: boolean;
   items: DesktopMemoryCandidate[];
@@ -1485,6 +1524,9 @@ export interface DesktopMessageAttachment {
 /** Category split of a dispatched context, mirrored from `ConversationContextSnapshot`. */
 export interface DesktopContextUsageBreakdown {
   messages: number;
+  memory: number;
+  files: number;
+  toolResults: number;
   mcpTools: number;
   systemTools: number;
   systemPrompt: number;
@@ -1493,10 +1535,11 @@ export interface DesktopContextUsageBreakdown {
 }
 
 /**
- * Estimated category split of the dispatched context joined with the real
- * prompt usage the provider reported for that same model call (see
- * `SessionContextSnapshot`). Present on assistant messages since the feature
- * shipped; older rows simply lack it.
+ * Category split of the dispatched context joined with the real prompt usage
+ * the provider reported for that same model call (see `SessionContextSnapshot`).
+ * Present on assistant messages since the feature shipped; older rows simply
+ * lack it. When `reportedPromptTokens` is set the breakdown is calibrated to
+ * it and the categories are measured values, not estimates.
  */
 export interface DesktopContextUsageSnapshot {
   contextWindow: number;
@@ -1505,6 +1548,7 @@ export interface DesktopContextUsageSnapshot {
   inputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  reportedPromptTokens?: number;
 }
 
 export interface DesktopConversationMessage {
@@ -1585,7 +1629,7 @@ export interface DesktopMemoryTraceResponse {
 
 export interface DesktopConversationActivity {
   key: string;
-  kind: "tool" | "subagent" | "note";
+  kind: "tool" | "subagent" | "note" | "retry";
   /** Tool id, so the transcript can pick a renderer for `summary`/`diff`. */
   tool?: string;
   label: string;
@@ -3587,6 +3631,8 @@ export interface DesktopExternalTranscriptMessage {
   activities?: DesktopConversationActivity[];
   steps?: DesktopConversationStep[];
   usage?: DesktopConversationTokenUsage;
+  /** Context-usage snapshot of the model call that produced this assistant row. */
+  contextBreakdown?: DesktopContextUsageSnapshot;
 }
 
 export interface DesktopExternalTranscript {

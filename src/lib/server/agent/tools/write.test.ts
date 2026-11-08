@@ -169,3 +169,48 @@ test("scratch write reports a path that resolves from the run's cwd", async () =
     rmSync(runtime, { recursive: true, force: true });
   }
 });
+
+test("hostWideAccess project write classifies absolute scratch paths as scratch and omits details for external paths", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "molibot-write-full-project-"));
+  const runtime = mkdtempSync(join(tmpdir(), "molibot-write-full-runtime-"));
+  const externalDir = mkdtempSync(join(tmpdir(), "molibot-write-full-external-"));
+  const scratchBase = join(runtime, "scratch");
+  const scratchRoot = join(scratchBase, "2026", "11", "08");
+  try {
+    const tool = createWriteTool({
+      cwd: projectRoot,
+      workspaceDir: runtime,
+      chatId: "chat-1",
+      outputLayout: { projectRoot, scratchRoot, scratchBase },
+      hostWideAccess: true
+    });
+
+    const scratchScriptPath = join(scratchRoot, "inspect.py");
+    const scratchResult = await tool.execute("tool-1", {
+      label: "write",
+      path: scratchScriptPath,
+      content: "print('ok')"
+    });
+    assert.equal(readFileSync(scratchScriptPath, "utf8"), "print('ok')");
+    assert.deepEqual(scratchResult.details, {
+      requestedPath: scratchScriptPath,
+      relativePath: "2026/11/08/inspect.py",
+      rootKind: "scratch",
+      action: "created",
+      sizeBytes: 11
+    });
+
+    const externalPath = join(externalDir, "outside.py");
+    const externalResult = await tool.execute("tool-2", {
+      label: "write",
+      path: externalPath,
+      content: "x"
+    });
+    assert.equal(readFileSync(externalPath, "utf8"), "x");
+    assert.equal(externalResult.details, undefined);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+    rmSync(runtime, { recursive: true, force: true });
+    rmSync(externalDir, { recursive: true, force: true });
+  }
+});

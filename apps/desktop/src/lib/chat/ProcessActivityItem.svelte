@@ -33,6 +33,7 @@
   $: preview = activityPreview(rawBodyContent);
   $: bodyContent = activity.state === "running" ? rawBodyContent.split("\n").slice(-12).join("\n") : expanded ? rawBodyContent : preview.content;
   $: ToolIcon = ACTIVITY_TOOL_ICONS[activityToolIcon(activity)];
+  $: isRetry = activity.kind === "retry" || activity.tool === "retry";
 
   const STATUS_ICONS = {
     success: CheckCircle,
@@ -56,56 +57,76 @@
   }
 </script>
 
-<div class="process-timeline-entry process-timeline-tool" data-state={activity.state} role="listitem">
-  {#if activity.state === "running"}
-    <div class="timeline-wave-node" aria-hidden="true">
-      <span class="timeline-wave-bar"></span>
-      <span class="timeline-wave-bar"></span>
-      <span class="timeline-wave-bar"></span>
-    </div>
-  {:else}
-    {@const StatusIcon = statusIcon(activity.state)}
-    <StatusIcon weight="Filled" size={14} aria-hidden="true" />
-  {/if}
-  {#if body}
-    <details class="process-tool-detail" open={activity.state === "error" || activity.state === "running"}>
-      <summary>
-        <span class="process-tool-title">
+{#if isRetry}
+  <div class="process-timeline-entry process-timeline-retry" data-state={activity.state} role="listitem">
+    <details class="process-retry-pill" open={activity.state === "error" || expanded}>
+      <summary class="process-retry-summary">
+        <span class="process-retry-title">
+          <ToolIcon class={activity.state === "running" ? "process-tool-icon process-retry-icon-running" : "process-tool-icon"} size={14} aria-hidden="true" />
+          <span class="process-retry-label-text">{activity.label}</span>
+        </span>
+        {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
+        <CaretRight class="process-retry-caret" size={14} aria-hidden="true" />
+      </summary>
+      {#if body}
+        <div class="run-activity-body process-retry-body">
+          <pre>{bodyContent}</pre>
+        </div>
+      {/if}
+    </details>
+  </div>
+{:else}
+  <div class="process-timeline-entry process-timeline-tool" data-state={activity.state} role="listitem">
+    {#if activity.state === "running"}
+      <div class="timeline-wave-node" aria-hidden="true">
+        <span class="timeline-wave-bar"></span>
+        <span class="timeline-wave-bar"></span>
+        <span class="timeline-wave-bar"></span>
+      </div>
+    {:else}
+      {@const StatusIcon = statusIcon(activity.state)}
+      <StatusIcon weight="Filled" size={14} aria-hidden="true" />
+    {/if}
+    {#if body}
+      <details class="process-tool-detail" open={activity.state === "error" || activity.state === "running"}>
+        <summary>
+          <span class="process-tool-title">
+            <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
+            <span class="process-tool-label-text">{activity.label}</span>
+          </span>
+          {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
+          <CaretRight size={14} aria-hidden="true" />
+        </summary>
+        <div class="run-activity-body">
+          {#if body.kind === "diff" && body.diff}
+            <div class="project-diff-preview run-activity-diff">{@html diffHtml(bodyContent)}</div>
+          {:else if body.kind === "code" || body.kind === "json"}
+            <div class="run-activity-viewer">
+              <CodeViewer content={bodyContent} filePath={body.kind === "json" ? `${activity.key}.json` : (body.filePath ?? "")} {copy} />
+            </div>
+          {:else if body.kind === "terminal"}
+            <pre class="run-activity-terminal">{bodyContent}</pre>
+          {:else}
+            <pre>{bodyContent}</pre>
+          {/if}
+          {#if preview.truncated}
+            <div class="run-activity-more">
+              {#if activity.paths?.[0] && onOpenPath}
+                <button type="button" onclick={() => onOpenPath?.(activity.paths![0], activity.mutates === true)}>{copy.runActivityOpenFile}</button>
+              {/if}
+              <button type="button" aria-expanded={expanded} onclick={() => expanded = !expanded}>{expanded ? copy.collapseMessage : copy.expandMessage}</button>
+            </div>
+          {/if}
+        </div>
+      </details>
+    {:else}
+      <div class="process-tool-row">
+        <span class="process-timeline-label">
           <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
           <span class="process-tool-label-text">{activity.label}</span>
         </span>
         {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
-        <CaretRight size={14} aria-hidden="true" />
-      </summary>
-      <div class="run-activity-body">
-        {#if body.kind === "diff" && body.diff}
-          <div class="project-diff-preview run-activity-diff">{@html diffHtml(bodyContent)}</div>
-        {:else if body.kind === "code" || body.kind === "json"}
-          <div class="run-activity-viewer">
-            <CodeViewer content={bodyContent} filePath={body.kind === "json" ? `${activity.key}.json` : (body.filePath ?? "")} {copy} />
-          </div>
-        {:else if body.kind === "terminal"}
-          <pre class="run-activity-terminal">{bodyContent}</pre>
-        {:else}
-          <pre>{bodyContent}</pre>
-        {/if}
-        {#if preview.truncated}
-          <div class="run-activity-more">
-            {#if activity.paths?.[0] && onOpenPath}
-              <button type="button" onclick={() => onOpenPath?.(activity.paths![0], activity.mutates === true)}>{copy.runActivityOpenFile}</button>
-            {/if}
-            <button type="button" aria-expanded={expanded} onclick={() => expanded = !expanded}>{expanded ? copy.collapseMessage : copy.expandMessage}</button>
-          </div>
-        {/if}
       </div>
-    </details>
-  {:else}
-    <div class="process-tool-row">
-      <span class="process-timeline-label">
-        <ToolIcon class={activity.state === "running" ? "process-tool-icon process-tool-running" : "process-tool-icon"} size={14} aria-hidden="true" />
-        <span class="process-tool-label-text">{activity.label}</span>
-      </span>
-      {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
-    </div>
-  {/if}
-</div>
+    {/if}
+  </div>
+{/if}

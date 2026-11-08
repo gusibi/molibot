@@ -3,7 +3,7 @@ import { getRoomStore } from "$lib/server/rooms/runtime.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
+import { appendTaskConversationMessage, kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
 import {
@@ -614,7 +614,7 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "成员子会话是任务的只读视图，请在主任务会话中沟通。" }, { status: 409 });
   }
   if (kanbanAction.kind === "steer") {
-    runtime.sessions.appendMessage(conversation.id, "user", parsed.message);
+    appendTaskConversationMessage(runtime.sessions, conversation, project?.id ?? "", parsed.message);
     const delivered = sendToKanbanTask(kanbanAction.executionId, parsed.message).delivered;
     return json({ ok: true, response: "", conversationId: conversation.id, profileId: parsed.profileId, diagnostics: [], stopReason: delivered ? "steered" : "queued" });
   }

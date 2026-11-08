@@ -198,10 +198,11 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
 
   beginTranscriptHydration(): TranscriptHydration {
     const turnSequence = this.controller.turnSequence;
-    const startedWhileSending = this.controller.sending;
+    const startedWhileLiveSend = this.controller.sending && !this.controller.recovering;
     return {
       commit: (messages, usage) => {
-        if (startedWhileSending || this.controller.sending || turnSequence !== this.controller.turnSequence) return false;
+        const liveSend = this.controller.sending && !this.controller.recovering;
+        if (startedWhileLiveSend || liveSend || turnSequence !== this.controller.turnSequence) return false;
         this.messages = messages;
         if (usage !== undefined) this.usage = usage;
         return true;

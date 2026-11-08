@@ -22,3 +22,16 @@ export function percentage(value: number | null): string {
 export function estimatedUsd(value: number | null): string {
   return value === null ? "—" : `$${value.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
 }
+
+/** Magpie-style adaptive decimals: ≥$100 whole, ≥$1 cents, smaller to 1/100 cent. */
+export function formatCostUsd(value: number | undefined): string {
+  if (value === undefined) return "—";
+  if (value >= 100) return `$${Math.round(value).toLocaleString("en")}`;
+  const digits = value >= 1 ? 2 : 4;
+  return `$${value.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: digits })}`;
+}
+
+/** Exact cost for tooltips on the adaptive form. */
+export function costTitle(value: number | undefined): string | undefined {
+  return value === undefined ? undefined : `$${value.toLocaleString("en", { maximumFractionDigits: 6 })}`;
+}

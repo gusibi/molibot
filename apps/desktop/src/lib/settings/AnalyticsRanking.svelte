@@ -33,7 +33,7 @@
               {#if row.secondary}<small class="analytics-rank-secondary">{row.secondary}</small>{/if}
             </td>
             <td title={row.value.toLocaleString()}>{compactCount(row.value)}</td>
-            <td>{total > 0 ? `${(row.value / total * 100).toFixed(1)}%` : "—"}</td>
+            <td><span class="analytics-share-bar" aria-hidden="true"><i style:width={total > 0 ? `${Math.min(100, row.value / total * 100)}%` : "0%"}></i></span>{total > 0 ? `${(row.value / total * 100).toFixed(1)}%` : "—"}</td>
           </tr>
         {/each}
       </tbody>

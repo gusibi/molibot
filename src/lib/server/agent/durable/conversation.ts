@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ConversationActivity, ConversationMessage } from "$lib/shared/types/message.js";
+import type { SessionContextSnapshot } from "$lib/server/agent/session/session.js";
+import type { RunResult } from "$lib/server/agent/core/types.js";
 import type { SessionStore, UiMessageMetadata } from "$lib/server/sessions/store.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { createPersistedUserMessage, zeroAssistantUsage } from "$lib/server/agent/core/runnerHelpers.js";
@@ -19,10 +21,19 @@ interface LiveResponse {
   snapshot: { runId: string; text: string; thinking: string };
   publishTimer?: ReturnType<typeof setTimeout>;
   persistTimer?: ReturnType<typeof setTimeout>;
+  /** Set once the round's final answer is committed; later checkpoints are stale. */
+  finalized?: boolean;
 }
 const liveResponses = new Map<string, LiveResponse>();
-function liveKey(executionId: string, round?: number, sessionId?: string): string {
-  return JSON.stringify([storagePaths.dataDir, executionId, round ?? null, sessionId ?? null]);
+/**
+ * One live stream per response row: an execution streams one round at a time
+ * into one session. The session id is deliberately not part of the key —
+ * writers resolve it from different sources (`sourceUiSessionId`, member
+ * session overrides) and a divergent key used to leave timers running after
+ * delivery, overwriting the final answer with `running`.
+ */
+function liveKey(executionId: string, round?: number): string {
+  return JSON.stringify([storagePaths.dataDir, executionId, round ?? null]);
 }
 
 /**
@@ -63,6 +74,7 @@ export function overlayLiveConversationMessages<T extends LiveConversationMessag
 function flushLiveResponse(state: LiveResponse): void {
   clearTimeout(state.persistTimer);
   state.persistTimer = undefined;
+  if (state.finalized) return;
   try { state.sessions.updateConversationMessage(state.row.conversationId, state.row.id, { liveResponse: state.snapshot, stopReason: "running" }); }
   catch (error) { momWarn("durableExecution", "live_response_checkpoint_failed", { error: String(error) }); }
 }
@@ -71,12 +83,15 @@ function flushLiveResponse(state: LiveResponse): void {
 export function updateDurableConversationOutput(sessions: SessionStore, execution: DurableExecution, runId: string, field: "text" | "thinking", delta: string, round?: number, sessionIdOverride?: string): void {
   const sessionId = sessionIdOverride ?? execution.sourceUiSessionId;
   if (!sessionId || !delta) return;
-  const key = liveKey(execution.id, round, sessionId);
+  const key = liveKey(execution.id, round);
   let state = liveResponses.get(key);
   if (!state || state.snapshot.runId !== runId) {
-    if (state) endDurableConversationOutput(execution.id, state.snapshot.runId, round, sessionId);
+    if (state) endDurableConversationOutput(execution.id, state.snapshot.runId, round);
     const row = sessions.listMessageMetadata(sessionId).find(message => message.activities?.some(activity => activity.key === responseActivityKey(execution.id, round)));
     if (!row) return;
+    // A late delta must never resurrect the row this run already delivered;
+    // a later attempt/step has a different runId and streams normally.
+    if (row.liveResponse?.runId === `delivered:${runId}`) return;
     const saved = row.liveResponse;
     state = { sessions, row, snapshot: saved?.runId === runId ? { ...saved } : { runId, text: saved?.text ?? "", thinking: saved?.thinking ?? row.thinking ?? "" } };
     liveResponses.set(key, state);
@@ -84,19 +99,27 @@ export function updateDurableConversationOutput(sessions: SessionStore, executio
   state.snapshot[field] += delta;
   if (!state.publishTimer) state.publishTimer = setTimeout(() => {
     state!.publishTimer = undefined;
+    if (state!.finalized) return;
     publishLiveConversation(liveResponseMessage(state!.row, state!.snapshot));
   }, 16);
   if (!state.persistTimer) state.persistTimer = setTimeout(() => flushLiveResponse(state!), 200);
 }
 
-export function endDurableConversationOutput(executionId: string, runId: string, round?: number, sessionId?: string): void {
-  const key = liveKey(executionId, round, sessionId);
+export function endDurableConversationOutput(executionId: string, runId: string, round?: number): void {
+  const key = liveKey(executionId, round);
   const state = liveResponses.get(key);
   if (!state || state.snapshot.runId !== runId) return;
   clearTimeout(state.publishTimer);
   flushLiveResponse(state);
   publishLiveConversation(liveResponseMessage(state.row, state.snapshot));
   liveResponses.delete(key);
+}
+
+export interface DurableAttemptDeliveryMeta {
+  usage?: RunResult["usage"];
+  provider?: string;
+  model?: string;
+  contextBreakdown?: SessionContextSnapshot;
 }
 
 export interface DurableAttemptDelivery {
@@ -107,6 +130,7 @@ export interface DurableAttemptDelivery {
   text: string;
   /** Set for kanban rounds: each round streams into its own response row. */
   round?: number;
+  meta?: DurableAttemptDeliveryMeta;
 }
 
 /** Background execution uses the same response row and process disclosure as a foreground turn. */
@@ -132,7 +156,7 @@ export function updateDurableConversationProgress(sessions: SessionStore, execut
   const merged = new Map(response.activities?.map(activity => [activity.key, activity]));
   for (const activity of activities) merged.set(activity.key, activity);
   sessions.updateConversationMessage(sessionId, response.id, { activities: [...merged.values()] });
-  const state = liveResponses.get(liveKey(execution.id, round, sessionId));
+  const state = liveResponses.get(liveKey(execution.id, round));
   if (state) { state.row = { ...state.row, activities: [...merged.values()] }; publishLiveConversation(liveResponseMessage(state.row, state.snapshot)); }
 }
 
@@ -164,10 +188,32 @@ export function deliverDurableAttempt(
   const chatId = target.externalUserId;
   const retention = classifyTurnRetention(input.execution.goal);
   const existing = store.listSessionMessageEntries(chatId, id).find(entry => entry.id === sourceEntryId);
-  if (!existing) store.appendContextMessage(chatId, {
-    role: "assistant", content: [{ type: "text", text: input.text }],
-    usage: zeroAssistantUsage(), timestamp: Date.now()
-  } as AgentMessage, id, { runId: input.runId, sourceId, delivery: "final", retention });
+  if (!existing) {
+    const rawUsage = input.meta?.usage;
+    const persistedUsage = rawUsage
+      ? {
+          input: rawUsage.inputTokens,
+          output: rawUsage.outputTokens,
+          cacheRead: rawUsage.cacheReadTokens,
+          cacheWrite: rawUsage.cacheWriteTokens,
+          totalTokens: rawUsage.totalTokens
+        }
+      : zeroAssistantUsage();
+    store.appendContextMessage(chatId, {
+      role: "assistant",
+      content: [{ type: "text", text: input.text }],
+      ...(input.meta?.provider ? { provider: input.meta.provider } : {}),
+      ...(input.meta?.model ? { model: input.meta.model } : {}),
+      usage: persistedUsage,
+      timestamp: Date.now()
+    } as AgentMessage, id, {
+      runId: input.runId,
+      sourceId,
+      delivery: "final",
+      retention,
+      ...(input.meta?.contextBreakdown ? { contextBreakdown: input.meta.contextBreakdown } : {})
+    });
+  }
   const response = sessions.listMessageMetadata(id).find(message => message.activities?.some(activity => activity.key === responseActivityKey(input.execution.id, input.round)));
   if (response) {
     const live = liveResponses.get(liveKey(input.execution.id, input.round));
@@ -177,6 +223,11 @@ export function deliverDurableAttempt(
     const deliveredText = previousText && input.text !== previousText && !input.text.startsWith(previousText)
       ? `${previousText}\n\n${input.text}`
       : input.text;
+    if (live) {
+      live.finalized = true;
+      clearTimeout(live.publishTimer);
+      clearTimeout(live.persistTimer);
+    }
     sessions.updateConversationMessage(id, response.id, {
       sourceEntryId, contextBacked: true, stopReason: "stop", resultKind: "final",
       liveResponse: { runId: `delivered:${input.runId}`, text: deliveredText, thinking: deliveredThinking },
@@ -184,11 +235,7 @@ export function deliverDurableAttempt(
       activities: response.activities?.map(activity => activity.key === responseActivityKey(input.execution.id, input.round)
         ? { ...activity, state: "success", finishedAt: new Date().toISOString() } : activity)
     });
-    if (live) {
-      clearTimeout(live.publishTimer);
-      clearTimeout(live.persistTimer);
-      liveResponses.delete(liveKey(input.execution.id, input.round));
-    }
+    if (live) liveResponses.delete(liveKey(input.execution.id, input.round));
     const projected = projectConversationMessages({ conversationId: id, entries: store.listSessionMessageEntries(chatId, id), metadata: sessions.listMessageMetadata(id) });
     const message = projected.messages.find(message => message.id === response.id);
     if (message) publishLiveConversation(message);

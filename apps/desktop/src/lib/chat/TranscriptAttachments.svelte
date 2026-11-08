@@ -148,7 +148,7 @@
                   aria-label={copy.preview}
                   title={entry.attachment.original}
                   onclick={() => openGallery(group.items, entry)}
-                ><img src={entry.mediaUrl} alt={entry.attachment.original} loading="lazy" decoding="async" /></button>
+                ><img src={entry.mediaUrl} alt={entry.attachment.original} decoding="async" /></button>
               {:else if entry.failed}
                 <button class="transcript-media-error" type="button" onclick={() => actions?.loadMedia(file)}>{copy.mediaLoadFailed}</button>
               {:else}

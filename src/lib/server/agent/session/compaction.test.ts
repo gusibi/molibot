@@ -549,3 +549,36 @@ for (const maxTokens of [512, 32768]) test(`summary requests retain the host out
   assert.deepEqual(limits, [Math.min(1600, maxTokens)]);
   assert.equal(model.maxTokens, maxTokens);
 });
+
+test("compaction forwards model usage receipts via onUsage callback", async () => {
+  const receipts: Array<{ provider: string; model: string; input?: number; output?: number }> = [];
+  const model = { provider: "test-provider", id: "test-model" };
+  const result = await compactContextMessages({
+    messages: [
+      textMessage("user", "Hello first question"),
+      textMessage("assistant", "First reply"),
+      textMessage("user", "Keep recent turn")
+    ],
+    model: model as any,
+    settings: { ...defaultRuntimeSettings.compaction, keepRecentTokens: 10 },
+    reason: "manual",
+    onUsage: (receipt) => receipts.push(receipt),
+    streamFn: ((_model: any, _context: any) => {
+      return {
+        result: async () => ({
+          role: "assistant",
+          content: [{ type: "text", text: "Summary of earlier turn" }],
+          stopReason: "stop",
+          usage: { input: 120, output: 25, cacheRead: 50, cacheWrite: 0, totalTokens: 195 },
+          timestamp: Date.now()
+        })
+      };
+    }) as any
+  });
+  assert.equal(result.changed, true);
+  assert.equal(receipts.length, 1);
+  assert.equal(receipts[0]?.provider, "test-provider");
+  assert.equal(receipts[0]?.model, "test-model");
+  assert.equal(receipts[0]?.input, 120);
+  assert.equal(receipts[0]?.output, 25);
+});

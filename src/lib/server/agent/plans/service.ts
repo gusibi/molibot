@@ -224,7 +224,9 @@ export class PlanService {
   /**
    * Records a person's answer as a pending kanban input for the next round.
    * When the task was parked on `waiting_for_user`, this also requeues it;
-   * otherwise the input rides along with the already-queued next round.
+   * otherwise the input rides along with the already-queued next round. The
+   * input write re-arms that round's version-bound wakeup, so a scheduled retry
+   * is not discarded as stale and the task cannot strand.
    */
   answerKanbanTask(input: { ownerId: string; executionId: string; text: string }): PlanDetail {
     const detail = this.read(input.ownerId, input.executionId);

@@ -55,11 +55,12 @@
   function categoryLabel(key: ComposerContextUsage["categories"][number]["key"]): string {
     return {
       messages: copy.contextCategoryMessages,
-      mcpTools: copy.contextCategoryMcpTools,
-      systemTools: copy.contextCategorySystemTools,
+      memory: copy.contextCategoryMemory,
+      files: copy.contextCategoryFiles,
+      toolResults: copy.contextCategoryToolResults,
+      tools: copy.contextCategoryTools,
       systemPrompt: copy.contextCategorySystemPrompt,
-      skills: copy.contextCategorySkills,
-      other: copy.contextCategoryOther
+      skills: copy.contextCategorySkills
     }[key];
   }
 
@@ -184,13 +185,16 @@
               </div>
             {/if}
             {#if usage.categories.length > 0}
-              <p class="composer-context-sublabel">{copy.contextBreakdownLabel}</p>
+              <p class="composer-context-sublabel">
+                {copy.contextBreakdownLabel}
+                {#if usage.counted}<em class="composer-context-counted">{copy.contextCountedBadge}</em>{/if}
+              </p>
               <ul class="composer-context-rows">
                 {#each usage.categories as category (category.key)}
                   <li>
-                    <span class="composer-context-dot" aria-hidden="true"></span>
+                    <span class="composer-context-dot" data-key={category.key} aria-hidden="true"></span>
                     <span class="composer-context-label">{categoryLabel(category.key)}</span>
-                    <span class="composer-context-value" title={exactTokens(category.tokens)}>{formatShare(category.percent)}</span>
+                    <span class="composer-context-value" title={exactTokens(category.tokens)}>{formatContextTokens(category.tokens, locale)}</span>
                   </li>
                 {/each}
               </ul>

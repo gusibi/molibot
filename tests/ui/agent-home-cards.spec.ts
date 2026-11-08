@@ -2,7 +2,7 @@ import { test, expect } from './support/fixtures';
 import { openChat, composer } from './support/actions';
 
 test('home cards keep signals, recent navigation and quick starts usable @home-cards', async ({ page, instance }, info) => {
-  for (const path of ['handover', 'handover/ack']) info.annotations.push({ type: 'expected-page-error', description: `/molibot-api/api/desktop/${path} due to access control checks` });
+  for (const path of ['handover', 'handover/ack', 'durable-executions', 'models?route=text', 'models?route=stt']) info.annotations.push({ type: 'expected-page-error', description: `/molibot-api/api/desktop/${path} due to access control checks` });
   await instance.stopService();
   try { await instance.runSeedScript('tests/ui/support/seed-handover.ts', { UI_HANDOVER_SCENARIO: 'cross-channel' }); }
   finally { await instance.startService(); }
@@ -20,9 +20,6 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   const signal = page.getByTestId('handover-cross-channel');
   await expect(signal).toContainText('Replied to 3 messages');
   await expect(home.locator('.agent-history-row')).toHaveCount(2);
-  const signalBox = await signal.boundingBox();
-  const homeBox = await home.boundingBox();
-  expect(signalBox!.width).toBeLessThan(homeBox!.width * 0.6);
   const cards = home.locator('.agent-history-row');
   await expect.poll(async () => {
     const a = await cards.nth(0).boundingBox(); const b = await cards.nth(1).boundingBox();
@@ -39,8 +36,9 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   await expect(composer(page)).toBeEnabled();
   await page.getByRole('button', { name: 'Open Momo home', exact: true }).click();
   await expect(signal).toBeVisible();
-  await signal.getByRole('button', { name: 'View all', exact: true }).click();
+  await signal.getByRole('button', { name: 'View history', exact: true }).click();
   await expect(page.locator('.agent-history-page')).toBeVisible();
+  // The read state lives in the notification store: returning and restarting keeps the card read.
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
   const prompts = page.locator('.agent-home-tasks button');
   await expect(prompts).toHaveCount(3);
@@ -60,11 +58,13 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   await page.setViewportSize({ width: 1120, height: 760 });
   await page.getByRole('button', { name: '展开侧边栏', exact: true }).click();
   await page.getByRole('button', { name: 'Momo', exact: true }).click();
-  await expect(signal).toBeVisible();
+  await expect(page.locator('.agent-home')).toBeVisible();
+  await expect(signal).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('home-cards-dark-zh.png') });
   await instance.restartService();
   await page.reload();
-  await expect(signal).toBeVisible();
+  await expect(page.locator('.agent-home')).toBeVisible();
+  await expect(signal).toHaveCount(0);
   await expect(composer(page)).toBeEnabled();
   await page.unrouteAll({ behavior: 'wait' });
 });

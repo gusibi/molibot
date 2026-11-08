@@ -5,8 +5,9 @@
 
   export let source: string;
   export let copy: Translation;
+  export let resolveImage: ((href: string) => string | undefined) | undefined = undefined;
   const renderer = createStreamingRenderer();
-  $: blocks = renderer.derive(source, { copyCode: copy.copyCode, wrapLinesLabel: copy.wrapLines });
+  $: blocks = renderer.derive(source, { copyCode: copy.copyCode, wrapLinesLabel: copy.wrapLines, openTableLabel: copy.markdownOpenTable, resolveImage });
 </script>
 
 <div class="message-bubble markdown-body" use:markdownBody={copy}>

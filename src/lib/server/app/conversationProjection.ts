@@ -308,6 +308,12 @@ function agentDisplayMessages(entries: SessionMessageEntry[], conversationId: st
       continue;
     }
     if (role !== "assistant") continue;
+    // Each Kanban round is an independent attempt delivered to the UI conversation.
+    // Back-to-back attempts (such as auto-continue or auto-retry without an intervening
+    // user prompt) must stay on their own display message instead of merging text or traceRunIds.
+    if (assistant && entry.runId?.startsWith("kanban-attempt-") && assistant.traceRunIds?.length && !assistant.traceRunIds.includes(entry.runId)) {
+      flushAssistant();
+    }
     const status = assistantStatus(entry.message);
     // Deliberately NOT falling back to `status.errorMessage` here. A turn ends
     // with a content-less assistant entry whenever the run was aborted (budget

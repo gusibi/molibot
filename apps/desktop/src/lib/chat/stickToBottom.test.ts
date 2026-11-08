@@ -186,3 +186,34 @@ test("stickToBottom re-arms on session key change", () => {
 
   action.destroy?.();
 });
+
+test("stickToBottom accumulates sub-pixel steps during live streaming so integer-quantized DOM scrollTop never stalls", async () => {
+  class QuantizedMockNode extends MockNode {
+    override get scrollTop(): number {
+      return super.scrollTop;
+    }
+    override set scrollTop(val: number) {
+      // Simulate a browser DOM that quantizes scrollTop to integer pixels
+      super.scrollTop = Math.floor(val);
+    }
+  }
+
+  const node = new QuantizedMockNode();
+  node.scrollHeight = 1000;
+  node.clientHeight = 600;
+  node.scrollTop = 400;
+
+  const action = stickToBottom(node as unknown as HTMLElement, { key: "session-live", live: true });
+  try {
+    // Grow content by 24px (one streamed line wrap)
+    node.scrollHeight = 1024;
+    const observerInstance = (globalThis.ResizeObserver as any).instances?.at(-1);
+    observerInstance.callback([]);
+
+    // Wait a few 16ms frames for the spring to glide to the new bottom (424)
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    assert.equal(node.scrollTop, 424);
+  } finally {
+    action.destroy?.();
+  }
+});

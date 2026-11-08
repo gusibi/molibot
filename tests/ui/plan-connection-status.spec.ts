@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { test, expect } from './support/fixtures';
 import { openChat } from './support/actions';
 
-test('plan connection hint stays inset, secondary and readable after recovery @plans @workspace', async ({ page, request, instance }, testInfo) => {
+test('the plan stream only surfaces a quiet status while disconnected @plans @workspace', async ({ page, request, instance }, testInfo) => {
   const title = `Connection layout ${randomUUID()}`;
   const created = await request.post(instance.endpoint + '/api/desktop/plans', {
     headers: { origin: instance.endpoint },
@@ -11,22 +11,36 @@ test('plan connection hint stays inset, secondary and readable after recovery @p
   expect(created.ok()).toBe(true);
   await openChat(page);
   await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
-  const rail = page.getByRole('complementary', { name: /^(Plans|计划)$/ });
-  const status = rail.getByRole('status').filter({ hasText: /Live updates connected|Disconnected|实时更新已连接|连接中断/ });
-  await expect(status).toContainText('Live updates connected');
-  await expect(rail.getByRole('button', { name: new RegExp(title) })).toBeVisible();
+  await expect(page.locator('.kanban-card', { hasText: title })).toBeVisible();
+  // A healthy stream says nothing: status text only appears when it is needed.
+  await expect(page.locator('.plans-connection')).toHaveCount(0);
+
+  const streamUrl = '**/api/desktop/plans?stream=true';
+  await page.route(streamUrl, route => route.fulfill({ status: 503, body: 'Stream unavailable' }));
+  await page.getByRole('navigation', { name: 'New chat', exact: true }).getByRole('button', { name: 'New chat', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
+  const status = page.locator('.plans-connection');
+  await expect(status).toContainText('Disconnected');
 
   async function checkLayout() {
-    await expect(rail.getByRole('button', { name: new RegExp(title) })).toBeVisible();
+    await expect(page.locator('.kanban-card', { hasText: title })).toBeVisible();
     const geometry = await status.evaluate(element => {
-      const rail = element.parentElement!;
+      const shell = element.closest('.plans-shell') as HTMLElement;
       const range = document.createRange();
       range.selectNodeContents(element);
       const text = range.getBoundingClientRect();
-      const box = rail.getBoundingClientRect();
+      const box = shell.getBoundingClientRect();
       const style = getComputedStyle(element);
-      const sub = rail.querySelector('.kanban-card-goal')!;
-      return { inset: text.left - box.left, right: text.right - box.right, margin: style.marginTop, font: parseFloat(style.fontSize), color: style.color, secondary: getComputedStyle(sub).color, overflow: rail.scrollWidth - rail.clientWidth };
+      const cardGoal = shell.querySelector('.kanban-card-goal') as HTMLElement;
+      return {
+        inset: text.left - box.left,
+        right: text.right - box.right,
+        margin: style.marginTop,
+        font: parseFloat(style.fontSize),
+        color: style.color,
+        secondary: getComputedStyle(cardGoal).color,
+        overflow: shell.scrollWidth - shell.clientWidth
+      };
     });
     expect(geometry.inset).toBeGreaterThanOrEqual(16);
     expect(geometry.right).toBeLessThanOrEqual(-16);
@@ -46,16 +60,9 @@ test('plan connection hint stays inset, secondary and readable after recovery @p
     }
   }
   await page.screenshot({ path: testInfo.outputPath('plan-status-narrow-dark.png') });
-  const streamUrl = '**/api/desktop/plans?stream=true';
-  await page.route(streamUrl, route => route.fulfill({ status: 503, body: 'Stream unavailable' }));
-  await page.getByRole('navigation', { name: '新对话', exact: true }).getByRole('button', { name: '新对话', exact: true }).click();
-  await page.getByRole('navigation', { name: '对话', exact: true }).getByRole('button', { name: '计划', exact: true }).click();
-  await expect(status).toContainText('连接中断');
-  await checkLayout();
   await page.unroute(streamUrl);
-  await instance.restartService();
-  await expect(status).toContainText('实时更新已连接');
-  await checkLayout();
+  await expect(status).toHaveCount(0);
+  await expect(page.locator('.kanban-card', { hasText: title })).toBeVisible();
   const stored = await request.get(instance.endpoint + '/api/desktop/plans?includeArchived=true');
   expect((await stored.json()).items.some((item: { title: string }) => item.title === title)).toBe(true);
 });

@@ -43,10 +43,11 @@ import { effectiveMcpServers, hasConfiguredMcpServers } from "$lib/server/settin
 import { resolveEffectiveExecutionPolicy, type ExecutionTarget } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
-import { estimateContextTokens, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
+import { countTextTokens, estimateContextTokens, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
 import {
   assertModelContextFits,
   assessModelContextPreflight,
+  calibrateContextBreakdown,
   capModelPromptToTokens,
   contextMessageBudget
 } from "$lib/server/agent/session/contextPreflight.js";
@@ -57,7 +58,9 @@ import {
   getFileOutputReceipt,
   type FileMutationReceipt,
   isMiniAppInstallReceipt,
+  isProviderCapacityError,
   isRetryableModelError,
+  modelRetryDelayMs,
   REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD,
   resolveFinalErrorAction,
   finalErrorUserMessage,
@@ -67,6 +70,7 @@ import {
   trackRepeatedToolFailure,
   verifyProjectFileMutationClaim
 } from "$lib/server/agent/core/runnerRetryState.js";
+import { invokeStreamWithRetry } from "./runnerModelRetry.js";
 import { formatSubagentProgressLabel } from "$lib/server/agent/subagentProgress.js";
 import type { MomContext, RunResult, RunnerLike, ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "$lib/server/agent/tools/toolDisplay.js";
@@ -126,13 +130,6 @@ import { buildReferencedItems, memoryToolHitsFromToolCall } from "$lib/server/me
 import { detectImmediateMemoryCorrections } from "$lib/server/memory/correctionDetector.js";
 import { memoryWriteReceiptsFromToolCall } from "$lib/server/memory/writeReceipt.js";
 import { classifyTurnRetention, retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
-import {
-  DurableExecutionPromotionHandoff,
-  DurablePreflightTracker
-} from "$lib/server/agent/durable/preflight.js";
-import { decideDurableActivation } from "$lib/server/agent/decision/durableActivation.js";
-import type { DurablePrefixEntry } from "$lib/server/agent/durable/types.js";
-import { classifyToolSideEffect } from "$lib/server/agent/tools/sideEffectClassification.js";
 import {
   ADAPTIVE_THINKING_RUBRIC_VERSION,
   buildAdaptiveThinkingContext,
@@ -286,13 +283,20 @@ export class MomRunner implements RunnerLike {
     const estimate = this.activeContextEstimate;
     const usage = (message as { usage?: { input?: unknown; cacheRead?: unknown; cacheWrite?: unknown } }).usage;
     if (!estimate || !usage) return undefined;
+    const inputTokens = Number(usage.input ?? 0);
+    const cacheReadTokens = Number(usage.cacheRead ?? 0);
+    const cacheWriteTokens = Number(usage.cacheWrite ?? 0);
+    const reportedPromptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
     return {
       contextWindow: estimate.contextWindow,
       estimatedTokens: estimate.estimatedTokens,
-      breakdown: estimate.breakdown,
-      inputTokens: Number(usage.input ?? 0),
-      cacheReadTokens: Number(usage.cacheRead ?? 0),
-      cacheWriteTokens: Number(usage.cacheWrite ?? 0)
+      breakdown: reportedPromptTokens > 0
+        ? calibrateContextBreakdown(estimate.breakdown, reportedPromptTokens)
+        : estimate.breakdown,
+      inputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      ...(reportedPromptTokens > 0 ? { reportedPromptTokens } : {})
     };
   }
 
@@ -368,7 +372,6 @@ export class MomRunner implements RunnerLike {
   private activeMemoryToolHits: MemoryReferencedItem[] = [];
   // Accepted controller inputs are excluded from ordinary Session message projection.
   private activeRunAcceptedSteering: AgentMessage[] = [];
-  private activeDurablePrefix: DurablePrefixEntry[] = [];
 
   private readonly hookManager: HookManager;
 
@@ -579,25 +582,6 @@ export class MomRunner implements RunnerLike {
             }
           );
         }
-        let inputSummary = "";
-        try {
-          inputSummary = JSON.stringify(context.args ?? {}).slice(0, 1600);
-        } catch {
-          inputSummary = String(context.args ?? "").slice(0, 1600);
-        }
-        const resultDetails = context.result.details as Record<string, unknown> | undefined;
-        if (!resultDetails?.durablePromotion) {
-          this.activeDurablePrefix.push({
-            runId: this.activeHookContext?.runId ?? this.chatId,
-            toolId: context.toolCall.name,
-            toolCallId: context.toolCall.id,
-            inputSummary,
-            effect: classifyToolSideEffect(context.toolCall.name, context.args, context.toolCall.id),
-            result: context.result as any,
-            isError: Boolean(context.isError),
-            occurredAt: new Date().toISOString()
-          });
-        }
         this.emitSkillLoadedForReadTool(context);
         this.emitSkillSearchMatches(context);
         this.emitSkillExecutedForToolSignals(context);
@@ -698,40 +682,62 @@ export class MomRunner implements RunnerLike {
         // forever; instead we abort it and throw a retryable error so the loop
         // falls back to the next model (or surfaces an error once exhausted).
         const firstTokenTimeoutMs = settingsNow.modelFallback?.firstTokenTimeoutMs ?? 0;
-        if (!(firstTokenTimeoutMs > 0)) {
-          return streamWithPiRuntime(selectedModel as any, patchedContext as any, requestOptions);
-        }
 
-        const upstreamSignal = (opts as { signal?: AbortSignal } | undefined)?.signal;
-        const firstTokenController = new AbortController();
-        if (upstreamSignal) {
-          if (upstreamSignal.aborted) {
-            firstTokenController.abort();
-          } else {
-            upstreamSignal.addEventListener(
-              "abort",
-              () => firstTokenController.abort(),
-              { once: true }
+        return invokeStreamWithRetry({
+          signal: this.agent.signal,
+          maxRetries: 5,
+          produceStream: (attemptIndex, attemptSignal) => {
+            const callOptions = {
+              ...requestOptions,
+              signal: attemptSignal
+            };
+            if (!(firstTokenTimeoutMs > 0)) {
+              return streamWithPiRuntime(selectedModel as any, patchedContext as any, callOptions);
+            }
+
+            const firstTokenController = new AbortController();
+            if (attemptSignal.aborted) {
+              firstTokenController.abort();
+            } else {
+              attemptSignal.addEventListener(
+                "abort",
+                () => firstTokenController.abort(),
+                { once: true }
+              );
+            }
+
+            const stream = streamWithPiRuntime(
+              selectedModel as any,
+              patchedContext as any,
+              { ...callOptions, signal: firstTokenController.signal },
             );
-          }
-        }
-
-        const stream = streamWithPiRuntime(
-          selectedModel as any,
-          patchedContext as any,
-          { ...requestOptions, signal: firstTokenController.signal },
-        );
-        return withFirstTokenTimeout(stream, {
-          timeoutMs: firstTokenTimeoutMs,
-          onTimeout: () => {
-            momWarn("runner", "llm_first_token_timeout", {
-              chatId: this.chatId,
-              provider: selectedModel.provider,
-              api: selectedModel.api,
-              modelId: selectedModel.id,
-              timeoutMs: firstTokenTimeoutMs
+            return withFirstTokenTimeout(stream, {
+              timeoutMs: firstTokenTimeoutMs,
+              onTimeout: () => {
+                momWarn("runner", "llm_first_token_timeout", {
+                  chatId: this.chatId,
+                  provider: selectedModel.provider,
+                  api: selectedModel.api,
+                  modelId: selectedModel.id,
+                  timeoutMs: firstTokenTimeoutMs,
+                  attempt: attemptIndex
+                });
+                firstTokenController.abort();
+              }
             });
-            firstTokenController.abort();
+          },
+          onRetryProgress: async (progress) => {
+            if (this.activeRunnerEventSink) {
+              await this.activeRunnerEventSink({
+                type: "model_retry",
+                phase: progress.phase,
+                attempt: progress.attempt,
+                maxRetries: progress.maxRetries,
+                delayMs: progress.delayMs,
+                remainingSeconds: progress.remainingSeconds,
+                error: progress.error
+              });
+            }
           }
         });
       },
@@ -886,7 +892,28 @@ export class MomRunner implements RunnerLike {
       currentMessages: [...(this.agent.state.messages as AgentMessage[])],
       store: this.store,
       settings: compactSettings,
-      options
+      options: {
+        ...options,
+        onUsage: (receipt) => {
+          this.usageTracker.record({
+            requestId: `pi:${this.sessionId}:compaction:${Date.now()}`,
+            channel: this.channel,
+            botId: this.store.getBotId(),
+            agentId: this.usageAgentId,
+            roomId: this.runtimeIdentity?.roomId,
+            sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
+            provider: receipt.provider,
+            model: receipt.model,
+            api: "compaction",
+            inputTokens: receipt.input,
+            outputTokens: receipt.output,
+            cacheReadTokens: receipt.cacheRead,
+            cacheWriteTokens: receipt.cacheWrite,
+            totalTokens: receipt.totalTokens,
+            estimatedCostUsd: receipt.cost?.total
+          });
+        }
+      }
     });
 
     if (result.changed) {
@@ -978,6 +1005,8 @@ export class MomRunner implements RunnerLike {
     let stopTurnHeartbeat: (() => void) | undefined;
 
     const botId = this.store.getBotId();
+    const uiSessionId = ctx.message.uiSessionId?.trim() || undefined;
+    const accountingSessionId = this.runtimeIdentity?.roomId ?? uiSessionId ?? this.sessionId;
     this.modelCallSeq = 0;
     this.nativeModelTaskId = undefined;
     this.budgetBlockedToolCallIds.clear();
@@ -988,7 +1017,7 @@ export class MomRunner implements RunnerLike {
       channel: ctx.channel,
       botId,
       chatId: this.chatId,
-      sessionId: this.sessionId,
+      sessionId: uiSessionId ?? this.sessionId,
       workspaceId,
       actorId: this.runtimeIdentity?.agentId ?? ctx.message.userId,
       agentId: this.runtimeIdentity?.agentId,
@@ -1008,7 +1037,6 @@ export class MomRunner implements RunnerLike {
     });
     let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
     let errorMessage: string | undefined;
-    let promotionHandoff: DurableExecutionPromotionHandoff | undefined;
     let hookRunFinished = false;
     const finishHookRun = async (): Promise<void> => {
       const hookContext = this.activeHookContext;
@@ -1033,59 +1061,7 @@ export class MomRunner implements RunnerLike {
         workspaceId
       });
     };
-    const durablePreflightTracker = new DurablePreflightTracker(async (input) => {
-      const decision = await decideDurableActivation({ ...input, settings: this.getSettings(), signal: this.agent.signal });
-      return decision.mode === "promote" ? {
-        ...decision,
-        goal: input.message,
-        acceptanceCriteria: [{ description: "The requested goal is satisfied and can be confirmed by the owner.", checkerType: "subjective" as const, author: "model" as const }]
-      } : decision;
-    });
-    const sideEffectPreflight = ctx.onToolSideEffectPreflight ?? (async (effect) => {
-      const result = await durablePreflightTracker.evaluate({ message: ctx.message.text, effect });
-      if (!result.evaluated || result.preflightIndex === undefined) return;
-      logRunDetail({
-        type: "info",
-        summary: JSON.stringify({
-          kind: "durable_preflight",
-          sideEffectClass: result.sideEffectClass,
-          mode: result.mode,
-          reason: result.reason,
-          preflightIndex: result.preflightIndex,
-          goal: result.goal,
-          acceptanceCriteria: result.acceptanceCriteria,
-          expectedWait: result.expectedWait,
-          sideEffectRisk: result.sideEffectRisk
-        })
-      });
-      await ctx.onRunnerEvent?.({
-        type: "durable_preflight",
-        sideEffectClass: result.sideEffectClass,
-        mode: result.mode,
-        reason: result.reason,
-        preflightIndex: result.preflightIndex
-      });
-      if (result.mode === "promote") {
-        if (!ctx.onDurablePromotion) {
-          const notice = "Durable preflight requested promotion, but the shared runtime has no promotion handler.";
-          promotionHandoff = new DurableExecutionPromotionHandoff(notice);
-          return { terminate: true, reason: notice };
-        }
-        const promotion = await ctx.onDurablePromotion({
-          message: ctx.message.text,
-          runId,
-          effect,
-          decision: result,
-          prefix: [...this.activeDurablePrefix]
-        });
-        promotionHandoff = new DurableExecutionPromotionHandoff(promotion.notice);
-        return {
-          terminate: true,
-          reason: promotion.notice,
-          details: { durablePromotion: true }
-        };
-      }
-    });
+    const sideEffectPreflight = ctx.onToolSideEffectPreflight;
     const appendRunContextMessage = (message: AgentMessage, contextBreakdown?: SessionContextSnapshot): string =>
       this.store.appendContextMessage(this.chatId, message, this.sessionId, {
         runId: this.agent.projectionRunId ?? runId, retention: turnRetention, contextBreakdown,
@@ -1150,7 +1126,6 @@ export class MomRunner implements RunnerLike {
         }
         : undefined;
     this.activeRunAcceptedSteering = [];
-    this.activeDurablePrefix = [];
     this.activeExecutionOwner = ctx.message.isEvent ? "runtime" : "client";
     this.running = true;
     this.abortRequested = false;
@@ -1530,7 +1505,7 @@ export class MomRunner implements RunnerLike {
       if (!usage) return;
       this.usageTracker.record({ requestId: `pi:${runId}:model:${receipt.id}`,
         channel: this.channel, botId, agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
-        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: receipt.provider, model: receipt.model, api: receipt.api, estimatedCostUsd: usage.cost?.total,
+        sessionId: accountingSessionId, provider: receipt.provider, model: receipt.model, api: receipt.api, estimatedCostUsd: usage.cost?.total,
         inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
         cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
     }
@@ -1562,7 +1537,7 @@ export class MomRunner implements RunnerLike {
     if (usage) {
       this.usageTracker.record({ requestId: modelAttemptId,
         channel: this.channel, botId, agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
-        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: message.provider, model: message.model, api: message.api, estimatedCostUsd: usage.cost?.total,
+        sessionId: accountingSessionId, provider: message.provider, model: message.model, api: message.api, estimatedCostUsd: usage.cost?.total,
         inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
         cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
     }
@@ -1620,7 +1595,7 @@ export class MomRunner implements RunnerLike {
       if (!usage) return;
       this.usageTracker.record({ requestId: `pi:${runId}:extension:model:${callId}`,
         channel: this.channel, botId, agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
-        sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: model.provider, model: model.id, api: model.api,
+        sessionId: accountingSessionId, provider: model.provider, model: model.id, api: model.api,
         estimatedCostUsd: usage.cost?.total, inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0,
         cacheReadTokens: usage.cacheRead ?? 0, cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
       if (this.activeHookContext) {
@@ -2063,6 +2038,7 @@ export class MomRunner implements RunnerLike {
               return match ? Number(match[1]) : undefined;
             })(),
             lineCount: body ? body.split(/\r?\n/).length : 0,
+            tokenUsage: countTextTokens(body),
             hostBashApproval: forwardHostBashApproval ? hostBashApproval : undefined
           }));
         }
@@ -2237,7 +2213,7 @@ export class MomRunner implements RunnerLike {
               botId,
               agentId: this.usageAgentId,
               roomId: this.runtimeIdentity?.roomId,
-              sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
+              sessionId: accountingSessionId,
               provider: msg.provider ?? activeSelection.model.provider,
               model: msg.model ?? activeSelection.model.id,
               api: msg.api ?? activeSelection.model.api,
@@ -2348,7 +2324,7 @@ export class MomRunner implements RunnerLike {
         onChildUsage: receipt => {
           this.usageTracker.record({ requestId: receipt.id, channel: this.channel, botId,
             agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
-            sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: receipt.provider, model: receipt.model, api: receipt.api,
+            sessionId: accountingSessionId, provider: receipt.provider, model: receipt.model, api: receipt.api,
             inputTokens: receipt.usage.input, outputTokens: receipt.usage.output, cacheReadTokens: receipt.usage.cacheRead,
             cacheWriteTokens: receipt.usage.cacheWrite, totalTokens: receipt.usage.totalTokens, estimatedCostUsd: receipt.usage.cost?.total });
         },
@@ -2580,6 +2556,25 @@ export class MomRunner implements RunnerLike {
             estimatedCost: adaptiveResolution.estimatedCost
           });
         }
+        if (adaptiveResolution.usage) {
+          const selectedDecisionModel = adaptiveSettings.decisionModels.find((m) => m.id === adaptiveSettings.selectedDecisionModelId);
+          this.usageTracker.record({
+            requestId: `pi:${runId}:adaptive_thinking`,
+            channel: this.channel,
+            botId,
+            agentId: this.usageAgentId,
+            roomId: this.runtimeIdentity?.roomId,
+            sessionId: accountingSessionId,
+            provider: adaptiveResolution.provider ?? selectedDecisionModel?.provider ?? "unknown",
+            model: adaptiveResolution.model ?? selectedDecisionModel?.id ?? "unknown",
+            api: "openai-completions",
+            inputTokens: adaptiveResolution.usage.inputTokens,
+            outputTokens: adaptiveResolution.usage.outputTokens,
+            totalTokens: adaptiveResolution.usage.inputTokens + adaptiveResolution.usage.outputTokens,
+            estimatedCostUsd: adaptiveResolution.estimatedCost,
+            durationMs: adaptiveResolution.latencyMs
+          });
+        }
       }
 
       let finalText = "";
@@ -2796,6 +2791,7 @@ export class MomRunner implements RunnerLike {
 
         let beforeAttempt = this.agent.isRecovering ? [] : [...(this.agent.state.messages as AgentMessage[])];
         let attemptCount = 0;
+        let retryDelayMs = 1000;
         let candidateFinalText = "";
         let overflowRetryUsed = false;
         let continueAfterPostToolOverflow = false;
@@ -2872,7 +2868,8 @@ export class MomRunner implements RunnerLike {
                 provider: selectedModel.provider,
                 model: selectedModel.id
               });
-              await new Promise((resolve) => setTimeout(resolve, 1000));
+              await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+              retryDelayMs = 1000;
             }
 
             const contextWindow = selectedModel.contextWindow || settings.compaction.defaultContextWindow;
@@ -2984,10 +2981,6 @@ export class MomRunner implements RunnerLike {
                   ? ctx.message.imageContents
                   : undefined,
               );
-            }
-            if (promotionHandoff) {
-              stopReason = "stop";
-              break;
             }
             if (this.activePiExtensionFailure) throw new Error(`Pi extension failed: ${this.activePiExtensionFailure}`);
             if (this.abortRequested) {
@@ -3309,6 +3302,24 @@ export class MomRunner implements RunnerLike {
               // run may still deliver without replaying side effects.
               if (!attemptExecutedTools) candidateFinalText = "";
               if (decision.kind === "retryable_error") {
+                // A provider-wide capacity/cooldown response cannot recover on
+                // the same credential inside its own retry window; try the next
+                // candidate instead of burning the failure budget on 1s retries.
+                if (candidateIndex < modelCandidates.length - 1 && isProviderCapacityError(decision.message)) {
+                  momWarn("runner", "model_capacity_failover", {
+                    runId,
+                    chatId: this.chatId,
+                    provider: selectedModel.provider,
+                    model: selectedModel.id,
+                    candidateIndex,
+                    candidateCount: modelCandidates.length,
+                    attempt: attemptCount,
+                    error: decision.message
+                  });
+                  attemptCount += 1;
+                  break;
+                }
+                retryDelayMs = modelRetryDelayMs(decision.message);
                 attemptCount += 1;
                 continue;
               }
@@ -3500,12 +3511,6 @@ export class MomRunner implements RunnerLike {
           }
         } catch (error) {
           if (this.activePiExtensionFailure) throw error;
-          if (error instanceof DurableExecutionPromotionHandoff) {
-            promotionHandoff = error;
-            stopReason = "stop";
-            errorMessage = undefined;
-            break;
-          }
           const message = error instanceof Error ? error.message : String(error);
           if (!overflowRetryUsed && isContextOverflowError(message)) {
             if (await compactForOverflow("thrown_error", message)) continue;
@@ -3544,7 +3549,6 @@ export class MomRunner implements RunnerLike {
           );
         }
 
-        if (promotionHandoff) break;
         finalAttemptCount = attemptCount;
         if (runAborted) {
           break;
@@ -3580,12 +3584,6 @@ export class MomRunner implements RunnerLike {
             candidateIndex
           });
         }
-      }
-
-      if (promotionHandoff) {
-        await ctx.setWorking(false);
-        logRunDetail({ type: "final", summary: "Ordinary Run handed off to Durable Execution." });
-        return { runId, workspaceId, stopReason: "stop", usage: finalUsage };
       }
 
       if (successfulCandidateIndex >= 0 && pendingModelErrorEvents.length > 0) {
@@ -3839,7 +3837,7 @@ export class MomRunner implements RunnerLike {
           chatId: this.chatId,
           settings, executionPolicy, signal: this.agent.signal,
           onChildUsage: receipt => this.usageTracker.record({ requestId: receipt.id, channel: this.channel, botId,
-            agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId, sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
+            agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId, sessionId: accountingSessionId,
             provider: receipt.provider, model: receipt.model, api: receipt.api, inputTokens: receipt.usage.input, outputTokens: receipt.usage.output,
             cacheReadTokens: receipt.usage.cacheRead, cacheWriteTokens: receipt.usage.cacheWrite, totalTokens: receipt.usage.totalTokens }),
           childTools: () => localTools.getChildTools(),
@@ -4032,7 +4030,6 @@ export class MomRunner implements RunnerLike {
         }
       }
       this.activeRunBudget = undefined;
-      this.activeDurablePrefix = [];
       this.activeRunnerEventSink = undefined;
       this.activePayloadContext = undefined;
       this.activeRunSkillManifest.clear();

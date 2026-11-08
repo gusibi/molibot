@@ -61,7 +61,7 @@ test('plan detail and rework keep long content readable and preserve draft throu
   item.execution.status = 'completed';
   item.approvals = [];
   await page.locator('.kanban-card').click();
-  await expect(page.locator('.plans-execution-options')).toHaveCount(0);
+  await expect(page.locator('.plans-actions').getByRole('button', { name: 'Plan execution permissions' })).toHaveCount(0);
   await expect(page.locator('.plans-actions-trailing button')).toHaveCount(1);
   await page.locator('.plans-criteria').scrollIntoViewIfNeeded();
   await expect(page.locator('.plans-criteria')).toBeVisible();

@@ -227,10 +227,13 @@ function buildModelRows(facts: TraceFactRecord[]): DesktopTraceModelRow[] {
     row.cacheReadTokens += fact.cacheReadTokens ?? 0;
     row.cacheWriteTokens += fact.cacheWriteTokens ?? 0;
     row.totalTokens += fact.totalTokens ?? 0;
+    const cost = fact.payload.estimatedCostUsd;
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) row.estimatedCostUsd = (row.estimatedCostUsd ?? 0) + cost;
     if (typeof fact.durationMs === "number") { row.durationSum += fact.durationMs; row.durationCount += 1; }
     rows.set(id, row);
   }
-  return [...rows.values()].map(({ durationSum, durationCount, apis, ...row }) => ({ ...row, api: [...apis].sort().join(", "), avgDurationMs: durationCount ? Math.round(durationSum / durationCount) : 0 })).sort((a, b) => b.requests - a.requests || a.model.localeCompare(b.model));
+  // 成本视角：花销最大的模型排最前，与用量页的 token 排名口径一致。
+  return [...rows.values()].map(({ durationSum, durationCount, apis, ...row }) => ({ ...row, api: [...apis].sort().join(", "), avgDurationMs: durationCount ? Math.round(durationSum / durationCount) : 0 })).sort((a, b) => b.totalTokens - a.totalTokens || b.requests - a.requests || a.model.localeCompare(b.model));
 }
 
 type EntityAccumulator = DesktopTraceEntityRow & { facts: TraceFactRecord[]; runIds: Set<string>; tools: Set<string> };

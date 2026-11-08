@@ -314,6 +314,20 @@ test("structured tool activity merges start and end into one stable item", () =>
     state: "success",
     summary: "12 tests passed"
   }]);
+
+  const retryActivity = parseDesktopActivity("runner_event", {
+    activity: {
+      kind: "retry",
+      tool: "retry",
+      key: "model-retry-progress",
+      label: "服务器繁忙，正在重新连接 1/5 (30s)",
+      state: "running",
+      summary: "429: Too Many Requests"
+    }
+  });
+  assert.ok(retryActivity);
+  assert.equal(retryActivity.kind, "retry");
+  assert.equal(retryActivity.label, "服务器繁忙，正在重新连接 1/5 (30s)");
 });
 
 test("structured scratch output keeps its root through the Desktop SSE projection", () => {

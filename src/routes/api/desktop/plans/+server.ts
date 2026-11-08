@@ -9,13 +9,9 @@ import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinat
 import { PlanService } from "$lib/server/agent/plans/service.js";
 import { buildKanbanTaskBrief } from "$lib/server/agent/durable/kanbanRuntime.js";
 import { steerKanbanRound } from "$lib/server/agent/durable/kanbanSteer.js";
-import { persistDurableConversationInput } from "$lib/server/agent/durable/conversation.js";
-import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
-import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
-import { projectRuntimeWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
+import { appendKanbanTaskInput, appendTaskConversationMessage } from "$lib/server/app/kanbanConversation.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
 import { toWebExternalUserId } from "$lib/server/web/identity.js";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
 import {
   DURABLE_EXECUTION_STATUSES,
   PlanDeletedError,
@@ -36,27 +32,6 @@ const plans = new PlanService();
 
 function ownerId(value: unknown): string {
   return String(value ?? "owner").trim() || "owner";
-}
-
-/**
- * Appends a user message to the task's visible conversation and context-backs
- * it, so the session reads as one continuous dialogue when opened directly.
- */
-function appendTaskConversationMessage(
-  runtime: ReturnType<typeof getRuntime>,
-  conversation: { id: string; externalUserId: string; agentId?: string },
-  projectId: string,
-  text: string
-): void {
-  const message = runtime.sessions.appendMessage(conversation.id, "user", text);
-  try {
-    persistDurableConversationInput(
-      new MomRuntimeStore(projectId ? projectRuntimeWorkspaceDir(projectId) : agentWorkspaceDir(storagePaths.dataDir, conversation.agentId ?? "")),
-      runtime.sessions,
-      conversation.externalUserId,
-      message
-    );
-  } catch { /* the visible message is already recorded; context backing is best-effort */ }
 }
 
 /** Best-effort removal of a task conversation whose task creation failed. */
@@ -193,7 +168,7 @@ export const POST: RequestHandler = async ({ request }) => {
               }
             }
             appendTaskConversationMessage(
-              runtime,
+              runtime.sessions,
               { ...conversation, ...(projectId ? {} : { agentId: executorAgentId }) },
               projectId,
               buildKanbanTaskBrief({
@@ -250,32 +225,22 @@ export const POST: RequestHandler = async ({ request }) => {
       case "kanban_start":
         return json({ ok: true, item: plans.startKanbanTask({ ownerId: owner, executionId: String(body.planId), expectedVersion: Number(body.expectedVersion), actionId: String(body.actionId) }) }, { headers: { "Cache-Control": "no-store" } });
       case "kanban_answer": {
-        const item = plans.answerKanbanTask({ ownerId: owner, executionId: String(body.planId), text: String(body.text ?? "").trim() });
+        const executionId = String(body.planId);
+        const text = String(body.text ?? "").trim();
+        appendKanbanTaskInput(getRuntime().sessions, executionId, text);
+        const item = plans.answerKanbanTask({ ownerId: owner, executionId, text });
         return json({ ok: true, item }, { headers: { "Cache-Control": "no-store" } });
       }
       case "kanban_steer": {
         const executionId = String(body.planId ?? "").trim();
         const text = String(body.text ?? "").trim();
         if (!text) throw new Error("Empty message.");
-        const { task, detail } = plans.getKanbanTask(owner, executionId);
-        const runtime = getRuntime();
+        plans.getKanbanTask(owner, executionId);
+        appendKanbanTaskInput(getRuntime().sessions, executionId, text);
         // Live injection first (spec 执行形态修订 切片②); when no round is
         // running the message falls back to the pending-input channel.
         const delivered = steerKanbanRound(executionId, text);
         if (!delivered) plans.answerKanbanTask({ ownerId: owner, executionId, text });
-        const sessionId = detail.execution.sourceUiSessionId?.trim();
-        if (sessionId) {
-          const projectIdOfSession = runtime.sessions.getConversationProjectId(sessionId) ?? "";
-          const ownerOfSession = projectIdOfSession ? "" : runtime.sessions.getWebConversationOwner(sessionId) ?? "";
-          const conversation = projectIdOfSession
-            ? runtime.sessions.getProjectConversation(projectIdOfSession, sessionId)
-            : ownerOfSession
-              ? runtime.sessions.getConversationById(sessionId, "web", ownerOfSession)
-              : null;
-          if (conversation) {
-            appendTaskConversationMessage(runtime, conversation, projectIdOfSession, text);
-          }
-        }
         return json({ ok: true, delivered }, { headers: { "Cache-Control": "no-store" } });
       }
       case "kanban_budget":

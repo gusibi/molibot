@@ -1,10 +1,12 @@
 import type {
   Channel,
   Conversation,
+  ConversationContextSnapshot,
   ConversationMessage,
   ExternalChatType
 } from "$lib/shared/types/message";
 import type {
+  DesktopContextUsageSnapshot,
   DesktopExternalChannelGroup,
   DesktopExternalSession,
   DesktopExternalSessionsSummary,
@@ -131,6 +133,28 @@ export function buildDesktopExternalSessionsSummary(
  * through the Web file endpoint, so only the display-safe fields survive.
  * `system` role messages are internal control directives and are filtered out.
  */
+/**
+ * Fills the categories legacy snapshots lack so the desktop contract's
+ * required nine-key shape holds; absent categories render as zero.
+ */
+function desktopContextBreakdown(snapshot: ConversationContextSnapshot): DesktopContextUsageSnapshot {
+  const breakdown = snapshot.breakdown;
+  return {
+    ...snapshot,
+    breakdown: {
+      messages: breakdown.messages ?? 0,
+      memory: breakdown.memory ?? 0,
+      files: breakdown.files ?? 0,
+      toolResults: breakdown.toolResults ?? 0,
+      mcpTools: breakdown.mcpTools ?? 0,
+      systemTools: breakdown.systemTools ?? 0,
+      systemPrompt: breakdown.systemPrompt ?? 0,
+      skills: breakdown.skills ?? 0,
+      other: breakdown.other ?? 0
+    }
+  };
+}
+
 export function buildDesktopExternalTranscriptMessage(
   message: ConversationMessage
 ): DesktopExternalTranscriptMessage | null {
@@ -162,6 +186,7 @@ export function buildDesktopExternalTranscriptMessage(
       : { ...step });
   }
   if (message.usage) projected.usage = { ...message.usage };
+  if (message.contextBreakdown) projected.contextBreakdown = desktopContextBreakdown(message.contextBreakdown);
   return projected;
 }
 

@@ -15,6 +15,8 @@ interface SeedEntry {
   role: "user" | "assistant";
   content: unknown;
   timestamp: string;
+  usage?: Record<string, unknown>;
+  contextBreakdown?: Record<string, unknown>;
 }
 
 const sources = new Map<string, { channel: string; botId: string; chatId: string }>();
@@ -39,7 +41,8 @@ function seedSession(dir: string, sessionId: string, entries: SeedEntry[], creat
         id,
         parentId: prev,
         timestamp: entry.timestamp,
-        message: { role: entry.role, content: entry.content }
+        ...(entry.role === "assistant" && entry.contextBreakdown ? { contextBreakdown: entry.contextBreakdown } : {}),
+        message: { role: entry.role, content: entry.content, ...(entry.usage ? { usage: entry.usage } : {}) }
       })
     );
     prev = id;
@@ -167,6 +170,45 @@ test("readExternalTranscriptFromContexts projects messages and drops non-text bl
         { role: "assistant", content: "Here is the answer" }
       ]
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("readExternalTranscriptFromContexts carries assistant usage and the context snapshot for the desktop panel", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-usage-"));
+  try {
+    const dir = contextsDir(root, "moli-f", "feishubot", "333");
+    seedSession(
+      dir,
+      "default",
+      [
+        { role: "user", content: "你好", timestamp: "2026-07-01T00:00:00.000Z" },
+        {
+          role: "assistant",
+          content: "答复",
+          timestamp: "2026-07-01T00:00:01.000Z",
+          usage: { input: 15110, output: 88, cacheRead: 0, cacheWrite: 0, totalTokens: 15198 },
+          contextBreakdown: {
+            contextWindow: 1_000_000,
+            estimatedTokens: 16_933,
+            breakdown: { messages: 1818, mcpTools: 0, systemTools: 6329, systemPrompt: 8671, skills: 115, other: 0 },
+            inputTokens: 15110,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0
+          }
+        }
+      ],
+      "2026-07-01T00:00:00.000Z"
+    );
+
+    const id = encodeExternalSessionId({ channel: "feishu", botId: "feishubot", chatId: "333", sessionId: "default" });
+    const result = readExternalTranscriptFromContexts(root, id);
+    assert.ok(result);
+    const assistant = result!.messages.find((message) => message.role === "assistant");
+    assert.deepEqual(assistant?.usage, { inputTokens: 15110, outputTokens: 88, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 15198 });
+    assert.equal(assistant?.contextBreakdown?.contextWindow, 1_000_000);
+    assert.equal(assistant?.contextBreakdown?.breakdown.systemPrompt, 8671);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

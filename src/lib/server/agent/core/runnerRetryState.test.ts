@@ -4,10 +4,12 @@ import {
   describesProjectFileMutationClaim,
   getFileOutputReceipt,
   getFileMutationReceipt,
+  isProviderCapacityError,
   isRetryableModelError,
   describesUnexecutedMiniAppChange,
   isProjectFileMutationReceipt,
   isMiniAppInstallReceipt,
+  modelRetryDelayMs,
   REPEATED_TOOL_FAILURE_NOTICE_THRESHOLD,
   resolveFinalErrorAction,
   finalErrorUserMessage,
@@ -331,4 +333,24 @@ test("a structured completion still reads as success when a later round errors",
   });
 
   assert.deepEqual(result, { kind: "success" });
+});
+
+test("provider retry hints set the retry cadence instead of a fixed one-second loop", () => {
+  // The shape observed from the local relay's 429 body.
+  const cooldown = `429: {"type":"server_error","message":"Upstream request failed: [prefill_cap_refused] the cell is at capacity; retry shortly (after 30 s)"} | proxy: {"code":"model_cooldown","reset_seconds":29,"reset_time":"29s"}`;
+  assert.equal(modelRetryDelayMs(cooldown), 29_000);
+  assert.equal(modelRetryDelayMs("429 Too Many Requests, Retry-After: 12"), 12_000);
+  assert.equal(modelRetryDelayMs("socket hang up"), 1000);
+  // Clamp a long hint so one stalled provider cannot freeze the run.
+  assert.equal(modelRetryDelayMs('{"reset_seconds": 600}'), 30_000);
+});
+
+test("capacity or cooldown failures fail over to the next candidate", () => {
+  const cooldown = '429: {"code":"model_cooldown","message":"All credentials are cooling down"}';
+  const capacity = "upstream request failed: [prefill_cap_refused] the cell is at capacity";
+  assert.equal(isProviderCapacityError(cooldown), true);
+  assert.equal(isProviderCapacityError(capacity), true);
+  assert.equal(isProviderCapacityError("socket hang up"), false);
+  // Account exhaustion is terminal, not a capacity event worth falling over.
+  assert.equal(isProviderCapacityError("429 insufficient_quota: usage limit reached"), false);
 });

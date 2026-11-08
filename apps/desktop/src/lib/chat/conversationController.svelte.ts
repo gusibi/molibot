@@ -157,7 +157,7 @@ export class ConversationController {
   /** True while stop() is unwinding the turn; it owns the queue drain in that window. */
   private stopInFlight = false;
   /** True while recovering a run this client stopped watching (see recoverRunningTurn). */
-  private recovering = false;
+  recovering = false;
 
   /**
    * Streaming deltas are buffered here and flushed to the reactive fields at
@@ -587,6 +587,7 @@ export class ConversationController {
     this.activity = labels.resuming;
     this.host.afterMutate?.();
     try {
+      await this.host.reload(sessionId);
       while (this.recovering) {
         let running = true;
         try {

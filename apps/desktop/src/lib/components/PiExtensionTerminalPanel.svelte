@@ -6,6 +6,7 @@
   import Dialog from "./ui/Dialog.svelte";
   import Button from "./ui/Button.svelte";
   import SelectControl from "./ui/SelectControl.svelte";
+  import { isPiTerminalActionable, piTerminalLauncherLabel } from "./piExtensionTerminalPresentation";
   import { loadDesktopPiTerminals, loadDesktopPiTerminalOutput, runDesktopPiTerminalAction } from "../api";
   import { piExtensionsCopy } from "../i18n";
 
@@ -17,7 +18,8 @@
   let error = $state("");
   let element = $state<HTMLDivElement | null>(null);
   let scoped = $derived(visible && sessionId ? terminals.filter(terminal => terminal.sessionId === sessionId) : []);
-  let actionable = $derived(scoped.filter(terminal => terminal.status === "running" && (terminal.customInteraction || terminal.dialog) || terminal.requiresReview && !terminal.contextReviewed));
+  let actionable = $derived(scoped.filter(isPiTerminalActionable));
+  let launcherLabel = $derived(piTerminalLauncherLabel(actionable, copy));
   let selected = $derived(scoped.find((terminal) => terminal.id === selectedId));
   let pending = $derived(scoped.find(terminal => terminal.status === "running" && terminal.dialog));
   let interactionOpen = $state(false);
@@ -210,7 +212,7 @@
 </script>
 
 {#if actionable.length}
-  <button class="secondary-button pi-terminal-launcher" type="button" onclick={() => { if (pending) interactionOpen = true; else { selectedId = actionable[0].id; open = true; } }}>{pending ? copy.interactionTitle : copy.terminalTitle}{actionable.some((terminal) => terminal.status === "running") ? " · ●" : ""}</button>
+  <button class="secondary-button pi-terminal-launcher" type="button" onclick={() => { if (pending) interactionOpen = true; else { selectedId = actionable[0].id; open = true; } }}>{launcherLabel}{actionable.some((terminal) => terminal.status === "running") ? " · ●" : ""}</button>
 {/if}
 <Dialog open={interactionOpen && Boolean(pending?.dialog)} busy={submitting} closeOnOutside={false} contentClass="pi-interaction-dialog" labelledBy="pi-interaction-title" onOpenChange={value => interactionOpen = value}>
   {#if pending?.dialog}
@@ -248,7 +250,7 @@
 </Dialog>
 <Dialog {open} busy={selected?.status === "running"} closeOnOutside={false} contentClass="pi-terminal-dialog" labelledBy="pi-terminal-title" onOpenChange={(value) => open = value}>
   <header class="pi-terminal-header">
-    <div><h2 id="pi-terminal-title">{copy.terminalTitle}</h2><p>{copy.terminalHint}</p></div>
+    <div><h2 id="pi-terminal-title">{selected?.requiresReview && !selected.contextReviewed ? copy.reviewTitle : copy.terminalTitle}</h2><p>{selected?.requiresReview && !selected.contextReviewed ? copy.reviewPanelHint : copy.terminalHint}</p></div>
     <div class="pi-terminal-actions">
       {#if selected?.status === "running"}<button class="danger-button" type="button" onclick={stop}>{copy.stopTerminal}</button>{/if}
       <button class="secondary-button" type="button" onclick={() => open = false}>{copy.hideTerminal}</button>

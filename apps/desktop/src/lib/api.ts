@@ -157,6 +157,8 @@ import type {
   DesktopTaskSummary,
   DesktopTaskActionRequest,
   DesktopTaskActionResponse,
+  DesktopHomeNotification,
+  DesktopHomeNotificationsResponse,
   DesktopDurableExecutionActionRequest,
   DesktopDurableExecutionActionResponse,
   DesktopDurableExecutionEvidenceRead,
@@ -1453,6 +1455,17 @@ export async function loadDesktopTaskUnreadCount(endpoint: string): Promise<numb
 
 export async function runDesktopTaskAction(endpoint: string, input: DesktopTaskActionRequest): Promise<DesktopTaskActionResponse> {
   return requestJson<DesktopTaskActionResponse>(endpoint, "/api/desktop/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+}
+
+export async function loadDesktopNotifications(endpoint: string): Promise<DesktopHomeNotification[]> {
+  const payload = await requestJson<DesktopHomeNotificationsResponse>(endpoint, "/api/desktop/notifications");
+  return payload.notifications ?? [];
+}
+
+export async function markDesktopNotificationsRead(endpoint: string, ids?: string[]): Promise<DesktopHomeNotification[]> {
+  const body = ids ? { action: "mark_read", ids } : { action: "mark_all_read" };
+  const payload = await requestJson<DesktopHomeNotificationsResponse>(endpoint, "/api/desktop/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return payload.notifications ?? [];
 }
 
 export async function loadDesktopDurableExecutions(endpoint: string): Promise<DesktopDurableExecutionItem[]> {
@@ -3460,7 +3473,7 @@ export function parseDesktopActivity(
     const state = String(item.state ?? "");
     const key = String(item.key ?? "").trim();
     const label = String(item.label ?? "").trim();
-    if (["tool", "subagent", "note"].includes(kind) && ["running", "success", "error", "info"].includes(state) && key && label) {
+    if (["tool", "subagent", "note", "retry"].includes(kind) && ["running", "success", "error", "info"].includes(state) && key && label) {
       const summary = String(item.summary ?? "").trim();
       const paths = Array.isArray(item.paths) ? item.paths.filter((path): path is string => typeof path === "string" && Boolean(path.trim())) : [];
       const rawOutput = item.fileOutput && typeof item.fileOutput === "object" ? item.fileOutput as Record<string, unknown> : null;

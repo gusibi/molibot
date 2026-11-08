@@ -1,4 +1,4 @@
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import fs from "node:fs";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -11,12 +11,7 @@ import {
 } from "$lib/server/agent/tools/filesystemPolicy.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 import type { RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
-import { outputReportBase } from "$lib/server/agent/tools/outputLayout.js";
-
-function isWithinRoot(root: string, filePath: string): boolean {
-  const rel = relative(root, filePath);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
+import { describeFileToolResult } from "$lib/server/agent/tools/outputLayout.js";
 
 const writeSchema = Type.Object({
   label: Type.String(),
@@ -88,13 +83,7 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
       // Full access removes the output-layout containment too: file tools obey
       // the same effective policy as commands.
       if (options.outputLayout && isAbsolute(requestedPath) && !options.hostWideAccess) {
-        if (isWithinRoot(options.outputLayout.scratchRoot, filePath)) {
-          rootKind = "scratch";
-          baseRoot = options.outputLayout.scratchRoot;
-        } else if (options.outputLayout.projectRoot && isWithinRoot(options.outputLayout.projectRoot, filePath)) {
-          rootKind = "project";
-          baseRoot = options.outputLayout.projectRoot;
-        } else {
+        if (!describeFileToolResult(options.outputLayout, filePath, "created")) {
           return { ok: false, error: "Absolute output paths must stay inside the Project root or runtime scratch root." };
         }
       }
@@ -131,15 +120,9 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
             ? `Wrote ${writtenBytes} bytes to ${legacyTarget.path} (default artifact path for ${legacyTarget.requestedPath})`
             : `Wrote ${writtenBytes} bytes to ${reportedPath}`
         }],
-        details: baseRoot ? {
-          requestedPath,
-          // Reported from the scratch/project root so the path the Session file
-          // list resolves (scratch/<path>) is the file that was actually written.
-          relativePath: relative(options.outputLayout ? outputReportBase(options.outputLayout, rootKind) : baseRoot, filePath).replaceAll("\\", "/"),
-          rootKind,
-          action,
-          sizeBytes: writtenBytes
-        } : undefined
+        details: options.outputLayout
+          ? describeFileToolResult(options.outputLayout, filePath, action, requestedPath, writtenBytes)
+          : undefined
       };
     }
   };

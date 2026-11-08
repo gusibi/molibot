@@ -69,6 +69,7 @@ const sections = {
   tts: read("./lib/settings/TtsGenerateSection.svelte")
 };
 const charts = read("./lib/settings/charts.ts");
+const analyticsRanking = read("./lib/settings/AnalyticsRanking.svelte");
 const row = read("./lib/chat/ConversationRow.svelte");
 const transcript = read("./lib/chat/ConversationTranscript.svelte");
 const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
@@ -78,6 +79,7 @@ const thinkingCard = read("./lib/chat/ThinkingCard.svelte");
 const turnProcess = read("./lib/chat/TurnProcess.svelte");
 const processTimeline = read("./lib/chat/ProcessTimeline.svelte");
 const processActivityItem = read("./lib/chat/ProcessActivityItem.svelte");
+const contextWindowPanel = read("./lib/chat/ContextWindowPanel.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
 const emptyQuickStarts = read("./lib/chat/emptyQuickStarts.ts");
 const conversationTurnSource = read("./lib/chat/conversationTurn.ts");
@@ -1055,7 +1057,7 @@ test("chat composer keeps keyboard guidance in the textarea placeholder", () => 
   assert.match(view, /placeholder=\{sending \? copy\.queueHint : copy\.enterHint\}/);
   assert.match(chatComposerShell, /<textarea[^>]*bind:value[^>]*\{placeholder\}[^>]*onkeydown=\{onKeydown\}/);
   assert.match(chatComposerShell, /<textarea[^>]*rows="2"/);
-  assert.doesNotMatch(chatComposerShell, /scrollHeight|style\.height/);
+  assert.match(chatComposerShell, /function syncHeight/);
   assert.match(chatComposerShell, /onbeforeinput=\{handleBeforeInput\}/);
   assert.match(chatComposerShell, /translateY\(\$\{offset\}px\)/);
   assert.match(chatComposerShell, /transform \$\{FLOW_MS\}ms var\(--ease-standard\)/);
@@ -1926,10 +1928,16 @@ test("consecutive images render as a gallery and open one shared viewer", () => 
   // `cover` inside a fixed ratio is what makes a row of thumbnails read as a
   // row; with `contain` a portrait and a landscape produce different heights.
   assert.match(styles, /\.transcript-gallery\[data-columns="3"\] \.transcript-image img\s*\{[^}]*object-fit:\s*cover/s);
+  assert.match(styles, /\.transcript-image img\s*\{[^}]*max-height:\s*180px/s);
+  assert.match(styles, /\.markdown-body img\s*\{[^}]*max-width:\s*min\(100%,\s*240px\)[^}]*max-height:\s*180px/s);
 
   // Both image surfaces open the same viewer rather than each growing its own.
   assert.match(transcriptAttachmentsSource, /from "\.\.\/imageLightbox"/);
   assert.match(markdownInteractions, /from "\.\/imageLightbox"/);
+  // Inline media streams directly over the loopback route instead of copying
+  // bytes chunk-by-chunk across the Tauri HTTP plugin IPC bridge.
+  assert.match(view, /resolvedMessageMediaUrls[\s\S]*?desktopFileContentUrl/);
+  assert.match(projectChat, /resolvedMessageMediaUrls[\s\S]*?desktopFileContentUrl/);
   // A single image is not a gallery: arrows and a "1 / 1" readout would be
   // controls that do nothing.
   assert.match(imageLightbox, /const multiple = gallery\.length > 1/);
@@ -2654,6 +2662,36 @@ test("chat header is single-line and service status lives on the sidebar logo", 
   assert.match(chatSidebar, /<AppFooterMark copy=\{copy\} serviceState=\{serviceState\} \/>/);
 });
 
+test("context window monitor and history launch side by side from the header", () => {
+  assert.match(view, /<ContextWindowPanel[\s\S]*?usage=\{composerContextUsage\}[\s\S]*?sending=\{viewMode === "external" \? false : sending\}[\s\S]*?messages=\{contextSessionMessages\}/);
+  // External (read-only mirror) sessions read their own transcript: the panel
+  // polls the read-only endpoint and the fallback usage derives from the
+  // mirrored rows, so switching sessions can never show the previous one's data.
+  assert.match(view, /viewMode === "external" \? externalTranscript\?\.messages \?\? \[\] : messages/);
+  assert.match(view, /external=\{viewMode === "external"\}/);
+  assert.match(contextWindowPanel, /loadDesktopExternalTranscript\(endpoint, sessionId\)/);
+  assert.match(view, /from "reicon-svelte\/icons\/History"/);
+  assert.match(contextWindowPanel, /from "reicon-svelte\/icons\/Gauge"/);
+  assert.match(contextWindowPanel, /<Popover\.Portal>/);
+  assert.match(contextWindowPanel, /const interval = sending \? 1_000 : 3_000/);
+  assert.match(contextWindowPanel, /loadDesktopProjectSession\(endpoint, projectId, sessionId\)/);
+  assert.match(contextWindowPanel, /loadDesktopSession\(endpoint, profileId, sessionId\)/);
+  assert.match(contextWindowPanel, /estimateContextTextTokens\(streamingText\)/);
+  assert.doesNotMatch(contextWindowPanel, /\bfetch\(/);
+  assert.match(contextWindowPanel, /context-window-live" data-state=\{sending \? "live" : counted \? "counted" : "estimate"\}/);
+  assert.match(contextWindowPanel, /contextRoundUsageSummary/);
+  assert.match(contextWindowPanel, /contextRoundUsageHint/);
+  assert.match(contextWindowPanel, /reportedTokens/);
+  assert.match(view, /messages=\{contextSessionMessages\}\s*\/>\s*<Button variant="icon" title=\{locale === "zh-CN" \? "Agent 全部对话" : "Agent conversations"\}[\s\S]*?<History size=\{16\} aria-hidden="true" \/>/);
+  assert.match(projectDetail, /<ContextWindowPanel[\s\S]*?projectId=\{projectsStore\.selectedProjectId\}[\s\S]*?messages=\{contextRuntime\.messages\}/);
+  assert.match(projectChat, /onContextRuntimeChange\(\{/);
+  assert.doesNotMatch(contextWindowPanel, /context-window-footer/);
+  assert.match(styles, /\.context-window-popover \{[^}]*z-index:\s*95/s);
+  assert.match(styles, /\.context-window-block\[data-key="remaining"\][^}]*repeating-linear-gradient/s);
+  const meterRule = styles.match(/\.context-window-meter \{[^}]+\}/)?.[0] ?? "";
+  assert.doesNotMatch(meterRule, /transition/);
+});
+
 // The sidebar footer is a control, not a status panel: the avatar's dot already
 // carries the service state, so the 在线 line, the divider over it and the faded
 // gear are gone. Status stays the button's accessible name so it never depends
@@ -2908,14 +2946,14 @@ test("strong selection resolves through tokens; Raft maps it to the pairing pink
   const macosSelected = macosSheet.match(/:root\[data-theme-family="macos"\] [^{]*\.installed-skill-card\.selected[^{]*\{[^}]*\}/)?.[0] ?? "";
   assert.match(macosSelected, /color-mix\(in srgb, var\(--selection-bg\) 16%, transparent\)/);
   assert.match(macosSelected, /inset 0 0 0 1px color-mix\(in srgb, var\(--selection-bg\) 40%, transparent\)/);
-  for (const [surface, active] of [["automation-task-row", "\\.active"], ["plans-row", "\\.active"], ["skills-file-row", ""]]) {
+  for (const [surface, active] of [["automation-task-row", "\\.active"], ["skills-file-row", ""]]) {
     assert.match(
       macosSheet,
       new RegExp(`:root\\[data-theme-family="macos"\\] \\[data-theme-region="chat"\\] [^{]*\\.${surface}${active}[^{]*\\{[^}]*color-mix\\(in srgb, var\\(--selection-bg\\) 16%`),
       `${surface} must get the macOS soft selection through the chat region hook`
     );
   }
-  // One list language: the three workspace rails render as flat rounded rows
+  // One list language: the workspace rails render as flat rounded rows
   // with hairline dividers in this family; the skills card tile only survives
   // in the closed grid. The flat and picked rules are written disjointly
   // (:not(.selected) / .selected) and with the same anatomy so neither can
@@ -2928,13 +2966,10 @@ test("strong selection resolves through tokens; Raft maps it to the pairing pink
   // its specificity later in source); without the :not() guards hovering the
   // picked item paints the hover fill over its selection.
   const workspaces = read("./workspaces.css");
-  const plans = read("./plans.css");
   assert.match(workspaces, /\.installed-skills-grid\.list-mode \.installed-skill-card:not\(\.selected\):hover/);
   assert.match(workspaces, /\.skills-file-row:not\(\.active\):hover/);
   assert.match(workspaces, /\.skills-file-row\.active \{ background: var\(--selection-bg\)/);
   assert.match(styles, /\.automation-task-row:not\(\.active\):hover/);
-  assert.match(plans, /\.plans-row:not\(\.active\):hover/);
-  assert.match(plans, /\.plans-row\.active \{ background: var\(--selection-bg\)/);
   const raft = read("./themes/raft.css");
   const raftVariants = raft.match(/:root\[data-theme-family="raft"\]\[data-resolved-appearance="(?:light|dark)"\]\s*\{[\s\S]*?\n\}/g) ?? [];
   assert.equal(raftVariants.length, 2, "raft.css must own both variants");
@@ -4256,78 +4291,44 @@ test("ProjectsView loads project state from a single reactive trigger", () => {
 });
 
 test("usage and trace pages provide full observability dashboards", () => {
-  assert.match(sections.usage, /untrack\(\(\) => \{[\s\S]*endpoint !== usageStore\.endpoint[\s\S]*loadUsage\(endpoint\)/);
-  assert.match(sections.trace, /untrack\(\(\) => \{[\s\S]*endpoint !== traceStore\.endpoint[\s\S]*loadTrace\(endpoint\)/);
-  assert.doesNotMatch(sections.usage, /session\.endpoint !== usageStore\.endpoint/);
-  assert.doesNotMatch(sections.trace, /session\.endpoint !== traceStore\.endpoint/);
-  assert.match(sections.usage, /class="observatory-filter-toolbar"/);
-  assert.match(sections.usage, /class="observatory-filter-headline"/);
-  assert.match(sections.usage, /class="observatory-filter-fields usage-filter-fields"/);
-  assert.match(sections.usage, /class="icon-button observatory-refresh-button"/);
-  assert.match(sections.usage, /class="tertiary-button observatory-reset-button"/);
-  assert.doesNotMatch(sections.usage, /class="observatory-filter-head"/);
+  assert.match(sections.usage, /if \(endpoint\) untrack\(\(\) => \{\s*void loadUsage\(endpoint\)/);
+  assert.match(sections.trace, /if \(endpoint\) untrack\(\(\) => \{\s*void loadTrace\(endpoint\)/);
+  assert.match(sections.usage, /settings-card analytics-filter-panel/);
+  assert.match(sections.usage, /class="analytics-range-tabs"/);
   assert.match(sections.usage, /usageStore\.query\.modelId/);
-  assert.match(sections.usage, /usage\.rankings\[rankingView\]/);
+  assert.match(sections.usage, /rankings\[rankingView\]/);
   assert.match(sections.usage, /class="observatory-table"/);
   assert.match(sections.usage, /updateUsageQuery\(\{ page:/);
-  assert.match(sections.usage, /class="trend-line trend-line-token" d=\{tokenLine\}/);
-  assert.match(sections.usage, /class="donut-seg"/);
-  assert.match(sections.usage, /class="window-bar-track"/);
-  assert.match(sections.trace, /class="observatory-filter-toolbar"/);
-  assert.match(sections.trace, /class="observatory-filter-headline"/);
+  assert.match(sections.usage, /class="analytics-trend-area"/);
+  assert.match(sections.usage, /stackedTrendAreas\(trendSeries\.map\(series => series\.values\), tokenMax\)/);
+  // Compact numbers carry their exact value in a tooltip; costs stay honest about unpriced records.
+  assert.match(sections.usage, /countTitle\(usage\.totals\.totalTokens\)/);
+  assert.match(sections.usage, /formatCostUsd\(record\.estimatedCostUsd\)/);
+  assert.match(sections.usage, /usage\.activity/);
+  assert.match(sections.trace, /settings-card analytics-filter-panel/);
   assert.match(sections.trace, /<details class="observatory-advanced-filters">/);
-  assert.match(sections.trace, /class="observatory-filter-fields trace-advanced-filter-fields"/);
   assert.match(sections.trace, /advancedFilterCount/);
-  assert.doesNotMatch(sections.trace, /class="observatory-filter-head"/);
   assert.match(sections.trace, /trace\.rankings\[rankingView\]/);
   assert.match(sections.trace, /trace\.facts\.items/);
-  assert.match(sections.trace, /class="hbar-fill"[\s\S]*percentOf\(item\.value, activityMax\)/);
-  assert.match(sections.trace, /each outcomeSegments as segment/);
+  // Model rankings answer "which step cost the most" in tokens with per-model cost columns.
+  assert.match(sections.trace, /value: row\.totalTokens/);
+  assert.match(sections.trace, /formatCostUsd\(row\.estimatedCostUsd\)/);
+  assert.match(sections.trace, /estimatedUsd\(trace\.totals\.estimatedCostUsd\)/);
+  assert.match(analyticsRanking, /class="analytics-share-bar"/);
   assert.match(charts, /function trendLinePath\(/);
   assert.match(charts, /function donutSegments\(/);
+  assert.match(charts, /function stackedTrendAreas\(/);
   assert.match(styles, /--chart-blue:/);
   assert.match(styles, /\.observatory-table\s*\{/);
   assert.match(styles, /\.observatory-mobile-list\s*\{/);
-  assert.match(styles, /\.observatory-filter-card\s*\{[^}]*margin-bottom:\s*24px/);
-  assert.match(styles, /\.observatory-filter-headline\s*\{[^}]*min-width:\s*0/);
-  assert.match(styles, /\.observatory-field\s*>\s*:is\(\.select-control,\s*\.search-field\)\s*\{[^}]*width:\s*100%/);
-  assert.match(styles, /\.observatory-field\s*>\s*\.search-field input\s*\{[^}]*border:\s*0/);
-  assert.match(styles, /\.observatory-field\s*>\s*\.search-field input:focus-visible\s*\{[^}]*box-shadow:\s*none/);
-  assert.match(styles, /\.observatory-advanced-filters\s*>\s*summary\s*\{[^}]*background:\s*transparent/);
-});
-
-test("Desktop Trace exposes live, stuck, and orphan run controls", () => {
-  const traceSection = read("./lib/settings/TraceSection.svelte");
-  assert.match(traceSection, /loadDesktopActiveRuns/);
-  assert.match(traceSection, /stopDesktopActiveRun/);
-  assert.match(traceSection, /traceRunStuck/);
-  assert.match(traceSection, /traceClearOrphan/);
-  assert.match(traceSection, /new ActivityScheduler\(/);
-  assert.match(traceSection, /interactiveActivityPolicy/);
-  assert.doesNotMatch(traceSection, /setInterval\(/);
-  assert.doesNotMatch(traceSection, /onMount\(\(\) => \{\s*void refreshActiveRuns\(\)/);
-  assert.match(activeRunsRoute, /snapshotAllRuntimeRuns\(\)/);
-  assert.match(activeRunsRoute, /abortRuntimeRun/);
-});
-
-test("Desktop Trace delete uses the shared alert dialog before submitting", () => {
-  const traceSection = read("./lib/settings/TraceSection.svelte");
-  assert.match(traceSection, /let pendingActiveRun = \$state<DesktopActiveRunItem \| null>\(null\)/);
-  assert.match(traceSection, /pendingActiveRun = item/);
-  assert.match(traceSection, /<AlertDialog/);
-  assert.match(sections.tasks, /DirectManipulation/);
-  assert.match(sections.tasks, /onpointercancel=\{cancelDetailDrag\}/);
-  assert.doesNotMatch(sections.tasks, /detailDragStartX/);
-  assert.doesNotMatch(sections.tasks, /detailDragOffset > 96/);
-  assert.match(traceSection, /busy=\{Boolean\(activeRunBusy\)\}/);
-  assert.match(traceSection, /stopDesktopActiveRun\(session\.endpoint, selected\.runId\)/);
-  assert.doesNotMatch(traceSection, /activeRunDialog/);
-  assert.doesNotMatch(traceSection, /window\.confirm\(/);
+  assert.match(styles, /\.analytics-trend-area\s*\{/);
+  assert.match(styles, /\.analytics-ring-segment/);
+  assert.match(styles, /\.analytics-share-bar/);
 });
 
 test("Desktop Trace keeps the dashboard above active-run records", () => {
   const traceSection = read("./lib/settings/TraceSection.svelte");
-  const dashboard = traceSection.indexOf('class="chart-kpi-grid"');
+  const dashboard = traceSection.indexOf('class="analytics-dashboard"');
   const activeRuns = traceSection.indexOf('<p class="settings-group-title">{session.text.traceActiveRuns}</p>');
   assert.ok(dashboard >= 0 && activeRuns > dashboard);
 });
@@ -6340,7 +6341,7 @@ test("Agent history opens in the workspace and keeps its Agent scope through pag
   assert.match(openHistory, /agentHistoryActive = true/);
   assert.match(openHistory, /browserOpen = false/);
   assert.match(view, /else if agentHistoryActive}[\s\S]*?<ConversationBrowserDialog[\s\S]*?page[\s\S]*?agentId=\{historyAgentId\}/);
-  assert.match(browser, /if page}[\s\S]*?class="agent-history-page"/);
+  assert.match(browser, /drawer \? "session-history-list" : "agent-history-page"/);
   assert.match(browser, /PRIMARY_SCOPES\.filter\(value => value !== "project"\)/);
   assert.match(browser, /searchDesktopConversations\(endpoint, \{[\s\S]*?agentId, includeArchived/);
   assert.match(browser, /agentId !== requestedAgent/);

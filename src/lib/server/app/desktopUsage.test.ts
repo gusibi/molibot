@@ -123,8 +123,8 @@ test("buildDesktopUsageSummary ranks usage per session within the selected windo
   const summary = buildDesktopUsageSummary(fixture(), { range: "last7Days", modelId: "all", botId: "all", channel: "all", page: 1, pageSize: 20 });
 
   assert.deepEqual(summary.rankings.sessions, [
-    { id: "s-20260628-aaaa", label: "s-20260628-aaaa", requests: 2, inputTokens: 170, outputTokens: 30, cacheReadTokens: 100, cacheWriteTokens: 0, totalTokens: 300 },
-    { id: "s-20260628-bbbb", label: "s-20260628-bbbb", requests: 1, inputTokens: 50, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 10, totalTokens: 90 }
+    { id: "s-20260628-aaaa", label: "s-20260628-aaaa", requests: 2, inputTokens: 170, outputTokens: 30, cacheReadTokens: 100, cacheWriteTokens: 0, totalTokens: 300, estimatedCostUsd: 0 },
+    { id: "s-20260628-bbbb", label: "s-20260628-bbbb", requests: 1, inputTokens: 50, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 10, totalTokens: 90, estimatedCostUsd: 0 }
   ]);
 
   const today = buildDesktopUsageSummary(fixture(), { range: "today", modelId: "all", botId: "all", channel: "all", page: 1, pageSize: 20 });

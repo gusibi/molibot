@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderMarkdown } from "../markdown";
-import { chatImageResolver } from "./markdownImages";
+import { chatImageResolver, unreferencedMediaAttachments } from "./markdownImages";
 import type { TranscriptAttachmentActions, TranscriptMessage } from "./transcript";
 
 const href = "/workspace/runtime/chat/scratch/2026/10/14/cover-v3.png";
@@ -58,4 +58,25 @@ test("remote URLs pass through and attachment locators resolve without a scratch
   state.mediaUrls.set(local, "blob:cover");
   assert.match(render({ ...message, content: "![Remote](https://example.com/cover.png)" }, state), /src="https:\/\/example.com\/cover.png"/);
   assert.match(render({ ...message, activities: [], content: `![Cover](${local})` }, state), /src="blob:cover"/);
+  assert.match(render({ ...message, activities: [], content: "![Cover](cover-v3.png)" }, state), /src="blob:cover"/);
+});
+
+test("unreferencedMediaAttachments surfaces non-inlined images and audio/video while deduplicating inlined images", () => {
+  const withAttachments: TranscriptMessage = {
+    role: "assistant",
+    content: "Here is your poster.",
+    attachments: [
+      { original: "cover-v3.png", local, mediaType: "image" },
+      { original: "voice.mp3", local: "chat/attachments/voice.mp3", mediaType: "audio" },
+      { original: "report.pdf", local: "chat/attachments/report.pdf", mediaType: "file" }
+    ]
+  };
+  assert.deepEqual(
+    unreferencedMediaAttachments(withAttachments, withAttachments.content).map((a) => a.original),
+    ["cover-v3.png", "voice.mp3"]
+  );
+  assert.deepEqual(
+    unreferencedMediaAttachments(withAttachments, "![Cover](cover-v3.png)").map((a) => a.original),
+    ["voice.mp3"]
+  );
 });

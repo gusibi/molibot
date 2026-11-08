@@ -1,23 +1,29 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import Layers from "../icons/duotone/components/Layers.svelte";
+  import { onMount, tick } from "svelte";
   import ChatHeader from "../chat/ChatHeader.svelte";
   import WorkspaceSearch from "../components/ui/WorkspaceSearch.svelte";
-  import WorkspaceEmpty from "../components/ui/WorkspaceEmpty.svelte";
   import Button from "../components/ui/Button.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import PlanEditor from "./PlanEditor.svelte";
   import KanbanBoard from "./KanbanBoard.svelte";
   import KanbanTaskCreate from "./KanbanTaskCreate.svelte";
   import KanbanTaskDetail from "./KanbanTaskDetail.svelte";
+  import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
+  import Check from "reicon-svelte/icons/Check";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Help from "reicon-svelte/icons/Help";
   import Loader from "reicon-svelte/icons/Loader";
+  import Message from "reicon-svelte/icons/Message";
+  import Pause from "reicon-svelte/icons/Pause";
+  import Pen from "reicon-svelte/icons/Pen";
+  import Play from "reicon-svelte/icons/Play";
+  import StopCircle from "reicon-svelte/icons/StopCircle";
+  import Trash from "reicon-svelte/icons/Trash";
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
-  import X from "reicon-svelte/icons/X";
   import type { DesktopDurableExecutionStatus, DesktopKanbanBoardItem, DesktopKanbanBoardPage, DesktopKanbanStage, DesktopKanbanTaskBundle, DesktopPlanDetail, DesktopPlanStatus, DesktopPlanActionRequest } from "@molibot/desktop-contract";
-  import { loadDesktopAgents, loadDesktopKanbanBoard, loadDesktopKanbanTask, loadDesktopPlan, runDesktopPlanAction, streamDesktopPlans } from "../api";
+  import { loadDesktopAgents, loadDesktopKanbanBoard, loadDesktopKanbanTask, loadDesktopPlan, loadDesktopProjects, runDesktopPlanAction, streamDesktopPlans } from "../api";
   import type { DesktopAgentItem } from "@molibot/desktop-contract";
+  import type { DesktopProject } from "../api";
   import type { Translation } from "../i18n";
 
   export let copy: Translation;
@@ -31,14 +37,15 @@
 
   // Board (kanban + legacy projection)
   let boardPage: DesktopKanbanBoardPage | null = null;
-  let boardLoading = true, boardError = "", search = "", projectId = "", projectIds: string[] = [];
-  let createOpen = false, createBusy = false, createError = "";
+  let boardLoading = true, boardError = "", search = "", projectId = "";
+  let createOpen = false, createBusy = false, createError = "", createProjectId = "";
   let agents: DesktopAgentItem[] = [];
+  let projects: DesktopProject[] = [];
   // Selection: a kanban task or a legacy plan.
   let selectedKind: "" | "kanban" | "plan" = "";
   let selectedId = "";
   let listSeq = 0, requestSeq = 0;
-  let mounted = false, online = false, lastUpdated = "";
+  let mounted = false, online = true;
   // Legacy plan detail
   let detail: DesktopPlanDetail | null = null;
   let detailLoading = false, detailError = "", actionError = "", editorOpen = false;
@@ -82,6 +89,10 @@
     };
     void connect();
     void loadDesktopAgents(endpoint).then(summary => { agents = summary.items; }).catch(() => { agents = []; });
+    void loadDesktopProjects(endpoint).then(list => {
+      projects = list;
+      if (projectId && !list.some(project => project.id === projectId)) projectId = "";
+    }).catch(() => { projects = []; });
     return () => { mounted = false; controller.abort(); clearTimeout(timer); };
   });
 
@@ -92,20 +103,34 @@
     try {
       const next = await loadDesktopKanbanBoard(endpoint, { search, projectId, limit: 200 });
       if (seq !== listSeq) return;
-      boardPage = next; projectIds = next.projectIds; boardError = ""; lastUpdated = new Date().toISOString();
+      boardPage = next; boardError = "";
     } catch (cause) { if (seq === listSeq) { boardError = String(cause instanceof Error ? cause.message : cause); online = false; } }
     finally { if (seq === listSeq) boardLoading = false; }
   }
+  function focusDetail(): void {
+    void tick().then(() => document.querySelector<HTMLElement>(".plans-detail .plans-back")?.focus());
+  }
   function clearSelection(): void {
+    const restoreId = selectedId;
     selectedKind = ""; selectedId = ""; detail = null; kanbanBundle = null;
     detailError = ""; kanbanError = ""; editorOpen = false; actionError = "";
+    if (restoreId) void tick().then(() => {
+      for (const card of document.querySelectorAll<HTMLElement>("[data-kanban-id]")) {
+        if (card.dataset.kanbanId === restoreId) { card.focus(); return; }
+      }
+    });
+  }
+  function openCreate(): void {
+    createError = ""; createProjectId = projectId; createOpen = true;
   }
   async function selectPlan(planId: string): Promise<void> {
     selectedKind = "plan"; selectedId = planId; kanbanBundle = null; kanbanError = ""; detail = null; detailError = ""; editorOpen = false; actionError = "";
+    focusDetail();
     await loadDetail(planId);
   }
   async function selectKanban(executionId: string): Promise<void> {
     selectedKind = "kanban"; selectedId = executionId; detail = null; detailError = ""; kanbanBundle = null; kanbanError = ""; actionError = "";
+    focusDetail();
     await loadKanbanDetail(executionId);
   }
   async function loadDetail(planId: string, silent = false): Promise<void> {
@@ -228,23 +253,29 @@
 
 {#snippet headerActions()}
   <div class="workspace-header-tools">
-    <WorkspaceSearch value={search} label={copy.planBoardSearchLabel} placeholder={copy.planBoardSearchPlaceholder} closeLabel={copy.closeSearch} onInput={(value) => { search = value; }} />
-    <Button variant="primary" onclick={() => { createError = ""; createOpen = true; }}>{copy.kanbanNewTask}</Button>
+    {#if !selectedKind}<WorkspaceSearch value={search} label={copy.planBoardSearchLabel} placeholder={copy.planBoardSearchPlaceholder} closeLabel={copy.closeSearch} onInput={(value) => { search = value; }} />{/if}
   </div>
 {/snippet}
 <ChatHeader title={copy.planBoardTitle} actions={headerActions} />
 
 <div class="plans-shell">
-  <p class="workspace-description" title={copy.planBoardHint}>{copy.planBoardHint}</p>
-  <div class="workspace-filterbar">
-    <SelectControl value={projectId} ariaLabel={copy.projects} options={[{ value: "", label: copy.planEditorAllProjects }, ...projectIds.map(value => ({ value, label: value }))]} onChange={value => { projectId = value; }} />
+  <div class="plans-board-view" class:is-hidden={Boolean(selectedKind)}>
+    {#if projects.length > 0 || !online}
+      <div class="plans-toolbar">
+        {#if projects.length > 0}
+          <SelectControl value={projectId} ariaLabel={copy.projects} options={[{ value: "", label: copy.planEditorAllProjects }, ...projects.map(project => ({ value: project.id, label: project.name }))]} onChange={value => { projectId = value; }} />
+        {/if}
+        {#if !online}
+          <p class="plans-connection" role="status"><span class="plans-live-dot" aria-hidden="true"></span>{copy.planEditorOffline}</p>
+        {/if}
+      </div>
+    {/if}
+    <div class="plans-board-scroll">
+      <KanbanBoard page={boardPage} loading={boardLoading} error={boardError} {copy} onOpen={openItem} onMove={moveItem} onCreate={openCreate} onRetry={() => void refreshList()} />
+    </div>
   </div>
-  <div class="plans-workspace workspace-master-detail" class:detail-open={Boolean(selectedId)}>
-  <aside class="plans-rail kanban-rail" aria-label={copy.planBoardTitle}>
-    <p class="plans-connection-status" class:online role="status"><span class="plans-live-dot" aria-hidden="true"></span>{online ? copy.planEditorLive : copy.planEditorOffline}{lastUpdated ? ` · ${copy.planBoardUpdated} ${formatTime(lastUpdated)}` : ""}</p>
-    <KanbanBoard page={boardPage} loading={boardLoading} error={boardError} {selectedId} {copy} onOpen={openItem} onMove={moveItem} />
-  </aside>
 
+  {#if selectedKind}
   <section class="plans-detail" aria-label={selectedKind === "kanban" ? kanbanBundle?.task.title ?? copy.planBoardTitle : detail?.meta.title ?? copy.planBoardTitle}>
     {#if selectedKind === "kanban"}
       {#key selectedId}
@@ -271,28 +302,23 @@
       {/key}
       {#if actionError}<p class="plans-action-error" role="alert">{actionError}</p>{/if}
     {:else if detailLoading && !detail}
+      <header class="plans-detail-head">
+        <button type="button" class="plans-back" title={copy.back} aria-label={copy.back} onclick={() => clearSelection()}><ArrowLeft size={16} aria-hidden="true" /></button>
+      </header>
       <div class="plans-state" role="status"><Loader size={16} aria-hidden="true" />{copy.loading}</div>
     {:else if !detail && detailError}
+      <header class="plans-detail-head">
+        <button type="button" class="plans-back" title={copy.back} aria-label={copy.back} onclick={() => clearSelection()}><ArrowLeft size={16} aria-hidden="true" /></button>
+      </header>
       <div class="plans-state" role="alert"><p>{detailError}</p><Button onclick={() => void loadDetail(selectedId)}>{copy.retryLoading}</Button></div>
     {:else if !detail}
-      {#if boardLoading}
-        <div class="plans-state" role="status">{copy.loading}</div>
-      {:else if boardError}
-        <div class="plans-state" role="alert"><p>{copy.kanbanLoadFailed}</p><Button onclick={() => void refreshList()}>{copy.retryLoading}</Button></div>
-      {:else}
-        <div class="plans-landing">
-          <div class="plans-landing-heading"><span class="plans-landing-mark"><Layers size={24} aria-hidden="true" /></span><h2>{copy.planBoardOverviewTitle}</h2><p>{copy.planBoardOverviewHint}</p></div>
-          <div class="plans-overview-stats" role="group" aria-label={copy.tasksByStatus}>
-            <button type="button" class="plans-stat" data-plan-status="in_progress"><span>{copy.kanbanColumnDoing}</span><strong>{boardPage?.counts.doing ?? 0}</strong></button>
-            <button type="button" class="plans-stat" data-plan-status="needs_attention"><span>{copy.kanbanColumnTodo}</span><strong>{boardPage?.counts.todo ?? 0}</strong></button>
-            <button type="button" class="plans-stat" data-plan-status="archived"><span>{copy.kanbanColumnDone}</span><strong>{boardPage?.counts.done ?? 0}</strong></button>
-          </div>
-          <WorkspaceEmpty title={copy.planBoardSelectHint} />
-        </div>
-      {/if}
+      <header class="plans-detail-head">
+        <button type="button" class="plans-back" title={copy.back} aria-label={copy.back} onclick={() => clearSelection()}><ArrowLeft size={16} aria-hidden="true" /></button>
+      </header>
+      <div class="plans-state" role="status">{copy.loading}</div>
     {:else}
       <header class="plans-detail-head">
-        <button type="button" class="plans-back" aria-label={copy.planBoardTitle} onclick={() => clearSelection()}><X size={15} aria-hidden="true" /></button>
+        <button type="button" class="plans-back" title={copy.back} aria-label={copy.back} onclick={() => clearSelection()}><ArrowLeft size={16} aria-hidden="true" /></button>
         <div class="plans-detail-title">
           <div class="plans-title-row">
             <h2>{detail.meta.title}</h2>
@@ -309,24 +335,24 @@
       </header>
 
       {#if !editorOpen}
-      {#if canContinue}<div class="plans-execution-options">
-        <SelectControl value={mode} ariaLabel={copy.planEditorMode} options={[{ value: "manual", label: copy.permissionModeManual }, { value: "accept_edits", label: copy.permissionModeAcceptEdits }]} onChange={value => mode = value as typeof mode} />
-        <SelectControl value={receiver} ariaLabel={copy.planEditorReceiver} options={[{ value: "current", label: copy.planEditorCurrentSession, disabled: !targetSessionId }, { value: "source", label: copy.planBoardOpenSession, disabled: !detail.execution.sourceUiSessionId && !detail.binding }, { value: "new", label: copy.planEditorNewSession }]} onChange={value => receiver = value} />
-      </div>{/if}
       <div class="plans-actions">
         <div class="plans-actions-leading">
-          {#if canRework}<Button disabled={busy || editorOpen} onclick={() => editorOpen = true}>{copy.planEditorTitle}</Button>{/if}
+          {#if canRework}<Button variant="icon" title={copy.planEditorTitle} disabled={busy || editorOpen} onclick={() => editorOpen = true}><Pen size={16} aria-hidden="true" /></Button>{/if}
         </div>
         <div class="plans-actions-trailing">
+          {#if canContinue}
+            <SelectControl value={mode} ariaLabel={copy.planEditorMode} options={[{ value: "manual", label: copy.permissionModeManual }, { value: "accept_edits", label: copy.permissionModeAcceptEdits }]} onChange={value => mode = value as typeof mode} />
+            <SelectControl value={receiver} ariaLabel={copy.planEditorReceiver} options={[{ value: "current", label: copy.planEditorCurrentSession, disabled: !targetSessionId }, { value: "source", label: copy.planBoardOpenSession, disabled: !detail.execution.sourceUiSessionId && !detail.binding }, { value: "new", label: copy.planEditorNewSession }]} onChange={value => receiver = value} />
+          {/if}
           {#if detail.controlRequest}<span role="status">{detail.controlRequest === "pause" ? copy.planEditorPausing : copy.planEditorCancelling}</span>{/if}
           {#if ["queued", "running", "waiting_for_approval", "waiting_for_user", "verifying"].includes(detail.execution.status)}
-            <Button disabled={busy || Boolean(detail.controlRequest)} onclick={() => void control("pause")}>{copy.durablePause}</Button>
-            <Button danger disabled={busy || Boolean(detail.controlRequest)} onclick={() => void control("cancel")}>{copy.durableCancel}</Button>
+            <Button variant="icon" title={copy.durablePause} disabled={busy || Boolean(detail.controlRequest)} onclick={() => void control("pause")}><Pause size={16} aria-hidden="true" /></Button>
+            <Button variant="icon" danger title={copy.durableCancel} disabled={busy || Boolean(detail.controlRequest)} onclick={() => void control("cancel")}><StopCircle size={16} aria-hidden="true" /></Button>
           {/if}
-          {#if canDelete}<Button danger disabled={busy} onclick={() => void deletePlan()}>{copy.planBoardDelete}</Button>{/if}
-          {#if canComplete}<Button variant="primary" disabled={busy} onclick={() => void completeActive()}>{copy.planBoardMarkComplete}</Button>{/if}
-          {#if canOpenSession}<Button onclick={() => void continuePlan(false)}>{copy.planBoardOpenSession}</Button>{/if}
-          {#if canContinue}<Button variant="primary" disabled={busy || editorOpen} onclick={() => void continuePlan(true)}>{detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume}</Button>{/if}
+          {#if canDelete}<Button variant="icon" danger title={copy.planBoardDelete} disabled={busy} onclick={() => void deletePlan()}><Trash size={16} aria-hidden="true" /></Button>{/if}
+          {#if canComplete}<Button variant="primary" class="plans-icon-action" title={copy.planBoardMarkComplete} disabled={busy} onclick={() => void completeActive()}><Check size={16} aria-hidden="true" /></Button>{/if}
+          {#if canOpenSession}<Button variant="icon" title={copy.planBoardOpenSession} onclick={() => void continuePlan(false)}><Message size={16} aria-hidden="true" /></Button>{/if}
+          {#if canContinue}<Button variant="primary" class="plans-icon-action" title={detail?.execution.status === "planned" ? copy.planBoardStart : copy.planBoardResume} disabled={busy || editorOpen} onclick={() => void continuePlan(true)}><Play size={16} aria-hidden="true" /></Button>{/if}
         </div>
       </div>
 
@@ -414,8 +440,8 @@
 
     {/if}
   </section>
-  </div>
+  {/if}
 </div>
 
-<KanbanTaskCreate open={createOpen} busy={createBusy} {copy} {projectIds} {agents} onCreate={(payload) => void createTask(payload)} onClose={() => createOpen = false} />
+<KanbanTaskCreate open={createOpen} busy={createBusy} {copy} {projects} initialProjectId={createProjectId} {agents} onCreate={(payload) => void createTask(payload)} onClose={() => createOpen = false} />
 {#if createError}<p class="plans-action-error" role="alert">{createError}</p>{/if}

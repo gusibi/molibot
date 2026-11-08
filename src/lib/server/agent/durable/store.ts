@@ -684,6 +684,7 @@ export class DurableExecutionStore {
     this.ensureSchema();
     this.ensureColumn("durable_executions", "engine_version", "INTEGER NOT NULL DEFAULT 1");
     this.ensureColumn("durable_plan_deliveries", "round", "INTEGER");
+    this.ensureColumn("durable_plan_deliveries", "delivery_meta_json", "TEXT");
     ensureWakeupSchema(this.db);
     ensureKanbanSchema(this.db);
   }
@@ -752,13 +753,27 @@ export class DurableExecutionStore {
     }
   }
 
-  recordAttemptDelivery(input: { executionId: string; sessionId: string; runId: string; text: string; round?: number }): void {
-    this.db.prepare("INSERT OR IGNORE INTO durable_plan_deliveries (run_id, execution_id, session_id, response_text, round) VALUES (?, ?, ?, ?, ?)").run(input.runId, input.executionId, input.sessionId, input.text, input.round ?? null);
+  recordAttemptDelivery(input: { executionId: string; sessionId: string; runId: string; text: string; round?: number; meta?: import("./conversation.js").DurableAttemptDeliveryMeta }): void {
+    const metaJson = input.meta ? JSON.stringify(input.meta) : null;
+    this.db.prepare("INSERT OR IGNORE INTO durable_plan_deliveries (run_id, execution_id, session_id, response_text, round, delivery_meta_json) VALUES (?, ?, ?, ?, ?, ?)").run(input.runId, input.executionId, input.sessionId, input.text, input.round ?? null, metaJson);
   }
 
-  pendingAttemptDeliveries(): Array<{ executionId: string; sessionId: string; runId: string; text: string; round?: number }> {
-    const rows = this.db.prepare("SELECT * FROM durable_plan_deliveries WHERE delivered_at IS NULL").all() as Array<{ execution_id: string; session_id: string; run_id: string; response_text: string; round: number | null }>;
-    return rows.map(row => ({ executionId: row.execution_id, sessionId: row.session_id, runId: row.run_id, text: row.response_text, ...(row.round === null ? {} : { round: row.round }) }));
+  pendingAttemptDeliveries(): Array<{ executionId: string; sessionId: string; runId: string; text: string; round?: number; meta?: import("./conversation.js").DurableAttemptDeliveryMeta }> {
+    const rows = this.db.prepare("SELECT * FROM durable_plan_deliveries WHERE delivered_at IS NULL").all() as Array<{ execution_id: string; session_id: string; run_id: string; response_text: string; round: number | null; delivery_meta_json?: string | null }>;
+    return rows.map(row => {
+      let meta: import("./conversation.js").DurableAttemptDeliveryMeta | undefined;
+      if (row.delivery_meta_json) {
+        try { meta = JSON.parse(row.delivery_meta_json); } catch { /* ignore malformed meta */ }
+      }
+      return {
+        executionId: row.execution_id,
+        sessionId: row.session_id,
+        runId: row.run_id,
+        text: row.response_text,
+        ...(row.round === null ? {} : { round: row.round }),
+        ...(meta ? { meta } : {})
+      };
+    });
   }
 
   markAttemptDelivered(runId: string): void {

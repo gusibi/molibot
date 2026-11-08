@@ -1,4 +1,4 @@
-import { agentNamespace, ownerNamespace } from "$lib/server/memory/namespaces";
+import { agentNamespace, ownerNamespace, projectNamespacePrefix } from "$lib/server/memory/namespaces";
 import type { MemoryRecord } from "$lib/server/memory/types";
 import { DEFAULT_AGENT_ID, type RuntimeSettings } from "$lib/server/settings/schema";
 import type { MemoryGateway } from "$lib/server/memory/gateway";
@@ -52,17 +52,37 @@ export function desktopAgentMemoryRecords(scope: ReturnType<typeof desktopAgentM
   return items.filter(item => item.namespace === agentNamespace(scope.agentId) || (scope.shareOwner && item.namespace === ownerNamespace(scope.ownerId)));
 }
 
-/** The home uses the Agent's existing memory scope; Project and conversation candidates stay in the memory center. */
+/**
+ * The home review shows the Agent's own scope, shared owner records and every
+ * owner-project candidate: the reflection notification counts all pending
+ * candidates, so the home must be able to list the same set.
+ */
+export function desktopHomeMemoryNamespaces(settings: RuntimeSettings, agentId: string) {
+  const scope = desktopAgentMemoryScope(settings, agentId);
+  const namespaces = [agentNamespace(scope.agentId), ...(scope.shareOwner ? [ownerNamespace(scope.ownerId)] : [])];
+  return { scope, namespaces, namespacePrefixes: [projectNamespacePrefix(scope.ownerId)] };
+}
+
+/** Namespace segments are encodeURIComponent-encoded at write time. */
+function decodeNamespaceSegment(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export function readDesktopHomeMemoryReview(
   settings: RuntimeSettings,
   memory: Pick<MemoryGateway, "listReviewCandidates">
 ): DesktopHomeMemoryReview {
   try {
-    const scope = desktopAgentMemoryScope(settings, settings.defaultAgentId || DEFAULT_AGENT_ID);
-    const namespaces = [agentNamespace(scope.agentId), ...(scope.shareOwner ? [ownerNamespace(scope.ownerId)] : [])];
-    const candidates = memory.listReviewCandidates(namespaces, 11);
-    const skills = memory.listReviewCandidates(namespaces, 11, true);
+    const { namespaces, namespacePrefixes } = desktopHomeMemoryNamespaces(settings, settings.defaultAgentId || DEFAULT_AGENT_ID);
+    // Capped at 100: the count only feeds the notification card, not the panel.
+    const candidates = memory.listReviewCandidates(namespaces, 100, false, namespacePrefixes);
+    const skills = memory.listReviewCandidates(namespaces, 11, true, namespacePrefixes);
     return {
+      pendingReviewCount: candidates.length,
       ...(skills.length ? { skillDraftCount: Math.min(10, skills.length), skillDraftHasMore: skills.length > 10 } : {}),
       items: candidates.slice(0, 10).map(({ id, status, namespace, domain, type, subject, value, confidence, reason, sources, createdAt, updatedAt, supersedesMemoryId, disputesMemoryId }) => ({
         id, status, namespace, domain, type, subject, value, confidence, reason,
@@ -86,14 +106,22 @@ export async function readDesktopMemoryComparison(
   if (!memory.isEnabled()) throw new Error('Memory is disabled');
   const scope = desktopAgentMemoryScope(settings, input.agentId || settings.defaultAgentId || DEFAULT_AGENT_ID);
   const candidate = memory.getCandidate(input.id);
-  const namespaces = [agentNamespace(scope.agentId), ...(scope.shareOwner ? [ownerNamespace(scope.ownerId)] : [])];
-  if (!candidate || candidate.status !== 'pending' || candidate.skillDraftSuggestion || !namespaces.includes(candidate.namespace)
+  const { namespaces, namespacePrefixes } = desktopHomeMemoryNamespaces(settings, input.agentId || settings.defaultAgentId || DEFAULT_AGENT_ID);
+  const namespace = candidate?.namespace;
+  const namespaceAllowed = Boolean(namespace && (namespaces.includes(namespace) || namespacePrefixes.some(prefix => namespace.startsWith(prefix))));
+  if (!candidate || !namespace || candidate.status !== 'pending' || candidate.skillDraftSuggestion || !namespaceAllowed
     || !input.expectedUpdatedAt || candidate.updatedAt !== input.expectedUpdatedAt) throw new Error('Candidate changed or is unavailable');
+  // A project candidate's predecessors live in its project namespace; read them
+  // with a project-scoped view so the backend resolves the record.
+  const projectPrefix = namespacePrefixes.find(prefix => namespace.startsWith(prefix));
+  const readScope = projectPrefix
+    ? { ...scope, projectId: decodeNamespaceSegment(namespace.slice(projectPrefix.length)) }
+    : scope;
   const originals: import('$lib/shared/desktop').DesktopMemoryComparison['originals'] = [];
   for (const [relation, id] of [['replaces', candidate.supersedesMemoryId], ['disputes', candidate.disputesMemoryId]] as const) {
     if (!id) continue;
-    const original = await memory.getForGovernance(scope, id);
-    const available = Boolean(original && !original.privacySuppressed && original.namespace === candidate.namespace && namespaces.includes(original.namespace));
+    const original = await memory.getForGovernance(readScope, id);
+    const available = Boolean(original && !original.privacySuppressed && original.namespace === candidate.namespace && namespaceAllowed);
     originals.push({ relation, available, ...(available && original ? { content: original.content, updatedAt: original.updatedAt } : {}) });
   }
   const current = memory.getCandidate(input.id);

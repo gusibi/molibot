@@ -95,12 +95,12 @@ test("timestamps use localized compact date and time", () => {
   assert.match(formatNaturalDateTime("2026-07-14T08:30:00+08:00", "en"), /Jul 14.*08:30/);
 });
 
-test("context tokens read 万-based in Chinese and compact in English", () => {
-  assert.equal(formatContextTokens(262_000, "zh-CN"), "26.2万");
-  assert.equal(formatContextTokens(1_000_000, "zh-CN"), "100万");
-  assert.equal(formatContextTokens(9_800, "zh-CN"), "9.8k");
-  assert.equal(formatContextTokens(262_000, "en"), "262k");
-  assert.equal(formatContextTokens(1_000_000, "en"), "1m");
+test("context tokens always use K and M units", () => {
+  assert.equal(formatContextTokens(262_000, "zh-CN"), "262K");
+  assert.equal(formatContextTokens(1_000_000, "zh-CN"), "1M");
+  assert.equal(formatContextTokens(9_800, "zh-CN"), "9.8K");
+  assert.equal(formatContextTokens(262_000, "en"), "262K");
+  assert.equal(formatContextTokens(1_000_000, "en"), "1M");
 });
 
 test("context usage derives the last snapshot plus its trailing reply", () => {
@@ -112,7 +112,7 @@ test("context usage derives the last snapshot plus its trailing reply", () => {
       contextBreakdown: {
         contextWindow: 100_000,
         estimatedTokens: 1_000,
-        breakdown: { messages: 500, mcpTools: 200, systemTools: 100, systemPrompt: 150, skills: 30, other: 20 },
+        breakdown: { messages: 500, memory: 0, files: 0, toolResults: 0, mcpTools: 200, systemTools: 100, systemPrompt: 150, skills: 30, other: 20 },
         inputTokens: 100,
         cacheReadTokens: 300,
         cacheWriteTokens: 100
@@ -126,7 +126,7 @@ test("context usage derives the last snapshot plus its trailing reply", () => {
       contextBreakdown: {
         contextWindow: 100_000,
         estimatedTokens: 2_000,
-        breakdown: { messages: 1_500, mcpTools: 200, systemTools: 100, systemPrompt: 150, skills: 30, other: 20 },
+        breakdown: { messages: 1_500, memory: 0, files: 0, toolResults: 0, mcpTools: 200, systemTools: 100, systemPrompt: 150, skills: 30, other: 20 },
         inputTokens: 200,
         cacheReadTokens: 600,
         cacheWriteTokens: 200
@@ -138,16 +138,15 @@ test("context usage derives the last snapshot plus its trailing reply", () => {
   assert.equal(usage.usedTokens, 1_150);
   assert.equal(usage.contextWindow, 100_000);
   assert.ok(Math.abs(usage.percent - 1.15) < 1e-9);
+  assert.equal(usage.counted, false);
   assert.equal("cacheHitRate" in usage, false);
   assert.deepEqual(
     usage.categories.map((category) => [category.key, category.percent]),
     [
-      ["messages", 75],
-      ["mcpTools", 10],
-      ["systemTools", 5],
       ["systemPrompt", 7.5],
       ["skills", 1.5],
-      ["other", 1]
+      ["tools", 16],
+      ["messages", 75]
     ]
   );
 });
@@ -163,7 +162,7 @@ test("current context equals the last call's input plus its reply output", () =>
       contextBreakdown: {
         contextWindow: 1_048_576,
         estimatedTokens: 17_421,
-        breakdown: { messages: 6_302, mcpTools: 0, systemTools: 4_185, systemPrompt: 6_840, skills: 94, other: 0 },
+        breakdown: { messages: 6_302, memory: 0, files: 0, toolResults: 0, mcpTools: 0, systemTools: 4_185, systemPrompt: 6_840, skills: 94, other: 0 },
         inputTokens: 17_246,
         cacheReadTokens: 0,
         cacheWriteTokens: 0
@@ -207,6 +206,30 @@ test("a snapshot's window wins over the selected model's configured fallback", (
     }
   ], 8_000);
   assert.equal(usage?.contextWindow, 100_000);
+});
+
+test("a provider-reported prompt size marks the snapshot counted", () => {
+  const usage = deriveComposerContextUsage([
+    {
+      role: "assistant",
+      usage: { inputTokens: 1_200, outputTokens: 300, cacheReadTokens: 38_500, cacheWriteTokens: 0 },
+      // The server calibrates the buckets to the reported prompt size before
+      // persisting; the projection passes them through verbatim.
+      contextBreakdown: {
+        contextWindow: 1_000_000,
+        estimatedTokens: 40_000,
+        breakdown: { messages: 19_850, memory: 1_985, files: 7_940, toolResults: 5_955, mcpTools: 0, systemTools: 1_985, systemPrompt: 1_786, skills: 199, other: 0 },
+        inputTokens: 1_200,
+        cacheReadTokens: 38_500,
+        cacheWriteTokens: 0,
+        reportedPromptTokens: 39_700
+      }
+    }
+  ]);
+  assert.ok(usage);
+  assert.equal(usage.counted, true);
+  const sum = usage.categories.reduce((total, category) => total + category.tokens, 0);
+  assert.equal(sum, 39_700);
 });
 
 // Sessions transcribed before snapshots existed still carry real per-turn

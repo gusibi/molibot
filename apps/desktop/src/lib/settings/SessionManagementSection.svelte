@@ -5,6 +5,7 @@
   import type { DesktopExtractionStatus, DesktopManagedSessionItem, DesktopManagedViewState } from "../api";
   import type { DesktopSessionFile } from "@molibot/desktop-contract";
   import {
+    desktopFileContentUrl,
     fetchDesktopFileBlob,
     listDesktopSessionFiles
   } from "../api";
@@ -169,7 +170,9 @@
   }
 
   function revokePreviewMedia(): void {
-    for (const url of previewMediaUrls.values()) URL.revokeObjectURL(url);
+    for (const url of previewMediaUrls.values()) {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    }
     previewMediaUrls = new Map();
     previewMediaLoading = new Set();
   }
@@ -192,39 +195,21 @@
   async function loadPreviewMedia(file: DesktopSessionFile): Promise<void> {
     const item = sessionManagementStore.previewItem;
     if (!endpoint || !item) return;
-    if (previewMediaUrls.has(file.local) || previewMediaLoading.has(file.local)) return;
-    const conversationId = item.conversationId;
-    const loading = new Set(previewMediaLoading);
-    loading.add(file.local);
-    previewMediaLoading = loading;
-    try {
-      const blob = await fetchDesktopFileBlob(
+    if (previewMediaLoading.has(file.local)) return;
+    const next = new Map(previewMediaUrls);
+    next.set(
+      file.local,
+      desktopFileContentUrl(
         endpoint,
         previewProfileId(item),
-        conversationId,
+        item.conversationId,
         file.id,
         false,
-        item.projectId || undefined
-      );
-      // The dialog may have closed (URLs revoked) or switched conversations
-      // while the fetch was in flight; a late URL would leak its blob.
-      if (sessionManagementStore.previewItem?.conversationId !== conversationId) {
-        URL.revokeObjectURL(URL.createObjectURL(blob));
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      const next = new Map(previewMediaUrls);
-      next.set(file.local, url);
-      previewMediaUrls = next;
-    } catch {
-      const failed = new Set(previewMediaFailed);
-      failed.add(file.local);
-      previewMediaFailed = failed;
-    } finally {
-      const done = new Set(previewMediaLoading);
-      done.delete(file.local);
-      previewMediaLoading = done;
-    }
+        item.projectId || undefined,
+        Date.now()
+      )
+    );
+    previewMediaUrls = next;
   }
 
   async function downloadPreviewFile(file: DesktopSessionFile): Promise<void> {
@@ -245,9 +230,24 @@
     }
   }
 
+  const resolvedPreviewMediaUrls = $derived.by(() => {
+    const item = sessionManagementStore.previewItem;
+    if (!endpoint || !item) return previewMediaUrls;
+    const profileId = previewProfileId(item);
+    return new Map([
+      ...previewFiles
+        .filter((file) => file.mediaType === "image" || file.mediaType === "audio" || file.mediaType === "video")
+        .map((file): [string, string] => [
+          file.local,
+          desktopFileContentUrl(endpoint, profileId, item.conversationId, file.id, false, item.projectId || undefined)
+        ]),
+      ...previewMediaUrls
+    ]);
+  });
+
   const previewAttachmentActions = $derived({
     filesByLocal: previewFileByLocal,
-    mediaUrls: previewMediaUrls,
+    mediaUrls: resolvedPreviewMediaUrls,
     mediaLoading: previewMediaLoading,
     mediaFailed: previewMediaFailed,
     loadMedia: (file: DesktopSessionFile) => void loadPreviewMedia(file),

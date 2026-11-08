@@ -48,7 +48,8 @@ function normalizeMediaType(attachment: ConversationAttachment): SessionFileReco
 export function _buildConversationFiles(
   workspaceDir: string,
   externalUserId: string,
-  messages: ConversationMessage[]
+  messages: ConversationMessage[],
+  targetLocal?: string
 ): SessionFileRecord[] {
   const files = new Map<string, SessionFileRecord>();
 
@@ -56,6 +57,7 @@ export function _buildConversationFiles(
     for (const attachment of message.attachments ?? []) {
       const local = String(attachment.local ?? "").trim();
       if (!local) continue;
+      if (targetLocal && local !== targetLocal) continue;
       const fullPath = resolveAgentFileReference(workspaceDir, local, { channel: "web", chatId: externalUserId });
       const workspaceRoot = path.resolve(workspaceDir);
       if (fullPath !== workspaceRoot && !fullPath.startsWith(`${workspaceRoot}${path.sep}`)) continue;
@@ -90,6 +92,8 @@ export function _buildConversationFiles(
         ? resolveAgentFileReference(workspaceDir, `scratch/${output.path}`, { channel: "web", botId: externalUserId.split(":")[1], chatId: externalUserId })
         : path.resolve(scratchRoot, output.path);
       if (fullPath !== scratchRoot && !fullPath.startsWith(`${scratchRoot}${path.sep}`)) continue;
+      const candidateLocal = path.relative(workspaceDir, fullPath).replaceAll(path.sep, "/");
+      if (targetLocal && candidateLocal !== targetLocal) continue;
       if (!existsSync(fullPath)) continue;
       const realScratchRoot = realpathSync(scratchRoot);
       const realFullPath = realpathSync(fullPath);
@@ -196,6 +200,39 @@ export const GET: RequestHandler = async ({ url, request }) => {
     }
 
     const referencesFile = createSessionFileEvidenceMatcher(workspaceDir, sessionText, location.source);
+
+    if (fileId) {
+      let local: string;
+      try {
+        local = decodeFileId(fileId);
+      } catch {
+        return json({ ok: false, error: "Invalid fileId" }, { status: 400 });
+      }
+      const fullPath = path.resolve(workspaceDir, local);
+      const scratchRoot = path.resolve(workspaceDir, "scratch");
+      const attachmentsRoot = path.resolve(workspaceDir, "attachments");
+      const insideAllowedRoot =
+        fullPath.startsWith(`${scratchRoot}${path.sep}`) ||
+        fullPath.startsWith(`${attachmentsRoot}${path.sep}`);
+      if (!insideAllowedRoot || !existsSync(fullPath) || !statSync(fullPath).isFile()) {
+        return json({ ok: false, error: "File not found on disk" }, { status: 404 });
+      }
+      const relativePath = path.relative(workspaceDir, fullPath);
+      if (referencesFile(relativePath) === null) {
+        return json({ ok: false, error: "File not found in this session" }, { status: 404 });
+      }
+      const realWorkspace = realpathSync(workspaceDir);
+      const realFile = realpathSync(fullPath);
+      const insideRealRoot = ["scratch", "attachments"].some(root =>
+        realFile.startsWith(`${path.resolve(realWorkspace, root)}${path.sep}`)
+      );
+      if (!insideRealRoot) {
+        return json({ ok: false, error: "File not found in this session" }, { status: 404 });
+      }
+      const original = path.basename(relativePath);
+      return streamFileResponse(realFile, mimeFromFilename(original) ?? undefined, original, download, request);
+    }
+
     const scanned = [
       ...scanDirectoryFiles(path.join(workspaceDir, "scratch"), workspaceDir),
       ...scanDirectoryFiles(path.join(workspaceDir, "attachments"), workspaceDir)
@@ -222,31 +259,10 @@ export const GET: RequestHandler = async ({ url, request }) => {
 
     files.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-    if (!fileId) {
-      return json({
-        ok: true,
-        files
-      });
-    }
-
-    let local: string;
-    try {
-      local = decodeFileId(fileId);
-    } catch {
-      return json({ ok: false, error: "Invalid fileId" }, { status: 400 });
-    }
-
-    const file = files.find((item) => item.local === local);
-    if (!file) {
-      return json({ ok: false, error: "File not found in this session" }, { status: 404 });
-    }
-
-    const fullPath = path.resolve(workspaceDir, local);
-    if (!existsSync(fullPath)) {
-      return json({ ok: false, error: "File not found on disk" }, { status: 404 });
-    }
-
-    return streamFileResponse(fullPath, file.mimeType, file.original, download, request);
+    return json({
+      ok: true,
+      files
+    });
   }
 
   const resolved = resolveAuthorizedConversation({ profileId, userId, sessionId, projectId });
@@ -254,8 +270,8 @@ export const GET: RequestHandler = async ({ url, request }) => {
     return json({ ok: false, error: "Session not found" }, { status: 404 });
   }
 
-  const files = _buildConversationFiles(resolved.workspaceDir, resolved.externalUserId, resolved.messages);
   if (!fileId) {
+    const files = _buildConversationFiles(resolved.workspaceDir, resolved.externalUserId, resolved.messages);
     return json({
       ok: true,
       files
@@ -269,7 +285,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
     return json({ ok: false, error: "Invalid fileId" }, { status: 400 });
   }
 
-  const file = files.find((item) => item.local === local);
+  const file = _buildConversationFiles(resolved.workspaceDir, resolved.externalUserId, resolved.messages, local)[0];
   if (!file) {
     return json({ ok: false, error: "File not found in this session" }, { status: 404 });
   }
@@ -304,6 +320,7 @@ function streamFileResponse(
     mimeType,
     rangeHeader: request?.headers.get("range"),
     ifNoneMatch: request?.headers.get("if-none-match"),
+    cacheControl: "private, no-cache",
     headers: {
       "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(originalName)}`,
       "x-content-type-options": "nosniff"

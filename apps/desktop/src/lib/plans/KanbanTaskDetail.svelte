@@ -1,10 +1,17 @@
 <script lang="ts">
+  import ArrowLeft from "reicon-svelte/icons/ArrowLeft";
+  import Check from "reicon-svelte/icons/Check";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
+  import Coins from "reicon-svelte/icons/Coins";
   import Help from "reicon-svelte/icons/Help";
   import Loader from "reicon-svelte/icons/Loader";
   import Message from "reicon-svelte/icons/Message";
+  import Pause from "reicon-svelte/icons/Pause";
+  import Pen from "reicon-svelte/icons/Pen";
+  import Plane2 from "reicon-svelte/icons/Plane2";
+  import Play from "reicon-svelte/icons/Play";
+  import StopCircle from "reicon-svelte/icons/StopCircle";
   import TriangleWarning from "reicon-svelte/icons/TriangleWarning";
-  import X from "reicon-svelte/icons/X";
   import Button from "../components/ui/Button.svelte";
   import ChatMarkdown from "../chat/ChatMarkdown.svelte";
   import ProcessTimeline from "../chat/ProcessTimeline.svelte";
@@ -128,12 +135,18 @@
 </script>
 
 {#if loading && !bundle}
+  <header class="plans-detail-head">
+    <button type="button" class="plans-back" title={copy.back} aria-label={copy.back} onclick={onBack}><ArrowLeft size={16} aria-hidden="true" /></button>
+  </header>
   <div class="kanban-state" role="status"><Loader size={16} aria-hidden="true" />{copy.loading}</div>
 {:else if !bundle && error}
+  <header class="plans-detail-head">
+    <button type="button" class="plans-back" title={copy.back} aria-label={copy.back} onclick={onBack}><ArrowLeft size={16} aria-hidden="true" /></button>
+  </header>
   <div class="kanban-state" role="alert"><p>{error}</p></div>
 {:else if bundle}
   <header class="plans-detail-head">
-    <button type="button" class="plans-back" aria-label={copy.planBoardTitle} onclick={onBack}><X size={15} aria-hidden="true" /></button>
+    <button type="button" class="plans-back" title={copy.back} aria-label={copy.back} onclick={onBack}><ArrowLeft size={16} aria-hidden="true" /></button>
     <div class="plans-detail-title">
       <div class="plans-title-row">
         <h2>{bundle.task.title}</h2>
@@ -169,12 +182,12 @@
         <Button variant="icon" title={copy.planBoardOpenSession} onclick={() => onOpenSession({ sessionId: bundle!.detail.execution.sourceUiSessionId!, projectId: bundle!.detail.execution.sourceProjectId })}><Message size={16} aria-hidden="true" /></Button>
       {/if}
       {#if active}
-        <Button disabled={busy || Boolean(bundle.detail.controlRequest)} onclick={onPause}>{copy.durablePause}</Button>
-        <Button danger disabled={busy || Boolean(bundle.detail.controlRequest)} onclick={onCancel}>{copy.durableCancel}</Button>
+        <Button variant="icon" title={copy.durablePause} disabled={busy || Boolean(bundle.detail.controlRequest)} onclick={onPause}><Pause size={16} aria-hidden="true" /></Button>
+        <Button variant="icon" danger title={copy.durableCancel} disabled={busy || Boolean(bundle.detail.controlRequest)} onclick={onCancel}><StopCircle size={16} aria-hidden="true" /></Button>
       {/if}
-      {#if canStart}<Button variant="primary" disabled={busy} onclick={onStart}>{copy.kanbanStartTask}</Button>{/if}
-      {#if openDecision}<Button variant="primary" disabled={busy} onclick={onComplete}>{copy.planBoardMarkComplete}</Button>{/if}
-      <Button disabled={busy} onclick={addBudget}>{copy.kanbanAddBudget}</Button>
+      {#if canStart}<Button variant="primary" class="plans-icon-action" title={copy.kanbanStartTask} disabled={busy} onclick={onStart}><Play size={16} aria-hidden="true" /></Button>{/if}
+      {#if openDecision}<Button variant="primary" class="plans-icon-action" title={copy.planBoardMarkComplete} disabled={busy} onclick={onComplete}><Check size={16} aria-hidden="true" /></Button>{/if}
+      <Button variant="icon" title={copy.kanbanAddBudget} disabled={busy} onclick={addBudget}><Coins size={16} aria-hidden="true" /></Button>
     </div>
   </div>
 
@@ -208,7 +221,7 @@
       <div class="plans-progress-heading">
         <h3 class="plans-section-title">{bundle.task.goal}</h3>
         {#if !conditionsEditing}
-          <Button disabled={busy} onclick={editConditions}>{copy.kanbanConditionsEdit}</Button>
+          <Button variant="icon" title={copy.kanbanConditionsEdit} disabled={busy} onclick={editConditions}><Pen size={15} aria-hidden="true" /></Button>
         {/if}
       </div>
       {#if conditionsEditing}
@@ -331,7 +344,7 @@
 
     <section class="kanban-answer">
       <textarea rows={2} bind:value={answerText} placeholder={copy.kanbanAnswerPlaceholder}></textarea>
-      <Button variant="primary" disabled={busy || answerText.trim().length === 0} onclick={intentSubmit}>{copy.kanbanAnswerSend}</Button>
+      <Button variant="primary" class="plans-icon-action" title={copy.kanbanAnswerSend} disabled={busy || answerText.trim().length === 0} onclick={intentSubmit}><Plane2 size={16} aria-hidden="true" /></Button>
     </section>
   </div>
 {/if}

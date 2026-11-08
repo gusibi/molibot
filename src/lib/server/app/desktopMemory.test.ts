@@ -69,17 +69,43 @@ test("Agent memory records exclude other Agents, conversations, content and unau
 test("home memory review uses the saved sharing scope and reports bounded or unavailable data honestly", () => {
   const settings = { defaultAgentId: "researcher", agents: [{ id: "researcher", shareOwnerMemory: false }] } as unknown as RuntimeSettings;
   let namespaces: string[] = [];
-  const memory = { listReviewCandidates: (scope: string[], limit: number) => {
+  let namespacePrefixes: string[] = [];
+  const memory = { listReviewCandidates: (scope: string[], limit: number, _skills: boolean, prefixes: string[]) => {
     namespaces = scope;
-    assert.equal(limit, 11);
+    namespacePrefixes = prefixes;
+    // Candidates are counted up to 100; skills keep the small probe.
+    assert.equal(limit, _skills ? 11 : 100);
     return Array.from({ length: 11 }, (_, index) => ({ id: String(index), sources: [] })) as unknown as import("$lib/server/memory/types").MemoryCandidate[];
   } };
   assert.equal(readDesktopHomeMemoryReview(settings, memory).hasMore, true);
   assert.deepEqual(namespaces, ["agent:researcher"]);
+  assert.deepEqual(namespacePrefixes, ["project:owner:"]);
   settings.agents[0].shareOwnerMemory = true;
   assert.equal(readDesktopHomeMemoryReview(settings, memory).items.length, 10);
   assert.deepEqual(namespaces, ["agent:researcher", "owner:owner"]);
+  assert.deepEqual(namespacePrefixes, ["project:owner:"]);
   assert.deepEqual(readDesktopHomeMemoryReview(settings, { listReviewCandidates: () => { throw new Error("unavailable"); } }), { items: [], hasMore: false, unavailable: true });
+});
+
+test("home memory review includes owner-project candidates but excludes other owners' projects", async () => {
+  const { MemoryCandidateStore } = await import("$lib/server/memory/candidateStore.js");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "molibot-home-memory-review-"));
+  const store = new MemoryCandidateStore(join(dir, "candidates.sqlite"));
+  try {
+    const base = { runKey: "review-1", domain: "project" as const, type: "user_fact" as const, subject: "focus", path: "mory://user_fact/focus", confidence: 0.9, reason: "extraction", sources: [{ channel: "web" as const, sessionId: "session-1", conversationMessageId: "message-1" }], layer: "long_term" as const };
+    const own = store.create({ ...base, namespace: "project:owner:momo-agent", value: "Owner project fact" });
+    const other = store.create({ ...base, runKey: "review-2", namespace: "project:someoneelse:secret", value: "Other owner project fact" });
+    const settings = { defaultAgentId: "researcher", agents: [{ id: "researcher" }] } as unknown as RuntimeSettings;
+    const review = readDesktopHomeMemoryReview(settings, store);
+    assert.deepEqual(review.items.map(item => item.id), [own!.id]);
+    assert.ok(!review.items.some(item => item.id === other!.id));
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 function comparisonCandidate(overrides: Partial<MemoryCandidate> = {}): MemoryCandidate {
@@ -105,7 +131,15 @@ test('candidate comparison exposes only declared originals in the saved namespac
   settings.agents[0].shareOwnerMemory = false;
   await assert.rejects(readDesktopMemoryComparison(settings, memory, { id: candidate.id, expectedUpdatedAt: 'v1' }));
   settings.agents[0].shareOwnerMemory = true;
-  candidate.namespace = 'project:owner:private';
+  candidate.namespace = 'project:owner:momo-agent';
+  memory.getForGovernance = async (scope: unknown, id: string) => {
+    if (id === 'old') assert.equal((scope as { projectId?: string }).projectId, 'momo-agent');
+    return comparisonRecord({ id, namespace: 'project:owner:momo-agent', content: id === 'old' ? 'Original project fact' : 'Secret project fact', privacySuppressed: id === 'private' });
+  };
+  const projectComparison = await readDesktopMemoryComparison(settings, memory, { id: candidate.id, expectedUpdatedAt: 'v1' });
+  assert.deepEqual(projectComparison.originals, [{ relation: 'replaces', available: true, content: 'Original project fact', updatedAt: 'original-v1' }, { relation: 'disputes', available: false }]);
+  assert.equal(JSON.stringify(projectComparison).includes('Secret'), false);
+  candidate.namespace = 'project:someoneelse:secret';
   await assert.rejects(readDesktopMemoryComparison(settings, memory, { id: candidate.id, expectedUpdatedAt: 'v1' }));
 });
 

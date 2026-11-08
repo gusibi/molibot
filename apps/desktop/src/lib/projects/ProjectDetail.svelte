@@ -19,7 +19,11 @@
   import MiniAppsQuickMenu from "../miniapps/MiniAppsQuickMenu.svelte";
   import { loadDesktopModels } from "../api";
   import type { DesktopModelOption } from "@molibot/desktop-contract";
-  import { SETTINGS_CHANGED_EVENT } from "../stores/session.svelte";
+  import { SETTINGS_CHANGED_EVENT, session as sessionStore } from "../stores/session.svelte";
+  import ContextWindowPanel from "../chat/ContextWindowPanel.svelte";
+  import type { UiMessage } from "../chat/conversationController.svelte";
+  import type { DesktopConversationActivity, DesktopSessionUsageSummary } from "@molibot/desktop-contract";
+  import type { ComposerContextUsage } from "../presentation";
   // Runes mode (not legacy `$:`) so these derivations track the `projectsStore`
   // rune `$state`. A legacy `$:` only runs once at init and would leave `project`
   // undefined on first open (when projects are still loading), hiding the whole
@@ -50,6 +54,28 @@
   let previousSearchMatchCount = $state(0);
   let searchReturnFocus = $state<HTMLElement | null>(null);
   let transcriptMessages = $state<TranscriptMessage[]>([]);
+  type ProjectContextRuntime = {
+    contextUsage: ComposerContextUsage | null;
+    sessionUsage: DesktopSessionUsageSummary | null;
+    fallbackContextWindow: number;
+    modelLabel: string;
+    sending: boolean;
+    streamingText: string;
+    streamingThinking: string;
+    activities: DesktopConversationActivity[];
+    messages: UiMessage[];
+  };
+  let contextRuntime = $state<ProjectContextRuntime>({
+    contextUsage: null,
+    sessionUsage: null,
+    fallbackContextWindow: 0,
+    modelLabel: "",
+    sending: false,
+    streamingText: "",
+    streamingThinking: "",
+    activities: [],
+    messages: []
+  });
   const unsubscribeProjectChat = projectChatStore.state.subscribe((state) => {
     transcriptMessages = state.messages;
   });
@@ -98,6 +124,9 @@
     if (!projectsStore.endpoint) return;
     void loadDesktopModels(projectsStore.endpoint).then((state) => { modelOptions = state.options; }).catch(() => { modelOptions = []; });
   }
+  function updateContextRuntime(next: typeof contextRuntime): void {
+    contextRuntime = next;
+  }
   $effect(() => {
     if (!projectsStore.endpoint) return;
     refreshModels();
@@ -123,6 +152,25 @@
       searching={searchOpen}
     >
       {#snippet actions()}
+        {#if projectsStore.selectedSessionId && projectsStore.endpoint}
+          <ContextWindowPanel
+            {copy}
+            locale={sessionStore.locale}
+            endpoint={projectsStore.endpoint}
+            profileId="personal"
+            sessionId={projectsStore.selectedSessionId}
+            projectId={projectsStore.selectedProjectId}
+            usage={contextRuntime.contextUsage}
+            sessionUsage={contextRuntime.sessionUsage}
+            fallbackContextWindow={contextRuntime.fallbackContextWindow}
+            modelLabel={contextRuntime.modelLabel}
+            sending={contextRuntime.sending}
+            streamingText={contextRuntime.streamingText}
+            streamingThinking={contextRuntime.streamingThinking}
+            activities={contextRuntime.activities}
+            messages={contextRuntime.messages}
+          />
+        {/if}
         <TranscriptSearch
           bind:value={searchQuery}
           open={searchOpen}
@@ -155,7 +203,7 @@
         <button class="icon-button" type="button" aria-label={copy.projectSettings} title={copy.projectSettings} onclick={() => (settingsOpen = true)}><Settings2 size={16} weight="Filled" aria-hidden="true" /></button>
       {/snippet}
     </ChatHeader>
-    <div class="project-body">{#if projectsStore.selectedSessionId}<ProjectChat {copy} {searchMatchIds} {activeMatchId} />{:else}<div class="project-empty"><strong>{copy.projectNoSessions}</strong><button class="primary-button" type="button" onclick={() => void newProjectSession()}>{copy.newChat}</button></div>{/if}</div>
+    <div class="project-body">{#if projectsStore.selectedSessionId}<ProjectChat {copy} {searchMatchIds} {activeMatchId} onContextRuntimeChange={updateContextRuntime} />{:else}<div class="project-empty"><strong>{copy.projectNoSessions}</strong><button class="primary-button" type="button" onclick={() => void newProjectSession()}>{copy.newChat}</button></div>{/if}</div>
   </section>
   {#if settingsOpen}<ProjectSettingsDialog {project} {copy} {modelOptions} {autoAvailable} onClose={() => (settingsOpen = false)} />{/if}
 {:else}

@@ -42,6 +42,25 @@ export function trendAreaPath(line: string): string {
   return line ? `${line} L100 ${CHART_H} L0 ${CHART_H} Z` : "";
 }
 
+/**
+ * Stacked trend areas: layers paint bottom-up in array order, each filled to
+ * its cumulative level, so later (opaque) layers occlude the ones below. Every
+ * layer is the smooth cumulative line closed to the baseline — the stacked
+ * look falls out of the paint order, no path reversal needed.
+ */
+export function stackedTrendAreas(layers: number[][], max: number): string[] {
+  const count = layers[0]?.length ?? 0;
+  const running = new Array<number>(count).fill(0);
+  return layers.map((layer) => {
+    const cumulative = running.map((value, i) => {
+      const next = value + Math.max(0, layer[i] ?? 0);
+      running[i] = next;
+      return next;
+    });
+    return trendAreaPath(trendLinePath(cumulative, max));
+  });
+}
+
 /** Y coordinate for a single value, matching trendLinePath's scale. */
 export function trendY(value: number, max: number): number {
   const span = CHART_H - CHART_PAD_TOP - CHART_PAD_BOTTOM;
@@ -62,8 +81,4 @@ export function donutSegments(items: { key: string; color: string; value: number
     acc += len;
   }
   return segments;
-}
-
-export function percentOf(value: number, total: number): number {
-  return total > 0 ? Math.round((value / total) * 100) : 0;
 }

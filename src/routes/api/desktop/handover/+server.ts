@@ -9,13 +9,19 @@ import { PlanService } from "$lib/server/agent/plans/service.js";
 import { DurableExecutionCoordinator } from "$lib/server/agent/durable/coordinator.js";
 import { readDesktopHandover, type HandoverTaskInput } from "$lib/server/app/desktopHandover.js";
 import type { DesktopHandoverResponse } from "$lib/shared/desktop.js";
+import { reflectionLocalDate } from "$lib/server/memory/reflection.js";
 import { readDesktopHomeMemoryReview } from "$lib/server/app/desktopMemory.js";
+import { reconcileCrossChannelNotification, reconcileMemoryReviewNotification, reconcilePendingNotifications, reconcilePlanCompletions } from "$lib/server/app/homeNotificationWriters.js";
 import { GET as listTasks } from "../../settings/tasks/+server.js";
 
 /**
  * PA-HD1–13: one read endpoint for the whole Default Agent home. Every count,
  * entry, source and ordering decision comes from the read model, so the page and
  * its tests share one definition.
+ *
+ * The read carries write side effects: each GET reconciles the live handover
+ * state into the notification center (idempotent upserts/resolutions), which is
+ * what keeps the rows exact without a separate sweep.
  */
 export const GET: RequestHandler = async () => {
   const runtime = getRuntime();
@@ -33,6 +39,7 @@ export const GET: RequestHandler = async () => {
       sessionExistence.set(sessionId, exists);
       return exists;
     };
+    const plans = new PlanService();
     const handover = readDesktopHandover({
       settings: runtime.getSettings(),
       sessions: runtime.sessions,
@@ -44,11 +51,17 @@ export const GET: RequestHandler = async () => {
       sessionSummary: (sessionId) => sessionSummary(runtime, sessionId),
       sessionResolves: (sessionId) => sessionExists(sessionId),
       onOrphanedApproval: (requestId) => { runtime.hostBashStore.expirePending(requestId); },
-      plans: new PlanService(),
+      plans,
       coordinator: new DurableExecutionCoordinator(),
       tasks: taskPayload.items ?? [],
       memoryReview: () => readDesktopHomeMemoryReview(runtime.getSettings(), runtime.memory)
     });
+    try {
+      reconcileMemoryReviewNotification(runtime.homeNotifications, handover.memoryReview, reflectionLocalDate(new Date(), runtime.getSettings().timezone));
+    } catch {
+      // A notification write must never break the handover read.
+    }
+    reconcileActionNotifications(runtime, handover, plans);
     const payload: DesktopHandoverResponse = { ok: true, handover };
     return json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
@@ -59,6 +72,31 @@ export const GET: RequestHandler = async () => {
 };
 
 const SUMMARY_PREVIEW_LIMIT = 160;
+
+/**
+ * Mirror the live handover state into the notification center: pending items,
+ * the cross-channel aggregate and fresh plan completions. Every reconcile is
+ * idempotent, so running it on each read is what keeps the rows exact.
+ */
+function reconcileActionNotifications(
+  runtime: ReturnType<typeof getRuntime>,
+  handover: Awaited<ReturnType<typeof readDesktopHandover>>,
+  plans: PlanService
+): void {
+  try {
+    reconcilePendingNotifications(runtime.homeNotifications, handover.pending);
+    reconcileCrossChannelNotification(runtime.homeNotifications, handover.crossChannel);
+    reconcilePlanCompletions(
+      runtime.homeNotifications,
+      plans
+        // includeArchived: the store excludes completed plans unless the filter opts in.
+        .list({ ownerId: "owner", statuses: ["completed"], includeArchived: true })
+        .map((plan) => ({ planId: plan.planId, title: plan.title, updatedAt: plan.updatedAt, progress: plan.progress }))
+    );
+  } catch {
+    // A notification write must never break the handover read.
+  }
+}
 
 /**
  * A waiting run or a finished task is only useful with the words that were

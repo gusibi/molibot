@@ -353,3 +353,28 @@ test("a delivered platform reply resolves to its run without transcript matching
     assert.equal(queryTraceReport(store, { messageId: "platform-reply-42" }, scope).runId, "reply-run");
   } finally { store.close(); }
 });
+
+test("queryTurnTraceReport aggregates session usage across runs recorded under distinct archive sessionIds", () => {
+  const store = new SqliteTraceStore(":memory:");
+  try {
+    const hook = new TraceRecorderHook(store);
+    const emit = (runId: string, sessionId: string, stage: any, seconds: number, payload: Record<string, unknown>) =>
+      hook.handle({ stage, context: { channel: "web", chatId: "chat", sessionId, runId }, timestamp: new Date(100000 + seconds * 1000).toISOString(), payload } as any);
+    emit("r1", "s-archive-1", "run.started", 0, {});
+    emit("r1", "s-archive-1", "model.call.before", 0, { modelAttemptId: "m1", model: "A" });
+    emit("r1", "s-archive-1", "model.call.after", 1, { modelAttemptId: "m1", usage: { input: 500, output: 100, cacheRead: 1000, cacheWrite: 0, totalTokens: 1600 } });
+    emit("r1", "s-archive-1", "run.finished", 1, { status: "success" });
+
+    emit("r2", "s-archive-2", "run.started", 10, {});
+    emit("r2", "s-archive-2", "model.call.before", 10, { modelAttemptId: "m2", model: "A" });
+    emit("r2", "s-archive-2", "model.call.after", 11, { modelAttemptId: "m2", usage: { input: 2000, output: 300, cacheRead: 4000, cacheWrite: 0, totalTokens: 6300 } });
+    emit("r2", "s-archive-2", "run.finished", 11, { status: "success" });
+
+    const report = queryTurnTraceReport(store, ["r1", "r2"]);
+    assert.equal(report.tokens.total, 7900);
+    assert.equal(report.session.runs, 2);
+    assert.equal(report.session.modelCalls, 2);
+    assert.equal(report.session.tokens.total, 7900);
+    assert.equal(report.session.firstPromptTokens, 1500);
+  } finally { store.close(); }
+});

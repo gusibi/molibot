@@ -1,7 +1,7 @@
 import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
 import path from "node:path";
 import { getRuntime } from "$lib/server/app/runtime";
-import { kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
+import { appendTaskConversationMessage, kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool";
 import { MomRuntimeStore } from "$lib/server/agent/session/store";
 import { storagePaths } from "$lib/server/infra/db/storage";
@@ -170,7 +170,13 @@ export function steerWebRunner(input: {
   if (steerConversation) {
     const action = kanbanConversationSendAction(steerConversation);
     if (action.kind === "read_only") return { ok: true, delivered: false };
-    if (action.kind === "steer") return { ok: true, delivered: sendToKanbanTask(action.executionId, text).delivered };
+    if (action.kind === "steer") {
+      const delivered = sendToKanbanTask(action.executionId, text).delivered;
+      if (delivered) {
+        try { appendTaskConversationMessage(sessions, steerConversation, steerProjectId ?? "", text); } catch { /* best-effort */ }
+      }
+      return { ok: true, delivered };
+    }
   }
   const { pool } = getRuntimeContextForConversation(identity.profileId, conversationId);
   const chatId = resolveRunnerChatId(conversationId, identity.externalUserId);

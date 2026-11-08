@@ -8,6 +8,8 @@ export interface StreamBlock {
 export interface StreamingRenderDeps {
   copyCode: string;
   wrapLinesLabel: string;
+  openTableLabel?: string;
+  resolveImage?: (href: string) => string | undefined;
 }
 
 export type StreamingParse = (content: string, deps: StreamingRenderDeps) => string;
@@ -29,7 +31,8 @@ export type StreamingParse = (content: string, deps: StreamingRenderDeps) => str
 export const defaultStreamingParse: StreamingParse = (content, deps) =>
   renderMarkdown(content, deps.copyCode, {
     streaming: true,
-    labels: { wrapLines: deps.wrapLinesLabel }
+    labels: { wrapLines: deps.wrapLinesLabel, openTable: deps.openTableLabel },
+    resolveImage: deps.resolveImage
   });
 
 const FENCE_LINE_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/;

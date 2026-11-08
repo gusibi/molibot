@@ -12,7 +12,7 @@ import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { MemoryScope } from "$lib/server/memory/types.js";
 import type { RunSummary } from "$lib/server/agent/session/runSummary.js";
 import { resolveModelSelection, resolveModelSelectionForKey, resolveCompactionSelection, resolveApiKeyForModel } from "$lib/server/agent/routing/modelRouting.js";
-import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
+import { compactContextMessages, shouldCompactContext, type CompactionUsageReceipt } from "$lib/server/agent/session/compaction.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import type { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
@@ -510,6 +510,7 @@ export class TurnOrchestrator {
       customInstructions?: string;
       notify?: (text: string) => Promise<void>;
       signal?: AbortSignal;
+      onUsage?: (receipt: CompactionUsageReceipt) => void;
     };
   }): Promise<{
     changed: boolean;
@@ -553,7 +554,8 @@ export class TurnOrchestrator {
       settings: input.settings.compaction,
       reason: input.options?.reason ?? "manual",
       customInstructions: input.options?.customInstructions,
-      signal: input.options?.signal
+      signal: input.options?.signal,
+      onUsage: input.options?.onUsage
     });
     if (!result.changed) {
       return {

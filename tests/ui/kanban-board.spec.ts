@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test, expect } from './support/fixtures';
 
 const stamp = () => new Date().toISOString();
@@ -79,7 +82,7 @@ test('kanban task detail shows the conversation feed, checklist and answer compo
       ], checklist: [
         { itemId: 'i1', text: '收集数据', done: true, updatedRound: 1 },
         { itemId: 'i2', text: '核对来源数字', done: false, updatedRound: 2 }
-      ], inputs: [{ inputId: 'in1', text: '改用万元单位。', createdAt: now, consumedRound: 2 }], handoffs: [] } });
+      ], inputs: [{ inputId: 'in1', text: '改用万元单位。', createdAt: now, consumedRound: 2 }], handoffs: [], attempts: [] } });
       return;
     }
     await route.fallback();
@@ -110,6 +113,97 @@ test('kanban task detail shows the conversation feed, checklist and answer compo
   await page.screenshot({ path: testInfo.outputPath('kanban-detail.png') });
 });
 
+test('kanban create dialog keeps its close and footer actions reachable in a short window @plans @kanban', async ({ page }, testInfo) => {
+  await page.route('**/api/desktop/plans?*', async route => {
+    if (route.request().method() !== 'GET' || !new URL(route.request().url()).searchParams.has('view')) return route.fallback();
+    await route.fulfill({ json: { ok: true, total: 0, counts: { all: 0, todo: 0, doing: 0, done: 0, cancelled: 0 }, projectIds: [], items: [] } });
+  });
+  await page.setViewportSize({ width: 900, height: 520 });
+  await page.goto('/');
+  await expect(page.getByTestId('chat-composer')).toBeEnabled();
+  await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
+  await expect(page.locator('.kanban-column')).toHaveCount(3);
+  await expect(page.locator('.kanban-add-card')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('plans-empty.png') });
+  await page.locator('.kanban-add-card').click();
+  const dialog = page.getByRole('dialog');
+  const submit = dialog.getByRole('button', { name: /创建任务|Create task/, exact: true });
+  await expect(submit).toBeVisible();
+  const box = await submit.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y + box!.height).toBeLessThanOrEqual(520);
+  await page.screenshot({ path: testInfo.outputPath('kanban-create-short.png') });
+  await dialog.getByRole('button', { name: /关闭|Close/, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test('plan task create offers real project names instead of board project ids @plans @kanban', async ({ page, request, instance }, testInfo) => {
+  test.info().annotations.push({ type: 'expected-page-error', description: 'ResizeObserver loop completed with undelivered notifications' });
+  const suffix = randomUUID().slice(0, 8);
+  const projectName = `Project ${suffix}`;
+  const rootPath = join(instance.home, `plan-project-${suffix}`);
+  await mkdir(rootPath, { recursive: true });
+  const created = await request.post(instance.endpoint + '/api/settings/projects', {
+    headers: { origin: instance.endpoint },
+    data: { name: projectName, rootPath }
+  });
+  const createdBody = await created.json();
+  expect(created.ok(), JSON.stringify(createdBody)).toBe(true);
+  const listed = await (await request.get(instance.endpoint + '/api/settings/projects')).json();
+  expect(listed.projects.map((project: { name: string }) => project.name)).toContain(projectName);
+  await page.route('**/api/desktop/plans?*', async route => {
+    if (route.request().method() !== 'GET' || !new URL(route.request().url()).searchParams.has('view')) return route.fallback();
+    // A stale board projection must not leak into the project picker.
+    await route.fulfill({ json: { ok: true, total: 0, counts: { all: 0, todo: 0, doing: 0, done: 0, cancelled: 0 }, projectIds: ['project-2'], items: [] } });
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('chat-composer')).toBeEnabled();
+  await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
+  const filter = page.locator('.plans-toolbar .select-control-trigger');
+  await expect(filter).toBeVisible();
+  await filter.click();
+  await page.getByRole('option', { name: projectName, exact: true }).click();
+  // An empty project is still a kanban board: keep the columns and the add affordance.
+  await expect(page.locator('.kanban-column')).toHaveCount(3);
+  await expect(page.locator('.kanban-add-card')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('plans-project-empty.png') });
+  await page.locator('.kanban-add-card').click();
+  const dialog = page.getByRole('dialog');
+  const projectField = dialog.getByRole('button', { name: 'Project (optional)', exact: true });
+  // Creating from a filtered board keeps the task in that project.
+  await expect(projectField).toContainText(projectName);
+  await projectField.click();
+  await expect(page.getByRole('option', { name: projectName, exact: true })).toBeVisible();
+  await page.locator('.select-control-content').evaluate(async element => {
+    await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished));
+  });
+  await page.screenshot({ path: testInfo.outputPath('kanban-create-projects.png') });
+  await request.delete(`${instance.endpoint}/api/settings/projects/${encodeURIComponent(createdBody.project.id)}`, { headers: { origin: instance.endpoint } });
+});
+
+test('kanban create team form offers coordinators before members are picked @plans @kanban', async ({ page }, testInfo) => {
+  await page.route('**/api/desktop/plans?*', async route => {
+    if (route.request().method() !== 'GET' || !new URL(route.request().url()).searchParams.has('view')) return route.fallback();
+    await route.fulfill({ json: { ok: true, total: 0, counts: { all: 0, todo: 0, doing: 0, done: 0, cancelled: 0 }, projectIds: [], items: [] } });
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('chat-composer')).toBeEnabled();
+  await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
+  await page.locator('.kanban-add-card').click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Agent Team', exact: true }).click();
+  const coordinator = dialog.getByRole('button', { name: 'Coordinator', exact: true });
+  await coordinator.click();
+  const options = page.getByRole('option');
+  await expect(options.first()).toBeVisible();
+  const label = (await options.first().textContent())?.trim() ?? '';
+  await options.first().click();
+  await expect(coordinator).toContainText(label.split(' (')[0] ?? label);
+  // The chosen coordinator joins the member set automatically.
+  await expect(dialog.locator('.kanban-create-members input[type="checkbox"]:checked')).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('kanban-create-team.png') });
+});
+
 test('kanban create dialog submits the structured task form @plans @kanban', async ({ page }, testInfo) => {
   await page.route('**/api/desktop/plans?*', async route => {
     const params = new URL(route.request().url()).searchParams;
@@ -122,17 +216,25 @@ test('kanban create dialog submits the structured task form @plans @kanban', asy
   const created = page.waitForRequest(request =>
     request.method() === 'POST' && request.url().includes('/api/desktop/plans')
     && request.postDataJSON()?.action === 'kanban_create');
+  // Keep this a form test: persisting an auto-start task would wake the durable
+  // executor after the test and turn its model call into cross-test noise.
+  await page.route('**/api/desktop/plans', async route => {
+    if (route.request().method() === 'POST') { await route.fulfill({ json: { ok: true } }); return; }
+    await route.fallback();
+  });
   await page.goto('/');
   await expect(page.getByTestId('chat-composer')).toBeEnabled();
   await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
-  await page.getByRole('button', { name: /新建任务|New task/ }).click();
+  await page.locator('.kanban-add-card').click();
   await expect(page.getByRole('heading', { name: /新建看板任务|New kanban task/ })).toBeVisible();
   await page.getByRole('dialog').getByPlaceholder(/例如|e\.g\./).fill('校对发布说明');  await page.getByRole('dialog').locator('textarea').first().fill('发布前逐条核对。');
-  await page.getByRole('dialog').getByPlaceholder('default').fill('agent-a');
+  await page.getByRole('dialog').getByRole('button', { name: /执行 Agent|Executor Agent/ }).click();
+  await page.getByRole('option').first().click();
   await page.getByRole('dialog').locator('textarea').nth(1).fill('发布说明与变更一致\n包含升级注意事项');
   await page.getByRole('dialog').getByRole('button', { name: /创建任务|Create task/ }).click();
   const request = await created;
   const body = request.postDataJSON();
-  expect(body).toMatchObject({ action: 'kanban_create', form: 'single', title: '校对发布说明', agentId: 'agent-a', autoStart: true });
+  expect(body).toMatchObject({ action: 'kanban_create', form: 'single', title: '校对发布说明', autoStart: true });
+  expect(body.agentId).toBeTruthy();
   expect(body.completionConditions.map((entry: { description: string }) => entry.description)).toEqual(['发布说明与变更一致', '包含升级注意事项']);
 });

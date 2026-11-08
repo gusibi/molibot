@@ -8,6 +8,7 @@ export function processPresentation(blocks: TranscriptProcessBlock[], copy: Tran
   const current = running.find(activity => activity.kind === "tool" && activity.tool !== "subagent") ?? running.at(-1);
   const tool = current?.tool;
   const status = current?.kind === "subagent" || tool === "subagent" ? copy.progressDelegate
+    : current?.kind === "retry" || tool === "retry" ? (current?.label || "正在重试连接")
     : tool === "read" ? copy.progressRead
     : tool === "write" || tool === "edit" || tool === "apply_patch" ? copy.progressWrite
     : tool === "bash" ? copy.progressCommand

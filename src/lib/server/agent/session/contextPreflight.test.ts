@@ -4,8 +4,11 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   assertModelContextFits,
   assessModelContextPreflight,
+  calibrateContextBreakdown,
   capModelPromptToTokens,
-  contextMessageBudget
+  contextBreakdownTotal,
+  contextMessageBudget,
+  type ContextUsageBreakdown
 } from "$lib/server/agent/session/contextPreflight.js";
 
 function user(text: string): AgentMessage {
@@ -25,7 +28,7 @@ test("preflight counts the final user message, system prompt, and tool schemas",
   assert.ok(result.fixedTokens > 0);
 });
 
-test("preflight ignores base64 image bytes instead of treating them as text tokens", () => {
+test("image blocks count as a fixed per-image estimate instead of raw bytes", () => {
   const result = assessModelContextPreflight({
     systemPrompt: "short",
     messages: [user("look"), {
@@ -34,11 +37,13 @@ test("preflight ignores base64 image bytes instead of treating them as text toke
       timestamp: 0
     } as AgentMessage],
     tools: [],
-    contextWindow: 1000
+    contextWindow: 100_000
   });
 
   assert.equal(result.fits, true);
-  assert.ok(result.estimatedTokens < 100);
+  // 2MB of base64 must never be treated as text; the image alone ≈ the fixed estimate.
+  assert.equal(result.breakdown.files, 1_600);
+  assert.ok(result.estimatedTokens >= 1_600 && result.estimatedTokens < 2_000);
 });
 
 test("message budget reserves the fixed prompt and tool cost", () => {
@@ -105,3 +110,78 @@ test("a system prompt without a skills catalogue reports zero skill tokens", () 
   assert.equal(result.breakdown.skills, 0);
   assert.ok(result.breakdown.systemPrompt > 0);
 });
+
+test("tool results split into files vs toolResults by tool and memory blocks carve out of user text", () => {
+  const memoryEnvelope = "<envelope>\n<current-memory>\n用户偏好：简洁回复。\n</current-memory>\n帮我看看这个文件\n</envelope>";
+  const result = assessModelContextPreflight({
+    systemPrompt: "system",
+    messages: [
+      user(memoryEnvelope),
+      {
+        role: "user",
+        content: [{ type: "image", data: "A".repeat(4_000), mimeType: "image/png" }],
+        timestamp: 0
+      } as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "t1",
+        toolName: "read",
+        content: [{ type: "text", text: "x".repeat(800) }],
+        isError: false,
+        timestamp: 0
+      } as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "t2",
+        toolName: "bash",
+        content: [{ type: "text", text: "y".repeat(400) }],
+        isError: false,
+        timestamp: 0
+      } as AgentMessage
+    ],
+    tools: [],
+    contextWindow: 100_000
+  });
+
+  assert.ok(result.breakdown.memory > 0);
+  assert.ok(result.breakdown.files >= 200 + 1_600);
+  assert.ok(result.breakdown.toolResults >= 100);
+  assert.ok(result.breakdown.messages > 0);
+  // read 的结果不再混进 messages；memory 从用户文本中剥离
+  const sum = contextBreakdownTotal(result.breakdown);
+  assert.equal(sum, result.estimatedTokens);
+});
+
+test("calibration rescales buckets to the provider-reported prompt total", () => {
+  const estimate = estimateContextBreakdownForTest();
+  const reported = 9_000;
+  const calibrated = calibrateContextBreakdown(estimate, reported);
+
+  assert.equal(contextBreakdownTotal(calibrated), reported);
+  // Proportions survive calibration within rounding tolerance.
+  for (const key of Object.keys(estimate) as Array<keyof typeof estimate>) {
+    if (estimate[key] === 0) continue;
+    const expectedShare = estimate[key] / contextBreakdownTotal(estimate);
+    const actualShare = calibrated[key] / reported;
+    assert.ok(Math.abs(expectedShare - actualShare) < 0.01, `${key} share drifted`);
+  }
+});
+
+test("calibration returns the estimate untouched without a reported total", () => {
+  const breakdown = { messages: 100, memory: 0, files: 0, toolResults: 0, mcpTools: 0, systemTools: 0, systemPrompt: 50, skills: 0, other: 0 };
+  assert.equal(calibrateContextBreakdown(breakdown, 0), breakdown);
+});
+
+function estimateContextBreakdownForTest(): ContextUsageBreakdown {
+  return {
+    messages: 6_000,
+    memory: 300,
+    files: 1_500,
+    toolResults: 800,
+    mcpTools: 100,
+    systemTools: 100,
+    systemPrompt: 200,
+    skills: 0,
+    other: 0
+  };
+}

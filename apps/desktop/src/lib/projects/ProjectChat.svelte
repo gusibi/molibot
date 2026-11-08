@@ -11,7 +11,9 @@
     type DesktopThinkingSelection,
     type DesktopApprovalDecision,
     type DesktopApprovalOwner,
+    type DesktopConversationActivity,
     type DesktopModelOption,
+    type DesktopSessionUsageSummary,
     type DesktopSessionFile
   } from "@molibot/desktop-contract";
   import { formatMessageTime } from "../chat/messageTime";
@@ -25,6 +27,7 @@
   import { appendReference, composerInsertion, insertComposerText, miniAppComposerInsertion, requestArtifactPathOpen, requestArtifactTurnOpen, requestMiniAppDeepLinkOpen, type MiniAppComposerInsertion } from "./composerBridge";
   import MiniAppActionToast from "../miniapps/MiniAppActionToast.svelte";
   import {
+    desktopFileContentUrl,
     fetchDesktopFileBlob,
     forkDesktopSession,
     truncateDesktopMessages,
@@ -51,7 +54,12 @@
   import { projectsStore, projectsView, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
   import { saveBlobAsFile } from "../saveFile";
   import { session, SETTINGS_CHANGED_EVENT } from "../stores/session.svelte";
-  import { deriveComposerContextUsage, humanizeModelOption, resolveModelContextWindow } from "../presentation";
+  import {
+  deriveComposerContextUsage,
+  humanizeModelOption,
+  resolveModelContextWindow,
+  type ComposerContextUsage
+} from "../presentation";
   import { miniAppsCatalog } from "../stores/miniapps.svelte";
   import { catalogMessageActions, invokeTranscriptMessageAction } from "../miniapps/messageActions";
   import { formatMiniAppDeepLink } from "@molibot/shared/miniappDeepLink";
@@ -59,6 +67,17 @@
   export let copy: Translation;
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
+  export let onContextRuntimeChange: (state: {
+    contextUsage: ComposerContextUsage | null;
+    sessionUsage: DesktopSessionUsageSummary | null;
+    fallbackContextWindow: number;
+    modelLabel: string;
+    sending: boolean;
+    streamingText: string;
+    streamingThinking: string;
+    activities: DesktopConversationActivity[];
+    messages: typeof messages;
+  }) => void = () => {};
   type PermissionMode = "plan" | "manual" | "accept_edits" | "auto";
   const permissionModeOptions: readonly PermissionMode[] = ["plan", "manual", "accept_edits", "auto"];
   type PermissionSource = "session" | "project" | "instance" | "agent" | "global";
@@ -408,6 +427,17 @@
   let approvalElement: HTMLElement | null = null;
   $: queuedMessages = chatState.queue;
   $: turnError = chatState.error;
+  $: onContextRuntimeChange({
+    contextUsage: composerContextUsage,
+    sessionUsage,
+    fallbackContextWindow: resolveModelContextWindow(modelOptions, activeModelKey),
+    modelLabel: activeModelLabel,
+    sending,
+    streamingText,
+    streamingThinking,
+    activities: activityEntries,
+    messages
+  });
 
   // File references requested from the Project file panel. The panel is a
   // sibling under ChatView, so it reaches the composer through this store.
@@ -801,25 +831,38 @@
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
 
-  $: if (view.endpoint && view.selectedSessionId) {
+  $: if (view.endpoint && view.selectedSessionId && (messages.length >= 0 || !sending)) {
     void refreshProjectSessionFiles(view.endpoint, view.selectedSessionId, view.selectedProjectId);
   }
   // Drop cached blob URLs and pending media state when the active session
   // changes; otherwise the new session's attachments can briefly render the
   // previous session's media (and leak object URLs).
   $: if (view.selectedSessionId !== messageMediaSession) {
-    for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
+    for (const url of messageMediaUrls.values()) {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    }
     messageMediaUrls = new Map();
     messageMediaLoading = new Set();
     messageMediaFailed = new Set();
     messageMediaSession = view.selectedSessionId;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
     previewUrl = "";
     previewFile = null;
   }
+  $: resolvedMessageMediaUrls = view.endpoint && view.selectedSessionId
+    ? new Map([
+        ...sessionFiles
+          .filter((file) => canPreviewProjectFile(file))
+          .map((file): [string, string] => [
+            file.local,
+            desktopFileContentUrl(view.endpoint, "personal", view.selectedSessionId, file.id, false, view.selectedProjectId)
+          ]),
+        ...messageMediaUrls
+      ])
+    : messageMediaUrls;
   $: transcriptAttachmentActions = {
     filesByLocal: fileByLocal,
-    mediaUrls: messageMediaUrls,
+    mediaUrls: resolvedMessageMediaUrls,
     mediaLoading: messageMediaLoading,
     mediaFailed: messageMediaFailed,
     loadMedia: (file) => void loadProjectMessageMedia(file),
@@ -844,66 +887,42 @@
 
   async function loadProjectMessageMedia(file: DesktopSessionFile): Promise<void> {
     if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
-    if (messageMediaUrls.has(file.local) || messageMediaLoading.has(file.local)) return;
-    const requestedSessionId = projectsStore.selectedSessionId;
-    const loading = new Set(messageMediaLoading);
-    loading.add(file.local);
-    messageMediaLoading = loading;
+    if (messageMediaLoading.has(file.local)) return;
     const retrying = new Set(messageMediaFailed);
     retrying.delete(file.local);
     messageMediaFailed = retrying;
-    try {
-      const blob = await fetchDesktopFileBlob(
-        projectsStore.endpoint,
-        "personal",
-        requestedSessionId,
-        file.id,
-        false,
-        projectsStore.selectedProjectId
-      );
-      const url = URL.createObjectURL(blob);
-      if (projectsStore.selectedSessionId !== requestedSessionId) {
-        URL.revokeObjectURL(url);
-        return;
-      }
-      const next = new Map(messageMediaUrls);
-      next.set(file.local, url);
-      messageMediaUrls = next;
-    } catch {
-      if (projectsStore.selectedSessionId !== requestedSessionId) return;
-      const failed = new Set(messageMediaFailed);
-      failed.add(file.local);
-      messageMediaFailed = failed;
-    } finally {
-      if (projectsStore.selectedSessionId === requestedSessionId) {
-        const done = new Set(messageMediaLoading);
-        done.delete(file.local);
-        messageMediaLoading = done;
-      }
-    }
-  }
-
-  async function openProjectPreview(file: DesktopSessionFile): Promise<void> {
-    if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
-    try {
-      const blob = await fetchDesktopFileBlob(
+    const next = new Map(messageMediaUrls);
+    next.set(
+      file.local,
+      desktopFileContentUrl(
         projectsStore.endpoint,
         "personal",
         projectsStore.selectedSessionId,
         file.id,
         false,
-        projectsStore.selectedProjectId
-      );
-      closeProjectPreview();
-      previewFile = file;
-      previewUrl = URL.createObjectURL(blob);
-    } catch (cause) {
-      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-    }
+        projectsStore.selectedProjectId,
+        Date.now()
+      )
+    );
+    messageMediaUrls = next;
+  }
+
+  async function openProjectPreview(file: DesktopSessionFile): Promise<void> {
+    if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
+    closeProjectPreview();
+    previewFile = file;
+    previewUrl = desktopFileContentUrl(
+      projectsStore.endpoint,
+      "personal",
+      projectsStore.selectedSessionId,
+      file.id,
+      false,
+      projectsStore.selectedProjectId
+    );
   }
 
   function closeProjectPreview(): void {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
     previewUrl = "";
     previewFile = null;
   }

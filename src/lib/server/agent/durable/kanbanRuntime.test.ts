@@ -1374,3 +1374,54 @@ test("member-to-member handoffs consume the limit while coordinator re-dispatche
     cleanup();
   }
 });
+
+test("kanban attempt delivery propagates uiSessionId, last-call usage, model, and contextBreakdown", async () => {
+  const { store, cleanup } = runtimeFixture();
+  try {
+    const task = createSingleTask(store, { sourceUiSessionId: "conv-usage-1" });
+    const executionId = task.executionId;
+    store.kanban.startTask({ executionId, ownerId: "owner-1", expectedVersion: 1, actionId: "start-1" });
+
+    const observedUiSessionIds: Array<string | undefined> = [];
+    const deliveredMeta: Array<unknown> = [];
+    const snapshot = {
+      estimatedTokens: 42_000,
+      contextWindow: 128_000,
+      modelId: "deepseek-v4",
+      breakdown: { systemPrompt: 8_000, projectContext: 2_000, memory: 0, skills: 1_000, tools: 6_000, messages: 25_000, other: 0 }
+    };
+    const lastCallUsage = { inputTokens: 1_500, outputTokens: 500, cacheReadTokens: 40_000, cacheWriteTokens: 0, totalTokens: 42_000 };
+    const runtime = new DurableExecutionRuntime({
+      store,
+      processOwnerId: "process-a",
+      dataDir: join("__unused__"),
+      onAttemptDelivery: input => { deliveredMeta.push(input.meta); },
+      channelManagers: new Map([["web", new Map([["bot-1", {
+        runDurableAttempt: async (message: ChannelInboundMessage, hooks: DurableAttemptHooks) => {
+          observedUiSessionIds.push(message.uiSessionId);
+          await hooks.submitKanbanReceipt!({ conclusion: "完成", evidence: ["done"], requestCompletion: true });
+          return {
+            result: { stopReason: "stop" as const, usage: { inputTokens: 10_000, outputTokens: 2_000, cacheReadTokens: 200_000, cacheWriteTokens: 0, totalTokens: 212_000 } },
+            text: "交付摘要",
+            lastCallUsage,
+            provider: "deepseek",
+            model: "deepseek-v4",
+            contextBreakdown: snapshot as any
+          };
+        }
+      }]])]]) as any
+    });
+
+    await runWakeupDirect(runtime, store, executionId, 2);
+    assert.deepEqual(observedUiSessionIds, ["conv-usage-1"]);
+    assert.equal(deliveredMeta.length, 1);
+    assert.deepEqual(deliveredMeta[0], {
+      usage: lastCallUsage,
+      provider: "deepseek",
+      model: "deepseek-v4",
+      contextBreakdown: snapshot
+    });
+  } finally {
+    cleanup();
+  }
+});

@@ -11,15 +11,30 @@ import {
 import { DurableExecutionStore } from "./store.js";
 import { DurableExecutionQuotaError } from "./types.js";
 
-test("pasted content and natural-language requests never activate by keyword", () => {
-  for (const message of [
-    "保持附近每个元素不变，不要数字生成。@prompt-box 收录这个提示词",
-    "请未来几天持续推进这份发布计划，并每天汇报",
-    "https://a.example/1 https://b.example/2 保存并发布"
-  ]) assert.equal(detectDurableActivation(message), null);
+test("natural-language requests never auto-activate without explicit command or force mode", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-durable-no-auto-"));
+  const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
+  try {
+    const coordinator = new DurableExecutionCoordinator(store, "process-a");
+    for (const message of [
+      "保持附近每个元素不变，不要数字生成。@prompt-box 收录这个提示词",
+      "请未来几天持续推进这份发布计划，并每天汇报",
+      "https://a.example/1 https://b.example/2 保存并发布"
+    ]) {
+      assert.equal(detectDurableActivation(message), null);
+      assert.equal(await activateDurableExecution({
+        message,
+        ownerId: "owner-1",
+        botId: "web-profile",
+        sourceChannel: "web",
+        sourceChatId: "web:owner-1:web-profile"
+      }, coordinator), null);
+    }
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
-
-const promote = async () => ({ mode: "promote" as const, reason: "decision_model:test:durable" });
 
 test("explicit command and per-request mode force activation, while suppress wins for the request", () => {
   assert.deepEqual(
@@ -34,20 +49,20 @@ test("explicit command and per-request mode force activation, while suppress win
   assert.equal(detectDurableActivation("/longtask Prepare it", "suppress"), null);
 });
 
-test("activation persists the source link and starts through the versioned queue seam", async () => {
+test("explicit activation persists the source link and starts through the versioned queue seam", async () => {
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-activation-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
   try {
     const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const activated = await activateDurableExecution({
-      message: "Keep working across sessions on the launch plan.",
+      message: "/longtask Keep working across sessions on the launch plan.",
       ownerId: "owner-1",
       botId: "web-profile",
       sourceChannel: "web",
       sourceChatId: "web:owner-1:web-profile",
       sourceUiSessionId: "session-1",
       sourceProjectId: "project-1"
-    }, coordinator, promote);
+    }, coordinator);
     assert.ok(activated);
     assert.equal(activated.item.execution.status, "queued");
     assert.equal(activated.item.execution.sourceUiSessionId, "session-1");
@@ -61,26 +76,25 @@ test("activation persists the source link and starts through the versioned queue
   }
 });
 
-test("automatic activation respects the unfinished-task quota while explicit force remains available", async () => {
+test("explicit activation respects an explicit unfinished-task quota", async () => {
   const root = mkdtempSync(join(tmpdir(), "molibot-durable-quota-"));
   const store = new DurableExecutionStore(join(root, "durable-execution.sqlite"));
   try {
     const coordinator = new DurableExecutionCoordinator(store, "process-a");
     const request = {
-      message: "Keep working across sessions on the launch plan.",
+      message: "/longtask Keep working across sessions on the launch plan.",
       ownerId: "owner-1",
       botId: "web-profile",
       sourceChannel: "web",
       sourceChatId: "web:owner-1:web-profile",
       maxUnfinishedExecutions: 1
     };
-    assert.ok(await activateDurableExecution(request, coordinator, promote));
+    assert.ok(await activateDurableExecution(request, coordinator));
     await assert.rejects(
-      () => activateDurableExecution({ ...request, message: "未来几天继续处理第二份计划" }, coordinator, promote),
+      () => activateDurableExecution({ ...request, message: "/longtask Force the second plan" }, coordinator),
       DurableExecutionQuotaError
     );
-    assert.ok(await activateDurableExecution({ ...request, message: "/longtask Force the second plan" }, coordinator, promote));
-    assert.equal(store.countUnfinished("owner-1"), 2);
+    assert.equal(store.countUnfinished("owner-1"), 1);
   } finally {
     store.close();
     rmSync(root, { recursive: true, force: true });

@@ -2469,6 +2469,46 @@ for (const isEvent of [false, true]) {
   });
 }
 
+test("real Runner exhausts only the 429 transport retries before switching models", { timeout: 20000 }, async (t) => {
+  const { getPiModels } = await import("$lib/server/providers/piRuntime.js");
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-429-fallback-"));
+  let runner: MomRunner | undefined;
+  try {
+    runner = await createRunnerForHookTest({ chatId: "429-fallback", workspaceDir, hookManager: createRunnerHookManager([]) });
+    const settings = createRunnerTestSettings();
+    settings.customProviders[0]!.models.push({ ...settings.customProviders[0]!.models[0]!, id: "fallback-model" });
+    (runner as any).getSettings = () => settings;
+    const agent = (runner as any).agent;
+    const models = getPiModels();
+    const getModel = models.getModel.bind(models);
+    t.mock.method(models, "getModel", (provider: string, id: string) => provider === "runner-test"
+      ? { ...agent.state.model, id }
+      : getModel(provider, id));
+    const requested: string[] = [];
+    t.mock.method(models, "streamSimple", (model: any) => {
+      requested.push(model.id);
+      const success = model.id === "fallback-model";
+      const message = { role: "assistant" as const, api: model.api, provider: model.provider, model: model.id,
+        content: success ? [{ type: "text" as const, text: "Fallback recovered" }] : [],
+        stopReason: success ? "stop" as const : "error" as const, timestamp: Date.now(),
+        errorMessage: success ? undefined : "429 Too Many Requests; Retry-After: 1",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+      const stream = createAssistantMessageEventStream();
+      stream.push(success ? { type: "done", reason: "stop", message } : { type: "error", reason: "error", error: message });
+      stream.end();
+      return stream;
+    });
+    const result = await runner.run(createRunnerContext("Answer with the available model."));
+    assert.equal(result.stopReason, "stop");
+    assert.deepEqual(requested, [...Array(6).fill("fake-model"), "fallback-model"]);
+    assert.match(JSON.stringify(agent.state.messages.at(-1)), /Fallback recovered/);
+  } finally {
+    t.mock.restoreAll();
+    await (runner as any)?.agent.close();
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
 for (const fallbackSucceeds of [false, true]) {
   test(`real Runner never resends historical replies when fallback ${fallbackSucceeds ? "succeeds" : "fails"}`, { timeout: 20000 }, async () => {
     const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-history-boundary-"));

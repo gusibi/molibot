@@ -55,6 +55,7 @@
     buildOnboardingHealthCheck,
     classifyFirstLaunch,
     createDesktopProvider,
+    desktopFileContentUrl,
     fetchDesktopFileBlob,
     deleteDesktopConversation,
     getDesktopSessionPath,
@@ -135,7 +136,8 @@
   import { deleteConversationSelection } from "./lib/chat/deleteConversationSelection";
   import AgentFilesPage from "./lib/chat/AgentFilesPage.svelte";
   import Library from "reicon-svelte/icons/Library";
-  import History2 from "./lib/icons/duotone/components/History2.svelte";
+  import History from "reicon-svelte/icons/History";
+  import ContextWindowPanel from "./lib/chat/ContextWindowPanel.svelte";
   import AgentHome from "./lib/chat/AgentHome.svelte";
   import { windowHeader } from "./lib/chat/windowHeader";
   import { handoverApprovalAction } from "./lib/chat/handoverApproval";
@@ -1130,9 +1132,7 @@
   let transcriptSearch: { focus: () => void } | undefined;
   let messagesElement: HTMLDivElement;
   let sessionFiles: DesktopSessionFile[] = [];
-  // The right-hand Inspector. Chat shows at most one at a time — Files or a
-  // Mini App — so the width budget, resize handle, narrow-screen rules and
-  // close behaviour below exist exactly once and serve both.
+  // All right-hand panels share one slot, width budget and resize handle.
   type ChatInspector = {
     kind: "artifact";
     /** Mini App id to open as a tab on mount or on a live open request. */
@@ -1244,7 +1244,7 @@
   let piAttentionItems: PiExtensionTerminalSummary[] = [];
   $: piAttention = Object.fromEntries(piAttentionItems.map(item => {
     const agentId = item.agentId ?? ordinarySessions.find(session => session.sessionId === item.sessionId)?.agentId ?? "";
-    return [agentId, {sessionId:item.sessionId,label:item.requiresReview ? (locale === "zh-CN" ? "需核对" : "Review needed") : (locale === "zh-CN" ? "待确认" : "Needs response")}];
+    return [agentId, {sessionId:item.sessionId,label:item.requiresReview ? (locale === "zh-CN" ? "Pi 待核对" : "Pi review needed") : (locale === "zh-CN" ? "Pi 待确认" : "Pi needs response")}];
   }).filter(([id]) => Boolean(id)));
   let ordinarySessions: DesktopConversationItem[] = [];
   let agentHomeSessions: DesktopConversationItem[] = [];
@@ -1281,6 +1281,23 @@
     clearInspector();
     searchOpen = false;
   }
+  let historyTrigger: HTMLElement | null = null;
+  let historyDrawerOpen = false;
+  let historyDrawerAgentId: string | undefined;
+  function openHistoryDrawer(event: MouseEvent): void {
+    historyTrigger = event.currentTarget as HTMLElement;
+    historyDrawerAgentId = selectedAgentId || "__unassigned__";
+    historyDrawerOpen = true;
+  }
+  function restoreHistoryFocus(event: Event): void {
+    event.preventDefault();
+    historyTrigger?.focus();
+  }
+  $: if (historyDrawerOpen && (
+    !conversationDetailActive || agentFilesActive || agentHistoryActive || projectPaneActive || roomPaneActive
+    || workspacePane !== "chat" || settingsVisible || historyDrawerAgentId !== (selectedAgentId || "__unassigned__")
+  )) historyDrawerOpen = false;
+
   function openAgentFiles(id: string): void {
     openAgentChat(id);
     agentFilesActive = true;
@@ -1409,13 +1426,19 @@
   $: chatState = $stateStore;
   $: sending = chatState.sending;
   $: messages = chatState.messages;
+  // External (read-only channel mirror) view renders the mirrored transcript,
+  // so every context surface must read that session's rows — never the local
+  // session's, which would show the previous conversation until the poll ran.
+  $: contextSessionMessages = viewMode === "external" ? externalTranscript?.messages ?? [] : messages;
   // Composer context-usage panel: snapshot when the transcript carries one;
   // otherwise reported usage against the selected model's configured window;
   // null (empty-state panel) only when no assistant row has usage at all.
-  $: composerContextUsage = deriveComposerContextUsage(messages, resolveModelContextWindow(modelOptions, activeModelKey));
+  $: composerContextUsage = deriveComposerContextUsage(contextSessionMessages, resolveModelContextWindow(modelOptions, activeModelKey));
   // Session-cumulative usage section: server-summed, entry-scoped, null while
   // the draft/new-conversation pane has no session to attribute usage to.
-  $: sessionUsage = draftMode ? null : chatState.usage;
+  // External mirrors have no ledger row of their own — stay empty, never show
+  // the local session's cumulative stats.
+  $: sessionUsage = viewMode === "external" || draftMode ? null : chatState.usage;
   $: streamingText = chatState.streamingText;
   $: streamingThinking = chatState.streamingThinking;
   $: activity = chatState.activity;
@@ -1430,6 +1453,8 @@
   $: chatError = chatState.error;
   $: activeSessionId = chatState.activeSessionId;
   $: activeProfileId = chatState.activeProfileId;
+  $: contextProfileId = viewMode === "external" ? activeExternalSessionItem?.botId ?? "" : activeProfileId;
+  $: contextSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
   $: draftMode = chatState.draftMode;
   $: draftProfileId = chatState.draftProfileId;
   $: draftAgentId = chatState.draftAgentId;
@@ -2464,6 +2489,7 @@
     closeExternalTranscript();
     browserOpen = false;
     void chatStore.selectSession(input.agentId, input.sessionId);
+    void refreshFiles(input.agentId, input.sessionId);
   }
 
   async function renameSession(item: DesktopConversationItem, title: string): Promise<void> {
@@ -2853,18 +2879,13 @@
     const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
     const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
     if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
-    try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id);
-      closePreview();
-      previewFile = file;
-      previewUrl = URL.createObjectURL(blob);
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    }
+    closePreview();
+    previewFile = file;
+    previewUrl = desktopFileContentUrl(connectedEndpoint, currentProfileId, currentSessionId, file.id);
   }
 
   function closePreview(): void {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
     previewUrl = "";
     previewFile = null;
   }
@@ -2929,9 +2950,22 @@
   let messageMediaUrls = new Map<string, string>();
   let messageMediaLoading = new Set<string>();
   let messageMediaFailed = new Set<string>();
+  $: currentMediaProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
+  $: currentMediaSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+  $: resolvedMessageMediaUrls = connectedEndpoint && currentMediaProfileId && currentMediaSessionId
+    ? new Map([
+        ...sessionFiles
+          .filter((file) => canPreview(file))
+          .map((file): [string, string] => [
+            file.local,
+            desktopFileContentUrl(connectedEndpoint, currentMediaProfileId, currentMediaSessionId, file.id)
+          ]),
+        ...messageMediaUrls
+      ])
+    : messageMediaUrls;
   $: transcriptAttachmentActions = {
     filesByLocal: fileByLocal,
-    mediaUrls: messageMediaUrls,
+    mediaUrls: resolvedMessageMediaUrls,
     mediaLoading: messageMediaLoading,
     mediaFailed: messageMediaFailed,
     loadMedia: (file) => void loadMessageMedia(file),
@@ -3041,7 +3075,9 @@
   $: {
     const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
     if (currentSessionId !== messageMediaSession) {
-      for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
+      for (const url of messageMediaUrls.values()) {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      }
       messageMediaUrls = new Map();
       messageMediaLoading = new Set();
       messageMediaFailed = new Set();
@@ -3053,36 +3089,16 @@
     const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
     const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
     if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
-    if (messageMediaUrls.has(file.local) || messageMediaLoading.has(file.local)) return;
-    const requestedSessionId = currentSessionId;
-    const loading = new Set(messageMediaLoading);
-    loading.add(file.local);
-    messageMediaLoading = loading;
+    if (messageMediaLoading.has(file.local)) return;
     const retrying = new Set(messageMediaFailed);
     retrying.delete(file.local);
     messageMediaFailed = retrying;
-    try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id);
-      const url = URL.createObjectURL(blob);
-      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) !== requestedSessionId) {
-        URL.revokeObjectURL(url);
-        return;
-      }
-      const next = new Map(messageMediaUrls);
-      next.set(file.local, url);
-      messageMediaUrls = next;
-    } catch (cause) {
-      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) !== requestedSessionId) return;
-      const failed = new Set(messageMediaFailed);
-      failed.add(file.local);
-      messageMediaFailed = failed;
-    } finally {
-      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) === requestedSessionId) {
-        const done = new Set(messageMediaLoading);
-        done.delete(file.local);
-        messageMediaLoading = done;
-      }
-    }
+    const next = new Map(messageMediaUrls);
+    next.set(
+      file.local,
+      desktopFileContentUrl(connectedEndpoint, currentProfileId, currentSessionId, file.id, false, undefined, Date.now())
+    );
+    messageMediaUrls = next;
   }
 
   async function sendMessage(): Promise<void> {
@@ -4419,7 +4435,24 @@
     >
       {#snippet actions()}
         {#if !startupPending && connectionReady && !agentFilesActive && !agentHistoryActive && conversationDetailActive}
-          <Button variant="icon" title={locale === "zh-CN" ? "Agent 全部对话" : "Agent conversations"} onclick={() => openAgentHistory((viewMode === "external" ? activeExternalAgentId : selectedAgentId) || "__unassigned__")}><History2 size={16} aria-hidden="true" /></Button>
+          <ContextWindowPanel
+            {copy}
+            {locale}
+            endpoint={connectedEndpoint}
+            profileId={contextProfileId}
+            sessionId={contextSessionId}
+            external={viewMode === "external"}
+            usage={composerContextUsage}
+            {sessionUsage}
+            fallbackContextWindow={resolveModelContextWindow(modelOptions, activeModelKey)}
+            modelLabel={activeModelLabel}
+            sending={viewMode === "external" ? false : sending}
+            streamingText={viewMode === "external" ? "" : streamingText}
+            streamingThinking={viewMode === "external" ? "" : streamingThinking}
+            activities={viewMode === "external" ? [] : activityEntries}
+            messages={contextSessionMessages}
+          />
+          <Button variant="icon" title={locale === "zh-CN" ? "Agent 全部对话" : "Agent conversations"} aria-expanded={historyDrawerOpen} onclick={openHistoryDrawer}><History size={16} aria-hidden="true" /></Button>
         {/if}
         {#if !startupPending && viewMode === "local" && draftMode && selectedAgent && !agentFilesActive && !agentHistoryActive}
           <Button variant="icon" title={locale === "zh-CN" ? "文件与附件" : "Files and attachments"} onclick={() => openAgentFiles(selectedAgentId)}><Library size={16} weight="Filled" aria-hidden="true" /></Button>
@@ -4791,6 +4824,42 @@
 
   </div>
   {/if}
+
+    <ConversationBrowserDialog
+      endpoint={connectedEndpoint}
+      drawer
+      open={historyDrawerOpen}
+      {locale}
+      agentId={historyDrawerAgentId}
+      activeSessionId={contextSessionId ?? ""}
+      includeArchived={true}
+      onDeleted={() => { void refreshAgentSessions().catch(cause => error = String(cause)); }}
+      onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}
+      labels={{
+        search: copy.searchConversations,
+        searchEmpty: copy.searchEmpty,
+        loading: copy.loading,
+        loadMore: copy.loadMore,
+        empty: copy.noConversations,
+        close: copy.closePanel,
+        all: copy.searchScopeAll,
+        web: copy.channelWeb,
+        project: copy.projects,
+        channels: copy.searchScopeChannels,
+        allChannels: copy.searchScopeAllChannels,
+        scopeFilter: copy.searchScopeFilter,
+        clearSearch: `${copy.channelQrClear} ${copy.search}`.trim(),
+        telegram: copy.channelTelegram,
+        feishu: copy.channelFeishu,
+        qq: copy.channelQq,
+        weixin: copy.channelWeixin,
+        unknownBot: copy.unknownBot
+      }}
+      formatTime={formatListTime}
+      onSelect={(item) => void openSearchResult(item)}
+      onClose={() => historyDrawerOpen = false}
+      onCloseAutoFocus={restoreHistoryFocus}
+    />
 
   <ConversationBrowserDialog
     endpoint={connectedEndpoint}

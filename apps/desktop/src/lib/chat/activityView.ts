@@ -203,6 +203,7 @@ export type ActivityToolIconName =
   | "plugin"
   | "image"
   | "audio"
+  | "wifi"
   | "tool";
 
 /**
@@ -213,6 +214,17 @@ export function activityToolIcon(
 ): ActivityToolIconName {
   const tool = activityToolName(activity).toLowerCase();
   const label = (activity.label ?? "").toLowerCase();
+
+  if (
+    tool === "retry" ||
+    tool === "network" ||
+    tool === "reconnect" ||
+    (activity as { kind?: string }).kind === "retry" ||
+    label.includes("重新连接") ||
+    label.includes("服务器繁忙")
+  ) {
+    return "wifi";
+  }
 
   if (
     tool === "bash" ||

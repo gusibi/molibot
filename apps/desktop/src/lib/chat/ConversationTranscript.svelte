@@ -31,7 +31,7 @@
   import OverflowMenu from "../components/ui/OverflowMenu.svelte";
   import FileContextMenu from "../projects/FileContextMenu.svelte";
   import ChatMarkdown from "./ChatMarkdown.svelte";
-  import { chatImageResolver } from "./markdownImages";
+  import { chatImageResolver, unreferencedMediaAttachments } from "./markdownImages";
   import TurnFilesCard from "./TurnFilesCard.svelte";
   import { collectTurnFiles, type TurnFileItem } from "./turnFiles";
 
@@ -162,6 +162,9 @@
           ? "complete"
           : ""}
   {@const turnFiles = message.role === "assistant" ? collectTurnFiles(message, attachmentActions?.filesByLocal) : []}
+  {@const responseMarkdown = message.role === "assistant" ? turnSections.response.map((block) => block.kind === "result" ? block.content : "").join("\n") : ""}
+  {@const inlineMediaAttachments = message.role === "assistant" ? unreferencedMediaAttachments(message, responseMarkdown) : []}
+  {@const nonMediaTurnFiles = inlineMediaAttachments.length ? turnFiles.filter((file) => !inlineMediaAttachments.some((att) => att.local === file.path || att.original === file.name)) : turnFiles}
   {#if !isStatusOnlyMessage(message)}
   <article
     class:mine={message.role === "user"}
@@ -299,8 +302,11 @@
           {/if}
         {/each}
 
-        {#if turnFiles.length && onOpenTurnFiles}
-          <TurnFilesCard files={turnFiles} {copy} onOpen={onOpenTurnFiles} />
+        {#if inlineMediaAttachments.length && turnFiles.length && onOpenTurnFiles}
+          <TranscriptAttachments attachments={inlineMediaAttachments} {message} {copy} actions={attachmentActions} />
+        {/if}
+        {#if nonMediaTurnFiles.length && onOpenTurnFiles}
+          <TurnFilesCard files={nonMediaTurnFiles} {copy} onOpen={onOpenTurnFiles} />
         {/if}
         {#if (canShowActions && messageActions) || message.createdAt || hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length)}
           <div class="message-meta assistant-meta">

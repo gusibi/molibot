@@ -86,7 +86,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class={className} use:markdownBody={copy} oncontextmenu={onContextMenu} bind:this={root}>
-  {#if headings.length >= 3}
+  {#if headings.length >= 4 && source.length >= 1200}
     <nav class="answer-outline" aria-label={copy.answerOutline}>
       <strong>{copy.answerOutline}</strong>
       {#each headings as heading, index (index)}<button type="button" class:subheading={heading.level > 1} onclick={() => jumpToHeading(index)}>{heading.label}</button>{/each}

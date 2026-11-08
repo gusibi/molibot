@@ -390,7 +390,7 @@ export class DurableExecutionRuntime {
       const binding = this.store.getPlanBinding(pending.executionId);
       if (!execution) continue;
       try {
-        await this.options.onAttemptDelivery({ execution, binding: binding ? { ...binding, sessionId: pending.sessionId } : undefined, sessionId: pending.sessionId, runId: pending.runId, text: pending.text, round: pending.round });
+        await this.options.onAttemptDelivery({ execution, binding: binding ? { ...binding, sessionId: pending.sessionId } : undefined, sessionId: pending.sessionId, runId: pending.runId, text: pending.text, round: pending.round, ...(pending.meta ? { meta: pending.meta } : {}) });
         this.store.markAttemptDelivered(pending.runId);
       } catch (error) { momWarn("durableExecution", "attempt_delivery_failed", { executionId: execution.id, error: String(error) }); }
     }
@@ -659,7 +659,8 @@ export class DurableExecutionRuntime {
       agentId: binding?.agentId,
       sessionMode: "fresh",
       runId,
-      budgetId: JSON.stringify([detail.execution.ownerId, input.executionId, detail.execution.currentPlanVersion, step.id])
+      budgetId: JSON.stringify([detail.execution.ownerId, input.executionId, detail.execution.currentPlanVersion, step.id]),
+      ...(deliverySessionId ? { uiSessionId: deliverySessionId } : {})
     };
 
     const readEvidenceForAttempt = async (evidenceId: string) => {
@@ -896,7 +897,19 @@ export class DurableExecutionRuntime {
       endDurableConversationOutput(input.executionId, runId);
       const result = attemptResult.result;
       if (deliverySessionId && attemptResult.text) {
-        this.store.recordAttemptDelivery({ executionId: detail.execution.id, sessionId: deliverySessionId, runId, text: attemptResult.text });
+        const deliveryUsage = attemptResult.lastCallUsage ?? result.usage;
+        this.store.recordAttemptDelivery({
+          executionId: detail.execution.id,
+          sessionId: deliverySessionId,
+          runId,
+          text: attemptResult.text,
+          meta: {
+            ...(deliveryUsage ? { usage: deliveryUsage } : {}),
+            ...(attemptResult.provider ? { provider: attemptResult.provider } : {}),
+            ...(attemptResult.model ? { model: attemptResult.model } : {}),
+            ...(attemptResult.contextBreakdown ? { contextBreakdown: attemptResult.contextBreakdown } : {})
+          }
+        });
         await this.reconcileAttemptDeliveries();
       }
       if (attemptResult.contextSessionId) {
@@ -1427,6 +1440,7 @@ export class DurableExecutionRuntime {
       pendingInputs,
       ...(handoffBrief ? { handoffBrief } : {})
     });
+    const deliverySessionId = memberSessionId ?? detail.execution.sourceUiSessionId?.trim();
     const inbound: ChannelInboundMessage = {
       chatId: detail.execution.sourceChatId ?? `kanban:${executionId}`,
       chatType: "private",
@@ -1444,7 +1458,8 @@ export class DurableExecutionRuntime {
       agentId: currentTask.currentAgentId,
       sessionMode: "fresh",
       runId,
-      budgetId: JSON.stringify(["kanban", executionId, round])
+      budgetId: JSON.stringify(["kanban", executionId, round]),
+      ...(deliverySessionId ? { uiSessionId: deliverySessionId } : {})
     };
 
     const activityCollector = new ConversationActivityCollector();
@@ -1649,7 +1664,7 @@ export class DurableExecutionRuntime {
         }
       };
       const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
-      endDurableConversationOutput(executionId, runId, round, memberSessionId);
+      endDurableConversationOutput(executionId, runId, round);
       const roundReceipt = this.store.kanban.listReceipts(executionId).filter(receipt => receipt.round === round).slice(-1)[0] ?? null;
       if (roundReceipt?.actions.conclusion || roundReceipt?.actions.evidence?.length) {
         this.reflowMemberRound({
@@ -1663,9 +1678,21 @@ export class DurableExecutionRuntime {
       // The visible conversation receives the round's final reply through the
       // same delivery queue plan attempts use (crash-safe, dedup by runId).
       // Member rounds deliver into the member's child session.
-      const deliverySessionId = memberSessionId ?? detail.execution.sourceUiSessionId?.trim();
       if (deliverySessionId && attemptResult.text) {
-        this.store.recordAttemptDelivery({ executionId, sessionId: deliverySessionId, runId, text: attemptResult.text, round });
+        const deliveryUsage = attemptResult.lastCallUsage ?? attemptResult.result.usage;
+        this.store.recordAttemptDelivery({
+          executionId,
+          sessionId: deliverySessionId,
+          runId,
+          text: attemptResult.text,
+          round,
+          meta: {
+            ...(deliveryUsage ? { usage: deliveryUsage } : {}),
+            ...(attemptResult.provider ? { provider: attemptResult.provider } : {}),
+            ...(attemptResult.model ? { model: attemptResult.model } : {}),
+            ...(attemptResult.contextBreakdown ? { contextBreakdown: attemptResult.contextBreakdown } : {})
+          }
+        });
         await this.reconcileAttemptDeliveries();
       }
       // Durable conversation projection: the collector is in-memory only, so

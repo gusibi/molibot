@@ -240,6 +240,22 @@ function extractChannelAttachments(content: string, workspaceDir: string): {
   return { attachments, displayContent };
 }
 
+/** Converts the pi usage record (input/output/cacheRead/cacheWrite) to the shared ledger shape. */
+function entryUsage(message: AgentMessage): ConversationMessage["usage"] {
+  const usage = (message as AgentMessage & { usage?: Record<string, unknown> }).usage ?? {};
+  const inputTokens = Number(usage.input ?? 0);
+  const outputTokens = Number(usage.output ?? 0);
+  const cacheReadTokens = Number(usage.cacheRead ?? 0);
+  const cacheWriteTokens = Number(usage.cacheWrite ?? 0);
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens: Number(usage.totalTokens ?? inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens)
+  };
+}
+
 function buildMessages(ref: ExternalSessionRef, entries: SessionFileEntry[], workspaceDir: string): ConversationMessage[] {
   const conversationId = encodeExternalSessionId(ref);
   const messages: ConversationMessage[] = [];
@@ -304,6 +320,10 @@ function buildMessages(ref: ExternalSessionRef, entries: SessionFileEntry[], wor
       content: displayContent,
       ...(role === "assistant" && status.stopReason ? { stopReason: status.stopReason } : {}),
       ...(role === "assistant" && status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+      // Usage and the context snapshot ride on assistant rows so the desktop
+      // context-window panel reads external transcripts exactly like web ones.
+      ...(role === "assistant" ? { usage: entryUsage(entry.message) } : {}),
+      ...(role === "assistant" && entry.contextBreakdown ? { contextBreakdown: entry.contextBreakdown } : {}),
       createdAt: entry.timestamp,
       attachments: attachments.length > 0 ? attachments : undefined,
       retention: entry.retention

@@ -228,6 +228,10 @@ test("task conversations route sends to the task: child read-only, main steers",
   assert.deepEqual(bundleAfter.inputs.map((input: any) => input.text), ["优先用现有数据"]);
   const messages = runtime.sessions.listMessages(mainSessionId);
   assert.match(messages[messages.length - 1].content, /优先用现有数据/);
+  const metadata = runtime.sessions.listMessageMetadata(mainSessionId);
+  const lastMeta = metadata[metadata.length - 1];
+  assert.equal(lastMeta?.contextBacked, true, "steered user message in kanban conversation is context-backed");
+  assert.ok(lastMeta?.sourceEntryId, "steered user message records its context sourceEntryId");
 });
 
 test.after(() => { mock.restoreAll(); rmSync(root, { recursive: true, force: true }); for (const dir of projectRoots) rmSync(dir, { recursive: true, force: true }); });

@@ -575,3 +575,52 @@ test("a completed task saves its declared reading surface and delivery receipt w
     store.close();
   }
 });
+
+test("terminal outcomes reach onTaskTerminal except for internal events", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-terminal-"));
+  const terminals: Array<{ status: string; taskId: string; executionId: string; error?: string }> = [];
+  const onTaskTerminal = (context: { status: string; taskId: string; executionId: string; error?: string }): void => { terminals.push(context); };
+  const asRunner = (watcher: EventsWatcher): { runLeasedEvent: (event: MomEvent, filename: string, triggerSlot: string, runId: string) => Promise<void> } =>
+    watcher as unknown as { runLeasedEvent: (event: MomEvent, filename: string, triggerSlot: string, runId: string) => Promise<void> };
+
+  try {
+    const eventPath = join(eventsDir, "agent.json");
+    writeFileSync(eventPath, `${JSON.stringify({ ...createPeriodicEvent(), taskId: "agent-task" }, null, 2)}\n`, "utf8");
+    const watcher = asRunner(new EventsWatcher(
+      eventsDir,
+      async () => ({ ok: true }),
+      { leaseStore: store, channel: "telegram", onTaskTerminal }
+    ));
+    await watcher.runLeasedEvent({ ...createPeriodicEvent(), taskId: "agent-task" }, "agent.json", "2026-06-04T17:00", "run-success");
+    assert.equal(terminals.length, 1);
+    assert.equal(terminals[0].status, "success");
+    assert.equal(terminals[0].taskId, "agent-task");
+    assert.ok(terminals[0].executionId);
+
+    const failPath = join(eventsDir, "agent-fail.json");
+    writeFileSync(failPath, `${JSON.stringify({ ...createPeriodicEvent(), taskId: "agent-task" }, null, 2)}\n`, "utf8");
+    const failing = asRunner(new EventsWatcher(
+      eventsDir,
+      async () => { throw new Error("boom"); },
+      { leaseStore: store, channel: "telegram", onTaskTerminal }
+    ));
+    await failing.runLeasedEvent({ ...createPeriodicEvent(), taskId: "agent-task" }, "agent-fail.json", "2026-06-04T18:00", "run-fail");
+    assert.equal(terminals.length, 2);
+    assert.equal(terminals[1].status, "error");
+    assert.equal(terminals[1].error, "boom");
+
+    const internal: MomEvent = {
+      ...createPeriodicEvent(),
+      execution: "internal",
+      internal: { kind: "memory-reflection", target: { ownerId: "owner", botId: "momo", timezone: "Asia/Shanghai", sourceScopes: [] } }
+    } as MomEvent;
+    const internalPath = join(eventsDir, "internal.json");
+    writeFileSync(internalPath, `${JSON.stringify(internal, null, 2)}\n`, "utf8");
+    await watcher.runLeasedEvent(internal, "internal.json", "2026-06-04T19:00", "run-internal");
+    assert.equal(terminals.length, 2, "internal events are the producer's own rows and never notify");
+  } finally {
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});

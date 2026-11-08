@@ -40,7 +40,7 @@ export interface ConversationFileOutput {
 
 export interface ConversationActivity {
   key: string;
-  kind: "tool" | "subagent" | "note";
+  kind: "tool" | "subagent" | "note" | "retry";
   /**
    * The tool's id (`read`, `bash`, `miniapp__x__y`). Recorded rather than
    * derived from `key`, which is the runtime tool-call identity used to pair a
@@ -130,10 +130,16 @@ export interface ConversationContextSnapshot {
     systemPrompt: number;
     skills: number;
     other: number;
+    /** Categories added with provider calibration; absent in legacy snapshots. */
+    memory?: number;
+    files?: number;
+    toolResults?: number;
   };
   inputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /** Provider-reported full prompt size (input + cacheRead + cacheWrite); absent in legacy snapshots. */
+  reportedPromptTokens?: number;
 }
 
 export interface ConversationMessage {

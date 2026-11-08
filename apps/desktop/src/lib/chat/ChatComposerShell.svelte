@@ -51,6 +51,13 @@
     if (highlight && textarea) highlight.scrollTop = textarea.scrollTop;
   }
 
+  function syncHeight(): void {
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(180, Math.max(46, textarea.scrollHeight));
+    textarea.style.height = `${nextHeight}px`;
+  }
+
   function currentTranslateY(): number {
     const transform = getComputedStyle(textarea).transform;
     if (transform === "none") return 0;
@@ -84,6 +91,7 @@
   }
 
   function handleInput(): void {
+    syncHeight();
     emitCaret();
     const source = inputVisualScrollFrom;
     inputVisualScrollFrom = null;
@@ -134,7 +142,10 @@
     onPasteFiles(files);
   }
 
-  $: value, tick().then(syncScroll);
+  $: value, tick().then(() => {
+    syncHeight();
+    syncScroll();
+  });
 
   onDestroy(cancelScrollFlow);
 </script>

@@ -70,16 +70,17 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   // as "at the bottom".
   const THRESHOLD = 48;
   // Spring tuning (semi-implicit integration, values normalized to 60fps
-  // frames). Soft and slightly overdamped: fast enough to keep the newest
-  // token in view during streaming, gentle enough not to read as motion.
-  const DAMPING = 0.7;
-  const STIFFNESS = 0.05;
-  const MASS = 1.25;
+  // frames). Responsive and critically damped: keeps up with fast multi-line
+  // token streams as one continuous upward glide without staircase pauses.
+  const DAMPING = 0.78;
+  const STIFFNESS = 0.14;
+  const MASS = 1.0;
+  const MIN_GLIDE_VELOCITY = 0.85;
   const FRAME_MS = 1000 / 60;
   // Sub-pixel tolerance for determining if the scroll container has settled at the bottom.
   // On high-DPI (Retina) displays, fractional pixel rounding often leaves a 0.5 - 2px gap.
-  const SETTLE_DISTANCE = 2;
-  const SETTLE_VELOCITY = 0.1;
+  const SETTLE_DISTANCE = 1.5;
+  const SETTLE_VELOCITY = 0.15;
 
   let pinned = true;
   let currentKey = options.key;
@@ -89,6 +90,7 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   let secondLayoutFrame = 0;
   let springFrame = 0;
   let velocity = 0;
+  let subpixelCarry = 0;
   let lastFrameTime = 0;
   let lastScrollTop = node.scrollTop;
   // Queried per follow() call, which during streaming is once per frame - so
@@ -104,12 +106,14 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   };
   const instantToBottom = (): void => {
     velocity = 0;
+    subpixelCarry = 0;
     node.scrollTop = node.scrollHeight;
   };
   const stopSpring = (): void => {
     if (springFrame) cancelAnimationFrame(springFrame);
     springFrame = 0;
     velocity = 0;
+    subpixelCarry = 0;
     lastFrameTime = 0;
   };
   /** Motion is a courtesy: reduced-motion readers and low-performance modes
@@ -128,7 +132,7 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
       return;
     }
     const distance = maxTop - node.scrollTop;
-    if (Math.abs(distance) < SETTLE_DISTANCE && Math.abs(velocity) < SETTLE_VELOCITY) {
+    if (!Number.isFinite(distance) || (Math.abs(distance) < SETTLE_DISTANCE && Math.abs(velocity) < SETTLE_VELOCITY)) {
       node.scrollTop = maxTop;
       stopSpring();
       return;
@@ -140,7 +144,21 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
     const dt = Math.min(lastFrameTime ? (now - lastFrameTime) / FRAME_MS : 1, 4);
     lastFrameTime = now;
     velocity = (DAMPING * velocity + STIFFNESS * distance) / MASS;
+    if (live && distance > SETTLE_DISTANCE) {
+      velocity = Math.max(velocity, Math.min(distance * 0.25, MIN_GLIDE_VELOCITY));
+    }
+    const beforeTop = node.scrollTop;
+    const desiredTop = Math.min(maxTop, beforeTop + subpixelCarry + velocity * dt);
     node.scrollTop += velocity * dt;
+    if (node.scrollTop !== desiredTop) {
+      node.scrollTop = desiredTop;
+    }
+    subpixelCarry = desiredTop - node.scrollTop;
+    if (maxTop - node.scrollTop < SETTLE_DISTANCE && desiredTop >= maxTop - 0.5) {
+      node.scrollTop = maxTop;
+      stopSpring();
+      return;
+    }
     springFrame = requestAnimationFrame(springStep);
   };
 

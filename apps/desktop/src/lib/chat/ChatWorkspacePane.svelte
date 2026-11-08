@@ -57,7 +57,7 @@
   }
 
   $: workspaceTitle = pane === "automations" ? copy.autoTasks : pane === "skills" ? copy.skillsSquare : pane === "miniapps" ? copy.miniAppsNav : pane === "plans" ? copy.planBoardTitle : `${copy.agentsNav} · ${copy.agentOverview}`;
-  $: workspaceDescription = pane === "automations" ? copy.autoTasksHint : pane === "skills" ? copy.skillsSquareHint : pane === "miniapps" ? copy.miniAppsHint : pane === "plans" ? copy.planBoardHint : copy.agentStudioHint;
+  $: workspaceDescription = copy.agentStudioHint;
 </script>
 
 {#key pane}

@@ -148,13 +148,16 @@
   }
   .csv-table th,
   .csv-table td {
-    padding: 4px 10px;
+    padding: 6px 10px;
     text-align: left;
+    vertical-align: top;
     border-bottom: 1px solid var(--separator);
-    white-space: nowrap;
-    max-width: 480px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    min-width: 88px;
+    max-width: 360px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    line-height: 1.5;
   }
   .csv-table th {
     position: sticky;

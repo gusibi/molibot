@@ -168,7 +168,7 @@ Todo means accepted but not started; Doing means started and not yet completed, 
 _Avoid_: Runtime Task.todo, successful Run as task completion
 
 **Team Coordinator（团队负责人）**:
-The Agent responsible for choosing the next team member to advance a Kanban Task and deciding whether the combined results satisfy its completion conditions. This responsibility is distinct from an Agent Room's Primary Agent, which only selects the default recipient of a message.
+The Agent responsible for choosing the next team member to advance a Kanban Task and deciding whether the combined results satisfy its completion conditions. This responsibility is distinct from an Agent Room's Primary Agent, which only selects the default recipient of a message; a new Kanban Task defaults its coordinator to the Primary Agent, but the role is stored as task configuration.
 _Avoid_: Primary Agent, last speaker
 
 **Member Handoff（成员交接）**:

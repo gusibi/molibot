@@ -22,7 +22,7 @@
   import AnalyticsRanking from "./AnalyticsRanking.svelte";
   import TraceTrend from "./TraceTrend.svelte";
   import AnalyticsComposition from "./AnalyticsComposition.svelte";
-  import { cacheHitRate, compactCount, estimatedUsd, modelSuccessRate, percentage } from "./analytics";
+  import { cacheHitRate, compactCount, costTitle, estimatedUsd, formatCostUsd, modelSuccessRate, percentage } from "./analytics";
 
   type RankingView = "tools" | "skills" | "models" | "bots" | "chats" | "sessions" | "runs";
   let rankingView = $state<RankingView>("tools");
@@ -169,7 +169,7 @@
     { key: "blocked", label: session.text.traceBlocked, value: outcomes.blocked, color: "var(--chart-orange)" },
     { key: "other", label: session.text.analyticsOther, value: outcomes.other, color: "var(--label-tertiary)" }
   ] : []);
-  const modelRows = $derived(trace?.rankings.models.map(row => ({ id: row.id, label: humanizeModelOption(`${row.provider}/${row.model}`, row.id).label, secondary: `${row.provider} · ${row.outcomes.success} ${session.text.traceSucceeded} · ${row.outcomes.error} ${session.text.traceFailed} · ${percentage(modelSuccessRate(row.outcomes))}`, value: row.requests })) ?? []);
+  const modelRows = $derived(trace?.rankings.models.map(row => ({ id: row.id, label: humanizeModelOption(`${row.provider}/${row.model}`, row.id).label, secondary: `${row.provider} · ${compactCount(row.requests)} ${session.text.usageRequests} · ${session.text.usageCacheHitRatio} ${percentage(cacheHitRate(row))}`, value: row.totalTokens })) ?? []);
   const botRows = $derived(trace?.rankings.bots.filter(row => row.modelCalls > 0).sort((a, b) => b.modelCalls - a.modelCalls).map(row => ({ id: row.id, label: row.label, secondary: `${row.outcomes.success} ${session.text.traceSucceeded} · ${row.outcomes.error} ${session.text.traceFailed}`, value: row.modelCalls })) ?? []);
   const channelRows = $derived(trace?.rankings.channels.filter(row => row.modelCalls > 0).map(row => ({ id: row.id, label: row.label, secondary: `${row.outcomes.success} ${session.text.traceSucceeded} · ${row.outcomes.error} ${session.text.traceFailed}`, value: row.modelCalls })) ?? []);
   const toolRows = $derived(trace?.rankings.tools.map(row => ({ id: row.name, label: humanizeTechnicalName(row.name), secondary: `${row.success} ${session.text.traceSucceeded} · ${row.error} ${session.text.traceFailed}`, value: row.calls })) ?? []);
@@ -241,7 +241,7 @@
       <AnalyticsComposition title={session.text.analyticsModelResults} items={outcomeItems} unit={session.text.traceRequests} />
       <p class="analytics-caption">{session.text.analyticsResultsHint} {session.text.analyticsCompletedHint}</p>
     </section>
-    <AnalyticsRanking title={session.text.analyticsModelRanking} rows={modelRows} total={trace.totals.modelCalls} unit={session.text.traceRequests} onselect={selectModel} />
+    <AnalyticsRanking title={session.text.analyticsModelRanking} rows={modelRows} total={trace.totals.totalTokens} unit={session.text.usageTokens} onselect={selectModel} />
     <AnalyticsRanking title={session.text.analyticsTraceBots} rows={botRows} total={trace.totals.modelCalls} unit={session.text.traceRequests} onselect={value => { botId = value; updateTraceQuery({ botId: value }); }} />
     <AnalyticsRanking title={session.text.analyticsTraceChannels} rows={channelRows} total={trace.totals.modelCalls} unit={session.text.traceRequests} onselect={value => { channel = value; updateTraceQuery({ channel: value }); }} />
     {#if toolRows.length > 0 || skillRows.length > 0}<div class="analytics-ranking-grid"><AnalyticsRanking title={session.text.traceRankTools} rows={toolRows} total={trace.totals.toolCalls} unit={session.text.traceCalls} /><AnalyticsRanking title={session.text.traceRankSkills} rows={skillRows} total={trace.totals.skillUsages} unit={session.text.traceCalls} /></div>{/if}
@@ -253,12 +253,12 @@
       <div class="observatory-table-wrap ranking-table-wrap"><table class="observatory-table"><thead>
         {#if rankingView === "tools"}<tr><th>{session.text.traceRankTools}</th><th>{session.text.traceCalls}</th><th>{session.text.traceExecuted}</th><th>{session.text.traceSuccess}</th><th>{session.text.traceErrors}</th><th>{session.text.traceBlocked}</th><th>{session.text.traceAverage}</th></tr>
         {:else if rankingView === "skills"}<tr><th>{session.text.traceRankSkills}</th><th>{session.text.traceScope}</th><th>{session.text.traceCalls}</th><th>{session.text.traceTriggered}</th><th>{session.text.traceLoaded}</th><th>{session.text.traceExecuted}</th><th>{session.text.traceRuns}</th><th>{session.text.traceAverage}</th></tr>
-        {:else if rankingView === "models"}<tr><th>{session.text.traceRankModels}</th><th>{session.text.usageProvider}</th><th>{session.text.usageRankApi}</th><th>{session.text.traceRequests}</th><th>{session.text.usageInput}</th><th>{session.text.usageOutput}</th><th>{session.text.traceTokens}</th><th>{session.text.traceAverage}</th></tr>
+        {:else if rankingView === "models"}<tr><th>{session.text.traceRankModels}</th><th>{session.text.usageProvider}</th><th>{session.text.usageRankApi}</th><th>{session.text.traceRequests}</th><th>{session.text.usageInput}</th><th>{session.text.usageOutput}</th><th>{session.text.usageCacheRead}</th><th>{session.text.usageCacheWrite}</th><th>{session.text.traceTokens}</th><th>{session.text.analyticsCostShort}</th><th>{session.text.traceAverage}</th></tr>
         {:else}<tr><th>{rankingTabs.find((tab) => tab.id === rankingView)?.label}</th><th>{session.text.traceRuns}</th><th>{session.text.traceToolCalls}</th><th>{session.text.traceModelCalls}</th><th>{session.text.traceDistinct}</th><th>{session.text.traceTokens}</th><th>{session.text.traceLastUpdate}</th></tr>{/if}
       </thead><tbody>
         {#if rankingView === "tools"}{#each trace.rankings.tools as row (row.name)}<tr><td><strong>{humanizeTechnicalName(row.name)}</strong><small class="observatory-id">{row.name}</small></td><td>{row.calls}</td><td>{row.executedCalls}</td><td>{row.success}</td><td>{row.error}</td><td>{row.blocked}</td><td>{formatDurationMs(row.avgDurationMs)}</td></tr>{/each}
         {:else if rankingView === "skills"}{#each trace.rankings.skills as row (row.name)}<tr><td><strong>{humanizeTechnicalName(row.name)}</strong><small class="observatory-id">{row.name}</small></td><td>{row.scope}</td><td>{row.calls}</td><td>{row.triggered}</td><td>{row.loaded}</td><td>{row.executed}</td><td>{row.runs}</td><td>{formatDurationMs(row.avgDurationMs)}</td></tr>{/each}
-        {:else if rankingView === "models"}{#each trace.rankings.models as row (row.id)}<tr><td><strong>{humanizeModelOption(`${row.provider}/${row.model}`, row.id).label}</strong></td><td>{row.provider}</td><td>{row.api}</td><td>{row.requests}</td><td>{formatTokenCount(row.inputTokens)}</td><td>{formatTokenCount(row.outputTokens)}</td><td>{formatTokenCount(row.totalTokens)}</td><td>{formatDurationMs(row.avgDurationMs)}</td></tr>{/each}
+        {:else if rankingView === "models"}{#each trace.rankings.models as row (row.id)}<tr><td><strong>{humanizeModelOption(`${row.provider}/${row.model}`, row.id).label}</strong></td><td>{row.provider}</td><td>{row.api}</td><td>{row.requests}</td><td>{formatTokenCount(row.inputTokens)}</td><td>{formatTokenCount(row.outputTokens)}</td><td>{formatTokenCount(row.cacheReadTokens)}</td><td>{formatTokenCount(row.cacheWriteTokens)}</td><td>{formatTokenCount(row.totalTokens)}</td><td title={costTitle(row.estimatedCostUsd)}>{formatCostUsd(row.estimatedCostUsd)}</td><td>{formatDurationMs(row.avgDurationMs)}</td></tr>{/each}
         {:else}{#each trace.rankings[rankingView] as row (row.id)}<tr><td title={row.id}><strong>{shortId(row.label)}</strong>{#if row.secondary}<small>{row.secondary}</small>{/if}</td><td>{row.runs}</td><td>{row.toolCalls}</td><td>{row.modelCalls}</td><td>{row.distinctTools}</td><td>{formatTokenCount(row.totalTokens)}</td><td>{formatNaturalDateTime(row.lastAt, session.locale)}</td></tr>{/each}{/if}
       </tbody></table></div>
     {/if}

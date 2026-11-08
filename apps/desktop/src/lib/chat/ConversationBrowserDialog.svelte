@@ -22,6 +22,9 @@
     includeArchived = false,
     open = false,
     page = false,
+    drawer = false,
+    activeSessionId = "",
+    onCloseAutoFocus = undefined,
     locale = "zh-CN",
     labels,
     formatTime,
@@ -36,6 +39,9 @@
     includeArchived?: boolean;
     open?: boolean;
     page?: boolean;
+    drawer?: boolean;
+    activeSessionId?: string;
+    onCloseAutoFocus?: (event: Event) => void;
     locale?: string;
     labels: {
       search: string;
@@ -92,7 +98,7 @@
 
   function requestClose(): void {
     if (completing) return;
-    completing = true;
+    if (!drawer) completing = true;
     onClose();
   }
 
@@ -125,13 +131,16 @@
     const q = query;
     const nextScope = scope;
     const selectedAgent = agentId;
+    const currentEndpoint = endpoint;
+    generation += 1;
+    if (!currentEndpoint) { loading = false; return; }
     if (!opened) {
       opened = true;
       void loadResults(q, nextScope);
-      return;
+      return () => { generation += 1; };
     }
     const timer = window.setTimeout(() => void loadResults(q, nextScope), 250);
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); generation += 1; };
   });
 
   async function loadMore(group: DesktopConversationSearchGroup): Promise<void> {
@@ -186,7 +195,7 @@
   }
   function pick(item: DesktopConversationSearchItem): void {
     if (completing) return;
-    completing = true;
+    if (!drawer) completing = true;
     onSelect(item);
   }
 
@@ -289,17 +298,24 @@
   </div>
 {/snippet}
 
-{#if page}
-  <section class="agent-history-page" aria-label={labels.search}>
+{#snippet historyList()}
+  <section class={drawer ? "session-history-list" : "agent-history-page"} aria-label={labels.search}>
+    {#if drawer}
+      <header class="memory-trace-header trace-report-header">
+        <div class="trace-report-header-title"><h2 id="session-history-title">{locale === "zh-CN" ? "历史记录" : "History"}</h2></div>
+        <button type="button" class="icon-button" aria-label={labels.close} title={labels.close} onclick={requestClose}><X size={16} aria-hidden="true" /></button>
+      </header>
+    {/if}
     <div class="agent-history-toolbar">
       <div class="browser-search">
         <Magnifier size={18} aria-hidden="true" />
-        <input bind:value={query} placeholder={labels.search} aria-label={labels.search} />
+        <input bind:this={searchInput} bind:value={query} placeholder={labels.search} aria-label={labels.search} />
         {#if query}<button type="button" aria-label={labels.clearSearch} onclick={() => (query = "")}><XCircle size={16} aria-hidden="true" /></button>{/if}
       </div>
       <SelectControl value={scope} options={[{ value: "all", label: locale === "zh-CN" ? "全部来源" : "All sources" }, ...(["web", "telegram", "feishu", "qq", "weixin"] as const).map(value => ({ value, label: labels[value] }))]} ariaLabel={labels.scopeFilter} onChange={value => selectScope(value as DesktopConversationSearchScope)} />
-      <Button onclick={requestClose}><span aria-hidden="true">←</span> {labels.close}</Button>
+      {#if !drawer}<Button onclick={requestClose}><span aria-hidden="true">←</span> {labels.close}</Button>{/if}
     </div>
+    {#if !drawer}
     <div class="agent-history-selection-toolbar">
       <Button disabled={deleting} onclick={() => { selecting = !selecting; selectedIds = []; }}>{locale === "zh-CN" ? (selecting ? "取消多选" : "多选") : (selecting ? "Cancel selection" : "Select")}</Button>
       {#if selecting}
@@ -307,9 +323,10 @@
         <Button disabled={deleting || !selectedIds.length} onclick={() => void removeItems(selectedIds)}>{locale === "zh-CN" ? "删除所选" : "Delete selected"} ({selectedIds.length})</Button>
       {/if}
     </div>
+    {/if}
     {#if error}<p class="browser-state browser-error" role="alert">{error}</p>{/if}
     <div class="agent-history-table">
-      <div class="agent-history-columns" aria-hidden="true"><span>{locale === "zh-CN" ? "对话标题" : "Conversation"}</span><span>{locale === "zh-CN" ? "最后更新" : "Last updated"}</span></div>
+      {#if !drawer}<div class="agent-history-columns" aria-hidden="true"><span>{locale === "zh-CN" ? "对话标题" : "Conversation"}</span><span>{locale === "zh-CN" ? "最后更新" : "Last updated"}</span></div>{/if}
       {#if loading}
         <p class="browser-state" role="status">{labels.loading}</p>
       {:else if !totalItems}
@@ -318,7 +335,7 @@
         {#each groups as group (group.source)}
           <div class="agent-history-rows">
             {#each group.items as item (item.sessionId)}
-              <AgentConversationRow {item} source={item.source} sourceLabel={scopeLabel(item.source)} {locale} {formatTime} onSelect={() => selecting ? toggleSelection(item.sessionId) : pick(item)} onDelete={() => removeItems([item.sessionId])} selectable={selecting} selected={selectedIds.includes(item.sessionId)} onToggle={() => toggleSelection(item.sessionId)} onCopyPath={onCopyPath ? () => onCopyPath(item) : undefined} onRevealInFinder={onRevealInFinder ? () => onRevealInFinder(item) : undefined} />
+              <AgentConversationRow {item} source={item.source} active={drawer && item.sessionId === activeSessionId} sourceLabel={scopeLabel(item.source)} {locale} {formatTime} onSelect={() => selecting ? toggleSelection(item.sessionId) : pick(item)} onDelete={drawer ? undefined : () => removeItems([item.sessionId])} selectable={selecting} selected={selectedIds.includes(item.sessionId)} onToggle={() => toggleSelection(item.sessionId)} onCopyPath={onCopyPath ? () => onCopyPath(item) : undefined} onRevealInFinder={onRevealInFinder ? () => onRevealInFinder(item) : undefined} />
             {/each}
           </div>
           {#if group.hasMore}<Button class="agent-history-more" disabled={loadingMore[group.source]} onclick={() => loadMore(group)}>{loadingMore[group.source] ? labels.loading : labels.loadMore}</Button>{/if}
@@ -326,6 +343,14 @@
       {/if}
     </div>
   </section>
+{/snippet}
+
+{#if drawer}
+  <Dialog {open} overlayClass="memory-trace-backdrop session-history-backdrop" contentClass="memory-trace-drawer session-history-drawer" labelledBy="session-history-title" onOpenChange={handleOpenChange} onOpenAutoFocus={focusSearch} {onCloseAutoFocus}>
+    {@render historyList()}
+  </Dialog>
+{:else if page}
+  {@render historyList()}
 {:else}
   <Dialog {open} contentClass="conversation-browser-dialog" labelledBy="conversation-browser-title" onOpenChange={handleOpenChange} onOpenAutoFocus={focusSearch}>
     {@render content()}

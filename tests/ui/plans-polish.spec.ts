@@ -9,9 +9,19 @@ test('the kanban board keeps cards readable in light, dark and narrow layouts @p
   await page.goto('/');
   await expect(page.getByTestId('chat-composer')).toBeEnabled();
   await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Plans', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Every step, accounted for' })).toBeVisible();
   await expect(page.locator('.kanban-card')).toHaveCount(1);
   await expect(page.locator('.kanban-card-top strong')).toContainText('deliberately long');
+  // The board owns the content column instead of leaving an empty detail pane.
+  const geometry = await page.locator('.kanban-board').evaluate(board => {
+    const shell = board.closest('.plans-shell')!;
+    return {
+      board: board.getBoundingClientRect().width,
+      shell: shell.getBoundingClientRect().width,
+      column: board.querySelector('.kanban-column')!.getBoundingClientRect().width
+    };
+  });
+  expect(geometry.board).toBeGreaterThan(geometry.shell * 0.8);
+  expect(geometry.column).toBeGreaterThan(220);
   await page.screenshot({ path: testInfo.outputPath('plans-light.png') });
   await page.evaluate(() => document.documentElement.setAttribute('data-resolved-appearance', 'dark'));
   await page.screenshot({ path: testInfo.outputPath('plans-dark.png') });

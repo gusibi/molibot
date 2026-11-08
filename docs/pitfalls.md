@@ -71,12 +71,14 @@
 - **#75** 父 Agent 失败重试只在失败后计数；子任务预算 / 超时作为失败工具结果交回。
 - **#78** Chord `Context` 用官方派生 API 保留取消、遥测与值，不用对象展开复制。
 - **#79** 服务商连接测试也要提供会话标识；Header 守卫覆盖真实探测入口。
+- **#83** 版本是唤醒的 CAS 键：任何写版本的动作都要重排触发；实时检查点必须以执行 + 轮次为键，且交付后不得回写 `running`。
 
 **输入、工具与载荷**
 
 - **#6** 渠道 ID 合法含 `@ : + %`；同一路径字符串在所有工具里含义一致；Skill 写到 cwd 外要同步路径守卫。
 - **#26** 未知入站消息类型要有带日志的 default；工具先校验参数再产生副作用；图片识别走 `read(path, prompt)`。
 - **#27** 外部载荷（MCP 结果等）受共享预算约束；单条超长消息做内容级截断；单行载荷用 `sliceToBytes`。
+- **#84** 文件直读校验真实目标，不能只靠目录前缀和会话引用授权符号链接。
 - **#31** 定向操作看目标 id 的结果，不看总数；显式重连不继承后台吞错。
 - **#32** 飞书按钮两段式：先回处理中卡片，再按 `open_message_id` 更新结果，失败发文本回执。
 - **#35** transcript 存在、未来上下文、会话搜索、记忆资格是四件事，所有投影都查共享保留策略。
@@ -447,7 +449,7 @@ Pi 1.4 的 Chord `Context.telemetry` 由原型 getter 和内部上下文链提�
 
 长任务入口在普通 Runner 启动前返回，若此前已写入没有正文的 `contextBacked` 用户记录，重新加载只能显示空白时间戳。接收输入时先保留正文；只有 Agent 条目提交后才记录来源并移除元数据正文。后台 attempt 的控制输入留在内部归档，原会话复用同一条普通助手消息展示实时文本、思考、过程与结果，不新增模式通知或专用任务卡片。模型 delta 驱动当前 SSE，200ms 检查点只服务刷新恢复；断开观察流只取消订阅，不能取消执行。回答通过持久化交付队列返回原会话与模型上下文；交付失败重试不得重跑任务或重复追加回答。缓存 Runner 在普通新回合加载最新条目，原生恢复与审批续跑保留各自的恢复上下文。
 
-长任务识别判断用户要求执行的动作，流程可行性咨询不授权执行所描述的流程。原有分类器测试和项目路由测试分别覆盖自己的结果，漏掉了入口提前返回后的正文归属与回填。守卫：`chat/durableConversation.test.ts` 覆盖 Chat／Stream、普通／Project 会话、实时检查点、重载和交付中断；`tests/ui/durable-conversation.spec.ts` 用仍在输出的 fixture 模型验证任务未结束时的实时文本、刷新恢复、同一条助手消息、顶栏徽标打开右侧 Running 步骤面板和服务重启；`durable/runtime.test.ts` 覆盖重开数据库后的交付重试；`core/contextRefresh.test.ts` 检查下一次真实模型请求包含后台回答；`decision/durableActivation.test.ts` 检查最终分类提示词。
+长任务仅由用户显式意图触发（显式 `/durable` / `/longtask` 命令、`durableMode: "force"`、已批准的 Plan 或 Kanban 任务），普通自然语言对话不在入口或运行中途（工具 preflight）自动晋升为长任务。桌面端重连恢复运行中回合（`recoverRunningTurn`）时，必须在轮询前先加载已持久化历史，且 `recovering` 阶段不得拦截会话历史 hydration。守卫：`chat/durableConversation.test.ts`、`durable/activation.test.ts`、`apps/desktop/src/lib/chat/chatSessionStore.test.ts`、`tests/ui/durable-conversation.spec.ts`、`durable/runtime.test.ts` 与 `core/contextRefresh.test.ts`。
 
 ## 82. loopback 字面量 `127.0.0.1` 会被系统代理截走，桌面进程必须设 `NO_PROXY` 且端点发布为 `localhost`
 
@@ -458,3 +460,17 @@ Pi 1.4 的 Chord `Context.telemetry` 由原型 getter 和内部上下文链提�
 修复：(1) 桌面 App 进程入口（`lib.rs run()`）设 `NO_PROXY=localhost,127.0.0.1,::1`——hyper-util `from_system()` 先读环境变量且 macOS 配置永不覆盖 `no` 字段，loopback 从此不进代理，外网流量（模型 API）照常走代理；(2) 服务端点发布为 `http://localhost:<port>`（`supervisor.rs` 托管模式与 `start-server.mjs` 独立启动，非 loopback 绑定保持原 host）。守卫：`api-transport-guard.test.mjs` 断言每个 `127.0.0.1` scope 条目都有 `localhost` 孪生。诊断手法：`lsof -p <app_pid>` 看应用连接指向（代理端口还是服务端口）、`scutil --proxy` 看例外列表、`curl --proxy http://<proxy>` 对比经代理与直连、看响应头里的 `proxy-connection`（出现即说明流量进了代理）。
 
 
+
+## 83. 版本是唤醒的 CAS 键；实时检查点必须以执行 + 轮次为键
+
+（2026-11-07，Session `s-20261107-bept`，看板任务「抓取 X like 文章作为blog发布」：任务整条停在「进行中」，第一轮消息一直显示「正在执行」，用户连续输入「继续」都没有反应。）
+
+(a) **排好的唤醒绑定的是写入时的执行版本。** 看板任务在第 3 轮失败后按 60s 退避排了一个 `advance` 唤醒（version 13）；22:54:58 用户在会话里发「继续」，`answerKanbanTask` 只在 `waiting_for_user` 时重新入队，`queued` 分支只调用 `recordInput` 把版本升到 14，没有重排唤醒。22:55:10 worker 认领旧唤醒，`execute` 发现版本不一致直接 `discarded`，而新版本没有任何唤醒——任务永久停在 `queued`。规则：**任何让执行版本 +1 的写操作（记录用户输入、预算追加、条件修订等）若执行处于 `queued` / `recovery_required`，必须在同一层重新武装当前版本的唤醒**；`recordInput` 后调用 `ensureRunWakeup`，旧的 pending 行由 `enqueueWakeupInTransaction` 自动废弃。不要依赖“输入会随下一轮一起执行”——下一轮是否还存在完全取决于那个被作废的唤醒。守卫：`plans/kanbanService.test.ts` 断言排队任务收到输入后只剩一个 pending 唤醒且版本等于新版本、旧版本被 discarded。
+
+(b) **实时检查点的内存键不能比响应行多一个可省略维度。** `updateDurableConversationOutput` 用 `execution.sourceUiSessionId` 解析会话并放进 key；`endDurableConversationOutput` 与 `deliverDurableAttempt` 却传入 `memberSessionId`（单任务/普通计划为 `undefined`），key 变成 `[..., null]`，永远命中不了同一个 state，于是 200ms 的 `persistTimer` 没有被清掉。交付先把行写成 `stop` + 完整回答，随后泄漏的定时器把 `{liveResponse: 部分文本, stopReason: "running"}` 回写并推给前端：用户看到的就是第一轮消息永久「执行中」、文本停在半句。规则：**live state 以 `executionId + round` 为唯一键**（一轮只有一个目标会话），检查点发现该 runId 已经交付（`liveResponse.runId === delivered:<runId>`）时不得重建；交付时同时标记 `finalized` 并清 timer。守卫：`routes/api/chat/durableConversation.test.ts` 在交付后等待 350ms，断言不再出现 running／截断文本，并覆盖交付后迟到 delta 不得复活检查点。
+
+(c) **429 的退避提示要用于重试节奏，内外层预算必须区分。** 同一次故障里上游明确返回 `retry shortly (after 30 s)` / `reset_seconds: 29`，固定 1 秒重试却很快耗尽失败预算。内层只重试尚未输出内容的临时 HTTP 429，最多 5 次，按提供商提示退避；其他错误、额度耗尽和已输出内容的失败直接返回外层。内层序列属于同一次原生 generation，耗尽后外层记录失败，有备用模型时切换。原解析器单测没有覆盖两层组合；守卫由 `core/runnerModelRetry.test.ts` 覆盖错误类型、退避、恢复、耗尽与取消，`core/runner.test.ts` 经真实 Runner 核对 6 次同模型请求后切换备用模型。
+
+## 84. 文件直读必须校验真实目标
+
+外部会话文件读取从目录扫描改为按 ID 直读后，词法路径仍在 `scratch` / `attachments` 下，但符号链接可以指向工作区之外。会话正文引用只证明文件归属，不能授权链接的任意目标。读取前须用 `realpath` 校验真实目标仍在工作区允许目录内，并读取已校验路径。此前普通会话的链接逃逸用例没有覆盖外部会话分支；`web/files/server.test.ts` 经真实 GET 入口验证正常读取与外部链接拒绝。

@@ -219,8 +219,8 @@ export class MemoryGateway {
     return this.candidates.list(status, limit, offset);
   }
 
-  listReviewCandidates(namespaces: string[], limit = 11, skills = false): MemoryCandidate[] {
-    return this.isEnabled() ? this.candidates.listReviewCandidates(namespaces, limit, skills) : [];
+  listReviewCandidates(namespaces: string[], limit = 11, skills = false, namespacePrefixes: string[] = []): MemoryCandidate[] {
+    return this.isEnabled() ? this.candidates.listReviewCandidates(namespaces, limit, skills, namespacePrefixes) : [];
   }
 
   getCandidate(id: string): MemoryCandidate | null {

@@ -2,19 +2,22 @@
   import Dialog from "../components/ui/Dialog.svelte";
   import Button from "../components/ui/Button.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
+  import X from "reicon-svelte/icons/X";
   import type { DesktopAgentItem, DesktopKanbanCreateRequest } from "@molibot/desktop-contract";
+  import type { DesktopProject } from "../api";
   import type { Translation } from "../i18n";
 
   interface Props {
     open: boolean;
     busy: boolean;
     copy: Translation;
-    projectIds: string[];
+    projects: DesktopProject[];
+    initialProjectId?: string;
     agents: DesktopAgentItem[];
     onCreate: (payload: DesktopKanbanCreateRequest) => void;
     onClose: () => void;
   }
-  let { open, busy, copy, projectIds, agents, onCreate, onClose }: Props = $props();
+  let { open, busy, copy, projects, initialProjectId = "", agents, onCreate, onClose }: Props = $props();
 
   let form = $state<"single" | "team">("single");
   let title = $state("");
@@ -33,13 +36,19 @@
   let validationError = $state("");
 
   const enabledAgents = $derived(agents.filter(agent => agent.enabled));
-  const agentOptions = $derived(enabledAgents.map(agent => ({ value: agent.id, label: agent.name && agent.name !== agent.id ? `${agent.name} (${agent.id})` : agent.id })));
-  const memberOptions = $derived(selectedMembers.map(id => ({ value: id, label: memberLabel(id) })));
+  const agentOptions = $derived(enabledAgents.map(agent => ({ value: agent.id, label: agentLabel(agent.id) })));
   const canSubmit = $derived(title.trim().length > 0 && (form === "single" ? agentId.trim().length > 0 : coordinatorAgentId.trim().length > 0));
+  // Opening from a filtered board should keep the task in that project.
+  $effect(() => { if (open) projectId = initialProjectId; });
 
-  function memberLabel(id: string): string {
+  function agentLabel(id: string): string {
     const agent = agents.find(item => item.id === id);
     return agent?.name && agent.name !== id ? `${agent.name} (${id})` : id;
+  }
+  function selectCoordinator(id: string): void {
+    coordinatorAgentId = id;
+    // 负责人必须属于成员；选择负责人时自动加入，避免选了负责人却提交失败。
+    if (id && !selectedMembers.includes(id)) selectedMembers = [...selectedMembers, id];
   }
   function reset(): void {
     form = "single"; title = ""; goal = ""; agentId = ""; coordinatorAgentId = ""; selectedMembers = [];
@@ -73,7 +82,7 @@
       goal: goal.trim() || title.trim(),
       ...(form === "single"
         ? { agentId: agentId.trim() }
-        : { coordinatorAgentId: coordinatorAgentId.trim(), members: selectedMembers.map(id => ({ agentId: id, name: memberLabel(id) })) }),
+        : { coordinatorAgentId: coordinatorAgentId.trim(), members: selectedMembers.map(id => ({ agentId: id, name: agentLabel(id) })) }),
       ...(projectId.trim() ? { projectId: projectId.trim() } : {}),
       ...(workDir.trim() ? { workDir: workDir.trim() } : {}),
       ...(conditionsText.trim() ? {
@@ -93,9 +102,12 @@
   <div class="kanban-create">
     <header class="kanban-create-head">
       <h2 id="kanban-create-title">{copy.kanbanCreateTitle}</h2>
-      <div class="segmented" role="group" aria-label={copy.kanbanFieldCoordinator}>
-        <Button class={`segmented-item${form === "single" ? " active" : ""}`} aria-pressed={form === "single"} onclick={() => form = "single"}>{copy.kanbanFormSingle}</Button>
-        <Button class={`segmented-item${form === "team" ? " active" : ""}`} aria-pressed={form === "team"} onclick={() => form = "team"}>{copy.kanbanFormTeam}</Button>
+      <div class="kanban-create-head-tools">
+        <div class="segmented" role="group" aria-label={copy.kanbanFieldCoordinator}>
+          <Button class={`segmented-item${form === "single" ? " active" : ""}`} aria-pressed={form === "single"} onclick={() => form = "single"}>{copy.kanbanFormSingle}</Button>
+          <Button class={`segmented-item${form === "team" ? " active" : ""}`} aria-pressed={form === "team"} onclick={() => form = "team"}>{copy.kanbanFormTeam}</Button>
+        </div>
+        <Button variant="icon" title={copy.dialogClose} disabled={busy} onclick={close}><X size={16} aria-hidden="true" /></Button>
       </div>
     </header>
     <div class="kanban-create-body">
@@ -111,7 +123,7 @@
         </div>
       {:else}
         <div class="settings-field"><span>{copy.kanbanFieldCoordinator}</span>
-          <SelectControl value={coordinatorAgentId} ariaLabel={copy.kanbanFieldCoordinator} options={memberOptions} onChange={value => coordinatorAgentId = value} />
+          <SelectControl value={coordinatorAgentId} ariaLabel={copy.kanbanFieldCoordinator} options={agentOptions} onChange={selectCoordinator} />
         </div>
         <div class="settings-field"><span>{copy.kanbanFieldMembers}</span>
           {#if enabledAgents.length > 0}
@@ -130,7 +142,7 @@
       {/if}
       <div class="kanban-create-row">
         <div class="settings-field"><span>{copy.kanbanFieldProject}</span>
-          <SelectControl value={projectId} ariaLabel={copy.kanbanFieldProject} options={[{ value: "", label: copy.kanbanFieldNoProject }, ...projectIds.map(value => ({ value, label: value }))]} onChange={value => projectId = value} />
+          <SelectControl value={projectId} ariaLabel={copy.kanbanFieldProject} options={[{ value: "", label: copy.kanbanFieldNoProject }, ...projects.map(project => ({ value: project.id, label: project.name }))]} onChange={value => projectId = value} />
         </div>
         <label class="settings-field"><span>{copy.kanbanFieldWorkDir}</span>
           <input type="text" bind:value={workDir} placeholder={copy.kanbanFieldWorkDirPlaceholder} />

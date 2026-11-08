@@ -35,11 +35,12 @@
     transform: translate(-50%, -50%) rotate(0turn);
     background: conic-gradient(
       from 0turn,
-      transparent 0turn 0.48turn,
-      color-mix(in srgb, var(--accent) 35%, transparent) 0.62turn,
-      var(--accent) 0.78turn,
-      color-mix(in srgb, var(--accent) 26%, white) 0.85turn,
-      transparent 0.96turn 1turn
+      transparent 0turn 0.36turn,
+      color-mix(in srgb, var(--accent) 22%, transparent) 0.54turn,
+      color-mix(in srgb, var(--accent) 68%, transparent) 0.72turn,
+      var(--accent) 0.82turn,
+      color-mix(in srgb, var(--accent) 34%, white) 0.88turn,
+      transparent 0.97turn 1turn
     );
     animation: beam-spin 2.8s linear infinite;
   }

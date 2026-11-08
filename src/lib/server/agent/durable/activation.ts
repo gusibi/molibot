@@ -62,22 +62,17 @@ export function detectDurableActivation(message: string, mode: DurableRequestMod
 
 export async function activateDurableExecution(
   request: DurableActivationRequest,
-  coordinator = new DurableExecutionCoordinator(),
-  decide = decideDurableActivation
+  coordinator = new DurableExecutionCoordinator()
 ): Promise<ActivatedDurableExecution | null> {
   if (request.mode === "suppress" || !request.message.trim()) return null;
-  let decision = detectDurableActivation(request.message, request.mode ?? "auto");
-  if (!decision) {
-    const classified = await decide({ message: request.message, settings: request.settings, signal: request.signal });
-    if (classified.mode !== "promote") return null;
-    decision = { goal: request.message.trim(), activationPath: "lazy_promotion", reason: classified.reason };
-  }
+  const decision = detectDurableActivation(request.message, request.mode ?? "auto");
+  if (!decision) return null;
   request.signal?.throwIfAborted();
 
   const maxUnfinished = Number.isFinite(request.maxUnfinishedExecutions)
     ? Math.max(1, Math.floor(request.maxUnfinishedExecutions!))
     : DEFAULT_MAX_UNFINISHED_DURABLE_EXECUTIONS;
-  if (decision.activationPath !== "forced" && coordinator.countUnfinished(request.ownerId) >= maxUnfinished) {
+  if (Number.isFinite(request.maxUnfinishedExecutions) && coordinator.countUnfinished(request.ownerId) >= maxUnfinished) {
     throw new DurableExecutionQuotaError(request.ownerId, maxUnfinished);
   }
 

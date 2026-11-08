@@ -1,6 +1,12 @@
 import { getDurableExecutionStore } from "$lib/server/agent/durable/store.js";
 import { steerKanbanRound } from "$lib/server/agent/durable/kanbanSteer.js";
+import { persistDurableConversationInput } from "$lib/server/agent/durable/conversation.js";
 import { PlanService } from "$lib/server/agent/plans/service.js";
+import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
+import { projectRuntimeWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { DurableExecutionStatus } from "$lib/server/agent/durable/types.js";
 
 /**
@@ -26,6 +32,47 @@ export function kanbanConversationSendAction(conversation: { id: string; origin?
   const execution = store.getById(executionId);
   if (!execution || !KANBAN_STEERABLE_STATUSES.has(execution.status)) return { kind: "normal" };
   return { kind: "steer", executionId };
+}
+
+/**
+ * Appends a user message to the task's visible conversation and context-backs
+ * it, so the session reads as one continuous dialogue with each round's
+ * assistant reply paired to its preceding user turn.
+ */
+export function appendTaskConversationMessage(
+  sessions: SessionStore,
+  conversation: { id: string; externalUserId: string; agentId?: string | null },
+  projectId: string,
+  text: string
+): void {
+  const message = sessions.appendMessage(conversation.id, "user", text);
+  try {
+    persistDurableConversationInput(
+      new MomRuntimeStore(projectId ? projectRuntimeWorkspaceDir(projectId) : agentWorkspaceDir(storagePaths.dataDir, conversation.agentId ?? "")),
+      sessions,
+      conversation.externalUserId,
+      message
+    );
+  } catch { /* the visible message is already recorded; context backing is best-effort */ }
+}
+
+/** Resolves a Kanban task's visible UI session (if any) and appends + context-backs a user input. */
+export function appendKanbanTaskInput(sessions: SessionStore, executionId: string, text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  const execution = getDurableExecutionStore().getById(executionId);
+  const sessionId = execution?.sourceUiSessionId?.trim();
+  if (!sessionId) return;
+  const projectId = sessions.getConversationProjectId(sessionId) ?? "";
+  const owner = projectId ? "" : sessions.getWebConversationOwner(sessionId) ?? "";
+  const conversation = projectId
+    ? sessions.getProjectConversation(projectId, sessionId)
+    : owner
+      ? sessions.getConversationById(sessionId, "web", owner)
+      : null;
+  if (conversation) {
+    appendTaskConversationMessage(sessions, conversation, projectId, trimmed);
+  }
 }
 
 /** Live steering first; with no running round the text queues as a pending input. */

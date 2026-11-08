@@ -23,7 +23,7 @@ const { POST: stream } = await import("../stream/+server.js");
 const { loadConversationMessages } = await import("$lib/server/web/conversationProjection.js");
 const { getRuntimeContextForConversation, resolveRunnerChatId } = await import("$lib/server/web/runtimeContext.js");
 const { getProjectStore } = await import("$lib/server/projects/store.js");
-const { deliverDurableAttempt, updateDurableConversationOutput, updateDurableConversationProgress } = await import("$lib/server/agent/durable/conversation.js");
+const { deliverDurableAttempt, endDurableConversationOutput, ensureDurableConversationResponse, updateDurableConversationOutput, updateDurableConversationProgress } = await import("$lib/server/agent/durable/conversation.js");
 const project = getProjectStore().create({ name: "Durable chat", rootPath: projectRoot });
 
 for (const projectMode of [false, true]) for (const streaming of [false, true]) {
@@ -112,18 +112,12 @@ for (const projectMode of [false, true]) for (const streaming of [false, true]) 
   });
 }
 
-test("workflow feasibility uses the selected classifier and stays an ordinary conversation", async () => {
+test("ordinary natural-language requests stay an ordinary conversation without automatic durable promotion", async () => {
   let classifications = 0;
-  let receivedQuestion = "";
-  const classifier = createServer(async (request, response) => {
-    let data = "";
-    for await (const chunk of request) data += chunk;
-    const body = JSON.parse(data);
-    const question = (body.input ?? body).questions.execution_mode;
-    receivedQuestion = JSON.stringify(question);
+  const classifier = createServer(async (_request, response) => {
     classifications++;
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify({ model: "fixture", answers: { execution_mode: { type: "choice", choice: "ordinary", confidence: 0.99 } } }));
+    response.end(JSON.stringify({ model: "fixture", answers: { execution_mode: { type: "choice", choice: "durable", confidence: 0.99 } } }));
   });
   await new Promise<void>(resolve => classifier.listen(0, "127.0.0.1", resolve));
   const address = classifier.address();
@@ -150,13 +144,50 @@ test("workflow feasibility uses the selected classifier and stays an ordinary co
     assert.equal(body.durableExecution, undefined);
     assert.match(body.response, /先讨论方案/);
     assert.equal(run.mock.callCount(), 1);
-    assert.equal(classifications, 1);
-    assert.match(receivedQuestion, /feasibility/);
+    assert.equal(classifications, 0, "ordinary messages must not auto-promote via classifier");
   } finally {
     run.mock.restore();
     runtime.updateSettings({ adaptiveThinking: previous });
     await new Promise<void>((resolve, reject) => classifier.close(error => error ? reject(error) : resolve()));
   }
+});
+
+test("a late stream checkpoint cannot overwrite a delivered round reply", async () => {
+  const owner = "web:personal:web-anonymous";
+  const conversation = runtime.sessions.createProjectConversation(project.id, owner);
+  const execution = {
+    id: "kanban-late-checkpoint",
+    goal: "Verify the checkpoint cannot overwrite a delivered answer.",
+    sourceUiSessionId: conversation.id
+  } as DurableExecution;
+  const runId = "run-late-checkpoint";
+  const responseId = ensureDurableConversationResponse(runtime.sessions, execution, false);
+  assert.ok(responseId);
+
+  updateDurableConversationOutput(runtime.sessions, execution, runId, "text", "partial answer");
+  // The round ends before the 200ms checkpoint timer fires; the runtime then
+  // commits the final reply. A leaked checkpoint used to fire afterwards and
+  // write `running` + the partial text back over the delivered row.
+  endDurableConversationOutput(execution.id, runId);
+  deliverDurableAttempt(runtime.sessions, {
+    execution,
+    sessionId: conversation.id,
+    runId,
+    text: "partial answer and the rest of the final reply"
+  });
+  await new Promise(resolve => setTimeout(resolve, 350));
+  const delivered = runtime.sessions.listMessageMetadata(conversation.id).find(message => message.id === responseId)!;
+  assert.equal(delivered.stopReason, "stop");
+  assert.equal(delivered.resultKind, "final");
+  assert.equal(delivered.liveResponse?.text, "partial answer and the rest of the final reply");
+  assert.equal(delivered.activities?.find(activity => activity.key === `durable-response:${execution.id}`)?.state, "success");
+
+  // A late delta arriving after delivery must not resurrect the live row either.
+  updateDurableConversationOutput(runtime.sessions, execution, runId, "text", " late tail");
+  await new Promise(resolve => setTimeout(resolve, 350));
+  const settled = runtime.sessions.listMessageMetadata(conversation.id).find(message => message.id === responseId)!;
+  assert.equal(settled.stopReason, "stop");
+  assert.equal(settled.liveResponse?.text, "partial answer and the rest of the final reply");
 });
 
 test.after(() => { rmSync(root, { recursive: true, force: true }); rmSync(projectRoot, { recursive: true, force: true }); });

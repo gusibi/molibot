@@ -32,6 +32,8 @@
 
   let completing = $state(false);
 
+  $effect(() => { if (open) completing = false; });
+
   function getOpen(): boolean {
     return open;
   }

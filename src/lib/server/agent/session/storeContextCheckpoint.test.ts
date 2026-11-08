@@ -105,7 +105,7 @@ test("appendContextMessage persists the context snapshot on the entry", () => {
     const snapshot = {
       contextWindow: 100_000,
       estimatedTokens: 1_234,
-      breakdown: { messages: 900, mcpTools: 200, systemTools: 80, systemPrompt: 40, skills: 10, other: 4 },
+      breakdown: { messages: 900, memory: 0, files: 0, toolResults: 0, mcpTools: 200, systemTools: 80, systemPrompt: 40, skills: 10, other: 4 },
       inputTokens: 1_100,
       cacheReadTokens: 200,
       cacheWriteTokens: 30

@@ -3,6 +3,11 @@ import { validateAgentReferences } from "$lib/server/settings/validators.js";
 import { inspectPiRecovery, piRecoveryCandidates, piRecoveryChannelManager, resumePiOwner, type PiRecoveryInspection } from "./piRecovery.js";
 import { PiRecoveryStore, type PiRecoveryRecord } from "$lib/server/agent/core/piRecoveryStore.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
+import { isDirectEventDelivery } from "$lib/server/agent/events.js";
+import { HomeNotificationStore } from "$lib/server/app/homeNotifications.js";
+import { recordReflectionHomeNotification, recordMaterialsHomeNotification, recordTaskHomeNotification } from "$lib/server/app/homeNotificationWriters.js";
+import { desktopHomeMemoryNamespaces } from "$lib/server/app/desktopMemory.js";
+import { DEFAULT_AGENT_ID } from "$lib/server/settings/schema.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { SqliteImageTaskStore } from "$lib/server/agent/imageGenerate/imageTaskStore.js";
@@ -63,7 +68,7 @@ import { createDefaultHookManager, type HookManager } from "$lib/server/agent/ho
 import { resolveTraceApprovalFact } from "$lib/server/agent/hooks/traceStore.js";
 import { onApprovalResolved } from "$lib/server/approval/resolutionEvents.js";
 import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.js";
-import { runMemoryReflection, pendingMemoryReviewCandidates, MemoryReflectionError, reflectionTargetId, ReflectionStateStore, SessionReflectionSourceReader, previousReflectionLocalDate, type ReflectionTarget } from "$lib/server/memory/reflection.js";
+import { runMemoryReflection, pendingMemoryReviewCandidates, MemoryReflectionError, reflectionTargetId, ReflectionStateStore, SessionReflectionSourceReader, previousReflectionLocalDate, reflectionLocalDate, type ReflectionTarget } from "$lib/server/memory/reflection.js";
 import { MemoryCandidateReview, MemoryReviewStore } from "$lib/server/memory/review.js";
 import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInternal } from "$lib/server/memory/dailyMaterials.js";
 import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
@@ -91,6 +96,7 @@ interface RuntimeState {
   embeddingResolver: EmbeddingModelResolver;
   memoryReviewStore: MemoryReviewStore;
   memoryReview: MemoryCandidateReview;
+  homeNotifications: HomeNotificationStore;
   memorySyncTimer: ReturnType<typeof setInterval> | null;
   settingsStore: SettingsStore;
   hostBashStore: HostBashStore;
@@ -671,6 +677,17 @@ function initializeRuntime(): RuntimeState {
           if (error instanceof MemoryReflectionError && currentSettings.value.plugins.memory.reflectionNotifications) {
             await deliverReflectionReview({ ...error.result, completedTargets: 0, failedTargets: targets.length || 1, failedSessions: error.failedSessions }, filename);
           }
+          recordReflectionHomeNotification(homeNotifications, {
+            localDate: error instanceof MemoryReflectionError
+              ? (error.result.localDate || previousReflectionLocalDate(new Date(), currentSettings.value.timezone))
+              : previousReflectionLocalDate(new Date(), currentSettings.value.timezone),
+            completedTargets: 0,
+            failedTargets: targets.length || 1,
+            failedSessions: error instanceof MemoryReflectionError ? error.failedSessions : undefined,
+            pendingReviewCount: error instanceof MemoryReflectionError && Array.isArray(error.result.pendingReviewCandidateIds)
+              ? error.result.pendingReviewCandidateIds.length
+              : 0
+          });
           throw error;
         }
         for (const maintenanceTarget of targets) {
@@ -687,6 +704,15 @@ function initializeRuntime(): RuntimeState {
           skillDraftCount: pending.filter(candidate => candidate!.skillDraftSuggestion).length
         };
         console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
+        recordReflectionHomeNotification(homeNotifications, {
+          localDate: result.localDate || previousReflectionLocalDate(new Date(), currentSettings.value.timezone),
+          completedTargets: result.completedTargets,
+          failedTargets: 0,
+          createdCandidates: result.createdCandidates,
+          committedMemories: result.committedMemories,
+          pendingReviewCount: review.pendingReviewCount,
+          skillDraftCount: review.skillDraftCount
+        });
         if (currentSettings.value.plugins.memory.reflectionNotifications) await deliverReflectionReview({ ...result, ...review }, filename);
         return {
           kind: "memory-reflection", completedTargets: result.completedTargets,
@@ -716,6 +742,10 @@ function initializeRuntime(): RuntimeState {
         if (event.internal.target) {
           const result = await dailyMaterialsService.run(event.internal as DailyMaterialsInternal, { taskId: event.taskId });
           console.log(`${memoryLabel("daily-materials")} completed file=${filename} output=${result.createdFile ?? "(none)"} messages=${result.scannedMessages}`);
+          recordMaterialsHomeNotification(homeNotifications, {
+            localDate: reflectionLocalDate(new Date(), currentSettings.value.timezone),
+            createdFiles: result.createdFile ? [result.createdFile] : []
+          });
           const notificationText = formatDailyMaterialsNotification(result.createdFile ? [result.createdFile] : []);
           if (notificationText && currentSettings.value.plugins.memory.dailyMaterials.notifications) {
             await sendMemoryNotice(notificationText, "daily-materials", filename);
@@ -746,6 +776,10 @@ function initializeRuntime(): RuntimeState {
           }
         }
         if (failures.length > 0) throw new AggregateError(failures, `${failures.length} daily materials target(s) failed.`);
+        recordMaterialsHomeNotification(homeNotifications, {
+          localDate: reflectionLocalDate(new Date(), currentSettings.value.timezone),
+          createdFiles
+        });
         const notificationText = formatDailyMaterialsNotification(createdFiles);
         if (notificationText && currentSettings.value.plugins.memory.dailyMaterials.notifications) {
           await sendMemoryNotice(notificationText, "daily-materials", filename);
@@ -779,10 +813,50 @@ function initializeRuntime(): RuntimeState {
       throw new Error("Unsupported internal event.");
     };
     const dailyMaterialsBackfill = new DailyMaterialsBackfillJob(dailyMaterialsService);
+    const homeNotifications = new HomeNotificationStore();
+    try {
+      homeNotifications.retain();
+    } catch (error) {
+      console.warn(`[home-notifications] retention failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      // Backfill today's memory-review notification so candidates that predate
+      // the notification center surface without waiting for tomorrow's run.
+      const todayKey = `memory-review:owner:${reflectionLocalDate(new Date(), currentSettings.value.timezone)}`;
+      if (!homeNotifications.getByDedupe(todayKey)) {
+        const scope = desktopHomeMemoryNamespaces(currentSettings.value, currentSettings.value.defaultAgentId || DEFAULT_AGENT_ID);
+        const pending = memory.listReviewCandidates(scope.namespaces, 100, false, scope.namespacePrefixes);
+        const skills = memory.listReviewCandidates(scope.namespaces, 100, true, scope.namespacePrefixes);
+        const pendingReviewCount = pending.filter(candidate => !candidate.skillDraftSuggestion).length;
+        const skillDraftCount = skills.length;
+        if (pendingReviewCount > 0 || skillDraftCount > 0) {
+          recordReflectionHomeNotification(homeNotifications, {
+            localDate: reflectionLocalDate(new Date(), currentSettings.value.timezone),
+            completedTargets: 0,
+            failedTargets: 0,
+            pendingReviewCount,
+            skillDraftCount
+          });
+        }
+      }
+    } catch (error) {
+      console.warn(`[home-notifications] backfill failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const taskScheduler = new TaskScheduler(runInternalEvent, (event, filename, reason) => {
       // Durable Execution no longer depends on this file: its trigger lives in
       // the wakeup table, so a skipped event file only affects other kinds.
       momLog("runtime", "internal_event_skipped", { filename, reason, kind: event.internal?.kind });
+    }, undefined, (context) => {
+      // A direct text delivery (a reminder) already reached the user's channel;
+      // there is no result to review, so it does not open a notification.
+      if (isDirectEventDelivery(context.event.delivery ?? "agent")) return;
+      recordTaskHomeNotification(homeNotifications, {
+        taskId: context.taskId,
+        executionId: context.executionId,
+        text: context.event.text,
+        status: context.status,
+        error: context.error
+      });
     });
     state = {
       sessions,
@@ -796,6 +870,7 @@ function initializeRuntime(): RuntimeState {
       embeddingResolver,
       memoryReviewStore,
       memoryReview,
+      homeNotifications,
       memorySyncTimer: null,
       settingsStore,
       hostBashStore,

@@ -345,6 +345,20 @@ export interface EventsWatcherOptions {
   /** Called after a one-shot event is skipped because it missed the window. */
   skipReason?: (event: MomEvent) => string | undefined;
   onSkip?: (context: { event: MomEvent; filename: string; reason: string }) => void;
+  /**
+   * A real task (non-internal event) reached a terminal attempt state. Fired
+   * best-effort after the lease is recorded; listener failures never affect
+   * the task itself. Internal events write their own notifications.
+   */
+  onTaskTerminal?: (context: {
+    event: MomEvent;
+    filename: string;
+    taskId: string;
+    executionId: string;
+    status: "success" | "error";
+    result?: unknown;
+    error?: string;
+  }) => void;
 }
 
 export class EventsWatcher {
@@ -633,6 +647,27 @@ export class EventsWatcher {
     void this.runLeasedEvent(event, filename, slotKey ?? this.buildTriggerSlot(event, filename), runId);
   }
 
+  /** Best-effort terminal notification; internal events are the producer's own rows. */
+  private notifyTaskTerminal(
+    event: MomEvent,
+    filename: string,
+    taskId: string,
+    executionId: string,
+    outcome: { status: "success" | "error"; result?: unknown; error?: string }
+  ): void {
+    if (event.execution === "internal" || !this.options.onTaskTerminal) return;
+    try {
+      this.options.onTaskTerminal({
+        event, filename, taskId, executionId,
+        status: outcome.status,
+        ...(outcome.result !== undefined ? { result: outcome.result } : {}),
+        ...(outcome.error !== undefined ? { error: outcome.error } : {})
+      });
+    } catch {
+      // A notification write must never fail the task that produced it.
+    }
+  }
+
   /**
    * `resumeLeaseId` identifies a lease this call is *taking over* after a
    * restart. It must be excluded from the "is this task already running" guard,
@@ -706,6 +741,7 @@ export class EventsWatcher {
         }))) {
           this.markDone(filename, eventForAttempt, "executed", triggerSlot, currentRunId);
         }
+        this.notifyTaskTerminal(eventForAttempt, filename, taskId, lease.id, { status: "success", result: outcome.result });
         return;
       }
 
@@ -714,6 +750,7 @@ export class EventsWatcher {
         if (store.markFailed(lease.id, lease.runId, message)) {
           this.markError(filename, message, triggerSlot, currentRunId);
         }
+        this.notifyTaskTerminal(eventForAttempt, filename, taskId, lease.id, { status: "error", error: message });
         return;
       }
 

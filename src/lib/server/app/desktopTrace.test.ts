@@ -75,6 +75,23 @@ test("model requests aggregate across API protocols with all outcomes retained",
   assert.equal(summary.rankings.models[0].outcomes.error, 1);
 });
 
+// 成本视角：模型排名按 token 花销排序，未计价记录不产生成本（缺失 ≠ 0）。
+test("model ranking sorts by spend and sums provider costs only where priced", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const summary = buildDesktopTraceSummary("UTC", { range: "today" }, [
+    fact({ factType: "model_call", provider: "anthropic", model: "big", api: "messages", inputTokens: 900, outputTokens: 100, totalTokens: 1000, createdAt: `${today}T00:00:00Z`, payload: { estimatedCostUsd: 0.02 } }),
+    fact({ factType: "model_call", provider: "anthropic", model: "big", api: "messages", inputTokens: 900, outputTokens: 100, totalTokens: 1000, createdAt: `${today}T00:01:00Z`, payload: { estimatedCostUsd: 0.01 } }),
+    fact({ factType: "model_call", provider: "anthropic", model: "small", api: "messages", inputTokens: 10, outputTokens: 5, totalTokens: 15, createdAt: `${today}T00:02:00Z`, payload: { estimatedCostUsd: 0.5 } }),
+    fact({ factType: "model_call", provider: "local", model: "free", api: "messages", inputTokens: 1, outputTokens: 1, totalTokens: 2, createdAt: `${today}T00:03:00Z` })
+  ]);
+  assert.deepEqual(summary.rankings.models.map(row => row.model), ["big", "small", "free"]);
+  const big = summary.rankings.models[0];
+  assert.equal(big.requests, 2);
+  assert.equal(big.totalTokens, 2000);
+  assert.equal(big.estimatedCostUsd, 0.03);
+  assert.equal(summary.rankings.models[2].estimatedCostUsd, undefined);
+});
+
 test("trace analytics includes older requests beyond 5000 newer facts and strips previews", () => {
   const store = new SqliteTraceStore(":memory:");
   const today = new Date().toISOString().slice(0, 10);

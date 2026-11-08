@@ -45,7 +45,7 @@ export function sanitizeDesktopUsageQuery(input: Partial<Record<keyof DesktopUsa
 }
 
 function emptyTotals(): DesktopUsageTotals {
-  return { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 };
+  return { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, estimatedCostUsd: 0 };
 }
 
 function addRecord(target: DesktopUsageTotals, record: AiUsageRecord): void {
@@ -55,6 +55,7 @@ function addRecord(target: DesktopUsageTotals, record: AiUsageRecord): void {
   target.cacheReadTokens += record.cacheReadTokens;
   target.cacheWriteTokens += record.cacheWriteTokens;
   target.totalTokens += record.totalTokens;
+  target.estimatedCostUsd = (target.estimatedCostUsd ?? 0) + (record.estimatedCostUsd ?? 0);
   addImageCost(target, record);
 }
 
@@ -159,7 +160,9 @@ function projectRecord(record: AiUsageRecord): DesktopUsageRecord {
     outputTokens: record.outputTokens,
     cacheReadTokens: record.cacheReadTokens,
     cacheWriteTokens: record.cacheWriteTokens,
-    totalTokens: record.totalTokens
+    totalTokens: record.totalTokens,
+    // Absent ≠ free: unpriced records keep the cost missing so the table can render "—".
+    estimatedCostUsd: record.estimatedCostUsd
   };
 }
 

@@ -187,3 +187,38 @@ test("auto-start queues a new task and replays stay on the queue; answers requeu
     database.cleanup();
   }
 });
+
+test("an input on an already-queued task re-arms its version-bound wakeup", () => {
+  const database = tempDatabase();
+  try {
+    const store = new DurableExecutionStore(database.file);
+    const service = new PlanService(store);
+    const created = service.createKanbanTask({
+      ownerId: "owner-1",
+      botId: "bot-1",
+      form: "single",
+      title: "抓取文章",
+      goal: "抓取并发布。",
+      agentId: "agent-a",
+      autoStart: true
+    });
+    assert.equal(created.execution.status, "queued");
+    const scheduled = store.pendingWakeups(created.execution.id);
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].expectedVersion, created.execution.version);
+
+    // While a retry is scheduled the task is already queued. Recording the
+    // user's input bumps the version; the scheduled trigger can never run it,
+    // so the answer path must arm a wakeup for the new version.
+    const answered = service.answerKanbanTask({ ownerId: "owner-1", executionId: created.execution.id, text: "继续" });
+    assert.equal(answered.execution.version, created.execution.version + 1);
+    const pending = store.pendingWakeups(created.execution.id);
+    assert.deepEqual(pending.map(wakeup => wakeup.expectedVersion), [answered.execution.version]);
+    const stale = store.wakeups(created.execution.id).filter(wakeup => wakeup.status === "discarded");
+    assert.deepEqual(stale.map(wakeup => wakeup.expectedVersion), [created.execution.version]);
+    assert.deepEqual(service.listKanbanInputs("owner-1", created.execution.id, true).map(input => input.text), ["继续"]);
+    store.close();
+  } finally {
+    database.cleanup();
+  }
+});

@@ -6,6 +6,21 @@ import test from "node:test";
 import type { ConversationMessage } from "$lib/shared/types/message.js";
 import { _buildConversationFiles } from "./+server.js";
 
+function isolatedFileEnv(root: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    DATA_DIR: root,
+    DB_DIR: path.join(root, "db"),
+    SETTINGS_FILE: path.join(root, "settings.json"),
+    SETTINGS_DB_FILE: path.join(root, "db", "settings.sqlite"),
+    WEB_WORKSPACE_DIR: path.join(root, "moli-web"),
+    SESSIONS_DIR: path.join(root, "sessions"),
+    SESSIONS_INDEX_FILE: path.join(root, "sessions", "index.json"),
+    PI_CODING_AGENT_DIR: path.join(root, "pi"),
+    MOLIBOT_IMPORT_SKIP_SETTINGS_AUTOCREATE: "1"
+  };
+}
+
 test("ordinary Session scratch outputs are listed without an attachment copy", () => {
   const workspaceDir = mkdtempSync(path.join(tmpdir(), "molibot-session-files-"));
   const externalUserId = "web:default:web-anonymous";
@@ -113,10 +128,55 @@ test("external file listing reads the migration map once for the whole workspace
         assert.equal(payload.files[0].original,'000.txt');
         assert.equal(manifestReads,1,'migration map must be read once per listing');
       } finally { mocked.mock.restore(); syncBuiltinESMExports(); }
-    `], { env: { ...process.env, DATA_DIR: root, DB_DIR: path.join(root, "db"), PI_CODING_AGENT_DIR: path.join(root, "pi"), MOLIBOT_IMPORT_SKIP_SETTINGS_AUTOCREATE: "1" }, timeout: 30_000, maxBuffer: 1_000_000 });
+    `], { env: isolatedFileEnv(root), timeout: 30_000, maxBuffer: 1_000_000 });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+
+test("external file reads reject symlink escapes while preserving ordinary reads", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-external-file-boundary-"));
+  try {
+    await promisify(execFile)(process.execPath, ["--import", "./scripts/register-loader.js", "--import", "tsx", "--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import fs from 'node:fs';
+      import { join, dirname, relative } from 'node:path';
+      import { AgentStorageMigration } from './src/lib/server/sessions/agentStorageMigration.ts';
+      import { encodeExternalSessionId } from './src/lib/server/app/externalSessionsFromContexts.ts';
+      import { GET } from './src/routes/api/web/files/+server.ts';
+      const root = process.env.DATA_DIR;
+      const source = join(root, 'moli-f/bots/one/chat');
+      fs.mkdirSync(join(source, 'contexts'), {recursive:true});
+      fs.mkdirSync(join(source, 'attachments'), {recursive:true});
+      fs.writeFileSync(join(source, 'attachments/visible.txt'), 'visible fixture');
+      fs.writeFileSync(join(source, 'contexts/session.jsonl'), JSON.stringify({type:'message', id:'user', message:{role:'user', content:'attachments/visible.txt'}})+'\\n');
+      const plan = await new AgentStorageMigration(root, {agents:['assistant'], bots:[{channel:'feishu', botId:'one', agentId:'assistant'}]}).execute();
+      const sessionId = encodeExternalSessionId({channel:'feishu', botId:'one', chatId:'chat', sessionId:plan.sessions[0].targetId});
+      const url = new URL('http://localhost/api/web/files');
+      url.searchParams.set('sessionId', sessionId);
+      const get = () => GET({url, request:new Request(url)});
+      const listing = await (await get()).json();
+      assert.equal(listing.files.length, 1);
+      const file = listing.files[0];
+      url.searchParams.set('fileId', file.id);
+      assert.equal(await (await get()).text(), 'visible fixture');
+      const workspace = join(root, 'sessions/assistant');
+      const outside = join(root, 'outside.txt');
+      fs.writeFileSync(outside, 'outside fixture');
+      fs.unlinkSync(join(workspace, file.local));
+      fs.symlinkSync(outside, join(workspace, file.local));
+      assert.equal((await get()).status, 404, 'a referenced locator must not authorize an outside symlink target');
+      const outsideDirectory = join(root, 'outside-directory');
+      const escapedFile = join(outsideDirectory, relative('attachments', file.local));
+      fs.mkdirSync(dirname(escapedFile), {recursive:true});
+      fs.writeFileSync(escapedFile, 'outside directory fixture');
+      fs.rmSync(join(workspace, 'attachments'), {recursive:true});
+      fs.symlinkSync(outsideDirectory, join(workspace, 'attachments'));
+      assert.equal((await get()).status, 404, 'a symlinked allowed root must not authorize outside files');
+    `], { env: isolatedFileEnv(root), timeout: 30_000, maxBuffer: 1_000_000 });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test("attachment provenance follows message role, not the attachments directory", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-file-origin-"));
@@ -128,6 +188,9 @@ test("attachment provenance follows message role, not the attachments directory"
     const files = _buildConversationFiles(root, "test", messages);
     assert.equal(files[0].origin, "generated");
     assert.equal(files[1].origin, "uploaded");
+    const single = _buildConversationFiles(root, "test", messages, "attachments/generated.png");
+    assert.equal(single.length, 1);
+    assert.equal(single[0].local, "attachments/generated.png");
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 

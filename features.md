@@ -1,10 +1,24 @@
-## 2026-11-08 — 插件内部模型用量统一入账（账本、trace、会话转录同源）
+## 2026-11-08 — 用量与 Trace 观测校准（参考 magpie）
 
-Native Pi 插件（`piExtensionRun`）内部的模型调用此前只进用量账本：调用链 trace 把它们记成无 token 的 `modelsStream` 工具事实、合成 `extension-command` 会话条目的 usage 恒为 0，导致同一任务在用量页、调用链、会话转录三处数字互不一致。现在宿主在每次内部模型调用的记账点同步补发 `model.call.before/after` trace 事件（模型调用数与 token 统计正确、时间线挂在 piExtensionRun 之下）；native 运行累计的内部用量随工具回执进入会话，`extension-command` 合成回执写入真实聚合 usage；runner 不再把合成条目投影成 0-token 账本记录（避免与逐调用记录双重入账）。用量页、会话用量分析（同读账本）与调用链、会话转录自此同源一致。验证：piToolResult/nativeTerminal/piConversation 定向 node:test 与 runnerModels integration（native_extension/native_custom/native_command）通过，泄漏守卫 0，根 tsc 0 错误。
+上下文窗口面板引入"厂商实数校准"：每次模型调用把分类估算（消息/记忆/文件/工具结果/技能/工具/系统提示词等九类）按厂商上报的完整提示规模（input + cacheRead + cacheWrite）等比缩放并精确取整到总和；有实数时徽章显示「已计数」，仅估算时显示「估算」，发送中显示「实时」。记忆块按 `<current-memory>` 标记归类，图片按 1600 token 估算归入文件类。矩形树图放弃面积放大，按真实占比渲染（保留 0.4% 最小悬停面积），≈ 前缀只在估算口径出现，缓存命中行标注请求次数。
+
+用量页趋势图改为四层堆叠面积（缓存读取/非缓存输入/缓存写入/输出），明细表拆出缓存读/写列并新增成本列（未计价记录显示 — 而非 0）；成本格式化自适应小数位（≥$100 取整、≥$1 分、更小到万分位），精确值入悬浮提示；紧凑数字仅在缩写时带精确值提示。Trace 页模型排行改按 token 花销排序（与用量页口径一致），副行带请求数与缓存命中率；模型明细表补缓存读/写与成本列；排行占比列新增内联比例条。共享成本格式化函数收敛到 `analytics.ts` 一处。
+
+补丁（同日）：① 树图内容占比不足窗口 30% 时等比放大到 30% 展示面积（`CONTEXT_MIN_SHARE`，剩余空间按差值缩减，标签/百分比保持真实值）；② 外部渠道会话（飞书等）此前在 `/api/sessions/:id` 永远 404（web 索引不含外部镜像），面板报「实时刷新失败」并回退显示上一个会话的 usage——现在外部转录构建器携带 assistant 行的 `usage` 与 `contextBreakdown`（legacy 快照在投影边界补零为九类），面板新增 `external` 分支轮询只读转录端点，ChatView 在 external 视图下所有上下文入参（usage/sessionUsage/messages/activities/streaming）都改源自镜像转录，杜绝跨会话串数据。
+
+同日再补：树图每块最小展示面积 0.4%→1%（放得下紧凑标签），块标签改两档（≥10%宽且≥15%高显示名称+数值，≥5%宽且≥8%高只显示名称），轮次块不再不可读；标签与百分比仍为真实数值。
+
+验证：`contextPreflight`/`storeContextCheckpoint`/`conversationProjection`/`contextWindowView`/`presentation`/`desktopUsage`/`desktopTrace`（新增模型排行按花销排序与成本累计用例）定向测试与 `analytics.test.ts` 通过；`pnpm check` 与 `desktop:check` 0 错误 0 警告；`chat-ui.test.mjs` 用量/Trace 观测守卫更新为新结构后通过，失败集合对比 HEAD 基线仅剩 11 项与本轮无关的既有漂移。旧会话快照（无九类分类、无上报总量）按遗留路径渲染为估算口径。隔离实例冷启动走查待执行。
 
 ## 2026-11-07 — 任务会话执行形态修订（可见会话、直播、插话、成员子会话）
 
 看板任务绑定真实可见会话：单 Agent 任务创建即生成一条普通 Web/Project 会话（标题=任务名，origin 标记 `kanban`），每轮执行从派发简报到模型回复全量直播流式进该会话；成员回执以【成员名 回执】回流主会话。Team 成员各自拥有只读子会话（挂在主会话之下，不出现在任何平铺列表），轮次输出与派发简报落进对应子会话。会话窗口发消息即插话：进行中轮次立即注入，无轮次时落为待处理输入（下一轮开工读取）；成员子会话只读，发送一律 409。会话列表行（侧栏会话树、Agent 首页历史、Project 会话列表）为任务会话显示「任务」标记（纯视觉，其余与普通会话一致）；任务详情新增「打开会话」入口与成员会话二级入口（打开时隐藏输入框），详情回复框改走 `kanban_steer`（先注直播轮次、失败回退输入通道）。验证：kanbanStore/kanbanRuntime/plans 服务端与 stream/chat/steer 路由定向 node:test 通过（含可见会话直播、轮次投递、steer 生命周期、成员回流、子会话路由、发送路由 8 项 plans API 用例），`desktop:check` 与暂存子集 worktree svelte-check 0 错误 0 警告，桌面单测失败集合与改动前完全一致；隔离实例冷启动走查与 Playwright 套件待运行。
+
+## 2026-11-07 — 桌面上下文窗口监控
+
+聊天标题栏在原「Agent 全部对话」入口左侧新增 Gauge「上下文窗口」按钮，并把历史按钮改为 History Outline 图标；项目对话标题栏同样提供 Gauge 入口，并按项目 session 的专用 API 读取同一份 transcript、模型 usage 与累计用量。弹窗顶部展示已用上下文、健康状态、模型窗口、剩余 token 与提示词缓存命中率，并标明主图是最后一次模型调用的当前窗口而非会话累计；缓存卡同时显示同一服务端账本的会话累计 token。中部按面积渲染系统提示词/记忆、工具 schema、工具结果、技能、最近轮次、执行中增量与剩余空间：最近轮次逐轮展示，更早轮次自动合并，小区块获得最小可见面积但 token 与百分比仍按真实值显示。轮次行保持「第 N 轮」与简洁数字，副标题给出「当前留存 / 本轮累计」；完整口径说明在悬浮提示中展示（累计值来自模型 usage 账本，即该轮所有模型调用相加；留存值为文本结构估算），数字统一使用 K/M。下方提供内容明细、分类筛选、工具结果聚合与展开全部。弹层打开时持续刷新（执行中 1 秒、空闲 3 秒），流式增量只计一次，标题、图表与剩余量共用总量；请求失败时保留最近数据并提示。
+
+验证：新增 `contextWindowView` 7 项回归（分类缩放、剩余空间、小区块可见面积、轮次折叠、usage 账本优先、CJK 工具结果估算）与 `presentation` K/M 格式回归通过；`chat-ui` 标题栏/Portal/实时轮询守卫通过；隔离实例 Chromium 走查覆盖标题栏打开弹层、区块/剩余空间/内容筛选、Esc 关闭、标题栏两个按钮并排布局、直接打开 Agent 历史，以及中英明暗与 560–1120px 顶栏布局；项目对话 Playwright 用例覆盖 Gauge 打开弹层与项目 session API 轮询；`desktop:check` 0 错误 0 警告。未运行真实模型长任务的持续变化走查与 Vite 构建。
 
 ## 2026-11-07 — 任务看板与 Agent／Team 自主执行（第一阶段）
 
@@ -19,6 +33,8 @@ Native Pi 插件（`piExtensionRun`）内部的模型调用此前只进用量账
 双轴代码审查（规范 + Spec）后修复两处实现偏差：同 Project 推进位由按轮释放改为任务级持锁（等待／暂停／重试均持有，Done 或已取消才释放并唤醒同 Project 下一个排队任务，原测试断言的按轮交错按 Spec L169 判为错误并重写）；零完成条件的看板任务不再自动完成，verify 挂起等用户确认。同时收敛 `kanban_create` 请求体为字段白名单（identity／来源字段仅限内部调用方）、修掉 `boardPage` 清单进度重复查询与创建对话框死分支。
 
 外部复查（另一 Agent 独立审查）确认的 5 个生命周期阻断缺陷全部修复并补定向用例：运行中暂停/取消现在会结算尝试与控制请求（不再永久停在 running）；崩溃恢复的看板任务按副作用台账审核后续跑或挂起（未知副作用进恢复审核）；轮次运行中提交的输入只在其简报呈现后才算消费；人工验收开关生效（关=执行者申请即完成，开=验收等待 owner）；`kanban_receipt` 新增 proposeConditions（无条件任务先提案再等用户），owner 经 `kanban_conditions` 动作与详情编辑器修订。同批修复：审批拒绝改为交回执行者（反馈进输入通道，不再直接 failed）、回执证据落 durable_evidence、排队任务停止 1 秒自旋改为无唤醒驻留并显示占用者、同 Project 唤醒按创建顺序每批只领取最旧一个。仍未交付（记入能力矩阵边界）：详情对话投影的模型回复与工具调用、workDir 接入执行目录、创建表单 workDir／Team 选择器等字段、交接纯调度计数、`queryable` probe。
+
+同日看板页布局收口：看板与详情改为两个整页视图——看板铺满内容列，详情落在居中阅读列并常驻返回；删除说明标语、空态插画与统计概览，项目下拉仅在存在项目时出现，连接正常时不显示状态文字、断线才提示重连。卡片去掉次要预算／交接元信息，空列不再显示占位文案；返回后保留看板滚动位置并把焦点还给原卡片。新建入口统一为待办列末尾的 BoxAdd 添加卡，详情操作栏与任务操作统一为带双语 tooltip 的图标（编辑、暂停、取消、删除、开始/继续、会话、预算、发送）；创建任务弹窗固定页头／页脚，仅正文滚动，页头新增关闭图标，矮窗口下取消与创建按钮始终可达；Team 表单的负责人下拉从全部启用 Agent 取选项（不再要求先勾选成员），选中负责人自动加入成员；看板项目筛选与创建任务的项目下拉改为读取真实项目目录并使用项目名称，不再复用看板投影里的 projectId（旧实现会把 `project-2` 这类内部 ID 当项目名展示，且看不到用户已有项目）。无任务或筛选无结果时不再用居中占位替换整页，三列看板始终保留；待办列末尾常驻虚线 BoxAdd 添加卡（唯一新建入口，顶栏不再重复），有卡片时也保留，从筛选项目打开创建时预选该项目。验证：看板／详情／创建窗口（含 520px 矮窗口页脚可达、Team 负责人下拉、真实项目名、空项目看板与预选项目）、连接状态的 WebKit 定向用例 10 项与计划修订窄窗用例通过；本轮改动文件 `desktop:check` 0 错误 0 警告。
 
 同日第三轮（收口外部审查中低项）：跨批并发下同 Project 推进位按创建顺序仲裁——即使推进位空闲，更早创建的排队同键任务也在场时新任务领取被拒并驻留（无唤醒），老任务结算释放时按创建序唤醒，跨批不再插队；进度清单变更从回执记录时移到轮次结算时应用，被忽略的重复回执不再改动清单；`kanban_receipt` 支持模型侧稳定幂等键（恢复重试后同键同文去重，同键不同文给出明确冲突诊断，不再伪造版本冲突）；旧计划 continue_work 不再给看板任务插入伪 plan step。看板详情对话投影落地：新增 `durable_attempt_activities` 表，每轮 runner 返回时快照工具活动与模型最终回复，bundle 暴露 `attempts` 字段，详情页按轮渲染执行记录（工具时间线 + Markdown 回复），挂起审批残留的 running 工具卡读作 info；workDir 接入执行会话工作目录（`workingDirOverride` 从任务配置贯通 ChannelInboundMessage → runner cwd，优先于 Project rootPath）；成员模型与权限按 Spec L164 改为每次派发实时解析（成员 Agent 被禁用/删除立即阻断本轮并进入失败重试，成员快照类型移除冻结授权字段）；创建表单补齐 Agent／负责人／成员选择器（来自 Agent 列表复选）、Project 下拉、workDir、交接上限与人工验收开关；`boardPage` 每卡片 ~6 查询收敛为每表一次批查询；交接计数区分负责人纯调度——协调人派发/改派不再消耗成员交接上限（结算与运行前检查两处一致），成员间交接照常计数、超限挂起等用户。验证：durable store／kanban store／kanban runtime／plans service／channel 单测定向 node:test 198 项通过（新增创建序仲裁、活动投影与交接计数用例），根 tsc 与 desktop svelte-check 0 错误 0 警告。未验证：baseRuntime 成员实时解析与 workDir cwd 的完整 runner 运行时行为（无单测 harness 覆盖，仅类型与调用链走查）、真实模型长任务端到端、全量与原生验收。`queryable` probe 保持未接线：生产工具当前不声明 queryable 副作用类，probe 基建（注入与恢复探测）已有测试覆盖，待真实外部工具接入时再配。
 
@@ -49,6 +65,22 @@ Pi 标准授权与输入在所属 Desktop 聊天弹窗，自定义终端入口�
 原生交互无 Desktop 客户端时快速失败，断连及无人应答有明确期限；Web 设置可切换运行方式，后台终端由用户主动打开。会话永久清除同步删除原生上下文与缓存；Git 子目录保留根依赖，原生会话接入已配置聊天模型。普通失败仍需核对副作用，环境继承和备份范围见 [Pi 扩展说明](docs/features/pi-extensions.md)。
 
 验证：本地回归覆盖无客户端、断连、应答期限、模型切换、受控 `!` shell、清理与重启发现；真实 Runner 验证模型预算和归属。实际第三方包、Windows、付费模型和原生安装包仍待验证。
+
+## 2026-11-07 — 首页通知中心降噪
+
+- 通知中心与首页工作区按"安静、紧凑、突出内容"重做：`.agent-home-work-card` 由带边框卡片网格降为发丝分隔线平面行（单列、标题左/时间右、两行截断）；删除提示段落、类型徽章、Agent/系统任务前缀、反思统计长句、素材计数句、审批 goal/scope 行、跨渠道文字渠道名与"委托计划"徽章；"已阅收起"更名"已阅"。每日摘要（`handover-summary`）保留为一行计数，标语标题（`homePrepared`）与死代码 `windowLabel` 及对应 i18n 键、CSS 规则移除。
+- 验证：`desktop:check` 无新增错误；agent-home（27 项）、agent-home-cards、memory-reflection-home Playwright 实跑全部通过，并按新交互更新断言（渠道用图标表达、标题行 clamp 2 行、已阅按钮名）。
+
+## 2026-11-07 — 首页通知中心
+
+- 首页工作区改为标准化通知中心（`notifications.sqlite` 的 `home_notifications` 表）：type 区分记忆整理/每日素材/任务完成/任务失败/待处理审批/计划完成/跨渠道未读七类卡片，payload 携带类型化字段，详情按 ref 指针回原系统解析；已读状态服务端存储并覆盖全部卡片（委托区不再显示已完成计划，`homeWork.ts` 的 localStorage 收据层已删除），首页只列未读，已阅/全部已阅即收起，read/resolved 保留 30 天。
+- 记忆整理卡内联 AgentHomeMemory 确认面板（多条未读时只有最新一行展开面板，旧行只保留已阅）；反思失败与结果统计保留，实时计数更新不覆盖它们。memory-review 通知由反思运行、启动回填、handover reconcile 三层保证"有候选必有行"，与反思统计同 dedupe key（`memory-review:owner:<localDate>`）不重复；已读行在当日待确认数严格增长时重开一次（确认使计数下降不重开）；待确认与技能草稿全部被处理完（含在记忆中心确认）后，未读行由 handover reconcile 自动 resolve，首页不残留无数据可看的空卡（失败行保留失败标记直到已阅），服务端按 `rowid` 决断同毫秒排序。启动回填的技能草稿数按独立 skills 查询统计（原先恒为 0）。任务成功/失败行由事件调度器终态回调写入（internal 事件除外，纯文本提醒除外）；项目 watcher 的任务终态不进 owner 首页。
+- 审批挂起镜像为 `action-required` 行（dedupe `pending:<item.id>`），批准/拒绝/决策选项/计划模式动作经 live `handover.pending` 匹配执行（快照不含 expectedVersion，避免版本漂移重开卡片），离开待处理由 handover reconcile 置 resolved；跨渠道未读为单行 `cross-channel:owner`，计数或最新回复变化才重新未读，且 reconcile 不因聚合短暂消失而 resolve（否则已解析行永不复活，会永久静音后续回复），只有已阅结束该行；计划完成为 `plan-completed:<planId>`，只记录 7 天内完成，通知与委托区各出现一次而非两处已阅。`record()` 对相同 payload 不写库，已阅行不会被周期 reconcile 重开；`GET /api/desktop/handover` 的 reconcile 写副作用已在端点注释说明。
+- 验证：`homeNotifications`（存储 round-trip、排序稳定性、reconcile 与重开语义）10 项、`events` 终态回调（成功/失败转发、internal 跳过）18 项、`desktopMemory` 8 项、`desktopHandover` 26 项、`candidateStore` 与 `taskScheduler` 相关用例全部通过（`homeNotifications` 连续 5 次复跑无抖动）；`pnpm check` 与 `desktop:check` 无错误无警告；agent-home（27 项）、agent-home-cards、memory-reflection-home Playwright 用例实跑全部通过。原首页"等你决定"卡片区与跨渠道信号卡已撤除。`pnpm desktop:test` 存在 3 个与本切片无关文件的既有失败（agentActivityPolling、commandSystem），不在本次验证范围。
+
+## 2026-11-07 — 首页待确认记忆覆盖项目记忆
+
+- 首页记忆确认面板在 Agent 与 owner 命名空间之外，同样列出 owner 全部项目（`project:<owner>:` 前缀）的待确认候选，与每日反思统计口径一致；其他 owner 的项目候选不进首页。项目候选显示“项目记忆 · 待确认”标签，确认/忽略/编辑及新旧对照在首页完成；对照读取用候选所属项目的 scope 解析原记忆。历史行为（2026-11-01 起）为项目候选只在记忆中心确认，首页计数却包含它们。
 
 ## 2026-11-03 — 记忆整理统计统一
 
@@ -488,9 +520,11 @@ Pi 标准授权与输入在所属 Desktop 聊天弹窗，自定义终端入口�
 
 验证：读模型用例 8 项、`GET/POST /api/desktop/handover` 3 项（窗口切换、上一代快照、导航保存不丢字段、审批幂等与源会话同步、Plan 首批准入）、cron 下次触发 3 项、设置整对象 round-trip 与 sanitizer 4 项、隔离实例 WebKit `tests/ui/agent-home.spec.ts` 10 项（含中英、明暗、窄窗、服务中断保留内容）通过；根 `pnpm check`、`pnpm desktop:check` 与 `pnpm build` 通过。未执行全量 `pnpm verify:feature`、原生 App 与真实渠道验收。边界：`PA-HD11`（Open Loop）按方案未进入 V1；模型润色未实现（V1 默认关闭，不提供开启入口）；普通运行没有步骤级进度，条目只显示任务摘要与时长；散落产物没有统一索引。
 
-## 2026-10-21 — 会话顶栏 Agent 标识与历史导航
+## 2026-11-08 — 会话顶栏 Agent 标识与历史导航
 
-已有会话标题旁显示 Agent 名称，保留渠道来源；顶栏 History2（Duotone）按钮打开当前 Agent 的全部对话，未归属会话打开未归属历史。可输入的 Web 会话不显示刷新；外部只读会话的刷新按钮位于底部只读提示旁。外部会话顶栏依据外部会话身份显示操作，不受本地草稿状态影响。
+已有会话标题旁显示 Agent 名称，保留渠道来源；顶栏 History（Outline）按钮以右侧浮层展开当前 Agent 的会话列表，未归属会话查询未归属历史。浮层复用调用记录详情的遮罩与滑入滑出动效，通过共享 Dialog 管理焦点，不改变聊天布局或文件 Inspector；列表复用共享会话行，支持搜索、来源筛选、分页、右键操作与当前会话高亮；切换会话后保留列表和各自草稿，点击遮罩、关闭按钮或按 Esc 收起。Agent 首页及侧栏的完整历史页保留批量管理。可输入的 Web 会话不显示刷新；外部只读会话的刷新按钮位于底部只读提示旁。外部会话顶栏依据外部会话身份显示操作，不受本地草稿状态影响。
+
+验证：Chromium／WebKit 定向用例覆盖首次打开、连续切换、分页、来源筛选、搜索空结果与失败恢复、中英明暗、窄窗及隔离服务重启；桌面类型检查 0 错误 0 警告，相关静态守卫 13 项通过；浮层不改变聊天宽度，重复开关、遮罩关闭、焦点返回与抽屉动效通过定向 UI 验证。原生 Tauri 与当前用户实例未验证。
 
 ## 2026-10-21 — 计划页连接提示布局修复
 

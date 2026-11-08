@@ -1,7 +1,5 @@
 <script lang="ts">
-  import ChatDots from "reicon-svelte/icons/ChatDots";
   import CalendarCheck from "reicon-svelte/icons/CalendarCheck";
-  import { CHANNEL_LOGOS } from "./activityIcons";
   import MoonSleep from "reicon-svelte/icons/MoonSleep";
   import Run from "reicon-svelte/icons/Run";
   import Check from "reicon-svelte/icons/Check";
@@ -9,12 +7,10 @@
   import Minus from "reicon-svelte/icons/Minus";
   import CircleInfo from "reicon-svelte/icons/CircleInfo";
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
-  import { untrack, type Snippet } from "svelte";
-  import { hasUnreadCrossChannel, readHomeReceipts, markHomeReceipt } from "./homeWork";
+  import { type Snippet } from "svelte";
   import AgentConversationRow from "./AgentConversationRow.svelte";
   import HomeTaskResult from "./HomeTaskResult.svelte";
-  import AgentHomeWork from "./AgentHomeWork.svelte";
-  import AgentHomeMemory from "./AgentHomeMemory.svelte";
+  import AgentHomeInbox from "./AgentHomeInbox.svelte";
   import AgentHomeDelivery from "./AgentHomeDelivery.svelte";
   import AgentAvatar from "../components/ui/AgentAvatar.svelte";
   import Button from "../components/ui/Button.svelte";
@@ -28,8 +24,6 @@
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import { agentActivityLabel } from "./agentActivity";
-
-  let wideDashboard = $state(false);
 
   let {
     activity,
@@ -110,7 +104,6 @@
 
   let openedResult = $state<DesktopHandoverItem | null>(null);
   let itemsExpanded = $state(false);
-  let pendingExpanded = $state(false);
   let executionsExpanded = $state(false);
   let executionDetailsOpen = $state(false);
   let memorySeen = $state(false);
@@ -122,7 +115,6 @@
   });
   /** The hero plus three compact rows is a glance; the rest is one click away. */
   const RESULT_PREVIEW = 3;
-  const PENDING_PREVIEW = 3;
 
   const activityStatus = $derived(agent.enabled === false ? "disabled" : !activityReady ? "unknown" : activity?.status ?? "idle");
   const activityLabel = $derived(agentActivityLabel(agent.enabled !== false, activity, activityReady, copy));
@@ -143,45 +135,8 @@
   const restItems = $derived(completedItems.filter((item) => item !== heroItem));
   const visibleRest = $derived(itemsExpanded ? restItems : restItems.slice(0, RESULT_PREVIEW));
   const hiddenRest = $derived(Math.max(0, restItems.length - RESULT_PREVIEW));
-  const visiblePending: DesktopHandoverPending[] = $derived(pendingExpanded
-    ? (handover?.pending ?? [])
-    : (handover?.pending ?? []).slice(0, PENDING_PREVIEW));
-  const hiddenPending = $derived(Math.max(0, (handover?.pending.length ?? 0) - PENDING_PREVIEW));
 
   const displayCounts = $derived(showingPrevious && handover?.previous ? handover.previous.counts : handover?.counts ?? { completed: 0, failed: 0, pending: 0, recovered: 0 });
-  let crossChannelSeen = $state<string | undefined>();
-  let crossChannelReadError = $state(false);
-  $effect(() => {
-    const key = `molibot-home-read:${endpoint}`;
-    const id = `cross-channel:${agentId}`;
-    crossChannelReadError = false;
-    untrack(() => {
-      try { crossChannelSeen = readHomeReceipts(localStorage.getItem(key))[id]; } catch { crossChannelSeen = undefined; }
-    });
-    const sync = (event: StorageEvent) => { if (event.key === key) crossChannelSeen = readHomeReceipts(event.newValue)[id]; };
-    window.addEventListener('storage', sync);
-    return () => window.removeEventListener('storage', sync);
-  });
-  const crossChannel = $derived(hasUnreadCrossChannel(handover?.crossChannel, crossChannelSeen) ? handover?.crossChannel : undefined);
-  function openCrossChannelHistory(): void {
-    if (crossChannel && !handoverStale) {
-      try {
-        const key = `molibot-home-read:${endpoint}`;
-        const next = markHomeReceipt(readHomeReceipts(localStorage.getItem(key)), `cross-channel:${agentId}`, crossChannel.latestAt);
-        localStorage.setItem(key, JSON.stringify(next));
-        crossChannelSeen = crossChannel.latestAt;
-        crossChannelReadError = false;
-      } catch { crossChannelReadError = true; }
-    }
-    onHistory();
-  }
-  const crossChannelMeta = $derived(crossChannel
-    ? [
-        crossChannel.channels.map(channelLabel).join(locale === "zh-CN" ? "、" : ", "),
-        formatTime(crossChannel.latestAt)
-      ].filter(Boolean).join(" · ")
-    : "");
-
   /**
    * A quiet day is not a briefing. With nothing to report the page is the same
    * start form every other Agent uses; only a live generation or the frozen
@@ -201,14 +156,6 @@
     if (liveRun.channel) parts.push(channelLabel(liveRun.channel));
     return parts.filter(Boolean).join(" · ");
   });
-  const windowLabel = $derived.by(() => {
-    if (!handover) return "";
-    const now = formatTime(handover.generatedAt);
-    if (!handover.lastAcknowledgedAt) return copy.handoverGenerated.replace("{now}", now);
-    return copy.handoverWindow
-      .replace("{left}", formatTime(handover.lastAcknowledgedAt))
-      .replace("{now}", now);
-  });
 
   const taskSummary = $derived.by(() => {
     if (!handover) return "";
@@ -218,7 +165,7 @@
         .replace("{pending}", String(displayCounts.pending));
     }
     if (displayCounts.completed === 0 && displayCounts.failed === 0 && displayCounts.pending === 0) {
-      return crossChannel ? copy.handoverSummaryCrossOnly : "";
+      return "";
     }
     if (displayCounts.completed === 0 && displayCounts.failed === 0) {
       return copy.handoverSummaryPendingOnly.replace("{pending}", String(displayCounts.pending));
@@ -290,17 +237,6 @@
     onHandoverOpen?.({ sessionId: item.sessionId, channel: item.channel, title: itemLabel(item), agentId: item.agentId });
   }
 
-  function openPending(item: DesktopHandoverPending): void {
-    onHandoverOpen?.({
-      sessionId: item.sessionId,
-      channel: item.channel,
-      title: item.title,
-      agentId: item.agentId,
-      planId: item.planId,
-      executionId: item.executionId
-    });
-  }
-
   /**
    * Arrow keys move between cards, so the brief can be read without leaving the
    * keyboard; focus also unclips a failure diagnostic (CSS `:focus-within`).
@@ -356,53 +292,6 @@
     if (item.nextRunAt) parts.push(copy.handoverNextRun.replace("{time}", formatTime(item.nextRunAt)));
     return parts.join(" · ");
   }
-
-  function pendingMeta(item: DesktopHandoverPending): string {
-    const parts: string[] = [];
-    const reason = pendingReason(item);
-    if (reason) parts.push(reason);
-    if (item.agentId && item.agentId !== agentId) parts.push(copy.handoverFromAgent.replace("{agent}", agentLabel(item.agentId)));
-    return parts.join(" · ");
-  }
-
-  function pendingReason(item: DesktopHandoverPending): string {
-    if (item.waitKind === "approval") return copy.handoverWaitApproval;
-    if (item.waitKind === "recovery") return copy.handoverWaitRecovery;
-    return "";
-  }
-
-  function pendingKindLabel(item: DesktopHandoverPending): string {
-    if (item.kind === "approval") return copy.handoverKindApproval;
-    if (item.kind === "decision") return copy.handoverKindDecision;
-    if (item.kind === "plan") return copy.handoverKindPlan;
-    return copy.handoverKindRun;
-  }
-
-  function optionLabel(option: string): string {
-    if (option === "confirm_completion") return copy.handoverOptionConfirmCompletion;
-    if (option === "continue_work") return copy.handoverOptionContinueWork;
-    return option;
-  }
-
-  function measureDashboard(node: HTMLElement) {
-    let frame = 0;
-    const observer = new ResizeObserver(([entry]) => {
-      cancelAnimationFrame(frame);
-      // Reordering the sections can change height; publish after observer delivery.
-      frame = requestAnimationFrame(() => { wideDashboard = entry.contentRect.width >= 960; });
-    });
-    observer.observe(node);
-    return {
-      destroy() {
-        observer.disconnect();
-        cancelAnimationFrame(frame);
-      }
-    };
-  }
-
-  function pendingOpens(item: DesktopHandoverPending): boolean {
-    return Boolean(item.sessionId || item.planId || item.executionId);
-  }
 </script>
 
 {#snippet recentConversations(showEmpty: boolean)}
@@ -430,15 +319,6 @@
       {/each}
     </div>
   {/if}
-{/snippet}
-
-{#snippet decisionColumn()}
-  <div class="agent-home-decisions-column">
-    {#if showMemory && memoryReview}
-      <AgentHomeMemory {locale} review={memoryReview} {endpoint} stale={handoverStale} {copy} {formatTime} onChanged={onMemoryChanged} {onOpenMemory} />
-    {/if}
-    {@render decisionsSection()}
-  </div>
 {/snippet}
 
 {#snippet resultsSection()}
@@ -508,68 +388,8 @@
 
 {/snippet}
 
-{#snippet decisionsSection()}
-    {#if (handover?.pending.length ?? 0) > 0}
-      <section class="agent-home-band agent-home-decisions" aria-labelledby="home-decisions-title" data-testid="handover-pending">
-        <div class="agent-home-band-head">
-          <h2 class="agent-home-band-label" id="home-decisions-title">{copy.handoverPendingHeading}</h2>
-          <span class="agent-home-band-count">{(handover?.pending.length ?? 0)}</span>
-        </div>
-        <div class="agent-home-cards">
-          {#each visiblePending as item (item.id)}
-            {@const meta = pendingMeta(item)}
-            <article class="agent-home-card" data-handover-row data-kind={item.kind}>
-              <div class="agent-home-card-head">
-                <span class="agent-home-chip" class:warn={item.kind === "approval"}>{pendingKindLabel(item)}</span>
-                <time datetime={item.createdAt}>{formatTime(item.createdAt)}</time>
-              </div>
-              {#if pendingOpens(item)}
-                <button type="button" class="agent-home-card-title" onclick={() => openPending(item)}>{item.title || copy.handoverPendingRun}</button>
-              {:else}
-                <h3>{item.title || copy.handoverPendingRun}</h3>
-              {/if}
-              {#if meta}<p class="agent-home-card-meta">{meta}</p>{/if}
-              {#if item.goal}<p class="agent-home-card-context"><span>{copy.handoverDecisionGoal}</span>{item.goal}</p>{/if}
-              {#if item.scope && item.scope !== item.detail}<p class="agent-home-card-context"><span>{copy.handoverDecisionScope}</span>{item.scope}</p>{/if}
-              {#if item.detail}
-                {#if item.kind === "approval"}
-                  <details class="agent-home-command"><summary>{copy.handoverCommandDetails}</summary><pre class="agent-home-cmd">{item.detail}</pre></details>
-                {:else}
-                  <p class="agent-home-card-body">{item.detail}</p>
-                {/if}
-              {/if}
-              {#if item.kind === "approval" && item.actionable && item.requestId}
-                <div class="agent-home-card-actions">
-                  <Button variant="primary" disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverResolve?.([item], "approve_once")}>{copy.handoverApproveOnce}</Button>
-                  <Button disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverResolve?.([item], "reject")}>{copy.handoverReject}</Button>
-                </div>
-              {:else if item.kind === "decision"}
-                <div class="agent-home-card-actions">
-                  {#each item.options ?? [] as option (option)}
-                    <Button disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverAnswer?.(item, option)}>{optionLabel(option)}</Button>
-                  {/each}
-                </div>
-              {:else if item.kind === "plan"}
-                <div class="agent-home-card-actions">
-                  <Button disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverPlan?.(item, "manual")}>{copy.handoverManualMode}</Button>
-                  <Button disabled={handoverStale || handoverBusyId === item.id} onclick={() => onHandoverPlan?.(item, "accept_edits")}>{copy.handoverAcceptEditsMode}</Button>
-                </div>
-              {/if}
-            </article>
-          {/each}
-        </div>
-        {#if hiddenPending > 0}
-          <button type="button" class="agent-home-more" aria-expanded={pendingExpanded} onclick={() => (pendingExpanded = !pendingExpanded)}>
-            {pendingExpanded ? copy.handoverCollapseItems : copy.handoverShowMorePending.replace("{count}", String(hiddenPending))}
-          </button>
-        {/if}
-      </section>
-    {/if}
-
-{/snippet}
-
 {#snippet work()}
-  {#if handover && endpoint}<AgentHomeWork {endpoint} {locale} stale={handoverStale} revision={handover.generatedAt} {formatTime} {onPlans} {onTasks} {onFiles} {onResultFile} {agentLabel} />{/if}
+  {#if handover && endpoint}<AgentHomeInbox {endpoint} {locale} stale={handoverStale} revision={handover.generatedAt} {formatTime} {copy} memoryReview={showMemory ? memoryReview : undefined} pending={handover.pending} busyId={handoverBusyId} onResolve={onHandoverResolve} onAnswer={onHandoverAnswer} onPlan={onHandoverPlan} onOpen={onHandoverOpen} onHistory={onHistory} {onPlans} {onTasks} {onFiles} {onResultFile} {onMemoryChanged} {onOpenMemory} />{/if}
 {/snippet}
 
 {#if loadingHandover}
@@ -621,19 +441,13 @@
       </div>
     {/if}
 
-    {#if displayItems.length || handover.pending.length || showMemory || crossChannel || handover.nextScheduled}
-      <div class="agent-home-work-heading"><h2>{copy.homePrepared}</h2><p class="agent-home-meta" data-testid="handover-summary">{handoverSummary}</p></div>
+    {#if handoverSummary}
+      <div class="agent-home-work-heading"><p class="agent-home-meta" data-testid="handover-summary">{handoverSummary}</p></div>
     {/if}
 
-    {#if heroItem || handover.pending.length || showMemory}
-    <div class="agent-home-dashboard" class:has-results={Boolean(heroItem)} class:has-decisions={Boolean(handover.pending.length || showMemory)} use:measureDashboard>
-      {#if wideDashboard}
-        {@render resultsSection()}
-        {@render decisionColumn()}
-      {:else}
-        {@render decisionColumn()}
-        {@render resultsSection()}
-      {/if}
+    {#if heroItem}
+    <div class="agent-home-dashboard">
+      {@render resultsSection()}
     </div>
     {/if}
 
@@ -700,28 +514,16 @@
       </section>
     {/if}
 
-    {#if crossChannelReadError}<p class="agent-home-handover-stale" role="alert">{locale === "zh-CN" ? "回复提醒的已阅状态保存失败，请重试。" : "Could not save read status for replies. Please retry."}</p>{/if}
-    {#if crossChannel || handover.nextScheduled}
+    {#if handover.nextScheduled}
       <div class="agent-home-signals">
-        {#if crossChannel}
-          <article class="agent-home-signal" data-testid="handover-cross-channel">
-            <span class="agent-home-signal-icon" aria-hidden="true"><ChatDots size={16} /></span>
-            <h2 class="agent-home-signal-title">{copy.handoverCrossChannel.replace("{count}", String(crossChannel.count))}</h2>
-            <span class="agent-home-signal-meta">{crossChannelMeta}</span>
-            {#if crossChannel.channels.length}<span class="agent-home-signal-platforms" aria-hidden="true">{#each crossChannel.channels as channel}{#if CHANNEL_LOGOS[channel]}<img src={CHANNEL_LOGOS[channel]} alt="" width="16" height="16" />{/if}{/each}</span>{/if}
-            <button type="button" class="agent-home-signal-action" onclick={openCrossChannelHistory}>{copy.handoverCrossChannelOpen}<ArrowRight size={13} aria-hidden="true" /></button>
-          </article>
-        {/if}
-        {#if handover.nextScheduled}
-          {#each handover.nextScheduledItems ?? [handover.nextScheduled] as schedule}
-          <article class="agent-home-signal" aria-label={copy.handoverBandNext}>
-            <span class="agent-home-signal-icon" aria-hidden="true"><CalendarCheck size={16} /></span>
-            <h2 class="agent-home-signal-title">{schedule.title}</h2>
-            <span class="agent-home-signal-meta">{copy.handoverBandNext} · {formatTime(schedule.at)}</span>
-            <span class="agent-home-signal-meta">{schedule.source === "durable" ? copy.handoverKindPlan : copy.handoverKindTask}</span>
-          </article>
-          {/each}
-        {/if}
+        {#each handover.nextScheduledItems ?? [handover.nextScheduled] as schedule}
+        <article class="agent-home-signal" aria-label={copy.handoverBandNext}>
+          <span class="agent-home-signal-icon" aria-hidden="true"><CalendarCheck size={16} /></span>
+          <h2 class="agent-home-signal-title">{schedule.title}</h2>
+          <span class="agent-home-signal-meta">{copy.handoverBandNext} · {formatTime(schedule.at)}</span>
+          <span class="agent-home-signal-meta">{schedule.source === "durable" ? copy.handoverKindPlan : copy.handoverKindTask}</span>
+        </article>
+        {/each}
       </div>
     {/if}
 

@@ -83,6 +83,34 @@ test("background direct provider calls carry the session affinity header", async
   }
 });
 
+test("direct provider usage follows the shared ledger contract on both protocols", async (t) => {
+  const history = [{ id: "m1", conversationId: "c1", role: "user", content: "hi", createdAt: "2026-10-26T00:00:00.000Z" }] as never;
+  const settings = { defaultThinkingLevel: "off", systemPrompt: "system", maxOutputTokens: 100 } as never;
+  const provider = (protocol: CustomProviderConfig["protocol"]): CustomProviderConfig => ({
+    id: "fixture", name: "Fixture", enabled: true, protocol, baseUrl: "https://example.invalid",
+    apiKey: "test-key", models: [], defaultModel: "model", path: "/v1/chat/completions"
+  });
+
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
+    choices: [{ message: { content: "ok" } }],
+    usage: { prompt_tokens: 1000, completion_tokens: 50, total_tokens: 1050, prompt_tokens_details: { cached_tokens: 800 } }
+  }), { status: 200 }));
+  // prompt_tokens includes the cached prefix: uncached input is 200, never 1000 + 800.
+  assert.deepEqual((await callDirectCustomProvider(provider("openai-compatible"), "model", history, settings, "")).usage, {
+    input: 200, output: 50, cacheRead: 800, cacheWrite: 0, totalTokens: 1050
+  });
+
+  t.mock.restoreAll();
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
+    content: [{ type: "text", text: "ok" }],
+    usage: { input_tokens: 20, output_tokens: 30, cache_read_input_tokens: 900, cache_creation_input_tokens: 100 }
+  }), { status: 200 }));
+  // Anthropic reports cache separately from input_tokens; the total must include it.
+  assert.deepEqual((await callDirectCustomProvider(provider("anthropic"), "model", history, settings, "")).usage, {
+    input: 20, output: 30, cacheRead: 900, cacheWrite: 100, totalTokens: 1050
+  });
+});
+
 test("MiMo Anthropic path preserves the /anthropic prefix for SDK baseUrl", () => {
   assert.equal(
     buildAnthropicBaseUrl(

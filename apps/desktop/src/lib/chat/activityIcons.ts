@@ -26,6 +26,7 @@ import PuzzlePiece from "reicon-svelte/icons/PuzzlePiece";
 import Soundwave from "reicon-svelte/icons/Soundwave";
 import Sparkle from "reicon-svelte/icons/Sparkle";
 import TerminalSquare from "reicon-svelte/icons/TerminalSquare";
+import Wifi from "reicon-svelte/icons/Wifi";
 import type { ReiconComponent } from "../components/ui/iconTypes";
 import type { DesktopConversationSearchSource } from "@molibot/desktop-contract";
 import type { ActivityGroupAction, ActivityToolIconName } from "./activityView";
@@ -45,6 +46,7 @@ export const ACTIVITY_TOOL_ICONS: Record<ActivityToolIconName, ReiconComponent> 
   plugin: PuzzlePiece,
   image: Image,
   audio: Soundwave,
+  wifi: Wifi,
   tool: Component
 };
 

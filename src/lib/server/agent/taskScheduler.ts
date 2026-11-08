@@ -403,7 +403,8 @@ export class TaskScheduler {
     private readonly projectTasks: {
       list: () => Array<{ id: string; name: string }>;
       workspaceDir: (projectId: string) => string;
-    } = { list: () => getProjectStore().list(), workspaceDir: projectWorkspaceDir }
+    } = { list: () => getProjectStore().list(), workspaceDir: projectWorkspaceDir },
+    private readonly onTaskTerminal?: import("$lib/server/agent/events.js").EventsWatcherOptions["onTaskTerminal"]
   ) {}
 
   start(channelManagers: Map<string, Map<string, ChannelManager>>, settings?: RuntimeSettings): void {
@@ -431,7 +432,8 @@ export class TaskScheduler {
         getExecutionSettings: () => settings?.events ?? { executionTimeoutMs: 600_000, maxAttempts: 3, retryDelayMs: 5000 },
         onSkip: ({ event, filename, reason }) => {
           if (event.execution === "internal") this.onInternalEventSkipped?.(event, filename, reason);
-        }
+        },
+        onTaskTerminal: this.onTaskTerminal
       }
     );
     ownerWatcher.start();
@@ -463,6 +465,8 @@ export class TaskScheduler {
               });
               projectTaskManager.abortProjectTaskRun?.(runId, "Scheduled Project event attempt timed out.");
             }
+            // No onTaskTerminal: project task results belong to the project's
+            // own pages, not the owner's home notification center.
           }
         );
         watcher.start();
@@ -492,7 +496,8 @@ export class TaskScheduler {
           return managerFor(event) ? undefined : "delivery_target_missing";
         },
         getExecutionSettings: () => settings?.events ?? { executionTimeoutMs: 600_000, maxAttempts: 3, retryDelayMs: 5000 },
-        onTimeout: ({ event }) => { managerFor(event)?.abortTaskRun?.(event.deliveryTarget!.chatId, "Scheduled event attempt timed out."); }
+        onTimeout: ({ event }) => { managerFor(event)?.abortTaskRun?.(event.deliveryTarget!.chatId, "Scheduled event attempt timed out."); },
+        onTaskTerminal: this.onTaskTerminal
       });
       watcher.start();
       this.watchers.push(watcher);

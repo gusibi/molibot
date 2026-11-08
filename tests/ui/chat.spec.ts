@@ -150,7 +150,7 @@ test('editable Web sessions omit refresh and settled turns stay silent @chat', a
   await expectReply(page, `REPLY:${settled}`);
   await expect(refresh).toHaveCount(0);
   await expect(page.locator(".chat-agent-label")).toHaveText("Momo");
-  await expect(page.getByRole("button", { name: "Agent conversations", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Context window", exact: true })).toBeVisible();
   await expect(page.locator('.conversation-system-status')).toHaveCount(0);
 
   const failing = uniqueToken();

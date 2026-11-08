@@ -208,14 +208,22 @@ export class MemoryCandidateStore {
   }
 
   /** Filter in storage before bounding the result; unrelated namespaces cannot crowd out reviewable items. */
-  listReviewCandidates(namespaces: string[], limit = 11, skills = false): MemoryCandidate[] {
-    if (!namespaces.length) return [];
+  listReviewCandidates(namespaces: string[], limit = 11, skills = false, namespacePrefixes: string[] = []): MemoryCandidate[] {
+    const safePrefixes = namespacePrefixes.filter(prefix => typeof prefix === "string" && prefix.length > 0);
+    if (!namespaces.length && !safePrefixes.length) return [];
     const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+    const namespaceIn = namespaces.length
+      ? `json_extract(payload_json, '$.namespace') IN (${namespaces.map(() => "?").join(",")})`
+      : "0";
+    const namespaceMatch = safePrefixes.length
+      // substr, not LIKE: prefix matching is case-sensitive, like the IN list.
+      ? `(${namespaceIn} OR ${safePrefixes.map(() => "substr(json_extract(payload_json, '$.namespace'), 1, length(?)) = ?").join(" OR ")})`
+      : namespaceIn;
     const rows = this.db.prepare(`SELECT * FROM memory_candidates
       WHERE status = 'pending'
-        AND json_extract(payload_json, '$.namespace') IN (${namespaces.map(() => "?").join(",")})
+        AND ${namespaceMatch}
         AND ${skills ? "json_extract(payload_json, '$.skillDraftSuggestion') IS NOT NULL" : "json_extract(payload_json, '$.type') != 'skill' AND json_extract(payload_json, '$.skillDraftSuggestion') IS NULL"}
-      ORDER BY created_at DESC, id DESC LIMIT ?`).all(...namespaces, safeLimit);
+      ORDER BY created_at DESC, id DESC LIMIT ?`).all(...namespaces, ...safePrefixes.flatMap(prefix => [prefix, prefix]), safeLimit);
     return (rows as CandidateRow[]).map(parseRow);
   }
 

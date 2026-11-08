@@ -62,11 +62,22 @@ function textFromBlocks(content: unknown): string {
 // threshold trigger far too late for Chinese conversations.
 const CJK_CHAR_PATTERN = /[\u1100-\u11ff\u2e80-\u9fff\ua960-\ua97f\uac00-\ud7ff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/g;
 
-function countTextTokens(text: string): number {
+export function countTextTokens(text: string): number {
   if (!text) return 0;
   const cjkCount = (text.match(CJK_CHAR_PATTERN) ?? []).length;
   const otherCount = text.length - cjkCount;
   return cjkCount + Math.ceil(otherCount / 4);
+}
+
+export interface CompactionUsageReceipt {
+  provider: string;
+  model: string;
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens?: number;
+  cost?: { total?: number };
 }
 
 export function estimateMessageTokens(message: AgentMessage): number {
@@ -395,10 +406,11 @@ async function generateSummaryWithRetry(options: {
   previousSummary?: string;
   signal?: AbortSignal;
   streamFn?: StreamFn;
+  onUsage?: (receipt: CompactionUsageReceipt) => void;
 }): Promise<string> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const { text } = await generateSummaryWithUsage(
+      const { text, usage } = await generateSummaryWithUsage(
         options.messages,
         options.model,
         undefined,
@@ -415,6 +427,18 @@ async function generateSummaryWithRetry(options: {
           maxTokens: Math.min(model.maxTokens ?? MAX_SUMMARY_TOKENS, MAX_SUMMARY_TOKENS)
         })
       );
+      if (usage && options.onUsage) {
+        options.onUsage({
+          provider: options.model.provider,
+          model: options.model.id,
+          input: usage.input,
+          output: usage.output,
+          cacheRead: usage.cacheRead,
+          cacheWrite: usage.cacheWrite,
+          totalTokens: usage.totalTokens,
+          cost: usage.cost
+        });
+      }
       return text.trim();
     } catch (error) {
       if (options.signal?.aborted) return "";
@@ -501,6 +525,7 @@ async function generateTurnPrefixSummary(options: {
   apiKey?: string;
   signal?: AbortSignal;
   streamFn?: StreamFn;
+  onUsage?: (receipt: CompactionUsageReceipt) => void;
 }): Promise<string> {
   if (options.messages.length === 0) return "";
   const conversation = serializeConversation(convertToLlm(options.messages));
@@ -525,6 +550,18 @@ async function generateTurnPrefixSummary(options: {
     // message rather than reassembling deltas.
     const message = await (stream as unknown as { result: () => Promise<AssistantMessage> }).result();
     if (message?.stopReason === "error") return "";
+    if (message?.usage && options.onUsage) {
+      options.onUsage({
+        provider: options.model.provider,
+        model: options.model.id,
+        input: message.usage.input,
+        output: message.usage.output,
+        cacheRead: message.usage.cacheRead,
+        cacheWrite: message.usage.cacheWrite,
+        totalTokens: message.usage.totalTokens,
+        cost: message.usage.cost
+      });
+    }
     const text = (Array.isArray(message?.content) ? message.content : [])
       .filter((part): part is { type: "text"; text: string } =>
         Boolean(part) && (part as { type?: unknown }).type === "text"
@@ -547,6 +584,7 @@ export async function compactContextMessages(options: {
   signal?: AbortSignal;
   /** Overrides the shared pi runtime stream; used by tests. */
   streamFn?: StreamFn;
+  onUsage?: (receipt: CompactionUsageReceipt) => void;
 }): Promise<ContextCompactionResult> {
   const beforeTokens = estimateContextTokens(options.messages);
   const firstKeptIndex = options.reason === "manual"
@@ -624,7 +662,8 @@ export async function compactContextMessages(options: {
         customInstructions: options.customInstructions,
         previousSummary: previousSummaryText,
         signal: options.signal,
-        streamFn: options.streamFn
+        streamFn: options.streamFn,
+        onUsage: options.onUsage
       })
     : "";
 
@@ -638,7 +677,8 @@ export async function compactContextMessages(options: {
       model: options.model,
       apiKey: options.apiKey,
       signal: options.signal,
-      streamFn: options.streamFn
+      streamFn: options.streamFn,
+      onUsage: options.onUsage
     });
     if (prefixSummary) {
       // Same shape pi produces, so a split summary reads identically in either

@@ -79,6 +79,19 @@ function sumTokenTotals(facts: readonly { inputTokens?: number; outputTokens?: n
   return { ...totals, hitRate: promptSide > 0 ? totals.cacheRead / promptSide : null };
 }
 
+function buildSessionUsage(sessionFacts: readonly TraceFactRecord[]): TraceSessionUsage {
+  const sessionModels = sessionFacts.filter(f => f.factType === "model_call");
+  const sessionRuns = new Set(sessionFacts.filter(f => f.factType === "run").map(f => f.runId));
+  const firstCall = sessionModels.filter(f => f.startedAt).sort((a, b) => Date.parse(a.startedAt!) - Date.parse(b.startedAt!))[0];
+  const firstPromptTokens = firstCall ? (firstCall.inputTokens ?? 0) + (firstCall.cacheReadTokens ?? 0) + (firstCall.cacheWriteTokens ?? 0) : 0;
+  return {
+    runs: sessionRuns.size,
+    modelCalls: sessionModels.length,
+    tokens: sumTokenTotals(sessionModels),
+    ...(firstPromptTokens > 0 ? { firstPromptTokens } : {})
+  };
+}
+
 /** Scope is supplied by the authenticated host or the executing tool, never by the model. */
 export function queryTraceReport(store: SqliteTraceStore, target: TraceTarget, scope?: TraceScope, now = new Date()): TraceReport {
   const matches = (fact: TraceFactRecord) => !scope || (fact.channel === scope.channel && fact.botId === scope.botId && fact.chatId === scope.chatId && fact.sessionId === scope.sessionId);
@@ -106,10 +119,6 @@ export function queryTraceReport(store: SqliteTraceStore, target: TraceTarget, s
   // Session totals aggregate every recorded run of this conversation, so the
   // turn view can be read against the lifetime of the session it belongs to.
   const sessionFacts = store.listFactsBySessionId(root.sessionId).filter(matches);
-  const sessionModels = sessionFacts.filter(f => f.factType === "model_call");
-  const sessionRuns = new Set(sessionFacts.filter(f => f.factType === "run").map(f => f.runId));
-  const firstCall = sessionModels.filter(f => f.startedAt).sort((a, b) => Date.parse(a.startedAt!) - Date.parse(b.startedAt!))[0];
-  const firstPromptTokens = firstCall ? (firstCall.inputTokens ?? 0) + (firstCall.cacheReadTokens ?? 0) + (firstCall.cacheWriteTokens ?? 0) : 0;
   return {
     version: 1, generatedAt: now.toISOString(), runId: root.runId, status: root.status, startedAt: root.startedAt,
     durationMs: active && root.startedAt ? Math.max(0, now.getTime() - Date.parse(root.startedAt)) : root.durationMs,
@@ -117,7 +126,7 @@ export function queryTraceReport(store: SqliteTraceStore, target: TraceTarget, s
     totalTokens: hasUsage ? models.reduce((n, f) => n + (f.totalTokens ?? 0), 0) : null,
     usageComplete: models.length > 0 && models.every(f => f.totalTokens !== undefined) && facts.filter(f => f.factType === "subagent_task").every(task => models.some(model => model.parentFactId === `subagent_task:${task.factId}`)),
     tokens: sumTokenTotals(models),
-    session: { runs: sessionRuns.size, modelCalls: sessionModels.length, tokens: sumTokenTotals(sessionModels), ...(firstPromptTokens > 0 ? { firstPromptTokens } : {}) },
+    session: buildSessionUsage(sessionFacts),
     nodes: facts.map(f => ({
       id: nodeId(f), parentId: f.factType === "run" ? undefined : f.parentFactId ? `${f.runId}:${f.parentFactId}` : nodeId(root),
       factId: f.factId, factType: f.factType, name: f.name, provider: f.provider, model: f.model,
@@ -175,11 +184,24 @@ export function queryTurnTraceReport(store: SqliteTraceStore, runIds: string[], 
   const starts = reports.flatMap(r => r.startedAt ? [Date.parse(r.startedAt)] : []);
   const endTimes = reports.flatMap(r => r.startedAt && r.durationMs !== undefined ? [Date.parse(r.startedAt) + r.durationMs] : []);
   const tokens = sumTokenTotals(reports.flatMap(r => r.nodes).filter(node => node.factType === "model_call"));
+  const matches = (fact: TraceFactRecord) => !scope || (fact.channel === scope.channel && fact.botId === scope.botId && fact.chatId === scope.chatId && fact.sessionId === scope.sessionId);
+  const sessionIds = new Set<string>(scope?.sessionId ? [scope.sessionId] : []);
+  for (const runId of ids) {
+    const root = store.listFactsByRunId(runId).find(f => f.factType === "run" && matches(f));
+    if (root?.sessionId) sessionIds.add(root.sessionId);
+  }
+  const seenFacts = new Map<string, TraceFactRecord>();
+  for (const sessionId of sessionIds) {
+    for (const fact of store.listFactsBySessionId(sessionId).filter(matches)) {
+      seenFacts.set(`${fact.runId}:${fact.factType}:${fact.factId}`, fact);
+    }
+  }
+  const session = seenFacts.size > 0 ? buildSessionUsage([...seenFacts.values()]) : reports[0].session;
   return { ...reports[0], runId: ids.join(", "), startedAt: starts.length ? new Date(Math.min(...starts)).toISOString() : undefined,
     durationMs: starts.length === reports.length && endTimes.length === reports.length ? Math.max(...endTimes) - Math.min(...starts) : undefined,
     status: reports.some(r => r.status === "started" || r.status === "waiting") ? "started" : reports.every(r => r.status === "success") ? "success" : "warning",
     totalTokens: reports.some(r => r.totalTokens !== null) ? reports.reduce((n,r) => n + (r.totalTokens ?? 0), 0) : null,
     usageComplete: reports.every(r => r.usageComplete), modelCalls: reports.reduce((n,r) => n+r.modelCalls,0), toolCalls: reports.reduce((n,r) => n+r.toolCalls,0),
-    tokens, session: reports[0].session, nodes: reports.flatMap(r => r.nodes)
+    tokens, session, nodes: reports.flatMap(r => r.nodes)
   };
 }

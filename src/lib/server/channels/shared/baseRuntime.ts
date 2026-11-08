@@ -36,8 +36,7 @@ import { getProjectStore, validateProjectRootPath } from "$lib/server/projects/s
 import { ProjectAwareRunnerPool } from "$lib/server/channels/shared/projectRunnerRouter.js";
 import {
   activateDurableExecution,
-  formatDurableActivationAcknowledgement,
-  promoteDurableExecution
+  formatDurableActivationAcknowledgement
 } from "$lib/server/agent/durable/activation.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
 import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
@@ -759,6 +758,11 @@ export abstract class BaseChannelRuntime {
 
     const runner = target.pool.get(target.chatId, target.sessionId);
     let threadEventCount = 0;
+    const uiSessionId = event.uiSessionId?.trim();
+    const uiProjectConversation = selectedProject && uiSessionId
+      ? this.sessions.getProjectConversation(selectedProject.id, uiSessionId)
+      : null;
+    const scratchChatId = uiProjectConversation?.externalUserId || target.chatId;
     const ctx = buildTextChannelContext({
       channel: this.channelName as Channel,
       event,
@@ -769,7 +773,7 @@ export abstract class BaseChannelRuntime {
       sessions: this.sessions,
       instanceId: this.instanceId,
       activeSessionId,
-      project: buildRunnerProjectContext(selectedProject, target.store.getScratchDir(target.chatId)),
+      project: buildRunnerProjectContext(selectedProject, target.store.getScratchDir(scratchChatId)),
       workingDirOverride: event.workingDir,
       modelKeyOverride: memberAgent?.modelRouting?.textModelKey || selectedProject?.modelKey,
       thinkingLevelOverride: sessionThinkingOverride ?? selectedProject?.thinkingLevel,
@@ -809,64 +813,6 @@ export abstract class BaseChannelRuntime {
       consumeDurableApproval: options.consumeDurableApproval,
       readDurableEvidence: options.readDurableEvidence,
       submitKanbanReceipt: options.submitKanbanReceipt,
-      onDurablePromotion: event.isEvent
-        ? undefined
-        : async (input) => {
-            let promoted;
-            try {
-              promoted = promoteDurableExecution({
-                message: event.text,
-                ownerId: "owner",
-                botId: this.instanceId,
-                sourceChannel: this.channelName,
-                sourceChatId: scopeId,
-                sourceUiSessionId: activeSessionId,
-                sourceProjectId: selectedProject?.id,
-                decision: input.decision,
-                prefix: input.prefix,
-                currentEffect: input.effect
-              });
-            } catch (error) {
-              if (!(error instanceof DurableExecutionQuotaError)) throw error;
-              const notice = isChineseLocale(this.getSettings().locale)
-                ? "当前未完成长任务数量已达到上限；本次动作已在产生副作用前停止，请先完成、暂停或取消已有长任务。"
-                : "The unfinished durable-execution limit has been reached. This action stopped before its side effect; finish, pause, or cancel an existing task first.";
-              this.appendConversationMessage(
-                this.channelName,
-                target.conversationKey,
-                "assistant",
-                notice,
-                "durable_lazy_promotion_quota_notice_failed",
-                { chatId: scopeId, scopeId },
-                undefined,
-                undefined,
-                selectedProject && target.conversationId
-                  ? { projectId: selectedProject.id, conversationId: target.conversationId }
-                  : undefined
-              );
-              await options.response.sendText(notice);
-              return { notice };
-            }
-            const notice = formatDurableActivationAcknowledgement(
-              promoted.item,
-              isChineseLocale(this.getSettings().locale)
-            );
-            this.appendConversationMessage(
-              this.channelName,
-              target.conversationKey,
-              "assistant",
-              notice,
-              "durable_lazy_promotion_notice_failed",
-              { chatId: scopeId, scopeId },
-              undefined,
-              undefined,
-              selectedProject && target.conversationId
-                ? { projectId: selectedProject.id, conversationId: target.conversationId }
-                : undefined
-            );
-            await options.response.sendText(notice);
-            return { notice, executionId: promoted.item.execution.id };
-          },
       onSessionAppendWarning: options.onSessionAppendWarning
     });
 
@@ -914,6 +860,11 @@ export abstract class BaseChannelRuntime {
     let contextSessionId = "";
     let text = "";
     let approval: DurableAttemptResult["approval"];
+    let resolvedTarget: ReturnType<ProjectAwareRunnerPool["resolveTarget"]> | undefined;
+    let lastCallUsage: DurableAttemptResult["lastCallUsage"];
+    let provider: string | undefined;
+    let model: string | undefined;
+    let contextBreakdown: DurableAttemptResult["contextBreakdown"];
     return this.runSharedTextTask<{ messageId: number }>(event.chatId, event, {
       execution: hooks.execution,
       createBotMessageId: () => Date.now(),
@@ -924,9 +875,10 @@ export abstract class BaseChannelRuntime {
       onRunnerEvent: hooks.onRunnerEvent,
       // Mid-run steering (spec 执行形态修订 切片②): the resolved target's pool
       // owns the live runner, so expose a steer closure for the attempt.
-      onTargetResolved: hooks.registerSteer
-        ? (target) => hooks.registerSteer!((text) => target.pool.steer(target.chatId, target.sessionId, text))
-        : undefined,
+      onTargetResolved: (target) => {
+        resolvedTarget = target;
+        hooks.registerSteer?.((steerText) => target.pool.steer(target.chatId, target.sessionId, steerText));
+      },
       onToolSideEffectPreflight: hooks.onToolSideEffectPreflight,
       onToolSideEffectReceipt: hooks.onToolSideEffectReceipt,
       onApprovalRequest: async (request) => {
@@ -938,6 +890,34 @@ export abstract class BaseChannelRuntime {
       submitKanbanReceipt: hooks.submitKanbanReceipt,
       onRunComplete: async (_result, meta) => {
         contextSessionId = meta.activeSessionId;
+        if (resolvedTarget && meta.activeSessionId) {
+          const entries = resolvedTarget.store.listSessionMessageEntries(resolvedTarget.chatId, meta.activeSessionId);
+          const attemptAssistants = entries.filter(entry =>
+            (!event.runId || entry.runId === event.runId) &&
+            (entry.message as { role?: string })?.role === "assistant"
+          );
+          const lastEntry = attemptAssistants[attemptAssistants.length - 1];
+          if (lastEntry) {
+            const msg = lastEntry.message as {
+              provider?: string;
+              model?: string;
+              usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number };
+            };
+            if (typeof msg.provider === "string" && msg.provider) provider = msg.provider;
+            if (typeof msg.model === "string" && msg.model) model = msg.model;
+            if (msg.usage) {
+              const inputTokens = Number(msg.usage.input ?? 0);
+              const outputTokens = Number(msg.usage.output ?? 0);
+              const cacheReadTokens = Number(msg.usage.cacheRead ?? 0);
+              const cacheWriteTokens = Number(msg.usage.cacheWrite ?? 0);
+              const totalTokens = Number(msg.usage.totalTokens ?? (inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens));
+              if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0) {
+                lastCallUsage = { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens };
+              }
+            }
+            if (lastEntry.contextBreakdown) contextBreakdown = lastEntry.contextBreakdown;
+          }
+        }
       },
       onSessionAppendWarning: (error) => {
         momWarn(this.channelName, "durable_session_append_failed", {
@@ -946,7 +926,16 @@ export abstract class BaseChannelRuntime {
           error: error instanceof Error ? error.message : String(error)
         });
       }
-    }).then((result) => ({ result, contextSessionId, approval, text }));
+    }).then((result) => ({
+      result,
+      contextSessionId,
+      approval,
+      text,
+      ...(lastCallUsage ? { lastCallUsage } : {}),
+      ...(provider ? { provider } : {}),
+      ...(model ? { model } : {}),
+      ...(contextBreakdown ? { contextBreakdown } : {})
+    }));
   }
 
   public readDurableRunDetail(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[] {

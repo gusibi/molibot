@@ -7,6 +7,7 @@ import type { ToolApprovalRequest, ToolExecutionContext, ToolResult, ToolSideEff
 import type { DurablePrefixEntry } from "$lib/server/agent/durable/types.js";
 import type { DurablePreflightDecision } from "$lib/server/agent/durable/preflight.js";
 import type { ConversationPlan } from "$lib/shared/types/message.js";
+import type { SessionContextSnapshot } from "$lib/server/agent/session/session.js";
 
 export type AttachmentMediaType = "image" | "audio" | "video" | "file";
 
@@ -61,6 +62,8 @@ export interface ChannelInboundMessage {
   budgetId?: string;
   /** Internal: active chat Session to restore after a suspended run finishes. */
   restoreSessionId?: string;
+  /** Visible UI conversation session ID backing a background Durable/Kanban attempt. */
+  uiSessionId?: string;
 }
 
 export interface LoggedMessage {
@@ -94,6 +97,10 @@ export interface DurableAttemptResult {
   result: RunResult;
   contextSessionId: string;
   approval?: ToolApprovalRequest;
+  lastCallUsage?: RunResult["usage"];
+  provider?: string;
+  model?: string;
+  contextBreakdown?: SessionContextSnapshot;
 }
 
 export interface DurablePromotionRequest {
@@ -222,6 +229,15 @@ export type RunnerUiEvent =
       budget?: RunBudgetSnapshot;
       model?: string;
       sessionId?: string;
+    }
+  | {
+      type: "model_retry";
+      phase: "scheduled" | "countdown" | "attempt_start" | "recovered" | "failed";
+      attempt: number;
+      maxRetries: number;
+      delayMs?: number;
+      remainingSeconds?: number;
+      error?: string;
     };
 
 export interface MomContext {
