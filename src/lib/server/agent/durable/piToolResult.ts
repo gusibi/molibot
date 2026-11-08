@@ -8,6 +8,24 @@ export function encodePiToolDetails(result: HostToolResult): JsonValue | undefin
     metadata: result.metadata, error: result.error, terminate: result.terminate } }));
 }
 
+/**
+ * Native command turns make no model call of their own; the host records the
+ * run's inner model usage on the tool result (details.molibotUsage), so the
+ * synthetic reply surfaces that aggregate instead of zeros.
+ */
+export function syntheticCommandUsage(details: unknown): import("@earendil-works/pi-ai").Usage {
+  const num = (value: unknown): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  };
+  const usage = (decodePiToolDetails(details as ModelJsonValue | undefined).details as
+    { molibotUsage?: { input?: unknown; output?: unknown; cacheRead?: unknown; cacheWrite?: unknown; totalTokens?: unknown; cost?: { total?: unknown } } } | undefined)?.molibotUsage;
+  return {
+    input: num(usage?.input), output: num(usage?.output), cacheRead: num(usage?.cacheRead), cacheWrite: num(usage?.cacheWrite), totalTokens: num(usage?.totalTokens),
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: num(usage?.cost?.total) }
+  };
+}
+
 export function decodePiToolDetails(details: ModelJsonValue | undefined): Pick<HostToolResult, "details" | "metadata" | "error" | "terminate"> {
   const envelope = details && typeof details === "object" && !Array.isArray(details) && "molibotExecution" in details ? details.molibotExecution : undefined;
   if (!envelope || typeof envelope !== "object" || Array.isArray(envelope) || !("version" in envelope) || envelope.version !== 1) return { details };

@@ -11,7 +11,7 @@ import { defineDoc, defineEntry, GenerationTask, Harness, LiveDoc, NestedCallDoc
   type UserInput, type Cursor, type TaskId, type EntryId, type ConversationId } from "@earendil-works/pi-durable";
 import { openPiStorage } from "$lib/server/agent/durable/piStorage.js";
 import { nativeNestedToolKey, type NativeInvocation, type NativeChildOptions, type NativeChildSession } from "./piInvocation.js";
-import { decodePiNestedResult, decodePiToolDetails } from "./piToolResult.js";
+import { decodePiNestedResult, decodePiToolDetails, syntheticCommandUsage } from "./piToolResult.js";
 import { isSafeReadOnlySubagentCommand } from "$lib/server/agent/tools/subagent.js";
 import { assistantHasUsableOutput, planLengthRecovery } from "$lib/server/agent/tools/subagentRuntime.js";
 import { claimPiStorage, createPiToolRegistry, type PiToolRegistryOptions } from "./piToolRegistry.js";
@@ -666,7 +666,7 @@ export class PiConversationRuntime {
         const entry = await tx.entry(committed.entryId as EntryId);
         const reply = entry?.model?.find(message => message.role === "toolResult");
         if (!reply || reply.role !== "toolResult") throw new Error("The command result is unreadable.");
-        await tx.appendEntry(NativeReply, conversation.id, { data: { requestId: this.requestId! }, model: [{ role: "assistant", api: "openai-completions", provider: "molibot", model: "extension-command", timestamp: Date.now(), stopReason: reply.isError ? "error" : "stop", content: reply.content.filter(block => block.type === "text"), usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }] });
+        await tx.appendEntry(NativeReply, conversation.id, { data: { requestId: this.requestId! }, model: [{ role: "assistant", api: "openai-completions", provider: "molibot", model: "extension-command", timestamp: Date.now(), stopReason: reply.isError ? "error" : "stop", content: reply.content.filter(block => block.type === "text"), usage: syntheticCommandUsage(reply.details) }] });
       }, BACKGROUND_CONTEXT);
     });
   }

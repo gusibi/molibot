@@ -12,7 +12,24 @@ import type { AgentToolCallOutcome } from "@earendil-works/pi-agent-core";
 const OUTPUT_LIMIT = 512 * 1024;
 const SESSION_LIMIT = 32;
 const RETENTION_MS = 60 * 60 * 1000;
-type NativeRunResult = { text: string; terminalId: string; images?: Array<{ type: "image"; mimeType: string; data: string }>; sharingStatus?: PiExtensionTerminalSummary["sharingStatus"]; suspension?: AgentToolCallOutcome["result"] };
+type NativeUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number } };
+type NativeRunResult = { text: string; terminalId: string; images?: Array<{ type: "image"; mimeType: string; data: string }>; sharingStatus?: PiExtensionTerminalSummary["sharingStatus"]; suspension?: AgentToolCallOutcome["result"]; usage?: NativeUsage };
+
+/** Sums every inner model receipt of one native run so the owning conversation can surface real usage. */
+function addNativeUsage(total: NativeUsage, value: unknown): void {
+  const usage = value as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number } } | undefined;
+  if (!usage || typeof usage !== "object") return;
+  total.input += usage.input ?? 0;
+  total.output += usage.output ?? 0;
+  total.cacheRead += usage.cacheRead ?? 0;
+  total.cacheWrite += usage.cacheWrite ?? 0;
+  total.totalTokens += usage.totalTokens ?? 0;
+  total.cost.input += usage.cost?.input ?? 0;
+  total.cost.output += usage.cost?.output ?? 0;
+  total.cost.cacheRead += usage.cost?.cacheRead ?? 0;
+  total.cost.cacheWrite += usage.cost?.cacheWrite ?? 0;
+  total.cost.total += usage.cost?.total ?? 0;
+}
 
 interface TerminalEntry {
   summary: PiExtensionTerminalSummary;
@@ -238,6 +255,7 @@ export class PiExtensionTerminalHost {
       return outcome;
     } };
     const permits = new Map<string, { provider: string; id: string; api: string; kind: string }>();
+    const usage: NativeUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
     let token: string | undefined;
     try {
       token = bindPiExtensionHostSession(client, ownedOptions, signal, input.callId, async (method, value, emit, callSignal) => {
@@ -254,11 +272,13 @@ export class PiExtensionTerminalHost {
         if (method === "nativeModel.hostStream") {
           const callback = (name: string, data: unknown, model?: unknown) => client.request("nativeModelCallback", { callbackId: value.callbackId, method: name, value: data, model }, signal);
           try {
-            return await input.options.streamModel!({ ...value, callId: `${input.callId}:native:host:${value.callbackId}`,
+            const streamed = await input.options.streamModel!({ ...value, callId: `${input.callId}:native:host:${value.callbackId}`,
               onPayload: (payload, model) => callback("onPayload", payload, model),
               onResponse: async (response) => { await callback("onResponse", response); },
               onProviderStreamEvent: async (event) => { await callback("onProviderStreamEvent", event); }
-            }, emit, signal);
+            }, emit, signal) as { message?: { usage?: unknown } } | undefined;
+            addNativeUsage(usage, streamed?.message?.usage);
+            return streamed;
           } catch (error) {
             const waiting = (error as { suspendedResult?: AgentToolCallOutcome["result"] })?.suspendedResult;
             if (waiting) { suspension = waiting; controller.abort(new Error("Native Pi stopped at a suspended model approval.")); }
@@ -278,6 +298,7 @@ export class PiExtensionTerminalHost {
           if (!metadata) throw new Error("Native model receipt has no active admission.");
           permits.delete(value.permit);
           input.options.nativeModels?.recordUsage(metadata, value.usage, `${input.callId}:native:${value.permit}`);
+          addNativeUsage(usage, value.usage);
           return null;
         }
         if (method !== "terminal.write" || typeof value?.data !== "string") throw new Error("Unsupported native Pi terminal operation.");
@@ -299,7 +320,7 @@ export class PiExtensionTerminalHost {
       }, signal, 60 * 60 * 1000);
       signal.throwIfAborted();
       entry.summary.status = "completed";
-      return { text: result.text, images: result.images, sharingStatus: result.sharingStatus, terminalId: id };
+      return { text: result.text, images: result.images, sharingStatus: result.sharingStatus, terminalId: id, usage };
     } catch (error) {
       if (suspension) {
         entry.summary.status = "waiting_approval";

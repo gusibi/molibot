@@ -64,6 +64,7 @@ export default function(pi) {
     assert.equal(result.text, "native hello");
     assert.equal(readFileSync(receipt, "utf8"), "accepted");
     assert.equal(modelCalls, 1);
+    assert.deepEqual(result.usage, { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
     assert.equal(host.output(terminalId).terminal.status, "completed");
     assert.equal(host.output(terminalId).terminal.cleanupStatus,"hooks_completed");
     assert.equal(host.output(terminalId).terminal.sharingStatus,"unverified");
@@ -318,6 +319,7 @@ export default function(pi) {
   assert.equal(ledger[0].metadata.provider,"native-fixture");
   assert.equal(ledger[0].id,ledger[1].id);
   assert.equal(ledger[1].raw.totalTokens,2);
+  assert.deepEqual(result.usage,{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}});
 });
 
 test("native UI fails promptly without a connected terminal client", { timeout: 20_000 }, async () => {

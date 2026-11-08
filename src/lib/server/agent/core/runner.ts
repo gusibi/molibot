@@ -451,7 +451,11 @@ export class MomRunner implements RunnerLike {
         return undefined;
       },
       onResponse: async (response) => {
-        this.emitActiveModelCallAfter((response as any)?.usage, (response as any)?.stopReason);
+        // Synthetic extension-command receipts carry no real model usage; the
+        // inner calls emit their own model.call events (see extensionModelStream).
+        if ((response as any)?.provider !== "molibot") {
+          this.emitActiveModelCallAfter((response as any)?.usage, (response as any)?.stopReason);
+        }
         return undefined;
       },
       // Reloaded session contexts omit the leading prompt. Restore it before
@@ -1540,6 +1544,15 @@ export class MomRunner implements RunnerLike {
     this.activeToolAuthority?.("modelsStream", {});
     const started = budget.tryStartModelTurn(`pi:${runId}:extension:model:${input.callId}`);
     if (!started.ok) throw new Error(started.reason);
+    // Extension-internal model calls bypass the runner's own model loop, so the
+    // trace recorder only sees them through these explicit model.call events
+    // (same modelAttemptId as the ledger requestId).
+    const modelAttemptId = `pi:${runId}:extension:model:${input.callId}`;
+    if (this.activeHookContext) {
+      this.hookManager.emit("model.call.before", this.activeHookContext, {
+        modelAttemptId, provider: model.provider, model: model.id, api: model.api
+      });
+    }
     const allowedOptions = new Set(["deferred", "temperature", "maxTokens", "reasoning", "thinkingBudgets", "toolChoice", "metadata", "timeoutMs", "transport", "cacheRetention", "retryDelayMs", "maxRetries", "signal"]);
     for (const key of Object.keys((input.options ?? {}) as object)) if (!allowedOptions.has(key)) throw new Error(`Extension stream option ${key} is not supported; credentials and endpoints are host-owned.`);
     const context = input.context as Parameters<typeof models.stream>[1];
@@ -1547,11 +1560,16 @@ export class MomRunner implements RunnerLike {
       if (message.stopReason === "deferred") return;
     const usage = message.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { total?: number } } | undefined;
     if (usage) {
-      this.usageTracker.record({ requestId: `pi:${runId}:extension:model:${input.callId}`,
+      this.usageTracker.record({ requestId: modelAttemptId,
         channel: this.channel, botId, agentId: this.usageAgentId, roomId: this.runtimeIdentity?.roomId,
         sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: message.provider, model: message.model, api: message.api, estimatedCostUsd: usage.cost?.total,
         inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0, cacheReadTokens: usage.cacheRead ?? 0,
         cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
+    }
+    if (this.activeHookContext) {
+      this.hookManager.emit("model.call.after", this.activeHookContext, {
+        modelAttemptId, provider: message.provider, model: message.model, api: message.api, usage, stopReason: message.stopReason
+      });
     }
     };
     const streamOptions = { ...((input.options ?? {}) as Record<string, unknown>), signal, maxRetries: 0,
@@ -1591,6 +1609,11 @@ export class MomRunner implements RunnerLike {
       this.activeToolAuthority?.(model.kind === "chat" ? "modelsStream" : model.kind === "image" ? "modelsGenerateImages" : "modelsClassify", {});
       const started = budget.tryStartModelTurn(`pi:${runId}:extension:model:${callId}`);
       if (!started.ok) throw new Error(started.reason);
+      if (this.activeHookContext) {
+        this.hookManager.emit("model.call.before", this.activeHookContext, {
+          modelAttemptId: `pi:${runId}:extension:model:${callId}`, provider: model.provider, model: model.id, api: model.api
+        });
+      }
     },
     recordUsage: (model, raw, callId) => {
       const usage = raw as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; totalTokens?: number; cost?: { total?: number } } | undefined;
@@ -1600,6 +1623,11 @@ export class MomRunner implements RunnerLike {
         sessionId: this.runtimeIdentity?.roomId ?? this.sessionId, provider: model.provider, model: model.id, api: model.api,
         estimatedCostUsd: usage.cost?.total, inputTokens: usage.input ?? 0, outputTokens: usage.output ?? 0,
         cacheReadTokens: usage.cacheRead ?? 0, cacheWriteTokens: usage.cacheWrite ?? 0, totalTokens: usage.totalTokens ?? 0 });
+      if (this.activeHookContext) {
+        this.hookManager.emit("model.call.after", this.activeHookContext, {
+          modelAttemptId: `pi:${runId}:extension:model:${callId}`, provider: model.provider, model: model.id, api: model.api, usage, stopReason: "stop"
+        });
+      }
     }
   },
   runNestedToolCall: async (tool, id, args, signal, onUpdate) => {
@@ -2198,26 +2226,32 @@ export class MomRunner implements RunnerLike {
             cacheWriteTokens: finalUsage.cacheWriteTokens + usage.cacheWriteTokens,
             totalTokens: finalUsage.totalTokens + usage.totalTokens
           };
-          this.usageTracker.record({
-            requestId: assistantSourceEntryId,
-            channel: this.channel,
-            botId,
-            agentId: this.usageAgentId,
-            roomId: this.runtimeIdentity?.roomId,
-            sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
-            provider: msg.provider ?? activeSelection.model.provider,
-            model: msg.model ?? activeSelection.model.id,
-            api: msg.api ?? activeSelection.model.api,
-            inputTokens: msg.usage.input,
-            outputTokens: msg.usage.output,
-            cacheReadTokens: msg.usage.cacheRead,
-            cacheWriteTokens: msg.usage.cacheWrite,
-            totalTokens: msg.usage.totalTokens
-          });
-          this.emitActiveModelCallAfter(msg.usage, msg.stopReason, {
-            rawStopReason: msg.rawStopReason,
-            endTurn: msg.endTurn
-          });
+          // Synthetic extension-command receipts never made a model call of
+          // their own; their inner usage is already ledgered per call, so
+          // projecting the aggregate again would double-count it.
+          const syntheticCommandMessage = msg.provider === "molibot" && msg.model === "extension-command";
+          if (!syntheticCommandMessage) {
+            this.usageTracker.record({
+              requestId: assistantSourceEntryId,
+              channel: this.channel,
+              botId,
+              agentId: this.usageAgentId,
+              roomId: this.runtimeIdentity?.roomId,
+              sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
+              provider: msg.provider ?? activeSelection.model.provider,
+              model: msg.model ?? activeSelection.model.id,
+              api: msg.api ?? activeSelection.model.api,
+              inputTokens: msg.usage.input,
+              outputTokens: msg.usage.output,
+              cacheReadTokens: msg.usage.cacheRead,
+              cacheWriteTokens: msg.usage.cacheWrite,
+              totalTokens: msg.usage.totalTokens
+            });
+            this.emitActiveModelCallAfter(msg.usage, msg.stopReason, {
+              rawStopReason: msg.rawStopReason,
+              endTurn: msg.endTurn
+            });
+          }
         }
 
         const text = (msg.content || [])

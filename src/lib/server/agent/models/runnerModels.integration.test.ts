@@ -55,6 +55,7 @@ for (const mode of ["codemode", "extension", "manual", "plan", "command", "strea
       assert.equal(result.nativeTerminals[0].status, "completed");
       assert.equal(result.nativeTerminals[0].sessionId, "session");
       assert.equal(result.modelBudgetReceipts.length, 0);
+      assert.equal(result.receipts.filter((row: any) => row.provider === "molibot").length, 0, "synthetic command receipts must not be ledgered");
       return;
     }
     if (["native_image", "native_many_images"].includes(mode)) {
@@ -83,6 +84,9 @@ for (const mode of ["codemode", "extension", "manual", "plan", "command", "strea
       assert.equal(result.modelBudgetReceipts.length, 1);
       assert.ok(JSON.stringify(result.messages).includes("Custom fixture"));
       assert.equal(result.receipts.filter((row:any)=>row.provider==="fixture-custom" && row.model==="alt").length,1);
+      const admittedEvents = result.events.filter((event: any) => String(event.payload?.modelAttemptId).includes(":extension:model:"));
+      assert.deepEqual(admittedEvents.map((event: any) => event.stage), ["model.call.before", "model.call.after"], JSON.stringify(result.events.map((event: any) => event.stage)));
+      assert.equal(admittedEvents[1].payload.usage.totalTokens, 4);
       return;
     }
     if (mode === "native_extension") {
@@ -92,6 +96,9 @@ for (const mode of ["codemode", "extension", "manual", "plan", "command", "strea
       assert.equal(result.nativeTerminals[0].sessionId, "session");
       assert.equal(result.modelBudgetReceipts.length, 1);
       assert.equal(result.receipts.filter((row: any) => String(row.requestId).includes(":extension:model:")).length, 1);
+      const extensionModelEvents = result.events.filter((event: any) => String(event.payload?.modelAttemptId).includes(":extension:model:"));
+      assert.deepEqual(extensionModelEvents.map((event: any) => event.stage), ["model.call.before", "model.call.after"], JSON.stringify(result.events.map((event: any) => event.stage)));
+      assert.equal(extensionModelEvents[1].payload.usage.totalTokens, 4);
       assert.ok(JSON.stringify(result.messages).includes("Streamed fixture"));
       const piTool = result.requestContexts[0].exposedTools.find((tool: any) => tool.name === 'piExtensionRun');
       assert.ok(piTool?.parameters.properties.prompt, 'native entry must expose the real task schema on the first model request');

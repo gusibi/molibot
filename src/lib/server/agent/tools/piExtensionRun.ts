@@ -41,7 +41,7 @@ export function createPiExtensionRunTool(options: PiExtensionToolOptions & { ses
           if (outcome.isError) throw new Error("Pi image attachment failed. Do not rerun the native task; use the saved artifacts to finish delivery.");
           delivered.push(path);
         }
-        return { content: [{ type: "text", text: (result.text || "Native Pi command completed.") + (result.sharingStatus === "released" ? "\nThis task’s LCU application sharing was stopped and verified." : "") + (delivered.length ? `\nDelivered ${delivered.length} image attachment(s).` : "") }], details: { piTerminalId: result.terminalId, sharingStatus: result.sharingStatus, images: delivered } };
+        return { content: [{ type: "text", text: (result.text || "Native Pi command completed.") + (result.sharingStatus === "released" ? "\nThis task’s LCU application sharing was stopped and verified." : "") + (delivered.length ? `\nDelivered ${delivered.length} image attachment(s).` : "") }], details: { piTerminalId: result.terminalId, sharingStatus: result.sharingStatus, images: delivered, ...(result.usage ? { molibotUsage: result.usage } : {}) } };
       } catch (error) {
         if (signal?.aborted) throw error;
         const message = error instanceof Error ? error.message : String(error);

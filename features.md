@@ -1,3 +1,7 @@
+## 2026-11-08 — 插件内部模型用量统一入账（账本、trace、会话转录同源）
+
+Native Pi 插件（`piExtensionRun`）内部的模型调用此前只进用量账本：调用链 trace 把它们记成无 token 的 `modelsStream` 工具事实、合成 `extension-command` 会话条目的 usage 恒为 0，导致同一任务在用量页、调用链、会话转录三处数字互不一致。现在宿主在每次内部模型调用的记账点同步补发 `model.call.before/after` trace 事件（模型调用数与 token 统计正确、时间线挂在 piExtensionRun 之下）；native 运行累计的内部用量随工具回执进入会话，`extension-command` 合成回执写入真实聚合 usage；runner 不再把合成条目投影成 0-token 账本记录（避免与逐调用记录双重入账）。用量页、会话用量分析（同读账本）与调用链、会话转录自此同源一致。验证：piToolResult/nativeTerminal/piConversation 定向 node:test 与 runnerModels integration（native_extension/native_custom/native_command）通过，泄漏守卫 0，根 tsc 0 错误。
+
 ## 2026-11-07 — 任务会话执行形态修订（可见会话、直播、插话、成员子会话）
 
 看板任务绑定真实可见会话：单 Agent 任务创建即生成一条普通 Web/Project 会话（标题=任务名，origin 标记 `kanban`），每轮执行从派发简报到模型回复全量直播流式进该会话；成员回执以【成员名 回执】回流主会话。Team 成员各自拥有只读子会话（挂在主会话之下，不出现在任何平铺列表），轮次输出与派发简报落进对应子会话。会话窗口发消息即插话：进行中轮次立即注入，无轮次时落为待处理输入（下一轮开工读取）；成员子会话只读，发送一律 409。会话列表行（侧栏会话树、Agent 首页历史、Project 会话列表）为任务会话显示「任务」标记（纯视觉，其余与普通会话一致）；任务详情新增「打开会话」入口与成员会话二级入口（打开时隐藏输入框），详情回复框改走 `kanban_steer`（先注直播轮次、失败回退输入通道）。验证：kanbanStore/kanbanRuntime/plans 服务端与 stream/chat/steer 路由定向 node:test 通过（含可见会话直播、轮次投递、steer 生命周期、成员回流、子会话路由、发送路由 8 项 plans API 用例），`desktop:check` 与暂存子集 worktree svelte-check 0 错误 0 警告，桌面单测失败集合与改动前完全一致；隔离实例冷启动走查与 Playwright 套件待运行。
