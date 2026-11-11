@@ -25,6 +25,8 @@ test("status-only errors do not become duplicate assistant bubbles; real partial
   assert.equal(isStatusOnlyMessage({ ...failure, content: failure.errorMessage!, steps: [{ id: "error", kind: "text", content: failure.errorMessage! }] }), true);
   assert.equal(isStatusOnlyMessage({ ...failure, content: "Completed part of the work" }), false);
   assert.equal(isStatusOnlyMessage({ ...failure, attachments: [{ original: "voice.ogg", mediaType: "audio" }] }), false);
+  const summary = "This model is unavailable. Select another model or check its configuration.";
+  assert.equal(isStatusOnlyMessage({ ...failure, content: summary, errorMessage: "400: model_not_found", steps: [{ id: "result", kind: "result", content: summary }] }), true);
 });
 
 test("missing results remain unknown rather than inventing a failure or a running state", () => {

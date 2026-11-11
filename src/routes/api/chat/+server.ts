@@ -62,7 +62,7 @@ import {
 import { persistDurableConversationInput, ensureDurableConversationResponse } from "$lib/server/agent/durable/conversation.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
 import { ensureSessionPlanRecord } from "$lib/server/agent/plans/sessionIntegration.js";
-import { tryAutoSummarizeConversationTitleAsync, hasDefaultConversationTitle } from "$lib/server/sessions/titleSummarizer.js";
+import { tryAutoSummarizeConversationTitleAsync } from "$lib/server/sessions/titleSummarizer.js";
 
 interface ChatBody {
   userId?: string;
@@ -661,23 +661,17 @@ export const POST: RequestHandler = async ({ request }) => {
       { status: 409 }
     );
   }
-  // Retry gate, not a first-turn gate: a failed earlier attempt (LLM timeout,
-  // missing key) left the session titled "New Session" forever. The title check
-  // inside the summarizer still protects user-renamed sessions.
-  const shouldSummarizeTitle = hasDefaultConversationTitle(conversation.title);
   const inputMessage = runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
     attachments: sessionAttachments,
     retention: turnRetention
   });
 
-  if (shouldSummarizeTitle) {
-    void tryAutoSummarizeConversationTitleAsync({
-      conversationId: conversation.id,
-      channel: "web",
-      externalUserId,
-      firstUserMessage: inboundText
-    });
-  }
+  void tryAutoSummarizeConversationTitleAsync({
+    conversationId: conversation.id,
+    channel: "web",
+    externalUserId,
+    firstUserMessage: inboundText
+  });
 
   const durableBotId = resolveWebDurableBotId(parsed.profileId, runtime.channelManagers);
   let durable;

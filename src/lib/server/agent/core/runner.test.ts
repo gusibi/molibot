@@ -2469,6 +2469,54 @@ for (const isEvent of [false, true]) {
   });
 }
 
+for (const succeeds of [true, false]) test(`App Runner ${succeeds ? "recovers past the legacy failure limit after a write" : "exhausts ten retries without fallback or outer replay"}`, { timeout: 25000 }, async t => {
+  const { getPiModels } = await import("$lib/server/providers/piRuntime.js");
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-app-runner-"));
+  let runner: MomRunner | undefined;
+  try {
+    runner = await createRunnerForHookTest({ chatId: "app-retry", workspaceDir, hookManager: createRunnerHookManager([]) });
+    const settings = { ...createRunnerTestSettings(), permissionMode: "auto" as const };
+    settings.customProviders[0]!.models.push({ ...settings.customProviders[0]!.models[0]!, id: "fallback-model" });
+    (runner as any).getSettings = () => settings;
+    const agent = (runner as any).agent;
+    const models = getPiModels();
+    const getModel = models.getModel.bind(models);
+    t.mock.method(models, "getModel", (provider: string, id: string) => provider === "runner-test" ? { ...agent.state.model, id } : getModel(provider, id));
+    // Only shorten the injected transport waits; native task ownership and persistence still run normally.
+    const setTimer = globalThis.setTimeout;
+    t.mock.method(globalThis, "setTimeout", (callback: any, ms: number, ...args: any[]) => setTimer(callback, ms >= 100 && ms <= 1000 ? 1 : ms, ...args));
+    const requested: string[] = [];
+    const events: any[] = [];
+    t.mock.method(models, "streamSimple", (model: any) => {
+      requested.push(model.id);
+      const first = requested.length === 1 && succeeds;
+      const success = succeeds && requested.length === 9;
+      const message = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
+        content: first ? [{ type: "toolCall", id: "write-once", name: "write", arguments: { label: "Save once", path: join(workspaceDir, "once.txt"), content: "saved" } }]
+          : success ? [{ type: "text", text: "Recovered after saving once" }] : [],
+        stopReason: first ? "toolUse" : success ? "stop" : "error", errorMessage: first || success ? undefined : "fetch failed", timestamp: Date.now(),
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+      const stream = createAssistantMessageEventStream();
+      stream.push({ type: message.stopReason === "error" ? "error" : "done", reason: message.stopReason, [message.stopReason === "error" ? "error" : "message"]: message } as any);
+      stream.end(); return stream;
+    });
+    const context = createRunnerContext("Save the file once and report the result.");
+    context.channel = "web";
+    context.retryPolicy = "app";
+    context.onRunnerEvent = async (event: unknown) => { events.push(event); };
+    const result = await runner.run(context);
+    assert.equal(result.stopReason, succeeds ? "stop" : "error", result.errorMessage);
+    assert.equal(requested.length, succeeds ? 9 : 11);
+    assert.ok(requested.every(id => id === "fake-model"));
+    assert.ok(events.some(event => event.type === "model_retry" && event.strategy === "app" && event.attempt > 6));
+    if (succeeds) {
+      assert.equal(readFileSync(join(workspaceDir, "once.txt"), "utf8"), "saved");
+      assert.equal(agent.state.messages.filter((message: any) => message.role === "toolResult").length, 1);
+      assert.ok(events.some(event => event.type === "model_retry" && event.phase === "recovered"));
+    }
+  } finally { t.mock.restoreAll(); await (runner as any)?.agent.close(); rmSync(workspaceDir, { recursive: true, force: true }); }
+});
+
 test("real Runner exhausts only the 429 transport retries before switching models", { timeout: 20000 }, async (t) => {
   const { getPiModels } = await import("$lib/server/providers/piRuntime.js");
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-429-fallback-"));

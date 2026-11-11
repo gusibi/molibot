@@ -7,7 +7,7 @@ import { RunBudget } from "$lib/server/agent/core/runtimeBudget.js";
 import { RunBudgetStore } from "$lib/server/agent/core/runBudgetStore.js";
 import { join } from "node:path";
 import { defineDoc, defineEntry, GenerationTask, Harness, LiveDoc, NestedCallDoc, ToolTask, watchEvents,
-  AssistantEntry, UsageDoc, AgentDoc, configure as configureAgent, type AgentChange, type AgentEventStream, type Conversation, type EntryRecord, type ModelRef,
+  AssistantEntry, UsageDoc, AgentDoc, ProviderDoc, configure as configureAgent, type AgentChange, type AgentEventStream, type Conversation, type EntryRecord, type ModelRef,
   type UserInput, type Cursor, type TaskId, type EntryId, type ConversationId } from "@earendil-works/pi-durable";
 import { openPiStorage } from "$lib/server/agent/durable/piStorage.js";
 import { nativeNestedToolKey, type NativeInvocation, type NativeChildOptions, type NativeChildSession } from "./piInvocation.js";
@@ -700,6 +700,13 @@ export class PiConversationRuntime {
   async generationTaskId(): Promise<string | undefined> {
     const live = await this.harness!.snapshot(LiveDoc, this.conversation!.id, BACKGROUND_CONTEXT);
     return live?.run ? String(live.run.taskId) : undefined;
+  }
+
+  /** Match the persisted root identity; child conversations have independent identities even on the same model. */
+  async ownsProviderSession(sessionId: string | undefined): Promise<boolean> {
+    if (!sessionId || !this.harness || !this.conversation) return false;
+    const provider = await this.harness.snapshot(ProviderDoc, this.conversation.id, BACKGROUND_CONTEXT);
+    return provider?.sessionId === sessionId;
   }
 
   private async wait(work: () => Promise<void>) {

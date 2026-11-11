@@ -11,9 +11,26 @@ export class ConversationActivityCollector {
 
   record(event: RunnerUiEvent): ConversationActivity | undefined {
     if (event.type === "model_retry") {
-      const key = "model-retry-progress";
+      const key = event.strategy === "app" ? event.key ?? "app-model-retry" : "model-retry-progress";
       const index = this.activities.findIndex((candidate) => candidate.key === key);
       const existing = index >= 0 ? this.activities[index] : undefined;
+
+      if (event.strategy === "app") {
+        const finished = event.phase === "recovered" || event.phase === "failed" || event.phase === "cancelled";
+        const timestamp = new Date(this.now()).toISOString();
+        const activity: ConversationActivity = {
+          key, kind: "retry", tool: "retry",
+          label: event.phase === "recovered" ? "连接已恢复" : event.phase === "cancelled" ? "已停止重试" : event.phase === "failed" ? "模型连接恢复已停止" : `正在恢复模型连接 ${event.attempt}/${event.maxRetries}`,
+          state: event.phase === "recovered" ? "success" : event.phase === "cancelled" ? "info" : event.phase === "failed" ? "error" : "running",
+          summary: (event.error || existing?.summary || "").slice(0, MAX_SUMMARY_LENGTH),
+          retry: { phase: event.phase, attempt: event.attempt, maxRetries: event.maxRetries, remainingSeconds: event.remainingSeconds ?? 0, model: event.model },
+          startedAt: existing?.startedAt ?? timestamp,
+          ...(finished ? { finishedAt: timestamp } : {})
+        };
+        if (index >= 0) this.activities[index] = activity;
+        else this.activities.push(activity);
+        return { ...activity };
+      }
 
       if (event.phase === "recovered") {
         if (!existing) return undefined;

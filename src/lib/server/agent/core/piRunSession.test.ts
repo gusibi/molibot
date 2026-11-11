@@ -426,6 +426,7 @@ test("child model fallback continues the same owned conversation with its admitt
   const directory = mkdtempSync(join(tmpdir(), "molibot-pi-child-fallback-"));
   const fallback = { ...model, id: "fallback" };
   const children: string[] = [], requested: string[] = [];
+  const origins: Array<"parent" | "child" | undefined> = [];
   let rootRequests = 0;
   const delegate = { name: "subagent", label: "Delegate", description: "Delegate", replay: "safe" as const, parameters: { type: "object" as const, properties: {} },
     execute: async () => {
@@ -436,7 +437,8 @@ test("child model fallback continues the same owned conversation with its admitt
       }
       return { content: [{ type: "text" as const, text: "Fallback completed" }], details: {} };
     } };
-  const run = new PiRunSession({ initialState: { model, systemPrompt: "ROOT", messages: [], tools: [delegate] }, streamFn: (selected, context) => {
+  const run = new PiRunSession({ initialState: { model, systemPrompt: "ROOT", messages: [], tools: [delegate] }, streamFn: (selected, context, _options, origin) => {
+    origins.push(origin);
     const child = JSON.stringify(context).includes("FALLBACK_CHILD");
     let message: AssistantMessage;
     if (child) { requested.push(selected.id); message = selected.id === model.id ? { ...answer(), stopReason: "error", errorMessage: "Temporary provider failure" } : { ...answer(), model: selected.id }; }
@@ -446,7 +448,11 @@ test("child model fallback continues the same owned conversation with its admitt
     else stream.push({ type: "done", reason: message.stopReason === "toolUse" ? "toolUse" : "stop", message });
     stream.end(); return stream;
   } });
-  try { run.startTurn(); run.bindRun({ ...binding(directory), childTools: () => [] }); await run.prompt("Delegate"); assert.deepEqual(requested, [model.id, fallback.id]); assert.equal(new Set(children).size, 1); }
+  try {
+    run.startTurn(); run.bindRun({ ...binding(directory), retryPolicy: "app", childTools: () => [] }); await run.prompt("Delegate");
+    assert.deepEqual(requested, [model.id, fallback.id]); assert.equal(new Set(children).size, 1);
+    assert.deepEqual(origins, ["parent", "child", "child", "parent"]);
+  }
   finally { await run.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

@@ -14,6 +14,7 @@
   import type { Translation } from "../i18n";
   import type { Locale } from "../i18n";
   import { searchDesktopProjectFiles, type DesktopProjectSearchNameHit } from "../api";
+  import type { DesktopActivityEntry } from "../api";
   import { formatProjectFileReference } from "@molibot/shared/projectFileReference";
   import type { ComposerMenuItem } from "./composerSuggestionCatalog";
   import { composerSuggestionsStore, ensureComposerSuggestions } from "./composerSuggestions.svelte";
@@ -25,6 +26,7 @@
   import PendingFilesBar from "./PendingFilesBar.svelte";
   import QueuedMessagesBar from "./QueuedMessagesBar.svelte";
   import RecordingBar from "./RecordingBar.svelte";
+  import RunStatusBar from "./RunStatusBar.svelte";
   import SlashSuggestionMenu from "./SlashSuggestionMenu.svelte";
 
   export let copy: Translation;
@@ -54,6 +56,15 @@
   export let pendingAudioUrls = new Map<File, string>();
   export let recording = false;
   export let recordingSeconds = 0;
+  /**
+   * Live turn signals for the pinned status row inside the card. Hosts that
+   * only know "a run is in flight" may leave the text empty; the row still
+   * shows the phase, elapsed time and the reassurance copy.
+   */
+  export let streamingText = "";
+  export let streamingThinking = "";
+  export let activities: DesktopActivityEntry[] = [];
+  export let activity = "";
   export let showSettingsAction = false;
   export let showFileTool = true;
   export let showRecordingTool = true;
@@ -307,6 +318,15 @@
     {#if filteredSuggestions.length > 0}
       <SlashSuggestionMenu suggestions={filteredSuggestions} activeIndex={activeSuggestionIndex} onSelect={selectSuggestion} {copy} />
     {/if}
+    <RunStatusBar
+      slot="status"
+      {copy}
+      {sending}
+      {activity}
+      {activities}
+      {streamingText}
+      {streamingThinking}
+    />
     <svelte:fragment slot="context"><slot /></svelte:fragment>
     {#if recording}
       <RecordingBar

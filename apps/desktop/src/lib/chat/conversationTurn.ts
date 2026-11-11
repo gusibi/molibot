@@ -4,6 +4,8 @@ import {
   reduceDesktopActivities,
   sendDesktopChatWithFiles,
   streamDesktopChat,
+  DesktopStreamInterruptedError,
+  DesktopChatRejectedError,
   type DesktopActivityEntry
 } from "../api";
 import type { DesktopApprovalPrompt, DesktopConversationActivity, DesktopConversationPlan, DesktopThinkingSelection } from "@molibot/desktop-contract";
@@ -49,6 +51,10 @@ export async function runDesktopConversationTurn(input: {
   }
 
   let activities: DesktopActivityEntry[] = [];
+  let completed = false;
+  let serverError = false;
+  let connected = false;
+  try {
   await streamDesktopChat(input.endpoint, {
     profileId: input.profileId,
     sessionId: input.sessionId,
@@ -79,11 +85,17 @@ export async function runDesktopConversationTurn(input: {
       if (title && targetId) handlers.onTitleUpdated?.(targetId, title);
     }
     if (event === "done") {
+      completed = true;
       handlers.onDone?.({
         response: String(data.response ?? ""),
         thinkingText: String(data.thinkingText ?? "")
       });
     }
-    if (event === "error") throw new Error(String(data.error ?? "Stream failed"));
-  }, input.signal, input.files?.length ? handlers.onUploadComplete : undefined);
+    if (event === "error") { serverError = true; throw new Error(String(data.error ?? "Stream failed")); }
+  }, input.signal, () => { connected = true; if (input.files?.length) handlers.onUploadComplete?.(); });
+  } catch (cause) {
+    if (serverError || cause instanceof DesktopChatRejectedError || input.signal?.aborted) throw cause;
+    throw new DesktopStreamInterruptedError(connected);
+  }
+  if (!completed) throw new DesktopStreamInterruptedError();
 }

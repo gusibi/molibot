@@ -10,6 +10,7 @@
   import type { Translation } from "../i18n";
   import CodeViewer from "../projects/CodeViewer.svelte";
   import { activityPreview, activityToolIcon, classifyActivityBody, formatActivityMetadata } from "./activityView";
+  import { retryActivityLabel } from "./retryPresentation";
 
   export let activity: DesktopConversationActivity;
   export let copy: Translation;
@@ -34,6 +35,7 @@
   $: bodyContent = activity.state === "running" ? rawBodyContent.split("\n").slice(-12).join("\n") : expanded ? rawBodyContent : preview.content;
   $: ToolIcon = ACTIVITY_TOOL_ICONS[activityToolIcon(activity)];
   $: isRetry = activity.kind === "retry" || activity.tool === "retry";
+  $: retryLabel = retryActivityLabel(activity, copy);
 
   const STATUS_ICONS = {
     success: CheckCircle,
@@ -59,17 +61,18 @@
 
 {#if isRetry}
   <div class="process-timeline-entry process-timeline-retry" data-state={activity.state} role="listitem">
-    <details class="process-retry-pill" open={activity.state === "error" || expanded}>
+    <details class="process-retry-pill" open={!activity.retry && activity.state === "error" || expanded}>
       <summary class="process-retry-summary">
         <span class="process-retry-title">
           <ToolIcon class={activity.state === "running" ? "process-tool-icon process-retry-icon-running" : "process-tool-icon"} size={14} aria-hidden="true" />
-          <span class="process-retry-label-text">{activity.label}</span>
+          <span class="process-retry-label-text">{retryLabel}</span>
         </span>
         {#if metadata.length}<small>{metadata.join(" · ")}</small>{/if}
         <CaretRight class="process-retry-caret" size={14} aria-hidden="true" />
       </summary>
       {#if body}
         <div class="run-activity-body process-retry-body">
+          {#if activity.retry?.model}<p>{activity.retry.model}</p>{/if}
           <pre>{bodyContent}</pre>
         </div>
       {/if}

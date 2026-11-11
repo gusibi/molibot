@@ -1684,7 +1684,8 @@
       resuming: copy.resuming,
       approvalFailed: copy.approvalFailed,
       approvalNotFound: copy.approvalNotFound,
-      transcriptLoadFailed: copy.transcriptLoadFailed
+      transcriptLoadFailed: copy.transcriptLoadFailed,
+      submissionUnconfirmed: copy.appSubmissionUnconfirmed
     };
   }
 
@@ -4087,6 +4088,10 @@
         contextUsage={composerContextUsage}
         {sessionUsage}
         {sending}
+        {streamingText}
+        {streamingThinking}
+        {activity}
+        activities={activityEntries}
         disabled={!modelReady || !agentCanExecute || (!draftMode && !activeSessionId) || modelSelectionHydrating}
         canSend={agentCanExecute && Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
         placeholder={sending ? copy.queueHint : isDefaultAgentHome ? copy.handoverNewTask : copy.enterHint}

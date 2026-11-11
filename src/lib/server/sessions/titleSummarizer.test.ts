@@ -72,7 +72,7 @@ test("summarizeSessionTitleWithLlm includes Chinese system prompt when locale is
   assert.equal(title, "Python数据清洗方案");
   assert.equal(captured.context?.systemPrompt, "你是一个会话标题总结助手。你的任务是用中文将用户提问提炼为简短精炼的一句话标题。");
   assert.match(captured.context?.messages[0]?.content as string ?? "", /必须使用中文输出/);
-  assert.equal(captured.options?.maxTokens, 500);
+  assert.equal(captured.options?.maxTokens, 2048);
   assert.equal(captured.options?.reasoning, "low");
 });
 
@@ -285,5 +285,144 @@ test("tryAutoSummarizeConversationTitleAsync never overwrites a customized title
     assert.equal(renameCalls, 0);
   } finally {
     delete (globalThis as any).__molibotRuntime;
+  }
+});
+
+for (const stopReason of ["aborted", "length"]) {
+  test(`a ${stopReason} title attempt retries a persisted snippet on a later turn`, async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { storagePaths } = await import("$lib/server/infra/db/storage.js");
+    const { SessionStore } = await import("./store.js");
+    const originalPaths = { ...storagePaths };
+    const root = mkdtempSync(join(tmpdir(), "molibot-title-retry-"));
+    const originalRuntime = (globalThis as any).__molibotRuntime;
+    try {
+      Object.assign(storagePaths, { dataDir: root, sessionsDir: join(root, "legacy"), webWorkspaceDir: join(root, "web") });
+      let sessions = new SessionStore();
+      const owner = "web:personal:web-anonymous";
+      const conversation = sessions.createWebConversation(owner);
+      const first = "现在我发现我的 WiFi 很慢，但是直接测速的话就很快，我不知道是什么原因，帮我排查一下";
+      sessions.appendMessage(conversation.id, "user", first);
+      (globalThis as any).__molibotRuntime = { sessions, getSettings: () => mockZhSettings };
+      assert.equal(await tryAutoSummarizeConversationTitleAsync({
+        conversationId: conversation.id, externalUserId: owner, firstUserMessage: first,
+        options: { streamFn: createMockStreamFn("", stopReason), resolveApiKeyFn: async () => "dummy-key" }
+      }), null);
+      sessions = new SessionStore();
+      (globalThis as any).__molibotRuntime.sessions = sessions;
+      assert.equal(sessions.getConversationById(conversation.id, "web", owner)?.title, first.slice(0, 40) + "...");
+      sessions.appendMessage(conversation.id, "user", "继续帮我排查");
+      const captured: { context?: Context } = {};
+      const title = await tryAutoSummarizeConversationTitleAsync({
+        conversationId: conversation.id, externalUserId: owner, firstUserMessage: "继续帮我排查",
+        options: { streamFn: createMockStreamFn("WiFi速度异常排查", "stop", captured), resolveApiKeyFn: async () => "dummy-key" }
+      });
+      assert.equal(title, "WiFi速度异常排查");
+      assert.match(String(captured.context?.messages[0]?.content), /WiFi 很慢/);
+      assert.equal(new SessionStore().getConversationById(conversation.id, "web", owner)?.title, title);
+    } finally {
+      Object.assign(storagePaths, originalPaths);
+      (globalThis as any).__molibotRuntime = originalRuntime;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("a manual rename during title generation is preserved without notifying the UI", async () => {
+  const originalRuntime = (globalThis as any).__molibotRuntime;
+  let currentTitle = "New Session";
+  let renamed = false;
+  let notified = false;
+  (globalThis as any).__molibotRuntime = {
+    sessions: {
+      getConversationById: () => ({ title: currentTitle }),
+      listMessages: () => [{ role: "user", content: "请帮我清理数据" }],
+      renameConversation: () => { renamed = true; }
+    },
+    getSettings: () => mockZhSettings
+  };
+  try {
+    const result = await tryAutoSummarizeConversationTitleAsync({
+      conversationId: "conv-rename", externalUserId: "user-1", firstUserMessage: "请帮我清理数据",
+      onTitleUpdated: () => { notified = true; },
+      options: {
+        resolveApiKeyFn: async () => "dummy-key",
+        streamFn: (...args) => {
+          currentTitle = "我的手动标题";
+          return createMockStreamFn("数据清理")(...args);
+        }
+      }
+    });
+    assert.equal(result, null);
+    assert.equal(renamed, false);
+    assert.equal(notified, false);
+  } finally {
+    (globalThis as any).__molibotRuntime = originalRuntime;
+  }
+});
+
+test("title requests tolerate more than eight seconds and abort at thirty seconds", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let started!: () => void;
+  const streamStarted = new Promise<void>(resolve => { started = resolve; });
+  let signal!: AbortSignal;
+  const result = summarizeSessionTitleWithLlm("帮我排查网络速度", mockZhSettings, {
+    resolveApiKeyFn: async () => "dummy-key",
+    streamFn: (_model, _context, options) => {
+      signal = options!.signal!;
+      const settled = new Promise(resolve => {
+        signal.addEventListener("abort", () => resolve({ stopReason: "aborted", content: [] }), { once: true });
+      });
+      started();
+      return { result: () => settled } as ReturnType<ReturnType<typeof createMockStreamFn>>;
+    }
+  });
+  await streamStarted;
+  t.mock.timers.tick(8001);
+  assert.equal(signal.aborted, false);
+  t.mock.timers.tick(21_999);
+  assert.equal(signal.aborted, true);
+  assert.equal(await result, null);
+});
+
+test("overlapping sends share one title request", async () => {
+  const originalRuntime = (globalThis as any).__molibotRuntime;
+  let calls = 0;
+  let title = "New Session";
+  let finish!: () => void;
+  const waiting = new Promise<void>(resolve => { finish = resolve; });
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  (globalThis as any).__molibotRuntime = {
+    sessions: {
+      getConversationById: () => ({ title }),
+      listMessages: () => [{ role: "user", content: "网络排查" }],
+      renameConversation: (_id: string, _channel: string, _owner: string, value: string) => ({ title: title = value })
+    },
+    getSettings: () => mockZhSettings
+  };
+  try {
+    const params = {
+      conversationId: "conv-overlap", externalUserId: "user-1", firstUserMessage: "网络排查",
+      options: {
+        resolveApiKeyFn: async () => "dummy-key",
+        streamFn: (...args: Parameters<ReturnType<typeof createMockStreamFn>>) => {
+          calls++;
+          started();
+          return { result: async () => { await waiting; return createMockStreamFn("网络速度排查")(...args).result(); } } as ReturnType<ReturnType<typeof createMockStreamFn>>;
+        }
+      }
+    };
+    const first = tryAutoSummarizeConversationTitleAsync(params);
+    await ready;
+    assert.equal(await tryAutoSummarizeConversationTitleAsync(params), null);
+    finish();
+    assert.equal(await first, "网络速度排查");
+    assert.equal(calls, 1);
+  } finally {
+    finish();
+    (globalThis as any).__molibotRuntime = originalRuntime;
   }
 });

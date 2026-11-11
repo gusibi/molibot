@@ -386,7 +386,8 @@
       resuming: copy.resuming,
       approvalFailed: copy.approvalFailed,
       approvalNotFound: copy.approvalNotFound,
-      transcriptLoadFailed: copy.transcriptLoadFailed
+      transcriptLoadFailed: copy.transcriptLoadFailed,
+      submissionUnconfirmed: copy.appSubmissionUnconfirmed
     }),
     refreshSessions: (projectId) => refreshProjectSessionList(projectId, true),
     resolveModel: resolveSessionModel,
@@ -1185,6 +1186,10 @@
     contextUsage={composerContextUsage}
     {sessionUsage}
     {sending}
+    {streamingText}
+    {streamingThinking}
+    {activity}
+    activities={activityEntries}
     disabled={!projectsStore.selectedSessionId || !modelReady}
     canSend={Boolean(message.trim()) || pendingFiles.length > 0}
     placeholder={sending ? copy.queueHint : copy.projectComposerPlaceholder}

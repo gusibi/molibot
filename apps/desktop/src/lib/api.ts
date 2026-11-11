@@ -3480,11 +3480,17 @@ export function parseDesktopActivity(
       const outputPath = typeof rawOutput?.path === "string" ? rawOutput.path.trim() : "";
       const outputAction = rawOutput?.action === "created" || rawOutput?.action === "modified" ? rawOutput.action : null;
       const outputRootKind = rawOutput?.rootKind === "project" || rawOutput?.rootKind === "scratch" ? rawOutput.rootKind : null;
+      const rawRetry = item.retry && typeof item.retry === "object" ? item.retry as Record<string, unknown> : null;
+      const retry = rawRetry && ["scheduled", "countdown", "attempt_start", "recovered", "failed", "cancelled"].includes(String(rawRetry.phase))
+        && [rawRetry.attempt, rawRetry.maxRetries, rawRetry.remainingSeconds].every(value => typeof value === "number" && Number.isInteger(value) && value >= 0)
+        ? { phase: rawRetry.phase as NonNullable<DesktopActivityEntry["retry"]>["phase"], attempt: Number(rawRetry.attempt), maxRetries: Number(rawRetry.maxRetries),
+          remainingSeconds: Number(rawRetry.remainingSeconds), ...(typeof rawRetry.model === "string" ? { model: rawRetry.model } : {}) } : undefined;
       return {
         kind: kind as DesktopActivityEntry["kind"],
         state: state as DesktopActivityEntry["state"],
         key,
         label,
+        ...(retry ? { retry } : {}),
         ...(summary ? { summary } : {}),
         ...(typeof item.tool === "string" && item.tool ? { tool: item.tool } : {}),
         ...(typeof item.diff === "string" && item.diff ? { diff: item.diff } : {}),
@@ -3543,6 +3549,7 @@ export async function streamDesktopChat(
   const hasFiles = Boolean(input.files?.length);
   const body = hasFiles ? new FormData() : null;
   if (body) {
+    body.set("clientSurface", "desktop");
     body.set("profileId", input.profileId);
     body.set("conversationId", input.sessionId);
     body.set("message", input.message);
@@ -3557,6 +3564,7 @@ export async function streamDesktopChat(
     ...(body ? { body } : {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+      clientSurface: "desktop",
       profileId: input.profileId,
       conversationId: input.sessionId,
       message: input.message,
@@ -3577,7 +3585,7 @@ export async function streamDesktopChat(
     } catch {
       message = text;
     }
-    throw new Error(message || `Stream failed (${response.status})`);
+    throw new DesktopChatRejectedError(message || `Stream failed (${response.status})`);
   }
 
   onConnected?.();
@@ -3592,6 +3600,16 @@ export async function streamDesktopChat(
  * tolerates three missed heartbeats before declaring death.
  */
 export const DESKTOP_SSE_IDLE_TIMEOUT_MS = 90_000;
+
+/** The observer disconnected; this does not establish whether the server accepted or finished the task. */
+export class DesktopStreamInterruptedError extends Error {
+  constructor(readonly accepted = true) {
+    super(accepted ? "Conversation connection interrupted; checking the original task." : "Connection interrupted before submission was confirmed. Check the conversation before resending.");
+    this.name = "DesktopStreamInterruptedError";
+  }
+}
+
+export class DesktopChatRejectedError extends Error {}
 
 export class DesktopSseIdleTimeoutError extends Error {
   constructor(idleMs: number) {

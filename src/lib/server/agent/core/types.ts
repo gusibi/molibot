@@ -232,12 +232,15 @@ export type RunnerUiEvent =
     }
   | {
       type: "model_retry";
-      phase: "scheduled" | "countdown" | "attempt_start" | "recovered" | "failed";
+      phase: "scheduled" | "countdown" | "attempt_start" | "recovered" | "failed" | "cancelled";
       attempt: number;
       maxRetries: number;
       delayMs?: number;
       remainingSeconds?: number;
       error?: string;
+      strategy?: "app";
+      key?: string;
+      model?: string;
     };
 
 export interface MomContext {
@@ -280,6 +283,8 @@ export interface MomContext {
   thinkingLevelOverride?: RuntimeThinkingSelection;
   thinkingStrategySource?: "request" | "session" | "project" | "global";
   modelKeyOverride?: string;
+  /** App ordinary conversations use bounded same-model recovery; absent retains the existing policy. */
+  retryPolicy?: "app";
   respond: (text: string, shouldLog?: boolean) => Promise<void>;
   replaceMessage: (text: string) => Promise<void>;
   commitMainAnswer?: (text: string) => Promise<void>;

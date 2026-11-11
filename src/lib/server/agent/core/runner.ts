@@ -71,6 +71,8 @@ import {
   verifyProjectFileMutationClaim
 } from "$lib/server/agent/core/runnerRetryState.js";
 import { invokeStreamWithRetry } from "./runnerModelRetry.js";
+import { invokeAppModelWithRetry } from "./appModelRetry.js";
+import { appModelErrorSummary } from "$lib/shared/appModelError.js";
 import { formatSubagentProgressLabel } from "$lib/server/agent/subagentProgress.js";
 import type { MomContext, RunResult, RunnerLike, ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "$lib/server/agent/tools/toolDisplay.js";
@@ -304,6 +306,7 @@ export class MomRunner implements RunnerLike {
     return this.activeWorkingDirOverride ?? resolveSessionWorkingDir(this.activeProject, this.store.getScratchDir(this.chatId));
   }
   private activeRunnerEventSink: NonNullable<MomContext["onRunnerEvent"]> | undefined;
+  private activeRetryPolicy: MomContext["retryPolicy"];
   private activeRunBudget: RunBudget | undefined;
   private nativeModelTaskId?: string;
   private activePayloadContext:
@@ -614,7 +617,7 @@ export class MomRunner implements RunnerLike {
       // with an API key kept working, which hid the regression; OAuth providers
       // carry their credential in a header that only this path injects, so they
       // failed with "No API key for provider: …".
-      streamFn: (selectedModel, context, opts) => {
+      streamFn: (selectedModel, context, opts, origin) => {
         const settingsNow = this.getSettings();
         const rolePatchedContext = selectedModel.api === "anthropic-messages"
           ? moveAnthropicSystemMessagesToTopLevel(context)
@@ -681,14 +684,16 @@ export class MomRunner implements RunnerLike {
         // request but never starts responding would otherwise hang the run
         // forever; instead we abort it and throw a retryable error so the loop
         // falls back to the next model (or surfaces an error once exhausted).
-        const firstTokenTimeoutMs = settingsNow.modelFallback?.firstTokenTimeoutMs ?? 0;
-
-        return invokeStreamWithRetry({
-          signal: this.agent.signal,
-          maxRetries: 5,
+        const appRetry = this.activeRetryPolicy === "app" && origin === "parent";
+        const firstTokenTimeoutMs = settingsNow.modelFallback?.firstTokenTimeoutMs || (appRetry ? 60_000 : 0);
+        const retryStream = appRetry ? invokeAppModelWithRetry : invokeStreamWithRetry;
+        return retryStream({
+          signal: appRetry ? opts?.signal ?? this.agent.signal : this.agent.signal,
+          ...(appRetry ? {} : { maxRetries: 5 }),
           produceStream: (attemptIndex, attemptSignal) => {
             const callOptions = {
               ...requestOptions,
+              ...(appRetry ? { maxRetries: 0 } : {}),
               signal: attemptSignal
             };
             if (!(firstTokenTimeoutMs > 0)) {
@@ -735,7 +740,8 @@ export class MomRunner implements RunnerLike {
                 maxRetries: progress.maxRetries,
                 delayMs: progress.delayMs,
                 remainingSeconds: progress.remainingSeconds,
-                error: progress.error
+                error: progress.error,
+                ...(appRetry ? { strategy: "app" as const, key: `app-model-retry:${this.nativeModelTaskId}`, model: selectedModel.id } : {})
               });
             }
           }
@@ -977,6 +983,8 @@ export class MomRunner implements RunnerLike {
     recoveryStore.close();
     const savedSuspension = this.store.readLatestRuntimeEvent?.(this.chatId, "PI_APPROVAL_SUSPENDED", this.sessionId)?.details;
     const recoveringSuspension = matchesSuspendedRun(savedSuspension, runId, ctx.message.userId) ? savedSuspension : undefined;
+    this.activeRetryPolicy = nativeRecovery?.context.retryPolicy ?? recoveringSuspension?.retryPolicy as MomContext["retryPolicy"]
+      ?? (!ctx.message.isEvent && !ctx.message.contextRunId && !this.runtimeIdentity?.roomId ? ctx.retryPolicy : undefined);
     if (this.runtimeIdentity?.agentId && !this.runtimeIdentity.roomId && !ctx.project && !nativeRecovery && !recoveringSuspension) requireEnabledAgent(this.getSettings(), this.runtimeIdentity.agentId);
     const turnRetention = nativeRecovery?.context.retention ?? recoveringSuspension?.retention as MomContext["retention"] ?? ctx.retention ?? classifyTurnRetention(ctx.message.text);
     const turnCapabilities = retentionCapabilities(turnRetention);
@@ -1223,6 +1231,7 @@ export class MomRunner implements RunnerLike {
       modelCandidates = await Promise.all(nativeRecovery.models.map(async model => ({ ...activeSelection, model, providerId: model.provider, modelId: model.id, apiKey: await resolveApiKeyForModel(model, settings) })));
       activeSelection = modelCandidates[0];
     }
+    if (this.activeRetryPolicy === "app") modelCandidates = modelCandidates.slice(0, 1);
     if (this.activeHookContext) {
       const transformed = await this.hookManager.transform("input.enrich.after", this.activeHookContext, {
         text: enrichedText,
@@ -2277,7 +2286,7 @@ export class MomRunner implements RunnerLike {
           storagePath: join(resolveDataRootFromWorkspacePath(this.store.getWorkspaceDir()), "runtime", "pi", `${createHash("sha256").update(executionKey).digest("hex")}.sqlite`),
           sessionId: this.sessionId, channel: this.channel, actor: ctx.message.userId, workspaceId,
           budgetId: ctx.message.budgetId, runtimeIdentity: this.runtimeIdentity,
-          context: { project: ctx.project, modelKeyOverride: ctx.modelKeyOverride, retention: turnRetention, executionPolicy,
+          context: { project: ctx.project, modelKeyOverride: ctx.modelKeyOverride, retryPolicy: this.activeRetryPolicy, retention: turnRetention, executionPolicy,
             roomRouting: ctx.roomRouting, nativeToolCall: selectedNativeToolCall },
           transport: ctx.deliveryTarget,
           models: modelCandidates.map(({ model }) => { const { headers: _headers, ...safe } = model; return safe as Model<any>; }), deferred: false });
@@ -2288,6 +2297,7 @@ export class MomRunner implements RunnerLike {
         requestId: executionKey, runId, admissionKey: authorityKey,
         scope: { ownerId: botId, executionId: ctx.message.budgetId ?? runId, stepId: "turn", planVersion: 1, authorityKey },
         models: modelCandidates.map(candidate => candidate.model),
+        retryPolicy: this.activeRetryPolicy,
         assertStorageOwnership: () => {
           const owner = ensureServiceOwnership();
           if (!owner.owned || !verifyServiceOwnership()) throw new Error("Pi execution lost service ownership.");
@@ -3199,7 +3209,7 @@ export class MomRunner implements RunnerLike {
               finalText: candidateFinalText,
               attemptCount,
               maxEmptyRetries: MAX_EMPTY_RETRIES,
-              maxModelRetries: budget.limitsSnapshot().maxModelAttempts,
+              maxModelRetries: this.activeRetryPolicy === "app" ? 0 : budget.limitsSnapshot().maxModelAttempts,
               attemptExecutedTools,
               completedWithoutText: structuredPlanCompleted
             });
@@ -3645,7 +3655,7 @@ export class MomRunner implements RunnerLike {
       }
 
       if (!finalText.trim() || finalText.startsWith("[SILENT]")) {
-        const report = formatStoppedSubagentReport(subagentTaskRecords, errorMessage);
+        const report = formatStoppedSubagentReport(subagentTaskRecords, this.activeRetryPolicy === "app" ? appModelErrorSummary(errorMessage ?? "") : errorMessage);
         if (report && stopReason !== "aborted" && stopReason !== "waiting_for_approval") {
           finalText = report;
           stopReason = "error";
@@ -3657,10 +3667,11 @@ export class MomRunner implements RunnerLike {
 
       if (!finalText.trim() && stopReason === "error") {
         errorMessage ??= "Agent stopped without a final conclusion.";
-        finalText = formatInterruptedRunReport({
+        const failureSummary = this.activeRetryPolicy === "app" ? appModelErrorSummary(errorMessage, /[\u3400-\u9fff]/.test(ctx.message.text)) : errorMessage;
+        finalText = this.activeRetryPolicy === "app" && !lastAssistantProgressText.trim() && toolProgress.size === 0 ? failureSummary : formatInterruptedRunReport({
           progressText: stripMemoryCitations(lastAssistantProgressText).text,
           tools: [...toolProgress.values()],
-          error: errorMessage
+          error: failureSummary
         });
         lastAnswerTextEntryId = appendRunContextMessage(createAssistantErrorMessage({ text: finalText, errorMessage, model: activeSelection.model }));
         assistantMessagePersisted = true;
@@ -3713,7 +3724,7 @@ export class MomRunner implements RunnerLike {
         this.store.appendRuntimeEvent(this.chatId, {
           code: "PI_APPROVAL_SUSPENDED", level: "info", summary: "Native execution is waiting for approval.",
           details: { runId, requestId: this.approvalSuspensionRequestId(), userId: ctx.message.userId,
-            budgetId: ctx.message.budgetId, retention: turnRetention, executionPolicy: admittedExecutionPolicy ?? executionPolicy, mcpServers: Object.fromEntries(effectiveMcpServers(settings).filter(server => this.selectedMcpServerIds.has(server.id)).map(server => [server.id, createHash("sha256").update(JSON.stringify(server)).digest("hex")])), mcpServerIds: [...this.selectedMcpServerIds] }
+            budgetId: ctx.message.budgetId, retryPolicy: this.activeRetryPolicy, retention: turnRetention, executionPolicy: admittedExecutionPolicy ?? executionPolicy, mcpServers: Object.fromEntries(effectiveMcpServers(settings).filter(server => this.selectedMcpServerIds.has(server.id)).map(server => [server.id, createHash("sha256").update(JSON.stringify(server)).digest("hex")])), mcpServerIds: [...this.selectedMcpServerIds] }
         }, this.sessionId);
         // A run parked on a persisted approval request is not an empty model
         // response and not an error: nothing is said to the user here because
@@ -3769,6 +3780,7 @@ export class MomRunner implements RunnerLike {
                 limits: budget.limitsSnapshot(),
                 failedToolNames
               })
+            : this.activeRetryPolicy === "app" ? appModelErrorSummary(errorMessage ?? "", /[\u3400-\u9fff]/.test(ctx.message.text))
             : finalErrorUserMessage({aborted: stopReason === "aborted", errorMessage, userText: ctx.message.text})
         );
         await respondInThread(`Error: ${errorMessage}`);
@@ -3781,7 +3793,7 @@ export class MomRunner implements RunnerLike {
           errorMessage,
           partialLength: streamedAssistantText.trim().length
         });
-        await sendSupplement(`⚠️ 本次回复在生成过程中中断，上面是已生成的部分。错误：${errorMessage}`);
+        await sendSupplement(this.activeRetryPolicy === "app" ? "" : `⚠️ 本次回复在生成过程中中断，上面是已生成的部分。错误：${errorMessage}`);
         await respondInThread(`Error: ${errorMessage}`);
       }
 
@@ -3952,8 +3964,8 @@ export class MomRunner implements RunnerLike {
       const partialText = formatInterruptedRunReport({
         progressText: stripMemoryCitations(streamedAssistantText.trim() || lastAssistantProgressText.trim()).text,
         tools: [...toolProgress.values()],
-        error: message,
-        subagentReport: formatStoppedSubagentReport(subagentTaskRecords, message)
+        error: this.activeRetryPolicy === "app" ? appModelErrorSummary(message, /[\u3400-\u9fff]/.test(ctx.message.text)) : message,
+        subagentReport: formatStoppedSubagentReport(subagentTaskRecords, this.activeRetryPolicy === "app" ? appModelErrorSummary(message) : message)
       });
       // Earlier assistant entries may be progress/tool calls, not a closing answer.
       const exceptionEntryId = appendRunContextMessage(createAssistantErrorMessage({ text: partialText, errorMessage: message, model: activeSelection.model }));
@@ -4031,6 +4043,7 @@ export class MomRunner implements RunnerLike {
       }
       this.activeRunBudget = undefined;
       this.activeRunnerEventSink = undefined;
+      this.activeRetryPolicy = undefined;
       this.activePayloadContext = undefined;
       this.activeRunSkillManifest.clear();
       this.pendingReadPaths.clear();

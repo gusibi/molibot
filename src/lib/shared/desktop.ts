@@ -1635,6 +1635,7 @@ export interface DesktopConversationActivity {
   label: string;
   state: "running" | "success" | "error" | "info";
   summary?: string;
+  retry?: import("./types/message.js").ConversationActivity["retry"];
   /** Unified patch when the call changed a file (see `ConversationActivity`). */
   diff?: string;
   /** Project-relative paths the tool call touched (see `ConversationActivity`). */

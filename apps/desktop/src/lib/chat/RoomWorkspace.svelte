@@ -424,6 +424,9 @@
       onChangeModel={value => modelKey = value} onChangeThinking={value => thinking = value}
       canSend={Boolean(input.trim() || files.length) && !submitting} disabled={submitting}
       sending={!showHome && active.some(e => e.status === "running" || e.status === "waiting_approval")}
+      streamingText={liveResponses.map(response => response.streamingText).join("\n")}
+      activity={liveResponses[0]?.activity ?? ""}
+      activities={liveResponses.flatMap(response => response.activities)}
       fileToolDisabled={submitting} recordingToolDisabled={submitting} placeholder={words.placeholder}
       onSend={() => void send()} onStop={() => void action("stop")}
       onKeydown={event => { if (shouldSubmitComposer(event)) { event.preventDefault(); void send(); } }}

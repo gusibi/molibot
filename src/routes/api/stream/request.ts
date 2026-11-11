@@ -11,6 +11,7 @@ interface StreamBody {
   modelKey?: string;
   durableMode?: string;
   resumePlanId?: string;
+  clientSurface?: "desktop";
 }
 
 export interface ParsedStreamRequest extends Omit<StreamBody, "durableMode"> {
@@ -18,10 +19,14 @@ export interface ParsedStreamRequest extends Omit<StreamBody, "durableMode"> {
   files: File[];
 }
 
+export function streamRetryPolicy(body: ParsedStreamRequest, hasPlan: boolean, hasExecution: boolean): "app" | undefined {
+  return body.clientSurface === "desktop" && !hasPlan && !hasExecution ? "app" : undefined;
+}
+
 export async function parseStreamRequest(request: Request): Promise<ParsedStreamRequest> {
   if (!request.headers.get("content-type")?.includes("multipart/form-data")) {
     const body = await request.json() as StreamBody;
-    return { ...body, durableMode: parseDurableRequestMode(body.durableMode), files: [] };
+    return { ...body, clientSurface: body.clientSurface === "desktop" ? "desktop" : undefined, durableMode: parseDurableRequestMode(body.durableMode), files: [] };
   }
   const form = await request.formData();
   return {
@@ -34,6 +39,7 @@ export async function parseStreamRequest(request: Request): Promise<ParsedStream
     projectId: String(form.get("projectId") ?? ""),
     modelKey: String(form.get("modelKey") ?? "").trim() || undefined,
     resumePlanId: String(form.get("resumePlanId") ?? "").trim() || undefined,
+    clientSurface: form.get("clientSurface") === "desktop" ? "desktop" : undefined,
     durableMode: parseDurableRequestMode(form.get("durableMode")),
     files: form.getAll("files").filter((entry): entry is File => entry instanceof File && entry.size > 0)
   };

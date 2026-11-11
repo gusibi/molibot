@@ -6,7 +6,7 @@ import {
 import { isRetryableModelError } from "./runnerRetryState.js";
 
 export interface ModelRetryProgress {
-  phase: "scheduled" | "countdown" | "attempt_start" | "recovered" | "failed";
+  phase: "scheduled" | "countdown" | "attempt_start" | "recovered" | "failed" | "cancelled";
   attempt: number;
   maxRetries: number;
   delayMs: number;
@@ -69,7 +69,7 @@ export function extractRetryDelayMs(
 /**
  * Standard sleep that resolves to true if aborted early, false if completed.
  */
-async function defaultSleep(ms: number, signal?: AbortSignal): Promise<boolean> {
+export async function defaultSleep(ms: number, signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted) return true;
   return new Promise<boolean>((resolve) => {
     let timer: NodeJS.Timeout | undefined;
@@ -85,7 +85,7 @@ async function defaultSleep(ms: number, signal?: AbortSignal): Promise<boolean> 
   });
 }
 
-function createAbortedAssistantMessage(): AssistantMessage {
+export function createAbortedAssistantMessage(): AssistantMessage {
   return {
     role: "assistant",
     content: [],
@@ -102,7 +102,7 @@ function createAbortedAssistantMessage(): AssistantMessage {
   } as unknown as AssistantMessage;
 }
 
-function createErrorAssistantMessage(errorMessage: string): AssistantMessage {
+export function createErrorAssistantMessage(errorMessage: string): AssistantMessage {
   return {
     role: "assistant",
     content: [],
@@ -122,7 +122,7 @@ function createErrorAssistantMessage(errorMessage: string): AssistantMessage {
 /**
  * Countdown-based waiting loop that updates progress every second.
  */
-async function performRetryWait(input: {
+export async function performRetryWait(input: {
   attempt: number;
   maxRetries: number;
   delayMs: number;

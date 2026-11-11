@@ -317,6 +317,20 @@ test("subagent phases update one linked task without adding diagnostic rows or i
   assert.equal(collector.snapshot()[1].state, "success");
 });
 
+test("App recovery keeps one typed activity per generation and Stop settles its countdown", () => {
+  const collector = new ConversationActivityCollector();
+  const event = { type: "model_retry" as const, strategy: "app" as const, key: "app:generation:1", model: "current-model", attempt: 2, maxRetries: 10 };
+  collector.record({ ...event, phase: "scheduled", remainingSeconds: 3, error: "fetch failed" });
+  collector.record({ ...event, phase: "countdown", remainingSeconds: 2, error: "fetch failed" });
+  assert.equal(collector.snapshot().length, 1);
+  assert.equal(collector.snapshot()[0]?.retry?.remainingSeconds, 2);
+  collector.record({ ...event, phase: "cancelled", remainingSeconds: 0 });
+  const stopped = collector.finalSnapshot()[0];
+  assert.equal(stopped?.state, "info");
+  assert.equal(stopped?.retry?.phase, "cancelled");
+  assert.equal(stopped?.retry?.model, "current-model");
+});
+
 test("model_retry events record real-time countdown progress and transition to success", () => {
   const collector = new ConversationActivityCollector();
   const scheduled = collector.record({

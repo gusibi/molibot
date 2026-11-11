@@ -378,6 +378,69 @@ async function until(predicate: () => boolean, timeoutMs = 2_000): Promise<void>
   throw new Error("condition not reached within timeout");
 }
 
+test("a dropped observer checks the original task without resubmitting the message", async t => {
+  let submitted = 0, recovered = 0, reloaded = 0;
+  const errors: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string) => {
+    if (input.endsWith("/api/stream")) { submitted++; return new Response('event: token\ndata: {"delta":"partial"}\n\n'); }
+    if (input.endsWith("/session-runs")) { recovered++; return jsonResponse({ ok: true, runs: [] }); }
+    return jsonResponse({ ok: true, approvals: [] });
+  });
+  const controller = await createControllerHarness({ endpoint: () => "http://localhost:9999", reload: async () => { reloaded++; }, setError: error => { errors.push(error); } }) as unknown as ConversationController;
+  await controller.send({ message: "hello" });
+  assert.equal(submitted, 1);
+  assert.equal(recovered, 1);
+  assert.ok(reloaded >= 1);
+  assert.deepEqual(errors, []);
+  assert.equal(controller.sending, false);
+});
+
+test("an unconfirmed submission rejects so the composer can restore input without replaying the request", async t => {
+  let requests = 0, reloaded = 0;
+  t.mock.method(globalThis, "fetch", async () => { requests++; throw new Error("fetch failed"); });
+  const controller = await createControllerHarness({ endpoint: () => "http://localhost:9999", reload: async () => { reloaded++; } }) as unknown as ConversationController;
+  await assert.rejects(controller.send({ message: "keep this draft" }), /submission was confirmed/);
+  assert.equal(requests, 1);
+  assert.equal(reloaded, 0);
+  assert.equal(controller.sending, false);
+});
+
+for (const [run, emptyApprovalChecks] of [
+  [{ status: "waiting_for_approval", waitingApproval: false }, 0],
+  [{ status: "running", waitingApproval: true }, 0],
+  [{ status: "waiting_for_approval", waitingApproval: true }, 1]
+] as const) test(`a dropped observer adopts approval before the run ends (${run.status}, ${run.waitingApproval}, ${emptyApprovalChecks} empty checks)`, async t => {
+  const setTimer = globalThis.setTimeout;
+  t.mock.method(globalThis, "setTimeout", (callback: (...args: any[]) => void, ms?: number, ...args: any[]) =>
+    setTimer(callback, ms === 1500 ? 1 : ms, ...args));
+  let submitted = 0, statusChecks = 0;
+  const approvalChecks: number[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string) => {
+    if (input.endsWith("/api/stream")) {
+      submitted++;
+      return new Response('event: token\ndata: {"delta":"partial"}\n\n');
+    }
+    if (input.endsWith("/session-runs")) {
+      return jsonResponse({ ok: true, runs: ++statusChecks <= emptyApprovalChecks + 1 ? [{ sessionId: "session", ...run }] : [] });
+    }
+    approvalChecks.push(statusChecks);
+    return jsonResponse({ ok: true, approvals: approvalChecks.length <= emptyApprovalChecks ? [] : [approvalCard("missed-approval")] });
+  });
+  const controller = await createControllerHarness({
+    endpoint: () => "http://localhost:9999",
+    setError: error => assert.fail(error)
+  }) as unknown as ConversationController;
+  const sending = controller.send({ message: "hello" });
+  controller.enqueue("follow-up");
+  await sending;
+  assert.deepEqual(approvalChecks, emptyApprovalChecks ? [1, 2] : [1], "the card must be fetched while the server is still waiting");
+  assert.equal(submitted, 1);
+  assert.deepEqual(controller.queue, ["follow-up"], "waiting for approval must not drain the queue");
+  assert.equal(controller.pendingApprovals[0]?.requestId, "missed-approval");
+  assert.equal(controller.sending, false);
+  assert.equal(controller.recovering, false);
+});
+
 test("queued follow-ups drain in order and each runs exactly once", async () => {
   const streamed: string[] = [];
   let releaseFirst: (() => void) | undefined;

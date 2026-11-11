@@ -31,6 +31,7 @@ export interface PiRunBinding {
   admissionKey: string;
   runId?: string;
   models: readonly Model<any>[];
+  retryPolicy?: "app";
   assertStorageOwnership: () => void;
   assertAuthority: PiConversationOptions["assertAuthority"];
   recoverTools?: PiConversationOptions["recoverTools"];
@@ -51,6 +52,8 @@ export interface PiRunBinding {
   afterChildTool?: PiConversationOptions["afterChildTool"];
 }
 
+type ScopedStreamFunction = (...args: [...Parameters<NonNullable<AgentOptions["streamFn"]>>, origin?: "parent" | "child"]) => ReturnType<NonNullable<AgentOptions["streamFn"]>>;
+
 /** Product-facing view and callbacks over a native Pi conversation. No agent loop runs here. */
 export class PiRunSession {
   readonly state: AgentState;
@@ -58,7 +61,7 @@ export class PiRunSession {
   transport: AgentOptions["transport"];
   beforeToolCall: AgentOptions["beforeToolCall"];
   afterToolCall: AgentOptions["afterToolCall"];
-  streamFunction: AgentOptions["streamFn"];
+  streamFunction: ScopedStreamFunction;
   onPayload: AgentOptions["onPayload"];
   onResponse: AgentOptions["onResponse"];
   private binding?: PiRunBinding;
@@ -81,7 +84,7 @@ export class PiRunSession {
   private registerProvider?: (provider: string) => void;
   private configuration: Promise<void> = Promise.resolve();
 
-  constructor(private readonly options: AgentOptions) {
+  constructor(private readonly options: Omit<AgentOptions, "streamFn"> & { streamFn: ScopedStreamFunction }) {
     const initial = options.initialState!;
     this.state = { systemPrompt: initial.systemPrompt ?? "", model: initial.model!, thinkingLevel: initial.thinkingLevel ?? "off",
       tools: initial.tools ?? [], messages: initial.messages ?? [], isStreaming: false, pendingToolCalls: new Set() };
@@ -182,10 +185,14 @@ export class PiRunSession {
       installed.add(provider);
       const stream = (model: Model<any>, context: Parameters<NonNullable<AgentOptions["streamFn"]>>[1], streamOptions?: SimpleStreamOptions) => {
         const output = createAssistantMessageEventStream();
-        void Promise.resolve().then(() => this.streamFunction(model, context, {
-          ...streamOptions, sessionId: this.sessionId, transport: this.transport,
-          onPayload: this.onPayload, onResponse: this.onResponse
-        })).then(async source => {
+        void Promise.resolve().then(async () => {
+          const origin = this.binding?.retryPolicy === "app"
+            ? await this.runtime?.ownsProviderSession(streamOptions?.sessionId) ? "parent" : "child" : undefined;
+          return this.streamFunction(model, context, {
+            ...streamOptions, sessionId: this.sessionId, transport: this.transport,
+            onPayload: this.onPayload, onResponse: this.onResponse
+          }, origin);
+        }).then(async source => {
           let terminal = false;
           for await (const event of source) { output.push(event); terminal ||= event.type === "done" || event.type === "error"; }
           const final = await source.result();

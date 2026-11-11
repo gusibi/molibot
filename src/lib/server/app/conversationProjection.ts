@@ -165,9 +165,9 @@ function hydrateActivitySteps(
   steps: ConversationStep[] | undefined,
   activities: ConversationActivity[] | undefined
 ): ConversationStep[] | undefined {
-  if (!steps?.length) return steps;
+  if (!steps?.length && !activities?.some(activity => activity.retry)) return steps;
   const remaining = [...(activities ?? [])];
-  return steps.map((step) => {
+  const hydrated = (steps ?? []).map((step) => {
     if (step.kind !== "activity") return step;
     const exact = remaining.findIndex((activity) => activity.key === step.activity.key);
     const byTool = remaining.findIndex((activity) => activity.tool === step.activity.tool);
@@ -176,6 +176,11 @@ function hydrateActivitySteps(
     const [activity] = remaining.splice(index, 1);
     return { ...step, activity };
   });
+  // Transport recovery is not a model-authored step; retain its persisted activity independently of the native transcript.
+  const recoverySteps: ConversationStep[] = remaining.filter(activity => activity.retry).map(activity => ({ id: activity.key, kind: "activity", activity }));
+  const resultIndex = hydrated.findIndex(step => step.kind === "result");
+  hydrated.splice(resultIndex < 0 ? hydrated.length : resultIndex, 0, ...recoverySteps);
+  return hydrated;
 }
 
 function displayUserText(text: string): string {

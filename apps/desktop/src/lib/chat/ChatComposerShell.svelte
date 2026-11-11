@@ -151,6 +151,7 @@
 </script>
 
 <div class="composer">
+  <slot name="status" />
   <slot name="context" />
   <slot />
   <div class="composer-input">

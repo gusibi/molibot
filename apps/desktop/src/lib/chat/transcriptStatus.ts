@@ -1,4 +1,5 @@
 import type { TranscriptMessage } from "./transcript";
+import { appModelErrorSummary } from "@molibot/shared/appModelError";
 
 export type TurnStatus = {
   state: "complete" | "failed" | "stopped" | "waiting" | "unknown";
@@ -8,9 +9,11 @@ export type TurnStatus = {
 export function isStatusOnlyMessage(message: TranscriptMessage): boolean {
   if (message.role !== "assistant") return false;
   const error = message.errorMessage?.trim() ?? "";
-  return (!message.content.trim() || message.content.trim() === error)
+  const summaries = error ? [appModelErrorSummary(error, true), appModelErrorSummary(error, false)] : [];
+  const statusText = (text: string) => !text.trim() || text.trim() === error || summaries.includes(text.trim());
+  return statusText(message.content)
     && !message.thinking?.trim() && !message.attachments?.length && !message.activities?.length
-    && !(message.steps ?? []).some(step => step.kind !== "text" || (step.content.trim() && step.content.trim() !== error));
+    && !(message.steps ?? []).some(step => (step.kind !== "text" && step.kind !== "result") || !statusText(step.content));
 }
 
 /** One terminal status per user turn; an earlier request error does not override a later answer. */

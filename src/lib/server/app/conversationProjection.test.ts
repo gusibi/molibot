@@ -143,6 +143,21 @@ test("projects Agent content through UI-only metadata without duplicating text",
   assert.equal(result.sourceEntryByMessageId.get("u-ui"), "u-agent");
 });
 
+test("App recovery metadata remains visible beside a context-backed answer after reload", () => {
+  const result = projectConversationMessages({ conversationId: "session", entries: [
+    entry("u", "user", [{ type: "text", text: "hello" }], 0),
+    delivered("a", [{ type: "text", text: "Recovered answer" }], 1, "final", { stopReason: "stop" })
+  ], metadata: [
+    { id: "user", role: "user", conversationId: "session", createdAt: "2026-07-14T10:00:00.000Z", sourceEntryId: "u", contextBacked: true },
+    { id: "reply", role: "assistant", conversationId: "session", createdAt: "2026-07-14T10:01:00.000Z", sourceEntryId: "a", contextBacked: true,
+      activities: [{ key: "app:1", kind: "retry", tool: "retry", label: "Recovered", state: "success", retry: { phase: "recovered", attempt: 2, maxRetries: 10, remainingSeconds: 0 } }] }
+  ] });
+  const reply = result.messages.find(message => message.id === "reply");
+  assert.equal(reply?.content, "Recovered answer");
+  assert.deepEqual(reply?.steps?.map(step => step.kind), ["activity", "result"]);
+  assert.equal(reply?.steps?.[0]?.kind === "activity" && reply.steps[0].activity.retry?.attempt, 2);
+});
+
 test("preserves thinking, tool and text interleaving as ordered transcript steps", () => {
   const result = projectConversationMessages({
     conversationId: "session",

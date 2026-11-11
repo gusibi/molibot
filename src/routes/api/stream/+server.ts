@@ -23,7 +23,7 @@ import { resolveWebInboundFileMeta, saveWebResponseAttachment } from "$lib/serve
 import type { ConversationAttachment, ConversationPlan } from "$lib/shared/types/message";
 import { classifyTurnRetention } from "$lib/server/sessions/retentionPolicy";
 import { buildRunnerProjectContext, resolveProjectContext } from "$lib/server/projects/context";
-import { parseStreamRequest, type ParsedStreamRequest } from "./request";
+import { parseStreamRequest, streamRetryPolicy, type ParsedStreamRequest } from "./request";
 import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import { activateDurableExecution } from "$lib/server/agent/durable/activation.js";
 import {
@@ -33,7 +33,7 @@ import {
 } from "$lib/server/agent/durable/conversation.js";
 import { subscribeLiveConversation, type LiveConversationMessage } from "$lib/server/agent/durable/liveResponse.js";
 import { DurableExecutionQuotaError } from "$lib/server/agent/durable/types.js";
-import { tryAutoSummarizeConversationTitleAsync, hasDefaultConversationTitle } from "$lib/server/sessions/titleSummarizer.js";
+import { tryAutoSummarizeConversationTitleAsync } from "$lib/server/sessions/titleSummarizer.js";
 
 function writeEvent(
   controller: ReadableStreamDefaultController<Uint8Array>,
@@ -272,9 +272,6 @@ export const POST: RequestHandler = async ({ request }) => {
     mimeType: attachment.mimeType,
     size: attachment.size
   }));
-  // Retry gate, not a first-turn gate (see /api/chat): retry while the title is
-  // still the default; the summarizer's own title check protects renames.
-  const shouldSummarizeTitle = !resumePlanId && hasDefaultConversationTitle(conversation.title);
   const inputMessage = runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
     attachments: sessionAttachments,
     retention: turnRetention
@@ -325,6 +322,18 @@ export const POST: RequestHandler = async ({ request }) => {
     }
     throw error;
   }
+  const summarizeTitle = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    if (resumePlanId) return;
+    void tryAutoSummarizeConversationTitleAsync({
+      conversationId: conversation.id,
+      channel: "web",
+      externalUserId,
+      firstUserMessage: inboundText,
+      onTitleUpdated: (title) => {
+        writeEvent(controller, encoder, "session_title_updated", { conversationId: conversation.id, title });
+      }
+    });
+  };
   if (durable) {
     persistDurableConversationInput(store, runtime.sessions, runnerChatId, inputMessage);
     const responseId = ensureDurableConversationResponse(runtime.sessions, durable.item.execution, isChineseLocale(runtime.getSettings().locale));
@@ -348,6 +357,7 @@ export const POST: RequestHandler = async ({ request }) => {
     };
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        summarizeTitle(controller);
         const finish = (message: LiveConversationMessage, status: string) => {
           if (finished) return;
           finished = true;
@@ -441,20 +451,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      if (shouldSummarizeTitle) {
-        void tryAutoSummarizeConversationTitleAsync({
-          conversationId: conversation.id,
-          channel: "web",
-          externalUserId,
-          firstUserMessage: inboundText,
-          onTitleUpdated: (newTitle) => {
-            writeEvent(controller, encoder, "session_title_updated", {
-              conversationId: conversation.id,
-              title: newTitle
-            });
-          }
-        });
-      }
+      summarizeTitle(controller);
 
       void (async () => {
         let finalText = "";
@@ -484,6 +481,7 @@ export const POST: RequestHandler = async ({ request }) => {
             // reconnect() and recovers the result. An explicit Stop still goes
             // through /api/stream/stop.
             executionHistory,
+            retryPolicy: streamRetryPolicy(body, Boolean(sessionPlan), Boolean(linkedExecution)),
             readDurableEvidence: linkedExecution && coordinator ? async (evidenceId) => coordinator.readEvidence("owner", linkedExecution.execution.id, evidenceId, evidenceManager?.readDurableRunDetail?.bind(evidenceManager)) : undefined,
             sessionPlanProgress: sessionPlan ? {
               description: JSON.stringify(sessionPlan.steps),

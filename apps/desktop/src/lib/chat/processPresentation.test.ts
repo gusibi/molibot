@@ -18,6 +18,14 @@ test("visible progress uses structured status, never model commentary, thinking 
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_REASONING|RAW_LOG|已抓取原文|正在整理图片|准备校验文章/);
 });
 
+test("App recovery progress is localized without exposing provider diagnostics", () => {
+  const blocks: TranscriptProcessBlock[] = [{ id: "retry", kind: "activities", activities: [{ key: "app:1", kind: "retry", state: "running", label: "server fallback label", summary: "RAW_ENDPOINT",
+    retry: { phase: "countdown", attempt: 3, maxRetries: 10, remainingSeconds: 5 } }] }];
+  assert.equal(processPresentation(blocks, translator("en")).status, "Model connection interrupted; retrying in 5s · 3/10");
+  assert.equal(processPresentation(blocks, translator("zh-CN")).status, "模型连接中断，5 秒后重试 · 3/10");
+  assert.doesNotMatch(JSON.stringify(processPresentation(blocks, translator("en"))), /RAW_ENDPOINT|server fallback/);
+});
+
 test("missing commentary gets a localized honest status and ignores terminal tools", () => {
   const blocks: TranscriptProcessBlock[] = [{ id: "tools", kind: "activities", activities: [{ key: "parent", kind: "tool", tool: "subagent", label: "subagent", state: "running" }, { key: "done", kind: "tool", tool: "read", label: "read", state: "success" }] }];
   assert.equal(processPresentation(blocks, translator("en")).status, "A subagent is working on the delegated task…");

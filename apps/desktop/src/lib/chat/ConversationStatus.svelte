@@ -4,6 +4,8 @@
   import CircleInfo from "reicon-svelte/icons/CircleInfo";
   import type { Translation } from "../i18n";
   import type { TurnStatus } from "./transcriptStatus";
+  import { appModelErrorSummary } from "@molibot/shared/appModelError";
+  import { session } from "../stores/session.svelte";
   let { status, copy }: { status: TurnStatus; copy: Translation } = $props();
   const label = $derived(status.state === "failed" ? copy.sessionStatusFailed
     : status.state === "stopped" ? copy.sessionStatusStopped
@@ -13,5 +15,8 @@
 
 <section class="conversation-system-status" data-status={status.state} role="status" aria-label={copy.sessionStatusTitle}>
   <div class="conversation-system-status-line"><span><Icon size={14} aria-hidden="true" />{label}</span></div>
-  {#if status.error}<p class="conversation-system-status-error">{status.error}</p>{/if}
+  {#if status.error}
+    <p class="conversation-system-status-error">{appModelErrorSummary(status.error, session.locale === "zh-CN")}</p>
+    <details><summary>{copy.appErrorDetails}</summary><p class="conversation-system-status-error">{status.error}</p></details>
+  {/if}
 </section>

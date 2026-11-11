@@ -64,6 +64,7 @@
     ? transcriptRenderBlocks({ role: "assistant", content: "", steps: liveSteps })
     : transcriptRenderBlocks({ role: "assistant", content: "", thinking: streamingThinking, activities });
   $: liveSections = transcriptTurnSections(orderedBlocks);
+  $: hasResultText = liveSections.response.some(block => block.kind === "result" && block.content.trim());
 </script>
 
 {#if showEmpty && messages.length === 0 && !streamingText && !sending}
@@ -97,7 +98,7 @@
              (it held a literal "Thinking..." over the streaming thinking
              text). The border beam is the pill's own running mark; it keeps
              the text row intact instead of animating a separate element. -->
-        {#if !liveSections.process.length}
+        {#if !liveSections.process.length && !hasResultText}
           <div class="message-status beam" role="status">
             <BeamRing />
             <span class="message-status-text">{activity || copy.working}</span>

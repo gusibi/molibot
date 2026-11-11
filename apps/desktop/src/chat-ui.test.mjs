@@ -1903,13 +1903,14 @@ test("a streaming reply renders as keyed per-block fragments, not one swapped tr
 // The status pill and the process card used to say the same thing one line
 // apart: a literal "Thinking..." pill sitting directly over the streaming
 // thinking text. The pill now only covers the void between sending and the
-// first streamed content; once the card has content, the card is the running
-// indicator. The SSE bridge stopped shipping textual status frames for the
+// first streamed content (process card or result text); once either has
+// content, the card plus the tail status row are the running indicators. The
+// SSE bridge stopped shipping textual status frames for the
 // same reason - tool/subagent labels arrive as structured activities and
 // reasoning arrives as thinking_delta, so a "Thinking..."/"_→ label_" frame
 // could only ever duplicate the card.
 test("the status pill yields to the process card and the turn stream ships no status frames", () => {
-  assert.match(conversationLiveView, /\{#if !liveSections\.process\.length\}[\s\S]*?class="message-status[\s"]/);
+  assert.match(conversationLiveView, /\{#if !liveSections\.process\.length && !hasResultText\}[\s\S]*?class="message-status[\s"]/);
   assert.doesNotMatch(conversationTurnSource, /"status"/);
   assert.doesNotMatch(streamRouteSource, /writeEvent\(controller, encoder, "status"/);
 });
@@ -2107,8 +2108,9 @@ test("a running session shows the animated orb; other states keep the flat dot",
   assert.match(orb, /transform:\s*rotateX\(-14deg\) rotateY\(26deg\)/);
   assert.match(orb, /background:\s*currentColor/);
 
-  // Both degradation tiers stop the spin (styles.css owns the global overrides).
-  assert.match(styles, /\.timeline-wave-bar, \.running-orb-sphere, /);
+  // Both degradation tiers stop the spin (styles.css owns the global overrides;
+  // the tail-status caret rides the same shared kill lists).
+  assert.match(styles, /\.timeline-wave-bar, \.run-status-caret, \.running-orb-sphere, /);
   assert.match(
     styles,
     /:root\[data-performance="low"\] \.running-orb-sphere,\s*:root\[data-performance="low"\] \.agent-studio-spinner \{/
@@ -6670,4 +6672,39 @@ test("skill detail is an in-page pane with path, frontmatter and directory", () 
   assert.match(sections.skills, /loadPreflight/);
   assert.match(sections.skills, /preflight\.conflicts/);
   assert.match(sections.skills, /preflight\.requiresReplace/);
+});
+
+// The running turn's liveness readout is pinned inside the composer card, not
+// appended to the streaming stack. The card is anchored to the pane's bottom
+// edge, so transcript growth, queued follow-ups and attachments can never push
+// the readout out of view; the old in-transcript tail row is gone.
+test("the running turn keeps a pinned status readout in the composer card", () => {
+  const live = read("./lib/chat/ConversationLiveView.svelte");
+  const bar = read("./lib/chat/RunStatusBar.svelte");
+  const shell = read("./lib/chat/ChatComposerShell.svelte");
+  const rate = read("./lib/chat/streamingRate.ts");
+  const status = read("./lib/chat/runStatus.ts");
+  assert.doesNotMatch(live, /stream-live-status/);
+  assert.doesNotMatch(live, /createStreamRateMeter/);
+  assert.match(shell, /<slot name="status" \/>/);
+  assert.match(chatInputArea, /<RunStatusBar\s+slot="status"/);
+  assert.match(chatInputArea, /streamingText/);
+  assert.match(chatInputArea, /streamingThinking/);
+  assert.match(bar, /class="run-status" data-phase=\{phase\}/);
+  assert.match(bar, /class="run-status-caret"/);
+  assert.match(bar, /class="run-status-wave"/);
+  assert.match(bar, /copy\.tokensPerSecondRate\.replace\("\{rate\}", formatRunRate\(tokensPerSecond\)\)/);
+  assert.match(bar, /copy\.runStatusTokens\.replace\("\{count\}", formatRunTokens\(tokens\)\)/);
+  assert.match(bar, /copy\.stillWorking/);
+  assert.match(bar, /copy\.progressWaiting/);
+  assert.match(bar, /presentation\.status/);
+  assert.match(rate, /export function createStreamRateMeter/);
+  assert.match(rate, /export function estimateTokens/);
+  assert.match(status, /export function createRunStatusMeter/);
+  assert.match(i18n, /runStatusTokens: "↓ \{count\} tok"/);
+  assert.match(i18n, /stillWorking: "仍在运行 · 没有卡住"/);
+  assert.match(i18n, /stillWorking: "Still running — not stuck"/);
+  assert.match(baseStyles, /data-performance="low"\] \.run-status-caret/);
+  const reducedMotion = baseStyles.slice(baseStyles.indexOf("prefers-reduced-motion: reduce"));
+  assert.match(reducedMotion, /\.timeline-wave-bar, \.run-status-caret,/);
 });

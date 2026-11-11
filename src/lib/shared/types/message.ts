@@ -51,6 +51,13 @@ export interface ConversationActivity {
   label: string;
   state: "running" | "success" | "error" | "info";
   summary?: string;
+  retry?: {
+    phase: "scheduled" | "countdown" | "attempt_start" | "recovered" | "failed" | "cancelled";
+    attempt: number;
+    maxRetries: number;
+    remainingSeconds: number;
+    model?: string;
+  };
   /**
    * Unified patch when the call changed a file. Distinct from `summary`, which
    * is the sentence the model was given ("Updated src/x.ts") — the patch is for

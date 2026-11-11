@@ -10,7 +10,9 @@ import {
   resolveDesktopHostBash,
   steerDesktopChat,
   stopDesktopChat,
-  type DesktopActivityEntry
+  type DesktopActivityEntry,
+  DesktopStreamInterruptedError,
+  DesktopChatRejectedError
 } from "../api";
 import { runDesktopConversationTurn } from "./conversationTurn";
 import { isAbortCause } from "./turnAbort";
@@ -70,6 +72,7 @@ export interface ConversationLabels {
   approvalNotFound?: string;
   /** Shown when a transcript reload failed (the pane keeps the last messages). */
   transcriptLoadFailed?: string;
+  submissionUnconfirmed?: string;
 }
 
 /**
@@ -365,7 +368,10 @@ export class ConversationController {
     this.queue = rest;
     // Queued follow-ups belong to the turn they were queued behind, not to
     // whatever session the host points at once the turn ends.
-    if (next) void this.send({ message: next, sessionId: this.turnSessionId || undefined });
+    if (next) void this.send({ message: next, sessionId: this.turnSessionId || undefined }).catch(cause => {
+      this.queue = [next, ...this.queue];
+      this.host.setError(cause instanceof Error ? cause.message : String(cause));
+    });
   }
 
   async send({ message, files = [], sessionId: sessionIdOverride, resumePlanId }: { message: string; files?: File[]; sessionId?: string; resumePlanId?: string }): Promise<void> {
@@ -424,6 +430,7 @@ export class ConversationController {
     const abort = new AbortController();
     this.abort = abort;
     this.stopRequested = false;
+    let recoverConnection = false;
     try {
       await runDesktopConversationTurn({
         endpoint,
@@ -492,16 +499,28 @@ export class ConversationController {
       // `Error("Request cancelled")`, plain fetch with a DOMException, and the
       // server may even emit an SSE `error` frame before our own abort fires),
       // so the intent flag — not the error shape — decides whether to alarm.
-      if (!this.stopRequested && !isAbortCause(cause, abort.signal)) {
+      // Without a response, submission is ambiguous; reject so the caller restores the input instead of silently losing it.
+      if ((cause instanceof DesktopChatRejectedError || cause instanceof DesktopStreamInterruptedError && !cause.accepted) && !this.stopRequested && !abort.signal.aborted) {
+        if (cause instanceof DesktopStreamInterruptedError) cause.message = labels.submissionUnconfirmed ?? cause.message;
+        this.host.setError(cause.message);
+        throw cause;
+      }
+      recoverConnection = cause instanceof DesktopStreamInterruptedError && !this.stopRequested && !abort.signal.aborted;
+      if (!recoverConnection && !this.stopRequested && !isAbortCause(cause, abort.signal)) {
         this.host.setError(cause instanceof Error ? cause.message : String(cause));
       }
       await this.host.reload(sessionId).catch(() => undefined);
     } finally {
       this.resetStreamBuffers();
-      this.settleRunningActivities();
+      if (!recoverConnection) this.settleRunningActivities();
       this.sending = false;
       this.stopRequested = false;
       this.abort = null;
+    }
+    if (recoverConnection) {
+      try { await this.recoverRunningTurn(sessionId); }
+      catch (cause) { this.host.setError(cause instanceof Error ? cause.message : String(cause)); }
+      return;
     }
     // A turn can end while an approval is still pending server-side (the stream
     // dropped, or the request was raised after the stream closed). Claim it
@@ -575,10 +594,10 @@ export class ConversationController {
    * polls until the run settles, then reloads the transcript. The reply lands
    * exactly once because nothing is re-sent.
    */
-  async recoverRunningTurn(): Promise<void> {
+  async recoverRunningTurn(sessionIdOverride?: string): Promise<void> {
     if (this.recovering || this.sending) return;
     const endpoint = this.host.endpoint();
-    const sessionId = this.host.sessionId();
+    const sessionId = sessionIdOverride ?? this.host.sessionId();
     if (!endpoint || !sessionId) return;
     const labels = this.host.labels();
     this.recovering = true;
@@ -586,16 +605,26 @@ export class ConversationController {
     this.turnSessionId = sessionId;
     this.activity = labels.resuming;
     this.host.afterMutate?.();
+    let unavailableSince: number | undefined;
+    let terminalConfirmed = false;
     try {
-      await this.host.reload(sessionId);
       while (this.recovering) {
         let running = true;
         try {
-          running = (await listDesktopSessionRuns(endpoint)).runs.some((run) => run.sessionId === sessionId);
+          const run = (await listDesktopSessionRuns(endpoint)).runs.find((run) => run.sessionId === sessionId);
+          running = Boolean(run);
+          unavailableSince = undefined;
+          await this.host.reload(sessionId).catch(() => undefined);
+          if (run?.waitingApproval || run?.status === "waiting_for_approval") {
+            await this.syncPendingApproval(endpoint, this.turnContext?.profileId ?? this.host.profileId(), sessionId);
+            // Approval owns continuation now; leave queued follow-ups parked until it resolves.
+            if (this.pendingApprovals.length) break;
+          }
         } catch {
-          // A transient service hiccup must not end recovery; retry.
+          unavailableSince ??= Date.now();
+          if (Date.now() - unavailableSince >= 180_000) throw new DesktopStreamInterruptedError();
         }
-        if (!running) break;
+        if (!running) { terminalConfirmed = true; break; }
         await new Promise((resolve) => setTimeout(resolve, 1_500));
       }
     } finally {
@@ -605,8 +634,9 @@ export class ConversationController {
       await this.host.reload(sessionId);
       await this.host.refreshSessions?.();
       this.host.afterMutate?.();
+      if (terminalConfirmed && !this.pendingApproval) await this.syncPendingApproval(endpoint, this.turnContext?.profileId ?? this.host.profileId(), sessionId);
       // stop() owns the drain in its window, exactly like a normal turn.
-      if (!this.stopInFlight) this.drainQueue();
+      if (terminalConfirmed && !this.stopInFlight) this.drainQueue();
     }
   }
 

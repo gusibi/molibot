@@ -2870,6 +2870,30 @@ a:focus-visible {
   color: transparent;
   animation: status-text-flow 2.2s linear infinite;
 }
+/* The pinned run-status row inside the composer card. It sits above the
+   textarea, so neither the streaming transcript, a queue of follow-ups nor an
+   attachment strip can push it out of view: the card is anchored to the pane's
+   bottom edge and this row is part of it. One rhythm per phase — a blinking
+   caret while prose flows, the same wave bars as the process row while a tool
+   or a silent model holds the turn — and the numbers stay tabular so the
+   elapsed time and token count do not jitter as they tick. */
+.run-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 18px;
+  padding: 0 2px;
+  color: var(--label-tertiary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+}
+.run-status-wave { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 2.5px; width: 14px; height: 16px; }
+.run-status-caret { flex: none; width: 7px; height: 13px; margin: 0 3.5px; border-radius: 2px; background: var(--accent); animation: run-status-caret-blink 1.1s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite; }
+@keyframes run-status-caret-blink { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.run-status-label { min-width: 0; overflow: hidden; color: var(--label-secondary); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.run-status-meta { display: inline-flex; flex: none; align-items: center; gap: 8px; margin-left: auto; color: var(--label-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.run-status-meta > span + span::before { margin-right: 8px; color: var(--label-tertiary); content: "·"; opacity: .6; }
 @keyframes status-text-flow {
   0% { background-position: 120% 50%; }
   100% { background-position: -120% 50%; }
@@ -6191,7 +6215,7 @@ select.provider-input { padding-right: 6px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
-  .recording-indicator, .run-activity .spin, .transcript-media-loading > .reicon, .beam-ring::before, .timeline-wave-bar, .running-orb-sphere, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .composer-model-popover, .slash-suggestions, .miniapps-quick-menu, .chat-action-toast, .row-menu, .mention-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble, .image-lightbox, .markdown-artifact-overlay, .markdown-artifact-dialog, .transcript-dock, .automation-spinner, .project-panel-loading .reicon, .project-transcript-loading > .reicon, .provider-modal-form .spin, .memory-trace-state > .reicon, .provider-auth-pulse, .miniapps-launchpad-cell { animation: none !important; }
+  .recording-indicator, .run-activity .spin, .transcript-media-loading > .reicon, .beam-ring::before, .timeline-wave-bar, .run-status-caret, .running-orb-sphere, .skeleton-row span, .skeleton-row i, .conversation-empty, .overflow-menu-popover, .command-palette, .composer-model-popover, .slash-suggestions, .miniapps-quick-menu, .chat-action-toast, .row-menu, .mention-menu, .prompt-navigation-preview, .message-row.navigation-target .message-bubble, .image-lightbox, .markdown-artifact-overlay, .markdown-artifact-dialog, .transcript-dock, .automation-spinner, .project-panel-loading .reicon, .project-transcript-loading > .reicon, .provider-modal-form .spin, .memory-trace-state > .reicon, .provider-auth-pulse, .miniapps-launchpad-cell { animation: none !important; }
   /* "A gentler equivalent, not no feedback" (apple-design §14). Killing the
      wave animation leaves the bars at their natural scale, which happens to
      read fine — but that is an accident of the base rule, not a decision, so
@@ -6259,6 +6283,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 :root[data-performance="low"] .beam-ring::before,
 :root[data-performance="low"] .run-activity .spin,
 :root[data-performance="low"] .transcript-media-loading .reicon,
+:root[data-performance="low"] .run-status-caret,
 :root[data-performance="low"] .running-orb-sphere,
 :root[data-performance="low"] .agent-studio-spinner {
   animation: none !important;
