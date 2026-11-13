@@ -26,7 +26,7 @@ test('consolidation keeps its geometry and latest preview through rapid changes 
     await page.goto('/');
     await expect(page.getByTestId('chat-composer')).toBeEnabled();
     await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Skills', exact: true }).click();
-    await page.getByRole('group', { name: 'Skills', exact: true }).getByRole('button', { name: /^Other platforms/ }).click();
+    await page.getByRole('group', { name: 'Skills', exact: true }).getByRole('button', { name: /^Discover & install/ }).click();
     await page.locator('.installed-skill-card').filter({ hasText: 'polish-skill' }).click();
     await page.locator('.skills-detail').getByRole('button', { name: 'Consolidate', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Consolidate into a shared folder', exact: true });
@@ -106,7 +106,7 @@ test('consolidation previews exact paths and keeps the shell stable after a real
   await page.goto('/');
     await expect(page.getByTestId('chat-composer')).toBeEnabled();
   await page.getByRole('navigation', { name: 'Chat', exact: true }).getByRole('button', { name: 'Skills', exact: true }).click();
-  await page.getByRole('group', { name: 'Skills', exact: true }).getByRole('button', { name: /^Other platforms/ }).click();
+  await page.getByRole('group', { name: 'Skills', exact: true }).getByRole('button', { name: /^Discover & install/ }).click();
   await page.locator('.installed-skill-card').filter({ hasText: 'actual-dedup' }).filter({ hasText: 'Codex' }).click();
   await page.locator('.skills-detail').getByRole('button', { name: 'Consolidate', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Consolidate into a shared folder', exact: true });

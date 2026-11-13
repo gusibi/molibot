@@ -2415,6 +2415,45 @@ export interface DesktopSkillInstallationState {
   linkTarget: string;
 }
 
+export interface DesktopSkillUsageStats {
+  /** Skill facts observed in the trailing window (one per run that selected it). */
+  calls: number;
+  triggered: number;
+  loaded: number;
+  executed: number;
+  /** Distinct runs that selected the Skill. */
+  runs: number;
+  /** Latest fact timestamp, empty when the Skill never appeared. */
+  lastAt: string;
+  /** Why the Runtime selected it, e.g. explicit_invocation / cli_signal. */
+  evidence: string[];
+}
+
+export interface DesktopSkillDependency {
+  kind: "mcp" | "cli";
+  id: string;
+  ready: boolean;
+}
+
+/**
+ * The three states owners need: installed, enabled, and actually reachable by
+ * the Runtime. A card that only renders "installed" hides the difference
+ * between a file on disk and a capability the Agent can use.
+ */
+export interface DesktopSkillAvailabilityView {
+  state: "available" | "disabled" | "blocked" | "unavailable";
+  reason: "loaded" | "disabled" | "duplicate_name" | "invalid" | "missing" | "broken" | "not_loaded" | "no_workspace" | "dependencies";
+  message: string;
+}
+
+export interface DesktopSkillTriggerView {
+  aliases: string[];
+  signals: { cli: string[]; mcp: string[]; tools: string[] };
+  allowedTools: string[];
+  /** Withheld from model discovery; explicit invocation still works. */
+  disableModelInvocation: boolean;
+}
+
 export interface DesktopSkillManagerEntry {
   id: string;
   name: string;
@@ -2437,6 +2476,14 @@ export interface DesktopSkillManagerEntry {
   activeDistributions: number;
   source: DesktopSkillSourceView | null;
   builtin: DesktopBuiltinSkillState | null;
+  /** Trailing-window usage, or null when tracing has no record for it. */
+  usage: DesktopSkillUsageStats | null;
+  availability: DesktopSkillAvailabilityView;
+  /** Declared MCP servers / CLI signals and whether the host can satisfy them. */
+  dependencies: DesktopSkillDependency[];
+  /** Selectors the Runtime accepts for explicit invocation and local search. */
+  aliases: string[];
+  signals: { cli: string[]; mcp: string[]; tools: string[] };
 }
 
 export interface DesktopDiscoveredSkill {
@@ -2512,6 +2559,8 @@ export interface DesktopSkillManagerDevice {
   label: string;
   execution: "server";
   platform: string;
+  /** Home directory of the server host, so path lists can render `~` prefixes. */
+  homeDir: string;
   scannedAt: string;
   note: string;
 }
@@ -2533,6 +2582,8 @@ export interface DesktopSkillManagerSummary {
   platforms: DesktopSkillPlatform[];
   diagnostics: DesktopSkillDiagnostic[];
   recentOperation: DesktopSkillOperationView | null;
+  /** Newest first; the detail view renders this as a timeline. */
+  operations: DesktopSkillOperationView[];
   capabilities: {
     gitInstall: boolean;
     localInstall: boolean;
@@ -2589,6 +2640,12 @@ export interface DesktopSkillManagerDetail {
   readBy: string[];
   /** Every filesystem entry that resolves to this Skill, across all tools. */
   locations: DesktopSkillLocation[];
+  /** Trailing-window usage, or null when tracing has no record for it. */
+  usage: DesktopSkillUsageStats | null;
+  /** Selectors, signals, pre-approved tools and model-visibility. */
+  trigger: DesktopSkillTriggerView;
+  /** Declared MCP servers / CLI signals and whether the host can satisfy them. */
+  dependencies: DesktopSkillDependency[];
   /** What the real Runtime loader does with this entry in its own context. */
   runtime: {
     loaded: boolean;
@@ -2797,6 +2854,18 @@ export interface DesktopSkillCheckUpdateRequest {
   id: string;
 }
 
+export interface DesktopSkillUpdatePreview {
+  ok: boolean;
+  message: string;
+  repository: string;
+  subdirectory: string;
+  /** Paths relative to the Skill directory with their git status letter. */
+  files: Array<{ path: string; status: "added" | "modified" | "deleted" | "renamed" | "other" }>;
+  /** Unified diff, truncated when the upstream change is very large. */
+  patch: string;
+  truncated: boolean;
+}
+
 export interface DesktopSkillCheckUpdateResult {
   ok: boolean;
   message: string;
@@ -2843,18 +2912,38 @@ export interface DesktopSkillMaintenanceBackup {
   writable: boolean;
 }
 
+/** One scan limitation, localizable without parsing the scanner's prose. */
+export interface DesktopSkillMaintenanceWarning {
+  code: "unreadable" | "truncated" | "invalid-backup";
+  path: string;
+  /** Raw scanner detail; kept as a tooltip, not as the primary label. */
+  message: string;
+}
+
 export interface DesktopSkillMaintenanceScan {
   groups: DesktopSkillMaintenanceGroup[];
   backups: DesktopSkillMaintenanceBackup[];
   brokenLinks: Array<{ id: string; path: string; target: string; platforms: string[]; writable: boolean }>;
-  warnings: string[];
+  warnings: DesktopSkillMaintenanceWarning[];
+  /** At least one directory could not be read, so references may be unknown. */
+  scanIncomplete: boolean;
   scannedAt: string;
 }
 
 export interface DesktopSkillMaintenanceSelection { groupId: string; sourceId: string }
 export type DesktopSkillMaintenanceRequest = (
   | { kind: "consolidate"; selections: DesktopSkillMaintenanceSelection[] }
-  | { kind: "restore" | "delete-backup" | "remove-link"; id: string }
+  | {
+    kind: "delete-backup";
+    id: string;
+    /**
+     * The owner reviewed the unreadable directories and accepts that a
+     * reference to this backup cannot be ruled out. Only applies to deletion;
+     * operations that rewrite live content never take this path.
+     */
+    acknowledgeScan?: boolean;
+  }
+  | { kind: "restore" | "remove-link"; id: string }
 ) & { /** Server-generated preview time; apply must echo the plan request. */ preparedAt?: string };
 
 export interface DesktopSkillMaintenancePlan {
@@ -2877,6 +2966,56 @@ export interface DesktopSkillMaintenanceComparison {
   files: Array<{ path: string; status: "added" | "removed" | "changed"; left: string | null; right: string | null; preview: "text" | "binary" | "too-large" | "metadata" }>;
 }
 
+export interface DesktopSkillCreateRequest {
+  /** Slug used as the directory and frontmatter name. */
+  name: string;
+  description: string;
+  /** Instructions body; a full SKILL.md (with frontmatter) is also accepted. */
+  body: string;
+  scope: DesktopSkillManagerScope;
+  /** Agent or project id; empty for global. */
+  ownerId?: string;
+}
+
+export interface DesktopSkillCreateResult {
+  id: string;
+  filePath: string;
+}
+
+export interface DesktopSkillContentRequest {
+  id: string;
+  /** Full SKILL.md text, frontmatter included. */
+  content: string;
+}
+
+export interface DesktopSkillContentResult {
+  id: string;
+  filePath: string;
+}
+
+export interface DesktopSkillBackup {
+  path: string;
+  name: string;
+  createdAt: string;
+  fileCount: number;
+}
+
+export interface DesktopSkillBackupListResult {
+  backups: DesktopSkillBackup[];
+}
+
+export interface DesktopSkillBackupRestoreRequest {
+  id: string;
+  backupPath: string;
+}
+
+export interface DesktopSkillBackupRestoreResult {
+  ok: boolean;
+  status: "restored" | "blocked" | "failed";
+  message: string;
+  backupPath: string;
+}
+
 export type DesktopSkillManagerAction =
   | { action: "maintenance-scan" }
   | { action: "maintenance-compare"; request: { leftId: string; rightId: string } }
@@ -2893,7 +3032,12 @@ export type DesktopSkillManagerAction =
   | { action: "consolidate"; request: DesktopSkillConsolidateRequest & { token: string } }
   | { action: "remove-discovered"; request: DesktopSkillRemoveDiscoveredRequest }
   | { action: "check-update"; request: DesktopSkillCheckUpdateRequest }
+  | { action: "preview-update"; request: DesktopSkillCheckUpdateRequest }
   | { action: "update-builtin"; request: { id: string } }
+  | { action: "create-skill"; request: DesktopSkillCreateRequest }
+  | { action: "save-skill-content"; request: DesktopSkillContentRequest }
+  | { action: "list-backups"; request: { id: string } }
+  | { action: "restore-backup"; request: DesktopSkillBackupRestoreRequest }
   | { action: "reveal"; request: { id: string } };
 
 export interface DesktopSkillSearchConfig {
@@ -2905,6 +3049,12 @@ export interface DesktopSkillSearchConfig {
   temperature: number;
   timeoutMs: number;
   minConfidence: number;
+  /** Endpoint override; empty means the Provider's own endpoint. */
+  apiBaseUrl: string;
+  /** Request path for the routing call, e.g. /v1/chat/completions. */
+  apiPath: string;
+  /** The key itself never leaves the server; the client only learns whether one exists. */
+  apiKeySet: boolean;
   providers: Array<{ id: string; name: string; defaultModel: string; models: string[] }>;
 }
 
@@ -2913,7 +3063,20 @@ export interface DesktopSkillSearchConfigResponse {
   search: DesktopSkillSearchConfig;
 }
 
-export type DesktopSkillSearchConfigUpdate = Omit<DesktopSkillSearchConfig, "providers">;
+export interface DesktopSkillSearchConfigUpdate {
+  localEnabled: boolean;
+  apiEnabled: boolean;
+  apiProvider: string;
+  apiModel: string;
+  maxTokens: number;
+  temperature: number;
+  timeoutMs: number;
+  minConfidence: number;
+  apiBaseUrl?: string;
+  apiPath?: string;
+  /** Only sent when the owner typed a new key; an omitted field keeps the stored one. */
+  apiKey?: string;
+}
 
 
 export interface DesktopMemoryCapabilities {

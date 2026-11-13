@@ -122,6 +122,7 @@ test("an external Skill is discovered on the server device but not installed", (
 
   assert.equal(overview.device.label, "test-host");
   assert.equal(overview.device.execution, "server");
+  assert.equal(overview.device.homeDir, h.homeDir);
   assert.equal(overview.counts.installed, 0);
   assert.equal(overview.counts.global, 0);
   assert.equal(overview.counts.discovered, 1);
@@ -905,6 +906,12 @@ test("a Git-installed Skill can check its source for updates", (t) => {
   const after = h.manager.checkUpdate({ id: installed.id });
   assert.equal(after.hasUpdate, true, after.message);
   assert.notEqual(after.latestCommit, docsOnly.latestCommit);
+
+  const preview = h.manager.previewUpdate({ id: installed.id });
+  assert.equal(preview.ok, true, preview.message);
+  assert.equal(preview.files.some((file) => file.path === "skills/pdf/SKILL.md" && file.status === "modified"), true);
+  assert.match(preview.patch, /v2/);
+  assert.equal(preview.truncated, false);
 });
 
 test("a locally installed Skill cannot check for updates", (t) => {
@@ -1020,4 +1027,191 @@ test("consolidation materializes a shared entry link without creating a self lin
   assert.equal(lstatSync(target).isDirectory(), true);
   assert.match(readFileSync(join(target, "SKILL.md"), "utf8"), /source stays readable/);
   assert.equal(lstatSync(outside).isDirectory(), true);
+});
+
+test("overview projects usage, availability, trigger selectors and dependency readiness", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "skill-manager-capability-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const dataDir = join(root, "data");
+  const homeDir = join(root, "home");
+  const globalSkillsDir = join(dataDir, "skills");
+  const agentsDir = join(dataDir, "sessions");
+  for (const dir of [globalSkillsDir, agentsDir, homeDir, join(dataDir, "db"), join(agentsDir, "agent1")]) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeSkill(join(globalSkillsDir, "ready-skill"), "ready-skill", "Body", [
+    'aliases: ["web-search", "搜一下"]',
+    "signals:",
+    '  cli: ["git"]',
+    '  mcp: ["mcp-one"]',
+    "allowed-tools: read write",
+    "disable-model-invocation: true",
+    ""
+  ].join("\n"));
+  writeSkill(join(globalSkillsDir, "blocked-skill"), "blocked-skill", "Body", [
+    "signals:",
+    '  cli: ["missing-cli"]',
+    ""
+  ].join("\n"));
+
+  const store = new SkillManagerStore(join(dataDir, "db", "skills.sqlite"));
+  t.after(() => store.close());
+  const manager = new SkillManager({
+    store,
+    dataDir,
+    globalSkillsDir,
+    agentsDir,
+    projects: () => [],
+    getDisabledPaths: () => [],
+    defaultAgentId: () => "agent1",
+    homeDir,
+    platform: "darwin",
+    now: () => new Date("2026-10-29T09:00:00.000Z"),
+    traceStore: {
+      listFactsByTypeSince: (factType) => {
+        assert.equal(factType, "skill_usage");
+        return [{
+          id: "f1",
+          factType: "skill_usage",
+          runId: "run-1",
+          factId: join(globalSkillsDir, "ready-skill", "SKILL.md"),
+          channel: "test",
+          chatId: "c1",
+          sessionId: "s1",
+          name: "ready-skill",
+          status: "success",
+          payload: {
+            name: "ready-skill",
+            filePath: join(globalSkillsDir, "ready-skill", "SKILL.md"),
+            level: "executed",
+            evidenceCsv: "explicit_invocation,cli_signal"
+          },
+          createdAt: "2026-10-29T08:00:00.000Z",
+          updatedAt: "2026-10-29T08:00:00.000Z"
+        }];
+      }
+    },
+    getMcpServers: () => [{ id: "mcp-one", enabled: true }],
+    hasCommand: (binary) => binary === "git"
+  });
+
+  const overview = manager.getOverview();
+  const ready = overview.installed.find((item) => item.name === "ready-skill");
+  assert.ok(ready);
+  assert.equal(ready.availability.state, "available");
+  assert.equal(ready.usage?.executed, 1);
+  assert.equal(ready.usage?.runs, 1);
+  assert.deepEqual(ready.usage?.evidence.sort(), ["cli_signal", "explicit_invocation"]);
+  assert.ok(ready.aliases.includes("web-search"));
+  assert.equal(ready.signals.cli[0], "git");
+  assert.deepEqual(ready.dependencies, [
+    { kind: "mcp", id: "mcp-one", ready: true },
+    { kind: "cli", id: "git", ready: true }
+  ]);
+  assert.equal(overview.operations.length, 0);
+
+  const blocked = overview.installed.find((item) => item.name === "blocked-skill");
+  assert.ok(blocked);
+  assert.equal(blocked.availability.state, "blocked");
+  assert.deepEqual(blocked.dependencies, [{ kind: "cli", id: "missing-cli", ready: false }]);
+
+  const detail = manager.getDetail(ready.id);
+  assert.ok(detail.kind === "installed");
+  assert.equal(detail.trigger.disableModelInvocation, true);
+  assert.deepEqual(detail.trigger.allowedTools, ["read", "write"]);
+  assert.ok(detail.trigger.aliases.includes("web-search"));
+});
+
+test("createSkill writes a Molibot-owned SKILL.md and saveSkillContent re-validates it", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+
+  const created = h.manager.createSkill({
+    name: "release-notes",
+    description: "Draft release notes from merged changes",
+    body: "## Steps\n\n1. Read the diff\n",
+    scope: "global"
+  });
+  assert.equal(existsSync(created.filePath), true);
+  assert.match(readFileSync(created.filePath, "utf8"), /name: "release-notes"/);
+  assert.equal(h.manager.getOverview().installed.some((item) => item.name === "release-notes"), true);
+
+  assert.throws(
+    () => h.manager.createSkill({ name: "release-notes", description: "duplicate", body: "", scope: "global" }),
+    /already exists/
+  );
+  assert.throws(
+    () => h.manager.createSkill({ name: "Not A Slug", description: "invalid", body: "", scope: "global" }),
+    /lowercase Skill name/
+  );
+
+  const updated = [
+    "---",
+    'name: "release-notes"',
+    'description: "Updated description"',
+    "---",
+    "",
+    "## Steps",
+    "",
+    "1. Summarize the release",
+    ""
+  ].join("\n");
+  h.manager.saveSkillContent({ id: created.id, content: updated });
+  assert.equal(h.manager.getDetail(created.id).description, "Updated description");
+  assert.match(readFileSync(created.filePath, "utf8"), /Summarize the release/);
+
+  // Invalid frontmatter is rejected before the file is touched.
+  const before = readFileSync(created.filePath, "utf8");
+  assert.throws(
+    () => h.manager.saveSkillContent({ id: created.id, content: "no frontmatter" }),
+    /name and description frontmatter/
+  );
+  assert.equal(readFileSync(created.filePath, "utf8"), before);
+});
+
+test("backups are listed for one Skill and restore keeps the displaced content", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  writeSkill(join(h.globalSkillsDir, "pdf"), "pdf", "current body");
+  const entry = h.manager.getOverview().installed.find((item) => item.name === "pdf");
+  assert.ok(entry);
+
+  const backupName = "pdf.backup-2026-10-01T00-00-00-000Z";
+  writeSkill(join(h.globalSkillsDir, backupName), "pdf", "older body");
+  const listed = h.manager.listBackups(entry.id);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0]?.name, backupName);
+
+  const result = h.manager.restoreBackup({ id: entry.id, backupPath: listed[0]!.path });
+  assert.equal(result.ok, true, result.message);
+  assert.match(readFileSync(join(h.globalSkillsDir, "pdf", "SKILL.md"), "utf8"), /older body/);
+  // The displaced copy is preserved, not deleted.
+  console.log("RESULT", result, "DISPLACED?", existsSync(result.backupPath), readdirSync(h.globalSkillsDir));
+  assert.equal(h.manager.listBackups(entry.id).length, 1);
+
+  assert.equal(h.manager.restoreBackup({
+    id: entry.id,
+    backupPath: join(h.globalSkillsDir, "pdf", "SKILL.md")
+  }).status, "blocked");
+});
+
+test("the shared .agents tree is grouped as Global while vendor roots keep their platform", (t) => {
+  const h = createHarness();
+  t.after(() => rmSync(h.root, { recursive: true, force: true }));
+  writeSkill(join(h.homeDir, ".agents", "skills", "shared-skill"), "shared-skill");
+  writeSkill(join(h.homeDir, ".claude", "skills", "claude-only"), "claude-only");
+
+  const discovered = h.manager.getOverview().discovered;
+  const shared = discovered.find((item) => item.name === "shared-skill");
+  assert.ok(shared);
+  assert.equal(shared.platformId, "agents");
+  assert.equal(shared.platformLabel, "Global");
+  assert.equal(shared.inSharedDir, true);
+  assert.ok(shared.sharedWith.includes("OpenCode"), JSON.stringify(shared.sharedWith));
+  assert.ok(shared.sharedWith.includes("OpenClaw"), JSON.stringify(shared.sharedWith));
+
+  const claude = discovered.find((item) => item.name === "claude-only");
+  assert.ok(claude);
+  assert.equal(claude.platformId, "claude-code");
+  assert.equal(claude.inSharedDir, false);
 });

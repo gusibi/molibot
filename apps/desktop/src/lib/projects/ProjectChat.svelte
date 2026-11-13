@@ -18,6 +18,7 @@
   } from "@molibot/desktop-contract";
   import { formatMessageTime } from "../chat/messageTime";
   import type { Translation } from "../i18n";
+  import AudioPlayer from "../components/AudioPlayer.svelte";
   import ApprovalCard from "../chat/ApprovalCard.svelte";
   import ChatInputArea from "../chat/ChatInputArea.svelte";
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
@@ -1255,7 +1256,7 @@
         <!-- svelte-ignore a11y_media_has_caption -->
         <video src={previewUrl} controls></video>
       {:else if previewFile.mediaType === "audio"}
-        <audio src={previewUrl} controls></audio>
+        <AudioPlayer src={previewUrl} title={previewFile.original} labels={copy} />
       {/if}
     </div>
   </Dialog>

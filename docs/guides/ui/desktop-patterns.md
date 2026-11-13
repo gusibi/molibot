@@ -12,7 +12,7 @@
 - **侧栏、折叠栏与会话树**：
   - Chat 与 Settings 共用 `228px` 基准可拖拽侧栏（最小钳制 228px，低于 160px 阈值自动吸附折叠，宽度仅在指针释放时持久化）与底部标识组件 `AppFooterMark`（仅显示带状态圆环的 Logo 与应用名，不写“已就绪/Online”文字；Chat 底栏配 Filled `Settings2` 整行打开设置，Settings 底栏配 duotone `Users2` 返回默认 Agent 首页）。
   - **折叠图标栏与浮层**：折叠后第一列保留 `48px` 图标栏（不放新建对话按钮）；点击 Agent、项目或 Agent Team 在图标栏右侧展开按需浮层，直接复用同一个 `SidebarLists` 组件（记住展开宽度，选中会话时保持打开，按 `Escape`、切到其他目的地或再次点击同一图标时关闭）；点击自动任务、技能、计划、小程序则直接打开对应工作区面板并关闭浮层。
-  - **会话树对齐与吸顶**：一级分区头（Agent / Agent Team / 项目）、主导航行（30px 高，从 42px 顶栏下方开始）、渠道头与项目文件夹共享左对齐基准与 16px 图标列；二级内容统一通过 `.sidebar-tree-children` 缩进 12px。会话行不显示 Bot 头像，预留槽位仅显示静态状态点、分叉标记或运行中的 16px 3D 点球动画 `RunningOrb`。项目文件夹展开时切换为 `folder-open` duotone 图标。一级分区头在同一滚动容器内共享顶部吸顶槽位（带渐隐模糊遮罩，不叠第二标题）。
+  - **会话树对齐与吸顶**：主导航行与一级分区头（Agent / Agent Team / 项目）使用 36px 行高、18px 图标列、12px 图文间距和 14/22 正文档位；Agent / Agent Team / 项目归入「协作」分区，以小标题和留白与上方功能导航分开。渠道头与项目文件夹保持紧凑树形行；二级内容统一通过 `.sidebar-tree-children` 缩进 12px。会话行不显示 Bot 头像，预留槽位仅显示静态状态点、分叉标记或运行中的 16px 3D 点球动画 `RunningOrb`。项目文件夹展开时切换为 `folder-open` duotone 图标。Agent、Agent Team 与项目的二级行统一复用 `GroupHeader`（`.conv-group-head`）：34px 行高、16px 图标槽、8px 图文间距、相同 hover 与选中底色；团队行固定使用 duotone `Dialog` 作为组会话标识，避免三类行各写一套行样式。一级分区头在同一滚动容器内共享顶部吸顶槽位（带渐隐模糊遮罩，不叠第二标题）。
 
 ## 2. 设置、数据页与多列工作区 (Settings, Data Pages & Workspaces)
 

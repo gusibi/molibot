@@ -20,6 +20,7 @@ export function buildSkillSearchSettings(
     );
     if (!configured) throw new Error("Select an enabled Provider and model");
   }
+  const typedKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
   return {
     local: { enabled: input.localEnabled },
     api: {
@@ -27,6 +28,11 @@ export function buildSkillSearchSettings(
       enabled: input.apiEnabled,
       provider,
       model,
+      baseUrl: input.apiBaseUrl === undefined ? settings.skillSearch.api.baseUrl : input.apiBaseUrl.trim(),
+      path: input.apiPath === undefined ? settings.skillSearch.api.path : input.apiPath.trim() || settings.skillSearch.api.path,
+      // An empty field means "keep the stored key": masking a secret does not
+      // imply clearing it, and a save that omits the field must be a no-op.
+      apiKey: typedKey || settings.skillSearch.api.apiKey,
       maxTokens: Math.min(4096, Math.max(128, Number(input.maxTokens) || 400)),
       temperature: Math.min(1, Math.max(0, Number(input.temperature) || 0)),
       timeoutMs: Math.min(60000, Math.max(1000, Number(input.timeoutMs) || 8000)),

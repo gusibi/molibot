@@ -71,7 +71,7 @@ export interface SkillScanResult {
 }
 
 export type SkillManifestStatus =
-  | { ok: true; name: string; description: string; frontmatter: Record<string, string> }
+  | { ok: true; name: string; description: string; frontmatter: Record<string, string>; raw: string }
   | { ok: false; code: "unreadable" | "missing_frontmatter" | "missing_name" | "missing_description"; message: string };
 
 /**
@@ -338,6 +338,6 @@ export function inspectSkillEntry(entryDir: string): SkillManifestStatus {
   const description = frontmatter.description?.trim() ?? "";
   if (!name) return { ok: false, code: "missing_name", message: "Missing skill name" };
   if (!description) return { ok: false, code: "missing_description", message: "Missing skill description" };
-  return { ok: true, name, description, frontmatter };
+  return { ok: true, name, description, frontmatter, raw };
 }
 

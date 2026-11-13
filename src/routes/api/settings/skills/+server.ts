@@ -143,15 +143,38 @@ export const GET: RequestHandler = async () => {
 };
 
 export const PUT: RequestHandler = async ({ request }) => {
-  let body: { disabledSkillPaths?: unknown; skillSearch?: unknown };
+  let body: {
+    disabledSkillPaths?: unknown;
+    skillSearch?: unknown;
+    toggleSkillPath?: unknown;
+  };
   try {
-    body = (await request.json()) as { disabledSkillPaths?: unknown; skillSearch?: unknown };
+    body = (await request.json()) as typeof body;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
   try {
-    const result = updateSkillsConfig(getRuntime(), body);
+    const runtime = getRuntime();
+    // One switch, one path. The client no longer posts the whole disabled list,
+    // so two quick toggles cannot overwrite each other with a stale snapshot.
+    if (body.toggleSkillPath !== undefined) {
+      const toggle = body.toggleSkillPath;
+      if (!toggle || typeof toggle !== "object") {
+        return json({ ok: false, error: "toggleSkillPath must be an object" }, { status: 400 });
+      }
+      const filePath = String((toggle as Record<string, unknown>).filePath ?? "").trim();
+      const enabled = (toggle as Record<string, unknown>).enabled === true;
+      if (!filePath) {
+        return json({ ok: false, error: "filePath is required" }, { status: 400 });
+      }
+      const disabled = new Set(runtime.getSettings().disabledSkillPaths ?? []);
+      if (enabled) disabled.delete(filePath);
+      else disabled.add(filePath);
+      const result = updateSkillsConfig(runtime, { disabledSkillPaths: [...disabled] });
+      return json({ ok: true, ...result });
+    }
+    const result = updateSkillsConfig(runtime, body);
     return json({ ok: true, ...result });
   } catch (error: any) {
     return json({ ok: false, error: error.message || String(error) }, { status: 400 });

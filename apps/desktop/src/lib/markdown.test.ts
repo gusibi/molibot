@@ -117,3 +117,86 @@ test("cjk-friendly does not change non-CJK emphasis behavior", () => {
   assert.ok(render("2 ** 3 = 8，** 不是粗体").includes("2 ** 3 = 8"));
   assert.match(render("用 `**特点：**` 写法"), /<code>\*\*特点：\*\*<\/code>/);
 });
+
+test("a paragraph of images becomes a figure block, not a p wrapping a figure", () => {
+  const figure = render("![示意图](diagram.png)");
+  assert.match(figure, /<figure class="md-figure"><img/);
+  // Foster-parenting a block-level <figure> out of a <p> would leave two
+  // empty paragraphs and a visible gap above and below every image.
+  assert.doesNotMatch(figure, /<p><figure/);
+  assert.doesNotMatch(figure, /<\/figure><\/p>/);
+  assert.match(figure, /loading="lazy"/);
+  assert.match(figure, /decoding="async"/);
+});
+
+test("the standard Markdown image title becomes a visible caption", () => {
+  const figure = render('![趋势](trend.png "第一季度营收趋势")');
+  assert.match(figure, /<figcaption class="md-figcaption">第一季度营收趋势<\/figcaption>/);
+  assert.doesNotMatch(render("![趋势](trend.png)"), /md-figcaption/);
+});
+
+test("prose beside an image stays one paragraph with an inline image", () => {
+  const mixed = render('如下图所示：![图](x.png "图注") 这是说明。');
+  assert.match(mixed, /^<p>/);
+  assert.match(mixed, /<img[^>]*src="x.png"/);
+  assert.match(mixed, /<\/p>$/);
+  // A block-level <figure> inside a <p> is foster-parented out by the HTML
+  // parser, splitting one sentence into three blocks. The Markdown title is
+  // kept as the img title attribute, but not as a block caption.
+  assert.doesNotMatch(mixed, /<figure|<figcaption/);
+});
+
+test("figure context does not leak into a following mixed paragraph", () => {
+  const output = render('![独占](a.png "图 1")\n\nText ![inline](b.png) after.');
+  assert.equal((output.match(/<figure/g) ?? []).length, 1);
+  assert.match(output, /<p>Text <img[^>]*src="b.png"[^>]*> after\.<\/p>/);
+});
+
+test("images in headings, list items and table cells stay inline", () => {
+  const output = render([
+    "## 标题 ![图](h.png)",
+    "",
+    "- 列表 ![图](l.png)",
+    "",
+    "| 列 |",
+    "| --- |",
+    "| ![图](t.png) |"
+  ].join("\n"));
+  assert.doesNotMatch(output, /<figure|<figcaption/);
+  assert.equal((output.match(/<img/g) ?? []).length, 3);
+});
+
+test("code block actions are icon buttons that keep their data hooks", () => {
+  const output = render("```js\nconst a = 1;\n```");
+  assert.match(output, /data-copy-code[^>]*><svg class="reicon"/);
+  assert.match(output, /data-wrap-code[^>]*><svg class="reicon"/);
+  // Icon-only means the label must survive as an accessible name.
+  assert.match(output, /aria-label="Copy code"/);
+  assert.match(output, /aria-label="Wrap lines"/);
+  assert.match(output, /language-js/);
+});
+
+test("GFM task lists stay plain Markdown and render a checkbox", () => {
+  const output = render("- [x] 已完成\n- [ ] 待办");
+  assert.match(output, /<input[^>]*type="checkbox"/);
+  assert.match(output, /checked/);
+});
+
+/** Tag-name sequence with syntax-highlight spans removed. */
+function skeleton(html: string): string {
+  return (html
+    .replace(/<span class="hljs-[^"]*">|<\/span>/g, "")
+    .match(/<\/?[a-z][^>]*>/gi) ?? [])
+    .map((tag) => tag.replace(/^<(\/?[a-z0-9]+).*/i, "$1"))
+    .join(" ");
+}
+
+test("streamed and settled Markdown share the same block skeleton", () => {
+  const source = [
+    "## 标题", "", "正文 **加粗** 与 `代码`。", "",
+    "```js", "const a = 1;", "```", "",
+    "| a | b |", "| --- | --- |", "| 1 | 2 |", "",
+    '![图](x.png "说明")', "", "- [ ] 待办"
+  ].join("\n");
+  assert.equal(skeleton(render(source, { streaming: true })), skeleton(render(source)));
+});

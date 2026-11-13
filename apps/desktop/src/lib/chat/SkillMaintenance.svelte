@@ -26,7 +26,7 @@
   const conflictLabels = $derived({ invalid_selection: copy.skillMaintenanceInvalidSelection, unsafe: copy.skillMaintenanceReadOnly,
     invalid_name: copy.skillMaintenanceInvalidName, unknown_destination: copy.skillMaintenanceUnknownDestination,
     backup_readonly: copy.skillMaintenanceBackupUnavailable, backup_referenced: copy.skillMaintenanceReferenced,
-    incomplete_scan: copy.skillMaintenanceWarnings, invalid_backup: copy.skillMaintenanceInvalidBackup,
+    incomplete_scan: copy.skillMaintenanceIncompleteScan, invalid_backup: copy.skillMaintenanceInvalidBackup,
     link_readonly: copy.skillMaintenanceLinkUnavailable, overlap: copy.skillMaintenanceOverlap, nested: copy.skillMaintenanceOverlap });
   const actionLabels = $derived({ canonical: copy.skillMaintenanceCanonical, link: copy.skillMaintenanceLink, restore: copy.skillMaintenanceRestore, delete: copy.skillMaintenanceDelete, unlink: copy.skillMaintenanceUnlink });
 
@@ -73,6 +73,13 @@
     finally { busy = false; }
   }
 
+  /** Deletion is the one destructive action whose reference check may be
+   *  incomplete; the owner accepts that uncertainty for this single backup. */
+  async function acknowledgeDelete(): Promise<void> {
+    if (!plan || plan.request.kind !== "delete-backup" || busy) return;
+    await review({ ...plan.request, acknowledgeScan: true });
+  }
+
   async function apply(): Promise<void> {
     if (!plan?.executable || busy) return;
     busy = true; error = "";
@@ -98,13 +105,27 @@
     sources = { ...sources, [groupId]: sourceId };
     comparison = null;
   }
+
+  const applyLabel = $derived(
+    plan?.request.kind === "delete-backup" ? copy.skillMaintenanceDelete
+      : plan?.request.kind === "restore" ? copy.skillMaintenanceRestore
+        : plan?.request.kind === "remove-link" ? copy.skillMaintenanceRemoveLink
+          : copy.skillMaintenanceApplyConsolidate
+  );
+  const scanAcknowledged = $derived(plan?.request.kind === "delete-backup" && plan.request.acknowledgeScan === true);
+  const warningLabels = $derived<Record<DesktopSkillMaintenanceScan["warnings"][number]["code"], string>>({
+    unreadable: copy.skillMaintenanceUnreadable,
+    truncated: copy.skillMaintenanceTruncated,
+    "invalid-backup": copy.skillMaintenanceInvalidBackupName
+  });
+  const scanGaps = $derived((scan?.warnings ?? []).filter((warning) => warning.code !== "invalid-backup"));
 </script>
 
 <Button variant="icon" title={copy.skillMaintenanceTitle} disabled={!endpoint} onclick={() => void show()}><Reorder size={17} aria-hidden="true" /></Button>
 <Dialog {open} {busy} contentClass="skill-maintenance-dialog" labelledBy="skill-maintenance-title" onOpenChange={(next) => { open = next; }}>
   <div class="skills-sheet">
     <header class="skills-sheet-head">
-      <div><h2 id="skill-maintenance-title">{copy.skillMaintenanceTitle}</h2><p>{copy.skillMaintenanceHint}</p></div>
+      <div><h2 id="skill-maintenance-title">{copy.skillMaintenanceTitle}</h2></div>
       <Button variant="icon" title={copy.skillClose} disabled={busy} onclick={() => (open = false)}><X size={15} aria-hidden="true" /></Button>
     </header>
     <div class="skills-sheet-body">
@@ -120,7 +141,10 @@
       {#if error}<p class="skills-sheet-error" role="alert">{error}</p>{/if}
       {#if notice}<p class="skills-preflight-ok" role="status">{notice}</p>{/if}
       {#if scan?.warnings.length}
-        <details class="skills-preflight-block" data-tone="danger"><summary>{copy.skillMaintenanceWarnings}</summary><ul>{#each scan.warnings as warning}<li>{warning}</li>{/each}</ul></details>
+        <details class="skill-maintenance-issues">
+          <summary>{copy.skillMaintenanceWarnings} ({scan.warnings.length})</summary>
+          {@render warningList()}
+        </details>
       {/if}
       {#if scan && tab === "duplicates"}
         <div class="skill-maintenance-tools">
@@ -214,8 +238,41 @@
           {#if change.backupPath}<span>{copy.skillMaintenanceBackupPath}</span><code translate="no">{change.backupPath}</code>{/if}
         </div>
       {/each}
-      {#each plan?.conflicts ?? [] as conflict}<p class="skills-sheet-error" role="alert">{conflictLabels[conflict.code]} {conflict.path}</p>{/each}
+      {#each plan?.conflicts ?? [] as conflict}
+        {#if conflict.code === "incomplete_scan"}
+          <div class="skill-maintenance-incomplete">
+            <p>{copy.skillMaintenanceIncompleteScan}</p>
+            {#if scanGaps.length}
+              <ul class="skill-maintenance-warning-list">
+                {#each scanGaps as warning (warning.path)}
+                  <li title={warning.message}>
+                    <span>{warningLabels[warning.code]}</span>
+                    <code translate="no">{warning.path}</code>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            <Button variant="secondary" disabled={busy} onclick={() => void acknowledgeDelete()}>{copy.skillMaintenanceAcknowledgeScan}</Button>
+          </div>
+        {:else}
+          <p class="skills-sheet-error" role="alert">{conflictLabels[conflict.code]} {conflict.path}</p>
+        {/if}
+      {/each}
+      {#if scanAcknowledged && plan?.executable}
+        <p class="skills-preflight-note">{copy.skillMaintenanceAcknowledgedScan}</p>
+      {/if}
     </div>
-    <footer class="skills-sheet-foot"><Button disabled={busy} onclick={() => (plan = null)}>{copy.skillCancel}</Button><Button variant="primary" danger={plan?.request.kind === "delete-backup"} disabled={busy || !plan?.executable} onclick={() => void apply()}>{copy.skillMaintenanceApply}</Button></footer>
+    <footer class="skills-sheet-foot"><Button disabled={busy} onclick={() => (plan = null)}>{copy.skillCancel}</Button><Button variant="primary" danger={plan?.request.kind === "delete-backup"} disabled={busy || !plan?.executable} onclick={() => void apply()}>{applyLabel}</Button></footer>
   </div>
 </AlertDialog>
+
+{#snippet warningList()}
+  <ul class="skill-maintenance-warning-list">
+    {#each scan?.warnings ?? [] as warning (warning.path)}
+      <li title={warning.message}>
+        <span>{warningLabels[warning.code]}</span>
+        <code translate="no">{warning.path}</code>
+      </li>
+    {/each}
+  </ul>
+{/snippet}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -8,7 +8,9 @@
   import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { locale } from "$lib/ui/i18n";
 
-  type SkillScope = "global" | "chat" | "bot";
+  // Mirrors the server's projection: Molibot loads global and Agent-scoped
+  // Skills; the chat layer is not a catalogue scope here.
+  type SkillScope = "global" | "agent";
 
   interface SkillItem {
     name: string;
@@ -18,8 +20,7 @@
     scope: SkillScope;
     enabled: boolean;
     mcpServers: string[];
-    botId?: string;
-    chatId?: string;
+    agentId?: string;
   }
 
   interface SkillSearchSettings {
@@ -65,15 +66,12 @@
       dataRoot: "数据根目录：",
       globalSkills: "全局技能：",
       globalCount: "全局",
-      chatCount: "会话",
-      botCount: "Bot",
+      agentCount: "Agent",
       totalCount: "总数",
       scopeGlobalTitle: "全局技能",
-      scopeChatTitle: "会话技能",
-      scopeBotTitle: "Bot 技能",
-      scopeGlobalDesc: "注册在全局作用域的技能。",
-      scopeChatDesc: "注册在会话作用域的技能。",
-      scopeBotDesc: "注册在 Bot 作用域的技能。",
+      scopeAgentTitle: "Agent 技能",
+      scopeGlobalDesc: "注册在全局作用域的技能，所有 Agent 都能加载。",
+      scopeAgentDesc: "注册在 Agent 工作区作用域的技能，只对该 Agent 可见。",
       noSkills: "未找到 {scope} 级别的技能。",
       enabled: "已启用",
       disabled: "已禁用",
@@ -81,7 +79,7 @@
       saving: "保存中...",
       savingConfig: "正在保存变更...",
       saveBtn: "保存技能搜索",
-      resetBtn: "重置",
+      resetBtn: "重新加载",
       failedLoad: "加载技能失败",
       failedSaveStatus: "保存技能状态失败",
       failedSaveConfig: "保存技能搜索配置失败",
@@ -111,15 +109,12 @@
       dataRoot: "Data root: ",
       globalSkills: "Global skills: ",
       globalCount: "Global",
-      chatCount: "Chat",
-      botCount: "Bot",
+      agentCount: "Agent",
       totalCount: "Total",
       scopeGlobalTitle: "Global Skills",
-      scopeChatTitle: "Chat Skills",
-      scopeBotTitle: "Bot Skills",
-      scopeGlobalDesc: "Skills registered under global scope.",
-      scopeChatDesc: "Skills registered under chat scope.",
-      scopeBotDesc: "Skills registered under bot scope.",
+      scopeAgentTitle: "Agent Skills",
+      scopeGlobalDesc: "Skills registered globally and loadable by every Agent.",
+      scopeAgentDesc: "Skills registered in an Agent workspace and visible only to that Agent.",
       noSkills: "No {scope}-level skills found.",
       enabled: "Enabled",
       disabled: "Disabled",
@@ -127,7 +122,7 @@
       saving: "Saving...",
       savingConfig: "Saving changes...",
       saveBtn: "Save Skill Search",
-      resetBtn: "Reset",
+      resetBtn: "Reload",
       failedLoad: "Failed to load skills",
       failedSaveStatus: "Failed to save skill status",
       failedSaveConfig: "Failed to save skill search settings",
@@ -146,7 +141,8 @@
   let diagnostics: string[] = [];
   let items: SkillItem[] = [];
   let searchProviders: SearchProviderItem[] = [];
-  let count = { global: 0, chat: 0, bot: 0 };
+  let count = { global: 0, agent: 0 };
+  let messageTimer: ReturnType<typeof setTimeout> | undefined;
   let saving = new Set<string>();
   let skillSearch: SkillSearchSettings = {
     local: { enabled: false },
@@ -162,6 +158,17 @@
   };
 
   $: copy = COPY[$locale] ?? COPY["en-US"];
+
+  onDestroy(() => {
+    if (messageTimer) clearTimeout(messageTimer);
+  });
+
+  /** Confirmations are transient; a footer that keeps stale success text is noise. */
+  function flash(text: string): void {
+    message = text;
+    if (messageTimer) clearTimeout(messageTimer);
+    messageTimer = setTimeout(() => (message = ""), 4000);
+  }
 
   function byScope(scope: SkillScope): SkillItem[] {
     return items.filter((item) => item.scope === scope).sort((a, b) => a.name.localeCompare(b.name));
@@ -222,23 +229,24 @@
       syncSkillSearchProviderSelection();
       count = {
         global: Number(data.count?.global ?? 0),
-        chat: Number(data.count?.chat ?? 0),
-        bot: Number(data.count?.bot ?? 0),
+        agent: Number(data.count?.agent ?? 0),
       };
-      message = copy.loadedMsg.replace("{count}", String(items.length));
+      flash(copy.loadedMsg.replace("{count}", String(items.length)));
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = copy.failedLoad;
+      console.error(e);
     } finally {
       loading = false;
     }
   }
 
-  async function persistSkillsState(nextItems: SkillItem[]): Promise<void> {
-    const disabledSkillPaths = nextItems.filter((item) => !item.enabled).map((item) => item.filePath);
+  async function persistSkillToggle(filePath: string, enabled: boolean): Promise<void> {
+    // Send the one path that changed. Posting the whole disabled list made
+    // every switch overwrite a concurrent switch with a stale snapshot.
     const res = await fetch("/api/settings/skills", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ disabledSkillPaths })
+      body: JSON.stringify({ toggleSkillPath: { filePath, enabled } })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || copy.failedSaveStatus);
@@ -252,11 +260,12 @@
     items = nextItems;
     saving = new Set([...saving, filePath]);
     try {
-      await persistSkillsState(nextItems);
-      message = copy.statusUpdated;
+      await persistSkillToggle(filePath, enabled);
+      flash(copy.statusUpdated);
     } catch (e) {
       items = prev;
-      error = e instanceof Error ? e.message : String(e);
+      error = copy.failedSaveStatus;
+      console.error(e);
     } finally {
       const next = new Set(saving);
       next.delete(filePath);
@@ -277,9 +286,10 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || copy.failedSaveConfig);
       skillSearch = normalizeSkillSearchSettings(data.skillSearch ?? skillSearch);
-      message = copy.configUpdated;
+      flash(copy.configUpdated);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = copy.failedSaveConfig;
+      console.error(e);
     } finally {
       savingConfig = false;
     }
@@ -400,29 +410,28 @@
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
           <Badge variant="outline">{copy.globalCount}: {count.global}</Badge>
-          <Badge variant="outline">{copy.chatCount}: {count.chat}</Badge>
-          <Badge variant="outline">{copy.botCount}: {count.bot}</Badge>
+          <Badge variant="outline">{copy.agentCount}: {count.agent}</Badge>
           <Badge variant="outline">{copy.totalCount}: {items.length}</Badge>
         </div>
       </div>
     </div>
 
-    {#each ["global", "chat", "bot"] as scope}
+    {#each ["global", "agent"] as scope}
       <div class="channel-card">
         <div class="channel-card-header">
           <div>
             <h2 class="channel-card-title">
-              {scope === "global" ? copy.scopeGlobalTitle : scope === "chat" ? copy.scopeChatTitle : copy.scopeBotTitle}
+              {scope === "global" ? copy.scopeGlobalTitle : copy.scopeAgentTitle}
             </h2>
             <p class="channel-card-desc">
-              {scope === "global" ? copy.scopeGlobalDesc : scope === "chat" ? copy.scopeChatDesc : copy.scopeBotDesc}
+              {scope === "global" ? copy.scopeGlobalDesc : copy.scopeAgentDesc}
             </p>
           </div>
         </div>
         <div class="channel-card-body" style="gap: 1rem;">
           {#if byScope(scope as SkillScope).length === 0}
             <div class="channel-hint">
-              {copy.noSkills.replace("{scope}", scope === "global" ? copy.globalCount : scope === "chat" ? copy.chatCount : copy.botCount)}
+              {copy.noSkills.replace("{scope}", scope === "global" ? copy.globalCount : copy.agentCount)}
             </div>
           {:else}
             {#each byScope(scope as SkillScope) as item}
@@ -449,9 +458,9 @@
                       MCP: {item.mcpServers.join(", ")}
                     </div>
                   {/if}
-                  {#if scope !== "global"}
+                  {#if scope === "agent" && item.agentId}
                     <div class="channel-sidebar-btn-id">
-                      {scope === "chat" ? `${copy.botCount}: ${item.botId || "-"} | ${copy.chatCount}: ${item.chatId || "-"}` : `${copy.botCount}: ${item.botId || "-"}`}
+                      {copy.agentCount}: {item.agentId}
                     </div>
                   {/if}
                 </div>

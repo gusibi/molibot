@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { AudioPlayer } from "$lib/components/ui/audio-player";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
@@ -417,9 +418,7 @@
               {#if testResult.details?.filePath}
                 {@const audioRelPath = testResult.details.filePath.split('/test-audio/')[1] ?? testResult.details.path}
                 <div class="mt-3">
-                  <audio controls src="/api/settings/tts-generate/audio?file=test-audio/{audioRelPath}" class="w-full" style="height: 40px;">
-                    Your browser does not support the audio element.
-                  </audio>
+                  <AudioPlayer src="/api/settings/tts-generate/audio?file=test-audio/{audioRelPath}" />
                 </div>
               {/if}
               <details class="mt-3">

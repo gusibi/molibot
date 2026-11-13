@@ -406,6 +406,24 @@ export class SqliteTraceStore {
     return rows.map((row) => this.mapFactRow(row));
   }
 
+  /** Facts of one type inside a time window, newest first. */
+  listFactsByTypeSince(factType: TraceFactType, sinceIso: string, limit = 5000): TraceFactRecord[] {
+    const since = String(sinceIso ?? "").trim();
+    if (!since) return [];
+    const safeLimit = Math.max(1, Math.min(10000, Math.trunc(limit)));
+    const rows = this.db.prepare(`
+      SELECT id, fact_type, run_id, fact_id, parent_fact_id, channel, bot_id, chat_id, session_id, workspace_id,
+        name, provider, model, api, status, started_at, finished_at, duration_ms,
+        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, blocked_by, error_preview,
+        args_preview, result_preview, payload_json, created_at, updated_at
+      FROM agent_trace_facts
+      WHERE fact_type = ? AND created_at >= ?
+      ORDER BY created_at DESC, seq DESC
+      LIMIT ?
+    `).all(factType, since, safeLimit) as TraceFactRow[];
+    return rows.map((row) => this.mapFactRow(row));
+  }
+
   /**
    * The Handover evidence window: finished runs plus the runtime notices that
    * explain an anomaly. Unlike `listAnalyticsFacts` this keys on completion

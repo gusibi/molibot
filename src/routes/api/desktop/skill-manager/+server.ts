@@ -87,6 +87,10 @@ export const POST: RequestHandler = async ({ request }) => {
         const result = manager.checkUpdate(body.request);
         return json({ ok: true, result }, { headers: NO_STORE });
       }
+      case "preview-update": {
+        const preview = manager.previewUpdate(body.request);
+        return json({ ok: true, preview }, { headers: NO_STORE });
+      }
       case "unlink-distribution": {
         const result = manager.removeDistribution(body.request);
         return json({ ok: true, result, summary: manager.getOverview() }, { headers: NO_STORE });
@@ -104,6 +108,20 @@ export const POST: RequestHandler = async ({ request }) => {
       case "update-builtin":
         updateBuiltinSkill(body.request.id);
         return json({ ok: true, summary: manager.getOverview() }, { headers: NO_STORE });
+      case "create-skill": {
+        const created = manager.createSkill(body.request);
+        return json({ ok: true, created, summary: manager.getOverview() }, { headers: NO_STORE });
+      }
+      case "save-skill-content": {
+        const saved = manager.saveSkillContent(body.request);
+        return json({ ok: true, saved, summary: manager.getOverview() }, { headers: NO_STORE });
+      }
+      case "list-backups":
+        return json({ ok: true, backups: manager.listBackups(body.request.id) }, { headers: NO_STORE });
+      case "restore-backup": {
+        const result = manager.restoreBackup(body.request);
+        return json({ ok: true, result, summary: manager.getOverview() }, { headers: NO_STORE });
+      }
       case "reveal": {
         const detail = manager.getDetail(body.request.id);
         if (!revealSupported()) {

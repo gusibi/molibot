@@ -190,9 +190,17 @@
   const THEME_FAMILY_STORAGE_KEY = "molibot-desktop-theme-family";
   const IMPORTED_THEME_STORAGE_KEY = "molibot-desktop-imported-theme";
   const LOW_PERFORMANCE_STORAGE_KEY = "molibot-desktop-low-performance";
+  const DOC_STYLE_STORAGE_KEY = "molibot-desktop-doc-style";
+  /** Document typography skin. Orthogonal to the theme family: a theme owns
+      colour and surfaces, a doc style owns Markdown reading rhythm. */
+  type DocStyle = "feishu" | "notion";
+  function normalizeDocStyle(value: string | null): DocStyle {
+    return value === "notion" ? "notion" : "feishu";
+  }
   const runningInTauri = "__TAURI_INTERNALS__" in window;
   let appearance: DesktopAppearance = normalizeAppearance(localStorage.getItem(APPEARANCE_STORAGE_KEY));
   let themeFamily: DesktopThemeFamily = normalizeThemeFamily(localStorage.getItem(THEME_FAMILY_STORAGE_KEY));
+  let docStyle: DocStyle = normalizeDocStyle(localStorage.getItem(DOC_STYLE_STORAGE_KEY));
   let importedThemes: ImportedTheme[] = [];
   let activeImportedThemeId: string | null = localStorage.getItem(IMPORTED_THEME_STORAGE_KEY);
   let themeImportBusy = false;
@@ -271,6 +279,10 @@
 
   function applyTheme(value: DesktopAppearance, family: DesktopThemeFamily): void {
     const root = document.documentElement;
+    // One attribute drives both Markdown skins. Keeping it here (rather than
+    // in changeDocStyle) means cold start, system-appearance changes, imported
+    // themes and cross-window storage events all apply the same value.
+    root.dataset.docStyle = docStyle;
     const imported = activeImportedTheme();
     root.dataset.appearance = value;
     void windowStateAdapter?.setTheme(effectiveNativeTheme(value));
@@ -302,6 +314,13 @@
     localStorage.setItem(APPEARANCE_STORAGE_KEY, value);
     transitionTheme();
     applyTheme(value, themeFamily);
+  }
+
+  function changeDocStyle(value: DocStyle): void {
+    docStyle = value;
+    localStorage.setItem(DOC_STYLE_STORAGE_KEY, value);
+    transitionTheme();
+    applyTheme(appearance, themeFamily);
   }
 
   function changeThemeFamily(value: DesktopThemeFamily): void {
@@ -447,6 +466,10 @@
   // Geist owns a single accent (blue-700), defined as --accent / --accent-soft
   // in styles.css per theme. No user-selectable accent palette.
 
+  const DOC_STYLE_OPTIONS: { value: DocStyle; labelKey: "docStyleFeishu" | "docStyleNotion" }[] = [
+    { value: "feishu", labelKey: "docStyleFeishu" },
+    { value: "notion", labelKey: "docStyleNotion" }
+  ];
   const APPEARANCE_OPTIONS: { value: DesktopAppearance; labelKey: "appearanceLight" | "appearanceDark" | "appearanceSystem" }[] = [
     { value: "light", labelKey: "appearanceLight" },
     { value: "dark", labelKey: "appearanceDark" },
@@ -1086,6 +1109,11 @@
       applyTheme(appearance, themeFamily);
       return;
     }
+    if (event.key === DOC_STYLE_STORAGE_KEY) {
+      docStyle = normalizeDocStyle(event.newValue);
+      applyTheme(appearance, themeFamily);
+      return;
+    }
     if (event.key === IMPORTED_THEME_STORAGE_KEY) {
       activeImportedThemeId = event.newValue || null;
       applyTheme(appearance, themeFamily);
@@ -1307,6 +1335,24 @@
                   aria-checked={appearance === option.value}
                   tabindex={appearance === option.value ? 0 : -1}
                   onclick={() => changeAppearance(option.value)}
+                >
+                  {text[option.labelKey]}
+                </button>
+              {/each}
+            </div>
+          </div>
+          <div class="appearance-block">
+            <p class="appearance-label">{text.docStyle}</p>
+            <p class="appearance-description">{text.docStyleDescription}</p>
+            <div class="appearance-segmented" role="radiogroup" aria-label={text.docStyle} use:tablist={'[role="radio"]'}>
+              {#each DOC_STYLE_OPTIONS as option (option.value)}
+                <button
+                  type="button"
+                  class:active={docStyle === option.value}
+                  role="radio"
+                  aria-checked={docStyle === option.value}
+                  tabindex={docStyle === option.value ? 0 : -1}
+                  onclick={() => changeDocStyle(option.value)}
                 >
                   {text[option.labelKey]}
                 </button>

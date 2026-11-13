@@ -513,3 +513,35 @@ test("model costs survive sanitized persistence and the lean analytics projectio
     assert.equal(store.listFactsByRunId("cost-run")[0].payload.usage, "[object]");
   } finally { store.close(); }
 });
+
+test("listFactsByTypeSince returns only the requested type inside the window", () => {
+  const store = new SqliteTraceStore(":memory:");
+  const base = {
+    channel: "web",
+    chatId: "chat-1",
+    sessionId: "session-1",
+    status: "success" as const,
+    payload: {},
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z"
+  };
+  try {
+    store.upsertFact({ ...base, id: "skill-new", factType: "skill_usage", runId: "run-1", factId: "skill-new" });
+    store.upsertFact({ ...base, id: "tool-new", factType: "tool_call", runId: "run-1", factId: "tool-new" });
+    store.upsertFact({
+      ...base,
+      id: "skill-old",
+      factType: "skill_usage",
+      runId: "run-2",
+      factId: "skill-old",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-01T00:00:00.000Z"
+    });
+    assert.deepEqual(
+      store.listFactsByTypeSince("skill_usage", "2026-09-15T00:00:00.000Z").map((fact) => fact.id),
+      ["skill-new"]
+    );
+  } finally {
+    store.close();
+  }
+});

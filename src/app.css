@@ -2,6 +2,7 @@
 @import "./styles/theme.css";
 @import "./styles/workbench.css";
 @import "./styles/settings-custom.css";
+@import "./styles/markdown.css";
 
 @layer base {
   body {

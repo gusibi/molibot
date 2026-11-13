@@ -1,7 +1,7 @@
 <script lang="ts">
   import Download from "../icons/duotone/components/Download.svelte";
+  import AudioPlayer from "../components/AudioPlayer.svelte";
   import Loader from "reicon-svelte/icons/Loader";
-  import Soundwave from "../icons/duotone/components/Soundwave.svelte";
   import { contributionIcon } from "./activityIcons";
   import type { Translation } from "../i18n";
   import type { DesktopSessionFile } from "@molibot/desktop-contract";
@@ -193,10 +193,8 @@
           oncontextmenu={(event) => openActionMenu(event, file)}
           onkeydown={(event) => openActionMenuFromKeyboard(event, file)}
         >
-          <div class="transcript-media-heading"><Soundwave weight="Filled" size={18} aria-hidden="true" /><span title={attachment.original}>{attachment.original}</span><button type="button" aria-label={copy.download} title={copy.download} onclick={() => actions?.download(file)}><Download size={14} aria-hidden="true" /></button></div>
           {#if entry.mediaUrl}
-            <!-- svelte-ignore a11y_media_has_caption -->
-            <audio controls preload="metadata" src={entry.mediaUrl}></audio>
+            <AudioPlayer src={entry.mediaUrl} title={attachment.original} labels={copy} onDownload={() => actions?.download(file)} />
           {:else if entry.failed}
             <button class="transcript-media-error" type="button" onclick={() => actions?.loadMedia(file)}>{copy.mediaLoadFailed}</button>
           {:else}

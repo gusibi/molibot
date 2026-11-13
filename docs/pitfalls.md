@@ -42,6 +42,7 @@
 - **#39** 持久化的 `[$skill](…/SKILL.md)` 引用在共享分类边界解析，回到同一渲染器。
 - **#40** Mermaid 一律 `suppressErrorRendering: true`；第三方渲染器失败后检查外部宿主节点。
 - **#45** `reicon-svelte` 只用子路径导入。
+- **#87** 同一实体只能有一份列表投影与作用域词表；UI 不自行拼枚举，单条状态变更发单条增量写入。
 
 **桌面端与传输**
 
@@ -481,3 +482,25 @@ Pi 1.4 的 Chord `Context.telemetry` 由原型 getter 和内部上下文链提�
 模型请求失败、App 观察流断开与整轮任务失败由不同层负责。策略在入口准入时确定并随恢复记录保留；App 的单次模型请求重试不再叠加旧的整轮重试，子任务按原策略执行。此前重试守卫只验证 429 与备用模型切换，未覆盖 App 普通网络故障，也未验证重试记录的会话重载展示。流关闭但未收到完成事件时查询原任务，不能重发消息或宣称成功；提交尚未确认时保留输入并提示核对。恢复活动是运行事实，应从持久化元数据补入过程区，不能因为模型正文没有对应步骤而丢弃。守卫：`appModelRetry.test.ts`、真实 `runner.test.ts` App/旧策略用例、`piRunSession.test.ts` 父子请求归属、`conversationTurn.test.ts`、`conversationProjection.test.ts` 与 `tests/ui/app-retry.spec.ts`。
 
 审批等待仍属于非终态。断流恢复若只等任务退出后才拉取审批，会让服务端等审批、客户端等结束。恢复轮询应识别 `waiting_for_approval` 和 `waitingApproval`，拉取卡片后交给审批流程续跑，不排空后续消息队列；卡片尚不可读时继续查询。守卫：`conversationController.test.ts` 覆盖两种等待信号、延迟可见的卡片与队列保留，`tests/ui/app-retry.spec.ts` 验证断流后的卡片展示和决策操作。
+
+## 86. Markdown 渲染器结构变更会同时污染缓存、消毒白名单与跨端排版
+
+（2026-11-12，把聊天 AI 回复的 Markdown 排版对齐飞书文档。数值参考 `imageslr/mweb-themes` 的 `lark` 主题——679★、README 明确其灵感来自飞书文档——只复制样式思路，不引入依赖包。）
+
+(a) **渲染器输出结构变化必须让缓存失效。** 完整渲染缓存（`apps/desktop/src/lib/markdown.ts`）与流式 sealed block 缓存（`streamingMarkdown.ts`）各自把 HTML 缓存在内存里；key 不含渲染器版本时，把 `renderer.image` 改成输出 `<figure>` 后旧缓存仍吐 `<img>`，流式与终态骨架不一致、用户选区也会错位。规则：`RENDER_SCHEMA_VERSION` 同时进入两处 key，任何影响 HTML 结构的改动都 +1，label 等会进入 HTML 的文案也要进 key。守卫：`markdown.test.ts` 比对 streamed / settled 的 tag skeleton。
+
+(b) **`<figure>` 不能待在 `<p>` 里。** 浏览器解析 `<p><figure>…</figure></p>` 时会 foster-parent 把 figure 移出段落，留下空 `<p>` 并打乱 margin rhythm。`renderer.paragraph` 必须识别「纯图片段落」直接返回 inline 内容；同时 DOMPurify 要用 `ADD_TAGS: ["figure","figcaption"]`、`ADD_ATTR: ["loading","decoding"]` 放行，否则消毒阶段会把新结构剥掉。反过来，**图文混排段落里的图片必须退回普通 `<img>`**：只处理「纯图片段落不包 `<p>`」是不够的，若 image renderer 无条件输出 `<figure>`，带文字的段落仍会变成 `<p>文字<figure>…</figure>文字</p>`，浏览器照样 foster-parent 拆成三块。用 renderer 内一个随 paragraph 同步设置/恢复的 `figureContext` 标志决定图片形态，标题 / 列表项 / 表格单元格里的图片也就自然保持 inline。守卫：`markdown.test.ts` 断言混排段落不含 `<figure>`，且 figure 段落之后的混排段落不残留标志。**同一个判断必须贯穿到 CSS**：若 `.markdown-body img` 统一 `display: block`，即使 HTML 已是正确的单个 `<p>`，视觉上仍会被大图拆成三块。只有 `.md-figure img` 保留大图居中与 360px 上限，正文 / 列表 / 表单元格里的图片要用 `:is(p, li, td, th, h1…h6, blockquote) img` 覆盖成 inline + `max-height: 1.6em`。Desktop `styles.css` 与 Web `markdown.css` 各有一份，守卫 `src/lib/ui/markdown.test.ts` 同时断言两端。
+
+(c) **图标按钮不能靠 `textContent` 回写成功态。** 代码块动作改成 SVG icon 后，复制成功再执行 `button.textContent = "已复制"` 会永久替换掉 SVG。改用 `data-copied` + CSS check，并同步 `aria-label`。
+
+(d) **同一份 Markdown 消毒逻辑不能只在浏览器跑，样式也不能只挂在某个页面。** Web 旧实现在无 `document` 时直接返回原 HTML，SSR 输出未消毒、hydrate 后 DOM 结构不同；而 Svelte 组件 `<style>` 只在该页挂载时注入，把 `.markdown-body` 写在 `+page.svelte` 里，会话历史预览永远拿不到。规则：消毒用无 DOM 依赖的纯字符串 allowlist（属性一律重建、绝不转发输入属性），排版放 `src/styles/markdown.css` 由 `app.css` 全局引入。守卫：`src/lib/ui/markdown.test.ts` 同时断言 XSS、SSR 一致性与结构归属。
+
+(e) **图片 `max-height` 要跟浏览器用例对齐。** 飞书式大图允许 `max-width: 100%`，但聊天时间线不能让竖图无限高；`tests/ui/markdown-images.spec.ts` 要求预览高度 ≤ 360px 且保持比例，所以上限取 `360px` 而不是 `none`。
+
+(f) **「两套文档样式」不能变成第二套渲染器。** 要飞书/Notion 可切换时，直觉写法是给 `renderMarkdown()` 加 style 参数、按皮肤输出不同 HTML；这会让完整渲染缓存和流式 sealed block 缓存各多一维、流式与终态骨架分叉，双端还要维护两份实现。正确做法：皮肤只由根节点 `data-doc-style` 驱动，在 `:root[data-doc-style="notion"]` 里覆盖同一组 `--md-*` 变量和少量结构规则，渲染器与 sanitizer 完全不感知，两套共用同一份 HTML。守卫：`chat-ui.test.mjs` 断言两个 `markdown.ts` 都不含 docStyle、`.markdown-body` 基础规则只有一份、主题族文件不含皮肤；`src/lib/ui/markdown.test.ts` 断言两端 Notion 的 h1 档位一致。另外 Web 端若只在 `onMount` 写属性，刷新会先闪一下默认皮肤，必须在 `app.html` 首屏前内联初始化。
+
+## 87. 同一实体的两个界面各自维护作用域词表必然漂移
+
+（2026-11-12，技能页从清单改成能力面板。）Web `/settings/skills` 与桌面 Skill Manager 读的是同一批技能目录，但 Web 页自己维护了一份 `SkillScope = "global" | "chat" | "bot"`：后端按 2026-10-17 的 Agent 化改造只产出 `global` / `agent`，于是 Agent 技能整类不显示，会话/Bot 两个分区恒空、Bot 计数恒 0。同一时期两个开关 API 都允许整份 `disabledSkillPaths` PUT，连点两个开关会互相覆盖。
+
+规则：**一个实体的列表投影只能有一份服务端契约**；UI 只消费契约字段，不自行拼作用域词表或做二次枚举；单条状态变更发单条增量请求，不把整份数组当表单提交。新增/重命名作用域时，先改契约与扫描路由，再让所有界面编译失败，而不是靠人记住还有第二个页面。守卫：`manager.test.ts` 的能力投影用例锁定 `availability` 与依赖状态；Web 页只渲染 `global` / `agent` 并与 `count` 同源。

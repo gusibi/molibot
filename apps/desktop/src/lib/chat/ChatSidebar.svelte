@@ -305,32 +305,33 @@
   .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 0 0 6px;
+    gap: 4px;
+    padding: 0 0 8px;
     margin-bottom: 0;
     border-bottom: 0;
   }
   .nav-item {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
     width: 100%;
-    height: 30px;
-    padding: 0 8px;
+    height: 36px;
+    padding: 0 12px;
     border: none;
     background: transparent;
     border-radius: var(--rounded-sm, 6px);
     cursor: pointer;
     color: var(--label-primary, #171717);
     text-align: left;
-    font-size: var(--fs-label);
-    line-height: var(--lh-label);
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+    font-weight: 400;
     transition: background var(--duration-instant) var(--ease-standard);
   }
   .nav-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
   .nav-item.active :global(svg) { color: var(--accent, #006bff); }
-  .nav-item :global(svg) { color: var(--label-secondary, #666); }
+  .nav-item :global(svg) { width: 18px; height: 18px; flex: 0 0 auto; color: var(--label-secondary, #666); }
   .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-full, 999px); background: var(--accent, #006bff); color: var(--on-accent); font-size: var(--fs-meta); line-height: var(--lh-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
 
   /* Collapsed presentation: a slim icon rail plus an on-demand list flyout. */

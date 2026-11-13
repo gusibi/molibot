@@ -23,6 +23,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import { marked } from "marked";
+import type { Token } from "marked";
 import markedCjkFriendly from "marked-cjk-friendly";
 import markedKatex from "marked-katex-extension";
 import { reiconSvg } from "./reiconSvg";
@@ -123,6 +124,11 @@ function sanitizeChatHtml(html: string): string {
   }
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true, mathMl: true },
+    // The image renderer emits a real figure/caption pair and lazy-load hints.
+    // Declaring them keeps the contract explicit even if a DOMPurify bump
+    // changes the html profile defaults.
+    ADD_TAGS: ["figure", "figcaption"],
+    ADD_ATTR: ["loading", "decoding"],
     FORBID_TAGS: ["style"]
   });
 }
@@ -184,7 +190,12 @@ function wrapTables(html: string, label: string): string {
 }
 
 // Completed messages re-render whenever the transcript updates; memoize so
-// history is parsed and highlighted once, not on every turn.
+// history is parsed and highlighted once, not on every turn. Both this cache
+// and the streaming block cache key on their input string alone, so bump this
+// whenever a renderer changes its emitted HTML — otherwise a long-lived view
+// keeps serving the old markup (plain <img>, text toolbar) for content it has
+// already rendered.
+export const RENDER_SCHEMA_VERSION = "3";
 const RENDER_CACHE_LIMIT = 300;
 const renderCache = new Map<string, string>();
 
@@ -197,7 +208,7 @@ export function renderMarkdown(source: string, copyCodeLabel = "Copy code", opti
   const resolveImage = options.resolveImage;
   // The cache key cannot represent a resolver, and two files sharing markdown
   // while sitting in different directories would poison each other's images.
-  const cacheKey = streaming || resolveImage ? null : `${copyCodeLabel}\u0000${wrapLinesLabel}\u0000${previewArtifactLabel}\u0000${openTableLabel}\u0000${headingPrefix}\u0000${source}`;
+  const cacheKey = streaming || resolveImage ? null : `${RENDER_SCHEMA_VERSION}\u0000${copyCodeLabel}\u0000${wrapLinesLabel}\u0000${previewArtifactLabel}\u0000${openTableLabel}\u0000${headingPrefix}\u0000${source}`;
   if (cacheKey !== null) {
     const cached = renderCache.get(cacheKey);
     if (cached !== undefined) {
@@ -209,6 +220,12 @@ export function renderMarkdown(source: string, copyCodeLabel = "Copy code", opti
   }
   const renderer = new marked.Renderer();
   let headingIndex = 0;
+  // A <figure> is a block element, so it is only legal when the image owns its
+  // entire paragraph. Inside prose, a heading, a list item or a table cell the
+  // image must stay a plain inline <img>: otherwise the HTML parser
+  // foster-parents the <figure> out of the <p> and splits one sentence into
+  // three blocks. parseInline() is synchronous, so a scoped flag is enough.
+  let figureContext = false;
   renderer.heading = function ({ tokens, depth }): string {
     const inner = this.parser.parseInline(tokens);
     headingIndex += 1;
@@ -227,21 +244,52 @@ export function renderMarkdown(source: string, copyCodeLabel = "Copy code", opti
       // toggle is what makes that recoverable for prose-shaped output (a long
       // log line, a URL) without forcing every code block to lose its shape.
       const wrapButton = wrapLinesLabel
-        ? `<button type="button" data-wrap-code aria-pressed="false" aria-label="${escapeHtml(wrapLinesLabel)}" title="${escapeHtml(wrapLinesLabel)}">${escapeHtml(wrapLinesLabel)}</button>`
+        ? `<button type="button" data-wrap-code aria-pressed="false" aria-label="${escapeHtml(wrapLinesLabel)}" title="${escapeHtml(wrapLinesLabel)}">${reiconSvg("wrap", 14)}</button>`
         : "";
       const previewButton = previewArtifactLabel && ["html", "svg", "xml"].includes(language)
-        ? `<button type="button" data-preview-artifact>${escapeHtml(previewArtifactLabel)}</button>`
+        ? `<button type="button" data-preview-artifact aria-label="${escapeHtml(previewArtifactLabel)}" title="${escapeHtml(previewArtifactLabel)}">${reiconSvg("eye", 14)}</button>`
         : "";
-      return `<div class="code-block"><div class="code-block-head"><span>${escapeHtml(languageLabel)}</span>${previewButton}${wrapButton}<button type="button" data-copy-code aria-label="${escapeHtml(copyCodeLabel)}">${escapeHtml(copyCodeLabel)}</button></div><pre><code class="hljs${language ? ` language-${escapeHtml(language)}` : ""}">${highlighted}</code></pre></div>`;
+      const copyButton = `<button type="button" data-copy-code aria-label="${escapeHtml(copyCodeLabel)}" title="${escapeHtml(copyCodeLabel)}">${reiconSvg("copy", 14)}</button>`;
+      return `<div class="code-block"><div class="code-block-head"><span>${escapeHtml(languageLabel)}</span>${previewButton}${wrapButton}${copyButton}</div><pre><code class="hljs${language ? ` language-${escapeHtml(language)}` : ""}">${highlighted}</code></pre></div>`;
+  };
+  // A paragraph made only of images is a figure block, not a <p> holding a
+  // block-level element: the HTML parser would foster-parent the <figure> out
+  // of the <p> and leave two empty paragraphs around it. Detecting it here (as
+  // opposed to post-processing the HTML string) keeps the streamed and settled
+  // renderers identical, because both go through this same renderer.
+  renderer.paragraph = function ({ tokens }): string {
+    const significant = tokens.filter((token) => token.type !== "text" || String((token as { text?: string }).text ?? "").trim() !== "");
+    const imagesOnly = significant.length > 0 && significant.every((token) => {
+      if (token.type === "image") return true;
+      if ("tokens" in token && Array.isArray(token.tokens)) {
+        const children = token.tokens as Token[];
+        return children.length > 0 && children.every((child) => child.type === "image");
+      }
+      return false;
+    });
+    const previousFigureContext = figureContext;
+    figureContext = imagesOnly;
+    let inner: string;
+    try {
+      inner = this.parser.parseInline(tokens);
+    } finally {
+      figureContext = previousFigureContext;
+    }
+    return imagesOnly ? inner : `<p>${inner}</p>`;
   };
   // Mirrors marked's default image renderer (alt text via the text renderer,
-  // optional title) with one difference: the href may be resolved to a loadable
-  // URL before it lands in the markup.
+  // optional title) with two differences: the href may be resolved to a
+  // loadable URL, and an image that owns its paragraph becomes a figure whose
+  // Markdown title is a visible caption. A caption is standard Markdown
+  // (`![alt](src "caption")`), so no custom block syntax is introduced.
   renderer.image = function ({ href, title, text, tokens }): string {
     const alt = tokens ? this.parser.parseInline(tokens, this.parser.textRenderer) : text;
     const src = resolveImage ? resolveImage(String(href ?? "")) ?? String(href ?? "") : String(href ?? "");
     if (!src) return `<span role="img" aria-label="${escapeHtml(String(alt ?? ""))}">${escapeHtml(String(alt ?? ""))}</span>`;
-    return `<img src="${escapeHtml(src)}" alt="${escapeHtml(String(alt ?? ""))}"${title ? ` title="${escapeHtml(String(title))}"` : ""}>`;
+    const image = `<img src="${escapeHtml(src)}" alt="${escapeHtml(String(alt ?? ""))}" loading="lazy" decoding="async"${title ? ` title="${escapeHtml(String(title))}"` : ""}>`;
+    if (!figureContext) return image;
+    const caption = title ? `<figcaption class="md-figcaption">${escapeHtml(String(title))}</figcaption>` : "";
+    return `<figure class="md-figure">${image}${caption}</figure>`;
   };
   const html = marked.parse(String(source ?? ""), { async: false, renderer }) as string;
   const sanitized = wrapTables(options.sanitize ? options.sanitize(html) : sanitizeChatHtml(html), openTableLabel);

@@ -19,6 +19,20 @@ Built-in deliverable generation is equally explicit. `documentExport` writes DOC
 
 Image recognition and PDF OCR never accept an arbitrary model id from the Agent. Settings owns an ordered list of API engines, each bound to a configured vision model; automatic mode records attempts and fails over in that order. The engine runner is isolated behind an adapter seam for a later local-CLI adapter, but phase one exposes API engines only. `docExtract` defaults to `ocr=auto`, which only rasterizes low-text PDF pages containing embedded images; `ocr=force` transcribes every page and `ocr=never` guarantees no vision-model call. OCR is serialized and limited to 20 pages per tool call. All extracted or recognized content is untrusted evidence and uses the shared context-output budget/full-output spill path.
 
+## Skill capability view
+
+The Skills workspace answers whether an Agent can actually use a Skill, not just where its file lives. Every card reports installed / enabled / reachable-with-reasons (disabled, duplicate name, unparseable, missing, broken link, no workspace, missing dependency), trailing-30-day usage from `skill_usage` trace facts (triggered, loaded, executed, last used), and any declared MCP server or CLI signal that is not ready.
+
+Detail adds the selection contract: aliases, CLI/MCP/tool signals, pre-approved tools, and whether `disable-model-invocation` keeps the Skill out of automatic discovery. Cards can insert `/alias ` into the active composer, and the detail header owns an enable switch. Batch enable/disable reuses the per-entry write path so the catalogue summary stays authoritative.
+
+Owners can create and edit Skills without leaving the workspace. Creation writes into the chosen Molibot root (global, an Agent workspace, or a project), adopts the entry immediately, and rejects an existing name. Editing writes SKILL.md only after its frontmatter still parses with a name and description. Timestamped sibling backups are listable per Skill and restorable; restoring moves the current content to a new backup first. Git-installed Skills can preview the upstream `commit..HEAD` file list and unified diff before applying an update, and the Advanced view can check every Git-installed Skill and apply all available updates through the same preflight/replace path, one at a time.
+
+The workspace keeps one quiet navigation layer: the title, three counted segments, and content. Advanced maintenance is a single centered document column with hairline-separated sections (platform rules, batch update, recent operations, diagnostics). Platform rows open on demand, so the folder list is configuration rather than the default reading surface; roots render relative to the server home (`~/…`), counts sit next to the path they describe, and a missing folder is labelled instead of only dimmed. Creating and editing a Skill share one sheet: fixed title and commit row, one scrolling body, and localized validation for the name. Cards stay silent unless something is wrong; the detail view owns the full explanation. Remote discovery and Registry installs remain out of scope for this version.
+
+Discovery groups `~/.agents/skills` as **Global** rather than attributing it to one vendor. OpenCode and OpenClaw still read that tree, so a card's `sharedWith` list reports them, but the group answers "where this content belongs", not "which adapter happened to scan it first".
+
+The Web `/settings/skills` page renders the same two scopes the server produces (global and Agent) and toggles one path at a time. Skill search configuration owns local search, provider/model, base URL, request path and an API key that is never sent back to the client after being stored.
+
 ## Start here
 
 1. Create an Agent and select its provider route.

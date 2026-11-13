@@ -57,9 +57,12 @@
   --chart-orange: #ff8800; --chart-red: #f54a45; --chart-indigo: #4f52b2;
   --chart-track: rgb(31 35 41 / 8%); --chart-grid: rgb(31 35 41 / 8%);
   --code-bg: #1e1e1e; --code-text: #d4d4d4;
-  --syntax-code-bg: #ffffff; --syntax-code-gutter: #f5f6f7; --syntax-code-border: #dee0e3; --syntax-code-fg: #1f2329;
-  --syntax-code-keyword: #0000ff; --syntax-code-string: #a31515; --syntax-code-title: #795e26; --syntax-code-number: #098658;
-  --syntax-code-comment: #008000; --syntax-code-variable: #001080; --syntax-code-attr: #e50000; --syntax-code-built-in: #267f99;
+  /* Feishu docs use a soft grey code surface with low-saturation tokens, not
+     the saturated VSCode Light palette. The dark variant keeps its dark slab
+     inside the white bot card, matching Feishu's own light-card behaviour. */
+  --syntax-code-bg: #f5f6f7; --syntax-code-gutter: #edeef0; --syntax-code-border: #dee0e3; --syntax-code-fg: #1f2329;
+  --syntax-code-keyword: #7b4bc9; --syntax-code-string: #c0413e; --syntax-code-title: #a8620b; --syntax-code-number: #187a5c;
+  --syntax-code-comment: #8a9099; --syntax-code-variable: #2b5f9e; --syntax-code-attr: #b3453f; --syntax-code-built-in: #0f7b8a;
   --diff-add-line: #e6f5e6; --diff-add-num: #cae9ca; --diff-del-line: #fde9e8; --diff-del-num: #f8cbc9;
   --diff-add-word: #a9dbaa; --diff-del-word: #efa7a4; --diff-add-label: #2ba471; --diff-del-label: #f54a45;
   --wallpaper: var(--mac-window-background); --panel-blur: none;

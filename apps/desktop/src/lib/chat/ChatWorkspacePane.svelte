@@ -26,6 +26,8 @@
   export let onOpenMiniApp: (appId: string) => void = () => {};
   /** Opens Settings at the Mini App AI section; the pane only signposts it. */
   export let onOpenMiniAppAiSettings: () => void = () => {};
+  /** Hosts the composer; the Skills pane uses it to turn a card into an invocation. */
+  export let onTrySkill: (skill: { id: string; name: string; aliases: string[] }) => void = () => {};
   export let formatTime: (iso: string) => string = (iso) => iso;
   export let targetSessionId = "";
   export let targetPlanId = "";
@@ -80,7 +82,7 @@
     {:else if pane === "automations"}
       <TasksSection presentation="workspace" onUnreadChange={onAutomationUnreadChange} />
     {:else if pane === "skills"}
-      <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
+      <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} {onTrySkill} />
     {:else if pane === "miniapps"}
       <MiniAppsLaunchpad onOpenApp={onOpenMiniApp} onOpenAiSettings={onOpenMiniAppAiSettings} />
     {:else if pane === "plans"}

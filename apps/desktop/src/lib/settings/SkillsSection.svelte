@@ -15,7 +15,10 @@
     }
   });
 
-  const skillsSearchDirty = $derived(skillsStore.searchDraft !== null && JSON.stringify(skillsStore.searchDraft) !== skillsStore.searchPristine);
+  const skillsSearchDirty = $derived(
+    (skillsStore.searchDraft !== null && JSON.stringify(skillsStore.searchDraft) !== skillsStore.searchPristine)
+    || Boolean(skillsStore.apiKeyDraft)
+  );
 
   onDestroy(trackUnsaved(() => skillsSearchDirty));
 </script>
@@ -41,6 +44,9 @@
         <div class="settings-form">
           <label class="settings-field"><span>{session.text.skillsSearchProvider}</span><SelectControl value={skillsStore.searchDraft.apiProvider} ariaLabel={session.text.skillsSearchProvider} options={[{ value: "", label: session.text.unavailable }, ...skillsStore.searchDraft.providers.map((provider) => ({ value: provider.id, label: provider.name }))]} onChange={(value) => { const provider = skillsStore.searchDraft?.providers.find((item) => item.id === value); if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiProvider: provider?.id ?? "", apiModel: provider?.models.includes(skillsStore.searchDraft.apiModel) ? skillsStore.searchDraft.apiModel : provider?.defaultModel ?? provider?.models[0] ?? "" }; }} /></label>
           <label class="settings-field"><span>{session.text.skillsSearchModel}</span><SelectControl value={skillsStore.searchDraft.apiModel} ariaLabel={session.text.skillsSearchModel} options={[{ value: "", label: session.text.unavailable }, ...(selectedSkillProvider?.models ?? []).map((model) => ({ value: model, label: model }))]} onChange={(value) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiModel: value }; }} /></label>
+          <label class="settings-field"><span>{session.text.skillsSearchBaseUrl}</span><input type="url" autocomplete="off" spellcheck="false" placeholder="https://" aria-label={session.text.skillsSearchBaseUrl} value={skillsStore.searchDraft.apiBaseUrl} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiBaseUrl: event.currentTarget.value }; }} /></label>
+          <label class="settings-field"><span>{session.text.skillsSearchPath}</span><input type="text" autocomplete="off" spellcheck="false" aria-label={session.text.skillsSearchPath} value={skillsStore.searchDraft.apiPath} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, apiPath: event.currentTarget.value }; }} /></label>
+          <label class="settings-field"><span>{session.text.skillsSearchApiKey}</span><input type="password" autocomplete="new-password" spellcheck="false" aria-label={session.text.skillsSearchApiKey} placeholder={skillsStore.searchDraft.apiKeySet ? session.text.skillsSearchApiKeySet : session.text.skillsSearchApiKeyEmpty} value={skillsStore.apiKeyDraft} oninput={(event) => (skillsStore.apiKeyDraft = event.currentTarget.value)} /></label>
           <label class="settings-field"><span>{session.text.skillsMaxTokens}</span><input type="number" min="128" max="4096" autocomplete="off" aria-label={session.text.skillsMaxTokens} value={skillsStore.searchDraft.maxTokens} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, maxTokens: Number(event.currentTarget.value) }; }} /></label>
           <label class="settings-field"><span>{session.text.skillsTemperature}</span><input type="number" min="0" max="1" step="0.1" autocomplete="off" aria-label={session.text.skillsTemperature} value={skillsStore.searchDraft.temperature} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, temperature: Number(event.currentTarget.value) }; }} /></label>
           <label class="settings-field"><span>{session.text.skillsTimeout}</span><input type="number" min="1000" max="60000" step="500" autocomplete="off" aria-label={session.text.skillsTimeout} value={skillsStore.searchDraft.timeoutMs} oninput={(event) => { if (skillsStore.searchDraft) skillsStore.searchDraft = { ...skillsStore.searchDraft, timeoutMs: Number(event.currentTarget.value) }; }} /></label>

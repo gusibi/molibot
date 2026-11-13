@@ -1,4 +1,4 @@
-import { renderMarkdown } from "../markdown";
+import { RENDER_SCHEMA_VERSION, renderMarkdown } from "../markdown";
 
 export interface StreamBlock {
   /** Sanitized HTML for one top-level markdown block. */
@@ -140,7 +140,11 @@ export function createStreamingRenderer(parse: StreamingParse = defaultStreaming
         // `{@html}` value guard is what preserves a selection in this block -
         // the wrapper object is fresh each frame, but its html value is
         // identical, so Svelte skips the innerHTML write.
-        const key = `${deps.copyCode}\0${deps.wrapLinesLabel}\0${content}`;
+        // The schema version and every label that appears in the emitted HTML
+        // belong in the key: a renderer change or a language switch must not
+        // keep handing back sealed blocks with the old markup or the old
+        // aria-label.
+        const key = `${RENDER_SCHEMA_VERSION}\0${deps.copyCode}\0${deps.wrapLinesLabel}\0${deps.openTableLabel ?? ""}\0${content}`;
         const cached = cache.get(key);
         if (cached !== undefined) {
           cache.delete(key);

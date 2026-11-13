@@ -7,6 +7,7 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { deleteSkillDraftFile, overwriteSkillDraft, readSkillDrafts } from "$lib/server/agent/session/reviewData";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter";
 import { promoteDraftToLiveSkill } from "$lib/server/agent/skills/skillDraft";
+import { isAgentWorkspace } from "$lib/server/sessions/agentStorage";
 import type { SkillScope } from "$lib/server/agent/skills/skills";
 import { readSkillDraftConfig, updateSkillDraftConfig } from "$lib/server/settings/handlers/skillDrafts";
 
@@ -184,8 +185,11 @@ export const POST: RequestHandler = async ({ request }) => {
     const workspaceDir = String(body.workspaceDir ?? "").trim();
     const chatId = String(body.chatId ?? "").trim();
     const scope = (body.scope ?? "chat") as SkillScope;
-    if (!workspaceDir || !chatId || !isAllowedWorkspaceDir(dataRoot, workspaceDir)) {
-      return json({ ok: false, error: "workspaceDir and chatId are required" }, { status: 400 });
+    // A global or Agent-level target derives its root from the workspace, so a
+    // draft that was never tied to one session must not be blocked on chatId.
+    const needsChatId = scope === "chat" && !isAgentWorkspace(workspaceDir);
+    if (!workspaceDir || (needsChatId && !chatId) || !isAllowedWorkspaceDir(dataRoot, workspaceDir)) {
+      return json({ ok: false, error: "workspaceDir is required (chatId is required for chat scope)" }, { status: 400 });
     }
     const saved = promoteDraftToLiveSkill({
       draftPath: filePath,

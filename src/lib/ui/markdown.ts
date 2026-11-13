@@ -1,5 +1,20 @@
 import { marked } from "marked";
 
+/**
+ * Web Markdown renderer. The output is untrusted by definition: it is built
+ * from model answers and injected with `{@html}`.
+ *
+ * The sanitizer below is deliberately DOM-free. The old version walked a
+ * browser DOM template but returned the raw HTML on the server, which meant
+ * SSR emitted un-sanitized markup and the client hydrated something
+ * different. Both paths now run the same pure function and produce
+ * byte-identical output, which also makes it testable in Node.
+ *
+ * Security invariant: NO attribute from the input is ever forwarded. Every
+ * attribute in the output is reconstructed here from a value that passed a
+ * check, so event handlers, `style`, `srcdoc`, `formaction` and
+ * `javascript:` URLs cannot ride along even when the input is malformed.
+ */
 const ALLOWED_TAGS = new Set([
   "A",
   "BLOCKQUOTE",
@@ -7,6 +22,8 @@ const ALLOWED_TAGS = new Set([
   "CODE",
   "DEL",
   "EM",
+  "FIGCAPTION",
+  "FIGURE",
   "H1",
   "H2",
   "H3",
@@ -15,7 +32,9 @@ const ALLOWED_TAGS = new Set([
   "H6",
   "HR",
   "IMG",
+  "INPUT",
   "LI",
+  "MARK",
   "OL",
   "P",
   "PRE",
@@ -29,6 +48,23 @@ const ALLOWED_TAGS = new Set([
   "UL"
 ]);
 
+const VOID_TAGS = new Set(["BR", "HR", "IMG", "INPUT"]);
+
+// Their text content is not prose (CSS, JS, fallback markup). Drop it along
+// with the tag so a stray <style> from an answer cannot become visible noise.
+const DROP_CONTENT_TAGS = new Set([
+  "EMBED",
+  "IFRAME",
+  "NOSCRIPT",
+  "OBJECT",
+  "SCRIPT",
+  "STYLE",
+  "TEMPLATE",
+  "TEXTAREA"
+]);
+
+const TAG_PATTERN = /<\/?([a-zA-Z][a-zA-Z0-9]*)(?:\s([^>]*))?>/g;
+
 function isSafeUrl(value: string | null): boolean {
   if (!value) return false;
   if (value.startsWith("/") || value.startsWith("#")) return true;
@@ -40,65 +76,138 @@ function isSafeUrl(value: string | null): boolean {
   }
 }
 
+function decodeEntities(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function escapeAttribute(value: string): string {
+  return decodeEntities(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function readAttribute(attributes: string, name: string): string | null {
+  const pattern = new RegExp(
+    `(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`,
+    "i"
+  );
+  const match = pattern.exec(attributes);
+  if (!match) return null;
+  return decodeEntities(match[1] ?? match[2] ?? match[3] ?? "");
+}
+
+function hasAttribute(attributes: string, name: string): boolean {
+  return new RegExp(`(?:^|\\s)${name}(?=\\s|=|$)`, "i").test(attributes);
+}
+
+function renderOpenTag(name: string, attributes: string): string {
+  switch (name) {
+    case "A": {
+      const href = readAttribute(attributes, "href");
+      return isSafeUrl(href)
+        ? `<a href="${escapeAttribute(href ?? "")}" target="_blank" rel="noreferrer">`
+        : "<a>";
+    }
+    case "IMG": {
+      const src = readAttribute(attributes, "src");
+      const alt = readAttribute(attributes, "alt");
+      const safeSrc = isSafeUrl(src) ? ` src="${escapeAttribute(src ?? "")}"` : "";
+      const safeAlt = alt ? ` alt="${escapeAttribute(alt)}"` : "";
+      return `<img${safeSrc}${safeAlt} loading="lazy" decoding="async">`;
+    }
+    case "INPUT": {
+      // GFM task lists are plain Markdown and emit disabled checkboxes. Only
+      // that exact shape survives; any other input is dropped entirely.
+      if (readAttribute(attributes, "type")?.toLowerCase() !== "checkbox") return "";
+      const checked = hasAttribute(attributes, "checked") ? " checked" : "";
+      return `<input type="checkbox" disabled${checked}>`;
+    }
+    default:
+      return `<${name.toLowerCase()}>`;
+  }
+}
+
 function sanitizeMarkdownHtml(html: string): string {
-  if (typeof document === "undefined") {
-    return html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
+  // Comments and declarations are not elements. Strip them first so no
+  // parser-quirk payload (e.g. <!--><img onerror=...>) can reach {@html}.
+  const source = html
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
+    .replace(/<\?[\s\S]*?\?>/g, "")
+    .replace(/<![^>]*>/g, "");
+
+  const open: string[] = [];
+  let output = "";
+  let cursor = 0;
+
+  for (const match of source.matchAll(TAG_PATTERN)) {
+    const index = match.index ?? 0;
+    output += source.slice(cursor, index);
+    cursor = index + match[0].length;
+
+    const name = match[1].toUpperCase();
+    const attributes = match[2] ?? "";
+    const closing = match[0][1] === "/";
+
+    if (!ALLOWED_TAGS.has(name)) {
+      // Dropping the tag keeps its text, matching the old DOM walk's
+      // textContent fallback. Raw-text containers lose their payload too.
+      if (!closing && DROP_CONTENT_TAGS.has(name)) {
+        const close = new RegExp(`</${name}\\s*>`, "i").exec(source.slice(cursor));
+        if (close) cursor += close.index + close[0].length;
+      }
+      continue;
+    }
+
+    if (closing) {
+      const depth = open.lastIndexOf(name);
+      if (depth === -1) continue;
+      for (let i = open.length - 1; i >= depth; i -= 1) {
+        output += `</${open[i].toLowerCase()}>`;
+      }
+      open.length = depth;
+      continue;
+    }
+
+    output += renderOpenTag(name, attributes);
+    if (!VOID_TAGS.has(name) && !/\/\s*$/.test(attributes)) open.push(name);
   }
 
-  const template = document.createElement("template");
-  template.innerHTML = html;
+  output += source.slice(cursor);
+  for (let i = open.length - 1; i >= 0; i -= 1) {
+    output += `</${open[i].toLowerCase()}>`;
+  }
+  return output;
+}
 
-  const walk = (node: Node): void => {
-    for (const child of Array.from(node.childNodes)) {
-      if (child.nodeType !== Node.ELEMENT_NODE) {
-        continue;
-      }
-
-      const element = child as HTMLElement;
-      if (!ALLOWED_TAGS.has(element.tagName)) {
-        element.replaceWith(document.createTextNode(element.textContent ?? ""));
-        continue;
-      }
-
-      const href = element.tagName === "A" ? (child as HTMLAnchorElement).getAttribute("href") : null;
-      const src = element.tagName === "IMG" ? (element as HTMLImageElement).getAttribute("src") : null;
-      const alt = element.tagName === "IMG" ? (element as HTMLImageElement).getAttribute("alt") : null;
-      for (const attribute of Array.from(element.attributes)) {
-        element.removeAttribute(attribute.name);
-      }
-
-      if (element.tagName === "A") {
-        if (isSafeUrl(href)) {
-          element.setAttribute("href", href ?? "#");
-          element.setAttribute("target", "_blank");
-          element.setAttribute("rel", "noreferrer");
-        }
-      } else if (element.tagName === "IMG") {
-        // Markdown images render like the desktop transcript: safe absolute or
-        // same-origin URLs only, lazy-loaded so a long transcript does not
-        // fetch every attachment up front.
-        if (isSafeUrl(src)) {
-          element.setAttribute("src", src ?? "");
-          element.setAttribute("loading", "lazy");
-          element.setAttribute("decoding", "async");
-        }
-        if (alt) element.setAttribute("alt", alt);
-      }
-
-      walk(element);
-    }
-  };
-
-  walk(template.content);
-  return template.innerHTML;
+/**
+ * A GFM table is the one block whose intrinsic width comes from its content.
+ * The Desktop renderer wraps it in the same class so a wide table scrolls
+ * locally inside the message column instead of squeezing every cell (the
+ * transcript itself must never gain a horizontal scrollbar).
+ */
+function wrapTables(html: string): string {
+  if (!html.includes("<table>")) return html;
+  return html
+    .replaceAll("<table>", '<div class="markdown-table-wrap"><table>')
+    .replaceAll("</table>", "</table></div>");
 }
 
 /** Renders untrusted markdown to sanitized HTML for transcript surfaces. */
 export function renderMarkdown(markdown: string): string {
   const html = marked.parse(markdown, {
     async: false,
-    breaks: true,
+    // CommonMark default, matching the Desktop renderer. `breaks: true` here
+    // used to make the same answer read differently in Web and Desktop.
+    breaks: false,
     gfm: true
   });
-  return sanitizeMarkdownHtml(String(html));
+  return wrapTables(sanitizeMarkdownHtml(String(html)));
 }

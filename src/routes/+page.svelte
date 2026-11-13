@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
   import { renderMarkdown } from "$lib/ui/markdown";
+  import { AudioPlayer } from "$lib/components/ui/audio-player";
   import { initLocale, locale as localeStore, setLocale, type LocaleKey } from "$lib/ui/i18n";
   import {
     classifyFilePreview,
@@ -2259,11 +2260,11 @@
                         </details>
                       {/if}
                       {#if m.role === "assistant"}
-                        <div class="markdown-body max-w-3xl break-words text-[15px] leading-8">
+                        <div class="markdown-body max-w-3xl break-words">
                           {@html renderMarkdown(m.content)}
                         </div>
                       {:else}
-                        <div class="max-w-3xl whitespace-pre-wrap break-words text-[15px] leading-8">{m.content}</div>
+                        <div class="max-w-3xl whitespace-pre-wrap break-words text-[15px] leading-[25px]">{m.content}</div>
                       {/if}
                     </div>
                   </article>
@@ -2339,11 +2340,11 @@
                       {/each}
 
                       {#if streamingAssistantText}
-                        <div class="markdown-body max-w-3xl break-words text-[15px] leading-8">
+                        <div class="markdown-body max-w-3xl break-words">
                           {@html renderMarkdown(streamingAssistantText)}
                         </div>
                       {:else if streamingThinkingBlocks.length === 0 && streamingDiagnostics.length === 0}
-                        <div class="markdown-body max-w-3xl break-words text-[15px] leading-8 text-[var(--muted-foreground)]">
+                        <div class="markdown-body max-w-3xl break-words opacity-60">
                           {t("thinking")}
                         </div>
                       {/if}
@@ -2753,7 +2754,10 @@
                         alt={selectedFile.original}
                       />
                     {:else if selectedFile.previewKind === "audio"}
-                      <audio class="w-full" controls src={selectedFile.source === "pending" ? selectedFile.previewUrl : buildPersistedFileUrl(selectedFile.id)}></audio>
+                      <AudioPlayer
+                        src={selectedFile.source === "pending" ? (selectedFile.previewUrl ?? "") : buildPersistedFileUrl(selectedFile.id)}
+                        title={selectedFile.original}
+                      />
                     {:else if selectedFile.previewKind === "video"}
                       <!-- svelte-ignore a11y_media_has_caption -->
                       <video class="max-h-[320px] w-full rounded-lg bg-black/20" controls src={selectedFile.source === "pending" ? selectedFile.previewUrl : buildPersistedFileUrl(selectedFile.id)}></video>
@@ -2773,7 +2777,7 @@
                           {t("filesPreviewFailed")}: {filePreviewError}
                         </div>
                       {:else if selectedFile.previewKind === "markdown"}
-                        <div class="markdown-body max-h-[360px] overflow-y-auto break-words text-sm leading-7">
+                        <div class="markdown-body max-h-[360px] overflow-y-auto break-words">
                           {@html renderMarkdown(selectedTextPreview)}
                         </div>
                       {:else if selectedFile.previewKind === "csv"}
@@ -2889,127 +2893,3 @@
     </div>
   {/if}
 </main>
-
-<style>
-  :global(.markdown-body > :first-child) {
-    margin-top: 0;
-  }
-
-  :global(.markdown-body > :last-child) {
-    margin-bottom: 0;
-  }
-
-  :global(.markdown-body p) {
-    margin: 0.7rem 0;
-  }
-
-  :global(.markdown-body h1),
-  :global(.markdown-body h2),
-  :global(.markdown-body h3),
-  :global(.markdown-body h4),
-  :global(.markdown-body h5),
-  :global(.markdown-body h6) {
-    margin: 1.15rem 0 0.55rem;
-    color: var(--foreground);
-    font-weight: 700;
-    line-height: 1.35;
-  }
-
-  :global(.markdown-body h1) {
-    font-size: 1.35rem;
-  }
-
-  :global(.markdown-body h2) {
-    font-size: 1.18rem;
-  }
-
-  :global(.markdown-body h3) {
-    font-size: 1.05rem;
-  }
-
-  :global(.markdown-body ul),
-  :global(.markdown-body ol) {
-    margin: 0.75rem 0;
-    padding-left: 1.35rem;
-  }
-
-  :global(.markdown-body ul) {
-    list-style: disc;
-  }
-
-  :global(.markdown-body ol) {
-    list-style: decimal;
-  }
-
-  :global(.markdown-body li + li) {
-    margin-top: 0.25rem;
-  }
-
-  :global(.markdown-body blockquote) {
-    margin: 0.9rem 0;
-    border-left: 4px solid var(--border);
-    padding-left: 1rem;
-    color: var(--muted-foreground);
-  }
-
-  :global(.markdown-body a) {
-    color: var(--primary);
-    font-weight: 600;
-    text-decoration: underline;
-    text-underline-offset: 0.18em;
-  }
-
-  :global(.markdown-body code) {
-    border-radius: 0.38rem;
-    background: var(--muted);
-    padding: 0.12rem 0.35rem;
-    font-family: var(--font-mono);
-    font-size: 0.92em;
-  }
-
-  :global(.markdown-body pre) {
-    margin: 0.95rem 0;
-    overflow-x: auto;
-    border: 1px solid var(--border);
-    border-radius: 0.75rem;
-    background: var(--muted);
-    padding: 0.85rem;
-  }
-
-  :global(.markdown-body pre code) {
-    display: block;
-    background: transparent;
-    padding: 0;
-    white-space: pre;
-  }
-
-  :global(.markdown-body table) {
-    margin: 0.95rem 0;
-    width: 100%;
-    border-collapse: collapse;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: 0.75rem;
-    font-size: 0.94em;
-  }
-
-  :global(.markdown-body th),
-  :global(.markdown-body td) {
-    border: 1px solid var(--border);
-    padding: 0.45rem 0.65rem;
-    text-align: left;
-    vertical-align: top;
-  }
-
-  :global(.markdown-body th) {
-    background: var(--muted);
-    color: var(--foreground);
-    font-weight: 700;
-  }
-
-  :global(.markdown-body hr) {
-    margin: 1.1rem 0;
-    border: 0;
-    border-top: 1px solid var(--border);
-  }
-</style>

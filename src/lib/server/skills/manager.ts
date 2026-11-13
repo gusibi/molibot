@@ -9,6 +9,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync
@@ -17,11 +18,13 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type {
   DesktopDiscoveredSkill,
+  DesktopSkillAvailabilityView,
   DesktopSkillCheckUpdateRequest,
   DesktopSkillCheckUpdateResult,
   DesktopSkillConsolidatePreflight,
   DesktopSkillConsolidateRequest,
   DesktopSkillConsolidateResult,
+  DesktopSkillDependency,
   DesktopSkillDiagnostic,
   DesktopSkillDistributeResult,
   DesktopSkillInstallResult,
@@ -31,6 +34,7 @@ import type {
   DesktopSkillManagerScope,
   DesktopSkillManagerSummary,
   DesktopSkillMaintenanceRequest,
+  DesktopSkillOperationView,
   DesktopSkillPlatform,
   DesktopSkillPlatformSaveRequest,
   DesktopSkillPreflightRequest,
@@ -38,12 +42,17 @@ import type {
   DesktopSkillRemoveDiscoveredRequest,
   DesktopSkillRemoveDiscoveredResult,
   DesktopSkillSourceView,
-  DesktopSkillUninstallResult
+  DesktopSkillTriggerView,
+  DesktopSkillUninstallResult,
+  DesktopSkillUpdatePreview,
+  DesktopSkillUsageStats
 } from "$lib/shared/desktop.js";
-import { skillBackupName } from "$lib/server/agent/skills/skillBackup.js";
+import { isSkillBackupDirectory, skillBackupName } from "$lib/server/agent/skills/skillBackup.js";
 import { inspectSkillEntry, scanSkillRoot, type ScannedSkillEntry } from "$lib/server/agent/skills/skillScan.js";
-import { loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
+import { loadSkillsFromWorkspace, parseSkillTriggerInfo } from "$lib/server/agent/skills/skills.js";
+import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import { listBuiltinSkillStates } from "$lib/server/agent/skills/bootstrap.js";
+import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import { readGitSkill, type GitSkillSnapshot } from "$lib/server/skills/gitSource.js";
 import {
   PLATFORM_PRESETS,
@@ -89,6 +98,14 @@ export interface SkillManagerOptions {
   platform?: NodeJS.Platform;
   hostLabel?: string;
   now?: () => Date;
+  /** Skill-usage facts for the trailing window, used by the capability view. */
+  traceStore?: {
+    listFactsByTypeSince(factType: "skill_usage", sinceIso: string, limit?: number): TraceFactRecord[];
+  };
+  /** Configured MCP servers, so a card can say whether a declared dependency exists. */
+  getMcpServers?: () => Array<{ id: string; enabled: boolean }>;
+  /** Whether a CLI binary declared in `signals.cli` resolves on the host. */
+  hasCommand?: (binary: string) => boolean;
 }
 
 interface ManagedRoot {
@@ -135,7 +152,16 @@ function fingerprint(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+/**
+ * `~/.agents/skills` is a cross-tool shared tree, not one vendor's private
+ * directory. Discovery groups it as "Global" even though OpenCode and OpenClaw
+ * also read it; `sharedWith` still reports those readers.
+ */
+const SHARED_SKILLS_PLATFORM_ID = "agents";
+const SHARED_SKILLS_PLATFORM_LABEL = "Global";
+
 function platformLabel(id: string): string {
+  if (id === SHARED_SKILLS_PLATFORM_ID) return SHARED_SKILLS_PLATFORM_LABEL;
   return findPlatformPreset(id)?.label ?? id;
 }
 
@@ -183,6 +209,8 @@ export class SkillManager {
   private readonly options: SkillManagerOptions;
   private recovered = false;
   private scanCache = new Map<string, ScanBucket>();
+  /** path→name for the Runtime loader, memoized per workspace within one read. */
+  private runtimeCache = new Map<string, Map<string, string>>();
 
   constructor(options: SkillManagerOptions) {
     this.options = options;
@@ -198,6 +226,212 @@ export class SkillManager {
 
   private iso(): string {
     return this.now().toISOString();
+  }
+
+  /**
+   * Usage is the one fact the catalogue never had: the trace recorder already
+   * knows which Skills were triggered, loaded and executed. Aggregating it here
+   * keeps the projection honest and lets the UI answer "is this Skill doing
+   * anything?" without a second client-side join.
+   */
+  private usageIndex(): Map<string, DesktopSkillUsageStats> {
+    const out = new Map<string, DesktopSkillUsageStats>();
+    const store = this.options.traceStore;
+    if (!store) return out;
+    const since = new Date(this.now().getTime() - 30 * 86400000).toISOString();
+    let facts: TraceFactRecord[] = [];
+    try {
+      facts = store.listFactsByTypeSince("skill_usage", since);
+    } catch {
+      return out;
+    }
+    const buckets = new Map<string, { stats: DesktopSkillUsageStats; runs: Set<string> }>();
+    for (const fact of facts) {
+      const payload = fact.payload ?? {};
+      const level = String(payload.level ?? "");
+      const filePath = String(payload.filePath ?? "").trim();
+      const name = String(payload.name ?? fact.name ?? "").trim();
+      const keys = [
+        filePath ? `path:${resolve(filePath)}` : "",
+        name ? `name:${name.toLowerCase()}` : ""
+      ].filter(Boolean);
+      if (keys.length === 0) continue;
+      const at = fact.finishedAt ?? fact.updatedAt ?? fact.createdAt;
+      const evidence = String(payload.evidenceCsv ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      for (const key of keys) {
+        const bucket = buckets.get(key) ?? {
+          stats: { calls: 0, triggered: 0, loaded: 0, executed: 0, runs: 0, lastAt: "", evidence: [] },
+          runs: new Set<string>()
+        };
+        bucket.stats.calls += 1;
+        if (level === "triggered" || level === "loaded" || level === "executed") bucket.stats[level] += 1;
+        if (at && at > bucket.stats.lastAt) bucket.stats.lastAt = at;
+        for (const item of evidence) {
+          if (!bucket.stats.evidence.includes(item)) bucket.stats.evidence.push(item);
+        }
+        bucket.runs.add(fact.runId);
+        buckets.set(key, bucket);
+      }
+    }
+    for (const [key, bucket] of buckets) {
+      out.set(key, { ...bucket.stats, runs: bucket.runs.size });
+    }
+    return out;
+  }
+
+  private operationView(row: {
+    id: string;
+    kind: DesktopSkillOperationView["kind"];
+    status: DesktopSkillOperationView["status"];
+    targetPath: string;
+    error: string;
+    createdAt: string;
+    updatedAt: string;
+  }): DesktopSkillOperationView {
+    return {
+      id: row.id,
+      kind: row.kind,
+      status: row.status,
+      targetPath: row.targetPath,
+      error: row.error,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    };
+  }
+
+  private usageFor(
+    index: Map<string, DesktopSkillUsageStats>,
+    entryPath: string,
+    name: string
+  ): DesktopSkillUsageStats | null {
+    return index.get(`path:${resolve(entryPath)}`) ?? index.get(`name:${name.toLowerCase()}`) ?? null;
+  }
+
+  private dependenciesFor(
+    trigger: DesktopSkillTriggerView,
+    mcpServers: string[]
+  ): DesktopSkillDependency[] {
+    const configured = new Map(
+      (this.options.getMcpServers?.() ?? []).map((server) => [server.id.toLowerCase(), server.enabled])
+    );
+    const mcp = Array.from(new Set([...trigger.signals.mcp, ...mcpServers].map((id) => id.trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+    const cli = Array.from(new Set(trigger.signals.cli.map((id) => id.trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+    return [
+      ...mcp.map((id) => ({
+        kind: "mcp" as const,
+        id,
+        ready: this.options.getMcpServers ? configured.get(id.toLowerCase()) === true : true
+      })),
+      ...cli.map((id) => ({
+        kind: "cli" as const,
+        id,
+        ready: this.options.hasCommand ? this.options.hasCommand(id) : true
+      }))
+    ];
+  }
+
+  private triggerFor(entryDir: string, manifest: { name: string; frontmatter: Record<string, string>; raw: string }): DesktopSkillTriggerView {
+    const trigger = parseSkillTriggerInfo(manifest.raw, manifest.frontmatter, manifest.name, join(entryDir, "SKILL.md"));
+    return {
+      aliases: trigger.aliases,
+      signals: trigger.signals,
+      allowedTools: trigger.allowedTools,
+      disableModelInvocation: trigger.disableModelInvocation
+    };
+  }
+
+  private workspaceForScope(scope: SkillScopeKind, ownerId: string): { workspace: string; projectRoot?: string } | null {
+    if (scope === "agent") return { workspace: join(this.options.agentsDir, ownerId) };
+    if (scope === "project") {
+      const project = this.options.projects().find((candidate) => candidate.id === ownerId);
+      return project ? { workspace: project.rootPath, projectRoot: project.rootPath } : null;
+    }
+    const defaultId = this.options.defaultAgentId?.() ?? this.listAgentIds()[0];
+    return defaultId ? { workspace: join(this.options.agentsDir, defaultId) } : null;
+  }
+
+  private runtimeSnapshot(
+    workspace: string,
+    projectRoot: string | undefined,
+    disabled: Set<string>
+  ): Map<string, string> {
+    const key = `${workspace}\0${projectRoot ?? ""}\0${[...disabled].sort().join("|")}`;
+    const cached = this.runtimeCache.get(key);
+    if (cached) return cached;
+    const paths = new Map<string, string>();
+    try {
+      const { skills } = loadSkillsFromWorkspace(workspace, undefined, {
+        disabledSkillPaths: [...disabled],
+        projectRoot
+      });
+      for (const skill of skills) paths.set(skill.filePath, skill.name);
+    } catch {
+      // A broken workspace must not fail the whole catalogue; the entry simply
+      // reports that the loader did not reach it.
+    }
+    this.runtimeCache.set(key, paths);
+    return paths;
+  }
+
+  private availabilityOf(params: {
+    entryPath: string;
+    name: string;
+    scope: SkillScopeKind;
+    ownerId: string;
+    health: SkillHealth;
+    enabled: boolean;
+    disabled: Set<string>;
+    dependencies: DesktopSkillDependency[];
+  }): DesktopSkillAvailabilityView {
+    if (!params.enabled) {
+      return { state: "disabled", reason: "disabled", message: "Disabled for Molibot; the file is untouched." };
+    }
+    if (params.health === "missing") {
+      return { state: "unavailable", reason: "missing", message: "The entry is missing from disk." };
+    }
+    if (params.health === "broken") {
+      return { state: "unavailable", reason: "broken", message: "The link target is missing." };
+    }
+    if (params.health === "invalid") {
+      return { state: "unavailable", reason: "invalid", message: "The Skill cannot be parsed." };
+    }
+    const scope = this.workspaceForScope(params.scope, params.ownerId);
+    if (!scope) {
+      return {
+        state: "unavailable",
+        reason: "no_workspace",
+        message: "No Agent workspace is registered, so no runtime context can load Skills."
+      };
+    }
+    const loaded = this.runtimeSnapshot(scope.workspace, scope.projectRoot, params.disabled);
+    if (!loaded.has(params.entryPath)) {
+      const duplicate = [...loaded.values()].some((name) => name === params.name);
+      return duplicate
+        ? {
+            state: "unavailable",
+            reason: "duplicate_name",
+            message: `Another entry named "${params.name}" wins the duplicate-name rule.`
+          }
+        : {
+            state: "unavailable",
+            reason: "not_loaded",
+            message: "The loader does not reach this entry from its workspace."
+          };
+    }
+    const missing = params.dependencies.filter((dependency) => !dependency.ready);
+    if (missing.length > 0) {
+      return {
+        state: "blocked",
+        reason: "dependencies",
+        message: `Missing ${missing.map((item) => `${item.kind}:${item.id}`).join(", ")}.`
+      };
+    }
+    return { state: "available", reason: "loaded", message: "The Runtime loader selects this entry in its own context." };
   }
 
   private scanContext(): PlatformScanContext {
@@ -459,6 +693,8 @@ export class SkillManager {
   getOverview(): DesktopSkillManagerSummary {
     this.ensureRecovered();
     this.scanCache.clear();
+    this.runtimeCache.clear();
+    const usageIndex = this.usageIndex();
 
     const managed = this.collectManaged();
     const readership = this.readership();
@@ -544,6 +780,13 @@ export class SkillManager {
         ? builtins.find((candidate) => join(this.options.globalSkillsDir, candidate.id) === item.entry.entryDir) ?? null
         : null;
       if (builtin) liveBuiltinIds.add(builtin.id);
+      const enabled = !disabled.has(item.entry.filePath);
+      const trigger: DesktopSkillTriggerView = manifest.ok
+        ? this.triggerFor(item.entry.entryDir, manifest)
+        : { aliases: [], signals: { cli: [], mcp: [], tools: [] }, allowedTools: [], disableModelInvocation: false };
+      const dependencies = manifest.ok
+        ? this.dependenciesFor(trigger, this.mcpListFromFrontmatter(manifest.frontmatter))
+        : [];
       installed.push({
         id: record.id,
         name,
@@ -551,7 +794,7 @@ export class SkillManager {
         scope: item.root.scope,
         ownerId: item.root.ownerId,
         ownerLabel: item.root.ownerLabel,
-        enabled: !disabled.has(item.entry.filePath),
+        enabled,
         method: record.method,
         managed: record.managed,
         health,
@@ -562,7 +805,21 @@ export class SkillManager {
         readBy: this.readBy(item.entry.realDir, readership),
         activeDistributions: this.store.listDistributions(record.id).filter((row) => row.status === "active").length,
         source: this.sourceView(record.sourceId),
-        builtin: builtin ? { ...builtin, skillId: record.id } : null
+        builtin: builtin ? { ...builtin, skillId: record.id } : null,
+        usage: this.usageFor(usageIndex, item.entry.filePath, name),
+        availability: this.availabilityOf({
+          entryPath: item.entry.filePath,
+          name,
+          scope: record.scope,
+          ownerId: record.ownerId,
+          health,
+          enabled,
+          disabled,
+          dependencies
+        }),
+        dependencies,
+        aliases: trigger.aliases,
+        signals: trigger.signals
       });
     }
 
@@ -594,7 +851,16 @@ export class SkillManager {
         readBy: [],
         activeDistributions: this.store.listDistributions(record.id).filter((row) => row.status === "active").length,
         source: this.sourceView(record.sourceId),
-        builtin: null
+        builtin: null,
+        usage: this.usageFor(usageIndex, record.entryPath, record.skillName),
+        availability: {
+          state: "unavailable",
+          reason: record.method === "link" ? "broken" : "missing",
+          message: "The entry is missing from disk."
+        },
+        dependencies: [],
+        aliases: [],
+        signals: { cli: [], mcp: [], tools: [] }
       });
     }
 
@@ -622,7 +888,16 @@ export class SkillManager {
         readBy: [],
         activeDistributions: 0,
         source: null,
-        builtin: { ...builtin, skillId: `builtin:${builtin.id}` }
+        builtin: { ...builtin, skillId: `builtin:${builtin.id}` },
+        usage: this.usageFor(usageIndex, "", builtin.id),
+        availability: {
+          state: "unavailable",
+          reason: "missing",
+          message: "Not installed yet; install it to make the bundled Skill available."
+        },
+        dependencies: [],
+        aliases: [],
+        signals: { cli: [], mcp: [], tools: [] }
       });
     }
 
@@ -654,6 +929,7 @@ export class SkillManager {
         label: this.options.hostLabel ?? hostname(),
         execution: "server",
         platform: this.options.platform ?? process.platform,
+        homeDir: this.options.homeDir ?? homedir(),
         scannedAt: this.iso(),
         note: "Scanned on the server that hosts Molibot. Paths describe that machine, not the client."
       },
@@ -671,17 +947,8 @@ export class SkillManager {
       discovered,
       platforms: platformViews,
       diagnostics: diagnostics.slice(0, 40),
-      recentOperation: recent
-        ? {
-            id: recent.id,
-            kind: recent.kind,
-            status: recent.status,
-            targetPath: recent.targetPath,
-            error: recent.error,
-            createdAt: recent.createdAt,
-            updatedAt: recent.updatedAt
-          }
-        : null,
+      recentOperation: recent ? this.operationView(recent) : null,
+      operations: this.store.listOperations(20).map((row) => this.operationView(row)),
       capabilities: {
         gitInstall: this.hasGit(),
         localInstall: true,
@@ -756,17 +1023,19 @@ export class SkillManager {
 
     const discovered: DesktopDiscoveredSkill[] = [];
     for (const group of grouped.values()) {
-      const platformId = [...group.platforms].sort()[0] ?? "";
+      const shared = this.isInSharedDir(group.realDir);
+      const platformId = shared ? SHARED_SKILLS_PLATFORM_ID : [...group.platforms].sort()[0] ?? "";
+      const label = platformLabel(platformId);
       discovered.push({
         id: `discovered:${hashId(group.realDir)}`,
         name: group.name,
         description: group.description,
         platformId,
-        platformLabel: platformLabel(platformId),
+        platformLabel: label,
         recommendedMethod: "copy",
         linkable: this.options.platform !== "win32",
         installed: installedSourcePaths.has(safeRealPath(group.realDir) ?? group.realDir),
-        sharedWith: this.readBy(group.realDir, readership).filter((label) => label !== platformLabel(platformId)),
+        sharedWith: this.readBy(group.realDir, readership).filter((candidate) => candidate !== label),
         nameExists: namesInScope.has(group.name),
         conflict: namesInScope.has(group.name),
         duplicate: false,
@@ -866,7 +1135,15 @@ export class SkillManager {
   }
 
   private mcpList(rows: Array<{ key: string; value: string }>): string[] {
-    const raw = String(rows.find((row) => row.key === "mcpServers" || row.key === "mcp_servers")?.value ?? "").trim();
+    return this.parseMcpRaw(rows.find((row) => row.key === "mcpServers" || row.key === "mcp_servers")?.value ?? "");
+  }
+
+  private mcpListFromFrontmatter(frontmatter: Record<string, string>): string[] {
+    return this.parseMcpRaw(frontmatter.mcpServers ?? frontmatter.mcp_servers ?? "");
+  }
+
+  private parseMcpRaw(value: string): string[] {
+    const raw = String(value ?? "").trim();
     if (!raw) return [];
     if (raw.startsWith("[")) {
       try {
@@ -880,17 +1157,7 @@ export class SkillManager {
   }
 
   private mcpCount(frontmatter: Record<string, string>): number {
-    const raw = String(frontmatter.mcpServers ?? frontmatter.mcp_servers ?? "").trim();
-    if (!raw) return 0;
-    if (raw.startsWith("[")) {
-      try {
-        const parsed = JSON.parse(raw) as unknown;
-        return Array.isArray(parsed) ? parsed.length : 0;
-      } catch {
-        return 0;
-      }
-    }
-    return raw.split(",").map((item) => item.trim()).filter(Boolean).length;
+    return this.mcpListFromFrontmatter(frontmatter).length;
   }
 
   private sourceView(sourceId: string | null): DesktopSkillSourceView | null {
@@ -991,6 +1258,9 @@ export class SkillManager {
       treeProblems: [],
       readBy: [],
       locations: [],
+      usage: this.usageFor(this.usageIndex(), "", builtin.id),
+      trigger: { aliases: [], signals: { cli: [], mcp: [], tools: [] }, allowedTools: [], disableModelInvocation: false },
+      dependencies: [],
       runtime: {
         loaded: false,
         reason: "missing",
@@ -1034,6 +1304,13 @@ export class SkillManager {
       ? listBuiltinSkillStates({ skillsRoot: this.options.globalSkillsDir })
           .find((candidate) => join(this.options.globalSkillsDir, candidate.id) === record.entryDir) ?? null
       : null;
+    const manifest = inspectSkillEntry(record.entryDir);
+    const trigger: DesktopSkillTriggerView = manifest.ok
+      ? this.triggerFor(record.entryDir, manifest)
+      : { aliases: [], signals: { cli: [], mcp: [], tools: [] }, allowedTools: [], disableModelInvocation: false };
+    const dependencies = manifest.ok
+      ? this.dependenciesFor(trigger, this.mcpListFromFrontmatter(manifest.frontmatter))
+      : [];
 
     return {
       kind: "installed",
@@ -1094,6 +1371,9 @@ export class SkillManager {
       })),
       readBy: this.readBy(realDir, this.readership()),
       locations: this.collectLocations(realDir, record.entryDir),
+      usage: this.usageFor(this.usageIndex(), record.entryPath, frontmatter.name),
+      trigger,
+      dependencies,
       runtime: this.runtimeCheck(record)
     };
   }
@@ -1103,6 +1383,13 @@ export class SkillManager {
     const tree = inspectSkillTree(entryDir);
     const realDir = safeRealPath(entryDir) ?? entryDir;
     const platform = this.discoveredPlatform(entryDir);
+    const manifest = inspectSkillEntry(entryDir);
+    const trigger: DesktopSkillTriggerView = manifest.ok
+      ? this.triggerFor(entryDir, manifest)
+      : { aliases: [], signals: { cli: [], mcp: [], tools: [] }, allowedTools: [], disableModelInvocation: false };
+    const dependencies = manifest.ok
+      ? this.dependenciesFor(trigger, this.mcpListFromFrontmatter(manifest.frontmatter))
+      : [];
     return {
       kind: "discovered",
       id,
@@ -1142,6 +1429,9 @@ export class SkillManager {
       })),
       readBy: this.readBy(realDir, this.readership()),
       locations: this.collectLocations(realDir),
+      usage: this.usageFor(this.usageIndex(), join(entryDir, "SKILL.md"), frontmatter.name),
+      trigger,
+      dependencies,
       runtime: {
         loaded: false,
         reason: "not_loaded",
@@ -1511,6 +1801,9 @@ export class SkillManager {
 
   private discoveredPlatform(entryDir: string): { id: string; label: string } {
     const dir = safeRealPath(entryDir);
+    if (dir && this.isInSharedDir(dir)) {
+      return { id: SHARED_SKILLS_PLATFORM_ID, label: SHARED_SKILLS_PLATFORM_LABEL };
+    }
     for (const platform of this.effectivePlatforms()) {
       if (platform.id === "molibot") continue;
       for (const root of resolvePlatformRoots(platform, this.scanContext())) {
@@ -2474,6 +2767,66 @@ export class SkillManager {
     };
   }
 
+  /**
+   * The update preview compares the pinned source commit with the repository
+   * HEAD inside the Skill's subdirectory. It intentionally shows the upstream
+   * change, not the local copy: local edits are reported separately by
+   * `checkUpdate`.
+   */
+  previewUpdate(request: DesktopSkillCheckUpdateRequest): DesktopSkillUpdatePreview {
+    const record = this.store.getInstallation(request.id);
+    if (!record) throw new Error("Unknown Skill");
+    const source = record.sourceId ? this.store.getSource(record.sourceId) : null;
+    if (!source || source.kind !== "git" || !source.locator.remote || !source.locator.commit) {
+      throw new Error("Only Skills installed from a Git repository can preview updates");
+    }
+    const repository = resolve(source.locator.remote);
+    const subdirectory = source.locator.subdir ?? "";
+    const range = `${source.locator.commit}..HEAD`;
+    try {
+      const nameStatus = execFileSync("git", ["-C", repository, "diff", "--name-status", range, "--", subdirectory || "."], {
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 8 * 1024 * 1024
+      }).toString("utf8");
+      const files = nameStatus
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const [rawStatus, ...paths] = line.split(/\s+/);
+          const code = rawStatus?.[0] ?? "";
+          const status: "added" | "modified" | "deleted" | "renamed" | "other" =
+            code === "A" ? "added" : code === "D" ? "deleted" : code === "R" ? "renamed" : code === "M" ? "modified" : "other";
+          return { path: paths[paths.length - 1] ?? "", status };
+        })
+        .filter((file) => file.path);
+      const fullPatch = execFileSync("git", ["-C", repository, "diff", range, "--", subdirectory || "."], {
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 8 * 1024 * 1024
+      }).toString("utf8");
+      const limit = 120_000;
+      return {
+        ok: true,
+        message: files.length ? `${files.length} file(s) changed upstream.` : "No upstream file changes.",
+        repository: source.locator.remote,
+        subdirectory,
+        files,
+        patch: fullPatch.slice(0, limit),
+        truncated: fullPatch.length > limit
+      };
+    } catch (cause) {
+      return {
+        ok: false,
+        message: cause instanceof Error ? cause.message : String(cause),
+        repository: source.locator.remote,
+        subdirectory,
+        files: [],
+        patch: "",
+        truncated: false
+      };
+    }
+  }
+
   // ── Operations ────────────────────────────────────────────────────────────
 
   /**
@@ -2554,5 +2907,184 @@ export class SkillManager {
 
   readFile(id: string, relativePath: string): { content: string; truncated: boolean; binary: boolean } {
     return readSkillFileContent(this.resolveSkillBaseDir(id), relativePath);
+  }
+
+  /** Write a new SKILL.md under a Molibot-owned root and adopt it immediately. */
+  /** Timestamped siblings a replace/uninstall/consolidate left behind. */
+  listBackups(id: string): Array<{ path: string; name: string; createdAt: string; fileCount: number }> {
+    const record = this.store.getInstallation(id);
+    if (!record) return [];
+    const parent = dirname(record.entryDir);
+    const baseName = basename(record.entryDir);
+    const prefix = `${baseName}.backup-`;
+    let names: string[] = [];
+    try {
+      names = readdirSync(parent, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+        .map((entry) => entry.name)
+        .filter((name) => name.startsWith(prefix) && isSkillBackupDirectory(name));
+    } catch {
+      return [];
+    }
+    return names
+      .sort((left, right) => right.localeCompare(left))
+      .flatMap((name) => {
+        const path = join(parent, name);
+        if (!existsNoFollow(path) || !inspectSkillEntry(path).ok) return [];
+        let createdAt = "";
+        let fileCount = 0;
+        try {
+          createdAt = statSync(path).mtime.toISOString();
+          fileCount = inspectSkillTree(path, { maxFiles: 600, maxTotalBytes: 24 * 1024 * 1024 }).fileCount;
+        } catch {
+          // A backup that cannot be read is not offered for restore.
+          return [];
+        }
+        return [{ path, name, createdAt, fileCount }];
+      });
+  }
+
+  restoreBackup(request: { id: string; backupPath: string }): {
+    ok: boolean;
+    status: "restored" | "blocked" | "failed";
+    message: string;
+    backupPath: string;
+  } {
+    const record = this.store.getInstallation(request.id);
+    if (!record) return { ok: false, status: "blocked", message: "Unknown Skill", backupPath: "" };
+    if (!record.managed) {
+      return { ok: false, status: "blocked", message: "This entry is not managed by Molibot.", backupPath: "" };
+    }
+    const baseName = basename(record.entryDir);
+    const backup = resolve(String(request.backupPath ?? ""));
+    const parent = safeRealPath(dirname(record.entryDir)) ?? dirname(record.entryDir);
+    const backupParent = safeRealPath(dirname(backup)) ?? dirname(backup);
+    const name = basename(backup);
+    if (parent !== backupParent || !name.startsWith(`${baseName}.backup-`) || !isSkillBackupDirectory(name)) {
+      return { ok: false, status: "blocked", message: "That path is not a backup of this Skill.", backupPath: "" };
+    }
+    if (!existsNoFollow(backup) || !inspectSkillEntry(backup).ok) {
+      return { ok: false, status: "blocked", message: "The backup is missing or unreadable.", backupPath: "" };
+    }
+    if (!this.isManagedLocation(safeRealPath(record.entryDir) ?? record.entryDir)) {
+      return { ok: false, status: "blocked", message: "The Skill is outside Molibot's roots.", backupPath: "" };
+    }
+    // Sibling of the entry, never a cwd-relative name: renameSync would
+    // otherwise move the Skill into whatever directory the service started in.
+    const displaced = join(dirname(record.entryDir), skillBackupName(baseName));
+    try {
+      if (existsNoFollow(record.entryDir)) renameSync(record.entryDir, displaced);
+      try {
+        renameSync(backup, record.entryDir);
+      } catch (cause) {
+        if (existsNoFollow(displaced) && !existsNoFollow(record.entryDir)) renameSync(displaced, record.entryDir);
+        throw cause;
+      }
+      const tree = inspectSkillTree(record.entryDir, { maxFiles: 600, maxTotalBytes: 24 * 1024 * 1024 });
+      const manifest = inspectSkillEntry(record.entryDir);
+      this.store.upsertInstallation({
+        ...record,
+        skillName: manifest.ok ? manifest.name : record.skillName,
+        method: this.isLinkEntry(record.entryDir) ? "link" : "copy",
+        baselineHash: tree.hash ?? record.baselineHash,
+        observedHash: tree.hash ?? record.observedHash,
+        fileCount: tree.fileCount,
+        updatedAt: this.iso()
+      });
+      return { ok: true, status: "restored", message: "Backup restored; the previous content is kept as a new backup.", backupPath: displaced };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return { ok: false, status: "failed", message, backupPath: "" };
+    }
+  }
+
+  createSkill(request: {
+    name: string;
+    description: string;
+    body: string;
+    scope: SkillScopeKind;
+    ownerId?: string;
+  }): { id: string; filePath: string } {
+    const name = String(request.name ?? "").trim();
+    if (!isValidSkillName(name)) throw new Error("Use a lowercase Skill name with letters, numbers, dots, dashes or underscores");
+    const description = String(request.description ?? "").trim();
+    if (!description) throw new Error("A description is required");
+    const ownerId = String(request.ownerId ?? "").trim();
+    const root = this.writeRoot(request.scope, ownerId);
+    const entryDir = join(root.root, name);
+    if (existsNoFollow(entryDir)) throw new Error("A Skill with this name already exists");
+    mkdirSync(entryDir, { recursive: true });
+    const filePath = join(entryDir, "SKILL.md");
+    const body = String(request.body ?? "").trim();
+    const content = body.startsWith("---")
+      ? body
+      : [
+          "---",
+          `name: ${JSON.stringify(name)}`,
+          `description: ${JSON.stringify(description)}`,
+          "---",
+          "",
+          body,
+          ""
+        ].join("\n");
+    const frontmatter = parseSkillFrontmatter(content);
+    if (!frontmatter?.name?.trim() || !frontmatter.description?.trim()) {
+      throw new Error("SKILL.md needs name and description frontmatter");
+    }
+    writeFileSync(filePath, content, "utf8");
+    const record = this.adopt({
+      entry: { filePath, entryDir, realDir: safeRealPath(entryDir) ?? entryDir, linked: false },
+      root
+    });
+    return { id: record.id, filePath };
+  }
+
+  /** Replace one installed Skill's SKILL.md after re-validating its frontmatter. */
+  saveSkillContent(request: { id: string; content: string }): { id: string; filePath: string } {
+    const record = this.store.getInstallation(request.id);
+    if (!record) throw new Error("Only installed Skills can be edited");
+    const content = String(request.content ?? "");
+    const frontmatter = parseSkillFrontmatter(content);
+    if (!frontmatter?.name?.trim() || !frontmatter.description?.trim()) {
+      throw new Error("SKILL.md needs name and description frontmatter");
+    }
+    const filePath = join(record.entryDir, "SKILL.md");
+    assertInsideRoot(record.entryDir, filePath);
+    writeFileSync(filePath, content, "utf8");
+    const tree = inspectSkillTree(record.entryDir, { maxFiles: 600, maxTotalBytes: 24 * 1024 * 1024 });
+    this.store.upsertInstallation({
+      ...record,
+      skillName: frontmatter.name.trim(),
+      baselineHash: tree.hash ?? record.baselineHash,
+      observedHash: tree.hash ?? record.observedHash,
+      fileCount: tree.fileCount,
+      updatedAt: this.iso()
+    });
+    return { id: record.id, filePath };
+  }
+
+  private writeRoot(scope: SkillScopeKind, ownerId: string): ManagedRoot {
+    if (scope === "global") {
+      return { root: this.options.globalSkillsDir, scope: "global", ownerId: "", ownerLabel: "" };
+    }
+    if (scope === "agent") {
+      if (!ownerId || !/^[a-zA-Z0-9._-]+$/.test(ownerId) || ownerId === "." || ownerId === "..") {
+        throw new Error("Choose an Agent workspace first");
+      }
+      return {
+        root: join(this.options.agentsDir, ownerId, "skills"),
+        scope: "agent",
+        ownerId,
+        ownerLabel: this.options.getAgentLabel?.(ownerId) ?? ownerId
+      };
+    }
+    const project = this.options.projects().find((candidate) => candidate.id === ownerId);
+    if (!project) throw new Error("Choose a project first");
+    return {
+      root: join(project.rootPath, ".agents", "skills"),
+      scope: "project",
+      ownerId,
+      ownerLabel: project.name
+    };
   }
 }

@@ -79,7 +79,7 @@ macOS 默认主题明暗参考值（采样自 AppKit sRGB 语义色；暗色详�
 
 各内置非 macOS 主题族配对变体：Rosé Pine（Dawn / Moon）、Catppuccin（Latte / Macchiato）、Midnight（Daybreak / Midnight）、Windows 98（Classic / Midnight）、Terminal（Paper / Phosphor）、Brutalism（Poster / Night）、Raft（Cream / Ink）、Blueprint（Vellum / Diazotype）、System 6（1-bit White / 1-bit Black，唯一允许使用 `#000000` 纯黑结构表面的例外）、Cyberpunk（Daylight / Midnight）、iOS、Office（White / Night）、WPS（Paper / Night）、WhatsApp、WeChat、Telegram、Android（Material Light / Dark）、Discord、QQ（Sky / Night）、Candy（Marshmallow / Dark Chocolate）、Cartoon（Daytime / Bedtime）、Facebook、Google、Feishu。
 
-- **消息气泡**：用户发送气泡使用 `--bubble-mine-bg` / `-border` / `-text`；助手回复默认为纯文本排版，聊天应用类主题通过 `--bubble-assistant-bg` / `-border` / `-padding` / `-radius` 开启气泡，而工具与思考卡始终位于 `.message-bubble` 之外保持无框。
+- **消息气泡**：用户发送气泡使用 `--bubble-mine-bg` / `-border` / `-text`；助手回复默认为纯文本排版，聊天应用类主题通过 `--bubble-assistant-bg` / `-border` / `-padding` / `-radius` 开启气泡，而工具与思考卡始终位于 `.message-bubble` 之外保持无框。回复内部保持全局文档式阅读节奏（`--md-*` 轴，见 DESIGN.md §3「文档排版轴」），与是否套气泡、当前主题族无关；语音附件统一使用共享 `AudioPlayer`。
 - **选中语义**：工作区卡片与列表选中项读取 `--selection-bg` / `--on-selection`（默认映射强调色对，Raft 映射为配对粉 `#fe7da8`；macOS 默认主题在聊天工作区内渲染为 `16%` 浅底加 `40%` 细边）；鲜明海报主题（Brutalism、Raft 等）将焦点强调色用于顶栏图标按钮与激活导航，并将侧栏与时间线画布分为相邻两阶高程。
 
 ### 3.4 导入主题 (Imported VSCode JSON Themes)

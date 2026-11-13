@@ -4,6 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Molibot Web UI</title>
+    <script>
+      // Set the Markdown skin before first paint, so a saved Notion preference
+      // never flashes the Feishu rhythm. Mirrors Desktop's storage key.
+      try {
+        document.documentElement.dataset.docStyle =
+          localStorage.getItem("molibot-desktop-doc-style") === "notion" ? "notion" : "feishu";
+      } catch (_) {}
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

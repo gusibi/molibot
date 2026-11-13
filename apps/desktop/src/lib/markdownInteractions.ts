@@ -32,14 +32,19 @@ async function copyCodeFromClick(event: MouseEvent, copy: MarkdownClickCopy): Pr
   if (!code) return;
   try {
     await navigator.clipboard.writeText(code);
-    button.textContent = copy.copied;
+    // The button holds an SVG icon, so feedback rides on an attribute (CSS
+    // swaps the icon for a tick) instead of textContent — writing text would
+    // destroy the icon and leave the toolbar empty after the first copy.
+    button.dataset.copied = "true";
+    button.setAttribute("aria-label", copy.copied);
     button.classList.remove("motion-success");
     // Restart the same lightweight success pulse when a block is copied twice.
     void button.offsetWidth;
     button.classList.add("motion-success");
     window.setTimeout(() => {
       if (!button.isConnected) return;
-      button.textContent = copy.copyCode;
+      delete button.dataset.copied;
+      button.setAttribute("aria-label", copy.copyCode);
       button.classList.remove("motion-success");
     }, 1200);
   } catch { /* clipboard unavailable */ }

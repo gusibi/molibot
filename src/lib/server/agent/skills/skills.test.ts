@@ -9,6 +9,7 @@ import {
   formatSkillsSummaryText,
   loadSkillsFromWorkspace,
   modelDiscoverableSkills,
+  parseSkillTriggerInfo,
   searchSkillsLocally,
   type LoadedSkill
 } from "$lib/server/agent/skills/skills.js";
@@ -360,5 +361,18 @@ test("a broken link is reported without hiding the other Skills", () => {
     assert.match(result.diagnostics.join("\n"), /Broken link skipped/);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("trigger info accepts every allowed-tools spelling", () => {
+  const variants = [
+    ["read write", ["read", "write"]],
+    ["read,write", ["read", "write"]],
+    ['["read", "write"]', ["read", "write"]],
+    ["'read' 'write'", ["read", "write"]]
+  ] as const;
+  for (const [raw, expected] of variants) {
+    const info = parseSkillTriggerInfo("---\nname: t\n---\n", { "allowed-tools": raw }, "t", "/tmp/t/SKILL.md");
+    assert.deepEqual(info.allowedTools, [...expected], raw);
   }
 });

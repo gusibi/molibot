@@ -1,3 +1,52 @@
+## 2026-11-13 — 技能维护死路与跨页试用后的空对话
+
+**备份清理被无关目录问题卡死**：维护扫描把「配置根其实是文件」也当成扫描不完整，并把任何警告全局写进删除预检，导致清理按钮永久禁用且没有出口。现在配置根不是目录（macOS alias / 普通文件）直接跳过——它藏不了技能，平台页仍把该根标为配置问题；只有真正读不到的目录或截断扫描才标记 `scanIncomplete`，同一路径只报一次。警告改为 `{ code, path, message }`，界面用本地化原因加路径呈现，原始英文只留作提示。删除备份在扫描不完整时不再一刀切禁用：确认框列出未读目录，提供「我已核对，仍要删除」重新预检，`acknowledgeScan` 绑定进请求与 token；整理、恢复和移除断链仍然硬阻塞。确认按钮改为动作名（清理此备份 / 恢复此备份 / 移除断链 / 执行整理），并删除标题下的说明标语。
+
+**技能「在对话中试用」后的禁用输入框**：冷启动恢复到技能页时没有选中 Agent；插入 `/skill` 后进入对话页，输入框因无可执行 Agent 而禁用，文字卡在框里。新增 `ensureChatAgent()`：插入前选择默认（或任一）可执行 Agent 的草稿，下一 tick 再插入；Mini App 的插入路径复用同一逻辑，没有可执行 Agent 时给出本地化提示。
+
+验证：`maintenance.test.ts` 新增文件根不告警、不可读目录只告警一次且确认后可删除、非法备份名不阻塞清理三项，18 项全过；真实数据扫描警告从 2 条降为 0 条；根 `pnpm check` 0 错误、`desktop:check` 0 错误 0 警告；`chat-ui.test.mjs` 增加维护确认与可执行 Agent 守卫，新增失败 0 项（既有 13 项与本轮无关）。未验证运行中桌面实例。
+
+## 2026-11-12 — 桌面导航排版与协作分区
+
+桌面导航调整为 36px 行高、4px 项间距和 12px 图文间距，统一 18px 图标列与正文档位。Agent、Agent Team 和项目归入「协作」分区；三项之间保留 4px 留白，原有配色、图标和展开行为保持不变。Agent 二级列表移除额外行间距，与项目二级列表复用相同的行高、内边距和图文间距。
+
+验证：桌面 `svelte-check` 0 错误、0 警告；8 项侧栏定向检查通过；WebKit 隔离实例验证导航对齐、860×620 窗口、折叠展开、服务重连与中文暗色显示。未验证原生桌面运行实例。扩大筛选范围时有两项无关的既有失败：字号下限检查和 Agent 导航源码断言。
+
+## 2026-11-12 — 技能页从文件清单变成能力使用面板
+
+技能目录此前只回答"文件在哪"：卡片有名称、描述和开关，但看不到技能是否真的被运行时加载、最近有没有用过、什么时候会被触发、缺哪个 MCP/CLI；详情页也没有启用开关。`skill_usage` trace fact 早已记录 triggered/loaded/executed 与 evidence，Trace 页也有技能排行，但技能页一个数字都没有。
+
+- **使用数据回流**：`SkillManager.getOverview()` 聚合近 30 天 `skill_usage` fact（按入口路径优先、名称兜底），条目与详情新增 `usage`（calls / triggered / loaded / executed / runs / lastAt / evidence）。数据源为 `SqliteTraceStore.listFactsByTypeSince("skill_usage", since)`，经 `getSkillManager()` 注入，测试可替换。
+- **三态与真实可用性**：新增 `availability`（`available` / `disabled` / `blocked` / `unavailable`）与原因 `loaded` / `disabled` / `duplicate_name` / `invalid` / `missing` / `broken` / `not_loaded` / `no_workspace` / `dependencies`。概览按 workspace 记忆化一次 Runtime 加载结果（不再每个技能各扫一遍），卡片直接显示状态与原因。
+- **触发条件语义化**：`parseSkillTriggerInfo()` 由加载器与管理器共用，详情展示 aliases、signals（CLI/MCP/tools）、预授权工具、`disable-model-invocation`；`allowed-tools` 修正为同时接受空格与逗号分隔（此前空格分隔会被当成一个工具名）。
+- **依赖诊断**：声明式 MCP 与 CLI 信号逐条给出就绪状态；MCP 对齐已配置服务器，CLI 用 PATH 可执行性检查（不启动登录 shell）。
+- **一键试用**：卡片与详情把首个别名插入当前会话输入框（`/alias `），复用现成显式调用链路；`InstalledSkillsPane` 经 `ChatWorkspacePane` 接入 `ChatView`。
+- **日常效率**：按名称/最近使用/健康度排序；搜索纳入别名与信号；详情页补启用开关；卡片多选后批量启用/停用（复用单条 toggle，保持 summary 真实）。
+- **可视化创建与编辑**：新增「新建技能」表单（名称、描述、作用域、Agent/项目目标、Markdown 正文），服务端按作用域写进 Molibot 根并立即登记安装收据；详情内可直接编辑 SKILL.md，保存前校验 name/description frontmatter，非法内容不落盘。
+- **历史备份与恢复**：详情列出该技能同级的 `*.backup-*`，可一键恢复；恢复时先把当前内容改名成新的时间戳备份，再换入旧版本，绝不直接丢弃。
+- **更新 Diff 预览与批量更新**：Git 安装的技能在检查到更新后可查看上游 `commit..HEAD` 的文件清单与 unified diff（超长截断），再决定是否更新；高级维护视图可一次检查全部 Git 技能并批量执行，逐个复用预检→替换安装（保留备份），单个失败不中断其余项。
+- **界面收敛**：页面只保留标题、三个带计数的分段和内容；删除顶部说明、设备条、筛选提示、平台摘要与「路径已核对」文字徽标。高级维护收敛为居中的单列文档流（平台规则 / 批量更新 / 最近操作 / 诊断），平台按需展开；根目录以服务端主目录为基准显示 `~` 相对路径，计数紧随路径，缺失目录直接标注「目录不存在」，新增平台入口归入区块标题。区块用发丝线分隔，操作行改为紧凑列表，不再用满宽卡片堆叠。新建与编辑技能共用单一表单：标题和提交按钮固定、正文滚动，新建从空内容开始，非法名称与同作用域重名在本地用当前语言提示。卡片只在异常时显示状态，正常卡片保持安静；Registry/远程目录仍属 Out of Scope。
+- **操作时间线**：概览新增最近 20 条 `operations`，高级维护视图展示类型、目标、状态与时间。
+- **信息层级**：桌面三视图更名为「我的能力 / 发现与安装 / 高级维护」；平台根、诊断与操作记录留在高级层。
+- **发现分组**：`~/.agents/skills` 是跨工具共享树，发现视图固定归为「全局」，不再因为 OpenCode / OpenClaw 也读它而落到某个厂商；卡片仍用 `sharedWith` 列出实际读取它的工具。
+- **Web 技能页对齐**：`/settings/skills` 不再硬编码 `global/chat/bot`，改为按服务端实际作用域渲染全局与 Agent（此前 Agent 技能整类不显示、会话/Bot 分区恒空、Bot 计数恒 0）。开关改为单条 `toggleSkillPath` 增量写入，不再整份 `disabledSkillPaths` PUT；成功提示 4 秒自动消失；「重置」正名为「重新加载」；错误改本地化文案。
+- **技能草稿页**：补齐缺失的 `loadedMsg`（此前每次加载抛 TypeError）；删除改两步确认；全局提升不再强制要求 `chatId`（仅 chat 作用域且非 Agent 工作区时需要）。
+- **技能检索配置**：桌面设置新增 Base URL、请求路径与 API Key 字段；密钥只回传「是否已设置」，留空保存不会清空已存密钥。
+
+验证：`manager.test.ts` 新增能力投影、创建/保存、备份恢复、Git 更新预览用例（42 项全过），`skills.test.ts`、`searchSettings.test.ts`、`traceRecorderHook.test.ts`、`desktopTrace.test.ts` 一并通过；根 `pnpm check` 0 错误、`desktop:check` 0 错误 0 警告；`chat-ui.test.mjs` 新增能力视图/创建编辑/备份/更新预览守卫通过（失败集合为 12 项与本轮无关的既有漂移）。未交付：周期更新检查（规格要求经 watched event JSON 与 Runtime 事件系统落地，含缓存与频率限制）、Registry/商业技能市场（规格明确 Out of Scope）；未执行：完整 Playwright 技能套件、`pnpm verify:feature`、原生 Tauri 验收与运行中桌面实例走查。
+
+## 2026-11-12 — AI 回复文档排版与飞书 / Notion 样式切换
+
+**排版对齐飞书文档节奏**：Desktop 与 Web 的 Markdown 渲染统一到成对的 `--md-*` 排版 token（正文 15/25、标题阶梯、表格/代码 14/22、图注 12/18；初版 16/27 经反馈整体降一档），标准图片带 title 时渲染为 `<figure>/<figcaption>` 题注，图文混排段落输出 inline `<img>`（只有纯图片段落成块），不再被浏览器 foster-parenting 拆成三块；`RENDER_SCHEMA_VERSION` 升到 3，完整渲染缓存与流式 sealed block 缓存同步失效。代码块操作按钮图标化，复制成功态走 `data-copied`。
+
+**样式轴与主题族正交**：`data-doc-style="feishu|notion"` 只调 Markdown 阅读节奏（Notion：标题 600、h1 无下划线、链接下划线、行内代码红字、表格无外框、块间距收紧），主题族继续管颜色与表面；两套皮肤共用同一份 HTML、缓存与流式骨架，渲染器与消毒器不感知皮肤。桌面在外观设置新增「AI 回复样式」分段控件并跨窗口 storage 同步；Web 由 `src/app.html` 首屏前内联属性（无刷新闪烁）并监听 storage 同步。输入仍只有标准 Markdown，不解析飞书 XML 方言。
+
+**Web 渲染与消毒**：新建 `src/styles/markdown.css` 作为唯一全局排版样式（`app.css` 引入，删除页面级副本）；`src/lib/ui/markdown.ts` 消毒改为无 DOM 依赖的纯字符串白名单重建，SSR/CSR 字节一致。已知边界：Web 端标准 Markdown 图片暂无可见图注（sanitizer 剥离 title，待与桌面行为统一）；「复制为 Markdown 格式」未做——现有「复制消息」复制的就是纯 Markdown。
+
+**共享音频播放器**：新增 `AudioPlayer`（Desktop）与 `audio-player`（Web）组件，替换桌面 6 处与 Web 3 处原生 `<audio controls>`：真实解码波形（不可解码时降级为平线，绝不伪造）、倍速、拖动与统一主题化。音频字节经 `fetchDesktopAudioBytes` 共享 transport 加载——`blob:`/`data:` 走 webview、其余走 Tauri HTTP plugin（pitfall #74），并手动读流拼接防 1MB+ 响应截断；修复打包后波形静默失效为平线的问题。换源时取消在途解码，陈旧 blob 不会画到别的文件上。
+
+验证：Web `markdown.test.ts` 14/14（XSS、SSR 一致性、双端 token 镜像守卫），Desktop markdown 定向 49/49（含流式缓存与 markdownImages）；根 `pnpm check` 0 错误、`desktop:check` 0 错误 0 警告；`api-transport-guard` 修复后 2/2；`chat-ui` 守卫失败集合 12 项均为 HEAD 既有漂移（本轮同步修复其分区头 36px 断言漂移）。验收样张 `tests/fixtures/markdown-showcase.md` 覆盖标题/表格/代码/图文混排/KaTeX/Mermaid；`markdown-showcase.spec.ts`（双皮肤 × 明暗截图与断言）与 `doc-style-switch.spec.ts`（真实设置页切换、持久化、reload）已随交付会话执行。未验证：运行中桌面实例冷启动走查与完整 Playwright 套件。
+
 ## 2026-11-11 — 运行状态固定到输入卡片（估算 token / tok/s）
 
 长回合的运行状态此前挂在流式消息栈末尾：排队跟进消息、附件条一旦出现，就把这一行顶出视野或推到输入区下方，用户仍要「翻」才能确认是否还在跑。现改为输入卡片顶部的固定运行状态行——整行属于底部锚定的 composer，正文增长、排队消息、待发送附件和错误横幅都不会改变它的位置。行内显示阶段指示（吐字时光标、工具/等待时波形）+ 阶段文案 + 已用时间 + 本轮累计估算 token（`↓ N tok`）+ 滑动窗口估算速率（`≈ N tok/s`）；无运行活动且静默约 5 秒切「等待模型输出…」，其后每 6 秒与「仍在运行 · 没有卡住」交替。

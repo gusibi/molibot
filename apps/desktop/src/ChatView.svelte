@@ -3,6 +3,7 @@
   import PiExtensionTerminalPanel from "./lib/components/PiExtensionTerminalPanel.svelte";
   import Tuning3 from "./lib/icons/duotone/components/Tuning3.svelte";
   import Button from "./lib/components/ui/Button.svelte";
+  import AudioPlayer from "./lib/components/AudioPlayer.svelte";
   import AgentCityStartup from "./lib/chat/AgentCityStartup.svelte";
   import { isActiveDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
@@ -3184,8 +3185,24 @@
     });
   }
 
-  $: applyMiniAppComposerInsertion($miniAppComposerInsertion);
-  function applyMiniAppComposerInsertion(request: import("./lib/projects/composerBridge").MiniAppComposerInsertion | null): void {
+  /**
+   * The chat pane executes through an Agent. Entering it from Skills or a Mini
+   * App after a cold start used to leave `selectedAgentId` empty, so inserted
+   * text sat in a disabled composer with no way to type. Pick a runnable Agent
+   * (the default when possible) before handing text to the composer.
+   */
+  async function ensureChatAgent(): Promise<boolean> {
+    if (selectedAgent?.canExecute) return true;
+    const fallback = onboardingAgents.find((agent) => agent.id === defaultAgentId && agent.canExecute)
+      ?? onboardingAgents.find((agent) => agent.canExecute);
+    if (!fallback) return false;
+    openAgentChat(fallback.id);
+    await tick();
+    return true;
+  }
+
+  $: void applyMiniAppComposerInsertion($miniAppComposerInsertion);
+  async function applyMiniAppComposerInsertion(request: import("./lib/projects/composerBridge").MiniAppComposerInsertion | null): Promise<void> {
     if (!request || request.scope !== "session" || request.id === appliedMiniAppInsertionId) return;
     appliedMiniAppInsertionId = request.id;
     if (viewMode === "external") {
@@ -3196,9 +3213,38 @@
       showMiniAppFeedback(copy.miniAppComposerEditing);
       return;
     }
+    if (!(await ensureChatAgent())) {
+      showMiniAppFeedback(copy.chatAgentUnavailable);
+      return;
+    }
     workspacePane = "chat";
     messageInput = insertComposerText(messageInput, request.text, request.mode);
     showMiniAppFeedback(copy.miniAppComposerInserted);
+    focusComposerAtEnd();
+  }
+
+  /**
+   * Turn a Skill card into a real invocation. The card already knows the
+   * selectors the Runtime accepts, so the pane hands over the first alias and
+   * the composer receives `/alias ` exactly as if the owner had typed it.
+   */
+  async function trySkillInChat(skill: { id: string; name: string; aliases: string[] }): Promise<void> {
+    if (viewMode === "external") {
+      showMiniAppFeedback(copy.miniAppComposerReadOnly);
+      return;
+    }
+    if (editingMessageId) {
+      showMiniAppFeedback(copy.miniAppComposerEditing);
+      return;
+    }
+    if (!(await ensureChatAgent())) {
+      showMiniAppFeedback(copy.chatAgentUnavailable);
+      return;
+    }
+    const selector = skill.aliases[0] ?? skill.name;
+    workspacePane = "chat";
+    messageInput = insertComposerText(messageInput, `/${selector} `, "append");
+    showMiniAppFeedback(copy.skillTryInserted);
     focusComposerAtEnd();
   }
 
@@ -4424,6 +4470,7 @@
         onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
         onOpenMiniApp={openMiniAppInspector}
         onOpenMiniAppAiSettings={() => openSettings("models")}
+        onTrySkill={trySkillInChat}
         formatTime={formatListTime}
         targetSessionId={projectPaneActive ? activeProjectSessionId : activeSessionId}
         targetPlanId={requestedPlanId}
@@ -5141,7 +5188,7 @@
           <!-- svelte-ignore a11y_media_has_caption -->
           <video src={previewUrl} controls></video>
         {:else if previewFile.mediaType === "audio"}
-          <audio src={previewUrl} controls></audio>
+          <AudioPlayer src={previewUrl} title={previewFile.original} labels={copy} />
         {/if}
       </div>
     </div>

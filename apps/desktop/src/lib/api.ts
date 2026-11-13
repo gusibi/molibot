@@ -3248,6 +3248,23 @@ export async function fetchDesktopFileBlob(
 }
 
 /**
+ * Loads an audio source's bytes so the shared player can decode a real waveform.
+ * `blob:` / `data:` URLs exist only inside the WebView, where the Tauri HTTP
+ * plugin cannot reach them; every other source is a service URL and must use the
+ * desktop transport (pitfall 74). Resolves null on any failure so the player
+ * falls back to its flat progress line.
+ */
+export async function fetchDesktopAudioBytes(url: string): Promise<ArrayBuffer | null> {
+  try {
+    const response = /^(?:blob|data):/i.test(url) ? await fetch(url) : await fetchFromDesktop(url);
+    if (!response.ok) return null;
+    return await (await responseToBlob(response)).arrayBuffer();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetches a Project file's raw bytes as a Blob for the Artifact Panel's download
  * action. Goes through the Tauri HTTP transport (not `fetch`) so the WebView CSP
  * `connect-src` does not need to name the runtime service port.

@@ -41,6 +41,11 @@
   import {
     checkManagedSkillUpdate,
     consolidateManagedSkill,
+    createManagedSkill,
+    listManagedSkillBackups,
+    previewManagedSkillUpdate,
+    restoreManagedSkillBackup,
+    saveManagedSkillContent,
     distributeManagedSkill,
     installManagedSkill,
     loadConsolidateCheck,
@@ -57,6 +62,7 @@
   } from "../stores/skills.svelte";
   import type {
     DesktopDiscoveredSkill,
+    DesktopSkillBackup,
     DesktopSkillCheckUpdateResult,
     DesktopSkillConsolidatePreflight,
     DesktopSkillConsolidateResult,
@@ -64,18 +70,22 @@
     DesktopSkillFileEntry,
     DesktopSkillInstallMethod,
     DesktopSkillLocation,
+    DesktopSkillOperationView,
     DesktopSkillManagerDetail,
     DesktopSkillManagerEntry,
     DesktopSkillManagerScope,
     DesktopSkillPlatform,
     DesktopSkillPreflightResult,
-    DesktopSkillSourceKind
+    DesktopSkillSourceKind,
+    DesktopSkillUpdatePreview
   } from "@molibot/desktop-contract";
 
-  let { copy, serviceEndpoint, serviceReady }: {
+  let { copy, serviceEndpoint, serviceReady, onTrySkill }: {
     copy: Translation;
     serviceEndpoint: string | null;
     serviceReady: boolean;
+    /** Hosts the composer, so the pane can offer a real invocation instead of a copy hint. */
+    onTrySkill?: (skill: { id: string; name: string; aliases: string[] }) => void;
   } = $props();
 
   type ManagerView = "installed" | "discovered" | "platforms";
@@ -83,6 +93,34 @@
   let loadedEndpoint = $state("");
   let query = $state("");
   let view = $state<ManagerView>("installed");
+  let sortMode = $state<"name" | "usage" | "health">("name");
+  let selectionMode = $state(false);
+  let selectedIds = $state<string[]>([]);
+  let batchBusy = $state(false);
+  let batchNotice = $state("");
+
+  // ── Create / edit ───────────────────────────────────────────────────────
+  let createOpen = $state(false);
+  let createName = $state("");
+  let createDescription = $state("");
+  let createBody = $state("");
+  /** Localised up-front check; the server error stays a fallback, not the primary copy. */
+  const SKILL_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  let createScope = $state<DesktopSkillManagerScope>("global");
+  let createOwnerId = $state("");
+  let createError = $state("");
+  let creating = $state(false);
+  let editOpen = $state(false);
+  let editContent = $state("");
+  let editError = $state("");
+  let editSaving = $state(false);
+  let backups = $state<DesktopSkillBackup[]>([]);
+  let backupBusy = $state("");
+  let backupNotice = $state("");
+  let updateScan = $state<Array<{ id: string; name: string; result: DesktopSkillCheckUpdateResult }>>([]);
+  let scanningUpdates = $state(false);
+  let updatingAll = $state(false);
+  let batchUpdateNotice = $state("");
   /**
    * The source facet is the ownership-first split the catalogue needs: a
    * concrete Molibot root (global, an Agent workspace, a Molibot project) or an
@@ -110,7 +148,6 @@
   let fileSeq = 0;
 
   let copiedPath = $state(false);
-  let diagnosticsOpen = $state(false);
 
   // ── Install sheet ────────────────────────────────────────────────────────
   let installOpen = $state(false);
@@ -154,6 +191,9 @@
   // ── Git update check ─────────────────────────────────────────────────────
   let updateCheck = $state<DesktopSkillCheckUpdateResult | null>(null);
   let updateCheckId = $state("");
+  let updatePreview = $state<DesktopSkillUpdatePreview | null>(null);
+  let updatePreviewId = $state("");
+  let updatePreviewError = $state("");
 
   // ── Distribute sheet ─────────────────────────────────────────────────────
   let distributeOpen = $state(false);
@@ -175,6 +215,9 @@
   let platformEdits = $state<Record<string, Partial<PlatformDraft>>>({});
   let removedPlatforms = $state<string[]>([]);
   let editingRoots = $state<string[]>([]);
+  // Platform folders are configuration, not the default reading surface: each
+  // platform opens on demand.
+  let expandedPlatforms = $state<string[]>([]);
   let platformSaved = $state(false);
   let customOpen = $state(false);
   let customLabel = $state("");
@@ -220,19 +263,58 @@
   }
 
   function discoveredSourceLabel(key: string, skill?: DesktopDiscoveredSkill): string {
+    if (key === "platform:agents") return copy.skillScopeGlobal;
     return skill?.platformLabel ?? key.replace("platform:", "");
   }
 
-  const filteredSkills = $derived(
-    installedSkills.filter((skill) => {
+  /** The shared `~/.agents/skills` tree is the owner's global pile, not a vendor. */
+  function discoveredPlatformName(skill: DesktopDiscoveredSkill): string {
+    return skill.platformId === "agents" ? copy.skillScopeGlobal : skill.platformLabel;
+  }
+
+  function externalPlatformName(label: string): string {
+    return label === "Global" ? copy.skillScopeGlobal : label;
+  }
+
+  const filteredSkills = $derived.by(() => {
+    const list = installedSkills.filter((skill) => {
       if (sourceFilter !== "all" && installedSourceKey(skill) !== sourceFilter) return false;
       if (!normalizedQuery) return true;
-      return [skill.name, skill.description, skill.scope, skill.ownerLabel, skill.method, skill.source?.label ?? "", skill.readBy.join(" ")]
+      return [
+        skill.name,
+        skill.description,
+        skill.scope,
+        skill.ownerLabel,
+        skill.method,
+        skill.source?.label ?? "",
+        skill.readBy.join(" "),
+        skill.aliases.join(" "),
+        [...skill.signals.cli, ...skill.signals.mcp, ...skill.signals.tools].join(" ")
+      ]
         .join("\n")
         .toLowerCase()
         .includes(normalizedQuery);
-    })
-  );
+    });
+    const healthRank = (skill: DesktopSkillManagerEntry): number => {
+      if (skill.availability.state === "available") return 0;
+      if (skill.availability.state === "blocked") return 1;
+      if (skill.availability.state === "disabled") return 2;
+      return 3;
+    };
+    return list.sort((left, right) => {
+      if (sortMode === "usage") {
+        const last = (right.usage?.lastAt ?? "").localeCompare(left.usage?.lastAt ?? "");
+        if (last !== 0) return last;
+        const calls = (right.usage?.calls ?? 0) - (left.usage?.calls ?? 0);
+        if (calls !== 0) return calls;
+      }
+      if (sortMode === "health") {
+        const rank = healthRank(left) - healthRank(right);
+        if (rank !== 0) return rank;
+      }
+      return left.name.localeCompare(right.name);
+    });
+  });
   const filteredDiscovered = $derived(
     discoveredSkills.filter((skill) => {
       if (sourceFilter !== "all" && discoveredSourceKey(skill) !== sourceFilter) return false;
@@ -241,7 +323,7 @@
       if (statusFilter === "link" && !skill.linked) return false;
       if (statusFilter === "copy" && skill.linked) return false;
       if (!normalizedQuery) return true;
-      return [skill.name, skill.description, skill.platformLabel, skill.sharedWith.join(" "), skill.platformId]
+      return [skill.name, skill.description, skill.platformLabel, discoveredPlatformName(skill), skill.sharedWith.join(" "), skill.platformId]
         .join("\n")
         .toLowerCase()
         .includes(normalizedQuery);
@@ -475,6 +557,191 @@
     return "";
   }
 
+  function availabilityLabel(view: DesktopSkillManagerEntry["availability"]): string {
+    if (view.state === "available") return copy.skillAvailabilityAvailable;
+    if (view.state === "disabled") return copy.skillAvailabilityDisabled;
+    if (view.state === "blocked") return copy.skillAvailabilityBlocked;
+    return copy.skillAvailabilityUnavailable;
+  }
+
+  function availabilityReason(reason: DesktopSkillManagerEntry["availability"]["reason"]): string {
+    if (reason === "duplicate_name") return copy.skillAvailabilityReasonDuplicate;
+    if (reason === "invalid") return copy.skillAvailabilityReasonInvalid;
+    if (reason === "missing") return copy.skillAvailabilityReasonMissing;
+    if (reason === "broken") return copy.skillAvailabilityReasonBroken;
+    if (reason === "no_workspace") return copy.skillAvailabilityReasonNoWorkspace;
+    if (reason === "dependencies") return copy.skillAvailabilityReasonDependencies;
+    if (reason === "not_loaded") return copy.skillAvailabilityReasonNotLoaded;
+    return "";
+  }
+
+  /** Operations are scanned from the left; the last segment is the useful name. */
+  function operationTarget(path: string): string {
+    const trimmed = String(path ?? "").replace(/[\\/]+$/, "");
+    return trimmed.split(/[\\/]/).pop() || trimmed;
+  }
+
+  function operationKindLabel(kind: DesktopSkillOperationView["kind"]): string {
+    if (kind === "install") return copy.skillOperationInstall;
+    if (kind === "replace") return copy.skillOperationReplace;
+    if (kind === "distribute") return copy.skillOperationDistribute;
+    if (kind === "uninstall") return copy.skillOperationUninstall;
+    if (kind === "restore") return copy.skillOperationRestore;
+    if (kind === "toggle") return copy.skillOperationToggle;
+    if (kind === "platform") return copy.skillOperationPlatform;
+    if (kind === "consolidate") return copy.skillOperationConsolidate;
+    return copy.skillOperationMaintenance;
+  }
+
+  function operationStatusLabel(status: DesktopSkillOperationView["status"]): string {
+    if (status === "pending") return copy.skillOperationPending;
+    if (status === "failed") return copy.skillOperationFailed;
+    if (status === "recovered") return copy.skillOperationRecovered;
+    return copy.skillOperationCommitted;
+  }
+
+  function usageLabel(usage: DesktopSkillManagerEntry["usage"]): string {
+    if (!usage || usage.calls === 0) return copy.skillUsageNever;
+    return copy.skillUsageSummary
+      .replace("{executed}", String(usage.executed))
+      .replace("{triggered}", String(usage.triggered));
+  }
+
+  function usageShortLabel(usage: DesktopSkillManagerEntry["usage"]): string {
+    if (!usage || usage.calls === 0) return copy.skillUsageShortNever;
+    return copy.skillUsageShort.replace("{count}", String(usage.executed || usage.calls));
+  }
+
+  function lastUsedLabel(usage: DesktopSkillManagerEntry["usage"]): string {
+    return usage?.lastAt ? copy.skillUsageLast.replace("{time}", formatModified(usage.lastAt)) : "";
+  }
+
+  function trySkill(skill: { id: string; name: string; aliases: string[] }): void {
+    onTrySkill?.({ id: skill.id, name: skill.name, aliases: skill.aliases });
+  }
+
+  function toggleSelectionMode(): void {
+    selectionMode = !selectionMode;
+    selectedIds = [];
+    batchNotice = "";
+  }
+
+  function toggleSelected(id: string): void {
+    selectedIds = selectedIds.includes(id)
+      ? selectedIds.filter((candidate) => candidate !== id)
+      : [...selectedIds, id];
+  }
+
+  /**
+   * Batch state changes reuse the single-entry action so every toggle still
+   * goes through the manager's own write path and the summary stays truthful.
+   */
+  async function applyBatch(enabled: boolean): Promise<void> {
+    if (batchBusy || selectedIds.length === 0) return;
+    batchBusy = true;
+    batchNotice = copy.skillBatchWorking;
+    const ids = selectedIds;
+    try {
+      for (const id of ids) await toggleManagedSkill(id, enabled);
+      batchNotice = copy.skillBatchDone.replace("{count}", String(ids.length));
+      selectedIds = [];
+    } catch {
+      batchNotice = copy.skillBatchFailed;
+    } finally {
+      batchBusy = false;
+    }
+  }
+
+  const projectTargets = $derived((summary?.targets ?? []).filter((target) => target.kind === "project" && target.writable));
+
+  function defaultOwnerFor(scope: DesktopSkillManagerScope): string {
+    if (scope === "agent") return summary?.agents[0]?.id ?? "";
+    if (scope === "project") return projectTargets[0]?.id ?? "";
+    return "";
+  }
+
+  function openCreate(): void {
+    createOpen = true;
+    createName = "";
+    createDescription = "";
+    createBody = "";
+    createScope = "global";
+    createOwnerId = "";
+    createError = "";
+  }
+
+  function changeCreateScope(scope: DesktopSkillManagerScope): void {
+    createScope = scope;
+    createOwnerId = defaultOwnerFor(scope);
+  }
+
+  async function confirmCreate(): Promise<void> {
+    if (creating) return;
+    if (!SKILL_SLUG.test(createName.trim())) {
+      createError = copy.skillCreateNameInvalid;
+      return;
+    }
+    const duplicate = installedSkills.some((skill) =>
+      skill.name === createName.trim()
+      && skill.scope === createScope
+      && (createScope === "global" || skill.ownerId === createOwnerId)
+    );
+    if (duplicate) {
+      createError = copy.skillCreateNameExists;
+      return;
+    }
+    creating = true;
+    createError = "";
+    try {
+      const created = await createManagedSkill({
+        name: createName,
+        description: createDescription,
+        body: createBody,
+        scope: createScope,
+        ownerId: createOwnerId
+      });
+      createOpen = false;
+      if (serviceEndpoint) await loadSkillManager(serviceEndpoint);
+      openSkill(created.id);
+    } catch (cause) {
+      createError = copy.skillCreateFailed;
+      console.error(cause);
+    } finally {
+      creating = false;
+    }
+  }
+
+  async function openEdit(): Promise<void> {
+    if (!detail || detail.kind !== "installed") return;
+    editOpen = true;
+    editError = "";
+    if (filePreview?.path.toLowerCase().endsWith("skill.md")) {
+      editContent = filePreview.content;
+      return;
+    }
+    editContent = "";
+    await loadPreview("SKILL.md");
+    if (filePreview) editContent = filePreview.content;
+  }
+
+  async function confirmEdit(): Promise<void> {
+    const current = detail;
+    if (!current || current.kind !== "installed" || editSaving) return;
+    editSaving = true;
+    editError = "";
+    try {
+      await saveManagedSkillContent({ id: current.id, content: editContent });
+      editOpen = false;
+      await loadDetail(current.id);
+      if (selectedFile) await loadPreview(selectedFile);
+    } catch (cause) {
+      editError = copy.skillEditFailed;
+      console.error(cause);
+    } finally {
+      editSaving = false;
+    }
+  }
+
   function isMarkdown(path: string): boolean {
     const lower = path.toLowerCase();
     return lower.endsWith(".md") || lower.endsWith(".markdown");
@@ -540,6 +807,12 @@
     fileBinary = false;
     detailLoading = false;
     fileLoading = false;
+    backups = [];
+    backupBusy = "";
+    backupNotice = "";
+    updatePreview = null;
+    updatePreviewId = "";
+    updatePreviewError = "";
   }
 
   function switchView(next: ManagerView): void {
@@ -562,11 +835,17 @@
       detail = next;
       updateCheck = null;
       updateCheckId = "";
+      updatePreview = null;
+      updatePreviewId = "";
+      updatePreviewError = "";
       expandedDirs = [];
       const skillFile = next.files.find((entry) => entry.kind === "file" && entry.path.toLowerCase() === "skill.md")
         ?? next.files.find((entry) => entry.kind === "file");
       selectedFile = skillFile?.path ?? "";
+      backups = [];
+      backupNotice = "";
       if (selectedFile) void loadPreview(selectedFile);
+      void loadBackups(next.id);
     } catch (cause) {
       if (seq === detailSeq) {
         detail = null;
@@ -574,6 +853,29 @@
       }
     } finally {
       if (seq === detailSeq) detailLoading = false;
+    }
+  }
+
+  async function loadBackups(id: string): Promise<void> {
+    backups = await listManagedSkillBackups(id);
+    if (!backups.length) backupNotice = "";
+  }
+
+  async function restoreBackup(path: string): Promise<void> {
+    const current = detail;
+    if (!current || current.kind !== "installed" || backupBusy) return;
+    backupBusy = path;
+    backupNotice = "";
+    try {
+      const result = await restoreManagedSkillBackup({ id: current.id, backupPath: path });
+      backupNotice = result.ok ? copy.skillBackupRestored : copy.skillBackupRestoreFailed;
+      if (result.ok) {
+        await loadDetail(current.id);
+      }
+    } catch {
+      backupNotice = copy.skillBackupRestoreFailed;
+    } finally {
+      backupBusy = "";
     }
   }
 
@@ -892,6 +1194,81 @@
     }
   }
 
+  const updatableScan = $derived(updateScan.filter((item) => item.result.ok && item.result.hasUpdate));
+
+  async function scanAllUpdates(): Promise<void> {
+    if (scanningUpdates || updatingAll) return;
+    scanningUpdates = true;
+    batchUpdateNotice = "";
+    try {
+      const candidates = installedSkills.filter((skill) => skill.source?.kind === "git" && skill.method !== "link");
+      const results: Array<{ id: string; name: string; result: DesktopSkillCheckUpdateResult }> = [];
+      for (const skill of candidates) {
+        try {
+          results.push({ id: skill.id, name: skill.name, result: await checkManagedSkillUpdate(skill.id) });
+        } catch {
+          // One broken source must not abort the scan for the others.
+        }
+      }
+      updateScan = results;
+    } finally {
+      scanningUpdates = false;
+    }
+  }
+
+  async function updateAllScanned(): Promise<void> {
+    if (updatingAll || scanningUpdates) return;
+    updatingAll = true;
+    batchUpdateNotice = "";
+    let done = 0;
+    let failed = 0;
+    try {
+      for (const item of updatableScan) {
+        const skill = installedSkills.find((candidate) => candidate.id === item.id);
+        if (!skill) continue;
+        const request = {
+          source: {
+            kind: "git" as const,
+            repository: item.result.repository,
+            subdirectory: item.result.subdirectory
+          },
+          method: skill.method === "link" ? "link" as const : "copy" as const,
+          scope: skill.scope,
+          ownerId: skill.ownerId
+        };
+        try {
+          const preflight = await loadPreflight(request);
+          await installManagedSkill({ ...request, token: preflight.token, replace: true });
+          done += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      batchUpdateNotice = copy.skillBatchUpdateDone
+        .replace("{done}", String(done))
+        .replace("{failed}", String(failed));
+      updateScan = [];
+    } finally {
+      updatingAll = false;
+    }
+    if (serviceEndpoint) await loadSkillManager(serviceEndpoint);
+  }
+
+  async function runUpdatePreview(): Promise<void> {
+    if (!detail || detail.kind !== "installed") return;
+    const id = detail.id;
+    updatePreviewId = id;
+    updatePreviewError = "";
+    try {
+      updatePreview = await previewManagedSkillUpdate(id);
+    } catch (cause) {
+      updatePreview = null;
+      updatePreviewError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (updatePreviewId === id) updatePreviewId = "";
+    }
+  }
+
   /** Reinstall from the same Git source at HEAD; the replace flow keeps a backup. */
   function startGitUpdate(): void {
     if (!detail?.source) return;
@@ -977,6 +1354,25 @@
     return { ...base, ...platformEdits[platform.id] };
   }
 
+  /** Opening the field is the whole point of the click, so it takes focus. */
+  function focusField(node: HTMLTextAreaElement): void {
+    node.focus();
+  }
+
+  function togglePlatformExpanded(id: string): void {
+    expandedPlatforms = expandedPlatforms.includes(id)
+      ? expandedPlatforms.filter((item) => item !== id)
+      : [...expandedPlatforms, id];
+  }
+
+  /** Every row is on the same machine, so the home prefix costs a line of noise. */
+  function homeRelativePath(path: string): string {
+    const home = (summary?.device.homeDir ?? "").replace(/\/+$/, "");
+    if (!home) return path;
+    if (path === home) return "~";
+    return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+  }
+
   function setDraft(platform: DesktopSkillPlatform, patch: Partial<PlatformDraft>): void {
     platformEdits = { ...platformEdits, [platform.id]: { ...draftFor(platform), ...patch } };
     platformSaved = false;
@@ -1010,6 +1406,7 @@
       platformSaved = true;
       platformEdits = {};
       removedPlatforms = [];
+      editingRoots = [];
       setTimeout(() => (platformSaved = false), 4000);
     }
   }
@@ -1030,6 +1427,7 @@
       customLabel = "";
       customRoots = "";
       customError = "";
+      expandedPlatforms = [...expandedPlatforms, id];
     }
   }
 
@@ -1043,6 +1441,17 @@
   <div class="workspace-header-tools">
     <SkillMaintenance {copy} endpoint={serviceEndpoint ?? ""} />
     <WorkspaceSearch value={query} label={copy.skillsFilter} placeholder={copy.skillsFilterHint} closeLabel={copy.closeSearch} onInput={(value) => (query = value)} />
+    <Button variant="icon" title={copy.skillManagerDeviceRefresh} ariaLabel={copy.skillManagerDeviceRefresh} onclick={() => serviceEndpoint && void loadSkillManager(serviceEndpoint)}>
+      <ArrowsRotate size={17} aria-hidden="true" />
+    </Button>
+    {#if view === "installed"}
+      <Button variant="icon" title={selectionMode ? copy.skillBatchExit : copy.skillBatchSelect} ariaLabel={selectionMode ? copy.skillBatchExit : copy.skillBatchSelect} onclick={toggleSelectionMode}>
+        <Check size={17} aria-hidden="true" />
+      </Button>
+    {/if}
+    <Button variant="icon" title={copy.skillCreateCta} ariaLabel={copy.skillCreateCta} onclick={openCreate}>
+      <FileText size={17} aria-hidden="true" />
+    </Button>
     <Button variant="icon" title={copy.skillInstallCta} onclick={() => openInstallFor()}>
       <AddSquare size={17} aria-hidden="true" />
     </Button>
@@ -1050,44 +1459,6 @@
 {/snippet}
 <ChatHeader title={copy.skillsSquare} actions={headerActions} />
 <div class="skills-shell">
-  <p class="workspace-description" title={copy.skillsSquareHint}>{copy.skillManagerDescription}</p>
-
-  {#if summary}
-    <div class="skills-device" aria-label={copy.skillManagerDeviceServer}>
-      <span class="skills-device-dot" data-health={summary.counts.anomalies > 0 ? "warn" : "ok"} aria-hidden="true"></span>
-      <div class="skills-device-copy">
-        <strong>{summary.device.label}</strong>
-        <span>{copy.skillManagerDeviceServer} · {copy.skillLastScan.replace("{time}", new Date(summary.device.scannedAt).toLocaleTimeString())}</span>
-      </div>
-      <button
-        class="skills-device-link"
-        type="button"
-        aria-expanded={diagnosticsOpen}
-        onclick={() => (diagnosticsOpen = !diagnosticsOpen)}
-      >
-        {#if summary.diagnostics.length}<Warning size={13} aria-hidden="true" />{/if}
-        {copy.skillManagerDiagnostics}
-        {#if summary.diagnostics.length}<span class="skills-device-count">{summary.diagnostics.length}</span>{/if}
-      </button>
-      <Button variant="icon" title={copy.skillManagerDeviceRefresh} onclick={() => serviceEndpoint && void loadSkillManager(serviceEndpoint)}>
-        <ArrowsRotate size={14} aria-hidden="true" />
-      </Button>
-    </div>
-    {#if diagnosticsOpen}
-      <div class="skills-diagnostics" role="region" aria-label={copy.skillManagerDiagnostics}>
-        {#if summary.diagnostics.length === 0}
-          <p>{copy.skillManagerDiagnosticsEmpty}</p>
-        {:else}
-          <ul>
-            {#each summary.diagnostics as diagnostic}
-              <li><code translate="no">{diagnostic.platformId || "scan"}</code><span>{diagnostic.message}</span></li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
-    {/if}
-  {/if}
-
   <div class="workspace-filterbar">
     <div class="segmented workspace-skill-filters" role="group" aria-label={copy.skillsSquare}>
       {#each [
@@ -1098,9 +1469,7 @@
         <Button class={`segmented-item${view === category.value ? " active" : ""}`} aria-pressed={view === category.value} onclick={() => switchView(category.value as ManagerView)}>{category.label} <span class="workspace-category-count">{category.count}</span></Button>
       {/each}
     </div>
-    {#if view === "platforms"}
-      <span class="workspace-filter-summary">{copy.skillPlatformsHint}</span>
-    {:else}
+    {#if view !== "platforms"}
       <div class="skills-source-filter">
         <SelectControl
           value={sourceFilter}
@@ -1118,13 +1487,32 @@
             onChange={(value) => { statusFilter = value; closeSkill(); }}
           />
         </div>
+      {:else}
+        <div class="skills-source-filter">
+          <SelectControl
+            value={sortMode}
+            ariaLabel={copy.skillSortLabel}
+            options={[
+              { value: "name", label: copy.skillSortName },
+              { value: "usage", label: copy.skillSortUsage },
+              { value: "health", label: copy.skillSortHealth }
+            ]}
+            onChange={(value) => { sortMode = value as typeof sortMode; closeSkill(); }}
+          />
+        </div>
       {/if}
-      <span class="workspace-filter-summary">
-        {view === "discovered" ? copy.skillDiscoveredHint : copy.skillMolibotHint}
-      </span>
     {/if}
   </div>
 
+  {#if selectionMode && view === "installed"}
+    <div class="skills-batch-bar" role="region" aria-label={copy.skillBatchSelect}>
+      <strong>{copy.skillBatchSelected.replace("{count}", String(selectedIds.length))}</strong>
+      <Button variant="secondary" class="compact" disabled={batchBusy || selectedIds.length === 0} onclick={() => void applyBatch(true)}>{copy.skillBatchEnable}</Button>
+      <Button variant="secondary" class="compact" disabled={batchBusy || selectedIds.length === 0} onclick={() => void applyBatch(false)}>{copy.skillBatchDisable}</Button>
+      <Button variant="icon" title={copy.skillBatchExit} ariaLabel={copy.skillBatchExit} onclick={toggleSelectionMode}><X size={15} aria-hidden="true" /></Button>
+    </div>
+  {/if}
+  {#if batchNotice}<p class="workspace-inline-status" role="status">{batchNotice}</p>{/if}
   {#if skillManagerStore.actionError}<p class="workspace-inline-warning" role="alert">{skillManagerStore.actionError}</p>{/if}
   {#if noticeText}<p class="workspace-inline-status" role="status">{noticeText}</p>{/if}
   {#if platformSaved}<p class="workspace-inline-status" role="status">{copy.skillPlatformSaved}</p>{/if}
@@ -1166,9 +1554,11 @@
                 class:disabled={!skill.enabled}
                 class:selected={selectedId === skill.id}
                 class:anomaly={anomaly && !skill.id.startsWith("builtin:")}
+                class:selection-mode={selectionMode}
+                class:batch-selected={selectedIds.includes(skill.id)}
                 tabindex="0"
-                onclick={(event) => openSkillFromEvent(skill.id, event)}
-                onkeydown={(event) => skillCardKeydown(skill.id, event)}
+                onclick={(event) => selectionMode ? toggleSelected(skill.id) : openSkillFromEvent(skill.id, event)}
+                onkeydown={(event) => selectionMode ? (event.key === "Enter" || event.key === " " ? (event.preventDefault(), toggleSelected(skill.id)) : undefined) : skillCardKeydown(skill.id, event)}
               >
                 <div class="installed-skill-header">
                   <div class="installed-skill-icon" data-tone={visual.tone} aria-hidden="true">
@@ -1177,9 +1567,13 @@
                   <div class="installed-skill-header-info">
                     <div class="installed-skill-title">
                       <strong>{skill.name}</strong>
-                      {#if anomaly}<span class="skills-health-tag" data-health={skill.health}>{healthLabel(skill.health)}</span>{/if}
                     </div>
                   </div>
+                  {#if selectionMode}
+                    <span class="skills-select-mark" data-on={selectedIds.includes(skill.id)} aria-hidden="true">
+                      {#if selectedIds.includes(skill.id)}<Check size={13} />{/if}
+                    </span>
+                  {/if}
                 </div>
 
                 <div class="installed-skill-copy">
@@ -1190,11 +1584,30 @@
 
                 <div class="installed-skill-foot">
                   <div class="installed-skill-meta">
-                    <span class="installed-skill-meta-pill">{scopeLabel(skill.scope, skill.ownerLabel)}</span>
-                    {#if !skill.builtin}<span class="installed-skill-meta-pill">{methodLabel(skill.method)}</span>{/if}
-                    {#if skill.builtin}<span class="installed-skill-meta-pill builtin">{copy.skillBuiltins}</span>{/if}
-                    {#if skill.readBy.length}<span class="installed-skill-meta-pill">{copy.skillSharedPill.replace("{list}", skill.readBy.join(", "))}</span>{/if}
-                    {#if skill.activeDistributions > 0}<span class="installed-skill-meta-pill">{copy.skillDetailDistributions} {skill.activeDistributions}</span>{/if}
+                    {#if skill.availability.state !== "available"}
+                      <span
+                        class="installed-skill-meta-pill availability"
+                        data-state={skill.availability.state}
+                        title={skill.availability.message}
+                      >
+                        {availabilityLabel(skill.availability)}{#if skill.availability.state !== "blocked" && availabilityReason(skill.availability.reason)} · {availabilityReason(skill.availability.reason)}{/if}
+                      </span>
+                    {/if}
+                    {#if skill.usage && skill.usage.calls > 0}
+                      <span class="installed-skill-meta-pill usage" title={lastUsedLabel(skill.usage)}>
+                        {usageShortLabel(skill.usage)}
+                      </span>
+                    {/if}
+                    {#if skill.dependencies.some((dependency) => !dependency.ready)}
+                      <span class="installed-skill-meta-pill dependency" data-state="missing" title={skill.dependencies.filter((dependency) => !dependency.ready).map((dependency) => dependency.id).join(", ")}>
+                        {copy.skillDependencyMissing}
+                      </span>
+                    {/if}
+                    {#if skill.readBy.length}
+                      <span class="installed-skill-meta-pill" title={copy.skillSharedPill.replace("{list}", skill.readBy.join(", "))} aria-label={copy.skillSharedPill.replace("{list}", skill.readBy.join(", "))}>
+                        <LinkIcon size={11} aria-hidden="true" />{skill.readBy.length}
+                      </span>
+                    {/if}
                   </div>
                   {#if skill.health !== "missing" && skill.health !== "broken"}
                     <div class="installed-skill-header-controls">
@@ -1209,6 +1622,17 @@
                     <span class="installed-skill-state">{skill.id.startsWith("builtin:") ? copy.skillBuiltinRemoved : healthLabel(skill.health)}</span>
                   {/if}
                   <div class="installed-skill-actions">
+                    {#if onTrySkill && skill.availability.state !== "unavailable"}
+                      <Button
+                        variant="icon"
+                        class="compact"
+                        title={copy.skillTryInChat}
+                        ariaLabel={`${copy.skillTryInChat}: ${skill.name}`}
+                        onclick={() => trySkill(skill)}
+                      >
+                        <MagicWand size={13} aria-hidden="true" />
+                      </Button>
+                    {/if}
                     {#if skill.builtin && (!skill.builtin.installed || skill.builtin.updateAvailable || skill.builtin.modified)}
                       <Button
                         variant="primary"
@@ -1266,7 +1690,7 @@
                     <div class="installed-skill-title">
                       <strong>{skill.name}</strong>
                     </div>
-                    <span class="skills-source-line">{skill.platformLabel}{#if skill.sharedWith.length} · {countText(copy.skillSharedRead, copy.skillSharedReadOne, skill.sharedWith.length)}{/if}</span>
+                    <span class="skills-source-line">{discoveredPlatformName(skill)}{#if skill.sharedWith.length} · {countText(copy.skillSharedRead, copy.skillSharedReadOne, skill.sharedWith.length)}{/if}</span>
                   </div>
                 </div>
                 <div class="installed-skill-copy">
@@ -1297,79 +1721,166 @@
       </div>
     {/if}
   {:else}
-    {#if filteredPlatforms.length === 0}
-      <div class="workspace-empty compact"><EmptyState title={copy.skillsNoMatches} icon="sparkle" /></div>
-    {:else}
-      <div class="skills-platforms" role="list" aria-label={copy.skillViewPlatforms}>
-        {#each filteredPlatforms as platform (platform.id)}
-          {@const draft = draftFor(platform)}
-          <article class="skills-platform-row" role="listitem" class:disabled={!draft.enabled}>
-            <div class="skills-platform-main">
-              <div class="skills-platform-head">
-                <strong>{platform.label}</strong>
-                <span class="skills-platform-badge" data-verified={platform.verified}>{platform.verified ? copy.skillPlatformVerified : copy.skillPlatformUnverified}</span>
-                {#if platform.kind === "custom"}<span class="skills-platform-badge">{copy.skillPlatformAdd}</span>{/if}
-              </div>
-              <p class="skills-platform-summary">{platform.summary}</p>
-              {#if platform.sharedWith.length}
-                <p class="skills-platform-shared">{copy.skillPlatformShared.replace("{list}", platform.sharedWith.join(", "))}</p>
-              {/if}
-              <ul class="skills-platform-roots">
-                {#each platform.roots as root (root.path)}
-                  {@const removed = draft.removedRoots.includes(root.path)}
-                  <li class:removed class:missing={!root.exists}>
-                    <code translate="no">{root.path}</code>
-                    {#if root.ownerLabel}<span class="skills-platform-owner">{root.ownerLabel}</span>{/if}
-                    <span class="skills-platform-count">{countText(copy.skillPlatformSkillCount, copy.skillPlatformSkillCountOne, root.skillCount)}</span>
+    <div class="skills-advanced">
+      <div class="skills-advanced-inner">
+        <section class="skills-advanced-section">
+          <div class="skills-advanced-head">
+            <h2>{copy.skillSectionPlatforms}</h2>
+            <button type="button" class="skills-advanced-action" onclick={() => (customOpen = true)}>
+              <AddSquare size={13} aria-hidden="true" />{copy.skillPlatformAdd}
+            </button>
+          </div>
+          {#if filteredPlatforms.length === 0}
+            <div class="workspace-empty compact"><EmptyState title={copy.skillsNoMatches} icon="sparkle" /></div>
+          {:else}
+            <div class="skills-platforms" role="list" aria-label={copy.skillViewPlatforms}>
+              {#each filteredPlatforms as platform (platform.id)}
+                {@const draft = draftFor(platform)}
+                {@const expanded = expandedPlatforms.includes(platform.id)}
+                <article class="skills-platform" role="listitem" class:disabled={!draft.enabled}>
+                  <div class="skills-platform-head">
                     <button
                       type="button"
-                      class="skills-platform-root-toggle"
-                      aria-pressed={removed}
-                      title={removed ? copy.skillCancel : copy.skillPlatformRemove}
-                      aria-label={`${removed ? copy.skillCancel : copy.skillPlatformRemove}: ${root.path}`}
-                      onclick={() => toggleRemovedRoot(platform, root.path)}
+                      class="skills-platform-toggle"
+                      aria-expanded={expanded}
+                      onclick={() => togglePlatformExpanded(platform.id)}
                     >
-                      {#if removed}<Check size={12} aria-hidden="true" />{:else}<X size={12} aria-hidden="true" />{/if}
+                      <AngleDown size={12} class="skills-platform-caret" aria-hidden="true" />
+                      <span class="skills-platform-name">{platform.label}</span>
+                      <span class="skills-platform-meta">{countText(copy.skillPlatformLocations, copy.skillPlatformLocationsOne, platform.roots.length)}</span>
+                      {#if !platform.verified}
+                        <span class="skills-platform-dot" role="img" aria-label={copy.skillPlatformUnverified} title={copy.skillPlatformUnverified}></span>
+                      {/if}
+                      {#if platform.errorCount > 0}
+                        <span class="skills-platform-errors" role="img" title={copy.skillManagerDiagnostics} aria-label={`${copy.skillManagerDiagnostics}: ${platform.errorCount}`}>
+                          <Warning size={12} aria-hidden="true" />{platform.errorCount}
+                        </span>
+                      {/if}
                     </button>
+                    <IosSwitch
+                      checked={draft.enabled}
+                      ariaLabel={`${platform.label}: ${copy.skillPlatformEnabled}`}
+                      onCheckedChange={(checked) => setDraft(platform, { enabled: checked })}
+                    />
+                  </div>
+                  {#if expanded}
+                    <ul class="skills-platform-roots">
+                      {#each platform.roots as root (root.path)}
+                        {@const removed = draft.removedRoots.includes(root.path)}
+                        <li class:removed class:missing={!root.exists}>
+                          <code translate="no" title={root.path}>{homeRelativePath(root.path)}</code>
+                          {#if !root.exists}<span class="skills-platform-missing">{copy.skillPlatformRootMissing}</span>{/if}
+                          <span
+                            class="skills-platform-count"
+                            title={countText(copy.skillPlatformSkillCount, copy.skillPlatformSkillCountOne, root.skillCount)}
+                            aria-label={countText(copy.skillPlatformSkillCount, copy.skillPlatformSkillCountOne, root.skillCount)}
+                          >{root.skillCount}</span>
+                          <button
+                            type="button"
+                            class="skills-platform-root-toggle"
+                            aria-pressed={removed}
+                            title={removed ? copy.skillCancel : copy.skillPlatformRemove}
+                            aria-label={`${removed ? copy.skillCancel : copy.skillPlatformRemove}: ${root.path}`}
+                            onclick={() => toggleRemovedRoot(platform, root.path)}
+                          >
+                            {#if removed}<Check size={12} aria-hidden="true" />{:else}<X size={12} aria-hidden="true" />{/if}
+                          </button>
+                        </li>
+                      {/each}
+                    </ul>
+                    {#if platform.roots.length === 0}<p class="skills-platform-empty">{copy.skillPlatformNoRoots}</p>{/if}
+                    <div class="skills-platform-actions">
+                      {#if editingRoots.includes(platform.id) || draft.extraRoots}
+                        <textarea
+                          use:focusField
+                          rows="2"
+                          spellcheck="false"
+                          aria-label={`${platform.label}: ${copy.skillPlatformRootsPlaceholder}`}
+                          placeholder={copy.skillPlatformRootsPlaceholder}
+                          value={draft.extraRoots}
+                          oninput={(event) => setDraft(platform, { extraRoots: event.currentTarget.value })}
+                        ></textarea>
+                      {:else}
+                        <button type="button" class="skills-platform-add-root" onclick={() => (editingRoots = [...editingRoots, platform.id])}>
+                          <AddSquare size={12} aria-hidden="true" />{copy.skillPlatformAddRoot}
+                        </button>
+                        {#if platform.kind === "custom"}
+                          <button type="button" class="skills-platform-remove" onclick={() => removeCustomPlatform(platform.id)}>{copy.skillPlatformRemove}</button>
+                        {/if}
+                      {/if}
+                    </div>
+                  {/if}
+                </article>
+              {/each}
+            </div>
+          {/if}
+        </section>
+
+        {#if installedSkills.some((skill) => skill.source?.kind === "git" && skill.method !== "link")}
+          <section class="skills-advanced-section" aria-label={copy.skillBatchUpdateTitle}>
+            <div class="skills-advanced-head">
+              <h2>{copy.skillBatchUpdateTitle}</h2>
+              <Button variant="secondary" class="compact" disabled={scanningUpdates || updatingAll} onclick={() => void scanAllUpdates()}>
+                {scanningUpdates ? copy.skillUpdateChecking : copy.skillBatchCheckAll}
+              </Button>
+              {#if updatableScan.length > 0}
+                <Button variant="primary" class="compact" disabled={updatingAll || scanningUpdates} onclick={() => void updateAllScanned()}>
+                  {updatingAll ? copy.skillBatchWorking : `${copy.skillBatchUpdateApply} ${updatableScan.length}`}
+                </Button>
+              {/if}
+            </div>
+            {#if batchUpdateNotice}<p class="skills-advanced-status" role="status">{batchUpdateNotice}</p>{/if}
+            {#if updateScan.length > 0}
+              <ul class="skills-update-files">
+                {#each updateScan as item (item.id)}
+                  <li>
+                    <span translate="no">{item.name}</span>
+                    <span>{item.result.ok ? (item.result.hasUpdate ? `${item.result.currentCommit.slice(0, 8)} → ${item.result.latestCommit.slice(0, 8)}` : copy.skillBatchUpdateCurrent) : item.result.message}</span>
                   </li>
                 {/each}
               </ul>
-              {#if platform.roots.length === 0}<p class="skills-platform-empty">{copy.skillPlatformNoRoots}</p>{/if}
-              {#if editingRoots.includes(platform.id) || draft.extraRoots}
-                <label class="skills-platform-extra">
-                  <span>{copy.skillPlatformRootsHint}</span>
-                  <textarea
-                    rows="2"
-                    spellcheck="false"
-                    placeholder={copy.skillPlatformRootsHint}
-                    value={draft.extraRoots}
-                    oninput={(event) => setDraft(platform, { extraRoots: event.currentTarget.value })}
-                  ></textarea>
-                </label>
-              {:else}
-                <button type="button" class="skills-platform-add-root" title={copy.skillPlatformAddRoot} onclick={() => (editingRoots = [...editingRoots, platform.id])}>
-                  <AddSquare size={13} aria-hidden="true" />{copy.skillPlatformAddRoot}
-                </button>
-              {/if}
-            </div>
-            <div class="skills-platform-side">
-              <IosSwitch
-                checked={draft.enabled}
-                ariaLabel={`${platform.label}: ${copy.skillPlatformEnabled}`}
-                onCheckedChange={(checked) => setDraft(platform, { enabled: checked })}
-              />
-              {#if platform.kind === "custom"}
-                <button type="button" class="skills-platform-remove" onclick={() => removeCustomPlatform(platform.id)}>{copy.skillPlatformRemove}</button>
-              {/if}
-              {#if platform.errorCount > 0}<span class="skills-platform-errors">{platform.errorCount}</span>{/if}
-            </div>
-          </article>
-        {/each}
-        <div class="skills-platform-add">
-          <Button variant="icon" title={copy.skillPlatformAdd} onclick={() => (customOpen = true)}><AddSquare size={16} aria-hidden="true" /></Button>
-        </div>
+            {/if}
+          </section>
+        {/if}
+
+        {#if summary?.operations?.length}
+          <section class="skills-advanced-section" aria-label={copy.skillOperationsTitle}>
+            <div class="skills-advanced-head"><h2>{copy.skillOperationsTitle}</h2></div>
+            <ul class="skills-operation-list">
+              {#each summary.operations.slice(0, 8) as operation (operation.id)}
+                <li>
+                  <span class="skills-operation-kind">{operationKindLabel(operation.kind)}</span>
+                  <span class="skills-operation-target" title={operation.targetPath}>
+                    <span>{operationTarget(operation.targetPath)}</span>
+                    {#if operation.error}<Warning size={12} class="skills-operation-error" aria-label={operation.error} />{/if}
+                  </span>
+                  <span class="skills-operation-status" data-status={operation.status}>{operationStatusLabel(operation.status)}</span>
+                  <time>{formatModified(operation.updatedAt)}</time>
+                </li>
+              {/each}
+            </ul>
+          </section>
+        {/if}
+
+        {#if summary && summary.diagnostics.length > 0}
+          <section class="skills-advanced-section" aria-label={copy.skillManagerDiagnostics}>
+            <details class="skills-diagnostics-details">
+              <summary>
+                <AngleDown size={12} class="skills-advanced-caret" aria-hidden="true" />
+                <span>{copy.skillManagerDiagnostics}</span>
+                <span class="skills-advanced-count" data-health={summary.counts.anomalies > 0 ? "warn" : "ok"}>{summary.diagnostics.length}</span>
+                <span class="skills-advanced-meta">{summary.device.label}</span>
+              </summary>
+              <ul class="skills-diagnostics">
+                {#each summary.diagnostics as diagnostic}
+                  <li><code translate="no">{diagnostic.platformId || "scan"}</code><span>{diagnostic.message}</span></li>
+                {/each}
+              </ul>
+            </details>
+          </section>
+        {/if}
       </div>
-    {/if}
+    </div>
     {#if platformsDirty}
       <footer class="skills-footbar">
         <span class="settings-footbar-label">{copy.settingsUnsaved}</span>
@@ -1417,8 +1928,23 @@
         <p class="installed-skill-id-badge" translate="no">{detail?.baseDir ?? ""}</p>
       </div>
       <div class="skills-detail-head-actions">
+        {#if detail && detail.kind === "installed"}
+          {@const installedDetail = detail}
+          <IosSwitch
+            checked={installedDetail.enabled}
+            ariaLabel={`${installedDetail.name}: ${installedDetail.enabled ? copy.providerEnabled : copy.providerDisabled}`}
+            disabled={skillManagerStore.busyId === installedDetail.id}
+            onCheckedChange={(checked) => void toggleManagedSkill(installedDetail.id, checked).then(() => void loadDetail(installedDetail.id))}
+          />
+        {/if}
         {#if detail?.kind === "discovered"}
           <Button variant="icon" title={copy.skillConsolidateCta} onclick={openConsolidate}><Reorder size={16} aria-hidden="true" /></Button>
+        {/if}
+        {#if onTrySkill && detail && detail.kind === "installed" && detail.enabled && detail.runtime.loaded}
+          {@const loadedDetail = detail}
+          <Button variant="secondary" class="compact" title={copy.skillTryInChatHint} onclick={() => trySkill({ id: loadedDetail.id, name: loadedDetail.name, aliases: loadedDetail.trigger.aliases })}>
+            <MagicWand size={13} aria-hidden="true" />{copy.skillTryInChat}
+          </Button>
         {/if}
         {#if detail?.kind === "installed" && detail.managed}
           <Button variant="secondary" class="compact" onclick={openDistribute}><ArrowUpRight size={13} aria-hidden="true" />{copy.skillDetailDistribute}</Button>
@@ -1444,7 +1970,7 @@
           {/if}
 
           <div class="skills-meta-line">
-            <span class="skills-chip">{detail.scope === "external" ? detail.ownerLabel : scopeLabel(detail.scope, detail.ownerLabel)}</span>
+            <span class="skills-chip">{detail.scope === "external" ? externalPlatformName(detail.ownerLabel) : scopeLabel(detail.scope, detail.ownerLabel)}</span>
             {#if detail.scope !== "external"}<span class="skills-chip">{methodLabel(detail.method)}</span>{/if}
             {#if detail.version}<span class="skills-chip">v{detail.version}</span>{/if}
             {#if detail.source && detail.scope !== "external"}<span class="skills-chip" title={detail.source.path}>{detail.source.label}</span>{/if}
@@ -1486,6 +2012,79 @@
             <p class="skills-detail-summary" title={detail.description}>{detail.description}</p>
           {/if}
 
+          <section class="skills-detail-section skills-capability" aria-label={copy.skillTriggerTitle}>
+            <div class="skills-capability-grid">
+              <div class="skills-capability-card">
+                <h3>{copy.skillUsageTitle}</h3>
+                <p>{usageLabel(detail.usage)}</p>
+                {#if detail.usage?.lastAt}
+                  <p class="skills-capability-muted">{lastUsedLabel(detail.usage)}</p>
+                {/if}
+              </div>
+              <div class="skills-capability-card">
+                <h3>{copy.skillTriggerTitle}</h3>
+                <p class="skills-capability-muted">
+                  {detail.trigger.disableModelInvocation ? copy.skillTriggerModelHidden : copy.skillTriggerModelVisible}
+                </p>
+                {#if detail.trigger.aliases.length}
+                  <div class="skills-capability-chips">
+                    {#each detail.trigger.aliases as alias (alias)}
+                      <code class="skills-capability-chip" translate="no">/{alias}</code>
+                    {/each}
+                  </div>
+                {/if}
+                {#if detail.trigger.signals.cli.length || detail.trigger.signals.mcp.length || detail.trigger.signals.tools.length}
+                  <ul class="skills-capability-list">
+                    {#if detail.trigger.signals.cli.length}<li><span>{copy.skillTriggerCli}</span><code translate="no">{detail.trigger.signals.cli.join(", ")}</code></li>{/if}
+                    {#if detail.trigger.signals.mcp.length}<li><span>{copy.skillTriggerMcp}</span><code translate="no">{detail.trigger.signals.mcp.join(", ")}</code></li>{/if}
+                    {#if detail.trigger.signals.tools.length}<li><span>{copy.skillTriggerTools}</span><code translate="no">{detail.trigger.signals.tools.join(", ")}</code></li>{/if}
+                  </ul>
+                {/if}
+                {#if detail.trigger.allowedTools.length}
+                  <p class="skills-capability-muted">{copy.skillTriggerAllowedTools}: <code translate="no">{detail.trigger.allowedTools.join(", ")}</code></p>
+                {/if}
+              </div>
+              <div class="skills-capability-card">
+                <h3>{copy.skillDependenciesTitle}</h3>
+                {#if detail.dependencies.length}
+                  <ul class="skills-capability-list">
+                    {#each detail.dependencies as dependency (`${dependency.kind}:${dependency.id}`)}
+                      <li>
+                        <span>{dependency.kind === "mcp" ? copy.skillTriggerMcp : copy.skillTriggerCli}</span>
+                        <code translate="no">{dependency.id}</code>
+                        <strong class="skills-dependency-state" data-ready={dependency.ready}>
+                          {dependency.ready ? copy.skillDependencyReady : copy.skillDependencyMissing}
+                        </strong>
+                      </li>
+                    {/each}
+                  </ul>
+                {:else}
+                  <p class="skills-capability-muted">{copy.skillDependencyEmpty}</p>
+                {/if}
+              </div>
+            </div>
+          </section>
+
+          {#if detail.kind === "installed" && backups.length > 0}
+            <section class="skills-detail-section" aria-label={copy.skillBackupsTitle}>
+              <h3>{copy.skillBackupsTitle}</h3>
+              <ul class="skills-backup-list">
+                {#each backups as backup (backup.path)}
+                  <li>
+                    <div class="skills-backup-copy">
+                      <code translate="no">{backup.name}</code>
+                      <span>{formatModified(backup.createdAt)} · {countText(copy.skillBackupFiles, copy.skillBackupFilesOne, backup.fileCount)}</span>
+                    </div>
+                    <Button variant="secondary" class="compact" disabled={backupBusy === backup.path} onclick={() => void restoreBackup(backup.path)}>
+                      {copy.skillBackupRestore}
+                    </Button>
+                  </li>
+                {/each}
+              </ul>
+              {#if backupNotice}<p class="skills-capability-muted" role="status">{backupNotice}</p>{/if}
+            </section>
+          {/if}
+
           {#if detail.kind === "installed" && detail.source && (detail.source.kind === "git" || detail.source.kind === "local") && !detail.builtin && detail.source.path}
             <section class="skills-detail-section skills-update-panel" aria-label={copy.skillUpdateTitle}>
               <div class="skills-update-row">
@@ -1509,7 +2108,26 @@
                   {#if updateCheck.ok && updateCheck.hasUpdate}
                     <p class="skills-update-commits"><code translate="no">{updateCheck.currentCommit.slice(0, 8)}</code> → <code translate="no">{updateCheck.latestCommit.slice(0, 8)}</code></p>
                     {#if updateCheck.localChanges}<p class="skills-update-warning"><Warning size={12} aria-hidden="true" />{copy.skillUpdateLocalChanges}</p>{/if}
-                    <Button variant="primary" class="compact" onclick={startGitUpdate}>{copy.skillUpdateApply}</Button>
+                    <div class="skills-update-actions">
+                      <Button variant="secondary" class="compact" disabled={updatePreviewId === detail.id} onclick={() => void runUpdatePreview()}>
+                        {updatePreviewId === detail.id ? copy.skillUpdatePreviewLoading : copy.skillUpdatePreview}
+                      </Button>
+                      <Button variant="primary" class="compact" onclick={startGitUpdate}>{copy.skillUpdateApply}</Button>
+                    </div>
+                    {#if updatePreviewError}<p class="skills-update-warning" role="alert">{copy.skillUpdatePreviewFailed}: {updatePreviewError}</p>{/if}
+                    {#if updatePreview}
+                      {#if updatePreview.files.length}
+                        <ul class="skills-update-files">
+                          {#each updatePreview.files as file (file.path)}
+                            <li data-status={file.status}><code translate="no">{file.path}</code><span>{file.status}</span></li>
+                          {/each}
+                        </ul>
+                      {:else}
+                        <p class="skills-update-warning">{copy.skillUpdatePreviewEmpty}</p>
+                      {/if}
+                      {#if updatePreview.patch}<pre class="skills-update-patch" translate="no">{updatePreview.patch}</pre>{/if}
+                      {#if updatePreview.truncated}<p class="skills-update-warning">{copy.skillUpdatePreviewTruncated}</p>{/if}
+                    {/if}
                   {/if}
                 </div>
               {/if}
@@ -1517,7 +2135,14 @@
           {/if}
 
           <section class="skills-detail-section skills-detail-content">
-            <h3>{copy.skillDetailContent}<span class="skills-detail-content-path" translate="no">{selectedFile}</span></h3>
+            <div class="skills-detail-content-head">
+              <h3>{copy.skillDetailContent}<span class="skills-detail-content-path" translate="no">{selectedFile}</span></h3>
+              {#if detail.kind === "installed" && selectedFile.toLowerCase().endsWith("skill.md")}
+                <Button variant="icon" class="compact" title={copy.skillEditCta} ariaLabel={copy.skillEditCta} onclick={() => void openEdit()}>
+                  <Code size={14} aria-hidden="true" />
+                </Button>
+              {/if}
+            </div>
             {#if detail.frontmatter.length > 0 && selectedFile.toLowerCase().endsWith("skill.md")}
               <section class="skills-detail-metadata" aria-label={copy.skillDetailMetadata}>
                 <h4>{copy.skillDetailMetadata}</h4>
@@ -1565,7 +2190,7 @@
                 </div>
               {/if}
               {#if detail.scope === "external"}
-                <div class="skills-detail-fact"><span>{copy.skillDetailPlatform}</span><strong>{detail.ownerLabel}</strong></div>
+                <div class="skills-detail-fact"><span>{copy.skillDetailPlatform}</span><strong>{externalPlatformName(detail.ownerLabel)}</strong></div>
               {:else}
                 <div class="skills-detail-fact"><span>{copy.hostBashColScope}</span><strong>{scopeLabel(detail.scope, detail.ownerLabel)}</strong></div>
                 <div class="skills-detail-fact"><span>{copy.skillDetailMethod}</span><strong>{methodLabel(detail.method)}</strong></div>
@@ -1744,7 +2369,7 @@
             <SelectControl
               value={installDiscoveredId}
               ariaLabel={copy.skillViewDiscovered}
-              options={discoveredSkills.map((skill) => ({ value: skill.id, label: `${skill.name} · ${skill.platformLabel}` }))}
+              options={discoveredSkills.map((skill) => ({ value: skill.id, label: `${skill.name} · ${discoveredPlatformName(skill)}` }))}
               onChange={(value) => { installDiscoveredId = value; preflight = null; }}
             />
           </label>
@@ -1891,7 +2516,7 @@
       <Button variant="icon" title={copy.skillClose} disabled={consolidateBusy} onclick={() => (consolidateOpen = false)}><X size={16} aria-hidden="true" /></Button>
     </header>
     <div class="skills-sheet-body consolidate-body">
-      <div class="consolidate-identity"><span class="consolidate-skill-icon"><FileText size={20} aria-hidden="true" /></span><div><strong>{consolidateName}</strong><span>{consolidatePreflight?.source.platformLabel ?? copy.skillConsolidateChecking}</span></div></div>
+      <div class="consolidate-identity"><span class="consolidate-skill-icon"><FileText size={20} aria-hidden="true" /></span><div><strong>{consolidateName}</strong><span>{externalPlatformName(consolidatePreflight?.source.platformLabel ?? copy.skillConsolidateChecking)}</span></div></div>
       {#if consolidateResult}
         <div class="consolidate-success" role="status">
           <span class="consolidate-success-mark"><Check size={26} aria-hidden="true" /></span>
@@ -2081,8 +2706,8 @@
       <input type="text" value={customLabel} oninput={(event) => (customLabel = event.currentTarget.value)} />
     </label>
     <label class="skills-field">
-      <span>{copy.skillPlatformRootsHint}</span>
-      <textarea rows="4" spellcheck="false" value={customRoots} oninput={(event) => (customRoots = event.currentTarget.value)}></textarea>
+      <span>{copy.skillPlatformRoots}</span>
+      <textarea rows="4" spellcheck="false" placeholder={copy.skillPlatformRootsPlaceholder} value={customRoots} oninput={(event) => (customRoots = event.currentTarget.value)}></textarea>
     </label>
     {#if customError}<p class="skills-sheet-error" role="alert">{customError}</p>{/if}
     <footer class="skills-sheet-foot">
@@ -2090,4 +2715,86 @@
       <Button variant="primary" onclick={() => void addCustomPlatform()}>{copy.skillPlatformAdd}</Button>
     </footer>
   </div>
+</Dialog>
+
+<Dialog open={createOpen} contentClass="skills-form-dialog" labelledBy="skills-create-title" onOpenChange={(next) => (createOpen = next)}>
+  <form class="skills-form" onsubmit={(event) => { event.preventDefault(); void confirmCreate(); }}>
+    <header class="skills-form-head">
+      <h2 id="skills-create-title">{copy.skillCreateTitle}</h2>
+    </header>
+    <div class="skills-form-body">
+      <div class="skills-form-row">
+        <label class="skills-field">
+          <span>{copy.skillCreateName}</span>
+          <input
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder={copy.skillCreateNamePlaceholder}
+            value={createName}
+            oninput={(event) => { createName = event.currentTarget.value; createError = ""; }}
+          />
+        </label>
+        <label class="skills-field skills-field-scope">
+          <span>{copy.skillCreateScope}</span>
+          <SelectControl
+            value={createScope}
+            ariaLabel={copy.skillCreateScope}
+            options={[
+              { value: "global", label: copy.skillScopeGlobal },
+              { value: "agent", label: copy.skillScopeAgent },
+              { value: "project", label: copy.skillScopeProject }
+            ]}
+            onChange={(value) => changeCreateScope(value as DesktopSkillManagerScope)}
+          />
+        </label>
+      </div>
+      {#if createScope === "agent"}
+        <label class="skills-field">
+          <span>{copy.skillCreateAgent}</span>
+          <SelectControl value={createOwnerId} ariaLabel={copy.skillCreateAgent} options={(summary?.agents ?? []).map((agent) => ({ value: agent.id, label: agent.label }))} onChange={(value) => (createOwnerId = value)} />
+        </label>
+      {/if}
+      {#if createScope === "project"}
+        <label class="skills-field">
+          <span>{copy.skillCreateProject}</span>
+          <SelectControl value={createOwnerId} ariaLabel={copy.skillCreateProject} options={projectTargets.map((target) => ({ value: target.id, label: target.label }))} onChange={(value) => (createOwnerId = value)} />
+        </label>
+      {/if}
+      <label class="skills-field">
+        <span>{copy.skillCreateDescription}</span>
+        <input type="text" spellcheck="false" autocomplete="off" value={createDescription} oninput={(event) => (createDescription = event.currentTarget.value)} />
+      </label>
+      <label class="skills-field skills-field-editor">
+        <span>{copy.skillCreateBody}</span>
+        <textarea class="skills-editor" spellcheck="false" value={createBody} oninput={(event) => (createBody = event.currentTarget.value)}></textarea>
+      </label>
+      {#if createError}<p class="skills-sheet-error" role="alert">{createError}</p>{/if}
+    </div>
+    <footer class="skills-sheet-foot">
+      <Button variant="secondary" onclick={() => (createOpen = false)}>{copy.skillCancel}</Button>
+      <Button type="submit" variant="primary" disabled={creating || !createName.trim() || !createDescription.trim() || !createBody.trim()}>
+        {creating ? copy.agentTemplateUpdating : copy.skillCreateConfirm}
+      </Button>
+    </footer>
+  </form>
+</Dialog>
+
+<Dialog open={editOpen} contentClass="skills-form-dialog" labelledBy="skills-edit-title" onOpenChange={(next) => (editOpen = next)}>
+  <form class="skills-form" onsubmit={(event) => { event.preventDefault(); void confirmEdit(); }}>
+    <header class="skills-form-head">
+      <h2 id="skills-edit-title">{copy.skillEditTitle}</h2>
+      <span class="skills-form-file" translate="no">{selectedFile.split("/").pop() ?? ""}</span>
+    </header>
+    <div class="skills-form-body">
+      <textarea class="skills-editor skills-editor-full" spellcheck="false" aria-label={copy.skillEditTitle} value={editContent} oninput={(event) => (editContent = event.currentTarget.value)}></textarea>
+      {#if editError}<p class="skills-sheet-error" role="alert">{editError}</p>{/if}
+    </div>
+    <footer class="skills-sheet-foot">
+      <Button variant="secondary" onclick={() => (editOpen = false)}>{copy.skillCancel}</Button>
+      <Button type="submit" variant="primary" disabled={editSaving || !editContent.trim()}>
+        {editSaving ? copy.agentTemplateUpdating : copy.skillEditConfirm}
+      </Button>
+    </footer>
+  </form>
 </Dialog>

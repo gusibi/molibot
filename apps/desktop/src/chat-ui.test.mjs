@@ -146,6 +146,9 @@ const conversationActivity = read("../../../src/lib/server/app/conversationActiv
 const runner = read("../../../src/lib/server/agent/core/runner.ts");
 const activityView = read("./lib/chat/activityView.ts");
 const streamingMarkdown = read("./lib/chat/streamingMarkdown.ts");
+const audioPlayer = read("./lib/components/AudioPlayer.svelte");
+const mediaViewer = read("./lib/projects/MediaViewer.svelte");
+const pendingFilesBar = read("./lib/chat/PendingFilesBar.svelte");
 const transcriptDock = read("./lib/chat/TranscriptDock.svelte");
 const approvalCard = read("./lib/chat/ApprovalCard.svelte");
 const decisionCard = read("./lib/chat/DecisionCard.svelte");
@@ -394,7 +397,8 @@ test("media tests and sandbox policies keep balanced settings layouts", () => {
   // The media test button aligns with the form fields (left, with top padding)
   // and the voice audio element is tall enough for native controls (web UI uses 40px).
   assert.match(styles, /\.tool-test-actions\s*\{[^}]*padding:\s*10px\s+16px/s);
-  assert.match(styles, /\.tool-test-audio\s*\{[^}]*height:\s*40px/s);
+  assert.match(styles, /\.tool-test-audio\s*\{[^}]*margin-top:\s*10px/s);
+  assert.match(styles, /\.md-audio-player\s*\{[^}]*display:\s*flex/s);
 });
 
 test("native feedback requests permission only on explicit enablement and observes terminal task transitions", () => {
@@ -868,6 +872,18 @@ test("collapsed rail carries conversation/project toggles and reuses the shared 
   assert.match(view, /function openWorkspacePane\(pane: Exclude<ChatWorkspacePaneName, "chat">\): void \{[\s\S]*?roomPaneActive = false;\s*collapsedFlyout = null;/);
 });
 
+test("Agent Teams reuse the shared group row, icon tile and active state", () => {
+  // Agents, Teams and Projects all render GroupHeader, so height, 16px icon
+  // tile, 8px gap and hover cannot drift into three different row styles.
+  assert.match(sidebarLists, /<GroupHeader\s+label=\{room\.title\}/);
+  assert.match(sidebarLists, /active=\{room\.id === activeRoomId\}/);
+  assert.match(sidebarLists, /\{#snippet avatar\(\)\}<Dialog size=\{16\}/);
+  assert.match(sidebarLists, /\{#snippet status\(\)\}<span class="sidebar-room-meta">\{roomMeta\(room\)\}/);
+  assert.doesNotMatch(sidebarLists, /sidebar-room-row/);
+  assert.match(sidebarLists, /class="sidebar-tree-children rooms-tree"/);
+  assert.match(sidebarLists, /:global\(\.conv-group-head\.active\)/);
+});
+
 test("Primary sidebar headings toggle their own list without navigating", () => {
   assert.match(chatSidebar, /onOpenConversations,\n\s*onOpenProjects,\n\s*onOpenRooms,/);
   assert.match(sidebarLists, /class="sidebar-section-toggle" aria-expanded=\{conversationsOpen\} onclick=\{onToggleConversations\}/);
@@ -1007,13 +1023,123 @@ test("workspace navigation waits for bootstrap and can retry failed loads", () =
 
 test("installed Skills recomputes its card list when async store data arrives", () => {
   assert.match(sections.skills, /let normalizedQuery = \$derived\(query\.trim\(\)\.toLowerCase\(\)\)/);
-  assert.match(sections.skills, /const filteredSkills = \$derived\(/);
+  assert.match(sections.skills, /const filteredSkills = \$derived(?:\.by)?\(/);
   assert.doesNotMatch(sections.skills, /\$: filteredSkills/);
+});
+
+test("Skills workspace answers availability, usage, trigger and dependency questions", () => {
+  // Three states and their reason are visible on every card, not only in detail.
+  assert.match(sections.skills, /skill\.availability\.state/);
+  assert.match(sections.skills, /availabilityReason\(skill\.availability\.reason\)/);
+  // Usage comes from the trailing-window trace projection.
+  assert.match(sections.skills, /usageShortLabel\(skill\.usage\)/);
+  assert.match(sections.skills, /usageLabel\(detail\.usage\)/);
+  // Missing MCP/CLI dependencies surface on the card and in detail.
+  assert.match(sections.skills, /skill\.dependencies\.some\(\(dependency\) => !dependency\.ready\)/);
+  assert.match(sections.skills, /detail\.dependencies/);
+  // Trigger selectors are explained instead of dumping raw frontmatter.
+  assert.match(sections.skills, /detail\.trigger\.aliases/);
+  assert.match(sections.skills, /detail\.trigger\.disableModelInvocation/);
+  // Detail owns an enable switch, and the card offers a real invocation.
+  assert.match(sections.skills, /toggleManagedSkill\(installedDetail\.id/);
+  assert.match(sections.skills, /onTrySkill\?\.\(\{ id: skill\.id/);
+  assert.match(sections.skills, /trySkill\(\{ id: loadedDetail\.id/);
+  // The host turns the first selector into a slash invocation in the composer.
+  assert.match(view, /const selector = skill\.aliases\[0\] \?\? skill\.name;/);
+  assert.match(view, /insertComposerText\(messageInput, `\/\$\{selector\} `, "append"\)/);
+  assert.match(view, /onTrySkill=\{trySkillInChat\}/);
+  // Typing must survive the trip from a non-chat workspace: the chat pane needs
+  // an executable Agent before text is handed to the composer.
+  assert.match(view, /async function ensureChatAgent\(\)/);
+  assert.match(view, /await ensureChatAgent\(\)/);
+  assert.match(view, /copy\.chatAgentUnavailable/);
+  // Search and sort consume aliases/signals and the new sort facet.
+  assert.match(sections.skills, /skill\.aliases\.join\(" "\)/);
+  assert.match(sections.skills, /sortMode === "usage"/);
+  // Create and edit write through the manager instead of the model tool.
+  assert.match(sections.skills, /createManagedSkill\(/);
+  assert.match(sections.skills, /saveManagedSkillContent\(/);
+  assert.match(sections.skills, /copy\.skillCreateCta/);
+  assert.match(sections.skills, /class="skills-editor/);
+  assert.match(skillsStoreSource, /action: "create-skill"/);
+  assert.match(skillsStoreSource, /action: "save-skill-content"/);
+  // Timestamped backups are listable and restorable from the detail pane.
+  assert.match(sections.skills, /listManagedSkillBackups\(/);
+  assert.match(sections.skills, /restoreManagedSkillBackup\(/);
+  assert.match(sections.skills, /copy\.skillBackupsTitle/);
+  assert.match(skillsStoreSource, /action: "restore-backup"/);
+  // Update preview compares the pinned source commit with HEAD.
+  assert.match(sections.skills, /previewManagedSkillUpdate\(/);
+  assert.match(sections.skills, /copy\.skillUpdatePreview/);
+  assert.match(skillsStoreSource, /action: "preview-update"/);
+  // Batch update reuses preflight + replace install for every stale Skill.
+  assert.match(sections.skills, /scanAllUpdates\(/);
+  assert.match(sections.skills, /updateAllScanned\(/);
+  assert.match(sections.skills, /replace: true/);
+});
+
+test("the Skills workspace keeps one quiet column and no explanatory chrome", () => {
+  // The page is a title, three tabs, and content; no slogan block or device bar.
+  assert.doesNotMatch(sections.skills, /workspace-description/);
+  assert.doesNotMatch(sections.skills, /skills-device/);
+  // Advanced maintenance shares one centered scroll column.
+  assert.match(sections.skills, /class="skills-advanced"/);
+  assert.match(sections.skills, /class="skills-advanced-inner"/);
+  assert.match(sections.skills, /class="skills-advanced-section"/);
+  // Hints that explained the layout in prose are gone.
+  assert.doesNotMatch(sections.skills, /skillBatchUpdateHint/);
+  assert.doesNotMatch(sections.skills, /skills-advice/);
+  assert.doesNotMatch(sections.skills, /workspace-filter-summary/);
+  // Operations are a compact list, not a stack of bordered cards.
+  assert.match(sections.skills, /class="skills-operation-list"/);
+  assert.match(sections.skills, /summary\.operations\.slice\(0, 8\)/);
+  // Platforms open on demand, so the surface never renders as a wall of paths.
+  assert.match(sections.skills, /let expandedPlatforms = \$state<string\[\]>\(\[\]\)/);
+  assert.match(sections.skills, /aria-expanded=\{expanded\}/);
+  assert.match(sections.skills, /\{#if expanded\}/);
+  assert.match(sections.skills, /copy\.skillPlatformLocations/);
+  // The switch lives in the platform title row; no reserved side column.
+  assert.match(sections.skills, /<IosSwitch[\s\S]{0,600}?\{#if expanded\}/);
+  assert.doesNotMatch(sections.skills, /skills-platform-side/);
+  // Paths read relative to home, and a missing folder is stated.
+  assert.match(sections.skills, /function homeRelativePath\(/);
+  assert.match(sections.skills, /copy\.skillPlatformRootMissing/);
+  // Creating a Skill starts with an empty body, not sample Markdown that would be saved.
+  assert.match(sections.skills, /let createBody = \$state\(""\)/);
+  assert.doesNotMatch(sections.skills, /skillCreateBodyHint/);
+  assert.doesNotMatch(sections.skills, /skillCreateBodyPlaceholder/);
+  // The create sheet is one form: fixed title, scrolling body, one commit action.
+  assert.match(sections.skills, /<form class="skills-form"/);
+  assert.match(sections.skills, /class="skills-form-body"/);
+  assert.match(sections.skills, /<Button type="submit" variant="primary"/);
+  // Invalid names and duplicates are rejected in the user's language.
+  assert.match(sections.skills, /const SKILL_SLUG = \/\^\[a-z0-9\]/);
+  assert.match(sections.skills, /createError = copy\.skillCreateNameInvalid/);
+  assert.match(sections.skills, /createError = copy\.skillCreateNameExists/);
+});
+
+test("skill maintenance states what is unknown and lets the owner consent to deletion", () => {
+  const maintenance = read("./lib/chat/SkillMaintenance.svelte");
+  // No slogan paragraph above the tabs.
+  assert.doesNotMatch(maintenance, /skillMaintenanceHint/);
+  // Issues are a list of paths, not a command with no remedy.
+  assert.match(maintenance, /scan\.warnings\.length/);
+  assert.match(maintenance, /copy\.skillMaintenanceIncompleteScan/);
+  // Deletion alone can proceed after an explicit acknowledgement; the server
+  // binds it into the reviewed request, so apply cannot bypass the review.
+  assert.match(maintenance, /acknowledgeScan: true/);
+  assert.match(maintenance, /copy\.skillMaintenanceAcknowledgeScan/);
+  // The confirm button names the actual operation.
+  assert.match(maintenance, /const applyLabel = \$derived/);
+  assert.match(styles, /\.skill-maintenance-incomplete \{/);
 });
 
 test("discovered Skills are manageable: status facet, card actions, locations and removal", () => {
   // The discovered view gains a second facet: where content lives and how
   // entries are wired (shared tree, duplicates, link vs copy).
+  // The shared .agents tree is its own "Global" group, not a vendor platform.
+  assert.match(sections.skills, /skill\.platformId === "agents" \? copy\.skillScopeGlobal/);
+  assert.match(sections.skills, /key === "platform:agents"\) return copy\.skillScopeGlobal/);
   assert.match(sections.skills, /const statusOptions = \$derived\.by\(/);
   assert.match(sections.skills, /statusFilter === "shared" && !skill\.inSharedDir/);
   assert.match(sections.skills, /statusFilter === "duplicate" && !skill\.duplicate && !skill\.conflict/);
@@ -1930,7 +2056,11 @@ test("consecutive images render as a gallery and open one shared viewer", () => 
   // row; with `contain` a portrait and a landscape produce different heights.
   assert.match(styles, /\.transcript-gallery\[data-columns="3"\] \.transcript-image img\s*\{[^}]*object-fit:\s*cover/s);
   assert.match(styles, /\.transcript-image img\s*\{[^}]*max-height:\s*180px/s);
-  assert.match(styles, /\.markdown-body img\s*\{[^}]*max-width:\s*min\(100%,\s*240px\)[^}]*max-height:\s*180px/s);
+  // Inline Markdown images are document content, not thumbnails: they keep
+  // their aspect ratio up to the reading column. Attachment cards keep their
+  // own 180px thumbnail cap above.
+  assert.match(styles, /\.markdown-body img\s*\{[^}]*max-width:\s*100%[^}]*max-height:\s*360px/s);
+  assert.doesNotMatch(styles, /\.markdown-body img\s*\{[^}]*240px/s);
 
   // Both image surfaces open the same viewer rather than each growing its own.
   assert.match(transcriptAttachmentsSource, /from "\.\.\/imageLightbox"/);
@@ -2178,7 +2308,7 @@ test("Project Session groups reveal history in batches of 10", () => {
 test("conversation and project titles share a clean section header layout", () => {
   const projectTree = read("./lib/projects/ProjectTree.svelte");
   const sharedHeader = styles.slice(styles.indexOf(".sidebar-section-head {"), styles.indexOf(".brand-row {"));
-  assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*min-height:\s*32px/s);
+  assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*min-height:\s*36px/s);
   assert.doesNotMatch(sharedHeader, /position:\s*sticky/);
   assert.match(sharedHeader, /\.sidebar-section-head \{[^}]*background:\s*transparent/s);
   // The old gradient's private token must not linger once nothing reads it (pitfall 4).
@@ -3251,13 +3381,70 @@ test("shared transcript renders media inline and delegates tool activity", () =>
   assert.match(transcriptAttachments, /transcript-image/);
   assert.match(transcriptAttachments, /transcript-audio/);
   assert.match(transcriptAttachments, /transcript-video/);
-  assert.match(transcriptAttachments, /<audio[\s\S]*controls/);
+  assert.match(transcriptAttachments, /<AudioPlayer/);
+  assert.doesNotMatch(transcriptAttachments, /<audio[^>]*controls/);
   assert.match(transcriptAttachments, /<video[\s\S]*controls/);
   assert.match(transcript, /<TurnProcess/);
   assert.match(transcript, /transcriptDisplayContent\(message, copy\.chatAssistantError\)/);
   assert.match(transcriptHelpers, /\["\(attachment\)", "\(empty response\)"\]/);
   assert.match(transcriptHelpers, /content === "Sorry, something went wrong\."/);
   assert.match(turnProcess, /copy\.viewProcess/);
+});
+
+test("Markdown document typesetting is one global token scale, not a Feishu skin", () => {
+  for (const token of ["--md-fs-body", "--md-lh-body", "--md-fs-h1", "--md-gap-block", "--md-radius"]) {
+    assert.match(baseStyles, new RegExp(`${token}:`));
+  }
+  // A theme family may remap colours, but must never fork the type scale.
+  assert.doesNotMatch(themeStyles, /--md-fs-body\s*:/);
+  // Streamed and settled blocks participate in the same margin rhythm.
+  assert.match(styles, /\.chat-markdown-segment, \.md-stream-block\s*\{\s*display:\s*contents/);
+  // Captions come from the standard Markdown image title, not a custom block.
+  assert.match(markdown, /<figcaption class="md-figcaption">/);
+  assert.match(styles, /\.markdown-body \.md-figcaption\s*\{/);
+  // GFM task lists are styled native inputs, not a second renderer.
+  assert.match(styles, /\.markdown-body input\[type="checkbox"\]/);
+  // Both render caches are keyed on the emitted HTML shape.
+  assert.match(markdown, /export const RENDER_SCHEMA_VERSION/);
+  assert.match(streamingMarkdown, /RENDER_SCHEMA_VERSION/);
+});
+
+test("answer style is one orthogonal skin axis, not a second renderer or theme", () => {
+  // One attribute, written once, persisted and shared across windows.
+  assert.match(app, /const DOC_STYLE_STORAGE_KEY = "molibot-desktop-doc-style"/);
+  assert.match(app, /root\.dataset\.docStyle = docStyle/);
+  assert.match(app, /function changeDocStyle\(/);
+  assert.match(app, /if \(event\.key === DOC_STYLE_STORAGE_KEY\)/);
+  assert.match(app, /DOC_STYLE_OPTIONS/);
+  // Notion is a delta on the same --md-* axis in the shared sheet. It must
+  // never become a per-theme fork or a second .markdown-body implementation.
+  assert.match(baseStyles, /:root\[data-doc-style="notion"\] \{/);
+  assert.doesNotMatch(themeStyles, /data-doc-style/);
+  assert.doesNotMatch(recipeStyles, /data-doc-style/);
+  assert.equal((baseStyles.match(/\.markdown-body \{ min-width: 0;/g) ?? []).length, 1);
+  // The renderer itself knows nothing about which skin is active.
+  assert.doesNotMatch(markdown, /docStyle|data-doc-style/);
+  for (const key of ["docStyle:", "docStyleDescription:", "docStyleFeishu:", "docStyleNotion:"]) {
+    assert.equal((i18n.match(new RegExp(`^\\s*${key}`, "gm")) ?? []).length, 2, key);
+  }
+  // Web mirrors the same skin and sets the attribute before first paint.
+  assert.match(read("../../../src/styles/markdown.css"), /:root\[data-doc-style="notion"\] \.markdown-body/);
+  assert.match(read("../../../src/routes/+layout.svelte"), /DOC_STYLE_STORAGE_KEY/);
+  assert.match(read("../../../src/app.html"), /dataset\.docStyle/);
+});
+
+test("every Desktop audio surface uses the one shared player", () => {
+  for (const surface of [transcriptAttachments, view, projectChat, mediaViewer, pendingFilesBar, sections.tts]) {
+    assert.match(surface, /<AudioPlayer/);
+    assert.doesNotMatch(surface, /<audio[^>]*controls/);
+  }
+  // A real decoded waveform with an honest flat-track fallback, a native
+  // range for keyboard/pointer seeking, and an accessible play control.
+  assert.match(audioPlayer, /decodeAudioData/);
+  assert.match(audioPlayer, /md-audio-flat-played/);
+  assert.match(audioPlayer, /type="range"/);
+  assert.match(audioPlayer, /aria-label=\{playLabel\}/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{ \.md-audio-play/);
 });
 
 test("completed turns and the Artifact Panel share one flat final-file list", () => {

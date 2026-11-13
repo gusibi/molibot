@@ -44,7 +44,7 @@ test('skill manager discovers, installs, verifies and keeps platform rules @work
   // The dev server hot-reloads when another editing session touches the app;
   // each segment re-asserts its view and filter so a reload cannot strand it.
   const openExternal = async () => {
-    await views.getByRole('button', { name: /^Other platforms/ }).click();
+    await views.getByRole('button', { name: /^Discover & install/ }).click();
     if (!(await sourceSelect.innerText()).includes('All sources')) {
       await sourceSelect.click();
       await page.getByRole('option', { name: /^All sources/ }).click();

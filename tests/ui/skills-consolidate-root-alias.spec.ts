@@ -22,7 +22,7 @@ test('consolidation recognizes a platform root link and protects the shared copy
     await expect(page.getByTestId('chat-composer')).toBeEnabled();
   const nav = page.getByRole('navigation', { name: 'Chat', exact: true });
   await nav.getByRole('button', { name: 'Skills', exact: true }).click();
-  await page.getByRole('group', { name: 'Skills', exact: true }).getByRole('button', { name: /^Other platforms/ }).click();
+  await page.getByRole('group', { name: 'Skills', exact: true }).getByRole('button', { name: /^Discover & install/ }).click();
   const card = page.locator('.installed-skill-card').filter({ hasText: 'root-alias' });
   await card.click();
   await page.locator('.skills-detail').getByRole('button', { name: 'Consolidate', exact: true }).click();

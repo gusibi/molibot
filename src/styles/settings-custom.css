@@ -3985,39 +3985,18 @@
   color: var(--muted-foreground);
 }
 
+/* The bubble owns only its surface. Everything inside (headings, lists,
+   tables, code, figures) comes from the shared `.markdown-body` document
+   scale in ./markdown.css, so a history preview reads like a live answer. */
 .session-msg-content {
   padding: 0.625rem 0.875rem;
   border: 1px solid color-mix(in oklab, var(--border) 44%, transparent);
   border-radius: 0.75rem;
   background: var(--muted);
-  font-size: 0.875rem;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
 }
 
 .session-msg[data-role="user"] .session-msg-content {
   background: color-mix(in oklab, var(--primary) 10%, var(--card));
-}
-
-.session-msg-content > :first-child { margin-top: 0; }
-.session-msg-content > :last-child { margin-bottom: 0; }
-
-.session-msg-content img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 0.5rem;
-}
-
-.session-msg-content pre {
-  overflow-x: auto;
-  padding: 0.625rem 0.75rem;
-  border-radius: 0.5rem;
-  background: color-mix(in oklab, var(--foreground) 6%, var(--card));
-}
-
-.session-msg-content code {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.8125rem;
 }
 
 .session-msg-attachments {

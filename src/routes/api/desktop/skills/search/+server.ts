@@ -36,6 +36,9 @@ function readConfig(): DesktopSkillSearchConfig {
     temperature: Number(search.api.temperature ?? 0),
     timeoutMs: Number(search.api.timeoutMs ?? 8000),
     minConfidence: Number(search.api.minConfidence ?? 0.6),
+    apiBaseUrl: search.api.baseUrl ?? "",
+    apiPath: search.api.path ?? "",
+    apiKeySet: Boolean(search.api.apiKey),
     providers
   };
 }

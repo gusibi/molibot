@@ -1,5 +1,5 @@
 import { isAgentWorkspace } from "$lib/server/sessions/agentStorage.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
   inspectSkillEntry,
@@ -191,6 +191,66 @@ function buildFrontmatterAliases(rawAliases: string | undefined): string[] {
   return Array.from(aliases.values());
 }
 
+/** `allowed-tools` accepts the Agent Skills standard's space-separated form. */
+function parseToolList(raw: string | undefined): string[] {
+  const source = String(raw ?? "").trim();
+  if (!source) return [];
+  if (source.startsWith("[") && source.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(source) as unknown;
+      if (Array.isArray(parsed)) {
+        return Array.from(new Set(parsed.map((item) => String(item ?? "").trim()).filter(Boolean)));
+      }
+    } catch {
+      // not JSON: fall through to the whitespace/comma form
+    }
+  }
+  return Array.from(
+    new Set(
+      source
+        .split(/[\s,]+/)
+        .map((item) => item.trim().replace(/^["']|["']$/g, ""))
+        .filter(Boolean)
+    )
+  );
+}
+
+export interface SkillTriggerInfo {
+  aliases: string[];
+  signals: SkillSignals;
+  allowedTools: string[];
+  disableModelInvocation: boolean;
+}
+
+/**
+ * The selection contract a Skill declares: how it can be named, what signals
+ * point at it, which tools it pre-approves, and whether the model may discover
+ * it. The loader and the management UI read the same projection so a card can
+ * explain *when* a Skill fires instead of only where its file lives.
+ */
+export function parseSkillTriggerInfo(
+  raw: string,
+  frontmatter: Record<string, string>,
+  name: string,
+  filePath: string
+): SkillTriggerInfo {
+  return {
+    aliases: Array.from(new Set([
+      ...buildSkillAliases(name, filePath),
+      ...buildFrontmatterAliases(frontmatter.aliases)
+    ])).sort((a, b) => a.localeCompare(b)),
+    signals: parseSkillSignals(raw, frontmatter),
+    allowedTools: parseToolList(
+      frontmatter["allowed-tools"] ?? frontmatter.allowedTools ?? frontmatter.allowed_tools
+    ),
+    disableModelInvocation: parseBooleanFlag(
+      frontmatter["disable-model-invocation"]
+        ?? frontmatter.disableModelInvocation
+        ?? frontmatter.disable_model_invocation
+    )
+  };
+}
+
 function extractDirectSlashSelector(inputText: string): string | null {
   const lines = String(inputText ?? "").split(/\r?\n/);
   for (const line of lines) {
@@ -329,14 +389,9 @@ export function loadSkillsFromWorkspace(
       continue;
     }
 
-    let raw = "";
-    try {
-      raw = readFileSync(filePath, "utf8");
-    } catch {
-      // inspectSkillEntry just read the same file; a failure here is a race with
-      // an external writer. Keep the parsed identity and skip signals parsing.
-    }
-
+    // `inspectSkillEntry` already read the file; reusing its content keeps a
+    // single source of truth and avoids a second read racing an external edit.
+    const trigger = parseSkillTriggerInfo(manifest.raw, fm, name, filePath);
     deduped.set(name, {
       name,
       description,
@@ -344,15 +399,10 @@ export function loadSkillsFromWorkspace(
       baseDir: entry.entryDir,
       scope: entry.scope as SkillScope,
       mcpServers: parseStringList(fm.mcpServers ?? fm.mcp_servers),
-      aliases: Array.from(new Set([
-        ...buildSkillAliases(name, filePath),
-        ...buildFrontmatterAliases(fm.aliases)
-      ])).sort((a, b) => a.localeCompare(b)),
-      signals: parseSkillSignals(raw, fm),
-      allowedTools: parseStringList(fm["allowed-tools"] ?? fm.allowedTools ?? fm.allowed_tools),
-      disableModelInvocation: parseBooleanFlag(
-        fm["disable-model-invocation"] ?? fm.disableModelInvocation ?? fm.disable_model_invocation
-      )
+      aliases: trigger.aliases,
+      signals: trigger.signals,
+      allowedTools: trigger.allowedTools,
+      disableModelInvocation: trigger.disableModelInvocation
     });
   }
 

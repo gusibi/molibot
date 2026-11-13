@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { inspectSkillEntry, scanSkillRoot, isIgnoredScanDirectory } from "$lib/server/agent/skills/skillScan.js";
 import { isSkillBackupDirectory, skillBackupName } from "$lib/server/agent/skills/skillBackup.js";
 import { inspectSkillTree, copySkillTree, isValidSkillName } from "$lib/server/skills/tree.js";
 import type { SkillTreeInspection } from "$lib/server/skills/tree.js";
 import type { SkillManagerStore } from "$lib/server/skills/store.js";
-import type { DesktopSkillMaintenanceScan, DesktopSkillMaintenanceEntry, DesktopSkillMaintenanceRequest, DesktopSkillMaintenancePlan, DesktopSkillMaintenanceResult, DesktopSkillMaintenanceComparison } from "$lib/shared/desktop";
+import type { DesktopSkillMaintenanceScan, DesktopSkillMaintenanceEntry, DesktopSkillMaintenanceRequest, DesktopSkillMaintenancePlan, DesktopSkillMaintenanceResult, DesktopSkillMaintenanceComparison, DesktopSkillMaintenanceWarning } from "$lib/shared/desktop";
 
 export interface MaintenanceRoot {
   path: string;
@@ -20,6 +20,7 @@ const digest = (value: unknown): string => createHash("sha256").update(JSON.stri
 const inside = (root: string, path: string): boolean => path === root || path.startsWith(root + sep);
 function present(path: string): boolean { try { lstatSync(path); return true; } catch { return false; } }
 function real(path: string): string { try { return realpathSync(path); } catch { return resolve(path); } }
+function directoryFollowingLinks(path: string): boolean { try { return statSync(path).isDirectory(); } catch { return false; } }
 function removeEntry(path: string): void {
   if (!present(path)) return;
   if (lstatSync(path).isSymbolicLink()) unlinkSync(path);
@@ -36,7 +37,15 @@ export class SkillMaintenance {
     const entries = new Map<string, DesktopSkillMaintenanceEntry>();
     const backups = new Map<string, DesktopSkillMaintenanceScan["backups"][number]>();
     const broken = new Map<string, DesktopSkillMaintenanceScan["brokenLinks"][number]>();
-    const warnings = new Set<string>();
+    // One line per path: the scan and the backup walk can both hit the same
+    // unreadable directory, and repeating it only inflates the warning list.
+    const warnings = new Map<string, DesktopSkillMaintenanceWarning>();
+    const warn = (path: string, code: DesktopSkillMaintenanceWarning["code"], message: string): void => {
+      if (!warnings.has(path)) warnings.set(path, { code, path, message });
+    };
+    // Only a directory the scan could not read can hide entries (and therefore
+    // references). A file sitting where a root was expected hides nothing.
+    let scanIncomplete = false;
     const treeCache = new Map<string, SkillTreeInspection>();
     const tree = (path: string): SkillTreeInspection => {
       const key = real(path);
@@ -51,11 +60,18 @@ export class SkillMaintenance {
     }
     for (const root of rootMap.values()) {
       if (!present(root.path)) continue;
+      // A macOS alias or plain file at a configured root cannot contain Skills.
+      // The platform list already reports that configuration mistake; treating
+      // it as an incomplete content scan would block unrelated cleanup.
+      if (!directoryFollowingLinks(root.path)) continue;
       const scan = scanSkillRoot(root.path);
       for (const diagnostic of scan.diagnostics) {
         if (diagnostic.code === "broken_link" && present(diagnostic.path) && lstatSync(diagnostic.path).isSymbolicLink()) {
           broken.set(diagnostic.path, { id: digest(diagnostic.path), path: diagnostic.path, target: resolve(dirname(diagnostic.path), readlinkSync(diagnostic.path)), platforms: [root.label], writable: root.writable && diagnostic.path !== root.path });
-        } else warnings.add(`${diagnostic.path}: ${diagnostic.message}`);
+        } else {
+          warn(diagnostic.path, diagnostic.code === "truncated" ? "truncated" : "unreadable", diagnostic.message);
+          if (diagnostic.code !== "broken_link") scanIncomplete = true;
+        }
       }
       for (const entry of scan.entries) {
         const previous = entries.get(entry.entryDir);
@@ -75,17 +91,17 @@ export class SkillMaintenance {
       }
       let visited = 0;
       const collectBackups = (path: string, depth: number): void => {
-        if (depth > 6 || ++visited > 4000) { warnings.add(`Backup scan limit: ${root.path}`); return; }
+        if (depth > 6 || ++visited > 4000) { warn(root.path, "truncated", "Backup scan limit"); scanIncomplete = true; return; }
         let children;
         try { children = readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); }
-        catch { warnings.add(`Cannot read backups: ${path}`); return; }
+        catch { warn(path, "unreadable", "Cannot read backups"); scanIncomplete = true; return; }
         for (const child of children) {
           const childPath = join(path, child.name);
           if (isSkillBackupDirectory(child.name)) {
             const isLink = child.isSymbolicLink();
             const inspection = isLink ? null : tree(childPath);
             const originalName = child.name.slice(0, child.name.lastIndexOf(".backup-"));
-            if (!originalName || originalName === "." || originalName === "..") { warnings.add(`Invalid backup name: ${childPath}`); continue; }
+            if (!originalName || originalName === "." || originalName === "..") { warn(childPath, "invalid-backup", "Invalid backup name"); continue; }
             const originalPath = join(path, originalName);
             backups.set(childPath, { id: digest(childPath), path: childPath, originalPath, createdAt: child.name.replace(/^.*\.backup-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, "$1T$2:$3:$4.$5Z"), bytes: inspection?.totalBytes ?? 0, isLink, references: [], writable: root.writable });
           } else if (child.isDirectory() && !isIgnoredScanDirectory(child.name) && !existsSync(join(childPath, "SKILL.md"))) collectBackups(childPath, depth + 1);
@@ -104,7 +120,10 @@ export class SkillMaintenance {
       for (const problem of inspection.problems) {
         if (problem.code === "symlink_escape" || (problem.code === "unreadable" && present(problem.path) && lstatSync(problem.path).isSymbolicLink())) {
           internalReferences.push({ path: join(entry.path, relative(inspection.realRoot, problem.path)), target: existsSync(problem.path) ? real(problem.path) : resolve(dirname(problem.path), readlinkSync(problem.path)) });
-        } else if (problem.code !== "symlink_loop") warnings.add(`${problem.path}: ${problem.message}`);
+        } else if (problem.code !== "symlink_loop") {
+          warn(problem.path, problem.code === "unreadable" ? "unreadable" : "truncated", problem.message);
+          scanIncomplete = true;
+        }
       }
     }
     const slotPath = (path: string): string => join(real(dirname(path)), basename(path));
@@ -136,7 +155,7 @@ export class SkillMaintenance {
       group.relation = group.entries.length === 1 ? "single" : physical.size === 1 ? "linked" : hashes.size === 1 && group.entries.every((entry) => !entry.problems.length) ? "identical" : "different";
       group.writable = Boolean(group.destination) && group.entries.every((entry) => entry.writable && !entry.problems.length);
     }
-    return { groups: [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope)), backups: [...backups.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), brokenLinks: [...broken.values()], warnings: [...warnings], scannedAt: new Date().toISOString() };
+    return { groups: [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope)), backups: [...backups.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), brokenLinks: [...broken.values()], warnings: [...warnings.values()], scanIncomplete, scannedAt: new Date().toISOString() };
   }
 
   compare(leftId: string, rightId: string): DesktopSkillMaintenanceComparison {
@@ -232,7 +251,10 @@ export class SkillMaintenance {
         snapshots.push(backup, snapshot(backup.path), snapshot(backup.originalPath), { parent: real(dirname(backup.path)) });
         if (request.kind === "delete-backup") {
           if (backup.references.length) conflicts.push({ code: "backup_referenced", path: backup.path });
-          if (scan.warnings.length) conflicts.push({ code: "incomplete_scan", path: "" });
+          // Unreadable directories leave references unknown. The owner can
+          // accept that uncertainty for this one backup; consolidation and
+          // restore stay hard-blocked because they rewrite live content.
+          if (scan.scanIncomplete && !request.acknowledgeScan) conflicts.push({ code: "incomplete_scan", path: "" });
           changes.push({ path: backup.path, action: "delete", target: "", backupPath: "" });
         } else {
           if (!inspectSkillEntry(backup.path).ok || inspectSkillTree(backup.path).problems.length) conflicts.push({ code: "invalid_backup", path: backup.path });

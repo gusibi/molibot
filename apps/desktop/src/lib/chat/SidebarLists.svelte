@@ -6,6 +6,7 @@
   import Users2 from "../icons/duotone/components/Users2.svelte";
   import Dialog from "../icons/duotone/components/Dialog.svelte";
   import ChannelAccordion, { type ChannelDescriptor } from "./ChannelAccordion.svelte";
+  import GroupHeader from "./GroupHeader.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { AgentRoom } from "@molibot/shared/rooms";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
@@ -142,6 +143,9 @@
 </script>
 
 <div class="sidebar-channels" class:sidebar-channels-flyout={variant === "flyout"} data-theme-region="session-list">
+  {#if variant === "sidebar"}
+    <h2 class="sidebar-group-label">{copy.sidebarCollaboration}</h2>
+  {/if}
   {#if sections.includes("conversations")}
     <section class="sidebar-tree-section">
       <div class="sidebar-section-head">
@@ -171,19 +175,25 @@
         <button type="button" class="sidebar-section-caret-btn sidebar-section-action" aria-label={roomsCreateLabel} title={roomsCreateLabel} onclick={onCreateRoom}><Plus size={16} aria-hidden="true" /></button>
       </div>
       {#if roomsOpen}
-        <div class="sidebar-tree-children">
-        {#if rooms.length === 0}
-          <p class="rooms-empty">{roomsEmptyLabel}</p>
-        {:else}
-          {#each rooms as room (room.id)}
-            <RowContextMenu items={[{label: roomsEditLabel, onSelect: () => onEditRoom(room.id)}, {label: roomsDeleteLabel, danger: true, onSelect: () => onDeleteRoom(room.id)}]}>
-            <button type="button" class="sidebar-room-row" class:active={room.id === activeRoomId} aria-current={room.id === activeRoomId ? "page" : undefined} onclick={() => onSelectRoom(room.id)}>
-              <span class="sidebar-room-title">{room.title}</span>
-              <span class="sidebar-room-meta">{roomMeta(room)}</span>
-            </button>
-            </RowContextMenu>
-          {/each}
-        {/if}
+        <div class="sidebar-tree-children rooms-tree">
+          {#if rooms.length === 0}
+            <p class="rooms-empty">{roomsEmptyLabel}</p>
+          {:else}
+            {#each rooms as room (room.id)}
+              <RowContextMenu items={[{label: roomsEditLabel, onSelect: () => onEditRoom(room.id)}, {label: roomsDeleteLabel, danger: true, onSelect: () => onDeleteRoom(room.id)}]}>
+                <GroupHeader
+                  label={room.title}
+                  active={room.id === activeRoomId}
+                  open={false}
+                  expandable={false}
+                  onToggle={() => onSelectRoom(room.id)}
+                >
+                  {#snippet avatar()}<Dialog size={16} aria-hidden="true" />{/snippet}
+                  {#snippet status()}<span class="sidebar-room-meta">{roomMeta(room)}</span>{/snippet}
+                </GroupHeader>
+              </RowContextMenu>
+            {/each}
+          {/if}
         </div>
       {/if}
     </section>
@@ -209,28 +219,16 @@
   /* In the collapsed flyout the rail already owns the left edge and the flyout
      owns the divider, so the bleed-to-divider trick does not apply. */
   .sidebar-channels-flyout { margin-right: 0; }
-  .sidebar-tree-section { min-width: 0; padding: 0 0 8px; }
-  .sidebar-room-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    height: 30px;
-    padding: 0 8px;
-    border: 0;
-    border-radius: var(--rounded-sm, 6px);
-    background: transparent;
-    color: var(--label-primary);
-    text-align: left;
-    font: inherit;
-    font-size: var(--fs-label);
-    line-height: var(--lh-label);
-    cursor: pointer;
-    transition: background var(--duration-instant) var(--ease-standard);
+  .sidebar-group-label {
+    margin: 8px 12px;
+    color: var(--label-tertiary);
+    font-size: var(--fs-meta);
+    line-height: var(--lh-meta);
+    font-weight: 600;
+    letter-spacing: var(--tracking-caps);
   }
-  .sidebar-room-row:hover { background: var(--fill); }
-  .sidebar-room-row.active { background: var(--fill); font-weight: 600; }
-  .sidebar-room-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sidebar-room-meta { flex: 0 0 auto; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-variant-numeric: tabular-nums; }
+  .sidebar-tree-section { min-width: 0; padding: 0 0 4px; }
+  .sidebar-room-meta { flex: 0 0 auto; color: var(--label-tertiary); font-size: var(--fs-meta); line-height: var(--lh-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rooms-tree :global(.conv-group-head.active) { background: var(--fill); }
   .rooms-empty { margin: 0; padding: 6px 8px 6px 32px; color: var(--label-tertiary); font-size: var(--fs-label); line-height: var(--lh-label); }
 </style>

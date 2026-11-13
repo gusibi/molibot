@@ -82,6 +82,8 @@
       btnSaveDraft: "保存草稿",
       btnPromote: "提升为技能",
       btnDeleteDraft: "删除草稿",
+      btnDeleteConfirm: "确认删除？",
+      loadedMsg: "已加载 {count} 个技能草稿。",
       modalEditTitle: "编辑草稿内容",
       modalFullContent: "完整草稿内容",
       modalCancel: "取消",
@@ -135,6 +137,8 @@
       btnSaveDraft: "Save Draft",
       btnPromote: "Promote To Skill",
       btnDeleteDraft: "Delete Draft",
+      btnDeleteConfirm: "Confirm delete?",
+      loadedMsg: "Loaded {count} skill draft(s).",
       modalEditTitle: "Edit Draft Content",
       modalFullContent: "Full Draft Content",
       modalCancel: "Cancel",
@@ -168,6 +172,9 @@
   };
   let counts: Counts = { total: 0, botCount: 0, chatCount: 0 };
   let saving = new Set<string>();
+  /** Two-step delete: the first click arms the row, the second removes it. */
+  let pendingDelete = "";
+  let pendingDeleteTimer: ReturnType<typeof setTimeout> | undefined;
   let draftContent: Record<string, string> = {};
   let draftName: Record<string, string> = {};
   let draftScope: Record<string, SkillScope> = {};
@@ -269,7 +276,8 @@
       syncDraftState(items);
       message = copy.loadedMsg.replace("{count}", String(items.length));
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = copy.failedLoad;
+      console.error(e);
     } finally {
       loading = false;
     }
@@ -293,7 +301,8 @@
       skillDrafts = normalizeSkillDraftSettings(data.skillDrafts ?? skillDrafts);
       message = copy.configSaved;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = copy.failedSaveConfig;
+      console.error(e);
     } finally {
       savingConfig = false;
     }
@@ -316,7 +325,8 @@
       await loadDrafts();
       return true;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = copy.failedSaveDraft;
+      console.error(e);
       return false;
     } finally {
       setSaving(filePath, false);
@@ -342,10 +352,23 @@
       message = copy.promoteSuccess.replace("{path}", data.saved?.filePath || "skill");
       await loadDrafts();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = copy.failedPromote;
+      console.error(e);
     } finally {
       setSaving(filePath, false);
     }
+  }
+
+  function requestDeleteDraft(item: SkillDraftItem): void {
+    if (pendingDelete === item.filePath) {
+      pendingDelete = "";
+      if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
+      void deleteDraft(item);
+      return;
+    }
+    pendingDelete = item.filePath;
+    if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
+    pendingDeleteTimer = setTimeout(() => (pendingDelete = ""), 4000);
   }
 
   async function deleteDraft(item: SkillDraftItem): Promise<void> {
@@ -364,7 +387,8 @@
       message = copy.draftDeleted;
       await loadDrafts();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = copy.failedDelete;
+      console.error(e);
     } finally {
       setSaving(filePath, false);
     }
@@ -561,8 +585,8 @@
                 <Button size="sm" disabled={saving.has(item.filePath)} onclick={() => promoteDraft(item)}>
                   {copy.btnPromote}
                 </Button>
-                <Button variant="destructive" size="sm" disabled={saving.has(item.filePath)} onclick={() => deleteDraft(item)}>
-                  {copy.btnDeleteDraft}
+                <Button variant="destructive" size="sm" disabled={saving.has(item.filePath)} onclick={() => requestDeleteDraft(item)}>
+                  {pendingDelete === item.filePath ? copy.btnDeleteConfirm : copy.btnDeleteDraft}
                 </Button>
               </div>
             </div>

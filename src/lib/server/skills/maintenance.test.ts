@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, lstatSync, existsSync, realpathSync, symlinkSync, rmSync, renameSync, readdirSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, lstatSync, existsSync, realpathSync, symlinkSync, rmSync, renameSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test, { type TestContext } from "node:test";
@@ -265,7 +265,7 @@ test("malformed backup names cannot restore over a configured root", (t) => {
   writeFileSync(join(malformed, "SKILL.md"), "---\nname: malformed\ndescription: unsafe backup\n---\nbody");
   const scan = h.service.scan();
   assert.equal(scan.backups.length, 0);
-  assert.ok(scan.warnings.some((warning) => warning.includes("Invalid backup name")));
+  assert.ok(scan.warnings.some((warning) => warning.code === "invalid-backup"));
   assert.equal(lstatSync(h.claude).isDirectory(), true);
 });
 
@@ -284,4 +284,60 @@ test("managed installations retain identity and reflect links after maintenance"
   assert.equal(updated.method, "link");
   assert.equal(updated.health, "ok");
   assert.equal(h.store.getInstallation(original.id)?.method, "link");
+});
+
+test("a file at a configured root is a platform mistake, not an incomplete scan", (t) => {
+  const h = harness(t);
+  const alias = join(h.root, "alias-root");
+  writeFileSync(alias, "macOS alias");
+  const service = new SkillMaintenance([
+    { path: alias, label: "Alias", scope: "global", destination: h.shared, writable: true }
+  ], h.store);
+  const scan = service.scan();
+  assert.deepEqual(scan.warnings, []);
+  assert.equal(scan.scanIncomplete, false);
+});
+
+test("unreadable directories warn once and gate backup deletion until acknowledged", (t) => {
+  const h = harness(t);
+  h.skill(h.claude, "cleanup");
+  const backup = join(h.claude, skillBackupName("cleanup"));
+  renameSync(join(h.claude, "cleanup"), backup);
+  const blocked = join(h.claude, "blocked");
+  mkdirSync(blocked);
+  chmodSync(blocked, 0o000);
+  try {
+    const scan = h.service.scan();
+    assert.equal(scan.scanIncomplete, true);
+    assert.equal(scan.warnings.length, 1);
+    const record = scan.backups.find((item) => item.path === backup);
+    assert.ok(record);
+
+    const blockedPlan = h.service.preflight({ kind: "delete-backup", id: record.id });
+    assert.equal(blockedPlan.executable, false);
+    assert.ok(blockedPlan.conflicts.some((conflict) => conflict.code === "incomplete_scan"));
+
+    const accepted = h.service.preflight({ kind: "delete-backup", id: record.id, acknowledgeScan: true });
+    assert.equal(accepted.executable, true);
+    assert.equal(h.service.apply(accepted.request, accepted.token).ok, true);
+    assert.equal(existsSync(backup), false);
+  } finally {
+    chmodSync(blocked, 0o755);
+  }
+});
+
+test("a malformed backup name is reported without blocking unrelated cleanup", (t) => {
+  const h = harness(t);
+  h.skill(h.claude, "keep");
+  const backup = join(h.claude, skillBackupName("keep"));
+  renameSync(join(h.claude, "keep"), backup);
+  mkdirSync(join(h.claude, skillBackupName("")));
+
+  const scan = h.service.scan();
+  assert.equal(scan.scanIncomplete, false);
+  assert.ok(scan.warnings.some((warning) => warning.code === "invalid-backup"));
+  const record = scan.backups.find((item) => item.path === backup);
+  assert.ok(record);
+  const plan = h.service.preflight({ kind: "delete-backup", id: record.id });
+  assert.equal(plan.executable, true);
 });

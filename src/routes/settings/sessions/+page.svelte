@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
+  import { AudioPlayer } from "$lib/components/ui/audio-player";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
@@ -1145,7 +1146,7 @@
               <article class="session-msg" data-role={message.role}>
                 <p class="session-msg-meta">{message.role === "user" ? t("you") : "Molibot"} · {formatDate(message.createdAt)}{message.model ? ` · ${message.model}` : ""}</p>
                 {#if message.content}
-                  <div class="session-msg-content">{@html renderMarkdown(message.content)}</div>
+                  <div class="session-msg-content markdown-body">{@html renderMarkdown(message.content)}</div>
                 {/if}
                 {#if message.attachments?.length}
                   <div class="session-msg-attachments">
@@ -1157,8 +1158,9 @@
                             <img src={attachmentUrl(attachment)} alt={attachment.original} loading="lazy" decoding="async" />
                           </a>
                         {:else if attachment.mediaType === "audio"}
-                          <!-- svelte-ignore a11y_media_has_caption -->
-                          <audio class="session-attachment-media" controls preload="metadata" src={attachmentUrl(attachment)}></audio>
+                          <div class="session-attachment-media">
+                            <AudioPlayer src={attachmentUrl(attachment)} title={attachment.original} />
+                          </div>
                         {:else if attachment.mediaType === "video"}
                           <!-- svelte-ignore a11y_media_has_caption -->
                           <video class="session-attachment-media" controls preload="metadata" src={attachmentUrl(attachment)}></video>

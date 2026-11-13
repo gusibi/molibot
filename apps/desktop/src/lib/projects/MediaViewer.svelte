@@ -3,6 +3,7 @@
   import SearchMinus from "reicon-svelte/icons/SearchMinus";
   import SearchPlus from "reicon-svelte/icons/SearchPlus";
   import type { Translation } from "../i18n";
+  import AudioPlayer from "../components/AudioPlayer.svelte";
   import type { RawPreviewKind } from "@molibot/shared/filePreview";
   import { formatSize } from "./fileIcons";
 
@@ -170,7 +171,7 @@
       <!-- svelte-ignore a11y_media_has_caption -->
       <video class="media-viewer-video" src={src} controls preload="metadata" onerror={() => (failed = true)}></video>
     {:else if kind === "audio"}
-      <audio class="media-viewer-audio" src={src} controls preload="metadata" onerror={() => (failed = true)}></audio>
+      <AudioPlayer {src} title={name} labels={copy} onError={() => (failed = true)} />
     {:else if kind === "pdf"}
       <embed class="media-viewer-pdf" src={src} type="application/pdf" title={name} />
     {/if}

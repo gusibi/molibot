@@ -3,6 +3,7 @@
   import EyeSlash from "reicon-svelte/icons/EyeSlash";
   import { onDestroy } from "svelte";
   import EmptyState from "../components/ui/EmptyState.svelte";
+  import AudioPlayer from "../components/AudioPlayer.svelte";
   import IosSwitch from "../components/ui/IosSwitch.svelte";
   import SelectControl from "../components/ui/SelectControl.svelte";
   import SettingGroup from "../components/ui/SettingGroup.svelte";
@@ -122,7 +123,7 @@
       <button class="secondary-button" type="button" disabled={toolsStore.testBusy} onclick={() => void testToolSettings("ttsGenerate")}>{toolsStore.testBusy ? session.text.loading : session.text.toolTest}</button>
     </div>
     {#if toolsStore.ttsTestAudioUrl}
-      <audio class="tool-test-audio" controls src={toolsStore.ttsTestAudioUrl}>{session.text.ttsAudioUnsupported}</audio>
+      <div class="tool-test-audio"><AudioPlayer src={toolsStore.ttsTestAudioUrl} labels={session.text} /></div>
     {/if}
     {#if toolsStore.testResult}
       <pre class:run-history-failed={!toolsStore.testResult.ok} class="tool-test-result">{JSON.stringify(toolsStore.testResult.result ?? toolsStore.testResult.error, null, 2)}</pre>

@@ -216,6 +216,37 @@
      base ranks — these are dialog-scoped, not a license to resize lists. */
   --fs-section: 19px;  --lh-section: 24px;
   --fs-body-lg: 14.5px; --lh-body-lg: 18px;
+  /* Document typesetting for model prose. This is a separate axis from the
+     three UI ranks above: a rendered document reads at 15px/1.67, just above
+     the 14px control rank — close enough to sit in the same chat timeline
+     without looking oversized. One scale drives every Markdown surface (transcript,
+     Artifact preview, Kanban replies, process text), so reading rhythm is
+     identical in all 25 theme families rather than being a Feishu-only skin.
+     Numeric values are calibrated against the widely used Lark/Feishu Markdown
+     theme in imageslr/mweb-themes (src/themes/variables/lark.scss); the rules
+     themselves are ours, written against semantic tokens so light/dark and
+     imported themes adapt without a per-family override. */
+  --md-fs-body: 15px;      --md-lh-body: 25px;
+  --md-fs-h1: 24px;        --md-lh-h1: 34px;
+  --md-fs-h2: 20px;        --md-lh-h2: 28px;
+  --md-fs-h3: 18px;        --md-lh-h3: 26px;
+  --md-fs-h4: 16px;        --md-lh-h4: 23px;
+  --md-fs-h5: 15px;        --md-lh-h5: 22px;
+  --md-fs-code: 14px;      --md-lh-code: 22px;
+  --md-fs-table: 14px;     --md-lh-table: 22px;
+  --md-fs-caption: 12px;   --md-lh-caption: 18px;
+  /* A heading opens a group above it: the gap equals its own font size, and
+     the line that follows stays 8px away. Peers share one 8px gap. */
+  --md-gap-block: 8px;
+  --md-gap-heading: 8px;
+  --md-gap-rule: 16px;
+  --md-gap-tight: 4px;
+  --md-pad-block: 12px 14px;
+  --md-radius: 4px;
+  --md-radius-panel: 6px;
+  --md-border: var(--separator);
+  --md-border-strong: color-mix(in srgb, var(--separator) 60%, var(--label-tertiary));
+  --md-surface: color-mix(in srgb, var(--fill) 55%, var(--card-bg));
   /* Icons use their own size namespace so text scale changes do not resize
      controls by accident. */
   --icon-xs: 12px; --icon-sm: 14px; --icon-md: 16px; --icon-lg: 18px;
@@ -759,29 +790,30 @@ a:focus-visible {
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 32px;
+  min-height: 36px;
   padding: 0;
   background: transparent;
 }
 .sidebar-section-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   flex: 1;
   min-width: 0;
-  height: 32px;
-  /* One shared left origin (8px) for section heads, nav items, channel headers
-     and project rows — the session tree is a single left-aligned grid. */
-  padding: 0 8px;
+  height: 36px;
+  /* Primary entries share the same icon and text columns. */
+  padding: 0 12px;
   border: 0;
   background: transparent;
   color: var(--label-secondary);
   font: inherit;
-  font-size: var(--fs-label);
-  font-weight: 500;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: 400;
   text-align: left;
   cursor: pointer;
 }
+.sidebar-section-toggle > .reicon { width: 18px; height: 18px; flex: 0 0 auto; }
 .sidebar-section-toggle:hover { color: var(--label-primary); }
 .sidebar-section-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); border-radius: var(--rounded-sm); }
 .sidebar-section-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2333,7 +2365,7 @@ a:focus-visible {
 .media-viewer-image.fitted { max-width: 100%; max-height: 100%; object-fit: contain; }
 .media-viewer-image:not(.fitted) { max-width: none; max-height: none; }
 .media-viewer-video { max-width: 100%; max-height: 100%; border-radius: var(--rounded-sm); background: #000; }
-.media-viewer-audio { width: 100%; max-width: 360px; }
+.media-viewer-stage .md-audio-player { max-width: 360px; }
 .media-viewer-pdf { width: 100%; height: 100%; min-height: 320px; border: 0; border-radius: var(--rounded-sm); background: var(--surface-secondary); }
 
 .file-menu-backdrop { position: fixed; inset: 0; z-index: 60; }
@@ -2508,7 +2540,7 @@ a:focus-visible {
 .preview-card header button { padding: 5px 11px; border: 0; border-radius: var(--rounded-sm); background: var(--fill); font-size: var(--fs-meta); cursor: pointer; }
 .preview-body { display: flex; align-items: center; justify-content: center; min-height: 0; padding: 18px; overflow: auto; overscroll-behavior: contain; }
 .preview-body img, .preview-body video { max-width: 100%; max-height: 70vh; border-radius: var(--rounded-sm); }
-.preview-body audio { width: min(480px, 80vw); }
+.preview-body .md-audio-player { max-width: min(480px, 80vw); }
 .search-bar {
   position: relative;
   display: flex;
@@ -3005,7 +3037,6 @@ a:focus-visible {
 .attachment-name { overflow: hidden; max-width: 200px; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-chip button { padding: 2px 7px; border: 0; border-radius: var(--rounded-sm); background: var(--fill); color: var(--accent); font-size: var(--fs-meta); font-weight: 500; cursor: pointer; }
 .attachment-chip button:disabled { opacity: .5; cursor: default; }
-.attachment-audio { height: 30px; max-width: 220px; }
 .transcript-attachments { display: grid; gap: 8px; max-width: min(100%, 560px); }
 .message-row.mine .transcript-attachments { justify-items: end; }
 .transcript-media { width: min(100%, 480px); margin: 0; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--soft-shadow); }
@@ -3037,36 +3068,95 @@ a:focus-visible {
 .transcript-media figcaption button, .transcript-media-heading button { display: grid; place-items: center; width: 26px; height: 26px; flex: none; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); cursor: pointer; }
 .transcript-media figcaption button:hover, .transcript-media-heading button:hover { background: var(--fill); color: var(--accent); }
 .transcript-media-heading > .reicon { width: var(--icon-lg); height: var(--icon-lg); color: var(--chart-purple); }
-.transcript-audio { padding-bottom: 10px; }
-.transcript-audio audio { display: block; width: calc(100% - 20px); height: 36px; margin: 0 10px; }
+.transcript-audio { padding: 0; }
+/* One audio player for voice notes, file previews, pending attachments, the
+   media viewer and the TTS test panel. Native controls cannot be themed and
+   render differently per WebView, which is why those surfaces disagreed. The
+   card surface belongs to the caller (.transcript-media, .preview-body, a
+   settings row), so the player itself is borderless. The waveform is decoded
+   from the real bytes; an undecodable source falls back to a flat track. */
+.md-audio-player { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 480px; min-width: 0; padding: 8px 10px; font-size: var(--fs-meta); line-height: var(--lh-meta); }
+.md-audio-player audio { display: none; }
+.md-audio-heading { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 20px; color: var(--label-secondary); }
+.md-audio-heading span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-audio-glyph { flex: none; color: var(--chart-purple); }
+.md-audio-body { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.md-audio-play { display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--radius-full); background: var(--accent); color: var(--on-accent); cursor: pointer; transition: transform var(--duration-instant) var(--ease-standard); }
+.md-audio-play:hover { transform: scale(1.06); }
+.md-audio-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.md-audio-track { position: relative; flex: 1 1 auto; min-width: 0; height: 28px; }
+.md-audio-wave { position: absolute; inset: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; }
+.md-audio-wave > span { flex: 1 1 0; min-width: 2px; max-width: 4px; min-height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--label-tertiary) 45%, transparent); }
+.md-audio-wave > span.played { background: var(--accent); }
+.md-audio-wave > .md-audio-flat, .md-audio-wave > .md-audio-flat-played { position: absolute; left: 0; top: 50%; flex: none; min-width: 0; max-width: none; height: 3px; border-radius: 2px; transform: translateY(-50%); }
+.md-audio-wave > .md-audio-flat { width: 100%; background: color-mix(in srgb, var(--label-tertiary) 45%, transparent); }
+.md-audio-wave > .md-audio-flat-played { background: var(--accent); }
+.md-audio-seek { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; appearance: none; background: transparent; cursor: pointer; }
+.md-audio-seek::-webkit-slider-thumb { appearance: none; width: 3px; height: 20px; border: 0; border-radius: 2px; background: var(--accent); }
+.md-audio-seek::-moz-range-thumb { width: 3px; height: 20px; border: 0; border-radius: 2px; background: var(--accent); }
+.md-audio-seek:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.md-audio-seek:disabled { opacity: 0; cursor: default; }
+.md-audio-time { flex: none; color: var(--label-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.md-audio-speed, .md-audio-download { display: grid; place-items: center; flex: none; height: 24px; min-width: 34px; padding: 0 6px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--label-secondary); font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+.md-audio-download { min-width: 24px; padding: 0; }
+.md-audio-speed:hover, .md-audio-download:hover { background: var(--fill); color: var(--accent); }
+.md-audio-speed:focus-visible, .md-audio-download:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.md-audio-error { margin: 0; color: var(--danger); }
+@media (prefers-reduced-motion: reduce) { .md-audio-play:hover { transform: none; } }
 .transcript-media-loading, .transcript-media-error { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 96px; padding: 16px; border: 0; background: var(--surface-secondary); color: var(--label-secondary); font-size: var(--fs-label); }
 .transcript-audio .transcript-media-loading, .transcript-audio .transcript-media-error { min-height: 48px; margin: 0 10px; width: calc(100% - 20px); border-radius: var(--rounded-sm); }
 .transcript-media-error { color: var(--danger); cursor: pointer; }
 .transcript-media-loading > .reicon { width: var(--icon-md); height: var(--icon-md); animation: activity-spin 1.1s linear infinite; color: var(--accent); }
-.markdown-body { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+/* Document rhythm: peer blocks share one gap, a heading opens a group above it
+   and stays close to the line that follows. That grouping — not extra colour —
+   is what separates a document from a stack of equally spaced boxes. The scale
+   lives in :root so every theme family inherits the same reading rhythm. */
+.markdown-body { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; font-size: var(--md-fs-body); line-height: var(--md-lh-body); color: var(--label-primary); }
 .markdown-body > :first-child,
 .markdown-body > .chat-markdown-segment:first-child > :first-child,
 .markdown-body > .md-stream-block:first-child > :first-child { margin-top: 0; }
 .markdown-body > :last-child,
 .markdown-body > .chat-markdown-segment:last-child > :last-child,
 .markdown-body > .md-stream-block:last-child > :last-child { margin-bottom: 0; }
-.markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre, .markdown-body blockquote { margin: 0 0 12px; }
-.markdown-body p { line-height: 1.62; text-wrap: pretty; }
-.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { margin: 20px 0 8px; line-height: 1.28; letter-spacing: -0.015em; font-weight: 600; text-wrap: balance; }
-.markdown-body h1 { font-size: 1.35em; margin-top: 24px; padding-bottom: 4px; border-bottom: 1px solid var(--hairline); }
-.markdown-body h2 { font-size: 1.2em; margin-top: 20px; }
-.markdown-body h3, .markdown-body h4 { font-size: 1.05em; margin-top: 16px; }
-.markdown-body ul, .markdown-body ol { padding-left: 22px; line-height: 1.6; }
-.markdown-body li { margin-bottom: 4px; }
-.markdown-body li + li { margin-top: 4px; }
-.markdown-body li::marker { color: var(--label-tertiary); }
+.markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre, .markdown-body blockquote,
+.markdown-body .md-figure, .markdown-body .markdown-table-wrap, .markdown-body .code-block { margin: 0 0 var(--md-gap-block); }
+.markdown-body p { text-wrap: pretty; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { margin: 0 0 var(--md-gap-heading); font-weight: 500; line-height: 1.4; text-wrap: balance; color: var(--label-primary); }
+/* Feishu opens a section by one heading-height of space: the gap above a
+   heading equals its own size, so the hierarchy is felt, not just measured. */
+.markdown-body h1 { font-size: var(--md-fs-h1); line-height: var(--md-lh-h1); margin-top: var(--md-fs-h1); padding-bottom: 8px; border-bottom: 1px solid var(--md-border); }
+.markdown-body h2 { font-size: var(--md-fs-h2); line-height: var(--md-lh-h2); margin-top: var(--md-fs-h2); }
+.markdown-body h3 { font-size: var(--md-fs-h3); line-height: var(--md-lh-h3); margin-top: var(--md-fs-h3); }
+.markdown-body h4 { font-size: var(--md-fs-h4); line-height: var(--md-lh-h4); margin-top: var(--md-fs-h4); }
+.markdown-body h5, .markdown-body h6 { font-size: var(--md-fs-h5); line-height: var(--md-lh-h5); margin-top: var(--md-fs-h5); color: var(--label-secondary); }
+.markdown-body ul, .markdown-body ol { padding-left: 24px; }
+.markdown-body li { margin-bottom: var(--md-gap-tight); line-height: 1.6; }
+.markdown-body li + li, .markdown-body li > ul, .markdown-body li > ol { margin-top: var(--md-gap-tight); }
+/* Feishu's blue bullet ladder: filled, hollow, square at three levels. */
+.markdown-body li::marker { color: var(--accent); }
+.markdown-body ul ul > li::marker { content: "◦  "; }
+.markdown-body ul ul ul > li::marker { content: "▪  "; }
+.markdown-body ol > li::marker { font-variant-numeric: tabular-nums; }
+.markdown-body strong { font-weight: 600; }
+.markdown-body del { color: var(--label-tertiary); }
+.markdown-body mark { padding: 0 2px; border-radius: 2px; background: color-mix(in srgb, var(--warning) 32%, transparent); color: inherit; }
+/* GFM task lists are plain Markdown, not a custom block: marked emits a
+   disabled checkbox inside the li, so style the native input instead of adding
+   a renderer or a new syntax. */
+.markdown-body li:has(> input[type="checkbox"]) { list-style: none; margin-left: -22px; }
+.markdown-body input[type="checkbox"] { appearance: none; display: inline-grid; place-content: center; width: 14px; height: 14px; margin: 0 8px 0 0; vertical-align: -2px; border: 1px solid var(--label-secondary); border-radius: 3px; background: var(--card-bg); }
+.markdown-body input[type="checkbox"]:checked { border-color: var(--accent); background: var(--accent); }
+.markdown-body input[type="checkbox"]:checked::before { content: ""; width: 7px; height: 4px; border-left: 1.5px solid var(--on-accent); border-bottom: 1.5px solid var(--on-accent); transform: translateY(-1px) rotate(-45deg); }
+.markdown-body li:has(> input[type="checkbox"]:checked) { color: var(--label-secondary); text-decoration: line-through; }
+.markdown-body li:has(> input[type="checkbox"]) input { text-decoration: none; }
 .markdown-body code {
-  padding: 1.5px 5.5px;
-  border-radius: var(--rounded-sm);
-  background: color-mix(in srgb, var(--fill) 85%, var(--card-bg));
-  border: 1px solid color-mix(in srgb, var(--separator) 40%, transparent);
+  padding: 1px 5px;
+  border-radius: var(--md-radius);
+  background: var(--md-surface);
+  border: 1px solid var(--md-border);
   font-family: var(--font-mono);
   font-size: .88em;
+  line-height: 1.6;
   color: var(--label-primary);
   overflow-wrap: anywhere;
 }
@@ -3078,27 +3168,38 @@ a:focus-visible {
    the indentation that carries its structure, and a long log line or minified
    payload becomes an unreadable brick. The per-block wrap toggle in
    `.code-block-head` is the way back for the cases that want it. */
+/* A fenced block is one quiet surface, not a miniature editor: no toolbar
+   strip, no shadow, just a hairline card with the language and icon actions
+   floating at the top-right on hover/focus. */
 .markdown-body pre {
   overflow-x: auto;
   overscroll-behavior-x: contain;
   max-width: 100%;
   min-width: 0;
-  padding: 12px 14px;
-  border-radius: var(--rounded-md);
+  padding: var(--md-pad-block);
+  border-radius: 0;
   background: var(--syntax-code-bg);
   color: var(--syntax-code-fg);
-  font-size: var(--fs-label);
-  line-height: 1.55;
+  font-family: var(--font-mono);
+  font-size: var(--md-fs-code);
+  line-height: var(--md-lh-code);
 }
 .markdown-body pre code { display: block; min-width: max-content; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font-size: inherit; white-space: pre; }
 .code-block[data-wrap="on"] pre code { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .code-block[data-wrap="on"] pre { overflow-x: hidden; }
-.code-block { max-width: 100%; margin: 12px 0 14px; overflow: hidden; border: 1px solid var(--syntax-code-border); border-radius: var(--rounded-md); background: var(--syntax-code-bg); box-shadow: var(--soft-shadow); }
-.code-block-head { display: flex; align-items: center; min-height: 32px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--syntax-code-border); background: var(--syntax-code-gutter); color: var(--syntax-code-comment); font: var(--fs-meta)/1 var(--font-mono); }
-.code-block-head span { margin-right: auto; text-transform: lowercase; font-weight: 500; letter-spacing: 0.02em; }
+.code-block { position: relative; max-width: 100%; margin: 0 0 var(--md-gap-block); border: 1px solid var(--syntax-code-border); border-radius: var(--md-radius-panel); background: var(--syntax-code-bg); }
+.code-block-head { position: absolute; top: 6px; right: 6px; z-index: 1; display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: color-mix(in srgb, var(--syntax-code-bg) 90%, transparent); color: var(--syntax-code-comment); font: var(--fs-meta)/1 var(--font-mono); opacity: 0; transition: opacity var(--duration-instant) var(--ease-standard); }
+.code-block:hover .code-block-head, .code-block:focus-within .code-block-head { opacity: 1; }
+@media (hover: none) { .code-block-head { opacity: 1; } }
+.code-block-head span { margin-right: 4px; padding: 0 4px; text-transform: lowercase; font-weight: 500; letter-spacing: 0.02em; }
+.code-block-head button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; transition: background var(--duration-instant) var(--ease-standard); }
+.code-block-head button > .reicon { width: 14px; height: 14px; }
 .code-block-head button[data-wrap-code][aria-pressed="true"] { background: color-mix(in srgb, var(--syntax-code-fg) 12%, transparent); color: var(--syntax-code-fg); }
-.code-block-head button { padding: 4px 7px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; transition: background var(--duration-instant) var(--ease-standard); }
-.code-block-head button:hover { background: color-mix(in srgb, var(--syntax-code-fg) 8%, transparent); color: var(--syntax-code-fg); }
+.code-block-head button:hover { background: color-mix(in srgb, var(--syntax-code-fg) 10%, transparent); color: var(--syntax-code-fg); }
+.code-block-head button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.code-block-head button[data-copy-code][data-copied="true"] { color: var(--online); }
+.code-block-head button[data-copy-code][data-copied="true"] > .reicon { display: none; }
+.code-block-head button[data-copy-code][data-copied="true"]::after { content: ""; width: 9px; height: 5px; border-left: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-1px) rotate(-45deg); }
 .markdown-body .code-block pre { margin: 0; border-radius: 0; }
 .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link { color: var(--syntax-code-keyword); }
 .hljs-string, .hljs-symbol, .hljs-bullet, .hljs-addition { color: var(--syntax-code-string); }
@@ -3108,14 +3209,13 @@ a:focus-visible {
 .hljs-built_in, .hljs-builtin-name { color: var(--syntax-code-built-in); }
 .hljs-comment, .hljs-quote, .hljs-deletion { color: var(--syntax-code-comment); }
 .hljs-variable, .hljs-template-variable, .hljs-regexp { color: var(--syntax-code-variable); }
-.markdown-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; transition: opacity var(--duration-instant) var(--ease-standard); }
-.markdown-body a:hover { opacity: .82; }
+.markdown-body a { color: var(--accent); text-decoration: none; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.markdown-body a:hover { text-decoration: underline; }
 .markdown-body blockquote {
-  margin: 12px 0 14px;
-  padding: 8px 14px;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 var(--radius-small) var(--radius-small) 0;
-  background: color-mix(in srgb, var(--fill) 60%, transparent);
+  margin: 0 0 var(--md-gap-block);
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--accent);
+  background: transparent;
   color: var(--label-secondary);
 }
 .markdown-body blockquote > :last-child { margin-bottom: 0; }
@@ -3123,8 +3223,7 @@ a:focus-visible {
    the table itself to the column (`width: 100%` + `table-layout: fixed`) split
    every column evenly, which crushes a wide table into stacks of one character
    per line — the column a transcript sits in is not the viewport (pitfall #16). */
-.markdown-table-wrap { min-width: 0; max-width: 100%; margin: 12px 0 14px; overflow-x: auto; overscroll-behavior-x: contain; border-radius: var(--radius-small); border: 1px solid var(--separator); }
-.markdown-table-wrap { position: relative; }
+.markdown-table-wrap { min-width: 0; max-width: 100%; margin: 0 0 var(--md-gap-block); overflow-x: auto; overscroll-behavior-x: contain; border-radius: var(--md-radius); border: 1px solid var(--md-border-strong); position: relative; }
 /* The table viewer affordance rides in the header row's last cell (icon only,
    injected by `wrapTables`), so the table carries its own action instead of a
    separate button row above it. */
@@ -3197,7 +3296,9 @@ a:focus-visible {
 .markdown-artifact-close:hover { background: color-mix(in srgb, #000 72%, transparent); }
 .markdown-artifact-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 @keyframes artifact-stage-in { from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); } }
-.chat-markdown-segment { display: contents; }
+/* Both wrappers are layout-transparent, so a streamed block and the same block
+   in the settled transcript participate in the identical margin rhythm. */
+.chat-markdown-segment, .md-stream-block { display: contents; }
 .mermaid-viewer { min-width: 0; max-width: 100%; margin: 10px 0; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--card-bg); }
 .mermaid-viewer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 38px; padding: 4px 6px; border-bottom: 1px solid var(--separator); background: var(--fill); }
 .mermaid-viewer-tabs { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--radius-small); background: var(--card-bg); }
@@ -3233,18 +3334,101 @@ a:focus-visible {
    within sensible column bounds, while wide multi-column tables still scroll
    horizontally inside `.markdown-table-wrap` instead of squishing columns into
    1-character stacks. */
-.markdown-body table { width: 100%; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: .92em; }
-.markdown-body th, .markdown-body td { min-width: 88px; max-width: 340px; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--separator); border-right: 1px solid var(--hairline); text-align: left; vertical-align: top; white-space: normal; overflow-wrap: break-word; word-break: break-word; line-height: 1.55; }
+.markdown-body table { width: 100%; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--md-fs-table); line-height: var(--md-lh-table); }
+.markdown-body th, .markdown-body td { min-width: 88px; max-width: 340px; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--md-border); border-right: 1px solid var(--md-border); text-align: left; vertical-align: top; white-space: normal; overflow-wrap: break-word; word-break: break-word; }
 .markdown-body th:last-child, .markdown-body td:last-child { border-right: 0; }
 .markdown-body tr:last-child td { border-bottom: 0; }
 .markdown-body td { overflow-wrap: break-word; }
-.markdown-body th { background: color-mix(in srgb, var(--fill) 70%, var(--card-bg)); font-weight: 600; font-size: var(--fs-meta); line-height: var(--lh-meta); text-transform: uppercase; letter-spacing: 0.03em; color: var(--label-secondary); }
-.markdown-body tbody tr:hover td { background: color-mix(in srgb, var(--fill) 35%, transparent); }
-.markdown-body hr { height: 1px; margin: 18px 0; border: 0; background: var(--separator); }
-.markdown-body img { display: block; width: auto; height: auto; max-width: min(100%, 240px); max-height: 180px; object-fit: contain; margin: 8px 0; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--soft-shadow); cursor: zoom-in; transition: opacity 140ms ease; }
+/* A table header is a quiet row on a grey fill with a stronger bottom rule,
+   not uppercase dashboard chrome. The outer border is one step darker than
+   the cell grid, which is what makes a Feishu table read as a table. */
+.markdown-body th { background: color-mix(in srgb, var(--fill) 55%, var(--card-bg)); font-weight: 500; color: var(--label-primary); border-bottom: 2px solid var(--md-border-strong); }
+.markdown-body tbody tr:hover td { background: color-mix(in srgb, var(--fill) 28%, transparent); }
+.markdown-body hr { height: 1px; margin: var(--md-gap-rule) 0; border: 0; background: var(--md-border); }
+/* Images keep their own aspect ratio up to the reading column instead of being
+   shrunk into 240px thumbnails; Feishu shows them borderless, centred, with a
+   small radius. The 360px height cap is a chat-timeline constraint, not a
+   document one: a tall portrait must not push the whole conversation off
+   screen. The shared lightbox is how the full-size image is inspected. */
+.markdown-body img { display: block; width: auto; height: auto; max-width: 100%; max-height: 360px; object-fit: contain; margin: 16px auto; border: 0; border-radius: var(--md-radius); background: var(--card-bg); cursor: zoom-in; transition: opacity var(--duration-instant) var(--ease-standard); }
 .markdown-body img:hover { opacity: .9; }
-.chat-markdown-segment img, .md-stream-block img { width: auto; height: auto; max-width: min(100%, 240px); max-height: 180px; object-fit: contain; }
+/* An image inside prose stays inline. The renderer only emits a <figure> when
+   the image owns its whole paragraph; giving a <p> img the block treatment
+   below would visually split one sentence into three blocks even though the
+   HTML structure is correct (see pitfalls #86b). */
+.markdown-body :is(p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote) img { display: inline; max-width: 100%; max-height: 1.6em; margin: 0 2px; vertical-align: -0.35em; border-radius: 2px; }
+.chat-markdown-segment img, .md-stream-block img { width: auto; height: auto; max-width: 100%; max-height: 360px; object-fit: contain; }
+.markdown-body .md-figure { margin: 0 0 var(--md-gap-block); }
+.markdown-body .md-figure img { margin: 0 auto; }
+.markdown-body .md-figcaption { margin-top: 6px; color: var(--label-tertiary); font-size: var(--md-fs-caption); line-height: var(--md-lh-caption); text-align: center; }
 .markdown-body a img { cursor: pointer; }
+
+/* ─── Document style: Notion ───────────────────────────────────────────
+ * A second skin on the SAME typography axis, selected by data-doc-style.
+ * Only the deltas from the default (Feishu/Lark) rhythm are overridden;
+ * there is deliberately no second copy of .markdown-body, so the renderer,
+ * cache, streaming skeleton and every Markdown surface stay identical.
+ *
+ * Numbers are scaled from the CSS Notion ships with exported pages (body
+ * 16px/1.5, h1 1.875rem/600, h2 1.5rem/600, h3 1.25rem/600, links inherit
+ * + underline, table rules rgba(55,53,47,.09), figcaption opacity .5) down to
+ * the 15px body rank this app uses. Colours stay on semantic tokens and
+ * color-mix so light, dark and all 25 theme families keep their contrast.
+ */
+:root[data-doc-style="notion"] {
+  --md-fs-body: 15px;      --md-lh-body: 23px;
+  --md-fs-h1: 26px;        --md-lh-h1: 32px;
+  --md-fs-h2: 21px;        --md-lh-h2: 27px;
+  --md-fs-h3: 18px;        --md-lh-h3: 24px;
+  --md-fs-h4: 16px;        --md-lh-h4: 22px;
+  --md-fs-h5: 15px;        --md-lh-h5: 22px;
+  --md-fs-code: 14px;      --md-lh-code: 21px;
+  --md-fs-table: 14px;     --md-lh-table: 21px;
+  --md-fs-caption: 12px;   --md-lh-caption: 18px;
+  --md-gap-block: 6px;
+  --md-gap-heading: 6px;
+  --md-radius: 3px;
+  --md-radius-panel: 3px;
+  --md-border: color-mix(in srgb, var(--label-primary) 10%, transparent);
+  --md-border-strong: color-mix(in srgb, var(--label-primary) 16%, transparent);
+  --md-surface: color-mix(in srgb, var(--label-primary) 6%, transparent);
+}
+/* Notion headings are heavier and tighter, with no rule under H1 and a
+   smaller gap above each section than Feishu's one-heading-height gap. */
+:root[data-doc-style="notion"] :is(.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6) {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+:root[data-doc-style="notion"] .markdown-body h1 { margin-top: 22px; padding-bottom: 0; border-bottom: 0; }
+:root[data-doc-style="notion"] .markdown-body h2 { margin-top: 18px; }
+:root[data-doc-style="notion"] .markdown-body h3 { margin-top: 14px; }
+:root[data-doc-style="notion"] :is(.markdown-body h4, .markdown-body h5, .markdown-body h6) { margin-top: 12px; }
+:root[data-doc-style="notion"] :is(.markdown-body h5, .markdown-body h6) { color: var(--label-primary); opacity: .72; }
+/* Notion links inherit the body colour and are underlined by default. */
+:root[data-doc-style="notion"] .markdown-body a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+}
+:root[data-doc-style="notion"] .markdown-body a:hover { text-decoration-color: currentColor; }
+/* Notion quote: a 3px solid rule in the text colour, no dimming. */
+:root[data-doc-style="notion"] .markdown-body blockquote { border-left: 3px solid var(--label-primary); color: var(--label-primary); }
+/* Notion tables have no outer frame: hairline row rules and a normal-weight,
+   dimmed header. The wrapper still owns horizontal overflow (pitfall #38). */
+:root[data-doc-style="notion"] .markdown-body .markdown-table-wrap { border: 0; border-radius: 0; }
+:root[data-doc-style="notion"] :is(.markdown-body th, .markdown-body td) { border-right: 0; border-bottom: 1px solid var(--md-border); }
+:root[data-doc-style="notion"] .markdown-body th { background: transparent; font-weight: 400; color: var(--label-secondary); border-bottom: 1px solid var(--md-border-strong); }
+/* Notion inline code is red on a translucent chip; fenced code keeps its
+   highlighted colours and flat 3px card. */
+:root[data-doc-style="notion"] .markdown-body code { color: var(--syntax-code-string, #c0413e); background: var(--md-surface); border: 0; border-radius: 3px; }
+:root[data-doc-style="notion"] .markdown-body pre code { color: inherit; background: transparent; }
+:root[data-doc-style="notion"] .markdown-body .code-block { border: 0; border-radius: 3px; }
+/* Bullets use the text colour rather than the accent; images are square. */
+:root[data-doc-style="notion"] .markdown-body li::marker { color: var(--label-secondary); }
+:root[data-doc-style="notion"] .markdown-body img { border-radius: 0; }
+:root[data-doc-style="notion"] .markdown-body .md-figcaption { opacity: .72; }
+:root[data-doc-style="notion"] .markdown-body hr { background: color-mix(in srgb, var(--label-primary) 10%, transparent); }
 
 /* Image viewer. Attached to <body> by `imageLightbox`, so it is never clipped
    by the transcript's overflow or trapped inside a panel's stacking context.
@@ -4203,8 +4387,12 @@ pre.run-activity-terminal { white-space: pre; overflow-wrap: normal; overflow-x:
 .pending-chip button { flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: var(--fill); color: var(--label-secondary); font-size: var(--icon-sm); line-height: 1; cursor: pointer; }
 .pending-chip[data-kind="image"] { border-color: color-mix(in srgb, var(--online) 40%, transparent); }
 .pending-chip[data-kind="video"] { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
-.pending-chip[data-kind="audio"] { max-width: 320px; border-radius: var(--rounded-md); border-color: color-mix(in srgb, var(--chart-purple) 40%, transparent); }
-.pending-audio { height: 30px; max-width: 220px; }
+/* A queued voice note keeps its name on the first line and the shared player
+   on a full-width second line, instead of squeezing native controls into the
+   one-line chip. */
+.pending-chip[data-kind="audio"] { display: grid; grid-template-columns: minmax(0, 1fr) 18px; gap: 4px 6px; max-width: 300px; padding-bottom: 6px; border-radius: var(--rounded-md); border-color: color-mix(in srgb, var(--chart-purple) 40%, transparent); }
+.pending-chip[data-kind="audio"] > button { grid-column: 2; grid-row: 1; }
+.pending-chip[data-kind="audio"] .md-audio-player { grid-column: 1 / -1; padding: 2px 0 0; }
 .send-button { position: relative; display: flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: var(--label-primary); color: var(--composer-bg); cursor: pointer; }
 .send-button > .reicon { width: var(--icon-sm); height: var(--icon-sm); }
 .send-button:hover:not(:disabled) { background: var(--label-secondary); }
@@ -4831,7 +5019,7 @@ pre.run-activity-terminal { white-space: pre; overflow-wrap: normal; overflow-x:
 .media-task-summary { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .media-task-prompt { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-body); font-weight: 500; }
 .media-task-meta { flex: none; color: var(--label-secondary); font-size: var(--fs-meta); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.tool-test-audio { width: 100%; height: 40px; margin-top: 10px; }
+.tool-test-audio { margin-top: 10px; }
 .danger-action { color: var(--danger); }
 .row-input { min-width: 0; max-width: 260px; height: var(--control-h); padding: 0 9px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: inherit; font: inherit; font-size: var(--fs-label); }
 .provider-editor { overflow: hidden; }
@@ -7158,20 +7346,24 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 /* Markdown preview: GitHub's readable document rhythm inside the same editor
    surface, including muted inline code, bordered blocks, links, and tables. */
 .artifact-panel .markdown-preview { background: var(--artifact-surface); color: var(--artifact-fg); padding: 20px 18px 28px; }
-.artifact-panel .markdown-body { max-width: 760px; margin: 0 auto; color: var(--artifact-fg); font: var(--fs-body)/var(--lh-body) var(--font-ui); }
+.artifact-panel .markdown-body { max-width: 760px; margin: 0 auto; color: var(--artifact-fg); font: var(--md-fs-body)/var(--md-lh-body) var(--font-ui); }
 .artifact-panel .markdown-body h1,
 .artifact-panel .markdown-body h2,
 .artifact-panel .markdown-body h3,
-.artifact-panel .markdown-body h4 { color: var(--artifact-fg); border-bottom: 0; font-family: var(--font-ui); }
-.artifact-panel .markdown-body h1 { font-size: 1.55em; }
-.artifact-panel .markdown-body h2 { font-size: 1.3em; }
-.artifact-panel .markdown-body h3,
-.artifact-panel .markdown-body h4 { font-size: 1.08em; }
+.artifact-panel .markdown-body h4,
+.artifact-panel .markdown-body h5,
+.artifact-panel .markdown-body h6 { color: var(--artifact-fg); border-bottom: 0; font-family: var(--font-ui); }
+.artifact-panel .markdown-body h1 { font-size: var(--md-fs-h1); line-height: var(--md-lh-h1); padding-bottom: 0; }
+.artifact-panel .markdown-body h2 { font-size: var(--md-fs-h2); line-height: var(--md-lh-h2); }
+.artifact-panel .markdown-body h3 { font-size: var(--md-fs-h3); line-height: var(--md-lh-h3); }
+.artifact-panel .markdown-body h4 { font-size: var(--md-fs-h4); line-height: var(--md-lh-h4); }
+.artifact-panel .markdown-body h5,
+.artifact-panel .markdown-body h6 { font-size: var(--md-fs-h5); line-height: var(--md-lh-h5); }
 .artifact-panel .markdown-body a { color: var(--artifact-accent); text-decoration: underline; }
 .artifact-panel .markdown-body code { border: 1px solid var(--artifact-border-muted); border-radius: 4px; background: var(--artifact-inset); color: var(--artifact-fg); font: .9em var(--font-mono); }
 .artifact-panel .markdown-body .code-block,
 .artifact-panel .markdown-body pre { border-color: var(--artifact-border); border-radius: var(--radius-small); background: var(--artifact-inset); color: var(--artifact-code-fg); }
-.artifact-panel .markdown-body .code-block-head { background: var(--artifact-canvas); border-bottom-color: var(--artifact-border); color: var(--artifact-fg-muted); }
+.artifact-panel .markdown-body .code-block-head { border: 0; background: var(--artifact-canvas); color: var(--artifact-fg-muted); }
 .artifact-panel .markdown-body blockquote { border-left-color: var(--artifact-border); background: var(--artifact-inset); color: var(--artifact-fg-muted); }
 .artifact-panel .markdown-body th,
 .artifact-panel .markdown-body td { border-color: var(--artifact-border); }
@@ -7889,7 +8081,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 .room-workspace > .composer-wrap { flex-shrink: 0; }
 
 /* Personal Agent navigation shares the chat and settings control tokens. */
-.agent-navigation { display: grid; gap: 4px; min-width: 0; }
+.agent-navigation { display: grid; gap: 0; min-width: 0; }
 .agent-avatar { display: inline-flex; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 9px; overflow: hidden; background: var(--sidebar-surface-hover); }
 .agent-avatar-image, .agent-avatar-fallback { width: 100%; height: 100%; object-fit: cover; }
 .agent-avatar-fallback { display: grid; place-items: center; font-size: var(--fs-body); line-height: var(--lh-body); color: var(--text-secondary); }

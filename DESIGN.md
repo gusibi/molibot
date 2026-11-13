@@ -23,6 +23,12 @@
   - 优先使用 macOS 系统 UI 字体栈（`-apple-system`, `BlinkMacSystemFont`, `SF Pro Text`, `PingFang SC`）；大标题可用 display 栈；ID、路径、代码、表格数据与原始 cron 表达式使用等宽字体（Mono）。
   - 字号与行高必须**成对**使用 `--fs-*` / `--lh-*` token（例如聊天区的正文 `body`、界面标签 `label`、辅助元信息 `meta` 三档，弹窗的 `page` / `section` / `body-lg`），禁止单独手写 `font-size` 或省略行高（`pitfall #24`）。
   - 图标尺寸独立使用 `--icon-xs` / `sm` / `md` / `lg`，不混用文字字号 token。页面与容器根节点必须锚定明确字号档位，不依赖浏览器默认 `16px`。
+- **文档排版轴（AI 回复 Markdown）**：
+  - `.markdown-body` 使用独立的 `--md-fs-*` / `--md-lh-*` 成对 token（正文 15/25、h1 24/34、h2 20/28、代码 14/22、图注 12/18），仅比界面 UI 正文 14/22 高一档，避免在聊天时间线里显得过大；与界面 UI 的 `--fs-*` 阶梯分离；飞书文档式阅读节奏是**全局默认**，`themes/feishu.css` 只贡献配色语义，不做主题专属排版。数值参照高使用量的 `imageslr/mweb-themes` `lark` 主题校准，只复制样式思路、不引入依赖包。
+  - 只消费标准 Markdown / GFM：图片标题用 `![alt](src "title")` 渲染为 `<figure>` / `<figcaption>`，任务列表用 `- [ ]` / `- [x]`；禁止引入自定义块语法或 directive。
+  - Web 端由 `src/styles/markdown.css` 镜像同一组数值（颜色改用 Web 语义 token）并经 `src/app.css` 全局引入；主聊天、流式回答、Markdown 文件预览与会话历史预览共用一份，禁止在页面 `<style>` 里再写 `:global(.markdown-body ...)` 副本。
+  - 语音附件一律走共享 `AudioPlayer`（Desktop `lib/components/AudioPlayer.svelte`、Web `components/ui/audio-player`），宿主容器只负责卡片表面，不再使用原生 `<audio controls>`。
+  - **两套可切换的文档皮肤**通过 `:root[data-doc-style="feishu|notion"]` 表达，与 `data-theme-family` 正交：主题族管颜色与表面，文档皮肤管 Markdown 的阅读节奏。默认飞书；Notion 只在同一份 `--md-*` 轴上覆盖差异（标题 600 字重/负字距、h1 无分隔线、链接继承色+下划线、引用 3px 实色边框、表格无外框、行内代码红字），数值参照 Notion 官方导出页面的 CSS 缩放到 15px 正文基准。**渲染器不感知皮肤**：两套共用同一个 `renderMarkdown()` 输出、同一份缓存与流式骨架，禁止为皮肤分叉解析或复制第二份 `.markdown-body`。Desktop 由 `App.svelte` 持久化 `molibot-desktop-doc-style` 并写入根节点，Web 由 `app.html` 首屏前初始化、`+layout.svelte` 跨标签同步。
 - **数字排版**：
   - 变化计数、耗时、文件大小与表格列默认使用等宽表格数字（`tabular-nums`）；`time`、`input`、`select`、`td`、`th` 需显式声明以防 `font:` 简写重置。
   - Markdown 渲染正文（`.markdown-body`）恢复比例数字（其内部表格仍为表格数字）；散落在正文中需对齐的计数器显式添加 `.tnum`。

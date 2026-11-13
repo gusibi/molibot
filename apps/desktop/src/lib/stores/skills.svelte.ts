@@ -9,10 +9,17 @@ import {
   saveDesktopSkillSearch
 } from "../api";
 import type {
+  DesktopSkillBackup,
+  DesktopSkillBackupRestoreRequest,
+  DesktopSkillBackupRestoreResult,
   DesktopSkillCheckUpdateResult,
   DesktopSkillConsolidatePreflight,
   DesktopSkillConsolidateRequest,
   DesktopSkillConsolidateResult,
+  DesktopSkillContentRequest,
+  DesktopSkillContentResult,
+  DesktopSkillCreateRequest,
+  DesktopSkillCreateResult,
   DesktopSkillDistributeRequest,
   DesktopSkillDistributeResult,
   DesktopSkillInstallResult,
@@ -22,7 +29,8 @@ import type {
   DesktopSkillPreflightResult,
   DesktopSkillRemoveDiscoveredResult,
   DesktopSkillSearchConfig,
-  DesktopSkillUninstallResult
+  DesktopSkillUninstallResult,
+  DesktopSkillUpdatePreview
 } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
@@ -34,7 +42,9 @@ export const skillsStore = $state({
   saving: false,
   saved: false,
   error: "",
-  endpoint: ""
+  endpoint: "",
+  /** New key typed this session; never hydrated from the server. */
+  apiKeyDraft: ""
 });
 
 export async function loadSkills(endpoint: string): Promise<void> {
@@ -44,6 +54,7 @@ export async function loadSkills(endpoint: string): Promise<void> {
   skillsStore.error = "";
   try {
     const search = await loadDesktopSkillSearch(endpoint);
+    skillsStore.apiKeyDraft = "";
     skillsStore.searchDraft = { ...search, providers: search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
     skillsStore.searchPristine = JSON.stringify(skillsStore.searchDraft);
   } catch (cause) {
@@ -71,8 +82,12 @@ export async function saveSkillsSearch(): Promise<void> {
       maxTokens: draft.maxTokens,
       temperature: draft.temperature,
       timeoutMs: draft.timeoutMs,
-      minConfidence: draft.minConfidence
+      minConfidence: draft.minConfidence,
+      apiBaseUrl: draft.apiBaseUrl,
+      apiPath: draft.apiPath,
+      ...(skillsStore.apiKeyDraft ? { apiKey: skillsStore.apiKeyDraft } : {})
     });
+    skillsStore.apiKeyDraft = "";
     skillsStore.searchDraft = { ...search, providers: search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
     skillsStore.searchPristine = JSON.stringify(skillsStore.searchDraft);
     skillsStore.saved = true;
@@ -86,6 +101,7 @@ export async function saveSkillsSearch(): Promise<void> {
 
 export function discardSkillsSearch(): void {
   if (skillsStore.searchPristine) skillsStore.searchDraft = JSON.parse(skillsStore.searchPristine);
+  skillsStore.apiKeyDraft = "";
   skillsStore.saved = false;
 }
 
@@ -153,6 +169,60 @@ export async function toggleManagedSkill(id: string, enabled: boolean): Promise<
   const endpoint = session.endpoint;
   if (!endpoint) return;
   await run(endpoint, id, { action: "toggle", request: { id, enabled } });
+}
+
+export async function createManagedSkill(request: DesktopSkillCreateRequest): Promise<DesktopSkillCreateResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ created: DesktopSkillCreateResult }>(endpoint, "create", {
+    action: "create-skill",
+    request
+  });
+  if (!payload?.created) throw new Error(skillManagerStore.actionError || "Could not create the Skill");
+  return payload.created;
+}
+
+export async function previewManagedSkillUpdate(id: string): Promise<DesktopSkillUpdatePreview> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ preview: DesktopSkillUpdatePreview }>(endpoint, `preview:${id}`, {
+    action: "preview-update",
+    request: { id }
+  });
+  if (!payload?.preview) throw new Error(skillManagerStore.actionError || "Could not build the update preview");
+  return payload.preview;
+}
+
+export async function listManagedSkillBackups(id: string): Promise<DesktopSkillBackup[]> {
+  const endpoint = session.endpoint;
+  if (!endpoint) return [];
+  const payload = await run<{ backups: DesktopSkillBackup[] }>(endpoint, `backups:${id}`, {
+    action: "list-backups",
+    request: { id }
+  });
+  return payload?.backups ?? [];
+}
+
+export async function restoreManagedSkillBackup(request: DesktopSkillBackupRestoreRequest): Promise<DesktopSkillBackupRestoreResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ result: DesktopSkillBackupRestoreResult }>(endpoint, request.id, {
+    action: "restore-backup",
+    request
+  });
+  if (!payload?.result) throw new Error(skillManagerStore.actionError || "Could not restore the backup");
+  return payload.result;
+}
+
+export async function saveManagedSkillContent(request: DesktopSkillContentRequest): Promise<DesktopSkillContentResult> {
+  const endpoint = session.endpoint;
+  if (!endpoint) throw new Error("The service is not connected");
+  const payload = await run<{ saved: DesktopSkillContentResult }>(endpoint, request.id, {
+    action: "save-skill-content",
+    request
+  });
+  if (!payload?.saved) throw new Error(skillManagerStore.actionError || "Could not save the Skill");
+  return payload.saved;
 }
 
 export async function updateBuiltinSkill(id: string): Promise<void> {
